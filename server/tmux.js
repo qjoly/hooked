@@ -6,9 +6,9 @@
 const fs = require('fs');
 const path = require('path');
 const { execFile, execFileSync } = require('child_process');
-const { LAUNCHES_FILE, MODELS, EFFORTS } = require('./config');
+const { LAUNCHES_FILE, SESSION_LAUNCH_FILE, MODELS, EFFORTS } = require('./config');
 const { statSafe } = require('./util');
-const { launchConfigByTmux } = require('./events');
+const { launchConfigByTmux, paneForSession } = require('./events');
 const { scanSessions } = require('./transcript');
 
 // map pane tmux (%NN) → nom de session tmux, rafraîchie au plus toutes les 3 s.
@@ -28,12 +28,55 @@ function paneTmuxNames() {
   return map;
 }
 
+// le pane tmux est-il *toujours vivant* ? (présent dans la liste des panes courants)
+// Sert à distinguer une session live d'une session dont le tmux a été fermé/tué : on ne
+// connaît qu'un *dernier* pane via les évènements, mais il peut ne plus exister.
+function tmuxAlive(pane) {
+  if (!/^%\d+$/.test(pane || '')) return false;
+  return paneTmuxNames().has(pane);
+}
+
 // effort/modèle explicitement choisis au lancement pour une session live (sinon null).
 function launchInfoForPane(pane) {
   if (!pane) return null;
   const name = paneTmuxNames().get(pane);
   if (!name) return null;
   return launchConfigByTmux().get(name) || null;
+}
+
+// map persistée session_id → { model, effort }, rechargée par mtime/size.
+let sessionLaunchCache = { key: null, map: new Map() };
+function sessionLaunchMap() {
+  const st = statSafe(SESSION_LAUNCH_FILE);
+  if (!st) return sessionLaunchCache.map;
+  const key = st.mtimeMs + ':' + st.size;
+  if (sessionLaunchCache.key === key) return sessionLaunchCache.map;
+  const map = new Map();
+  let data = '';
+  try { data = fs.readFileSync(SESSION_LAUNCH_FILE, 'utf8'); } catch (_) { return sessionLaunchCache.map; }
+  for (const line of data.split('\n')) {
+    if (!line) continue;
+    try { const j = JSON.parse(line); if (j.session_id) map.set(j.session_id, { model: j.model || null, effort: j.effort || null }); } catch (_) {}
+  }
+  sessionLaunchCache = { key, map };
+  return map;
+}
+
+// modèle/effort d'une session, en privilégiant la résolution persistée (survit à la mort du
+// tmux). À défaut, résolution live (pane→nom→launches) que l'on persiste alors pour la suite.
+function resolveLaunchForSession(id) {
+  if (!id) return null;
+  const persisted = sessionLaunchMap().get(id);
+  if (persisted) return persisted;
+  const pane = paneForSession(id);
+  const li = launchInfoForPane(pane);
+  if (li && (li.model || li.effort)) {
+    try {
+      fs.appendFileSync(SESSION_LAUNCH_FILE, JSON.stringify({ ts: new Date().toISOString(), session_id: id, model: li.model || null, effort: li.effort || null }) + '\n');
+    } catch (_) {}
+    return li;
+  }
+  return null;
 }
 
 // Renvoie le message dans la session interactive via tmux : on « tape » le texte
@@ -53,6 +96,14 @@ function deliverReply(pane, text, isQuestion, cb) {
       setTimeout(() => execFile('tmux', ['send-keys', '-t', pane, 'Enter'], (e3) => cb(e3 || null)), 200);
     }), 120);
   });
+}
+
+// Envoie une touche « nommée » (ex. Escape) au pane : sert à interrompre Claude depuis l'UI,
+// exactement comme une frappe Echap dans le TUI interactif.
+function sendKey(pane, key, cb) {
+  if (!/^%\d+$/.test(pane || '')) return cb(err400('pane invalide'));
+  if (!/^[A-Za-z0-9]+$/.test(key || '')) return cb(err400('touche invalide'));
+  execFile('tmux', ['send-keys', '-t', pane, key], (e) => cb(e || null));
 }
 
 function err400(msg) { const e = new Error(msg); e.code = 400; return e; }
@@ -115,4 +166,4 @@ function killSession(id, cb) {
   });
 }
 
-module.exports = { paneTmuxNames, launchInfoForPane, deliverReply, launchSession, killSession, err400 };
+module.exports = { paneTmuxNames, tmuxAlive, launchInfoForPane, resolveLaunchForSession, deliverReply, sendKey, launchSession, killSession, err400 };

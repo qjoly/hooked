@@ -17,7 +17,7 @@ const {
   buildSessions, buildStats, sessionDetail,
   scanSessions, agentTranscriptPath, buildConversation, buildFileChanges,
   projectFiles, matchFiles, paneForSession, liveQuestionForSession,
-  deliverReply, launchSession, killSession,
+  deliverReply, sendKey, launchSession, killSession, tmuxAlive,
 } = require('./server/index.js');
 
 // ---------- SSE ----------
@@ -110,6 +110,20 @@ const server = http.createServer((req, res) => {
         // confirmation supplémentaire (écran « Submit answers ») pour valider la réponse.
         const isQuestion = !!liveQuestionForSession(id);
         deliverReply(pane, text, isQuestion, (e2) => {
+          if (e2) { res.writeHead(502); return res.end(JSON.stringify({ ok: false, error: 'échec tmux send-keys : ' + (e2.message || e2) })); }
+          sendJSON(res, { ok: true, pane });
+        });
+      });
+    }
+    if (req.method === 'POST' && p === '/api/interrupt') {
+      // Echap dans la session interactive : interrompt Claude (comme une frappe Echap au clavier).
+      return readBody(req, (err, body) => {
+        if (err) { res.writeHead(400); return res.end(JSON.stringify({ ok: false, error: 'requête invalide' })); }
+        const id = body && body.id;
+        if (!id) { res.writeHead(400); return res.end(JSON.stringify({ ok: false, error: 'id requis' })); }
+        const pane = paneForSession(id);
+        if (!pane || !tmuxAlive(pane)) { res.writeHead(409); return res.end(JSON.stringify({ ok: false, error: 'aucun pane tmux vivant pour cette session' })); }
+        sendKey(pane, 'Escape', (e2) => {
           if (e2) { res.writeHead(502); return res.end(JSON.stringify({ ok: false, error: 'échec tmux send-keys : ' + (e2.message || e2) })); }
           sendJSON(res, { ok: true, pane });
         });
