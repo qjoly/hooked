@@ -435,6 +435,35 @@ code.path { color: var(--muted); font-size: 11px; word-break: break-all; font-fa
 .mtag { font-family: var(--mono); font-size: 10px; line-height: 1.5; background: var(--bg3); border: 1px solid var(--border); border-radius: 5px; padding: 0 5px; color: var(--muted); }
 .mtag.eff { border-color: var(--accent); color: var(--accent); }
 
+/* tâche en cours (TodoWrite) sur une ligne de session */
+.srow-todo {
+  display: flex; align-items: center; gap: 6px; margin-top: 4px;
+  font-size: 11.5px; color: var(--working); font-weight: 600;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.srow-todo .todo-frac {
+  margin-left: auto; flex: none; font-family: var(--mono); font-size: 10px;
+  font-weight: 600; color: var(--muted); background: var(--bg3);
+  border-radius: 20px; padding: 0 6px;
+}
+
+/* onglet « Tâches » du détail de session */
+.todos { display: flex; flex-direction: column; gap: 14px; }
+.todos-head { display: flex; align-items: center; gap: 12px; }
+.todos-frac { font-size: 12px; font-weight: 700; color: var(--muted); font-family: var(--mono); white-space: nowrap; }
+.todos-track { flex: 1; height: 7px; background: var(--bg3); border-radius: 20px; overflow: hidden; }
+.todos-fill { height: 100%; background: var(--ended); border-radius: 20px; transition: width .3s; }
+.todo-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.todo { display: flex; align-items: flex-start; gap: 9px; padding: 7px 9px; border-radius: 9px; font-size: 14px; line-height: 1.4; }
+.todo-ico { flex: none; font-size: 14px; line-height: 1.4; }
+.todo-completed { color: var(--muted); }
+.todo-completed .todo-text { text-decoration: line-through; }
+.todo-completed .todo-ico { color: var(--ended); }
+.todo-in_progress { background: var(--accent-soft); color: var(--text); font-weight: 600; }
+.todo-in_progress .todo-ico { color: var(--accent); }
+.todo-pending { color: var(--text); }
+.todo-pending .todo-ico { color: var(--border2); }
+
 /* filtre par statut (chips) */
 .status-filter { display: flex; flex-wrap: wrap; gap: 5px; }
 .sf-chip {
