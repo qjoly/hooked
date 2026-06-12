@@ -41,6 +41,9 @@ body {
   overflow: hidden;
   -webkit-font-smoothing: antialiased;
 }
+/* Le SPA Svelte monte dans #app : il doit relayer la colonne flex pleine hauteur
+   du body, sinon main n'est plus contraint et le scroll interne (chat) disparaît. */
+#app { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
 header {
   display: flex; align-items: center; gap: 24px;
   padding: 13px 22px;
@@ -258,9 +261,31 @@ code.path { color: var(--muted); font-size: 11px; word-break: break-all; font-fa
 .bubble .md code { font-family: var(--mono); font-size: 12px; }
 .bubble .md :not(pre) > code { background: rgba(120,95,60,.14); padding: 1px 5px; border-radius: 5px; }
 .bubble.user .md :not(pre) > code { background: rgba(255,255,255,.22); }
-.chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.chips { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 6px; margin-top: 8px; }
 .chip { background: var(--accent-soft); color: var(--accent-d); border: 1px solid rgba(176,90,52,.22); border-radius: 8px; padding: 3px 9px; font-size: 11px; display: inline-flex; align-items: center; gap: 6px; max-width: 100%; }
 .chip-d { color: var(--muted); font-family: var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 280px; }
+
+/* outils cliquables : pastille + détail entrée/sortie repliable */
+.tool { display: flex; flex-direction: column; gap: 0; max-width: 100%; }
+.tool.open { flex-basis: 100%; } /* déplié → pleine largeur de la rangée de pastilles */
+.tool.has-detail .chip { cursor: pointer; }
+.tool.has-detail .chip:hover { background: rgba(176,90,52,.2); }
+.chip-x { color: var(--muted); font-size: 9px; transition: transform .15s; margin-left: 2px; }
+.tool.open .chip-x { transform: rotate(90deg); }
+.tool-detail { display: none; margin-top: 6px; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; background: var(--bg2); }
+.tool.open .tool-detail { display: block; }
+.td-sec { border-bottom: 1px dashed var(--border); }
+.td-sec:last-child { border-bottom: none; }
+.td-h { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); padding: 6px 10px 0; }
+.td-sec pre { margin: 4px 0 0; padding: 6px 10px 10px; font-family: var(--mono); font-size: 11.5px; line-height: 1.5; white-space: pre-wrap; word-break: break-word; max-height: 320px; overflow: auto; color: var(--text); }
+
+/* drill-in : déroulé interne d'un sous-agent */
+.sa-drill { background: var(--accent-soft); color: var(--accent-d); border: 1px solid rgba(176,90,52,.22); border-radius: 9px; padding: 6px 12px; font-size: 12px; font-weight: 600; cursor: pointer; }
+.sa-drill:hover:not(:disabled) { background: rgba(176,90,52,.2); }
+.sa-drill:disabled { opacity: .6; cursor: default; }
+.sa-trace { margin-top: 10px; }
+.sa-trace.hidden { display: none; }
+.sa-chat { display: flex; flex-direction: column; gap: 12px; background: var(--bg3); border-radius: 12px; padding: 12px; }
 
 /* ---------- composer (répondre à Claude) ---------- */
 .ro-tag.live { color: var(--accent-d); border-color: rgba(176,90,52,.4); background: var(--accent-soft); }
@@ -425,6 +450,9 @@ textarea.lf-input { font-family: inherit; resize: vertical; }
 .ch-count { color: var(--accent-d); background: var(--accent-soft); border-radius: 20px; padding: 2px 9px; font-size: 11px; font-weight: 700; flex: 0 0 auto; }
 .change-ops { display: none; border-top: 1px solid var(--border); }
 .change.open .change-ops { display: block; }
+.sa-block { padding: 10px 14px; border-bottom: 1px dashed var(--border); }
+.sa-block:last-child { border-bottom: none; }
+.sa-label { font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin-bottom: 6px; }
 .diff { padding: 10px 14px; border-bottom: 1px dashed var(--border); }
 .diff:last-child { border-bottom: none; }
 .diff-tag { font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin-bottom: 6px; }
