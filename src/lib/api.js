@@ -1,0 +1,31 @@
+// Petite couche d'accès à l'API JSON + flux SSE. Mêmes endpoints que l'ancien front.
+
+async function jget(url) {
+  const r = await fetch(url);
+  if (!r.ok) throw new Error('HTTP ' + r.status);
+  return r.json();
+}
+async function jpost(url, body) {
+  const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  const d = await r.json().catch(() => ({}));
+  return { ok: r.ok && d.ok, status: r.status, data: d };
+}
+
+export const getSessions = async () => (await jget('/api/sessions')).sessions;
+export const getSession = (id) => jget('/api/session?id=' + encodeURIComponent(id));
+export const getStats = (range) => jget('/api/stats?range=' + encodeURIComponent(range));
+export const getFiles = (id, q) => jget(`/api/files?id=${encodeURIComponent(id)}&q=${encodeURIComponent(q)}`);
+export const getAgent = (session, agent) => jget(`/api/agent?session=${encodeURIComponent(session)}&agent=${encodeURIComponent(agent)}`);
+
+export const reply = (id, text) => jpost('/api/reply', { id, text });
+export const launch = (payload) => jpost('/api/launch', payload);
+export const kill = (id) => jpost('/api/kill', { id });
+
+// Flux SSE : appelle onTick() à chaque « tick » poussé par le serveur.
+export function connectSSE({ onTick, onOpen, onError }) {
+  const es = new EventSource('/api/stream');
+  es.onopen = () => onOpen && onOpen();
+  es.onerror = () => onError && onError();
+  es.onmessage = () => onTick && onTick();
+  return es;
+}
