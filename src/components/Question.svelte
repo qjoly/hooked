@@ -7,7 +7,16 @@
 
   // sélection courante par question : index unique (mono) ou tableau d'index (multi)
   let pick = $state([]);
-  $effect(() => { pick = questions.map((q) => (q.multiSelect ? [] : null)); });
+  // On ne réinitialise `pick` que lorsque la question change *vraiment* (pq.id stable),
+  // pas à chaque refetch live (le parent réassigne `pq` à chaque tick tant que la
+  // session est « working ») — sinon la sélection en cours serait effacée et le bouton
+  // Envoyer ne s'activerait jamais pour un multi-select ou plusieurs questions.
+  let lastId = null;
+  $effect(() => {
+    if (pq.id === lastId) return;
+    lastId = pq.id;
+    pick = questions.map((q) => (q.multiSelect ? [] : null));
+  });
 
   let sent = $state(false);
   let recap = $state({ text: '', cls: '' });

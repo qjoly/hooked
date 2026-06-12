@@ -38,12 +38,20 @@ function launchInfoForPane(pane) {
 
 // Renvoie le message dans la session interactive via tmux : on « tape » le texte
 // dans le pane puis on valide avec Entrée (session/abonnement en cours, zéro conso token).
-function deliverReply(pane, text, cb) {
+// `isQuestion` : on répond à un AskUserQuestion. Son TUI multi-étapes se termine sur un
+// écran de confirmation « Submit answers » qui réclame une *seconde* Entrée — sans elle la
+// réponse est saisie mais jamais validée (« envoyé » côté UI mais la session reste bloquée).
+function deliverReply(pane, text, isQuestion, cb) {
+  if (typeof isQuestion === 'function') { cb = isQuestion; isQuestion = false; }
   if (!/^%\d+$/.test(pane || '')) return cb(new Error('pane invalide'));
   execFile('tmux', ['send-keys', '-t', pane, '-l', '--', text], (err) => {
     if (err) return cb(err);
     // petit délai pour laisser le TUI ingérer le collage avant de valider
-    setTimeout(() => execFile('tmux', ['send-keys', '-t', pane, 'Enter'], (e2) => cb(e2 || null)), 120);
+    setTimeout(() => execFile('tmux', ['send-keys', '-t', pane, 'Enter'], (e2) => {
+      if (e2 || !isQuestion) return cb(e2 || null);
+      // 2e Entrée : valide l'écran « Submit answers » de l'AskUserQuestion.
+      setTimeout(() => execFile('tmux', ['send-keys', '-t', pane, 'Enter'], (e3) => cb(e3 || null)), 200);
+    }), 120);
   });
 }
 

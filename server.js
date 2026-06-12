@@ -16,7 +16,7 @@ const {
   PROJECTS_DIR, HOOKED_DIR, EVENTS_FILE, PUBLIC_DIR, PORT,
   buildSessions, buildStats, sessionDetail,
   scanSessions, agentTranscriptPath, buildConversation, buildFileChanges,
-  projectFiles, matchFiles, paneForSession,
+  projectFiles, matchFiles, paneForSession, liveQuestionForSession,
   deliverReply, launchSession, killSession,
 } = require('./server/index.js');
 
@@ -106,7 +106,10 @@ const server = http.createServer((req, res) => {
         if (!id || !text) { res.writeHead(400); return res.end(JSON.stringify({ ok: false, error: 'id et text requis' })); }
         const pane = paneForSession(id);
         if (!pane) { res.writeHead(409); return res.end(JSON.stringify({ ok: false, error: 'pane tmux inconnu pour cette session (lancée hors tmux, ou avant ce hook ?)' })); }
-        deliverReply(pane, text, (e2) => {
+        // si une question AskUserQuestion est en attente, son TUI réclame une Entrée de
+        // confirmation supplémentaire (écran « Submit answers ») pour valider la réponse.
+        const isQuestion = !!liveQuestionForSession(id);
+        deliverReply(pane, text, isQuestion, (e2) => {
           if (e2) { res.writeHead(502); return res.end(JSON.stringify({ ok: false, error: 'échec tmux send-keys : ' + (e2.message || e2) })); }
           sendJSON(res, { ok: true, pane });
         });
