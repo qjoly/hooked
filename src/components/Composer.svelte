@@ -4,7 +4,7 @@
 
   // `alive` : pane tmux vivant → on répond direct. Sinon, l'envoi relance `claude --resume`
   // dans une nouvelle session tmux (en conservant modèle/effort d'origine si connus).
-  let { id, alive = true, project = null, resumeModel = null, resumeEffort = null, lastPrompt = '' } = $props();
+  let { id, alive = true, project = null, resumeModel = null, resumeEffort = null, lastPrompt = '', onSent = null } = $props();
 
   let ta;                       // ref textarea
   let text = $state('');
@@ -90,6 +90,8 @@
       : await launch({ resumeId: id, prompt: t, cwd: project, model: resumeModel || '', effort: resumeEffort || '' }).catch((e) => ({ ok: false, data: { error: e.message } }));
     if (res.ok) {
       text = ''; autosize();
+      // file d'attente + scroll auto : on signale au parent le message tout juste envoyé.
+      if (alive && onSent) onSent(t);
       status = { text: alive ? ('✓ remis dans ' + res.data.pane) : ('✓ session relancée (' + (res.data.tmux || 'tmux') + ')'), cls: 'ok' };
       setTimeout(() => { status = { text: '', cls: '' }; }, 3000);
       setTimeout(() => { loadSessions(); ui.tick++; }, 600);
