@@ -64,8 +64,14 @@ Toutes tes sessions (en cours + passées), regroupées par état pour gérer le 
 Plus :
 
 - **Recherche** + **filtres** par statut (chips avec compteurs) et par projet.
-- **Détail d'une session** : timeline des hooks, tokens, coût, modèle.
-- **Onglet 📝 Fichiers** : liste les fichiers modifiés par Claude (`Write` / `Edit` / `MultiEdit` / `NotebookEdit`) avec un **diff dépliable** (rouge/vert).
+- **Tâche en cours dans la sidebar** : si Claude utilise `TodoWrite`, l'item *in progress* et l'avancement (`done/total`) s'affichent directement sur la carte de session.
+- **Réponse en 1 clic depuis la sidebar** : quand Claude pose une question à choix unique (`AskUserQuestion`), les options apparaissent en boutons sur la carte — un clic envoie la réponse sans ouvrir le détail.
+- **Détail d'une session**, en sous-onglets :
+  - **💬 Conversation** : le chat reconstruit, avec le composer pour répondre (sessions tmux).
+  - **📝 Fichiers** : les fichiers modifiés par Claude (`Write` / `Edit` / `MultiEdit` / `NotebookEdit`) avec un **diff dépliable** (rouge/vert).
+  - **✅ Tâches** : la TodoList de la session (`TodoWrite`) avec barre d'avancement.
+  - **🤖 Sous-agents** : les appels `Agent` / `Task` lancés pendant la session.
+  - **🪝 Activité** : la timeline brute des hooks.
 - **Liens de PR GitHub** : les URLs de pull requests mentionnées dans la session sont détectées et affichées en chips cliquables.
 
 ### 💬 Répondre à Claude depuis l'UI *(sessions tmux)*
@@ -75,7 +81,10 @@ Pour les sessions lancées dans **tmux**, un composer apparaît en bas de la con
 - Envoie un message directement dans la session interactive (`tmux send-keys`).
 - C'est **ta session / ton abonnement** qui continue → **aucune conso token supplémentaire**, pas de `claude -p`.
 - `Entrée` envoie, `Maj+Entrée` insère un saut de ligne.
+- `Échap` **interrompt Claude** et recharge le dernier prompt pour l'éditer (comme dans le CLI).
 - Tape `@` pour **auto-compléter** un fichier du projet (↑/↓ pour naviguer, Entrée/Tab pour insérer).
+- **File d'attente** : comme dans le CLI, les messages envoyés pendant que Claude travaille sont mis en attente et marqués `⏳ en file d'attente` jusqu'à ce qu'ils apparaissent dans le transcript.
+- **Pane tmux fermé** : si la session n'est plus vivante, envoyer un message **relance `claude --resume`** automatiquement dans son dossier d'origine.
 - **Questions interactives** (`AskUserQuestion`) : l'intitulé et les réponses proposées s'affichent dans une carte, et tu peux sélectionner une ou plusieurs réponses.
 
 ### ▶️ Lancer / reprendre / stopper
