@@ -138,6 +138,16 @@ Les tests comparent, sur des fixtures synthétiques, la sortie de l'ancien `serv
 | **Changer de port** | `HOOKED_PORT=5000 npm start` |
 | **Ajuster les tarifs** | édite l'objet `PRICING` dans `server.js` (USD / million de tokens) |
 | **Lancer au démarrage** | `nohup node ~/chemin/hooked/server.js >/tmp/hooked.log 2>&1 &` |
+| **Budget de session (fallback)** | `HOOKED_SESSION_BUDGET=60 npm start` — utilisé pour estimer le % de la fenêtre 5 h **uniquement** si le tap statusline n'est pas en place |
+
+### ⏳ Rate limits réels (5 h / 7 j) — tap statusline
+
+Claude Code passe à ta **statusline** un JSON contenant les **vrais** rate limits du compte
+(`rate_limits.five_hour` / `seven_day`). hooked les affiche en barre de progression dans le
+header du chat si tu « tappes » ta statusline : colle le contenu de **`statusline-tap.sh`** en
+haut de ton script de statusline (juste après `input=$(cat)`). Il dépose un snapshot par session
+dans `~/.claude/hooked/status/`. Sans ce tap, hooked retombe sur une **estimation par coût**
+(voir `HOOKED_SESSION_BUDGET`).
 
 ---
 

@@ -233,6 +233,26 @@ input[type=search]:focus, select:focus, .lf-input:focus { outline: none; border-
 .ev::before { content: ""; position: absolute; left: -22px; top: 5px; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); }
 .ev .t { color: var(--muted); font-size: 11px; margin-left: 8px; font-family: var(--mono); }
 .ev .tool { color: var(--working); }
+/* méta d'en-tête : barre « limite de session » + effort */
+.head-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; margin: 12px 0 0; }
+.head-meta:empty { display: none; }
+.meta-chip { font-size: 11.5px; font-weight: 600; font-family: var(--mono); color: var(--muted); background: var(--bg3); border: 1px solid var(--border2); border-radius: 8px; padding: 4px 10px; white-space: nowrap; }
+.meta-chip.effort { color: var(--text); }
+
+/* barre de progression du rate limit de session (5 h) */
+.usage-bar { min-width: 240px; max-width: 340px; flex: 1 1 240px; }
+.usage-top { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 4px; }
+.usage-label { font-size: 11.5px; font-weight: 600; color: var(--muted); font-family: var(--mono); text-transform: uppercase; letter-spacing: .04em; }
+.usage-pct { font-size: 13px; font-weight: 700; color: var(--accent-d); font-family: var(--mono); }
+.usage-track { height: 8px; border-radius: 99px; background: var(--bg3); overflow: hidden; }
+.usage-fill { height: 100%; border-radius: 99px; background: var(--accent); transition: width .4s ease, background .3s; }
+.usage-sub { margin-top: 4px; font-size: 11px; color: var(--muted); font-family: var(--mono); }
+.usage-bar.warn .usage-fill { background: var(--waiting); }
+.usage-bar.warn .usage-pct { color: var(--waiting); }
+.usage-bar.full .usage-fill { background: var(--attention); }
+.usage-bar.full .usage-pct { color: var(--attention); }
+.usage-est { color: var(--muted); font-weight: 400; text-transform: none; letter-spacing: 0; }
+
 .detail-grid { display: grid; grid-template-columns: repeat(auto-fill,minmax(130px,1fr)); gap: 12px; margin: 16px 0; }
 .detail-grid .v { font-size: 18px; font-weight: 700; }
 .detail-grid .l { color: var(--muted); font-size: 11px; }
@@ -295,6 +315,8 @@ code.path { color: var(--muted); font-size: 11px; word-break: break-all; font-fa
   padding: 14px; background: #fff; border: 1px solid var(--border); border-radius: 18px;
   box-shadow: var(--shadow);
 }
+.composer.relaunch { border-color: rgba(194,145,47,.5); border-style: dashed; }
+.composer.relaunch .reply-send { background: var(--waiting); box-shadow: none; }
 .composer textarea {
   resize: none; width: 100%; box-sizing: border-box;
   background: transparent; color: var(--text); border: none;

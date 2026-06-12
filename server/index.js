@@ -12,5 +12,7 @@ module.exports = {
   ...require('./events'),
   ...require('./live'),
   ...require('./tmux'),
+  ...require('./usage'),
+  ...require('./status'),
   ...require('./stats'),
 };

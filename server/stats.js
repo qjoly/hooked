@@ -6,7 +6,9 @@
 const { scanSessions } = require('./transcript');
 const { readEvents, lastEventBySession, paneForSession, liveQuestionForSession } = require('./events');
 const { liveStateFor } = require('./live');
-const { launchInfoForPane, paneTmuxNames } = require('./tmux');
+const { resolveLaunchForSession, paneTmuxNames, tmuxAlive } = require('./tmux');
+const { usageWindow } = require('./usage');
+const { sessionStatus, sessionStatusRaw } = require('./status');
 const { buildConversation } = require('./conversation');
 const { buildFileChanges } = require('./changes');
 const { buildSubagents } = require('./subagents');
@@ -30,9 +32,13 @@ function buildSessions() {
       s.liveTs = null;
     }
     s.lastActivity = s.liveTs && (!s.lastTs || s.liveTs > s.lastTs) ? s.liveTs : s.lastTs;
-    // effort (et modèle explicite) connus seulement pour les sessions lancées par hooked
-    const li = s.tmuxPane ? launchInfoForPane(s.tmuxPane) : null;
-    s.effort = li ? li.effort : null;
+    // le pane n'existe peut-être plus (tmux fermé) → on distingue « live » de « dernier connu »
+    s.tmuxAlive = tmuxAlive(s.tmuxPane);
+    // effort : vrai effort de la statusline (toutes sessions) en priorité, sinon résolution
+    // persistée du lancement hooked (survit à la mort du tmux). modèle explicite idem.
+    const li = resolveLaunchForSession(s.id);
+    const raw = sessionStatusRaw(s.id);
+    s.effort = (raw && raw.effort && raw.effort.level) || (li ? li.effort : null);
     if (li && li.model && !s.model) s.model = li.model;
     // question en attente : transcript (rare, déjà répondue en pratique) OU live (cas réel)
     s.liveQuestion = liveQuestionForSession(s.id);
@@ -85,12 +91,26 @@ function sessionDetail(id) {
   const changes = buildFileChanges(s.file);
   const subagents = buildSubagents(s.file);
   const pane = paneForSession(id);
-  const li = pane ? launchInfoForPane(pane) : null;
+  const li = resolveLaunchForSession(id);
   const tmuxName = pane ? paneTmuxNames().get(pane) : null;
   const tmuxAttach = tmuxName ? `tmux attach -t ${tmuxName}` : null;
   // pendingQuestion live (hook) prioritaire ; fallback sur le transcript.
   const pendingQuestion = liveQuestionForSession(id) || s.pendingQuestion || null;
-  return { ...s, pendingQuestion, state: last ? last.state : (s.state || 'past'), currentTool: last ? last.tool : null, tmuxPane: pane, tmuxAttach, effort: li ? li.effort : null, model: (li && li.model && !s.model) ? li.model : s.model, events: ev, messages, changes, subagents };
+  // statut réel issu de la statusline (effort, rate limits du compte, contexte). Prioritaire.
+  const status = sessionStatus(id);
+  return {
+    ...s, pendingQuestion,
+    state: last ? last.state : (s.state || 'past'), currentTool: last ? last.tool : null,
+    tmuxPane: pane, tmuxAlive: tmuxAlive(pane), tmuxAttach,
+    effort: (status && status.effort) || (li ? li.effort : null),
+    model: (li && li.model && !s.model) ? li.model : s.model,
+    launchModel: li ? li.model : null,   // forme courte (opus/sonnet…) pour relancer en conservant la config
+    rateLimit: status ? status.rateLimit : null,   // vrais % 5 h / 7 j du compte (via statusline)
+    context: status ? status.context : null,        // remplissage de la fenêtre de contexte
+    fastMode: status ? status.fastMode : false,
+    usage5h: usageWindow(5),                          // proxy coût (fallback si pas de statusline)
+    events: ev, messages, changes, subagents,
+  };
 }
 
 module.exports = { buildSessions, buildStats, sessionDetail };
