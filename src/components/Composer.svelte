@@ -1,8 +1,10 @@
 <script>
-  import { reply, getFiles } from '../lib/api.js';
+  import { reply, interrupt, launch, getFiles } from '../lib/api.js';
   import { loadSessions, ui } from '../lib/state.svelte.js';
 
-  let { id } = $props();
+  // `alive` : pane tmux vivant → on répond direct. Sinon, l'envoi relance `claude --resume`
+  // dans une nouvelle session tmux (en conservant modèle/effort d'origine si connus).
+  let { id, alive = true, project = null, resumeModel = null, resumeEffort = null, lastPrompt = '' } = $props();
 
   let ta;                       // ref textarea
   let text = $state('');
@@ -59,19 +61,37 @@
       if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); acceptAc(); return; }
       if (e.key === 'Escape') { e.preventDefault(); closeAc(); return; }
     }
+    if (e.key === 'Escape') { e.preventDefault(); interruptEdit(); return; }
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
+  }
+
+  // Echap (comme dans le CLI claude-code) : interrompt Claude et recharge le dernier prompt
+  // dans le composer pour le corriger. Exposé au parent (écoute aussi Echap hors textarea).
+  export function interruptEdit() {
+    if (alive) interrupt(id).then(() => { loadSessions(); ui.tick++; }).catch(() => {});
+    if (lastPrompt && !text.trim()) {
+      text = lastPrompt;
+      status = { text: alive ? '⎋ interrompu — prompt rechargé, édite puis renvoie' : '⎋ prompt rechargé', cls: '' };
+      setTimeout(() => { status = { text: '', cls: '' }; }, 3500);
+    } else if (alive) {
+      status = { text: '⎋ interrompu', cls: '' };
+      setTimeout(() => { status = { text: '', cls: '' }; }, 2000);
+    }
+    queueMicrotask(() => { if (ta) { ta.focus(); autosize(); ta.selectionStart = ta.selectionEnd = ta.value.length; } });
   }
 
   async function send() {
     const t = text.trim();
     if (!t || busy) return;
     busy = true;
-    status = { text: 'envoi…', cls: '' };
-    const res = await reply(id, t).catch((e) => ({ ok: false, data: { error: e.message } }));
+    status = { text: alive ? 'envoi…' : 'relance de la session…', cls: '' };
+    const res = alive
+      ? await reply(id, t).catch((e) => ({ ok: false, data: { error: e.message } }))
+      : await launch({ resumeId: id, prompt: t, cwd: project, model: resumeModel || '', effort: resumeEffort || '' }).catch((e) => ({ ok: false, data: { error: e.message } }));
     if (res.ok) {
       text = ''; autosize();
-      status = { text: '✓ remis dans ' + res.data.pane, cls: 'ok' };
-      setTimeout(() => { status = { text: '', cls: '' }; }, 2500);
+      status = { text: alive ? ('✓ remis dans ' + res.data.pane) : ('✓ session relancée (' + (res.data.tmux || 'tmux') + ')'), cls: 'ok' };
+      setTimeout(() => { status = { text: '', cls: '' }; }, 3000);
       setTimeout(() => { loadSessions(); ui.tick++; }, 600);
     } else {
       status = { text: '✗ ' + (res.data.error || 'échec'), cls: 'err' };
@@ -81,11 +101,13 @@
   }
 </script>
 
-<div class="composer">
+<div class="composer" class:relaunch={!alive}>
   <textarea bind:this={ta} bind:value={text} id="reply-text" rows="1" disabled={busy}
-            placeholder="Répondre à Claude…  (Entrée pour envoyer · Maj+Entrée = nouvelle ligne · @ pour un fichier)"
+            placeholder={alive
+              ? 'Répondre à Claude…  (Entrée pour envoyer · Maj+Entrée = nouvelle ligne · @ fichier · Échap interrompt)'
+              : 'Session tmux fermée — envoyer relancera claude --resume…  (@ fichier)'}
             oninput={onInput} onkeydown={onKeydown} onblur={() => setTimeout(closeAc, 150)}></textarea>
-  <button class="reply-send" disabled={busy} onclick={send}>Envoyer ↩</button>
+  <button class="reply-send" disabled={busy} onclick={send}>{alive ? 'Envoyer ↩' : 'Relancer ↗'}</button>
   <div class="at-pop" class:hidden={!acOpen}>
     {#each acItems as f, i}
       <div class="at-item" class:sel={i === acSel} onmousedown={(e) => { e.preventDefault(); acSel = i; acceptAc(); }}>

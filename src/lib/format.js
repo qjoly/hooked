@@ -21,6 +21,16 @@ export function ago(ts) {
 }
 export const shortModel = (m) => (m || '').replace(/^claude-/, '');
 
+// durée courte à partir de minutes : « 2 h 46 min » / « 46 min » / « <1 min ».
+export function fmtDuration(min) {
+  min = Math.max(0, Math.round(min || 0));
+  if (min < 1) return '<1 min';
+  if (min < 60) return `${min} min`;
+  const h = Math.floor(min / 60);
+  const m = min % 60;
+  return m ? `${h} h ${m} min` : `${h} h`;
+}
+
 export const STATE_LABEL = {
   working: 'Claude travaille', waiting: 'En attente de toi', attention: 'Action requise',
   idle: 'En pause', ended: 'Terminée', past: 'Passée',

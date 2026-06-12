@@ -1,8 +1,8 @@
 <script>
-  import { onMount, tick, untrack } from 'svelte';
+  import { onMount, onDestroy, tick, untrack } from 'svelte';
   import { ui, data, loadSessions } from '../lib/state.svelte.js';
   import { getSession, kill } from '../lib/api.js';
-  import { STATE_LABEL, fmtCost, fmtTokens, ago, shortModel, prLabel } from '../lib/format.js';
+  import { STATE_LABEL, fmtCost, fmtTokens, fmtDuration, ago, shortModel, prLabel } from '../lib/format.js';
   import ChatBubble from './ChatBubble.svelte';
   import Question from './Question.svelte';
   import Composer from './Composer.svelte';
@@ -13,6 +13,7 @@
   let s = $state(null);          // détail de session
   let tab = $state('chat');
   let body;                      // ref .pane-body (conteneur scrollable)
+  let composer;                  // ref Composer (pour déclencher interruption + édition via Échap)
   let lastActivity = null;
   let stopping = $state(false);
   let attachCopied = $state(false);
@@ -35,6 +36,18 @@
   }
 
   onMount(() => load(false));
+
+  // Échap dans la vue chat (hors textarea — le composer gère lui-même quand il a le focus) :
+  // interrompt Claude et recharge le dernier prompt pour l'éditer, comme dans le CLI claude-code.
+  function onWindowKey(e) {
+    if (e.key !== 'Escape' || tab !== 'chat' || ui.modal) return;
+    if (e.target && e.target.id === 'reply-text') return; // déjà géré par le composer focalisé
+    if (!composer) return;
+    e.preventDefault();
+    composer.interruptEdit();
+  }
+  onMount(() => { window.addEventListener('keydown', onWindowKey); });
+  onDestroy(() => { window.removeEventListener('keydown', onWindowKey); });
 
   // live : sur chaque tick, refetch ciblé (question (dis)paraît, ou chat actif qui bouge)
   $effect(() => {
@@ -69,12 +82,15 @@
     <div class="card-top" style="cursor:default;margin-bottom:6px">
       <span class="proj">{s.projectName || '?'}</span>
       {#if s.gitBranch}<span class="branch">{s.gitBranch}</span>{/if}
-      {#if s.tmuxPane}
+      {#if s.tmuxAlive}
         <span class="ro-tag live">↩ réponse possible</span>
         <button class="stop-btn" disabled={stopping} onclick={stop}>{stopping ? '⏳ arrêt…' : '⏹ Stopper'}</button>
         {#if s.tmuxAttach}
           <button class="attach-btn" title={s.tmuxAttach} onclick={copyAttach}>{attachCopied ? '✓ copié' : '⧉ Copier attach'}</button>
         {/if}
+      {:else if s.tmuxPane}
+        <span class="ro-tag">⛔ tmux fermé · un message relance</span>
+        <button class="resume-btn" onclick={resume}>▶ Reprendre dans tmux</button>
       {:else}
         <span class="ro-tag">lecture seule</span>
         <button class="resume-btn" onclick={resume}>▶ Reprendre dans tmux</button>
@@ -82,6 +98,25 @@
       <span class="badge s-badge" style="margin-left:auto">{STATE_LABEL[s.state] || s.state}</span>
     </div>
     <h2 style="margin:0">{s.title}</h2>
+    <div class="head-meta">
+      {#if s.rateLimit && s.rateLimit.fiveHour && s.rateLimit.fiveHour.pct != null}
+        {@const rl = s.rateLimit.fiveHour}
+        <div class="usage-bar" class:warn={rl.pct >= 70} class:full={rl.pct >= 90}
+             title="Rate limit de la session de 5 h (compte) — valeur réelle remontée par la statusline Claude Code">
+          <div class="usage-top"><span class="usage-label">⏳ Session 5 h</span><span class="usage-pct">{rl.pct}%</span></div>
+          <div class="usage-track"><div class="usage-fill" style="width:{rl.pct}%"></div></div>
+          {#if rl.resetInMin != null}<div class="usage-sub">réinitialise dans {fmtDuration(rl.resetInMin)}</div>{/if}
+        </div>
+      {:else if s.usage5h}
+        {@const u = s.usage5h}
+        <div class="usage-bar" class:warn={u.pct >= 75} class:full={u.pct >= 95}
+             title={`Estimation (pas de statusline) : ${fmtCost(u.cost)} de coût sur un budget de ${fmtCost(u.budget)} sur 5 h. Ajustable via HOOKED_SESSION_BUDGET.`}>
+          <div class="usage-top"><span class="usage-label">⏳ Session 5 h <span class="usage-est">(est.)</span></span><span class="usage-pct">{u.pct}%</span></div>
+          <div class="usage-track"><div class="usage-fill" style="width:{u.pct}%"></div></div>
+          <div class="usage-sub">{fmtCost(u.cost)} · {fmtTokens(u.output)} tk{#if u.resetInMin != null} · réinitialise dans {fmtDuration(u.resetInMin)}{/if}</div>
+        </div>
+      {/if}
+    </div>
     {#if s.prLinks && s.prLinks.length}
       <div class="pr-links">
         {#each s.prLinks as l}
@@ -92,12 +127,10 @@
     <div class="detail-grid" style="margin:14px 0 0">
       <div><div class="v">{fmtCost(s.cost)}</div><div class="l">coût estimé</div></div>
       {#if s.subagentCost > 0}<div><div class="v">{fmtCost(s.subagentCost)}</div><div class="l">dont sous-agents</div></div>{/if}
-      <div><div class="v">{s.assistantTurns}</div><div class="l">tours</div></div>
       <div><div class="v">{s.userPrompts}</div><div class="l">prompts</div></div>
       <div><div class="v">{fmtTokens(s.usage.output)}</div><div class="l">tokens out</div></div>
       <div><div class="v">{fmtTokens(s.usage.cacheRead)}</div><div class="l">cache lu</div></div>
       <div><div class="v">{shortModel(s.model)}</div><div class="l">modèle</div></div>
-      {#if s.effort}<div><div class="v">{s.effort}</div><div class="l">effort</div></div>{/if}
     </div>
     <div class="subtabs">
       <button class="subtab" class:active={tab === 'chat'} onclick={() => (tab = 'chat')}>💬 Conversation <span class="count">{(s.messages || []).length}</span></button>
@@ -117,7 +150,10 @@
         {/if}
       </div>
       {#if s.pendingQuestion}<Question {id} pq={s.pendingQuestion} />{/if}
-      {#if s.tmuxPane}<Composer {id} />{/if}
+      {#if s.tmuxPane}
+        <Composer bind:this={composer} {id} alive={s.tmuxAlive} project={s.project}
+                  resumeModel={s.launchModel} resumeEffort={s.effort} lastPrompt={s.lastPrompt || ''} />
+      {/if}
     </div>
 
     <div class="pane" class:active={tab === 'changes'}>

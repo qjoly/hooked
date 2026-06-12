@@ -13,7 +13,6 @@
   const kpis = $derived(d ? [
     [fmtCost(d.totals.cost), 'Coût estimé'],
     [d.totals.sessions, 'Sessions'],
-    [d.totals.turns, 'Tours Claude'],
     [d.totals.prompts, 'Prompts'],
     [fmtTokens(d.totals.output), 'Tokens générés'],
     [fmtTokens(d.totals.cacheRead), 'Tokens cache lus'],
