@@ -1,8 +1,8 @@
 <script>
   import { onMount, onDestroy, tick, untrack } from 'svelte';
   import { ui, data, loadSessions } from '../lib/state.svelte.js';
-  import { getSession, kill } from '../lib/api.js';
-  import { STATE_LABEL, fmtCost, fmtTokens, fmtDuration, ago, shortModel, prLabel } from '../lib/format.js';
+  import { getSession, kill, setMode } from '../lib/api.js';
+  import { STATE_LABEL, fmtCost, fmtTokens, fmtDuration, ago, shortModel, prLabel, PERMISSION_MODES, modeLabel, modeMeta } from '../lib/format.js';
   import ChatBubble from './ChatBubble.svelte';
   import Question from './Question.svelte';
   import Composer from './Composer.svelte';
@@ -18,6 +18,13 @@
   let lastActivity = null;
   let stopping = $state(false);
   let attachCopied = $state(false);
+  // changement de mode de permission (Normal / Auto-edits / Plan) via Maj+Tab dans le pane.
+  let modeBusy = $state(false);
+  let modeStatus = $state('');
+  let modeOverride = $state(null);  // mode visé en optimiste, tant que les hooks ne le reflètent pas
+
+  // mode affiché : choix optimiste sinon mode réel remonté par les hooks (défaut : Normal).
+  const modeView = $derived(modeOverride || (s && s.permissionMode) || 'default');
   // messages envoyés en attente d'apparaître dans le transcript (file d'attente, comme le CLI).
   let queued = $state([]);
   let forceBottom = false;          // force le scroll en bas au prochain rendu (envoi d'un message)
@@ -35,6 +42,8 @@
     if (ui.currentSessionId !== id) return;
     s = d;
     lastActivity = d.lastActivity || null;
+    // les hooks reflètent enfin le mode visé → on lâche le choix optimiste.
+    if (modeOverride && d.permissionMode === modeOverride) modeOverride = null;
     // un message en file disparaît dès qu'il apparaît comme bulle user dans le transcript.
     if (queued.length) {
       const userTexts = new Set((d.messages || []).filter((m) => m.role === 'user').map((m) => (m.text || '').trim()));
@@ -91,6 +100,22 @@
     if (res.ok) { setTimeout(() => { loadSessions(); ui.tick++; }, 800); }
     else { stopping = false; alert('✗ ' + (res.data.error || 'échec')); }
   }
+  async function switchMode(target) {
+    if (modeBusy || modeView === target) return;
+    modeBusy = true;
+    modeStatus = '…';
+    const res = await setMode(s.id, target).catch((e) => ({ ok: false, data: { error: e.message } }));
+    if (res.ok) {
+      modeOverride = res.data.mode || target;  // mode réellement atteint, vérifié côté serveur
+      modeStatus = '✓ ' + modeLabel(modeOverride);
+      setTimeout(() => { modeStatus = ''; }, 2000);
+      setTimeout(() => { loadSessions(); ui.tick++; }, 600);
+    } else {
+      modeStatus = '✗ ' + (res.data.error || 'échec');
+      setTimeout(() => { modeStatus = ''; }, 3000);
+    }
+    modeBusy = false;
+  }
   async function copyAttach() {
     try { await navigator.clipboard.writeText(s.tmuxAttach); attachCopied = true; setTimeout(() => (attachCopied = false), 1500); } catch (_) {}
   }
@@ -116,6 +141,21 @@
       {/if}
       <span class="badge s-badge" style="margin-left:auto">{STATE_LABEL[s.state] || s.state}</span>
     </div>
+    {#if s.tmuxAlive}
+      {@const cur = modeMeta(modeView)}
+      <div class="mode-switch" title="Mode de permission de Claude — bascule via Maj+Tab dans la session interactive">
+        <span class="mode-cap">Mode actuel</span>
+        <span class="mode-now mode-{modeView}" title={cur.title}><span class="mode-ico">{cur.icon}</span>{cur.label}</span>
+        <span class="mode-sep">→</span>
+        {#each PERMISSION_MODES as m}
+          <button class="mode-chip" class:active={modeView === m.key} disabled={modeBusy}
+                  onclick={() => switchMode(m.key)} title={m.title}>
+            <span class="mode-ico">{m.icon}</span>{m.label}
+          </button>
+        {/each}
+        {#if modeStatus}<span class="mode-status">{modeStatus}</span>{/if}
+      </div>
+    {/if}
     <h2 style="margin:0">{s.title}</h2>
     <div class="head-meta">
       {#if s.rateLimit && s.rateLimit.fiveHour && s.rateLimit.fiveHour.pct != null}

@@ -83,9 +83,22 @@ Pour les sessions lancées dans **tmux**, un composer apparaît en bas de la con
 - `Entrée` envoie, `Maj+Entrée` insère un saut de ligne.
 - `Échap` **interrompt Claude** et recharge le dernier prompt pour l'éditer (comme dans le CLI).
 - Tape `@` pour **auto-compléter** un fichier du projet (↑/↓ pour naviguer, Entrée/Tab pour insérer).
+- **Colle une image** (Cmd/Ctrl+V) : elle est enregistrée localement et son chemin est joint au message — Claude Code la lit comme un drag-drop dans le TUI. Une miniature s'affiche dans le composer (× pour la retirer).
 - **File d'attente** : comme dans le CLI, les messages envoyés pendant que Claude travaille sont mis en attente et marqués `⏳ en file d'attente` jusqu'à ce qu'ils apparaissent dans le transcript.
 - **Pane tmux fermé** : si la session n'est plus vivante, envoyer un message **relance `claude --resume`** automatiquement dans son dossier d'origine.
 - **Questions interactives** (`AskUserQuestion`) : l'intitulé et les réponses proposées s'affichent dans une carte, et tu peux sélectionner une ou plusieurs réponses.
+
+### 🔀 Changer le mode de Claude *(sessions tmux)*
+
+Pour une session **live**, l'en-tête du chat affiche le **mode de permission courant** et un sélecteur pour le changer :
+
+- **● Normal** : Claude demande la permission avant chaque action sensible.
+- **⚡ Auto** : Claude approuve automatiquement les actions sans confirmation (full auto).
+- **⏸ Plan** : mode plan, Claude réfléchit et propose sans rien modifier.
+
+Le **mode actuel** est lu **en direct dans le footer du TUI** (`tmux capture-pane`) — source fiable et temps-réel, contrairement aux hooks (différés) ou à la statusline (qui ne porte pas le mode). Les autres modes (**⏵⏵ Auto-edits**, **⛔ Bypass**…) sont reconnus et affichés même s'ils ne sont pas proposés au sélecteur.
+
+Le changement se fait en **boucle fermée** : hooked envoie un `Maj+Tab` (`tmux send-keys BTab`), relit le footer, et recommence jusqu'à atteindre le mode visé — robuste quel que soit l'ordre du cycle, et auto-vérifié.
 
 ### ▶️ Lancer / reprendre / stopper
 

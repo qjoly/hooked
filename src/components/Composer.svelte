@@ -1,5 +1,5 @@
 <script>
-  import { reply, interrupt, launch, getFiles } from '../lib/api.js';
+  import { reply, interrupt, launch, getFiles, uploadImage } from '../lib/api.js';
   import { loadSessions, ui } from '../lib/state.svelte.js';
 
   // `alive` : pane tmux vivant → on répond direct. Sinon, l'envoi relance `claude --resume`
@@ -10,6 +10,43 @@
   let text = $state('');
   let status = $state({ text: '', cls: '' });
   let busy = $state(false);
+
+  // ----- images collées -----
+  // chaque image est uploadée au serveur (chemin disque) et jointe au message à l'envoi :
+  // Claude Code lit l'image via son chemin absolu, comme un drag-drop dans le TUI.
+  let images = $state([]);      // { path, url (dataURL pour la miniature), name }
+  let uploading = $state(0);    // nb d'uploads en cours
+
+  // colle d'image : intercepte les éléments image du presse-papier, les uploade en parallèle.
+  async function onPaste(e) {
+    const items = e.clipboardData && e.clipboardData.items;
+    if (!items) return;
+    const files = [];
+    for (const it of items) if (it.kind === 'file' && it.type.startsWith('image/')) { const f = it.getAsFile(); if (f) files.push(f); }
+    if (!files.length) return;
+    e.preventDefault();                 // on gère l'image nous-mêmes (pas d'insertion de texte)
+    for (const f of files) addImage(f);
+  }
+
+  function addImage(file) {
+    const reader = new FileReader();
+    uploading++;
+    reader.onload = async () => {
+      const dataUrl = reader.result;
+      const res = await uploadImage(dataUrl).catch((err) => ({ ok: false, data: { error: err.message } }));
+      uploading--;
+      if (res.ok) {
+        images = [...images, { path: res.data.path, url: dataUrl, name: res.data.name }];
+        queueMicrotask(() => ta && ta.focus());
+      } else {
+        status = { text: '✗ image : ' + (res.data.error || 'échec'), cls: 'err' };
+        setTimeout(() => { status = { text: '', cls: '' }; }, 3500);
+      }
+    };
+    reader.onerror = () => { uploading--; status = { text: '✗ lecture image impossible', cls: 'err' }; };
+    reader.readAsDataURL(file);
+  }
+  function removeImage(i) { images = images.filter((_, j) => j !== i); }
 
   // ----- auto-complétion @fichier -----
   let acItems = $state([]);
@@ -82,16 +119,19 @@
 
   async function send() {
     const t = text.trim();
-    if (!t || busy) return;
+    if ((!t && !images.length) || busy || uploading) return;
+    // on préfixe les chemins des images jointes : Claude Code les lit comme un drag-drop.
+    const paths = images.map((im) => im.path).join(' ');
+    const full = paths ? (t ? paths + ' ' + t : paths) : t;
     busy = true;
     status = { text: alive ? 'envoi…' : 'relance de la session…', cls: '' };
     const res = alive
-      ? await reply(id, t).catch((e) => ({ ok: false, data: { error: e.message } }))
-      : await launch({ resumeId: id, prompt: t, cwd: project, model: resumeModel || '', effort: resumeEffort || '' }).catch((e) => ({ ok: false, data: { error: e.message } }));
+      ? await reply(id, full).catch((e) => ({ ok: false, data: { error: e.message } }))
+      : await launch({ resumeId: id, prompt: full, cwd: project, model: resumeModel || '', effort: resumeEffort || '' }).catch((e) => ({ ok: false, data: { error: e.message } }));
     if (res.ok) {
-      text = ''; autosize();
+      text = ''; images = []; autosize();
       // file d'attente + scroll auto : on signale au parent le message tout juste envoyé.
-      if (alive && onSent) onSent(t);
+      if (alive && onSent) onSent(full);
       status = { text: alive ? ('✓ remis dans ' + res.data.pane) : ('✓ session relancée (' + (res.data.tmux || 'tmux') + ')'), cls: 'ok' };
       setTimeout(() => { status = { text: '', cls: '' }; }, 3000);
       setTimeout(() => { loadSessions(); ui.tick++; }, 600);
@@ -106,10 +146,21 @@
 <div class="composer" class:relaunch={!alive}>
   <textarea bind:this={ta} bind:value={text} id="reply-text" rows="1" disabled={busy}
             placeholder={alive
-              ? 'Répondre à Claude…  (Entrée pour envoyer · Maj+Entrée = nouvelle ligne · @ fichier · Échap interrompt)'
-              : 'Session tmux fermée — envoyer relancera claude --resume…  (@ fichier)'}
-            oninput={onInput} onkeydown={onKeydown} onblur={() => setTimeout(closeAc, 150)}></textarea>
-  <button class="reply-send" disabled={busy} onclick={send}>{alive ? 'Envoyer ↩' : 'Relancer ↗'}</button>
+              ? 'Répondre à Claude…  (Entrée pour envoyer · Maj+Entrée = nouvelle ligne · @ fichier · colle une image · Échap interrompt)'
+              : 'Session tmux fermée — envoyer relancera claude --resume…  (@ fichier · colle une image)'}
+            oninput={onInput} onkeydown={onKeydown} onpaste={onPaste} onblur={() => setTimeout(closeAc, 150)}></textarea>
+  <button class="reply-send" disabled={busy || uploading > 0} onclick={send}>{alive ? 'Envoyer ↩' : 'Relancer ↗'}</button>
+  {#if images.length || uploading}
+    <div class="img-tray">
+      {#each images as im, i}
+        <div class="img-chip" title={im.path}>
+          <img src={im.url} alt={im.name} />
+          <button class="img-rm" title="Retirer" onclick={() => removeImage(i)}>×</button>
+        </div>
+      {/each}
+      {#if uploading}<div class="img-up">📎 upload…</div>{/if}
+    </div>
+  {/if}
   <div class="at-pop" class:hidden={!acOpen}>
     {#each acItems as f, i}
       <div class="at-item" class:sel={i === acSel} onmousedown={(e) => { e.preventDefault(); acSel = i; acceptAc(); }}>

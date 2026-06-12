@@ -17,7 +17,8 @@ const {
   buildSessions, buildStats, sessionDetail,
   scanSessions, agentTranscriptPath, buildConversation, buildFileChanges,
   projectFiles, matchFiles, paneForSession, liveQuestionForSession,
-  deliverReply, sendKey, launchSession, killSession, tmuxAlive,
+  deliverReply, sendKey, setMode, launchSession, killSession, tmuxAlive,
+  saveImage,
 } = require('./server/index.js');
 
 // ---------- SSE ----------
@@ -60,12 +61,12 @@ function sendJSON(res, obj) {
   res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
   res.end(body);
 }
-function readBody(req, cb) {
+function readBody(req, cb, maxBytes = 1e6) {
   let raw = '';
   let tooBig = false;
   req.on('data', (d) => {
     raw += d;
-    if (raw.length > 1e6) { tooBig = true; req.destroy(); } // garde-fou 1 Mo
+    if (raw.length > maxBytes) { tooBig = true; req.destroy(); } // garde-fou taille
   });
   req.on('end', () => {
     if (tooBig) return cb(new Error('body too large'));
@@ -115,6 +116,17 @@ const server = http.createServer((req, res) => {
         });
       });
     }
+    if (req.method === 'POST' && p === '/api/upload-image') {
+      // image collée dans le composer : on l'écrit sur disque (machine locale) et on renvoie
+      // son chemin absolu, que le composer joindra au message (Claude Code lit l'image par chemin).
+      return readBody(req, (err, body) => {
+        if (err) { res.writeHead(400); return res.end(JSON.stringify({ ok: false, error: 'requête invalide (image trop lourde ?)' })); }
+        saveImage(body && body.dataUrl, (e2, info) => {
+          if (e2) { res.writeHead(e2.code === 400 ? 400 : 500); return res.end(JSON.stringify({ ok: false, error: e2.message || String(e2) })); }
+          sendJSON(res, { ok: true, ...info });
+        });
+      }, 22e6); // base64 gonfle ~33 % → marge au-dessus de la limite 15 Mo des images
+    }
     if (req.method === 'POST' && p === '/api/interrupt') {
       // Echap dans la session interactive : interrompt Claude (comme une frappe Echap au clavier).
       return readBody(req, (err, body) => {
@@ -126,6 +138,23 @@ const server = http.createServer((req, res) => {
         sendKey(pane, 'Escape', (e2) => {
           if (e2) { res.writeHead(502); return res.end(JSON.stringify({ ok: false, error: 'échec tmux send-keys : ' + (e2.message || e2) })); }
           sendJSON(res, { ok: true, pane });
+        });
+      });
+    }
+    if (req.method === 'POST' && p === '/api/mode') {
+      // Change le mode de permission de Claude (Normal / Auto-edits / Plan) dans la session
+      // interactive en simulant des Maj+Tab, comme au clavier dans le TUI.
+      return readBody(req, (err, body) => {
+        if (err) { res.writeHead(400); return res.end(JSON.stringify({ ok: false, error: 'requête invalide' })); }
+        const id = body && body.id;
+        const mode = body && body.mode;
+        if (!id || !mode) { res.writeHead(400); return res.end(JSON.stringify({ ok: false, error: 'id et mode requis' })); }
+        const pane = paneForSession(id);
+        if (!pane || !tmuxAlive(pane)) { res.writeHead(409); return res.end(JSON.stringify({ ok: false, error: 'aucun pane tmux vivant pour cette session' })); }
+        // boucle fermée : setMode lit le mode réel à l'écran et envoie des Maj+Tab jusqu'à la cible.
+        setMode(pane, mode, (e2, info) => {
+          if (e2) { res.writeHead(e2.code === 400 ? 400 : 502); return res.end(JSON.stringify({ ok: false, error: e2.message || String(e2) })); }
+          sendJSON(res, { ok: true, ...info });
         });
       });
     }

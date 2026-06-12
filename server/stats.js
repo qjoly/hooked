@@ -4,9 +4,9 @@
  * statistiques d'usage (buildStats) et détail complet d'une session (sessionDetail).
  */
 const { scanSessions } = require('./transcript');
-const { readEvents, lastEventBySession, paneForSession, liveQuestionForSession } = require('./events');
+const { readEvents, lastEventBySession, paneForSession, modeForSession, liveQuestionForSession } = require('./events');
 const { liveStateFor } = require('./live');
-const { resolveLaunchForSession, paneTmuxNames, tmuxAlive } = require('./tmux');
+const { resolveLaunchForSession, paneTmuxNames, tmuxAlive, readPaneModeSync } = require('./tmux');
 const { usageWindow } = require('./usage');
 const { sessionStatus, sessionStatusRaw } = require('./status');
 const { buildConversation } = require('./conversation');
@@ -110,6 +110,10 @@ function sessionDetail(id) {
     ...s, pendingQuestion,
     state: last ? last.state : (s.state || 'past'), currentTool: last ? last.tool : null,
     tmuxPane: pane, tmuxAlive: tmuxAlive(pane), tmuxAttach,
+    // mode courant : lu en direct dans le footer du TUI si le pane est vivant (fiable, temps-réel),
+    // sinon dernier mode connu via les hooks (différé).
+    permissionMode: (tmuxAlive(pane) && readPaneModeSync(pane)) || modeForSession(id),
+
     effort: (status && status.effort) || (li ? li.effort : null),
     model: (li && li.model && !s.model) ? li.model : s.model,
     launchModel: li ? li.model : null,   // forme courte (opus/sonnet…) pour relancer en conservant la config
