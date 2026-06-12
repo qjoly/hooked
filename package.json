@@ -1,0 +1,11 @@
+{
+  "name": "hooked",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Dashboard local pour suivre tes sessions Claude Code (live + stats)",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node server.js",
+    "setup": "node install.js"
+  }
+}
