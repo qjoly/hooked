@@ -6,7 +6,7 @@
 const fs = require('fs');
 const path = require('path');
 const { execFile, execFileSync } = require('child_process');
-const { LAUNCHES_FILE, SESSION_LAUNCH_FILE, MODELS, EFFORTS } = require('./config');
+const { LAUNCHES_FILE, SESSION_LAUNCH_FILE, MODELS, EFFORTS, PERMISSION_MODES } = require('./config');
 const { statSafe } = require('./util');
 const { launchConfigByTmux, paneForSession } = require('./events');
 const { scanSessions } = require('./transcript');
@@ -106,6 +106,63 @@ function sendKey(pane, key, cb) {
   execFile('tmux', ['send-keys', '-t', pane, key], (e) => cb(e || null));
 }
 
+// Mode de permission lu DIRECTEMENT à l'écran du TUI (footer). C'est la source fiable et
+// temps-réel : le TUI affiche en dernière ligne « ⏵⏵ auto mode on (shift+tab to cycle) »,
+// « ⏵⏵ accept edits on … », « ⏸ plan mode on … » ; en mode normal il n'y a pas de ligne
+// d'indicateur (la dernière ligne non vide est la statusline). On ne regarde QUE la dernière
+// ligne non vide pour ne pas confondre avec le texte de la conversation qui pourrait citer
+// ces libellés.
+function parsePaneMode(screen) {
+  const lines = String(screen).split('\n');
+  let last = '';
+  for (let i = lines.length - 1; i >= 0; i--) { if (lines[i].trim()) { last = lines[i]; break; } }
+  if (/auto mode on/i.test(last)) return 'auto';
+  if (/accept edits on/i.test(last)) return 'acceptEdits';
+  if (/plan mode on/i.test(last)) return 'plan';
+  if (/bypass permissions/i.test(last)) return 'bypassPermissions';
+  return 'default'; // mode normal : pas d'indicateur de mode dans le footer
+}
+
+// Lecture asynchrone du mode courant via `tmux capture-pane`.
+function readPaneMode(pane, cb) {
+  if (!/^%\d+$/.test(pane || '')) return cb(err400('pane invalide'));
+  execFile('tmux', ['capture-pane', '-t', pane, '-p'], (e, out) => {
+    if (e) return cb(e);
+    cb(null, parsePaneMode(out));
+  });
+}
+
+// Lecture synchrone (pour enrichir le détail de session sans casser son API synchrone).
+function readPaneModeSync(pane) {
+  if (!/^%\d+$/.test(pane || '')) return null;
+  try {
+    const out = execFileSync('tmux', ['capture-pane', '-t', pane, '-p'], { encoding: 'utf8', timeout: 1500 });
+    return parsePaneMode(out);
+  } catch (_) { return null; }
+}
+
+// Change le mode de permission d'une session live en BOUCLE FERMÉE : on lit le mode affiché,
+// et tant qu'il diffère de la cible on envoie un Maj+Tab (`BTab`) puis on relit le footer.
+// Robuste à n'importe quel ordre/longueur de cycle (l'ordre réel observé est
+// default → acceptEdits → plan → auto → …, mais on ne s'y fie pas), et auto-vérifié.
+function setMode(pane, target, cb) {
+  if (!/^%\d+$/.test(pane || '')) return cb(err400('pane invalide'));
+  if (!PERMISSION_MODES.includes(target)) return cb(err400('mode inconnu : ' + target));
+  const MAX = 6; // garde-fou : au plus 6 modes dans le cycle → jamais de boucle infinie
+  const step = (n) => {
+    readPaneMode(pane, (e, cur) => {
+      if (e) return cb(e);
+      if (cur === target) return cb(null, { pane, mode: target, presses: n });
+      if (n >= MAX) return cb(new Error(`mode « ${target} » non atteint après ${n} Maj+Tab (mode courant : ${cur})`));
+      execFile('tmux', ['send-keys', '-t', pane, 'BTab'], (e2) => {
+        if (e2) return cb(e2);
+        setTimeout(() => step(n + 1), 160); // laisser le TUI re-render le footer avant relecture
+      });
+    });
+  };
+  step(0);
+}
+
 function err400(msg) { const e = new Error(msg); e.code = 400; return e; }
 
 // Lance `claude` (ou `claude --resume <id>`) dans une NOUVELLE session tmux détachée.
@@ -166,4 +223,4 @@ function killSession(id, cb) {
   });
 }
 
-module.exports = { paneTmuxNames, tmuxAlive, launchInfoForPane, resolveLaunchForSession, deliverReply, sendKey, launchSession, killSession, err400 };
+module.exports = { paneTmuxNames, tmuxAlive, launchInfoForPane, resolveLaunchForSession, deliverReply, sendKey, parsePaneMode, readPaneMode, readPaneModeSync, setMode, launchSession, killSession, err400 };

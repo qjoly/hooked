@@ -35,4 +35,10 @@ const SESSION_HOURS = 5;
 const MODELS = ['opus', 'sonnet', 'haiku', 'fable'];
 const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];
 
-module.exports = { HOME, PROJECTS_DIR, HOOKED_DIR, EVENTS_FILE, LAUNCHES_FILE, SESSION_LAUNCH_FILE, STATUS_DIR, PUBLIC_DIR, PORT, SESSION_BUDGET, SESSION_HOURS, MODELS, EFFORTS };
+// Modes de permission Claude Code proposés au sélecteur (liste blanche des cibles).
+// Le changement se fait en boucle fermée (cf. tmux.setMode) : on lit le mode affiché dans
+// le footer du TUI et on envoie des Maj+Tab jusqu'à atteindre la cible — l'ordre du cycle
+// réel (default → acceptEdits → plan → auto → …) n'a donc pas à être encodé ici.
+const PERMISSION_MODES = ['default', 'auto', 'plan'];
+
+module.exports = { HOME, PROJECTS_DIR, HOOKED_DIR, EVENTS_FILE, LAUNCHES_FILE, SESSION_LAUNCH_FILE, STATUS_DIR, PUBLIC_DIR, PORT, SESSION_BUDGET, SESSION_HOURS, MODELS, EFFORTS, PERMISSION_MODES };

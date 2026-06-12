@@ -49,6 +49,24 @@ export function filterMatches(f, state) { return !f.states || f.states.includes(
 
 export const LIVE_STATES = ['working', 'waiting', 'attention', 'idle'];
 
+// Métadonnées d'affichage de TOUS les modes de permission Claude Code (label + icône).
+// La source du mode courant est le champ `permission_mode` des hooks (cf. server/events.js) —
+// la statusline ne le porte pas. Les valeurs possibles : default / plan / acceptEdits / auto /
+// dontAsk / bypassPermissions.
+export const MODE_META = {
+  default:           { label: 'Normal',       icon: '●',  title: 'Claude demande la permission avant chaque action sensible' },
+  plan:              { label: 'Plan',         icon: '⏸',  title: 'Mode plan : Claude réfléchit et propose sans rien modifier' },
+  acceptEdits:       { label: 'Auto-edits',   icon: '⏵⏵', title: 'Claude applique les éditions de fichiers sans confirmation' },
+  auto:              { label: 'Auto',         icon: '⚡', title: 'Mode auto : Claude approuve automatiquement les actions sans confirmation' },
+  dontAsk:           { label: 'Sans demande', icon: '🔕', title: 'Claude refuse automatiquement ce qui n’est pas pré-autorisé' },
+  bypassPermissions: { label: 'Bypass',       icon: '⛔', title: 'Claude saute les permissions (sauf règles « ask » explicites)' },
+};
+export const modeMeta = (k) => MODE_META[k] || { label: k || '—', icon: '·', title: 'Mode de permission' };
+export const modeLabel = (k) => modeMeta(k).label;
+
+// Modes proposés dans le sélecteur, dans l'ordre réel du cycle Maj+Tab (Normal → Auto → Plan).
+export const PERMISSION_MODES = ['default', 'auto', 'plan'].map((k) => ({ key: k, ...MODE_META[k] }));
+
 // markdown léger : code fences ``` , `code`, **gras**, titres #, sauts de ligne. Échappe le reste.
 export function mdLite(t) {
   const parts = String(t).split(/```/);

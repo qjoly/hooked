@@ -246,3 +246,54 @@ describe('agentTranscriptPath', () => {
     expect(lib.agentTranscriptPath('sess-alpha', 'inconnu')).toBeNull();
   });
 });
+
+describe('images — saveImage', () => {
+  // 1×1 PNG transparent
+  const PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+  it('écrit le fichier décodé et renvoie son chemin', () => new Promise((done) => {
+    lib.saveImage(PNG, (err, info) => {
+      expect(err).toBeNull();
+      expect(info.path.startsWith(lib.IMAGES_DIR)).toBe(true);
+      expect(info.name.endsWith('.png')).toBe(true);
+      const fs = require('fs');
+      expect(fs.existsSync(info.path)).toBe(true);
+      fs.unlinkSync(info.path); // nettoyage
+      done();
+    });
+  }));
+  it('rejette un data-URL non-image / type non supporté', () => new Promise((done) => {
+    lib.saveImage('data:text/plain;base64,aGVsbG8=', (err, info) => {
+      expect(err).toBeTruthy();
+      expect(err.code).toBe(400);
+      expect(info).toBeUndefined();
+      done();
+    });
+  }));
+});
+
+describe('mode de permission — parsePaneMode (footer TUI réel)', () => {
+  // footers capturés sur un vrai TUI Claude Code (dernière ligne non vide de l'écran).
+  const footer = (modeLine) => [
+    'précédente réponse de Claude…',
+    '──── branche ──',
+    '❯ ',
+    '────',
+    '  🤖 Opus 4.8 (1M context) 🔥 high | 🧠 ↓158k | 📊 16%',
+    '  📁 hooked | 🌳 no worktree | 🌿 HEAD ~14',
+    ...(modeLine ? [modeLine] : []),
+  ].join('\n');
+
+  it('reconnaît chaque mode depuis sa ligne de footer', () => {
+    expect(lib.parsePaneMode(footer('  ⏵⏵ auto mode on (shift+tab to cycle)'))).toBe('auto');
+    expect(lib.parsePaneMode(footer('  ⏵⏵ accept edits on (shift+tab to cycle)'))).toBe('acceptEdits');
+    expect(lib.parsePaneMode(footer('  ⏸ plan mode on (shift+tab to cycle)'))).toBe('plan');
+    expect(lib.parsePaneMode(footer('  ⏵⏵ bypass permissions on (shift+tab to cycle)'))).toBe('bypassPermissions');
+  });
+  it('renvoie default en mode normal (pas de ligne d\'indicateur)', () => {
+    expect(lib.parsePaneMode(footer(null))).toBe('default');
+  });
+  it('ignore le texte de la conversation qui cite les libellés (seule la dernière ligne compte)', () => {
+    const screen = 'je te disais ⏸ plan mode on (shift+tab to cycle) dans mon message\n' + footer('  ⏵⏵ auto mode on (shift+tab to cycle)');
+    expect(lib.parsePaneMode(screen)).toBe('auto');
+  });
+});
