@@ -45,8 +45,12 @@ function buildSessions() {
   }
   // tri : plus récente activité d'abord
   sessions.sort((a, b) => String(b.lastActivity || '').localeCompare(String(a.lastActivity || '')));
-  // on n'expose pas byDay/pendingQuestion en entier dans la liste (lourd) — juste un flag.
-  return sessions.map(({ byDay, file, pendingQuestion, liveQuestion, ...rest }) => ({ ...rest, hasQuestion: !!(pendingQuestion || liveQuestion) }));
+  // on n'expose pas byDay en entier dans la liste (lourd) — juste un flag + la question
+  // (légère) pour permettre la réponse en 1 clic directement depuis la sidebar.
+  return sessions.map(({ byDay, file, pendingQuestion, liveQuestion, ...rest }) => {
+    const question = liveQuestion || pendingQuestion || null;
+    return { ...rest, hasQuestion: !!question, question };
+  });
 }
 
 function buildStats(rangeDays) {

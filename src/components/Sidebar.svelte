@@ -1,6 +1,28 @@
 <script>
-  import { ui, data, openModal } from '../lib/state.svelte.js';
+  import { ui, data, openModal, loadSessions } from '../lib/state.svelte.js';
+  import { reply } from '../lib/api.js';
   import { STATUS_FILTERS, filterMatches, LIVE_STATES, ago, shortModel } from '../lib/format.js';
+
+  // Réponse en 1 clic : on n'affiche les options inline que pour une question unique à choix
+  // simple (le cas des « permissions »). Multi-select / questions multiples → on ouvre la session.
+  function quickOpts(q) {
+    const qs = q && q.questions;
+    if (!qs || qs.length !== 1 || qs[0].multiSelect) return null;
+    return qs[0].options || [];
+  }
+  let sendingId = $state(null);
+  let sentId = $state(null);
+  async function quickReply(s, label) {
+    if (sendingId) return;
+    sendingId = s.id;
+    const res = await reply(s.id, label).catch(() => ({ ok: false }));
+    sendingId = null;
+    if (res.ok) {
+      sentId = s.id;
+      setTimeout(() => { loadSessions(); ui.tick++; }, 600);
+      setTimeout(() => { if (sentId === s.id) sentId = null; }, 2500);
+    }
+  }
 
   const sf = $derived(STATUS_FILTERS.find((f) => f.key === ui.statusFilter) || STATUS_FILTERS[0]);
 
@@ -88,6 +110,16 @@
                     <div class="srow-meta">
                       {#if s.model}<span class="mtag">{shortModel(s.model)}</span>{/if}
                       {#if s.effort}<span class="mtag eff">{s.effort}</span>{/if}
+                    </div>
+                  {/if}
+                  {#if sentId === s.id}
+                    <div class="q-quick-sent">✓ réponse envoyée</div>
+                  {:else if s.hasQuestion && quickOpts(s.question)}
+                    <div class="q-quick">
+                      {#each quickOpts(s.question) as o}
+                        <button class="q-quick-opt" disabled={sendingId === s.id} title={o.description || o.label}
+                                onclick={(e) => { e.stopPropagation(); quickReply(s, o.label); }}>{o.label}</button>
+                      {/each}
                     </div>
                   {/if}
                 </div>
