@@ -212,6 +212,30 @@ describe('liveStateFor', () => {
   }
 });
 
+describe('todos — latestTodos / todoSummary', () => {
+  const TODO_FP = path.join(DIR, 'fixtures', 'todos.jsonl');
+  it('retient le DERNIER appel TodoWrite (la liste réécrite fait foi)', () => {
+    const t = lib.latestTodos(TODO_FP);
+    expect(t).not.toBeNull();
+    expect(t.ts).toBe('2026-06-12T10:05:00Z');
+    expect(t.todos.map((x) => x.status)).toEqual(['completed', 'completed', 'in_progress']);
+    expect(t.todos[2].content).toBe('Ajouter les tests');
+    expect(t.todos[2].activeForm).toBe('Ajout des tests');
+  });
+  it('todoSummary : compteurs + libellé (activeForm) de la tâche en cours', () => {
+    const sum = lib.todoSummary(lib.latestTodos(TODO_FP));
+    expect(sum).toEqual({ total: 3, done: 2, current: 'Ajout des tests' });
+  });
+  it('null quand TodoWrite n\'a jamais servi', () => {
+    expect(lib.latestTodos(FILES.alpha)).toBeNull();
+    expect(lib.todoSummary(null)).toBeNull();
+  });
+  it('current vaut null quand aucune tâche en cours', () => {
+    const sum = lib.todoSummary({ todos: [{ content: 'x', status: 'completed', activeForm: 'X' }] });
+    expect(sum).toEqual({ total: 1, done: 1, current: null });
+  });
+});
+
 describe('agentTranscriptPath', () => {
   it('identique + localise le sous-agent rattaché', () => {
     expect(lib.agentTranscriptPath('sess-alpha', 'aaa')).toEqual(legacy.agentTranscriptPath('sess-alpha', 'aaa'));

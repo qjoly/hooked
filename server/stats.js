@@ -12,6 +12,7 @@ const { sessionStatus, sessionStatusRaw } = require('./status');
 const { buildConversation } = require('./conversation');
 const { buildFileChanges } = require('./changes');
 const { buildSubagents } = require('./subagents');
+const { latestTodos, todoSummary } = require('./todos');
 
 function buildSessions() {
   const sessions = scanSessions();
@@ -42,6 +43,8 @@ function buildSessions() {
     if (li && li.model && !s.model) s.model = li.model;
     // question en attente : transcript (rare, déjà répondue en pratique) OU live (cas réel)
     s.liveQuestion = liveQuestionForSession(s.id);
+    // résumé compact de la TodoList (où en est la session) — léger, pour la sidebar.
+    s.todo = todoSummary(latestTodos(s.file));
   }
   // tri : plus récente activité d'abord
   sessions.sort((a, b) => String(b.lastActivity || '').localeCompare(String(a.lastActivity || '')));
@@ -94,6 +97,7 @@ function sessionDetail(id) {
   const messages = buildConversation(s.file);
   const changes = buildFileChanges(s.file);
   const subagents = buildSubagents(s.file);
+  const todos = latestTodos(s.file);
   const pane = paneForSession(id);
   const li = resolveLaunchForSession(id);
   const tmuxName = pane ? paneTmuxNames().get(pane) : null;
@@ -114,6 +118,7 @@ function sessionDetail(id) {
     fastMode: status ? status.fastMode : false,
     usage5h: usageWindow(5),                          // proxy coût (fallback si pas de statusline)
     events: ev, messages, changes, subagents,
+    todos: todos ? todos.todos : [], todoTs: todos ? todos.ts : null,
   };
 }
 

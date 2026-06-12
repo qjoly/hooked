@@ -106,6 +106,9 @@
                     {#if s.hasQuestion}<span class="q-flag" title="Claude attend ta réponse">⌨</span>{/if}{s.title}
                   </div>
                   <div class="srow-sub">{#if s.gitBranch}{s.gitBranch} · {/if}{ago(s.lastActivity)}</div>
+                  {#if s.todo && s.todo.current}
+                    <div class="srow-todo" title="Tâche en cours (TodoWrite)">▶ {s.todo.current}<span class="todo-frac">{s.todo.done}/{s.todo.total}</span></div>
+                  {/if}
                   {#if LIVE_STATES.includes(s.state) && (s.model || s.effort)}
                     <div class="srow-meta">
                       {#if s.model}<span class="mtag">{shortModel(s.model)}</span>{/if}

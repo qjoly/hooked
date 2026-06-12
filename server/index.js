@@ -8,6 +8,7 @@ module.exports = {
   ...require('./conversation'),
   ...require('./changes'),
   ...require('./subagents'),
+  ...require('./todos'),
   ...require('./files'),
   ...require('./events'),
   ...require('./live'),
