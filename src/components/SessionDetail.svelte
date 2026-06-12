@@ -17,6 +17,9 @@
   let lastActivity = null;
   let stopping = $state(false);
   let attachCopied = $state(false);
+  // messages envoyés en attente d'apparaître dans le transcript (file d'attente, comme le CLI).
+  let queued = $state([]);
+  let forceBottom = false;          // force le scroll en bas au prochain rendu (envoi d'un message)
 
   const events = $derived(s ? (s.events || []).slice().reverse() : []);
 
@@ -31,8 +34,23 @@
     if (ui.currentSessionId !== id) return;
     s = d;
     lastActivity = d.lastActivity || null;
+    // un message en file disparaît dès qu'il apparaît comme bulle user dans le transcript.
+    if (queued.length) {
+      const userTexts = new Set((d.messages || []).filter((m) => m.role === 'user').map((m) => (m.text || '').trim()));
+      queued = queued.filter((q) => !userTexts.has(q.text.trim()));
+    }
     await tick();
-    if (body) body.scrollTop = (isRefresh && !wasAtBottom && prevScroll != null) ? prevScroll : body.scrollHeight;
+    const keepPos = isRefresh && !wasAtBottom && !forceBottom && prevScroll != null;
+    forceBottom = false;
+    if (body) body.scrollTop = keepPos ? prevScroll : body.scrollHeight;
+  }
+
+  // appelé par le Composer juste après un envoi réussi : affiche le message en file et scroll en bas.
+  async function onSent(t) {
+    queued = [...queued, { text: t, ts: new Date().toISOString() }];
+    forceBottom = true;
+    await tick();
+    if (body) body.scrollTop = body.scrollHeight;
   }
 
   onMount(() => load(false));
@@ -145,14 +163,20 @@
       <div class="chat">
         {#if (s.messages || []).length}
           {#each s.messages as m, i (m.ts + ':' + i)}<ChatBubble {m} />{/each}
-        {:else}
+        {:else if !queued.length}
           <div class="pane-empty">Conversation vide.</div>
         {/if}
+        {#each queued as q (q.ts)}
+          <div class="bubble user queued">
+            <div class="who">🧑 Toi <span class="t">⏳ en file d'attente</span></div>
+            <div class="md">{q.text}</div>
+          </div>
+        {/each}
       </div>
       {#if s.pendingQuestion}<Question {id} pq={s.pendingQuestion} />{/if}
       {#if s.tmuxPane}
         <Composer bind:this={composer} {id} alive={s.tmuxAlive} project={s.project}
-                  resumeModel={s.launchModel} resumeEffort={s.effort} lastPrompt={s.lastPrompt || ''} />
+                  resumeModel={s.launchModel} resumeEffort={s.effort} lastPrompt={s.lastPrompt || ''} {onSent} />
       {/if}
     </div>
 

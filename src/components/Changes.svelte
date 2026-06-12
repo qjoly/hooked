@@ -13,6 +13,8 @@
         <span class="ch-arrow">▸</span>
         <span class="ch-name">{c.name}</span>
         <span class="ch-path">{c.file}</span>
+        <a class="ch-open" href={'vscode://file' + c.file} title="Ouvrir dans VS Code"
+           onclick={(e) => e.stopPropagation()}>↗ éditeur</a>
         <span class="ch-count">{c.count} {c.count > 1 ? 'modifs' : 'modif'}</span>
       </div>
       <div class="change-ops">
