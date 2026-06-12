@@ -34,6 +34,10 @@ function handle(input) {
     cwd: j.cwd || null,
     transcript: j.transcript_path || null,
     tool: j.tool_name || null,
+    // mode de permission courant (default / acceptEdits / plan / bypassPermissions) : présent
+    // sur tous les payloads de hooks → seule source pour savoir dans quel mode tourne la session
+    // (le transcript ne le porte pas). Sert au dashboard pour afficher/changer le mode.
+    mode: j.permission_mode || null,
     // input d'AskUserQuestion : capturé au PreToolUse car le tool_use n'est écrit dans
     // le transcript qu'une fois la question répondue → c'est la seule source de la
     // question tant qu'elle est *en attente*. (questions : [{question, header, options, multiSelect}])

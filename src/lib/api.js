@@ -18,7 +18,9 @@ export const getFiles = (id, q) => jget(`/api/files?id=${encodeURIComponent(id)}
 export const getAgent = (session, agent) => jget(`/api/agent?session=${encodeURIComponent(session)}&agent=${encodeURIComponent(agent)}`);
 
 export const reply = (id, text) => jpost('/api/reply', { id, text });
+export const uploadImage = (dataUrl) => jpost('/api/upload-image', { dataUrl });
 export const interrupt = (id) => jpost('/api/interrupt', { id });
+export const setMode = (id, mode) => jpost('/api/mode', { id, mode });
 export const launch = (payload) => jpost('/api/launch', payload);
 export const kill = (id) => jpost('/api/kill', { id });
 

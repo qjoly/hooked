@@ -43,6 +43,16 @@ function paneForSession(id, eventsFile = EVENTS_FILE) {
   return null;
 }
 
+// dernier mode de permission connu pour une session (default / acceptEdits / plan / bypassPermissions).
+// Les payloads de hooks portent `permission_mode` (capté par hook.js) → on lit le plus récent.
+function modeForSession(id, eventsFile = EVENTS_FILE) {
+  const ev = readEvents(eventsFile);
+  for (let i = ev.length - 1; i >= 0; i--) {
+    if (ev[i].session_id === id && ev[i].mode) return ev[i].mode;
+  }
+  return null;
+}
+
 // Question AskUserQuestion *en attente* pour une session, reconstruite depuis les évènements live.
 // Indispensable car le tool_use n'est écrit dans le transcript qu'une fois la question répondue.
 function liveQuestionForSession(id, eventsFile = EVENTS_FILE) {
@@ -77,4 +87,4 @@ function launchConfigByTmux(launchesFile = LAUNCHES_FILE) {
   return map;
 }
 
-module.exports = { readEvents, lastEventBySession, paneForSession, liveQuestionForSession, launchConfigByTmux };
+module.exports = { readEvents, lastEventBySession, paneForSession, modeForSession, liveQuestionForSession, launchConfigByTmux };
