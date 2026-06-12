@@ -3,8 +3,9 @@
 Un dashboard **local** pour suivre tes sessions Claude Code en temps réel — et garder un œil sur ton usage (tokens, coût estimé, projets).
 
 - 🔒 **100 % local** — rien ne sort de ta machine.
-- 🪶 **Zéro dépendance** — uniquement la lib standard de Node.
+- 🪶 **Serveur zéro dépendance runtime** — `server.js` et `hook.js` n'utilisent que la lib standard de Node (les dépendances ne servent qu'à *builder* le front).
 - ⚡ **Temps réel** — l'état des sessions se met à jour tout seul (SSE).
+- 🧩 **Front Svelte** — UI en composants, buildée par Vite. Back découpé en modules testés (Vitest).
 
 ---
 
@@ -30,11 +31,16 @@ Quand tu jongles entre plusieurs sessions Claude Code, tu perds vite le fil : la
 git clone git@github.com:briangtn/hooked.git
 cd hooked
 
+npm install       # dépendances de build (front Svelte) — devDeps uniquement
+npm run build     # build le front dans dist/
 npm run setup     # branche hooked sur les hooks Claude Code (avec backup automatique)
 npm start         # démarre le dashboard
 ```
 
 Ouvre ensuite **http://localhost:4123**.
+
+> ⚠️ Le front doit être buildé (`npm run build`) avant `npm start` — sinon le serveur
+> sert une page d'avertissement à la place de l'UI. Refais un build après chaque mise à jour.
 
 > ⚠️ Après `setup`, **redémarre tes sessions Claude Code** pour activer les hooks.
 > Les sessions déjà ouvertes restent visibles (via les transcripts), mais leur état
@@ -85,6 +91,38 @@ Pour les sessions lancées dans **tmux**, un composer apparaît en bas de la con
 Coût estimé, tokens, sessions, tours, prompts — avec des graphes par **jour / modèle / projet / outil** et des plages **1j / 7j / 30j / tout**.
 
 ---
+
+## Développement
+
+```bash
+npm run dev        # serveur Vite (HMR) sur :5173, proxifie l'API + SSE vers :4123
+npm run dev:server # (dans un autre terminal) le serveur Node API/SSE sur :4123
+npm test           # tests de caractérisation (Vitest) — filet anti-régression du back
+npm run build      # build de prod du front → dist/
+```
+
+### Architecture
+
+```
+server.js              point d'entrée HTTP (routing API, statique, SSE)
+server/                logique back, zéro dépendance, en modules testables
+  ├─ pricing.js        tarifs + calcul de coût
+  ├─ transcript.js     parsing des transcripts (+ cache mtime, scan, sous-agents)
+  ├─ conversation.js   reconstruction du chat
+  ├─ changes.js        diffs de fichiers
+  ├─ subagents.js      appels Agent/Task
+  ├─ files.js          listing + matching flou (@-complétion)
+  ├─ events.js         évènements live (hook) + config de lancement
+  ├─ live.js           état live d'une session
+  ├─ tmux.js           lancer / reprendre / stopper / répondre
+  └─ stats.js          sessions, stats, détail
+src/                   front Svelte (composants) + helpers (format, api, état)
+hook.js                capteur d'évènements (branché sur les hooks)
+test/                  fixtures synthétiques + tests différentiels (ancien vs nouveau)
+```
+
+Les tests comparent, sur des fixtures synthétiques, la sortie de l'ancien `server.js`
+(figé dans `test/reference/`) à celle des nouveaux modules : toute divergence = régression.
 
 ## Comment ça marche
 
