@@ -8,6 +8,7 @@
   import Composer from './Composer.svelte';
   import Changes from './Changes.svelte';
   import Subagents from './Subagents.svelte';
+  import Todos from './Todos.svelte';
 
   let { id } = $props();
   let s = $state(null);          // détail de session
@@ -153,6 +154,9 @@
     <div class="subtabs">
       <button class="subtab" class:active={tab === 'chat'} onclick={() => (tab = 'chat')}>💬 Conversation <span class="count">{(s.messages || []).length}</span></button>
       <button class="subtab" class:active={tab === 'changes'} onclick={() => (tab = 'changes')}>📝 Fichiers <span class="count">{(s.changes || []).length}</span></button>
+      {#if (s.todos || []).length}
+        <button class="subtab" class:active={tab === 'todos'} onclick={() => (tab = 'todos')}>✅ Tâches <span class="count">{(s.todos || []).length}</span></button>
+      {/if}
       <button class="subtab" class:active={tab === 'subagents'} onclick={() => (tab = 'subagents')}>🤖 Sous-agents <span class="count">{(s.subagents || []).length}</span></button>
       <button class="subtab" class:active={tab === 'activity'} onclick={() => (tab = 'activity')}>🪝 Activité <span class="count">{events.length}</span></button>
     </div>
@@ -186,6 +190,10 @@
 
     <div class="pane" class:active={tab === 'subagents'}>
       <div class="changes"><Subagents subagents={s.subagents || []} session={id} /></div>
+    </div>
+
+    <div class="pane" class:active={tab === 'todos'}>
+      <Todos todos={s.todos || []} />
     </div>
 
     <div class="pane" class:active={tab === 'activity'}>
