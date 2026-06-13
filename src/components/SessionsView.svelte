@@ -5,7 +5,7 @@
   import SessionDetail from './SessionDetail.svelte';
 </script>
 
-<div class="layout">
+<div class="layout" class:has-detail={!!ui.currentSessionId}>
   <Sidebar />
   <div class="main-pane">
     {#if ui.currentSessionId}
