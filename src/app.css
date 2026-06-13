@@ -598,3 +598,118 @@ textarea.lf-input { font-family: inherit; resize: vertical; }
 .at-item.sel, .at-item:hover { background: var(--accent-soft); }
 .at-name { font-weight: 700; font-family: var(--mono); font-size: 13px; flex: 0 0 auto; }
 .at-path { color: var(--muted); font-family: var(--mono); font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ---------- bouton retour mobile (caché par défaut) ---------- */
+.pane-back {
+  display: none;
+  background: var(--bg3); color: var(--text); border: 1px solid var(--border2);
+  width: 32px; height: 32px; border-radius: 10px; cursor: pointer;
+  font-size: 16px; font-weight: 700; align-items: center; justify-content: center;
+  margin-right: 4px; flex: 0 0 auto;
+}
+.pane-back:hover { background: var(--border2); }
+.pane-back:active { transform: translateY(1px); }
+
+/* =====================================================================
+   Responsive
+   - ≤900px : layout stacké (sidebar = liste, détail glisse par-dessus)
+   - ≤560px : grilles à une colonne, header compact, modales pleine largeur
+   ===================================================================== */
+@media (max-width: 900px) {
+  body { font-size: 13.5px; }
+  /* header compact */
+  header { gap: 12px; padding: 10px 14px; flex-wrap: wrap; }
+  .brand { font-size: 15px; gap: 7px; }
+  .tabs { padding: 3px; }
+  .tab { padding: 6px 11px; font-size: 12.5px; }
+  .status { font-size: 10px; gap: 6px; }
+
+  /* layout : sidebar plein écran ; détail glisse par-dessus */
+  .layout { display: block; position: relative; height: 100%; overflow: hidden; }
+  .sidebar {
+    width: 100%; min-width: 0; height: 100%;
+    border-right: none; border-bottom: 1px solid var(--border);
+  }
+  .main-pane {
+    position: absolute; inset: 0;
+    background: var(--panel);
+    transform: translateX(100%);
+    transition: transform .25s ease;
+    z-index: 5;
+    box-shadow: -8px 0 24px -16px rgba(74,56,38,.4);
+  }
+  .layout.has-detail .main-pane { transform: translateX(0); }
+  .layout.has-detail .sidebar { visibility: hidden; }
+
+  /* paddings réduits */
+  .pane-head { padding: 14px 16px; }
+  .pane-body { padding: 16px 14px 32px; }
+  .overview { padding: 18px 14px; }
+  #view-stats { padding: 18px 14px; }
+  .side-head { padding: 12px 12px 10px; }
+  .side-list { padding: 4px 8px 20px; }
+
+  /* bouton retour visible */
+  .pane-back { display: inline-flex; }
+
+  /* méta header : usage-bar prend toute la largeur */
+  .usage-bar { min-width: 0; max-width: 100%; flex: 1 1 100%; }
+
+  /* modales un peu plus larges proportionnellement */
+  .modal-card { width: min(720px, 94vw); padding: 22px 18px; max-height: 90vh; }
+}
+
+@media (max-width: 560px) {
+  /* header : pas de label "live", juste la pastille */
+  .status span:not(.dot) { display: none; }
+  .brand span { display: none; }   /* on garde l'emoji 🪝 seul */
+
+  /* grilles → 1 colonne */
+  .cards { grid-template-columns: 1fr; gap: 10px; }
+  .global-bar { grid-template-columns: 1fr 1fr; gap: 8px; }
+  .kpis { grid-template-columns: 1fr 1fr; gap: 10px; }
+  .charts { grid-template-columns: 1fr; gap: 12px; }
+  .detail-grid { grid-template-columns: 1fr 1fr; gap: 10px; }
+  .lf-row { flex-direction: column; gap: 0; }
+
+  /* KPI / cartes plus compacts */
+  .gp { padding: 10px 12px; gap: 9px; border-radius: 13px; }
+  .gp-i { font-size: 17px; }
+  .gp-v { font-size: 18px; }
+  .gp-l { font-size: 10.5px; }
+  .kpi { padding: 14px; border-radius: 13px; }
+  .kpi .v { font-size: 22px; }
+  .card { padding: 13px; border-radius: 13px; }
+
+  /* chat */
+  .bubble { max-width: 92%; font-size: 13px; padding: 10px 12px; }
+  .chip-d { max-width: 180px; }
+
+  /* composer plus compact */
+  .composer { padding: 10px; border-radius: 14px; gap: 8px; }
+  .reply-send { padding: 0 14px; height: 38px; font-size: 13px; }
+  .composer textarea { font-size: 13.5px; min-height: 36px; }
+
+  /* modale plein écran utile */
+  .modal-card { width: 96vw; padding: 20px 14px; border-radius: 14px; max-height: 92vh; }
+  .modal-close { top: 12px; right: 12px; }
+
+  /* tabs : si trop serrés, autorise le wrap */
+  header { gap: 8px; }
+  nav.tabs { order: 3; flex-basis: 100%; justify-content: center; }
+  .status { margin-left: auto; }
+
+  /* sous-onglets : scroll horizontal plutôt que wrap */
+  .subtabs { overflow-x: auto; flex-wrap: nowrap; }
+  .subtab { white-space: nowrap; flex: 0 0 auto; }
+
+  /* daybars un peu plus courts */
+  .daybars { height: 110px; }
+
+  /* diff side-by-side → empilé (trop étroit pour 2 colonnes) */
+  .diff-split { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 380px) {
+  .global-bar, .kpis, .detail-grid { grid-template-columns: 1fr; }
+}

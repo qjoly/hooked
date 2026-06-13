@@ -124,6 +124,7 @@
 {#if s}
   <div class="pane-head s-{s.state}">
     <div class="card-top" style="cursor:default;margin-bottom:6px">
+      <button class="pane-back" onclick={() => (ui.currentSessionId = null)} title="Retour à la liste">←</button>
       <span class="proj">{s.projectName || '?'}</span>
       {#if s.gitBranch}<span class="branch">{s.gitBranch}</span>{/if}
       {#if s.tmuxAlive}
