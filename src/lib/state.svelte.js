@@ -5,6 +5,7 @@ export const ui = $state({
   view: 'sessions',          // 'sessions' | 'stats'
   live: false,               // connexion SSE active ?
   currentSessionId: null,    // session ouverte dans le détail (null = vue d'ensemble)
+  composing: false,          // écran « nouvelle session » (chat plein écran) affiché ?
   statusFilter: 'all',
   search: '',
   hideOld: false,

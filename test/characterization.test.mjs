@@ -156,6 +156,49 @@ describe('scanSessions', () => {
   });
 });
 
+describe('eventSessionMeta — sessions vues dans les hooks', () => {
+  it('agrège cwd / transcript / timestamps / ended par session', () => {
+    const m = lib.eventSessionMeta();
+    expect(m.get('sess-alpha')).toEqual({
+      cwd: '/Users/test/proj-alpha', transcript: null,
+      firstTs: '2026-06-11T09:00:00.000Z', lastTs: '2026-06-11T09:01:00.000Z', ended: false,
+      firstPrompt: null,
+    });
+    // sess-beta : seul évènement Stop → non terminé (SessionEnd absent)
+    expect(m.get('sess-beta')).toEqual({
+      cwd: null, transcript: null,
+      firstTs: '2026-06-09T14:00:00.000Z', lastTs: '2026-06-09T14:00:00.000Z', ended: false,
+      firstPrompt: null,
+    });
+  });
+});
+
+describe('buildSessions — sessions live-only (avant transcript)', () => {
+  it('ne ressuscite pas les sessions anciennes/avec transcript déjà scanné', () => {
+    // fixtures : sess-alpha/beta ont un transcript ET des évènements vieux de plusieurs jours
+    // → aucune session synthétique ne doit être ajoutée (dédup + garde-fou de récence).
+    const ids = lib.buildSessions().map((s) => s.id).sort();
+    expect(ids).toEqual(['sess-alpha', 'sess-beta']);
+    expect(lib.buildSessions().some((s) => s.title === '(nouvelle session)')).toBe(false);
+  });
+  it('synthétise une session récente sans transcript, titrée par le prompt (50 car.)', () => {
+    // sess-fresh : SessionStart + UserPromptSubmit, sans transcript → session live-only.
+    const PROMPT = "Corrige le bug d'affichage de la sidebar quand on lance une nouvelle session please";
+    const now = Date.parse('2026-06-11T10:05:00.000Z'); // < 30 min après le dernier évènement
+    const fresh = lib.eventOnlySessions(new Set(['sess-alpha', 'sess-beta']), now)
+      .find((s) => s.id === 'sess-fresh');
+    expect(fresh).toBeTruthy();
+    expect(fresh.title).toBe(PROMPT.slice(0, 50));
+    expect(fresh.firstPrompt).toBe(PROMPT);
+    expect(fresh.projectName).toBe('proj-fresh');
+  });
+  it('exclut une session sans transcript trop ancienne (> 30 min)', () => {
+    const now = Date.parse('2026-06-11T12:00:00.000Z'); // ~2 h après → hors fenêtre
+    const ids = lib.eventOnlySessions(new Set(), now).map((s) => s.id);
+    expect(ids).not.toContain('sess-fresh');
+  });
+});
+
 describe('buildStats', () => {
   for (const range of [0, 7, 30]) {
     it(`identique pour range=${range}`, () => {

@@ -1,8 +1,9 @@
 <script>
   import { onMount, onDestroy, tick, untrack } from 'svelte';
-  import { ui, data, loadSessions } from '../lib/state.svelte.js';
-  import { getSession, kill, setMode } from '../lib/api.js';
-  import { STATE_LABEL, fmtCost, fmtTokens, fmtDuration, ago, shortModel, prLabel, PERMISSION_MODES, modeLabel, modeMeta } from '../lib/format.js';
+  import { ui, data, loadSessions, openModal } from '../lib/state.svelte.js';
+  import { getSession, kill, setMode, setModelEffort } from '../lib/api.js';
+  import { STATE_LABEL, fmtCost, fmtTokens, fmtDuration, ago, shortModel, prLabel, PERMISSION_MODES, modeLabel, modeMeta, modelAlias } from '../lib/format.js';
+  import ModelEffort from './ModelEffort.svelte';
   import ChatBubble from './ChatBubble.svelte';
   import Question from './Question.svelte';
   import Composer from './Composer.svelte';
@@ -30,6 +31,20 @@
   let forceBottom = false;          // force le scroll en bas au prochain rendu (envoi d'un message)
 
   const events = $derived(s ? (s.events || []).slice().reverse() : []);
+
+  // indicateur 5 h compact pour la ligne de stats : valeur réelle (statusline) sinon estimation.
+  const stat5h = $derived.by(() => {
+    if (!s) return null;
+    const rl = s.rateLimit && s.rateLimit.fiveHour;
+    if (rl && rl.pct != null) {
+      return { pct: rl.pct, est: false, title: 'Rate limit de session 5 h (réel)' + (rl.resetInMin != null ? ` — réinitialise dans ${fmtDuration(rl.resetInMin)}` : '') };
+    }
+    if (s.usage5h) {
+      const u = s.usage5h;
+      return { pct: u.pct, est: true, title: `Estimation 5 h : ${fmtCost(u.cost)} / ${fmtCost(u.budget)}` + (u.resetInMin != null ? ` — réinitialise dans ${fmtDuration(u.resetInMin)}` : '') };
+    }
+    return null;
+  });
 
   async function load(isRefresh) {
     let prevScroll = null, wasAtBottom = false;
@@ -91,7 +106,36 @@
   });
 
   function resume() {
-    ui.modal = { type: 'resume', data: { id: s.id, project: s.project, projectName: s.projectName, title: s.title } };
+    ui.modal = { type: 'resume', data: { id: s.id, project: s.project, projectName: s.projectName, title: s.title, model: s.launchModel || modelAlias(s.model), effort: s.effort } };
+  }
+
+  // changement à chaud du modèle / de l'effort d'une session live (envoie /model et /effort
+  // dans le TUI). État local synchronisé sur les vraies valeurs tant qu'on n'édite pas.
+  let editModel = $state('');
+  let editEffort = $state('');
+  let meBusy = $state(false);
+  let meStatus = $state('');
+  $effect(() => {
+    if (!s || meBusy) return;
+    // launchModel (persisté, reflète notre dernier /model) prioritaire ; sinon modèle du transcript.
+    const m = s.launchModel || modelAlias(s.model) || 'opus';
+    const e = s.effort || 'high';
+    untrack(() => { editModel = m; editEffort = e; });
+  });
+  async function applyModelEffort() {
+    if (meBusy) return;
+    meBusy = true;
+    meStatus = '…';
+    const res = await setModelEffort(s.id, editModel, editEffort).catch((e) => ({ ok: false, data: { error: e.message } }));
+    if (res.ok) {
+      meStatus = '✓ ' + editModel + ' · ' + editEffort;
+      setTimeout(() => { meStatus = ''; }, 2500);
+      setTimeout(() => { loadSessions(); ui.tick++; }, 600);
+    } else {
+      meStatus = '✗ ' + (res.data.error || 'échec');
+      setTimeout(() => { meStatus = ''; }, 3500);
+    }
+    meBusy = false;
   }
   async function stop() {
     if (!confirm('Stopper cette session ? Le pane tmux où tourne Claude sera fermé.')) return;
@@ -142,55 +186,46 @@
       {/if}
       <span class="badge s-badge" style="margin-left:auto">{STATE_LABEL[s.state] || s.state}</span>
     </div>
+    <h2 style="margin:6px 0 0">{s.title}</h2>
     {#if s.tmuxAlive}
       {@const cur = modeMeta(modeView)}
-      <div class="mode-switch" title="Mode de permission de Claude — bascule via Maj+Tab dans la session interactive">
-        <span class="mode-cap">Mode actuel</span>
-        <span class="mode-now mode-{modeView}" title={cur.title}><span class="mode-ico">{cur.icon}</span>{cur.label}</span>
-        <span class="mode-sep">→</span>
-        {#each PERMISSION_MODES as m}
-          <button class="mode-chip" class:active={modeView === m.key} disabled={modeBusy}
-                  onclick={() => switchMode(m.key)} title={m.title}>
-            <span class="mode-ico">{m.icon}</span>{m.label}
-          </button>
-        {/each}
-        {#if modeStatus}<span class="mode-status">{modeStatus}</span>{/if}
+      <div class="head-toolbar">
+        <div class="tb-group" title="Mode de permission de Claude (Maj+Tab dans la session)">
+          {#if !PERMISSION_MODES.some((m) => m.key === modeView)}
+            <span class="mode-now mode-{modeView}" title={cur.title}><span class="mode-ico">{cur.icon}</span>{cur.label}</span>
+          {/if}
+          {#each PERMISSION_MODES as m}
+            <button class="mode-chip" class:active={modeView === m.key} disabled={modeBusy}
+                    onclick={() => switchMode(m.key)} title={m.title}>
+              <span class="mode-ico">{m.icon}</span>{m.label}
+            </button>
+          {/each}
+          {#if modeStatus}<span class="mode-status">{modeStatus}</span>{/if}
+        </div>
+        <span class="tb-sep"></span>
+        <div class="tb-group" title="Modèle et effort de la session — applique /model et /effort dans le TUI">
+          <ModelEffort compact bind:model={editModel} bind:effort={editEffort} onchange={applyModelEffort} disabled={meBusy} />
+          {#if meStatus}<span class="mode-status">{meStatus}</span>{/if}
+        </div>
       </div>
     {/if}
-    <h2 style="margin:0">{s.title}</h2>
-    <div class="head-meta">
-      {#if s.rateLimit && s.rateLimit.fiveHour && s.rateLimit.fiveHour.pct != null}
-        {@const rl = s.rateLimit.fiveHour}
-        <div class="usage-bar" class:warn={rl.pct >= 70} class:full={rl.pct >= 90}
-             title="Rate limit de la session de 5 h (compte) — valeur réelle remontée par la statusline Claude Code">
-          <div class="usage-top"><span class="usage-label">⏳ Session 5 h</span><span class="usage-pct">{rl.pct}%</span></div>
-          <div class="usage-track"><div class="usage-fill" style="width:{rl.pct}%"></div></div>
-          {#if rl.resetInMin != null}<div class="usage-sub">réinitialise dans {fmtDuration(rl.resetInMin)}</div>{/if}
-        </div>
-      {:else if s.usage5h}
-        {@const u = s.usage5h}
-        <div class="usage-bar" class:warn={u.pct >= 75} class:full={u.pct >= 95}
-             title={`Estimation (pas de statusline) : ${fmtCost(u.cost)} de coût sur un budget de ${fmtCost(u.budget)} sur 5 h. Ajustable via HOOKED_SESSION_BUDGET.`}>
-          <div class="usage-top"><span class="usage-label">⏳ Session 5 h <span class="usage-est">(est.)</span></span><span class="usage-pct">{u.pct}%</span></div>
-          <div class="usage-track"><div class="usage-fill" style="width:{u.pct}%"></div></div>
-          <div class="usage-sub">{fmtCost(u.cost)} · {fmtTokens(u.output)} tk{#if u.resetInMin != null} · réinitialise dans {fmtDuration(u.resetInMin)}{/if}</div>
-        </div>
+    <div class="head-stats" onclick={() => openModal('cost')} title="Voir le détail du coût estimé">
+      <span><b>{fmtCost(s.cost)}</b>{#if s.subagentCost > 0} <span class="hs-sub">(dont {fmtCost(s.subagentCost)} agents)</span>{/if}</span>
+      <span class="hs-dot">·</span><span>{s.userPrompts} prompts</span>
+      <span class="hs-dot">·</span><span>{fmtTokens(s.usage.output)} out</span>
+      <span class="hs-dot">·</span><span>{fmtTokens(s.usage.cacheRead)} cache</span>
+      {#if !s.tmuxAlive && s.model}<span class="hs-dot">·</span><span>{shortModel(s.model)}</span>{/if}
+      {#if stat5h && stat5h.pct != null}
+        <span class="hs-dot">·</span>
+        <span class="hs-5h" class:warn={stat5h.pct >= 75} class:full={stat5h.pct >= 95} title={stat5h.title}>⏳ {stat5h.pct}%{#if stat5h.est} est.{/if}</span>
       {/if}
-    </div>
-    {#if s.prLinks && s.prLinks.length}
-      <div class="pr-links">
+      {#if s.prLinks && s.prLinks.length}
         {#each s.prLinks as l}
-          <a class="pr-link" href={l} target="_blank" rel="noopener" title={l}><span class="pr-ico">🔗</span>{prLabel(l)}</a>
+          <span class="hs-dot">·</span>
+          <a class="hs-pr" href={l} target="_blank" rel="noopener" title={l} onclick={(e) => e.stopPropagation()}>🔗 {prLabel(l)}</a>
         {/each}
-      </div>
-    {/if}
-    <div class="detail-grid" style="margin:14px 0 0">
-      <div><div class="v">{fmtCost(s.cost)}</div><div class="l">coût estimé</div></div>
-      {#if s.subagentCost > 0}<div><div class="v">{fmtCost(s.subagentCost)}</div><div class="l">dont sous-agents</div></div>{/if}
-      <div><div class="v">{s.userPrompts}</div><div class="l">prompts</div></div>
-      <div><div class="v">{fmtTokens(s.usage.output)}</div><div class="l">tokens out</div></div>
-      <div><div class="v">{fmtTokens(s.usage.cacheRead)}</div><div class="l">cache lu</div></div>
-      <div><div class="v">{shortModel(s.model)}</div><div class="l">modèle</div></div>
+      {/if}
+      <span class="hs-more">›</span>
     </div>
     <div class="subtabs">
       <button class="subtab" class:active={tab === 'chat'} onclick={() => (tab = 'chat')}>💬 Conversation <span class="count">{(s.messages || []).length}</span></button>

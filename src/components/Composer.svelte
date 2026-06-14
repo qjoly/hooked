@@ -1,10 +1,13 @@
 <script>
-  import { reply, interrupt, launch, getFiles, uploadImage } from '../lib/api.js';
+  import { reply, interrupt, launch, getFiles, getCommands, uploadImage } from '../lib/api.js';
   import { loadSessions, ui } from '../lib/state.svelte.js';
 
   // `alive` : pane tmux vivant → on répond direct. Sinon, l'envoi relance `claude --resume`
   // dans une nouvelle session tmux (en conservant modèle/effort d'origine si connus).
-  let { id, alive = true, project = null, resumeModel = null, resumeEffort = null, lastPrompt = '', onSent = null } = $props();
+  // `newSession` : pas d'id encore — l'envoi LANCE une session neuve dans `project` (cwd) avec
+  // le `model`/`effort` choisis ; `onLaunched(cwd)` est notifié pour ouvrir la session créée.
+  let { id, alive = true, project = null, resumeModel = null, resumeEffort = null, lastPrompt = '',
+        onSent = null, newSession = false, model = '', effort = '', onLaunched = null } = $props();
 
   let ta;                       // ref textarea
   let text = $state('');
@@ -48,13 +51,15 @@
   }
   function removeImage(i) { images = images.filter((_, j) => j !== i); }
 
-  // ----- auto-complétion @fichier -----
+  // ----- auto-complétion @fichier + /commande -----
+  // Items normalisés : { insert, label, sub, badge } — un seul rendu pour les deux modes.
+  //  @ fichier  → déclenché après un « @ » précédé d'un espace/début.
+  //  / commande → déclenché uniquement quand « / » est en tout début du message (position commande).
   let acItems = $state([]);
   let acSel = $state(-1);
   let acStart = -1;
   let acReq = 0;
   const acOpen = $derived(acItems.length > 0);
-  const baseName = (f) => f.slice(f.lastIndexOf('/') + 1);
 
   function autosize() {
     if (!ta) return;
@@ -62,32 +67,53 @@
     ta.style.height = Math.min(ta.scrollHeight, 160) + 'px';
   }
   function closeAc() { acItems = []; acSel = -1; acStart = -1; }
+  const baseName = (f) => f.slice(f.lastIndexOf('/') + 1);
 
   async function queryAc() {
     const pos = ta.selectionStart;
-    const m = ta.value.slice(0, pos).match(/(^|\s)@([^\s@]*)$/);
-    if (!m) { closeAc(); return; }
-    acStart = pos - m[2].length - 1; // index du « @ »
+    const before = ta.value.slice(0, pos);
+    // « / » en tout début de message → auto-complétion des commandes
+    const cmd = before.match(/^\/([a-z0-9:_-]*)$/i);
+    if (cmd) return queryCommands(cmd[1], pos);
+    // « @ » → auto-complétion des fichiers du projet
+    const at = before.match(/(^|\s)@([^\s@]*)$/);
+    if (at) return queryFiles(at[2], pos, pos - at[2].length - 1);
+    closeAc();
+  }
+  async function queryFiles(q, pos, start) {
+    acStart = start; // index du « @ »
     const myReq = ++acReq;
     try {
-      const d = await getFiles(id, m[2]);
+      const d = await getFiles(id, q, newSession ? project : null);
       if (myReq !== acReq || ta.selectionStart !== pos) return; // réponse périmée
-      acItems = (d.files || []).slice(0, 30);
+      acItems = (d.files || []).slice(0, 30).map((f) => ({ insert: '@' + f + ' ', label: baseName(f), sub: f, badge: '' }));
+      acSel = acItems.length ? 0 : -1;
+    } catch (_) { closeAc(); }
+  }
+  async function queryCommands(q, pos) {
+    acStart = 0; // index du « / » (début de message)
+    const myReq = ++acReq;
+    try {
+      const d = await getCommands(id, q, newSession ? project : null);
+      if (myReq !== acReq || ta.selectionStart !== pos) return; // réponse périmée
+      acItems = (d.commands || []).map((c) => ({
+        insert: '/' + c.name + ' ', label: '/' + c.name, sub: c.description || '',
+        badge: c.group === 'custom' ? (c.source || 'custom') : 'built-in',
+      }));
       acSel = acItems.length ? 0 : -1;
     } catch (_) { closeAc(); }
   }
   function moveAc(d) { if (acItems.length) acSel = (acSel + d + acItems.length) % acItems.length; }
   function acceptAc() {
     let i = acSel < 0 ? 0 : acSel;
-    const f = acItems[i];
-    if (f == null || acStart < 0) return;
+    const it = acItems[i];
+    if (it == null || acStart < 0) return;
     const before = ta.value.slice(0, acStart);
     const after = ta.value.slice(ta.selectionStart);
-    const ins = '@' + f + ' ';
-    text = before + ins + after;
-    const at = (before + ins).length;
+    text = before + it.insert + after;
+    const pos = (before + it.insert).length;
     closeAc();
-    queueMicrotask(() => { if (ta) { ta.focus(); ta.selectionStart = ta.selectionEnd = at; autosize(); } });
+    queueMicrotask(() => { if (ta) { ta.focus(); ta.selectionStart = ta.selectionEnd = pos; autosize(); } });
   }
 
   function onInput() { autosize(); queryAc(); }
@@ -105,6 +131,7 @@
   // Echap (comme dans le CLI claude-code) : interrompt Claude et recharge le dernier prompt
   // dans le composer pour le corriger. Exposé au parent (écoute aussi Echap hors textarea).
   export function interruptEdit() {
+    if (newSession) { closeAc(); return; }
     if (alive) interrupt(id).then(() => { loadSessions(); ui.tick++; }).catch(() => {});
     if (lastPrompt && !text.trim()) {
       text = lastPrompt;
@@ -124,15 +151,18 @@
     const paths = images.map((im) => im.path).join(' ');
     const full = paths ? (t ? paths + ' ' + t : paths) : t;
     busy = true;
-    status = { text: alive ? 'envoi…' : 'relance de la session…', cls: '' };
-    const res = alive
-      ? await reply(id, full).catch((e) => ({ ok: false, data: { error: e.message } }))
-      : await launch({ resumeId: id, prompt: full, cwd: project, model: resumeModel || '', effort: resumeEffort || '' }).catch((e) => ({ ok: false, data: { error: e.message } }));
+    status = { text: newSession ? 'lancement…' : (alive ? 'envoi…' : 'relance de la session…'), cls: '' };
+    const res = newSession
+      ? await launch({ cwd: project, prompt: full, model, effort }).catch((e) => ({ ok: false, data: { error: e.message } }))
+      : alive
+        ? await reply(id, full).catch((e) => ({ ok: false, data: { error: e.message } }))
+        : await launch({ resumeId: id, prompt: full, cwd: project, model: resumeModel || '', effort: resumeEffort || '' }).catch((e) => ({ ok: false, data: { error: e.message } }));
     if (res.ok) {
       text = ''; images = []; autosize();
       // file d'attente + scroll auto : on signale au parent le message tout juste envoyé.
-      if (alive && onSent) onSent(full);
-      status = { text: alive ? ('✓ remis dans ' + res.data.pane) : ('✓ session relancée (' + (res.data.tmux || 'tmux') + ')'), cls: 'ok' };
+      if (alive && !newSession && onSent) onSent(full);
+      if (newSession && onLaunched) onLaunched(project);
+      status = { text: newSession ? ('✓ session lancée (' + (res.data.tmux || 'tmux') + ')') : (alive ? ('✓ remis dans ' + res.data.pane) : ('✓ session relancée (' + (res.data.tmux || 'tmux') + ')')), cls: 'ok' };
       setTimeout(() => { status = { text: '', cls: '' }; }, 3000);
       setTimeout(() => { loadSessions(); ui.tick++; }, 600);
     } else {
@@ -143,13 +173,15 @@
   }
 </script>
 
-<div class="composer" class:relaunch={!alive}>
+<div class="composer" class:relaunch={!alive && !newSession}>
   <textarea bind:this={ta} bind:value={text} id="reply-text" rows="1" disabled={busy}
-            placeholder={alive
-              ? 'Répondre à Claude…  (Entrée pour envoyer · Maj+Entrée = nouvelle ligne · @ fichier · colle une image · Échap interrompt)'
-              : 'Session tmux fermée — envoyer relancera claude --resume…  (@ fichier · colle une image)'}
+            placeholder={newSession
+              ? 'Décris ta tâche pour démarrer la session…  (Entrée pour lancer · @ fichier · / commande · colle une image)'
+              : alive
+                ? 'Répondre à Claude…  (Entrée pour envoyer · Maj+Entrée = nouvelle ligne · @ fichier · / commande · colle une image · Échap interrompt)'
+                : 'Session tmux fermée — envoyer relancera claude --resume…  (@ fichier · / commande · colle une image)'}
             oninput={onInput} onkeydown={onKeydown} onpaste={onPaste} onblur={() => setTimeout(closeAc, 150)}></textarea>
-  <button class="reply-send" disabled={busy || uploading > 0} onclick={send}>{alive ? 'Envoyer ↩' : 'Relancer ↗'}</button>
+  <button class="reply-send" disabled={busy || uploading > 0} onclick={send}>{newSession ? 'Lancer ↗' : alive ? 'Envoyer ↩' : 'Relancer ↗'}</button>
   {#if images.length || uploading}
     <div class="img-tray">
       {#each images as im, i}
@@ -162,9 +194,11 @@
     </div>
   {/if}
   <div class="at-pop" class:hidden={!acOpen}>
-    {#each acItems as f, i}
+    {#each acItems as it, i}
       <div class="at-item" class:sel={i === acSel} onmousedown={(e) => { e.preventDefault(); acSel = i; acceptAc(); }}>
-        <span class="at-name">{baseName(f)}</span><span class="at-path">{f}</span>
+        <span class="at-name">{it.label}</span>
+        {#if it.badge}<span class="at-badge">{it.badge}</span>{/if}
+        <span class="at-path">{it.sub}</span>
       </div>
     {/each}
   </div>

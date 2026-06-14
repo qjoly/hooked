@@ -5,8 +5,9 @@
   import LaunchResult from './LaunchResult.svelte';
 
   let { r } = $props();
-  let model = $state('');
-  let effort = $state('');
+  // pré-sélection : modèle/effort réels de la session d'origine (sinon valeurs par défaut).
+  let model = $state(r.model || 'opus');
+  let effort = $state(r.effort || 'high');
   let prompt = $state('');
   let status = $state({ text: '', cls: '' });
   let busy = $state(false);
@@ -28,8 +29,7 @@
   <h2 style="margin:0 0 4px">▶ Reprendre la session</h2>
   <p style="color:var(--muted);font-size:12.5px;line-height:1.5;margin:0 0 16px">
     Relance <code>claude --resume …</code> dans <code>{r.project || r.projectName || '?'}</code>
-    (session <b>tmux</b> détachée, abonnement, <b>zéro conso token</b>). Modèle/effort optionnels —
-    laisse « défaut » pour garder la config d'origine.</p>
+    (session <b>tmux</b> détachée, abonnement, <b>zéro conso token</b>).</p>
   <div class="lf-resume-title">📄 {r.title || r.id}</div>
   <ModelEffort bind:model bind:effort />
   <label class="lf-label">Message à envoyer <span style="color:var(--muted);font-weight:400">(optionnel)</span></label>

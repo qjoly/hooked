@@ -54,15 +54,16 @@
 
   async function send() {
     if (!allAnswered || sending) return;
-    // multi-sélection d'une question jointe par « , », réponses distinctes par « · » (sans \n).
-    const text = selectedLabels().map((l) => l.join(', ')).filter(Boolean).join(' · ');
-    if (!text) return;
+    // Une entrée par question (multi-sélection d'une même question jointe par « , ») : le
+    // backend tape chaque réponse puis Entrée sur son écran, le TUI enchaînant les questions.
+    const answers = selectedLabels().map((l) => l.join(', ')).filter(Boolean);
+    if (!answers.length) return;
     sending = true;
     recap = { text: '', cls: '' };
-    const res = await reply(id, text).catch((e) => ({ ok: false, data: { error: e.message } }));
+    const res = await reply(id, answers).catch((e) => ({ ok: false, data: { error: e.message } }));
     if (res.ok) {
       sent = true;
-      recap = { text: '✓ envoyé : ' + text, cls: 'ok' };
+      recap = { text: '✓ envoyé : ' + answers.join('  ·  '), cls: 'ok' };
       setTimeout(() => { loadSessions(); ui.tick++; }, 600);
     } else {
       recap = { text: '✗ ' + (res.data.error || 'échec'), cls: 'err' };
