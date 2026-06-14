@@ -21,6 +21,17 @@ export function ago(ts) {
 }
 export const shortModel = (m) => (m || '').replace(/^claude-/, '');
 
+// modèles / efforts proposés au lancement et au changement à chaud (liste blanche côté serveur).
+export const MODEL_OPTS = [['opus', 'Opus'], ['sonnet', 'Sonnet'], ['haiku', 'Haiku'], ['fable', 'Fable']];
+export const EFFORT_OPTS = ['low', 'medium', 'high', 'xhigh', 'max'];
+
+// identifiant de modèle complet (ex. « claude-opus-4-8 ») → alias court (« opus ») pour
+// pré-sélectionner le bon item dans le sélecteur. '' si inconnu.
+export function modelAlias(m) {
+  const s = (m || '').toLowerCase();
+  return (MODEL_OPTS.find(([k]) => s.includes(k)) || [''])[0];
+}
+
 // durée courte à partir de minutes : « 2 h 46 min » / « 46 min » / « <1 min ».
 export function fmtDuration(min) {
   min = Math.max(0, Math.round(min || 0));

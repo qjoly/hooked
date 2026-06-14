@@ -1,5 +1,5 @@
 <script>
-  import { ui, data, openModal, loadSessions } from '../lib/state.svelte.js';
+  import { ui, data, loadSessions } from '../lib/state.svelte.js';
   import { reply } from '../lib/api.js';
   import { STATUS_FILTERS, filterMatches, LIVE_STATES, ago, shortModel } from '../lib/format.js';
 
@@ -70,8 +70,8 @@
 <aside class="sidebar">
   <div class="side-head">
     <div class="side-actions">
-      <button class="ov-btn" onclick={() => (ui.currentSessionId = null)}>🏠 Vue d'ensemble</button>
-      <button class="new-btn" onclick={() => openModal('launch')}>＋ Nouvelle session</button>
+      <button class="ov-btn" onclick={() => { ui.currentSessionId = null; ui.composing = false; }}>🏠 Vue d'ensemble</button>
+      <button class="new-btn" onclick={() => { ui.composing = true; ui.currentSessionId = null; }}>＋ Nouvelle session</button>
     </div>
     <input id="search" type="search" placeholder="Rechercher…" bind:value={ui.search} />
     <div class="status-filter">
@@ -99,7 +99,7 @@
           <div class="plist">
             {#each g.items as s (s.id)}
               <div class="srow s-{s.state}" class:has-q={s.hasQuestion} class:active={ui.currentSessionId === s.id}
-                   onclick={() => (ui.currentSessionId = s.id)}>
+                   onclick={() => { ui.currentSessionId = s.id; ui.composing = false; }}>
                 <span class="sdot"></span>
                 <div class="srow-main">
                   <div class="srow-title">

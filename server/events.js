@@ -69,6 +69,29 @@ function liveQuestionForSession(id, eventsFile = EVENTS_FILE) {
   return pending;
 }
 
+// Métadonnées des sessions vues dans les évènements (cwd, transcript, timestamps).
+// Permet de faire apparaître une session DÈS son premier hook (SessionStart /
+// UserPromptSubmit), avant que Claude Code n'ait écrit le transcript — sinon la
+// session reste invisible dans la sidebar jusqu'au premier message de l'assistant.
+function eventSessionMeta(eventsFile = EVENTS_FILE) {
+  const ev = readEvents(eventsFile);
+  const map = new Map();
+  for (const e of ev) {
+    if (!e.session_id) continue;
+    const m = map.get(e.session_id) || { cwd: null, transcript: null, firstTs: null, lastTs: null, ended: false, firstPrompt: null };
+    if (e.cwd && !m.cwd) m.cwd = e.cwd;
+    if (e.transcript && !m.transcript) m.transcript = e.transcript;
+    if (e.event === 'UserPromptSubmit' && e.prompt && !m.firstPrompt) m.firstPrompt = e.prompt;
+    if (e.ts) {
+      if (!m.firstTs || e.ts < m.firstTs) m.firstTs = e.ts;
+      if (!m.lastTs || e.ts > m.lastTs) m.lastTs = e.ts;
+    }
+    if (e.event === 'SessionEnd') m.ended = true;
+    map.set(e.session_id, m);
+  }
+  return map;
+}
+
 // config de lancement (modèle/effort) par nom de session tmux ; dernier write gagne.
 let launchCache = { key: null, map: new Map() };
 function launchConfigByTmux(launchesFile = LAUNCHES_FILE) {
@@ -87,4 +110,4 @@ function launchConfigByTmux(launchesFile = LAUNCHES_FILE) {
   return map;
 }
 
-module.exports = { readEvents, lastEventBySession, paneForSession, modeForSession, liveQuestionForSession, launchConfigByTmux };
+module.exports = { readEvents, lastEventBySession, paneForSession, modeForSession, liveQuestionForSession, launchConfigByTmux, eventSessionMeta };

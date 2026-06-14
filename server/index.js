@@ -10,6 +10,7 @@ module.exports = {
   ...require('./subagents'),
   ...require('./todos'),
   ...require('./files'),
+  ...require('./commands'),
   ...require('./events'),
   ...require('./live'),
   ...require('./tmux'),

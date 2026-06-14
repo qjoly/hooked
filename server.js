@@ -16,8 +16,8 @@ const {
   PROJECTS_DIR, HOOKED_DIR, EVENTS_FILE, PUBLIC_DIR, PORT,
   buildSessions, buildStats, sessionDetail,
   scanSessions, agentTranscriptPath, buildConversation, buildFileChanges,
-  projectFiles, matchFiles, paneForSession, liveQuestionForSession,
-  deliverReply, sendKey, setMode, launchSession, killSession, tmuxAlive,
+  projectFiles, matchFiles, slashCommands, matchCommands, paneForSession, liveQuestionForSession,
+  deliverReply, sendKey, setMode, setModelEffort, launchSession, killSession, tmuxAlive,
   saveImage,
 } = require('./server/index.js');
 
@@ -103,8 +103,14 @@ const server = http.createServer((req, res) => {
       return readBody(req, (err, body) => {
         if (err) { res.writeHead(400); return res.end(JSON.stringify({ ok: false, error: 'requête invalide' })); }
         const id = body && body.id;
-        const text = body && typeof body.text === 'string' ? body.text.trim() : '';
-        if (!id || !text) { res.writeHead(400); return res.end(JSON.stringify({ ok: false, error: 'id et text requis' })); }
+        // `text` : string (texte libre / réponse à choix unique) ou tableau d'intitulés (une
+        // réponse par question pour un AskUserQuestion à plusieurs questions).
+        const raw = body && body.text;
+        const text = Array.isArray(raw)
+          ? raw.map((s) => (typeof s === 'string' ? s.trim() : '')).filter(Boolean)
+          : (typeof raw === 'string' ? raw.trim() : '');
+        const empty = Array.isArray(text) ? !text.length : !text;
+        if (!id || empty) { res.writeHead(400); return res.end(JSON.stringify({ ok: false, error: 'id et text requis' })); }
         const pane = paneForSession(id);
         if (!pane) { res.writeHead(409); return res.end(JSON.stringify({ ok: false, error: 'pane tmux inconnu pour cette session (lancée hors tmux, ou avant ce hook ?)' })); }
         // si une question AskUserQuestion est en attente, son TUI réclame une Entrée de
@@ -158,6 +164,23 @@ const server = http.createServer((req, res) => {
         });
       });
     }
+    if (req.method === 'POST' && p === '/api/model') {
+      // Change le modèle et/ou l'effort d'une session live en envoyant `/model` et `/effort`
+      // dans le TUI (comme au clavier), à la manière du changement de mode de permission.
+      return readBody(req, (err, body) => {
+        if (err) { res.writeHead(400); return res.end(JSON.stringify({ ok: false, error: 'requête invalide' })); }
+        const id = body && body.id;
+        const model = body && body.model;
+        const effort = body && body.effort;
+        if (!id || (!model && !effort)) { res.writeHead(400); return res.end(JSON.stringify({ ok: false, error: 'id et (modèle ou effort) requis' })); }
+        const pane = paneForSession(id);
+        if (!pane || !tmuxAlive(pane)) { res.writeHead(409); return res.end(JSON.stringify({ ok: false, error: 'aucun pane tmux vivant pour cette session' })); }
+        setModelEffort(pane, { model, effort, sessionId: id }, (e2, info) => {
+          if (e2) { res.writeHead(e2.code === 400 ? 400 : 502); return res.end(JSON.stringify({ ok: false, error: e2.message || String(e2) })); }
+          sendJSON(res, { ok: true, ...info });
+        });
+      });
+    }
     if (req.method === 'POST' && p === '/api/launch') {
       return readBody(req, (err, body) => {
         if (err) { res.writeHead(400); return res.end(JSON.stringify({ ok: false, error: 'requête invalide' })); }
@@ -185,11 +208,23 @@ const server = http.createServer((req, res) => {
       return sendJSON(res, buildStats(days));
     }
     if (p === '/api/files') {
-      // auto-complétion @ : fichiers du projet de la session (cwd dérivé de la session).
-      const sess = scanSessions().find((x) => x.id === u.query.id);
-      if (!sess || !sess.project) return sendJSON(res, { files: [] });
-      const files = matchFiles(projectFiles(sess.project), u.query.q || '');
+      // auto-complétion @ : fichiers du projet. cwd explicite (nouvelle session, pas encore
+      // d'id) prioritaire, sinon dérivé de la session ouverte.
+      let cwd = u.query.cwd && typeof u.query.cwd === 'string' ? u.query.cwd : null;
+      if (!cwd) { const sess = scanSessions().find((x) => x.id === u.query.id); cwd = sess && sess.project; }
+      if (!cwd) return sendJSON(res, { files: [] });
+      const st = fs.statSync(cwd, { throwIfNoEntry: false });
+      if (!st || !st.isDirectory()) return sendJSON(res, { files: [] });
+      const files = matchFiles(projectFiles(cwd), u.query.q || '');
       return sendJSON(res, { files });
+    }
+    if (p === '/api/commands') {
+      // auto-complétion « / » : commandes custom (.claude/commands) + built-in (curées +
+      // extraites du binaire claude). cwd explicite (nouvelle session) prioritaire.
+      let cwd = u.query.cwd && typeof u.query.cwd === 'string' ? u.query.cwd : null;
+      if (!cwd) { const sess = scanSessions().find((x) => x.id === u.query.id); cwd = sess && sess.project; }
+      const commands = matchCommands(slashCommands(cwd), u.query.q || '');
+      return sendJSON(res, { commands });
     }
     if (p === '/api/session') {
       const d = sessionDetail(u.query.id);

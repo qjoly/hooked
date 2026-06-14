@@ -341,6 +341,56 @@ code.path { color: var(--muted); font-size: 11px; word-break: break-all; font-fa
 .reply-status.ok { color: var(--ended); }
 .reply-status.err { color: var(--attention); }
 
+/* ---------- sélecteur compact modèle / effort (pilules sous la chatbox) ---------- */
+.me-inline { display: inline-flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.me-pill {
+  display: inline-flex; align-items: center; gap: 5px; background: var(--bg3);
+  border: 1px solid var(--border2); border-radius: 9px; padding: 3px 8px 3px 10px;
+  color: var(--muted); font-size: 12.5px; font-weight: 600;
+}
+.me-pill .me-ico { font-size: 12px; opacity: .8; }
+.me-pill select {
+  border: none; background: transparent; color: var(--text); font: inherit; font-weight: 600;
+  font-size: 12.5px; padding: 2px 2px; cursor: pointer; box-shadow: none;
+}
+.me-pill select:focus { outline: none; box-shadow: none; }
+.me-pill select:disabled { opacity: .55; cursor: default; }
+
+/* éditeur modèle/effort sur une session live (à la suite du sélecteur de mode) */
+.me-switch { display: flex; align-items: center; gap: 8px; margin: 8px 0 2px; flex-wrap: wrap; }
+
+/* barre d'outils du header (mode + modèle/effort fusionnés sur une ligne) */
+.head-toolbar { display: flex; align-items: center; gap: 8px; margin: 10px 0 2px; flex-wrap: wrap; }
+.tb-group { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.tb-sep { width: 1px; align-self: stretch; min-height: 20px; background: var(--border2); margin: 0 2px; }
+
+/* ligne de stats compacte et cliquable (remplace la grille de tuiles) */
+.head-stats {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 5px; margin: 12px 0 0;
+  font-size: 12.5px; color: var(--muted); font-family: var(--mono); cursor: pointer;
+  width: fit-content; max-width: 100%;
+}
+.head-stats:hover { color: var(--text); }
+.head-stats b { color: var(--text); font-weight: 700; }
+.head-stats .hs-dot { opacity: .5; }
+.head-stats .hs-sub { opacity: .8; }
+.hs-5h { display: inline-flex; align-items: center; gap: 3px; }
+.hs-5h.warn { color: var(--waiting); }
+.hs-5h.full { color: var(--attention); }
+.hs-pr { color: var(--accent-d); text-decoration: none; }
+.hs-pr:hover { text-decoration: underline; }
+.hs-more { color: var(--accent-d); font-weight: 700; }
+
+/* ---------- écran « nouvelle session » (chat plein écran) ---------- */
+.newsession { flex: 1 1 auto; overflow-y: auto; display: flex; justify-content: center; padding: 28px; }
+.ns-inner { width: 100%; max-width: 760px; margin: auto; }
+.ns-title { font-size: 26px; font-weight: 800; text-align: center; margin: 0 0 6px; color: var(--text); }
+.ns-sub { color: var(--muted); font-size: 13px; line-height: 1.6; text-align: center; margin: 0 0 22px; }
+.newsession .composer { position: relative; bottom: auto; margin-top: 0; }
+.ns-controls { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 12px 4px 0; }
+.ns-custom { margin-top: 10px; }
+.ns-watch { margin: 14px 4px 0; font-size: 12.5px; color: var(--accent-d); font-family: var(--mono); }
+
 /* ---------- images collées (tray du composer) ---------- */
 .img-tray { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .img-chip { position: relative; width: 56px; height: 56px; border-radius: 10px; overflow: hidden; border: 1px solid var(--border); background: var(--accent-soft); }
@@ -597,7 +647,11 @@ textarea.lf-input { font-family: inherit; resize: vertical; }
 }
 .at-item.sel, .at-item:hover { background: var(--accent-soft); }
 .at-name { font-weight: 700; font-family: var(--mono); font-size: 13px; flex: 0 0 auto; }
-.at-path { color: var(--muted); font-family: var(--mono); font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.at-path { color: var(--muted); font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.at-badge {
+  flex: 0 0 auto; font-size: 10px; font-weight: 600; letter-spacing: .02em; text-transform: uppercase;
+  color: var(--muted); background: var(--accent-soft); padding: 1px 6px; border-radius: 6px;
+}
 
 /* ---------- bouton retour mobile (caché par défaut) ---------- */
 .pane-back {

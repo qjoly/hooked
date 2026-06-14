@@ -11,10 +11,11 @@ const { costForUsage } = require('./pricing');
 
 const parseCache = new Map(); // path -> { key, summary }
 
-function parseTranscript(fp, sessionId) {
-  let data;
-  try { data = fs.readFileSync(fp, 'utf8'); } catch (_) { return null; }
-  const s = {
+// Squelette d'un résumé de session, avec toutes les valeurs par défaut. Factorisé pour
+// que les sessions « synthétiques » (issues des hooks, avant écriture du transcript) aient
+// exactement la même forme que celles parsées d'un transcript — cf. blankSummary().
+function blankSummary(sessionId, fp) {
+  return {
     id: sessionId,
     file: fp,
     project: null,
@@ -38,7 +39,14 @@ function parseTranscript(fp, sessionId) {
     pendingQuestion: null,
     subagents: 0,       // nombre de sous-agents (appels Agent/Task) terminés dans cette session
     subagentCost: 0,    // part du coût attribuable aux sous-agents (toolUseResult.usage)
+    prLinks: [],
   };
+}
+
+function parseTranscript(fp, sessionId) {
+  let data;
+  try { data = fs.readFileSync(fp, 'utf8'); } catch (_) { return null; }
+  const s = blankSummary(sessionId, fp);
   const seenMsg = new Set();
   const modelCount = {};
   // questions interactives (AskUserQuestion) : on retient chaque tool_use dans l'ordre,
@@ -190,4 +198,4 @@ function agentTranscriptPath(sessionId, agentId, projectsDir = PROJECTS_DIR) {
   return null;
 }
 
-module.exports = { parseTranscript, getSummary, scanSessions, agentTranscriptPath };
+module.exports = { parseTranscript, getSummary, scanSessions, agentTranscriptPath, blankSummary };
