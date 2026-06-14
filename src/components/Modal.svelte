@@ -1,7 +1,6 @@
 <script>
   import { ui, closeModal } from '../lib/state.svelte.js';
   import CostModal from './CostModal.svelte';
-  import LaunchModal from './LaunchModal.svelte';
   import ResumeModal from './ResumeModal.svelte';
 
   function onKey(e) { if (e.key === 'Escape') closeModal(); }
@@ -17,8 +16,6 @@
       <div>
         {#if ui.modal.type === 'cost'}
           <CostModal />
-        {:else if ui.modal.type === 'launch'}
-          <LaunchModal />
         {:else if ui.modal.type === 'resume'}
           <ResumeModal r={ui.modal.data} />
         {/if}

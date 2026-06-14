@@ -81,21 +81,36 @@ function resolveLaunchForSession(id) {
 
 // Renvoie le message dans la session interactive via tmux : on « tape » le texte
 // dans le pane puis on valide avec Entrée (session/abonnement en cours, zéro conso token).
-// `isQuestion` : on répond à un AskUserQuestion. Son TUI multi-étapes se termine sur un
-// écran de confirmation « Submit answers » qui réclame une *seconde* Entrée — sans elle la
-// réponse est saisie mais jamais validée (« envoyé » côté UI mais la session reste bloquée).
+//
+// `isQuestion` : on répond à un AskUserQuestion. Son TUI affiche UN écran par question :
+// on tape la réponse, Entrée passe à la question suivante (ou à l'écran « Submit answers »
+// après la dernière), puis une *Entrée finale* valide cet écran de confirmation. `text` peut
+// donc être un tableau (une entrée par question) : on enchaîne saisie + Entrée pour chacune
+// avant la validation finale. Sans cette mécanique par étape, une réponse à plusieurs
+// questions était saisie en bloc dans la 1re question et jamais validée (« envoyé » côté UI
+// mais la session restait bloquée). Cas mono-question : [label] → 2 Entrées, comme avant.
 function deliverReply(pane, text, isQuestion, cb) {
   if (typeof isQuestion === 'function') { cb = isQuestion; isQuestion = false; }
   if (!/^%\d+$/.test(pane || '')) return cb(new Error('pane invalide'));
-  execFile('tmux', ['send-keys', '-t', pane, '-l', '--', text], (err) => {
-    if (err) return cb(err);
-    // petit délai pour laisser le TUI ingérer le collage avant de valider
-    setTimeout(() => execFile('tmux', ['send-keys', '-t', pane, 'Enter'], (e2) => {
-      if (e2 || !isQuestion) return cb(e2 || null);
-      // 2e Entrée : valide l'écran « Submit answers » de l'AskUserQuestion.
-      setTimeout(() => execFile('tmux', ['send-keys', '-t', pane, 'Enter'], (e3) => cb(e3 || null)), 200);
-    }), 120);
+  const answers = Array.isArray(text) ? text : [text];
+  // tape une réponse puis Entrée (petit délai pour laisser le TUI ingérer le collage).
+  const typeAndEnter = (s, done) => execFile('tmux', ['send-keys', '-t', pane, '-l', '--', s], (err) => {
+    if (err) return done(err);
+    setTimeout(() => execFile('tmux', ['send-keys', '-t', pane, 'Enter'], done), 120);
   });
+  const step = (i) => {
+    if (i >= answers.length) {
+      if (!isQuestion) return cb(null);
+      // Entrée finale : valide l'écran « Submit answers » de l'AskUserQuestion.
+      return setTimeout(() => execFile('tmux', ['send-keys', '-t', pane, 'Enter'], (e) => cb(e || null)), 200);
+    }
+    typeAndEnter(answers[i], (e) => {
+      if (e) return cb(e);
+      // délai entre deux questions : laisser le TUI afficher l'écran suivant avant de saisir.
+      setTimeout(() => step(i + 1), 250);
+    });
+  };
+  step(0);
 }
 
 // Envoie une touche « nommée » (ex. Escape) au pane : sert à interrompre Claude depuis l'UI,
@@ -165,6 +180,41 @@ function setMode(pane, target, cb) {
 
 function err400(msg) { const e = new Error(msg); e.code = 400; return e; }
 
+// Change le modèle et/ou l'effort d'une session live en envoyant les commandes slash
+// `/model <name>` et `/effort <level>` dans le TUI (exactement comme au clavier). On persiste
+// ensuite le choix (fusionné avec l'existant) pour que l'UI le reflète même après la mort du
+// tmux — l'effort réel reste de toute façon confirmé par la statusline au render suivant.
+function setModelEffort(pane, { model, effort, sessionId }, cb) {
+  if (!/^%\d+$/.test(pane || '')) return cb(err400('pane invalide'));
+  if (model && !MODELS.includes(model)) return cb(err400('modèle inconnu : ' + model));
+  if (effort && !EFFORTS.includes(effort)) return cb(err400('effort inconnu : ' + effort));
+  if (!model && !effort) return cb(err400('modèle ou effort requis'));
+  const cmds = [];
+  if (model) cmds.push('/model ' + model);
+  if (effort) cmds.push('/effort ' + effort);
+  const finish = () => {
+    if (sessionId) {
+      const prev = resolveLaunchForSession(sessionId) || {};
+      const merged = { model: model || prev.model || null, effort: effort || prev.effort || null };
+      try {
+        fs.appendFileSync(SESSION_LAUNCH_FILE, JSON.stringify({ ts: new Date().toISOString(), session_id: sessionId, ...merged }) + '\n');
+      } catch (_) {}
+    }
+    cb(null, { pane, model: model || null, effort: effort || null });
+  };
+  const step = (i) => {
+    if (i >= cmds.length) return finish();
+    execFile('tmux', ['send-keys', '-t', pane, '-l', '--', cmds[i]], (e) => {
+      if (e) return cb(e);
+      setTimeout(() => execFile('tmux', ['send-keys', '-t', pane, 'Enter'], (e2) => {
+        if (e2) return cb(e2);
+        setTimeout(() => step(i + 1), 300); // laisser le TUI ingérer la commande avant la suivante
+      }), 120);
+    });
+  };
+  step(0);
+}
+
 // Lance `claude` (ou `claude --resume <id>`) dans une NOUVELLE session tmux détachée.
 function launchSession({ resumeId, cwd, prompt, model, effort }, cb) {
   let dir = cwd && typeof cwd === 'string' ? cwd : null;
@@ -223,4 +273,4 @@ function killSession(id, cb) {
   });
 }
 
-module.exports = { paneTmuxNames, tmuxAlive, launchInfoForPane, resolveLaunchForSession, deliverReply, sendKey, parsePaneMode, readPaneMode, readPaneModeSync, setMode, launchSession, killSession, err400 };
+module.exports = { paneTmuxNames, tmuxAlive, launchInfoForPane, resolveLaunchForSession, deliverReply, sendKey, parsePaneMode, readPaneMode, readPaneModeSync, setMode, setModelEffort, launchSession, killSession, err400 };

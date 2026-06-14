@@ -3,8 +3,10 @@
  * Agrégations de haut niveau : liste des sessions enrichie de l'état live (buildSessions),
  * statistiques d'usage (buildStats) et détail complet d'une session (sessionDetail).
  */
-const { scanSessions } = require('./transcript');
-const { readEvents, lastEventBySession, paneForSession, modeForSession, liveQuestionForSession } = require('./events');
+const path = require('path');
+const { statSafe } = require('./util');
+const { scanSessions, blankSummary } = require('./transcript');
+const { readEvents, lastEventBySession, paneForSession, modeForSession, liveQuestionForSession, eventSessionMeta } = require('./events');
 const { liveStateFor } = require('./live');
 const { resolveLaunchForSession, paneTmuxNames, tmuxAlive, readPaneModeSync } = require('./tmux');
 const { usageWindow } = require('./usage');
@@ -14,8 +16,34 @@ const { buildFileChanges } = require('./changes');
 const { buildSubagents } = require('./subagents');
 const { latestTodos, todoSummary } = require('./todos');
 
+// Sessions « live-only » : présentes dans les évènements de hooks mais pas encore
+// dans un transcript (Claude Code n'écrit le .jsonl qu'au premier message de
+// l'assistant). On les synthétise pour qu'elles apparaissent dès le lancement.
+// Garde-fou : seulement les sessions récentes, non terminées, sans transcript sur disque
+// (sinon scanSessions les aurait déjà ; un transcript supprimé reste donc masqué).
+const EVENT_SESSION_MAX_AGE_MIN = 30;
+function eventOnlySessions(knownIds, now = Date.now()) {
+  const out = [];
+  for (const [id, m] of eventSessionMeta()) {
+    if (knownIds.has(id) || m.ended) continue;
+    if (m.transcript && statSafe(m.transcript)) continue; // transcript écrit → géré par scanSessions
+    if (!m.lastTs || (now - Date.parse(m.lastTs)) / 60000 > EVENT_SESSION_MAX_AGE_MIN) continue;
+    const s = blankSummary(id, m.transcript || null);
+    if (m.cwd) { s.project = m.cwd; s.projectName = path.basename(m.cwd); }
+    s.startTs = m.firstTs;
+    s.lastTs = m.lastTs;
+    // titre : 50 premiers caractères du prompt utilisateur (capté par le hook), sinon placeholder.
+    if (m.firstPrompt) { s.firstPrompt = m.firstPrompt; s.title = m.firstPrompt.slice(0, 50); }
+    else s.title = '(nouvelle session)';
+    out.push(s);
+  }
+  return out;
+}
+
 function buildSessions() {
   const sessions = scanSessions();
+  const known = new Set(sessions.map((s) => s.id));
+  sessions.push(...eventOnlySessions(known));
   const last = lastEventBySession();
   const now = Date.now();
   for (const s of sessions) {
@@ -90,7 +118,9 @@ function buildStats(rangeDays) {
 
 function sessionDetail(id) {
   const sessions = scanSessions();
-  const s = sessions.find((x) => x.id === id);
+  let s = sessions.find((x) => x.id === id);
+  // session tout juste lancée : pas encore de transcript → on la sert depuis les hooks.
+  if (!s) s = eventOnlySessions(new Set(sessions.map((x) => x.id))).find((x) => x.id === id);
   if (!s) return null;
   const ev = readEvents().filter((e) => e.session_id === id).slice(-60);
   const last = ev.length ? liveStateFor(ev[ev.length - 1]) : null;
@@ -126,4 +156,4 @@ function sessionDetail(id) {
   };
 }
 
-module.exports = { buildSessions, buildStats, sessionDetail };
+module.exports = { buildSessions, buildStats, sessionDetail, eventOnlySessions };

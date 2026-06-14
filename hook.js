@@ -45,6 +45,9 @@ function handle(input) {
       ? j.tool_input.questions
       : null,
     message: typeof j.message === 'string' ? j.message.slice(0, 500) : null,
+    // prompt utilisateur (UserPromptSubmit) : sert de titre à la session tant que le
+    // transcript n'est pas encore écrit (sinon la session s'affiche sans nom au lancement).
+    prompt: typeof j.prompt === 'string' ? j.prompt.slice(0, 200) : null,
     // pane tmux de la session (hérité de l'env du process Claude) → permet de
     // renvoyer une réponse dans la session interactive via `tmux send-keys`.
     tmux_pane: process.env.TMUX_PANE || null,
