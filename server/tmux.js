@@ -93,10 +93,14 @@ function deliverReply(pane, text, isQuestion, cb) {
   if (typeof isQuestion === 'function') { cb = isQuestion; isQuestion = false; }
   if (!/^%\d+$/.test(pane || '')) return cb(new Error('pane invalide'));
   const answers = Array.isArray(text) ? text : [text];
-  // tape une réponse puis Entrée (petit délai pour laisser le TUI ingérer le collage).
+  // tape une réponse puis Entrée. Le TUI de Claude Code détecte les frappes rapprochées comme
+  // un *collage* : une Entrée envoyée trop tôt après le texte est alors avalée comme un saut de
+  // ligne dans le collage (texte saisi mais jamais validé — « envoyé » côté UI, session bloquée).
+  // Il faut laisser la fenêtre de détection de collage se refermer avant de valider → 250 ms.
+  const ENTER_DELAY = 250;
   const typeAndEnter = (s, done) => execFile('tmux', ['send-keys', '-t', pane, '-l', '--', s], (err) => {
     if (err) return done(err);
-    setTimeout(() => execFile('tmux', ['send-keys', '-t', pane, 'Enter'], done), 120);
+    setTimeout(() => execFile('tmux', ['send-keys', '-t', pane, 'Enter'], done), ENTER_DELAY);
   });
   const step = (i) => {
     if (i >= answers.length) {
