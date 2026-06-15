@@ -40,11 +40,17 @@
     return parts.length ? '→ ' + parts.join('  ·  ') : recapDefault;
   });
 
-  function onChange(qi, oi, checked) {
+  // Bascule pilotée UNIQUEMENT par l'état `pick` (jamais par l'état du DOM de la case). En
+  // lisant `e.currentTarget.checked`, un clic rapide pouvait être perdu : le refetch live
+  // réassigne `pq` à chaque tick et ré-asséquie `checked={isSel(...)}` depuis l'état pendant
+  // qu'on clique → désync DOM/état. Ici toggle() lit/écrit `pick` de façon idempotente et
+  // synchrone, donc deux clics rapprochés s'enchaînent toujours correctement.
+  function toggle(qi, oi) {
+    if (sent || sending) return;
     if (questions[qi].multiSelect) {
       const arr = [...(pick[qi] || [])];
       const at = arr.indexOf(oi);
-      if (checked && at < 0) arr.push(oi); else if (!checked && at >= 0) arr.splice(at, 1);
+      if (at < 0) arr.push(oi); else arr.splice(at, 1);
       pick[qi] = arr;
     } else {
       pick[qi] = oi;
@@ -83,7 +89,7 @@
         {#each q.options || [] as o, oi}
           <label class="q-opt" class:sel={isSel(qi, oi)}>
             <input type={q.multiSelect ? 'checkbox' : 'radio'} name="q-{qi}" value={oi} disabled={sent}
-                   checked={isSel(qi, oi)} onchange={(e) => onChange(qi, oi, e.currentTarget.checked)} />
+                   checked={isSel(qi, oi)} onclick={(e) => { e.preventDefault(); toggle(qi, oi); }} />
             <span class="q-opt-body">
               <span class="q-opt-label">{o.label}</span>
               {#if o.description}<span class="q-opt-desc">{o.description}</span>{/if}
