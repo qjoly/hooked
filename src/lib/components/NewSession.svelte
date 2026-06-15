@@ -27,6 +27,7 @@
   let customCwd = $state('');
   let model = $state('opus');
   let effort = $state('high');
+  let worktree = $state(false); // lance `claude --worktree` (git worktree isolé)
 
   const hits = $derived.by(() => {
     const q = search.toLowerCase().trim();
@@ -68,10 +69,14 @@
     <h1 class="ns-title">🪝 Nouvelle session</h1>
     <p class="ns-sub">Lance <code>claude</code> dans une session <b>tmux</b> détachée — ton abonnement, <b>zéro conso token</b>.</p>
 
-    <Composer newSession project={cwd} {model} {effort} {onLaunched} />
+    <Composer newSession project={cwd} {model} {effort} {worktree} {onLaunched} />
 
     <div class="ns-controls">
       <ModelEffort compact bind:model bind:effort />
+      <label class="me-pill ns-worktree" title="Lance la session dans un git worktree dédié (claude --worktree)">
+        <input type="checkbox" bind:checked={worktree} />
+        <span class="me-ico">🌿</span> worktree
+      </label>
     </div>
 
     <label class="lf-label">Projet</label>

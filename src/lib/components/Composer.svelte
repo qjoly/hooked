@@ -6,8 +6,9 @@
   // dans une nouvelle session tmux (en conservant modèle/effort d'origine si connus).
   // `newSession` : pas d'id encore — l'envoi LANCE une session neuve dans `project` (cwd) avec
   // le `model`/`effort` choisis ; `onLaunched(cwd)` est notifié pour ouvrir la session créée.
+  // `worktree` : ne vaut que pour une session neuve — lance `claude --worktree` (dossier isolé).
   let { id, alive = true, project = null, resumeModel = null, resumeEffort = null, lastPrompt = '',
-        onSent = null, newSession = false, model = '', effort = '', onLaunched = null } = $props();
+        onSent = null, newSession = false, model = '', effort = '', worktree = false, onLaunched = null } = $props();
 
   let ta;                       // ref textarea
   let text = $state('');
@@ -153,7 +154,7 @@
     busy = true;
     status = { text: newSession ? 'lancement…' : (alive ? 'envoi…' : 'relance de la session…'), cls: '' };
     const res = newSession
-      ? await launch({ cwd: project, prompt: full, model, effort }).catch((e) => ({ ok: false, data: { error: e.message } }))
+      ? await launch({ cwd: project, prompt: full, model, effort, worktree }).catch((e) => ({ ok: false, data: { error: e.message } }))
       : alive
         ? await reply(id, full).catch((e) => ({ ok: false, data: { error: e.message } }))
         : await launch({ resumeId: id, prompt: full, cwd: project, model: resumeModel || '', effort: resumeEffort || '' }).catch((e) => ({ ok: false, data: { error: e.message } }));
@@ -162,7 +163,7 @@
       // file d'attente + scroll auto : on signale au parent le message tout juste envoyé.
       if (alive && !newSession && onSent) onSent(full);
       if (newSession && onLaunched) onLaunched(project);
-      status = { text: newSession ? ('✓ session lancée (' + (res.data.tmux || 'tmux') + ')') : (alive ? ('✓ remis dans ' + res.data.pane) : ('✓ session relancée (' + (res.data.tmux || 'tmux') + ')')), cls: 'ok' };
+      status = { text: newSession ? ('✓ session lancée (' + (res.data.tmux || 'tmux') + (res.data.worktree ? ' · worktree' : '') + ')') : (alive ? ('✓ remis dans ' + res.data.pane) : ('✓ session relancée (' + (res.data.tmux || 'tmux') + ')')), cls: 'ok' };
       setTimeout(() => { status = { text: '', cls: '' }; }, 3000);
       setTimeout(() => { loadSessions(); ui.tick++; }, 600);
     } else {
