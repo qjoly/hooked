@@ -274,7 +274,9 @@ function setModelEffort(pane, { model, effort, sessionId }, cb) {
 }
 
 // Lance `claude` (ou `claude --resume <id>`) dans une NOUVELLE session tmux détachée.
-function launchSession({ resumeId, cwd, prompt, model, effort }, cb) {
+// `worktree` : démarre la session dans un git worktree dédié (`claude --worktree`) — ne vaut
+// que pour une session neuve (incompatible avec une reprise, qui rouvre la session existante).
+function launchSession({ resumeId, cwd, prompt, model, effort, worktree }, cb) {
   let dir = cwd && typeof cwd === 'string' ? cwd : null;
   let id = null;
   if (resumeId) {
@@ -291,7 +293,10 @@ function launchSession({ resumeId, cwd, prompt, model, effort }, cb) {
   // model/effort : validés contre une liste blanche (sécurise l'injection shell ET rejette l'inconnu).
   if (model && !MODELS.includes(model)) return cb(err400('modèle inconnu : ' + model));
   if (effort && !EFFORTS.includes(effort)) return cb(err400('effort inconnu : ' + effort));
+  // worktree : sans objet sur une reprise (la session est rouverte dans son dossier d'origine).
+  const useWorktree = !!worktree && !id;
   let flags = '';
+  if (useWorktree) flags += ' --worktree';
   if (model) flags += ` --model ${model}`;
   if (effort) flags += ` --effort ${effort}`;
   const claudeCmd = `claude${id ? ` --resume ${id}` : ''}${flags}`;
@@ -307,7 +312,7 @@ function launchSession({ resumeId, cwd, prompt, model, effort }, cb) {
     if (e1) return cb(new Error('tmux new-session a échoué : ' + (e1.message || e1)));
     // mémorise modèle/effort choisis pour pouvoir les afficher sur la session live.
     try {
-      fs.appendFileSync(LAUNCHES_FILE, JSON.stringify({ ts: new Date().toISOString(), tmux: name, cwd: dir, model: model || null, effort: effort || null }) + '\n');
+      fs.appendFileSync(LAUNCHES_FILE, JSON.stringify({ ts: new Date().toISOString(), tmux: name, cwd: dir, model: model || null, effort: effort || null, worktree: useWorktree }) + '\n');
     } catch (_) {}
     // 1er prompt optionnel : best-effort, après un délai pour laisser le TUI claude démarrer.
     const seed = prompt && typeof prompt === 'string' ? prompt.trim() : '';
@@ -316,7 +321,7 @@ function launchSession({ resumeId, cwd, prompt, model, effort }, cb) {
         setTimeout(() => execFile('tmux', ['send-keys', '-t', name, 'Enter'], () => {}), 250);
       }), 3500);
     }
-    cb(null, { tmux: name, attach: `tmux attach -t ${name}`, cwd: dir, resume: id });
+    cb(null, { tmux: name, attach: `tmux attach -t ${name}`, cwd: dir, resume: id, worktree: useWorktree });
   });
 }
 

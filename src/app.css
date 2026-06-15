@@ -393,6 +393,9 @@ code.path { color: var(--muted); font-size: 11px; word-break: break-all; font-fa
 .ns-controls { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 12px 4px 0; }
 .ns-custom { margin-top: 10px; }
 .ns-watch { margin: 14px 4px 0; font-size: 12.5px; color: var(--accent-d); font-family: var(--mono); }
+.ns-worktree { cursor: pointer; user-select: none; }
+.ns-worktree input { margin: 0 2px 0 0; cursor: pointer; accent-color: var(--accent-d); }
+.ns-worktree:has(input:checked) { color: var(--text); border-color: var(--accent-d); }
 
 /* ---------- images collées (tray du composer) ---------- */
 .img-tray { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
