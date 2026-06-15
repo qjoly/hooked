@@ -1,13 +1,12 @@
-'use strict';
 /*
  * Sauvegarde des images collées depuis le composer. Le serveur tournant sur la même machine
  * que les sessions tmux (100 % local), on décode le data-URL et on écrit le fichier sur disque.
  * Le composer envoie ensuite son chemin absolu dans le message : Claude Code lit les images
  * référencées par chemin (comme un drag-drop dans le TUI).
  */
-const fs = require('fs');
-const path = require('path');
-const { HOOKED_DIR } = require('./config');
+import fs from 'node:fs';
+import path from 'node:path';
+import { HOOKED_DIR } from './config.js';
 
 const IMAGES_DIR = path.join(HOOKED_DIR, 'images');
 // types acceptés → extension de fichier
@@ -35,4 +34,4 @@ function saveImage(dataUrl, cb) {
   cb(null, { path: fp, name });
 }
 
-module.exports = { saveImage, IMAGES_DIR };
+export { saveImage, IMAGES_DIR };

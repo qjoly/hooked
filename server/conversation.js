@@ -1,11 +1,10 @@
-'use strict';
 /*
  * Reconstruit la conversation (style chat) : 1 bulle user / 1 bulle assistant par tour,
  * en fusionnant l'activité assistant entre deux prompts. Chaque tool_use porte son input
  * et son résultat (apparié par tool_use_id) pour permettre le détail au clic.
  */
-const fs = require('fs');
-const { chatText, toolDetail, toolInputText, toolResultText } = require('./util');
+import fs from 'node:fs';
+import { chatText, toolDetail, toolInputText, toolResultText } from './util.js';
 
 // includeSidechain : pour un transcript de sous-agent (tout est isSidechain), on garde tout.
 function buildConversation(fp, includeSidechain) {
@@ -57,4 +56,4 @@ function buildConversation(fp, includeSidechain) {
   return msgs;
 }
 
-module.exports = { buildConversation };
+export { buildConversation };

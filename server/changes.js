@@ -1,10 +1,9 @@
-'use strict';
 /*
  * Reconstruit la liste des modifications de fichiers (Edit / Write / MultiEdit / NotebookEdit)
  * faites par Claude au fil de la session, regroupées par fichier (dernier touché d'abord).
  */
-const fs = require('fs');
-const path = require('path');
+import fs from 'node:fs';
+import path from 'node:path';
 
 function buildFileChanges(fp) {
   let data;
@@ -46,4 +45,4 @@ function buildFileChanges(fp) {
   return out;
 }
 
-module.exports = { buildFileChanges };
+export { buildFileChanges };

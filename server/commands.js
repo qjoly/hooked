@@ -1,4 +1,3 @@
-'use strict';
 /*
  * Auto-complétion des commandes « / » du composer. Trois sources fusionnées :
  *   1. custom   — fichiers .claude/commands/**.md (projet + global ~/.claude/commands),
@@ -8,11 +7,11 @@
  *      `type:"local",name:"…"` du bundle pour récupérer les commandes même non curées.
  * La liste curée prime pour la description ; l'extraction complète la couverture.
  */
-const fs = require('fs');
-const path = require('path');
-const cp = require('child_process');
-const { HOME } = require('./config');
-const { fuzzyScore } = require('./files');
+import fs from 'node:fs';
+import path from 'node:path';
+import cp from 'node:child_process';
+import { HOME } from './config.js';
+import { fuzzyScore } from './files.js';
 
 // ---------- 2. liste curée (built-in) ----------
 // Descriptions courtes en français. Sert aussi de fallback si l'extraction échoue.
@@ -227,4 +226,4 @@ function matchCommands(list, q, limit = 30) {
   return scored.slice(0, limit).map((x) => x[0]);
 }
 
-module.exports = { CURATED, resolveClaudeBin, extractBuiltins, builtinCommands, customCommands, slashCommands, matchCommands };
+export { CURATED, resolveClaudeBin, extractBuiltins, builtinCommands, customCommands, slashCommands, matchCommands };

@@ -1,10 +1,9 @@
-'use strict';
 /*
  * Listing des fichiers d'un projet (auto-complétion @) + score de correspondance floue
  * (sous-séquence façon fzf) pour classer les résultats par pertinence.
  */
-const fs = require('fs');
-const path = require('path');
+import fs from 'node:fs';
+import path from 'node:path';
 
 const FILE_IGNORE = new Set(['node_modules', '.git', '.jj', '.hg', '.svn', 'dist', 'build', 'out',
   '.next', '.nuxt', '.cache', 'coverage', 'vendor', '.venv', 'venv', '__pycache__',
@@ -76,4 +75,4 @@ function matchFiles(list, q, limit = 40) {
   return scored.slice(0, limit).map((x) => x[0]);
 }
 
-module.exports = { FILE_IGNORE, listFilesUnder, projectFiles, fuzzyScore, matchFiles };
+export { FILE_IGNORE, listFilesUnder, projectFiles, fuzzyScore, matchFiles };

@@ -3,9 +3,9 @@
 Un dashboard **local** pour suivre tes sessions Claude Code en temps réel — et garder un œil sur ton usage (tokens, coût estimé, projets).
 
 - 🔒 **100 % local** — rien ne sort de ta machine.
-- 🪶 **Serveur zéro dépendance runtime** — `server.js` et `hook.js` n'utilisent que la lib standard de Node (les dépendances ne servent qu'à *builder* le front).
+- 🪶 **Logique back zéro dépendance** — les modules `server/*` et `hook.cjs` n'utilisent que la lib standard de Node (les dépendances ne servent qu'à *builder*/*servir* le front).
 - ⚡ **Temps réel** — l'état des sessions se met à jour tout seul (SSE).
-- 🧩 **Front Svelte** — UI en composants, buildée par Vite. Back découpé en modules testés (Vitest).
+- 🧩 **SvelteKit** — front Svelte 5 + endpoints API dans un seul process (Vite en dev, adapter-node en prod). Back découpé en modules testés (Vitest).
 
 ---
 
@@ -31,16 +31,15 @@ Quand tu jongles entre plusieurs sessions Claude Code, tu perds vite le fil : la
 git clone git@github.com:briangtn/hooked.git
 cd hooked
 
-npm install       # dépendances de build (front Svelte) — devDeps uniquement
-npm run build     # build le front dans dist/
+npm install       # dépendances (SvelteKit + outillage) — devDeps uniquement
 npm run setup     # branche hooked sur les hooks Claude Code (avec backup automatique)
-npm start         # démarre le dashboard
+npm run dev       # dashboard en dev (front HMR + API + SSE) sur :5173
 ```
 
-Ouvre ensuite **http://localhost:4123**.
+Ouvre ensuite **http://localhost:5173**.
 
-> ⚠️ Le front doit être buildé (`npm run build`) avant `npm start` — sinon le serveur
-> sert une page d'avertissement à la place de l'UI. Refais un build après chaque mise à jour.
+> En production : `npm run build && npm start` (serveur Node autonome via adapter-node,
+> sur **http://localhost:3000** par défaut).
 
 > ⚠️ Après `setup`, **redémarre tes sessions Claude Code** pour activer les hooks.
 > Les sessions déjà ouvertes restent visibles (via les transcripts), mais leur état
@@ -117,17 +116,25 @@ Coût estimé, tokens, sessions, tours, prompts — avec des graphes par **jour 
 ## Développement
 
 ```bash
-npm run dev        # serveur Vite (HMR) sur :5173, proxifie l'API + SSE vers :4123
-npm run dev:server # (dans un autre terminal) le serveur Node API/SSE sur :4123
+npm run dev        # front (HMR) + API + SSE dans un seul process Vite, sur :5173
 npm test           # tests de caractérisation (Vitest) — filet anti-régression du back
-npm run build      # build de prod du front → dist/
+npm run build      # build de prod (adapter-node) → build/
+npm start          # lance le serveur de prod (node build) sur :3000
 ```
 
 ### Architecture
 
 ```
-server.js              point d'entrée HTTP (routing API, statique, SSE)
-server/                logique back, zéro dépendance, en modules testables
+src/routes/            SvelteKit : pages (routing URL) + endpoints API
+  ├─ +layout.svelte    header / onglets / état live (SSE) / modale
+  ├─ (sessions)/       / (overview), /session/[id], /new — avec sidebar
+  ├─ stats/            /stats
+  └─ api/*/+server.js  endpoints JSON + /api/stream (SSE)
+src/lib/
+  ├─ components/       composants Svelte 5
+  ├─ server/           pont vers le back (core.js) + singleton SSE (live.js)
+  └─ {api,format,state.svelte}.js  accès API, helpers, état partagé
+server/                logique back, zéro dépendance (ESM), en modules testables
   ├─ pricing.js        tarifs + calcul de coût
   ├─ transcript.js     parsing des transcripts (+ cache mtime, scan, sous-agents)
   ├─ conversation.js   reconstruction du chat
@@ -138,8 +145,7 @@ server/                logique back, zéro dépendance, en modules testables
   ├─ live.js           état live d'une session
   ├─ tmux.js           lancer / reprendre / stopper / répondre
   └─ stats.js          sessions, stats, détail
-src/                   front Svelte (composants) + helpers (format, api, état)
-hook.js                capteur d'évènements (branché sur les hooks)
+hook.cjs               capteur d'évènements (branché sur les hooks)
 test/                  fixtures synthétiques + tests différentiels (ancien vs nouveau)
 ```
 
@@ -148,8 +154,8 @@ Les tests comparent, sur des fixtures synthétiques, la sortie de l'ancien `serv
 
 ## Comment ça marche
 
-1. **`hook.js`** est branché sur **tous** les hooks Claude Code. À chaque évènement (prompt, appel d'outil, fin de tour, notification…), il écrit une ligne dans `~/.claude/hooked/events.jsonl` → c'est la source de l'**état live**.
-2. **`server.js`** lit aussi tes **transcripts** (`~/.claude/projects/*/*.jsonl`) pour l'historique, les tokens, le coût et les titres. Il sert l'UI + une petite API JSON, et pousse les mises à jour en **SSE** (temps réel).
+1. **`hook.cjs`** est branché sur **tous** les hooks Claude Code. À chaque évènement (prompt, appel d'outil, fin de tour, notification…), il écrit une ligne dans `~/.claude/hooked/events.jsonl` → c'est la source de l'**état live**.
+2. **Les endpoints SvelteKit** (`src/routes/api/*`) lisent aussi tes **transcripts** (`~/.claude/projects/*/*.jsonl`) pour l'historique, les tokens, le coût et les titres. Ils servent l'UI + l'API JSON, et poussent les mises à jour en **SSE** (`/api/stream`, temps réel).
 
 ---
 
@@ -157,9 +163,9 @@ Les tests comparent, sur des fixtures synthétiques, la sortie de l'ancien `serv
 
 | Réglage | Comment |
 |---------|---------|
-| **Changer de port** | `HOOKED_PORT=5000 npm start` |
-| **Ajuster les tarifs** | édite l'objet `PRICING` dans `server.js` (USD / million de tokens) |
-| **Lancer au démarrage** | `nohup node ~/chemin/hooked/server.js >/tmp/hooked.log 2>&1 &` |
+| **Changer de port** | `PORT=5000 npm start` (prod) ou `npm run dev -- --port 5000` (dev) |
+| **Ajuster les tarifs** | édite l'objet `PRICING` dans `server/pricing.js` (USD / million de tokens) |
+| **Lancer au démarrage** | `npm run build` puis `nohup node ~/chemin/hooked/build >/tmp/hooked.log 2>&1 &` |
 | **Budget de session (fallback)** | `HOOKED_SESSION_BUDGET=60 npm start` — utilisé pour estimer le % de la fenêtre 5 h **uniquement** si le tap statusline n'est pas en place |
 
 ### ⏳ Rate limits réels (5 h / 7 j) — tap statusline

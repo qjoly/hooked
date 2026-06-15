@@ -1,4 +1,3 @@
-'use strict';
 /*
  * Tarifs estimatifs (USD / million de tokens) + calcul du coût d'un usage.
  * cache write ≈ 1.25x input (5m) / 2x (1h), cache read ≈ 0.1x input.
@@ -42,4 +41,4 @@ function costForUsage(u, model) {
   return { inp, out, cc, cr, cIn, cOut, cCc, cCr, total: cIn + cOut + cCc + cCr };
 }
 
-module.exports = { PRICING, priceFor, costForUsage };
+export { PRICING, priceFor, costForUsage };

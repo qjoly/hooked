@@ -1,4 +1,3 @@
-'use strict';
 /*
  * Configuration & chemins. Les dossiers de données sont surchargeables par env
  * (utile pour les tests : on pointe sur des fixtures). Par défaut : ~/.claude.
@@ -6,8 +5,8 @@
  *   HOOKED_DATA_DIR      → events.jsonl / launches.jsonl (défaut ~/.claude/hooked)
  *   HOOKED_PORT          → port HTTP (défaut 4123)
  */
-const path = require('path');
-const os = require('os');
+import path from 'node:path';
+import os from 'node:os';
 
 const HOME = os.homedir();
 const PROJECTS_DIR = process.env.HOOKED_PROJECTS_DIR || path.join(HOME, '.claude', 'projects');
@@ -21,7 +20,7 @@ const SESSION_LAUNCH_FILE = path.join(HOOKED_DIR, 'session-launch.jsonl');
 // snapshots de la statusline Claude Code (déposés par statusline-command.sh) : un fichier
 // JSON par session, contenant les *vraies* infos du compte (effort, rate limits, contexte).
 const STATUS_DIR = path.join(HOOKED_DIR, 'status');
-const ROOT = path.join(__dirname, '..');
+const ROOT = path.join(import.meta.dirname, '..');
 // Le front Svelte est buildé dans dist/ (npm run build) — seule source servie.
 const PUBLIC_DIR = path.join(ROOT, 'dist');
 const PORT = parseInt(process.env.HOOKED_PORT || '4123', 10);
@@ -41,4 +40,4 @@ const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];
 // réel (default → acceptEdits → plan → auto → …) n'a donc pas à être encodé ici.
 const PERMISSION_MODES = ['default', 'auto', 'plan'];
 
-module.exports = { HOME, PROJECTS_DIR, HOOKED_DIR, EVENTS_FILE, LAUNCHES_FILE, SESSION_LAUNCH_FILE, STATUS_DIR, PUBLIC_DIR, PORT, SESSION_BUDGET, SESSION_HOURS, MODELS, EFFORTS, PERMISSION_MODES };
+export { HOME, PROJECTS_DIR, HOOKED_DIR, EVENTS_FILE, LAUNCHES_FILE, SESSION_LAUNCH_FILE, STATUS_DIR, PUBLIC_DIR, PORT, SESSION_BUDGET, SESSION_HOURS, MODELS, EFFORTS, PERMISSION_MODES };
