@@ -1,11 +1,10 @@
-'use strict';
 /*
  * Évènements live (écrits par hook.js dans events.jsonl) + config de lancement
  * (launches.jsonl). Caches invalidés par mtime/size du fichier.
  */
-const fs = require('fs');
-const { EVENTS_FILE, LAUNCHES_FILE } = require('./config');
-const { statSafe } = require('./util');
+import fs from 'node:fs';
+import { EVENTS_FILE, LAUNCHES_FILE } from './config.js';
+import { statSafe } from './util.js';
 
 let eventsCache = { key: null, list: [] };
 function readEvents(eventsFile = EVENTS_FILE) {
@@ -110,4 +109,4 @@ function launchConfigByTmux(launchesFile = LAUNCHES_FILE) {
   return map;
 }
 
-module.exports = { readEvents, lastEventBySession, paneForSession, modeForSession, liveQuestionForSession, launchConfigByTmux, eventSessionMeta };
+export { readEvents, lastEventBySession, paneForSession, modeForSession, liveQuestionForSession, launchConfigByTmux, eventSessionMeta };

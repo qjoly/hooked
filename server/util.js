@@ -1,6 +1,5 @@
-'use strict';
 /* Utilitaires fs + extraction de texte depuis les contenus de messages/outils. */
-const fs = require('fs');
+import fs from 'node:fs';
 
 const readdirSafe = (p) => { try { return fs.readdirSync(p); } catch (_) { return []; } };
 const statSafe = (p) => { try { return fs.statSync(p); } catch (_) { return null; } };
@@ -68,4 +67,4 @@ function toolInputText(input) {
   } catch (_) { return ''; }
 }
 
-module.exports = { readdirSafe, statSafe, textOf, cleanPrompt, chatText, toolDetail, toolResultText, toolInputText };
+export { readdirSafe, statSafe, textOf, cleanPrompt, chatText, toolDetail, toolResultText, toolInputText };

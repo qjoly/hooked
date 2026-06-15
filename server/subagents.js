@@ -1,11 +1,10 @@
-'use strict';
 /*
  * Reconstruit la liste des sous-agents lancés via l'outil Agent/Task : on apparie chaque
  * tool_use (consigne) avec son tool_result (résultat final) par tool_use_id.
  * Les tours internes du sous-agent ne sont PAS dans ce transcript (seuls entrée+sortie le sont).
  */
-const fs = require('fs');
-const { costForUsage } = require('./pricing');
+import fs from 'node:fs';
+import { costForUsage } from './pricing.js';
 
 function buildSubagents(fp) {
   let data;
@@ -59,4 +58,4 @@ function buildSubagents(fp) {
   return calls;
 }
 
-module.exports = { buildSubagents };
+export { buildSubagents };

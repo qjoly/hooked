@@ -1,21 +1,22 @@
-'use strict';
 /* Agrégateur : point d'entrée unique de la logique métier (back). */
-module.exports = {
-  ...require('./config'),
-  ...require('./util'),
-  ...require('./pricing'),
-  ...require('./transcript'),
-  ...require('./conversation'),
-  ...require('./changes'),
-  ...require('./subagents'),
-  ...require('./todos'),
-  ...require('./files'),
-  ...require('./commands'),
-  ...require('./events'),
-  ...require('./live'),
-  ...require('./tmux'),
-  ...require('./images'),
-  ...require('./usage'),
-  ...require('./status'),
-  ...require('./stats'),
-};
+// Aucune collision de noms d'exports entre les modules (vérifié : chaque symbole exporté
+// est unique au dossier server/). `export * from` suffit donc — pas de réexport explicite
+// à arbitrer. Note : images.js définit un `err400` interne mais ne l'exporte pas ; seul
+// tmux.js exporte `err400`, donc pas d'ambiguïté.
+export * from './config.js';
+export * from './util.js';
+export * from './pricing.js';
+export * from './transcript.js';
+export * from './conversation.js';
+export * from './changes.js';
+export * from './subagents.js';
+export * from './todos.js';
+export * from './files.js';
+export * from './commands.js';
+export * from './events.js';
+export * from './live.js';
+export * from './tmux.js';
+export * from './images.js';
+export * from './usage.js';
+export * from './status.js';
+export * from './stats.js';

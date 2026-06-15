@@ -1,4 +1,3 @@
-'use strict';
 /*
  * État courant de la TodoList d'une session. Claude réécrit la liste entière à
  * chaque appel de l'outil TodoWrite → le DERNIER appel fait foi. Chaque tâche :
@@ -7,8 +6,8 @@
  * Lecture cachée par mtime (comme transcript.js) : /api/sessions appelle ceci pour
  * chaque session à chaque poll, on évite donc de relire les transcripts inchangés.
  */
-const fs = require('fs');
-const { statSafe } = require('./util');
+import fs from 'node:fs';
+import { statSafe } from './util.js';
 
 const cache = new Map(); // path -> { key, val }
 
@@ -59,4 +58,4 @@ function todoSummary(latest) {
   };
 }
 
-module.exports = { latestTodos, todoSummary };
+export { latestTodos, todoSummary };

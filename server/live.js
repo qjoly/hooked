@@ -1,4 +1,3 @@
-'use strict';
 /* Déduit l'état live d'une session à partir de son dernier évènement de hook. */
 
 function liveStateFor(ev) {
@@ -25,4 +24,4 @@ function liveStateFor(ev) {
   }
 }
 
-module.exports = { liveStateFor };
+export { liveStateFor };

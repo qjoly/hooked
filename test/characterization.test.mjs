@@ -12,14 +12,14 @@ import { describe, it, expect } from 'vitest';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import * as lib from '../server/index.js'; // agrégateur des nouveaux modules (ESM)
 
 const require = createRequire(import.meta.url);
 const DIR = path.dirname(fileURLToPath(import.meta.url));
 const PROJ = path.join(DIR, 'fixtures', 'projects');
 const CODE = path.join(DIR, 'fixtures', 'code');
 
-const legacy = require('./reference/legacy-server.cjs');
-const lib = require('../server/index.js'); // agrégateur des nouveaux modules
+const legacy = require('./reference/legacy-server.cjs'); // copie figée CommonJS — inchangée
 
 const FILES = {
   alpha: path.join(PROJ, '-Users-test-proj-alpha', 'sess-alpha.jsonl'),
