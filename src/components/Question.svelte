@@ -1,5 +1,5 @@
 <script>
-  import { reply } from '../lib/api.js';
+  import { replyQuestion } from '../lib/api.js';
   import { loadSessions, ui } from '../lib/state.svelte.js';
 
   let { id, pq } = $props();
@@ -60,16 +60,22 @@
 
   async function send() {
     if (!allAnswered || sending) return;
-    // Une entrée par question (multi-sélection d'une même question jointe par « , ») : le
-    // backend tape chaque réponse puis Entrée sur son écran, le TUI enchaînant les questions.
-    const answers = selectedLabels().map((l) => l.join(', ')).filter(Boolean);
-    if (!answers.length) return;
+    // On envoie les INDICES choisis par question : le backend pilote le TUI au clavier
+    // (↓/Espace/Entrée). Pour un multi-select, taper les labels ne cochait rien — le TUI se
+    // navigue. La sélection front (`pick`) contient déjà les indices (tableau si multi, sinon
+    // l'index seul). Les labels ne servent plus qu'au récap affiché.
+    const selections = questions.map((q, qi) => ({
+      multi: !!q.multiSelect,
+      indices: q.multiSelect ? [...(pick[qi] || [])].sort((a, b) => a - b) : (pick[qi] != null ? [pick[qi]] : []),
+    }));
+    const labels = selectedLabels().map((l) => l.join(', ')).filter(Boolean);
+    if (!labels.length) return;
     sending = true;
     recap = { text: '', cls: '' };
-    const res = await reply(id, answers).catch((e) => ({ ok: false, data: { error: e.message } }));
+    const res = await replyQuestion(id, selections).catch((e) => ({ ok: false, data: { error: e.message } }));
     if (res.ok) {
       sent = true;
-      recap = { text: '✓ envoyé : ' + answers.join('  ·  '), cls: 'ok' };
+      recap = { text: '✓ envoyé : ' + labels.join('  ·  '), cls: 'ok' };
       setTimeout(() => { loadSessions(); ui.tick++; }, 600);
     } else {
       recap = { text: '✗ ' + (res.data.error || 'échec'), cls: 'err' };
@@ -87,9 +93,13 @@
       {#if q.multiSelect}<div class="q-hint">Plusieurs choix possibles</div>{/if}
       <div class="q-opts">
         {#each q.options || [] as o, oi}
-          <label class="q-opt" class:sel={isSel(qi, oi)}>
+          <!-- Le clic est géré sur le <label> (et non sur l'<input>) : un <input> dans un
+               <label> avec un handler de clic se déclenche DEUX fois (clic direct + relais du
+               label) → toggle annulé. preventDefault empêche la bascule native ; l'input n'est
+               plus que l'indicateur visuel piloté par `checked={isSel(...)}`. -->
+          <label class="q-opt" class:sel={isSel(qi, oi)} onclick={(e) => { e.preventDefault(); toggle(qi, oi); }}>
             <input type={q.multiSelect ? 'checkbox' : 'radio'} name="q-{qi}" value={oi} disabled={sent}
-                   checked={isSel(qi, oi)} onclick={(e) => { e.preventDefault(); toggle(qi, oi); }} />
+                   checked={isSel(qi, oi)} tabindex="-1" />
             <span class="q-opt-body">
               <span class="q-opt-label">{o.label}</span>
               {#if o.description}<span class="q-opt-desc">{o.description}</span>{/if}
