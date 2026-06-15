@@ -17,7 +17,7 @@ const {
   buildSessions, buildStats, sessionDetail,
   scanSessions, agentTranscriptPath, buildConversation, buildFileChanges,
   projectFiles, matchFiles, slashCommands, matchCommands, paneForSession, liveQuestionForSession,
-  deliverReply, sendKey, setMode, setModelEffort, launchSession, killSession, tmuxAlive,
+  deliverReply, deliverQuestion, sendKey, setMode, setModelEffort, launchSession, killSession, tmuxAlive,
   saveImage,
 } = require('./server/index.js');
 
@@ -103,23 +103,36 @@ const server = http.createServer((req, res) => {
       return readBody(req, (err, body) => {
         if (err) { res.writeHead(400); return res.end(JSON.stringify({ ok: false, error: 'requête invalide' })); }
         const id = body && body.id;
-        // `text` : string (texte libre / réponse à choix unique) ou tableau d'intitulés (une
-        // réponse par question pour un AskUserQuestion à plusieurs questions).
+        if (!id) { res.writeHead(400); return res.end(JSON.stringify({ ok: false, error: 'id requis' })); }
+        const pane = paneForSession(id);
+        if (!pane) { res.writeHead(409); return res.end(JSON.stringify({ ok: false, error: 'pane tmux inconnu pour cette session (lancée hors tmux, ou avant ce hook ?)' })); }
+        const done = (e2) => {
+          if (e2) { res.writeHead(502); return res.end(JSON.stringify({ ok: false, error: 'échec tmux send-keys : ' + (e2.message || e2) })); }
+          sendJSON(res, { ok: true, pane });
+        };
+        // Réponse à un AskUserQuestion : on reçoit les INDICES sélectionnés par question et on
+        // pilote le TUI au clavier (↓/Espace/Entrée). Bien plus fiable que taper les labels —
+        // un multi-select se *navigue*, il ne se *tape* pas.
+        const sel = body && body.selections;
+        if (Array.isArray(sel)) {
+          if (!sel.length) { res.writeHead(400); return res.end(JSON.stringify({ ok: false, error: 'sélections vides' })); }
+          const selections = sel.map((q) => ({
+            multi: !!(q && q.multi),
+            indices: Array.isArray(q && q.indices) ? q.indices.filter((n) => Number.isInteger(n) && n >= 0) : [],
+          }));
+          return deliverQuestion(pane, selections, done);
+        }
+        // `text` : string (texte libre / réponse à choix unique tapée) ou tableau d'intitulés.
         const raw = body && body.text;
         const text = Array.isArray(raw)
           ? raw.map((s) => (typeof s === 'string' ? s.trim() : '')).filter(Boolean)
           : (typeof raw === 'string' ? raw.trim() : '');
         const empty = Array.isArray(text) ? !text.length : !text;
-        if (!id || empty) { res.writeHead(400); return res.end(JSON.stringify({ ok: false, error: 'id et text requis' })); }
-        const pane = paneForSession(id);
-        if (!pane) { res.writeHead(409); return res.end(JSON.stringify({ ok: false, error: 'pane tmux inconnu pour cette session (lancée hors tmux, ou avant ce hook ?)' })); }
+        if (empty) { res.writeHead(400); return res.end(JSON.stringify({ ok: false, error: 'text requis' })); }
         // si une question AskUserQuestion est en attente, son TUI réclame une Entrée de
         // confirmation supplémentaire (écran « Submit answers ») pour valider la réponse.
         const isQuestion = !!liveQuestionForSession(id);
-        deliverReply(pane, text, isQuestion, (e2) => {
-          if (e2) { res.writeHead(502); return res.end(JSON.stringify({ ok: false, error: 'échec tmux send-keys : ' + (e2.message || e2) })); }
-          sendJSON(res, { ok: true, pane });
-        });
+        deliverReply(pane, text, isQuestion, done);
       });
     }
     if (req.method === 'POST' && p === '/api/upload-image') {
