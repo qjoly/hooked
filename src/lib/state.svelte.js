@@ -1,11 +1,11 @@
 // État partagé (runes Svelte 5). Un seul objet réactif partagé entre composants.
+// La navigation (vue courante, session ouverte, écran « nouvelle session ») n'est PLUS
+// ici : elle est portée par l'URL (routing SvelteKit). Ne restent que les filtres de la
+// sidebar, l'état live (SSE), le tick de rafraîchissement et la modale.
 import { getSessions, connectSSE } from './api.js';
 
 export const ui = $state({
-  view: 'sessions',          // 'sessions' | 'stats'
   live: false,               // connexion SSE active ?
-  currentSessionId: null,    // session ouverte dans le détail (null = vue d'ensemble)
-  composing: false,          // écran « nouvelle session » (chat plein écran) affiché ?
   statusFilter: 'all',
   search: '',
   hideOld: false,
@@ -20,15 +20,18 @@ export async function loadSessions() {
   try { data.sessions = await getSessions(); } catch (_) {}
 }
 
+let started = false;
 export function startLive() {
+  if (started) return; // une seule connexion SSE pour toute la durée de vie de l'app
+  started = true;
   loadSessions();
   connectSSE({
     onOpen: () => { ui.live = true; },
     onError: () => { ui.live = false; },
-    onTick: () => { if (ui.view === 'sessions') refresh(); },
+    onTick: () => { refresh(); },
   });
-  // filet : rafraîchit la vue sessions toutes les 5 s même sans évènement
-  setInterval(() => { if (ui.view === 'sessions') refresh(); }, 5000);
+  // filet : rafraîchit la liste toutes les 5 s même sans évènement
+  setInterval(refresh, 5000);
 }
 
 async function refresh() {

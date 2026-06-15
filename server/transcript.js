@@ -1,13 +1,12 @@
-'use strict';
 /*
  * Parsing des transcripts (avec cache mtime) + scan des sessions de premier niveau
  * et localisation des transcripts de sous-agents.
  */
-const fs = require('fs');
-const path = require('path');
-const { PROJECTS_DIR } = require('./config');
-const { readdirSafe, statSafe, textOf, cleanPrompt } = require('./util');
-const { costForUsage } = require('./pricing');
+import fs from 'node:fs';
+import path from 'node:path';
+import { PROJECTS_DIR } from './config.js';
+import { readdirSafe, statSafe, textOf, cleanPrompt } from './util.js';
+import { costForUsage } from './pricing.js';
 
 const parseCache = new Map(); // path -> { key, summary }
 
@@ -198,4 +197,4 @@ function agentTranscriptPath(sessionId, agentId, projectsDir = PROJECTS_DIR) {
   return null;
 }
 
-module.exports = { parseTranscript, getSummary, scanSessions, agentTranscriptPath, blankSummary };
+export { parseTranscript, getSummary, scanSessions, agentTranscriptPath, blankSummary };

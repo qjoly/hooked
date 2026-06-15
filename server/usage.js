@@ -1,15 +1,14 @@
-'use strict';
 /*
  * Usage sur une fenêtre glissante (la « session de 5 h » de l'abonnement Claude, dont la
  * limite est globale au compte). On a besoin d'une granularité plus fine que byDay, donc on
  * construit une *timeline* par tour assistant {ts(ms), cost, out, total}, mise en cache par
  * mtime/size du fichier. Distinct de parseTranscript (qu'on ne touche pas : tests différentiels).
  */
-const fs = require('fs');
-const path = require('path');
-const { PROJECTS_DIR, SESSION_BUDGET, SESSION_HOURS } = require('./config');
-const { readdirSafe, statSafe } = require('./util');
-const { costForUsage } = require('./pricing');
+import fs from 'node:fs';
+import path from 'node:path';
+import { PROJECTS_DIR, SESSION_BUDGET, SESSION_HOURS } from './config.js';
+import { readdirSafe, statSafe } from './util.js';
+import { costForUsage } from './pricing.js';
 
 const timelineCache = new Map(); // path -> { key, turns: [{ts, cost, out, total}] }
 
@@ -76,4 +75,4 @@ function usageWindow(hours = SESSION_HOURS, projectsDir = PROJECTS_DIR, now = Da
   return out;
 }
 
-module.exports = { usageWindow, fileTimeline };
+export { usageWindow, fileTimeline };

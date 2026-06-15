@@ -1,20 +1,19 @@
-'use strict';
 /*
  * Agrégations de haut niveau : liste des sessions enrichie de l'état live (buildSessions),
  * statistiques d'usage (buildStats) et détail complet d'une session (sessionDetail).
  */
-const path = require('path');
-const { statSafe } = require('./util');
-const { scanSessions, blankSummary } = require('./transcript');
-const { readEvents, lastEventBySession, paneForSession, modeForSession, liveQuestionForSession, eventSessionMeta } = require('./events');
-const { liveStateFor } = require('./live');
-const { resolveLaunchForSession, paneTmuxNames, tmuxAlive, readPaneModeSync } = require('./tmux');
-const { usageWindow } = require('./usage');
-const { sessionStatus, sessionStatusRaw } = require('./status');
-const { buildConversation } = require('./conversation');
-const { buildFileChanges } = require('./changes');
-const { buildSubagents } = require('./subagents');
-const { latestTodos, todoSummary } = require('./todos');
+import path from 'node:path';
+import { statSafe } from './util.js';
+import { scanSessions, blankSummary } from './transcript.js';
+import { readEvents, lastEventBySession, paneForSession, modeForSession, liveQuestionForSession, eventSessionMeta } from './events.js';
+import { liveStateFor } from './live.js';
+import { resolveLaunchForSession, paneTmuxNames, tmuxAlive, readPaneModeSync } from './tmux.js';
+import { usageWindow } from './usage.js';
+import { sessionStatus, sessionStatusRaw } from './status.js';
+import { buildConversation } from './conversation.js';
+import { buildFileChanges } from './changes.js';
+import { buildSubagents } from './subagents.js';
+import { latestTodos, todoSummary } from './todos.js';
 
 // Sessions « live-only » : présentes dans les évènements de hooks mais pas encore
 // dans un transcript (Claude Code n'écrit le .jsonl qu'au premier message de
@@ -156,4 +155,4 @@ function sessionDetail(id) {
   };
 }
 
-module.exports = { buildSessions, buildStats, sessionDetail, eventOnlySessions };
+export { buildSessions, buildStats, sessionDetail, eventOnlySessions };

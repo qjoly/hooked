@@ -56,7 +56,7 @@ header {
 .brand span { color: var(--accent); }
 .tabs { display: flex; gap: 4px; background: var(--bg3); padding: 4px; border-radius: 12px; }
 .tab {
-  background: transparent; color: var(--muted); border: none;
+  background: transparent; color: var(--muted); border: none; text-decoration: none;
   padding: 7px 16px; border-radius: 9px; cursor: pointer; font-size: 13.5px; font-weight: 600;
   transition: background .15s, color .15s, box-shadow .15s;
 }
@@ -99,6 +99,9 @@ main { flex: 1 1 auto; min-height: 0; overflow: hidden; background: var(--panel)
 .pflag { width: 7px; height: 7px; border-radius: 50%; }
 .pflag.a { background: var(--attention); animation: pulse .8s infinite; }
 .pflag.w { background: var(--waiting); }
+.pnew { opacity: 0; background: none; border: none; color: var(--muted); font-size: 13px; cursor: pointer; padding: 0 2px; line-height: 1; border-radius: 4px; transition: opacity .12s, color .12s; }
+.phead:hover .pnew { opacity: 1; }
+.pnew:hover { color: var(--text); }
 
 /* lignes session */
 .srow { display: flex; align-items: flex-start; gap: 10px; padding: 10px 10px; border-radius: 11px; cursor: pointer; margin-bottom: 2px; transition: background .12s; }

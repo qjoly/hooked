@@ -1,15 +1,14 @@
-'use strict';
 /*
  * Pilotage tmux : résolution pane→nom de session, livraison de réponses (send-keys),
  * lancement / reprise / arrêt de sessions `claude` interactives (abonnement, zéro conso token).
  */
-const fs = require('fs');
-const path = require('path');
-const { execFile, execFileSync } = require('child_process');
-const { LAUNCHES_FILE, SESSION_LAUNCH_FILE, MODELS, EFFORTS, PERMISSION_MODES } = require('./config');
-const { statSafe } = require('./util');
-const { launchConfigByTmux, paneForSession } = require('./events');
-const { scanSessions } = require('./transcript');
+import fs from 'node:fs';
+import path from 'node:path';
+import { execFile, execFileSync } from 'node:child_process';
+import { LAUNCHES_FILE, SESSION_LAUNCH_FILE, MODELS, EFFORTS, PERMISSION_MODES } from './config.js';
+import { statSafe } from './util.js';
+import { launchConfigByTmux, paneForSession } from './events.js';
+import { scanSessions } from './transcript.js';
 
 // map pane tmux (%NN) → nom de session tmux, rafraîchie au plus toutes les 3 s.
 let paneNameCache = { at: 0, map: new Map() };
@@ -323,7 +322,7 @@ function launchSession({ resumeId, cwd, prompt, model, effort }, cb) {
 
 // Stoppe la session : on tue le pane tmux où tourne claude.
 function killSession(id, cb) {
-  const pane = require('./events').paneForSession(id);
+  const pane = paneForSession(id);
   if (!pane) return cb(err400('pane tmux inconnu pour cette session (lancée hors tmux ?)'));
   if (!/^%\d+$/.test(pane)) return cb(err400('pane invalide'));
   execFile('tmux', ['kill-pane', '-t', pane], (e) => {
@@ -332,4 +331,4 @@ function killSession(id, cb) {
   });
 }
 
-module.exports = { paneTmuxNames, tmuxAlive, launchInfoForPane, resolveLaunchForSession, deliverReply, deliverQuestion, sendKey, parsePaneMode, readPaneMode, readPaneModeSync, setMode, setModelEffort, launchSession, killSession, err400 };
+export { paneTmuxNames, tmuxAlive, launchInfoForPane, resolveLaunchForSession, deliverReply, deliverQuestion, sendKey, parsePaneMode, readPaneMode, readPaneModeSync, setMode, setModelEffort, launchSession, killSession, err400 };

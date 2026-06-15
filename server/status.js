@@ -1,13 +1,12 @@
-'use strict';
 /*
  * Lecture des snapshots de statusline déposés par statusline-command.sh dans STATUS_DIR
  * (un JSON par session). Source des *vraies* données du compte : effort réel, rate limits
  * 5 h / 7 j (avec reset), remplissage de la fenêtre de contexte — qu'aucun transcript ne porte.
  */
-const fs = require('fs');
-const path = require('path');
-const { STATUS_DIR } = require('./config');
-const { statSafe } = require('./util');
+import fs from 'node:fs';
+import path from 'node:path';
+import { STATUS_DIR } from './config.js';
+import { statSafe } from './util.js';
 
 const cache = new Map(); // path -> { key, data }
 
@@ -84,4 +83,4 @@ function sessionStatus(id, statusDir = STATUS_DIR, now = Date.now()) {
   };
 }
 
-module.exports = { sessionStatus, sessionStatusRaw, accountRateLimits };
+export { sessionStatus, sessionStatusRaw, accountRateLimits };
