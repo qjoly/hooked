@@ -117,6 +117,61 @@ function deliverReply(pane, text, isQuestion, cb) {
   step(0);
 }
 
+// Répond à un AskUserQuestion en PILOTANT le TUI au clavier (et non en tapant les labels :
+// taper « A, B » ne cochait rien — le TUI se *navigue*). Protocole vérifié en live sur le TUI
+// (Claude Code v2.1.x), onglets « ← ☐ Question … ✔ Submit → » en tête d'écran :
+//   • ↑/↓ déplacent le curseur dans les options (curseur sur la 1re option à l'arrivée) ;
+//   • Entrée COCHE/décoche l'option sous le curseur (et non Espace) ;
+//   • → passe à l'onglet suivant (question suivante, puis l'onglet « Submit ») ;
+//   • sur l'onglet « Submit » (curseur déjà sur « Submit answers »), Entrée soumet.
+// Donc, par question : descendre jusqu'à chaque option choisie + Entrée, puis → ; après la
+// dernière question on est sur « Submit » → Entrée finale.
+//
+// CRITIQUE : les frappes doivent être largement espacées. Envoyées trop vite (≈90 ms), le TUI
+// (ink) les coalesce / en avale — observé : un « ↓↓Entrée » rapproché perdait l'Entrée. ~300 ms
+// entre deux touches rend chaque frappe fiable.
+// `selections` : [{ multi: bool, indices: number[] }] (une entrée par question, dans l'ordre).
+function deliverQuestion(pane, selections, cb) {
+  if (!/^%\d+$/.test(pane || '')) return cb(err400('pane invalide'));
+  if (!Array.isArray(selections) || !selections.length) return cb(err400('sélections requises'));
+  const KEY_DELAY = 300;     // entre deux touches (ink avale les frappes trop rapprochées)
+  const SUBMIT_DELAY = 450;  // avant l'Entrée finale (laisser l'écran « Review » s'afficher)
+  const press = (key, done) => execFile('tmux', ['send-keys', '-t', pane, key], (e) => (e ? done(e) : setTimeout(done, KEY_DELAY)));
+
+  // suite de touches pour une question (curseur supposé sur la 1re option de l'écran), terminée
+  // par → pour passer à l'onglet suivant (question suivante ou « Submit »).
+  const keysFor = (q) => {
+    const keys = [];
+    const idx = (q.indices || []).filter((n) => Number.isInteger(n) && n >= 0).sort((a, b) => a - b);
+    let cur = 0; // position courante du curseur (départ : option 0)
+    const targets = q.multi ? idx : (idx.length ? [idx[0]] : []);
+    for (const target of targets) {
+      for (let k = cur; k < target; k++) keys.push('Down');
+      keys.push('Enter'); // coche l'option sous le curseur
+      cur = target;
+    }
+    keys.push('Right'); // onglet suivant
+    return keys;
+  };
+
+  const runKeys = (keys, done) => {
+    const go = (i) => (i >= keys.length ? done(null) : press(keys[i], (e) => (e ? done(e) : go(i + 1))));
+    go(0);
+  };
+
+  const stepQuestion = (qi) => {
+    if (qi >= selections.length) {
+      // sur l'onglet « Submit », curseur sur « Submit answers » → Entrée finale valide tout.
+      return setTimeout(() => execFile('tmux', ['send-keys', '-t', pane, 'Enter'], (e) => cb(e || null)), SUBMIT_DELAY);
+    }
+    runKeys(keysFor(selections[qi]), (e) => {
+      if (e) return cb(e);
+      stepQuestion(qi + 1);
+    });
+  };
+  stepQuestion(0);
+}
+
 // Envoie une touche « nommée » (ex. Escape) au pane : sert à interrompre Claude depuis l'UI,
 // exactement comme une frappe Echap dans le TUI interactif.
 function sendKey(pane, key, cb) {
@@ -277,4 +332,4 @@ function killSession(id, cb) {
   });
 }
 
-module.exports = { paneTmuxNames, tmuxAlive, launchInfoForPane, resolveLaunchForSession, deliverReply, sendKey, parsePaneMode, readPaneMode, readPaneModeSync, setMode, setModelEffort, launchSession, killSession, err400 };
+module.exports = { paneTmuxNames, tmuxAlive, launchInfoForPane, resolveLaunchForSession, deliverReply, deliverQuestion, sendKey, parsePaneMode, readPaneMode, readPaneModeSync, setMode, setModelEffort, launchSession, killSession, err400 };
