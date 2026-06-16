@@ -482,6 +482,12 @@ code.path { color: var(--muted); font-size: 11px; word-break: break-all; font-fa
   margin-left: 8px; font-family: var(--mono);
 }
 .attach-btn:hover { background: var(--bg3); color: var(--fg); }
+.vscode-btn {
+  background: transparent; color: #0a84c2; border: 1px solid #0a84c2;
+  border-radius: 8px; padding: 4px 10px; font-size: 12px; font-weight: 600; cursor: pointer;
+}
+.vscode-btn:hover { background: #0a84c2; color: #fff; }
+.vscode-btn:disabled { opacity: .6; cursor: default; }
 /* sélecteur de mode de permission (Normal / Auto-edits / Plan) sur une session live */
 .mode-switch { display: flex; align-items: center; gap: 6px; margin: 8px 0 2px; flex-wrap: wrap; }
 .mode-cap { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); font-family: var(--mono); }
