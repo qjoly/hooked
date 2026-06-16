@@ -1,8 +1,9 @@
 <script>
-  import { untrack } from 'svelte';
+  import { onMount, untrack } from 'svelte';
   import { goto } from '$app/navigation';
   import { page } from '$app/state';
   import { data, ui } from '$lib/state.svelte.js';
+  import { getDefaults } from '$lib/api.js';
   import Composer from './Composer.svelte';
   import ModelEffort from './ModelEffort.svelte';
 
@@ -25,9 +26,18 @@
   let search = $state('');
   let selected = $state(null);
   let customCwd = $state('');
+  // Défauts provisoires, remplacés au montage par ceux de ~/.claude (config Claude Code).
   let model = $state('opus');
   let effort = $state('high');
   let worktree = $state(false); // lance `claude --worktree` (git worktree isolé)
+
+  onMount(async () => {
+    try {
+      const d = await getDefaults();
+      if (d?.model) model = d.model;
+      if (d?.effort) effort = d.effort;
+    } catch (_) {}
+  });
 
   const hits = $derived.by(() => {
     const q = search.toLowerCase().trim();

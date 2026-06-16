@@ -17,6 +17,8 @@ export const getStats = (range) => jget('/api/stats?range=' + encodeURIComponent
 export const getFiles = (id, q, cwd) => jget(`/api/files?id=${encodeURIComponent(id || '')}&q=${encodeURIComponent(q)}${cwd ? '&cwd=' + encodeURIComponent(cwd) : ''}`);
 export const getCommands = (id, q, cwd) => jget(`/api/commands?id=${encodeURIComponent(id || '')}&q=${encodeURIComponent(q)}${cwd ? '&cwd=' + encodeURIComponent(cwd) : ''}`);
 export const getAgent = (session, agent) => jget(`/api/agent?session=${encodeURIComponent(session)}&agent=${encodeURIComponent(agent)}`);
+// Défauts modèle/effort lus depuis ~/.claude (config Claude Code de l'utilisateur).
+export const getDefaults = () => jget('/api/defaults');
 
 export const reply = (id, text) => jpost('/api/reply', { id, text });
 // Réponse à un AskUserQuestion : on transmet les indices sélectionnés par question
