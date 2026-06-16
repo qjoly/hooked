@@ -10,6 +10,13 @@ import { statSafe } from './util.js';
 import { launchConfigByTmux, paneForSession } from './events.js';
 import { scanSessions } from './transcript.js';
 
+// Délai entre la saisie d'un texte et l'Entrée de validation. Le TUI de Claude Code détecte les
+// frappes rapprochées comme un *collage* : une Entrée envoyée trop tôt après le texte est avalée
+// comme un saut de ligne du collage (texte saisi mais jamais validé — « envoyé » côté UI, session
+// bloquée). Il faut laisser la fenêtre de détection de collage se refermer avant de valider.
+// Partagé entre deliverReply (réponses) et launchSession (1er prompt) pour rester cohérent.
+const ENTER_DELAY = 400;
+
 // map pane tmux (%NN) → nom de session tmux, rafraîchie au plus toutes les 3 s.
 let paneNameCache = { at: 0, map: new Map() };
 function paneTmuxNames() {
@@ -92,11 +99,8 @@ function deliverReply(pane, text, isQuestion, cb) {
   if (typeof isQuestion === 'function') { cb = isQuestion; isQuestion = false; }
   if (!/^%\d+$/.test(pane || '')) return cb(new Error('pane invalide'));
   const answers = Array.isArray(text) ? text : [text];
-  // tape une réponse puis Entrée. Le TUI de Claude Code détecte les frappes rapprochées comme
-  // un *collage* : une Entrée envoyée trop tôt après le texte est alors avalée comme un saut de
-  // ligne dans le collage (texte saisi mais jamais validé — « envoyé » côté UI, session bloquée).
-  // Il faut laisser la fenêtre de détection de collage se refermer avant de valider → 400 ms.
-  const ENTER_DELAY = 400;
+  // tape une réponse puis Entrée, en laissant la fenêtre de détection de collage se refermer
+  // avant de valider (cf. ENTER_DELAY).
   const typeAndEnter = (s, done) => execFile('tmux', ['send-keys', '-t', pane, '-l', '--', s], (err) => {
     if (err) return done(err);
     setTimeout(() => execFile('tmux', ['send-keys', '-t', pane, 'Enter'], done), ENTER_DELAY);
@@ -315,10 +319,13 @@ function launchSession({ resumeId, cwd, prompt, model, effort, worktree }, cb) {
       fs.appendFileSync(LAUNCHES_FILE, JSON.stringify({ ts: new Date().toISOString(), tmux: name, cwd: dir, model: model || null, effort: effort || null, worktree: useWorktree }) + '\n');
     } catch (_) {}
     // 1er prompt optionnel : best-effort, après un délai pour laisser le TUI claude démarrer.
+    // Même piège de détection de collage que deliverReply : on attend ENTER_DELAY (400 ms) après
+    // la saisie avant l'Entrée, sinon le texte est tapé mais jamais validé (« envoyé » côté UI,
+    // session bloquée sur le 1er message). C'était le cas avec l'ancien délai de 250 ms.
     const seed = prompt && typeof prompt === 'string' ? prompt.trim() : '';
     if (seed) {
       setTimeout(() => execFile('tmux', ['send-keys', '-t', name, '-l', '--', seed], () => {
-        setTimeout(() => execFile('tmux', ['send-keys', '-t', name, 'Enter'], () => {}), 250);
+        setTimeout(() => execFile('tmux', ['send-keys', '-t', name, 'Enter'], () => {}), ENTER_DELAY);
       }), 3500);
     }
     cb(null, { tmux: name, attach: `tmux attach -t ${name}`, cwd: dir, resume: id, worktree: useWorktree });
