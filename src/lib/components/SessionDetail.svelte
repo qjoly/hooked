@@ -2,7 +2,7 @@
   import { onMount, onDestroy, tick, untrack } from 'svelte';
   import { goto } from '$app/navigation';
   import { ui, data, loadSessions, openModal } from '$lib/state.svelte.js';
-  import { getSession, kill, setMode, setModelEffort } from '$lib/api.js';
+  import { getSession, kill, setMode, setModelEffort, openInVscode } from '$lib/api.js';
   import { STATE_LABEL, fmtCost, fmtTokens, fmtDuration, ago, shortModel, prLabel, PERMISSION_MODES, modeLabel, modeMeta, modelAlias } from '$lib/format.js';
   import ModelEffort from './ModelEffort.svelte';
   import ChatBubble from './ChatBubble.svelte';
@@ -163,6 +163,14 @@
   async function copyAttach() {
     try { await navigator.clipboard.writeText(s.tmuxAttach); attachCopied = true; setTimeout(() => (attachCopied = false), 1500); } catch (_) {}
   }
+  let vscodeBusy = $state(false);
+  async function openVscode() {
+    if (vscodeBusy) return;
+    vscodeBusy = true;
+    const res = await openInVscode(s.id).catch((e) => ({ ok: false, data: { error: e.message } }));
+    if (!res.ok) alert('✗ ' + (res.data.error || 'échec'));
+    vscodeBusy = false;
+  }
 </script>
 
 {#if s}
@@ -184,7 +192,8 @@
         <span class="ro-tag">lecture seule</span>
         <button class="resume-btn" onclick={resume}>▶ Reprendre dans tmux</button>
       {/if}
-      <span class="badge s-badge" style="margin-left:auto">{STATE_LABEL[s.state] || s.state}</span>
+      <button class="vscode-btn" style="margin-left:auto" disabled={vscodeBusy} onclick={openVscode} title="Ouvrir le projet entier dans VS Code">{vscodeBusy ? '⏳' : '⧉'} Open in VS Code</button>
+      <span class="badge s-badge">{STATE_LABEL[s.state] || s.state}</span>
     </div>
     <h2 style="margin:6px 0 0">{s.title}</h2>
     {#if s.tmuxAlive}
