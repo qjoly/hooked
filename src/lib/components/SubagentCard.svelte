@@ -1,7 +1,8 @@
 <script>
-  import { ago, fmtTokens, fmtCost, mdLite } from '$lib/format.js';
+  import { ago, fmtTokens, fmtCost } from '$lib/format.js';
   import { getAgent } from '$lib/api.js';
   import ChatBubble from './ChatBubble.svelte';
+  import Markdown from './Markdown.svelte';
 
   let { a, session } = $props();
   let open = $state(false);
@@ -38,11 +39,11 @@
   </div>
   <div class="change-ops">
     {#if a.prompt}
-      <div class="sa-block"><div class="sa-label">📥 Consigne</div><div class="md">{@html mdLite(a.prompt)}</div></div>
+      <div class="sa-block"><div class="sa-label">📥 Consigne</div><div class="md"><Markdown text={a.prompt} /></div></div>
     {/if}
     <div class="sa-block">
       <div class="sa-label">📤 Résultat</div>
-      {#if a.result}<div class="md">{@html mdLite(a.result)}</div>
+      {#if a.result}<div class="md"><Markdown text={a.result} /></div>
       {:else}<div class="pane-empty">Pas de résultat (sous-agent interrompu ou sans sortie).</div>{/if}
     </div>
     {#if a.agentId}
