@@ -184,19 +184,26 @@ function sendKey(pane, key, cb) {
 }
 
 // Mode de permission lu DIRECTEMENT à l'écran du TUI (footer). C'est la source fiable et
-// temps-réel : le TUI affiche en dernière ligne « ⏵⏵ auto mode on (shift+tab to cycle) »,
+// temps-réel : le TUI affiche dans le footer « ⏵⏵ auto mode on (shift+tab to cycle) »,
 // « ⏵⏵ accept edits on … », « ⏸ plan mode on … » ; en mode normal il n'y a pas de ligne
-// d'indicateur (la dernière ligne non vide est la statusline). On ne regarde QUE la dernière
-// ligne non vide pour ne pas confondre avec le texte de la conversation qui pourrait citer
-// ces libellés.
+// d'indicateur. La ligne d'indicateur n'est PAS toujours la dernière non vide : quand des
+// sous-agents tournent, le TUI ajoute des lignes en dessous (« ○ Explore … », etc.). On
+// balaie donc les quelques dernières lignes non vides et on ne reconnaît une ligne de mode
+// qu'avec le marqueur « (shift+tab to cycle) » (ou « bypass permissions »), absent du texte
+// de conversation, pour ne pas se laisser piéger par un libellé cité plus haut.
 function parsePaneMode(screen) {
   const lines = String(screen).split('\n');
-  let last = '';
-  for (let i = lines.length - 1; i >= 0; i--) { if (lines[i].trim()) { last = lines[i]; break; } }
-  if (/auto mode on/i.test(last)) return 'auto';
-  if (/accept edits on/i.test(last)) return 'acceptEdits';
-  if (/plan mode on/i.test(last)) return 'plan';
-  if (/bypass permissions/i.test(last)) return 'bypassPermissions';
+  const tail = [];
+  for (let i = lines.length - 1; i >= 0 && tail.length < 8; i--) {
+    if (lines[i].trim()) tail.push(lines[i]);
+  }
+  for (const line of tail) {
+    if (!/shift\+tab to cycle/i.test(line) && !/bypass permissions/i.test(line)) continue;
+    if (/auto mode on/i.test(line)) return 'auto';
+    if (/accept edits on/i.test(line)) return 'acceptEdits';
+    if (/plan mode on/i.test(line)) return 'plan';
+    if (/bypass permissions/i.test(line)) return 'bypassPermissions';
+  }
   return 'default'; // mode normal : pas d'indicateur de mode dans le footer
 }
 

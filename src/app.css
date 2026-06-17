@@ -279,11 +279,35 @@ code.path { color: var(--muted); font-size: 11px; word-break: break-all; font-fa
 .bubble.user .who { justify-content: flex-end; }
 .bubble .who .t { font-weight: 400; opacity: .7; }
 .bubble .md { word-wrap: break-word; overflow-wrap: anywhere; }
-.bubble .md pre { background: rgba(60,45,30,.07); border-radius: 9px; padding: 11px; overflow-x: auto; margin: 6px 0; font-size: 12px; }
-.bubble.user .md pre { background: rgba(0,0,0,.18); }
 .bubble .md code { font-family: var(--mono); font-size: 12px; }
 .bubble .md :not(pre) > code { background: rgba(120,95,60,.14); padding: 1px 5px; border-radius: 5px; }
 .bubble.user .md :not(pre) > code { background: rgba(255,255,255,.22); }
+
+/* bloc de code : panneau « éditeur » sombre, en-tête (langage + bouton copier) + corps coloré.
+   Indépendant de la bulle (toujours sombre), aussi bien chez l'utilisateur que Claude. */
+.code-block { margin: 8px 0; border-radius: 10px; overflow: hidden; border: 1px solid rgba(0,0,0,.25); box-shadow: var(--shadow-sm); }
+.cb-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 4px 6px 4px 12px; background: #211d18; border-bottom: 1px solid rgba(255,255,255,.07); }
+.cb-lang { font-size: 10px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: #9a9081; font-family: var(--mono); }
+.cb-copy { font: inherit; font-size: 11px; font-weight: 600; color: #cfc6b4; background: transparent; border: 1px solid rgba(255,255,255,.14); border-radius: 7px; padding: 3px 9px; cursor: pointer; transition: background .15s, color .15s, border-color .15s; }
+.cb-copy:hover { background: rgba(255,255,255,.1); color: #fff; }
+.cb-copy.done { color: #a9c089; border-color: rgba(169,192,137,.5); }
+.code-block pre { margin: 0; padding: 11px 13px; overflow-x: auto; background: #2b2620; font-size: 12px; line-height: 1.55; }
+.code-block code { font-family: var(--mono); color: #e7e0d0; }
+
+/* jetons de coloration syntaxique (cf. src/lib/highlight.js) */
+.hl-com  { color: #8f8675; font-style: italic; }
+.hl-str  { color: #a9c089; }
+.hl-num  { color: #e0c27a; }
+.hl-key  { color: #e2925f; }
+.hl-bool { color: #c98ad0; }
+.hl-fn   { color: #82b6c7; }
+.hl-var  { color: #82b6c7; }
+.hl-attr { color: #82b6c7; }
+.hl-tag  { color: #e2925f; }
+.hl-diff-add  { display: block; color: #b6cf94; background: rgba(126,154,104,.16); }
+.hl-diff-del  { display: block; color: #e6998a; background: rgba(192,73,44,.18); }
+.hl-diff-hunk { display: block; color: #82b6c7; }
+.hl-diff-meta { display: block; color: #8f8675; }
 /* message en file d'attente (envoyé, pas encore repris dans le transcript) */
 .bubble.user.queued { background: var(--waiting); opacity: .9; box-shadow: none; border: 1px dashed rgba(255,255,255,.5); }
 .bubble.user.queued .who .t { font-weight: 600; opacity: .9; }

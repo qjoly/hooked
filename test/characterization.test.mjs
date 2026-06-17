@@ -339,4 +339,13 @@ describe('mode de permission — parsePaneMode (footer TUI réel)', () => {
     const screen = 'je te disais ⏸ plan mode on (shift+tab to cycle) dans mon message\n' + footer('  ⏵⏵ auto mode on (shift+tab to cycle)');
     expect(lib.parsePaneMode(screen)).toBe('auto');
   });
+  it('reconnaît le mode même quand des sous-agents ajoutent des lignes en dessous', () => {
+    const screen = footer('  ⏸ plan mode on (shift+tab to cycle)') + [
+      '',
+      '● main',
+      '○ Explore  Verify latest prod version maintenance',
+      '[hooked Re…] Ajouter feature de détection de méthode de versions',
+    ].join('\n');
+    expect(lib.parsePaneMode(screen)).toBe('plan');
+  });
 });
