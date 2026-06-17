@@ -30,7 +30,7 @@ echo "↻  Pense à redémarrer tes sessions Claude Code pour activer les hooks.
 
 [tasks.start]
 description = "Démarre le dashboard (http://localhost:4123)"
-run = "node server.js"
+run = "node build"
 
 [tasks.dev]
 description = "Lance Vite en mode dev (front uniquement)"
@@ -38,7 +38,7 @@ run = "npm run dev"
 
 [tasks.dev-server]
 description = "Lance le serveur Node en mode dev"
-run = "node server.js"
+run = "node build"
 
 [tasks.test]
 description = "Lance la suite Vitest"
@@ -72,7 +72,7 @@ cat > "$PLIST" <<EOF
         <string>x</string>
         <string>--</string>
         <string>node</string>
-        <string>server.js</string>
+        <string>build</string>
     </array>
     <key>WorkingDirectory</key>
     <string>$PROJECT_DIR</string>
