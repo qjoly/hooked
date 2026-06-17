@@ -1,4 +1,5 @@
 <script>
+  import { onMount } from 'svelte';
   import { reply, interrupt, launch, getFiles, getCommands, uploadImage } from '$lib/api.js';
   import { loadSessions, ui } from '$lib/state.svelte.js';
 
@@ -14,6 +15,28 @@
   let text = $state('');
   let status = $state({ text: '', cls: '' });
   let busy = $state(false);
+
+  // ----- brouillon persistant -----
+  // Le composer est recréé à chaque changement de session (route `{#key id}`), donc `text`
+  // serait perdu en quittant/revenant. On le sauvegarde dans localStorage, indexé par session
+  // (ou par projet pour une session neuve) : le texte survit à la navigation et au rechargement.
+  const draftKey = () => 'hooked:draft:' + (newSession ? 'new:' + (project || '') : (id || ''));
+  let restored = false;         // évite d'écraser le brouillon stocké avant de l'avoir relu
+  onMount(() => {
+    try {
+      const saved = localStorage.getItem(draftKey());
+      if (saved) { text = saved; queueMicrotask(autosize); }
+    } catch (_) {}
+    restored = true;
+  });
+  $effect(() => {
+    const t = text;             // dépendance réactive
+    if (!restored) return;
+    try {
+      if (t) localStorage.setItem(draftKey(), t);
+      else localStorage.removeItem(draftKey());
+    } catch (_) {}
+  });
 
   // ----- images collées -----
   // chaque image est uploadée au serveur (chemin disque) et jointe au message à l'envoi :
