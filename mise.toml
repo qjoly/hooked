@@ -15,7 +15,7 @@ run = "npm run build"
 
 [tasks.setup-hooks]
 description = "Branche hooked sur les hooks Claude Code (~/.claude/settings.json)"
-run = "node install.js"
+run = "node install.cjs"
 
 [tasks.setup]
 description = "Installation complète : deps + build + hooks Claude Code"

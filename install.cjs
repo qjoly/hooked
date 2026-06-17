@@ -11,10 +11,14 @@ const os = require('os');
 
 const SETTINGS = path.join(os.homedir(), '.claude', 'settings.json');
 const HOOK_CMD = `node ${path.join(__dirname, 'hook.cjs')}`;
+const STATUSLINE_TAP = path.join(__dirname, 'statusline-tap.sh');
+const TAP_MARKER = 'statusline-tap.sh';
 const EVENTS = [
   'SessionStart', 'UserPromptSubmit', 'PreToolUse', 'PostToolUse',
   'Notification', 'Stop', 'SubagentStop', 'SessionEnd', 'PreCompact',
 ];
+
+const shq = (s) => `'${String(s).replace(/'/g, `'\\''`)}'`;
 
 let settings = {};
 try { settings = JSON.parse(fs.readFileSync(SETTINGS, 'utf8')); }
@@ -31,10 +35,31 @@ for (const ev of EVENTS) {
   added++;
 }
 
-if (added > 0) {
+// Branche le tap statusline en enveloppant la commande statusLine existante.
+let statuslineChanged = false;
+settings.statusLine = settings.statusLine || {};
+const currentCmd = settings.statusLine.command || '';
+if (currentCmd.includes(TAP_MARKER)) {
+  console.log('  ✅ Tap statusline déjà branché.');
+} else {
+  let wrapped = `bash ${shq(STATUSLINE_TAP)}`;
+  if (currentCmd.trim()) {
+    wrapped = `HOOKED_SL=${shq(currentCmd)} ${wrapped}`;
+  }
+  settings.statusLine.type = 'command';
+  settings.statusLine.command = wrapped;
+  statuslineChanged = true;
+  console.log('  ✅ Tap statusline branché (ta statusline d\'origine est préservée).');
+}
+
+if (added > 0 || statuslineChanged) {
   try { fs.copyFileSync(SETTINGS, SETTINGS + '.hooked.bak'); } catch (_) {}
   fs.writeFileSync(SETTINGS, JSON.stringify(settings, null, 2) + '\n');
-  console.log(`  ✅ hooked branché sur ${added} évènement(s). Sauvegarde: settings.json.hooked.bak`);
+  if (added > 0) {
+    console.log(`  ✅ hooked branché sur ${added} évènement(s). Sauvegarde: settings.json.hooked.bak`);
+  } else {
+    console.log('  ✅ Déjà branché sur tous les évènements.');
+  }
 } else {
   console.log('  ✅ Déjà branché sur tous les évènements, rien à faire.');
 }

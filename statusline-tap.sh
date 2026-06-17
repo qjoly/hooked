@@ -1,8 +1,14 @@
-# --- tap hooked (à coller en haut de ta statusline, juste après `input=$(cat)`) -------------
+#!/usr/bin/env bash
+# --- tap hooked (wrapper de statusline) -----------------------------------------------------
 # Dépose les infos riches de la statusline (effort, rate limits 5 h / 7 j RÉELS du compte,
 # remplissage du contexte) dans ~/.claude/hooked/status/<session_id>.json pour que le dashboard
 # hooked les affiche. Un fichier par session, écrasé à chaque rendu → zéro croissance.
-# Best-effort, jamais bloquant. Nécessite `jq` (déjà requis par la plupart des statuslines).
+# Best-effort, jamais bloquant. Nécessite `jq`.
+#
+# Branché automatiquement par install.cjs : la commande statusLine d'origine est passée via
+# la variable HOOKED_SL et ré-exécutée ici pour que ta statusline continue de s'afficher.
+input=$(cat)
+
 hooked_status_dir="${HOME}/.claude/hooked/status"
 hooked_sid=$(printf '%s' "$input" | jq -r '.session_id // empty' 2>/dev/null)
 case "$hooked_sid" in
@@ -13,4 +19,9 @@ case "$hooked_sid" in
       > "${hooked_status_dir}/${hooked_sid}.json" 2>/dev/null
     ;;
 esac
+
+# Ré-affiche la statusline d'origine, en lui réinjectant le même JSON sur stdin.
+if [ -n "${HOOKED_SL:-}" ]; then
+  printf '%s' "$input" | sh -c "$HOOKED_SL"
+fi
 # --------------------------------------------------------------------------------------------
