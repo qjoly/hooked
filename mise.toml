@@ -53,6 +53,10 @@ PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
 PROJECT_DIR="$(pwd)"
 MISE_BIN="$(command -v mise || echo /opt/homebrew/bin/mise)"
 LOG_DIR="$HOME/Library/Logs/hooked"
+# PATH du shell de l'utilisateur au moment de l'install : permet de retrouver
+# tmux/claude/etc. même hors PATH par défaut (Nix → /run/current-system/sw/bin,
+# Homebrew, etc.). Le service launchd n'hérite sinon que d'un PATH minimal.
+SERVICE_PATH="${PATH:-/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin}"
 mkdir -p "$LOG_DIR"
 mkdir -p "$HOME/Library/LaunchAgents"
 
@@ -79,7 +83,7 @@ cat > "$PLIST" <<EOF
     <key>EnvironmentVariables</key>
     <dict>
         <key>PATH</key>
-        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+        <string>$SERVICE_PATH</string>
         <key>PORT</key>
         <string>4123</string>
     </dict>
