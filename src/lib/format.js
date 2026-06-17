@@ -78,22 +78,48 @@ export const modeLabel = (k) => modeMeta(k).label;
 // Modes proposés dans le sélecteur, dans l'ordre réel du cycle Maj+Tab (Normal → Auto → Plan).
 export const PERMISSION_MODES = ['default', 'auto', 'plan'].map((k) => ({ key: k, ...MODE_META[k] }));
 
+// rendu inline (hors blocs de code) : `code`, **gras**, titres #, sauts de ligne. Échappe le reste.
+export function mdInline(t) {
+  return esc(t)
+    .replace(/`([^`]+)`/g, '<code>$1</code>')
+    .replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>')
+    .replace(/^#{1,4} (.+)$/gm, '<b>$1</b>')
+    .replace(/\n/g, '<br>');
+}
+
 // markdown léger : code fences ``` , `code`, **gras**, titres #, sauts de ligne. Échappe le reste.
 export function mdLite(t) {
   const parts = String(t).split(/```/);
   let out = '';
   parts.forEach((seg, i) => {
-    if (i % 2 === 1) {
-      out += `<pre><code>${esc(seg.replace(/^[a-zA-Z0-9]*\n/, ''))}</code></pre>`;
-    } else {
-      out += esc(seg)
-        .replace(/`([^`]+)`/g, '<code>$1</code>')
-        .replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>')
-        .replace(/^#{1,4} (.+)$/gm, '<b>$1</b>')
-        .replace(/\n/g, '<br>');
-    }
+    if (i % 2 === 1) out += `<pre><code>${esc(seg.replace(/^[a-zA-Z0-9]*\n/, ''))}</code></pre>`;
+    else out += mdInline(seg);
   });
   return out;
+}
+
+// découpe un texte markdown léger en segments : { type:'text', html } ou
+// { type:'code', lang, code }. Le composant <Markdown> rend les blocs de code via
+// <CodeBlock> (coloration syntaxique + bouton copier) et le texte via mdInline.
+export function mdSegments(t) {
+  const parts = String(t).split(/```/);
+  const segs = [];
+  parts.forEach((seg, i) => {
+    if (i % 2 === 1) {
+      // 1re ligne = langage éventuel (alphanum + quelques signes), retirée du contenu.
+      const nl = seg.indexOf('\n');
+      const head = nl === -1 ? '' : seg.slice(0, nl).trim();
+      let lang = '', code = seg;
+      if (nl !== -1 && /^[a-zA-Z0-9+#._-]*$/.test(head)) {
+        lang = head.toLowerCase();
+        code = seg.slice(nl + 1);
+      }
+      segs.push({ type: 'code', lang, code: code.replace(/\n$/, '') });
+    } else if (seg) {
+      segs.push({ type: 'text', html: mdInline(seg) });
+    }
+  });
+  return segs;
 }
 
 // libellé court d'un lien de PR GitHub (repo #num) sinon l'URL brute.
