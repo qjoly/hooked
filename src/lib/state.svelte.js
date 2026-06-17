@@ -4,15 +4,30 @@
 // sidebar, l'état live (SSE), le tick de rafraîchissement et la modale.
 import { getSessions, connectSSE } from './api.js';
 
+const LS_KEY = 'hooked.ui';
+const persisted = (() => {
+  if (typeof localStorage === 'undefined') return {};
+  try { return JSON.parse(localStorage.getItem(LS_KEY) || '{}') || {}; } catch { return {}; }
+})();
+
 export const ui = $state({
   live: false,               // connexion SSE active ?
   statusFilter: 'all',
   search: '',
-  hideOld: false,
-  collapsed: {},             // { [projet]: true } → groupes repliés dans la sidebar
+  hideOld: persisted.hideOld ?? false,
+  collapsed: persisted.collapsed ?? {}, // { [projet]: true } → groupes repliés dans la sidebar
   modal: null,               // { type, data } | null
   tick: 0,                   // incrémenté à chaque évènement live → relance les effets
 });
+
+if (typeof localStorage !== 'undefined') {
+  $effect.root(() => {
+    $effect(() => {
+      const snapshot = { hideOld: ui.hideOld, collapsed: ui.collapsed };
+      try { localStorage.setItem(LS_KEY, JSON.stringify(snapshot)); } catch {}
+    });
+  });
+}
 
 export const data = $state({ sessions: [] });
 
