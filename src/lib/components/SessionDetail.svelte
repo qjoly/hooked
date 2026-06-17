@@ -2,7 +2,7 @@
   import { onMount, onDestroy, tick, untrack } from 'svelte';
   import { goto } from '$app/navigation';
   import { ui, data, loadSessions, openModal } from '$lib/state.svelte.js';
-  import { getSession, kill, setMode, setModelEffort, openInVscode } from '$lib/api.js';
+  import { getSession, kill, setMode, setModelEffort, openInVscode, openInGhostty } from '$lib/api.js';
   import { STATE_LABEL, fmtCost, fmtTokens, fmtDuration, ago, shortModel, prLabel, PERMISSION_MODES, modeLabel, modeMeta, modelAlias } from '$lib/format.js';
   import ModelEffort from './ModelEffort.svelte';
   import ChatBubble from './ChatBubble.svelte';
@@ -171,6 +171,14 @@
     if (!res.ok) alert('✗ ' + (res.data.error || 'échec'));
     vscodeBusy = false;
   }
+  let ghosttyBusy = $state(false);
+  async function openGhostty() {
+    if (ghosttyBusy) return;
+    ghosttyBusy = true;
+    const res = await openInGhostty(s.id).catch((e) => ({ ok: false, data: { error: e.message } }));
+    if (!res.ok) alert('✗ ' + (res.data.error || 'échec'));
+    ghosttyBusy = false;
+  }
 </script>
 
 {#if s}
@@ -193,7 +201,8 @@
         <button class="resume-btn" onclick={resume}>▶ Reprendre dans tmux</button>
       {/if}
       <button class="vscode-btn" style="margin-left:auto" disabled={vscodeBusy} onclick={openVscode} title="Ouvrir le projet entier dans VS Code">{vscodeBusy ? '⏳' : '⧉'} Open in VS Code</button>
-      <span class="badge s-badge">{STATE_LABEL[s.state] || s.state}</span>
+      <button class="vscode-btn" disabled={ghosttyBusy} onclick={openGhostty} title="Ouvrir la session dans Ghostty (attache le tmux si vivant)">{ghosttyBusy ? '⏳' : '⧉'} Open in Ghostty</button>
+      <span class="badge s-badge"><span class="bdot"></span>{STATE_LABEL[s.state] || s.state}</span>
     </div>
     <h2 style="margin:6px 0 0">{s.title}</h2>
     {#if s.tmuxAlive}

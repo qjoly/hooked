@@ -189,6 +189,21 @@ input[type=search]:focus, select:focus, .lf-input:focus { outline: none; border-
 .s-ended .badge { background: rgba(126,154,104,.18); color: var(--ended); }
 @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .25; } }
 
+/* badge d'état dans l'en-tête de chat : plus gros et plus contrasté que sur les cartes */
+.s-badge { font-size: 13px; padding: 6px 14px; gap: 7px; letter-spacing: .01em; }
+.s-badge .bdot { width: 8px; height: 8px; }
+/* « Claude travaille » : fond plein + texte clair + halo pulsant pour être bien repérable */
+.s-working .s-badge { background: var(--working); color: #fff; box-shadow: 0 0 0 0 rgba(79,125,140,.55); animation: badge-glow 1.4s infinite; }
+.s-working .s-badge .bdot { background: #fff; animation: pulse 1s infinite; }
+.s-waiting .s-badge { background: var(--waiting); color: #fff; }
+.s-attention .s-badge { background: var(--attention); color: #fff; }
+.s-attention .s-badge .bdot { background: #fff; animation: pulse .7s infinite; }
+@keyframes badge-glow {
+  0%   { box-shadow: 0 0 0 0 rgba(79,125,140,.55); }
+  70%  { box-shadow: 0 0 0 9px rgba(79,125,140,0); }
+  100% { box-shadow: 0 0 0 0 rgba(79,125,140,0); }
+}
+
 .title { font-size: 14px; font-weight: 600; margin: 2px 0 6px; line-height: 1.35; }
 .prompt { color: var(--muted); font-size: 12.5px; line-height: 1.4; max-height: 36px; overflow: hidden; }
 .card-meta { display: flex; gap: 14px; margin-top: 10px; color: var(--muted); font-size: 11.5px; flex-wrap: wrap; }

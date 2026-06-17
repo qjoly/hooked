@@ -31,6 +31,7 @@ export const setModelEffort = (id, model, effort) => jpost('/api/model', { id, m
 export const launch = (payload) => jpost('/api/launch', payload);
 export const kill = (id) => jpost('/api/kill', { id });
 export const openInVscode = (id) => jpost('/api/open-vscode', { id });
+export const openInGhostty = (id) => jpost('/api/open-ghostty', { id });
 
 // Flux SSE : appelle onTick() à chaque « tick » poussé par le serveur.
 export function connectSSE({ onTick, onOpen, onError }) {
