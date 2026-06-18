@@ -297,6 +297,11 @@ code.path { color: var(--muted); font-size: 11px; word-break: break-all; font-fa
 .bubble .md code { font-family: var(--mono); font-size: 12px; }
 .bubble .md :not(pre) > code { background: rgba(120,95,60,.14); padding: 1px 5px; border-radius: 5px; }
 .bubble.user .md :not(pre) > code { background: rgba(255,255,255,.22); }
+.bubble .md table { border-collapse: collapse; margin: 8px 0; font-size: 12px; max-width: 100%; }
+.bubble .md th, .bubble .md td { border: 1px solid rgba(120,95,60,.28); padding: 4px 9px; text-align: left; vertical-align: top; }
+.bubble .md th { background: rgba(120,95,60,.12); font-weight: 700; }
+.bubble.user .md th, .bubble.user .md td { border-color: rgba(255,255,255,.28); }
+.bubble.user .md th { background: rgba(255,255,255,.14); }
 
 /* bloc de code : panneau « éditeur » sombre, en-tête (langage + bouton copier) + corps coloré.
    Indépendant de la bulle (toujours sombre), aussi bien chez l'utilisateur que Claude. */

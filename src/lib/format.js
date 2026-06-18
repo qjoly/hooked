@@ -78,13 +78,58 @@ export const modeLabel = (k) => modeMeta(k).label;
 // Modes proposés dans le sélecteur, dans l'ordre réel du cycle Maj+Tab (Normal → Auto → Plan).
 export const PERMISSION_MODES = ['default', 'auto', 'plan'].map((k) => ({ key: k, ...MODE_META[k] }));
 
-// rendu inline (hors blocs de code) : `code`, **gras**, titres #, sauts de ligne. Échappe le reste.
-export function mdInline(t) {
+// formatage inline d'un fragment (sans gestion des lignes) : `code`, **gras**. Échappe le reste.
+function mdFrag(t) {
   return esc(t)
     .replace(/`([^`]+)`/g, '<code>$1</code>')
-    .replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>')
-    .replace(/^#{1,4} (.+)$/gm, '<b>$1</b>')
-    .replace(/\n/g, '<br>');
+    .replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>');
+}
+
+// découpe une ligne de tableau GFM en cellules (retire les | de bord, gère \| échappé).
+const tableCells = (l) =>
+  l.trim().replace(/^\|/, '').replace(/\|$/, '')
+    .split(/(?<!\\)\|/).map((c) => c.replace(/\\\|/g, '|').trim());
+
+// ligne séparatrice d'un tableau : « |---|:--:|--:| » (au moins une cellule de tirets).
+const isTableSep = (l) => /^\s*\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?\s*$/.test(l);
+
+function renderTable(header, aligns, rows) {
+  const al = (i) => (aligns[i] ? ` style="text-align:${aligns[i]}"` : '');
+  const th = header.map((c, i) => `<th${al(i)}>${mdFrag(c)}</th>`).join('');
+  const trs = rows
+    .map((r) => '<tr>' + header.map((_, i) => `<td${al(i)}>${mdFrag(r[i] || '')}</td>`).join('') + '</tr>')
+    .join('');
+  return `<table><thead><tr>${th}</tr></thead><tbody>${trs}</tbody></table>`;
+}
+
+// rendu inline (hors blocs de code) : tableaux GFM, `code`, **gras**, titres #, sauts de ligne.
+export function mdInline(t) {
+  const lines = String(t == null ? '' : t).split('\n');
+  const out = [];
+  let buf = []; // lignes texte en attente, jointes par <br>
+  const flush = () => { if (buf.length) { out.push(buf.join('<br>')); buf = []; } };
+  let i = 0;
+  while (i < lines.length) {
+    // tableau : ligne d'en-tête contenant un | suivie d'une ligne séparatrice |---|.
+    if (lines[i].includes('|') && i + 1 < lines.length && isTableSep(lines[i + 1])) {
+      flush();
+      const header = tableCells(lines[i]);
+      const aligns = tableCells(lines[i + 1]).map((c) => {
+        const l = c.startsWith(':'), r = c.endsWith(':');
+        return l && r ? 'center' : r ? 'right' : l ? 'left' : '';
+      });
+      i += 2;
+      const rows = [];
+      while (i < lines.length && lines[i].includes('|')) { rows.push(tableCells(lines[i])); i++; }
+      out.push(renderTable(header, aligns, rows));
+    } else {
+      const h = lines[i].match(/^#{1,4} (.+)$/);
+      buf.push(h ? `<b>${mdFrag(h[1])}</b>` : mdFrag(lines[i]));
+      i++;
+    }
+  }
+  flush();
+  return out.join('');
 }
 
 // markdown léger : code fences ``` , `code`, **gras**, titres #, sauts de ligne. Échappe le reste.
