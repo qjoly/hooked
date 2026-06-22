@@ -149,19 +149,45 @@
       if (e.key === 'Escape') { e.preventDefault(); closeAc(); return; }
     }
     if (e.key === 'Escape') { e.preventDefault(); interruptEdit(); return; }
+    // toute autre frappe désarme l'interruption en attente (évite un 2e Échap involontaire)
+    if (armed) { disarm(); status = { text: '', cls: '' }; }
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
   }
+
+  // Confirmation anti-Échap accidentel : interrompre Claude est coûteux, donc le 1er Échap
+  // « arme » l'interruption et affiche un message ; il faut un 2e Échap dans les 3 s pour
+  // réellement interrompre. Tout autre frappe (ou le délai) désarme sans rien annuler.
+  let armed = false;
+  let armTimer = null;
+  function disarm() { armed = false; clearTimeout(armTimer); }
 
   // Echap (comme dans le CLI claude-code) : interrompt Claude et recharge le dernier prompt
   // dans le composer pour le corriger. Exposé au parent (écoute aussi Echap hors textarea).
   export function interruptEdit() {
     if (newSession) { closeAc(); return; }
-    if (alive) interrupt(id).then(() => { loadSessions(); ui.tick++; }).catch(() => {});
+    // Session morte : aucune requête en cours, recharger le prompt n'a rien de destructif.
+    if (!alive) { reloadPrompt(false); return; }
+    // 1er Échap : on arme et on demande confirmation pour éviter les annulations accidentelles.
+    if (!armed) {
+      armed = true;
+      status = { text: '⎋ Appuie encore sur Échap pour interrompre', cls: 'warn' };
+      clearTimeout(armTimer);
+      armTimer = setTimeout(() => { armed = false; status = { text: '', cls: '' }; }, 3000);
+      queueMicrotask(() => { if (ta) ta.focus(); });
+      return;
+    }
+    // 2e Échap dans la fenêtre : interruption réelle.
+    disarm();
+    interrupt(id).then(() => { loadSessions(); ui.tick++; }).catch(() => {});
+    reloadPrompt(true);
+  }
+
+  function reloadPrompt(interrupted) {
     if (lastPrompt && !text.trim()) {
       text = lastPrompt;
-      status = { text: alive ? '⎋ interrompu — prompt rechargé, édite puis renvoie' : '⎋ prompt rechargé', cls: '' };
+      status = { text: interrupted ? '⎋ interrompu — prompt rechargé, édite puis renvoie' : '⎋ prompt rechargé', cls: '' };
       setTimeout(() => { status = { text: '', cls: '' }; }, 3500);
-    } else if (alive) {
+    } else if (interrupted) {
       status = { text: '⎋ interrompu', cls: '' };
       setTimeout(() => { status = { text: '', cls: '' }; }, 2000);
     }
@@ -202,7 +228,7 @@
             placeholder={newSession
               ? 'Décris ta tâche pour démarrer la session…  (Entrée pour lancer · @ fichier · / commande · colle une image)'
               : alive
-                ? 'Répondre à Claude…  (Entrée pour envoyer · Maj+Entrée = nouvelle ligne · @ fichier · / commande · colle une image · Échap interrompt)'
+                ? 'Répondre à Claude…  (Entrée pour envoyer · Maj+Entrée = nouvelle ligne · @ fichier · / commande · colle une image · Échap×2 interrompt)'
                 : 'Session tmux fermée — envoyer relancera claude --resume…  (@ fichier · / commande · colle une image)'}
             oninput={onInput} onkeydown={onKeydown} onpaste={onPaste} onblur={() => setTimeout(closeAc, 150)}></textarea>
   <button class="reply-send" disabled={busy || uploading > 0} onclick={send}>{newSession ? 'Lancer ↗' : alive ? 'Envoyer ↩' : 'Relancer ↗'}</button>
