@@ -387,6 +387,7 @@ code.path { color: var(--muted); font-size: 11px; word-break: break-all; font-fa
 .reply-status { grid-column: 1 / -1; font-size: 12px; color: var(--muted); min-height: 14px; font-family: var(--mono); }
 .reply-status.ok { color: var(--ended); }
 .reply-status.err { color: var(--attention); }
+.reply-status.warn { color: var(--waiting); font-weight: 600; }
 
 /* ---------- sélecteur compact modèle / effort (pilules sous la chatbox) ---------- */
 .me-inline { display: inline-flex; gap: 8px; align-items: center; flex-wrap: wrap; }
