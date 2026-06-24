@@ -277,6 +277,23 @@ describe('todos — latestTodos / todoSummary', () => {
     const sum = lib.todoSummary({ todos: [{ content: 'x', status: 'completed', activeForm: 'X' }] });
     expect(sum).toEqual({ total: 1, done: 1, current: null });
   });
+
+  // Nouveau système Claude Code ≥ 2.1.x : TaskCreate / TaskUpdate (remplace TodoWrite).
+  const TASK_FP = path.join(DIR, 'fixtures', 'tasks.jsonl');
+  it('reconstruit la liste depuis TaskCreate (id séquentiel) + TaskUpdate', () => {
+    const t = lib.latestTodos(TASK_FP);
+    expect(t).not.toBeNull();
+    expect(t.ts).toBe('2026-06-17T09:04:00Z'); // dernier évènement Task*
+    // c4 (id 4) a été supprimé via status:"deleted" ; u4 cible un id inconnu → ignoré.
+    expect(t.todos.map((x) => x.content)).toEqual(['Lire le code', 'Écrire le module', 'Ajouter les tests']);
+    expect(t.todos.map((x) => x.status)).toEqual(['completed', 'in_progress', 'pending']);
+    expect(t.todos[1].activeForm).toBe('Écriture du module');
+    expect(t.todos[0].description).toBe('Parcourir les modules'); // description capturée pour l'affichage
+  });
+  it('todoSummary fonctionne aussi sur les tâches reconstruites', () => {
+    const sum = lib.todoSummary(lib.latestTodos(TASK_FP));
+    expect(sum).toEqual({ total: 3, done: 1, current: 'Écriture du module' });
+  });
 });
 
 describe('agentTranscriptPath', () => {
