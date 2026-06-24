@@ -17,7 +17,10 @@
       {#each todos as t, i (i)}
         <li class="todo todo-{t.status}">
           <span class="todo-ico">{ICON[t.status] || '☐'}</span>
-          <span class="todo-text">{t.status === 'in_progress' && t.activeForm ? t.activeForm : t.content}</span>
+          <span class="todo-body">
+            <span class="todo-text">{t.status === 'in_progress' && t.activeForm ? t.activeForm : t.content}</span>
+            {#if t.description}<span class="todo-desc">{t.description}</span>{/if}
+          </span>
         </li>
       {/each}
     </ul>
