@@ -9,12 +9,15 @@
   onMount(startLive);
 
   const onStats = $derived(page.url.pathname.startsWith('/stats'));
+  const onSearch = $derived(page.url.pathname.startsWith('/search'));
+  const onSessions = $derived(!onStats && !onSearch);
 </script>
 
 <header>
   <div class="brand">🪝 <span>hooked</span></div>
   <nav class="tabs">
-    <a class="tab" class:active={!onStats} href="/">Sessions</a>
+    <a class="tab" class:active={onSessions} href="/">Sessions</a>
+    <a class="tab" class:active={onSearch} href="/search">Recherche</a>
     <a class="tab" class:active={onStats} href="/stats">Stats &amp; usage</a>
   </nav>
   <div class="status">

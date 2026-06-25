@@ -65,9 +65,31 @@
       queued = queued.filter((q) => !userTexts.has(q.text.trim()));
     }
     await tick();
+    // ancre #msg-<ts> (depuis la page Recherche) : scroll vers la bulle ciblée
+    // au premier load, court-circuite le scroll auto en bas.
+    if (!isRefresh && scrollToHashMsg()) return;
     const keepPos = isRefresh && !wasAtBottom && !forceBottom && prevScroll != null;
     forceBottom = false;
     if (body) body.scrollTop = keepPos ? prevScroll : body.scrollHeight;
+  }
+
+  // localise la bulle dont data-msg-ts correspond à l'ancre URL #msg-<ts encodé> et
+  // scroll dessus + flash. Renvoie true si une cible a été trouvée et déclenchée.
+  function scrollToHashMsg() {
+    if (typeof window === 'undefined') return false;
+    const h = window.location.hash || '';
+    const m = h.match(/^#msg-(.+)$/);
+    if (!m) return false;
+    let ts;
+    try { ts = decodeURIComponent(m[1]); } catch (_) { return false; }
+    const root = body || document;
+    const el = root.querySelector(`.bubble[data-msg-ts="${ts.replace(/"/g, '\\"')}"]`);
+    if (!el) return false;
+    el.scrollIntoView({ block: 'center', behavior: 'instant' });
+    el.classList.remove('flash');
+    void el.offsetWidth; // force reflow → ré-arme l'animation
+    el.classList.add('flash');
+    return true;
   }
 
   // appelé par le Composer juste après un envoi réussi : affiche le message en file et scroll en bas.
