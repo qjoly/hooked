@@ -13,5 +13,10 @@ export default defineConfig({
       HOOKED_PROJECTS_DIR: path.join(FX, 'projects'),
       HOOKED_DATA_DIR: path.join(FX, 'data'),
     },
+    server: {
+      // node:sqlite est un module natif Node 24 : il doit être chargé tel quel,
+      // jamais transformé/bundlé par Vite (sinon "Failed to load url sqlite").
+      deps: { external: [/^node:/] },
+    },
   },
 });
