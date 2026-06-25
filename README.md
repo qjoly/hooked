@@ -19,7 +19,7 @@ Quand tu jongles entre plusieurs sessions Claude Code, tu perds vite le fil : la
 
 ## Prérequis
 
-- **Node.js** ≥ 16 (aucun paquet à installer)
+- **Node.js** ≥ 24 (la recherche utilise `node:sqlite`, stabilisé en Node 24)
 - **Claude Code** installé et utilisé sur ta machine
 - **tmux** *(optionnel)* — requis seulement pour répondre / lancer des sessions depuis l'UI
 
