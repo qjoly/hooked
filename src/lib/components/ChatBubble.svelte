@@ -5,7 +5,7 @@
   let { m } = $props();
 </script>
 
-<div class="bubble {m.role}">
+<div class="bubble {m.role}" data-msg-ts={m.ts || ''}>
   <div class="who">{m.role === 'user' ? '🧑 Toi' : '🤖 Claude'}<span class="t">{ago(m.ts)}</span></div>
   {#if m.text}<div class="md"><Markdown text={m.text} /></div>{/if}
   {#if m.tools && m.tools.length}
