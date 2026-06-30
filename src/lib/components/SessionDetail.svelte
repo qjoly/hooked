@@ -12,20 +12,28 @@
   import Subagents from './Subagents.svelte';
   import Todos from './Todos.svelte';
   import Terminal from './Terminal.svelte';
-  import { TERM_THEMES, DEFAULT_TERM_THEME } from '$lib/terminalThemes.js';
+  import { TERM_THEMES, DEFAULT_TERM_THEME, TERM_FONTS, DEFAULT_TERM_FONT } from '$lib/terminalThemes.js';
 
   let { id } = $props();
   let s = $state(null);          // détail de session
   let tab = $state('chat');
   let termPane = $state(null);   // pane « show » courant affiché dans l'onglet Terminal
-  let termInteractive = $state(false); // onglet Terminal : interactif (frappes → tmux) ou lecture seule
+  let termInteractive = $state(true);  // onglet Terminal : interactif (frappes → tmux) par défaut
   let termTheme = $state(DEFAULT_TERM_THEME); // thème xterm choisi (persisté en localStorage)
-  // restaure le thème mémorisé ; persiste à chaque changement.
+  let termFont = $state(DEFAULT_TERM_FONT);   // police choisie (persistée)
+  // restaure les préférences mémorisées ; chacune persiste à son changement.
   onMount(() => {
-    try { const v = localStorage.getItem('hooked.termTheme'); if (v && TERM_THEMES[v]) termTheme = v; } catch (_) {}
+    try {
+      const v = localStorage.getItem('hooked.termTheme'); if (v && TERM_THEMES[v]) termTheme = v;
+      const f = localStorage.getItem('hooked.termFont'); if (f && TERM_FONTS[f]) termFont = f;
+      const it = localStorage.getItem('hooked.termInteractive'); if (it != null) termInteractive = it === '1';
+    } catch (_) {}
   });
   $effect(() => { try { localStorage.setItem('hooked.termTheme', termTheme); } catch (_) {} });
+  $effect(() => { try { localStorage.setItem('hooked.termFont', termFont); } catch (_) {} });
+  $effect(() => { try { localStorage.setItem('hooked.termInteractive', termInteractive ? '1' : '0'); } catch (_) {} });
   const termThemeObj = $derived((TERM_THEMES[termTheme] || TERM_THEMES[DEFAULT_TERM_THEME]).theme);
+  const termFontFamily = $derived((TERM_FONTS[termFont] || TERM_FONTS[DEFAULT_TERM_FONT]).family);
   let body;                      // ref .pane-body (conteneur scrollable)
   let composer;                  // ref Composer (pour déclencher interruption + édition via Échap)
   let lastActivity = null;
@@ -379,6 +387,11 @@
               <code>{terminals[0].label}</code>
             </div>
           {/if}
+          <select class="term-theme" bind:value={termFont} title="Police du terminal" aria-label="Police du terminal">
+            {#each Object.entries(TERM_FONTS) as [key, f] (key)}
+              <option value={key}>🔤 {f.name}</option>
+            {/each}
+          </select>
           <select class="term-theme" bind:value={termTheme} title="Thème de couleurs du terminal" aria-label="Thème du terminal">
             {#each Object.entries(TERM_THEMES) as [key, t] (key)}
               <option value={key}>🎨 {t.name}</option>
@@ -390,7 +403,7 @@
           </button>
         </div>
         {#if tab === 'terminal' && termPane}
-          {#key termPane + ':' + termInteractive}<Terminal pane={termPane} interactive={termInteractive} theme={termThemeObj} />{/key}
+          {#key termPane + ':' + termInteractive}<Terminal pane={termPane} interactive={termInteractive} theme={termThemeObj} fontFamily={termFontFamily} />{/key}
         {/if}
       {:else}
         <div class="pane-empty">Aucun terminal disponible (session tmux fermée).</div>

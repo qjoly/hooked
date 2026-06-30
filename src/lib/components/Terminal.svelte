@@ -12,7 +12,7 @@
   import { onMount, onDestroy } from 'svelte';
   import { sendPaneInput } from '$lib/api.js';
 
-  let { pane, interactive = false, theme = null } = $props();
+  let { pane, interactive = false, theme = null, fontFamily = null } = $props();
 
   // thème appliqué à chaud (xterm v5 : term.options.theme) — pas de remontage au changement.
   // IMPORTANT : on lit `theme` AVANT le garde sur `term`. Sinon `if (term && theme)` court-circuite
@@ -23,6 +23,13 @@
     const t = theme;
     if (!term || !t) return;
     term.options.theme = t;
+    try { term.refresh(0, term.rows - 1); } catch (_) {}
+  });
+  // police appliquée à chaud (même précaution de tracking que le thème).
+  $effect(() => {
+    const f = fontFamily;
+    if (!term || !f) return;
+    term.options.fontFamily = f;
     try { term.refresh(0, term.rows - 1); } catch (_) {}
   });
 
@@ -74,7 +81,7 @@
         disableStdin: !interactive,
         cursorBlink: interactive,
         fontSize: 12,
-        fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
+        fontFamily: fontFamily || 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
         scrollback: 1000,
         theme: theme || { background: '#0b0e14', foreground: '#c7d0e0', cursor: '#7dd3fc' },
       });
