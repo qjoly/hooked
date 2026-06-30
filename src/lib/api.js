@@ -29,6 +29,9 @@ export const interrupt = (id) => jpost('/api/interrupt', { id });
 export const setMode = (id, mode) => jpost('/api/mode', { id, mode });
 export const setModelEffort = (id, model, effort) => jpost('/api/model', { id, model, effort });
 export const launch = (payload) => jpost('/api/launch', payload);
+// Fork d'une session à partir d'un message (uuid de la bulle) : crée une branche
+// indépendante (copie du préfixe du transcript) et la reprend dans une session tmux.
+export const fork = (payload) => jpost('/api/fork', payload);
 export const kill = (id) => jpost('/api/kill', { id });
 export const openInVscode = (id) => jpost('/api/open-vscode', { id });
 export const openInGhostty = (id) => jpost('/api/open-ghostty', { id });
