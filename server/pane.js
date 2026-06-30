@@ -24,7 +24,8 @@ const CMD_DELAY = 350;
 // et laisse le pane interactif après l'exécution (l'utilisateur peut Ctrl-C, relancer, etc.).
 function showInPane(id, { command, target } = {}, cb) {
   if (!id) return cb(err400('id requis'));
-  if (typeof command !== 'string' || !command.trim()) return cb(err400('command requise'));
+  // command optionnelle : sans elle, on ouvre juste un pane shell vide (bouton « + Pane »).
+  const cmd = (typeof command === 'string' && command.trim()) ? command : null;
   const where = target === 'window' ? 'window' : 'pane';
   const pane = paneForSession(id);
   if (!pane) return cb(err400('pane tmux inconnu pour cette session (lancée hors tmux ?)'));
@@ -52,13 +53,26 @@ function showInPane(id, { command, target } = {}, cb) {
     if (!/^%\d+$/.test(newPane)) return cb(new Error('pane créé non identifié : ' + newPane));
     invalidatePaneCache(); // le pane tout neuf doit être « vu » vivant tout de suite (UI)
     try {
-      fs.appendFileSync(SHOWN_PANES_FILE, JSON.stringify({ ts: new Date().toISOString(), session_id: id, pane: newPane, target: where, command: command.slice(0, 500) }) + '\n');
+      fs.appendFileSync(SHOWN_PANES_FILE, JSON.stringify({ ts: new Date().toISOString(), session_id: id, pane: newPane, target: where, command: cmd ? cmd.slice(0, 500) : '' }) + '\n');
     } catch (_) {}
-    // tape la commande puis Entrée (best-effort, après démarrage du shell).
-    setTimeout(() => execFile('tmux', ['send-keys', '-t', newPane, '-l', '--', command], () => {
-      setTimeout(() => execFile('tmux', ['send-keys', '-t', newPane, 'Enter'], () => {}), CMD_DELAY);
-    }), CMD_DELAY);
-    cb(null, { pane: newPane, source: pane, target: where, command });
+    // tape la commande puis Entrée (best-effort, après démarrage du shell) — uniquement si fournie.
+    if (cmd) {
+      setTimeout(() => execFile('tmux', ['send-keys', '-t', newPane, '-l', '--', cmd], () => {
+        setTimeout(() => execFile('tmux', ['send-keys', '-t', newPane, 'Enter'], () => {}), CMD_DELAY);
+      }), CMD_DELAY);
+    }
+    cb(null, { pane: newPane, source: pane, target: where, command: cmd });
+  });
+}
+
+// Ferme un pane « show » (le bouton ✕ de l'UI) : tue le pane tmux. shownPanesFor le filtrera
+// (tmuxAlive faux) au prochain rafraîchissement → il disparaît de l'onglet.
+function killPane(pane, cb) {
+  if (!/^%\d+$/.test(pane || '')) return cb(err400('pane invalide'));
+  execFile('tmux', ['kill-pane', '-t', pane], (e) => {
+    if (e) return cb(new Error('kill-pane a échoué : ' + (e.message || e)));
+    invalidatePaneCache();
+    cb(null, { pane });
   });
 }
 
@@ -166,4 +180,4 @@ function aliveOnly(map) {
   return out;
 }
 
-export { showInPane, capturePane, sendInput, resizePane, shownPanesFor };
+export { showInPane, killPane, capturePane, sendInput, resizePane, shownPanesFor };

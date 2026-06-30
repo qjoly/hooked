@@ -33,7 +33,10 @@ export const kill = (id) => jpost('/api/kill', { id });
 export const openInVscode = (id) => jpost('/api/open-vscode', { id });
 export const openInGhostty = (id) => jpost('/api/open-ghostty', { id });
 // Ouvre un pane/fenêtre tmux dans la session et y lance une commande (mirroir onglet Terminal).
+// Sans `command`, ouvre un pane shell vide (bouton « + Pane »).
 export const showInPane = (id, command, target) => jpost('/api/pane', { id, command, target });
+// Ferme un pane « show » (tue le pane tmux).
+export const killPane = (pane) => jpost('/api/pane/kill', { pane });
 // Saisie clavier interactive vers un pane (xterm.onData → tmux send-keys).
 export const sendPaneInput = (pane, data) => jpost('/api/pane/input', { pane, data });
 // Redimensionne la fenêtre tmux du pane pour remplir la vue web (ou restaure l'auto via {auto}).
