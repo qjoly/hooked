@@ -35,11 +35,23 @@ function streamFile(pane) {
 // quoi les éditions à curseur relatif (retour arrière, redraw du prompt) finissent par désynchroniser.
 // `\x1b[0m` par ligne : évite que la couleur de fond de la ligne précédente « bave » sur la suivante.
 function buildSnapshotFrame(c) {
+  // Modes du terminal à re-synchroniser AVANT de peindre (le client a fait term.reset() → on part
+  // des défauts xterm : écran normal, auto-wrap on, curseur applicatif off, keypad off, curseur
+  // visible — on n'émet donc QUE les écarts). Indispensable pour les TUI plein écran rejoints en
+  // cours (nvim, claude) : sans l'écran alterné et les touches curseur applicatives, l'affichage
+  // et les flèches partent en vrille.
+  let pre = '';
+  if (c.altScreen) pre += '\x1b[?1049h';   // bascule écran alterné (le contenu y est peint)
+  if (c.appCursor) pre += '\x1b[?1h';       // DECCKM on
+  if (c.appKeypad) pre += '\x1b=';          // keypad applicatif on
+  if (c.wrap === false) pre += '\x1b[?7l';  // auto-wrap off (défaut on)
+
   const lines = String(c.content || '').split('\n');
-  let frame = '\x1b[0m\x1b[H\x1b[2J';
+  let frame = pre + '\x1b[0m\x1b[H\x1b[2J';
   for (let i = 0; i < lines.length; i++) frame += `\x1b[${i + 1};1H\x1b[0m` + lines[i];
   // curseur placé en absolu là où tmux a le sien (lignes/colonnes 1-based).
   frame += `\x1b[${(c.cursorY || 0) + 1};${(c.cursorX || 0) + 1}H`;
+  if (c.cursorVisible === false) frame += '\x1b[?25l';
   return frame;
 }
 
