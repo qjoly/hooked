@@ -12,12 +12,20 @@
   import Subagents from './Subagents.svelte';
   import Todos from './Todos.svelte';
   import Terminal from './Terminal.svelte';
+  import { TERM_THEMES, DEFAULT_TERM_THEME } from '$lib/terminalThemes.js';
 
   let { id } = $props();
   let s = $state(null);          // détail de session
   let tab = $state('chat');
   let termPane = $state(null);   // pane « show » courant affiché dans l'onglet Terminal
   let termInteractive = $state(false); // onglet Terminal : interactif (frappes → tmux) ou lecture seule
+  let termTheme = $state(DEFAULT_TERM_THEME); // thème xterm choisi (persisté en localStorage)
+  // restaure le thème mémorisé ; persiste à chaque changement.
+  onMount(() => {
+    try { const v = localStorage.getItem('hooked.termTheme'); if (v && TERM_THEMES[v]) termTheme = v; } catch (_) {}
+  });
+  $effect(() => { try { localStorage.setItem('hooked.termTheme', termTheme); } catch (_) {} });
+  const termThemeObj = $derived((TERM_THEMES[termTheme] || TERM_THEMES[DEFAULT_TERM_THEME]).theme);
   let body;                      // ref .pane-body (conteneur scrollable)
   let composer;                  // ref Composer (pour déclencher interruption + édition via Échap)
   let lastActivity = null;
@@ -358,13 +366,18 @@
               <code>{terminals[0].label}</code>
             </div>
           {/if}
+          <select class="term-theme" bind:value={termTheme} title="Thème de couleurs du terminal" aria-label="Thème du terminal">
+            {#each Object.entries(TERM_THEMES) as [key, t] (key)}
+              <option value={key}>🎨 {t.name}</option>
+            {/each}
+          </select>
           <button class="term-mode" class:on={termInteractive} onclick={() => (termInteractive = !termInteractive)}
                   title={termInteractive ? 'Interactif : tes frappes vont au pane tmux' : 'Lecture seule : observation'}>
             {termInteractive ? '⌨ Interactif' : '👁 Lecture seule'}
           </button>
         </div>
         {#if tab === 'terminal' && termPane}
-          {#key termPane + ':' + termInteractive}<Terminal pane={termPane} interactive={termInteractive} />{/key}
+          {#key termPane + ':' + termInteractive}<Terminal pane={termPane} interactive={termInteractive} theme={termThemeObj} />{/key}
         {/if}
       {:else}
         <div class="pane-empty">Aucun terminal disponible (session tmux fermée).</div>
