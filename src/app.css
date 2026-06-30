@@ -101,6 +101,22 @@ main { flex: 1 1 auto; min-height: 0; overflow: hidden; background: var(--panel)
 
 .main-pane { flex: 1; min-width: 0; display: flex; flex-direction: column; overflow: hidden; }
 
+/* ── Mode focus : discussion plein écran ──────────────────────────────────────────────────
+   On replie le header de LA CONVERSATION (.pane-head) — pas le header global de l'app — pour
+   gagner de la hauteur, + la sidebar (ré-ouvrable « en peek » via la pastille ☰). */
+.sidebar { transition: width .18s ease, min-width .18s ease; }
+body.focus .pane-head { display: none; }
+body.focus .sidebar { width: 0; min-width: 0; border-right: 0; overflow: hidden; }
+body.focus.sidebar-peek .sidebar { width: 326px; min-width: 326px; border-right: 1px solid var(--border); overflow: visible; }
+/* la pastille flotte SOUS le header global (qui reste visible) pour ne pas le recouvrir */
+.focus-fab { position: fixed; top: 54px; left: 12px; z-index: 60; display: none; gap: 6px; }
+body.focus .focus-fab { display: flex; }
+.focus-fab-btn { width: 30px; height: 30px; display: flex; align-items: center; justify-content: center; font-size: 14px;
+  border: 1px solid var(--border2); background: var(--bg2); color: var(--text); border-radius: 8px; cursor: pointer;
+  box-shadow: var(--shadow-sm); opacity: .8; transition: opacity .12s, background .12s; }
+.focus-fab-btn:hover { opacity: 1; background: var(--bg3); }
+.vscode-btn.on { background: var(--accent-soft); border-color: var(--accent); color: var(--accent-d); }
+
 /* groupes projet */
 .pgroup { margin-bottom: 6px; }
 .phead { display: flex; align-items: center; gap: 7px; padding: 7px 8px; border-radius: 9px; cursor: pointer; user-select: none; color: var(--muted); font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; font-family: var(--mono); }
@@ -333,6 +349,25 @@ code.path { color: var(--muted); font-size: 11px; word-break: break-all; font-fa
 .bubble .who { font-size: 11px; font-weight: 700; opacity: .85; margin-bottom: 5px; display: flex; align-items: center; gap: 8px; }
 .bubble.user .who { justify-content: flex-end; }
 .bubble .who .t { font-weight: 400; opacity: .7; }
+/* contrôle de fork révélé au survol de la bulle (point de coupe = ce message) :
+   « ⑂ Forker » = fork express sans saisie · « ▾ » = modale avancée (segmentés) */
+.bubble .fork-ctl { margin-left: auto; display: inline-flex; align-items: stretch; }
+.bubble .fork-btn { font: inherit; font-size: 10.5px; font-weight: 600; line-height: 1.4;
+  border: 1px solid var(--border2); background: transparent; color: inherit;
+  padding: 1px 7px; cursor: pointer; opacity: 0; transition: opacity .12s, background .12s, border-color .12s; }
+.bubble .fork-main { border-radius: 6px 0 0 6px; }
+.bubble .fork-caret { border-radius: 0 6px 6px 0; border-left: 0; padding: 1px 5px; }
+.bubble .fork-ctl .fork-main:only-child { border-radius: 6px; }
+.bubble:hover .fork-btn, .bubble .fork-btn:focus-visible { opacity: .65; }
+.bubble .fork-btn:hover { opacity: 1; background: var(--accent-soft); border-color: var(--accent); color: var(--accent-d); }
+.bubble.user .fork-btn { border-color: rgba(255,255,255,.45); }
+.bubble.user .fork-btn:hover { background: rgba(255,255,255,.2); border-color: #fff; color: #fff; }
+/* retour inline du fork express (pas de modale) */
+.bubble .fork-state { font-size: 10.5px; font-weight: 600; white-space: nowrap; }
+.bubble .fork-state.busy { color: var(--muted); }
+.bubble .fork-state.done { color: var(--accent-d); }
+.bubble .fork-state.err { color: var(--danger, #c0392b); }
+.bubble.user .fork-state { color: #fff; opacity: .95; }
 .bubble .md { word-wrap: break-word; overflow-wrap: anywhere; }
 .bubble .md code { font-family: var(--mono); font-size: 12px; }
 .bubble .md :not(pre) > code { background: rgba(120,95,60,.14); padding: 1px 5px; border-radius: 5px; }
@@ -607,7 +642,20 @@ code.path { color: var(--muted); font-size: 11px; word-break: break-all; font-fa
 .mode-status { font-size: 11px; color: var(--muted); font-family: var(--mono); }
 .lf-row { display: flex; gap: 14px; }
 .lf-row > div { flex: 1; }
+/* sélecteur de mode de permission (modales de lancement) : ligne pleine sous modèle/effort */
+.lf-mode { margin-top: 10px; }
 .lf-resume-title { background: var(--bg3); border: 1px solid var(--border2); border-radius: 10px; padding: 9px 12px; font-size: 13px; font-weight: 600; margin-bottom: 4px; word-break: break-word; }
+/* rappel du message servant de point de coupe dans la modale de fork */
+.fork-from { display: flex; flex-direction: column; gap: 3px; margin: 8px 0 2px; padding: 8px 11px; border-radius: 10px; background: var(--bg3); border: 1px solid var(--border2); border-left: 3px solid var(--accent); }
+.fork-from-who { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+.fork-from-snip { font-size: 12.5px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+/* renommage de session (titre éditable dans l'en-tête du détail) */
+.sess-title { display: flex; align-items: center; gap: 8px; }
+.sess-rename-btn { font: inherit; font-size: 12px; line-height: 1; border: 0; background: transparent; color: var(--muted); cursor: pointer; opacity: 0; padding: 2px 4px; border-radius: 6px; transition: opacity .12s, background .12s, color .12s; }
+.sess-title:hover .sess-rename-btn, .sess-rename-btn:focus-visible { opacity: .7; }
+.sess-rename-btn:hover { opacity: 1; background: var(--bg3); color: var(--accent-d); }
+.sess-rename { margin: 6px 0 0; width: 100%; font-size: 1.3em; font-weight: 700; color: var(--text); background: var(--bg3); border: 1px solid var(--accent); border-radius: 8px; padding: 4px 10px; }
+.sess-rename:focus { outline: none; box-shadow: 0 0 0 2px var(--accent-soft); }
 
 /* sélecteur de projet recherchable (nouvelle session) */
 .lf-picklist { max-height: 196px; overflow-y: auto; border: 1px solid var(--border2); border-radius: 10px; background: var(--bg3); margin-top: 6px; }

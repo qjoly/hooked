@@ -2,6 +2,7 @@
   import { ui, closeModal } from '$lib/state.svelte.js';
   import CostModal from './CostModal.svelte';
   import ResumeModal from './ResumeModal.svelte';
+  import ForkModal from './ForkModal.svelte';
 
   function onKey(e) { if (e.key === 'Escape') closeModal(); }
 </script>
@@ -18,6 +19,8 @@
           <CostModal />
         {:else if ui.modal.type === 'resume'}
           <ResumeModal r={ui.modal.data} />
+        {:else if ui.modal.type === 'fork'}
+          <ForkModal r={ui.modal.data} />
         {/if}
       </div>
     </div>
