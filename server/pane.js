@@ -81,6 +81,27 @@ function sendInput(pane, data, cb) {
   });
 }
 
+// Redimensionne la FENÊTRE tmux du pane (donc le pane plein écran) pour épouser la place dispo
+// dans la fenêtre web. `resize-window` bascule la fenêtre en window-size=manual (elle ne suit plus
+// les clients tmux attachés) — d'où le mode `auto` qui restaure `window-size latest` quand la vue
+// web se ferme, pour que rattacher dans un vrai terminal (Ghostty) reflue normalement.
+function resizePane(pane, { cols, rows, auto } = {}, cb) {
+  if (!/^%\d+$/.test(pane || '')) return cb(err400('pane invalide'));
+  if (!tmuxAlive(pane)) return cb(err400('pane fermé'));
+  if (auto) {
+    return execFile('tmux', ['set-option', '-w', '-t', pane, 'window-size', 'latest'], (e) => {
+      if (e) return cb(new Error('set window-size: ' + (e.message || e)));
+      cb(null, { pane, auto: true });
+    });
+  }
+  const c = Math.max(20, Math.min(500, parseInt(cols, 10) || 0));
+  const r = Math.max(5, Math.min(300, parseInt(rows, 10) || 0));
+  execFile('tmux', ['resize-window', '-t', pane, '-x', String(c), '-y', String(r)], (e) => {
+    if (e) return cb(new Error('resize-window: ' + (e.message || e)));
+    cb(null, { pane, cols: c, rows: r });
+  });
+}
+
 // Capture l'écran courant d'un pane tmux (mirroir lecture seule). `-e` conserve les séquences
 // d'échappement (couleurs) pour un rendu fidèle côté xterm.js ; on renvoie aussi les dimensions
 // du pane pour que le terminal web s'y ajuste (wrapping identique à tmux).
@@ -145,4 +166,4 @@ function aliveOnly(map) {
   return out;
 }
 
-export { showInPane, capturePane, sendInput, shownPanesFor };
+export { showInPane, capturePane, sendInput, resizePane, shownPanesFor };

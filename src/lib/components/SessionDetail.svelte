@@ -19,6 +19,7 @@
   let tab = $state('chat');
   let termPane = $state(null);   // pane « show » courant affiché dans l'onglet Terminal
   let termInteractive = $state(true);  // onglet Terminal : interactif (frappes → tmux) par défaut
+  let termFit = $state(true);          // adapter le pane tmux à la place dispo dans la vue web
   let termTheme = $state(DEFAULT_TERM_THEME); // thème xterm choisi (persisté en localStorage)
   let termFont = $state(DEFAULT_TERM_FONT);   // police choisie (persistée)
   // restaure les préférences mémorisées ; chacune persiste à son changement.
@@ -27,11 +28,13 @@
       const v = localStorage.getItem('hooked.termTheme'); if (v && TERM_THEMES[v]) termTheme = v;
       const f = localStorage.getItem('hooked.termFont'); if (f && TERM_FONTS[f]) termFont = f;
       const it = localStorage.getItem('hooked.termInteractive'); if (it != null) termInteractive = it === '1';
+      const ft = localStorage.getItem('hooked.termFit'); if (ft != null) termFit = ft === '1';
     } catch (_) {}
   });
   $effect(() => { try { localStorage.setItem('hooked.termTheme', termTheme); } catch (_) {} });
   $effect(() => { try { localStorage.setItem('hooked.termFont', termFont); } catch (_) {} });
   $effect(() => { try { localStorage.setItem('hooked.termInteractive', termInteractive ? '1' : '0'); } catch (_) {} });
+  $effect(() => { try { localStorage.setItem('hooked.termFit', termFit ? '1' : '0'); } catch (_) {} });
   const termThemeObj = $derived((TERM_THEMES[termTheme] || TERM_THEMES[DEFAULT_TERM_THEME]).theme);
   const termFontFamily = $derived((TERM_FONTS[termFont] || TERM_FONTS[DEFAULT_TERM_FONT]).family);
   let body;                      // ref .pane-body (conteneur scrollable)
@@ -397,13 +400,17 @@
               <option value={key}>🎨 {t.name}</option>
             {/each}
           </select>
+          <button class="term-mode" class:on={termFit} onclick={() => (termFit = !termFit)}
+                  title={termFit ? 'Adapter : le pane tmux remplit la vue web' : 'Taille fixe du pane tmux'}>
+            {termFit ? '⤢ Adapter' : '▭ Fixe'}
+          </button>
           <button class="term-mode" class:on={termInteractive} onclick={() => (termInteractive = !termInteractive)}
                   title={termInteractive ? 'Interactif : tes frappes vont au pane tmux' : 'Lecture seule : observation'}>
             {termInteractive ? '⌨ Interactif' : '👁 Lecture seule'}
           </button>
         </div>
         {#if tab === 'terminal' && termPane}
-          {#key termPane + ':' + termInteractive}<Terminal pane={termPane} interactive={termInteractive} theme={termThemeObj} fontFamily={termFontFamily} />{/key}
+          {#key termPane + ':' + termInteractive + ':' + termFit}<Terminal pane={termPane} interactive={termInteractive} theme={termThemeObj} fontFamily={termFontFamily} fit={termFit} />{/key}
         {/if}
       {:else}
         <div class="pane-empty">Aucun terminal disponible (session tmux fermée).</div>
