@@ -1,5 +1,5 @@
 <script>
-  import { MODEL_OPTS, EFFORT_OPTS, MODE_OPTS } from '$lib/format.js';
+  import { MODEL_GROUPS, EFFORT_OPTS, MODE_OPTS } from '$lib/format.js';
   // `compact` : pilules en ligne (sous une chatbox) plutôt que le formulaire des modales.
   // `onchange` : callback appelé à chaque changement (sert au changement à chaud d'une session).
   // `showMode` : ajoute le sélecteur de mode de permission (→ claude --permission-mode) au
@@ -13,7 +13,11 @@
     <span class="me-pill" title="Modèle">
       <span class="me-ico">✳</span>
       <select bind:value={model} onchange={fire} {disabled}>
-        {#each MODEL_OPTS as [v, l]}<option value={v}>{l}</option>{/each}
+        {#each MODEL_GROUPS as g}
+          <optgroup label={g.label}>
+            {#each g.opts as [v, l]}<option value={v}>{l}</option>{/each}
+          </optgroup>
+        {/each}
       </select>
     </span>
     <span class="me-pill" title="Effort de raisonnement">
@@ -36,7 +40,11 @@
     <div>
       <label class="lf-label">Modèle</label>
       <select class="lf-input" bind:value={model} onchange={fire} {disabled}>
-        {#each MODEL_OPTS as [v, l]}<option value={v}>{l}</option>{/each}
+        {#each MODEL_GROUPS as g}
+          <optgroup label={g.label}>
+            {#each g.opts as [v, l]}<option value={v}>{l}</option>{/each}
+          </optgroup>
+        {/each}
       </select>
     </div>
     <div>
