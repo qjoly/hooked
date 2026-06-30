@@ -34,6 +34,11 @@ function paneTmuxNames() {
   return map;
 }
 
+// Force le rafraîchissement du cache pane→nom au prochain appel. Utile juste après avoir créé
+// un pane (ex. show_in_pane) : sans ça, un pane tout neuf reste « invisible » jusqu'à 3 s
+// (tmuxAlive le verrait absent), retardant l'apparition de l'onglet Terminal côté UI.
+function invalidatePaneCache() { paneNameCache.at = 0; }
+
 // le pane tmux est-il *toujours vivant* ? (présent dans la liste des panes courants)
 // Sert à distinguer une session live d'une session dont le tmux a été fermé/tué : on ne
 // connaît qu'un *dernier* pane via les évènements, mais il peut ne plus exister.
@@ -350,4 +355,4 @@ function killSession(id, cb) {
   });
 }
 
-export { paneTmuxNames, tmuxAlive, launchInfoForPane, resolveLaunchForSession, deliverReply, deliverQuestion, sendKey, parsePaneMode, readPaneMode, readPaneModeSync, setMode, setModelEffort, launchSession, killSession, err400 };
+export { paneTmuxNames, invalidatePaneCache, tmuxAlive, launchInfoForPane, resolveLaunchForSession, deliverReply, deliverQuestion, sendKey, parsePaneMode, readPaneMode, readPaneModeSync, setMode, setModelEffort, launchSession, killSession, err400 };

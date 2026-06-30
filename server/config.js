@@ -18,6 +18,10 @@ const LAUNCHES_FILE = path.join(HOOKED_DIR, 'launches.jsonl');
 // résolution persistée session_id (claude) → modèle/effort : permet de garder l'effort
 // affiché même après la mort du pane tmux (la résolution live pane→nom n'est plus possible).
 const SESSION_LAUNCH_FILE = path.join(HOOKED_DIR, 'session-launch.jsonl');
+// panes tmux « show » ouverts par un agent (via MCP show_in_pane) pour une session : un agent
+// lance une commande dans un nouveau pane/fenêtre du tmux de la session, qu'on mémorise ici
+// pour le mirroir lecture seule de l'UI (onglet Terminal). Indexé par session_id.
+const SHOWN_PANES_FILE = path.join(HOOKED_DIR, 'panes.jsonl');
 // snapshots de la statusline Claude Code (déposés par statusline-command.sh) : un fichier
 // JSON par session, contenant les *vraies* infos du compte (effort, rate limits, contexte).
 const STATUS_DIR = path.join(HOOKED_DIR, 'status');
@@ -61,4 +65,4 @@ function readClaudeDefaults() {
   };
 }
 
-export { HOME, PROJECTS_DIR, HOOKED_DIR, EVENTS_FILE, LAUNCHES_FILE, SESSION_LAUNCH_FILE, STATUS_DIR, PUBLIC_DIR, PORT, SESSION_BUDGET, SESSION_HOURS, MODELS, EFFORTS, PERMISSION_MODES, readClaudeDefaults };
+export { HOME, PROJECTS_DIR, HOOKED_DIR, EVENTS_FILE, LAUNCHES_FILE, SESSION_LAUNCH_FILE, SHOWN_PANES_FILE, STATUS_DIR, PUBLIC_DIR, PORT, SESSION_BUDGET, SESSION_HOURS, MODELS, EFFORTS, PERMISSION_MODES, readClaudeDefaults };

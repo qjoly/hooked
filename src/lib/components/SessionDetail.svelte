@@ -11,10 +11,12 @@
   import Changes from './Changes.svelte';
   import Subagents from './Subagents.svelte';
   import Todos from './Todos.svelte';
+  import Terminal from './Terminal.svelte';
 
   let { id } = $props();
   let s = $state(null);          // détail de session
   let tab = $state('chat');
+  let termPane = $state(null);   // pane « show » courant affiché dans l'onglet Terminal
   let body;                      // ref .pane-body (conteneur scrollable)
   let composer;                  // ref Composer (pour déclencher interruption + édition via Échap)
   let lastActivity = null;
@@ -32,6 +34,15 @@
   let forceBottom = false;          // force le scroll en bas au prochain rendu (envoi d'un message)
 
   const events = $derived(s ? (s.events || []).slice().reverse() : []);
+  const shownPanes = $derived(s ? (s.shownPanes || []) : []);
+
+  // pane Terminal sélectionné : par défaut le plus récent ; on bascule si le pane courant
+  // disparaît (tmux fermé) ou si un nouveau pane « show » arrive.
+  $effect(() => {
+    const list = shownPanes;
+    if (!list.length) { if (termPane !== null) untrack(() => (termPane = null)); return; }
+    if (!list.some((p) => p.pane === termPane)) untrack(() => (termPane = list[list.length - 1].pane));
+  });
 
   // indicateur 5 h compact pour la ligne de stats : valeur réelle (statusline) sinon estimation.
   const stat5h = $derived.by(() => {
@@ -123,7 +134,9 @@
       const cardShown = !!s.pendingQuestion;
       const qChanged = (sess.hasQuestion && !cardShown) || (!sess.hasQuestion && cardShown);
       const activityChanged = sess.lastActivity && sess.lastActivity !== lastActivity;
-      if (qChanged || (tab === 'chat' && (sess.state === 'working' || activityChanged))) load(true);
+      // session live : on recharge aussi pour capter l'arrivée/fermeture des panes « show »
+      // (panes.jsonl déclenche un tick) → l'onglet Terminal apparaît/disparaît tout seul.
+      if (qChanged || (tab === 'chat' && (sess.state === 'working' || activityChanged)) || s.tmuxAlive) load(true);
     });
   });
 
@@ -275,6 +288,9 @@
       {/if}
       <button class="subtab" class:active={tab === 'subagents'} onclick={() => (tab = 'subagents')}>🤖 Sous-agents <span class="count">{(s.subagents || []).length}</span></button>
       <button class="subtab" class:active={tab === 'activity'} onclick={() => (tab = 'activity')}>🪝 Activité <span class="count">{events.length}</span></button>
+      {#if shownPanes.length}
+        <button class="subtab" class:active={tab === 'terminal'} onclick={() => (tab = 'terminal')}>🖥 Terminal <span class="count">{shownPanes.length}</span></button>
+      {/if}
     </div>
   </div>
 
@@ -310,6 +326,30 @@
 
     <div class="pane" class:active={tab === 'todos'}>
       <Todos todos={s.todos || []} />
+    </div>
+
+    <div class="pane" class:active={tab === 'terminal'}>
+      {#if shownPanes.length}
+        {#if shownPanes.length > 1}
+          <div class="term-tabs">
+            {#each shownPanes as p (p.pane)}
+              <button class="term-tab" class:active={termPane === p.pane} onclick={() => (termPane = p.pane)} title={p.command}>
+                {p.target === 'window' ? '🗔' : '▦'} {p.command ? p.command.slice(0, 36) : p.pane}
+              </button>
+            {/each}
+          </div>
+        {:else}
+          <div class="term-cmd" title={shownPanes[0].command}>
+            <span class="term-cmd-ico">{shownPanes[0].target === 'window' ? '🗔' : '▦'}</span>
+            <code>{shownPanes[0].command || shownPanes[0].pane}</code>
+          </div>
+        {/if}
+        {#if tab === 'terminal' && termPane}
+          {#key termPane}<Terminal pane={termPane} />{/key}
+        {/if}
+      {:else}
+        <div class="pane-empty">Aucun terminal partagé par l'agent.</div>
+      {/if}
     </div>
 
     <div class="pane" class:active={tab === 'activity'}>
