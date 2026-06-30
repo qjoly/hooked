@@ -15,8 +15,15 @@
   let { pane, interactive = false, theme = null } = $props();
 
   // thème appliqué à chaud (xterm v5 : term.options.theme) — pas de remontage au changement.
+  // IMPORTANT : on lit `theme` AVANT le garde sur `term`. Sinon `if (term && theme)` court-circuite
+  // sur `term` null (xterm est créé en async au mount) → `theme` n'est jamais lu donc jamais suivi
+  // comme dépendance, et un changement de thème ne re-déclenche pas l'effet (seul le fond du wrapper
+  // changeait). On force aussi un refresh : repeindre les cellules déjà rendues avec la palette.
   $effect(() => {
-    if (term && theme) term.options.theme = theme;
+    const t = theme;
+    if (!term || !t) return;
+    term.options.theme = t;
+    try { term.refresh(0, term.rows - 1); } catch (_) {}
   });
 
   let host;
