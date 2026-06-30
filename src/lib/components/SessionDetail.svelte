@@ -134,6 +134,19 @@
 
   onMount(() => load(false));
 
+  // Retour sur l'onglet Conversation : re-scroll en bas. Les sous-onglets partagent le même
+  // conteneur scrollable (.pane-body) → en revenant du Terminal/Fichiers, il gardait la position
+  // de l'onglet précédent et on ne voyait pas le dernier message. On ne scrolle qu'à la TRANSITION
+  // vers « chat » (pas au montage initial, déjà géré par load()).
+  let prevTab = 'chat';
+  $effect(() => {
+    const t = tab;
+    if (t === 'chat' && prevTab !== 'chat') {
+      tick().then(() => { if (body) body.scrollTop = body.scrollHeight; });
+    }
+    prevTab = t;
+  });
+
   // Échap dans la vue chat (hors textarea — le composer gère lui-même quand il a le focus) :
   // interrompt Claude et recharge le dernier prompt pour l'éditer, comme dans le CLI claude-code.
   function onWindowKey(e) {
