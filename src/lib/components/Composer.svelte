@@ -9,7 +9,7 @@
   // le `model`/`effort` choisis ; `onLaunched(cwd)` est notifié pour ouvrir la session créée.
   // `worktree` : ne vaut que pour une session neuve — lance `claude --worktree` (dossier isolé).
   let { id, alive = true, project = null, resumeModel = null, resumeEffort = null, lastPrompt = '',
-        onSent = null, newSession = false, model = '', effort = '', worktree = false, onLaunched = null } = $props();
+        onSent = null, newSession = false, model = '', effort = '', mode = 'default', worktree = false, onLaunched = null } = $props();
 
   let ta;                       // ref textarea
   let text = $state('');
@@ -203,7 +203,7 @@
     busy = true;
     status = { text: newSession ? 'lancement…' : (alive ? 'envoi…' : 'relance de la session…'), cls: '' };
     const res = newSession
-      ? await launch({ cwd: project, prompt: full, model, effort, worktree }).catch((e) => ({ ok: false, data: { error: e.message } }))
+      ? await launch({ cwd: project, prompt: full, model, effort, worktree, permissionMode: mode }).catch((e) => ({ ok: false, data: { error: e.message } }))
       : alive
         ? await reply(id, full).catch((e) => ({ ok: false, data: { error: e.message } }))
         : await launch({ resumeId: id, prompt: full, cwd: project, model: resumeModel || '', effort: resumeEffort || '' }).catch((e) => ({ ok: false, data: { error: e.message } }));

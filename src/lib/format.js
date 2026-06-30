@@ -80,6 +80,11 @@ export const modeLabel = (k) => modeMeta(k).label;
 // Modes proposés dans le sélecteur, dans l'ordre réel du cycle Maj+Tab (Normal → Auto → Plan).
 export const PERMISSION_MODES = ['default', 'auto', 'plan'].map((k) => ({ key: k, ...MODE_META[k] }));
 
+// Modes proposés au LANCEMENT d'une session (→ `claude --permission-mode`). `[key, label]`,
+// label préfixé de l'icône du mode. 'default' = comportement natif (aucun flag passé).
+export const MODE_OPTS = ['default', 'acceptEdits', 'auto', 'plan', 'bypassPermissions']
+  .map((k) => [k, `${MODE_META[k].icon} ${MODE_META[k].label}`]);
+
 // formatage inline d'un fragment (sans gestion des lignes) : `code`, **gras**. Échappe le reste.
 function mdFrag(t) {
   return esc(t)

@@ -8,6 +8,7 @@ export * from './util.js';
 export * from './pricing.js';
 export * from './transcript.js';
 export * from './conversation.js';
+export * from './fork.js';
 export * from './changes.js';
 export * from './subagents.js';
 export * from './todos.js';
