@@ -1,8 +1,8 @@
 <script>
   import { onMount, onDestroy, tick, untrack } from 'svelte';
   import { goto } from '$app/navigation';
-  import { ui, data, loadSessions, openModal } from '$lib/state.svelte.js';
-  import { getSession, kill, setMode, setModelEffort, openInVscode, openInGhostty } from '$lib/api.js';
+  import { ui, data, loadSessions, openModal, sessionTitle, renameSession, toggleFocus } from '$lib/state.svelte.js';
+  import { getSession, kill, setMode, setModelEffort, openInVscode, openInGhostty, fork } from '$lib/api.js';
   import { STATE_LABEL, fmtCost, fmtTokens, fmtDuration, ago, shortModel, prLabel, PERMISSION_MODES, modeLabel, modeMeta, modelAlias } from '$lib/format.js';
   import ModelEffort from './ModelEffort.svelte';
   import ChatBubble from './ChatBubble.svelte';
@@ -131,7 +131,14 @@
     ui.modal = { type: 'resume', data: { id: s.id, project: s.project, projectName: s.projectName, title: s.title, model: s.launchModel || modelAlias(s.model), effort: s.effort } };
   }
 
-  // forke la session à partir d'une bulle (message user ou assistant) : ouvre la modale qui
+  // Renommage local de la session (titre custom, persisté côté navigateur comme les pins).
+  // Champ vidé → on retire la surcharge et on retombe sur le titre auto.
+  let renaming = $state(false);
+  let renameVal = $state('');
+  function startRename() { renameVal = sessionTitle(s); renaming = true; }
+  function commitRename() { if (!renaming) return; renaming = false; renameSession(s.id, renameVal); }
+
+  // Fork avancé : ouvre la modale (choix modèle/effort + message immédiat optionnel) qui
   // crée une branche indépendante (copie du transcript jusqu'à ce message) et la reprend.
   function openFork(m) {
     const snippet = (m.text || '').replace(/\s+/g, ' ').trim().slice(0, 120) || (m.role === 'user' ? '(message)' : '(activité outils)');
@@ -140,6 +147,25 @@
       project: s.project, projectName: s.projectName, title: s.title,
       model: s.launchModel || modelAlias(s.model), effort: s.effort,
     } };
+  }
+
+  // Fork express en 1 clic : forke SANS aucune saisie ni modale (modèle/effort de la session
+  // courante, message vide) et reprend la branche en tmux détaché — elle attend. Retour inline
+  // sur la bulle ; la nouvelle session apparaît ensuite toute seule dans la sidebar.
+  let forkState = $state(null); // { uuid, phase: 'busy'|'done'|'err', text }
+  async function quickFork(m) {
+    if (!m.forkUuid || forkState?.phase === 'busy') return;
+    forkState = { uuid: m.forkUuid, phase: 'busy', text: '⑂ fork…' };
+    const payload = { id: s.id, forkUuid: m.forkUuid, prompt: '', model: s.launchModel || modelAlias(s.model), effort: s.effort };
+    const res = await fork(payload).catch((e) => ({ ok: false, data: { error: e?.message || 'échec' } }));
+    if (res.ok) {
+      forkState = { uuid: m.forkUuid, phase: 'done', text: '✓ branche créée → ' + (res.data?.tmux || 'tmux') };
+      setTimeout(() => { loadSessions(); ui.tick++; }, 1000);
+      setTimeout(() => { if (forkState?.uuid === m.forkUuid && forkState.phase === 'done') forkState = null; }, 5000);
+    } else {
+      forkState = { uuid: m.forkUuid, phase: 'err', text: '✗ ' + (res.data?.error || 'échec') };
+      setTimeout(() => { if (forkState?.uuid === m.forkUuid && forkState.phase === 'err') forkState = null; }, 6000);
+    }
   }
 
   // changement à chaud du modèle / de l'effort d'une session live (envoie /model et /effort
@@ -235,9 +261,21 @@
       {/if}
       <button class="vscode-btn" style="margin-left:auto" disabled={vscodeBusy} onclick={openVscode} title="Ouvrir le projet entier dans VS Code">{vscodeBusy ? '⏳' : '⧉'} Open in VS Code</button>
       <button class="vscode-btn" disabled={ghosttyBusy} onclick={openGhostty} title="Ouvrir la session dans Ghostty (attache le tmux si vivant)">{ghosttyBusy ? '⏳' : '⧉'} Open in Ghostty</button>
+      <button class="vscode-btn" class:on={ui.focus} onclick={toggleFocus} title="Mode focus : discussion plein écran (sidebar + header repliés)">⛶ {ui.focus ? 'Quitter' : 'Focus'}</button>
       <span class="badge s-badge"><span class="bdot"></span>{STATE_LABEL[s.state] || s.state}</span>
     </div>
-    <h2 style="margin:6px 0 0">{s.title}</h2>
+    {#if renaming}
+      <!-- svelte-ignore a11y_autofocus -->
+      <input class="sess-rename" autofocus bind:value={renameVal}
+             placeholder={s.title || 'Titre de la session'}
+             onkeydown={(e) => { if (e.key === 'Enter') commitRename(); else if (e.key === 'Escape') renaming = false; }}
+             onblur={commitRename} />
+    {:else}
+      <h2 class="sess-title" style="margin:6px 0 0">{sessionTitle(s)}
+        <button class="sess-rename-btn" title="Renommer cette session (local)" aria-label="Renommer" onclick={startRename}>✎</button>
+        {#if ui.names[s.id]}<button class="sess-rename-btn" title="Rétablir le titre auto" aria-label="Titre auto" onclick={() => renameSession(s.id, '')}>↺</button>{/if}
+      </h2>
+    {/if}
     {#if s.tmuxAlive}
       {@const cur = modeMeta(modeView)}
       <div class="head-toolbar">
@@ -293,7 +331,7 @@
     <div class="pane" class:active={tab === 'chat'}>
       <div class="chat">
         {#if (s.messages || []).length}
-          {#each s.messages as m, i (m.ts + ':' + i)}<ChatBubble {m} onfork={openFork} />{/each}
+          {#each s.messages as m, i (m.ts + ':' + i)}<ChatBubble {m} onfork={quickFork} onforkadvanced={openFork} {forkState} />{/each}
         {:else if !queued.length}
           <div class="pane-empty">Conversation vide.</div>
         {/if}

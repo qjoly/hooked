@@ -29,6 +29,7 @@
   // Défauts provisoires, remplacés au montage par ceux de ~/.claude (config Claude Code).
   let model = $state('opus');
   let effort = $state('high');
+  let mode = $state('default'); // mode de permission au lancement (claude --permission-mode)
   let worktree = $state(false); // lance `claude --worktree` (git worktree isolé)
 
   onMount(async () => {
@@ -79,10 +80,10 @@
     <h1 class="ns-title">🪝 Nouvelle session</h1>
     <p class="ns-sub">Lance <code>claude</code> dans une session <b>tmux</b> détachée — ton abonnement, <b>zéro conso token</b>.</p>
 
-    <Composer newSession project={cwd} {model} {effort} {worktree} {onLaunched} />
+    <Composer newSession project={cwd} {model} {effort} {mode} {worktree} {onLaunched} />
 
     <div class="ns-controls">
-      <ModelEffort compact bind:model bind:effort />
+      <ModelEffort compact showMode bind:model bind:effort bind:mode />
       <label class="me-pill ns-worktree" title="Lance la session dans un git worktree dédié (claude --worktree)">
         <input type="checkbox" bind:checked={worktree} />
         <span class="me-ico">🌿</span> worktree
