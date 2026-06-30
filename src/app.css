@@ -1,3 +1,17 @@
+/* Polices empaquetées pour le terminal (servies depuis static/, donc disponibles partout, sans
+   rien installer). « JetBrains Mono » = texte (comme Ghostty par défaut) ; « Symbols Nerd Font
+   Mono » = glyphes d'icônes Nerd Font en repli par glyphe. */
+@font-face {
+  font-family: 'JetBrains Mono Web';
+  src: url('/fonts/JetBrainsMono-Regular.woff2') format('woff2');
+  font-weight: 400; font-style: normal; font-display: swap;
+}
+@font-face {
+  font-family: 'Symbols Nerd Font Mono Web';
+  src: url('/fonts/SymbolsNerdFontMono-Regular.ttf') format('truetype');
+  font-weight: normal; font-style: normal; font-display: swap;
+}
+
 :root {
   /* surfaces chaudes (crème / papier) */
   --bg: #e9e3d4;        /* page — crème profond */
