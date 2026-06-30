@@ -109,11 +109,13 @@ Le changement se fait en **boucle fermée** : hooked envoie un `Maj+Tab` (`tmux 
 
 ### 🖥 Terminal partagé par un agent *(sessions tmux)*
 
-Via le serveur MCP (outil **`show_in_pane`**), un agent peut ouvrir un **nouveau pane** (split) ou une **nouvelle fenêtre** dans le tmux de la session et y lancer une commande (serveur de dev, `htop`, démo, `tail` de logs…) — pour te **montrer** quelque chose. Un onglet **🖥 Terminal** apparaît alors dans la vue session : il **mirrore le pane** (rendu xterm.js, rafraîchi via `tmux capture-pane`).
+Via le serveur MCP (outil **`show_in_pane`**), un agent peut ouvrir un **nouveau pane** (split) ou une **nouvelle fenêtre** dans le tmux de la session et y lancer une commande (serveur de dev, `htop`, démo, `tail` de logs…) — pour te **montrer** quelque chose. Un onglet **🖥 Terminal** apparaît alors dans la vue session : il **streame le pane en temps réel** dans xterm.js.
+
+Le flux est **un vrai stream d'octets**, pas un rafraîchissement d'image : `tmux pipe-pane` écrit la sortie brute du pane (avec ses séquences VT) dans un fichier, que le serveur tail et pousse en **SSE** (`/api/pane/stream`) ; xterm applique les octets tels quels → rendu incrémental, sans flicker, curseur exact, `vim`/`htop` fluides. Un `capture-pane` ne sert qu'à **amorcer** l'écran initial. C'est **tmux qui sert de PTY** : aucune dépendance native (pas de `node-pty`).
 
 Bascule **👁 Lecture seule / ⌨ Interactif** :
-- **Lecture seule** — observation simple, poll lent.
-- **Interactif** — tes frappes (texte, flèches, `Ctrl-C`, `Échap`…) sont renvoyées au pane via `tmux send-keys` ; c'est tmux qui sert de PTY (pas de `node-pty`). L'écho arrive au poll suivant (légère latence). Le pane partage son entrée avec un éventuel client tmux attaché.
+- **Lecture seule** — observation.
+- **Interactif** — tes frappes (texte, flèches, `Ctrl-C`, `Échap`…) repartent vers le pane via `tmux send-keys` ; l'écho revient par le flux (latence d'un aller simple). Le pane partage son entrée avec un éventuel client tmux attaché.
 
 ### 📊 Vue Stats & usage
 

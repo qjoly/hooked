@@ -34,8 +34,6 @@ export const openInVscode = (id) => jpost('/api/open-vscode', { id });
 export const openInGhostty = (id) => jpost('/api/open-ghostty', { id });
 // Ouvre un pane/fenêtre tmux dans la session et y lance une commande (mirroir onglet Terminal).
 export const showInPane = (id, command, target) => jpost('/api/pane', { id, command, target });
-// Capture l'écran courant d'un pane tmux pour le mirroir read-only.
-export const capturePane = (pane) => jget('/api/pane/capture?pane=' + encodeURIComponent(pane));
 // Saisie clavier interactive vers un pane (xterm.onData → tmux send-keys).
 export const sendPaneInput = (pane, data) => jpost('/api/pane/input', { pane, data });
 
