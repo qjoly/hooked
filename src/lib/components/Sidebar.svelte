@@ -40,7 +40,7 @@
       if (!filterMatches(sf, s.state)) return false;
       if (ui.hideOld && s.lastActivity && (now - Date.parse(s.lastActivity)) > 86400000) return false;
       if (q) {
-        const hay = `${s.projectName} ${s.title} ${s.lastPrompt} ${s.gitBranch}`.toLowerCase();
+        const hay = `${s.repo} ${s.projectName} ${s.title} ${s.lastPrompt} ${s.gitBranch}`.toLowerCase();
         if (!hay.includes(q)) return false;
       }
       return true;
@@ -56,12 +56,14 @@
       .sort((a, b) => String(b.lastActivity || '').localeCompare(String(a.lastActivity || ''))),
   );
 
-  // regroupe par projet (hors épinglées), trié par activité la plus récente
+  // regroupe par dépôt GitHub (owner/repo), à défaut par nom de dossier (hors dépôt git),
+  // hors épinglées, trié par activité la plus récente
   const groups = $derived.by(() => {
     const g = {};
     for (const s of filtered) {
       if (pinnedSet.has(s.id)) continue;
-      (g[s.projectName || '?'] = g[s.projectName || '?'] || []).push(s);
+      const key = s.repo || s.projectName || '?';
+      (g[key] = g[key] || []).push(s);
     }
     const lastOf = (arr) => Math.max(...arr.map((s) => Date.parse(s.lastActivity || 0) || 0));
     const order = Object.keys(g).sort((a, b) => lastOf(g[b]) - lastOf(g[a]));
