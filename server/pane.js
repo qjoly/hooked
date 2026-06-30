@@ -87,10 +87,14 @@ function sendInput(pane, data, cb) {
 function capturePane(pane, cb) {
   if (!/^%\d+$/.test(pane || '')) return cb(err400('pane invalide'));
   if (!tmuxAlive(pane)) return cb(null, { alive: false, width: 0, height: 0, cursorX: 0, cursorY: 0, content: '' });
-  // dimensions + position du curseur en un seul appel : capture-pane n'émet pas le positionnement
-  // du curseur, on le récupère donc à part pour que le terminal web (mode interactif) place SON
-  // curseur là où tmux a le sien — sinon il resterait collé en fin de réécriture.
-  execFile('tmux', ['display-message', '-p', '-t', pane, '#{pane_width} #{pane_height} #{cursor_x} #{cursor_y}'], (e1, info) => {
+  // dimensions + curseur + ÉTAT DES MODES du terminal du pane, en un seul appel. capture-pane ne
+  // rend que les cellules visibles : il manque le positionnement du curseur ET les modes que le
+  // programme a posés à son démarrage (écran alterné, touches curseur applicatives, auto-wrap,
+  // visibilité du curseur). Sans ces modes, un TUI rejoint en cours de route (nvim, claude…) se
+  // désynchronise de xterm → flèches qui envoient les mauvaises séquences, redraws cassés. tmux
+  // expose ces modes en variables de format → on les rejoue dans le snapshot (cf. paneStream).
+  const fmt = '#{pane_width} #{pane_height} #{cursor_x} #{cursor_y} #{alternate_on} #{cursor_flag} #{keypad_cursor_flag} #{keypad_flag} #{wrap_flag}';
+  execFile('tmux', ['display-message', '-p', '-t', pane, fmt], (e1, info) => {
     const n = String(info || '').trim().split(/\s+/).map((x) => parseInt(x, 10));
     execFile('tmux', ['capture-pane', '-p', '-e', '-t', pane], (e2, out) => {
       if (e2) return cb(new Error('capture-pane a échoué : ' + (e2.message || e2)));
@@ -98,6 +102,11 @@ function capturePane(pane, cb) {
         alive: true,
         width: n[0] || 80, height: n[1] || 24,
         cursorX: n[2] || 0, cursorY: n[3] || 0,
+        altScreen: n[4] === 1,        // écran alterné (smcup) — vim/htop/claude plein écran
+        cursorVisible: n[5] !== 0,    // cursor_flag (défaut visible)
+        appCursor: n[6] === 1,        // DECCKM : flèches en mode applicatif (\x1bOA…)
+        appKeypad: n[7] === 1,        // keypad applicatif
+        wrap: n[8] !== 0,             // auto-wrap (DECAWM, défaut on)
         content: out || '',
       });
     });

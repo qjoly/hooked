@@ -117,7 +117,9 @@ Bascule **👁 Lecture seule / ⌨ Interactif** :
 - **Lecture seule** — observation.
 - **Interactif** — tes frappes (texte, flèches, `Ctrl-C`, `Échap`…) repartent vers le pane via `tmux send-keys` ; l'écho revient par le flux (latence d'un aller simple). Le pane partage son entrée avec un éventuel client tmux attaché.
 
-Un **sélecteur de thème** (🎨 Hooked, Dracula, Nord, Solarized, Gruvbox, Light…) ajuste les couleurs du terminal (mémorisé en `localStorage`). Les sessions lancées par hooked sont créées en **120×50** par défaut (TUI claude plus aéré) — ajustable via `HOOKED_TMUX_COLS` / `HOOKED_TMUX_ROWS` ; tmux rétrécit de toute façon à la taille du client réel s'il s'y attache.
+Un **sélecteur de thème** (🎨 Hooked, Dracula, Nord, Solarized, Gruvbox, Light…) ajuste les couleurs du terminal (mémorisé en `localStorage`). Les sessions lancées par hooked sont créées en **120×64** par défaut (TUI claude plus aéré) — ajustable via `HOOKED_TMUX_COLS` / `HOOKED_TMUX_ROWS` ; tmux rétrécit de toute façon à la taille du client réel s'il s'y attache.
+
+Les **TUI plein écran** (`nvim`, `htop`, `less`, le TUI claude…) rejoints en cours de route sont gérés : à l'amorçage on rejoue les **modes du terminal** lus dans tmux (écran alterné, touches curseur applicatives, auto-wrap, visibilité du curseur) pour resynchroniser xterm — sans quoi les flèches et les redraws partaient en vrille en mode interactif.
 
 ### 📊 Vue Stats & usage
 
