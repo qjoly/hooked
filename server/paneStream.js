@@ -70,24 +70,37 @@ function sendSnapshot(pane, st, send) {
 }
 
 // Lit les octets ajoutés depuis st.pos et les diffuse (base64) à tous les abonnés.
+// SÉRIALISÉ : fs.watch ET le poll de secours appellent readNew, et l'I/O est async (open/fstat/
+// read). Deux lectures concurrentes liraient depuis le MÊME st.pos puis l'avanceraient toutes les
+// deux → octets dupliqués ET sautés (un `\x1b[J` de nettoyage sauté = lignes fantômes quand un TUI
+// rétrécit). Le verrou `st.reading` garantit une seule lecture à la fois ; `pendingRead` relit si
+// des octets sont arrivés pendant la lecture en cours.
 function readNew(pane, st) {
+  if (st.reading) { st.pendingRead = true; return; }
+  st.reading = true;
   fs.open(st.file, 'r', (e, fd) => {
-    if (e) return;
+    if (e) return finishRead(pane, st);
     fs.fstat(fd, (e2, stt) => {
-      if (e2) { fs.close(fd, () => {}); return; }
-      if (stt.size <= st.pos) { fs.close(fd, () => {}); return; }
+      if (e2 || stt.size <= st.pos) { fs.close(fd, () => {}); return finishRead(pane, st); }
       const len = stt.size - st.pos;
       const buf = Buffer.alloc(len);
       fs.read(fd, buf, 0, len, st.pos, (e3, n) => {
         fs.close(fd, () => {});
-        if (e3 || !n) return;
-        st.pos += n;
-        const b64 = buf.subarray(0, n).toString('base64');
-        for (const sub of st.subscribers) { try { sub('data', b64); } catch (_) {} }
-        if (st.pos > ROTATE_BYTES) rotate(pane, st);
+        if (!e3 && n) {
+          st.pos += n;
+          const b64 = buf.subarray(0, n).toString('base64');
+          for (const sub of st.subscribers) { try { sub('data', b64); } catch (_) {} }
+          if (st.pos > ROTATE_BYTES) rotate(pane, st);
+        }
+        finishRead(pane, st);
       });
     });
   });
+}
+// libère le verrou de lecture ; relance immédiatement si une lecture a été demandée entre-temps.
+function finishRead(pane, st) {
+  st.reading = false;
+  if (st.pendingRead) { st.pendingRead = false; readNew(pane, st); }
 }
 
 // Tronque le fichier de flux et ré-amorce l'écran (évite la croissance illimitée sur un programme
@@ -110,7 +123,7 @@ function startStream(pane) {
   try { fs.mkdirSync(dir, { recursive: true }); } catch (_) {}
   const file = streamFile(pane);
   try { fs.writeFileSync(file, ''); } catch (_) {} // repart d'un flux vide
-  const st = { subscribers: new Set(), file, pos: 0, watcher: null, poll: null, lastSize: '' };
+  const st = { subscribers: new Set(), file, pos: 0, watcher: null, poll: null, lastSize: '', reading: false, pendingRead: false };
   // branche le flux de sortie du pane vers le fichier (sortie = défaut de pipe-pane).
   execFile('tmux', ['pipe-pane', '-t', pane, `cat >> '${file}'`], () => {});
   try { st.watcher = fs.watch(file, () => readNew(pane, st)); } catch (_) {}
