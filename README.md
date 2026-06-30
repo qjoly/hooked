@@ -117,6 +117,8 @@ Bascule **👁 Lecture seule / ⌨ Interactif** :
 - **Lecture seule** — observation.
 - **Interactif** — tes frappes (texte, flèches, `Ctrl-C`, `Échap`…) repartent vers le pane via `tmux send-keys` ; l'écho revient par le flux (latence d'un aller simple). Le pane partage son entrée avec un éventuel client tmux attaché.
 
+Un **sélecteur de thème** (🎨 Hooked, Dracula, Nord, Solarized, Gruvbox, Light…) ajuste les couleurs du terminal (mémorisé en `localStorage`). Les sessions lancées par hooked sont créées en **120×50** par défaut (TUI claude plus aéré) — ajustable via `HOOKED_TMUX_COLS` / `HOOKED_TMUX_ROWS` ; tmux rétrécit de toute façon à la taille du client réel s'il s'y attache.
+
 ### 📊 Vue Stats & usage
 
 Coût estimé, tokens, sessions, tours, prompts — avec des graphes par **jour / modèle / projet / outil** et des plages **1j / 7j / 30j / tout**.

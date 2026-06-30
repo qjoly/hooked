@@ -12,7 +12,12 @@
   import { onMount, onDestroy } from 'svelte';
   import { sendPaneInput } from '$lib/api.js';
 
-  let { pane, interactive = false } = $props();
+  let { pane, interactive = false, theme = null } = $props();
+
+  // thème appliqué à chaud (xterm v5 : term.options.theme) — pas de remontage au changement.
+  $effect(() => {
+    if (term && theme) term.options.theme = theme;
+  });
 
   let host;
   let term = null, es = null, destroyed = false;
@@ -50,7 +55,7 @@
         fontSize: 12,
         fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
         scrollback: 1000,
-        theme: { background: '#0b0e14', foreground: '#c7d0e0', cursor: '#7dd3fc' },
+        theme: theme || { background: '#0b0e14', foreground: '#c7d0e0', cursor: '#7dd3fc' },
       });
       term.open(host);
       if (interactive) { term.onData(queueInput); term.focus(); }
@@ -73,13 +78,15 @@
   });
 </script>
 
-<div class="term-wrap" class:interactive>
+<div class="term-wrap" class:interactive style:background={theme ? theme.background : '#0b0e14'}>
   {#if dead}<div class="term-dead">⛔ Ce pane tmux a été fermé.</div>{/if}
   <div class="term-host" bind:this={host}></div>
 </div>
 
 <style>
-  .term-wrap { position: relative; background: #0b0e14; border-radius: 8px; padding: 8px; overflow: auto; }
+  /* width:max-content → la boîte épouse la taille réelle du terminal (cols×rows), pas toute la
+     largeur du panneau ; max-width:100% + overflow:auto pour les panes plus larges que la vue. */
+  .term-wrap { position: relative; width: max-content; max-width: 100%; border-radius: 8px; padding: 8px; overflow: auto; }
   .term-wrap.interactive { outline: 1px solid #1e2a3a; }
   .term-host { width: max-content; }
   .term-dead { color: #e08; font-size: 13px; padding: 4px 2px 8px; }

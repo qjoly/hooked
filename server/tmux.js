@@ -324,7 +324,13 @@ function launchSession({ resumeId, cwd, prompt, model, effort, worktree }, cb) {
   const shell = process.env.SHELL || '/bin/zsh';
   const shellCmd = `${shell} -ic '${claudeCmd}; exec ${shell}'`;
 
-  execFile('tmux', ['new-session', '-d', '-s', name, '-c', dir, shellCmd], (e1) => {
+  // Taille de la session détachée : sans -x/-y, tmux la crée en 80×24 → TUI claude à l'étroit
+  // (24 lignes) dans la vue web. On la crée plus grande (configurable) ; tmux la rétrécit de
+  // toute façon à la taille du client réel s'il s'y attache (window-size latest).
+  const cols = parseInt(process.env.HOOKED_TMUX_COLS || '', 10) || 120;
+  const rows = parseInt(process.env.HOOKED_TMUX_ROWS || '', 10) || 50;
+
+  execFile('tmux', ['new-session', '-d', '-x', String(cols), '-y', String(rows), '-s', name, '-c', dir, shellCmd], (e1) => {
     if (e1) return cb(new Error('tmux new-session a échoué : ' + (e1.message || e1)));
     // mémorise modèle/effort choisis pour pouvoir les afficher sur la session live.
     try {
