@@ -83,7 +83,7 @@
   async function newPane() {
     if (!s || paneBusy) return;
     paneBusy = true;
-    const res = await showInPane(s.id, '', 'pane').catch((e) => ({ ok: false, data: { error: e.message } }));
+    const res = await showInPane(s.id, '', 'window').catch((e) => ({ ok: false, data: { error: e.message } }));
     paneBusy = false;
     if (res.ok && res.data.pane) { wantPane = res.data.pane; tab = 'terminal'; setTimeout(() => { loadSessions(); ui.tick++; }, 250); }
     else if (!res.ok) alert('✗ ' + (res.data.error || 'échec'));
