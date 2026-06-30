@@ -47,9 +47,13 @@ export const STATE_LABEL = {
   idle: 'En pause', ended: 'Terminée', past: 'Passée',
 };
 
+export const LIVE_STATES = ['working', 'waiting', 'attention', 'idle'];
+
 // filtres par statut (single-select). `states` = états couverts par le filtre.
+// La vue par défaut (« Actives ») n'inclut PAS les sessions terminées (ended/past, p. ex.
+// quand on a tué le pane) : elles restent accessibles via le filtre « Terminées ».
 export const STATUS_FILTERS = [
-  { key: 'all', label: 'Tous', states: null },
+  { key: 'all', label: 'Actives', states: LIVE_STATES },
   { key: 'attention', label: '🔴 Action', states: ['attention'] },
   { key: 'waiting', label: '🟡 Attente', states: ['waiting'] },
   { key: 'working', label: '🔵 Travaille', states: ['working'] },
@@ -57,8 +61,6 @@ export const STATUS_FILTERS = [
   { key: 'done', label: '✓ Terminées', states: ['ended', 'past'] },
 ];
 export function filterMatches(f, state) { return !f.states || f.states.includes(state); }
-
-export const LIVE_STATES = ['working', 'waiting', 'attention', 'idle'];
 
 // Métadonnées d'affichage de TOUS les modes de permission Claude Code (label + icône).
 // La source du mode courant est le champ `permission_mode` des hooks (cf. server/events.js) —
