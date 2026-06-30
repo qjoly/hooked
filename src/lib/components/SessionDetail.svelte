@@ -37,12 +37,24 @@
   const events = $derived(s ? (s.events || []).slice().reverse() : []);
   const shownPanes = $derived(s ? (s.shownPanes || []) : []);
 
-  // pane Terminal sélectionné : par défaut le plus récent ; on bascule si le pane courant
-  // disparaît (tmux fermé) ou si un nouveau pane « show » arrive.
+  // Liste des terminaux de l'onglet : le pane Claude Code lui-même (si son tmux est vivant) +
+  // les panes « show » ouverts par un agent. Le pane Claude est toujours en tête.
+  const terminals = $derived.by(() => {
+    const list = [];
+    if (s && s.tmuxAlive && s.tmuxPane) list.push({ pane: s.tmuxPane, label: 'Claude Code', kind: 'claude' });
+    for (const p of shownPanes) list.push({ pane: p.pane, label: p.command || p.pane, kind: 'show', target: p.target });
+    return list;
+  });
+
+  // pane Terminal sélectionné : par défaut le pane « show » le plus récent (l'agent a voulu montrer
+  // quelque chose), sinon le pane Claude. On rebascule si le pane courant disparaît.
   $effect(() => {
-    const list = shownPanes;
+    const list = terminals;
     if (!list.length) { if (termPane !== null) untrack(() => (termPane = null)); return; }
-    if (!list.some((p) => p.pane === termPane)) untrack(() => (termPane = list[list.length - 1].pane));
+    if (!list.some((t) => t.pane === termPane)) {
+      const def = shownPanes.length ? shownPanes[shownPanes.length - 1].pane : list[0].pane;
+      untrack(() => (termPane = def));
+    }
   });
 
   // indicateur 5 h compact pour la ligne de stats : valeur réelle (statusline) sinon estimation.
@@ -289,8 +301,8 @@
       {/if}
       <button class="subtab" class:active={tab === 'subagents'} onclick={() => (tab = 'subagents')}>🤖 Sous-agents <span class="count">{(s.subagents || []).length}</span></button>
       <button class="subtab" class:active={tab === 'activity'} onclick={() => (tab = 'activity')}>🪝 Activité <span class="count">{events.length}</span></button>
-      {#if shownPanes.length}
-        <button class="subtab" class:active={tab === 'terminal'} onclick={() => (tab = 'terminal')}>🖥 Terminal <span class="count">{shownPanes.length}</span></button>
+      {#if terminals.length}
+        <button class="subtab" class:active={tab === 'terminal'} onclick={() => (tab = 'terminal')}>🖥 Terminal <span class="count">{terminals.length}</span></button>
       {/if}
     </div>
   </div>
@@ -330,20 +342,20 @@
     </div>
 
     <div class="pane" class:active={tab === 'terminal'}>
-      {#if shownPanes.length}
+      {#if terminals.length}
         <div class="term-bar">
-          {#if shownPanes.length > 1}
+          {#if terminals.length > 1}
             <div class="term-tabs">
-              {#each shownPanes as p (p.pane)}
-                <button class="term-tab" class:active={termPane === p.pane} onclick={() => (termPane = p.pane)} title={p.command}>
-                  {p.target === 'window' ? '🗔' : '▦'} {p.command ? p.command.slice(0, 36) : p.pane}
+              {#each terminals as t (t.pane)}
+                <button class="term-tab" class:active={termPane === t.pane} class:claude={t.kind === 'claude'} onclick={() => (termPane = t.pane)} title={t.label}>
+                  {t.kind === 'claude' ? '🤖' : t.target === 'window' ? '🗔' : '▦'} {t.label.slice(0, 36)}
                 </button>
               {/each}
             </div>
           {:else}
-            <div class="term-cmd" title={shownPanes[0].command}>
-              <span class="term-cmd-ico">{shownPanes[0].target === 'window' ? '🗔' : '▦'}</span>
-              <code>{shownPanes[0].command || shownPanes[0].pane}</code>
+            <div class="term-cmd" title={terminals[0].label}>
+              <span class="term-cmd-ico">{terminals[0].kind === 'claude' ? '🤖' : terminals[0].target === 'window' ? '🗔' : '▦'}</span>
+              <code>{terminals[0].label}</code>
             </div>
           {/if}
           <button class="term-mode" class:on={termInteractive} onclick={() => (termInteractive = !termInteractive)}
@@ -355,7 +367,7 @@
           {#key termPane + ':' + termInteractive}<Terminal pane={termPane} interactive={termInteractive} />{/key}
         {/if}
       {:else}
-        <div class="pane-empty">Aucun terminal partagé par l'agent.</div>
+        <div class="pane-empty">Aucun terminal disponible (session tmux fermée).</div>
       {/if}
     </div>
 
