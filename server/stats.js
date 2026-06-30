@@ -8,6 +8,7 @@ import { scanSessions, blankSummary } from './transcript.js';
 import { readEvents, lastEventBySession, paneForSession, modeForSession, liveQuestionForSession, eventSessionMeta } from './events.js';
 import { liveStateFor } from './live.js';
 import { resolveLaunchForSession, paneTmuxNames, tmuxAlive, readPaneModeSync } from './tmux.js';
+import { shownPanesFor } from './pane.js';
 import { usageWindow } from './usage.js';
 import { sessionStatus, sessionStatusRaw } from './status.js';
 import { buildConversation } from './conversation.js';
@@ -139,6 +140,8 @@ function sessionDetail(id) {
     ...s, pendingQuestion,
     state: last ? last.state : (s.state || 'past'), currentTool: last ? last.tool : null,
     tmuxPane: pane, tmuxAlive: tmuxAlive(pane), tmuxAttach,
+    // panes « show » ouverts par un agent (mirroir lecture seule dans l'onglet Terminal).
+    shownPanes: shownPanesFor(id),
     // mode courant : lu en direct dans le footer du TUI si le pane est vivant (fiable, temps-réel),
     // sinon dernier mode connu via les hooks (différé).
     permissionMode: (tmuxAlive(pane) && readPaneModeSync(pane)) || modeForSession(id),

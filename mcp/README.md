@@ -42,6 +42,7 @@ claude mcp add hooked -- node /chemin/vers/hooked/mcp/server.cjs
 | `interrupt_session` | `POST /api/interrupt` | Envoie Échap (interrompt Claude) |
 | `set_mode` | `POST /api/mode` | Change le mode de permission (default / auto / plan) |
 | `set_model` | `POST /api/model` | Change le modèle et/ou l'effort |
+| `show_in_pane` | `POST /api/pane` | Ouvre un pane/fenêtre tmux dans la session et y lance une commande (mirroir read-only dans l'onglet « Terminal ») |
 | `search_sessions` | `GET /api/search` | Recherche plein-texte |
 | `get_stats` | `GET /api/stats` | Statistiques d'usage |
 

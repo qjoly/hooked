@@ -107,6 +107,10 @@ Le changement se fait en **boucle fermée** : hooked envoie un `Maj+Tab` (`tmux 
 
 > Les sessions sont lancées en **tmux détaché** avec `claude` interactif sous ton abonnement (**zéro conso token**, pas de `claude -p`). Tu t'attaches avec la commande affichée (`tmux attach -t hooked-…`).
 
+### 🖥 Terminal partagé par un agent *(sessions tmux)*
+
+Via le serveur MCP (outil **`show_in_pane`**), un agent peut ouvrir un **nouveau pane** (split) ou une **nouvelle fenêtre** dans le tmux de la session et y lancer une commande (serveur de dev, `htop`, démo, `tail` de logs…) — pour te **montrer** quelque chose. Un onglet **🖥 Terminal** apparaît alors dans la vue session : il **mirrore le pane en lecture seule** (rendu xterm.js, rafraîchi via `tmux capture-pane`). L'interaction reste côté tmux ; côté navigateur, c'est de l'observation.
+
 ### 📊 Vue Stats & usage
 
 Coût estimé, tokens, sessions, tours, prompts — avec des graphes par **jour / modèle / projet / outil** et des plages **1j / 7j / 30j / tout**.
