@@ -113,11 +113,11 @@ L'onglet **🖥 Terminal** de la vue session **streame en temps réel** (xterm.j
 
 Le flux est **un vrai stream d'octets**, pas un rafraîchissement d'image : `tmux pipe-pane` écrit la sortie brute du pane (avec ses séquences VT) dans un fichier, que le serveur tail et pousse en **SSE** (`/api/pane/stream`) ; xterm applique les octets tels quels → rendu incrémental, sans flicker, curseur exact, `vim`/`htop` fluides. Un `capture-pane` ne sert qu'à **amorcer** l'écran initial. C'est **tmux qui sert de PTY** : aucune dépendance native (pas de `node-pty`).
 
-Bascule **👁 Lecture seule / ⌨ Interactif** :
+Bascule **👁 Lecture seule / ⌨ Interactif** (interactif **par défaut**, choix mémorisé) :
 - **Lecture seule** — observation.
 - **Interactif** — tes frappes (texte, flèches, `Ctrl-C`, `Échap`…) repartent vers le pane via `tmux send-keys` ; l'écho revient par le flux (latence d'un aller simple). Le pane partage son entrée avec un éventuel client tmux attaché.
 
-Un **sélecteur de thème** (🎨 Hooked, Dracula, Nord, Solarized, Gruvbox, Light…) ajuste les couleurs du terminal (mémorisé en `localStorage`). Les sessions lancées par hooked sont créées en **120×64** par défaut (TUI claude plus aéré) — ajustable via `HOOKED_TMUX_COLS` / `HOOKED_TMUX_ROWS` ; tmux rétrécit de toute façon à la taille du client réel s'il s'y attache.
+Un **sélecteur de thème** (🎨 Hooked, Dracula, Nord, Solarized, Gruvbox, Light…) et un **sélecteur de police** (🔤 Nerd Font / System Mono) ajustent le rendu du terminal (mémorisés en `localStorage`). « Nerd Font » prend la première Nerd Font installée sur ta machine (repli mono système sinon). Les sessions lancées par hooked sont créées en **120×64** par défaut (TUI claude plus aéré) — ajustable via `HOOKED_TMUX_COLS` / `HOOKED_TMUX_ROWS` ; tmux rétrécit de toute façon à la taille du client réel s'il s'y attache.
 
 Les **TUI plein écran** (`nvim`, `htop`, `less`, le TUI claude…) rejoints en cours de route sont gérés : à l'amorçage on rejoue les **modes du terminal** lus dans tmux (écran alterné, touches curseur applicatives, auto-wrap, visibilité du curseur) pour resynchroniser xterm — sans quoi les flèches et les redraws partaient en vrille en mode interactif.
 

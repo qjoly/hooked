@@ -83,3 +83,20 @@ export const TERM_THEMES = {
 };
 
 export const DEFAULT_TERM_THEME = 'hooked';
+
+// Polices du terminal. « Nerd Font » liste les Nerd Fonts populaires : le navigateur prend la
+// PREMIÈRE installée sur la machine (+ « Symbols Nerd Font Mono » en repli pour les glyphes
+// d'icônes seuls), et retombe sur une mono système si aucune n'est présente — donc sans danger
+// même sans Nerd Font installée. (hooked ne peut afficher que des polices présentes côté client.)
+export const TERM_FONTS = {
+  nerd: {
+    name: 'Nerd Font',
+    family: '"JetBrainsMono Nerd Font Mono", "JetBrainsMono Nerd Font", "FiraCode Nerd Font Mono", "FiraCode Nerd Font", "Hack Nerd Font", "MesloLGS NF", "CaskaydiaCove Nerd Font", "Symbols Nerd Font Mono", ui-monospace, SFMono-Regular, Menlo, monospace',
+  },
+  mono: {
+    name: 'System Mono',
+    family: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
+  },
+};
+
+export const DEFAULT_TERM_FONT = 'nerd';
