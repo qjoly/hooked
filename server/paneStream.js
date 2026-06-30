@@ -27,6 +27,22 @@ function streamFile(pane) {
   return path.join(HOOKED_DIR, 'panes', 'pane-' + pane.slice(1) + '.stream');
 }
 
+// Construit la frame d'amorçage de l'écran à partir d'un capture-pane. CRITIQUE : capture-pane
+// sépare les lignes par un simple `\n` (lignes LOGIQUES, sans retour chariot ni info de wrap). On
+// NE peut donc PAS recoller avec `\n` (escalier) ni avec `\r\n` (une ligne pleine largeur déclenche
+// l'auto-wrap d'xterm PUIS le `\r\n` → saut de ligne en trop). On positionne donc chaque ligne en
+// ABSOLU (`\x1b[<row>;1H`), ce qui aligne la grille xterm sur celle de tmux à l'octet près — sans
+// quoi les éditions à curseur relatif (retour arrière, redraw du prompt) finissent par désynchroniser.
+// `\x1b[0m` par ligne : évite que la couleur de fond de la ligne précédente « bave » sur la suivante.
+function buildSnapshotFrame(c) {
+  const lines = String(c.content || '').split('\n');
+  let frame = '\x1b[0m\x1b[H\x1b[2J';
+  for (let i = 0; i < lines.length; i++) frame += `\x1b[${i + 1};1H\x1b[0m` + lines[i];
+  // curseur placé en absolu là où tmux a le sien (lignes/colonnes 1-based).
+  frame += `\x1b[${(c.cursorY || 0) + 1};${(c.cursorX || 0) + 1}H`;
+  return frame;
+}
+
 // Envoie un snapshot (meta taille + écran courant) à UN abonné, puis l'enregistre comme abonné
 // (dans cet ordre : garantit que le snapshot précède tout octet live pour cet abonné).
 function sendSnapshot(pane, st, send) {
@@ -35,9 +51,7 @@ function sendSnapshot(pane, st, send) {
     try {
       send('meta', JSON.stringify({ width: c.width, height: c.height }));
       st.lastSize = c.width + ' ' + c.height;
-      // \x1b[0m reset attributs + \x1b[H\x1b[2J (curseur haut + efface) + écran + position curseur.
-      const frame = '\x1b[0m\x1b[H\x1b[2J' + c.content + `\x1b[${(c.cursorY || 0) + 1};${(c.cursorX || 0) + 1}H`;
-      send('snapshot', Buffer.from(frame, 'utf8').toString('base64'));
+      send('snapshot', Buffer.from(buildSnapshotFrame(c), 'utf8').toString('base64'));
     } catch (_) {}
     st.subscribers.add(send); // live à partir d'ici seulement
   });
@@ -75,10 +89,7 @@ function rotate(pane, st) {
 function sendSnapshotResync(pane, st, send) {
   capturePane(pane, (e, c) => {
     if (e || !c || !c.alive) return;
-    try {
-      const frame = '\x1b[0m\x1b[H\x1b[2J' + c.content + `\x1b[${(c.cursorY || 0) + 1};${(c.cursorX || 0) + 1}H`;
-      send('snapshot', Buffer.from(frame, 'utf8').toString('base64'));
-    } catch (_) {}
+    try { send('snapshot', Buffer.from(buildSnapshotFrame(c), 'utf8').toString('base64')); } catch (_) {}
   });
 }
 
