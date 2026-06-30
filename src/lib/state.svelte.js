@@ -17,6 +17,9 @@ export const ui = $state({
   hideOld: persisted.hideOld ?? false,
   collapsed: persisted.collapsed ?? {}, // { [projet]: true } → groupes repliés dans la sidebar
   pinned: persisted.pinned ?? [],       // [sessionId] → sessions épinglées, remontées en tête de sidebar
+  names: persisted.names ?? {},         // { [sessionId]: titre custom } → renommage local (comme les pins)
+  focus: persisted.focus ?? false,      // mode focus : discussion plein écran (header global + sidebar repliés)
+  sidebarPeek: false,                   // (transitoire) ré-ouverture ponctuelle de la sidebar pendant le focus
   modal: null,               // { type, data } | null
   tick: 0,                   // incrémenté à chaque évènement live → relance les effets
 });
@@ -24,7 +27,7 @@ export const ui = $state({
 if (typeof localStorage !== 'undefined') {
   $effect.root(() => {
     $effect(() => {
-      const snapshot = { hideOld: ui.hideOld, collapsed: ui.collapsed, pinned: ui.pinned };
+      const snapshot = { hideOld: ui.hideOld, collapsed: ui.collapsed, pinned: ui.pinned, names: ui.names, focus: ui.focus };
       try { localStorage.setItem(LS_KEY, JSON.stringify(snapshot)); } catch {}
     });
   });
@@ -35,10 +38,40 @@ export function togglePin(id) {
   ui.pinned = ui.pinned.includes(id) ? ui.pinned.filter((x) => x !== id) : [...ui.pinned, id];
 }
 
+// renomme une session (titre custom local, persisté comme les pins). Vide/blanc → on retire
+// la surcharge et on retombe sur le titre auto (1er prompt / ai-title du transcript).
+export function renameSession(id, name) {
+  const next = { ...ui.names };
+  if (name && name.trim()) next[id] = name.trim().slice(0, 120);
+  else delete next[id];
+  ui.names = next;
+}
+
+// titre à afficher pour une session : surcharge custom si présente, sinon titre auto.
+export function sessionTitle(s) {
+  return (s && ui.names[s.id]) || (s && s.title) || '(sans titre)';
+}
+
+// mode focus : masque le header global + replie la sidebar → la discussion prend tout l'espace.
+export function toggleFocus() {
+  ui.focus = !ui.focus;
+  if (!ui.focus) ui.sidebarPeek = false; // on repart « sidebar repliée » au prochain focus
+}
+// ré-ouvre / referme ponctuellement la sidebar pendant le focus (sans quitter le focus).
+export function toggleSidebarPeek() { ui.sidebarPeek = !ui.sidebarPeek; }
+
 export const data = $state({ sessions: [] });
 
 export async function loadSessions() {
   try { data.sessions = await getSessions(); } catch (_) {}
+}
+
+// Version du build front (générée par SvelteKit, change à chaque build). Sert à l'auto-reload :
+// si le service est redéployé avec un nouveau front, on le détecte à la reconnexion SSE.
+let loadedVersion = null;
+async function appVersion() {
+  try { const r = await fetch('/_app/version.json', { cache: 'no-store' }); return (await r.json()).version; }
+  catch { return null; }
 }
 
 let started = false;
@@ -46,8 +79,14 @@ export function startLive() {
   if (started) return; // une seule connexion SSE pour toute la durée de vie de l'app
   started = true;
   loadSessions();
+  appVersion().then((v) => { loadedVersion = v; }); // version de référence (au chargement)
   connectSSE({
-    onOpen: () => { ui.live = true; },
+    onOpen: async () => {
+      ui.live = true;
+      // reconnexion : si le build du front a changé (service redéployé), on recharge la page
+      // pour servir la nouvelle version. Pas de reload au 1er connect (loadedVersion = la même).
+      if (loadedVersion) { const v = await appVersion(); if (v && v !== loadedVersion) location.reload(); }
+    },
     onError: () => { ui.live = false; },
     onTick: () => { refresh(); },
   });

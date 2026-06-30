@@ -41,6 +41,11 @@ const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];
 // réel (default → acceptEdits → plan → auto → …) n'a donc pas à être encodé ici.
 const PERMISSION_MODES = ['default', 'auto', 'plan'];
 
+// Modes valides pour `claude --permission-mode <mode>` au LANCEMENT d'une session (≠ cycle
+// live ci-dessus, qui passe par des Maj+Tab). Liste blanche stricte : garde anti-injection
+// shell ET garde-fou contre une valeur inconnue. Source : `claude --help`.
+const LAUNCH_PERMISSION_MODES = ['default', 'acceptEdits', 'auto', 'plan', 'bypassPermissions', 'dontAsk'];
+
 // Défauts modèle/effort lus depuis la config Claude Code de l'utilisateur (~/.claude), à
 // chaque appel (pas de cache) : si l'utilisateur change son défaut dans Claude Code, le
 // sélecteur « Nouvelle session » de hooked le reflète sans redémarrage. settings.local.json
@@ -61,4 +66,4 @@ function readClaudeDefaults() {
   };
 }
 
-export { HOME, PROJECTS_DIR, HOOKED_DIR, EVENTS_FILE, LAUNCHES_FILE, SESSION_LAUNCH_FILE, STATUS_DIR, PUBLIC_DIR, PORT, SESSION_BUDGET, SESSION_HOURS, MODELS, EFFORTS, PERMISSION_MODES, readClaudeDefaults };
+export { HOME, PROJECTS_DIR, HOOKED_DIR, EVENTS_FILE, LAUNCHES_FILE, SESSION_LAUNCH_FILE, STATUS_DIR, PUBLIC_DIR, PORT, SESSION_BUDGET, SESSION_HOURS, MODELS, EFFORTS, PERMISSION_MODES, LAUNCH_PERMISSION_MODES, readClaudeDefaults };

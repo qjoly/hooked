@@ -5,7 +5,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFile, execFileSync } from 'node:child_process';
-import { LAUNCHES_FILE, SESSION_LAUNCH_FILE, MODELS, EFFORTS, PERMISSION_MODES } from './config.js';
+import { LAUNCHES_FILE, SESSION_LAUNCH_FILE, MODELS, EFFORTS, PERMISSION_MODES, LAUNCH_PERMISSION_MODES } from './config.js';
 import { statSafe } from './util.js';
 import { launchConfigByTmux, paneForSession } from './events.js';
 import { scanSessions } from './transcript.js';
@@ -287,7 +287,7 @@ function setModelEffort(pane, { model, effort, sessionId }, cb) {
 // Lance `claude` (ou `claude --resume <id>`) dans une NOUVELLE session tmux détachée.
 // `worktree` : démarre la session dans un git worktree dédié (`claude --worktree`) — ne vaut
 // que pour une session neuve (incompatible avec une reprise, qui rouvre la session existante).
-function launchSession({ resumeId, cwd, prompt, model, effort, worktree }, cb) {
+function launchSession({ resumeId, cwd, prompt, model, effort, worktree, permissionMode }, cb) {
   let dir = cwd && typeof cwd === 'string' ? cwd : null;
   let id = null;
   if (resumeId) {
@@ -304,12 +304,15 @@ function launchSession({ resumeId, cwd, prompt, model, effort, worktree }, cb) {
   // model/effort : validés contre une liste blanche (sécurise l'injection shell ET rejette l'inconnu).
   if (model && !MODELS.includes(model)) return cb(err400('modèle inconnu : ' + model));
   if (effort && !EFFORTS.includes(effort)) return cb(err400('effort inconnu : ' + effort));
+  if (permissionMode && !LAUNCH_PERMISSION_MODES.includes(permissionMode)) return cb(err400('mode de permission inconnu : ' + permissionMode));
   // worktree : sans objet sur une reprise (la session est rouverte dans son dossier d'origine).
   const useWorktree = !!worktree && !id;
   let flags = '';
   if (useWorktree) flags += ' --worktree';
   if (model) flags += ` --model ${model}`;
   if (effort) flags += ` --effort ${effort}`;
+  // 'default' = comportement natif → pas de flag (commande propre) ; sinon on épingle le mode.
+  if (permissionMode && permissionMode !== 'default') flags += ` --permission-mode ${permissionMode}`;
   const claudeCmd = `claude${id ? ` --resume ${id}` : ''}${flags}`;
   const base = path.basename(dir).replace(/[^A-Za-z0-9_]/g, '_').slice(0, 24) || 'session';
   const name = `hooked-${base}-${Date.now().toString(36).slice(-5)}`;

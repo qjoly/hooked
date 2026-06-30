@@ -89,8 +89,9 @@ describe('parseTranscript', () => {
 });
 
 describe('buildConversation', () => {
-  // `parts` est un ajout récent (rendu inline style claude-cli) absent de la baseline figée.
-  const stripParts = (msgs) => msgs.map(({ parts, ...rest }) => rest);
+  // `parts` (rendu inline style claude-cli) et `forkUuid` (point de coupe pour le fork) sont
+  // des ajouts récents absents de la baseline figée → on les retire avant comparaison.
+  const stripParts = (msgs) => msgs.map(({ parts, forkUuid, ...rest }) => rest);
   it('identique (alpha, non-sidechain)', () => {
     expect(stripParts(lib.buildConversation(FILES.alpha))).toEqual(legacy.buildConversation(FILES.alpha));
   });
