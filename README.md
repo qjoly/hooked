@@ -113,6 +113,8 @@ L'onglet **🖥 Terminal** de la vue session **streame en temps réel** (xterm.j
 
 Le flux est **un vrai stream d'octets**, pas un rafraîchissement d'image : `tmux pipe-pane` écrit la sortie brute du pane (avec ses séquences VT) dans un fichier, que le serveur tail et pousse en **SSE** (`/api/pane/stream`) ; xterm applique les octets tels quels → rendu incrémental, sans flicker, curseur exact, `vim`/`htop` fluides. Un `capture-pane` ne sert qu'à **amorcer** l'écran initial. C'est **tmux qui sert de PTY** : aucune dépendance native (pas de `node-pty`).
 
+Bascule **⤢ Adapter / ▭ Fixe** (adapter **par défaut**, mémorisé) : en mode *Adapter*, le terminal mesure la place dispo dans la fenêtre web et redimensionne la **fenêtre tmux** du pane (`tmux resize-window`) pour la remplir — le TUI (claude, nvim…) reflue à cette taille. À la fermeture de la vue web, l'auto-dimensionnement tmux (`window-size latest`) est restauré pour qu'un rattachement dans un vrai terminal (Ghostty) reflue normalement.
+
 Bascule **👁 Lecture seule / ⌨ Interactif** (interactif **par défaut**, choix mémorisé) :
 - **Lecture seule** — observation.
 - **Interactif** — tes frappes (texte, flèches, `Ctrl-C`, `Échap`…) repartent vers le pane via `tmux send-keys` ; l'écho revient par le flux (latence d'un aller simple). Le pane partage son entrée avec un éventuel client tmux attaché.
