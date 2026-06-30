@@ -299,6 +299,14 @@ code.path { color: var(--muted); font-size: 11px; word-break: break-all; font-fa
 .bubble .who { font-size: 11px; font-weight: 700; opacity: .85; margin-bottom: 5px; display: flex; align-items: center; gap: 8px; }
 .bubble.user .who { justify-content: flex-end; }
 .bubble .who .t { font-weight: 400; opacity: .7; }
+/* bouton « Forker » révélé au survol de la bulle (point de coupe = ce message) */
+.bubble .fork-btn { margin-left: auto; font: inherit; font-size: 10.5px; font-weight: 600; line-height: 1.4;
+  border: 1px solid var(--border2); background: transparent; color: inherit; border-radius: 6px;
+  padding: 1px 7px; cursor: pointer; opacity: 0; transition: opacity .12s, background .12s, border-color .12s; }
+.bubble:hover .fork-btn, .bubble .fork-btn:focus-visible { opacity: .65; }
+.bubble .fork-btn:hover { opacity: 1; background: var(--accent-soft); border-color: var(--accent); color: var(--accent-d); }
+.bubble.user .fork-btn { border-color: rgba(255,255,255,.45); }
+.bubble.user .fork-btn:hover { background: rgba(255,255,255,.2); border-color: #fff; color: #fff; }
 .bubble .md { word-wrap: break-word; overflow-wrap: anywhere; }
 .bubble .md code { font-family: var(--mono); font-size: 12px; }
 .bubble .md :not(pre) > code { background: rgba(120,95,60,.14); padding: 1px 5px; border-radius: 5px; }
@@ -574,6 +582,10 @@ code.path { color: var(--muted); font-size: 11px; word-break: break-all; font-fa
 .lf-row { display: flex; gap: 14px; }
 .lf-row > div { flex: 1; }
 .lf-resume-title { background: var(--bg3); border: 1px solid var(--border2); border-radius: 10px; padding: 9px 12px; font-size: 13px; font-weight: 600; margin-bottom: 4px; word-break: break-word; }
+/* rappel du message servant de point de coupe dans la modale de fork */
+.fork-from { display: flex; flex-direction: column; gap: 3px; margin: 8px 0 2px; padding: 8px 11px; border-radius: 10px; background: var(--bg3); border: 1px solid var(--border2); border-left: 3px solid var(--accent); }
+.fork-from-who { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+.fork-from-snip { font-size: 12.5px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
 
 /* sélecteur de projet recherchable (nouvelle session) */
 .lf-picklist { max-height: 196px; overflow-y: auto; border: 1px solid var(--border2); border-radius: 10px; background: var(--bg3); margin-top: 6px; }

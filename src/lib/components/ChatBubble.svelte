@@ -2,7 +2,9 @@
   import { ago } from '$lib/format.js';
   import ToolChip from './ToolChip.svelte';
   import Markdown from './Markdown.svelte';
-  let { m } = $props();
+  // `onfork(m)` : si fourni ET que le message a un point de coupe (forkUuid), on affiche
+  // un bouton « Forker » au survol. Absent pour les traces de sous-agents (non reprenables).
+  let { m, onfork = null } = $props();
 
   // Style claude-cli : on rend les blocs dans l'ordre, et on distingue le DERNIER
   // bloc texte (réponse finale, contrasté) des précédents (raisonnement, discret).
@@ -20,7 +22,12 @@
 </script>
 
 <div class="bubble {m.role}" data-msg-ts={m.ts || ''}>
-  <div class="who">{m.role === 'user' ? '🧑 Toi' : '🤖 Claude'}<span class="t">{ago(m.ts)}</span></div>
+  <div class="who">{m.role === 'user' ? '🧑 Toi' : '🤖 Claude'}<span class="t">{ago(m.ts)}</span>
+    {#if onfork && m.forkUuid}
+      <button class="fork-btn" title="Forker la session à partir de ce message (branche indépendante)"
+              onclick={() => onfork(m)}>⑂ Forker</button>
+    {/if}
+  </div>
   {#if m.role === 'user'}
     {#if m.text}<div class="md"><Markdown text={m.text} /></div>{/if}
   {:else}

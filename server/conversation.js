@@ -2,6 +2,11 @@
  * Reconstruit la conversation (style chat) : 1 bulle user / 1 bulle assistant par tour,
  * en fusionnant l'activité assistant entre deux prompts. Chaque tool_use porte son input
  * et son résultat (apparié par tool_use_id) pour permettre le détail au clic.
+ *
+ * `forkUuid` : uuid de la DERNIÈRE ligne brute du transcript composant la bulle (pour une
+ * bulle assistant fusionnée, la dernière ligne assistant du tour). Sert de point de coupe
+ * stable pour forker une session à partir de ce message (cf. server/fork.js) — les vieux
+ * transcripts sans uuid laissent simplement ce champ à undefined (fork indisponible).
  */
 import fs from 'node:fs';
 import { chatText, toolDetail, toolInputText, toolResultText } from './util.js';
@@ -33,7 +38,7 @@ function buildConversation(fp, includeSidechain) {
       const c = j.message.content;
       if (Array.isArray(c) && c.some((b) => b && b.type === 'tool_result')) continue;
       const text = chatText(c);
-      if (text) msgs.push({ role: 'user', ts: j.timestamp, text: text.slice(0, 8000), tools: [] });
+      if (text) msgs.push({ role: 'user', ts: j.timestamp, text: text.slice(0, 8000), tools: [], forkUuid: j.uuid });
     } else if (j.type === 'assistant' && j.message && Array.isArray(j.message.content)) {
       // parts : blocs (text / tool) dans l'ordre d'arrivée pour rendu inline (style claude-cli)
       let text = '';
@@ -65,8 +70,9 @@ function buildConversation(fp, includeSidechain) {
           }
         }
         if (j.timestamp) prev.ts = j.timestamp;
+        prev.forkUuid = j.uuid; // le point de coupe avance jusqu'à la dernière ligne du tour
       } else {
-        msgs.push({ role: 'assistant', ts: j.timestamp, text: text.slice(0, 8000), tools, parts });
+        msgs.push({ role: 'assistant', ts: j.timestamp, text: text.slice(0, 8000), tools, parts, forkUuid: j.uuid });
       }
     }
   }
