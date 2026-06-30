@@ -337,6 +337,12 @@ code.path { color: var(--muted); font-size: 11px; word-break: break-all; font-fa
 /* message en file d'attente (envoyé, pas encore repris dans le transcript) */
 .bubble.user.queued { background: var(--waiting); opacity: .9; box-shadow: none; border: 1px dashed rgba(255,255,255,.5); }
 .bubble.user.queued .who .t { font-weight: 600; opacity: .9; }
+/* rendu inline style claude-cli : texte de raisonnement / final + tool calls dans l'ordre */
+.bubble.assistant .parts { display: flex; flex-direction: column; gap: 8px; }
+.bubble.assistant .parts > .part-tool { display: flex; flex-wrap: wrap; gap: 6px; }
+.bubble.assistant .md.reasoning { color: var(--muted); font-size: 12.5px; font-style: italic; opacity: .85; padding-left: 10px; border-left: 2px solid var(--border); }
+.bubble.assistant .md.reasoning .code-block { font-style: normal; }
+.bubble.assistant .md.final { color: var(--text); }
 .chips { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 6px; margin-top: 8px; }
 .chip { background: var(--accent-soft); color: var(--accent-d); border: 1px solid rgba(176,90,52,.22); border-radius: 8px; padding: 3px 9px; font-size: 11px; display: inline-flex; align-items: center; gap: 6px; max-width: 100%; }
 .chip-d { color: var(--muted); font-family: var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 280px; }

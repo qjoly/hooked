@@ -89,15 +89,34 @@ describe('parseTranscript', () => {
 });
 
 describe('buildConversation', () => {
+  // `parts` est un ajout récent (rendu inline style claude-cli) absent de la baseline figée.
+  const stripParts = (msgs) => msgs.map(({ parts, ...rest }) => rest);
   it('identique (alpha, non-sidechain)', () => {
-    expect(lib.buildConversation(FILES.alpha)).toEqual(legacy.buildConversation(FILES.alpha));
+    expect(stripParts(lib.buildConversation(FILES.alpha))).toEqual(legacy.buildConversation(FILES.alpha));
   });
   it('identique (agent, sidechain inclus)', () => {
-    expect(lib.buildConversation(FILES.agent, true)).toEqual(legacy.buildConversation(FILES.agent, true));
+    expect(stripParts(lib.buildConversation(FILES.agent, true))).toEqual(legacy.buildConversation(FILES.agent, true));
   });
   it('le sidechain est exclu par défaut', () => {
     const msgs = lib.buildConversation(FILES.alpha);
     expect(msgs.some((m) => m.text && m.text.includes('sidechain'))).toBe(false);
+  });
+  it('expose parts dans l\'ordre (texte + tool inline, sans doublon)', () => {
+    const msgs = lib.buildConversation(FILES.alpha);
+    const a1 = msgs.find((m) => m.role === 'assistant' && m.text && m.text.startsWith('Je lance les tests'));
+    expect(a1.parts[0]).toEqual({ type: 'text', text: 'Je lance les tests.' });
+    expect(a1.parts[1].type).toBe('tool');
+    expect(a1.parts[1].tool.name).toBe('Bash');
+    // doublon de texte de la ligne 5 du fixture : présent une seule fois
+    const dups = a1.parts.filter((p) => p.type === 'text' && p.text === 'Je lance les tests.');
+    expect(dups.length).toBe(1);
+    // tool noms attendus, dans l'ordre du transcript (cohérent avec la dedup name+detail
+    // déjà appliquée à m.tools : les deux AskUserQuestion sans détail sont collapsées)
+    const toolNames = a1.parts.filter((p) => p.type === 'tool').map((p) => p.tool.name);
+    expect(toolNames).toEqual(['Bash', 'Write', 'Edit', 'MultiEdit', 'NotebookEdit', 'AskUserQuestion', 'Agent']);
+    // dernier bloc texte = réponse finale (style claude-cli)
+    const lastText = [...a1.parts].reverse().find((p) => p.type === 'text');
+    expect(lastText.text).toContain('PR ouverte');
   });
 });
 
