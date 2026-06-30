@@ -62,17 +62,44 @@ function showInPane(id, { command, target } = {}, cb) {
   });
 }
 
+// Envoie une saisie clavier (input interactif) à un pane « show ». `data` est le flux d'octets
+// produit par le terminal côté navigateur (xterm.onData : texte, mais aussi séquences d'échappement
+// pour les flèches/F-keys et octets de contrôle pour Ctrl-C, Échap…). On le transmet TEL QUEL au
+// tty du pane via `send-keys -H` (hexadécimal) : `-H` forwarde des octets bruts sans interprétation
+// de noms de touches et gère proprement les octets de contrôle (impossibles à passer en argv via -l,
+// ex. NUL). Le pane partage son entrée avec un éventuel client tmux attaché — comportement attendu.
+function sendInput(pane, data, cb) {
+  if (!/^%\d+$/.test(pane || '')) return cb(err400('pane invalide'));
+  if (typeof data !== 'string' || !data.length) return cb(err400('data requise'));
+  if (!tmuxAlive(pane)) return cb(err400('pane fermé'));
+  // octets → paires hex ; les caractères non-ASCII (UTF-8 multioctets) sont décomposés en octets.
+  const hex = Buffer.from(data, 'utf8').toString('hex').match(/../g) || [];
+  if (!hex.length) return cb(null, { pane });
+  execFile('tmux', ['send-keys', '-t', pane, '-H', ...hex], (e) => {
+    if (e) return cb(new Error('send-keys a échoué : ' + (e.message || e)));
+    cb(null, { pane });
+  });
+}
+
 // Capture l'écran courant d'un pane tmux (mirroir lecture seule). `-e` conserve les séquences
 // d'échappement (couleurs) pour un rendu fidèle côté xterm.js ; on renvoie aussi les dimensions
 // du pane pour que le terminal web s'y ajuste (wrapping identique à tmux).
 function capturePane(pane, cb) {
   if (!/^%\d+$/.test(pane || '')) return cb(err400('pane invalide'));
-  if (!tmuxAlive(pane)) return cb(null, { alive: false, width: 0, height: 0, content: '' });
-  execFile('tmux', ['display-message', '-p', '-t', pane, '#{pane_width}x#{pane_height}'], (e1, dim) => {
-    const m = /^(\d+)x(\d+)/.exec(String(dim || '').trim());
+  if (!tmuxAlive(pane)) return cb(null, { alive: false, width: 0, height: 0, cursorX: 0, cursorY: 0, content: '' });
+  // dimensions + position du curseur en un seul appel : capture-pane n'émet pas le positionnement
+  // du curseur, on le récupère donc à part pour que le terminal web (mode interactif) place SON
+  // curseur là où tmux a le sien — sinon il resterait collé en fin de réécriture.
+  execFile('tmux', ['display-message', '-p', '-t', pane, '#{pane_width} #{pane_height} #{cursor_x} #{cursor_y}'], (e1, info) => {
+    const n = String(info || '').trim().split(/\s+/).map((x) => parseInt(x, 10));
     execFile('tmux', ['capture-pane', '-p', '-e', '-t', pane], (e2, out) => {
       if (e2) return cb(new Error('capture-pane a échoué : ' + (e2.message || e2)));
-      cb(null, { alive: true, width: m ? +m[1] : 80, height: m ? +m[2] : 24, content: out || '' });
+      cb(null, {
+        alive: true,
+        width: n[0] || 80, height: n[1] || 24,
+        cursorX: n[2] || 0, cursorY: n[3] || 0,
+        content: out || '',
+      });
     });
   });
 }
@@ -109,4 +136,4 @@ function aliveOnly(map) {
   return out;
 }
 
-export { showInPane, capturePane, shownPanesFor };
+export { showInPane, capturePane, sendInput, shownPanesFor };

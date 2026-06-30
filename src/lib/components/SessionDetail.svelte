@@ -17,6 +17,7 @@
   let s = $state(null);          // détail de session
   let tab = $state('chat');
   let termPane = $state(null);   // pane « show » courant affiché dans l'onglet Terminal
+  let termInteractive = $state(false); // onglet Terminal : interactif (frappes → tmux) ou lecture seule
   let body;                      // ref .pane-body (conteneur scrollable)
   let composer;                  // ref Composer (pour déclencher interruption + édition via Échap)
   let lastActivity = null;
@@ -330,22 +331,28 @@
 
     <div class="pane" class:active={tab === 'terminal'}>
       {#if shownPanes.length}
-        {#if shownPanes.length > 1}
-          <div class="term-tabs">
-            {#each shownPanes as p (p.pane)}
-              <button class="term-tab" class:active={termPane === p.pane} onclick={() => (termPane = p.pane)} title={p.command}>
-                {p.target === 'window' ? '🗔' : '▦'} {p.command ? p.command.slice(0, 36) : p.pane}
-              </button>
-            {/each}
-          </div>
-        {:else}
-          <div class="term-cmd" title={shownPanes[0].command}>
-            <span class="term-cmd-ico">{shownPanes[0].target === 'window' ? '🗔' : '▦'}</span>
-            <code>{shownPanes[0].command || shownPanes[0].pane}</code>
-          </div>
-        {/if}
+        <div class="term-bar">
+          {#if shownPanes.length > 1}
+            <div class="term-tabs">
+              {#each shownPanes as p (p.pane)}
+                <button class="term-tab" class:active={termPane === p.pane} onclick={() => (termPane = p.pane)} title={p.command}>
+                  {p.target === 'window' ? '🗔' : '▦'} {p.command ? p.command.slice(0, 36) : p.pane}
+                </button>
+              {/each}
+            </div>
+          {:else}
+            <div class="term-cmd" title={shownPanes[0].command}>
+              <span class="term-cmd-ico">{shownPanes[0].target === 'window' ? '🗔' : '▦'}</span>
+              <code>{shownPanes[0].command || shownPanes[0].pane}</code>
+            </div>
+          {/if}
+          <button class="term-mode" class:on={termInteractive} onclick={() => (termInteractive = !termInteractive)}
+                  title={termInteractive ? 'Interactif : tes frappes vont au pane tmux' : 'Lecture seule : observation'}>
+            {termInteractive ? '⌨ Interactif' : '👁 Lecture seule'}
+          </button>
+        </div>
         {#if tab === 'terminal' && termPane}
-          {#key termPane}<Terminal pane={termPane} />{/key}
+          {#key termPane + ':' + termInteractive}<Terminal pane={termPane} interactive={termInteractive} />{/key}
         {/if}
       {:else}
         <div class="pane-empty">Aucun terminal partagé par l'agent.</div>
