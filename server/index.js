@@ -17,6 +17,7 @@ export * from './events.js';
 export * from './live.js';
 export * from './tmux.js';
 export * from './pane.js';
+export * from './paneStream.js';
 export * from './images.js';
 export * from './usage.js';
 export * from './status.js';
