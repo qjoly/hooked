@@ -6,7 +6,7 @@
   }
 </script>
 
-<h2 style="margin:0 0 10px">✓ Session {d.resume ? 'reprise' : 'lancée'}</h2>
+<h2 style="margin:0 0 10px">✓ Session {d.forkedFrom ? 'forkée' : d.resume ? 'reprise' : 'lancée'}</h2>
 <p style="color:var(--muted);font-size:12.5px;line-height:1.6;margin:0 0 14px">
   <code>claude{d.resume ? ' --resume ' + d.resume.slice(0, 8) + '…' : ''}{d.worktree ? ' --worktree' : ''}</code> tourne dans la session tmux
   <b>{d.tmux}</b><br>dossier <code>{d.cwd}</code>{d.worktree ? ' (git worktree dédié)' : ''}. Attache-toi :</p>

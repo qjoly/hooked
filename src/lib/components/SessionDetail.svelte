@@ -131,6 +131,17 @@
     ui.modal = { type: 'resume', data: { id: s.id, project: s.project, projectName: s.projectName, title: s.title, model: s.launchModel || modelAlias(s.model), effort: s.effort } };
   }
 
+  // forke la session à partir d'une bulle (message user ou assistant) : ouvre la modale qui
+  // crée une branche indépendante (copie du transcript jusqu'à ce message) et la reprend.
+  function openFork(m) {
+    const snippet = (m.text || '').replace(/\s+/g, ' ').trim().slice(0, 120) || (m.role === 'user' ? '(message)' : '(activité outils)');
+    ui.modal = { type: 'fork', data: {
+      id: s.id, forkUuid: m.forkUuid, role: m.role, snippet,
+      project: s.project, projectName: s.projectName, title: s.title,
+      model: s.launchModel || modelAlias(s.model), effort: s.effort,
+    } };
+  }
+
   // changement à chaud du modèle / de l'effort d'une session live (envoie /model et /effort
   // dans le TUI). État local synchronisé sur les vraies valeurs tant qu'on n'édite pas.
   let editModel = $state('');
@@ -282,7 +293,7 @@
     <div class="pane" class:active={tab === 'chat'}>
       <div class="chat">
         {#if (s.messages || []).length}
-          {#each s.messages as m, i (m.ts + ':' + i)}<ChatBubble {m} />{/each}
+          {#each s.messages as m, i (m.ts + ':' + i)}<ChatBubble {m} onfork={openFork} />{/each}
         {:else if !queued.length}
           <div class="pane-empty">Conversation vide.</div>
         {/if}
