@@ -10,9 +10,9 @@
   // Mode interactif : xterm.onData (frappes, flèches, Ctrl-C, Échap…) est renvoyé au pane via
   // /api/pane/input (tmux send-keys). L'écho revient par le flux SSE (latence d'un aller simple).
   import { onMount, onDestroy } from 'svelte';
-  import { sendPaneInput } from '$lib/api.js';
+  import { sendPaneInput, resizePane, autosizePane } from '$lib/api.js';
 
-  let { pane, interactive = false, theme = null, fontFamily = null } = $props();
+  let { pane, interactive = false, theme = null, fontFamily = null, fit = false } = $props();
 
   // thème appliqué à chaud (xterm v5 : term.options.theme) — pas de remontage au changement.
   // IMPORTANT : on lit `theme` AVANT le garde sur `term`. Sinon `if (term && theme)` court-circuite
@@ -35,7 +35,28 @@
 
   let host;
   let term = null, es = null, destroyed = false;
+  let fitAddon = null, resizeObs = null, fitTimer = null, didResize = false, lastDims = '';
   let dead = $state(false);
+
+  // Mode « adapter » : on calcule cols×rows qui tiennent dans la place dispo (FitAddon mesure le
+  // conteneur) et on redimensionne la FENÊTRE tmux du pane en conséquence → le programme (claude,
+  // nvim…) reflue pour remplir la fenêtre web. Débounce pour ne pas spammer pendant un redimensionnement.
+  function applyFit() {
+    if (!fit || !term || !fitAddon || destroyed) return;
+    let dims;
+    try { dims = fitAddon.proposeDimensions(); } catch (_) { return; }
+    if (!dims || !dims.cols || !dims.rows) return;
+    const key = dims.cols + 'x' + dims.rows;
+    if (key === lastDims) return;       // déjà à cette taille : rien à faire
+    lastDims = key;
+    try { term.resize(dims.cols, dims.rows); } catch (_) {}
+    didResize = true;
+    resizePane(pane, dims.cols, dims.rows).catch(() => {});
+  }
+  function scheduleFit() {
+    clearTimeout(fitTimer);
+    fitTimer = setTimeout(applyFit, 150);
+  }
 
   // Firefox/Gecko : la touche Échap déclenche l'action « stop » du navigateur (window.stop()), qui
   // AVORTE les connexions réseau en vol — dont notre flux SSE → le terminal se fige et l'Échap est
@@ -95,15 +116,28 @@
         scrollback: 1000,
         theme: theme || { background: '#0b0e14', foreground: '#c7d0e0', cursor: '#7dd3fc' },
       });
+      if (fit) {
+        const { FitAddon } = await import('@xterm/addon-fit');
+        fitAddon = new FitAddon();
+        term.loadAddon(fitAddon);
+      }
       term.open(host);
       if (interactive) {
         term.onData(queueInput);
         term.focus();
         window.addEventListener('keydown', onKeydownCapture, true);
       }
+      if (fit) {
+        applyFit();  // dimensionne le pane à la place dispo AVANT l'amorçage (snapshot à la bonne taille)
+        resizeObs = new ResizeObserver(scheduleFit);
+        resizeObs.observe(host.parentElement); // .term-wrap : taille pilotée par la mise en page, pas par xterm
+      }
 
       es = new EventSource('/api/pane/stream?pane=' + encodeURIComponent(pane));
       es.addEventListener('meta', (ev) => {
+        // en mode adapter c'est NOUS qui pilotons la taille (via applyFit) → on ignore le meta tmux,
+        // sinon xterm se recalerait sur la taille du pane et la boîte ne remplirait plus la vue.
+        if (fit) return;
         try { const m = JSON.parse(ev.data); if (m.width && m.height) term.resize(m.width, m.height); } catch (_) {}
       });
       es.addEventListener('snapshot', (ev) => { dead = false; term.reset(); term.write(b64bytes(ev.data)); });
@@ -115,13 +149,18 @@
 
   onDestroy(() => {
     destroyed = true;
+    clearTimeout(fitTimer);
     window.removeEventListener('keydown', onKeydownCapture, true);
+    if (resizeObs) { try { resizeObs.disconnect(); } catch (_) {} }
+    // on a forcé window-size=manual via resize-window → on restaure l'auto-dimensionnement pour
+    // qu'un rattachement dans un vrai terminal (Ghostty) reflue normalement.
+    if (fit && didResize) autosizePane(pane).catch(() => {});
     if (es) { try { es.close(); } catch (_) {} }
     if (term) { try { term.dispose(); } catch (_) {} }
   });
 </script>
 
-<div class="term-wrap" class:interactive style:background={theme ? theme.background : '#0b0e14'}>
+<div class="term-wrap" class:interactive class:fit style:background={theme ? theme.background : '#0b0e14'}>
   {#if dead}<div class="term-dead">⛔ Ce pane tmux a été fermé.</div>{/if}
   <div class="term-host" bind:this={host}></div>
 </div>
@@ -130,6 +169,10 @@
   /* width:max-content → la boîte épouse la taille réelle du terminal (cols×rows), pas toute la
      largeur du panneau ; max-width:100% + overflow:auto pour les panes plus larges que la vue. */
   .term-wrap { position: relative; width: max-content; max-width: 100%; border-radius: 8px; padding: 8px; overflow: auto; }
+  /* mode adapter : la boîte remplit la place dispo (largeur + hauteur viewport) ; FitAddon mesure
+     cette taille pour calculer cols×rows et redimensionner le pane tmux en conséquence. */
+  .term-wrap.fit { width: 100%; height: calc(100dvh - 15rem); min-height: 240px; }
+  .term-wrap.fit .term-host { width: 100%; height: 100%; }
   .term-wrap.interactive { outline: 1px solid #1e2a3a; }
   .term-host { width: max-content; }
   .term-dead { color: #e08; font-size: 13px; padding: 4px 2px 8px; }

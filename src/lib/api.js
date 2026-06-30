@@ -36,6 +36,9 @@ export const openInGhostty = (id) => jpost('/api/open-ghostty', { id });
 export const showInPane = (id, command, target) => jpost('/api/pane', { id, command, target });
 // Saisie clavier interactive vers un pane (xterm.onData → tmux send-keys).
 export const sendPaneInput = (pane, data) => jpost('/api/pane/input', { pane, data });
+// Redimensionne la fenêtre tmux du pane pour remplir la vue web (ou restaure l'auto via {auto}).
+export const resizePane = (pane, cols, rows) => jpost('/api/pane/resize', { pane, cols, rows });
+export const autosizePane = (pane) => jpost('/api/pane/resize', { pane, auto: true });
 
 // Flux SSE : appelle onTick() à chaque « tick » poussé par le serveur.
 export function connectSSE({ onTick, onOpen, onError }) {
