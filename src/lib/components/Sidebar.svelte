@@ -1,7 +1,7 @@
 <script>
   import { goto } from '$app/navigation';
   import { page } from '$app/state';
-  import { ui, data, loadSessions, togglePin } from '$lib/state.svelte.js';
+  import { ui, data, loadSessions, togglePin, sessionTitle } from '$lib/state.svelte.js';
   import { reply } from '$lib/api.js';
   import { STATUS_FILTERS, filterMatches, LIVE_STATES, ago, shortModel } from '$lib/format.js';
 
@@ -138,7 +138,7 @@
     <span class="sdot"></span>
     <div class="srow-main">
       <div class="srow-title">
-        {#if s.hasQuestion}<span class="q-flag" title="Claude attend ta réponse">⌨</span>{/if}{s.title}
+        {#if s.hasQuestion}<span class="q-flag" title="Claude attend ta réponse">⌨</span>{/if}{sessionTitle(s)}
       </div>
       <div class="srow-sub">{#if s.gitBranch}{s.gitBranch} · {/if}{ago(s.lastActivity)}</div>
       {#if s.todo && s.todo.current}
