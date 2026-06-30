@@ -33,6 +33,11 @@ const SESSION_BUDGET = parseFloat(process.env.HOOKED_SESSION_BUDGET || '40') || 
 const SESSION_HOURS = 5;
 
 const MODELS = ['opus', 'sonnet', 'haiku', 'fable'];
+// Argument `--model` accepté : alias de famille (`opus`) ou version explicite (`opus-4-7`).
+// Regex stricte (anti-injection) : la valeur est interpolée dans une commande shell par
+// launchSession et tapée dans `/model <name>` par setModelEffort.
+const MODEL_ARG_RE = /^(opus|sonnet|haiku|fable)(-\d{1,2}(-\d{1,2})?)?$/;
+const isValidModelArg = (m) => typeof m === 'string' && MODEL_ARG_RE.test(m);
 const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];
 
 // Modes de permission Claude Code proposés au sélecteur (liste blanche des cibles).
@@ -60,10 +65,13 @@ function readClaudeDefaults() {
       if (j && typeof j.effortLevel === 'string') effort = j.effortLevel;
     } catch (_) {}
   }
+  // Si Claude Code stocke l'ID complet (`claude-opus-4-7`), on retire le préfixe pour obtenir
+  // une valeur acceptée par `--model`. Inconnu → fallback opus.
+  const normalized = typeof model === 'string' ? model.replace(/^claude-/, '').toLowerCase() : '';
   return {
-    model: MODELS.includes(model) ? model : 'opus',
+    model: isValidModelArg(normalized) ? normalized : 'opus',
     effort: EFFORTS.includes(effort) ? effort : 'high',
   };
 }
 
-export { HOME, PROJECTS_DIR, HOOKED_DIR, EVENTS_FILE, LAUNCHES_FILE, SESSION_LAUNCH_FILE, STATUS_DIR, PUBLIC_DIR, PORT, SESSION_BUDGET, SESSION_HOURS, MODELS, EFFORTS, PERMISSION_MODES, LAUNCH_PERMISSION_MODES, readClaudeDefaults };
+export { HOME, PROJECTS_DIR, HOOKED_DIR, EVENTS_FILE, LAUNCHES_FILE, SESSION_LAUNCH_FILE, STATUS_DIR, PUBLIC_DIR, PORT, SESSION_BUDGET, SESSION_HOURS, MODELS, EFFORTS, PERMISSION_MODES, LAUNCH_PERMISSION_MODES, isValidModelArg, readClaudeDefaults };

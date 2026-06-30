@@ -21,15 +21,28 @@ export function ago(ts) {
 }
 export const shortModel = (m) => (m || '').replace(/^claude-/, '');
 
-// modèles / efforts proposés au lancement et au changement à chaud (liste blanche côté serveur).
-export const MODEL_OPTS = [['opus', 'Opus'], ['sonnet', 'Sonnet'], ['haiku', 'Haiku'], ['fable', 'Fable']];
+// modèles proposés au lancement et au changement à chaud, groupés par famille. La 1ère entrée
+// de chaque groupe est l'alias générique (suit le défaut du compte Claude Code) ; les suivantes
+// pinent une version précise (`opus-4-7`). Validation backend : voir `isValidModelArg` (regex
+// `(opus|sonnet|haiku|fable)(-\d{1,2}(-\d{1,2})?)?`) — toute version nouvellement publiée par
+// Claude Code n'a qu'à être ajoutée ici, pas besoin de toucher au serveur.
+export const MODEL_GROUPS = [
+  { label: 'Opus',   opts: [['opus',     'Opus (défaut)'],   ['opus-4-8',   '4.8'], ['opus-4-7',   '4.7'], ['opus-4-6',   '4.6'], ['opus-4-5', '4.5']] },
+  { label: 'Sonnet', opts: [['sonnet',   'Sonnet (défaut)'], ['sonnet-4-6', '4.6'], ['sonnet-4-5', '4.5']] },
+  { label: 'Haiku',  opts: [['haiku',    'Haiku (défaut)'],  ['haiku-4-5',  '4.5']] },
+  { label: 'Fable',  opts: [['fable',    'Fable']] },
+];
+// Liste plate de toutes les options valides, triée par clé décroissante pour que `modelAlias`
+// préfère le match le plus spécifique (`opus-4-7` avant `opus`).
+export const MODEL_OPTS = MODEL_GROUPS.flatMap((g) => g.opts);
+const MODEL_KEYS_BY_SPECIFICITY = MODEL_OPTS.map(([k]) => k).sort((a, b) => b.length - a.length);
 export const EFFORT_OPTS = ['low', 'medium', 'high', 'xhigh', 'max'];
 
-// identifiant de modèle complet (ex. « claude-opus-4-8 ») → alias court (« opus ») pour
-// pré-sélectionner le bon item dans le sélecteur. '' si inconnu.
+// identifiant de modèle complet (ex. « claude-opus-4-7 ») → clé du sélecteur (« opus-4-7 » si
+// connue, sinon alias de famille « opus »). '' si inconnu.
 export function modelAlias(m) {
   const s = (m || '').toLowerCase();
-  return (MODEL_OPTS.find(([k]) => s.includes(k)) || [''])[0];
+  return MODEL_KEYS_BY_SPECIFICITY.find((k) => s.includes(k)) || '';
 }
 
 // durée courte à partir de minutes : « 2 h 46 min » / « 46 min » / « <1 min ».
