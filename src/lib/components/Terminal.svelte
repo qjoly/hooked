@@ -76,6 +76,16 @@
     (async () => {
       const { Terminal } = await import('@xterm/xterm');
       await import('@xterm/xterm/css/xterm.css');
+      // attend que les polices empaquetées soient chargées AVANT de mesurer la grille (sinon
+      // xterm mesure avec une police de repli → cellules mal dimensionnées / glyphes désalignés).
+      try {
+        if (document.fonts && document.fonts.load) {
+          await Promise.all([
+            document.fonts.load('12px "JetBrains Mono Web"'),
+            document.fonts.load('12px "Symbols Nerd Font Mono Web"'),
+          ]);
+        }
+      } catch (_) {}
       if (cancelled) return;
       term = new Terminal({
         disableStdin: !interactive,
