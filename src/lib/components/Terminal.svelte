@@ -30,6 +30,14 @@
   let term = null, es = null, destroyed = false;
   let dead = $state(false);
 
+  // Firefox/Gecko : la touche Échap déclenche l'action « stop » du navigateur (window.stop()), qui
+  // AVORTE les connexions réseau en vol — dont notre flux SSE → le terminal se fige et l'Échap est
+  // « mangé » par le navigateur. On annule l'action par défaut sur Échap (en capture, pour passer
+  // avant), SANS stopper la propagation : xterm reçoit toujours l'event et émet bien `\x1b`.
+  function onKeydownCapture(e) {
+    if (interactive && e.key === 'Escape') e.preventDefault();
+  }
+
   // décode une charge base64 (event SSE) en octets pour xterm (gère l'UTF-8 multioctet).
   function b64bytes(s) {
     const bin = atob(s);
@@ -71,7 +79,11 @@
         theme: theme || { background: '#0b0e14', foreground: '#c7d0e0', cursor: '#7dd3fc' },
       });
       term.open(host);
-      if (interactive) { term.onData(queueInput); term.focus(); }
+      if (interactive) {
+        term.onData(queueInput);
+        term.focus();
+        window.addEventListener('keydown', onKeydownCapture, true);
+      }
 
       es = new EventSource('/api/pane/stream?pane=' + encodeURIComponent(pane));
       es.addEventListener('meta', (ev) => {
@@ -86,6 +98,7 @@
 
   onDestroy(() => {
     destroyed = true;
+    window.removeEventListener('keydown', onKeydownCapture, true);
     if (es) { try { es.close(); } catch (_) {} }
     if (term) { try { term.dispose(); } catch (_) {} }
   });
