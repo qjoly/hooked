@@ -5,6 +5,7 @@
 import path from 'node:path';
 import { statSafe } from './util.js';
 import { scanSessions, blankSummary } from './transcript.js';
+import { repoSlug } from './git.js';
 import { readEvents, lastEventBySession, paneForSession, modeForSession, liveQuestionForSession, eventSessionMeta } from './events.js';
 import { liveStateFor } from './live.js';
 import { resolveLaunchForSession, paneTmuxNames, tmuxAlive, readPaneModeSync } from './tmux.js';
@@ -47,6 +48,8 @@ function buildSessions() {
   const last = lastEventBySession();
   const now = Date.now();
   for (const s of sessions) {
+    // dépôt GitHub (owner/repo) pour le regroupement sidebar ; null hors dépôt git.
+    s.repo = repoSlug(s.project);
     const ev = last.get(s.id);
     s.tmuxPane = (ev && ev.tmux_pane) || paneForSession(s.id);
     const live = liveStateFor(ev);

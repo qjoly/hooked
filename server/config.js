@@ -37,6 +37,11 @@ const SESSION_BUDGET = parseFloat(process.env.HOOKED_SESSION_BUDGET || '40') || 
 const SESSION_HOURS = 5;
 
 const MODELS = ['opus', 'sonnet', 'haiku', 'fable'];
+// Argument `--model` accepté : alias de famille (`opus`) ou version explicite (`opus-4-7`).
+// Regex stricte (anti-injection) : la valeur est interpolée dans une commande shell par
+// launchSession et tapée dans `/model <name>` par setModelEffort.
+const MODEL_ARG_RE = /^claude-(opus|sonnet|haiku|fable)(-\d{1,2}(-\d{1,2})?)?$/;
+const isValidModelArg = (m) => typeof m === 'string' && MODEL_ARG_RE.test(m);
 const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];
 
 // Modes de permission Claude Code proposés au sélecteur (liste blanche des cibles).
@@ -44,6 +49,11 @@ const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];
 // le footer du TUI et on envoie des Maj+Tab jusqu'à atteindre la cible — l'ordre du cycle
 // réel (default → acceptEdits → plan → auto → …) n'a donc pas à être encodé ici.
 const PERMISSION_MODES = ['default', 'auto', 'plan'];
+
+// Modes valides pour `claude --permission-mode <mode>` au LANCEMENT d'une session (≠ cycle
+// live ci-dessus, qui passe par des Maj+Tab). Liste blanche stricte : garde anti-injection
+// shell ET garde-fou contre une valeur inconnue. Source : `claude --help`.
+const LAUNCH_PERMISSION_MODES = ['default', 'acceptEdits', 'auto', 'plan', 'bypassPermissions', 'dontAsk'];
 
 // Défauts modèle/effort lus depuis la config Claude Code de l'utilisateur (~/.claude), à
 // chaque appel (pas de cache) : si l'utilisateur change son défaut dans Claude Code, le
@@ -57,12 +67,15 @@ function readClaudeDefaults() {
       const j = JSON.parse(fs.readFileSync(path.join(HOME, '.claude', f), 'utf8'));
       if (j && typeof j.model === 'string') model = j.model;
       if (j && typeof j.effortLevel === 'string') effort = j.effortLevel;
-    } catch (_) {}
+    } catch (_) { }
   }
+  // Si Claude Code stocke l'ID complet (`claude-opus-4-7`), on retire le préfixe pour obtenir
+  // une valeur acceptée par `--model`. Inconnu → fallback opus.
+  const normalized = typeof model === 'string' ? model.toLowerCase() : '';
   return {
-    model: MODELS.includes(model) ? model : 'opus',
+    model: isValidModelArg(normalized) ? normalized : 'opus',
     effort: EFFORTS.includes(effort) ? effort : 'high',
   };
 }
 
-export { HOME, PROJECTS_DIR, HOOKED_DIR, EVENTS_FILE, LAUNCHES_FILE, SESSION_LAUNCH_FILE, SHOWN_PANES_FILE, STATUS_DIR, PUBLIC_DIR, PORT, SESSION_BUDGET, SESSION_HOURS, MODELS, EFFORTS, PERMISSION_MODES, readClaudeDefaults };
+export { HOME, PROJECTS_DIR, HOOKED_DIR, EVENTS_FILE, LAUNCHES_FILE, SESSION_LAUNCH_FILE, SHOWN_PANES_FILE, STATUS_DIR, PUBLIC_DIR, PORT, SESSION_BUDGET, SESSION_HOURS, MODELS, EFFORTS, PERMISSION_MODES, LAUNCH_PERMISSION_MODES, isValidModelArg, readClaudeDefaults };
