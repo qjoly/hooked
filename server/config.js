@@ -36,7 +36,7 @@ const MODELS = ['opus', 'sonnet', 'haiku', 'fable'];
 // Argument `--model` accepté : alias de famille (`opus`) ou version explicite (`opus-4-7`).
 // Regex stricte (anti-injection) : la valeur est interpolée dans une commande shell par
 // launchSession et tapée dans `/model <name>` par setModelEffort.
-const MODEL_ARG_RE = /^(opus|sonnet|haiku|fable)(-\d{1,2}(-\d{1,2})?)?$/;
+const MODEL_ARG_RE = /^claude-(opus|sonnet|haiku|fable)(-\d{1,2}(-\d{1,2})?)?$/;
 const isValidModelArg = (m) => typeof m === 'string' && MODEL_ARG_RE.test(m);
 const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];
 
@@ -63,11 +63,11 @@ function readClaudeDefaults() {
       const j = JSON.parse(fs.readFileSync(path.join(HOME, '.claude', f), 'utf8'));
       if (j && typeof j.model === 'string') model = j.model;
       if (j && typeof j.effortLevel === 'string') effort = j.effortLevel;
-    } catch (_) {}
+    } catch (_) { }
   }
   // Si Claude Code stocke l'ID complet (`claude-opus-4-7`), on retire le préfixe pour obtenir
   // une valeur acceptée par `--model`. Inconnu → fallback opus.
-  const normalized = typeof model === 'string' ? model.replace(/^claude-/, '').toLowerCase() : '';
+  const normalized = typeof model === 'string' ? model.toLowerCase() : '';
   return {
     model: isValidModelArg(normalized) ? normalized : 'opus',
     effort: EFFORTS.includes(effort) ? effort : 'high',
