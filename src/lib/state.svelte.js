@@ -16,6 +16,7 @@ export const ui = $state({
   search: '',
   hideOld: persisted.hideOld ?? false,
   collapsed: persisted.collapsed ?? {}, // { [projet]: true } → groupes repliés dans la sidebar
+  pinned: persisted.pinned ?? [],       // [sessionId] → sessions épinglées, remontées en tête de sidebar
   modal: null,               // { type, data } | null
   tick: 0,                   // incrémenté à chaque évènement live → relance les effets
 });
@@ -23,10 +24,15 @@ export const ui = $state({
 if (typeof localStorage !== 'undefined') {
   $effect.root(() => {
     $effect(() => {
-      const snapshot = { hideOld: ui.hideOld, collapsed: ui.collapsed };
+      const snapshot = { hideOld: ui.hideOld, collapsed: ui.collapsed, pinned: ui.pinned };
       try { localStorage.setItem(LS_KEY, JSON.stringify(snapshot)); } catch {}
     });
   });
+}
+
+// épingle / désépingle une session (toggle). Persisté via l'effet ci-dessus.
+export function togglePin(id) {
+  ui.pinned = ui.pinned.includes(id) ? ui.pinned.filter((x) => x !== id) : [...ui.pinned, id];
 }
 
 export const data = $state({ sessions: [] });

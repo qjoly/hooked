@@ -1,7 +1,7 @@
 <script>
   import { goto } from '$app/navigation';
   import { page } from '$app/state';
-  import { ui, data, loadSessions } from '$lib/state.svelte.js';
+  import { ui, data, loadSessions, togglePin } from '$lib/state.svelte.js';
   import { reply } from '$lib/api.js';
   import { STATUS_FILTERS, filterMatches, LIVE_STATES, ago, shortModel } from '$lib/format.js';
 
@@ -47,10 +47,22 @@
     });
   });
 
-  // regroupe par projet, trié par activité la plus récente
+  const pinnedSet = $derived(new Set(ui.pinned));
+
+  // sessions épinglées (toutes projets confondus), remontées en tête de sidebar
+  const pinnedItems = $derived(
+    filtered
+      .filter((s) => pinnedSet.has(s.id))
+      .sort((a, b) => String(b.lastActivity || '').localeCompare(String(a.lastActivity || ''))),
+  );
+
+  // regroupe par projet (hors épinglées), trié par activité la plus récente
   const groups = $derived.by(() => {
     const g = {};
-    for (const s of filtered) (g[s.projectName || '?'] = g[s.projectName || '?'] || []).push(s);
+    for (const s of filtered) {
+      if (pinnedSet.has(s.id)) continue;
+      (g[s.projectName || '?'] = g[s.projectName || '?'] || []).push(s);
+    }
     const lastOf = (arr) => Math.max(...arr.map((s) => Date.parse(s.lastActivity || 0) || 0));
     const order = Object.keys(g).sort((a, b) => lastOf(g[b]) - lastOf(g[a]));
     return order.map((proj) => ({
@@ -87,9 +99,20 @@
   </div>
 
   <div class="side-list">
-    {#if !groups.length}
+    {#if !groups.length && !pinnedItems.length}
       <div class="empty">Aucune session.</div>
     {:else}
+      {#if pinnedItems.length}
+        <div class="pgroup">
+          <div class="phead phead-pin">
+            <span class="pname">📌 Épinglées</span>
+            <span class="pcount">{pinnedItems.length}</span>
+          </div>
+          <div class="plist">
+            {#each pinnedItems as s (s.id)}{@render srow(s)}{/each}
+          </div>
+        </div>
+      {/if}
       {#each groups as g (g.proj)}
         <div class="pgroup" class:collapsed={ui.collapsed[g.proj]}>
           <div class="phead" onclick={() => toggle(g.proj)}>
@@ -101,40 +124,45 @@
                     onclick={(e) => { e.stopPropagation(); goto('/new?project=' + encodeURIComponent(g.items[0].project)); }}>＋</button>
           </div>
           <div class="plist">
-            {#each g.items as s (s.id)}
-              <div class="srow s-{s.state}" class:has-q={s.hasQuestion} class:active={page.params.id === s.id}
-                   onclick={() => goto('/session/' + encodeURIComponent(s.id))}>
-                <span class="sdot"></span>
-                <div class="srow-main">
-                  <div class="srow-title">
-                    {#if s.hasQuestion}<span class="q-flag" title="Claude attend ta réponse">⌨</span>{/if}{s.title}
-                  </div>
-                  <div class="srow-sub">{#if s.gitBranch}{s.gitBranch} · {/if}{ago(s.lastActivity)}</div>
-                  {#if s.todo && s.todo.current}
-                    <div class="srow-todo" title="Tâche en cours (TodoWrite)">▶ {s.todo.current}<span class="todo-frac">{s.todo.done}/{s.todo.total}</span></div>
-                  {/if}
-                  {#if LIVE_STATES.includes(s.state) && (s.model || s.effort)}
-                    <div class="srow-meta">
-                      {#if s.model}<span class="mtag">{shortModel(s.model)}</span>{/if}
-                      {#if s.effort}<span class="mtag eff">{s.effort}</span>{/if}
-                    </div>
-                  {/if}
-                  {#if sentId === s.id}
-                    <div class="q-quick-sent">✓ réponse envoyée</div>
-                  {:else if s.hasQuestion && quickOpts(s.question)}
-                    <div class="q-quick">
-                      {#each quickOpts(s.question) as o}
-                        <button class="q-quick-opt" disabled={sendingId === s.id} title={o.description || o.label}
-                                onclick={(e) => { e.stopPropagation(); quickReply(s, o.label); }}>{o.label}</button>
-                      {/each}
-                    </div>
-                  {/if}
-                </div>
-              </div>
-            {/each}
+            {#each g.items as s (s.id)}{@render srow(s)}{/each}
           </div>
         </div>
       {/each}
     {/if}
   </div>
 </aside>
+
+{#snippet srow(s)}
+  <div class="srow s-{s.state}" class:has-q={s.hasQuestion} class:active={page.params.id === s.id}
+       onclick={() => goto('/session/' + encodeURIComponent(s.id))}>
+    <span class="sdot"></span>
+    <div class="srow-main">
+      <div class="srow-title">
+        {#if s.hasQuestion}<span class="q-flag" title="Claude attend ta réponse">⌨</span>{/if}{s.title}
+      </div>
+      <div class="srow-sub">{#if s.gitBranch}{s.gitBranch} · {/if}{ago(s.lastActivity)}</div>
+      {#if s.todo && s.todo.current}
+        <div class="srow-todo" title="Tâche en cours (TodoWrite)">▶ {s.todo.current}<span class="todo-frac">{s.todo.done}/{s.todo.total}</span></div>
+      {/if}
+      {#if LIVE_STATES.includes(s.state) && (s.model || s.effort)}
+        <div class="srow-meta">
+          {#if s.model}<span class="mtag">{shortModel(s.model)}</span>{/if}
+          {#if s.effort}<span class="mtag eff">{s.effort}</span>{/if}
+        </div>
+      {/if}
+      {#if sentId === s.id}
+        <div class="q-quick-sent">✓ réponse envoyée</div>
+      {:else if s.hasQuestion && quickOpts(s.question)}
+        <div class="q-quick">
+          {#each quickOpts(s.question) as o}
+            <button class="q-quick-opt" disabled={sendingId === s.id} title={o.description || o.label}
+                    onclick={(e) => { e.stopPropagation(); quickReply(s, o.label); }}>{o.label}</button>
+          {/each}
+        </div>
+      {/if}
+    </div>
+    <button class="pin-btn" class:pinned={pinnedSet.has(s.id)}
+            title={pinnedSet.has(s.id) ? 'Désépingler' : 'Épingler'}
+            onclick={(e) => { e.stopPropagation(); togglePin(s.id); }}>📌</button>
+  </div>
+{/snippet}
