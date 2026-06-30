@@ -35,11 +35,19 @@ function buildConversation(fp, includeSidechain) {
       const text = chatText(c);
       if (text) msgs.push({ role: 'user', ts: j.timestamp, text: text.slice(0, 8000), tools: [] });
     } else if (j.type === 'assistant' && j.message && Array.isArray(j.message.content)) {
+      // parts : blocs (text / tool) dans l'ordre d'arrivée pour rendu inline (style claude-cli)
       let text = '';
       const tools = [];
+      const parts = [];
       for (const b of j.message.content) {
-        if (b.type === 'text' && b.text) text += (text ? '\n' : '') + b.text;
-        else if (b.type === 'tool_use') tools.push({ id: b.id || null, name: b.name, detail: toolDetail(b.input), inputText: toolInputText(b.input), result: b.id ? (results.get(b.id) || null) : null });
+        if (b.type === 'text' && b.text) {
+          text += (text ? '\n' : '') + b.text;
+          parts.push({ type: 'text', text: b.text });
+        } else if (b.type === 'tool_use') {
+          const tool = { id: b.id || null, name: b.name, detail: toolDetail(b.input), inputText: toolInputText(b.input), result: b.id ? (results.get(b.id) || null) : null };
+          tools.push(tool);
+          parts.push({ type: 'tool', tool });
+        }
       }
       text = text.trim();
       if (!text && !tools.length) continue;
@@ -47,9 +55,18 @@ function buildConversation(fp, includeSidechain) {
       if (prev && prev.role === 'assistant') { // fusion du même tour
         if (text && prev.text !== text && !prev.text.endsWith(text)) prev.text += (prev.text ? '\n' : '') + text;
         for (const t of tools) if (!prev.tools.some((x) => (t.id && x.id === t.id) || (x.name === t.name && x.detail === t.detail))) prev.tools.push(t);
+        // dedup des parts : texte si déjà présent à l'identique, tool si même id
+        for (const p of parts) {
+          if (p.type === 'text') {
+            if (!prev.parts.some((x) => x.type === 'text' && x.text === p.text)) prev.parts.push(p);
+          } else {
+            const id = p.tool.id;
+            if (!prev.parts.some((x) => x.type === 'tool' && ((id && x.tool.id === id) || (x.tool.name === p.tool.name && x.tool.detail === p.tool.detail)))) prev.parts.push(p);
+          }
+        }
         if (j.timestamp) prev.ts = j.timestamp;
       } else {
-        msgs.push({ role: 'assistant', ts: j.timestamp, text: text.slice(0, 8000), tools });
+        msgs.push({ role: 'assistant', ts: j.timestamp, text: text.slice(0, 8000), tools, parts });
       }
     }
   }
