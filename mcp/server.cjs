@@ -196,6 +196,26 @@ const TOOLS = [
     run: (a) => httpRequest('POST', '/api/model', { id: a.id, model: a.model, effort: a.effort }),
   },
   {
+    name: 'show_in_pane',
+    description:
+      'Ouvre un NOUVEAU pane (split) ou une NOUVELLE fenêtre tmux dans la MÊME session tmux que la ' +
+      'session Claude Code ciblée, y exécute une commande shell, et fait apparaître un onglet ' +
+      '« Terminal » (mirroir lecture seule) dans l\'UI web de hooked. À utiliser pour MONTRER quelque ' +
+      'chose à l\'utilisateur : lancer un serveur de dev, un htop, une démo, un tail de logs… La ' +
+      'session tmux de la cible doit être vivante.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: { type: 'string', description: 'id de la session' },
+        command: { type: 'string', description: 'commande shell à exécuter dans le pane' },
+        target: { type: 'string', enum: ['pane', 'window'], description: 'pane (split, défaut) ou window (nouvelle fenêtre tmux)' },
+      },
+      required: ['id', 'command'],
+      additionalProperties: false,
+    },
+    run: (a) => httpRequest('POST', '/api/pane', { id: a.id, command: a.command, target: a.target }),
+  },
+  {
     name: 'search_sessions',
     description: 'Recherche plein-texte dans les conversations des sessions.',
     inputSchema: {

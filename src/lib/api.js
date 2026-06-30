@@ -32,6 +32,10 @@ export const launch = (payload) => jpost('/api/launch', payload);
 export const kill = (id) => jpost('/api/kill', { id });
 export const openInVscode = (id) => jpost('/api/open-vscode', { id });
 export const openInGhostty = (id) => jpost('/api/open-ghostty', { id });
+// Ouvre un pane/fenêtre tmux dans la session et y lance une commande (mirroir onglet Terminal).
+export const showInPane = (id, command, target) => jpost('/api/pane', { id, command, target });
+// Capture l'écran courant d'un pane tmux pour le mirroir read-only.
+export const capturePane = (pane) => jget('/api/pane/capture?pane=' + encodeURIComponent(pane));
 
 // Flux SSE : appelle onTick() à chaque « tick » poussé par le serveur.
 export function connectSSE({ onTick, onOpen, onError }) {
