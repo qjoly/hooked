@@ -27,10 +27,10 @@ export const shortModel = (m) => (m || '').replace(/^claude-/, '');
 // `(opus|sonnet|haiku|fable)(-\d{1,2}(-\d{1,2})?)?`) — toute version nouvellement publiée par
 // Claude Code n'a qu'à être ajoutée ici, pas besoin de toucher au serveur.
 export const MODEL_GROUPS = [
-  { label: 'Opus',   opts: [['opus',     'Opus (défaut)'],   ['opus-4-8',   '4.8'], ['opus-4-7',   '4.7'], ['opus-4-6',   '4.6'], ['opus-4-5', '4.5']] },
-  { label: 'Sonnet', opts: [['sonnet',   'Sonnet (défaut)'], ['sonnet-4-6', '4.6'], ['sonnet-4-5', '4.5']] },
-  { label: 'Haiku',  opts: [['haiku',    'Haiku (défaut)'],  ['haiku-4-5',  '4.5']] },
-  { label: 'Fable',  opts: [['fable',    'Fable']] },
+  { label: 'Opus', opts: [['opus', 'Opus (défaut)'], ['claude-opus-4-8', '4.8'], ['claude-opus-4-7', '4.7'], ['claude-opus-4-6', '4.6'], ['claude-opus-4-5', '4.5']] },
+  { label: 'Sonnet', opts: [['sonnet', 'Sonnet (défaut)'], ['claude-sonnet-4-6', '4.6'], ['claude-sonnet-4-5', '4.5']] },
+  { label: 'Haiku', opts: [['haiku', 'Haiku (défaut)'], ['claude-haiku-4-5', '4.5']] },
+  { label: 'Fable', opts: [['claude-fable-5', 'Fable']] },
 ];
 // Liste plate de toutes les options valides, triée par clé décroissante pour que `modelAlias`
 // préfère le match le plus spécifique (`opus-4-7` avant `opus`).
@@ -80,12 +80,12 @@ export function filterMatches(f, state) { return !f.states || f.states.includes(
 // la statusline ne le porte pas. Les valeurs possibles : default / plan / acceptEdits / auto /
 // dontAsk / bypassPermissions.
 export const MODE_META = {
-  default:           { label: 'Normal',       icon: '●',  title: 'Claude demande la permission avant chaque action sensible' },
-  plan:              { label: 'Plan',         icon: '⏸',  title: 'Mode plan : Claude réfléchit et propose sans rien modifier' },
-  acceptEdits:       { label: 'Auto-edits',   icon: '⏵⏵', title: 'Claude applique les éditions de fichiers sans confirmation' },
-  auto:              { label: 'Auto',         icon: '⚡', title: 'Mode auto : Claude approuve automatiquement les actions sans confirmation' },
-  dontAsk:           { label: 'Sans demande', icon: '🔕', title: 'Claude refuse automatiquement ce qui n’est pas pré-autorisé' },
-  bypassPermissions: { label: 'Bypass',       icon: '⛔', title: 'Claude saute les permissions (sauf règles « ask » explicites)' },
+  default: { label: 'Normal', icon: '●', title: 'Claude demande la permission avant chaque action sensible' },
+  plan: { label: 'Plan', icon: '⏸', title: 'Mode plan : Claude réfléchit et propose sans rien modifier' },
+  acceptEdits: { label: 'Auto-edits', icon: '⏵⏵', title: 'Claude applique les éditions de fichiers sans confirmation' },
+  auto: { label: 'Auto', icon: '⚡', title: 'Mode auto : Claude approuve automatiquement les actions sans confirmation' },
+  dontAsk: { label: 'Sans demande', icon: '🔕', title: 'Claude refuse automatiquement ce qui n’est pas pré-autorisé' },
+  bypassPermissions: { label: 'Bypass', icon: '⛔', title: 'Claude saute les permissions (sauf règles « ask » explicites)' },
 };
 export const modeMeta = (k) => MODE_META[k] || { label: k || '—', icon: '·', title: 'Mode de permission' };
 export const modeLabel = (k) => modeMeta(k).label;
