@@ -109,7 +109,7 @@ Le changement se fait en **boucle fermée** : hooked envoie un `Maj+Tab` (`tmux 
 
 ### 🖥 Terminal partagé par un agent *(sessions tmux)*
 
-Via le serveur MCP (outil **`show_in_pane`**), un agent peut ouvrir un **nouveau pane** (split) ou une **nouvelle fenêtre** dans le tmux de la session et y lancer une commande (serveur de dev, `htop`, démo, `tail` de logs…) — pour te **montrer** quelque chose. Un onglet **🖥 Terminal** apparaît alors dans la vue session : il **streame le pane en temps réel** dans xterm.js.
+L'onglet **🖥 Terminal** de la vue session **streame en temps réel** (xterm.js) le **pane Claude Code lui-même** (`🤖 Claude Code`) — tu vois le TUI de Claude bosser en direct dans le navigateur. Via le serveur MCP (outil **`show_in_pane`**), un agent peut en plus ouvrir un **nouveau pane** (split) ou une **nouvelle fenêtre** dans le tmux de la session et y lancer une commande (serveur de dev, `htop`, démo, `tail` de logs…) — pour te **montrer** quelque chose ; chaque pane apparaît comme une entrée de l'onglet.
 
 Le flux est **un vrai stream d'octets**, pas un rafraîchissement d'image : `tmux pipe-pane` écrit la sortie brute du pane (avec ses séquences VT) dans un fichier, que le serveur tail et pousse en **SSE** (`/api/pane/stream`) ; xterm applique les octets tels quels → rendu incrémental, sans flicker, curseur exact, `vim`/`htop` fluides. Un `capture-pane` ne sert qu'à **amorcer** l'écran initial. C'est **tmux qui sert de PTY** : aucune dépendance native (pas de `node-pty`).
 

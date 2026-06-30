@@ -300,6 +300,7 @@ code.path { color: var(--muted); font-size: 11px; word-break: break-all; font-fa
 .term-tab { background: var(--bg3); border: 1px solid var(--border); color: var(--muted); border-radius: 6px; padding: 4px 9px; cursor: pointer; font-size: 12px; font-family: ui-monospace, Menlo, monospace; }
 .term-tab:hover { color: var(--text); }
 .term-tab.active { color: var(--accent-d); border-color: var(--accent); }
+.term-tab.claude { font-weight: 700; }
 .term-cmd { display: flex; align-items: center; gap: 7px; color: var(--muted); font-size: 12px; }
 .term-cmd code { color: var(--text); background: var(--bg3); border-radius: 5px; padding: 2px 7px; font-family: ui-monospace, Menlo, monospace; }
 
