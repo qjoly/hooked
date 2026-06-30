@@ -312,13 +312,18 @@ code.path { color: var(--muted); font-size: 11px; word-break: break-all; font-fa
 .term-mode { flex: 0 0 auto; background: var(--bg3); border: 1px solid var(--border); color: var(--muted); border-radius: 6px; padding: 4px 10px; cursor: pointer; font-size: 12px; font-weight: 600; }
 .term-mode:hover { color: var(--text); }
 .term-mode.on { color: var(--accent-d); border-color: var(--accent); }
-.term-tabs { display: flex; flex-wrap: wrap; gap: 6px; }
-.term-tab { background: var(--bg3); border: 1px solid var(--border); color: var(--muted); border-radius: 6px; padding: 4px 9px; cursor: pointer; font-size: 12px; font-family: ui-monospace, Menlo, monospace; }
+.term-tabs { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.term-chip { display: inline-flex; align-items: center; background: var(--bg3); border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+.term-chip.active { border-color: var(--accent); }
+.term-chip.active .term-tab { color: var(--accent-d); }
+.term-chip.claude .term-tab { font-weight: 700; }
+.term-tab { background: none; border: none; color: var(--muted); padding: 4px 9px; cursor: pointer; font-size: 12px; font-family: ui-monospace, Menlo, monospace; }
 .term-tab:hover { color: var(--text); }
-.term-tab.active { color: var(--accent-d); border-color: var(--accent); }
-.term-tab.claude { font-weight: 700; }
-.term-cmd { display: flex; align-items: center; gap: 7px; color: var(--muted); font-size: 12px; }
-.term-cmd code { color: var(--text); background: var(--bg3); border-radius: 5px; padding: 2px 7px; font-family: ui-monospace, Menlo, monospace; }
+.term-x { background: none; border: none; border-left: 1px solid var(--border); color: var(--muted); cursor: pointer; padding: 4px 7px; font-size: 11px; line-height: 1; }
+.term-x:hover:not(:disabled) { color: #e45649; background: rgba(228, 70, 73, .12); }
+.term-new { background: var(--bg3); border: 1px dashed var(--border2); color: var(--muted); border-radius: 6px; padding: 4px 11px; cursor: pointer; font-size: 13px; font-weight: 700; line-height: 1; }
+.term-new:hover:not(:disabled) { color: var(--accent-d); border-color: var(--accent); }
+.term-new:disabled { opacity: .4; cursor: default; }
 
 /* chat */
 .chat { display: flex; flex-direction: column; gap: 12px; padding-right: 4px; }

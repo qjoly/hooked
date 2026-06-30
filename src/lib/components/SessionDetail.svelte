@@ -2,7 +2,7 @@
   import { onMount, onDestroy, tick, untrack } from 'svelte';
   import { goto } from '$app/navigation';
   import { ui, data, loadSessions, openModal } from '$lib/state.svelte.js';
-  import { getSession, kill, setMode, setModelEffort, openInVscode, openInGhostty } from '$lib/api.js';
+  import { getSession, kill, setMode, setModelEffort, openInVscode, openInGhostty, showInPane, killPane } from '$lib/api.js';
   import { STATE_LABEL, fmtCost, fmtTokens, fmtDuration, ago, shortModel, prLabel, PERMISSION_MODES, modeLabel, modeMeta, modelAlias } from '$lib/format.js';
   import ModelEffort from './ModelEffort.svelte';
   import ChatBubble from './ChatBubble.svelte';
@@ -61,20 +61,42 @@
   const terminals = $derived.by(() => {
     const list = [];
     if (s && s.tmuxAlive && s.tmuxPane) list.push({ pane: s.tmuxPane, label: 'Claude Code', kind: 'claude' });
-    for (const p of shownPanes) list.push({ pane: p.pane, label: p.command || p.pane, kind: 'show', target: p.target });
+    for (const p of shownPanes) list.push({ pane: p.pane, label: p.command || 'shell', kind: 'show', target: p.target });
     return list;
   });
 
-  // pane Terminal sélectionné : par défaut le pane « show » le plus récent (l'agent a voulu montrer
-  // quelque chose), sinon le pane Claude. On rebascule si le pane courant disparaît.
+  let wantPane = $state(null); // pane à sélectionner dès qu'il apparaît (après « + Pane »)
+  // pane Terminal sélectionné : le pane qu'on vient d'ouvrir dès qu'il arrive, sinon le pane « show »
+  // le plus récent (un agent a voulu montrer qqch), sinon le pane Claude. Rebascule si le courant part.
   $effect(() => {
     const list = terminals;
     if (!list.length) { if (termPane !== null) untrack(() => (termPane = null)); return; }
+    if (wantPane && list.some((t) => t.pane === wantPane)) { untrack(() => { termPane = wantPane; wantPane = null; }); return; }
     if (!list.some((t) => t.pane === termPane)) {
       const def = shownPanes.length ? shownPanes[shownPanes.length - 1].pane : list[0].pane;
       untrack(() => (termPane = def));
     }
   });
+
+  // ouvre un nouveau pane shell dans le tmux de la session, puis bascule dessus.
+  let paneBusy = $state(false);
+  async function newPane() {
+    if (!s || paneBusy) return;
+    paneBusy = true;
+    const res = await showInPane(s.id, '', 'pane').catch((e) => ({ ok: false, data: { error: e.message } }));
+    paneBusy = false;
+    if (res.ok && res.data.pane) { wantPane = res.data.pane; tab = 'terminal'; setTimeout(() => { loadSessions(); ui.tick++; }, 250); }
+    else if (!res.ok) alert('✗ ' + (res.data.error || 'échec'));
+  }
+  // ferme un pane « show » (✕).
+  async function closePane(pane) {
+    if (paneBusy) return;
+    paneBusy = true;
+    const res = await killPane(pane).catch((e) => ({ ok: false, data: { error: e.message } }));
+    paneBusy = false;
+    if (res.ok) setTimeout(() => { loadSessions(); ui.tick++; }, 250);
+    else alert('✗ ' + (res.data.error || 'échec'));
+  }
 
   // indicateur 5 h compact pour la ligne de stats : valeur réelle (statusline) sinon estimation.
   const stat5h = $derived.by(() => {
@@ -376,20 +398,19 @@
     <div class="pane" class:active={tab === 'terminal'}>
       {#if terminals.length}
         <div class="term-bar">
-          {#if terminals.length > 1}
-            <div class="term-tabs">
-              {#each terminals as t (t.pane)}
-                <button class="term-tab" class:active={termPane === t.pane} class:claude={t.kind === 'claude'} onclick={() => (termPane = t.pane)} title={t.label}>
-                  {t.kind === 'claude' ? '🤖' : t.target === 'window' ? '🗔' : '▦'} {t.label.slice(0, 36)}
+          <div class="term-tabs">
+            {#each terminals as t (t.pane)}
+              <div class="term-chip" class:active={termPane === t.pane} class:claude={t.kind === 'claude'}>
+                <button class="term-tab" onclick={() => (termPane = t.pane)} title={t.label}>
+                  {t.kind === 'claude' ? '🤖' : t.target === 'window' ? '🗔' : '▦'} {t.label.slice(0, 32)}
                 </button>
-              {/each}
-            </div>
-          {:else}
-            <div class="term-cmd" title={terminals[0].label}>
-              <span class="term-cmd-ico">{terminals[0].kind === 'claude' ? '🤖' : terminals[0].target === 'window' ? '🗔' : '▦'}</span>
-              <code>{terminals[0].label}</code>
-            </div>
-          {/if}
+                {#if t.kind === 'show'}
+                  <button class="term-x" title="Fermer ce pane" disabled={paneBusy} onclick={() => closePane(t.pane)}>✕</button>
+                {/if}
+              </div>
+            {/each}
+            <button class="term-new" title="Nouveau pane shell" disabled={paneBusy || !(s && s.tmuxAlive)} onclick={newPane}>＋</button>
+          </div>
           <select class="term-theme" bind:value={termFont} title="Police du terminal" aria-label="Police du terminal">
             {#each Object.entries(TERM_FONTS) as [key, f] (key)}
               <option value={key}>🔤 {f.name}</option>
