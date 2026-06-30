@@ -60,7 +60,7 @@ function buildForkLines(rawText, forkUuid, newId) {
 
 // Forke la session `id` au message `forkUuid`, puis reprend la branche dans une nouvelle
 // session tmux (modèle/effort optionnels, prompt optionnel envoyé après démarrage).
-function forkSession({ id, forkUuid, prompt, model, effort }, cb) {
+function forkSession({ id, forkUuid, prompt, model, effort, permissionMode }, cb) {
   if (!/^[A-Za-z0-9._-]+$/.test(id || '')) return cb(err400('id de session invalide'));
   if (!/^[A-Za-z0-9-]{6,}$/.test(forkUuid || '')) return cb(err400('message (uuid) invalide'));
   const sess = scanSessions().find((s) => s.id === id);
@@ -79,7 +79,7 @@ function forkSession({ id, forkUuid, prompt, model, effort }, cb) {
   catch (e) { return cb(new Error('écriture du fork échouée : ' + (e.message || e))); }
 
   // on reprend dans le dossier d'origine de la session (cwd conservé dans le préfixe copié).
-  launchSession({ resumeId: newId, cwd: sess.project, prompt, model, effort }, (err, info) => {
+  launchSession({ resumeId: newId, cwd: sess.project, prompt, model, effort, permissionMode }, (err, info) => {
     if (err) {
       try { fs.unlinkSync(newFile); } catch (_) {} // nettoyage si le lancement tmux échoue
       return cb(err);

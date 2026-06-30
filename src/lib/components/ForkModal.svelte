@@ -8,6 +8,7 @@
   // pré-sélection : modèle/effort réels de la session d'origine (sinon valeurs par défaut).
   let model = $state(r.model || 'opus');
   let effort = $state(r.effort || 'high');
+  let mode = $state('default'); // mode de permission au lancement (claude --permission-mode)
   let prompt = $state('');
   let status = $state({ text: '', cls: '' });
   let busy = $state(false);
@@ -17,7 +18,7 @@
     if (busy) return;
     busy = true;
     status = { text: 'fork…', cls: '' };
-    const res = await fork({ id: r.id, forkUuid: r.forkUuid, prompt: prompt.trim(), model, effort })
+    const res = await fork({ id: r.id, forkUuid: r.forkUuid, prompt: prompt.trim(), model, effort, permissionMode: mode })
       .catch((e) => ({ ok: false, data: { error: e.message } }));
     busy = false;
     if (res.ok) { result = res.data; setTimeout(() => { loadSessions(); ui.tick++; }, 1200); }
@@ -38,7 +39,7 @@
     <span class="fork-from-who">{r.role === 'user' ? '🧑 ton message' : '🤖 message de Claude'} — point de coupe</span>
     {#if r.snippet}<span class="fork-from-snip">{r.snippet}</span>{/if}
   </div>
-  <ModelEffort bind:model bind:effort />
+  <ModelEffort showMode bind:model bind:effort bind:mode />
   <label class="lf-label">Message à envoyer <span style="color:var(--muted);font-weight:400">(optionnel)</span></label>
   <textarea class="lf-input" rows="3" placeholder="Nouvelle direction depuis ce point…  (laisse vide pour juste ouvrir la branche)" bind:value={prompt}></textarea>
   <div class="lf-actions">
