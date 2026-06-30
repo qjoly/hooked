@@ -109,7 +109,11 @@ Le changement se fait en **boucle fermée** : hooked envoie un `Maj+Tab` (`tmux 
 
 ### 🖥 Terminal partagé par un agent *(sessions tmux)*
 
-Via le serveur MCP (outil **`show_in_pane`**), un agent peut ouvrir un **nouveau pane** (split) ou une **nouvelle fenêtre** dans le tmux de la session et y lancer une commande (serveur de dev, `htop`, démo, `tail` de logs…) — pour te **montrer** quelque chose. Un onglet **🖥 Terminal** apparaît alors dans la vue session : il **mirrore le pane en lecture seule** (rendu xterm.js, rafraîchi via `tmux capture-pane`). L'interaction reste côté tmux ; côté navigateur, c'est de l'observation.
+Via le serveur MCP (outil **`show_in_pane`**), un agent peut ouvrir un **nouveau pane** (split) ou une **nouvelle fenêtre** dans le tmux de la session et y lancer une commande (serveur de dev, `htop`, démo, `tail` de logs…) — pour te **montrer** quelque chose. Un onglet **🖥 Terminal** apparaît alors dans la vue session : il **mirrore le pane** (rendu xterm.js, rafraîchi via `tmux capture-pane`).
+
+Bascule **👁 Lecture seule / ⌨ Interactif** :
+- **Lecture seule** — observation simple, poll lent.
+- **Interactif** — tes frappes (texte, flèches, `Ctrl-C`, `Échap`…) sont renvoyées au pane via `tmux send-keys` ; c'est tmux qui sert de PTY (pas de `node-pty`). L'écho arrive au poll suivant (légère latence). Le pane partage son entrée avec un éventuel client tmux attaché.
 
 ### 📊 Vue Stats & usage
 
