@@ -38,16 +38,22 @@
     return u;
   }
 
-  // saisie : on accumule et on POST en série (ordre préservé, bursts fusionnés).
-  let pendingInput = '', flushing = false;
-  function queueInput(d) { pendingInput += d; flushInput(); }
-  async function flushInput() {
-    if (flushing || !pendingInput || destroyed) return;
-    flushing = true;
-    const data = pendingInput; pendingInput = '';
-    try { await sendPaneInput(pane, data); } catch (_) {}
-    flushing = false;
-    if (pendingInput) flushInput();
+  // saisie : on envoie CHAQUE chunk onData séparément (sérialisé, ordre préservé). On NE fusionne
+  // PAS : dans un TUI (vim/nvim/claude), un `\x1b` (Échap) qui arriverait dans le même send-keys
+  // que les octets suivants serait lu comme une SÉQUENCE d'échappement (flèche/méta) plutôt qu'un
+  // Échap simple → « Échap ne marche pas ». Garder les chunks séparés préserve le délai qui permet
+  // au programme de désambiguïser (son ttimeout). Une frappe = un onData = un send-keys.
+  const inputQueue = [];
+  let sending = false;
+  function queueInput(d) { inputQueue.push(d); pump(); }
+  async function pump() {
+    if (sending || destroyed) return;
+    sending = true;
+    while (inputQueue.length) {
+      const d = inputQueue.shift();
+      try { await sendPaneInput(pane, d); } catch (_) {}
+    }
+    sending = false;
   }
 
   onMount(() => {
