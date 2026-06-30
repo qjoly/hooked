@@ -35,7 +35,7 @@
 
   let host;
   let term = null, es = null, destroyed = false;
-  let fitAddon = null, fitTimer = null, didResize = false, lastDims = '';
+  let fitAddon = null, fitTimer = null, didResize = false, lastDims = '', resizeObs = null;
   let dead = $state(false);
 
   // Mode « adapter » : on calcule cols×rows qui tiennent dans la place dispo et on redimensionne la
@@ -138,10 +138,16 @@
       }
       if (fit) {
         window.addEventListener('resize', scheduleFit);
+        // ResizeObserver sur le conteneur scrollable (.pane-body) : sa taille est pilotée par la mise
+        // en page (flex, hauteur fixe) et NON par le contenu du terminal → déclencheur fiable à
+        // chaque changement de place dispo, sans boucle. Fallback : la boîte elle-même.
+        const obsTarget = (host.closest && host.closest('.pane-body')) || host.parentElement;
+        try { resizeObs = new ResizeObserver(scheduleFit); resizeObs.observe(obsTarget); } catch (_) {}
         // plusieurs passes : la mise en page et les polices peuvent se stabiliser après le 1er rendu.
         applyFit();
         requestAnimationFrame(applyFit);
         setTimeout(applyFit, 150);
+        if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => { lastDims = ''; applyFit(); });
       }
 
       es = new EventSource('/api/pane/stream?pane=' + encodeURIComponent(pane));
@@ -163,6 +169,7 @@
     clearTimeout(fitTimer);
     window.removeEventListener('keydown', onKeydownCapture, true);
     window.removeEventListener('resize', scheduleFit);
+    if (resizeObs) { try { resizeObs.disconnect(); } catch (_) {} }
     // on a forcé window-size=manual via resize-window → on restaure l'auto-dimensionnement pour
     // qu'un rattachement dans un vrai terminal (Ghostty) reflue normalement.
     if (fit && didResize) autosizePane(pane).catch(() => {});
