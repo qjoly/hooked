@@ -35,14 +35,23 @@
 
   let host;
   let term = null, es = null, destroyed = false;
-  let fitAddon = null, resizeObs = null, fitTimer = null, didResize = false, lastDims = '';
+  let fitAddon = null, fitTimer = null, didResize = false, lastDims = '';
   let dead = $state(false);
 
-  // Mode « adapter » : on calcule cols×rows qui tiennent dans la place dispo (FitAddon mesure le
-  // conteneur) et on redimensionne la FENÊTRE tmux du pane en conséquence → le programme (claude,
-  // nvim…) reflue pour remplir la fenêtre web. Débounce pour ne pas spammer pendant un redimensionnement.
+  // Mode « adapter » : on calcule cols×rows qui tiennent dans la place dispo et on redimensionne la
+  // FENÊTRE tmux du pane en conséquence → le programme (claude, nvim…) reflue pour remplir la vue.
+  // La HAUTEUR dispo est mesurée en JS (du haut de la boîte au bas du viewport) plutôt que devinée
+  // en CSS : l'en-tête de session est haut et variable, un calc(100dvh - …) en dur tombait faux et
+  // le terminal ne prenait pas toute la hauteur.
   function applyFit() {
-    if (!fit || !term || !fitAddon || destroyed) return;
+    if (!fit || !term || !fitAddon || destroyed || !host) return;
+    const wrap = host.parentElement; // .term-wrap.fit
+    if (wrap) {
+      const top = wrap.getBoundingClientRect().top;
+      const availH = Math.max(160, Math.floor(window.innerHeight - top - 12)); // 12px de marge basse
+      const px = availH + 'px';
+      if (wrap.style.height !== px) wrap.style.height = px;
+    }
     let dims;
     try { dims = fitAddon.proposeDimensions(); } catch (_) { return; }
     if (!dims || !dims.cols || !dims.rows) return;
@@ -128,9 +137,11 @@
         window.addEventListener('keydown', onKeydownCapture, true);
       }
       if (fit) {
-        applyFit();  // dimensionne le pane à la place dispo AVANT l'amorçage (snapshot à la bonne taille)
-        resizeObs = new ResizeObserver(scheduleFit);
-        resizeObs.observe(host.parentElement); // .term-wrap : taille pilotée par la mise en page, pas par xterm
+        window.addEventListener('resize', scheduleFit);
+        // plusieurs passes : la mise en page et les polices peuvent se stabiliser après le 1er rendu.
+        applyFit();
+        requestAnimationFrame(applyFit);
+        setTimeout(applyFit, 150);
       }
 
       es = new EventSource('/api/pane/stream?pane=' + encodeURIComponent(pane));
@@ -151,7 +162,7 @@
     destroyed = true;
     clearTimeout(fitTimer);
     window.removeEventListener('keydown', onKeydownCapture, true);
-    if (resizeObs) { try { resizeObs.disconnect(); } catch (_) {} }
+    window.removeEventListener('resize', scheduleFit);
     // on a forcé window-size=manual via resize-window → on restaure l'auto-dimensionnement pour
     // qu'un rattachement dans un vrai terminal (Ghostty) reflue normalement.
     if (fit && didResize) autosizePane(pane).catch(() => {});
@@ -169,9 +180,9 @@
   /* width:max-content → la boîte épouse la taille réelle du terminal (cols×rows), pas toute la
      largeur du panneau ; max-width:100% + overflow:auto pour les panes plus larges que la vue. */
   .term-wrap { position: relative; width: max-content; max-width: 100%; border-radius: 8px; padding: 8px; overflow: auto; }
-  /* mode adapter : la boîte remplit la place dispo (largeur + hauteur viewport) ; FitAddon mesure
-     cette taille pour calculer cols×rows et redimensionner le pane tmux en conséquence. */
-  .term-wrap.fit { width: 100%; height: calc(100dvh - 15rem); min-height: 240px; }
+  /* mode adapter : pleine largeur ; la HAUTEUR est posée en JS (applyFit) = du haut de la boîte au
+     bas du viewport, donc exacte quelle que soit la hauteur de l'en-tête. min-height en filet. */
+  .term-wrap.fit { width: 100%; min-height: 240px; }
   .term-wrap.fit .term-host { width: 100%; height: 100%; }
   .term-wrap.interactive { outline: 1px solid #1e2a3a; }
   .term-host { width: max-content; }
