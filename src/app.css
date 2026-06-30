@@ -102,9 +102,15 @@ main { flex: 1 1 auto; min-height: 0; overflow: hidden; background: var(--panel)
 .pnew { opacity: 0; background: none; border: none; color: var(--muted); font-size: 13px; cursor: pointer; padding: 0 2px; line-height: 1; border-radius: 4px; transition: opacity .12s, color .12s; }
 .phead:hover .pnew { opacity: 1; }
 .pnew:hover { color: var(--text); }
+.phead-pin { cursor: default; }
+.phead-pin:hover { background: none; color: var(--muted); }
 
 /* lignes session */
 .srow { display: flex; align-items: flex-start; gap: 10px; padding: 10px 10px; border-radius: 11px; cursor: pointer; margin-bottom: 2px; transition: background .12s; }
+.pin-btn { opacity: 0; flex-shrink: 0; background: none; border: none; font-size: 12px; cursor: pointer; padding: 0 2px; line-height: 1; border-radius: 4px; filter: grayscale(1); transition: opacity .12s, filter .12s; }
+.srow:hover .pin-btn { opacity: .55; }
+.pin-btn:hover { opacity: 1 !important; }
+.pin-btn.pinned { opacity: 1; filter: none; }
 .srow:hover { background: var(--bg3); }
 .srow.active { background: var(--accent-soft); }
 .srow.active .srow-title { color: var(--accent-d); }
