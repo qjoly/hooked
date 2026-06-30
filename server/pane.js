@@ -26,7 +26,11 @@ function showInPane(id, { command, target } = {}, cb) {
   if (!id) return cb(err400('id requis'));
   // command optionnelle : sans elle, on ouvre juste un pane shell vide (bouton « + Pane »).
   const cmd = (typeof command === 'string' && command.trim()) ? command : null;
-  const where = target === 'window' ? 'window' : 'pane';
+  // DÉFAUT = window (nouvelle fenêtre tmux pleine taille). Un split partagerait la fenêtre : chaque
+  // pane n'aurait qu'une fraction de la hauteur, et le mode Adapter (resize-window) gonflerait la
+  // FENÊTRE mais pas le pane individuel → gros vide sous le programme + le pane Claude rétréci.
+  // Une fenêtre dédiée se redimensionne en plein pour remplir la vue web. `pane` reste possible.
+  const where = target === 'pane' ? 'pane' : 'window';
   const pane = paneForSession(id);
   if (!pane) return cb(err400('pane tmux inconnu pour cette session (lancée hors tmux ?)'));
   if (!tmuxAlive(pane)) return cb(err400('tmux de la session fermé : impossible d\'ouvrir un pane'));

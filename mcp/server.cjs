@@ -208,7 +208,7 @@ const TOOLS = [
       properties: {
         id: { type: 'string', description: 'id de la session' },
         command: { type: 'string', description: 'commande shell à exécuter dans le pane' },
-        target: { type: 'string', enum: ['pane', 'window'], description: 'pane (split, défaut) ou window (nouvelle fenêtre tmux)' },
+        target: { type: 'string', enum: ['pane', 'window'], description: 'window (nouvelle fenêtre tmux pleine taille, défaut — recommandé, remplit la vue web) ou pane (split, partage la fenêtre)' },
       },
       required: ['id', 'command'],
       additionalProperties: false,
