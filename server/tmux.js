@@ -328,7 +328,7 @@ function launchSession({ resumeId, cwd, prompt, model, effort, worktree }, cb) {
   // (24 lignes) dans la vue web. On la crée plus grande (configurable) ; tmux la rétrécit de
   // toute façon à la taille du client réel s'il s'y attache (window-size latest).
   const cols = parseInt(process.env.HOOKED_TMUX_COLS || '', 10) || 120;
-  const rows = parseInt(process.env.HOOKED_TMUX_ROWS || '', 10) || 50;
+  const rows = parseInt(process.env.HOOKED_TMUX_ROWS || '', 10) || 64;
 
   execFile('tmux', ['new-session', '-d', '-x', String(cols), '-y', String(rows), '-s', name, '-c', dir, shellCmd], (e1) => {
     if (e1) return cb(new Error('tmux new-session a échoué : ' + (e1.message || e1)));
