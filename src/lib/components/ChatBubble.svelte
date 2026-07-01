@@ -1,7 +1,8 @@
 <script>
-  import { ago } from '$lib/format.js';
+  import { ago, splitMessageImages } from '$lib/format.js';
   import ToolChip from './ToolChip.svelte';
   import Markdown from './Markdown.svelte';
+  import MessageImages from './MessageImages.svelte';
   // Fork (uniquement si le message a un point de coupe `forkUuid`) :
   //   `onfork(m)`         = fork express en 1 clic — aucune saisie, modèle/effort de la
   //                         session, branche indépendante qui attend (pas de modale).
@@ -24,6 +25,9 @@
     for (let i = parts.length - 1; i >= 0; i--) if (parts[i].type === 'text') return i;
     return -1;
   });
+  // user message: pasted images are stored as absolute paths prefixed to the text → render them as
+  // expandable thumbnails and drop the raw paths from the displayed text.
+  const userMsg = $derived(m.role === 'user' ? splitMessageImages(m.text) : null);
 </script>
 
 <div class="bubble {m.role}" data-msg-ts={m.ts || ''}>
@@ -44,7 +48,8 @@
     {/if}
   </div>
   {#if m.role === 'user'}
-    {#if m.text}<div class="md"><Markdown text={m.text} /></div>{/if}
+    {#if userMsg.images.length}<MessageImages images={userMsg.images} />{/if}
+    {#if userMsg.text}<div class="md"><Markdown text={userMsg.text} /></div>{/if}
   {:else}
     <div class="parts">
       {#each parts as p, i (i)}
