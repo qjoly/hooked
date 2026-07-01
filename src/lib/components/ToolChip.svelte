@@ -1,11 +1,12 @@
 <script>
   // A tool rendered inline in the conversation.
-  // File-mutating tools (Write/Edit/MultiEdit/NotebookEdit) show a unified Pierre diff
-  // INLINE and uncollapsed by default, clamped to a max height so small edits (a handful
+  // File-mutating tools (Write/Edit/MultiEdit/NotebookEdit) show a Pierre diff INLINE and
+  // uncollapsed by default (unified, or side-by-side per Settings), clamped to a max height so small edits (a handful
   // of lines) are visible at a glance; a "Show more" toggle appears only when the diff
   // overflows the clamp. Other tools keep a compact chip that expands to JSON input/result.
   // State is local; since the list is keyed by tool_use id it survives live re-renders.
   import PierreDiff from './PierreDiff.svelte';
+  import { ui } from '$lib/state.svelte.js';
   let { t, diff = null } = $props();
   const hasDiff = $derived(!!(diff && diff.ops && diff.ops.length));
 
@@ -42,7 +43,7 @@
           oldStr={o.kind === 'edit' ? (o.old || '') : ''}
           newStr={o.kind === 'write' ? (o.content || '') : (o.new || '')}
           name={diff.name}
-          diffStyle="unified" />
+          diffStyle={ui.diffSplit ? 'split' : 'unified'} />
       {/each}
     </div>
     {#if overflowing}
