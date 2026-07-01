@@ -260,9 +260,42 @@ export function mdLite(t) {
   return out;
 }
 
-// découpe un texte markdown léger en segments : { type:'text', html } ou
+// Anchor émise par autolink() pour un lien profond de session (`[label](/session/<id>)`) — voir
+// SESSION_LINK_RE plus haut. On la re-repère dans le HTML rendu pour la remplacer par un <SessionCard>
+// vivant. `href` et `label` ont déjà été échappés par esc() lors du rendu → on les dé-échappe ici pour
+// récupérer l'id/le libellé bruts que le composant re-échappera à sa façon. Groupes : 1 = href, 2 = label.
+const SESSION_ANCHOR_RE = /<a href="([^"]*)" class="session-link" data-session-link>([\s\S]*?)<\/a>/g;
+const unesc = (s) => String(s).replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"');
+// id de session extrait d'un href `/session/<id>` (déjà dé-échappé). null si non conforme.
+function sessionIdFromHref(href) {
+  const m = /^\/session\/([^/?#\s]+)$/.exec(href);
+  return m ? decodeURIComponent(m[1]) : null;
+}
+
+// découpe un fragment HTML (issu de mdInline) en sous-parties : { type:'html', html } et
+// { type:'session', id, label } pour chaque lien de session. Permet à <Markdown> de rendre les
+// liens de session comme des cartes vivantes (<SessionCard>) tout en gardant le reste en {@html}.
+// Aucun lien de session → une seule sous-partie 'html' (chemin inchangé).
+function splitSessionLinks(html) {
+  const out = [];
+  let last = 0, m;
+  SESSION_ANCHOR_RE.lastIndex = 0;
+  while ((m = SESSION_ANCHOR_RE.exec(html)) !== null) {
+    const id = sessionIdFromHref(unesc(m[1]));
+    if (!id) continue; // href inattendu : on laisse l'anchor tel quel dans le html environnant
+    if (m.index > last) out.push({ type: 'html', html: html.slice(last, m.index) });
+    out.push({ type: 'session', id, label: unesc(m[2]) });
+    last = m.index + m[0].length;
+  }
+  if (!out.length) return [{ type: 'html', html }];
+  if (last < html.length) out.push({ type: 'html', html: html.slice(last) });
+  return out;
+}
+
+// découpe un texte markdown léger en segments : { type:'text', parts } ou
 // { type:'code', lang, code }. Le composant <Markdown> rend les blocs de code via
-// <CodeBlock> (coloration syntaxique + bouton copier) et le texte via mdInline.
+// <CodeBlock> (coloration syntaxique + bouton copier) et le texte via ses sous-parties
+// (html en {@html}, session en <SessionCard> vivant).
 export function mdSegments(t) {
   const parts = String(t).split(/```/);
   const segs = [];
@@ -278,7 +311,7 @@ export function mdSegments(t) {
       }
       segs.push({ type: 'code', lang, code: code.replace(/\n$/, '') });
     } else if (seg) {
-      segs.push({ type: 'text', html: mdInline(seg) });
+      segs.push({ type: 'text', parts: splitSessionLinks(mdInline(seg)) });
     }
   });
   return segs;

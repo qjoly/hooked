@@ -576,7 +576,9 @@ function launchSession({ resumeId, cwd, prompt, model, effort, worktree, permiss
         waitForReplReady(pane, () => deliverReply(pane, seed, false, () => {}));
       });
     }
-    cb(null, { tmux: name, attach: `tmux attach -t ${name}`, cwd: dir, resume: id, worktree: useWorktree, link: '/session/' + encodeURIComponent(id) });
+    // NB: no `link` field here — at launch the real session id isn't known yet (id is null for a
+    // fresh start), so a deep-link would be `/session/null`. `get_session` returns the correct link.
+    cb(null, { tmux: name, attach: `tmux attach -t ${name}`, cwd: dir, resume: id, worktree: useWorktree });
   });
 }
 
