@@ -13,11 +13,13 @@ const persisted = (() => {
 export const ui = $state({
   live: false,               // connexion SSE active ?
   statusFilters: ['all'],    // filtres de statut actifs — Ctrl/⌘+clic sur les chips = multi-sélection
+  tagFilters: [],            // tags actifs (transitoire, non persisté) — une session doit porter TOUS ces tags
   search: '',
   hideOld: persisted.hideOld ?? false,
   collapsed: persisted.collapsed ?? {}, // { [projet]: true } → groupes repliés dans la sidebar
   pinned: persisted.pinned ?? [],       // [sessionId] → sessions épinglées, remontées en tête de sidebar
   names: persisted.names ?? {},         // { [sessionId]: titre custom } → renommage local (comme les pins)
+  tags: persisted.tags ?? {},           // { [sessionId]: [tag] } → étiquettes locales (ex. "In review", "Pending")
   focus: persisted.focus ?? false,      // mode focus : discussion plein écran (header global + sidebar repliés)
   sidebarPeek: false,                   // (transitoire) ré-ouverture ponctuelle de la sidebar pendant le focus
   modal: null,               // { type, data } | null
@@ -29,7 +31,7 @@ export const ui = $state({
 if (typeof localStorage !== 'undefined') {
   $effect.root(() => {
     $effect(() => {
-      const snapshot = { hideOld: ui.hideOld, collapsed: ui.collapsed, pinned: ui.pinned, names: ui.names, focus: ui.focus, notify: ui.notify };
+      const snapshot = { hideOld: ui.hideOld, collapsed: ui.collapsed, pinned: ui.pinned, names: ui.names, tags: ui.tags, focus: ui.focus, notify: ui.notify };
       try { localStorage.setItem(LS_KEY, JSON.stringify(snapshot)); } catch {}
     });
   });
@@ -47,6 +49,23 @@ export function renameSession(id, name) {
   if (name && name.trim()) next[id] = name.trim().slice(0, 120);
   else delete next[id];
   ui.names = next;
+}
+
+// tags d'une session (tableau, jamais null). Persisté comme les pins/renommages.
+export function sessionTags(id) {
+  return ui.tags[id] || [];
+}
+// remplace les tags d'une session (dédupliqués, rognés). Liste vide → on retire l'entrée.
+export function setSessionTags(id, list) {
+  const clean = [...new Set(list.map((t) => t.trim()).filter(Boolean).map((t) => t.slice(0, 40)))];
+  const next = { ...ui.tags };
+  if (clean.length) next[id] = clean;
+  else delete next[id];
+  ui.tags = next;
+}
+// tous les tags en usage (triés, uniques) — alimente la barre de filtres.
+export function allTags() {
+  return [...new Set(Object.values(ui.tags).flat())].sort((a, b) => a.localeCompare(b));
 }
 
 // titre à afficher pour une session : surcharge custom si présente, sinon titre auto.
