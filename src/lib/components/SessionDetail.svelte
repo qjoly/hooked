@@ -369,7 +369,7 @@
       <button class="pane-back" onclick={() => goto('/')} title="Back to list">←</button>
       <span class="proj">{s.projectName || '?'}</span>
       {#if s.gitBranch}<span class="branch">{s.gitBranch}</span>{/if}
-      <span class="badge s-badge" style="margin-left:0"><span class="bdot"></span>{STATE_LABEL[s.state] || s.state}</span>
+      <span class="badge s-badge" style="margin-left:0"><span class="bdot"></span>{s.state === 'working' && s.activity ? s.activity + '…' : (STATE_LABEL[s.state] || s.state)}</span>
       {#if s.tmuxAlive}
         <span class="ro-tag live">↩ reply available</span>
         <button class="stop-btn" disabled={stopping} onclick={stop}>{stopping ? '⏳ stopping…' : '⏹ Stop'}</button>
@@ -468,7 +468,7 @@
         {/each}
       </div>
       {#if s.pendingQuestion}<Question {id} pq={s.pendingQuestion} />{/if}
-      {#if s.pendingPlan}<Plan pp={s.pendingPlan} />{/if}
+      {#if s.pendingPlan}<Plan {id} pp={s.pendingPlan} />{/if}
       {#if s.tmuxPane}
         <Composer bind:this={composer} {id} alive={s.tmuxAlive} project={s.project}
                   resumeModel={s.launchModel} resumeEffort={s.effort} lastPrompt={s.lastPrompt || ''} {onSent} />

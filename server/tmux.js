@@ -205,6 +205,86 @@ function deliverQuestion(pane, selections, cb) {
   stepQuestion(0);
 }
 
+// Answer an AskUserQuestion via the checkbox/radio navigation (deliverQuestion) THEN, if the user
+// attached notes, send them as a follow-up message. Typing free text alone does NOT check the boxes
+// on a multi-select prompt (they stay empty and nothing submits), so the structured answer must go
+// through deliverQuestion; once it's submitted and the composer is back, the note is queued like any
+// message. `note` is optional — without it this is just deliverQuestion.
+function deliverQuestionWithNote(pane, selections, note, cb) {
+  if (typeof note === 'function') { cb = note; note = ''; }
+  deliverQuestion(pane, selections, (err) => {
+    if (err) return cb(err);
+    const n = typeof note === 'string' ? note.trim() : '';
+    if (!n) return cb(null);
+    // let the question UI close and the composer come back, then send the note as a follow-up.
+    setTimeout(() => waitForReplReady(pane, () => deliverReply(pane, n, false, cb)), 500);
+  });
+}
+
+// ExitPlanMode approval menu. When Claude calls ExitPlanMode the TUI shows the plan followed by a
+// numbered menu ended by "Would you like to proceed?" (labels/order drift across versions — observed
+// on v2.1.179):
+//   1. Yes, auto-accept edits  (aussi vu : « Yes, and use auto mode »)  -> 'approve-auto'
+//   2. Yes, manually approve edits   -> 'approve'
+//   3. No, refine with Ultraplan on Claude Code on the web  (deliberately NOT mapped — sends to web)
+//   4. Tell Claude what to change    -> 'keep' / 'keep-feedback'
+// Selecting option 4 rejects the plan and returns to the composer in plan mode; for 'keep-feedback'
+// we then type the feedback like a normal reply. We match the target option by LABEL (never a
+// hardcoded index) and navigate from the cursor row (❯) with the same key spacing as deliverQuestion.
+const PLAN_ACTIONS = ['approve', 'approve-auto', 'keep', 'keep-feedback'];
+const PLAN_OPTION_MATCHERS = {
+  // libellé « drifte » selon la version : « auto-accept edits » (v2.1.179) ou « …use auto mode ».
+  'approve-auto': /auto[- ](accept|mode)/i,
+  'approve': /manually approve/i,
+  'keep': /tell claude what to change/i,
+  'keep-feedback': /tell claude what to change/i,
+};
+
+// Parse the approval menu from a captured screen. Returns the numbered option rows
+// [{ num, label, cursor }] when the menu is present (guarded by the "proceed?" header to avoid
+// matching other numbered menus like the trust prompt), else null.
+function parsePlanPrompt(screen) {
+  if (!/would you like to proceed/i.test(String(screen))) return null;
+  const opts = [];
+  for (const line of String(screen).split('\n')) {
+    const m = line.match(/^\s*(❯)?\s*(\d+)\.\s+(.*\S)\s*$/);
+    if (m) opts.push({ cursor: !!m[1], num: parseInt(m[2], 10), label: m[3] });
+  }
+  return opts.length >= 2 ? opts : null;
+}
+
+// Drive the ExitPlanMode approval menu. `feedback` is only used (and required) for 'keep-feedback'.
+function deliverPlanChoice(pane, action, feedback, cb) {
+  if (typeof feedback === 'function') { cb = feedback; feedback = ''; }
+  if (!/^%\d+$/.test(pane || '')) return cb(err400('pane invalide'));
+  if (!PLAN_ACTIONS.includes(action)) return cb(err400('action inconnue : ' + action));
+  const fb = typeof feedback === 'string' ? feedback.trim() : '';
+  if (action === 'keep-feedback' && !fb) return cb(err400('feedback requis'));
+  execFile('tmux', ['capture-pane', '-t', pane, '-p'], (e, out) => {
+    if (e) return cb(e);
+    const opts = parsePlanPrompt(out);
+    if (!opts) return cb(err400('menu ExitPlanMode absent (plan déjà traité ?)'));
+    const target = opts.findIndex((o) => PLAN_OPTION_MATCHERS[action].test(o.label));
+    if (target < 0) return cb(new Error(`option introuvable pour l'action « ${action} »`));
+    const cur = Math.max(0, opts.findIndex((o) => o.cursor));
+    const delta = target - cur;
+    const dir = delta >= 0 ? 'Down' : 'Up';
+    const KEY_DELAY = 300; // cf. deliverQuestion : ink avale les frappes trop rapprochées
+    const press = (k, done) => execFile('tmux', ['send-keys', '-t', pane, k], (er) => (er ? done(er) : setTimeout(done, KEY_DELAY)));
+    const nav = (n, done) => (n <= 0 ? done(null) : press(dir, (er) => (er ? done(er) : nav(n - 1, done))));
+    nav(Math.abs(delta), (er) => {
+      if (er) return cb(er);
+      execFile('tmux', ['send-keys', '-t', pane, 'Enter'], (er2) => {
+        if (er2) return cb(er2);
+        if (action !== 'keep-feedback') return setTimeout(() => cb(null, { pane, action }), 200);
+        // option 4 rejette le plan et rouvre le composer (plan mode) : laisser le menu se refermer,
+        // attendre l'invite puis envoyer le feedback via le chemin reply éprouvé.
+        setTimeout(() => waitForReplReady(pane, () => deliverReply(pane, fb, false, (er3) => cb(er3 || null, { pane, action }))), 500);
+      });
+    });
+  });
+}
+
 // Envoie une touche « nommée » (ex. Escape) au pane : sert à interrompre Claude depuis l'UI,
 // exactement comme une frappe Echap dans le TUI interactif.
 function sendKey(pane, key, cb) {
@@ -269,14 +349,51 @@ function readPaneModeSync(pane) {
   return text == null ? null : parsePaneMode(text);
 }
 
-// Claude « mouline »-t-il ? Le TUI affiche « esc to interrupt » dans son footer dès qu'il traite
-// (réflexion OU outil en cours), indépendamment du verbe animé (Testing…/Cogitating…/…). Sa
-// présence = working ; son absence (boîte de saisie seule) = en attente. true / false / null (pane
-// injoignable → on ne tranche pas, on garde l'état déduit des hooks).
+// Spinner d'activité de Claude Code. Quand il traite (réflexion OU outil en cours), le TUI peint
+// dans son footer une ligne « <glyphe> <Gérondif>… (<temps> · ↓ <tokens>) », p. ex.
+// « ✻ Accomplishing… (3m 25s · ↓ 11.3k tokens) ». Le glyphe s'anime (✻ ✽ ✶ ✢ ✳ ·) et le gérondif
+// (Accomplishing / Clauding / Gibberishing / …) est tiré au sort — c'est le petit mot « pensant »
+// qu'on veut remonter dans l'UI. On NE liste PAS les gérondifs (arbitraires, changés au fil des
+// versions) : on extrait le mot situé entre le glyphe et l'ellipsis.
+//
+// Ancrage STRICT pour ne jamais confondre avec du texte de conversation ou une sortie d'outil. La
+// ligne doit commencer (après une éventuelle indentation) par un GLYPHE DE SPINNER — un des symboles
+// « étoile » que l'animation fait défiler (✻ ✽ ✶ ✢ ✳ …) ou le point médian « · », jamais utilisés
+// comme puce markdown (`* `, `• `, `- `) ni comme préfixe de sortie d'outil (`⎿`) ou de blockquote
+// (`▎`) — puis un espace, le mot (lettres ASCII, espaces, ' et - seulement), l'ellipsis (« … » ou
+// « ... »), puis « ( » (début du compteur temps/tokens). Une ligne de prose citant « …/Cogitating…/… »
+// ou « ⎿ Running tests… (12s) » d'une sortie d'outil n'a donc pas cette forme et ne matche pas.
+//
+// On prend le DERNIER match de l'écran : le footer (spinner + boîte de saisie) est toujours peint en
+// bas, SOUS le transcript → si par malchance une ligne plus haut ressemblait au motif, la vraie ligne
+// spinner reste la dernière. Vérifié en live : sur Claude Code récent le footer affiche
+// « ✻ Accomplishing… (3m 25s · ↓ 11.3k tokens) », sans « esc to interrupt » pendant le travail.
+const SPINNER_RE = /(?:^|\n)[ \t]*(?:[✻✽✶✢✳✺✷✵✴]|·)[ \t]+([A-Za-z][A-Za-z '-]{0,40}?)(?:…|\.\.\.)[ \t]*\(/g;
+function parseSpinner(screen) {
+  let word = null;
+  for (const m of String(screen).matchAll(SPINNER_RE)) word = m[1];
+  return word ? word.trim() : null;
+}
+
+// Claude « mouline »-t-il ? Deux signaux possibles dans le footer : la ligne spinner d'activité
+// (cf. parseSpinner) et — selon les versions — « esc to interrupt ». Présence de l'un ⇒ working ;
+// absence des deux (boîte de saisie seule) ⇒ en attente. true / false / null (pane injoignable → on
+// ne tranche pas, on garde l'état déduit des hooks). NB : sur Claude Code récent le footer n'affiche
+// PLUS « esc to interrupt » pendant le travail (vérifié en live) → la ligne spinner est le signal
+// fiable ; « esc to interrupt » reste en secours pour d'autres versions/écrans.
 function paneBusySync(pane) {
   const text = capturePaneTextSync(pane);
   if (text == null) return null;
-  return /esc to interrupt/i.test(text);
+  return parseSpinner(text) != null || /esc to interrupt/i.test(text);
+}
+
+// Verbe d'activité courant (« Accomplishing », « Clauding »…) affiché par le spinner du TUI, ou null
+// si Claude ne mouline pas / pane injoignable. Réutilise le cache de capture (paneBusySync l'a déjà
+// peuplé au même tick) → pas de `capture-pane` supplémentaire.
+function paneActivitySync(pane) {
+  const text = capturePaneTextSync(pane);
+  if (text == null) return null;
+  return parseSpinner(text);
 }
 
 // Change le mode de permission d'une session live en BOUCLE FERMÉE : on lit le mode affiché,
@@ -417,4 +534,4 @@ function killSession(id, cb) {
   });
 }
 
-export { paneTmuxNames, invalidatePaneCache, tmuxAlive, launchInfoForPane, resolveLaunchForSession, deliverReply, deliverQuestion, sendKey, parsePaneMode, readPaneMode, readPaneModeSync, paneBusySync, setMode, setModelEffort, launchSession, killSession, err400 };
+export { paneTmuxNames, invalidatePaneCache, tmuxAlive, launchInfoForPane, resolveLaunchForSession, deliverReply, deliverQuestion, deliverQuestionWithNote, deliverPlanChoice, parsePlanPrompt, sendKey, parsePaneMode, readPaneMode, readPaneModeSync, paneBusySync, parseSpinner, paneActivitySync, setMode, setModelEffort, launchSession, killSession, err400 };
