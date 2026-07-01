@@ -28,6 +28,9 @@ function eventOnlySessions(knownIds, now = Date.now()) {
   for (const [id, m] of eventSessionMeta()) {
     if (knownIds.has(id) || m.ended) continue;
     if (m.transcript && statSafe(m.transcript)) continue; // transcript écrit → géré par scanSessions
+    // transcript déplacé à la corbeille (<projet>/bin/, cf. trash.js) → session supprimée : ne pas
+    // la ressusciter en « event-only » (sinon elle réapparaît vide dans le dashboard).
+    if (m.transcript && statSafe(path.join(path.dirname(m.transcript), 'bin', path.basename(m.transcript)))) continue;
     if (!m.lastTs || (now - Date.parse(m.lastTs)) / 60000 > EVENT_SESSION_MAX_AGE_MIN) continue;
     const s = blankSummary(id, m.transcript || null);
     if (m.cwd) { s.project = m.cwd; s.projectName = path.basename(m.cwd); }
