@@ -48,7 +48,9 @@ function showInPane(id, { command, target } = {}, cb) {
   let tmuxTarget = pane;
   if (sub === 'new-window') {
     const sessName = paneTmuxNames().get(pane);
-    if (sessName) tmuxTarget = sessName;
+    // suffixe ':' → cible la SESSION (sinon un nom numérique comme « 0 » est lu comme un index
+    // de fenêtre → « index 0 in use »). La fenêtre est créée au prochain index libre.
+    if (sessName) tmuxTarget = sessName + ':';
     else sub = 'split-window'; // nom de session introuvable : split par défaut
   }
   // -P -F '#{pane_id}' : imprime l'id (%NN) du pane/fenêtre créé, indispensable pour le mirroir.
