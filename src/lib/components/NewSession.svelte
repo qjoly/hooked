@@ -3,7 +3,7 @@
   import { goto } from '$app/navigation';
   import { page } from '$app/state';
   import { data, ui } from '$lib/state.svelte.js';
-  import { getDefaults } from '$lib/api.js';
+  import { getDefaults, pickFolder } from '$lib/api.js';
   import Composer from './Composer.svelte';
   import ModelEffort from './ModelEffort.svelte';
 
@@ -57,6 +57,22 @@
 
   const cwd = $derived(selected === '__custom' ? customCwd.trim() : selected);
 
+  // « Other folder… » : ouvre le sélecteur de dossier natif de l'OS (macOS). En cas
+  // d'échec/annulation, on retombe sur la saisie manuelle du champ texte.
+  let picking = $state(false);
+  async function chooseFolder() {
+    selected = '__custom';
+    if (picking) return;
+    picking = true;
+    try {
+      const r = await pickFolder(customCwd.trim() || undefined);
+      if (r.ok && r.data?.dir) customCwd = r.data.dir;
+    } catch (_) {
+    } finally {
+      picking = false;
+    }
+  }
+
   // après lancement : on guette l'apparition de la session neuve (cwd + activité postérieure)
   // pour l'ouvrir directement, comme dans une vraie interface de chat.
   let launchAt = 0;
@@ -103,10 +119,15 @@
       {:else}
         <div class="lf-empty">No project — use "Other folder…"</div>
       {/if}
-      <div class="lf-pick custom" class:sel={selected === '__custom'} onclick={() => (selected = '__custom')}>📁 Other folder…</div>
+      <div class="lf-pick custom" class:sel={selected === '__custom'} onclick={chooseFolder}>📁 Other folder…</div>
     </div>
     {#if selected === '__custom'}
-      <input class="lf-input ns-custom" placeholder="/path/to/the/project" bind:value={customCwd} />
+      <div class="ns-custom-row">
+        <input class="lf-input ns-custom" placeholder="/path/to/the/project" bind:value={customCwd} />
+        <button class="ns-browse" onclick={chooseFolder} disabled={picking} title="Pick a folder with the OS file explorer">
+          {picking ? '⏳' : '📂'} Browse…
+        </button>
+      </div>
     {/if}
     {#if watching}<div class="ns-watch">⏳ session launched — opening on first event…</div>{/if}
   </div>

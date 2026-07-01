@@ -32,6 +32,8 @@ export const interrupt = (id) => jpost('/api/interrupt', { id });
 export const setMode = (id, mode) => jpost('/api/mode', { id, mode });
 export const setModelEffort = (id, model, effort) => jpost('/api/model', { id, model, effort });
 export const launch = (payload) => jpost('/api/launch', payload);
+// Ouvre le sélecteur de dossier natif de l'OS (macOS) ; renvoie { dir } ou { canceled }.
+export const pickFolder = (start) => jpost('/api/pick-folder', start ? { start } : {});
 // Fork d'une session à partir d'un message (uuid de la bulle) : crée une branche
 // indépendante (copie du préfixe du transcript) et la reprend dans une session tmux.
 export const fork = (payload) => jpost('/api/fork', payload);
