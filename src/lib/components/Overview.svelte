@@ -8,15 +8,27 @@
 </script>
 
 <div class="overview">
-  <div class="global-bar">
-    <div class="gp"><span class="gp-i">📊</span><div><div class="gp-v">{S.length}</div><div class="gp-l">sessions</div></div></div>
-    <div class="gp g-working"><span class="gp-i">🔵</span><div><div class="gp-v">{nb(['working'])}</div><div class="gp-l">en cours</div></div></div>
-    <div class="gp g-waiting"><span class="gp-i">🟡</span><div><div class="gp-v">{nb(['waiting', 'attention'])}</div><div class="gp-l">en attente</div></div></div>
-    <div class="gp"><span class="gp-i">💬</span><div><div class="gp-v">{sum((s) => s.userPrompts)}</div><div class="gp-l">prompts</div></div></div>
-    <div class="gp"><span class="gp-i">🎟</span><div><div class="gp-v">{fmtTokens(sum((s) => s.usage.output + s.usage.input))}</div><div class="gp-l">tokens</div></div></div>
-    <div class="gp g-cost clickable" onclick={() => openModal('cost')}>
-      <span class="gp-i">💲</span><div><div class="gp-v">{fmtCost(sum((s) => s.cost))}</div><div class="gp-l">coût API estimé ›</div></div>
-    </div>
+  <div class="ov-stats">
+    <span><b>{S.length}</b> sessions</span>
+    {#if nb(['working'])}<span class="c-working"><b>{nb(['working'])}</b> en cours</span>{/if}
+    {#if nb(['waiting', 'attention'])}<span class="c-waiting"><b>{nb(['waiting', 'attention'])}</b> en attente</span>{/if}
+    <span><b>{sum((s) => s.userPrompts)}</b> prompts</span>
+    <span><b>{fmtTokens(sum((s) => s.usage.output + s.usage.input))}</b> tokens</span>
+    <button class="ov-cost" onclick={() => openModal('cost')}><b>{fmtCost(sum((s) => s.cost))}</b> coût API ›</button>
   </div>
   <p class="ov-hint">← Sélectionne une session à gauche pour relire la conversation (lecture seule).</p>
 </div>
+
+<style>
+  .ov-stats {
+    display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 22px;
+    font-size: 13.5px; color: var(--muted);
+  }
+  .ov-stats span, .ov-stats .ov-cost { display: inline-flex; align-items: baseline; gap: 5px; }
+  .ov-stats b { font-size: 17px; font-weight: 700; color: var(--text); font-variant-numeric: tabular-nums; }
+  .ov-stats .c-working b { color: var(--working); }
+  .ov-stats .c-waiting b { color: var(--waiting); }
+  .ov-cost { background: none; border: none; padding: 0; font: inherit; color: var(--accent-d); cursor: pointer; }
+  .ov-cost b { color: var(--accent-d); }
+  .ov-cost:hover { text-decoration: underline; }
+</style>

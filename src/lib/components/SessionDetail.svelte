@@ -333,12 +333,10 @@
       <button class="pane-back" onclick={() => goto('/')} title="Retour à la liste">←</button>
       <span class="proj">{s.projectName || '?'}</span>
       {#if s.gitBranch}<span class="branch">{s.gitBranch}</span>{/if}
+      <span class="badge s-badge" style="margin-left:0"><span class="bdot"></span>{STATE_LABEL[s.state] || s.state}</span>
       {#if s.tmuxAlive}
         <span class="ro-tag live">↩ réponse possible</span>
         <button class="stop-btn" disabled={stopping} onclick={stop}>{stopping ? '⏳ arrêt…' : '⏹ Stopper'}</button>
-        {#if s.tmuxAttach}
-          <button class="attach-btn" title={s.tmuxAttach} onclick={copyAttach}>{attachCopied ? '✓ copié' : '⧉ Copier attach'}</button>
-        {/if}
       {:else if s.tmuxPane}
         <span class="ro-tag">⛔ tmux fermé · un message relance</span>
         <button class="resume-btn" onclick={resume}>▶ Reprendre dans tmux</button>
@@ -346,11 +344,18 @@
         <span class="ro-tag">lecture seule</span>
         <button class="resume-btn" onclick={resume}>▶ Reprendre dans tmux</button>
       {/if}
-      <button class="vscode-btn" style="margin-left:auto" disabled={vscodeBusy} onclick={openVscode} title="Ouvrir le projet entier dans VS Code">{vscodeBusy ? '⏳' : '⧉'} Open in VS Code</button>
-      <button class="vscode-btn" disabled={ghosttyBusy} onclick={openGhostty} title="Ouvrir la session dans Ghostty (attache le tmux si vivant)">{ghosttyBusy ? '⏳' : '⧉'} Open in Ghostty</button>
-      <button class="vscode-btn" class:on={ui.focus} onclick={toggleFocus} title="Mode focus : discussion plein écran (sidebar + header repliés)">⛶ {ui.focus ? 'Quitter' : 'Focus'}</button>
-      <button class="vscode-btn del-btn" disabled={deleting} onclick={del} title="Mettre à la corbeille : retire du dashboard ; transcript conservé dans bin/ (récupérable)">{deleting ? '⏳' : '🗑'} Supprimer</button>
-      <span class="badge s-badge"><span class="bdot"></span>{STATE_LABEL[s.state] || s.state}</span>
+      <details class="hdr-more">
+        <summary title="Plus d'actions" aria-label="Plus d'actions">⋯</summary>
+        <div class="hdr-menu">
+          {#if s.tmuxAlive && s.tmuxAttach}
+            <button class="vscode-btn" title={s.tmuxAttach} onclick={copyAttach}>{attachCopied ? '✓ copié' : '⧉ Copier attach'}</button>
+          {/if}
+          <button class="vscode-btn" disabled={vscodeBusy} onclick={openVscode} title="Ouvrir le projet entier dans VS Code">{vscodeBusy ? '⏳' : '⧉'} Open in VS Code</button>
+          <button class="vscode-btn" disabled={ghosttyBusy} onclick={openGhostty} title="Ouvrir la session dans Ghostty (attache le tmux si vivant)">{ghosttyBusy ? '⏳' : '⧉'} Open in Ghostty</button>
+          <button class="vscode-btn" class:on={ui.focus} onclick={toggleFocus} title="Mode focus : discussion plein écran (sidebar + header repliés)">⛶ {ui.focus ? 'Quitter le focus' : 'Focus'}</button>
+          <button class="vscode-btn del-btn" disabled={deleting} onclick={del} title="Mettre à la corbeille : retire du dashboard ; transcript conservé dans bin/ (récupérable)">{deleting ? '⏳' : '🗑'} Supprimer</button>
+        </div>
+      </details>
     </div>
     {#if renaming}
       <!-- svelte-ignore a11y_autofocus -->
@@ -497,3 +502,28 @@
     </div>
   </div>
 {/if}
+
+<style>
+  /* menu « ⋯ » des actions secondaires de l'en-tête (natif <details>, sans JS) */
+  .hdr-more { position: relative; margin-left: auto; }
+  .hdr-more > summary {
+    list-style: none; cursor: pointer; user-select: none;
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 30px; height: 28px; border: 1px solid var(--border2); border-radius: 8px;
+    color: var(--muted); background: transparent; font-size: 18px; line-height: 1;
+  }
+  .hdr-more > summary::-webkit-details-marker { display: none; }
+  .hdr-more > summary:hover { background: var(--bg3); color: var(--text); }
+  .hdr-more[open] > summary { background: var(--bg3); color: var(--text); border-color: var(--accent); }
+  .hdr-menu {
+    position: absolute; right: 0; top: calc(100% + 6px); z-index: 30;
+    display: flex; flex-direction: column; gap: 4px; min-width: 190px; padding: 6px;
+    background: var(--surface); border: 1px solid var(--border2); border-radius: 12px;
+    box-shadow: var(--shadow);
+  }
+  /* dans le menu : boutons pleine largeur, alignés à gauche, sans bordure individuelle */
+  .hdr-menu :global(.vscode-btn) {
+    display: flex; align-items: center; width: 100%; justify-content: flex-start; text-align: left;
+    border: none; border-radius: 8px; padding: 7px 10px;
+  }
+</style>
