@@ -1,4 +1,4 @@
-import { paneForSession, liveQuestionForSession, deliverQuestion, deliverReply } from '$lib/server/core.js';
+import { paneForSession, liveQuestionForSession, deliverQuestionWithNote, deliverReply } from '$lib/server/core.js';
 import { ok, fail, toPromise, readJson } from '$lib/server/respond.js';
 
 export async function POST({ request }) {
@@ -19,7 +19,10 @@ export async function POST({ request }) {
       multi: !!(q && q.multi),
       indices: Array.isArray(q && q.indices) ? q.indices.filter((n) => Number.isInteger(n) && n >= 0) : [],
     }));
-    const { err } = await toPromise((cb) => deliverQuestion(pane, selections, cb));
+    // optional annotation notes: sent as a follow-up message after the options are checked+submitted
+    // (free text alone doesn't check the boxes, so the structured answer must go through the nav).
+    const note = typeof body.note === 'string' ? body.note.trim() : '';
+    const { err } = await toPromise((cb) => deliverQuestionWithNote(pane, selections, note, cb));
     if (err) return fail(502, 'tmux send-keys failed : ' + (err.message || err));
     return ok({ pane });
   }

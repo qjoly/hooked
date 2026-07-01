@@ -1,6 +1,7 @@
 <script>
   import { untrack } from 'svelte';
-  import { ui, settings, updateSettings, setTheme } from '$lib/state.svelte.js';
+  import { ui, settings, updateSettings, setTheme, loadSessions } from '$lib/state.svelte.js';
+  import { resync } from '$lib/api.js';
 
   // Métadonnées d'affichage des sous-onglets (miroir de SessionDetail / server/settings.js).
   const SUBTAB_META = {
@@ -42,6 +43,23 @@
     cmdStatus = res.ok ? '✓ saved' : '✗ ' + (res.data?.error || 'failed');
     setTimeout(() => { cmdStatus = ''; }, 2500);
   }
+
+  // Resync live states: re-reads every session's tmux pane at cold to clear a stale status.
+  let resyncing = $state(false);
+  let resyncStatus = $state('');
+  async function doResync() {
+    if (resyncing) return;
+    resyncing = true; resyncStatus = '';
+    const res = await resync().catch((e) => ({ ok: false, data: { error: e.message } }));
+    if (res.ok) {
+      await loadSessions(); ui.tick++;         // push the refreshed states into the UI
+      resyncStatus = `✓ resynced ${res.data.count} sessions`;
+    } else {
+      resyncStatus = '✗ ' + (res.data?.error || 'failed');
+    }
+    resyncing = false;
+    setTimeout(() => { resyncStatus = ''; }, 3000);
+  }
 </script>
 
 <section id="view-settings" class="view active">
@@ -58,6 +76,15 @@
             {t.icon} {t.label}
           </button>
         {/each}
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Live state</h2>
+      <p class="hint">Re-reads every session's tmux pane fresh to fix a stale status — e.g. a session stuck on “working” after it finished or after its terminal was closed.</p>
+      <div class="cmd-row">
+        <button class="save" onclick={doResync} disabled={resyncing}>{resyncing ? '⏳ Resyncing…' : '↻ Resync live states'}</button>
+        {#if resyncStatus}<span class="status">{resyncStatus}</span>{/if}
       </div>
     </div>
 
