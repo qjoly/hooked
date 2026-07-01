@@ -115,7 +115,7 @@ function parseTranscript(fp, sessionId) {
         s.usage.input += k.inp; s.usage.output += k.out; s.usage.cacheCreate += k.cc; s.usage.cacheRead += k.cr;
         s.cost += k.total;
         s.costBreak.input += k.cIn; s.costBreak.output += k.cOut; s.costBreak.cacheCreate += k.cCc; s.costBreak.cacheRead += k.cCr;
-        const day = (j.timestamp || '').slice(0, 10) || 'inconnu';
+        const day = (j.timestamp || '').slice(0, 10) || 'unknown';
         const d = (s.byDay[day] = s.byDay[day] || { input: 0, output: 0, cacheCreate: 0, cacheRead: 0, cost: 0, turns: 0 });
         d.input += k.inp; d.output += k.out; d.cacheCreate += k.cc; d.cacheRead += k.cr; d.cost += k.total; d.turns++;
       }
@@ -130,7 +130,7 @@ function parseTranscript(fp, sessionId) {
       s.usage.input += k.inp; s.usage.output += k.out; s.usage.cacheCreate += k.cc; s.usage.cacheRead += k.cr;
       s.cost += k.total; s.subagents++; s.subagentCost += k.total;
       s.costBreak.input += k.cIn; s.costBreak.output += k.cOut; s.costBreak.cacheCreate += k.cCc; s.costBreak.cacheRead += k.cCr;
-      const day = (j.timestamp || '').slice(0, 10) || 'inconnu';
+      const day = (j.timestamp || '').slice(0, 10) || 'unknown';
       const d = (s.byDay[day] = s.byDay[day] || { input: 0, output: 0, cacheCreate: 0, cacheRead: 0, cost: 0, turns: 0 });
       d.input += k.inp; d.output += k.out; d.cacheCreate += k.cc; d.cacheRead += k.cr; d.cost += k.total;
     }

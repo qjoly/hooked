@@ -25,9 +25,9 @@ const isValidId = (id) => typeof id === 'string' && /^[A-Za-z0-9._-]+$/.test(id)
 function trashSession(id, cb) {
   const done = typeof cb === 'function' ? cb : () => {};
   try {
-    if (!isValidId(id)) return done({ code: 400, message: 'id de session invalide' });
+    if (!isValidId(id)) return done({ code: 400, message: 'invalid session id' });
     const s = scanSessions().find((x) => x.id === id);
-    if (!s || !s.file) return done({ code: 404, message: 'session introuvable (déjà à la corbeille ?)' });
+    if (!s || !s.file) return done({ code: 404, message: 'session not found (already in trash?)' });
     const binDir = path.join(path.dirname(s.file), TRASH_SUBDIR);
     fs.mkdirSync(binDir, { recursive: true });
     let dest = path.join(binDir, path.basename(s.file));
@@ -45,7 +45,7 @@ function trashSession(id, cb) {
 function restoreSession(id, cb) {
   const done = typeof cb === 'function' ? cb : () => {};
   try {
-    if (!isValidId(id)) return done({ code: 400, message: 'id de session invalide' });
+    if (!isValidId(id)) return done({ code: 400, message: 'invalid session id' });
     for (const proj of readdirSafe(PROJECTS_DIR)) {
       const binDir = path.join(PROJECTS_DIR, proj, TRASH_SUBDIR);
       const st = statSafe(binDir);
@@ -54,11 +54,11 @@ function restoreSession(id, cb) {
       if (!hit) continue;
       const from = path.join(binDir, hit);
       const dest = path.join(PROJECTS_DIR, proj, id + '.jsonl');
-      if (statSafe(dest)) return done({ code: 409, message: 'un transcript actif porte déjà cet id' });
+      if (statSafe(dest)) return done({ code: 409, message: 'an active transcript already has this id' });
       fs.renameSync(from, dest);
       return done(null, { id, from, to: dest });
     }
-    return done({ code: 404, message: 'session absente de la corbeille' });
+    return done({ code: 404, message: 'session not in trash' });
   } catch (e) {
     return done({ code: 500, message: e.message || String(e) });
   }

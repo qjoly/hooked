@@ -2,7 +2,7 @@
  * Auto-complétion des commandes « / » du composer. Trois sources fusionnées :
  *   1. custom   — fichiers .claude/commands/**.md (projet + global ~/.claude/commands),
  *                 namespacés par sous-dossier (frontend/x.md → /frontend:x).
- *   2. built-in — liste curée codée en dur ici (descriptions FR fiables, toujours dispo).
+ *   2. built-in — liste curée codée en dur ici (descriptions EN fiables, toujours dispo).
  *   3. built-in extraites du binaire claude-code (JS embarqué) : on lit les déclarations
  *      `type:"local",name:"…"` du bundle pour récupérer les commandes même non curées.
  * La liste curée prime pour la description ; l'extraction complète la couverture.
@@ -14,43 +14,43 @@ import { HOME } from './config.js';
 import { fuzzyScore } from './files.js';
 
 // ---------- 2. liste curée (built-in) ----------
-// Descriptions courtes en français. Sert aussi de fallback si l'extraction échoue.
+// Short English descriptions. Also serves as a fallback if extraction fails.
 const CURATED = [
-  ['clear', 'Effacer la conversation et libérer le contexte'],
-  ['compact', 'Résumer la conversation pour libérer du contexte'],
-  ['context', 'Visualiser l’usage du contexte'],
-  ['config', 'Ouvrir les réglages'],
-  ['model', 'Changer le modèle de la session'],
-  ['effort', 'Changer l’effort de raisonnement'],
-  ['cost', 'Afficher le coût et l’usage de la session'],
-  ['usage', 'Afficher l’usage et les limites du plan'],
-  ['resume', 'Reprendre une conversation précédente'],
-  ['init', 'Générer un fichier CLAUDE.md pour le projet'],
-  ['review', 'Relire une pull request'],
-  ['pr-comments', 'Récupérer les commentaires d’une pull request'],
-  ['agents', 'Gérer les sous-agents'],
-  ['mcp', 'Gérer les serveurs MCP'],
-  ['hooks', 'Éditer les hooks'],
-  ['memory', 'Éditer les fichiers de mémoire (CLAUDE.md)'],
-  ['permissions', 'Gérer les permissions des outils'],
-  ['status', 'Afficher l’état de la session et du compte'],
-  ['doctor', 'Diagnostiquer l’installation de Claude Code'],
-  ['add-dir', 'Ajouter un dossier de travail'],
-  ['output-style', 'Changer le style de sortie'],
-  ['terminal-setup', 'Configurer le terminal pour Claude Code'],
-  ['vim', 'Activer le mode d’édition vim'],
-  ['theme', 'Changer le thème'],
-  ['export', 'Exporter la conversation'],
-  ['bug', 'Signaler un bug à Anthropic'],
-  ['feedback', 'Envoyer un retour'],
-  ['release-notes', 'Afficher les notes de version'],
-  ['install-github-app', 'Installer l’app GitHub'],
-  ['login', 'Se connecter à son compte'],
-  ['logout', 'Se déconnecter'],
-  ['upgrade', 'Mettre à jour son plan'],
-  ['privacy-settings', 'Réglages de confidentialité'],
-  ['help', 'Afficher l’aide et les commandes disponibles'],
-  ['exit', 'Quitter Claude Code'],
+  ['clear', 'Clear conversation history and free up context'],
+  ['compact', 'Summarize the conversation to free up context'],
+  ['context', 'Visualize current context usage'],
+  ['config', 'Open settings'],
+  ['model', 'Change the session model'],
+  ['effort', 'Change reasoning effort'],
+  ['cost', 'Show session cost and usage'],
+  ['usage', 'Show plan usage and limits'],
+  ['resume', 'Resume a previous conversation'],
+  ['init', 'Generate a CLAUDE.md file for the project'],
+  ['review', 'Review a pull request'],
+  ['pr-comments', 'Get comments from a pull request'],
+  ['agents', 'Manage subagents'],
+  ['mcp', 'Manage MCP servers'],
+  ['hooks', 'Edit hooks'],
+  ['memory', 'Edit memory files (CLAUDE.md)'],
+  ['permissions', 'Manage tool permissions'],
+  ['status', 'Show session and account status'],
+  ['doctor', 'Diagnose the Claude Code installation'],
+  ['add-dir', 'Add a working directory'],
+  ['output-style', 'Change the output style'],
+  ['terminal-setup', 'Configure the terminal for Claude Code'],
+  ['vim', 'Enable vim editing mode'],
+  ['theme', 'Change the theme'],
+  ['export', 'Export the conversation'],
+  ['bug', 'Report a bug to Anthropic'],
+  ['feedback', 'Send feedback'],
+  ['release-notes', 'Show release notes'],
+  ['install-github-app', 'Install the GitHub app'],
+  ['login', 'Sign in to your account'],
+  ['logout', 'Sign out'],
+  ['upgrade', 'Upgrade your plan'],
+  ['privacy-settings', 'Privacy settings'],
+  ['help', 'Show help and available commands'],
+  ['exit', 'Exit Claude Code'],
 ];
 
 // noms clairement internes/cachés à exclure de l'extraction

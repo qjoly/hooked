@@ -9,7 +9,7 @@
  * transcripts sans uuid laissent simplement ce champ à undefined (fork indisponible).
  */
 import fs from 'node:fs';
-import { chatText, toolDetail, toolInputText, toolResultText } from './util.js';
+import { chatText, toolDetail, toolDiffOps, toolInputText, toolResultText } from './util.js';
 
 // includeSidechain : pour un transcript de sous-agent (tout est isSidechain), on garde tout.
 function buildConversation(fp, includeSidechain) {
@@ -51,7 +51,9 @@ function buildConversation(fp, includeSidechain) {
         } else if (b.type === 'tool_use') {
           const tool = { id: b.id || null, name: b.name, detail: toolDetail(b.input), inputText: toolInputText(b.input), result: b.id ? (results.get(b.id) || null) : null };
           tools.push(tool);
-          parts.push({ type: 'tool', tool });
+          // `diff` carried on the part (not on `tool`, which is shared with `tools[]` frozen
+          // by the test baseline) → rendered as a collapsible Pierre diff in the conversation.
+          parts.push({ type: 'tool', tool, diff: toolDiffOps(b.name, b.input) });
         }
       }
       text = text.trim();
