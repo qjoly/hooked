@@ -4,7 +4,8 @@ Dashboard local des sessions Claude Code. **Back zéro dépendance** (stdlib Nod
 
 ## Workflow dev — IMPORTANT (source de confusion récurrente)
 
-- **`npm run dev`** (Vite, `:5173`) = HMR : les changements front sont live immédiatement.
+- **`npm run live`** (Vite, `:4123`, `--strictPort`) = **le workflow live à privilégier** : HMR front **et** rechargement serveur. Les endpoints `/api/*` (`+server.js`) sont exécutés in-process par le dev server SvelteKit, et Vite ré-exécute les modules `server/*` / `$lib/server/*` modifiés à la requête suivante → une modif back est prise en compte sans rebuild ni redémarrage. Même port que la prod (4123) ; `strictPort` échoue franchement si `node build` squatte encore le port au lieu de dériver sur 4124.
+- **`npm run dev`** (Vite, `:5173`) = identique à `live` mais sur le port Vite par défaut.
 - **`npm start`** (`node build`, prod, souvent `:4123` via `PORT`) **ne se recharge PAS**. Après toute modif : **`npm run build` PUIS redémarrer `node build`**, car :
   - le bundle serveur est chargé en mémoire au démarrage ;
   - le HTML servi pointe des hashes d'assets **figés au build** ;
