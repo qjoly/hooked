@@ -55,18 +55,20 @@ const PERMISSION_MODES = ['default', 'auto', 'plan'];
 // shell ET garde-fou contre une valeur inconnue. Source : `claude --help`.
 const LAUNCH_PERMISSION_MODES = ['default', 'acceptEdits', 'auto', 'plan', 'bypassPermissions', 'dontAsk'];
 
-// Défauts modèle/effort lus depuis la config Claude Code de l'utilisateur (~/.claude), à
+// Défauts modèle/effort/mode lus depuis la config Claude Code de l'utilisateur (~/.claude), à
 // chaque appel (pas de cache) : si l'utilisateur change son défaut dans Claude Code, le
 // sélecteur « Nouvelle session » de hooked le reflète sans redémarrage. settings.local.json
-// surcharge settings.json (même ordre de priorité que Claude Code). Clés lues : `model` et
-// `effortLevel`. On valide contre les listes blanches ; tout inconnu retombe sur opus/high.
+// surcharge settings.json (même ordre de priorité que Claude Code). Clés lues : `model`,
+// `effortLevel` et `permissions.defaultMode`. On valide contre les listes blanches ; tout
+// inconnu retombe sur opus/high/default.
 function readClaudeDefaults() {
-  let model = null, effort = null;
+  let model = null, effort = null, mode = null;
   for (const f of ['settings.json', 'settings.local.json']) {
     try {
       const j = JSON.parse(fs.readFileSync(path.join(HOME, '.claude', f), 'utf8'));
       if (j && typeof j.model === 'string') model = j.model;
       if (j && typeof j.effortLevel === 'string') effort = j.effortLevel;
+      if (j && j.permissions && typeof j.permissions.defaultMode === 'string') mode = j.permissions.defaultMode;
     } catch (_) { }
   }
   // Si Claude Code stocke l'ID complet (`claude-opus-4-7`), on retire le préfixe pour obtenir
@@ -75,6 +77,7 @@ function readClaudeDefaults() {
   return {
     model: isValidModelArg(normalized) ? normalized : 'opus',
     effort: EFFORTS.includes(effort) ? effort : 'high',
+    mode: LAUNCH_PERMISSION_MODES.includes(mode) ? mode : 'default',
   };
 }
 
