@@ -3,7 +3,7 @@
   import { page } from '$app/state';
   import { ui, data, loadSessions, togglePin, sessionTitle, openModal } from '$lib/state.svelte.js';
   import { reply, deleteSession } from '$lib/api.js';
-  import { STATUS_FILTERS, filterMatches, LIVE_STATES, ago, shortModel } from '$lib/format.js';
+  import { STATUS_FILTERS, filterMatches, filterMatchesAny, LIVE_STATES, ago, shortModel } from '$lib/format.js';
 
   // Réponse en 1 clic : on n'affiche les options inline que pour une question unique à choix
   // simple (le cas des « permissions »). Multi-select / questions multiples → on ouvre la session.
@@ -37,7 +37,17 @@
     else alert('✗ suppression échouée');
   }
 
-  const sf = $derived(STATUS_FILTERS.find((f) => f.key === ui.statusFilter) || STATUS_FILTERS[0]);
+  // Sélection de filtre : clic simple = remplace ; Ctrl/⌘+clic = ajoute/retire (multi-sélection).
+  function selectFilter(key, e) {
+    if (e.ctrlKey || e.metaKey) {
+      const next = ui.statusFilters.includes(key)
+        ? ui.statusFilters.filter((k) => k !== key)
+        : [...ui.statusFilters, key];
+      ui.statusFilters = next.length ? next : ['all'];
+    } else {
+      ui.statusFilters = [key];
+    }
+  }
 
   function count(f) {
     return f.states === null ? data.sessions.length : data.sessions.filter((s) => filterMatches(f, s.state)).length;
@@ -48,7 +58,7 @@
     const q = ui.search.toLowerCase().trim();
     const now = Date.now();
     return data.sessions.filter((s) => {
-      if (!filterMatches(sf, s.state)) return false;
+      if (!filterMatchesAny(ui.statusFilters, s.state)) return false;
       if (ui.hideOld && s.lastActivity && (now - Date.parse(s.lastActivity)) > 86400000) return false;
       if (q) {
         const hay = `${s.repo} ${s.projectName} ${s.title} ${s.lastPrompt} ${s.gitBranch}`.toLowerCase();
@@ -103,7 +113,7 @@
     <input id="search" type="search" placeholder="Rechercher…" bind:value={ui.search} />
     <div class="status-filter">
       {#each STATUS_FILTERS as f}
-        <button class="sf-chip" class:active={ui.statusFilter === f.key} onclick={() => (ui.statusFilter = f.key)}>
+        <button class="sf-chip" class:active={ui.statusFilters.includes(f.key)} title="Ctrl/⌘+clic pour cumuler les filtres" onclick={(e) => selectFilter(f.key, e)}>
           {f.label}<span class="sf-n">{count(f)}</span>
         </button>
       {/each}
