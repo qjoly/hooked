@@ -4,7 +4,7 @@
 </script>
 
 {#if !subagents.length}
-  <div class="pane-empty">Aucun sous-agent lancé dans cette session.</div>
+  <div class="pane-empty">No subagents launched in this session.</div>
 {:else}
   {#each subagents as a (a.id)}
     <SubagentCard {a} {session} />
