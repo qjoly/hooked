@@ -80,6 +80,23 @@ function liveQuestionForSession(id, eventsFile = EVENTS_FILE) {
   return pending;
 }
 
+// Plan en attente d'approbation (ExitPlanMode) : posé au PreToolUse, levé quand le plan est
+// résolu (PostToolUse ExitPlanMode = approuvé/rejeté), ou par un Stop / une fin de session / un
+// nouveau prompt. `plan` (markdown) n'est présent que sur les events émis après l'ajout du hook.
+function livePlanForSession(id, eventsFile = EVENTS_FILE) {
+  const ev = readEvents(eventsFile);
+  let pending = null;
+  for (const e of ev) {
+    if (e.session_id !== id) continue;
+    if (e.event === 'PreToolUse' && e.tool === 'ExitPlanMode' && typeof e.plan === 'string' && e.plan) {
+      pending = { id: 'live:' + e.ts, ts: e.ts, plan: e.plan };
+    } else if ((e.event === 'PostToolUse' && e.tool === 'ExitPlanMode') || e.event === 'Stop' || e.event === 'SessionEnd' || e.event === 'UserPromptSubmit') {
+      pending = null;
+    }
+  }
+  return pending;
+}
+
 // Métadonnées des sessions vues dans les évènements (cwd, transcript, timestamps).
 // Permet de faire apparaître une session DÈS son premier hook (SessionStart /
 // UserPromptSubmit), avant que Claude Code n'ait écrit le transcript — sinon la
@@ -121,4 +138,4 @@ function launchConfigByTmux(launchesFile = LAUNCHES_FILE) {
   return map;
 }
 
-export { readEvents, lastEventBySession, paneForSession, sessionForPane, modeForSession, liveQuestionForSession, launchConfigByTmux, eventSessionMeta };
+export { readEvents, lastEventBySession, paneForSession, sessionForPane, modeForSession, liveQuestionForSession, livePlanForSession, launchConfigByTmux, eventSessionMeta };

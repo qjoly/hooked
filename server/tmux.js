@@ -221,13 +221,37 @@ function readPaneMode(pane, cb) {
   });
 }
 
-// Lecture synchrone (pour enrichir le détail de session sans casser son API synchrone).
-function readPaneModeSync(pane) {
+// Capture synchrone du texte du pane, mise en cache ~2,5 s. La liste des sessions se rafraîchit
+// toutes les 5 s et interroge le mode ET l'occupation de chaque pane vivant → le cache évite de
+// doubler les `capture-pane` (détail + liste rapprochés) et borne le coût. Timeout court : tmux
+// local répond en général en <50 ms.
+const _paneTextCache = new Map(); // pane -> { ts, text }
+function capturePaneTextSync(pane, ttl = 2500) {
   if (!/^%\d+$/.test(pane || '')) return null;
-  try {
-    const out = execFileSync('tmux', ['capture-pane', '-t', pane, '-p'], { encoding: 'utf8', timeout: 1500 });
-    return parsePaneMode(out);
-  } catch (_) { return null; }
+  const c = _paneTextCache.get(pane);
+  const now = Date.now();
+  if (c && now - c.ts < ttl) return c.text;
+  let text = null;
+  try { text = execFileSync('tmux', ['capture-pane', '-t', pane, '-p'], { encoding: 'utf8', timeout: 800 }); }
+  catch (_) { text = null; }
+  _paneTextCache.set(pane, { ts: now, text });
+  return text;
+}
+
+// Lecture synchrone du mode (pour enrichir le détail de session sans casser son API synchrone).
+function readPaneModeSync(pane) {
+  const text = capturePaneTextSync(pane);
+  return text == null ? null : parsePaneMode(text);
+}
+
+// Claude « mouline »-t-il ? Le TUI affiche « esc to interrupt » dans son footer dès qu'il traite
+// (réflexion OU outil en cours), indépendamment du verbe animé (Testing…/Cogitating…/…). Sa
+// présence = working ; son absence (boîte de saisie seule) = en attente. true / false / null (pane
+// injoignable → on ne tranche pas, on garde l'état déduit des hooks).
+function paneBusySync(pane) {
+  const text = capturePaneTextSync(pane);
+  if (text == null) return null;
+  return /esc to interrupt/i.test(text);
 }
 
 // Change le mode de permission d'une session live en BOUCLE FERMÉE : on lit le mode affiché,
@@ -364,4 +388,4 @@ function killSession(id, cb) {
   });
 }
 
-export { paneTmuxNames, invalidatePaneCache, tmuxAlive, launchInfoForPane, resolveLaunchForSession, deliverReply, deliverQuestion, sendKey, parsePaneMode, readPaneMode, readPaneModeSync, setMode, setModelEffort, launchSession, killSession, err400 };
+export { paneTmuxNames, invalidatePaneCache, tmuxAlive, launchInfoForPane, resolveLaunchForSession, deliverReply, deliverQuestion, sendKey, parsePaneMode, readPaneMode, readPaneModeSync, paneBusySync, setMode, setModelEffort, launchSession, killSession, err400 };

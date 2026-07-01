@@ -44,6 +44,11 @@ function handle(input) {
     ask: (j.tool_name === 'AskUserQuestion' && j.tool_input && Array.isArray(j.tool_input.questions))
       ? j.tool_input.questions
       : null,
+    // plan proposé via ExitPlanMode : capturé au PreToolUse (le tool_use n'entre dans le transcript
+    // qu'une fois le plan approuvé/rejeté) → seule source pour l'afficher tant qu'il est en attente.
+    plan: (j.tool_name === 'ExitPlanMode' && j.tool_input && typeof j.tool_input.plan === 'string')
+      ? j.tool_input.plan.slice(0, 20000)
+      : null,
     message: typeof j.message === 'string' ? j.message.slice(0, 500) : null,
     // prompt utilisateur (UserPromptSubmit) : sert de titre à la session tant que le
     // transcript n'est pas encore écrit (sinon la session s'affiche sans nom au lancement).
