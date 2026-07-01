@@ -18,6 +18,16 @@ export const getStats = (range) => jget('/api/stats?range=' + encodeURIComponent
 export const getUsage = () => jget('/api/usage');
 // Jobs de fond encore actifs, toutes sessions confondues (carte Overview). { jobs, count }.
 export const getBackground = () => jget('/api/background');
+// Flux SSE du log (.output) d'un job de fond, résolu côté serveur depuis (session, taskId).
+// `onSeed(b64)` = queue initiale, `onData(b64)` = octets ajoutés, `onUnavailable()` = pas de log.
+// Renvoie l'EventSource (appeler .close() pour arrêter).
+export function connectBackgroundLog({ id, taskId, onSeed, onData, onUnavailable }) {
+  const es = new EventSource(`/api/background/stream?id=${encodeURIComponent(id)}&taskId=${encodeURIComponent(taskId)}`);
+  es.addEventListener('seed', (e) => onSeed && onSeed(e.data));
+  es.addEventListener('data', (e) => onData && onData(e.data));
+  es.addEventListener('unavailable', () => onUnavailable && onUnavailable());
+  return es;
+}
 export const getFiles = (id, q, cwd) => jget(`/api/files?id=${encodeURIComponent(id || '')}&q=${encodeURIComponent(q)}${cwd ? '&cwd=' + encodeURIComponent(cwd) : ''}`);
 export const getCommands = (id, q, cwd) => jget(`/api/commands?id=${encodeURIComponent(id || '')}&q=${encodeURIComponent(q)}${cwd ? '&cwd=' + encodeURIComponent(cwd) : ''}`);
 export const getAgent = (session, agent) => jget(`/api/agent?session=${encodeURIComponent(session)}&agent=${encodeURIComponent(agent)}`);

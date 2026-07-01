@@ -34,6 +34,8 @@ const cache = new Map(); // path -> { key, val }
 
 const RE_BASH_ID = /running in background with ID:\s*(\S+?)[.\s]/i;
 const RE_MONITOR_ID = /Monitor started \(task\s+(\S+?)[,)]/i;
+// chemin du fichier de sortie d'un Bash run_in_background (« Output is being written to: <path>.output »).
+const RE_OUTPUT = /Output is being written to:\s*(\S+?\.output)\b/i;
 const RE_NOTE_TOOLUSE = /<tool-use-id>\s*(\S+?)\s*<\/tool-use-id>/i;
 const RE_NOTE_TASK = /<task-id>\s*(\S+?)\s*<\/task-id>/i;
 const RE_NOTE_STATUS = /<status>\s*([\w-]+)\s*<\/status>/i;
@@ -111,12 +113,12 @@ function compute(fp) {
         if (b.name !== 'ScheduleWakeup') hasNonWakeupTool = true;
         const inp = b.input || {};
         if (b.name === 'Bash' && inp.run_in_background === true && b.id) {
-          jobsByToolUse.set(b.id, { kind: 'bash', toolUseId: b.id, taskId: null, command: String(inp.command || '').slice(0, 2000), description: String(inp.description || ''), startTs: ts, done: false, doneReason: null, doneAt: null, exitCode: null });
+          jobsByToolUse.set(b.id, { kind: 'bash', toolUseId: b.id, taskId: null, command: String(inp.command || '').slice(0, 2000), description: String(inp.description || ''), startTs: ts, done: false, doneReason: null, doneAt: null, exitCode: null, outputPath: null });
         } else if (b.name === 'Monitor' && b.id) {
-          jobsByToolUse.set(b.id, { kind: 'monitor', toolUseId: b.id, taskId: null, command: String(inp.command || '').slice(0, 2000), description: String(inp.description || ''), startTs: ts, done: false, doneReason: null, doneAt: null, exitCode: null });
+          jobsByToolUse.set(b.id, { kind: 'monitor', toolUseId: b.id, taskId: null, command: String(inp.command || '').slice(0, 2000), description: String(inp.description || ''), startTs: ts, done: false, doneReason: null, doneAt: null, exitCode: null, outputPath: null });
         } else if (b.name === 'ScheduleWakeup') {
           const prompt = String(inp.prompt || '').slice(0, 2000);
-          wakeup = { kind: 'wakeup', toolUseId: b.id || null, taskId: null, command: prompt, prompt, description: String(inp.reason || '').slice(0, 500), startTs: ts, done: false, doneReason: null, doneAt: null, exitCode: null, idx };
+          wakeup = { kind: 'wakeup', toolUseId: b.id || null, taskId: null, command: prompt, prompt, description: String(inp.reason || '').slice(0, 500), startTs: ts, done: false, doneReason: null, doneAt: null, exitCode: null, outputPath: null, idx };
         } else if (b.name === 'TaskStop' && inp.task_id) {
           const job = jobsByTask.get(inp.task_id);
           if (job && !job.done) { job.done = true; job.doneReason = 'stopped'; job.doneAt = ts; }
@@ -136,6 +138,10 @@ function compute(fp) {
         const txt = textOfContent(b.content);
         const m = job.kind === 'bash' ? txt.match(RE_BASH_ID) : txt.match(RE_MONITOR_ID);
         if (m) { job.taskId = m[1]; jobsByTask.set(m[1], job); }
+        // fichier de sortie du Bash bg (pour le tail live) : seulement si la forme attendue
+        // (…/tasks/<id>.output) — garde-fou contre un chemin exotique injecté dans le transcript.
+        const om = txt.match(RE_OUTPUT);
+        if (om && om[1].includes('/tasks/')) job.outputPath = om[1];
       }
     }
 
