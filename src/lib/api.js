@@ -22,12 +22,21 @@ export const getDefaults = () => jget('/api/defaults');
 // Réglages persistants de hooked (settings.json côté serveur, partagés entre navigateurs).
 export const getSettings = () => jget('/api/settings');
 export const saveSettings = (patch) => jpost('/api/settings', patch);
+// Force a live-state resync: re-reads every session's tmux pane at cold (drops the caches) to fix a
+// stale status (e.g. a session stuck on "working" after its tmux was closed). Returns state counts.
+export const resync = () => jpost('/api/resync', {});
 
 export const reply = (id, text) => jpost('/api/reply', { id, text });
 // Réponse à un AskUserQuestion : on transmet les indices sélectionnés par question
 // ([{ multi, indices }]) ; le serveur pilote le TUI au clavier plutôt que de taper les labels.
-export const replyQuestion = (id, selections) => jpost('/api/reply', { id, selections });
+// `note` (optionnel) : annotations libres envoyées en message de suivi après la sélection cochée.
+export const replyQuestion = (id, selections, note) => jpost('/api/reply', { id, selections, note });
+// Act on a live ExitPlanMode plan: action ∈ approve | approve-auto | keep | keep-feedback.
+// `feedback` (bundled review comments) is required for keep-feedback. Drives the TUI approval menu.
+export const planAction = (id, action, feedback) => jpost('/api/plan', { id, action, feedback });
 export const uploadImage = (dataUrl) => jpost('/api/upload-image', { dataUrl });
+// URL to display an attached image (served from hooked's images dir) by its absolute path.
+export const imageUrl = (p) => '/api/image?path=' + encodeURIComponent(p);
 export const interrupt = (id) => jpost('/api/interrupt', { id });
 export const setMode = (id, mode) => jpost('/api/mode', { id, mode });
 export const setModelEffort = (id, model, effort) => jpost('/api/model', { id, model, effort });

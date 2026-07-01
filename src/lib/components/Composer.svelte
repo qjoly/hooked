@@ -201,7 +201,18 @@
     // 2e Échap dans la fenêtre : interruption réelle.
     disarm();
     interrupt(id).then(() => { loadSessions(); ui.tick++; }).catch(() => {});
-    reloadPrompt(true);
+    // Un brouillon en cours de saisie est VIDÉ par l'Échap×2 (le $effect retire aussi le brouillon
+    // stocké) → on repart d'un composer propre après interruption, au lieu de laisser le prompt en
+    // place. Composer déjà vide : on recharge le dernier prompt envoyé pour l'éditer/renvoyer.
+    if (text.trim()) {
+      text = '';
+      autosize();
+      status = { text: '⎋ interrupted — draft cleared', cls: '' };
+      setTimeout(() => { status = { text: '', cls: '' }; }, 2500);
+      queueMicrotask(() => { if (ta) ta.focus(); });
+    } else {
+      reloadPrompt(true);
+    }
   }
 
   function reloadPrompt(interrupted) {
