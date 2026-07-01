@@ -22,6 +22,7 @@ export const ui = $state({
   sidebarPeek: false,                   // (transitoire) ré-ouverture ponctuelle de la sidebar pendant le focus
   modal: null,               // { type, data } | null
   tick: 0,                   // incrémenté à chaque évènement live → relance les effets
+  theme: readTheme(),        // 'system' | 'light' | 'dark' (persisté à part, cf. app.html)
 });
 
 if (typeof localStorage !== 'undefined') {
@@ -59,6 +60,33 @@ export function toggleFocus() {
 }
 // ré-ouvre / referme ponctuellement la sidebar pendant le focus (sans quitter le focus).
 export function toggleSidebarPeek() { ui.sidebarPeek = !ui.sidebarPeek; }
+
+// ─── Thème (clair / sombre / système) ──────────────────────────────────────────────────────
+// Persisté sous une clé dédiée ('hooked.theme'), lue aussi par le script anti-FOUC de app.html.
+// 'system' (défaut) = aucun data-theme → prefers-color-scheme décide ; 'light'/'dark' = forcé.
+const THEME_KEY = 'hooked.theme';
+const THEME_ORDER = ['system', 'light', 'dark'];
+function readTheme() {
+  if (typeof localStorage === 'undefined') return 'system';
+  try { const t = localStorage.getItem(THEME_KEY); return THEME_ORDER.includes(t) ? t : 'system'; }
+  catch { return 'system'; }
+}
+// pose (ou retire) l'attribut data-theme sur <html> selon le choix courant.
+function applyTheme() {
+  if (typeof document === 'undefined') return;
+  const root = document.documentElement;
+  if (ui.theme === 'light' || ui.theme === 'dark') root.setAttribute('data-theme', ui.theme);
+  else root.removeAttribute('data-theme'); // 'system' → laisse la media query décider
+}
+export function setTheme(t) {
+  ui.theme = THEME_ORDER.includes(t) ? t : 'system';
+  try { localStorage.setItem(THEME_KEY, ui.theme); } catch {}
+  applyTheme();
+}
+// cycle Système → Clair → Sombre → Système… (le bouton du header appelle ça).
+export function cycleTheme() {
+  setTheme(THEME_ORDER[(THEME_ORDER.indexOf(ui.theme) + 1) % THEME_ORDER.length]);
+}
 
 export const data = $state({ sessions: [] });
 
