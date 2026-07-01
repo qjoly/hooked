@@ -4,6 +4,17 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>🪝 hooked — sessions Claude</title>
+  <!-- Thème : applique le choix persistant AVANT le premier rendu pour éviter le flash de
+       thème (FOUC). 'system' (défaut) → aucun attribut, c'est prefers-color-scheme qui décide ;
+       'light'/'dark' → data-theme forcé sur <html>. Doit rester synchro avec state.svelte.js. -->
+  <script>
+    (function () {
+      try {
+        var t = localStorage.getItem('hooked.theme');
+        if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t);
+      } catch (e) {}
+    })();
+  </script>
   %sveltekit.head%
 </head>
 <body>
