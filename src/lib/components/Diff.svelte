@@ -1,34 +1,20 @@
 <script>
-  let { o } = $props();
-  // edit : lignes alignées par index (avant | après)
-  const rows = $derived.by(() => {
-    if (o.kind === 'write' || o.kind === 'notebook') return null;
-    const oldL = o.old ? o.old.split('\n') : [];
-    const newL = o.new ? o.new.split('\n') : [];
-    const n = Math.max(oldL.length, newL.length, 1);
-    const r = [];
-    for (let i = 0; i < n; i++) r.push([i < oldL.length ? oldL[i] : null, i < newL.length ? newL[i] : null]);
-    return r;
-  });
-  const writeSrc = $derived(o.kind === 'write' ? o.content : o.new);
+  /*
+   * A single file change (Write / Edit / MultiEdit / NotebookEdit) rendered as a
+   * side-by-side (split) Pierre diff. Op → (old, new) mapping:
+   *   write    : new file      → old '', new = content
+   *   notebook : replaced cell → old '', new = new_source
+   *   edit     : old = old_string, new = new_string
+   */
+  import PierreDiff from './PierreDiff.svelte';
+  let { o, name = 'file.txt' } = $props();
+  const oldStr = $derived(o.kind === 'edit' ? (o.old || '') : '');
+  const newStr = $derived(o.kind === 'write' ? (o.content || '') : (o.new || ''));
 </script>
 
-{#if o.kind === 'write' || o.kind === 'notebook'}
-  <div class="diff">
-    <div class="diff-tag write">{o.kind === 'write' ? '＋ new content' : 'notebook'}</div>
-    <div class="diff-body">
-      {#each (writeSrc || '').split('\n') as l}<div class="dl add">{l}</div>{/each}
-    </div>
-  </div>
-{:else}
-  <div class="diff">
-    {#if o.all}<div class="diff-tag">replace all occurrences</div>{/if}
-    <div class="diff-split">
-      <div class="ds-head">before</div><div class="ds-head">after</div>
-      {#each rows as [oldLine, newLine]}
-        {#if oldLine != null}<div class="dl del">{oldLine}</div>{:else}<div class="dl nil"></div>{/if}
-        {#if newLine != null}<div class="dl add">{newLine}</div>{:else}<div class="dl nil"></div>{/if}
-      {/each}
-    </div>
-  </div>
-{/if}
+<div class="diff">
+  {#if o.kind === 'write'}<div class="diff-tag write">＋ new content</div>{/if}
+  {#if o.kind === 'notebook'}<div class="diff-tag write">notebook</div>{/if}
+  {#if o.all}<div class="diff-tag">replace all occurrences</div>{/if}
+  <PierreDiff {oldStr} {newStr} {name} diffStyle="split" />
+</div>

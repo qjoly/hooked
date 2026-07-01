@@ -55,7 +55,7 @@
             <div class="md reasoning"><Markdown text={p.text} /></div>
           {/if}
         {:else}
-          <div class="part-tool"><ToolChip t={p.tool} /></div>
+          <div class="part-tool"><ToolChip t={p.tool} diff={p.diff} /></div>
         {/if}
       {/each}
     </div>

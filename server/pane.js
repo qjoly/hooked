@@ -24,7 +24,7 @@ const CMD_DELAY = 350;
 // launchSession, ce qui évite tout souci d'échappement/injection (jamais interpolée dans un shell)
 // et laisse le pane interactif après l'exécution (l'utilisateur peut Ctrl-C, relancer, etc.).
 function showInPane(id, { command, target } = {}, cb) {
-  if (!id) return cb(err400('id requis'));
+  if (!id) return cb(err400('id required'));
   // command optionnelle : sans elle (bouton « ＋ Pane »), on retombe sur la commande shell
   // initiale configurée dans les réglages (vide → pane shell nu).
   const fallback = readSettings().initialShellCommand;
@@ -36,8 +36,8 @@ function showInPane(id, { command, target } = {}, cb) {
   // Une fenêtre dédiée se redimensionne en plein pour remplir la vue web. `pane` reste possible.
   const where = target === 'pane' ? 'pane' : 'window';
   const pane = paneForSession(id);
-  if (!pane) return cb(err400('pane tmux inconnu pour cette session (lancée hors tmux ?)'));
-  if (!tmuxAlive(pane)) return cb(err400('tmux de la session fermé : impossible d\'ouvrir un pane'));
+  if (!pane) return cb(err400('unknown tmux pane for this session (launched outside tmux?)'));
+  if (!tmuxAlive(pane)) return cb(err400('session tmux closed: cannot open a pane'));
 
   const sess = scanSessions().find((x) => x.id === id);
   const dir = sess && sess.project;
@@ -56,9 +56,9 @@ function showInPane(id, { command, target } = {}, cb) {
   if (dir && statSafe(dir) && statSafe(dir).isDirectory()) args.push('-c', dir);
 
   execFile('tmux', args, (e, out) => {
-    if (e) return cb(new Error(`tmux ${sub} a échoué : ` + (e.message || e)));
+    if (e) return cb(new Error(`tmux ${sub} failed: ` + (e.message || e)));
     const newPane = String(out).trim();
-    if (!/^%\d+$/.test(newPane)) return cb(new Error('pane créé non identifié : ' + newPane));
+    if (!/^%\d+$/.test(newPane)) return cb(new Error('created pane not identified: ' + newPane));
     invalidatePaneCache(); // le pane tout neuf doit être « vu » vivant tout de suite (UI)
     try {
       fs.appendFileSync(SHOWN_PANES_FILE, JSON.stringify({ ts: new Date().toISOString(), session_id: id, pane: newPane, target: where, command: cmd ? cmd.slice(0, 500) : '' }) + '\n');
@@ -76,9 +76,9 @@ function showInPane(id, { command, target } = {}, cb) {
 // Ferme un pane « show » (le bouton ✕ de l'UI) : tue le pane tmux. shownPanesFor le filtrera
 // (tmuxAlive faux) au prochain rafraîchissement → il disparaît de l'onglet.
 function killPane(pane, cb) {
-  if (!/^%\d+$/.test(pane || '')) return cb(err400('pane invalide'));
+  if (!/^%\d+$/.test(pane || '')) return cb(err400('invalid pane'));
   execFile('tmux', ['kill-pane', '-t', pane], (e) => {
-    if (e) return cb(new Error('kill-pane a échoué : ' + (e.message || e)));
+    if (e) return cb(new Error('kill-pane failed: ' + (e.message || e)));
     invalidatePaneCache();
     cb(null, { pane });
   });
@@ -91,14 +91,14 @@ function killPane(pane, cb) {
 // de noms de touches et gère proprement les octets de contrôle (impossibles à passer en argv via -l,
 // ex. NUL). Le pane partage son entrée avec un éventuel client tmux attaché — comportement attendu.
 function sendInput(pane, data, cb) {
-  if (!/^%\d+$/.test(pane || '')) return cb(err400('pane invalide'));
-  if (typeof data !== 'string' || !data.length) return cb(err400('data requise'));
-  if (!tmuxAlive(pane)) return cb(err400('pane fermé'));
+  if (!/^%\d+$/.test(pane || '')) return cb(err400('invalid pane'));
+  if (typeof data !== 'string' || !data.length) return cb(err400('data required'));
+  if (!tmuxAlive(pane)) return cb(err400('pane closed'));
   // octets → paires hex ; les caractères non-ASCII (UTF-8 multioctets) sont décomposés en octets.
   const hex = Buffer.from(data, 'utf8').toString('hex').match(/../g) || [];
   if (!hex.length) return cb(null, { pane });
   execFile('tmux', ['send-keys', '-t', pane, '-H', ...hex], (e) => {
-    if (e) return cb(new Error('send-keys a échoué : ' + (e.message || e)));
+    if (e) return cb(new Error('send-keys failed: ' + (e.message || e)));
     cb(null, { pane });
   });
 }
@@ -108,8 +108,8 @@ function sendInput(pane, data, cb) {
 // les clients tmux attachés) — d'où le mode `auto` qui restaure `window-size latest` quand la vue
 // web se ferme, pour que rattacher dans un vrai terminal (Ghostty) reflue normalement.
 function resizePane(pane, { cols, rows, auto } = {}, cb) {
-  if (!/^%\d+$/.test(pane || '')) return cb(err400('pane invalide'));
-  if (!tmuxAlive(pane)) return cb(err400('pane fermé'));
+  if (!/^%\d+$/.test(pane || '')) return cb(err400('invalid pane'));
+  if (!tmuxAlive(pane)) return cb(err400('pane closed'));
   if (auto) {
     return execFile('tmux', ['set-option', '-w', '-t', pane, 'window-size', 'latest'], (e) => {
       if (e) return cb(new Error('set window-size: ' + (e.message || e)));
@@ -128,7 +128,7 @@ function resizePane(pane, { cols, rows, auto } = {}, cb) {
 // d'échappement (couleurs) pour un rendu fidèle côté xterm.js ; on renvoie aussi les dimensions
 // du pane pour que le terminal web s'y ajuste (wrapping identique à tmux).
 function capturePane(pane, cb) {
-  if (!/^%\d+$/.test(pane || '')) return cb(err400('pane invalide'));
+  if (!/^%\d+$/.test(pane || '')) return cb(err400('invalid pane'));
   if (!tmuxAlive(pane)) return cb(null, { alive: false, width: 0, height: 0, cursorX: 0, cursorY: 0, content: '' });
   // dimensions + curseur + ÉTAT DES MODES du terminal du pane, en un seul appel. capture-pane ne
   // rend que les cellules visibles : il manque le positionnement du curseur ET les modes que le
@@ -140,7 +140,7 @@ function capturePane(pane, cb) {
   execFile('tmux', ['display-message', '-p', '-t', pane, fmt], (e1, info) => {
     const n = String(info || '').trim().split(/\s+/).map((x) => parseInt(x, 10));
     execFile('tmux', ['capture-pane', '-p', '-e', '-t', pane], (e2, out) => {
-      if (e2) return cb(new Error('capture-pane a échoué : ' + (e2.message || e2)));
+      if (e2) return cb(new Error('capture-pane failed: ' + (e2.message || e2)));
       cb(null, {
         alive: true,
         width: n[0] || 80, height: n[1] || 24,
