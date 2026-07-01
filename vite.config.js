@@ -18,6 +18,9 @@ const pierreWebComponents = fileURLToPath(
 // endpoints /api/* (routes +server.js). Plus de proxy ni de serveur Node séparé.
 export default defineConfig({
   plugins: [sveltekit()],
+  server: {
+    allowedHosts: true,
+  },
   resolve: {
     alias: {
       '@pierre/diffs/web-components': pierreWebComponents,

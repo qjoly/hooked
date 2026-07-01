@@ -26,6 +26,10 @@ const ENTER_DELAY = 400;
 const REPL_POLL_INTERVAL = 300;
 const REPL_READY_TIMEOUT = 15000;
 const REPL_PROMPT_RE = /(^|\n)[ \t]*❯/;
+// The AskUserQuestion widget draws its cursor `❯` on the highlighted *numbered option* line
+// (e.g. `❯ 1. Red`), which REPL_PROMPT_RE also matches. This narrower pattern detects that
+// option-cursor so we can tell "widget still up" from "composer ready" (see waitForQuestionDismissed).
+const QUESTION_CURSOR_RE = /(^|\n)[ \t]*❯[ \t]+\d+\./;
 
 // Poll capture-pane until the claude REPL prompt appears (see REPL_PROMPT_RE). `cb(ready)`: true if
 // the prompt was detected, false on timeout (the caller then sends anyway, best-effort). Never
@@ -36,6 +40,24 @@ function waitForReplReady(pane, cb) {
     execFile('tmux', ['capture-pane', '-t', pane, '-p'], (e, out) => {
       if (!e && REPL_PROMPT_RE.test(out || '')) return cb(true);
       if (Date.now() >= deadline) return cb(false);
+      setTimeout(probe, REPL_POLL_INTERVAL);
+    });
+  };
+  probe();
+}
+
+// Poll until a pending AskUserQuestion widget has been dismissed and the composer prompt is back:
+// the composer `❯` is present (REPL_PROMPT_RE) AND the widget's numbered-option cursor is gone
+// (QUESTION_CURSOR_RE). Plain waitForReplReady is NOT enough here — it matches the `❯` the widget
+// draws on its highlighted option, so it reports "ready" while the widget is still up and we'd type
+// into it (its Enter then selects the highlighted option). `cb()` fires when dismissed or on timeout.
+function waitForQuestionDismissed(pane, cb) {
+  const deadline = Date.now() + REPL_READY_TIMEOUT;
+  const probe = () => {
+    execFile('tmux', ['capture-pane', '-t', pane, '-p'], (e, out) => {
+      const s = out || '';
+      if (!e && REPL_PROMPT_RE.test(s) && !QUESTION_CURSOR_RE.test(s)) return cb();
+      if (Date.now() >= deadline) return cb();
       setTimeout(probe, REPL_POLL_INTERVAL);
     });
   };
@@ -218,6 +240,22 @@ function deliverQuestionWithNote(pane, selections, note, cb) {
     if (!n) return cb(null);
     // let the question UI close and the composer come back, then send the note as a follow-up.
     setTimeout(() => waitForReplReady(pane, () => deliverReply(pane, n, false, cb)), 500);
+  });
+}
+
+// Answer a pending AskUserQuestion with FREE TEXT (the user rejected the offered options and typed
+// their own answer). The selection widget swallows typed characters — they navigate options, they
+// don't enter text — so we can't type into it. Instead we send Escape to dismiss the
+// AskUserQuestion (Claude cancels that tool call and the normal `❯` composer returns), wait for the
+// REPL prompt, then deliver the text like any reply (type + single Enter — no "Submit answers"
+// confirm; we're back at a normal composer). Reuses waitForReplReady + deliverReply.
+function deliverQuestionFreeText(pane, text, cb) {
+  if (!/^%\d+$/.test(pane || '')) return cb(new Error('invalid pane'));
+  execFile('tmux', ['send-keys', '-t', pane, 'Escape'], (err) => {
+    if (err) return cb(err);
+    // wait for the widget to be gone (not just any `❯`) before typing, else deliverReply's Enter
+    // would land on the still-open widget and select its highlighted option.
+    waitForQuestionDismissed(pane, () => deliverReply(pane, text, false, cb));
   });
 }
 
@@ -503,10 +541,14 @@ function launchSession({ resumeId, cwd, prompt, model, effort, worktree, permiss
   const base = path.basename(dir).replace(/[^A-Za-z0-9_]/g, '_').slice(0, 24) || 'session';
   const name = `hooked-${base}-${Date.now().toString(36).slice(-5)}`;
 
-  // `claude` comme commande du shell de login interactif (-ic) : PATH du profil chargé,
-  // `exec $SHELL` garde le pane vivant après la sortie de claude.
+  // On lance `claude` dans un shell de LOGIN interactif. `-l` fait sourcer les fichiers de login
+  // du shell (profil utilisateur) EN PLUS des fichiers interactifs : c'est là que les package
+  // managers (brew, asdf, nvm…) publient leur PATH. Sans `-l`, un hooked démarré avec un PATH
+  // minimal (service systemd, cron, launchd…) ne retrouve pas `claude` → session morte.
+  // Flags séparés `-l -i -c` : portables sur sh/bash/zsh/fish (le groupé `-lic` ne l'est pas).
+  // `exec $SHELL` garde le pane vivant après la sortie de claude. SHELL décidé par l'utilisateur.
   const shell = process.env.SHELL || '/bin/zsh';
-  const shellCmd = `${shell} -ic '${claudeCmd}; exec ${shell}'`;
+  const shellCmd = `${shell} -l -i -c '${claudeCmd}; exec ${shell}'`;
 
   // Taille de la session détachée : sans -x/-y, tmux la crée en 80×24 → TUI claude à l'étroit
   // (24 lignes) dans la vue web. On la crée plus grande (configurable) ; tmux la rétrécit de
@@ -549,4 +591,4 @@ function killSession(id, cb) {
   });
 }
 
-export { paneTmuxNames, invalidatePaneCache, clearPaneCaches, tmuxAlive, launchInfoForPane, resolveLaunchForSession, deliverReply, deliverQuestion, deliverQuestionWithNote, deliverPlanChoice, parsePlanPrompt, sendKey, parsePaneMode, readPaneMode, readPaneModeSync, paneBusySync, parseSpinner, paneActivitySync, setMode, setModelEffort, launchSession, killSession, err400 };
+export { paneTmuxNames, invalidatePaneCache, clearPaneCaches, tmuxAlive, launchInfoForPane, resolveLaunchForSession, deliverReply, deliverQuestion, deliverQuestionWithNote, deliverQuestionFreeText, deliverPlanChoice, parsePlanPrompt, sendKey, parsePaneMode, readPaneMode, readPaneModeSync, paneBusySync, parseSpinner, paneActivitySync, setMode, setModelEffort, launchSession, killSession, err400 };

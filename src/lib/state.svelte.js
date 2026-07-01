@@ -26,13 +26,14 @@ export const ui = $state({
   tick: 0,                   // incrémenté à chaque évènement live → relance les effets
   theme: readTheme(),        // 'system' | 'light' | 'dark' (persisté à part, cf. app.html)
   notify: persisted.notify ?? false,    // notifications navigateur (session finie / en attente de toi)
+  notifyPinnedOnly: persisted.notifyPinnedOnly ?? false, // if true: only notify for pinned sessions
   diffSplit: persisted.diffSplit ?? false, // render conversation diffs side-by-side (split) instead of unified
 });
 
 if (typeof localStorage !== 'undefined') {
   $effect.root(() => {
     $effect(() => {
-      const snapshot = { hideOld: ui.hideOld, collapsed: ui.collapsed, pinned: ui.pinned, names: ui.names, tags: ui.tags, focus: ui.focus, notify: ui.notify, diffSplit: ui.diffSplit };
+      const snapshot = { hideOld: ui.hideOld, collapsed: ui.collapsed, pinned: ui.pinned, names: ui.names, tags: ui.tags, focus: ui.focus, notify: ui.notify, notifyPinnedOnly: ui.notifyPinnedOnly, diffSplit: ui.diffSplit };
       try { localStorage.setItem(LS_KEY, JSON.stringify(snapshot)); } catch {}
     });
   });
@@ -150,6 +151,7 @@ function checkNotifications(sessions) {
   if (notifySeeded && ui.notify) {
     let pinged = false;
     for (const s of sessions) {
+      if (ui.notifyPinnedOnly && !ui.pinned.includes(s.id)) continue;
       const key = next.get(s.id);
       if (key && key !== (prevNotifyKey.get(s.id) || '')) {
         if (notifyEnabled()) fireNotification(s, NOTIFY_KINDS[key]); // popup bureau natif (contexte sécurisé)
@@ -172,6 +174,7 @@ function applyTitleBadge(sessions = data.sessions) {
   const base = '🪝 hooked';
   if (!ui.notify) { document.title = base; return; }
   const n = sessions.reduce((a, s) => {
+    if (ui.notifyPinnedOnly && !ui.pinned.includes(s.id)) return a;
     const k = notifyKeyFor(s);
     return a + (k === 'q' || k === 'attention' || k === 'waiting' ? 1 : 0);
   }, 0);
@@ -200,6 +203,11 @@ function playPing() {
 
 // Active/désactive les notifications. Natif (popup bureau) si contexte sécurisé + permission ;
 // sinon repli universel (badge d'onglet + son) qui marche partout, y compris en HTTP sur IP/LAN.
+export function toggleNotifyPinnedOnly() {
+  ui.notifyPinnedOnly = !ui.notifyPinnedOnly;
+  applyTitleBadge();
+}
+
 export async function toggleNotify() {
   if (ui.notify) { ui.notify = false; applyTitleBadge(); return; }
   ui.notify = true;
