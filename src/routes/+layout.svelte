@@ -26,7 +26,8 @@
 
   const onStats = $derived(page.url.pathname.startsWith('/stats'));
   const onSearch = $derived(page.url.pathname.startsWith('/search'));
-  const onSessions = $derived(!onStats && !onSearch);
+  const onSettings = $derived(page.url.pathname.startsWith('/settings'));
+  const onSessions = $derived(!onStats && !onSearch && !onSettings);
 </script>
 
 <header>
@@ -35,6 +36,7 @@
     <a class="tab" class:active={onSessions} href="/">Sessions</a>
     <a class="tab" class:active={onSearch} href="/search">Recherche</a>
     <a class="tab" class:active={onStats} href="/stats">Stats &amp; usage</a>
+    <a class="tab" class:active={onSettings} href="/settings">Réglages</a>
   </nav>
   <div class="status">
     <span class="dot" class:on={ui.live}></span>

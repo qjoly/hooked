@@ -4,6 +4,7 @@
 // à arbitrer. Note : images.js définit un `err400` interne mais ne l'exporte pas ; seul
 // tmux.js exporte `err400`, donc pas d'ambiguïté.
 export * from './config.js';
+export * from './settings.js';
 export * from './util.js';
 export * from './git.js';
 export * from './pricing.js';
