@@ -369,15 +369,25 @@ function readPaneModeSync(pane) {
 // « ... »), puis « ( » (début du compteur temps/tokens). Une ligne de prose citant « …/Cogitating…/… »
 // ou « ⎿ Running tests… (12s) » d'une sortie d'outil n'a donc pas cette forme et ne matche pas.
 //
-// On prend le DERNIER match de l'écran : le footer (spinner + boîte de saisie) est toujours peint en
-// bas, SOUS le transcript → si par malchance une ligne plus haut ressemblait au motif, la vraie ligne
-// spinner reste la dernière. Vérifié en live : sur Claude Code récent le footer affiche
-// « ✻ Accomplishing… (3m 25s · ↓ 11.3k tokens) », sans « esc to interrupt » pendant le travail.
-const SPINNER_RE = /(?:^|\n)[ \t]*(?:[✻✽✶✢✳✺✷✵✴]|·)[ \t]+([A-Za-z][A-Za-z '-]{0,40}?)(?:…|\.\.\.)[ \t]*\(/g;
+// Recherche BORNÉE AU FOOTER : le spinner est peint juste au-dessus de la boîte de saisie (❯), jamais
+// dans le corps de la conversation. On ne balaie donc que les ~14 lignes situées au-dessus de la
+// dernière invite ❯ — sinon un spinner CITÉ dans un message (ex. une session qui parle du spinner)
+// serait pris pour un vrai → faux « working » quand la session est en fait à l'arrêt. Dernier match
+// dans la fenêtre = le plus proche de l'invite (le vrai spinner, s'il y a aussi une citation juste
+// au-dessus). Vérifié en live : footer « ✻ Accomplishing… (3m 25s · ↓ 11.3k tokens) ».
+const SPINNER_RE = /^[ \t]*(?:[✻✽✶✢✳✺✷✵✴]|·)[ \t]+([A-Za-z][A-Za-z '-]{0,40}?)(?:…|\.\.\.)[ \t]*\(/;
+const SPINNER_FOOTER_SPAN = 14;
 function parseSpinner(screen) {
+  const lines = String(screen).split('\n');
+  // borne haute = la dernière ligne d'invite ❯ (le spinner est au-dessus) ; à défaut, fin d'écran.
+  let end = lines.length;
+  for (let i = lines.length - 1; i >= 0; i--) { if (/^[ \t]*❯/.test(lines[i])) { end = i; break; } }
   let word = null;
-  for (const m of String(screen).matchAll(SPINNER_RE)) word = m[1];
-  return word ? word.trim() : null;
+  for (let i = Math.max(0, end - SPINNER_FOOTER_SPAN); i < end; i++) {
+    const m = SPINNER_RE.exec(lines[i]);
+    if (m) word = m[1].trim();
+  }
+  return word;
 }
 
 // Claude « mouline »-t-il ? Deux signaux possibles dans le footer : la ligne spinner d'activité
