@@ -477,4 +477,12 @@ describe('parseSpinner — verbe d\'activité (« thinking ») du footer TUI', (
     ].join('\n');
     expect(lib.parseSpinner(screen)).toBe('Percolating');
   });
+  it('null si le spinner est CITÉ haut dans le scrollback (session idle, pas de vrai spinner au footer)', () => {
+    // cas réel : une session qui « parle » du spinner. La citation est loin au-dessus de l'invite ❯
+    // → hors de la fenêtre footer → ne doit pas déclencher un faux « working ».
+    const lines = ['✻ Cogitating… (42s · ↓ 9k tokens)'];       // spinner cité dans un message
+    for (let i = 0; i < 16; i++) lines.push('conversation line ' + i);
+    lines.push('────', '❯ ', '────', '  ⏵⏵ auto mode on (shift+tab to cycle)');
+    expect(lib.parseSpinner(lines.join('\n'))).toBe(null);
+  });
 });
