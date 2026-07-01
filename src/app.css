@@ -625,7 +625,15 @@ code.path { color: var(--muted); font-size: 11px; word-break: break-all; font-fa
 .ns-sub { color: var(--muted); font-size: 13px; line-height: 1.6; text-align: center; margin: 0 0 22px; }
 .newsession .composer { position: relative; bottom: auto; margin-top: 0; }
 .ns-controls { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 12px 4px 0; }
-.ns-custom { margin-top: 10px; }
+.ns-custom-row { display: flex; gap: 8px; margin-top: 10px; }
+.ns-custom-row .ns-custom { margin-top: 0; flex: 1 1 auto; }
+.ns-browse {
+  flex: 0 0 auto; white-space: nowrap; padding: 0 14px; border-radius: 10px;
+  border: 1px solid var(--border2); background: var(--bg3); color: var(--accent);
+  font-weight: 600; font-size: 13px; cursor: pointer;
+}
+.ns-browse:hover:not(:disabled) { background: var(--bg2); border-color: var(--accent-d); }
+.ns-browse:disabled { opacity: 0.6; cursor: default; }
 .ns-watch { margin: 14px 4px 0; font-size: 12.5px; color: var(--accent-d); font-family: var(--mono); }
 .ns-worktree { cursor: pointer; user-select: none; }
 .ns-worktree input { margin: 0 2px 0 0; cursor: pointer; accent-color: var(--accent-d); }

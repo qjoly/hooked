@@ -44,4 +44,23 @@ function openInGhostty(id, cb) {
   });
 }
 
-export { openInVscode, openInGhostty };
+// Ouvre le sélecteur de dossier natif de l'OS (macOS uniquement) et renvoie le chemin choisi.
+// Utilisé par « Other folder… » pour éviter la saisie manuelle d'un chemin.
+function pickFolder(start, cb) {
+  if (process.platform !== 'darwin') return cb(err400('native folder picker available on macOS only'));
+  // `default location` seulement si `start` est un dossier valide (sinon AppleScript échoue).
+  const loc = start && statSafe(start)?.isDirectory() ? ` default location (POSIX file ${JSON.stringify(start)})` : '';
+  const expr = `POSIX path of (choose folder with prompt "Select a project folder"${loc})`;
+  execFile('osascript', ['-e', expr], (err, stdout) => {
+    // -128 = annulation utilisateur (clic sur Annuler) → pas une vraie erreur.
+    if (err) {
+      if (/-128|User canceled/i.test(String(err.message || err))) return cb(null, { canceled: true });
+      return cb(new Error('folder picker failed: ' + err.message));
+    }
+    const dir = String(stdout).trim().replace(/\/+$/, '');
+    if (!dir) return cb(null, { canceled: true });
+    cb(null, { dir });
+  });
+}
+
+export { openInVscode, openInGhostty, pickFolder };
