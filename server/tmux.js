@@ -343,6 +343,11 @@ function capturePaneTextSync(pane, ttl = 2500) {
   return text;
 }
 
+// Purge les caches pane (liste des panes + texte capturé) → la prochaine dérivation d'état relit
+// tmux à froid (liveness + footer), sans attendre l'expiration des caches 2,5–3 s. Utilisé par le
+// resync manuel des Réglages pour débloquer une session au statut périmé.
+function clearPaneCaches() { paneNameCache.at = 0; _paneTextCache.clear(); }
+
 // Lecture synchrone du mode (pour enrichir le détail de session sans casser son API synchrone).
 function readPaneModeSync(pane) {
   const text = capturePaneTextSync(pane);
@@ -534,4 +539,4 @@ function killSession(id, cb) {
   });
 }
 
-export { paneTmuxNames, invalidatePaneCache, tmuxAlive, launchInfoForPane, resolveLaunchForSession, deliverReply, deliverQuestion, deliverQuestionWithNote, deliverPlanChoice, parsePlanPrompt, sendKey, parsePaneMode, readPaneMode, readPaneModeSync, paneBusySync, parseSpinner, paneActivitySync, setMode, setModelEffort, launchSession, killSession, err400 };
+export { paneTmuxNames, invalidatePaneCache, clearPaneCaches, tmuxAlive, launchInfoForPane, resolveLaunchForSession, deliverReply, deliverQuestion, deliverQuestionWithNote, deliverPlanChoice, parsePlanPrompt, sendKey, parsePaneMode, readPaneMode, readPaneModeSync, paneBusySync, parseSpinner, paneActivitySync, setMode, setModelEffort, launchSession, killSession, err400 };
