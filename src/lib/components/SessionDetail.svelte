@@ -12,6 +12,7 @@
   import Changes from './Changes.svelte';
   import Subagents from './Subagents.svelte';
   import Todos from './Todos.svelte';
+  import Background from './Background.svelte';
   import Terminal from './Terminal.svelte';
   import { TERM_THEMES, DEFAULT_TERM_THEME, TERM_FONTS, DEFAULT_TERM_FONT } from '$lib/terminalThemes.js';
 
@@ -68,29 +69,36 @@
   // Sous-onglets du détail, ordonnés selon le réglage persistant (settings.subtabOrder) et
   // filtrés sur ceux disponibles. Le 1er de la liste devient l'onglet ouvert à l'arrivée.
   const SUBTAB_META = {
-    chat:      { icon: '💬', label: 'Conversation' },
-    changes:   { icon: '📝', label: 'Files' },
-    todos:     { icon: '✅', label: 'Tasks' },
-    subagents: { icon: '🤖', label: 'Subagents' },
-    terminal:  { icon: '🖥', label: 'Terminal' },
+    chat:       { icon: '💬', label: 'Conversation' },
+    changes:    { icon: '📝', label: 'Files' },
+    todos:      { icon: '✅', label: 'Tasks' },
+    subagents:  { icon: '🤖', label: 'Subagents' },
+    background: { icon: '🌀', label: 'Background' },
+    terminal:   { icon: '🖥', label: 'Terminal' },
   };
   const subtabCount = $derived({
     chat: (s?.messages || []).length,
     changes: (s?.changes || []).length,
     todos: (s?.todos || []).length,
     subagents: (s?.subagents || []).length,
+    background: (s?.bgJobs || []).length,
     terminal: terminals.length,
   });
   const subtabShown = $derived({
     chat: true, changes: true,
     todos: subtabCount.todos > 0,
     subagents: subtabCount.subagents > 0,
+    background: subtabCount.background > 0,
     terminal: subtabCount.terminal > 0,
   });
-  const orderedSubtabs = $derived(
-    (settings.subtabOrder || []).filter((k) => SUBTAB_META[k] && subtabShown[k])
-      .map((k) => ({ key: k, ...SUBTAB_META[k], count: subtabCount[k] }))
-  );
+  // Ordre persistant (settings.subtabOrder), PUIS toute clé connue absente de l'ordre sauvegardé
+  // (migration : un réglage antérieur à un nouveau sous-onglet — ex. `background` — le verrait
+  // sinon jamais, car on itère l'ordre persistant). On complète à la fin, seulement si disponible.
+  const orderedSubtabs = $derived.by(() => {
+    const order = settings.subtabOrder || [];
+    const keys = [...order.filter((k) => SUBTAB_META[k]), ...Object.keys(SUBTAB_META).filter((k) => !order.includes(k))];
+    return keys.filter((k) => subtabShown[k]).map((k) => ({ key: k, ...SUBTAB_META[k], count: subtabCount[k] }));
+  });
   // Ouvre le 1er onglet disponible selon l'ordre configuré (une seule fois, dès que s est chargé).
   let tabInit = false;
   $effect(() => {
@@ -349,6 +357,12 @@
   async function copyAttach() {
     try { await navigator.clipboard.writeText(s.tmuxAttach); attachCopied = true; setTimeout(() => (attachCopied = false), 1500); } catch (_) {}
   }
+  // Copie le deep-link ABSOLU vers cette session (partageable / ouverture à froid). L'origine réelle
+  // du navigateur est utilisée → correct quel que soit l'accès (localhost / IP LAN / MagicDNS).
+  let linkCopied = $state(false);
+  async function copyLink() {
+    try { await navigator.clipboard.writeText(location.origin + '/session/' + s.id); linkCopied = true; setTimeout(() => (linkCopied = false), 1500); } catch (_) {}
+  }
   let vscodeBusy = $state(false);
   async function openVscode() {
     if (vscodeBusy) return;
@@ -387,6 +401,7 @@
       <details class="hdr-more">
         <summary title="More actions" aria-label="More actions">⋯</summary>
         <div class="hdr-menu">
+          <button class="vscode-btn" title="Copy a shareable link that opens this session in hooked" onclick={copyLink}>{linkCopied ? '✓ copied' : '🔗 Copy link'}</button>
           {#if s.tmuxAlive && s.tmuxAttach}
             <button class="vscode-btn" title={s.tmuxAttach} onclick={copyAttach}>{attachCopied ? '✓ copied' : '⧉ Copy attach'}</button>
           {/if}
@@ -489,6 +504,10 @@
 
     <div class="pane" class:active={tab === 'todos'}>
       <Todos todos={s.todos || []} />
+    </div>
+
+    <div class="pane" class:active={tab === 'background'}>
+      <Background jobs={s.bgJobs || []} />
     </div>
 
     <div class="pane" class:active={tab === 'terminal'}>

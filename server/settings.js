@@ -18,7 +18,7 @@ const SETTINGS_FILE = path.join(HOOKED_DIR, 'settings.json');
 // *disponible* de cette liste est celui ouvert à l'arrivée sur une session. Sert de source
 // de vérité pour valider `subtabOrder` (toute clé inconnue est ignorée, toute clé manquante
 // est ré-ajoutée à la fin → l'ordre reste toujours complet).
-const SUBTAB_KEYS = ['chat', 'changes', 'todos', 'subagents', 'terminal'];
+const SUBTAB_KEYS = ['chat', 'changes', 'todos', 'subagents', 'background', 'terminal'];
 
 const DEFAULTS = {
   subtabOrder: [...SUBTAB_KEYS],
