@@ -10,7 +10,7 @@ export function GET() {
 
 export async function POST({ request }) {
   const body = await readJson(request);
-  if (!body || typeof body !== 'object') return fail(400, 'requête invalide');
+  if (!body || typeof body !== 'object') return fail(400, 'invalid request');
   try {
     return json({ ok: true, settings: writeSettings(body) });
   } catch (e) {

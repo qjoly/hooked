@@ -8,7 +8,7 @@
 </script>
 
 {#if !sorted.length}
-  <div class="empty">Aucune donnée</div>
+  <div class="empty">No data</div>
 {:else}
   {#each sorted as [k, v]}
     <div class="bar-row">

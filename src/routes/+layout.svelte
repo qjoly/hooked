@@ -11,9 +11,9 @@
   // Bouton de thème : cycle Système → Clair → Sombre. L'icône reflète le choix courant
   // (🖥️ = suit le système, ☀️ = clair forcé, 🌙 = sombre forcé).
   const THEME_UI = {
-    system: { icon: '🖥️', label: 'Système' },
-    light:  { icon: '☀️', label: 'Clair' },
-    dark:   { icon: '🌙', label: 'Sombre' },
+    system: { icon: '🖥️', label: 'System' },
+    light:  { icon: '☀️', label: 'Light' },
+    dark:   { icon: '🌙', label: 'Dark' },
   };
   const themeUi = $derived(THEME_UI[ui.theme] ?? THEME_UI.system);
 
@@ -34,23 +34,23 @@
   <div class="brand">🪝 <span>hooked</span></div>
   <nav class="tabs">
     <a class="tab" class:active={onSessions} href="/">Sessions</a>
-    <a class="tab" class:active={onSearch} href="/search">Recherche</a>
+    <a class="tab" class:active={onSearch} href="/search">Search</a>
     <a class="tab" class:active={onStats} href="/stats">Stats &amp; usage</a>
-    <a class="tab" class:active={onSettings} href="/settings">Réglages</a>
+    <a class="tab" class:active={onSettings} href="/settings">Settings</a>
   </nav>
   <div class="status">
     <span class="dot" class:on={ui.live}></span>
-    <span>{ui.live ? 'live' : 'reconnexion…'}</span>
+    <span>{ui.live ? 'live' : 'reconnecting…'}</span>
   </div>
   <button class="theme-btn" onclick={toggleNotify}
-          title={ui.notify ? 'Notifications navigateur : activées — cliquer pour couper' : 'Notifications navigateur : coupées — cliquer pour activer (alerte quand une session a fini ou attend ta réponse)'}
-          aria-label="Basculer les notifications navigateur">
+          title={ui.notify ? 'Browser notifications: on — click to turn off' : 'Browser notifications: off — click to turn on (alerts when a session finishes or awaits your reply)'}
+          aria-label="Toggle browser notifications">
     <span class="theme-ico">{ui.notify ? '🔔' : '🔕'}</span>
     <span class="theme-lbl">Notifs</span>
   </button>
   <button class="theme-btn" onclick={cycleTheme}
-          title={`Thème : ${themeUi.label} — cliquer pour changer`}
-          aria-label={`Thème : ${themeUi.label}. Cliquer pour changer de thème.`}>
+          title={`Theme: ${themeUi.label} — click to change`}
+          aria-label={`Theme: ${themeUi.label}. Click to change theme.`}>
     <span class="theme-ico">{themeUi.icon}</span>
     <span class="theme-lbl">{themeUi.label}</span>
   </button>
@@ -64,8 +64,8 @@
      sidebar (☰) et quitter le focus (✕), accessibles depuis n'importe quelle page. -->
 <div class="focus-fab">
   <button class="focus-fab-btn" onclick={toggleSidebarPeek}
-          title={ui.sidebarPeek ? 'Replier la sidebar' : 'Ré-ouvrir la sidebar'} aria-label="Basculer la sidebar">☰</button>
-  <button class="focus-fab-btn" onclick={toggleFocus} title="Quitter le mode focus" aria-label="Quitter le focus">✕</button>
+          title={ui.sidebarPeek ? 'Collapse sidebar' : 'Re-open sidebar'} aria-label="Toggle sidebar">☰</button>
+  <button class="focus-fab-btn" onclick={toggleFocus} title="Exit focus mode" aria-label="Exit focus">✕</button>
 </div>
 
 <Modal />

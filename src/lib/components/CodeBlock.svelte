@@ -33,8 +33,8 @@
 <div class="code-block">
   <div class="cb-head">
     <span class="cb-lang">{label}</span>
-    <button class="cb-copy" class:done={copied} onclick={copy} title="Copier le code">
-      {copied ? '✓ Copié' : '⧉ Copier'}
+    <button class="cb-copy" class:done={copied} onclick={copy} title="Copy code">
+      {copied ? '✓ Copied' : '⧉ Copy'}
     </button>
   </div>
   <pre><code>{@html html}</code></pre>
