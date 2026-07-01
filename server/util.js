@@ -63,8 +63,31 @@ function toolResultText(content) {
 function toolInputText(input) {
   if (input == null || typeof input !== 'object') return '';
   try {
-    return JSON.stringify(input, (k, v) => (typeof v === 'string' && v.length > 1500 ? v.slice(0, 1500) + '\n… (tronqué)' : v), 2).slice(0, 4000);
+    return JSON.stringify(input, (k, v) => (typeof v === 'string' && v.length > 1500 ? v.slice(0, 1500) + '\n… (truncated)' : v), 2).slice(0, 4000);
   } catch (_) { return ''; }
 }
 
-export { readdirSafe, statSafe, textOf, cleanPrompt, chatText, toolDetail, toolResultText, toolInputText };
+// Diff payload for a file-mutating tool_use (Write/Edit/MultiEdit/NotebookEdit), rendered as a
+// collapsible Pierre diff in the conversation. Returns null for any other tool.
+// Same op shape as server/changes.js (kind + content/old/new/all), but carried on `parts`
+// (invisible to the characterization baseline, cf. test/characterization.test.mjs).
+function toolDiffOps(toolName, input) {
+  if (!input || typeof input !== 'object') return null;
+  const file = input.file_path || input.path || input.notebook_path;
+  if (!file) return null;
+  const ops = [];
+  if (toolName === 'Write') {
+    ops.push({ kind: 'write', content: String(input.content || '').slice(0, 6000) });
+  } else if (toolName === 'Edit') {
+    ops.push({ kind: 'edit', old: String(input.old_string || '').slice(0, 3000), new: String(input.new_string || '').slice(0, 3000), all: !!input.replace_all });
+  } else if (toolName === 'MultiEdit' && Array.isArray(input.edits)) {
+    for (const e of input.edits) ops.push({ kind: 'edit', old: String(e.old_string || '').slice(0, 3000), new: String(e.new_string || '').slice(0, 3000), all: !!e.replace_all });
+  } else if (toolName === 'NotebookEdit') {
+    ops.push({ kind: 'notebook', new: String(input.new_source || '').slice(0, 3000) });
+  } else {
+    return null;
+  }
+  return { file, name: String(file).split('/').pop(), ops };
+}
+
+export { readdirSafe, statSafe, textOf, cleanPrompt, chatText, toolDetail, toolResultText, toolInputText, toolDiffOps };

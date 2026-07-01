@@ -102,7 +102,7 @@ function resolveLaunchForSession(id) {
 // mais la session restait bloquée). Cas mono-question : [label] → 2 Entrées, comme avant.
 function deliverReply(pane, text, isQuestion, cb) {
   if (typeof isQuestion === 'function') { cb = isQuestion; isQuestion = false; }
-  if (!/^%\d+$/.test(pane || '')) return cb(new Error('pane invalide'));
+  if (!/^%\d+$/.test(pane || '')) return cb(new Error('invalid pane'));
   const answers = Array.isArray(text) ? text : [text];
   // tape une réponse puis Entrée, en laissant la fenêtre de détection de collage se refermer
   // avant de valider (cf. ENTER_DELAY).
@@ -140,8 +140,8 @@ function deliverReply(pane, text, isQuestion, cb) {
 // entre deux touches rend chaque frappe fiable.
 // `selections` : [{ multi: bool, indices: number[] }] (une entrée par question, dans l'ordre).
 function deliverQuestion(pane, selections, cb) {
-  if (!/^%\d+$/.test(pane || '')) return cb(err400('pane invalide'));
-  if (!Array.isArray(selections) || !selections.length) return cb(err400('sélections requises'));
+  if (!/^%\d+$/.test(pane || '')) return cb(err400('invalid pane'));
+  if (!Array.isArray(selections) || !selections.length) return cb(err400('selections required'));
   const KEY_DELAY = 300;     // entre deux touches (ink avale les frappes trop rapprochées)
   const SUBMIT_DELAY = 450;  // avant l'Entrée finale (laisser l'écran « Review » s'afficher)
   const press = (key, done) => execFile('tmux', ['send-keys', '-t', pane, key], (e) => (e ? done(e) : setTimeout(done, KEY_DELAY)));
@@ -183,8 +183,8 @@ function deliverQuestion(pane, selections, cb) {
 // Envoie une touche « nommée » (ex. Escape) au pane : sert à interrompre Claude depuis l'UI,
 // exactement comme une frappe Echap dans le TUI interactif.
 function sendKey(pane, key, cb) {
-  if (!/^%\d+$/.test(pane || '')) return cb(err400('pane invalide'));
-  if (!/^[A-Za-z0-9]+$/.test(key || '')) return cb(err400('touche invalide'));
+  if (!/^%\d+$/.test(pane || '')) return cb(err400('invalid pane'));
+  if (!/^[A-Za-z0-9]+$/.test(key || '')) return cb(err400('invalid key'));
   execFile('tmux', ['send-keys', '-t', pane, key], (e) => cb(e || null));
 }
 
@@ -214,7 +214,7 @@ function parsePaneMode(screen) {
 
 // Lecture asynchrone du mode courant via `tmux capture-pane`.
 function readPaneMode(pane, cb) {
-  if (!/^%\d+$/.test(pane || '')) return cb(err400('pane invalide'));
+  if (!/^%\d+$/.test(pane || '')) return cb(err400('invalid pane'));
   execFile('tmux', ['capture-pane', '-t', pane, '-p'], (e, out) => {
     if (e) return cb(e);
     cb(null, parsePaneMode(out));
@@ -235,14 +235,14 @@ function readPaneModeSync(pane) {
 // Robuste à n'importe quel ordre/longueur de cycle (l'ordre réel observé est
 // default → acceptEdits → plan → auto → …, mais on ne s'y fie pas), et auto-vérifié.
 function setMode(pane, target, cb) {
-  if (!/^%\d+$/.test(pane || '')) return cb(err400('pane invalide'));
-  if (!PERMISSION_MODES.includes(target)) return cb(err400('mode inconnu : ' + target));
+  if (!/^%\d+$/.test(pane || '')) return cb(err400('invalid pane'));
+  if (!PERMISSION_MODES.includes(target)) return cb(err400('unknown mode: ' + target));
   const MAX = 6; // garde-fou : au plus 6 modes dans le cycle → jamais de boucle infinie
   const step = (n) => {
     readPaneMode(pane, (e, cur) => {
       if (e) return cb(e);
       if (cur === target) return cb(null, { pane, mode: target, presses: n });
-      if (n >= MAX) return cb(new Error(`mode « ${target} » non atteint après ${n} Maj+Tab (mode courant : ${cur})`));
+      if (n >= MAX) return cb(new Error(`mode "${target}" not reached after ${n} Shift+Tab (current mode: ${cur})`));
       execFile('tmux', ['send-keys', '-t', pane, 'BTab'], (e2) => {
         if (e2) return cb(e2);
         setTimeout(() => step(n + 1), 160); // laisser le TUI re-render le footer avant relecture
@@ -259,10 +259,10 @@ function err400(msg) { const e = new Error(msg); e.code = 400; return e; }
 // ensuite le choix (fusionné avec l'existant) pour que l'UI le reflète même après la mort du
 // tmux — l'effort réel reste de toute façon confirmé par la statusline au render suivant.
 function setModelEffort(pane, { model, effort, sessionId }, cb) {
-  if (!/^%\d+$/.test(pane || '')) return cb(err400('pane invalide'));
-  if (model && !isValidModelArg(model)) return cb(err400('modèle inconnu : ' + model));
-  if (effort && !EFFORTS.includes(effort)) return cb(err400('effort inconnu : ' + effort));
-  if (!model && !effort) return cb(err400('modèle ou effort requis'));
+  if (!/^%\d+$/.test(pane || '')) return cb(err400('invalid pane'));
+  if (model && !isValidModelArg(model)) return cb(err400('unknown model: ' + model));
+  if (effort && !EFFORTS.includes(effort)) return cb(err400('unknown effort: ' + effort));
+  if (!model && !effort) return cb(err400('model or effort required'));
   const cmds = [];
   if (model) cmds.push('/model ' + model);
   if (effort) cmds.push('/effort ' + effort);
@@ -296,20 +296,20 @@ function launchSession({ resumeId, cwd, prompt, model, effort, worktree, permiss
   let dir = cwd && typeof cwd === 'string' ? cwd : null;
   let id = null;
   if (resumeId) {
-    if (!/^[A-Za-z0-9._-]+$/.test(resumeId)) return cb(err400('id de session invalide'));
+    if (!/^[A-Za-z0-9._-]+$/.test(resumeId)) return cb(err400('invalid session id'));
     const sess = scanSessions().find((s) => s.id === resumeId);
-    if (!sess) return cb(err400('session introuvable'));
+    if (!sess) return cb(err400('session not found'));
     dir = dir || sess.project; // on reprend dans le dossier d'origine de la session
     id = resumeId;
   }
-  if (!dir) return cb(err400('dossier (cwd) requis'));
+  if (!dir) return cb(err400('directory (cwd) required'));
   const st = statSafe(dir);
-  if (!st || !st.isDirectory()) return cb(err400('cwd invalide : ' + dir));
+  if (!st || !st.isDirectory()) return cb(err400('invalid cwd: ' + dir));
 
   // model/effort : validés contre une liste blanche (sécurise l'injection shell ET rejette l'inconnu).
-  if (model && !isValidModelArg(model)) return cb(err400('modèle inconnu : ' + model));
-  if (effort && !EFFORTS.includes(effort)) return cb(err400('effort inconnu : ' + effort));
-  if (permissionMode && !LAUNCH_PERMISSION_MODES.includes(permissionMode)) return cb(err400('mode de permission inconnu : ' + permissionMode));
+  if (model && !isValidModelArg(model)) return cb(err400('unknown model: ' + model));
+  if (effort && !EFFORTS.includes(effort)) return cb(err400('unknown effort: ' + effort));
+  if (permissionMode && !LAUNCH_PERMISSION_MODES.includes(permissionMode)) return cb(err400('unknown permission mode: ' + permissionMode));
   // worktree : sans objet sur une reprise (la session est rouverte dans son dossier d'origine).
   const useWorktree = !!worktree && !id;
   let flags = '';
@@ -334,7 +334,7 @@ function launchSession({ resumeId, cwd, prompt, model, effort, worktree, permiss
   const rows = parseInt(process.env.HOOKED_TMUX_ROWS || '', 10) || 64;
 
   execFile('tmux', ['new-session', '-d', '-x', String(cols), '-y', String(rows), '-s', name, '-c', dir, shellCmd], (e1) => {
-    if (e1) return cb(new Error('tmux new-session a échoué : ' + (e1.message || e1)));
+    if (e1) return cb(new Error('tmux new-session failed: ' + (e1.message || e1)));
     // mémorise modèle/effort choisis pour pouvoir les afficher sur la session live.
     try {
       fs.appendFileSync(LAUNCHES_FILE, JSON.stringify({ ts: new Date().toISOString(), tmux: name, cwd: dir, model: model || null, effort: effort || null, worktree: useWorktree }) + '\n');
@@ -356,10 +356,10 @@ function launchSession({ resumeId, cwd, prompt, model, effort, worktree, permiss
 // Stoppe la session : on tue le pane tmux où tourne claude.
 function killSession(id, cb) {
   const pane = paneForSession(id);
-  if (!pane) return cb(err400('pane tmux inconnu pour cette session (lancée hors tmux ?)'));
-  if (!/^%\d+$/.test(pane)) return cb(err400('pane invalide'));
+  if (!pane) return cb(err400('unknown tmux pane for this session (launched outside tmux?)'));
+  if (!/^%\d+$/.test(pane)) return cb(err400('invalid pane'));
   execFile('tmux', ['kill-pane', '-t', pane], (e) => {
-    if (e) return cb(new Error('tmux kill-pane a échoué : ' + (e.message || e)));
+    if (e) return cb(new Error('tmux kill-pane failed: ' + (e.message || e)));
     cb(null, { pane });
   });
 }

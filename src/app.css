@@ -906,6 +906,28 @@ textarea.lf-input { font-family: inherit; resize: vertical; }
 .diff-split .dl.del { background: var(--diff-del-bg); color: var(--diff-del-fg); }
 .diff-split .dl.add { background: var(--diff-add-bg); color: var(--diff-add-fg); }
 .diff-split .dl.nil { background: var(--bg3); }
+/* Pierre diffs (@pierre/diffs, shadow DOM): bound the height like the old rendering */
+.pierre-diff { display: block; border-radius: 8px; overflow: hidden; max-height: 420px; overflow-y: auto; }
+/* conversation: inline diff, uncollapsed by default, clamped with a fade + "Show more" */
+.tool-diff { flex-basis: 100%; width: 100%; }
+.td-diff { position: relative; margin-top: 4px; }
+.td-diff .diff-tag { padding: 2px 2px 4px; }
+.td-diff .pierre-diff { max-height: none; overflow: visible; }
+.td-diff.clamped { max-height: 260px; overflow: hidden; }
+.td-diff.clamped::after {
+  content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: 42px;
+  background: linear-gradient(transparent, var(--bg)); pointer-events: none;
+}
+.chip-diff.clickable { cursor: pointer; }
+.chip-diff.clickable:hover { background: rgba(176,90,52,.2); }
+.tool-diff.expanded .chip-x { transform: rotate(90deg); }
+.diff-more {
+  display: block; width: 100%; margin-top: 4px; padding: 3px 0;
+  font-family: inherit; font-size: 11px; font-weight: 700; color: var(--muted);
+  background: var(--bg3); border: 1px solid var(--border); border-radius: 8px; cursor: pointer;
+  transition: background .12s, color .12s;
+}
+.diff-more:hover { background: var(--bg2); color: var(--text); }
 
 /* ---------- auto-complétion @fichier (composer) ---------- */
 .at-pop {
