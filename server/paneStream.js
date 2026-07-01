@@ -162,7 +162,7 @@ function stopStream(pane) {
 // Abonne un client SSE au flux d'un pane. `send(event, data)` enquile une frame SSE. Renvoie une
 // fonction de désinscription (coupe le pipe au dernier abonné).
 function subscribePaneStream(pane, send) {
-  if (!/^%\d+$/.test(pane || '')) { send('error', 'pane invalide'); return () => {}; }
+  if (!/^%\d+$/.test(pane || '')) { send('error', 'invalid pane'); return () => {}; }
   let st = streams.get(pane);
   if (!st) st = startStream(pane);
   sendSnapshot(pane, st, send); // ajoute aux abonnés après le snapshot (cf. sendSnapshot)
