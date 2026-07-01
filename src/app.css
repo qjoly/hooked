@@ -138,8 +138,21 @@ header {
   flex: 0 0 auto;
   z-index: 10;
 }
-.brand { font-size: 15px; font-weight: 700; letter-spacing: -.01em; display: flex; align-items: center; gap: 8px; }
-.brand span { color: var(--accent); }
+.brand { font-size: 15px; font-weight: 700; letter-spacing: -.01em; display: flex; align-items: center; gap: 8px; perspective: 400px; }
+.brand span {
+  color: var(--accent);
+  display: inline-block;
+  transform-style: preserve-3d;
+  will-change: transform;
+}
+.brand:hover span {
+  animation: brand-spin 1.6s linear infinite;
+}
+@keyframes brand-spin {
+  0%   { transform: rotateY(0deg); }
+  100% { transform: rotateY(360deg); }
+}
+@media (prefers-reduced-motion: reduce) { .brand:hover span { animation: none; } }
 .tabs { display: flex; gap: 3px; background: var(--bg3); padding: 3px; border-radius: 10px; }
 .tab {
   background: transparent; color: var(--muted); border: none; text-decoration: none;
