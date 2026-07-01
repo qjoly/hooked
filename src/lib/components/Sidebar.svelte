@@ -194,12 +194,12 @@
 </aside>
 
 {#snippet srow(s)}
-  <div class="srow s-{s.state}" class:has-q={s.hasQuestion} class:active={page.params.id === s.id}
+  <div class="srow s-{s.state}" class:has-q={s.hasQuestion || s.hasPlan} class:active={page.params.id === s.id}
        onclick={() => goto('/session/' + encodeURIComponent(s.id))}>
     <span class="sdot"></span>
     <div class="srow-main">
       <div class="srow-title">
-        {#if s.hasQuestion}<span class="q-flag" title="Claude is awaiting your reply">⌨</span>{/if}{sessionTitle(s)}
+        {#if s.hasQuestion}<span class="q-flag" title="Claude is awaiting your reply">⌨</span>{/if}{#if s.hasPlan}<span class="q-flag" title="Plan awaiting approval">📋</span>{/if}{sessionTitle(s)}
       </div>
       <div class="srow-sub">{#if s.gitBranch}{s.gitBranch} · {/if}{ago(s.lastActivity)}</div>
       {#if sessionTags(s.id).length}
