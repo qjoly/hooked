@@ -40,7 +40,7 @@ const MODELS = ['opus', 'sonnet', 'haiku', 'fable'];
 // Argument `--model` accepté : alias de famille (`opus`) ou version explicite (`opus-4-7`).
 // Regex stricte (anti-injection) : la valeur est interpolée dans une commande shell par
 // launchSession et tapée dans `/model <name>` par setModelEffort.
-const MODEL_ARG_RE = /^claude-(opus|sonnet|haiku|fable)(-\d{1,2}(-\d{1,2})?)?$/;
+const MODEL_ARG_RE = /^(claude-)?(opus|sonnet|haiku|fable)(-\d{1,2}(-\d{1,2})?)?$/;
 const isValidModelArg = (m) => typeof m === 'string' && MODEL_ARG_RE.test(m);
 const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];
 

@@ -7,6 +7,9 @@
 
   // sélection courante par question : index unique (mono) ou tableau d'index (multi)
   let pick = $state([]);
+  // notes d'annotation, clé `${qi}:${oi}` → texte. Plusieurs options peuvent être annotées
+  // (utile sur une question à choix multiple : une note par option cochée).
+  let notes = $state({});
   // On ne réinitialise `pick` que lorsque la question change *vraiment* (pq.id stable),
   // pas à chaque refetch live (le parent réassigne `pq` à chaque tick tant que la
   // session est « working ») — sinon la sélection en cours serait effacée et le bouton
@@ -16,11 +19,45 @@
     if (pq.id === lastId) return;
     lastId = pq.id;
     pick = questions.map((q) => (q.multiSelect ? [] : null));
+    notes = {};
   });
 
   let sent = $state(false);
   let recap = $state({ text: '', cls: '' });
   let sending = $state(false);
+
+  // Annotation : « prendre l'idée de Claude en y ajoutant une note ». Le ✎ d'une option la
+  // sélectionne et ouvre sa propre note ; sur une question à choix multiple on peut donc annoter
+  // plusieurs options, chacune sa note. À l'envoi, s'il existe au moins une note, on répond en
+  // texte libre listant les choix + leurs notes (le TUI AskUserQuestion accepte une réponse libre).
+  // Les notes sont lues directement à l'envoi (pas d'étape « add ») → jamais perdues.
+  const nkey = (qi, oi) => qi + ':' + oi;
+  const hasNote = (qi, oi) => nkey(qi, oi) in notes;
+  const anyNote = $derived(Object.values(notes).some((t) => t && t.trim()));
+  function selectOption(qi, oi) {
+    if (questions[qi].multiSelect) { if (!pick[qi]?.includes(oi)) pick[qi] = [...(pick[qi] || []), oi]; }
+    else pick[qi] = oi;
+    pick = [...pick];
+  }
+  function toggleNote(qi, oi) {
+    if (sent || sending) return;
+    const k = nkey(qi, oi);
+    if (k in notes) { delete notes[k]; notes = { ...notes }; }       // ✎ à nouveau → retire la note
+    else { selectOption(qi, oi); notes[k] = ''; notes = { ...notes }; }
+  }
+  // message de suivi : une ligne par option annotée (la sélection cochée dit déjà QUOI ; la note
+  // apporte le POURQUOI). N'inclut que les options qui portent réellement une note.
+  function composeNotes() {
+    const lines = [];
+    questions.forEach((q, qi) => {
+      const sels = q.multiSelect ? (pick[qi] || []) : (pick[qi] != null ? [pick[qi]] : []);
+      for (const oi of [...sels].sort((a, b) => a - b)) {
+        const note = (notes[nkey(qi, oi)] || '').trim();
+        if (note) lines.push(`- «${q.options[oi] ? q.options[oi].label : ''}» — ${note}`);
+      }
+    });
+    return lines.length ? 'Notes on my selection:\n' + lines.join('\n') : '';
+  }
 
   const isSel = (qi, oi) => (questions[qi].multiSelect ? pick[qi]?.includes(oi) : pick[qi] === oi);
 
@@ -72,10 +109,13 @@
     if (!labels.length) return;
     sending = true;
     recap = { text: '', cls: '' };
-    const res = await replyQuestion(id, selections).catch((e) => ({ ok: false, data: { error: e.message } }));
+    // Toujours cocher/valider les options via la navigation clavier (le texte libre seul ne coche
+    // rien sur un multi-select). Les notes, si présentes, partent en message de suivi côté serveur.
+    const res = await replyQuestion(id, selections, anyNote ? composeNotes() : '')
+      .catch((e) => ({ ok: false, data: { error: e.message } }));
     if (res.ok) {
       sent = true;
-      recap = { text: '✓ sent: ' + labels.join('  ·  '), cls: 'ok' };
+      recap = { text: '✓ sent: ' + labels.join('  ·  ') + (anyNote ? '  (+ notes)' : ''), cls: 'ok' };
       setTimeout(() => { loadSessions(); ui.tick++; }, 600);
     } else {
       recap = { text: '✗ ' + (res.data.error || 'failed'), cls: 'err' };
@@ -97,14 +137,27 @@
                <label> avec un handler de clic se déclenche DEUX fois (clic direct + relais du
                label) → toggle annulé. preventDefault empêche la bascule native ; l'input n'est
                plus que l'indicateur visuel piloté par `checked={isSel(...)}`. -->
-          <label class="q-opt" class:sel={isSel(qi, oi)} onclick={(e) => { e.preventDefault(); toggle(qi, oi); }}>
-            <input type={q.multiSelect ? 'checkbox' : 'radio'} name="q-{qi}" value={oi} disabled={sent}
-                   checked={isSel(qi, oi)} tabindex="-1" />
-            <span class="q-opt-body">
-              <span class="q-opt-label">{o.label}</span>
-              {#if o.description}<span class="q-opt-desc">{o.description}</span>{/if}
-            </span>
-          </label>
+          <div class="q-opt-wrap">
+            <div class="q-opt-row">
+              <label class="q-opt" class:sel={isSel(qi, oi)} onclick={(e) => { e.preventDefault(); toggle(qi, oi); }}>
+                <input type={q.multiSelect ? 'checkbox' : 'radio'} name="q-{qi}" value={oi} disabled={sent}
+                       checked={isSel(qi, oi)} tabindex="-1" />
+                <span class="q-opt-body">
+                  <span class="q-opt-label">{o.label}</span>
+                  {#if o.description}<span class="q-opt-desc">{o.description}</span>{/if}
+                </span>
+              </label>
+              <button class="q-annotate" class:on={hasNote(qi, oi)}
+                      title="Take this option and add a note" disabled={sent} onclick={() => toggleNote(qi, oi)}>✎</button>
+            </div>
+            {#if hasNote(qi, oi)}
+              <div class="q-note">
+                <textarea bind:value={notes[qi + ':' + oi]} rows="2"
+                          placeholder="Note on «{o.label}» — sent with your choice…"
+                          onkeydown={(e) => { if (e.key === 'Escape') toggleNote(qi, oi); }}></textarea>
+              </div>
+            {/if}
+          </div>
         {/each}
       </div>
     </div>
@@ -114,3 +167,18 @@
     <button class="reply-send" disabled={!allAnswered || sending || sent} onclick={send}>Send ↩</button>
   </div>
 </div>
+
+<style>
+  .q-opt-row { display: flex; align-items: stretch; gap: 6px; }
+  .q-opt-row :global(.q-opt) { flex: 1; }
+  .q-annotate {
+    flex-shrink: 0; width: 36px; border: 1px solid var(--border); border-radius: 12px;
+    background: var(--bg2); color: var(--muted); cursor: pointer; font-size: 14px;
+    transition: border-color .12s, color .12s, background .12s;
+  }
+  .q-annotate:hover:not(:disabled) { border-color: var(--accent); color: var(--accent-d); }
+  .q-annotate.on { border-color: var(--accent); color: #fff; background: var(--accent); }
+  .q-annotate:disabled { opacity: .5; cursor: default; }
+  .q-note { margin-top: 6px; padding-left: 27px; }
+  .q-note textarea { width: 100%; font: inherit; font-size: 13px; padding: 6px 8px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--text); resize: vertical; box-sizing: border-box; }
+</style>

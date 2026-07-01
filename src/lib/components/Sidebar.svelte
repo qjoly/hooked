@@ -202,6 +202,9 @@
         {#if s.hasQuestion}<span class="q-flag" title="Claude is awaiting your reply">⌨</span>{/if}{#if s.hasPlan}<span class="q-flag" title="Plan awaiting approval">📋</span>{/if}{sessionTitle(s)}
       </div>
       <div class="srow-sub">{#if s.gitBranch}{s.gitBranch} · {/if}{ago(s.lastActivity)}</div>
+      {#if s.state === 'working' && s.activity}
+        <div class="srow-activity" title="Claude is working">✻ {s.activity}…</div>
+      {/if}
       {#if sessionTags(s.id).length}
         <div class="srow-tags">{#each sessionTags(s.id) as t}<span class="stag" style="--h:{tagHue(t)}">{t}<button class="stag-x" title="Remove tag" onclick={(e) => { e.stopPropagation(); setSessionTags(s.id, sessionTags(s.id).filter((x) => x !== t)); }}>✕</button></span>{/each}</div>
       {/if}
