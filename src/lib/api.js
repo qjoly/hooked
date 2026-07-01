@@ -22,6 +22,9 @@ export const getDefaults = () => jget('/api/defaults');
 // Réglages persistants de hooked (settings.json côté serveur, partagés entre navigateurs).
 export const getSettings = () => jget('/api/settings');
 export const saveSettings = (patch) => jpost('/api/settings', patch);
+// Force a live-state resync: re-reads every session's tmux pane at cold (drops the caches) to fix a
+// stale status (e.g. a session stuck on "working" after its tmux was closed). Returns state counts.
+export const resync = () => jpost('/api/resync', {});
 
 export const reply = (id, text) => jpost('/api/reply', { id, text });
 // Réponse à un AskUserQuestion : on transmet les indices sélectionnés par question

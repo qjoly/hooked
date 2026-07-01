@@ -46,11 +46,15 @@ function eventOnlySessions(knownIds, now = Date.now()) {
 
 // Affinage de l'état déduit des hooks par une lecture du pane vivant. Les hooks ne signalent pas la
 // réflexion/le streaming (aucun event entre deux outils) → une session qui mouline longtemps tombe à
-// tort en 'idle', et une session finie sans Stop capté reste 'working'. « esc to interrupt » présent
-// ⇒ Claude bosse (working) ; absent alors qu'on le croyait actif ⇒ il attend (waiting). On ne touche
-// jamais 'attention' (plan/question/permission) ni 'ended' ; pane injoignable ⇒ on garde l'état hook.
+// tort en 'idle', et une session finie sans Stop capté reste 'working'. La ligne spinner du footer
+// présente ⇒ Claude bosse (working) ; absente alors qu'on le croyait actif ⇒ il attend (waiting).
+// On ne touche jamais 'attention' (plan/question/permission) ni 'ended'.
+//
+// Pane MORT (tmux fermé) : aucun process ne tourne, la session ne PEUT pas être 'working' — un
+// 'working' hérité d'un dernier hook sans Stop/SessionEnd capté est périmé → on le rétrograde en
+// 'waiting' (à relancer / en attente de toi). Les autres états (idle/attention/ended/past) restent.
 function refineWithPane(state, pane, alive) {
-  if (!alive) return state;
+  if (!alive) return state === 'working' ? 'waiting' : state;
   const busy = paneBusySync(pane);
   if (busy === true && (state === 'working' || state === 'idle' || state === 'waiting')) return 'working';
   if (busy === false && (state === 'working' || state === 'idle')) return 'waiting';
