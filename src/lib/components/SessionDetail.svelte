@@ -3,7 +3,7 @@
   import { goto } from '$app/navigation';
   import { ui, data, loadSessions, openModal, sessionTitle, renameSession, toggleFocus } from '$lib/state.svelte.js';
   import { getSession, kill, setMode, setModelEffort, openInVscode, openInGhostty, fork, showInPane, killPane } from '$lib/api.js';
-  import { STATE_LABEL, fmtCost, fmtTokens, fmtDuration, ago, shortModel, prLabel, PERMISSION_MODES, modeLabel, modeMeta, modelAlias } from '$lib/format.js';
+  import { STATE_LABEL, fmtCost, fmtTokens, fmtDuration, shortModel, prLabel, PERMISSION_MODES, modeLabel, modeMeta, modelAlias } from '$lib/format.js';
   import ModelEffort from './ModelEffort.svelte';
   import ChatBubble from './ChatBubble.svelte';
   import Question from './Question.svelte';
@@ -53,7 +53,6 @@
   let queued = $state([]);
   let forceBottom = false;          // force le scroll en bas au prochain rendu (envoi d'un message)
 
-  const events = $derived(s ? (s.events || []).slice().reverse() : []);
   const shownPanes = $derived(s ? (s.shownPanes || []) : []);
 
   // Liste des terminaux de l'onglet : le pane Claude Code lui-même (si son tmux est vivant) +
@@ -402,8 +401,9 @@
       {#if (s.todos || []).length}
         <button class="subtab" class:active={tab === 'todos'} onclick={() => (tab = 'todos')}>✅ Tâches <span class="count">{(s.todos || []).length}</span></button>
       {/if}
-      <button class="subtab" class:active={tab === 'subagents'} onclick={() => (tab = 'subagents')}>🤖 Sous-agents <span class="count">{(s.subagents || []).length}</span></button>
-      <button class="subtab" class:active={tab === 'activity'} onclick={() => (tab = 'activity')}>🪝 Activité <span class="count">{events.length}</span></button>
+      {#if (s.subagents || []).length}
+        <button class="subtab" class:active={tab === 'subagents'} onclick={() => (tab = 'subagents')}>🤖 Sous-agents <span class="count">{(s.subagents || []).length}</span></button>
+      {/if}
       {#if terminals.length}
         <button class="subtab" class:active={tab === 'terminal'} onclick={() => (tab = 'terminal')}>🖥 Terminal <span class="count">{terminals.length}</span></button>
       {/if}
@@ -485,20 +485,6 @@
       {:else}
         <div class="pane-empty">Aucun terminal disponible (session tmux fermée).</div>
       {/if}
-    </div>
-
-    <div class="pane" class:active={tab === 'activity'}>
-      <div class="timeline">
-        {#if events.length}
-          {#each events as e, i (e.ts + ':' + i)}
-            <div class="ev">
-              <b>{e.event}</b>{#if e.tool} <span class="tool">{e.tool}</span>{/if}{#if e.message} — {e.message.slice(0, 90)}{/if}<span class="t">{ago(e.ts)}</span>
-            </div>
-          {/each}
-        {:else}
-          <div class="empty">Pas d'évènement de hook.</div>
-        {/if}
-      </div>
     </div>
   </div>
 {/if}
