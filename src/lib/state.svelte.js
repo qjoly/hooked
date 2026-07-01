@@ -26,12 +26,13 @@ export const ui = $state({
   tick: 0,                   // incrémenté à chaque évènement live → relance les effets
   theme: readTheme(),        // 'system' | 'light' | 'dark' (persisté à part, cf. app.html)
   notify: persisted.notify ?? false,    // notifications navigateur (session finie / en attente de toi)
+  diffSplit: persisted.diffSplit ?? false, // render conversation diffs side-by-side (split) instead of unified
 });
 
 if (typeof localStorage !== 'undefined') {
   $effect.root(() => {
     $effect(() => {
-      const snapshot = { hideOld: ui.hideOld, collapsed: ui.collapsed, pinned: ui.pinned, names: ui.names, tags: ui.tags, focus: ui.focus, notify: ui.notify };
+      const snapshot = { hideOld: ui.hideOld, collapsed: ui.collapsed, pinned: ui.pinned, names: ui.names, tags: ui.tags, focus: ui.focus, notify: ui.notify, diffSplit: ui.diffSplit };
       try { localStorage.setItem(LS_KEY, JSON.stringify(snapshot)); } catch {}
     });
   });

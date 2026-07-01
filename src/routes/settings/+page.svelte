@@ -62,6 +62,15 @@
     </div>
 
     <div class="card">
+      <h2>Conversation diffs</h2>
+      <p class="hint">How file edits render inline in the conversation. (Per-browser preference.)</p>
+      <div class="chips">
+        <button class="chip" class:active={!ui.diffSplit} onclick={() => (ui.diffSplit = false)}>▤ Unified</button>
+        <button class="chip" class:active={ui.diffSplit} onclick={() => (ui.diffSplit = true)}>▥ Side-by-side</button>
+      </div>
+    </div>
+
+    <div class="card">
       <h2>Session subtab order</h2>
       <p class="hint">Determines the display order — and which available tab opens first when arriving on a session.</p>
       <ul class="reorder">
