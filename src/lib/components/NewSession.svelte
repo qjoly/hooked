@@ -37,6 +37,7 @@
       const d = await getDefaults();
       if (d?.model) model = d.model;
       if (d?.effort) effort = d.effort;
+      if (d?.mode) mode = d.mode;
     } catch (_) {}
   });
 
