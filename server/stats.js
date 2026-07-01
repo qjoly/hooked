@@ -201,6 +201,17 @@ function buildBackgroundView() {
   return { jobs: rows, count: rows.length };
 }
 
+// Résout le chemin du fichier .output d'un job de fond À PARTIR de (session, taskId) — côté serveur.
+// Le client ne fournit JAMAIS un chemin brut (anti path-traversal) : on relit les jobs détectés de
+// la session et on ne renvoie que le outputPath qu'on a nous-mêmes extrait du transcript. null sinon.
+function resolveBackgroundOutput(sessionId, taskId) {
+  if (!sessionId || !taskId) return null;
+  const s = scanSessions().find((x) => x.id === sessionId);
+  if (!s || !s.file) return null;
+  const job = buildBackgroundJobs(s.file).jobs.find((j) => j.taskId === taskId);
+  return job && job.outputPath ? job.outputPath : null;
+}
+
 function sessionDetail(id) {
   const sessions = scanSessions();
   let s = sessions.find((x) => x.id === id);
@@ -263,4 +274,4 @@ function sessionByPane(pane) {
   return sessionDetail(id);
 }
 
-export { buildSessions, buildStats, buildUsage, sessionDetail, sessionByPane, eventOnlySessions, withBackgroundState, buildBackgroundView };
+export { buildSessions, buildStats, buildUsage, sessionDetail, sessionByPane, eventOnlySessions, withBackgroundState, buildBackgroundView, resolveBackgroundOutput };
