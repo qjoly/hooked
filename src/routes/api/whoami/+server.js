@@ -6,8 +6,8 @@ import { sessionByPane } from '$lib/server/core.js';
 // le pane est la seule identité qu'elle porte dans son environnement.
 export function GET({ url }) {
   const pane = url.searchParams.get('pane');
-  if (!pane) return json({ error: 'paramètre `pane` requis (ex. $TMUX_PANE)' }, { status: 400 });
+  if (!pane) return json({ error: '`pane` parameter required (e.g. $TMUX_PANE)' }, { status: 400 });
   const d = sessionByPane(pane);
-  if (!d) return json({ error: 'aucune session hooked connue pour ce pane', pane }, { status: 404 });
+  if (!d) return json({ error: 'no known hooked session for this pane', pane }, { status: 404 });
   return json(d);
 }

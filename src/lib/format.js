@@ -13,11 +13,11 @@ export function fmtCost(n) { return '$' + (n || 0).toFixed(n >= 100 ? 0 : 2); }
 export function ago(ts) {
   if (!ts) return '—';
   const s = Math.max(0, (Date.now() - Date.parse(ts)) / 1000);
-  if (s < 10) return 'à l\'instant';
-  if (s < 60) return `il y a ${Math.floor(s)}s`;
-  if (s < 3600) return `il y a ${Math.floor(s / 60)} min`;
-  if (s < 86400) return `il y a ${Math.floor(s / 3600)} h`;
-  return `il y a ${Math.floor(s / 86400)} j`;
+  if (s < 10) return 'just now';
+  if (s < 60) return `${Math.floor(s)}s ago`;
+  if (s < 3600) return `${Math.floor(s / 60)} min ago`;
+  if (s < 86400) return `${Math.floor(s / 3600)} h ago`;
+  return `${Math.floor(s / 86400)} d ago`;
 }
 export const shortModel = (m) => (m || '').replace(/^claude-/, '');
 
@@ -27,9 +27,9 @@ export const shortModel = (m) => (m || '').replace(/^claude-/, '');
 // `(opus|sonnet|haiku|fable)(-\d{1,2}(-\d{1,2})?)?`) — toute version nouvellement publiée par
 // Claude Code n'a qu'à être ajoutée ici, pas besoin de toucher au serveur.
 export const MODEL_GROUPS = [
-  { label: 'Opus', opts: [['opus', 'Opus (défaut)'], ['claude-opus-4-8', '4.8'], ['claude-opus-4-7', '4.7'], ['claude-opus-4-6', '4.6'], ['claude-opus-4-5', '4.5']] },
-  { label: 'Sonnet', opts: [['sonnet', 'Sonnet (défaut)'], ['claude-sonnet-4-6', '4.6'], ['claude-sonnet-4-5', '4.5']] },
-  { label: 'Haiku', opts: [['haiku', 'Haiku (défaut)'], ['claude-haiku-4-5', '4.5']] },
+  { label: 'Opus', opts: [['opus', 'Opus (default)'], ['claude-opus-4-8', '4.8'], ['claude-opus-4-7', '4.7'], ['claude-opus-4-6', '4.6'], ['claude-opus-4-5', '4.5']] },
+  { label: 'Sonnet', opts: [['sonnet', 'Sonnet (default)'], ['claude-sonnet-4-6', '4.6'], ['claude-sonnet-4-5', '4.5']] },
+  { label: 'Haiku', opts: [['haiku', 'Haiku (default)'], ['claude-haiku-4-5', '4.5']] },
   { label: 'Fable', opts: [['claude-fable-5', 'Fable']] },
 ];
 // Liste plate de toutes les options valides, triée par clé décroissante pour que `modelAlias`
@@ -56,8 +56,8 @@ export function fmtDuration(min) {
 }
 
 export const STATE_LABEL = {
-  working: 'Claude travaille', waiting: 'En attente de toi', attention: 'Action requise',
-  idle: 'En pause', ended: 'Terminée', past: 'Passée',
+  working: 'Claude is working', waiting: 'Waiting for you', attention: 'Action required',
+  idle: 'Paused', ended: 'Ended', past: 'Past',
 };
 
 export const LIVE_STATES = ['working', 'waiting', 'attention', 'idle'];
@@ -66,12 +66,12 @@ export const LIVE_STATES = ['working', 'waiting', 'attention', 'idle'];
 // La vue par défaut (« Actives ») n'inclut PAS les sessions terminées (ended/past, p. ex.
 // quand on a tué le pane) : elles restent accessibles via le filtre « Terminées ».
 export const STATUS_FILTERS = [
-  { key: 'all', label: 'Actives', states: LIVE_STATES },
+  { key: 'all', label: 'Active', states: LIVE_STATES },
   { key: 'attention', label: '🔴 Action', states: ['attention'] },
-  { key: 'waiting', label: '🟡 Attente', states: ['waiting'] },
-  { key: 'working', label: '🔵 Travaille', states: ['working'] },
-  { key: 'idle', label: '🕘 En pause', states: ['idle'] },
-  { key: 'done', label: '✓ Terminées', states: ['ended', 'past'] },
+  { key: 'waiting', label: '🟡 Waiting', states: ['waiting'] },
+  { key: 'working', label: '🔵 Working', states: ['working'] },
+  { key: 'idle', label: '🕘 Paused', states: ['idle'] },
+  { key: 'done', label: '✓ Ended', states: ['ended', 'past'] },
 ];
 export function filterMatches(f, state) { return !f.states || f.states.includes(state); }
 // Multi-sélection : un état matche si AU MOINS un des filtres sélectionnés le couvre (union).
@@ -89,14 +89,14 @@ export function filterMatchesAny(keys, state) {
 // la statusline ne le porte pas. Les valeurs possibles : default / plan / acceptEdits / auto /
 // dontAsk / bypassPermissions.
 export const MODE_META = {
-  default: { label: 'Normal', icon: '●', title: 'Claude demande la permission avant chaque action sensible' },
-  plan: { label: 'Plan', icon: '⏸', title: 'Mode plan : Claude réfléchit et propose sans rien modifier' },
-  acceptEdits: { label: 'Auto-edits', icon: '⏵⏵', title: 'Claude applique les éditions de fichiers sans confirmation' },
-  auto: { label: 'Auto', icon: '⚡', title: 'Mode auto : Claude approuve automatiquement les actions sans confirmation' },
-  dontAsk: { label: 'Sans demande', icon: '🔕', title: 'Claude refuse automatiquement ce qui n’est pas pré-autorisé' },
-  bypassPermissions: { label: 'Bypass', icon: '⛔', title: 'Claude saute les permissions (sauf règles « ask » explicites)' },
+  default: { label: 'Normal', icon: '●', title: 'Claude asks for permission before each sensitive action' },
+  plan: { label: 'Plan', icon: '⏸', title: 'Plan mode: Claude thinks and proposes without changing anything' },
+  acceptEdits: { label: 'Auto-edits', icon: '⏵⏵', title: 'Claude applies file edits without confirmation' },
+  auto: { label: 'Auto', icon: '⚡', title: 'Auto mode: Claude automatically approves actions without confirmation' },
+  dontAsk: { label: 'Don\'t ask', icon: '🔕', title: 'Claude automatically denies anything not pre-authorized' },
+  bypassPermissions: { label: 'Bypass', icon: '⛔', title: 'Claude skips permissions (except explicit "ask" rules)' },
 };
-export const modeMeta = (k) => MODE_META[k] || { label: k || '—', icon: '·', title: 'Mode de permission' };
+export const modeMeta = (k) => MODE_META[k] || { label: k || '—', icon: '·', title: 'Permission mode' };
 export const modeLabel = (k) => modeMeta(k).label;
 
 // Modes proposés dans le sélecteur, dans l'ordre réel du cycle Maj+Tab (Normal → Auto → Plan).

@@ -6,13 +6,13 @@
   }
 </script>
 
-<h2 style="margin:0 0 10px">✓ Session {d.forkedFrom ? 'forkée' : d.resume ? 'reprise' : 'lancée'}</h2>
+<h2 style="margin:0 0 10px">✓ Session {d.forkedFrom ? 'forked' : d.resume ? 'resumed' : 'launched'}</h2>
 <p style="color:var(--muted);font-size:12.5px;line-height:1.6;margin:0 0 14px">
-  <code>claude{d.resume ? ' --resume ' + d.resume.slice(0, 8) + '…' : ''}{d.worktree ? ' --worktree' : ''}</code> tourne dans la session tmux
-  <b>{d.tmux}</b><br>dossier <code>{d.cwd}</code>{d.worktree ? ' (git worktree dédié)' : ''}. Attache-toi :</p>
+  <code>claude{d.resume ? ' --resume ' + d.resume.slice(0, 8) + '…' : ''}{d.worktree ? ' --worktree' : ''}</code> is running in tmux session
+  <b>{d.tmux}</b><br>folder <code>{d.cwd}</code>{d.worktree ? ' (dedicated git worktree)' : ''}. Attach:</p>
 <div class="attach-row">
   <code>{d.attach}</code>
-  <button class="reply-send" onclick={copy}>{copied === true ? '✓ copié' : copied === 'manual' ? 'copie manuelle' : 'Copier'}</button>
+  <button class="reply-send" onclick={copy}>{copied === true ? '✓ copied' : copied === 'manual' ? 'copy manually' : 'Copy'}</button>
 </div>
 <p style="color:var(--muted);font-size:12px;margin:14px 0 0">
-  Elle apparaîtra dans la liste dès le premier évènement de hook — tu pourras alors répondre directement depuis l'UI.</p>
+  It will appear in the list as soon as the first hook event fires — you can then reply directly from the UI.</p>

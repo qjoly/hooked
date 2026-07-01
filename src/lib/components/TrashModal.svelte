@@ -18,27 +18,27 @@
     const res = await restoreSession(it.id).catch(() => ({ ok: false }));
     busy = null;
     if (res.ok) { items = items.filter((x) => x.id !== it.id); loadSessions(); ui.tick++; }
-    else alert('✗ restauration échouée');
+    else alert('✗ restore failed');
   }
 </script>
 
 <div class="trash">
-  <h2>🗑 Corbeille</h2>
+  <h2>🗑 Trash</h2>
   {#if items === null}
-    <p class="muted">Chargement…</p>
+    <p class="muted">Loading…</p>
   {:else if !items.length}
-    <p class="muted">La corbeille est vide. Les sessions supprimées atterrissent ici et restent récupérables.</p>
+    <p class="muted">The trash is empty. Deleted sessions land here and stay recoverable.</p>
   {:else}
-    <p class="muted">{items.length} session{items.length > 1 ? 's' : ''} — transcript conservé dans <code>bin/</code>, restaurable à tout moment.</p>
+    <p class="muted">{items.length} session{items.length > 1 ? 's' : ''} — transcript kept in <code>bin/</code>, restorable anytime.</p>
     <ul>
       {#each items as it (it.id)}
         <li>
           <div class="tl-main">
-            <div class="tl-title">{it.title || it.firstPrompt || '(sans titre)'}</div>
-            <div class="tl-sub">{it.projectName || '?'} · supprimée {ago(it.trashedAt)}{#if it.cost} · {fmtCost(it.cost)}{/if}</div>
+            <div class="tl-title">{it.title || it.firstPrompt || '(untitled)'}</div>
+            <div class="tl-sub">{it.projectName || '?'} · deleted {ago(it.trashedAt)}{#if it.cost} · {fmtCost(it.cost)}{/if}</div>
           </div>
           <button class="tl-btn" disabled={busy === it.id} onclick={() => restore(it)}>
-            {busy === it.id ? '…' : '↩ Restaurer'}
+            {busy === it.id ? '…' : '↩ Restore'}
           </button>
         </li>
       {/each}
