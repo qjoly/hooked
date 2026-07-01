@@ -2,7 +2,7 @@
   import { onMount, onDestroy, tick, untrack } from 'svelte';
   import { goto } from '$app/navigation';
   import { ui, data, loadSessions, openModal, sessionTitle, renameSession, toggleFocus } from '$lib/state.svelte.js';
-  import { getSession, kill, setMode, setModelEffort, openInVscode, openInGhostty, fork, showInPane, killPane } from '$lib/api.js';
+  import { getSession, kill, setMode, setModelEffort, openInVscode, openInGhostty, fork, showInPane, killPane, deleteSession } from '$lib/api.js';
   import { STATE_LABEL, fmtCost, fmtTokens, fmtDuration, shortModel, prLabel, PERMISSION_MODES, modeLabel, modeMeta, modelAlias } from '$lib/format.js';
   import ModelEffort from './ModelEffort.svelte';
   import ChatBubble from './ChatBubble.svelte';
@@ -282,6 +282,14 @@
     if (res.ok) { setTimeout(() => { loadSessions(); ui.tick++; }, 800); }
     else { stopping = false; alert('✗ ' + (res.data.error || 'échec')); }
   }
+  let deleting = $state(false);
+  async function del() {
+    if (!confirm('Mettre cette session à la corbeille ?\nLe transcript est déplacé dans « bin/ » (récupérable), la session quitte le dashboard.')) return;
+    deleting = true;
+    const res = await deleteSession(s.id).catch((e) => ({ ok: false, data: { error: e.message } }));
+    if (res.ok) { loadSessions(); ui.tick++; goto('/'); }
+    else { deleting = false; alert('✗ ' + (res.data.error || 'échec')); }
+  }
   async function switchMode(target) {
     if (modeBusy || modeView === target) return;
     modeBusy = true;
@@ -341,6 +349,7 @@
       <button class="vscode-btn" style="margin-left:auto" disabled={vscodeBusy} onclick={openVscode} title="Ouvrir le projet entier dans VS Code">{vscodeBusy ? '⏳' : '⧉'} Open in VS Code</button>
       <button class="vscode-btn" disabled={ghosttyBusy} onclick={openGhostty} title="Ouvrir la session dans Ghostty (attache le tmux si vivant)">{ghosttyBusy ? '⏳' : '⧉'} Open in Ghostty</button>
       <button class="vscode-btn" class:on={ui.focus} onclick={toggleFocus} title="Mode focus : discussion plein écran (sidebar + header repliés)">⛶ {ui.focus ? 'Quitter' : 'Focus'}</button>
+      <button class="vscode-btn del-btn" disabled={deleting} onclick={del} title="Mettre à la corbeille : retire du dashboard ; transcript conservé dans bin/ (récupérable)">{deleting ? '⏳' : '🗑'} Supprimer</button>
       <span class="badge s-badge"><span class="bdot"></span>{STATE_LABEL[s.state] || s.state}</span>
     </div>
     {#if renaming}

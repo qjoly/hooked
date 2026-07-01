@@ -1,8 +1,8 @@
 <script>
   import { goto } from '$app/navigation';
   import { page } from '$app/state';
-  import { ui, data, loadSessions, togglePin, sessionTitle } from '$lib/state.svelte.js';
-  import { reply } from '$lib/api.js';
+  import { ui, data, loadSessions, togglePin, sessionTitle, openModal } from '$lib/state.svelte.js';
+  import { reply, deleteSession } from '$lib/api.js';
   import { STATUS_FILTERS, filterMatches, LIVE_STATES, ago, shortModel } from '$lib/format.js';
 
   // Réponse en 1 clic : on n'affiche les options inline que pour une question unique à choix
@@ -24,6 +24,17 @@
       setTimeout(() => { loadSessions(); ui.tick++; }, 600);
       setTimeout(() => { if (sentId === s.id) sentId = null; }, 2500);
     }
+  }
+
+  let deletingId = $state(null);
+  async function delSession(s) {
+    if (deletingId) return;
+    if (!confirm(`Mettre à la corbeille : « ${sessionTitle(s)} » ?\nLe transcript est déplacé dans bin/ (récupérable), la session quitte le dashboard.`)) return;
+    deletingId = s.id;
+    const res = await deleteSession(s.id).catch(() => ({ ok: false }));
+    deletingId = null;
+    if (res.ok) { loadSessions(); ui.tick++; }
+    else alert('✗ suppression échouée');
   }
 
   const sf = $derived(STATUS_FILTERS.find((f) => f.key === ui.statusFilter) || STATUS_FILTERS[0]);
@@ -132,6 +143,11 @@
       {/each}
     {/if}
   </div>
+
+  <div class="side-foot">
+    <button class="ov-btn trash-btn" onclick={() => openModal('trash')}
+            title="Voir la corbeille (sessions supprimées, récupérables)">🗑 Corbeille</button>
+  </div>
 </aside>
 
 {#snippet srow(s)}
@@ -166,5 +182,14 @@
     <button class="pin-btn" class:pinned={pinnedSet.has(s.id)}
             title={pinnedSet.has(s.id) ? 'Désépingler' : 'Épingler'}
             onclick={(e) => { e.stopPropagation(); togglePin(s.id); }}>📌</button>
+    <button class="pin-btn del-row" title="Mettre à la corbeille (transcript conservé dans bin/)"
+            disabled={deletingId === s.id}
+            onclick={(e) => { e.stopPropagation(); delSession(s); }}>🗑</button>
   </div>
 {/snippet}
+
+<style>
+  .side-foot { margin-top: auto; padding: 8px; }
+  .side-foot .trash-btn { width: 100%; opacity: .82; }
+  .side-foot .trash-btn:hover { opacity: 1; }
+</style>

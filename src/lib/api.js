@@ -33,6 +33,12 @@ export const launch = (payload) => jpost('/api/launch', payload);
 // indépendante (copie du préfixe du transcript) et la reprend dans une session tmux.
 export const fork = (payload) => jpost('/api/fork', payload);
 export const kill = (id) => jpost('/api/kill', { id });
+// Met une session à la corbeille : déplace le transcript dans <projet>/bin/ (récupérable),
+// la retire du dashboard. ≠ kill (qui ferme le pane tmux). Voir /api/delete.
+export const deleteSession = (id) => jpost('/api/delete', { id });
+// Corbeille : liste des sessions supprimées + restauration.
+export const getTrash = () => jget('/api/trash');
+export const restoreSession = (id) => jpost('/api/restore', { id });
 export const openInVscode = (id) => jpost('/api/open-vscode', { id });
 export const openInGhostty = (id) => jpost('/api/open-ghostty', { id });
 // Ouvre un pane/fenêtre tmux dans la session et y lance une commande (mirroir onglet Terminal).
