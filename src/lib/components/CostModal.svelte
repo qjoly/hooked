@@ -30,11 +30,11 @@
   const projRows = $derived(listRows(byProj));
 </script>
 
-<h2 style="margin:0 0 4px">💲 Coût API estimé — {fmtCost(tot)}</h2>
+<h2 style="margin:0 0 4px">💲 Estimated API cost — {fmtCost(tot)}</h2>
 <p style="color:var(--muted);font-size:12.5px;line-height:1.5;margin:0 0 18px">
-  Estimation API pay-as-you-go. En abonnement (Max/Pro), ce n'est <b>pas</b> ta facture réelle.
-  Tarifs : Fable 10/50, Opus 5/25, Sonnet 3/15, Haiku 1/5 $/Mtok ; cache write ×1.25, read ×0.1.</p>
-<h3 style="margin:0 0 12px">Par composant <span style="color:var(--muted);font-weight:400;font-size:12px">(coût · % · tokens)</span></h3>
+  Pay-as-you-go API estimate. On a subscription (Max/Pro), this is <b>not</b> your actual bill.
+  Rates: Fable 10/50, Opus 5/25, Sonnet 3/15, Haiku 1/5 $/Mtok; cache write ×1.25, read ×0.1.</p>
+<h3 style="margin:0 0 12px">By component <span style="color:var(--muted);font-weight:400;font-size:12px">(cost · % · tokens)</span></h3>
 {#each COMP as [label, key, col]}
   <div class="bar-row">
     <span class="label">{label}</span>
@@ -46,7 +46,7 @@
 {/each}
 <div class="cost-cols">
   <div>
-    <h3 style="margin:18px 0 12px">Par modèle</h3>
+    <h3 style="margin:18px 0 12px">By model</h3>
     {#if modelRows.length}
       {#each modelRows as r}
         <div class="bar-row"><span class="label" title={r.k}>{r.label}</span><span class="track"><span class="fill" style="width:{r.pct}%"></span></span><span class="val">{fmtCost(r.v)}</span></div>
@@ -54,7 +54,7 @@
     {:else}<div class="empty">—</div>{/if}
   </div>
   <div>
-    <h3 style="margin:18px 0 12px">Par projet</h3>
+    <h3 style="margin:18px 0 12px">By project</h3>
     {#if projRows.length}
       {#each projRows as r}
         <div class="bar-row"><span class="label" title={r.k}>{r.label}</span><span class="track"><span class="fill" style="width:{r.pct}%"></span></span><span class="val">{fmtCost(r.v)}</span></div>

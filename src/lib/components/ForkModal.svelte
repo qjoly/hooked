@@ -22,28 +22,28 @@
       .catch((e) => ({ ok: false, data: { error: e.message } }));
     busy = false;
     if (res.ok) { result = res.data; setTimeout(() => { loadSessions(); ui.tick++; }, 1200); }
-    else status = { text: '✗ ' + (res.data.error || 'échec'), cls: 'err' };
+    else status = { text: '✗ ' + (res.data.error || 'failed'), cls: 'err' };
   }
 </script>
 
 {#if result}
   <LaunchResult d={result} />
 {:else}
-  <h2 style="margin:0 0 4px">⑂ Forker la session</h2>
+  <h2 style="margin:0 0 4px">⑂ Fork session</h2>
   <p style="color:var(--muted);font-size:12.5px;line-height:1.5;margin:0 0 16px">
-    Crée une <b>branche indépendante</b> : copie la conversation <b>jusqu'à ce message inclus</b>,
-    puis relance <code>claude --resume …</code> dessus dans <code>{r.project || r.projectName || '?'}</code>
-    (session <b>tmux</b> détachée, <b>zéro conso token</b>). La session d'origine n'est pas modifiée.</p>
+    Creates an <b>independent branch</b>: copies the conversation <b>up to and including this message</b>,
+    then re-runs <code>claude --resume …</code> on it in <code>{r.project || r.projectName || '?'}</code>
+    (detached <b>tmux</b> session, <b>zero token cost</b>). The original session is not modified.</p>
   <div class="lf-resume-title">📄 {r.title || r.id}</div>
   <div class="fork-from {r.role}">
-    <span class="fork-from-who">{r.role === 'user' ? '🧑 ton message' : '🤖 message de Claude'} — point de coupe</span>
+    <span class="fork-from-who">{r.role === 'user' ? '🧑 your message' : '🤖 Claude\'s message'} — cut point</span>
     {#if r.snippet}<span class="fork-from-snip">{r.snippet}</span>{/if}
   </div>
   <ModelEffort showMode bind:model bind:effort bind:mode />
-  <label class="lf-label">Message à envoyer <span style="color:var(--muted);font-weight:400">(optionnel)</span></label>
-  <textarea class="lf-input" rows="3" placeholder="Nouvelle direction depuis ce point…  (laisse vide pour juste ouvrir la branche)" bind:value={prompt}></textarea>
+  <label class="lf-label">Message to send <span style="color:var(--muted);font-weight:400">(optional)</span></label>
+  <textarea class="lf-input" rows="3" placeholder="New direction from this point…  (leave empty to just open the branch)" bind:value={prompt}></textarea>
   <div class="lf-actions">
-    <button class="reply-send" disabled={busy} onclick={go}>Forker ↗</button>
+    <button class="reply-send" disabled={busy} onclick={go}>Fork ↗</button>
     <div class="reply-status {status.cls}">{status.text}</div>
   </div>
 {/if}

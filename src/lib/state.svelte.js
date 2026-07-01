@@ -51,7 +51,7 @@ export function renameSession(id, name) {
 
 // titre à afficher pour une session : surcharge custom si présente, sinon titre auto.
 export function sessionTitle(s) {
-  return (s && ui.names[s.id]) || (s && s.title) || '(sans titre)';
+  return (s && ui.names[s.id]) || (s && s.title) || '(untitled)';
 }
 
 // mode focus : masque le header global + replie la sidebar → la discussion prend tout l'espace.
@@ -97,10 +97,10 @@ export const data = $state({ sessions: [] });
 // (session terminée). On ne notifie que sur le FRONT MONTANT (changement d'état), jamais en
 // rafale au chargement (1er passage = mémorisation seule).
 const NOTIFY_KINDS = {
-  q:         { icon: '⌨️', label: 'attend ta réponse' },
-  attention: { icon: '🔴', label: 'action requise' },
-  waiting:   { icon: '🟡', label: 'a fini — en attente de toi' },
-  ended:     { icon: '🏁', label: 'session terminée' },
+  q:         { icon: '⌨️', label: 'awaiting your reply' },
+  attention: { icon: '🔴', label: 'action required' },
+  waiting:   { icon: '🟡', label: 'finished — waiting for you' },
+  ended:     { icon: '🏁', label: 'session ended' },
 };
 function notifyKeyFor(s) {
   if (s.hasQuestion) return 'q';
@@ -188,7 +188,7 @@ export async function toggleNotify() {
   const nativeOk = typeof Notification !== 'undefined' && secure;
   if (nativeOk && Notification.permission === 'default') { try { await Notification.requestPermission(); } catch {} }
   if (!(nativeOk && Notification.permission === 'granted')) {
-    alert(`Notifications activées en mode « repli » : badge sur l'onglet + son (marche partout, même en HTTP).\n\nPour les popups bureau natives il faut un contexte sécurisé — tu es sur ${location.origin}. Ouvre le dashboard via HTTPS ou http://localhost:4123 (même machine).`);
+    alert(`Notifications enabled in "fallback" mode: tab badge + sound (works everywhere, even over HTTP).\n\nNative desktop popups require a secure context — you're on ${location.origin}. Open the dashboard via HTTPS or http://localhost:4123 (same machine).`);
   }
   applyTitleBadge();
 }

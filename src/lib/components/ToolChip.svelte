@@ -13,8 +13,8 @@
   </span>
   {#if hasDetail}
     <div class="tool-detail">
-      {#if t.inputText}<div class="td-sec"><div class="td-h">entrée</div><pre>{t.inputText}</pre></div>{/if}
-      {#if t.result}<div class="td-sec"><div class="td-h">résultat</div><pre>{t.result}</pre></div>{/if}
+      {#if t.inputText}<div class="td-sec"><div class="td-h">input</div><pre>{t.inputText}</pre></div>{/if}
+      {#if t.result}<div class="td-sec"><div class="td-h">result</div><pre>{t.result}</pre></div>{/if}
     </div>
   {/if}
 </div>

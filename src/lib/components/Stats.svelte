@@ -3,7 +3,7 @@
   import { fmtCost, fmtTokens, shortModel } from '$lib/format.js';
   import BarChart from './BarChart.svelte';
 
-  const RANGES = [['1', "Aujourd'hui"], ['7', '7 jours'], ['30', '30 jours'], ['all', 'Tout']];
+  const RANGES = [['1', 'Today'], ['7', '7 days'], ['30', '30 days'], ['all', 'All']];
   let range = $state('7');
   let d = $state(null);
 
@@ -11,11 +11,11 @@
   $effect(() => { range; load(); });
 
   const kpis = $derived(d ? [
-    [fmtCost(d.totals.cost), 'Coût estimé'],
+    [fmtCost(d.totals.cost), 'Estimated cost'],
     [d.totals.sessions, 'Sessions'],
     [d.totals.prompts, 'Prompts'],
-    [fmtTokens(d.totals.output), 'Tokens générés'],
-    [fmtTokens(d.totals.cacheRead), 'Tokens cache lus'],
+    [fmtTokens(d.totals.output), 'Tokens generated'],
+    [fmtTokens(d.totals.cacheRead), 'Cache tokens read'],
   ] : []);
 
   const days = $derived(d ? Object.keys(d.byDay).sort() : []);
@@ -41,7 +41,7 @@
 
 <div class="charts">
   <div class="card chart-card">
-    <h3>Coût par jour <span class="sub">(estimé)</span></h3>
+    <h3>Cost per day <span class="sub">(estimated)</span></h3>
     <div>
       {#if days.length}
         <div class="daybars">
@@ -53,20 +53,20 @@
           {/each}
         </div>
       {:else}
-        <div class="empty">Aucune donnée</div>
+        <div class="empty">No data</div>
       {/if}
     </div>
   </div>
   <div class="card chart-card">
-    <h3>Par modèle</h3>
+    <h3>By model</h3>
     <div><BarChart entries={modelEntries} fmt={fmtCost} /></div>
   </div>
   <div class="card chart-card">
-    <h3>Par projet</h3>
+    <h3>By project</h3>
     <div><BarChart entries={projectEntries} fmt={fmtCost} /></div>
   </div>
   <div class="card chart-card">
-    <h3>Outils les plus utilisés</h3>
+    <h3>Most used tools</h3>
     <div><BarChart entries={toolEntries} fmt={(n) => n} /></div>
   </div>
 </div>

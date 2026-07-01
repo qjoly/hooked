@@ -10,7 +10,7 @@
 
 {#if compact}
   <div class="me-inline">
-    <span class="me-pill" title="Modèle">
+    <span class="me-pill" title="Model">
       <span class="me-ico">✳</span>
       <select bind:value={model} onchange={fire} {disabled}>
         {#each MODEL_GROUPS as g}
@@ -20,14 +20,14 @@
         {/each}
       </select>
     </span>
-    <span class="me-pill" title="Effort de raisonnement">
+    <span class="me-pill" title="Reasoning effort">
       <span class="me-ico">⚡</span>
       <select bind:value={effort} onchange={fire} {disabled}>
         {#each EFFORT_OPTS as v}<option value={v}>{v}</option>{/each}
       </select>
     </span>
     {#if showMode}
-      <span class="me-pill" title="Mode de permission au lancement (claude --permission-mode)">
+      <span class="me-pill" title="Permission mode at launch (claude --permission-mode)">
         <span class="me-ico">🛡</span>
         <select bind:value={mode} onchange={fire} {disabled}>
           {#each MODE_OPTS as [v, l]}<option value={v}>{l}</option>{/each}
@@ -38,7 +38,7 @@
 {:else}
   <div class="lf-row">
     <div>
-      <label class="lf-label">Modèle</label>
+      <label class="lf-label">Model</label>
       <select class="lf-input" bind:value={model} onchange={fire} {disabled}>
         {#each MODEL_GROUPS as g}
           <optgroup label={g.label}>
@@ -56,7 +56,7 @@
   </div>
   {#if showMode}
     <div class="lf-mode">
-      <label class="lf-label">Mode de permission</label>
+      <label class="lf-label">Permission mode</label>
       <select class="lf-input" bind:value={mode} onchange={fire} {disabled}>
         {#each MODE_OPTS as [v, l]}<option value={v}>{l}</option>{/each}
       </select>

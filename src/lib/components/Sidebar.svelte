@@ -29,12 +29,12 @@
   let deletingId = $state(null);
   async function delSession(s) {
     if (deletingId) return;
-    if (!confirm(`Mettre à la corbeille : « ${sessionTitle(s)} » ?\nLe transcript est déplacé dans bin/ (récupérable), la session quitte le dashboard.`)) return;
+    if (!confirm(`Move to trash: "${sessionTitle(s)}"?\nThe transcript is moved to bin/ (recoverable), the session leaves the dashboard.`)) return;
     deletingId = s.id;
     const res = await deleteSession(s.id).catch(() => ({ ok: false }));
     deletingId = null;
     if (res.ok) { loadSessions(); ui.tick++; }
-    else alert('✗ suppression échouée');
+    else alert('✗ delete failed');
   }
 
   // Sélection de filtre : clic simple = remplace ; Ctrl/⌘+clic = ajoute/retire (multi-sélection).
@@ -107,28 +107,28 @@
 <aside class="sidebar">
   <div class="side-head">
     <div class="side-actions">
-      <button class="ov-btn" onclick={() => goto('/')}>🏠 Vue d'ensemble</button>
-      <button class="new-btn" onclick={() => goto('/new')}>＋ Nouvelle session</button>
+      <button class="ov-btn" onclick={() => goto('/')}>🏠 Overview</button>
+      <button class="new-btn" onclick={() => goto('/new')}>＋ New session</button>
     </div>
-    <input id="search" type="search" placeholder="Rechercher…" bind:value={ui.search} />
+    <input id="search" type="search" placeholder="Search…" bind:value={ui.search} />
     <div class="status-filter">
       {#each STATUS_FILTERS.filter((f) => f.key === 'all' || count(f) > 0 || ui.statusFilters.includes(f.key)) as f}
-        <button class="sf-chip" class:active={ui.statusFilters.includes(f.key)} title="Ctrl/⌘+clic pour cumuler les filtres" onclick={(e) => selectFilter(f.key, e)}>
+        <button class="sf-chip" class:active={ui.statusFilters.includes(f.key)} title="Ctrl/⌘+click to combine filters" onclick={(e) => selectFilter(f.key, e)}>
           {f.label}<span class="sf-n">{count(f)}</span>
         </button>
       {/each}
     </div>
-    <label class="chk"><input type="checkbox" bind:checked={ui.hideOld} /> masquer &gt; 24h</label>
+    <label class="chk"><input type="checkbox" bind:checked={ui.hideOld} /> hide &gt; 24h</label>
   </div>
 
   <div class="side-list">
     {#if !groups.length && !pinnedItems.length}
-      <div class="empty">Aucune session.</div>
+      <div class="empty">No sessions.</div>
     {:else}
       {#if pinnedItems.length}
         <div class="pgroup">
           <div class="phead phead-pin">
-            <span class="pname">📌 Épinglées</span>
+            <span class="pname">📌 Pinned</span>
             <span class="pcount">{pinnedItems.length}</span>
           </div>
           <div class="plist">
@@ -143,7 +143,7 @@
             <span class="pname">{g.proj}</span>
             {#if projFlag(g.items)}<span class="pflag {projFlag(g.items)}"></span>{/if}
             <span class="pcount">{g.items.length}</span>
-            <button class="pnew" title="Nouvelle session dans ce projet"
+            <button class="pnew" title="New session in this project"
                     onclick={(e) => { e.stopPropagation(); goto('/new?project=' + encodeURIComponent(g.items[0].project)); }}>＋</button>
           </div>
           <div class="plist">
@@ -156,7 +156,7 @@
 
   <div class="side-foot">
     <button class="ov-btn trash-btn" onclick={() => openModal('trash')}
-            title="Voir la corbeille (sessions supprimées, récupérables)">🗑 Corbeille</button>
+            title="View trash (deleted sessions, recoverable)">🗑 Trash</button>
   </div>
 </aside>
 
@@ -166,14 +166,14 @@
     <span class="sdot"></span>
     <div class="srow-main">
       <div class="srow-title">
-        {#if s.hasQuestion}<span class="q-flag" title="Claude attend ta réponse">⌨</span>{/if}{sessionTitle(s)}
+        {#if s.hasQuestion}<span class="q-flag" title="Claude is awaiting your reply">⌨</span>{/if}{sessionTitle(s)}
       </div>
       <div class="srow-sub">{#if s.gitBranch}{s.gitBranch} · {/if}{ago(s.lastActivity)}</div>
       {#if s.todo && s.todo.current}
-        <div class="srow-todo" title="Tâche en cours (TodoWrite)">▶ {s.todo.current}<span class="todo-frac">{s.todo.done}/{s.todo.total}</span></div>
+        <div class="srow-todo" title="Current task (TodoWrite)">▶ {s.todo.current}<span class="todo-frac">{s.todo.done}/{s.todo.total}</span></div>
       {/if}
       {#if sentId === s.id}
-        <div class="q-quick-sent">✓ réponse envoyée</div>
+        <div class="q-quick-sent">✓ reply sent</div>
       {:else if s.hasQuestion && quickOpts(s.question)}
         <div class="q-quick">
           {#each quickOpts(s.question) as o}
@@ -184,9 +184,9 @@
       {/if}
     </div>
     <button class="pin-btn" class:pinned={pinnedSet.has(s.id)}
-            title={pinnedSet.has(s.id) ? 'Désépingler' : 'Épingler'}
+            title={pinnedSet.has(s.id) ? 'Unpin' : 'Pin'}
             onclick={(e) => { e.stopPropagation(); togglePin(s.id); }}>📌</button>
-    <button class="pin-btn del-row" title="Mettre à la corbeille (transcript conservé dans bin/)"
+    <button class="pin-btn del-row" title="Move to trash (transcript kept in bin/)"
             disabled={deletingId === s.id}
             onclick={(e) => { e.stopPropagation(); delSession(s); }}>🗑</button>
   </div>
