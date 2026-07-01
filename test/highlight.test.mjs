@@ -101,6 +101,64 @@ describe('mdInline — blockquotes', () => {
   });
 });
 
+describe('mdInline — autolink', () => {
+  const A = 'target="_blank" rel="noopener noreferrer"';
+  it('linkifie une URL http(s)', () => {
+    expect(mdInline('voir https://google.com ok'))
+      .toBe(`voir <a href="https://google.com" ${A}>https://google.com</a> ok`);
+  });
+  it('linkifie un domaine nu (schéma https ajouté)', () => {
+    expect(mdInline('juste google.com'))
+      .toBe(`juste <a href="https://google.com" ${A}>google.com</a>`);
+  });
+  it('garde la ponctuation de fin de phrase hors du lien', () => {
+    expect(mdInline('cf https://x.com/a/b.')).toContain('>https://x.com/a/b</a>.');
+  });
+  it('équilibre les parenthèses fermantes orphelines', () => {
+    expect(mdInline('(voir https://x.com)')).toContain('>https://x.com</a>)');
+  });
+  it('conserve le & d\'une query string (échappé en &amp;)', () => {
+    expect(mdInline('http://x.com/?a=1&b=2'))
+      .toContain('href="http://x.com/?a=1&amp;b=2"');
+  });
+  it('se termine avant un guillemet', () => {
+    expect(mdInline('"https://x.com"')).toBe(`&quot;<a href="https://x.com" ${A}>https://x.com</a>&quot;`);
+  });
+  it('ne linkifie PAS les noms de fichiers (extensions ≠ TLD)', () => {
+    for (const f of ['format.js', 'README.md', 'server.cjs', 'app.d.ts', 'package.json'])
+      expect(mdInline(f)).toBe(f);
+  });
+  it('ne linkifie PAS le domaine d\'un email', () => {
+    expect(mdInline('a@google.com')).toBe('a@google.com');
+  });
+});
+
+describe('mdInline — liens markdown & barré', () => {
+  const A = 'target="_blank" rel="noopener noreferrer"';
+  it('rend un lien markdown [texte](url)', () => {
+    expect(mdInline('[#1447](https://github.com/LuccaSA/Infra.Charts/pull/1447)'))
+      .toBe(`<a href="https://github.com/LuccaSA/Infra.Charts/pull/1447" ${A}>#1447</a>`);
+  });
+  it('rend plusieurs liens markdown séparés', () => {
+    expect(mdInline('[#1](https://x.com/1) · [#2](https://x.com/2)'))
+      .toBe(`<a href="https://x.com/1" ${A}>#1</a> · <a href="https://x.com/2" ${A}>#2</a>`);
+  });
+  it('applique le gras autour d\'un lien markdown', () => {
+    expect(mdInline('**[#1263](https://x.com/1263)**'))
+      .toBe(`<b><a href="https://x.com/1263" ${A}>#1263</a></b>`);
+  });
+  it('n\'autolinkifie pas l\'URL d\'un lien markdown (utilise le texte)', () => {
+    expect(mdInline('[Infra.Charts](https://github.com/x)'))
+      .toBe(`<a href="https://github.com/x" ${A}>Infra.Charts</a>`);
+  });
+  it('rend le barré ~~texte~~', () => {
+    expect(mdInline('~~#1255~~ · ~~#1259~~')).toBe('<del>#1255</del> · <del>#1259</del>');
+  });
+  it('refuse un schéma dangereux et garde le texte brut', () => {
+    expect(mdInline('[x](javascript:alert(1))')).toBe('[x](javascript:alert(1))');
+  });
+});
+
 describe('mdLite — compat (inchangé)', () => {
   it('rend toujours <pre><code> et le gras', () => {
     expect(mdLite('**x**')).toBe('<b>x</b>');
