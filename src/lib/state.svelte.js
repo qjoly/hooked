@@ -2,7 +2,7 @@
 // La navigation (vue courante, session ouverte, écran « nouvelle session ») n'est PLUS
 // ici : elle est portée par l'URL (routing SvelteKit). Ne restent que les filtres de la
 // sidebar, l'état live (SSE), le tick de rafraîchissement et la modale.
-import { getSessions, connectSSE } from './api.js';
+import { getSessions, connectSSE, getSettings, saveSettings as apiSaveSettings } from './api.js';
 
 const LS_KEY = 'hooked.ui';
 const persisted = (() => {
@@ -201,6 +201,22 @@ export async function loadSessions() {
   } catch (_) {}
 }
 
+// ─── Réglages persistants (settings.json côté serveur, partagés entre navigateurs) ───────────
+// Miroir réactif du store serveur. Chargé au démarrage (startLive) ; la page Réglages édite via
+// updateSettings (patch partiel → persiste → resync). Défauts alignés sur server/settings.js.
+export const settings = $state({
+  subtabOrder: ['chat', 'changes', 'todos', 'subagents', 'terminal'],
+  initialShellCommand: '',
+});
+export async function loadSettings() {
+  try { Object.assign(settings, await getSettings()); } catch (_) {}
+}
+export async function updateSettings(patch) {
+  const res = await apiSaveSettings(patch);
+  if (res.ok && res.data.settings) Object.assign(settings, res.data.settings);
+  return res;
+}
+
 // Version du build front (générée par SvelteKit, change à chaque build). Sert à l'auto-reload :
 // si le service est redéployé avec un nouveau front, on le détecte à la reconnexion SSE.
 let loadedVersion = null;
@@ -214,6 +230,7 @@ export function startLive() {
   if (started) return; // une seule connexion SSE pour toute la durée de vie de l'app
   started = true;
   loadSessions();
+  loadSettings();
   appVersion().then((v) => { loadedVersion = v; }); // version de référence (au chargement)
   connectSSE({
     onOpen: async () => {
