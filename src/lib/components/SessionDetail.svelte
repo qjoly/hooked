@@ -68,9 +68,9 @@
   // filtrés sur ceux disponibles. Le 1er de la liste devient l'onglet ouvert à l'arrivée.
   const SUBTAB_META = {
     chat:      { icon: '💬', label: 'Conversation' },
-    changes:   { icon: '📝', label: 'Fichiers' },
-    todos:     { icon: '✅', label: 'Tâches' },
-    subagents: { icon: '🤖', label: 'Sous-agents' },
+    changes:   { icon: '📝', label: 'Files' },
+    todos:     { icon: '✅', label: 'Tasks' },
+    subagents: { icon: '🤖', label: 'Subagents' },
     terminal:  { icon: '🖥', label: 'Terminal' },
   };
   const subtabCount = $derived({
@@ -119,7 +119,7 @@
     const res = await showInPane(s.id, '', 'window').catch((e) => ({ ok: false, data: { error: e.message } }));
     paneBusy = false;
     if (res.ok && res.data.pane) { wantPane = res.data.pane; tab = 'terminal'; setTimeout(() => { loadSessions(); ui.tick++; }, 250); }
-    else if (!res.ok) alert('✗ ' + (res.data.error || 'échec'));
+    else if (!res.ok) alert('✗ ' + (res.data.error || 'failed'));
   }
   // ferme un pane « show » (✕).
   async function closePane(pane) {
@@ -128,7 +128,7 @@
     const res = await killPane(pane).catch((e) => ({ ok: false, data: { error: e.message } }));
     paneBusy = false;
     if (res.ok) setTimeout(() => { loadSessions(); ui.tick++; }, 250);
-    else alert('✗ ' + (res.data.error || 'échec'));
+    else alert('✗ ' + (res.data.error || 'failed'));
   }
 
   // indicateur 5 h compact pour la ligne de stats : valeur réelle (statusline) sinon estimation.
@@ -136,11 +136,11 @@
     if (!s) return null;
     const rl = s.rateLimit && s.rateLimit.fiveHour;
     if (rl && rl.pct != null) {
-      return { pct: rl.pct, est: false, title: 'Rate limit de session 5 h (réel)' + (rl.resetInMin != null ? ` — réinitialise dans ${fmtDuration(rl.resetInMin)}` : '') };
+      return { pct: rl.pct, est: false, title: '5 h session rate limit (actual)' + (rl.resetInMin != null ? ` — resets in ${fmtDuration(rl.resetInMin)}` : '') };
     }
     if (s.usage5h) {
       const u = s.usage5h;
-      return { pct: u.pct, est: true, title: `Estimation 5 h : ${fmtCost(u.cost)} / ${fmtCost(u.budget)}` + (u.resetInMin != null ? ` — réinitialise dans ${fmtDuration(u.resetInMin)}` : '') };
+      return { pct: u.pct, est: true, title: `5 h estimate: ${fmtCost(u.cost)} / ${fmtCost(u.budget)}` + (u.resetInMin != null ? ` — resets in ${fmtDuration(u.resetInMin)}` : '') };
     }
     return null;
   });
@@ -254,7 +254,7 @@
   // Fork avancé : ouvre la modale (choix modèle/effort + message immédiat optionnel) qui
   // crée une branche indépendante (copie du transcript jusqu'à ce message) et la reprend.
   function openFork(m) {
-    const snippet = (m.text || '').replace(/\s+/g, ' ').trim().slice(0, 120) || (m.role === 'user' ? '(message)' : '(activité outils)');
+    const snippet = (m.text || '').replace(/\s+/g, ' ').trim().slice(0, 120) || (m.role === 'user' ? '(message)' : '(tool activity)');
     ui.modal = { type: 'fork', data: {
       id: s.id, forkUuid: m.forkUuid, role: m.role, snippet,
       project: s.project, projectName: s.projectName, title: s.title,
@@ -270,13 +270,13 @@
     if (!m.forkUuid || forkState?.phase === 'busy') return;
     forkState = { uuid: m.forkUuid, phase: 'busy', text: '⑂ fork…' };
     const payload = { id: s.id, forkUuid: m.forkUuid, prompt: '', model: s.launchModel || modelAlias(s.model), effort: s.effort };
-    const res = await fork(payload).catch((e) => ({ ok: false, data: { error: e?.message || 'échec' } }));
+    const res = await fork(payload).catch((e) => ({ ok: false, data: { error: e?.message || 'failed' } }));
     if (res.ok) {
-      forkState = { uuid: m.forkUuid, phase: 'done', text: '✓ branche créée → ' + (res.data?.tmux || 'tmux') };
+      forkState = { uuid: m.forkUuid, phase: 'done', text: '✓ branch created → ' + (res.data?.tmux || 'tmux') };
       setTimeout(() => { loadSessions(); ui.tick++; }, 1000);
       setTimeout(() => { if (forkState?.uuid === m.forkUuid && forkState.phase === 'done') forkState = null; }, 5000);
     } else {
-      forkState = { uuid: m.forkUuid, phase: 'err', text: '✗ ' + (res.data?.error || 'échec') };
+      forkState = { uuid: m.forkUuid, phase: 'err', text: '✗ ' + (res.data?.error || 'failed') };
       setTimeout(() => { if (forkState?.uuid === m.forkUuid && forkState.phase === 'err') forkState = null; }, 6000);
     }
   }
@@ -304,25 +304,25 @@
       setTimeout(() => { meStatus = ''; }, 2500);
       setTimeout(() => { loadSessions(); ui.tick++; }, 600);
     } else {
-      meStatus = '✗ ' + (res.data.error || 'échec');
+      meStatus = '✗ ' + (res.data.error || 'failed');
       setTimeout(() => { meStatus = ''; }, 3500);
     }
     meBusy = false;
   }
   async function stop() {
-    if (!confirm('Stopper cette session ? Le pane tmux où tourne Claude sera fermé.')) return;
+    if (!confirm('Stop this session? The tmux pane running Claude will be closed.')) return;
     stopping = true;
     const res = await kill(s.id).catch((e) => ({ ok: false, data: { error: e.message } }));
     if (res.ok) { setTimeout(() => { loadSessions(); ui.tick++; }, 800); }
-    else { stopping = false; alert('✗ ' + (res.data.error || 'échec')); }
+    else { stopping = false; alert('✗ ' + (res.data.error || 'failed')); }
   }
   let deleting = $state(false);
   async function del() {
-    if (!confirm('Mettre cette session à la corbeille ?\nLe transcript est déplacé dans « bin/ » (récupérable), la session quitte le dashboard.')) return;
+    if (!confirm('Move this session to trash?\nThe transcript is moved to "bin/" (recoverable), the session leaves the dashboard.')) return;
     deleting = true;
     const res = await deleteSession(s.id).catch((e) => ({ ok: false, data: { error: e.message } }));
     if (res.ok) { loadSessions(); ui.tick++; goto('/'); }
-    else { deleting = false; alert('✗ ' + (res.data.error || 'échec')); }
+    else { deleting = false; alert('✗ ' + (res.data.error || 'failed')); }
   }
   async function switchMode(target) {
     if (modeBusy || modeView === target) return;
@@ -335,7 +335,7 @@
       setTimeout(() => { modeStatus = ''; }, 2000);
       setTimeout(() => { loadSessions(); ui.tick++; }, 600);
     } else {
-      modeStatus = '✗ ' + (res.data.error || 'échec');
+      modeStatus = '✗ ' + (res.data.error || 'failed');
       setTimeout(() => { modeStatus = ''; }, 3000);
     }
     modeBusy = false;
@@ -348,7 +348,7 @@
     if (vscodeBusy) return;
     vscodeBusy = true;
     const res = await openInVscode(s.id).catch((e) => ({ ok: false, data: { error: e.message } }));
-    if (!res.ok) alert('✗ ' + (res.data.error || 'échec'));
+    if (!res.ok) alert('✗ ' + (res.data.error || 'failed'));
     vscodeBusy = false;
   }
   let ghosttyBusy = $state(false);
@@ -356,7 +356,7 @@
     if (ghosttyBusy) return;
     ghosttyBusy = true;
     const res = await openInGhostty(s.id).catch((e) => ({ ok: false, data: { error: e.message } }));
-    if (!res.ok) alert('✗ ' + (res.data.error || 'échec'));
+    if (!res.ok) alert('✗ ' + (res.data.error || 'failed'));
     ghosttyBusy = false;
   }
 </script>
@@ -364,49 +364,49 @@
 {#if s}
   <div class="pane-head s-{s.state}">
     <div class="card-top" style="cursor:default;margin-bottom:6px">
-      <button class="pane-back" onclick={() => goto('/')} title="Retour à la liste">←</button>
+      <button class="pane-back" onclick={() => goto('/')} title="Back to list">←</button>
       <span class="proj">{s.projectName || '?'}</span>
       {#if s.gitBranch}<span class="branch">{s.gitBranch}</span>{/if}
       <span class="badge s-badge" style="margin-left:0"><span class="bdot"></span>{STATE_LABEL[s.state] || s.state}</span>
       {#if s.tmuxAlive}
-        <span class="ro-tag live">↩ réponse possible</span>
-        <button class="stop-btn" disabled={stopping} onclick={stop}>{stopping ? '⏳ arrêt…' : '⏹ Stopper'}</button>
+        <span class="ro-tag live">↩ reply available</span>
+        <button class="stop-btn" disabled={stopping} onclick={stop}>{stopping ? '⏳ stopping…' : '⏹ Stop'}</button>
       {:else if s.tmuxPane}
-        <span class="ro-tag">⛔ tmux fermé · un message relance</span>
-        <button class="resume-btn" onclick={resume}>▶ Reprendre dans tmux</button>
+        <span class="ro-tag">⛔ tmux closed · a message restarts it</span>
+        <button class="resume-btn" onclick={resume}>▶ Resume in tmux</button>
       {:else}
-        <span class="ro-tag">lecture seule</span>
-        <button class="resume-btn" onclick={resume}>▶ Reprendre dans tmux</button>
+        <span class="ro-tag">read-only</span>
+        <button class="resume-btn" onclick={resume}>▶ Resume in tmux</button>
       {/if}
       <details class="hdr-more">
-        <summary title="Plus d'actions" aria-label="Plus d'actions">⋯</summary>
+        <summary title="More actions" aria-label="More actions">⋯</summary>
         <div class="hdr-menu">
           {#if s.tmuxAlive && s.tmuxAttach}
-            <button class="vscode-btn" title={s.tmuxAttach} onclick={copyAttach}>{attachCopied ? '✓ copié' : '⧉ Copier attach'}</button>
+            <button class="vscode-btn" title={s.tmuxAttach} onclick={copyAttach}>{attachCopied ? '✓ copied' : '⧉ Copy attach'}</button>
           {/if}
-          <button class="vscode-btn" disabled={vscodeBusy} onclick={openVscode} title="Ouvrir le projet entier dans VS Code">{vscodeBusy ? '⏳' : '⧉'} Open in VS Code</button>
-          <button class="vscode-btn" disabled={ghosttyBusy} onclick={openGhostty} title="Ouvrir la session dans Ghostty (attache le tmux si vivant)">{ghosttyBusy ? '⏳' : '⧉'} Open in Ghostty</button>
-          <button class="vscode-btn" class:on={ui.focus} onclick={toggleFocus} title="Mode focus : discussion plein écran (sidebar + header repliés)">⛶ {ui.focus ? 'Quitter le focus' : 'Focus'}</button>
-          <button class="vscode-btn del-btn" disabled={deleting} onclick={del} title="Mettre à la corbeille : retire du dashboard ; transcript conservé dans bin/ (récupérable)">{deleting ? '⏳' : '🗑'} Supprimer</button>
+          <button class="vscode-btn" disabled={vscodeBusy} onclick={openVscode} title="Open the entire project in VS Code">{vscodeBusy ? '⏳' : '⧉'} Open in VS Code</button>
+          <button class="vscode-btn" disabled={ghosttyBusy} onclick={openGhostty} title="Open the session in Ghostty (attaches tmux if alive)">{ghosttyBusy ? '⏳' : '⧉'} Open in Ghostty</button>
+          <button class="vscode-btn" class:on={ui.focus} onclick={toggleFocus} title="Focus mode: full-screen conversation (sidebar + header collapsed)">⛶ {ui.focus ? 'Exit focus' : 'Focus'}</button>
+          <button class="vscode-btn del-btn" disabled={deleting} onclick={del} title="Move to trash: removes from dashboard; transcript kept in bin/ (recoverable)">{deleting ? '⏳' : '🗑'} Delete</button>
         </div>
       </details>
     </div>
     {#if renaming}
       <!-- svelte-ignore a11y_autofocus -->
       <input class="sess-rename" autofocus bind:value={renameVal}
-             placeholder={s.title || 'Titre de la session'}
+             placeholder={s.title || 'Session title'}
              onkeydown={(e) => { if (e.key === 'Enter') commitRename(); else if (e.key === 'Escape') renaming = false; }}
              onblur={commitRename} />
     {:else}
       <h2 class="sess-title" style="margin:6px 0 0">{sessionTitle(s)}
-        <button class="sess-rename-btn" title="Renommer cette session (local)" aria-label="Renommer" onclick={startRename}>✎</button>
-        {#if ui.names[s.id]}<button class="sess-rename-btn" title="Rétablir le titre auto" aria-label="Titre auto" onclick={() => renameSession(s.id, '')}>↺</button>{/if}
+        <button class="sess-rename-btn" title="Rename this session (local)" aria-label="Rename" onclick={startRename}>✎</button>
+        {#if ui.names[s.id]}<button class="sess-rename-btn" title="Restore auto title" aria-label="Auto title" onclick={() => renameSession(s.id, '')}>↺</button>{/if}
       </h2>
     {/if}
     {#if s.tmuxAlive}
       {@const cur = modeMeta(modeView)}
       <div class="head-toolbar">
-        <div class="tb-group" title="Mode de permission de Claude (Maj+Tab dans la session)">
+        <div class="tb-group" title="Claude's permission mode (Shift+Tab in the session)">
           {#if !PERMISSION_MODES.some((m) => m.key === modeView)}
             <span class="mode-now mode-{modeView}" title={cur.title}><span class="mode-ico">{cur.icon}</span>{cur.label}</span>
           {/if}
@@ -419,14 +419,14 @@
           {#if modeStatus}<span class="mode-status">{modeStatus}</span>{/if}
         </div>
         <span class="tb-sep"></span>
-        <div class="tb-group" title="Modèle et effort de la session — applique /model et /effort dans le TUI">
+        <div class="tb-group" title="Session model and effort — applies /model and /effort in the TUI">
           <ModelEffort compact bind:model={editModel} bind:effort={editEffort} onchange={applyModelEffort} disabled={meBusy} />
           {#if meStatus}<span class="mode-status">{meStatus}</span>{/if}
         </div>
       </div>
     {/if}
-    <div class="head-stats" onclick={() => openModal('cost')} title="Voir le détail du coût estimé">
-      <span><b>{fmtCost(s.cost)}</b>{#if s.subagentCost > 0} <span class="hs-sub">(dont {fmtCost(s.subagentCost)} agents)</span>{/if}</span>
+    <div class="head-stats" onclick={() => openModal('cost')} title="View estimated cost breakdown">
+      <span><b>{fmtCost(s.cost)}</b>{#if s.subagentCost > 0} <span class="hs-sub">({fmtCost(s.subagentCost)} agents)</span>{/if}</span>
       <span class="hs-dot">·</span><span>{s.userPrompts} prompts</span>
       <span class="hs-dot">·</span><span>{fmtTokens(s.usage.output)} out</span>
       <span class="hs-dot">·</span><span>{fmtTokens(s.usage.cacheRead)} cache</span>
@@ -456,11 +456,11 @@
         {#if (s.messages || []).length}
           {#each s.messages as m, i (m.ts + ':' + i)}<ChatBubble {m} onfork={quickFork} onforkadvanced={openFork} {forkState} />{/each}
         {:else if !queued.length}
-          <div class="pane-empty">Conversation vide.</div>
+          <div class="pane-empty">Empty conversation.</div>
         {/if}
         {#each queued as q (q.ts)}
           <div class="bubble user queued">
-            <div class="who">🧑 Toi <span class="t">⏳ en file d'attente</span></div>
+            <div class="who">🧑 You <span class="t">⏳ queued</span></div>
             <div class="md">{q.text}</div>
           </div>
         {/each}
@@ -494,36 +494,36 @@
                   {t.kind === 'claude' ? '🤖' : t.target === 'window' ? '🗔' : '▦'} {t.label.slice(0, 32)}
                 </button>
                 {#if t.kind === 'show'}
-                  <button class="term-x" title="Fermer ce pane" disabled={paneBusy} onclick={() => closePane(t.pane)}>✕</button>
+                  <button class="term-x" title="Close this pane" disabled={paneBusy} onclick={() => closePane(t.pane)}>✕</button>
                 {/if}
               </div>
             {/each}
-            <button class="term-new" title="Nouveau pane shell" disabled={paneBusy || !(s && s.tmuxAlive)} onclick={newPane}>＋</button>
+            <button class="term-new" title="New shell pane" disabled={paneBusy || !(s && s.tmuxAlive)} onclick={newPane}>＋</button>
           </div>
-          <select class="term-theme" bind:value={termFont} title="Police du terminal" aria-label="Police du terminal">
+          <select class="term-theme" bind:value={termFont} title="Terminal font" aria-label="Terminal font">
             {#each Object.entries(TERM_FONTS) as [key, f] (key)}
               <option value={key}>🔤 {f.name}</option>
             {/each}
           </select>
-          <select class="term-theme" bind:value={termTheme} title="Thème de couleurs du terminal" aria-label="Thème du terminal">
+          <select class="term-theme" bind:value={termTheme} title="Terminal color theme" aria-label="Terminal theme">
             {#each Object.entries(TERM_THEMES) as [key, t] (key)}
               <option value={key}>🎨 {t.name}</option>
             {/each}
           </select>
           <button class="term-mode" class:on={termFit} onclick={() => (termFit = !termFit)}
-                  title={termFit ? 'Adapter : le pane tmux remplit la vue web' : 'Taille fixe du pane tmux'}>
-            {termFit ? '⤢ Adapter' : '▭ Fixe'}
+                  title={termFit ? 'Fit: the tmux pane fills the web view' : 'Fixed tmux pane size'}>
+            {termFit ? '⤢ Fit' : '▭ Fixed'}
           </button>
           <button class="term-mode" class:on={termInteractive} onclick={() => (termInteractive = !termInteractive)}
-                  title={termInteractive ? 'Interactif : tes frappes vont au pane tmux' : 'Lecture seule : observation'}>
-            {termInteractive ? '⌨ Interactif' : '👁 Lecture seule'}
+                  title={termInteractive ? 'Interactive: your keystrokes go to the tmux pane' : 'Read-only: observation'}>
+            {termInteractive ? '⌨ Interactive' : '👁 Read-only'}
           </button>
         </div>
         {#if tab === 'terminal' && termPane}
           {#key termPane + ':' + termInteractive + ':' + termFit}<Terminal pane={termPane} interactive={termInteractive} theme={termThemeObj} fontFamily={termFontFamily} fit={termFit} />{/key}
         {/if}
       {:else}
-        <div class="pane-empty">Aucun terminal disponible (session tmux fermée).</div>
+        <div class="pane-empty">No terminal available (tmux session closed).</div>
       {/if}
     </div>
   </div>

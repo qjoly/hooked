@@ -27,14 +27,14 @@
 </script>
 
 <div class="bubble {m.role}" data-msg-ts={m.ts || ''}>
-  <div class="who">{m.role === 'user' ? '🧑 Toi' : '🤖 Claude'}<span class="t">{ago(m.ts)}</span>
+  <div class="who">{m.role === 'user' ? '🧑 You' : '🤖 Claude'}<span class="t">{ago(m.ts)}</span>
     {#if onfork && m.forkUuid}
       <span class="fork-ctl">
-        <button class="fork-btn fork-main" title="Forker ici sans message — branche indépendante qui t'attend"
-                onclick={() => onfork(m)}>⑂ Forker</button>
+        <button class="fork-btn fork-main" title="Fork here without a message — independent branch waiting for you"
+                onclick={() => onfork(m)}>⑂ Fork</button>
         {#if onforkadvanced}
-          <button class="fork-btn fork-caret" aria-label="Options de fork"
-                  title="Options de fork (modèle, effort, message immédiat…)"
+          <button class="fork-btn fork-caret" aria-label="Fork options"
+                  title="Fork options (model, effort, immediate message…)"
                   onclick={() => onforkadvanced(m)}>▾</button>
         {/if}
       </span>

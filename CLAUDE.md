@@ -2,6 +2,11 @@
 
 Dashboard local des sessions Claude Code. **Back zéro dépendance** (stdlib Node : `server/*` + `hook.cjs`) ; **front SvelteKit / Svelte 5** ; pilotage des sessions via **tmux** (`send-keys` / `capture-pane` / `pipe-pane`). Le serveur **MCP** (`mcp/server.cjs`) est un client mince qui proxy l'API HTTP locale.
 
+## Contributing (English)
+
+- **Never push to `main`.** All code lands via a pull request — this keeps a real changelog.
+- **Write all code in English** (identifiers, comments, commit messages).
+
 ## Workflow dev — IMPORTANT (source de confusion récurrente)
 
 - **`npm run live`** (Vite, `:4123`, `--strictPort`) = **le workflow live à privilégier** : HMR front **et** rechargement serveur. Les endpoints `/api/*` (`+server.js`) sont exécutés in-process par le dev server SvelteKit, et Vite ré-exécute les modules `server/*` / `$lib/server/*` modifiés à la requête suivante → une modif back est prise en compte sans rebuild ni redémarrage. Même port que la prod (4123) ; `strictPort` échoue franchement si `node build` squatte encore le port au lieu de dériver sur 4124.

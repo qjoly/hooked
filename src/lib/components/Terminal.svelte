@@ -179,7 +179,7 @@
 </script>
 
 <div class="term-wrap" class:interactive class:fit style:background={theme ? theme.background : '#0b0e14'}>
-  {#if dead}<div class="term-dead">⛔ Ce pane tmux a été fermé.</div>{/if}
+  {#if dead}<div class="term-dead">⛔ This tmux pane has been closed.</div>{/if}
   <div class="term-host" bind:this={host}></div>
 </div>
 

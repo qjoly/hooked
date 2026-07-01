@@ -5,7 +5,7 @@
 </script>
 
 {#if !changes.length}
-  <div class="pane-empty">Aucune modification de fichier dans cette session.</div>
+  <div class="pane-empty">No file changes in this session.</div>
 {:else}
   {#each changes as c, i}
     <div class="change" class:open={openSet[i]}>
@@ -13,9 +13,9 @@
         <span class="ch-arrow">▸</span>
         <span class="ch-name">{c.name}</span>
         <span class="ch-path">{c.file}</span>
-        <a class="ch-open" href={'vscode://file' + c.file} title="Ouvrir dans VS Code"
-           onclick={(e) => e.stopPropagation()}>↗ éditeur</a>
-        <span class="ch-count">{c.count} {c.count > 1 ? 'modifs' : 'modif'}</span>
+        <a class="ch-open" href={'vscode://file' + c.file} title="Open in VS Code"
+           onclick={(e) => e.stopPropagation()}>↗ editor</a>
+        <span class="ch-count">{c.count} {c.count > 1 ? 'edits' : 'edit'}</span>
       </div>
       <div class="change-ops">
         {#each c.ops as o}<Diff {o} />{/each}

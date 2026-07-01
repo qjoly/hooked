@@ -10,13 +10,13 @@
 <div class="overview">
   <div class="ov-stats">
     <span><b>{S.length}</b> sessions</span>
-    {#if nb(['working'])}<span class="c-working"><b>{nb(['working'])}</b> en cours</span>{/if}
-    {#if nb(['waiting', 'attention'])}<span class="c-waiting"><b>{nb(['waiting', 'attention'])}</b> en attente</span>{/if}
+    {#if nb(['working'])}<span class="c-working"><b>{nb(['working'])}</b> running</span>{/if}
+    {#if nb(['waiting', 'attention'])}<span class="c-waiting"><b>{nb(['waiting', 'attention'])}</b> waiting</span>{/if}
     <span><b>{sum((s) => s.userPrompts)}</b> prompts</span>
     <span><b>{fmtTokens(sum((s) => s.usage.output + s.usage.input))}</b> tokens</span>
-    <button class="ov-cost" onclick={() => openModal('cost')}><b>{fmtCost(sum((s) => s.cost))}</b> coût API ›</button>
+    <button class="ov-cost" onclick={() => openModal('cost')}><b>{fmtCost(sum((s) => s.cost))}</b> API cost ›</button>
   </div>
-  <p class="ov-hint">← Sélectionne une session à gauche pour relire la conversation (lecture seule).</p>
+  <p class="ov-hint">← Select a session on the left to replay the conversation (read-only).</p>
 </div>
 
 <style>

@@ -32,11 +32,11 @@
   });
   const allAnswered = $derived.by(() => selectedLabels().every((l) => l.length));
 
-  const recapDefault = $derived(`Sélectionne ${questions.length > 1 ? 'tes réponses' : 'ta réponse'}…`);
+  const recapDefault = $derived(`Select ${questions.length > 1 ? 'your answers' : 'your answer'}…`);
   const recapText = $derived.by(() => {
     if (recap.text) return recap.text;
     const labels = selectedLabels();
-    const parts = labels.map((l, qi) => l.length ? `${questions[qi].header ? questions[qi].header + ' : ' : ''}${l.join(', ')}` : '').filter(Boolean);
+    const parts = labels.map((l, qi) => l.length ? `${questions[qi].header ? questions[qi].header + ': ' : ''}${l.join(', ')}` : '').filter(Boolean);
     return parts.length ? '→ ' + parts.join('  ·  ') : recapDefault;
   });
 
@@ -75,22 +75,22 @@
     const res = await replyQuestion(id, selections).catch((e) => ({ ok: false, data: { error: e.message } }));
     if (res.ok) {
       sent = true;
-      recap = { text: '✓ envoyé : ' + labels.join('  ·  '), cls: 'ok' };
+      recap = { text: '✓ sent: ' + labels.join('  ·  '), cls: 'ok' };
       setTimeout(() => { loadSessions(); ui.tick++; }, 600);
     } else {
-      recap = { text: '✗ ' + (res.data.error || 'échec'), cls: 'err' };
+      recap = { text: '✗ ' + (res.data.error || 'failed'), cls: 'err' };
       sending = false;
     }
   }
 </script>
 
 <div class="question" class:sent>
-  <div class="q-head"><span class="q-ico">⌨</span><span class="q-title">Claude te pose une question</span></div>
+  <div class="q-head"><span class="q-ico">⌨</span><span class="q-title">Claude is asking you a question</span></div>
   {#each questions as q, qi}
     <div class="q-block">
       {#if q.header}<span class="q-chip">{q.header}</span>{/if}
       <div class="q-text">{q.question}</div>
-      {#if q.multiSelect}<div class="q-hint">Plusieurs choix possibles</div>{/if}
+      {#if q.multiSelect}<div class="q-hint">Multiple choices allowed</div>{/if}
       <div class="q-opts">
         {#each q.options || [] as o, oi}
           <!-- Le clic est géré sur le <label> (et non sur l'<input>) : un <input> dans un
@@ -111,6 +111,6 @@
   {/each}
   <div class="q-foot">
     <div class="q-recap {recap.cls}">{recapText}</div>
-    <button class="reply-send" disabled={!allAnswered || sending || sent} onclick={send}>Envoyer ↩</button>
+    <button class="reply-send" disabled={!allAnswered || sending || sent} onclick={send}>Send ↩</button>
   </div>
 </div>
