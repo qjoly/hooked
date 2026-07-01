@@ -26,7 +26,11 @@ export const saveSettings = (patch) => jpost('/api/settings', patch);
 export const reply = (id, text) => jpost('/api/reply', { id, text });
 // Réponse à un AskUserQuestion : on transmet les indices sélectionnés par question
 // ([{ multi, indices }]) ; le serveur pilote le TUI au clavier plutôt que de taper les labels.
-export const replyQuestion = (id, selections) => jpost('/api/reply', { id, selections });
+// `note` (optionnel) : annotations libres envoyées en message de suivi après la sélection cochée.
+export const replyQuestion = (id, selections, note) => jpost('/api/reply', { id, selections, note });
+// Act on a live ExitPlanMode plan: action ∈ approve | approve-auto | keep | keep-feedback.
+// `feedback` (bundled review comments) is required for keep-feedback. Drives the TUI approval menu.
+export const planAction = (id, action, feedback) => jpost('/api/plan', { id, action, feedback });
 export const uploadImage = (dataUrl) => jpost('/api/upload-image', { dataUrl });
 export const interrupt = (id) => jpost('/api/interrupt', { id });
 export const setMode = (id, mode) => jpost('/api/mode', { id, mode });

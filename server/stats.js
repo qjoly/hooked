@@ -8,7 +8,7 @@ import { scanSessions, blankSummary } from './transcript.js';
 import { repoSlug } from './git.js';
 import { readEvents, lastEventBySession, paneForSession, sessionForPane, modeForSession, liveQuestionForSession, livePlanForSession, eventSessionMeta } from './events.js';
 import { liveStateFor } from './live.js';
-import { resolveLaunchForSession, paneTmuxNames, tmuxAlive, readPaneModeSync, paneBusySync } from './tmux.js';
+import { resolveLaunchForSession, paneTmuxNames, tmuxAlive, readPaneModeSync, paneBusySync, paneActivitySync } from './tmux.js';
 import { shownPanesFor } from './pane.js';
 import { usageWindow } from './usage.js';
 import { sessionStatus, sessionStatusRaw } from './status.js';
@@ -83,6 +83,9 @@ function buildSessions() {
     // le pane n'existe peut-être plus (tmux fermé) → on distingue « live » de « dernier connu »
     s.tmuxAlive = tmuxAlive(s.tmuxPane);
     s.state = refineWithPane(s.state, s.tmuxPane, s.tmuxAlive);
+    // verbe d'activité live (« Accomplishing »…) quand Claude mouline — le petit mot animé du TUI.
+    // Capture déjà en cache (refineWithPane vient de la lire au même tick) → pas de coût tmux en plus.
+    s.activity = (s.state === 'working' && s.tmuxAlive) ? paneActivitySync(s.tmuxPane) : null;
     // effort : vrai effort de la statusline (toutes sessions) en priorité, sinon résolution
     // persistée du lancement hooked (survit à la mort du tmux). modèle explicite idem.
     const li = resolveLaunchForSession(s.id);
@@ -166,6 +169,8 @@ function sessionDetail(id) {
   return {
     ...s, pendingQuestion, pendingPlan,
     state, currentTool: last ? last.tool : null,
+    // verbe d'activité live du spinner TUI (« Accomplishing »…) quand la session mouline, sinon null.
+    activity: (state === 'working' && alive) ? paneActivitySync(pane) : null,
     tmuxPane: pane, tmuxAlive: alive, tmuxAttach,
     // panes « show » ouverts par un agent (mirroir lecture seule dans l'onglet Terminal).
     shownPanes: shownPanesFor(id),
