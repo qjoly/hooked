@@ -56,7 +56,10 @@ function eventOnlySessions(knownIds, now = Date.now()) {
 function refineWithPane(state, pane, alive) {
   if (!alive) return state === 'working' ? 'waiting' : state;
   const busy = paneBusySync(pane);
-  if (busy === true && (state === 'working' || state === 'idle' || state === 'waiting')) return 'working';
+  // busy n'affine QUE 'working'/'idle' : un 'waiting' vient d'un Stop capté (Claude a fini) et fait
+  // autorité — on ne le re-promeut jamais en 'working' (sinon un spinner résiduel/cité relancerait à
+  // tort une session à l'arrêt). Un vrai nouveau tour repasse par un hook UserPromptSubmit → 'working'.
+  if (busy === true && (state === 'working' || state === 'idle')) return 'working';
   if (busy === false && (state === 'working' || state === 'idle')) return 'waiting';
   return state;
 }
