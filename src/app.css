@@ -551,14 +551,22 @@ code.path { color: var(--muted); font-size: 11px; word-break: break-all; font-fa
 .composer {
   position: sticky; bottom: 0; margin-top: 20px;
   display: grid; grid-template-columns: 1fr auto; gap: 10px 12px;
-  padding: 14px; background: var(--surface); border: 1px solid var(--border); border-radius: 18px;
-  box-shadow: var(--shadow);
+  padding: 14px; background: var(--bg2); border: 1px solid var(--border2); border-radius: 18px;
+  box-shadow: var(--shadow); transition: border-color .15s, box-shadow .15s;
+}
+/* Scrim above the sticky composer: messages scrolling behind fade into the
+   conversation background instead of visually touching the text box. */
+.composer::before {
+  content: ""; position: absolute; left: 0; right: 0; bottom: 100%; height: 24px;
+  background: linear-gradient(to top, var(--panel), transparent); pointer-events: none;
 }
 .composer.relaunch { border-color: rgba(194,145,47,.5); border-style: dashed; }
 .composer.relaunch .reply-send { background: var(--waiting); box-shadow: none; }
+/* Active input: accent ring + halo, consistent with the app's other fields. */
+.composer:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft), var(--shadow); }
 .composer textarea {
   resize: none; width: 100%; box-sizing: border-box;
-  background: transparent; color: var(--text); border: none;
+  background: transparent; color: var(--text); caret-color: var(--accent); border: none;
   border-radius: 0; padding: 4px 6px; font: inherit; font-size: 14px; line-height: 1.5;
   min-height: 40px; max-height: 160px; overflow-y: auto;
 }
@@ -624,6 +632,7 @@ code.path { color: var(--muted); font-size: 11px; word-break: break-all; font-fa
 .ns-title { font-size: 26px; font-weight: 800; text-align: center; margin: 0 0 6px; color: var(--text); }
 .ns-sub { color: var(--muted); font-size: 13px; line-height: 1.6; text-align: center; margin: 0 0 22px; }
 .newsession .composer { position: relative; bottom: auto; margin-top: 0; }
+.newsession .composer::before { display: none; }
 .ns-controls { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 12px 4px 0; }
 .ns-custom-row { display: flex; gap: 8px; margin-top: 10px; }
 .ns-custom-row .ns-custom { margin-top: 0; flex: 1 1 auto; }
