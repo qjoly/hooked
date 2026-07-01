@@ -507,7 +507,7 @@
     </div>
 
     <div class="pane" class:active={tab === 'background'}>
-      <Background jobs={s.bgJobs || []} />
+      <Background jobs={s.bgJobs || []} session={id} />
     </div>
 
     <div class="pane" class:active={tab === 'terminal'}>
