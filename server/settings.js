@@ -57,7 +57,7 @@ function writeSettings(patch) {
     fs.mkdirSync(HOOKED_DIR, { recursive: true });
     fs.writeFileSync(SETTINGS_FILE, JSON.stringify(merged, null, 2) + '\n');
   } catch (e) {
-    throw new Error('écriture settings.json échouée : ' + (e.message || e));
+    throw new Error('settings.json write failed: ' + (e.message || e));
   }
   return merged;
 }

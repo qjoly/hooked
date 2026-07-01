@@ -18,7 +18,7 @@
         <span class="ch-count">{c.count} {c.count > 1 ? 'edits' : 'edit'}</span>
       </div>
       <div class="change-ops">
-        {#each c.ops as o}<Diff {o} />{/each}
+        {#each c.ops as o}<Diff {o} name={c.name} />{/each}
       </div>
     </div>
   {/each}
