@@ -1,7 +1,7 @@
 <script>
   import { onMount } from 'svelte';
   import { page } from '$app/state';
-  import { ui, startLive, toggleFocus, toggleSidebarPeek, cycleTheme, toggleNotify } from '$lib/state.svelte.js';
+  import { ui, startLive, toggleFocus, toggleSidebarPeek, cycleTheme, toggleNotify, toggleNotifyPinnedOnly } from '$lib/state.svelte.js';
   import Modal from '$lib/components/Modal.svelte';
   import '../app.css';
 
@@ -54,6 +54,18 @@
           aria-label="Toggle browser notifications">
     <span class="theme-ico">{ui.notify ? '🔔' : '🔕'}</span>
     <span class="theme-lbl">Notifs</span>
+  </button>
+  <button class="theme-btn"
+          onclick={toggleNotifyPinnedOnly}
+          disabled={!ui.notify}
+          title={!ui.notify
+            ? 'Enable notifications first'
+            : ui.notifyPinnedOnly
+              ? 'Notifying pinned sessions only — click to notify all'
+              : 'Notifying all sessions — click to restrict to pinned only'}
+          aria-label="Toggle pinned-only notifications">
+    <span class="theme-ico">{ui.notifyPinnedOnly ? '📌' : '📍'}</span>
+    <span class="theme-lbl">Pinned</span>
   </button>
   <button class="theme-btn" onclick={cycleTheme}
           title={`Theme: ${themeUi.label} — click to change`}

@@ -25,6 +25,12 @@ const DEFAULTS = {
   // Commande lancée automatiquement à l'ouverture d'un nouveau pane terminal (bouton « ＋ »).
   // Vide = shell nu. Ex. « source .venv/bin/activate », « tmux clock-mode »…
   initialShellCommand: '',
+  // Synchro git du dépôt du serveur (cf. server/gitOps.js) : boucle de fond fetch + pull --ff-only.
+  autoGitSync: false,
+  // Après un pull qui change package-lock.json : redémarrer le service (→ run-dev.sh relance npm ci).
+  gitAutoRestartOnLock: false,
+  // Afficher la bannière « redémarrage nécessaire / effectué » dans l'UI (indépendant de l'auto-restart).
+  gitRestartNotice: true,
 };
 
 // Ramène un objet arbitraire (fichier ou payload client) à des valeurs sûres et complètes.
@@ -37,7 +43,14 @@ function sanitize(raw) {
   // initialShellCommand : chaîne, bornée (anti-abus ; jamais interpolée dans un shell — tapée
   // au clavier via send-keys -l par showInPane).
   const cmd = typeof o.initialShellCommand === 'string' ? o.initialShellCommand.slice(0, 500) : '';
-  return { subtabOrder: order, initialShellCommand: cmd };
+  return {
+    subtabOrder: order,
+    initialShellCommand: cmd,
+    autoGitSync: !!o.autoGitSync,
+    gitAutoRestartOnLock: !!o.gitAutoRestartOnLock,
+    // Défaut à true : une config antérieure à cette clé ne doit pas la forcer à false.
+    gitRestartNotice: o.gitRestartNotice === undefined ? true : !!o.gitRestartNotice,
+  };
 }
 
 // Lit les réglages (défauts si le fichier est absent/illisible). Pas de cache : lecture directe

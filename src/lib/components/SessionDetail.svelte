@@ -193,6 +193,10 @@
 
   // appelé par le Composer juste après un envoi réussi : affiche le message en file et scroll en bas.
   async function onSent(t) {
+    // Sending free text while a question is pending dismisses it (the backend sends Escape then
+    // types) → hide the card immediately; the event-driven refetch (UserPromptSubmit clears
+    // liveQuestionForSession) confirms it. No-op when nothing is pending.
+    if (s && s.pendingQuestion) s.pendingQuestion = null;
     queued = [...queued, { text: t, ts: new Date().toISOString() }];
     forceBottom = true;
     await tick();

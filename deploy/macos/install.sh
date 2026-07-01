@@ -1,6 +1,6 @@
 #!/bin/bash
 # Installe hooked comme service utilisateur macOS (LaunchAgent) : démarre AU LOGIN, se relance
-# en cas de crash, tourne en dev (Vite HMR / auto-reload). À lancer sur le Mac après `npm install`.
+# en cas de crash, tourne en dev (Vite HMR / auto-reload). Installe les dépendances npm automatiquement.
 #   ./deploy/macos/install.sh            # port 4123
 #   HOOKED_PORT=5000 ./deploy/macos/install.sh
 set -e
@@ -12,6 +12,12 @@ PORT="${HOOKED_PORT:-4123}"
 
 command -v node >/dev/null || { echo "✗ node introuvable dans le PATH — installe-le (mise/Homebrew) puis relance."; exit 1; }
 chmod +x "$DIR/run-dev.sh"
+
+REPO="$(cd "$DIR/../.." && pwd)"
+echo "→ Installing npm dependencies (npm ci)..."
+(cd "$REPO" && npm ci && shasum -a 256 package-lock.json | awk '{print $1}' > node_modules/.package-lock-sha256)
+echo "✓ npm ci complete."
+
 mkdir -p "$HOME/Library/LaunchAgents"
 
 cat > "$PLIST" <<EOF
