@@ -142,6 +142,17 @@ export function mdInline(t) {
       const rows = [];
       while (i < lines.length && lines[i].includes('|')) { rows.push(tableCells(lines[i])); i++; }
       out.push(renderTable(header, aligns, rows));
+    } else if (/^\s*>/.test(lines[i])) {
+      // blockquote : lignes consécutives préfixées par « > ». On retire le marqueur
+      // (et un espace) puis on rend le contenu récursivement → gras, titres, tableaux
+      // et citations imbriquées (« >> ») fonctionnent dedans.
+      flush();
+      const inner = [];
+      while (i < lines.length && /^\s*>/.test(lines[i])) {
+        inner.push(lines[i].replace(/^\s*>\s?/, ''));
+        i++;
+      }
+      out.push(`<blockquote>${mdInline(inner.join('\n'))}</blockquote>`);
     } else {
       const h = lines[i].match(/^#{1,4} (.+)$/);
       buf.push(h ? `<b>${mdFrag(h[1])}</b>` : mdFrag(lines[i]));
