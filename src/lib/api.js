@@ -16,6 +16,8 @@ export const getSession = (id) => jget('/api/session?id=' + encodeURIComponent(i
 export const getStats = (range) => jget('/api/stats?range=' + encodeURIComponent(range));
 // Usage « /usage » : rate limits du compte (5 h / 7 j) + contexte/effort de la session courante + budget 5 h.
 export const getUsage = () => jget('/api/usage');
+// Jobs de fond encore actifs, toutes sessions confondues (carte Overview). { jobs, count }.
+export const getBackground = () => jget('/api/background');
 export const getFiles = (id, q, cwd) => jget(`/api/files?id=${encodeURIComponent(id || '')}&q=${encodeURIComponent(q)}${cwd ? '&cwd=' + encodeURIComponent(cwd) : ''}`);
 export const getCommands = (id, q, cwd) => jget(`/api/commands?id=${encodeURIComponent(id || '')}&q=${encodeURIComponent(q)}${cwd ? '&cwd=' + encodeURIComponent(cwd) : ''}`);
 export const getAgent = (session, agent) => jget(`/api/agent?session=${encodeURIComponent(session)}&agent=${encodeURIComponent(agent)}`);

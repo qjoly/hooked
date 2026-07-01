@@ -100,7 +100,10 @@ const TOOLS = [
     name: 'get_session',
     description:
       "Détail complet d'une session : conversation, todos, fichiers touchés, sous-agents, " +
-      'événements récents et question en attente éventuelle.',
+      'événements récents et question en attente éventuelle. Le champ `link` (ex. `/session/<id>`) ' +
+      "est un deep-link vers la session : pour diriger l'utilisateur vers elle dans hooked, émets un " +
+      'lien markdown `[label](<link>)` (chemin RELATIF, pas une URL absolue) — le clic focalise la ' +
+      'session dans l\'app sans rechargement.',
     inputSchema: {
       type: 'object',
       properties: { id: { type: 'string', description: 'id de la session' } },
@@ -113,7 +116,9 @@ const TOOLS = [
     name: 'start_session',
     description:
       'Démarre une nouvelle session Claude Code dans une session tmux (ou reprend une session ' +
-      "existante via resumeId). Le serveur hooked lance `claude` dans le dossier indiqué.",
+      "existante via resumeId). Le serveur hooked lance `claude` dans le dossier indiqué. La réponse " +
+      'inclut `attach` (commande tmux) et `link` (deep-link relatif `/session/<id>`) : pour pointer ' +
+      "l'utilisateur vers la nouvelle session dans hooked, émets un lien markdown `[label](<link>)`.",
     inputSchema: {
       type: 'object',
       properties: {
