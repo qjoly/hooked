@@ -233,7 +233,7 @@ export async function loadSessions() {
 // Miroir réactif du store serveur. Chargé au démarrage (startLive) ; la page Réglages édite via
 // updateSettings (patch partiel → persiste → resync). Défauts alignés sur server/settings.js.
 export const settings = $state({
-  subtabOrder: ['chat', 'changes', 'todos', 'subagents', 'terminal'],
+  subtabOrder: ['chat', 'changes', 'todos', 'subagents', 'background', 'terminal'],
   initialShellCommand: '',
 });
 export async function loadSettings() {

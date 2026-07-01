@@ -576,7 +576,7 @@ function launchSession({ resumeId, cwd, prompt, model, effort, worktree, permiss
         waitForReplReady(pane, () => deliverReply(pane, seed, false, () => {}));
       });
     }
-    cb(null, { tmux: name, attach: `tmux attach -t ${name}`, cwd: dir, resume: id, worktree: useWorktree });
+    cb(null, { tmux: name, attach: `tmux attach -t ${name}`, cwd: dir, resume: id, worktree: useWorktree, link: '/session/' + encodeURIComponent(id) });
   });
 }
 

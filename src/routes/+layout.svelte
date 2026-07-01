@@ -8,6 +8,20 @@
   let { children } = $props();
   onMount(startLive);
 
+  // Deep-links de session (`[label](/session/<id>)` rendus par autolink) : le routeur client
+  // SvelteKit intercepte déjà le clic (nav interne, sans reload). On ajoute juste window.focus()
+  // pour remonter la fenêtre au premier plan en multi-fenêtres — sans preventDefault, pour laisser
+  // SvelteKit faire la navigation. Miroir du handler de clic des notifications (state.svelte.js).
+  onMount(() => {
+    const onClick = (e) => {
+      if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+      const a = e.target && e.target.closest && e.target.closest('a[data-session-link]');
+      if (a) { try { window.focus(); } catch (_) {} }
+    };
+    document.addEventListener('click', onClick);
+    return () => document.removeEventListener('click', onClick);
+  });
+
   // Bouton de thème : cycle Système → Clair → Sombre. L'icône reflète le choix courant
   // (🖥️ = suit le système, ☀️ = clair forcé, 🌙 = sombre forcé).
   const THEME_UI = {

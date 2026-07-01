@@ -70,10 +70,10 @@ export function splitMessageImages(text) {
 
 export const STATE_LABEL = {
   working: 'Claude is working', waiting: 'Waiting for you', attention: 'Action required',
-  idle: 'Paused', ended: 'Ended', past: 'Past',
+  background: 'Running in background', idle: 'Paused', ended: 'Ended', past: 'Past',
 };
 
-export const LIVE_STATES = ['working', 'waiting', 'attention', 'idle'];
+export const LIVE_STATES = ['working', 'background', 'waiting', 'attention', 'idle'];
 
 // filtres par statut (single-select). `states` = états couverts par le filtre.
 // La vue par défaut (« Actives ») n'inclut PAS les sessions terminées (ended/past, p. ex.
@@ -82,6 +82,7 @@ export const STATUS_FILTERS = [
   { key: 'all', label: 'Active', states: LIVE_STATES },
   { key: 'attention', label: '🔴 Action', states: ['attention'] },
   { key: 'waiting', label: '🟡 Waiting', states: ['waiting'] },
+  { key: 'background', label: '🌀 Background', states: ['background'] },
   { key: 'working', label: '🔵 Working', states: ['working'] },
   { key: 'idle', label: '🕘 Paused', states: ['idle'] },
   { key: 'done', label: '✓ Ended', states: ['ended', 'past'] },
@@ -134,6 +135,10 @@ const LINK_RE = new RegExp(
 );
 const countChar = (s, c) => s.split(c).length - 1;
 const A_ATTRS = 'target="_blank" rel="noopener noreferrer"';
+// Lien profond RELATIF vers une autre session hooked (émis par un agent : `[label](/session/<id>)`).
+// Rendu comme un <a> interne SANS target="_blank" → le routeur client SvelteKit intercepte le clic
+// (même origine, pas de nouvel onglet) et focalise la session sans rechargement complet.
+const SESSION_LINK_RE = /^\/session\/[^/?#\s]+$/;
 
 // href sûr pour un lien markdown : http(s)/mailto/relatif tels quels, domaine nu préfixé de
 // https://, tout autre schéma (javascript:, data:…) refusé → null, on garde alors le texte brut.
@@ -154,7 +159,12 @@ function autolink(raw) {
     last = start + mm[0].length;
     if (mm[1] !== undefined) { // lien markdown [texte](url)
       const href = safeHref(mm[2]);
-      out += href ? `<a href="${esc(href)}" ${A_ATTRS}>${esc(mm[1])}</a>` : esc(mm[0]);
+      if (href && SESSION_LINK_RE.test(href)) {
+        // lien interne vers une session : pas de target="_blank" → nav client SvelteKit, sans reload.
+        out += `<a href="${esc(href)}" class="session-link" data-session-link>${esc(mm[1])}</a>`;
+      } else {
+        out += href ? `<a href="${esc(href)}" ${A_ATTRS}>${esc(mm[1])}</a>` : esc(mm[0]);
+      }
       continue;
     }
     // URL ou domaine nu : collé à « @ » ou à un caractère de mot en amont ⇒ email/identifiant, pas un lien.
