@@ -3,8 +3,31 @@
  * Imports relatifs : ces modules front n'ont pas de dépendance Svelte.
  */
 import { describe, it, expect } from 'vitest';
-import { mdSegments, mdLite, mdInline } from '../src/lib/format.js';
+import { mdSegments, mdLite, mdInline, splitMessageImages } from '../src/lib/format.js';
 import { highlight, langLabel } from '../src/lib/highlight.js';
+
+describe('splitMessageImages — images jointes séparées du texte', () => {
+  it('extrait un chemin d\'image collée et garde le reste du texte', () => {
+    const r = splitMessageImages('/Users/x/.claude/hooked/images/paste-abc-12345.png look at this bro');
+    expect(r.images).toEqual(['/Users/x/.claude/hooked/images/paste-abc-12345.png']);
+    expect(r.text).toBe('look at this bro');
+  });
+  it('gère plusieurs images', () => {
+    const r = splitMessageImages('/h/images/a.png /h/images/b.jpg hello');
+    expect(r.images).toEqual(['/h/images/a.png', '/h/images/b.jpg']);
+    expect(r.text).toBe('hello');
+  });
+  it('ne touche pas un texte sans image', () => {
+    const r = splitMessageImages('just a normal message about foo.png ideas');
+    expect(r.images).toEqual([]);
+    expect(r.text).toBe('just a normal message about foo.png ideas');
+  });
+  it('n\'extrait qu\'un chemin dans un dossier images/ (pas un chemin quelconque)', () => {
+    const r = splitMessageImages('/Users/x/Desktop/photo.png check');
+    expect(r.images).toEqual([]);
+    expect(r.text).toBe('/Users/x/Desktop/photo.png check');
+  });
+});
 
 describe('mdSegments — découpage texte / code', () => {
   it('sépare texte et bloc de code avec langage', () => {

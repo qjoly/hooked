@@ -7,6 +7,7 @@
   import ModelEffort from './ModelEffort.svelte';
   import ChatBubble from './ChatBubble.svelte';
   import Question from './Question.svelte';
+  import Plan from './Plan.svelte';
   import Composer from './Composer.svelte';
   import Changes from './Changes.svelte';
   import Subagents from './Subagents.svelte';
@@ -231,8 +232,9 @@
     untrack(() => {
       const sess = data.sessions.find((x) => x.id === id);
       if (!sess || !s) return;
-      const cardShown = !!s.pendingQuestion;
-      const qChanged = (sess.hasQuestion && !cardShown) || (!sess.hasQuestion && cardShown);
+      const cardShown = !!s.pendingQuestion || !!s.pendingPlan;
+      const cardWanted = sess.hasQuestion || sess.hasPlan;
+      const qChanged = (cardWanted && !cardShown) || (!cardWanted && cardShown);
       const activityChanged = sess.lastActivity && sess.lastActivity !== lastActivity;
       // session live : on recharge aussi pour capter l'arrivée/fermeture des panes « show »
       // (panes.jsonl déclenche un tick) → l'onglet Terminal apparaît/disparaît tout seul.
@@ -367,7 +369,7 @@
       <button class="pane-back" onclick={() => goto('/')} title="Back to list">←</button>
       <span class="proj">{s.projectName || '?'}</span>
       {#if s.gitBranch}<span class="branch">{s.gitBranch}</span>{/if}
-      <span class="badge s-badge" style="margin-left:0"><span class="bdot"></span>{STATE_LABEL[s.state] || s.state}</span>
+      <span class="badge s-badge" style="margin-left:0"><span class="bdot"></span>{s.state === 'working' && s.activity ? s.activity + '…' : (STATE_LABEL[s.state] || s.state)}</span>
       {#if s.tmuxAlive}
         <span class="ro-tag live">↩ reply available</span>
         <button class="stop-btn" disabled={stopping} onclick={stop}>{stopping ? '⏳ stopping…' : '⏹ Stop'}</button>
@@ -466,6 +468,7 @@
         {/each}
       </div>
       {#if s.pendingQuestion}<Question {id} pq={s.pendingQuestion} />{/if}
+      {#if s.pendingPlan}<Plan {id} pp={s.pendingPlan} />{/if}
       {#if s.tmuxPane}
         <Composer bind:this={composer} {id} alive={s.tmuxAlive} project={s.project}
                   resumeModel={s.launchModel} resumeEffort={s.effort} lastPrompt={s.lastPrompt || ''} {onSent} />

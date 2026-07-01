@@ -255,24 +255,57 @@ describe('events live', () => {
   });
 });
 
-describe('liveStateFor', () => {
+// N.B. sémantique volontairement DIVERGENTE du legacy (fix « attente vs working ») → on pin
+// explicitement le comportement attendu au lieu de comparer à la copie figée.
+describe('liveStateFor — attente vs working', () => {
+  const OLD = '2020-01-01T00:00:00Z';           // > 5 min (et > 30 min) → bascule 'idle'
+  const NOW = new Date().toISOString();
   const cases = [
-    { event: 'SessionEnd', ts: '2020-01-01T00:00:00Z' },
-    { event: 'Stop', ts: '2020-01-01T00:00:00Z' },
-    { event: 'SubagentStop', ts: '2020-01-01T00:00:00Z' },
-    { event: 'Notification', ts: '2020-01-01T00:00:00Z', message: 'needs your permission' },
-    { event: 'Notification', ts: '2020-01-01T00:00:00Z', message: 'hello' },
-    { event: 'PreToolUse', ts: '2020-01-01T00:00:00Z', tool: 'Bash' },   // vieux → idle
-    { event: 'PreToolUse', ts: new Date().toISOString(), tool: 'Bash' }, // récent → working
-    { event: 'UserPromptSubmit', ts: '2020-01-01T00:00:00Z' },
-    { event: 'Weird', ts: '2020-01-01T00:00:00Z', tool: 'X' },
-    null,
+    [{ event: 'SessionEnd', ts: OLD }, { state: 'ended', tool: null }],
+    [{ event: 'Stop', ts: OLD }, { state: 'waiting', tool: null }],
+    // un sous-agent qui s'arrête ≠ l'agent principal a fini → surtout pas 'waiting'
+    [{ event: 'SubagentStop', ts: OLD }, { state: 'idle', tool: null }],
+    [{ event: 'SubagentStop', ts: NOW }, { state: 'working', tool: null }],
+    [{ event: 'Notification', ts: OLD, message: 'needs your permission' }, { state: 'attention', tool: null }],
+    [{ event: 'Notification', ts: OLD, message: 'hello' }, { state: 'waiting', tool: null }],
+    [{ event: 'PreToolUse', ts: OLD, tool: 'Bash' }, { state: 'idle', tool: 'Bash' }],
+    [{ event: 'PreToolUse', ts: NOW, tool: 'Bash' }, { state: 'working', tool: 'Bash' }],
+    // plan / question : Claude attend une action de l'utilisateur → attention, sans péremption d'âge
+    [{ event: 'PreToolUse', ts: OLD, tool: 'ExitPlanMode' }, { state: 'attention', tool: 'ExitPlanMode' }],
+    [{ event: 'PreToolUse', ts: OLD, tool: 'AskUserQuestion' }, { state: 'attention', tool: 'AskUserQuestion' }],
+    [{ event: 'UserPromptSubmit', ts: OLD }, { state: 'idle', tool: null }],
+    [{ event: 'Weird', ts: OLD, tool: 'X' }, { state: 'idle', tool: 'X' }],
+    [null, null],
   ];
-  for (const [i, ev] of cases.entries()) {
-    it(`identique cas#${i}`, () => {
-      expect(lib.liveStateFor(ev)).toEqual(legacy.liveStateFor(ev));
+  for (const [i, [ev, want]] of cases.entries()) {
+    it(`cas#${i} ${ev ? ev.event + (ev.tool ? '/' + ev.tool : '') : 'null'}`, () => {
+      expect(lib.liveStateFor(ev)).toEqual(want);
     });
   }
+});
+
+describe('livePlanForSession — plan ExitPlanMode en attente', () => {
+  const fs = require('node:fs'), os = require('node:os');
+  const mk = (name, evs) => {
+    const fp = path.join(os.tmpdir(), `hooked-plan-${name}.jsonl`);
+    fs.writeFileSync(fp, evs.map((e) => JSON.stringify(e)).join('\n') + '\n');
+    return fp;
+  };
+  it('remonte le plan tant qu\'il est en attente', () => {
+    const fp = mk('pending', [{ session_id: 's1', event: 'PreToolUse', tool: 'ExitPlanMode', ts: '2020-01-01T00:00:00Z', plan: '# Plan\n- étape' }]);
+    expect(lib.livePlanForSession('s1', fp)?.plan).toBe('# Plan\n- étape');
+  });
+  it('disparaît une fois le plan résolu (PostToolUse ExitPlanMode)', () => {
+    const fp = mk('resolved', [
+      { session_id: 's1', event: 'PreToolUse', tool: 'ExitPlanMode', ts: '2020-01-01T00:00:00Z', plan: '# Plan' },
+      { session_id: 's1', event: 'PostToolUse', tool: 'ExitPlanMode', ts: '2020-01-01T00:01:00Z' },
+    ]);
+    expect(lib.livePlanForSession('s1', fp)).toBe(null);
+  });
+  it('ignore un ExitPlanMode sans champ plan (event antérieur au hook)', () => {
+    const fp = mk('noplan', [{ session_id: 's1', event: 'PreToolUse', tool: 'ExitPlanMode', ts: '2020-01-01T00:00:00Z' }]);
+    expect(lib.livePlanForSession('s1', fp)).toBe(null);
+  });
 });
 
 describe('todos — latestTodos / todoSummary', () => {
@@ -384,5 +417,72 @@ describe('mode de permission — parsePaneMode (footer TUI réel)', () => {
       '[hooked Re…] Ajouter feature de détection de méthode de versions',
     ].join('\n');
     expect(lib.parsePaneMode(screen)).toBe('plan');
+  });
+});
+
+describe('parsePlanPrompt — menu d\'approbation ExitPlanMode', () => {
+  const MENU = [
+    '   Claude has written up a plan and is ready to execute. Would you like to proceed?',
+    '',
+    '   ❯ 1. Yes, and use auto mode',
+    '     2. Yes, manually approve edits',
+    '     3. No, refine with Ultraplan on Claude Code on the web',
+    '     4. Tell Claude what to change',
+    '        shift+tab to approve with this feedback',
+  ].join('\n');
+  it('parse les options numérotées et repère le curseur', () => {
+    const opts = lib.parsePlanPrompt(MENU);
+    expect(opts.map((o) => o.num)).toEqual([1, 2, 3, 4]);
+    expect(opts.find((o) => o.cursor).num).toBe(1);
+    expect(opts[3].label).toBe('Tell Claude what to change');
+  });
+  it('renvoie null hors du menu d\'approbation (pas de header « proceed »)', () => {
+    expect(lib.parsePlanPrompt('some text\n1. foo\n2. bar')).toBe(null);
+  });
+});
+
+describe('parseSpinner — verbe d\'activité (« thinking ») du footer TUI', () => {
+  it('extrait le gérondif d\'une vraie ligne spinner (capturée en live)', () => {
+    expect(lib.parseSpinner('✶ Accomplishing… (3m 25s · ↓ 11.3k tokens)')).toBe('Accomplishing');
+  });
+  it('marche pour tous les glyphes animés observés', () => {
+    for (const g of ['✻', '✽', '✶', '✢', '✳', '·']) {
+      expect(lib.parseSpinner(`${g} Clauding… (2s · ↓ 40 tokens)`)).toBe('Clauding');
+    }
+  });
+  it('gère l\'ellipsis en trois points « ... » et un gérondif multi-mots', () => {
+    expect(lib.parseSpinner('✻ Herding cats... (12s)')).toBe('Herding cats');
+  });
+  it('trouve la ligne spinner au milieu d\'un écran complet', () => {
+    const screen = ['some transcript text', '', '✽ Gibberishing… (8s · ↓ 1.2k tokens)', '', '❯ '].join('\n');
+    expect(lib.parseSpinner(screen)).toBe('Gibberishing');
+  });
+  it('null sur de la prose qui cite « …/Cogitating…/… » (pas la forme « mot… ( »)', () => {
+    const prose = '  ▎ Le TUI affiche « esc to interrupt » dès qu\'il traite, indépendamment du verbe animé (Testing…/Cogitating…/…)';
+    expect(lib.parseSpinner(prose)).toBe(null);
+  });
+  it('null sur la boîte de saisie seule — session en attente (le « ❯ » n\'est pas un glyphe spinner)', () => {
+    const idle = '❯ Rédige un… test (foo)\n────\n  ⏵⏵ auto mode on (shift+tab to cycle)';
+    expect(lib.parseSpinner(idle)).toBe(null);
+  });
+  it('ignore une sortie d\'outil « ⎿ Running tests… (12s) » (préfixe non-spinner)', () => {
+    expect(lib.parseSpinner('  ⎿  Running tests… (12s)')).toBe(null);
+  });
+  it('prend le spinner du footer (dernier match), pas une ligne plus haut', () => {
+    const screen = [
+      '· Something in transcript… (aside)',   // ligne haute qui ressemble au motif
+      '  ⎿ tool output',
+      '✻ Percolating… (5s · ↓ 300 tokens)',   // vrai spinner, en bas
+      '❯ ',
+    ].join('\n');
+    expect(lib.parseSpinner(screen)).toBe('Percolating');
+  });
+  it('null si le spinner est CITÉ haut dans le scrollback (session idle, pas de vrai spinner au footer)', () => {
+    // cas réel : une session qui « parle » du spinner. La citation est loin au-dessus de l'invite ❯
+    // → hors de la fenêtre footer → ne doit pas déclencher un faux « working ».
+    const lines = ['✻ Cogitating… (42s · ↓ 9k tokens)'];       // spinner cité dans un message
+    for (let i = 0; i < 16; i++) lines.push('conversation line ' + i);
+    lines.push('────', '❯ ', '────', '  ⏵⏵ auto mode on (shift+tab to cycle)');
+    expect(lib.parseSpinner(lines.join('\n'))).toBe(null);
   });
 });

@@ -6,9 +6,9 @@ import path from 'node:path';
 import { statSafe } from './util.js';
 import { scanSessions, blankSummary } from './transcript.js';
 import { repoSlug } from './git.js';
-import { readEvents, lastEventBySession, paneForSession, sessionForPane, modeForSession, liveQuestionForSession, eventSessionMeta } from './events.js';
+import { readEvents, lastEventBySession, paneForSession, sessionForPane, modeForSession, liveQuestionForSession, livePlanForSession, eventSessionMeta } from './events.js';
 import { liveStateFor } from './live.js';
-import { resolveLaunchForSession, paneTmuxNames, tmuxAlive, readPaneModeSync } from './tmux.js';
+import { resolveLaunchForSession, paneTmuxNames, tmuxAlive, readPaneModeSync, paneBusySync, paneActivitySync } from './tmux.js';
 import { shownPanesFor } from './pane.js';
 import { usageWindow } from './usage.js';
 import { sessionStatus, sessionStatusRaw } from './status.js';
@@ -44,6 +44,26 @@ function eventOnlySessions(knownIds, now = Date.now()) {
   return out;
 }
 
+// Affinage de l'état déduit des hooks par une lecture du pane vivant. Les hooks ne signalent pas la
+// réflexion/le streaming (aucun event entre deux outils) → une session qui mouline longtemps tombe à
+// tort en 'idle', et une session finie sans Stop capté reste 'working'. La ligne spinner du footer
+// présente ⇒ Claude bosse (working) ; absente alors qu'on le croyait actif ⇒ il attend (waiting).
+// On ne touche jamais 'attention' (plan/question/permission) ni 'ended'.
+//
+// Pane MORT (tmux fermé) : aucun process ne tourne, la session ne PEUT pas être 'working' — un
+// 'working' hérité d'un dernier hook sans Stop/SessionEnd capté est périmé → on le rétrograde en
+// 'waiting' (à relancer / en attente de toi). Les autres états (idle/attention/ended/past) restent.
+function refineWithPane(state, pane, alive) {
+  if (!alive) return state === 'working' ? 'waiting' : state;
+  const busy = paneBusySync(pane);
+  // busy n'affine QUE 'working'/'idle' : un 'waiting' vient d'un Stop capté (Claude a fini) et fait
+  // autorité — on ne le re-promeut jamais en 'working' (sinon un spinner résiduel/cité relancerait à
+  // tort une session à l'arrêt). Un vrai nouveau tour repasse par un hook UserPromptSubmit → 'working'.
+  if (busy === true && (state === 'working' || state === 'idle')) return 'working';
+  if (busy === false && (state === 'working' || state === 'idle')) return 'waiting';
+  return state;
+}
+
 function buildSessions() {
   const sessions = scanSessions();
   const known = new Set(sessions.map((s) => s.id));
@@ -69,6 +89,10 @@ function buildSessions() {
     s.lastActivity = s.liveTs && (!s.lastTs || s.liveTs > s.lastTs) ? s.liveTs : s.lastTs;
     // le pane n'existe peut-être plus (tmux fermé) → on distingue « live » de « dernier connu »
     s.tmuxAlive = tmuxAlive(s.tmuxPane);
+    s.state = refineWithPane(s.state, s.tmuxPane, s.tmuxAlive);
+    // verbe d'activité live (« Accomplishing »…) quand Claude mouline — le petit mot animé du TUI.
+    // Capture déjà en cache (refineWithPane vient de la lire au même tick) → pas de coût tmux en plus.
+    s.activity = (s.state === 'working' && s.tmuxAlive) ? paneActivitySync(s.tmuxPane) : null;
     // effort : vrai effort de la statusline (toutes sessions) en priorité, sinon résolution
     // persistée du lancement hooked (survit à la mort du tmux). modèle explicite idem.
     const li = resolveLaunchForSession(s.id);
@@ -77,6 +101,8 @@ function buildSessions() {
     if (li && li.model && !s.model) s.model = li.model;
     // question en attente : transcript (rare, déjà répondue en pratique) OU live (cas réel)
     s.liveQuestion = liveQuestionForSession(s.id);
+    // plan ExitPlanMode en attente d'approbation (source live des hooks) — pour le flag sidebar.
+    s.livePlan = livePlanForSession(s.id);
     // résumé compact de la TodoList (où en est la session) — léger, pour la sidebar.
     s.todo = todoSummary(latestTodos(s.file));
   }
@@ -84,9 +110,10 @@ function buildSessions() {
   sessions.sort((a, b) => String(b.lastActivity || '').localeCompare(String(a.lastActivity || '')));
   // on n'expose pas byDay en entier dans la liste (lourd) — juste un flag + la question
   // (légère) pour permettre la réponse en 1 clic directement depuis la sidebar.
-  return sessions.map(({ byDay, file, pendingQuestion, liveQuestion, ...rest }) => {
+  return sessions.map(({ byDay, file, pendingQuestion, liveQuestion, livePlan, ...rest }) => {
     const question = liveQuestion || pendingQuestion || null;
-    return { ...rest, hasQuestion: !!question, question };
+    // le plan complet (markdown) reste au détail ; la liste n'expose qu'un flag (payload léger).
+    return { ...rest, hasQuestion: !!question, question, hasPlan: !!livePlan };
   });
 }
 
@@ -140,12 +167,18 @@ function sessionDetail(id) {
   const tmuxAttach = tmuxName ? `tmux attach -t ${tmuxName}` : null;
   // pendingQuestion live (hook) prioritaire ; fallback sur le transcript.
   const pendingQuestion = liveQuestionForSession(id) || s.pendingQuestion || null;
+  // plan ExitPlanMode en attente d'approbation (markdown complet, pour l'afficher dans la conversation).
+  const pendingPlan = livePlanForSession(id);
   // statut réel issu de la statusline (effort, rate limits du compte, contexte). Prioritaire.
   const status = sessionStatus(id);
+  const alive = tmuxAlive(pane);
+  const state = refineWithPane(last ? last.state : (s.state || 'past'), pane, alive);
   return {
-    ...s, pendingQuestion,
-    state: last ? last.state : (s.state || 'past'), currentTool: last ? last.tool : null,
-    tmuxPane: pane, tmuxAlive: tmuxAlive(pane), tmuxAttach,
+    ...s, pendingQuestion, pendingPlan,
+    state, currentTool: last ? last.tool : null,
+    // verbe d'activité live du spinner TUI (« Accomplishing »…) quand la session mouline, sinon null.
+    activity: (state === 'working' && alive) ? paneActivitySync(pane) : null,
+    tmuxPane: pane, tmuxAlive: alive, tmuxAttach,
     // panes « show » ouverts par un agent (mirroir lecture seule dans l'onglet Terminal).
     shownPanes: shownPanesFor(id),
     // mode courant : lu en direct dans le footer du TUI si le pane est vivant (fiable, temps-réel),
