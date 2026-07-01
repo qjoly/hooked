@@ -44,6 +44,10 @@ run = "node build"
 description = "Lance la suite Vitest"
 run = "npm test"
 
+[tasks.deploy]
+description = "Rebuild le front puis redémarre le service launchd (build && service-restart)"
+run = "mise run build && mise run service-restart"
+
 [tasks.service-install]
 description = "Installe hooked comme service launchd (démarre au login, auto-restart)"
 run = '''
