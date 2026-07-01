@@ -6,11 +6,11 @@
 </script>
 
 {#if !todos.length}
-  <div class="pane-empty">Aucune tâche — Claude n'a pas utilisé TodoWrite dans cette session.</div>
+  <div class="pane-empty">No tasks — Claude didn't use TodoWrite in this session.</div>
 {:else}
   <div class="todos">
     <div class="todos-head">
-      <span class="todos-frac">{done}/{todos.length} terminées</span>
+      <span class="todos-frac">{done}/{todos.length} done</span>
       <div class="todos-track"><div class="todos-fill" style="width:{pct}%"></div></div>
     </div>
     <ul class="todo-list">

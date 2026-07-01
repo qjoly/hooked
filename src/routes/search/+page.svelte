@@ -76,20 +76,20 @@
 
 <section class="view active search-view">
   <div class="search-head">
-    <h2>🔎 Recherche plein-texte</h2>
-    <p class="hint">Cherche dans tous tes prompts et les réponses de Claude. L'index se construit/rafraîchit à la première requête.</p>
+    <h2>🔎 Full-text search</h2>
+    <p class="hint">Searches all your prompts and Claude's replies. The index is built/refreshed on the first query.</p>
     <input
       class="search-input"
       type="search"
-      placeholder="ex. kubernetes, sealed secret, ArgoCD…"
+      placeholder="e.g. kubernetes, sealed secret, ArgoCD…"
       bind:value={q}
       oninput={onInput}
     />
     {#if projects.length > 1}
       <label class="filter">
-        <span>Projet :</span>
+        <span>Project:</span>
         <select bind:value={project} onchange={run}>
-          <option value="">tous</option>
+          <option value="">all</option>
           {#each projects as p}
             <option value={p}>{basename(p)}</option>
           {/each}
@@ -99,13 +99,13 @@
   </div>
 
   {#if loading}
-    <div class="status-line">… recherche en cours</div>
+    <div class="status-line">… searching</div>
   {:else if lastQ && !results.length}
-    <div class="status-line">Aucun résultat pour <strong>{lastQ}</strong>.</div>
+    <div class="status-line">No results for <strong>{lastQ}</strong>.</div>
   {:else if results.length}
     <div class="status-line">
-      {results.length} message{results.length > 1 ? 's' : ''} dans
-      {groups.length} session{groups.length > 1 ? 's' : ''} pour <strong>{lastQ}</strong>
+      {results.length} message{results.length > 1 ? 's' : ''} in
+      {groups.length} session{groups.length > 1 ? 's' : ''} for <strong>{lastQ}</strong>
     </div>
     <ul class="groups">
       {#each groups as g (g.sessionId)}
@@ -116,7 +116,7 @@
             </a>
             <span class="gid" title={g.sessionId}>{g.sessionId.slice(0, 8)}</span>
             <span class="gcount">{g.hits.length} match{g.hits.length > 1 ? 's' : ''}</span>
-            <a class="gopen" href={`/session/${encodeURIComponent(g.sessionId)}`}>ouvrir la session ↗</a>
+            <a class="gopen" href={`/session/${encodeURIComponent(g.sessionId)}`}>open session ↗</a>
           </div>
           <ul class="hits">
             {#each g.hits as r}
@@ -128,7 +128,7 @@
                 onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openMessage(g.sessionId, r.ts); } }}
               >
                 <div class="meta">
-                  <span class="role role-{r.role}">{r.role === 'user' ? '🧑 toi' : '🤖 claude'}</span>
+                  <span class="role role-{r.role}">{r.role === 'user' ? '🧑 you' : '🤖 claude'}</span>
                   <span class="ts">{r.ts ? ago(r.ts) : ''}</span>
                 </div>
                 <div class="snippet">{@html safeSnippet(r.snippet)}</div>
@@ -139,7 +139,7 @@
       {/each}
     </ul>
   {:else}
-    <div class="status-line muted">Tape une requête pour démarrer.</div>
+    <div class="status-line muted">Type a query to start.</div>
   {/if}
 </section>
 

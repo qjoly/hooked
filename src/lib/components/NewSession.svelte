@@ -77,22 +77,22 @@
 
 <div class="newsession">
   <div class="ns-inner">
-    <button class="pane-back" onclick={() => goto('/')} title="Retour">←</button>
-    <h1 class="ns-title">🪝 Nouvelle session</h1>
-    <p class="ns-sub">Lance <code>claude</code> dans une session <b>tmux</b> détachée — ton abonnement, <b>zéro conso token</b>.</p>
+    <button class="pane-back" onclick={() => goto('/')} title="Back">←</button>
+    <h1 class="ns-title">🪝 New session</h1>
+    <p class="ns-sub">Launches <code>claude</code> in a detached <b>tmux</b> session — your subscription, <b>zero token cost</b>.</p>
 
     <Composer newSession project={cwd} {model} {effort} {mode} {worktree} {onLaunched} />
 
     <div class="ns-controls">
       <ModelEffort compact showMode bind:model bind:effort bind:mode />
-      <label class="me-pill ns-worktree" title="Lance la session dans un git worktree dédié (claude --worktree)">
+      <label class="me-pill ns-worktree" title="Launch the session in a dedicated git worktree (claude --worktree)">
         <input type="checkbox" bind:checked={worktree} />
         <span class="me-ico">🌿</span> worktree
       </label>
     </div>
 
-    <label class="lf-label">Projet</label>
-    <input type="search" class="lf-input" placeholder="🔍 Rechercher un projet…" bind:value={search} />
+    <label class="lf-label">Project</label>
+    <input type="search" class="lf-input" placeholder="🔍 Search a project…" bind:value={search} />
     <div class="lf-picklist">
       {#if hits.length}
         {#each hits as [c, name]}
@@ -101,13 +101,13 @@
           </div>
         {/each}
       {:else}
-        <div class="lf-empty">Aucun projet — utilise « Autre dossier… »</div>
+        <div class="lf-empty">No project — use "Other folder…"</div>
       {/if}
-      <div class="lf-pick custom" class:sel={selected === '__custom'} onclick={() => (selected = '__custom')}>📁 Autre dossier…</div>
+      <div class="lf-pick custom" class:sel={selected === '__custom'} onclick={() => (selected = '__custom')}>📁 Other folder…</div>
     </div>
     {#if selected === '__custom'}
-      <input class="lf-input ns-custom" placeholder="/chemin/vers/le/projet" bind:value={customCwd} />
+      <input class="lf-input ns-custom" placeholder="/path/to/the/project" bind:value={customCwd} />
     {/if}
-    {#if watching}<div class="ns-watch">⏳ session lancée — ouverture dès le premier évènement…</div>{/if}
+    {#if watching}<div class="ns-watch">⏳ session launched — opening on first event…</div>{/if}
   </div>
 </div>

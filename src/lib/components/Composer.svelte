@@ -66,11 +66,11 @@
         images = [...images, { path: res.data.path, url: dataUrl, name: res.data.name }];
         queueMicrotask(() => ta && ta.focus());
       } else {
-        status = { text: '✗ image : ' + (res.data.error || 'échec'), cls: 'err' };
+        status = { text: '✗ image: ' + (res.data.error || 'failed'), cls: 'err' };
         setTimeout(() => { status = { text: '', cls: '' }; }, 3500);
       }
     };
-    reader.onerror = () => { uploading--; status = { text: '✗ lecture image impossible', cls: 'err' }; };
+    reader.onerror = () => { uploading--; status = { text: '✗ cannot read image', cls: 'err' }; };
     reader.readAsDataURL(file);
   }
   function removeImage(i) { images = images.filter((_, j) => j !== i); }
@@ -192,7 +192,7 @@
     // 1er Échap : on arme et on demande confirmation pour éviter les annulations accidentelles.
     if (!armed) {
       armed = true;
-      status = { text: '⎋ Appuie encore sur Échap pour interrompre', cls: 'warn' };
+      status = { text: '⎋ Press Esc again to interrupt', cls: 'warn' };
       clearTimeout(armTimer);
       armTimer = setTimeout(() => { armed = false; status = { text: '', cls: '' }; }, 3000);
       queueMicrotask(() => { if (ta) ta.focus(); });
@@ -207,10 +207,10 @@
   function reloadPrompt(interrupted) {
     if (lastPrompt && !text.trim()) {
       text = lastPrompt;
-      status = { text: interrupted ? '⎋ interrompu — prompt rechargé, édite puis renvoie' : '⎋ prompt rechargé', cls: '' };
+      status = { text: interrupted ? '⎋ interrupted — prompt reloaded, edit then resend' : '⎋ prompt reloaded', cls: '' };
       setTimeout(() => { status = { text: '', cls: '' }; }, 3500);
     } else if (interrupted) {
-      status = { text: '⎋ interrompu', cls: '' };
+      status = { text: '⎋ interrupted', cls: '' };
       setTimeout(() => { status = { text: '', cls: '' }; }, 2000);
     }
     queueMicrotask(() => { if (ta) { ta.focus(); autosize(); ta.selectionStart = ta.selectionEnd = ta.value.length; } });
@@ -223,7 +223,7 @@
     const paths = images.map((im) => im.path).join(' ');
     const full = paths ? (t ? paths + ' ' + t : paths) : t;
     busy = true;
-    status = { text: newSession ? 'lancement…' : (alive ? 'envoi…' : 'relance de la session…'), cls: '' };
+    status = { text: newSession ? 'launching…' : (alive ? 'sending…' : 'restarting the session…'), cls: '' };
     const res = newSession
       ? await launch({ cwd: project, prompt: full, model, effort, worktree, permissionMode: mode }).catch((e) => ({ ok: false, data: { error: e.message } }))
       : alive
@@ -234,11 +234,11 @@
       // file d'attente + scroll auto : on signale au parent le message tout juste envoyé.
       if (alive && !newSession && onSent) onSent(full);
       if (newSession && onLaunched) onLaunched(project);
-      status = { text: newSession ? ('✓ session lancée (' + (res.data.tmux || 'tmux') + (res.data.worktree ? ' · worktree' : '') + ')') : (alive ? ('✓ remis dans ' + res.data.pane) : ('✓ session relancée (' + (res.data.tmux || 'tmux') + ')')), cls: 'ok' };
+      status = { text: newSession ? ('✓ session launched (' + (res.data.tmux || 'tmux') + (res.data.worktree ? ' · worktree' : '') + ')') : (alive ? ('✓ sent to ' + res.data.pane) : ('✓ session restarted (' + (res.data.tmux || 'tmux') + ')')), cls: 'ok' };
       setTimeout(() => { status = { text: '', cls: '' }; }, 3000);
       setTimeout(() => { loadSessions(); ui.tick++; }, 600);
     } else {
-      status = { text: '✗ ' + (res.data.error || 'échec'), cls: 'err' };
+      status = { text: '✗ ' + (res.data.error || 'failed'), cls: 'err' };
     }
     busy = false;
     queueMicrotask(() => ta && ta.focus());
@@ -248,18 +248,18 @@
 <div class="composer" class:relaunch={!alive && !newSession}>
   <textarea bind:this={ta} bind:value={text} id="reply-text" rows="1" disabled={busy}
             placeholder={newSession
-              ? 'Décris ta tâche pour démarrer la session…  (Entrée pour lancer · @ fichier · / commande · colle une image)'
+              ? 'Describe your task to start the session…  (Enter to launch · @ file · / command · paste an image)'
               : alive
-                ? 'Répondre à Claude…  (Entrée pour envoyer · Maj+Entrée = nouvelle ligne · @ fichier · / commande · colle une image · Échap×2 interrompt)'
-                : 'Session tmux fermée — envoyer relancera claude --resume…  (@ fichier · / commande · colle une image)'}
+                ? 'Reply to Claude…  (Enter to send · Shift+Enter = new line · @ file · / command · paste an image · Esc×2 interrupts)'
+                : 'tmux session closed — sending will re-run claude --resume…  (@ file · / command · paste an image)'}
             oninput={onInput} onkeydown={onKeydown} onpaste={onPaste} onblur={() => setTimeout(closeAc, 150)}></textarea>
-  <button class="reply-send" disabled={busy || uploading > 0} onclick={send}>{newSession ? 'Lancer ↗' : alive ? 'Envoyer ↩' : 'Relancer ↗'}</button>
+  <button class="reply-send" disabled={busy || uploading > 0} onclick={send}>{newSession ? 'Launch ↗' : alive ? 'Send ↩' : 'Restart ↗'}</button>
   {#if images.length || uploading}
     <div class="img-tray">
       {#each images as im, i}
         <div class="img-chip" title={im.path}>
           <img src={im.url} alt={im.name} />
-          <button class="img-rm" title="Retirer" onclick={() => removeImage(i)}>×</button>
+          <button class="img-rm" title="Remove" onclick={() => removeImage(i)}>×</button>
         </div>
       {/each}
       {#if uploading}<div class="img-up">📎 upload…</div>{/if}

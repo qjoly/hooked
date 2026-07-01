@@ -5,16 +5,16 @@
   // Métadonnées d'affichage des sous-onglets (miroir de SessionDetail / server/settings.js).
   const SUBTAB_META = {
     chat:      { icon: '💬', label: 'Conversation' },
-    changes:   { icon: '📝', label: 'Fichiers' },
-    todos:     { icon: '✅', label: 'Tâches' },
-    subagents: { icon: '🤖', label: 'Sous-agents' },
+    changes:   { icon: '📝', label: 'Files' },
+    todos:     { icon: '✅', label: 'Tasks' },
+    subagents: { icon: '🤖', label: 'Subagents' },
     terminal:  { icon: '🖥', label: 'Terminal' },
   };
 
   const THEMES = [
-    { key: 'system', icon: '🖥️', label: 'Système' },
-    { key: 'light',  icon: '☀️', label: 'Clair' },
-    { key: 'dark',   icon: '🌙', label: 'Sombre' },
+    { key: 'system', icon: '🖥️', label: 'System' },
+    { key: 'light',  icon: '☀️', label: 'Light' },
+    { key: 'dark',   icon: '🌙', label: 'Dark' },
   ];
 
   // Ordre local des sous-onglets, resynchronisé depuis le store (sauf pendant une réorganisation).
@@ -39,19 +39,19 @@
   async function saveCmd() {
     const res = await updateSettings({ initialShellCommand: cmd });
     cmdDirty = false;
-    cmdStatus = res.ok ? '✓ enregistré' : '✗ ' + (res.data?.error || 'échec');
+    cmdStatus = res.ok ? '✓ saved' : '✗ ' + (res.data?.error || 'failed');
     setTimeout(() => { cmdStatus = ''; }, 2500);
   }
 </script>
 
 <section id="view-settings" class="view active">
   <div class="settings">
-    <h1>Réglages</h1>
-    <p class="lead">Persistés côté serveur (partagés entre navigateurs). On en ajoutera au fil des besoins.</p>
+    <h1>Settings</h1>
+    <p class="lead">Persisted server-side (shared across browsers). More will be added as needed.</p>
 
     <div class="card">
-      <h2>Thème</h2>
-      <p class="hint">Apparence de l'interface. (Préférence par-navigateur.)</p>
+      <h2>Theme</h2>
+      <p class="hint">Interface appearance. (Per-browser preference.)</p>
       <div class="chips">
         {#each THEMES as t (t.key)}
           <button class="chip" class:active={ui.theme === t.key} onclick={() => setTheme(t.key)}>
@@ -62,16 +62,16 @@
     </div>
 
     <div class="card">
-      <h2>Ordre des sous-onglets d'une session</h2>
-      <p class="hint">Détermine l'ordre d'affichage — et quel onglet disponible s'ouvre en premier à l'arrivée sur une session.</p>
+      <h2>Session subtab order</h2>
+      <p class="hint">Determines the display order — and which available tab opens first when arriving on a session.</p>
       <ul class="reorder">
         {#each order as key, i (key)}
           <li>
             <span class="ro-pos">{i + 1}</span>
             <span class="ro-name">{SUBTAB_META[key]?.icon} {SUBTAB_META[key]?.label ?? key}</span>
             <span class="ro-actions">
-              <button class="mini" disabled={i === 0} onclick={() => move(i, -1)} title="Monter" aria-label="Monter">▲</button>
-              <button class="mini" disabled={i === order.length - 1} onclick={() => move(i, 1)} title="Descendre" aria-label="Descendre">▼</button>
+              <button class="mini" disabled={i === 0} onclick={() => move(i, -1)} title="Move up" aria-label="Move up">▲</button>
+              <button class="mini" disabled={i === order.length - 1} onclick={() => move(i, 1)} title="Move down" aria-label="Move down">▼</button>
             </span>
           </li>
         {/each}
@@ -79,13 +79,13 @@
     </div>
 
     <div class="card">
-      <h2>Commande shell initiale (nouveau terminal)</h2>
-      <p class="hint">Exécutée automatiquement à l'ouverture d'un nouveau pane terminal (bouton ＋). Vide = shell nu.</p>
+      <h2>Initial shell command (new terminal)</h2>
+      <p class="hint">Run automatically when opening a new terminal pane (＋ button). Empty = bare shell.</p>
       <div class="cmd-row">
-        <input class="cmd-input" bind:value={cmd} placeholder="ex. source .venv/bin/activate"
+        <input class="cmd-input" bind:value={cmd} placeholder="e.g. source .venv/bin/activate"
                oninput={() => (cmdDirty = true)}
                onkeydown={(e) => { if (e.key === 'Enter') saveCmd(); }} />
-        <button class="save" onclick={saveCmd}>Enregistrer</button>
+        <button class="save" onclick={saveCmd}>Save</button>
         {#if cmdStatus}<span class="status">{cmdStatus}</span>{/if}
       </div>
     </div>
