@@ -11,7 +11,7 @@ import { liveStateFor } from './live.js';
 import { resolveLaunchForSession, paneTmuxNames, tmuxAlive, readPaneModeSync, paneBusySync, paneActivitySync } from './tmux.js';
 import { shownPanesFor } from './pane.js';
 import { usageWindow } from './usage.js';
-import { sessionStatus, sessionStatusRaw } from './status.js';
+import { sessionStatus, sessionStatusRaw, accountRateLimits, freshestStatusId } from './status.js';
 import { buildConversation } from './conversation.js';
 import { buildFileChanges } from './changes.js';
 import { buildSubagents } from './subagents.js';
@@ -149,6 +149,16 @@ function buildStats(rangeDays) {
   return { totals, byDay, byModel, byProject, byTool };
 }
 
+// Équivalent de `/usage` pour l'onglet Stats : rate limits du compte (5 h / 7 j, globaux),
+// contexte/effort/modèle de la session la plus fraîche (statusline), + fenêtre budget 5 h (proxy
+// coût). Réutilise server/status.js + server/usage.js ; dégrade en null si aucun snapshot.
+function buildUsage() {
+  const id = freshestStatusId();
+  const session = id ? sessionStatus(id) : null;   // contexte/effort/modèle/fastMode + rateLimit
+  const account = accountRateLimits();             // le + frais AVEC rate_limits, toutes sessions
+  return { sessionId: id, session, account, budget: usageWindow() };
+}
+
 function sessionDetail(id) {
   const sessions = scanSessions();
   let s = sessions.find((x) => x.id === id);
@@ -205,4 +215,4 @@ function sessionByPane(pane) {
   return sessionDetail(id);
 }
 
-export { buildSessions, buildStats, sessionDetail, sessionByPane, eventOnlySessions };
+export { buildSessions, buildStats, buildUsage, sessionDetail, sessionByPane, eventOnlySessions };

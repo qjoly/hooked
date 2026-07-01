@@ -7,6 +7,7 @@ export * from './config.js';
 export * from './settings.js';
 export * from './util.js';
 export * from './git.js';
+export * from './gitOps.js';
 export * from './pricing.js';
 export * from './transcript.js';
 export * from './conversation.js';
