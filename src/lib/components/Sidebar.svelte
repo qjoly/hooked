@@ -3,7 +3,7 @@
   import { page } from '$app/state';
   import { ui, data, loadSessions, togglePin, sessionTitle, openModal } from '$lib/state.svelte.js';
   import { reply, deleteSession } from '$lib/api.js';
-  import { STATUS_FILTERS, filterMatches, filterMatchesAny, LIVE_STATES, ago, shortModel } from '$lib/format.js';
+  import { STATUS_FILTERS, filterMatches, filterMatchesAny, ago } from '$lib/format.js';
 
   // Réponse en 1 clic : on n'affiche les options inline que pour une question unique à choix
   // simple (le cas des « permissions »). Multi-select / questions multiples → on ouvre la session.
@@ -112,7 +112,7 @@
     </div>
     <input id="search" type="search" placeholder="Rechercher…" bind:value={ui.search} />
     <div class="status-filter">
-      {#each STATUS_FILTERS as f}
+      {#each STATUS_FILTERS.filter((f) => f.key === 'all' || count(f) > 0 || ui.statusFilters.includes(f.key)) as f}
         <button class="sf-chip" class:active={ui.statusFilters.includes(f.key)} title="Ctrl/⌘+clic pour cumuler les filtres" onclick={(e) => selectFilter(f.key, e)}>
           {f.label}<span class="sf-n">{count(f)}</span>
         </button>
@@ -172,12 +172,6 @@
       {#if s.todo && s.todo.current}
         <div class="srow-todo" title="Tâche en cours (TodoWrite)">▶ {s.todo.current}<span class="todo-frac">{s.todo.done}/{s.todo.total}</span></div>
       {/if}
-      {#if LIVE_STATES.includes(s.state) && (s.model || s.effort)}
-        <div class="srow-meta">
-          {#if s.model}<span class="mtag">{shortModel(s.model)}</span>{/if}
-          {#if s.effort}<span class="mtag eff">{s.effort}</span>{/if}
-        </div>
-      {/if}
       {#if sentId === s.id}
         <div class="q-quick-sent">✓ réponse envoyée</div>
       {:else if s.hasQuestion && quickOpts(s.question)}
@@ -199,7 +193,12 @@
 {/snippet}
 
 <style>
-  .side-foot { margin-top: auto; padding: 8px; }
-  .side-foot .trash-btn { width: 100%; opacity: .82; }
-  .side-foot .trash-btn:hover { opacity: 1; }
+  .side-foot { margin-top: auto; padding: 8px 10px 12px; }
+  /* action secondaire : bouton discret, pas un gros CTA plein */
+  .side-foot .trash-btn {
+    width: 100%; background: transparent; color: var(--muted);
+    border: 1px solid var(--border); border-radius: 10px;
+    padding: 8px 12px; font-size: 13px; font-weight: 600; box-shadow: none;
+  }
+  .side-foot .trash-btn:hover { background: var(--bg3); color: var(--text); }
 </style>
