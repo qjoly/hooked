@@ -1,7 +1,7 @@
 <script>
   import { onMount } from 'svelte';
   import { page } from '$app/state';
-  import { ui, startLive, toggleFocus, toggleSidebarPeek, cycleTheme } from '$lib/state.svelte.js';
+  import { ui, startLive, toggleFocus, toggleSidebarPeek, cycleTheme, toggleNotify } from '$lib/state.svelte.js';
   import Modal from '$lib/components/Modal.svelte';
   import '../app.css';
 
@@ -40,6 +40,12 @@
     <span class="dot" class:on={ui.live}></span>
     <span>{ui.live ? 'live' : 'reconnexion…'}</span>
   </div>
+  <button class="theme-btn" onclick={toggleNotify}
+          title={ui.notify ? 'Notifications navigateur : activées — cliquer pour couper' : 'Notifications navigateur : coupées — cliquer pour activer (alerte quand une session a fini ou attend ta réponse)'}
+          aria-label="Basculer les notifications navigateur">
+    <span class="theme-ico">{ui.notify ? '🔔' : '🔕'}</span>
+    <span class="theme-lbl">Notifs</span>
+  </button>
   <button class="theme-btn" onclick={cycleTheme}
           title={`Thème : ${themeUi.label} — cliquer pour changer`}
           aria-label={`Thème : ${themeUi.label}. Cliquer pour changer de thème.`}>

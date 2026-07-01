@@ -74,6 +74,15 @@ export const STATUS_FILTERS = [
   { key: 'done', label: '✓ Terminées', states: ['ended', 'past'] },
 ];
 export function filterMatches(f, state) { return !f.states || f.states.includes(state); }
+// Multi-sélection : un état matche si AU MOINS un des filtres sélectionnés le couvre (union).
+// Aucune sélection → tout passe (garde-fou).
+export function filterMatchesAny(keys, state) {
+  if (!keys || !keys.length) return true;
+  return keys.some((k) => {
+    const f = STATUS_FILTERS.find((x) => x.key === k);
+    return f && filterMatches(f, state);
+  });
+}
 
 // Métadonnées d'affichage de TOUS les modes de permission Claude Code (label + icône).
 // La source du mode courant est le champ `permission_mode` des hooks (cf. server/events.js) —
