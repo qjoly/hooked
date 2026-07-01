@@ -55,6 +55,19 @@ export function fmtDuration(min) {
   return m ? `${h} h ${m} min` : `${h} h`;
 }
 
+// Images jointes par le composer : leur chemin absolu (dossier .../images/…) est préfixé au texte
+// du message (Claude Code lit l'image par chemin). Pour l'affichage, on sépare ces chemins du texte
+// afin de rendre des miniatures et de ne pas laisser un chemin brut dans la bulle. Renvoie
+// { images: [chemins], text: reste }. On ne matche que les chemins d'un dossier « images/ »
+// (signature du composer) → pas de faux positifs sur du texte quelconque.
+const MSG_IMAGE_RE = /(^|\s)(\/[^\s]*\/images\/[^\s]+\.(?:png|jpe?g|gif|webp))(?=\s|$)/gi;
+export function splitMessageImages(text) {
+  const s = String(text == null ? '' : text);
+  const images = [];
+  const stripped = s.replace(MSG_IMAGE_RE, (_, pre, p) => { images.push(p); return pre; }).trim();
+  return { images, text: stripped };
+}
+
 export const STATE_LABEL = {
   working: 'Claude is working', waiting: 'Waiting for you', attention: 'Action required',
   idle: 'Paused', ended: 'Ended', past: 'Past',
