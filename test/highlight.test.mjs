@@ -3,7 +3,7 @@
  * Imports relatifs : ces modules front n'ont pas de dépendance Svelte.
  */
 import { describe, it, expect } from 'vitest';
-import { mdSegments, mdLite } from '../src/lib/format.js';
+import { mdSegments, mdLite, mdInline } from '../src/lib/format.js';
 import { highlight, langLabel } from '../src/lib/highlight.js';
 
 describe('mdSegments — découpage texte / code', () => {
@@ -71,6 +71,33 @@ describe('highlight — coloration', () => {
     expect(langLabel('ts')).toBe('TypeScript');
     expect(langLabel('sh')).toBe('Shell');
     expect(langLabel('')).toBe('Texte');
+  });
+});
+
+describe('mdInline — blockquotes', () => {
+  it('rend une citation simple dans <blockquote>', () => {
+    expect(mdInline('> bonjour')).toBe('<blockquote>bonjour</blockquote>');
+  });
+
+  it('regroupe les lignes consécutives en une seule citation (br entre les lignes)', () => {
+    expect(mdInline('> une\n> deux')).toBe('<blockquote>une<br>deux</blockquote>');
+  });
+
+  it('interprète gras et code à l\'intérieur de la citation', () => {
+    expect(mdInline('> **gras** et `code`')).toBe('<blockquote><b>gras</b> et <code>code</code></blockquote>');
+  });
+
+  it('gère le marqueur sans espace et les citations imbriquées (>>)', () => {
+    expect(mdInline('>a')).toBe('<blockquote>a</blockquote>');
+    expect(mdInline('> > niché')).toBe('<blockquote><blockquote>niché</blockquote></blockquote>');
+  });
+
+  it('sépare la citation du texte qui suit', () => {
+    expect(mdInline('> cité\nnormal')).toBe('<blockquote>cité</blockquote>normal');
+  });
+
+  it('échappe le HTML à l\'intérieur de la citation', () => {
+    expect(mdInline('> <script>')).toBe('<blockquote>&lt;script&gt;</blockquote>');
   });
 });
 
