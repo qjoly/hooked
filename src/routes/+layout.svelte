@@ -38,6 +38,13 @@
     <a class="tab" class:active={onStats} href="/stats">Stats &amp; usage</a>
     <a class="tab" class:active={onSettings} href="/settings">Settings</a>
   </nav>
+  <!-- contrôles du mode focus, logés dans la barre globale (visibles seulement en focus,
+       cf. CSS body.focus) : ré-ouvrir la sidebar (☰) et quitter le focus (✕). -->
+  <div class="focus-ctl">
+    <button class="focus-fab-btn" onclick={toggleSidebarPeek}
+            title={ui.sidebarPeek ? 'Collapse sidebar' : 'Re-open sidebar'} aria-label="Toggle sidebar">☰</button>
+    <button class="focus-fab-btn" onclick={toggleFocus} title="Exit focus mode" aria-label="Exit focus">✕</button>
+  </div>
   <div class="status">
     <span class="dot" class:on={ui.live}></span>
     <span>{ui.live ? 'live' : 'reconnecting…'}</span>
@@ -59,13 +66,5 @@
 <main>
   {@render children()}
 </main>
-
-<!-- pastille flottante visible uniquement en mode focus (cf. CSS body.focus) : ré-ouvrir la
-     sidebar (☰) et quitter le focus (✕), accessibles depuis n'importe quelle page. -->
-<div class="focus-fab">
-  <button class="focus-fab-btn" onclick={toggleSidebarPeek}
-          title={ui.sidebarPeek ? 'Collapse sidebar' : 'Re-open sidebar'} aria-label="Toggle sidebar">☰</button>
-  <button class="focus-fab-btn" onclick={toggleFocus} title="Exit focus mode" aria-label="Exit focus">✕</button>
-</div>
 
 <Modal />

@@ -204,9 +204,9 @@ main { flex: 1 1 auto; min-height: 0; overflow: hidden; background: var(--panel)
 body.focus .pane-head { display: none; }
 body.focus .sidebar { width: 0; min-width: 0; border-right: 0; overflow: hidden; }
 body.focus.sidebar-peek .sidebar { width: 326px; min-width: 326px; border-right: 1px solid var(--border); overflow: visible; }
-/* la pastille flotte SOUS le header global (qui reste visible) pour ne pas le recouvrir */
-.focus-fab { position: fixed; top: 54px; left: 12px; z-index: 60; display: none; gap: 6px; }
-body.focus .focus-fab { display: flex; }
+/* contrôles du focus logés dans la barre globale : masqués hors focus, sans recouvrir le contenu */
+.focus-ctl { display: none; gap: 6px; }
+body.focus .focus-ctl { display: flex; }
 .focus-fab-btn { width: 30px; height: 30px; display: flex; align-items: center; justify-content: center; font-size: 14px;
   border: 1px solid var(--border2); background: var(--bg2); color: var(--text); border-radius: 8px; cursor: pointer;
   box-shadow: var(--shadow-sm); opacity: .8; transition: opacity .12s, background .12s; }
