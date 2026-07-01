@@ -19,6 +19,9 @@ export const getCommands = (id, q, cwd) => jget(`/api/commands?id=${encodeURICom
 export const getAgent = (session, agent) => jget(`/api/agent?session=${encodeURIComponent(session)}&agent=${encodeURIComponent(agent)}`);
 // Défauts modèle/effort lus depuis ~/.claude (config Claude Code de l'utilisateur).
 export const getDefaults = () => jget('/api/defaults');
+// Réglages persistants de hooked (settings.json côté serveur, partagés entre navigateurs).
+export const getSettings = () => jget('/api/settings');
+export const saveSettings = (patch) => jpost('/api/settings', patch);
 
 export const reply = (id, text) => jpost('/api/reply', { id, text });
 // Réponse à un AskUserQuestion : on transmet les indices sélectionnés par question

@@ -12,6 +12,7 @@ import { statSafe } from './util.js';
 import { paneForSession } from './events.js';
 import { tmuxAlive, invalidatePaneCache, paneTmuxNames, err400 } from './tmux.js';
 import { scanSessions } from './transcript.js';
+import { readSettings } from './settings.js';
 
 // délai avant de « taper » la commande dans le nouveau pane (laisser le shell démarrer), puis
 // avant l'Entrée de validation — même piège de détection de collage que tmux.deliverReply.
@@ -24,8 +25,11 @@ const CMD_DELAY = 350;
 // et laisse le pane interactif après l'exécution (l'utilisateur peut Ctrl-C, relancer, etc.).
 function showInPane(id, { command, target } = {}, cb) {
   if (!id) return cb(err400('id requis'));
-  // command optionnelle : sans elle, on ouvre juste un pane shell vide (bouton « + Pane »).
-  const cmd = (typeof command === 'string' && command.trim()) ? command : null;
+  // command optionnelle : sans elle (bouton « ＋ Pane »), on retombe sur la commande shell
+  // initiale configurée dans les réglages (vide → pane shell nu).
+  const fallback = readSettings().initialShellCommand;
+  const cmd = (typeof command === 'string' && command.trim()) ? command
+    : (fallback && fallback.trim() ? fallback : null);
   // DÉFAUT = window (nouvelle fenêtre tmux pleine taille). Un split partagerait la fenêtre : chaque
   // pane n'aurait qu'une fraction de la hauteur, et le mode Adapter (resize-window) gonflerait la
   // FENÊTRE mais pas le pane individuel → gros vide sous le programme + le pane Claude rétréci.

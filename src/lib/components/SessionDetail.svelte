@@ -1,7 +1,7 @@
 <script>
   import { onMount, onDestroy, tick, untrack } from 'svelte';
   import { goto } from '$app/navigation';
-  import { ui, data, loadSessions, openModal, sessionTitle, renameSession, toggleFocus } from '$lib/state.svelte.js';
+  import { ui, data, settings, loadSessions, openModal, sessionTitle, renameSession, toggleFocus } from '$lib/state.svelte.js';
   import { getSession, kill, setMode, setModelEffort, openInVscode, openInGhostty, fork, showInPane, killPane, deleteSession } from '$lib/api.js';
   import { STATE_LABEL, fmtCost, fmtTokens, fmtDuration, shortModel, prLabel, PERMISSION_MODES, modeLabel, modeMeta, modelAlias } from '$lib/format.js';
   import ModelEffort from './ModelEffort.svelte';
@@ -62,6 +62,40 @@
     if (s && s.tmuxAlive && s.tmuxPane) list.push({ pane: s.tmuxPane, label: 'Claude Code', kind: 'claude' });
     for (const p of shownPanes) list.push({ pane: p.pane, label: p.command || 'shell', kind: 'show', target: p.target });
     return list;
+  });
+
+  // Sous-onglets du détail, ordonnés selon le réglage persistant (settings.subtabOrder) et
+  // filtrés sur ceux disponibles. Le 1er de la liste devient l'onglet ouvert à l'arrivée.
+  const SUBTAB_META = {
+    chat:      { icon: '💬', label: 'Conversation' },
+    changes:   { icon: '📝', label: 'Fichiers' },
+    todos:     { icon: '✅', label: 'Tâches' },
+    subagents: { icon: '🤖', label: 'Sous-agents' },
+    terminal:  { icon: '🖥', label: 'Terminal' },
+  };
+  const subtabCount = $derived({
+    chat: (s?.messages || []).length,
+    changes: (s?.changes || []).length,
+    todos: (s?.todos || []).length,
+    subagents: (s?.subagents || []).length,
+    terminal: terminals.length,
+  });
+  const subtabShown = $derived({
+    chat: true, changes: true,
+    todos: subtabCount.todos > 0,
+    subagents: subtabCount.subagents > 0,
+    terminal: subtabCount.terminal > 0,
+  });
+  const orderedSubtabs = $derived(
+    (settings.subtabOrder || []).filter((k) => SUBTAB_META[k] && subtabShown[k])
+      .map((k) => ({ key: k, ...SUBTAB_META[k], count: subtabCount[k] }))
+  );
+  // Ouvre le 1er onglet disponible selon l'ordre configuré (une seule fois, dès que s est chargé).
+  let tabInit = false;
+  $effect(() => {
+    const first = orderedSubtabs[0];
+    if (tabInit || !s || !first) return;
+    untrack(() => { tab = first.key; tabInit = true; });
   });
 
   let wantPane = $state(null); // pane à sélectionner dès qu'il apparaît (après « + Pane »)
@@ -410,17 +444,9 @@
       <span class="hs-more">›</span>
     </div>
     <div class="subtabs">
-      <button class="subtab" class:active={tab === 'chat'} onclick={() => (tab = 'chat')}>💬 Conversation <span class="count">{(s.messages || []).length}</span></button>
-      <button class="subtab" class:active={tab === 'changes'} onclick={() => (tab = 'changes')}>📝 Fichiers <span class="count">{(s.changes || []).length}</span></button>
-      {#if (s.todos || []).length}
-        <button class="subtab" class:active={tab === 'todos'} onclick={() => (tab = 'todos')}>✅ Tâches <span class="count">{(s.todos || []).length}</span></button>
-      {/if}
-      {#if (s.subagents || []).length}
-        <button class="subtab" class:active={tab === 'subagents'} onclick={() => (tab = 'subagents')}>🤖 Sous-agents <span class="count">{(s.subagents || []).length}</span></button>
-      {/if}
-      {#if terminals.length}
-        <button class="subtab" class:active={tab === 'terminal'} onclick={() => (tab = 'terminal')}>🖥 Terminal <span class="count">{terminals.length}</span></button>
-      {/if}
+      {#each orderedSubtabs as st (st.key)}
+        <button class="subtab" class:active={tab === st.key} onclick={() => (tab = st.key)}>{st.icon} {st.label} <span class="count">{st.count}</span></button>
+      {/each}
     </div>
   </div>
 
