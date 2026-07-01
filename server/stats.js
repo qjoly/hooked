@@ -114,7 +114,7 @@ function buildStats(rangeDays) {
       const m = (byModel[s.model] = byModel[s.model] || { cost: 0, turns: 0 });
       m.cost += s.cost; m.turns += s.assistantTurns;
     }
-    const pn = s.projectName || 'inconnu';
+    const pn = s.projectName || 'unknown';
     const pr = (byProject[pn] = byProject[pn] || { cost: 0, sessions: 0, output: 0 });
     pr.cost += s.cost; pr.sessions++; pr.output += s.usage.output;
     for (const [tool, n] of Object.entries(s.tools)) byTool[tool] = (byTool[tool] || 0) + n;

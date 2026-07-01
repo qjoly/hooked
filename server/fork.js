@@ -61,22 +61,22 @@ function buildForkLines(rawText, forkUuid, newId) {
 // Forke la session `id` au message `forkUuid`, puis reprend la branche dans une nouvelle
 // session tmux (modèle/effort optionnels, prompt optionnel envoyé après démarrage).
 function forkSession({ id, forkUuid, prompt, model, effort, permissionMode }, cb) {
-  if (!/^[A-Za-z0-9._-]+$/.test(id || '')) return cb(err400('id de session invalide'));
-  if (!/^[A-Za-z0-9-]{6,}$/.test(forkUuid || '')) return cb(err400('message (uuid) invalide'));
+  if (!/^[A-Za-z0-9._-]+$/.test(id || '')) return cb(err400('invalid session id'));
+  if (!/^[A-Za-z0-9-]{6,}$/.test(forkUuid || '')) return cb(err400('invalid message (uuid)'));
   const sess = scanSessions().find((s) => s.id === id);
-  if (!sess || !sess.file) return cb(err400('session introuvable'));
+  if (!sess || !sess.file) return cb(err400('session not found'));
 
   let raw;
-  try { raw = fs.readFileSync(sess.file, 'utf8'); } catch (_) { return cb(err400('transcript illisible')); }
+  try { raw = fs.readFileSync(sess.file, 'utf8'); } catch (_) { return cb(err400('unreadable transcript')); }
 
   const newId = crypto.randomUUID();
   const { found, lines } = buildForkLines(raw, forkUuid, newId);
-  if (!found) return cb(err400('message introuvable dans le transcript'));
-  if (!lines.length) return cb(err400('rien à forker à ce point'));
+  if (!found) return cb(err400('message not found in transcript'));
+  if (!lines.length) return cb(err400('nothing to fork at this point'));
 
   const newFile = path.join(path.dirname(sess.file), newId + '.jsonl');
   try { fs.writeFileSync(newFile, lines.join('\n') + '\n'); }
-  catch (e) { return cb(new Error('écriture du fork échouée : ' + (e.message || e))); }
+  catch (e) { return cb(new Error('fork write failed: ' + (e.message || e))); }
 
   // on reprend dans le dossier d'origine de la session (cwd conservé dans le préfixe copié).
   launchSession({ resumeId: newId, cwd: sess.project, prompt, model, effort, permissionMode }, (err, info) => {
