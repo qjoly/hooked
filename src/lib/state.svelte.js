@@ -12,7 +12,7 @@ const persisted = (() => {
 
 export const ui = $state({
   live: false,               // connexion SSE active ?
-  statusFilter: 'all',
+  statusFilters: ['all'],    // filtres de statut actifs — Ctrl/⌘+clic sur les chips = multi-sélection
   search: '',
   hideOld: persisted.hideOld ?? false,
   collapsed: persisted.collapsed ?? {}, // { [projet]: true } → groupes repliés dans la sidebar
@@ -23,12 +23,13 @@ export const ui = $state({
   modal: null,               // { type, data } | null
   tick: 0,                   // incrémenté à chaque évènement live → relance les effets
   theme: readTheme(),        // 'system' | 'light' | 'dark' (persisté à part, cf. app.html)
+  notify: persisted.notify ?? false,    // notifications navigateur (session finie / en attente de toi)
 });
 
 if (typeof localStorage !== 'undefined') {
   $effect.root(() => {
     $effect(() => {
-      const snapshot = { hideOld: ui.hideOld, collapsed: ui.collapsed, pinned: ui.pinned, names: ui.names, focus: ui.focus };
+      const snapshot = { hideOld: ui.hideOld, collapsed: ui.collapsed, pinned: ui.pinned, names: ui.names, focus: ui.focus, notify: ui.notify };
       try { localStorage.setItem(LS_KEY, JSON.stringify(snapshot)); } catch {}
     });
   });
@@ -90,8 +91,114 @@ export function cycleTheme() {
 
 export const data = $state({ sessions: [] });
 
+// ─── Notifications navigateur ────────────────────────────────────────────────────────────────
+// Notifie quand une session « a fini / attend ta réponse » : passage à waiting (fin de tour,
+// cf. hook Stop), attention (permission), une question en attente (hasQuestion), ou ended
+// (session terminée). On ne notifie que sur le FRONT MONTANT (changement d'état), jamais en
+// rafale au chargement (1er passage = mémorisation seule).
+const NOTIFY_KINDS = {
+  q:         { icon: '⌨️', label: 'attend ta réponse' },
+  attention: { icon: '🔴', label: 'action requise' },
+  waiting:   { icon: '🟡', label: 'a fini — en attente de toi' },
+  ended:     { icon: '🏁', label: 'session terminée' },
+};
+function notifyKeyFor(s) {
+  if (s.hasQuestion) return 'q';
+  if (s.state === 'attention') return 'attention';
+  if (s.state === 'waiting') return 'waiting';
+  if (s.state === 'ended') return 'ended';
+  return '';
+}
+const prevNotifyKey = new Map(); // sessionId → dernière clé notifiable connue
+let notifySeeded = false;         // 1er passage : on mémorise l'état sans notifier
+function notifyEnabled() {
+  return ui.notify && typeof Notification !== 'undefined' && Notification.permission === 'granted';
+}
+function fireNotification(s, kind) {
+  try {
+    const n = new Notification(`${kind.icon} ${sessionTitle(s)}`, {
+      body: `${s.projectName || 'session'} — ${kind.label}`,
+      tag: 'hooked-session-' + s.id, // remplace la notif précédente de la même session
+      renotify: true,
+    });
+    n.onclick = () => { try { window.focus(); location.assign('/session/' + encodeURIComponent(s.id)); } catch {} };
+  } catch (_) {}
+}
+function checkNotifications(sessions) {
+  const next = new Map();
+  for (const s of sessions) next.set(s.id, notifyKeyFor(s));
+  if (notifySeeded && ui.notify) {
+    let pinged = false;
+    for (const s of sessions) {
+      const key = next.get(s.id);
+      if (key && key !== (prevNotifyKey.get(s.id) || '')) {
+        if (notifyEnabled()) fireNotification(s, NOTIFY_KINDS[key]); // popup bureau natif (contexte sécurisé)
+        pinged = true;
+      }
+    }
+    if (pinged) playPing(); // son : repli qui marche partout (même http)
+  }
+  prevNotifyKey.clear();
+  for (const [id, k] of next) prevNotifyKey.set(id, k);
+  notifySeeded = true;
+  applyTitleBadge(sessions); // badge d'onglet : repli qui marche partout
+}
+
+// ── Repli universel (sans contexte sécurisé) : badge dans le titre de l'onglet + bip audio.
+// Les notifs natives exigent HTTPS/localhost ; ce repli garantit un signal quel que soit l'accès
+// (IP LAN, MagicDNS, VPN… en HTTP). Le badge = nb de sessions qui t'attendent.
+function applyTitleBadge(sessions = data.sessions) {
+  if (typeof document === 'undefined') return;
+  const base = '🪝 hooked';
+  if (!ui.notify) { document.title = base; return; }
+  const n = sessions.reduce((a, s) => {
+    const k = notifyKeyFor(s);
+    return a + (k === 'q' || k === 'attention' || k === 'waiting' ? 1 : 0);
+  }, 0);
+  document.title = n > 0 ? `(${n}) 🔔 ${base}` : base;
+}
+let audioCtx = null;
+function primeAudio() { // à appeler sur un geste utilisateur (déblocage de l'autoplay)
+  try {
+    if (typeof AudioContext === 'undefined') return;
+    if (!audioCtx) audioCtx = new AudioContext();
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+  } catch {}
+}
+function playPing() {
+  try {
+    if (!audioCtx || audioCtx.state !== 'running') return;
+    const o = audioCtx.createOscillator(), g = audioCtx.createGain(), t = audioCtx.currentTime;
+    o.type = 'sine'; o.frequency.value = 880;
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.18, t + 0.01);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.25);
+    o.connect(g); g.connect(audioCtx.destination);
+    o.start(t); o.stop(t + 0.26);
+  } catch {}
+}
+
+// Active/désactive les notifications. Natif (popup bureau) si contexte sécurisé + permission ;
+// sinon repli universel (badge d'onglet + son) qui marche partout, y compris en HTTP sur IP/LAN.
+export async function toggleNotify() {
+  if (ui.notify) { ui.notify = false; applyTitleBadge(); return; }
+  ui.notify = true;
+  primeAudio(); // ce clic débloque l'audio (autoplay policy)
+  const secure = typeof isSecureContext === 'undefined' ? true : isSecureContext;
+  const nativeOk = typeof Notification !== 'undefined' && secure;
+  if (nativeOk && Notification.permission === 'default') { try { await Notification.requestPermission(); } catch {} }
+  if (!(nativeOk && Notification.permission === 'granted')) {
+    alert(`Notifications activées en mode « repli » : badge sur l'onglet + son (marche partout, même en HTTP).\n\nPour les popups bureau natives il faut un contexte sécurisé — tu es sur ${location.origin}. Ouvre le dashboard via HTTPS ou http://localhost:4123 (même machine).`);
+  }
+  applyTitleBadge();
+}
+
 export async function loadSessions() {
-  try { data.sessions = await getSessions(); } catch (_) {}
+  try {
+    const sessions = await getSessions();
+    data.sessions = sessions;
+    checkNotifications(sessions);
+  } catch (_) {}
 }
 
 // Version du build front (générée par SvelteKit, change à chaque build). Sert à l'auto-reload :
