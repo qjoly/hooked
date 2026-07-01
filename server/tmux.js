@@ -17,6 +17,31 @@ import { scanSessions } from './transcript.js';
 // Partagé entre deliverReply (réponses) et launchSession (1er prompt) pour rester cohérent.
 const ENTER_DELAY = 400;
 
+// Wait for the claude REPL to be ready for input before injecting the first prompt. The TUI takes
+// a *variable* time to boot (login shell sourcing the profile + Node startup + MCP connections +
+// Ink render): a fixed delay is a lost race on a slow start → the prompt is typed into a shell/
+// screen that isn't ready and is lost (session idle, 0 turn). So we poll the pane content until
+// the `❯` prompt line appears (input box rendered) — a marker absent from the startup/logo
+// screens — then type via deliverReply (the proven path).
+const REPL_POLL_INTERVAL = 300;
+const REPL_READY_TIMEOUT = 15000;
+const REPL_PROMPT_RE = /(^|\n)[ \t]*❯/;
+
+// Poll capture-pane until the claude REPL prompt appears (see REPL_PROMPT_RE). `cb(ready)`: true if
+// the prompt was detected, false on timeout (the caller then sends anyway, best-effort). Never
+// returns an error: this is best-effort seeding.
+function waitForReplReady(pane, cb) {
+  const deadline = Date.now() + REPL_READY_TIMEOUT;
+  const probe = () => {
+    execFile('tmux', ['capture-pane', '-t', pane, '-p'], (e, out) => {
+      if (!e && REPL_PROMPT_RE.test(out || '')) return cb(true);
+      if (Date.now() >= deadline) return cb(false);
+      setTimeout(probe, REPL_POLL_INTERVAL);
+    });
+  };
+  probe();
+}
+
 // map pane tmux (%NN) → nom de session tmux, rafraîchie au plus toutes les 3 s.
 let paneNameCache = { at: 0, map: new Map() };
 function paneTmuxNames() {
@@ -363,15 +388,19 @@ function launchSession({ resumeId, cwd, prompt, model, effort, worktree, permiss
     try {
       fs.appendFileSync(LAUNCHES_FILE, JSON.stringify({ ts: new Date().toISOString(), tmux: name, cwd: dir, model: model || null, effort: effort || null, worktree: useWorktree }) + '\n');
     } catch (_) {}
-    // 1er prompt optionnel : best-effort, après un délai pour laisser le TUI claude démarrer.
-    // Même piège de détection de collage que deliverReply : on attend ENTER_DELAY (400 ms) après
-    // la saisie avant l'Entrée, sinon le texte est tapé mais jamais validé (« envoyé » côté UI,
-    // session bloquée sur le 1er message). C'était le cas avec l'ancien délai de 250 ms.
+    // Optional first prompt: best-effort, IN THE BACKGROUND (we return right away via the cb below,
+    // without waiting for the TUI to boot). Resolve the session's pane, wait for the REPL to be
+    // ready (waitForReplReady), then inject the prompt via deliverReply — exactly the reply path's
+    // mechanism (send-keys -l + Enter after ENTER_DELAY, which lets the paste-detection window close
+    // before validating). A fixed delay wasn't enough: on a slow start the prompt was typed into a
+    // TUI that wasn't ready and lost.
     const seed = prompt && typeof prompt === 'string' ? prompt.trim() : '';
     if (seed) {
-      setTimeout(() => execFile('tmux', ['send-keys', '-t', name, '-l', '--', seed], () => {
-        setTimeout(() => execFile('tmux', ['send-keys', '-t', name, 'Enter'], () => {}), ENTER_DELAY);
-      }), 3500);
+      execFile('tmux', ['display-message', '-p', '-t', name, '#{pane_id}'], (ePane, paneOut) => {
+        const pane = (paneOut || '').trim();
+        if (ePane || !/^%\d+$/.test(pane)) return; // pane not resolved: drop the seed (best-effort)
+        waitForReplReady(pane, () => deliverReply(pane, seed, false, () => {}));
+      });
     }
     cb(null, { tmux: name, attach: `tmux attach -t ${name}`, cwd: dir, resume: id, worktree: useWorktree });
   });
