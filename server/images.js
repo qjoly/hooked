@@ -11,6 +11,8 @@ import { HOOKED_DIR } from './config.js';
 const IMAGES_DIR = path.join(HOOKED_DIR, 'images');
 // types acceptés → extension de fichier
 const EXT = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/gif': 'gif', 'image/webp': 'webp' };
+// extension de fichier → content-type (pour servir les images au navigateur)
+const CONTENT_TYPE = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp' };
 
 function err400(msg) { const e = new Error(msg); e.code = 400; return e; }
 
@@ -34,4 +36,26 @@ function saveImage(dataUrl, cb) {
   cb(null, { path: fp, name });
 }
 
-export { saveImage, IMAGES_DIR };
+// Lit une image POUR L'AFFICHER dans l'UI web. Restreinte au dossier IMAGES_DIR : le dev server peut
+// écouter sur 0.0.0.0, donc jamais de lecture de fichier arbitraire (path traversal / symlink hors
+// dossier bloqués via realpath). Renvoie { buffer, contentType } ou null (introuvable / hors dossier
+// / type non image). Les noms sont uniques et immuables → le cache HTTP long est sûr côté route.
+function readImage(absPath) {
+  if (typeof absPath !== 'string' || !absPath) return null;
+  let baseReal, real;
+  try {
+    baseReal = fs.realpathSync(IMAGES_DIR);
+    real = fs.realpathSync(absPath);
+  } catch (_) { return null; }
+  if (real !== baseReal && !real.startsWith(baseReal + path.sep)) return null; // hors IMAGES_DIR
+  const contentType = CONTENT_TYPE[path.extname(real).toLowerCase()];
+  if (!contentType) return null;
+  let st;
+  try { st = fs.statSync(real); } catch (_) { return null; }
+  if (!st.isFile()) return null;
+  let buffer;
+  try { buffer = fs.readFileSync(real); } catch (_) { return null; }
+  return { buffer, contentType };
+}
+
+export { saveImage, readImage, IMAGES_DIR };

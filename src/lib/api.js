@@ -35,6 +35,8 @@ export const replyQuestion = (id, selections, note) => jpost('/api/reply', { id,
 // `feedback` (bundled review comments) is required for keep-feedback. Drives the TUI approval menu.
 export const planAction = (id, action, feedback) => jpost('/api/plan', { id, action, feedback });
 export const uploadImage = (dataUrl) => jpost('/api/upload-image', { dataUrl });
+// URL to display an attached image (served from hooked's images dir) by its absolute path.
+export const imageUrl = (p) => '/api/image?path=' + encodeURIComponent(p);
 export const interrupt = (id) => jpost('/api/interrupt', { id });
 export const setMode = (id, mode) => jpost('/api/mode', { id, mode });
 export const setModelEffort = (id, model, effort) => jpost('/api/model', { id, model, effort });
