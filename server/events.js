@@ -42,6 +42,18 @@ function paneForSession(id, eventsFile = EVENTS_FILE) {
   return null;
 }
 
+// réciproque : dernière session connue pour un pane tmux (parcourt les évènements à rebours).
+// Sert au « whoami » : une session ne connaît que son $TMUX_PANE, pas son session_id hooked.
+// On prend l'évènement le plus récent car un pane peut être réutilisé après une reprise.
+function sessionForPane(pane, eventsFile = EVENTS_FILE) {
+  if (!pane) return null;
+  const ev = readEvents(eventsFile);
+  for (let i = ev.length - 1; i >= 0; i--) {
+    if (ev[i].tmux_pane === pane && ev[i].session_id) return ev[i].session_id;
+  }
+  return null;
+}
+
 // dernier mode de permission connu pour une session (default / acceptEdits / plan / bypassPermissions).
 // Les payloads de hooks portent `permission_mode` (capté par hook.js) → on lit le plus récent.
 function modeForSession(id, eventsFile = EVENTS_FILE) {
@@ -109,4 +121,4 @@ function launchConfigByTmux(launchesFile = LAUNCHES_FILE) {
   return map;
 }
 
-export { readEvents, lastEventBySession, paneForSession, modeForSession, liveQuestionForSession, launchConfigByTmux, eventSessionMeta };
+export { readEvents, lastEventBySession, paneForSession, sessionForPane, modeForSession, liveQuestionForSession, launchConfigByTmux, eventSessionMeta };

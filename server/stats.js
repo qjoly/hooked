@@ -6,7 +6,7 @@ import path from 'node:path';
 import { statSafe } from './util.js';
 import { scanSessions, blankSummary } from './transcript.js';
 import { repoSlug } from './git.js';
-import { readEvents, lastEventBySession, paneForSession, modeForSession, liveQuestionForSession, eventSessionMeta } from './events.js';
+import { readEvents, lastEventBySession, paneForSession, sessionForPane, modeForSession, liveQuestionForSession, eventSessionMeta } from './events.js';
 import { liveStateFor } from './live.js';
 import { resolveLaunchForSession, paneTmuxNames, tmuxAlive, readPaneModeSync } from './tmux.js';
 import { shownPanesFor } from './pane.js';
@@ -164,4 +164,12 @@ function sessionDetail(id) {
   };
 }
 
-export { buildSessions, buildStats, sessionDetail, eventOnlySessions };
+// « whoami » : résout le pane tmux ($TMUX_PANE d'une session) vers son détail complet.
+// Une session connaît son pane via l'env mais pas son session_id hooked → on fait le pont.
+function sessionByPane(pane) {
+  const id = sessionForPane(pane);
+  if (!id) return null;
+  return sessionDetail(id);
+}
+
+export { buildSessions, buildStats, sessionDetail, sessionByPane, eventOnlySessions };
