@@ -142,6 +142,28 @@
 
   function onInput() { autosize(); queryAc(); }
   function onKeydown(e) {
+    // macOS : les touches Début/Fin sont des commandes de scroll système → elles scrollent la
+    // conversation (.pane-body) au lieu de déplacer le curseur, même textarea focalisée. On rétablit
+    // le comportement d'un champ texte normal (début/fin de ligne, ou du texte entier avec Cmd/Ctrl,
+    // extension avec Maj) et on annule le scroll.
+    if (e.key === 'Home' || e.key === 'End') {
+      e.preventDefault();
+      const v = ta.value, dir = ta.selectionDirection;
+      const active = dir === 'backward' ? ta.selectionStart : ta.selectionEnd;
+      const anchor = dir === 'backward' ? ta.selectionEnd : ta.selectionStart;
+      let target;
+      if (e.metaKey || e.ctrlKey) target = e.key === 'Home' ? 0 : v.length;
+      else if (e.key === 'Home') target = v.lastIndexOf('\n', active - 1) + 1;
+      else { const nl = v.indexOf('\n', active); target = nl === -1 ? v.length : nl; }
+      if (e.shiftKey) {
+        ta.selectionStart = Math.min(anchor, target);
+        ta.selectionEnd = Math.max(anchor, target);
+        ta.selectionDirection = target < anchor ? 'backward' : 'forward';
+      } else {
+        ta.selectionStart = ta.selectionEnd = target;
+      }
+      return;
+    }
     if (acOpen) {
       if (e.key === 'ArrowDown') { e.preventDefault(); moveAc(1); return; }
       if (e.key === 'ArrowUp') { e.preventDefault(); moveAc(-1); return; }

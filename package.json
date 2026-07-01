@@ -9,6 +9,7 @@
   },
   "scripts": {
     "dev": "vite dev",
+    "live": "vite dev --port 4123 --strictPort",
     "build": "vite build",
     "preview": "vite preview",
     "start": "node build",

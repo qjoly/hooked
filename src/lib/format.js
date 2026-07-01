@@ -107,10 +107,64 @@ export const PERMISSION_MODES = ['default', 'auto', 'plan'].map((k) => ({ key: k
 export const MODE_OPTS = ['default', 'acceptEdits', 'auto', 'plan', 'bypassPermissions']
   .map((k) => [k, `${MODE_META[k].icon} ${MODE_META[k].label}`]);
 
-// formatage inline d'un fragment (sans gestion des lignes) : `code`, **gras**. Échappe le reste.
+// TLD autorisés pour les domaines « nus » (sans schéma, ex. « google.com »). Liste courte et
+// volontairement conservatrice : on veut linkifier un vrai domaine, PAS transformer « format.js »,
+// « README.md » ou « server.cjs » en lien — donc aucun TLD qui collisionne avec une extension de
+// fichier courante (js, ts, md, sh, rs, json, svelte…).
+const LINK_TLDS = 'com|org|net|edu|gov|io|dev|ai|app|co|info|xyz|fr|uk|eu|de';
+const LINK_RE = new RegExp(
+  '\\[([^\\]]+)\\]\\(([^)\\s]+)\\)' +          // 1,2 = lien markdown [texte](url)
+  '|https?:\\/\\/[^\\s<>"\'`]+' +               // URL avec schéma
+  // domaine nu : un ou plusieurs labels + TLD connu, port et/ou chemin optionnels.
+  '|(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\\.)+(?:' + LINK_TLDS + ')\\b(?::\\d+)?(?:\\/[^\\s<>"\'`]*)?',
+  'gi'
+);
+const countChar = (s, c) => s.split(c).length - 1;
+const A_ATTRS = 'target="_blank" rel="noopener noreferrer"';
+
+// href sûr pour un lien markdown : http(s)/mailto/relatif tels quels, domaine nu préfixé de
+// https://, tout autre schéma (javascript:, data:…) refusé → null, on garde alors le texte brut.
+function safeHref(url) {
+  if (/^(https?:\/\/|mailto:|\/|#)/i.test(url)) return url;
+  if (/^[a-z0-9-]+(?:\.[a-z0-9-]+)+(?:[/:?#]|$)/i.test(url)) return 'https://' + url;
+  return null;
+}
+
+// Rendu des liens : markdown [texte](url), URLs http(s) et domaines nus → <a> ; le reste est échappé.
+// Opère sur le texte BRUT (avant code/gras/barré) : terminaison propre sur «"», espaces et ponctuation,
+// et le `&` d'une query string est conservé puis échappé en &amp; (correct en attribut href).
+function autolink(raw) {
+  let out = '', last = 0;
+  for (const mm of raw.matchAll(LINK_RE)) {
+    const start = mm.index;
+    out += esc(raw.slice(last, start));
+    last = start + mm[0].length;
+    if (mm[1] !== undefined) { // lien markdown [texte](url)
+      const href = safeHref(mm[2]);
+      out += href ? `<a href="${esc(href)}" ${A_ATTRS}>${esc(mm[1])}</a>` : esc(mm[0]);
+      continue;
+    }
+    // URL ou domaine nu : collé à « @ » ou à un caractère de mot en amont ⇒ email/identifiant, pas un lien.
+    const prev = start > 0 ? raw[start - 1] : '';
+    if (prev === '@' || /[a-z0-9]/i.test(prev)) { out += esc(mm[0]); continue; }
+    let url = mm[0], trail = '';
+    const pm = url.match(/[.,;:!?'"]+$/); // ponctuation de fin de phrase → hors du lien
+    if (pm) { trail = pm[0]; url = url.slice(0, -pm[0].length); }
+    // parenthèse fermante orpheline (« (voir https://x.com) ») → hors du lien
+    while (url.endsWith(')') && countChar(url, '(') < countChar(url, ')')) {
+      trail = ')' + trail; url = url.slice(0, -1);
+    }
+    const href = /^https?:\/\//i.test(url) ? url : 'https://' + url;
+    out += `<a href="${esc(href)}" ${A_ATTRS}>${esc(url)}</a>` + esc(trail);
+  }
+  return out + esc(raw.slice(last));
+}
+
+// formatage inline d'un fragment (sans gestion des lignes) : liens, `code`, ~~barré~~, **gras**. Échappe le reste.
 function mdFrag(t) {
-  return esc(t)
+  return autolink(String(t == null ? '' : t))
     .replace(/`([^`]+)`/g, '<code>$1</code>')
+    .replace(/~~([^~]+)~~/g, '<del>$1</del>')
     .replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>');
 }
 
