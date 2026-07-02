@@ -9,7 +9,7 @@
  * Zéro dépendance (comme hook.cjs) : protocole JSON-RPC MCP implémenté à la main sur
  * stdin/stdout, messages délimités par des sauts de ligne (transport stdio MCP).
  *
- *   HOOKED_MCP_URL  → URL de base de l'API (défaut http://127.0.0.1:<HOOKED_PORT|4123>)
+ *   HOOKED_MCP_URL  → URL de base de l'API (défaut http://localhost:<HOOKED_PORT|4123>)
  *   HOOKED_PORT     → port de hooked (défaut 4123), utilisé si HOOKED_MCP_URL absent
  */
 'use strict';
@@ -17,7 +17,11 @@
 const http = require('node:http');
 
 const PORT = process.env.HOOKED_PORT || '4123';
-const BASE = (process.env.HOOKED_MCP_URL || `http://127.0.0.1:${PORT}`).replace(/\/$/, '');
+// Défaut en `localhost` (PAS 127.0.0.1) : hooked peut n'écouter qu'en IPv6 (`::1`, le défaut de
+// `vite` sans `--host`). Un littéral IPv4 (127.0.0.1) ne bascule jamais sur IPv6 → ECONNREFUSED.
+// `localhost` déclenche une résolution DNS + happy-eyeballs (autoSelectFamily, cf. httpRequest) qui
+// joint hooked qu'il soit en IPv4 (127.0.0.1) OU IPv6 (::1).
+const BASE = (process.env.HOOKED_MCP_URL || `http://localhost:${PORT}`).replace(/\/$/, '');
 const PROTOCOL_VERSION = '2025-06-18';
 const SERVER_INFO = { name: 'hooked', version: '2.0.0' };
 
@@ -38,6 +42,9 @@ function httpRequest(method, pathQuery, body) {
       port: url.port,
       path: url.pathname + url.search,
       headers: {},
+      // Essaie IPv4 ET IPv6 (happy-eyeballs) quand hostname=localhost → joint hooked que vite
+      // écoute en 127.0.0.1 ou ::1. Défaut à true depuis Node 20 ; explicite par sûreté.
+      autoSelectFamily: true,
     };
     if (payload) {
       opts.headers['content-type'] = 'application/json';
