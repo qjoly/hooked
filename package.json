@@ -12,7 +12,7 @@
     "live": "vite dev --port 4123 --strictPort",
     "build": "vite build",
     "preview": "vite preview",
-    "start": "node build",
+    "start": "HOST=${HOST:-127.0.0.1} node build",
     "setup": "node install.cjs",
     "prepare": "svelte-kit sync",
     "test": "vitest run",
