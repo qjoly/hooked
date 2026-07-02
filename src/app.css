@@ -624,6 +624,8 @@ code.path { color: var(--muted); font-size: 11px; word-break: break-all; font-fa
 .head-stats:hover { color: var(--text); }
 .head-stats b { color: var(--text); font-weight: 700; }
 .head-stats .hs-dot { opacity: .5; }
+/* Hide a leading separator dot when the preceding stat element is toggled off */
+.head-stats > .hs-dot:first-child { display: none; }
 .head-stats .hs-sub { opacity: .8; }
 .hs-5h { display: inline-flex; align-items: center; gap: 3px; }
 .hs-5h.warn { color: var(--waiting); }
