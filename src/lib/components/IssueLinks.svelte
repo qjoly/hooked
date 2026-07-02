@@ -1,5 +1,6 @@
 <script>
   import { issueLabel } from '$lib/format.js';
+  import Markdown from './Markdown.svelte';
   let { issueLinks = [] } = $props();
 
   // Enrichissement gh par URL : { loading } | { data: {title,state,author,body} | null }.
@@ -46,7 +47,7 @@
           <button class="issue-toggle" onclick={() => toggle(url)}>
             {expanded[url] ? '▾ Hide description' : '▸ Show description'}
           </button>
-          {#if expanded[url]}<pre class="issue-body">{d.body}</pre>{/if}
+          {#if expanded[url]}<div class="issue-body"><Markdown text={d.body} /></div>{/if}
         {/if}
       </li>
     {/each}
@@ -133,12 +134,11 @@
   }
   .issue-body {
     margin: 0;
-    padding: 0.5rem 0.75rem;
+    padding: 0.35rem 0.75rem;
     background: var(--bg3);
     border-radius: 6px;
-    font-size: 0.75rem;
+    font-size: 0.8rem;
     color: var(--fg);
-    white-space: pre-wrap;
     word-break: break-word;
     max-height: 320px;
     overflow: auto;
