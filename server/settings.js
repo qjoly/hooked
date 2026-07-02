@@ -18,7 +18,7 @@ const SETTINGS_FILE = path.join(HOOKED_DIR, 'settings.json');
 // *disponible* de cette liste est celui ouvert à l'arrivée sur une session. Sert de source
 // de vérité pour valider `subtabOrder` (toute clé inconnue est ignorée, toute clé manquante
 // est ré-ajoutée à la fin → l'ordre reste toujours complet).
-const SUBTAB_KEYS = ['chat', 'changes', 'todos', 'subagents', 'subsessions', 'background', 'terminal', 'pr'];
+const SUBTAB_KEYS = ['chat', 'changes', 'todos', 'subagents', 'subsessions', 'background', 'terminal', 'pr', 'issues'];
 
 // Éléments de la barre de statut de session (en-tête du détail). Chaque clé est un booléen
 // (true = affiché). Toute clé absente du fichier de config est traitée comme true (forward-compatible).
@@ -33,11 +33,18 @@ const STATUS_BAR_KEYS = [
   'model',          // nom du modèle (affiché quand la session est terminée)
   'usage5h',        // indicateur d'utilisation 5 h
   'prLinks',        // liens PR
+  'issueLinks',     // liens d'issue GitHub
   'focusBtn',       // bouton Focus (menu ⋯)
 ];
 
+// Éléments de la barre de statut masqués par défaut (leur onglet dédié est le lieu principal).
+const STATUS_BAR_HIDDEN_DEFAULT = new Set(['prLinks', 'issueLinks']);
+
 const DEFAULTS = {
   subtabOrder: [...SUBTAB_KEYS],
+  // Ordre d'affichage des éléments de la barre de statut (analogue à subtabOrder ; réorganisable
+  // via les flèches ▲/▼ des réglages). Défaut : l'ordre de déclaration de STATUS_BAR_KEYS.
+  statusBarOrder: [...STATUS_BAR_KEYS],
   // Sous-onglets masqués manuellement (bouton œil dans les réglages). Sous-ensemble de SUBTAB_KEYS ;
   // 'chat' n'est jamais masquable (vue principale). Défaut : aucun masqué. Distinct de l'auto-masquage
   // d'un onglet vide (géré côté client selon le contenu de la session).
@@ -52,8 +59,9 @@ const DEFAULTS = {
   // Afficher la bannière « redémarrage nécessaire / effectué » dans l'UI (indépendant de l'auto-restart).
   gitRestartNotice: true,
   // Visibilité des éléments de la barre de statut (en-tête du détail de session). Tout à true par
-  // défaut sauf prLinks (false : la dedicated PR tab est le lieu principal ; chips masqués par défaut).
-  statusBar: Object.fromEntries(STATUS_BAR_KEYS.map((k) => [k, k !== 'prLinks'])),
+  // défaut sauf prLinks / issueLinks (false : les onglets dédiés PR/Issues sont le lieu principal ;
+  // chips masqués par défaut).
+  statusBar: Object.fromEntries(STATUS_BAR_KEYS.map((k) => [k, !STATUS_BAR_HIDDEN_DEFAULT.has(k)])),
 };
 
 // Ramène un objet arbitraire (fichier ou payload client) à des valeurs sûres et complètes.
@@ -63,21 +71,26 @@ function sanitize(raw) {
   let order = Array.isArray(o.subtabOrder) ? o.subtabOrder.filter((k) => SUBTAB_KEYS.includes(k)) : [];
   order = [...new Set(order)];
   for (const k of SUBTAB_KEYS) if (!order.includes(k)) order.push(k);
+  // statusBarOrder : même traitement que subtabOrder (garder connues dans l'ordre, dédupe, compléter).
+  let sbOrder = Array.isArray(o.statusBarOrder) ? o.statusBarOrder.filter((k) => STATUS_BAR_KEYS.includes(k)) : [];
+  sbOrder = [...new Set(sbOrder)];
+  for (const k of STATUS_BAR_KEYS) if (!sbOrder.includes(k)) sbOrder.push(k);
   // subtabHidden : sous-ensemble des clés connues, jamais 'chat' (vue principale, toujours visible).
   let hidden = Array.isArray(o.subtabHidden) ? o.subtabHidden.filter((k) => SUBTAB_KEYS.includes(k) && k !== 'chat') : [];
   hidden = [...new Set(hidden)];
   // initialShellCommand : chaîne, bornée (anti-abus ; jamais interpolée dans un shell — tapée
   // au clavier via send-keys -l par showInPane).
   const cmd = typeof o.initialShellCommand === 'string' ? o.initialShellCommand.slice(0, 500) : '';
-  // statusBar : objet key→boolean. Toute clé absente = true par défaut, sauf prLinks (false :
-  // la PR tab est le lieu principal ; chips masqués pour éviter la double affichage).
+  // statusBar : objet key→boolean. Toute clé absente = true par défaut, sauf prLinks / issueLinks
+  // (false : les onglets dédiés sont le lieu principal ; chips masqués pour éviter le double affichage).
   const rawSb = o.statusBar && typeof o.statusBar === 'object' ? o.statusBar : {};
   const statusBar = Object.fromEntries(STATUS_BAR_KEYS.map((k) => {
     if (rawSb[k] !== undefined) return [k, rawSb[k] !== false];
-    return [k, k !== 'prLinks']; // prLinks absent → false (new default)
+    return [k, !STATUS_BAR_HIDDEN_DEFAULT.has(k)]; // absent → défaut (prLinks/issueLinks → false)
   }));
   return {
     subtabOrder: order,
+    statusBarOrder: sbOrder,
     subtabHidden: hidden,
     initialShellCommand: cmd,
     autoGitSync: !!o.autoGitSync,
