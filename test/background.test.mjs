@@ -100,4 +100,19 @@ describe('withBackgroundState — relabel waiting → background', () => {
       expect(withBackgroundState(st, true, 3)).toBe(st);
     }
   });
+  it("'working' prime sur 'background' : job de fond + pane génuinement actif → working", () => {
+    // Cas du bug : Stop capté (→ waiting), puis un wakeup/veilleur ré-invoque la session qui se
+    // remet à mouliner (vrai spinner footer, busy===true) avant tout nouveau hook → travaille.
+    expect(withBackgroundState('waiting', true, 1, true)).toBe('working');
+    // pane inactif (boîte de saisie seule, busy===false) → tourne bien juste en fond.
+    expect(withBackgroundState('waiting', true, 1, false)).toBe('background');
+    // pane injoignable (busy===null) → on ne promeut pas ; comportement historique = background.
+    expect(withBackgroundState('waiting', true, 1, null)).toBe('background');
+    // signal busy absent (appel legacy sans 4e arg) → background, rétro-compatible.
+    expect(withBackgroundState('waiting', true, 1)).toBe('background');
+  });
+  it("pane mort ne devient jamais working, même avec busy truthy résiduel", () => {
+    // alive faux ⇒ on n'entre pas dans la branche : reste waiting (cf. fix dead-pane 1f98901).
+    expect(withBackgroundState('waiting', false, 2, true)).toBe('waiting');
+  });
 });
