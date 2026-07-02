@@ -211,6 +211,9 @@ function parseTranscript(fp, sessionId) {
   // Dernier d'abord (le plus récent en bas du transcript), dédupliqué.
   const prMatches = data.match(/https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/pull\/\d+/g) || [];
   s.prLinks = [...new Set(prMatches.reverse())].slice(0, 12);
+  // liens d'issue GitHub mentionnés dans la session (même mécanisme que prLinks). Dernier d'abord.
+  const issueMatches = data.match(/https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/issues\/\d+/g) || [];
+  s.issueLinks = [...new Set(issueMatches.reverse())].slice(0, 12);
   // modèle dominant
   s.model = Object.keys(modelCount).sort((a, b) => modelCount[b] - modelCount[a])[0] || null;
   if (!s.title) s.title = (s.firstPrompt || '').slice(0, 80) || '(sans titre)';

@@ -11,7 +11,7 @@
     try {
       const res = await fetch(`/api/gh?url=${encodeURIComponent(url)}`);
       const data = await res.json();
-      metaByUrl[url] = { loading: false, meta: data && data.available !== false ? data : null };
+      metaByUrl[url] = { loading: false, meta: data?.data ?? null };
     } catch {
       metaByUrl[url] = { loading: false, meta: null };
     }

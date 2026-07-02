@@ -39,6 +39,7 @@ function blankSummary(sessionId, fp) {
     subagents: 0,       // nombre de sous-agents (appels Agent/Task) terminés dans cette session
     subagentCost: 0,    // part du coût attribuable aux sous-agents (toolUseResult.usage)
     prLinks: [],
+    issueLinks: [],
   };
 }
 
@@ -138,6 +139,9 @@ function parseTranscript(fp, sessionId) {
   // liens de PR GitHub mentionnés dans la session. Dernier d'abord, dédupliqué.
   const prMatches = data.match(/https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/pull\/\d+/g) || [];
   s.prLinks = [...new Set(prMatches.reverse())].slice(0, 12);
+  // liens d'issue GitHub mentionnés dans la session (même mécanisme que prLinks). Dernier d'abord.
+  const issueMatches = data.match(/https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/issues\/\d+/g) || [];
+  s.issueLinks = [...new Set(issueMatches.reverse())].slice(0, 12);
   // modèle dominant
   s.model = Object.keys(modelCount).sort((a, b) => modelCount[b] - modelCount[a])[0] || null;
   if (!s.title) s.title = (s.firstPrompt || '').slice(0, 80) || '(sans titre)';

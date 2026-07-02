@@ -83,6 +83,7 @@ describe('parseTranscript', () => {
     expect(s.subagents).toBe(1);
     expect(s.tools).toEqual({ Bash: 1, Write: 1, Edit: 1, MultiEdit: 1, NotebookEdit: 1, AskUserQuestion: 2, Agent: 1 });
     expect(s.prLinks).toEqual(['https://github.com/acme/repo/pull/7', 'https://github.com/acme/repo/pull/42']);
+    expect(s.issueLinks).toEqual([]);       // détection d'issues distincte des PR (aucun /issues/ ici)
     expect(s.pendingQuestion).not.toBeNull();
     expect(s.pendingQuestion.questions[0].header).toBe('Deploy');
     expect(Object.keys(s.byDay).sort()).toEqual(['2026-06-10', '2026-06-11']);
