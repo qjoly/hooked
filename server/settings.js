@@ -18,7 +18,7 @@ const SETTINGS_FILE = path.join(HOOKED_DIR, 'settings.json');
 // *disponible* de cette liste est celui ouvert à l'arrivée sur une session. Sert de source
 // de vérité pour valider `subtabOrder` (toute clé inconnue est ignorée, toute clé manquante
 // est ré-ajoutée à la fin → l'ordre reste toujours complet).
-const SUBTAB_KEYS = ['chat', 'changes', 'todos', 'subagents', 'background', 'terminal'];
+const SUBTAB_KEYS = ['chat', 'changes', 'todos', 'subagents', 'background', 'terminal', 'pr'];
 
 // Éléments de la barre de statut de session (en-tête du détail). Chaque clé est un booléen
 // (true = affiché). Toute clé absente du fichier de config est traitée comme true (forward-compatible).
@@ -47,8 +47,9 @@ const DEFAULTS = {
   gitAutoRestartOnLock: false,
   // Afficher la bannière « redémarrage nécessaire / effectué » dans l'UI (indépendant de l'auto-restart).
   gitRestartNotice: true,
-  // Visibilité des éléments de la barre de statut (en-tête du détail de session). Tout à true par défaut.
-  statusBar: Object.fromEntries(STATUS_BAR_KEYS.map((k) => [k, true])),
+  // Visibilité des éléments de la barre de statut (en-tête du détail de session). Tout à true par
+  // défaut sauf prLinks (false : la dedicated PR tab est le lieu principal ; chips masqués par défaut).
+  statusBar: Object.fromEntries(STATUS_BAR_KEYS.map((k) => [k, k !== 'prLinks'])),
 };
 
 // Ramène un objet arbitraire (fichier ou payload client) à des valeurs sûres et complètes.
@@ -61,9 +62,13 @@ function sanitize(raw) {
   // initialShellCommand : chaîne, bornée (anti-abus ; jamais interpolée dans un shell — tapée
   // au clavier via send-keys -l par showInPane).
   const cmd = typeof o.initialShellCommand === 'string' ? o.initialShellCommand.slice(0, 500) : '';
-  // statusBar : objet key→boolean. Toute clé absente (config antérieure) = true par défaut.
+  // statusBar : objet key→boolean. Toute clé absente = true par défaut, sauf prLinks (false :
+  // la PR tab est le lieu principal ; chips masqués pour éviter la double affichage).
   const rawSb = o.statusBar && typeof o.statusBar === 'object' ? o.statusBar : {};
-  const statusBar = Object.fromEntries(STATUS_BAR_KEYS.map((k) => [k, rawSb[k] !== false]));
+  const statusBar = Object.fromEntries(STATUS_BAR_KEYS.map((k) => {
+    if (rawSb[k] !== undefined) return [k, rawSb[k] !== false];
+    return [k, k !== 'prLinks']; // prLinks absent → false (new default)
+  }));
   return {
     subtabOrder: order,
     initialShellCommand: cmd,

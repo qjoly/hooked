@@ -5,11 +5,12 @@
 
   // Métadonnées d'affichage des sous-onglets (miroir de SessionDetail / server/settings.js).
   const SUBTAB_META = {
-    chat:      { icon: '💬', label: 'Conversation' },
-    changes:   { icon: '📝', label: 'Files' },
-    todos:     { icon: '✅', label: 'Tasks' },
-    subagents: { icon: '🤖', label: 'Subagents' },
-    terminal:  { icon: '🖥', label: 'Terminal' },
+    chat:       { icon: '💬', label: 'Conversation' },
+    changes:    { icon: '📝', label: 'Files' },
+    todos:      { icon: '✅', label: 'Tasks' },
+    subagents:  { icon: '🤖', label: 'Subagents' },
+    terminal:   { icon: '🖥', label: 'Terminal' },
+    pr:         { icon: '🔀', label: 'PRs' },
   };
 
   // Elements of the session status bar (header) that can be toggled on/off.
@@ -23,7 +24,7 @@
     { key: 'tokens',         label: 'Token counts (output + cache)' },
     { key: 'model',          label: 'Model name (shown when session is not live)' },
     { key: 'usage5h',        label: '5-hour usage indicator' },
-    { key: 'prLinks',        label: 'PR links' },
+    { key: 'prLinks',        label: 'Show linked PRs in the status bar' },
     { key: 'focusBtn',       label: 'Focus button (in ⋯ menu)' },
   ];
 
