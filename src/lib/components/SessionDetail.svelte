@@ -12,6 +12,7 @@
   import Changes from './Changes.svelte';
   import Subagents from './Subagents.svelte';
   import SubSessions from './SubSessions.svelte';
+  import PrLinks from './PrLinks.svelte';
   import Todos from './Todos.svelte';
   import Background from './Background.svelte';
   import Terminal from './Terminal.svelte';
@@ -78,6 +79,7 @@
     subsessions:{ icon: '🔗', label: 'Sub-sessions' },
     background: { icon: '🌀', label: 'Background' },
     terminal:   { icon: '🖥', label: 'Terminal' },
+    pr:         { icon: '🔀', label: 'PRs' },
   };
   const subtabCount = $derived({
     chat: (s?.messages || []).length,
@@ -87,6 +89,7 @@
     subsessions: (s?.subSessions || []).length,
     background: (s?.bgJobs || []).length,
     terminal: terminals.length,
+    pr: (s?.prLinks || []).length,
   });
   const subtabShown = $derived({
     chat: true, changes: true,
@@ -95,6 +98,7 @@
     subsessions: subtabCount.subsessions > 0,
     background: subtabCount.background > 0,
     terminal: subtabCount.terminal > 0,
+    pr: subtabCount.pr > 0,
   });
   // Ordre persistant (settings.subtabOrder), PUIS toute clé connue absente de l'ordre sauvegardé
   // (migration : un réglage antérieur à un nouveau sous-onglet — ex. `background` — le verrait
@@ -551,6 +555,10 @@
 
     <div class="pane" class:active={tab === 'subsessions'}>
       <div class="changes"><SubSessions subSessions={s.subSessions || []} /></div>
+    </div>
+
+    <div class="pane" class:active={tab === 'pr'}>
+      <PrLinks prLinks={s.prLinks || []} />
     </div>
 
     <div class="pane" class:active={tab === 'todos'}>

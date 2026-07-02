@@ -237,7 +237,7 @@ export const settings = $state({
   initialShellCommand: '',
   statusBar: {
     branch: true, stateBadge: true, permissionMode: true, modelEffort: true,
-    cost: true, prompts: true, tokens: true, model: true, usage5h: true, prLinks: true, focusBtn: true,
+    cost: true, prompts: true, tokens: true, model: true, usage5h: true, prLinks: false, focusBtn: true,
   },
 });
 export async function loadSettings() {
