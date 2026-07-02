@@ -23,6 +23,11 @@ describe('parseSpinner — cycle de glyphes animé', () => {
     expect(parseSpinner(screen('* Planning... (1m 14s · thinking)'))).toBe('Planning');
   });
 
+  it('capture un libellé avec chiffres/slash (Claude affiche la TODO en cours, pas qu\'un gérondif)', () => {
+    expect(parseSpinner(screen('✳ Recreating talos-mono for IDEM-4/5… (1m 18s · ↓ 2.3k tokens · thinking with high effort)')))
+      .toBe('Recreating talos-mono for IDEM-4/5');
+  });
+
   it('rejette le footer FINI « <glyphe> Verbe for <durée> » (pas de …/parenthèse)', () => {
     expect(parseSpinner(screen('✻ Churned for 13m 46s'))).toBe(null);
     expect(parseSpinner(screen('❄ Brewed for 4m 7s · 1 monitor still running'))).toBe(null);
