@@ -3,6 +3,10 @@ node = "24"
 
 [env]
 PORT = "4123"
+# Bind local-only by default. adapter-node listens on 0.0.0.0 out of the box,
+# which would expose the dashboard (and tmux session piloting) to the whole LAN.
+# Override to expose it: `HOST=0.0.0.0 mise run start` (or set HOST in your env).
+HOST = "{{ env.HOST | default(value='127.0.0.1') }}"
 
 [tasks.install]
 description = "Installe les dépendances de build (devDeps front Svelte)"
@@ -61,6 +65,8 @@ LOG_DIR="$HOME/Library/Logs/hooked"
 # tmux/claude/etc. même hors PATH par défaut (Nix → /run/current-system/sw/bin,
 # Homebrew, etc.). Le service launchd n'hérite sinon que d'un PATH minimal.
 SERVICE_PATH="${PATH:-/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin}"
+# Local-only by default; expose with `HOST=0.0.0.0 mise run service-install`.
+SERVICE_HOST="${HOST:-127.0.0.1}"
 mkdir -p "$LOG_DIR"
 mkdir -p "$HOME/Library/LaunchAgents"
 
@@ -90,6 +96,8 @@ cat > "$PLIST" <<EOF
         <string>$SERVICE_PATH</string>
         <key>PORT</key>
         <string>4123</string>
+        <key>HOST</key>
+        <string>$SERVICE_HOST</string>
     </dict>
     <key>RunAtLoad</key>
     <true/>
