@@ -10,6 +10,8 @@
  */
 import { describe, it, expect } from 'vitest';
 import { createRequire } from 'node:module';
+import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as lib from '../server/index.js'; // agrégateur des nouveaux modules (ESM)
@@ -172,6 +174,21 @@ describe('buildSubagents', () => {
     expect(sa[0].agentId).toBe('aaa');
     expect(sa[0].result).toContain('Trouvé 3 usages');
     expect(sa[0].cost).toBeGreaterThan(0);
+  });
+  it('dédoublonne un tool_use dupliqué dans le transcript (resume/compaction)', () => {
+    const tmp = path.join(os.tmpdir(), `hooked-subagents-dup-${process.pid}.jsonl`);
+    const toolUse = JSON.stringify({
+      type: 'assistant',
+      message: { content: [{ type: 'tool_use', name: 'Task', id: 'toolu_dup', input: { subagent_type: 'Explore', description: 'x', prompt: 'p' } }] },
+    });
+    fs.writeFileSync(tmp, `${toolUse}\n${toolUse}\n`);
+    try {
+      const sa = lib.buildSubagents(tmp);
+      expect(sa.length).toBe(1);
+      expect(sa[0].id).toBe('toolu_dup');
+    } finally {
+      fs.rmSync(tmp, { force: true });
+    }
   });
 });
 
