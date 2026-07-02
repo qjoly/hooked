@@ -105,8 +105,10 @@
   // sinon jamais, car on itère l'ordre persistant). On complète à la fin, seulement si disponible.
   const orderedSubtabs = $derived.by(() => {
     const order = settings.subtabOrder || [];
+    const hidden = new Set(settings.subtabHidden || []);
     const keys = [...order.filter((k) => SUBTAB_META[k]), ...Object.keys(SUBTAB_META).filter((k) => !order.includes(k))];
-    return keys.filter((k) => subtabShown[k]).map((k) => ({ key: k, ...SUBTAB_META[k], count: subtabCount[k] }));
+    // masqué manuellement (réglages) sauf 'chat', EN PLUS de l'auto-masquage quand vide (subtabShown).
+    return keys.filter((k) => subtabShown[k] && (k === 'chat' || !hidden.has(k))).map((k) => ({ key: k, ...SUBTAB_META[k], count: subtabCount[k] }));
   });
   // Ouvre le 1er onglet disponible selon l'ordre configuré (une seule fois, dès que s est chargé).
   let tabInit = false;

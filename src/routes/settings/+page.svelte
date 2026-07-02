@@ -5,12 +5,14 @@
 
   // Métadonnées d'affichage des sous-onglets (miroir de SessionDetail / server/settings.js).
   const SUBTAB_META = {
-    chat:       { icon: '💬', label: 'Conversation' },
-    changes:    { icon: '📝', label: 'Files' },
-    todos:      { icon: '✅', label: 'Tasks' },
-    subagents:  { icon: '🤖', label: 'Subagents' },
-    terminal:   { icon: '🖥', label: 'Terminal' },
-    pr:         { icon: '🔀', label: 'PRs' },
+    chat:        { icon: '💬', label: 'Conversation' },
+    changes:     { icon: '📝', label: 'Files' },
+    todos:       { icon: '✅', label: 'Tasks' },
+    subagents:   { icon: '🤖', label: 'Subagents' },
+    subsessions: { icon: '🔗', label: 'Sub-sessions' },
+    background:  { icon: '🌀', label: 'Background' },
+    terminal:    { icon: '🖥', label: 'Terminal' },
+    pr:          { icon: '🔀', label: 'PRs' },
   };
 
   // Elements of the session status bar (header) that can be toggled on/off.
@@ -46,6 +48,29 @@
     order = next;              // optimiste
     await updateSettings({ subtabOrder: next });
   }
+
+  // Masquage manuel d'un sous-onglet (bouton œil). 'chat' (Conversation) n'est jamais masquable.
+  const hidden = $derived(new Set(settings.subtabHidden || []));
+  async function toggleSubtab(key) {
+    if (key === 'chat') return;
+    const next = new Set(settings.subtabHidden || []);
+    next.has(key) ? next.delete(key) : next.add(key);
+    await updateSettings({ subtabHidden: [...next] });
+  }
+  // Aperçu de la barre de sous-onglets : ordre configuré moins les masqués (l'auto-masquage d'un
+  // onglet vide dépend d'une session → non simulé ici ; c'est un aperçu de la configuration).
+  const previewSubtabs = $derived(order.filter((k) => SUBTAB_META[k] && !hidden.has(k)));
+
+  // Barre de statut : lecture/bascule d'un élément + échantillons représentatifs pour l'aperçu.
+  const sbOn = (k) => settings.statusBar?.[k] !== false;
+  function toggleStatusBar(key) {
+    updateSettings({ statusBar: { ...settings.statusBar, [key]: !sbOn(key) } });
+  }
+  const SB_SAMPLE = {
+    branch: 'main', stateBadge: '● waiting', permissionMode: 'Auto', modelEffort: 'opus · max',
+    cost: '$1.20', prompts: '42 prompts', tokens: '128k out · 1.2M cache', model: 'opus',
+    usage5h: '43%', prLinks: '🔗 hooked #18', focusBtn: '⛶ Focus',
+  };
 
   // Commande shell initiale : champ local resynchronisé depuis le store TANT QUE l'utilisateur
   // n'a pas commencé à éditer (sinon la resync async au chargement écraserait sa frappe).
@@ -227,31 +252,58 @@
 
     <div class="card">
       <h2>Session status bar</h2>
-      <p class="hint">Choose which elements are visible in the session header. Defaults to all shown.</p>
-      {#each STATUS_BAR_META as item (item.key)}
-        <label class="check">
-          <input type="checkbox" checked={settings.statusBar?.[item.key] !== false}
-                 onchange={(e) => updateSettings({ statusBar: { ...settings.statusBar, [item.key]: e.currentTarget.checked } })} />
-          <span>{item.label}</span>
-        </label>
-      {/each}
-    </div>
-
-    <div class="card">
-      <h2>Session subtab order</h2>
-      <p class="hint">Determines the display order — and which available tab opens first when arriving on a session.</p>
+      <p class="hint">Toggle which elements appear in the session header. Click the eye to hide or show each one.</p>
       <ul class="reorder">
-        {#each order as key, i (key)}
-          <li>
-            <span class="ro-pos">{i + 1}</span>
-            <span class="ro-name">{SUBTAB_META[key]?.icon} {SUBTAB_META[key]?.label ?? key}</span>
+        {#each STATUS_BAR_META as item (item.key)}
+          <li class:row-off={!sbOn(item.key)}>
+            <span class="ro-name">{item.label}</span>
             <span class="ro-actions">
-              <button class="mini" disabled={i === 0} onclick={() => move(i, -1)} title="Move up" aria-label="Move up">▲</button>
-              <button class="mini" disabled={i === order.length - 1} onclick={() => move(i, 1)} title="Move down" aria-label="Move down">▼</button>
+              <button class="mini vis" class:off={!sbOn(item.key)} onclick={() => toggleStatusBar(item.key)}
+                      title={sbOn(item.key) ? 'Shown — click to hide' : 'Hidden — click to show'}
+                      aria-label="Toggle visibility">{sbOn(item.key) ? '👁' : '🚫'}</button>
             </span>
           </li>
         {/each}
       </ul>
+      <div class="preview">
+        <span class="preview-label">Preview</span>
+        <div class="pv-statusbar">
+          {#each STATUS_BAR_META as item (item.key)}
+            {#if sbOn(item.key)}<span class="pv-sb-item pv-sb-{item.key}">{SB_SAMPLE[item.key]}</span>{/if}
+          {/each}
+          {#if !STATUS_BAR_META.some((it) => sbOn(it.key))}<span class="pv-empty">(all hidden)</span>{/if}
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Session subtabs</h2>
+      <p class="hint">Reorder the subtabs (the first available one opens on arrival) and hide the ones you don't use. Conversation is always shown; tabs also auto-hide when empty.</p>
+      <ul class="reorder">
+        {#each order as key, i (key)}
+          <li class:row-off={hidden.has(key)}>
+            <span class="ro-pos">{i + 1}</span>
+            <span class="ro-name">{SUBTAB_META[key]?.icon ?? '•'} {SUBTAB_META[key]?.label ?? key}</span>
+            <span class="ro-actions">
+              <button class="mini" disabled={i === 0} onclick={() => move(i, -1)} title="Move up" aria-label="Move up">▲</button>
+              <button class="mini" disabled={i === order.length - 1} onclick={() => move(i, 1)} title="Move down" aria-label="Move down">▼</button>
+              <button class="mini vis" class:off={hidden.has(key)} disabled={key === 'chat'}
+                      onclick={() => toggleSubtab(key)}
+                      title={key === 'chat' ? 'Always shown' : (hidden.has(key) ? 'Hidden — click to show' : 'Shown — click to hide')}
+                      aria-label="Toggle visibility">{hidden.has(key) ? '🚫' : '👁'}</button>
+            </span>
+          </li>
+        {/each}
+      </ul>
+      <div class="preview">
+        <span class="preview-label">Preview</span>
+        <div class="pv-subtabs">
+          {#each previewSubtabs as key, i (key)}
+            <span class="pv-subtab" class:active={i === 0}>{SUBTAB_META[key]?.icon} {SUBTAB_META[key]?.label ?? key}</span>
+          {/each}
+          {#if !previewSubtabs.length}<span class="pv-empty">(all hidden)</span>{/if}
+        </div>
+      </div>
     </div>
 
     <div class="card">
@@ -303,4 +355,22 @@
   .check input { margin-top: 2px; }
   .check code { font-size: 12px; background: var(--bg3); padding: 1px 5px; border-radius: 4px; }
   .restart-notice { display: flex; align-items: center; justify-content: space-between; gap: 12px; background: var(--accent-soft); border: 1px solid var(--accent); color: var(--accent-d); border-radius: 8px; padding: 10px 12px; margin-bottom: 14px; font-size: 13px; }
+  /* bouton œil (masquer/afficher) + lignes masquées + aperçus (sous-onglets & barre de statut). */
+  .vis { font-size: 12px; }
+  .vis.off { color: var(--muted); }
+  .mini.vis:disabled { opacity: .3; }
+  .row-off { opacity: .55; }
+  .row-off .ro-name { text-decoration: line-through; }
+  .preview { margin-top: 14px; padding: 12px; background: var(--bg2); border: 1px dashed var(--border2); border-radius: 8px; }
+  .preview-label { display: block; font-size: 10.5px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin-bottom: 8px; }
+  .pv-subtabs { display: flex; gap: 4px; flex-wrap: wrap; }
+  .pv-subtab { font-size: 12.5px; font-weight: 600; color: var(--muted); padding: 5px 10px; border-radius: 7px; white-space: nowrap; }
+  .pv-subtab.active { color: var(--accent-d); background: var(--accent-soft); }
+  .pv-statusbar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; font-size: 12px; color: var(--muted); }
+  .pv-sb-item { white-space: nowrap; }
+  .pv-sb-branch { background: var(--bg3); border: 1px solid var(--border); border-radius: 5px; padding: 1px 7px; font-size: 11px; }
+  .pv-sb-stateBadge { background: var(--bg3); border: 1px solid var(--border); border-radius: 20px; padding: 1px 8px; font-weight: 600; }
+  .pv-sb-permissionMode, .pv-sb-modelEffort { background: var(--bg3); border: 1px solid var(--border); border-radius: 6px; padding: 1px 8px; }
+  .pv-sb-cost { font-weight: 700; color: var(--text); }
+  .pv-empty { font-size: 12px; color: var(--muted); font-style: italic; }
 </style>
