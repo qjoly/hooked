@@ -67,6 +67,21 @@ function accountRateLimits(preferId, statusDir = STATUS_DIR, now = Date.now()) {
   };
 }
 
+// id de session dont le snapshot de statusline est le plus frais (dernier écrit) — la session
+// « en cours » : plus fiable que lastActivity (aucun scan de transcript). null si aucun snapshot.
+function freshestStatusId(statusDir = STATUS_DIR) {
+  let bestId = null;
+  let bestTs = -1;
+  let names = [];
+  try { names = fs.readdirSync(statusDir); } catch (_) { return null; }
+  for (const f of names) {
+    if (!f.endsWith('.json')) continue;
+    const d = readStatusFile(path.join(statusDir, f));
+    if (d && (d._mtime || 0) > bestTs) { bestTs = d._mtime || 0; bestId = f.slice(0, -'.json'.length); }
+  }
+  return bestId;
+}
+
 // statut consolidé pour une session : effort réel, contexte, fast mode, + rate limits du compte.
 function sessionStatus(id, statusDir = STATUS_DIR, now = Date.now()) {
   const raw = sessionStatusRaw(id, statusDir);
@@ -83,4 +98,4 @@ function sessionStatus(id, statusDir = STATUS_DIR, now = Date.now()) {
   };
 }
 
-export { sessionStatus, sessionStatusRaw, accountRateLimits };
+export { sessionStatus, sessionStatusRaw, accountRateLimits, freshestStatusId };

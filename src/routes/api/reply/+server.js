@@ -1,4 +1,4 @@
-import { paneForSession, liveQuestionForSession, deliverQuestionWithNote, deliverReply } from '$lib/server/core.js';
+import { paneForSession, liveQuestionForSession, deliverQuestionWithNote, deliverQuestionFreeText, deliverReply } from '$lib/server/core.js';
 import { ok, fail, toPromise, readJson } from '$lib/server/respond.js';
 
 export async function POST({ request }) {
@@ -34,10 +34,17 @@ export async function POST({ request }) {
     : (typeof raw === 'string' ? raw.trim() : '');
   const empty = Array.isArray(text) ? !text.length : !text;
   if (empty) return fail(400, 'text required');
-  // si une question AskUserQuestion est en attente, son TUI réclame une Entrée de
-  // confirmation supplémentaire (écran « Submit answers ») pour valider la réponse.
-  const isQuestion = !!liveQuestionForSession(id);
-  const { err } = await toPromise((cb) => deliverReply(pane, text, isQuestion, cb));
+  // Free text while an AskUserQuestion is pending = the user rejected the offered options and typed
+  // their own answer. The selection widget swallows typed characters, so we can't type into it:
+  // deliverQuestionFreeText sends Escape to dismiss the widget, then delivers the text as a normal
+  // reply. Free text is a single message (join a legacy array of labels on newlines).
+  if (liveQuestionForSession(id)) {
+    const answer = Array.isArray(text) ? text.join('\n') : text;
+    const { err } = await toPromise((cb) => deliverQuestionFreeText(pane, answer, cb));
+    if (err) return fail(502, 'tmux send-keys failed : ' + (err.message || err));
+    return ok({ pane });
+  }
+  const { err } = await toPromise((cb) => deliverReply(pane, text, false, cb));
   if (err) return fail(502, 'tmux send-keys failed : ' + (err.message || err));
   return ok({ pane });
 }

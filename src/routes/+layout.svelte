@@ -1,12 +1,26 @@
 <script>
   import { onMount } from 'svelte';
   import { page } from '$app/state';
-  import { ui, startLive, toggleFocus, toggleSidebarPeek, cycleTheme, toggleNotify } from '$lib/state.svelte.js';
+  import { ui, startLive, toggleFocus, toggleSidebarPeek, cycleTheme, toggleNotify, toggleNotifyPinnedOnly } from '$lib/state.svelte.js';
   import Modal from '$lib/components/Modal.svelte';
   import '../app.css';
 
   let { children } = $props();
   onMount(startLive);
+
+  // Deep-links de session (`[label](/session/<id>)` rendus par autolink) : le routeur client
+  // SvelteKit intercepte déjà le clic (nav interne, sans reload). On ajoute juste window.focus()
+  // pour remonter la fenêtre au premier plan en multi-fenêtres — sans preventDefault, pour laisser
+  // SvelteKit faire la navigation. Miroir du handler de clic des notifications (state.svelte.js).
+  onMount(() => {
+    const onClick = (e) => {
+      if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+      const a = e.target && e.target.closest && e.target.closest('a[data-session-link]');
+      if (a) { try { window.focus(); } catch (_) {} }
+    };
+    document.addEventListener('click', onClick);
+    return () => document.removeEventListener('click', onClick);
+  });
 
   // Bouton de thème : cycle Système → Clair → Sombre. L'icône reflète le choix courant
   // (🖥️ = suit le système, ☀️ = clair forcé, 🌙 = sombre forcé).
@@ -54,6 +68,18 @@
           aria-label="Toggle browser notifications">
     <span class="theme-ico">{ui.notify ? '🔔' : '🔕'}</span>
     <span class="theme-lbl">Notifs</span>
+  </button>
+  <button class="theme-btn"
+          onclick={toggleNotifyPinnedOnly}
+          disabled={!ui.notify}
+          title={!ui.notify
+            ? 'Enable notifications first'
+            : ui.notifyPinnedOnly
+              ? 'Notifying pinned sessions only — click to notify all'
+              : 'Notifying all sessions — click to restrict to pinned only'}
+          aria-label="Toggle pinned-only notifications">
+    <span class="theme-ico">{ui.notifyPinnedOnly ? '📌' : '📍'}</span>
+    <span class="theme-lbl">Pinned</span>
   </button>
   <button class="theme-btn" onclick={cycleTheme}
           title={`Theme: ${themeUi.label} — click to change`}
