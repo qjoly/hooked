@@ -18,7 +18,7 @@ const SETTINGS_FILE = path.join(HOOKED_DIR, 'settings.json');
 // *disponible* de cette liste est celui ouvert à l'arrivée sur une session. Sert de source
 // de vérité pour valider `subtabOrder` (toute clé inconnue est ignorée, toute clé manquante
 // est ré-ajoutée à la fin → l'ordre reste toujours complet).
-const SUBTAB_KEYS = ['chat', 'changes', 'todos', 'subagents', 'background', 'terminal', 'pr'];
+const SUBTAB_KEYS = ['chat', 'changes', 'todos', 'subagents', 'subsessions', 'background', 'terminal', 'pr'];
 
 // Éléments de la barre de statut de session (en-tête du détail). Chaque clé est un booléen
 // (true = affiché). Toute clé absente du fichier de config est traitée comme true (forward-compatible).
@@ -38,6 +38,10 @@ const STATUS_BAR_KEYS = [
 
 const DEFAULTS = {
   subtabOrder: [...SUBTAB_KEYS],
+  // Sous-onglets masqués manuellement (bouton œil dans les réglages). Sous-ensemble de SUBTAB_KEYS ;
+  // 'chat' n'est jamais masquable (vue principale). Défaut : aucun masqué. Distinct de l'auto-masquage
+  // d'un onglet vide (géré côté client selon le contenu de la session).
+  subtabHidden: [],
   // Commande lancée automatiquement à l'ouverture d'un nouveau pane terminal (bouton « ＋ »).
   // Vide = shell nu. Ex. « source .venv/bin/activate », « tmux clock-mode »…
   initialShellCommand: '',
@@ -59,6 +63,9 @@ function sanitize(raw) {
   let order = Array.isArray(o.subtabOrder) ? o.subtabOrder.filter((k) => SUBTAB_KEYS.includes(k)) : [];
   order = [...new Set(order)];
   for (const k of SUBTAB_KEYS) if (!order.includes(k)) order.push(k);
+  // subtabHidden : sous-ensemble des clés connues, jamais 'chat' (vue principale, toujours visible).
+  let hidden = Array.isArray(o.subtabHidden) ? o.subtabHidden.filter((k) => SUBTAB_KEYS.includes(k) && k !== 'chat') : [];
+  hidden = [...new Set(hidden)];
   // initialShellCommand : chaîne, bornée (anti-abus ; jamais interpolée dans un shell — tapée
   // au clavier via send-keys -l par showInPane).
   const cmd = typeof o.initialShellCommand === 'string' ? o.initialShellCommand.slice(0, 500) : '';
@@ -71,6 +78,7 @@ function sanitize(raw) {
   }));
   return {
     subtabOrder: order,
+    subtabHidden: hidden,
     initialShellCommand: cmd,
     autoGitSync: !!o.autoGitSync,
     gitAutoRestartOnLock: !!o.gitAutoRestartOnLock,
