@@ -58,10 +58,14 @@ function eventOnlySessions(knownIds, now = Date.now()) {
 function refineWithPane(state, pane, alive) {
   if (!alive) return state === 'working' ? 'waiting' : state;
   const busy = paneBusySync(pane);
-  // busy n'affine QUE 'working'/'idle' : un 'waiting' vient d'un Stop capté (Claude a fini) et fait
-  // autorité — on ne le re-promeut jamais en 'working' (sinon un spinner résiduel/cité relancerait à
-  // tort une session à l'arrêt). Un vrai nouveau tour repasse par un hook UserPromptSubmit → 'working'.
-  if (busy === true && (state === 'working' || state === 'idle')) return 'working';
+  // busy = vrai spinner d'activité DANS LE FOOTER (parseSpinner est borné aux ~14 lignes au-dessus de
+  // l'invite ❯ → un spinner CITÉ dans la conversation ne compte pas, cf. fix dd850e0). On promeut donc
+  // 'waiting' → 'working' quand le pane mouline vraiment : après un Stop capté (→ waiting), une
+  // ré-invocation par un veilleur / message en file / ScheduleWakeup remet Claude à réfléchir AVANT tout
+  // nouveau hook UserPromptSubmit ; sans ça la session resterait figée en 'waiting' (ou 'background')
+  // alors qu'elle travaille. À l'arrêt le footer redevient la boîte de saisie → busy false → 'waiting'
+  // préservé ; pane mort (alive faux, traité ligne 59) → jamais 'working' (fix 1f98901).
+  if (busy === true && (state === 'working' || state === 'idle' || state === 'waiting')) return 'working';
   if (busy === false && (state === 'working' || state === 'idle')) return 'waiting';
   return state;
 }
