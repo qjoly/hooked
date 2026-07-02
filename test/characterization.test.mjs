@@ -120,6 +120,31 @@ describe('buildConversation', () => {
     const lastText = [...a1.parts].reverse().find((p) => p.type === 'text');
     expect(lastText.text).toContain('PR ouverte');
   });
+
+  // Message tapé pendant que l'agent travaille → mis en file par Claude et journalisé en
+  // queue-operation (content brut, sans <task-notification>). Doit devenir une vraie bulle user.
+  describe('queue-operation (message mis en file pendant le travail de l\'agent)', () => {
+    const QFP = path.join(DIR, 'fixtures', 'queue-op.jsonl');
+    it('rend un queue-operation à content simple comme bulle user', () => {
+      const msgs = lib.buildConversation(QFP);
+      const q = msgs.find((m) => m.role === 'user' && m.text.startsWith('Continue democratic-csi'));
+      expect(q).toBeTruthy();
+      expect(q.ts).toBe('2026-06-20T10:00:10Z');
+      expect(q.forkUuid).toBe('q1');
+      expect(q.tools).toEqual([]);
+    });
+    it('ignore un queue-operation vide / whitespace', () => {
+      const msgs = lib.buildConversation(QFP);
+      expect(msgs.some((m) => m.text != null && m.text.trim() === '')).toBe(false);
+    });
+    it('garde le <task-notification> queue-operation en ligne système bg (pas une bulle user)', () => {
+      const msgs = lib.buildConversation(QFP);
+      const bg = msgs.find((m) => m.role === 'system' && m.kind === 'bg');
+      expect(bg).toBeTruthy();
+      expect(bg.text).toBe('Build finished');
+      expect(msgs.some((m) => m.role === 'user' && m.text.includes('task-notification'))).toBe(false);
+    });
+  });
 });
 
 describe('buildFileChanges', () => {
