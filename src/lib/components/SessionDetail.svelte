@@ -108,6 +108,29 @@
     untrack(() => { tab = first.key; tabInit = true; });
   });
 
+  // Footer « working » live : tant que la session travaille, le transcript ne reçoit pas de
+  // nouvelle bulle avant le flush du message → la conversation paraît figée. On affiche donc,
+  // sous la dernière bulle, le verbe d'activité (s.activity) + un temps écoulé. L'écoulé est
+  // ancré côté client au moment où l'on OBSERVE l'état working (workingSince) et rafraîchi par
+  // une horloge locale à la seconde ; il disparaît dès que l'état quitte « working ».
+  let workingSince = $state(null);
+  let nowMs = $state(Date.now());
+  $effect(() => {
+    const working = s?.state === 'working';  // dep suivie lue AVANT toute garde (piège Svelte 5)
+    if (!working) { if (workingSince !== null) untrack(() => { workingSince = null; }); return; }
+    untrack(() => { if (workingSince === null) workingSince = Date.now(); });
+  });
+  onMount(() => {
+    const iv = setInterval(() => { nowMs = Date.now(); }, 1000);
+    return () => clearInterval(iv);
+  });
+  // écoulé compact : « 12s » puis « 2m7s ». Vide tant qu'on n'a pas d'ancre.
+  const workElapsed = $derived.by(() => {
+    if (!workingSince) return '';
+    const sec = Math.max(0, Math.floor((nowMs - workingSince) / 1000));
+    return sec < 60 ? `${sec}s` : `${Math.floor(sec / 60)}m${sec % 60}s`;
+  });
+
   let wantPane = $state(null); // pane à sélectionner dès qu'il apparaît (après « + Pane »)
   // pane Terminal sélectionné : le pane qu'on vient d'ouvrir dès qu'il arrive, sinon le pane « show »
   // le plus récent (un agent a voulu montrer qqch), sinon le pane Claude. Rebascule si le courant part.
@@ -491,6 +514,13 @@
             <div class="md">{q.text}</div>
           </div>
         {/each}
+        {#if s.state === 'working' && tab === 'chat'}
+          <div class="working-live" title="Claude is working — new messages appear once flushed">
+            <span class="wl-dots" aria-hidden="true"><span></span><span></span><span></span></span>
+            <span class="wl-verb">{s.activity || 'Working'}…</span>
+            {#if workElapsed}<span class="wl-sep">·</span><span class="wl-time">{workElapsed}</span>{/if}
+          </div>
+        {/if}
       </div>
       {#if s.pendingQuestion}<Question {id} pq={s.pendingQuestion} />{/if}
       {#if s.pendingPlan}<Plan {id} pp={s.pendingPlan} />{/if}
@@ -583,5 +613,26 @@
   .hdr-menu :global(.vscode-btn) {
     display: flex; align-items: center; width: 100%; justify-content: flex-start; text-align: left;
     border: none; border-radius: 8px; padding: 7px 10px;
+  }
+  /* indicateur « working » sous la dernière bulle : slim, discret, respire (couleur de statut) */
+  .working-live {
+    display: flex; align-items: center; gap: 6px;
+    margin: 4px 2px 2px; padding: 2px 2px;
+    font-size: 12.5px; color: var(--working); font-weight: 600;
+  }
+  .wl-verb { animation: act-pulse 1.6s ease-in-out infinite; }
+  .wl-sep { opacity: .5; }
+  .wl-time { color: var(--muted); font-weight: 500; font-variant-numeric: tabular-nums; }
+  /* trois points qui rebondissent en cascade */
+  .wl-dots { display: inline-flex; gap: 3px; }
+  .wl-dots span {
+    width: 5px; height: 5px; border-radius: 50%; background: var(--working);
+    animation: wl-bounce 1.2s ease-in-out infinite;
+  }
+  .wl-dots span:nth-child(2) { animation-delay: .18s; }
+  .wl-dots span:nth-child(3) { animation-delay: .36s; }
+  @keyframes wl-bounce {
+    0%, 80%, 100% { transform: translateY(0); opacity: .45; }
+    40% { transform: translateY(-3px); opacity: 1; }
   }
 </style>
