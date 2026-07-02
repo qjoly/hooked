@@ -11,6 +11,7 @@ export * from './gitOps.js';
 export * from './pricing.js';
 export * from './transcript.js';
 export * from './conversation.js';
+export * from './subSessions.js';
 export * from './fork.js';
 export * from './changes.js';
 export * from './subagents.js';
