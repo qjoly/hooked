@@ -30,8 +30,14 @@
   const userMsg = $derived(m.role === 'user' ? splitMessageImages(m.text) : null);
 </script>
 
-<div class="bubble {m.role}" data-msg-ts={m.ts || ''}>
-  <div class="who">{m.role === 'user' ? '🧑 You' : '🤖 Claude'}<span class="t">{ago(m.ts)}</span>
+{#if m.role === 'system'}
+  <div class="sysline" class:bg={m.kind === 'bg'} data-msg-ts={m.ts || ''}>
+    <span class="sys-txt">{m.kind === 'bg' ? '🌀 ' : ''}{m.text}</span>
+    <span class="t">{ago(m.ts)}</span>
+  </div>
+{:else}
+<div class="bubble {m.role}" class:auto={m.auto} data-msg-ts={m.ts || ''}>
+  <div class="who">{m.role === 'user' ? (m.auto ? '↻ Auto-resumed (background job)' : '🧑 You') : '🤖 Claude'}<span class="t">{ago(m.ts)}</span>
     {#if onfork && m.forkUuid}
       <span class="fork-ctl">
         <button class="fork-btn fork-main" title="Fork here without a message — independent branch waiting for you"
@@ -66,3 +72,21 @@
     </div>
   {/if}
 </div>
+{/if}
+
+<style>
+  /* ligne système sobre, centrée — notification de tâche de fond (queued_command) dans le fil. */
+  .sysline {
+    display: flex; align-items: baseline; gap: 8px; justify-content: center;
+    margin: 4px auto; padding: 4px 12px; max-width: 90%;
+    font-size: 12px; color: var(--muted); text-align: center;
+  }
+  .sysline.bg { color: var(--background); font-weight: 600; }
+  .sysline .sys-txt {
+    background: var(--bg2); border: 1px dashed var(--border);
+    border-radius: 999px; padding: 3px 12px;
+  }
+  .sysline .t { font-size: 10.5px; color: var(--muted); font-weight: 400; }
+  /* message auto-repris (ScheduleWakeup) : liseré indigo pour le distinguer d'un vrai « You ». */
+  .bubble.auto { border-left: 3px solid var(--background); }
+</style>

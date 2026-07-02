@@ -29,16 +29,41 @@ function buildConversation(fp, includeSidechain) {
     }
   }
   const msgs = [];
+  const seenNotes = new Set(); // dédup des <task-notification> (mêmes notifs sur plusieurs porteurs)
   for (const line of lines) {
     if (!line) continue;
     let j;
     try { j = JSON.parse(line); } catch (_) { continue; }
     if (!includeSidechain && j.isSidechain) continue;
+    // Notification de tâche de fond (Bash run_in_background / Monitor) : <task-notification> livrée via
+    // 3 porteurs (queue-operation, user/system, attachment queued_command). Sans ça, une complétion
+    // « ré-invoque » l'agent sans cause visible, et la variante user/system s'afficherait comme un faux
+    // message « 🧑 You » (XML brut). On la rend en ligne système sobre, DÉDUPLIQUÉE par task-id+résumé
+    // (une même notif peut arriver en double sur plusieurs porteurs).
+    const note =
+      (j.type === 'queue-operation' && typeof j.content === 'string' && j.content.includes('<task-notification>')) ? j.content :
+      (j.type === 'attachment' && j.attachment && j.attachment.type === 'queued_command' && typeof j.attachment.prompt === 'string') ? j.attachment.prompt :
+      (j.type === 'user' && j.message && typeof j.message.content === 'string' && j.message.content.includes('<task-notification>')) ? j.message.content :
+      null;
+    if (note) {
+      const m = note.match(/<summary>([\s\S]*?)<\/summary>/i);
+      const summary = m ? m[1].trim() : '';
+      const tid = (note.match(/<task-id>\s*(\S+?)\s*<\/task-id>/i) || [])[1] || '';
+      const key = tid + '|' + summary || note.trim();
+      if (!seenNotes.has(key)) {
+        seenNotes.add(key);
+        msgs.push({ role: 'system', kind: 'bg', ts: j.timestamp, text: (summary || 'Background task update').slice(0, 400) });
+      }
+      continue;
+    }
     if (j.type === 'user' && j.message) {
       const c = j.message.content;
       if (Array.isArray(c) && c.some((b) => b && b.type === 'tool_result')) continue;
       const text = chatText(c);
-      if (text) msgs.push({ role: 'user', ts: j.timestamp, text: text.slice(0, 8000), tools: [], forkUuid: j.uuid });
+      // Tour ré-invoqué par un ScheduleWakeup : ligne user injectée (promptSource:"sdk" + isMeta).
+      // On la marque `auto` pour qu'elle ne se lise pas comme un message tapé par l'utilisateur.
+      const auto = j.promptSource === 'sdk' && !!j.isMeta;
+      if (text) msgs.push({ role: 'user', ts: j.timestamp, text: text.slice(0, 8000), tools: [], forkUuid: j.uuid, auto });
     } else if (j.type === 'assistant' && j.message && Array.isArray(j.message.content)) {
       // parts : blocs (text / tool) dans l'ordre d'arrivée pour rendu inline (style claude-cli)
       let text = '';

@@ -121,7 +121,7 @@
 
   function projFlag(items) {
     if (items.some((s) => s.state === 'attention')) return 'a';
-    if (items.some((s) => s.state === 'waiting' || s.state === 'working')) return 'w';
+    if (items.some((s) => s.state === 'waiting' || s.state === 'working' || s.state === 'background')) return 'w';
     return '';
   }
   function toggle(proj) {
@@ -204,6 +204,9 @@
       <div class="srow-sub">{#if s.gitBranch}{s.gitBranch} · {/if}{ago(s.lastActivity)}</div>
       {#if s.state === 'working' && s.activity}
         <div class="srow-activity" title="Claude is working">✻ {s.activity}…</div>
+      {/if}
+      {#if s.bgJobs && s.bgJobs.length}
+        <div class="srow-bg" title="Active background job(s) — turn ended but work is still running">🌀 {s.bgJobs.length} background job{s.bgJobs.length > 1 ? 's' : ''}{#if s.bgJobs[0].label} · {s.bgJobs[0].label}{/if}</div>
       {/if}
       {#if sessionTags(s.id).length}
         <div class="srow-tags">{#each sessionTags(s.id) as t}<span class="stag" style="--h:{tagHue(t)}">{t}<button class="stag-x" title="Remove tag" onclick={(e) => { e.stopPropagation(); setSessionTags(s.id, sessionTags(s.id).filter((x) => x !== t)); }}>✕</button></span>{/each}</div>

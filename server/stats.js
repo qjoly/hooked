@@ -11,11 +11,12 @@ import { liveStateFor } from './live.js';
 import { resolveLaunchForSession, paneTmuxNames, tmuxAlive, readPaneModeSync, paneBusySync, paneActivitySync } from './tmux.js';
 import { shownPanesFor } from './pane.js';
 import { usageWindow } from './usage.js';
-import { sessionStatus, sessionStatusRaw } from './status.js';
+import { sessionStatus, sessionStatusRaw, accountRateLimits, freshestStatusId } from './status.js';
 import { buildConversation } from './conversation.js';
 import { buildFileChanges } from './changes.js';
 import { buildSubagents } from './subagents.js';
 import { latestTodos, todoSummary } from './todos.js';
+import { buildBackgroundJobs, activeBackgroundJobs } from './background.js';
 
 // Sessions « live-only » : présentes dans les évènements de hooks mais pas encore
 // dans un transcript (Claude Code n'écrit le .jsonl qu'au premier message de
@@ -64,6 +65,15 @@ function refineWithPane(state, pane, alive) {
   return state;
 }
 
+// Re-badge une session « tour terminé » en 'background' quand elle a un job/veilleur de fond ENCORE
+// actif et que son pane tmux est VIVANT. On ne touche QUE 'waiting' (un Stop capté, autoritaire) :
+// la règle d'autorité de refineWithPane est préservée — on subdivise « le tour est fini », on ne
+// re-promeut jamais vers 'working'. Pane mort ⇒ le process de fond est mort aussi ⇒ reste 'waiting'.
+function withBackgroundState(state, alive, activeCount) {
+  if (state === 'waiting' && alive && activeCount > 0) return 'background';
+  return state;
+}
+
 function buildSessions() {
   const sessions = scanSessions();
   const known = new Set(sessions.map((s) => s.id));
@@ -90,6 +100,12 @@ function buildSessions() {
     // le pane n'existe peut-être plus (tmux fermé) → on distingue « live » de « dernier connu »
     s.tmuxAlive = tmuxAlive(s.tmuxPane);
     s.state = refineWithPane(s.state, s.tmuxPane, s.tmuxAlive);
+    // jobs de fond encore actifs (Bash run_in_background / Monitor / ScheduleWakeup) : forme légère
+    // pour la sidebar. Un 'waiting' au pane vivant qui en a → 'background' (« tourne en fond »),
+    // distinct de « en attente de toi ». Cf. server/background.js + withBackgroundState.
+    const bgActive = activeBackgroundJobs(s.file);
+    s.bgJobs = bgActive.map((j) => ({ kind: j.kind, label: j.description || j.command || j.prompt || j.kind, startedAt: j.startTs }));
+    s.state = withBackgroundState(s.state, s.tmuxAlive, bgActive.length);
     // verbe d'activité live (« Accomplishing »…) quand Claude mouline — le petit mot animé du TUI.
     // Capture déjà en cache (refineWithPane vient de la lire au même tick) → pas de coût tmux en plus.
     s.activity = (s.state === 'working' && s.tmuxAlive) ? paneActivitySync(s.tmuxPane) : null;
@@ -149,6 +165,53 @@ function buildStats(rangeDays) {
   return { totals, byDay, byModel, byProject, byTool };
 }
 
+// Équivalent de `/usage` pour l'onglet Stats : rate limits du compte (5 h / 7 j, globaux),
+// contexte/effort/modèle de la session la plus fraîche (statusline), + fenêtre budget 5 h (proxy
+// coût). Réutilise server/status.js + server/usage.js ; dégrade en null si aucun snapshot.
+function buildUsage() {
+  const id = freshestStatusId();
+  const session = id ? sessionStatus(id) : null;   // contexte/effort/modèle/fastMode + rateLimit
+  const account = accountRateLimits();             // le + frais AVEC rate_limits, toutes sessions
+  return { sessionId: id, session, account, budget: usageWindow() };
+}
+
+// Vue GLOBALE des jobs de fond encore actifs, toutes sessions confondues (pour /api/background +
+// la carte Overview). Cleanly-separable : ne dépend que de scanSessions + background.js. Ne retient
+// que les sessions au pane VIVANT (un pane mort = process de fond mort). Trié du plus récent d'abord.
+function buildBackgroundView() {
+  const rows = [];
+  for (const s of scanSessions()) {
+    const pane = paneForSession(s.id);
+    if (!tmuxAlive(pane)) continue;
+    for (const j of buildBackgroundJobs(s.file).active) {
+      rows.push({
+        sessionId: s.id,
+        title: s.title,
+        projectName: s.projectName,
+        repo: repoSlug(s.project),
+        kind: j.kind,
+        description: j.description || null,
+        command: j.command || j.prompt || null,
+        taskId: j.taskId || null,
+        startedAt: j.startTs || null,
+      });
+    }
+  }
+  rows.sort((a, b) => String(b.startedAt || '').localeCompare(String(a.startedAt || '')));
+  return { jobs: rows, count: rows.length };
+}
+
+// Résout le chemin du fichier .output d'un job de fond À PARTIR de (session, taskId) — côté serveur.
+// Le client ne fournit JAMAIS un chemin brut (anti path-traversal) : on relit les jobs détectés de
+// la session et on ne renvoie que le outputPath qu'on a nous-mêmes extrait du transcript. null sinon.
+function resolveBackgroundOutput(sessionId, taskId) {
+  if (!sessionId || !taskId) return null;
+  const s = scanSessions().find((x) => x.id === sessionId);
+  if (!s || !s.file) return null;
+  const job = buildBackgroundJobs(s.file).jobs.find((j) => j.taskId === taskId);
+  return job && job.outputPath ? job.outputPath : null;
+}
+
 function sessionDetail(id) {
   const sessions = scanSessions();
   let s = sessions.find((x) => x.id === id);
@@ -172,13 +235,19 @@ function sessionDetail(id) {
   // statut réel issu de la statusline (effort, rate limits du compte, contexte). Prioritaire.
   const status = sessionStatus(id);
   const alive = tmuxAlive(pane);
-  const state = refineWithPane(last ? last.state : (s.state || 'past'), pane, alive);
+  const refined = refineWithPane(last ? last.state : (s.state || 'past'), pane, alive);
+  // jobs de fond encore actifs (liste complète pour l'onglet Background) + relabel 'background'.
+  const bg = buildBackgroundJobs(s.file);
+  const state = withBackgroundState(refined, alive, bg.active.length);
   return {
     ...s, pendingQuestion, pendingPlan,
     state, currentTool: last ? last.tool : null,
+    bgJobs: bg.active,
     // verbe d'activité live du spinner TUI (« Accomplishing »…) quand la session mouline, sinon null.
     activity: (state === 'working' && alive) ? paneActivitySync(pane) : null,
     tmuxPane: pane, tmuxAlive: alive, tmuxAttach,
+    // deep-link relatif vers cette session (à émettre par un agent en markdown : `[label](/session/<id>)`).
+    link: '/session/' + encodeURIComponent(id),
     // panes « show » ouverts par un agent (mirroir lecture seule dans l'onglet Terminal).
     shownPanes: shownPanesFor(id),
     // mode courant : lu en direct dans le footer du TUI si le pane est vivant (fiable, temps-réel),
@@ -205,4 +274,4 @@ function sessionByPane(pane) {
   return sessionDetail(id);
 }
 
-export { buildSessions, buildStats, sessionDetail, sessionByPane, eventOnlySessions };
+export { buildSessions, buildStats, buildUsage, sessionDetail, sessionByPane, eventOnlySessions, withBackgroundState, buildBackgroundView, resolveBackgroundOutput };

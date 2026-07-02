@@ -89,9 +89,10 @@ describe('parseTranscript', () => {
 });
 
 describe('buildConversation', () => {
-  // `parts` (rendu inline style claude-cli) et `forkUuid` (point de coupe pour le fork) sont
-  // des ajouts récents absents de la baseline figée → on les retire avant comparaison.
-  const stripParts = (msgs) => msgs.map(({ parts, forkUuid, ...rest }) => rest);
+  // `parts` (rendu inline style claude-cli), `forkUuid` (point de coupe pour le fork) et `auto`
+  // (tour ré-invoqué par un ScheduleWakeup) sont des ajouts récents absents de la baseline figée →
+  // on les retire ; les lignes système (notifications de tâche de fond) sont aussi hors baseline.
+  const stripParts = (msgs) => msgs.filter((m) => m.role !== 'system').map(({ parts, forkUuid, auto, ...rest }) => rest);
   it('identique (alpha, non-sidechain)', () => {
     expect(stripParts(lib.buildConversation(FILES.alpha))).toEqual(legacy.buildConversation(FILES.alpha));
   });

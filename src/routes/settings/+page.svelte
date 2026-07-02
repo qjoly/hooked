@@ -1,7 +1,7 @@
 <script>
-  import { untrack } from 'svelte';
+  import { untrack, onMount } from 'svelte';
   import { ui, settings, updateSettings, setTheme, loadSessions } from '$lib/state.svelte.js';
-  import { resync } from '$lib/api.js';
+  import { resync, getGit, checkoutBranch, dismissRestartNotice } from '$lib/api.js';
 
   // Métadonnées d'affichage des sous-onglets (miroir de SessionDetail / server/settings.js).
   const SUBTAB_META = {
@@ -60,6 +60,53 @@
     resyncing = false;
     setTimeout(() => { resyncStatus = ''; }, 3000);
   }
+
+  // ── Git branch of the running hooked instance ─────────────────────────────────────────────────
+  // Operates on the repo the server itself lives in (resolved server-side at runtime).
+  let git = $state(null);          // { current, dirty, ahead, behind, upstream, branches, sync } | { error }
+  let gitLoading = $state(false);
+  let selected = $state('');       // branch chosen in the picker
+  let checkoutStatus = $state(''); // feedback line
+  let showOverrides = $state(false); // dirty deny → offer stash / force
+  let checkingOut = $state(false);
+
+  async function loadGit() {
+    gitLoading = true;
+    try {
+      const d = await getGit();
+      git = d;
+      if (d && !d.error && !selected) selected = d.current || '';
+    } catch (e) {
+      git = { error: e.message || 'failed to load git status' };
+    }
+    gitLoading = false;
+  }
+  onMount(loadGit);
+
+  async function doCheckout(strategy) {
+    if (!selected || checkingOut) return;
+    checkingOut = true; checkoutStatus = strategy === 'block' ? '' : '';
+    const res = await checkoutBranch(selected, strategy).catch((e) => ({ ok: false, data: { error: e.message } }));
+    checkingOut = false;
+    if (res.ok) {
+      showOverrides = false;
+      checkoutStatus = `✓ on ${res.data.status?.current ?? selected}` + (res.data.stashRef ? ` (stashed: ${res.data.stashRef})` : '');
+      await loadGit();
+      setTimeout(() => { checkoutStatus = ''; }, 4000);
+    } else if (res.data?.dirty) {
+      showOverrides = true;
+      checkoutStatus = '✗ working tree is dirty — choose how to proceed';
+    } else {
+      showOverrides = false;
+      checkoutStatus = '✗ ' + (res.data?.error || 'checkout failed');
+      setTimeout(() => { checkoutStatus = ''; }, 5000);
+    }
+  }
+
+  async function dismissRestart() {
+    const res = await dismissRestartNotice().catch(() => null);
+    if (res?.ok && git) git = { ...git, sync: res.data.sync };
+  }
 </script>
 
 <section id="view-settings" class="view active">
@@ -86,6 +133,71 @@
         <button class="save" onclick={doResync} disabled={resyncing}>{resyncing ? '⏳ Resyncing…' : '↻ Resync live states'}</button>
         {#if resyncStatus}<span class="status">{resyncStatus}</span>{/if}
       </div>
+    </div>
+
+    <div class="card">
+      <h2>Git branch</h2>
+      <p class="hint">Branch of the running hooked instance itself (the repo the server lives in). Checkout is blocked when the working tree is dirty; overrides let you stash or force.</p>
+
+      {#if git?.sync?.restartNeeded}
+        <div class="restart-notice">
+          <span>♻️ {git.sync.note || 'A restart is needed to finish applying an update.'}</span>
+          <button class="mini" onclick={dismissRestart}>Dismiss</button>
+        </div>
+      {:else if git?.sync?.note}
+        <p class="hint" style="margin-bottom:12px">ℹ️ {git.sync.note}</p>
+      {/if}
+
+      {#if gitLoading && !git}
+        <p class="hint">Loading…</p>
+      {:else if git?.error}
+        <p class="hint">✗ {git.error}</p>
+      {:else if git}
+        <p class="hint" style="margin-bottom:12px">
+          Current: <strong>{git.detached ? '(detached HEAD)' : git.current}</strong>
+          {#if git.dirty}<span class="badge dirty">dirty</span>{/if}
+          {#if git.behind}<span class="badge">↓{git.behind} behind</span>{/if}
+          {#if git.ahead}<span class="badge">↑{git.ahead} ahead</span>{/if}
+          {#if git.upstream}<span class="badge">→ {git.upstream}</span>{/if}
+        </p>
+        <div class="cmd-row">
+          <select class="cmd-input" bind:value={selected}>
+            {#each git.branches as b (b.name + (b.remote ? ':r' : ''))}
+              <option value={b.name} disabled={b.locked}>
+                {b.current ? '● ' : ''}{b.name}{b.remote ? ' (remote)' : ''}{b.locked ? ' — in worktree' : ''}
+              </option>
+            {/each}
+          </select>
+          <button class="save" onclick={() => doCheckout('block')} disabled={checkingOut || !selected || selected === git.current}>
+            {checkingOut ? '⏳' : 'Checkout'}
+          </button>
+          {#if checkoutStatus}<span class="status">{checkoutStatus}</span>{/if}
+        </div>
+        {#if showOverrides}
+          <div class="cmd-row" style="margin-top:10px">
+            <span class="hint" style="margin:0">Working tree is dirty:</span>
+            <button class="chip" onclick={() => doCheckout('stash')} disabled={checkingOut}>📦 Stash &amp; checkout</button>
+            <button class="chip danger" onclick={() => doCheckout('force')} disabled={checkingOut}>⚠ Force (discard changes)</button>
+          </div>
+        {/if}
+      {/if}
+    </div>
+
+    <div class="card">
+      <h2>Auto git sync</h2>
+      <p class="hint">When enabled, periodically <code>git fetch</code> then <code>git pull --ff-only</code> — only if the working tree is clean and the branch is behind a fast-forwardable upstream. Never destructive; a dirty tree fetches only.</p>
+      <label class="check">
+        <input type="checkbox" checked={settings.autoGitSync} onchange={(e) => updateSettings({ autoGitSync: e.currentTarget.checked })} />
+        <span>Enable background fetch + fast-forward pull</span>
+      </label>
+      <label class="check">
+        <input type="checkbox" checked={settings.gitAutoRestartOnLock} onchange={(e) => updateSettings({ gitAutoRestartOnLock: e.currentTarget.checked })} />
+        <span>Auto-restart the service when a pull changes <code>package-lock.json</code> (re-installs deps)</span>
+      </label>
+      <label class="check">
+        <input type="checkbox" checked={settings.gitRestartNotice} onchange={(e) => updateSettings({ gitRestartNotice: e.currentTarget.checked })} />
+        <span>Show a “restart needed / restarted” notice in the UI</span>
+      </label>
     </div>
 
     <div class="card">
@@ -154,4 +266,13 @@
   .save { background: var(--accent); border: none; color: #fff; border-radius: 8px; padding: 9px 16px; cursor: pointer; font-weight: 600; font-size: 13px; }
   .save:hover { background: var(--accent-d); }
   .status { color: var(--muted); font-size: 12.5px; }
+  .badge { display: inline-block; margin-left: 6px; padding: 1px 8px; border-radius: 20px; font-size: 11px; font-weight: 600; background: var(--bg3); border: 1px solid var(--border); color: var(--muted); vertical-align: middle; }
+  .badge.dirty { color: var(--accent-d); border-color: var(--accent); background: var(--accent-soft); }
+  .chip.danger { color: #b42318; border-color: #f0a99f; background: #fef3f2; }
+  .chip.danger:hover { border-color: #d92d20; }
+  .check { display: flex; align-items: flex-start; gap: 10px; font-size: 13px; margin-bottom: 10px; cursor: pointer; }
+  .check:last-child { margin-bottom: 0; }
+  .check input { margin-top: 2px; }
+  .check code { font-size: 12px; background: var(--bg3); padding: 1px 5px; border-radius: 4px; }
+  .restart-notice { display: flex; align-items: center; justify-content: space-between; gap: 12px; background: var(--accent-soft); border: 1px solid var(--accent); color: var(--accent-d); border-radius: 8px; padding: 10px 12px; margin-bottom: 14px; font-size: 13px; }
 </style>

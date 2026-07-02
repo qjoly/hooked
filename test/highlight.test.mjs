@@ -32,9 +32,27 @@ describe('splitMessageImages — images jointes séparées du texte', () => {
 describe('mdSegments — découpage texte / code', () => {
   it('sépare texte et bloc de code avec langage', () => {
     const segs = mdSegments('Voici :\n```js\nconst a = 1\n```\nfin');
-    expect(segs[0]).toEqual({ type: 'text', html: 'Voici :<br>' });
+    // un segment texte porte désormais des sous-parties (html brut / liens de session).
+    expect(segs[0]).toEqual({ type: 'text', parts: [{ type: 'html', html: 'Voici :<br>' }] });
     expect(segs[1]).toEqual({ type: 'code', lang: 'js', code: 'const a = 1' });
     expect(segs[2].type).toBe('text');
+  });
+
+  it('découpe un lien de session en sous-partie « session » (id + label)', () => {
+    const segs = mdSegments('avant [Voir](/session/abc-123) après');
+    expect(segs).toHaveLength(1);
+    expect(segs[0].parts).toEqual([
+      { type: 'html', html: 'avant ' },
+      { type: 'session', id: 'abc-123', label: 'Voir' },
+      { type: 'html', html: ' après' },
+    ]);
+  });
+
+  it('laisse les liens ordinaires en html (pas de sous-partie session)', () => {
+    const segs = mdSegments('[GitHub](https://github.com/x)');
+    expect(segs[0].parts).toHaveLength(1);
+    expect(segs[0].parts[0].type).toBe('html');
+    expect(segs[0].parts[0].html).toContain('href="https://github.com/x"');
   });
 
   it('bloc sans langage → lang vide', () => {
