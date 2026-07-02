@@ -13,6 +13,7 @@ import { shownPanesFor } from './pane.js';
 import { usageWindow } from './usage.js';
 import { sessionStatus, sessionStatusRaw, accountRateLimits, freshestStatusId } from './status.js';
 import { buildConversation } from './conversation.js';
+import { buildSubSessions } from './subSessions.js';
 import { buildFileChanges } from './changes.js';
 import { buildSubagents } from './subagents.js';
 import { latestTodos, todoSummary } from './todos.js';
@@ -221,6 +222,8 @@ function sessionDetail(id) {
   const ev = readEvents().filter((e) => e.session_id === id).slice(-60);
   const last = ev.length ? liveStateFor(ev[ev.length - 1]) : null;
   const messages = buildConversation(s.file);
+  // sessions sœurs créées / référencées par cette conversation (cartes vivantes du sous-onglet).
+  const subSessions = buildSubSessions(s.file, id);
   const changes = buildFileChanges(s.file);
   const subagents = buildSubagents(s.file);
   const todos = latestTodos(s.file);
@@ -261,7 +264,7 @@ function sessionDetail(id) {
     context: status ? status.context : null,        // remplissage de la fenêtre de contexte
     fastMode: status ? status.fastMode : false,
     usage5h: usageWindow(5),                          // proxy coût (fallback si pas de statusline)
-    events: ev, messages, changes, subagents,
+    events: ev, messages, subSessions, changes, subagents,
     todos: todos ? todos.todos : [], todoTs: todos ? todos.ts : null,
   };
 }

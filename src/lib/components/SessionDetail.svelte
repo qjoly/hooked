@@ -11,6 +11,7 @@
   import Composer from './Composer.svelte';
   import Changes from './Changes.svelte';
   import Subagents from './Subagents.svelte';
+  import SubSessions from './SubSessions.svelte';
   import Todos from './Todos.svelte';
   import Background from './Background.svelte';
   import Terminal from './Terminal.svelte';
@@ -74,6 +75,7 @@
     changes:    { icon: '📝', label: 'Files' },
     todos:      { icon: '✅', label: 'Tasks' },
     subagents:  { icon: '🤖', label: 'Subagents' },
+    subsessions:{ icon: '🔗', label: 'Sub-sessions' },
     background: { icon: '🌀', label: 'Background' },
     terminal:   { icon: '🖥', label: 'Terminal' },
   };
@@ -82,6 +84,7 @@
     changes: (s?.changes || []).length,
     todos: (s?.todos || []).length,
     subagents: (s?.subagents || []).length,
+    subsessions: (s?.subSessions || []).length,
     background: (s?.bgJobs || []).length,
     terminal: terminals.length,
   });
@@ -89,6 +92,7 @@
     chat: true, changes: true,
     todos: subtabCount.todos > 0,
     subagents: subtabCount.subagents > 0,
+    subsessions: subtabCount.subsessions > 0,
     background: subtabCount.background > 0,
     terminal: subtabCount.terminal > 0,
   });
@@ -536,6 +540,10 @@
 
     <div class="pane" class:active={tab === 'subagents'}>
       <div class="changes"><Subagents subagents={s.subagents || []} session={id} /></div>
+    </div>
+
+    <div class="pane" class:active={tab === 'subsessions'}>
+      <div class="changes"><SubSessions subSessions={s.subSessions || []} /></div>
     </div>
 
     <div class="pane" class:active={tab === 'todos'}>
