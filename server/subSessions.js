@@ -16,6 +16,10 @@ import { toolResultText } from './util.js';
 const MD_SESSION_LINK = /\[([^\]]*)\]\(\/session\/([^/?#)\s]+)\)/g;
 // `/session/<id>` nu dans un tool_result (ex. `"link":"/session/<id>"`) — 1 = id.
 const RAW_SESSION_LINK = /\/session\/([^/?#"'\s\\)]+)/;
+// un id de session hooked est un UUID canonique (8-4-4-4-12). Filtre le bruit capté par les regex
+// ci-dessus : le `<id>` littéral d'un lien d'EXEMPLE dans le texte, le `null` d'un start_session dont
+// l'id n'était pas encore résolu (`/session/null`), et tout autre placeholder qui n'est pas une session.
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 // dé-échappe l'id (le lien est émis via encodeURIComponent) ; no-op sur un uuid classique.
 function decodeId(raw) {
@@ -43,7 +47,8 @@ function buildSubSessions(fp, selfId) {
   const add = (rawId, label, source) => {
     if (!rawId) return;
     const id = decodeId(rawId);
-    if (!id || id === selfId || seen.has(id)) return; // jamais la session courante ni un doublon
+    // UUID obligatoire : écarte `<id>` (lien d'exemple), `null` (start_session non résolu), placeholders.
+    if (!UUID_RE.test(id) || id === selfId || seen.has(id)) return;
     seen.add(id);
     out.push({ id, label: (label || '').trim(), source });
   };
