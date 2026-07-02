@@ -18,6 +18,7 @@ function buildSubagents(fp) {
     if (j.type === 'assistant' && j.message && Array.isArray(j.message.content)) {
       for (const b of j.message.content) {
         if (b.type === 'tool_use' && (b.name === 'Agent' || b.name === 'Task') && b.id) {
+          if (byId.has(b.id)) continue; // même tool_use dupliqué dans le transcript (resume/compaction) → une seule carte
           const inp = b.input || {};
           const call = {
             id: b.id,
