@@ -13,22 +13,25 @@
     background:  { icon: '🌀', label: 'Background' },
     terminal:    { icon: '🖥', label: 'Terminal' },
     pr:          { icon: '🔀', label: 'PRs' },
+    issues:      { icon: '🐛', label: 'Issues' },
   };
 
-  // Elements of the session status bar (header) that can be toggled on/off.
-  const STATUS_BAR_META = [
-    { key: 'branch',         label: 'Git branch' },
-    { key: 'stateBadge',     label: 'State badge (working / waiting / ended…)' },
-    { key: 'permissionMode', label: 'Permission-mode control (Normal / Auto-edits / Plan)' },
-    { key: 'modelEffort',    label: 'Model / effort control' },
-    { key: 'cost',           label: 'Cost (session + subagent cost)' },
-    { key: 'prompts',        label: 'Prompt count' },
-    { key: 'tokens',         label: 'Token counts (output + cache)' },
-    { key: 'model',          label: 'Model name (shown when session is not live)' },
-    { key: 'usage5h',        label: '5-hour usage indicator' },
-    { key: 'prLinks',        label: 'Show linked PRs in the status bar' },
-    { key: 'focusBtn',       label: 'Focus button (in ⋯ menu)' },
-  ];
+  // Elements of the session status bar (header) that can be toggled on/off and reordered.
+  // Keyed map (label per key) ; l'ordre d'affichage vient de settings.statusBarOrder.
+  const STATUS_BAR_META = {
+    branch:         { label: 'Git branch' },
+    stateBadge:     { label: 'State badge (working / waiting / ended…)' },
+    permissionMode: { label: 'Permission-mode control (Normal / Auto-edits / Plan)' },
+    modelEffort:    { label: 'Model / effort control' },
+    cost:           { label: 'Cost (session + subagent cost)' },
+    prompts:        { label: 'Prompt count' },
+    tokens:         { label: 'Token counts (output + cache)' },
+    model:          { label: 'Model name (shown when session is not live)' },
+    usage5h:        { label: '5-hour usage indicator' },
+    prLinks:        { label: 'Show linked PRs in the status bar' },
+    issueLinks:     { label: 'Show linked issues in the status bar' },
+    focusBtn:       { label: 'Focus button (in ⋯ menu)' },
+  };
 
   const THEMES = [
     { key: 'system', icon: '🖥️', label: 'System' },
@@ -66,10 +69,21 @@
   function toggleStatusBar(key) {
     updateSettings({ statusBar: { ...settings.statusBar, [key]: !sbOn(key) } });
   }
+  // Ordre local des éléments de la barre de statut, resynchronisé depuis le store (comme les subtabs).
+  let sbOrder = $state([...settings.statusBarOrder]);
+  $effect(() => { sbOrder = [...settings.statusBarOrder]; });
+  async function moveSb(i, dir) {
+    const j = i + dir;
+    if (j < 0 || j >= sbOrder.length) return;
+    const next = [...sbOrder];
+    [next[i], next[j]] = [next[j], next[i]];
+    sbOrder = next;            // optimiste
+    await updateSettings({ statusBarOrder: next });
+  }
   const SB_SAMPLE = {
     branch: 'main', stateBadge: '● waiting', permissionMode: 'Auto', modelEffort: 'opus · max',
     cost: '$1.20', prompts: '42 prompts', tokens: '128k out · 1.2M cache', model: 'opus',
-    usage5h: '43%', prLinks: '🔗 hooked #18', focusBtn: '⛶ Focus',
+    usage5h: '43%', prLinks: '🔗 hooked #18', issueLinks: '🐛 hooked #21', focusBtn: '⛶ Focus',
   };
 
   // Commande shell initiale : champ local resynchronisé depuis le store TANT QUE l'utilisateur
@@ -252,15 +266,18 @@
 
     <div class="card">
       <h2>Session status bar</h2>
-      <p class="hint">Toggle which elements appear in the session header. Click the eye to hide or show each one.</p>
+      <p class="hint">Reorder the elements with ▲/▼ and toggle which ones appear in the session header. Click the eye to hide or show each one.</p>
       <ul class="reorder">
-        {#each STATUS_BAR_META as item (item.key)}
-          <li class:row-off={!sbOn(item.key)}>
-            <span class="ro-name">{item.label}</span>
+        {#each sbOrder as key, i (key)}
+          <li class:row-off={!sbOn(key)}>
+            <span class="ro-pos">{i + 1}</span>
+            <span class="ro-name">{STATUS_BAR_META[key]?.label ?? key}</span>
             <span class="ro-actions">
-              <button class="mini vis" class:off={!sbOn(item.key)} onclick={() => toggleStatusBar(item.key)}
-                      title={sbOn(item.key) ? 'Shown — click to hide' : 'Hidden — click to show'}
-                      aria-label="Toggle visibility">{sbOn(item.key) ? '👁' : '🚫'}</button>
+              <button class="mini" disabled={i === 0} onclick={() => moveSb(i, -1)} title="Move up" aria-label="Move up">▲</button>
+              <button class="mini" disabled={i === sbOrder.length - 1} onclick={() => moveSb(i, 1)} title="Move down" aria-label="Move down">▼</button>
+              <button class="mini vis" class:off={!sbOn(key)} onclick={() => toggleStatusBar(key)}
+                      title={sbOn(key) ? 'Shown — click to hide' : 'Hidden — click to show'}
+                      aria-label="Toggle visibility">{sbOn(key) ? '👁' : '🚫'}</button>
             </span>
           </li>
         {/each}
@@ -268,10 +285,10 @@
       <div class="preview">
         <span class="preview-label">Preview</span>
         <div class="pv-statusbar">
-          {#each STATUS_BAR_META as item (item.key)}
-            {#if sbOn(item.key)}<span class="pv-sb-item pv-sb-{item.key}">{SB_SAMPLE[item.key]}</span>{/if}
+          {#each sbOrder as key (key)}
+            {#if sbOn(key)}<span class="pv-sb-item pv-sb-{key}">{SB_SAMPLE[key]}</span>{/if}
           {/each}
-          {#if !STATUS_BAR_META.some((it) => sbOn(it.key))}<span class="pv-empty">(all hidden)</span>{/if}
+          {#if !sbOrder.some((k) => sbOn(k))}<span class="pv-empty">(all hidden)</span>{/if}
         </div>
       </div>
     </div>

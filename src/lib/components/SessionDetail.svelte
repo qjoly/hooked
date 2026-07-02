@@ -3,7 +3,7 @@
   import { goto } from '$app/navigation';
   import { ui, data, settings, loadSessions, openModal, sessionTitle, renameSession, toggleFocus } from '$lib/state.svelte.js';
   import { getSession, kill, setMode, setModelEffort, openInVscode, openInGhostty, fork, showInPane, killPane, deleteSession } from '$lib/api.js';
-  import { STATE_LABEL, fmtCost, fmtTokens, fmtDuration, shortModel, prLabel, PERMISSION_MODES, modeLabel, modeMeta, modelAlias } from '$lib/format.js';
+  import { STATE_LABEL, fmtCost, fmtTokens, fmtDuration, shortModel, prLabel, issueLabel, PERMISSION_MODES, modeLabel, modeMeta, modelAlias } from '$lib/format.js';
   import ModelEffort from './ModelEffort.svelte';
   import ChatBubble from './ChatBubble.svelte';
   import Question from './Question.svelte';
@@ -13,6 +13,7 @@
   import Subagents from './Subagents.svelte';
   import SubSessions from './SubSessions.svelte';
   import PrLinks from './PrLinks.svelte';
+  import IssueLinks from './IssueLinks.svelte';
   import Todos from './Todos.svelte';
   import Background from './Background.svelte';
   import Terminal from './Terminal.svelte';
@@ -80,6 +81,7 @@
     background: { icon: '🌀', label: 'Background' },
     terminal:   { icon: '🖥', label: 'Terminal' },
     pr:         { icon: '🔀', label: 'PRs' },
+    issues:     { icon: '🐛', label: 'Issues' },
   };
   const subtabCount = $derived({
     chat: (s?.messages || []).length,
@@ -90,6 +92,7 @@
     background: (s?.bgJobs || []).length,
     terminal: terminals.length,
     pr: (s?.prLinks || []).length,
+    issues: (s?.issueLinks || []).length,
   });
   const subtabShown = $derived({
     chat: true, changes: true,
@@ -99,6 +102,7 @@
     background: subtabCount.background > 0,
     terminal: subtabCount.terminal > 0,
     pr: subtabCount.pr > 0,
+    issues: subtabCount.issues > 0,
   });
   // Ordre persistant (settings.subtabOrder), PUIS toute clé connue absente de l'ordre sauvegardé
   // (migration : un réglage antérieur à un nouveau sous-onglet — ex. `background` — le verrait
@@ -191,6 +195,11 @@
   // Visibilité des éléments de la barre de statut. Lire settings.statusBar AVANT tout guard
   // (règle réactivité Svelte 5 : une dépendance derrière un court-circuit n'est pas suivie).
   const sb = $derived(settings.statusBar || {});
+  // Ordre d'affichage des éléments de la barre de statut (réorganisable dans les réglages, comme
+  // les sous-onglets). Le conteneur .head-stats est flex → on pose `order:` sur chaque élément.
+  // Lu AVANT toute garde (règle réactivité Svelte 5). Clé inconnue → ordre élevé (rejetée en fin).
+  const sbOrder = $derived(settings.statusBarOrder || []);
+  const sbOrd = (k) => { const i = sbOrder.indexOf(k); return i === -1 ? 90 : i; };
 
   async function load(isRefresh) {
     let prevScroll = null, wasAtBottom = false;
@@ -494,21 +503,27 @@
       </div>
     {/if}
     <div class="head-stats" onclick={() => openModal('cost')} title="View estimated cost breakdown">
-      {#if sb.cost !== false}<span><b>{fmtCost(s.cost)}</b>{#if s.subagentCost > 0} <span class="hs-sub">({fmtCost(s.subagentCost)} agents)</span>{/if}</span>{/if}
-      {#if sb.prompts !== false}<span class="hs-dot">·</span><span>{s.userPrompts} prompts</span>{/if}
-      {#if sb.tokens !== false}<span class="hs-dot">·</span><span>{fmtTokens(s.usage.output)} out</span><span class="hs-dot">·</span><span>{fmtTokens(s.usage.cacheRead)} cache</span>{/if}
-      {#if !s.tmuxAlive && s.model && sb.model !== false}<span class="hs-dot">·</span><span>{shortModel(s.model)}</span>{/if}
+      {#if sb.cost !== false}<span style="order:{sbOrd('cost')}"><b>{fmtCost(s.cost)}</b>{#if s.subagentCost > 0} <span class="hs-sub">({fmtCost(s.subagentCost)} agents)</span>{/if}</span>{/if}
+      {#if sb.prompts !== false}<span class="hs-dot" style="order:{sbOrd('prompts')}">·</span><span style="order:{sbOrd('prompts')}">{s.userPrompts} prompts</span>{/if}
+      {#if sb.tokens !== false}<span class="hs-dot" style="order:{sbOrd('tokens')}">·</span><span style="order:{sbOrd('tokens')}">{fmtTokens(s.usage.output)} out</span><span class="hs-dot" style="order:{sbOrd('tokens')}">·</span><span style="order:{sbOrd('tokens')}">{fmtTokens(s.usage.cacheRead)} cache</span>{/if}
+      {#if !s.tmuxAlive && s.model && sb.model !== false}<span class="hs-dot" style="order:{sbOrd('model')}">·</span><span style="order:{sbOrd('model')}">{shortModel(s.model)}</span>{/if}
       {#if stat5h && stat5h.pct != null && sb.usage5h !== false}
-        <span class="hs-dot">·</span>
-        <span class="hs-5h" class:warn={stat5h.pct >= 75} class:full={stat5h.pct >= 95} title={stat5h.title}>⏳ {stat5h.pct}%{#if stat5h.est} est.{/if}</span>
+        <span class="hs-dot" style="order:{sbOrd('usage5h')}">·</span>
+        <span class="hs-5h" style="order:{sbOrd('usage5h')}" class:warn={stat5h.pct >= 75} class:full={stat5h.pct >= 95} title={stat5h.title}>⏳ {stat5h.pct}%{#if stat5h.est} est.{/if}</span>
       {/if}
       {#if s.prLinks && s.prLinks.length && sb.prLinks !== false}
         {#each s.prLinks as l}
-          <span class="hs-dot">·</span>
-          <a class="hs-pr" href={l} target="_blank" rel="noopener" title={l} onclick={(e) => e.stopPropagation()}>🔗 {prLabel(l)}</a>
+          <span class="hs-dot" style="order:{sbOrd('prLinks')}">·</span>
+          <a class="hs-pr" style="order:{sbOrd('prLinks')}" href={l} target="_blank" rel="noopener" title={l} onclick={(e) => e.stopPropagation()}>🔗 {prLabel(l)}</a>
         {/each}
       {/if}
-      <span class="hs-more">›</span>
+      {#if s.issueLinks && s.issueLinks.length && sb.issueLinks !== false}
+        {#each s.issueLinks as l}
+          <span class="hs-dot" style="order:{sbOrd('issueLinks')}">·</span>
+          <a class="hs-pr" style="order:{sbOrd('issueLinks')}" href={l} target="_blank" rel="noopener" title={l} onclick={(e) => e.stopPropagation()}>🐛 {issueLabel(l)}</a>
+        {/each}
+      {/if}
+      <span class="hs-more" style="order:99">›</span>
     </div>
     <div class="subtabs">
       {#each orderedSubtabs as st (st.key)}
@@ -561,6 +576,10 @@
 
     <div class="pane" class:active={tab === 'pr'}>
       <PrLinks prLinks={s.prLinks || []} />
+    </div>
+
+    <div class="pane" class:active={tab === 'issues'}>
+      <IssueLinks issueLinks={s.issueLinks || []} />
     </div>
 
     <div class="pane" class:active={tab === 'todos'}>
