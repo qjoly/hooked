@@ -15,6 +15,7 @@
   import Background from './Background.svelte';
   import Terminal from './Terminal.svelte';
   import { TERM_THEMES, DEFAULT_TERM_THEME, TERM_FONTS, DEFAULT_TERM_FONT } from '$lib/terminalThemes.js';
+  import { conversationToMarkdown } from '$lib/exportConversation.js';
 
   let { id } = $props();
   let s = $state(null);          // détail de session
@@ -363,6 +364,10 @@
   async function copyLink() {
     try { await navigator.clipboard.writeText(location.origin + '/session/' + s.id); linkCopied = true; setTimeout(() => (linkCopied = false), 1500); } catch (_) {}
   }
+  let exportCopied = $state(false);
+  async function copyExport() {
+    try { await navigator.clipboard.writeText(conversationToMarkdown(s)); exportCopied = true; setTimeout(() => (exportCopied = false), 1500); } catch (_) {}
+  }
   let vscodeBusy = $state(false);
   async function openVscode() {
     if (vscodeBusy) return;
@@ -407,6 +412,7 @@
           {/if}
           <button class="vscode-btn" disabled={vscodeBusy} onclick={openVscode} title="Open the entire project in VS Code">{vscodeBusy ? '⏳' : '⧉'} Open in VS Code</button>
           <button class="vscode-btn" disabled={ghosttyBusy} onclick={openGhostty} title="Open the session in Ghostty (attaches tmux if alive)">{ghosttyBusy ? '⏳' : '⧉'} Open in Ghostty</button>
+          <button class="vscode-btn" onclick={copyExport} title="Copy the conversation as Markdown to the clipboard">{exportCopied ? '✓ copied' : '⧉ Copy as Markdown'}</button>
           <button class="vscode-btn" class:on={ui.focus} onclick={toggleFocus} title="Focus mode: full-screen conversation (sidebar + header collapsed)">⛶ {ui.focus ? 'Exit focus' : 'Focus'}</button>
           <button class="vscode-btn del-btn" disabled={deleting} onclick={del} title="Move to trash: removes from dashboard; transcript kept in bin/ (recoverable)">{deleting ? '⏳' : '🗑'} Delete</button>
         </div>
