@@ -20,6 +20,22 @@ const SETTINGS_FILE = path.join(HOOKED_DIR, 'settings.json');
 // est ré-ajoutée à la fin → l'ordre reste toujours complet).
 const SUBTAB_KEYS = ['chat', 'changes', 'todos', 'subagents', 'background', 'terminal'];
 
+// Éléments de la barre de statut de session (en-tête du détail). Chaque clé est un booléen
+// (true = affiché). Toute clé absente du fichier de config est traitée comme true (forward-compatible).
+const STATUS_BAR_KEYS = [
+  'branch',         // branche git
+  'stateBadge',     // badge d'état (working / waiting / ended…)
+  'permissionMode', // contrôle du mode de permission (Normal / Auto-edits / Plan)
+  'modelEffort',    // contrôle modèle + effort
+  'cost',           // coût (session + sous-agents)
+  'prompts',        // nombre de prompts
+  'tokens',         // compteurs de tokens (output + cache)
+  'model',          // nom du modèle (affiché quand la session est terminée)
+  'usage5h',        // indicateur d'utilisation 5 h
+  'prLinks',        // liens PR
+  'focusBtn',       // bouton Focus (menu ⋯)
+];
+
 const DEFAULTS = {
   subtabOrder: [...SUBTAB_KEYS],
   // Commande lancée automatiquement à l'ouverture d'un nouveau pane terminal (bouton « ＋ »).
@@ -31,6 +47,8 @@ const DEFAULTS = {
   gitAutoRestartOnLock: false,
   // Afficher la bannière « redémarrage nécessaire / effectué » dans l'UI (indépendant de l'auto-restart).
   gitRestartNotice: true,
+  // Visibilité des éléments de la barre de statut (en-tête du détail de session). Tout à true par défaut.
+  statusBar: Object.fromEntries(STATUS_BAR_KEYS.map((k) => [k, true])),
 };
 
 // Ramène un objet arbitraire (fichier ou payload client) à des valeurs sûres et complètes.
@@ -43,6 +61,9 @@ function sanitize(raw) {
   // initialShellCommand : chaîne, bornée (anti-abus ; jamais interpolée dans un shell — tapée
   // au clavier via send-keys -l par showInPane).
   const cmd = typeof o.initialShellCommand === 'string' ? o.initialShellCommand.slice(0, 500) : '';
+  // statusBar : objet key→boolean. Toute clé absente (config antérieure) = true par défaut.
+  const rawSb = o.statusBar && typeof o.statusBar === 'object' ? o.statusBar : {};
+  const statusBar = Object.fromEntries(STATUS_BAR_KEYS.map((k) => [k, rawSb[k] !== false]));
   return {
     subtabOrder: order,
     initialShellCommand: cmd,
@@ -50,6 +71,7 @@ function sanitize(raw) {
     gitAutoRestartOnLock: !!o.gitAutoRestartOnLock,
     // Défaut à true : une config antérieure à cette clé ne doit pas la forcer à false.
     gitRestartNotice: o.gitRestartNotice === undefined ? true : !!o.gitRestartNotice,
+    statusBar,
   };
 }
 
@@ -75,4 +97,4 @@ function writeSettings(patch) {
   return merged;
 }
 
-export { SETTINGS_FILE, SUBTAB_KEYS, DEFAULTS as SETTINGS_DEFAULTS, readSettings, writeSettings };
+export { SETTINGS_FILE, SUBTAB_KEYS, STATUS_BAR_KEYS, DEFAULTS as SETTINGS_DEFAULTS, readSettings, writeSettings };

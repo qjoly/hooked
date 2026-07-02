@@ -12,6 +12,21 @@
     terminal:  { icon: '🖥', label: 'Terminal' },
   };
 
+  // Elements of the session status bar (header) that can be toggled on/off.
+  const STATUS_BAR_META = [
+    { key: 'branch',         label: 'Git branch' },
+    { key: 'stateBadge',     label: 'State badge (working / waiting / ended…)' },
+    { key: 'permissionMode', label: 'Permission-mode control (Normal / Auto-edits / Plan)' },
+    { key: 'modelEffort',    label: 'Model / effort control' },
+    { key: 'cost',           label: 'Cost (session + subagent cost)' },
+    { key: 'prompts',        label: 'Prompt count' },
+    { key: 'tokens',         label: 'Token counts (output + cache)' },
+    { key: 'model',          label: 'Model name (shown when session is not live)' },
+    { key: 'usage5h',        label: '5-hour usage indicator' },
+    { key: 'prLinks',        label: 'PR links' },
+    { key: 'focusBtn',       label: 'Focus button (in ⋯ menu)' },
+  ];
+
   const THEMES = [
     { key: 'system', icon: '🖥️', label: 'System' },
     { key: 'light',  icon: '☀️', label: 'Light' },
@@ -207,6 +222,18 @@
         <button class="chip" class:active={!ui.diffSplit} onclick={() => (ui.diffSplit = false)}>▤ Unified</button>
         <button class="chip" class:active={ui.diffSplit} onclick={() => (ui.diffSplit = true)}>▥ Side-by-side</button>
       </div>
+    </div>
+
+    <div class="card">
+      <h2>Session status bar</h2>
+      <p class="hint">Choose which elements are visible in the session header. Defaults to all shown.</p>
+      {#each STATUS_BAR_META as item (item.key)}
+        <label class="check">
+          <input type="checkbox" checked={settings.statusBar?.[item.key] !== false}
+                 onchange={(e) => updateSettings({ statusBar: { ...settings.statusBar, [item.key]: e.currentTarget.checked } })} />
+          <span>{item.label}</span>
+        </label>
+      {/each}
     </div>
 
     <div class="card">

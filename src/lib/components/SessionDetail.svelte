@@ -182,6 +182,10 @@
     return null;
   });
 
+  // Visibilité des éléments de la barre de statut. Lire settings.statusBar AVANT tout guard
+  // (règle réactivité Svelte 5 : une dépendance derrière un court-circuit n'est pas suivie).
+  const sb = $derived(settings.statusBar || {});
+
   async function load(isRefresh) {
     let prevScroll = null, wasAtBottom = false;
     if (isRefresh && body) {
@@ -418,8 +422,8 @@
     <div class="card-top" style="cursor:default;margin-bottom:6px">
       <button class="pane-back" onclick={() => goto('/')} title="Back to list">←</button>
       <span class="proj">{s.projectName || '?'}</span>
-      {#if s.gitBranch}<span class="branch">{s.gitBranch}</span>{/if}
-      <span class="badge s-badge" style="margin-left:0"><span class="bdot"></span>{s.state === 'working' && s.activity ? s.activity + '…' : (STATE_LABEL[s.state] || s.state)}</span>
+      {#if s.gitBranch && sb.branch !== false}<span class="branch">{s.gitBranch}</span>{/if}
+      {#if sb.stateBadge !== false}<span class="badge s-badge" style="margin-left:0"><span class="bdot"></span>{s.state === 'working' && s.activity ? s.activity + '…' : (STATE_LABEL[s.state] || s.state)}</span>{/if}
       {#if s.tmuxAlive}
         <span class="ro-tag live">↩ reply available</span>
         <button class="stop-btn" disabled={stopping} onclick={stop}>{stopping ? '⏳ stopping…' : '⏹ Stop'}</button>
@@ -440,7 +444,7 @@
           <button class="vscode-btn" disabled={vscodeBusy} onclick={openVscode} title="Open the entire project in VS Code">{vscodeBusy ? '⏳' : '⧉'} Open in VS Code</button>
           <button class="vscode-btn" disabled={ghosttyBusy} onclick={openGhostty} title="Open the session in Ghostty (attaches tmux if alive)">{ghosttyBusy ? '⏳' : '⧉'} Open in Ghostty</button>
           <button class="vscode-btn" onclick={copyExport} title="Copy the conversation as Markdown to the clipboard">{exportCopied ? '✓ copied' : '⧉ Copy as Markdown'}</button>
-          <button class="vscode-btn" class:on={ui.focus} onclick={toggleFocus} title="Focus mode: full-screen conversation (sidebar + header collapsed)">⛶ {ui.focus ? 'Exit focus' : 'Focus'}</button>
+          {#if sb.focusBtn !== false}<button class="vscode-btn" class:on={ui.focus} onclick={toggleFocus} title="Focus mode: full-screen conversation (sidebar + header collapsed)">⛶ {ui.focus ? 'Exit focus' : 'Focus'}</button>{/if}
           <button class="vscode-btn del-btn" disabled={deleting} onclick={del} title="Move to trash: removes from dashboard; transcript kept in bin/ (recoverable)">{deleting ? '⏳' : '🗑'} Delete</button>
         </div>
       </details>
@@ -457,39 +461,42 @@
         {#if ui.names[s.id]}<button class="sess-rename-btn" title="Restore auto title" aria-label="Auto title" onclick={() => renameSession(s.id, '')}>↺</button>{/if}
       </h2>
     {/if}
-    {#if s.tmuxAlive}
+    {#if s.tmuxAlive && (sb.permissionMode !== false || sb.modelEffort !== false)}
       {@const cur = modeMeta(modeView)}
       <div class="head-toolbar">
-        <div class="tb-group" title="Claude's permission mode (Shift+Tab in the session)">
-          {#if !PERMISSION_MODES.some((m) => m.key === modeView)}
-            <span class="mode-now mode-{modeView}" title={cur.title}><span class="mode-ico">{cur.icon}</span>{cur.label}</span>
-          {/if}
-          {#each PERMISSION_MODES as m}
-            <button class="mode-chip" class:active={modeView === m.key} disabled={modeBusy}
-                    onclick={() => switchMode(m.key)} title={m.title}>
-              <span class="mode-ico">{m.icon}</span>{m.label}
-            </button>
-          {/each}
-          {#if modeStatus}<span class="mode-status">{modeStatus}</span>{/if}
-        </div>
-        <span class="tb-sep"></span>
-        <div class="tb-group" title="Session model and effort — applies /model and /effort in the TUI">
-          <ModelEffort compact bind:model={editModel} bind:effort={editEffort} onchange={applyModelEffort} disabled={meBusy} />
-          {#if meStatus}<span class="mode-status">{meStatus}</span>{/if}
-        </div>
+        {#if sb.permissionMode !== false}
+          <div class="tb-group" title="Claude's permission mode (Shift+Tab in the session)">
+            {#if !PERMISSION_MODES.some((m) => m.key === modeView)}
+              <span class="mode-now mode-{modeView}" title={cur.title}><span class="mode-ico">{cur.icon}</span>{cur.label}</span>
+            {/if}
+            {#each PERMISSION_MODES as m}
+              <button class="mode-chip" class:active={modeView === m.key} disabled={modeBusy}
+                      onclick={() => switchMode(m.key)} title={m.title}>
+                <span class="mode-ico">{m.icon}</span>{m.label}
+              </button>
+            {/each}
+            {#if modeStatus}<span class="mode-status">{modeStatus}</span>{/if}
+          </div>
+        {/if}
+        {#if sb.permissionMode !== false && sb.modelEffort !== false}<span class="tb-sep"></span>{/if}
+        {#if sb.modelEffort !== false}
+          <div class="tb-group" title="Session model and effort — applies /model and /effort in the TUI">
+            <ModelEffort compact bind:model={editModel} bind:effort={editEffort} onchange={applyModelEffort} disabled={meBusy} />
+            {#if meStatus}<span class="mode-status">{meStatus}</span>{/if}
+          </div>
+        {/if}
       </div>
     {/if}
     <div class="head-stats" onclick={() => openModal('cost')} title="View estimated cost breakdown">
-      <span><b>{fmtCost(s.cost)}</b>{#if s.subagentCost > 0} <span class="hs-sub">({fmtCost(s.subagentCost)} agents)</span>{/if}</span>
-      <span class="hs-dot">·</span><span>{s.userPrompts} prompts</span>
-      <span class="hs-dot">·</span><span>{fmtTokens(s.usage.output)} out</span>
-      <span class="hs-dot">·</span><span>{fmtTokens(s.usage.cacheRead)} cache</span>
-      {#if !s.tmuxAlive && s.model}<span class="hs-dot">·</span><span>{shortModel(s.model)}</span>{/if}
-      {#if stat5h && stat5h.pct != null}
+      {#if sb.cost !== false}<span><b>{fmtCost(s.cost)}</b>{#if s.subagentCost > 0} <span class="hs-sub">({fmtCost(s.subagentCost)} agents)</span>{/if}</span>{/if}
+      {#if sb.prompts !== false}<span class="hs-dot">·</span><span>{s.userPrompts} prompts</span>{/if}
+      {#if sb.tokens !== false}<span class="hs-dot">·</span><span>{fmtTokens(s.usage.output)} out</span><span class="hs-dot">·</span><span>{fmtTokens(s.usage.cacheRead)} cache</span>{/if}
+      {#if !s.tmuxAlive && s.model && sb.model !== false}<span class="hs-dot">·</span><span>{shortModel(s.model)}</span>{/if}
+      {#if stat5h && stat5h.pct != null && sb.usage5h !== false}
         <span class="hs-dot">·</span>
         <span class="hs-5h" class:warn={stat5h.pct >= 75} class:full={stat5h.pct >= 95} title={stat5h.title}>⏳ {stat5h.pct}%{#if stat5h.est} est.{/if}</span>
       {/if}
-      {#if s.prLinks && s.prLinks.length}
+      {#if s.prLinks && s.prLinks.length && sb.prLinks !== false}
         {#each s.prLinks as l}
           <span class="hs-dot">·</span>
           <a class="hs-pr" href={l} target="_blank" rel="noopener" title={l} onclick={(e) => e.stopPropagation()}>🔗 {prLabel(l)}</a>
