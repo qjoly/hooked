@@ -1,5 +1,6 @@
 <script>
   import { prLabel } from '$lib/format.js';
+  import Markdown from './Markdown.svelte';
   let { prLinks = [] } = $props();
 
   // url -> { loading, meta } — meta is null when gh is unavailable/unauthenticated.
@@ -64,7 +65,7 @@
               {expanded[url] ? '▾ Hide description' : '▸ Show description'}
             </button>
             {#if expanded[url]}
-              <pre class="pr-body">{meta.body}</pre>
+              <div class="pr-body"><Markdown text={meta.body} /></div>
             {/if}
           {/if}
         </div>
@@ -158,13 +159,12 @@
   }
   .pr-body {
     margin: 0.25rem 0 0;
-    padding: 0.5rem;
+    padding: 0.35rem 0.6rem;
     border-radius: 4px;
     background: var(--bg1, var(--bg));
     border: 1px solid var(--border);
-    font-size: 0.75rem;
+    font-size: 0.8rem;
     color: var(--fg2);
-    white-space: pre-wrap;
     word-break: break-word;
     max-height: 20rem;
     overflow-y: auto;
