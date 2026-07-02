@@ -419,7 +419,11 @@ function readPaneModeSync(pane) {
 // sur 6 ratée → état clignotant working↔waiting), en EXCLUANT les préfixes de sortie d'outil (⎿ U+23BF,
 // ● U+25CF) et de todo (✔ ◻…) — pas des spinners. La forme « …(durée » + le bornage au footer écartent
 // une citation ; le format fini « <glyphe> Verbe for <durée> » (sans …/() reste rejeté.
-const SPINNER_RE = /^[ \t]*[*·✢-✽][ \t]+([A-Za-z][A-Za-z '-]{0,40}?)(?:…|\.\.\.)[ \t]*\(/;
+// Libellé capturé = une lettre puis TOUT sauf « ( … \n » : Claude Code affiche parfois la TODO en
+// cours comme libellé (ex. « Recreating talos-mono for IDEM-4/5 » — chiffres, « / »…), pas seulement
+// un gérondif → on ne le restreint PAS aux lettres/espaces (sinon un chiffre coupe le match avant le
+// « … » → spinner non détecté → busy=false → session affichée « background » alors qu'elle mouline).
+const SPINNER_RE = /^[ \t]*[*·✢-✽][ \t]+([A-Za-z][^(…\n]{0,80}?)(?:…|\.\.\.)[ \t]*\(/;
 const SPINNER_FOOTER_SPAN = 14;
 function parseSpinner(screen) {
   const lines = String(screen).split('\n');
