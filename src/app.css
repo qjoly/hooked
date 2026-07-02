@@ -31,6 +31,7 @@
   --working: #4f7d8c;   /* bleu-sarcelle poussiéreux */
   --waiting: #c2912f;   /* moutarde */
   --attention: #c0492c; /* rouge brique */
+  --background: #7a63b8;/* indigo doux — « tourne en fond » (distinct du working et du waiting) */
   --idle: #a79f8d;      /* gris chaud */
   --ended: #7e9a68;     /* sauge */
   --past: #c4bca9;
@@ -71,6 +72,7 @@
     --working: #6fa4b5;
     --waiting: #d9a83f;
     --attention: #e06a4a;
+    --background: #a992e0;
     --idle: #8a8172;
     --ended: #93b47a;
     --past: #5a5245;
@@ -244,6 +246,7 @@ body.focus .focus-ctl { display: flex; }
 .s-working .sdot { background: var(--working); animation: pulse 1s infinite; }
 .s-waiting .sdot { background: var(--waiting); }
 .s-attention .sdot { background: var(--attention); animation: pulse .8s infinite; }
+.s-background .sdot { background: var(--background); animation: pulse 1.8s infinite; }
 .s-idle .sdot { background: var(--idle); }
 .s-ended .sdot { background: var(--ended); }
 .srow-main { min-width: 0; flex: 1; }
@@ -302,6 +305,7 @@ input[type=search]:focus, select:focus, .lf-input:focus { outline: none; border-
 .s-working .stripe { background: var(--working); }
 .s-waiting .stripe { background: var(--waiting); }
 .s-attention .stripe { background: var(--attention); }
+.s-background .stripe { background: var(--background); }
 .s-idle .stripe { background: var(--idle); }
 .s-ended .stripe { background: var(--ended); }
 .s-past .stripe { background: var(--past); }
@@ -317,6 +321,7 @@ input[type=search]:focus, select:focus, .lf-input:focus { outline: none; border-
 .s-waiting .badge { background: rgba(194,145,47,.18); color: var(--waiting); }
 .s-attention .badge { background: rgba(192,73,44,.16); color: var(--attention); }
 .s-attention .badge .bdot { animation: pulse .7s infinite; }
+.s-background .badge { background: rgba(122,99,184,.18); color: var(--background); }
 .s-idle .badge, .s-past .badge { background: var(--bg3); color: var(--muted); }
 .s-ended .badge { background: rgba(126,154,104,.18); color: var(--ended); }
 @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .25; } }
@@ -329,6 +334,7 @@ input[type=search]:focus, select:focus, .lf-input:focus { outline: none; border-
 .s-working .s-badge .bdot { background: #fff; animation: pulse 1s infinite; }
 .s-waiting .s-badge { background: var(--waiting); color: #fff; }
 .s-attention .s-badge { background: var(--attention); color: #fff; }
+.s-background .s-badge { background: var(--background); color: #fff; }
 .s-attention .s-badge .bdot { background: #fff; animation: pulse .7s infinite; }
 @keyframes badge-glow {
   0%   { box-shadow: 0 0 0 0 rgba(79,125,140,.55); }
@@ -815,6 +821,12 @@ code.path { color: var(--muted); font-size: 11px; word-break: break-all; font-fa
   margin-left: auto; flex: none; font-family: var(--mono); font-size: 10px;
   font-weight: 600; color: var(--muted); background: var(--bg3);
   border-radius: 20px; padding: 0 6px;
+}
+
+/* jobs de fond actifs (Bash bg / Monitor / ScheduleWakeup) sur une ligne de session */
+.srow-bg {
+  margin-top: 4px; font-size: 11.5px; color: var(--background); font-weight: 600;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 
 /* onglet « Tâches » du détail de session */

@@ -14,6 +14,20 @@ async function jpost(url, body) {
 export const getSessions = async () => (await jget('/api/sessions')).sessions;
 export const getSession = (id) => jget('/api/session?id=' + encodeURIComponent(id));
 export const getStats = (range) => jget('/api/stats?range=' + encodeURIComponent(range));
+// Usage « /usage » : rate limits du compte (5 h / 7 j) + contexte/effort de la session courante + budget 5 h.
+export const getUsage = () => jget('/api/usage');
+// Jobs de fond encore actifs, toutes sessions confondues (carte Overview). { jobs, count }.
+export const getBackground = () => jget('/api/background');
+// Flux SSE du log (.output) d'un job de fond, résolu côté serveur depuis (session, taskId).
+// `onSeed(b64)` = queue initiale, `onData(b64)` = octets ajoutés, `onUnavailable()` = pas de log.
+// Renvoie l'EventSource (appeler .close() pour arrêter).
+export function connectBackgroundLog({ id, taskId, onSeed, onData, onUnavailable }) {
+  const es = new EventSource(`/api/background/stream?id=${encodeURIComponent(id)}&taskId=${encodeURIComponent(taskId)}`);
+  es.addEventListener('seed', (e) => onSeed && onSeed(e.data));
+  es.addEventListener('data', (e) => onData && onData(e.data));
+  es.addEventListener('unavailable', () => onUnavailable && onUnavailable());
+  return es;
+}
 export const getFiles = (id, q, cwd) => jget(`/api/files?id=${encodeURIComponent(id || '')}&q=${encodeURIComponent(q)}${cwd ? '&cwd=' + encodeURIComponent(cwd) : ''}`);
 export const getCommands = (id, q, cwd) => jget(`/api/commands?id=${encodeURIComponent(id || '')}&q=${encodeURIComponent(q)}${cwd ? '&cwd=' + encodeURIComponent(cwd) : ''}`);
 export const getAgent = (session, agent) => jget(`/api/agent?session=${encodeURIComponent(session)}&agent=${encodeURIComponent(agent)}`);
@@ -25,6 +39,14 @@ export const saveSettings = (patch) => jpost('/api/settings', patch);
 // Force a live-state resync: re-reads every session's tmux pane at cold (drops the caches) to fix a
 // stale status (e.g. a session stuck on "working" after its tmux was closed). Returns state counts.
 export const resync = () => jpost('/api/resync', {});
+
+// Git du dépôt du serveur hooked lui-même (page Réglages) : état + branches + synchro.
+export const getGit = () => jget('/api/git');
+// Checkout d'une branche. strategy ∈ block (défaut) | stash | force. block + arbre sale → réponse
+// { ok:false, dirty:true } (l'UI propose alors les boutons stash/force).
+export const checkoutBranch = (branch, strategy) => jpost('/api/git', { action: 'checkout', branch, strategy });
+// Efface la bannière « redémarrage nécessaire ».
+export const dismissRestartNotice = () => jpost('/api/git', { action: 'dismiss-restart' });
 
 export const reply = (id, text) => jpost('/api/reply', { id, text });
 // Réponse à un AskUserQuestion : on transmet les indices sélectionnés par question
