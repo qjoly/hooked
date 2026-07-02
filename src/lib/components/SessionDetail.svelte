@@ -58,6 +58,9 @@
   // messages envoyés en attente d'apparaître dans le transcript (file d'attente, comme le CLI).
   let queued = $state([]);
   let forceBottom = false;          // force le scroll en bas au prochain rendu (envoi d'un message)
+  // « collé en bas » : vrai tant que l'utilisateur suit la conversation (proche du bas). Dès qu'il
+  // scrolle vers le haut (lire l'historique / composer), on NE le ramène plus en bas aux ticks SSE.
+  let stickToBottom = true;
 
   const shownPanes = $derived(s ? (s.shownPanes || []) : []);
 
@@ -202,11 +205,6 @@
   const sbOrd = (k) => { const i = sbOrder.indexOf(k); return i === -1 ? 90 : i; };
 
   async function load(isRefresh) {
-    let prevScroll = null, wasAtBottom = false;
-    if (isRefresh && body) {
-      prevScroll = body.scrollTop;
-      wasAtBottom = (body.scrollHeight - body.scrollTop - body.clientHeight) < 60;
-    }
     let d;
     try { d = await getSession(id); } catch (_) { return; }
     s = d;
@@ -219,12 +217,14 @@
       queued = queued.filter((q) => !userTexts.has(q.text.trim()));
     }
     await tick();
-    // ancre #msg-<ts> (depuis la page Recherche) : scroll vers la bulle ciblée
-    // au premier load, court-circuite le scroll auto en bas.
+    // ancre #msg-<ts> (depuis la page Recherche) : scroll vers la bulle ciblée au 1er load.
     if (!isRefresh && scrollToHashMsg()) return;
-    const keepPos = isRefresh && !wasAtBottom && !forceBottom && prevScroll != null;
+    // On force le bas UNIQUEMENT si : envoi (forceBottom), 1er chargement, ou l'utilisateur suivait
+    // déjà (collé en bas). Sinon on NE touche PAS à scrollTop → un lecteur scrollé vers le haut (ou en
+    // train de composer) n'est JAMAIS ramené en bas par un refetch de tick SSE. (L'ancien code
+    // restaurait un scrollTop capturé AVANT le fetch async → il combattait le scroll/typing en cours.)
+    if (body && (forceBottom || !isRefresh || stickToBottom)) body.scrollTop = body.scrollHeight;
     forceBottom = false;
-    if (body) body.scrollTop = keepPos ? prevScroll : body.scrollHeight;
   }
 
   // localise la bulle dont data-msg-ts correspond à l'ancre URL #msg-<ts encodé> et
@@ -254,6 +254,7 @@
     if (s && s.pendingQuestion) s.pendingQuestion = null;
     queued = [...queued, { text: t, ts: new Date().toISOString() }];
     forceBottom = true;
+    stickToBottom = true;            // après un envoi, on re-suit la conversation
     await tick();
     if (body) body.scrollTop = body.scrollHeight;
   }
@@ -268,6 +269,7 @@
   $effect(() => {
     const t = tab;
     if (t === 'chat' && prevTab !== 'chat') {
+      stickToBottom = true;          // revenir sur Conversation = re-suivre le bas
       tick().then(() => { if (body) body.scrollTop = body.scrollHeight; });
     }
     prevTab = t;
@@ -532,7 +534,8 @@
     </div>
   </div>
 
-  <div class="pane-body" bind:this={body}>
+  <div class="pane-body" bind:this={body}
+       onscroll={() => { if (body) stickToBottom = (body.scrollHeight - body.scrollTop - body.clientHeight) < 60; }}>
     <div class="pane" class:active={tab === 'chat'}>
       <div class="chat">
         {#if (s.messages || []).length}
