@@ -10,6 +10,8 @@
  */
 import { describe, it, expect } from 'vitest';
 import { createRequire } from 'node:module';
+import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as lib from '../server/index.js'; // agrégateur des nouveaux modules (ESM)
@@ -81,6 +83,7 @@ describe('parseTranscript', () => {
     expect(s.subagents).toBe(1);
     expect(s.tools).toEqual({ Bash: 1, Write: 1, Edit: 1, MultiEdit: 1, NotebookEdit: 1, AskUserQuestion: 2, Agent: 1 });
     expect(s.prLinks).toEqual(['https://github.com/acme/repo/pull/7', 'https://github.com/acme/repo/pull/42']);
+    expect(s.issueLinks).toEqual([]);       // détection d'issues distincte des PR (aucun /issues/ ici)
     expect(s.pendingQuestion).not.toBeNull();
     expect(s.pendingQuestion.questions[0].header).toBe('Deploy');
     expect(Object.keys(s.byDay).sort()).toEqual(['2026-06-10', '2026-06-11']);
@@ -120,6 +123,31 @@ describe('buildConversation', () => {
     const lastText = [...a1.parts].reverse().find((p) => p.type === 'text');
     expect(lastText.text).toContain('PR ouverte');
   });
+
+  // Message tapé pendant que l'agent travaille → mis en file par Claude et journalisé en
+  // queue-operation (content brut, sans <task-notification>). Doit devenir une vraie bulle user.
+  describe('queue-operation (message mis en file pendant le travail de l\'agent)', () => {
+    const QFP = path.join(DIR, 'fixtures', 'queue-op.jsonl');
+    it('rend un queue-operation à content simple comme bulle user', () => {
+      const msgs = lib.buildConversation(QFP);
+      const q = msgs.find((m) => m.role === 'user' && m.text.startsWith('Continue democratic-csi'));
+      expect(q).toBeTruthy();
+      expect(q.ts).toBe('2026-06-20T10:00:10Z');
+      expect(q.forkUuid).toBe('q1');
+      expect(q.tools).toEqual([]);
+    });
+    it('ignore un queue-operation vide / whitespace', () => {
+      const msgs = lib.buildConversation(QFP);
+      expect(msgs.some((m) => m.text != null && m.text.trim() === '')).toBe(false);
+    });
+    it('garde le <task-notification> queue-operation en ligne système bg (pas une bulle user)', () => {
+      const msgs = lib.buildConversation(QFP);
+      const bg = msgs.find((m) => m.role === 'system' && m.kind === 'bg');
+      expect(bg).toBeTruthy();
+      expect(bg.text).toBe('Build finished');
+      expect(msgs.some((m) => m.role === 'user' && m.text.includes('task-notification'))).toBe(false);
+    });
+  });
 });
 
 describe('buildFileChanges', () => {
@@ -147,6 +175,21 @@ describe('buildSubagents', () => {
     expect(sa[0].agentId).toBe('aaa');
     expect(sa[0].result).toContain('Trouvé 3 usages');
     expect(sa[0].cost).toBeGreaterThan(0);
+  });
+  it('dédoublonne un tool_use dupliqué dans le transcript (resume/compaction)', () => {
+    const tmp = path.join(os.tmpdir(), `hooked-subagents-dup-${process.pid}.jsonl`);
+    const toolUse = JSON.stringify({
+      type: 'assistant',
+      message: { content: [{ type: 'tool_use', name: 'Task', id: 'toolu_dup', input: { subagent_type: 'Explore', description: 'x', prompt: 'p' } }] },
+    });
+    fs.writeFileSync(tmp, `${toolUse}\n${toolUse}\n`);
+    try {
+      const sa = lib.buildSubagents(tmp);
+      expect(sa.length).toBe(1);
+      expect(sa[0].id).toBe('toolu_dup');
+    } finally {
+      fs.rmSync(tmp, { force: true });
+    }
   });
 });
 

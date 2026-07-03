@@ -322,3 +322,9 @@ export function prLabel(l) {
   const m = l.match(/github\.com\/([^/]+)\/([^/]+)\/pull\/(\d+)/);
   return m ? `${m[2]} #${m[3]}` : l;
 }
+
+// libellé court d'un lien d'issue GitHub (repo #num) sinon l'URL brute.
+export function issueLabel(l) {
+  const m = l.match(/github\.com\/([^/]+)\/([^/]+)\/issues\/(\d+)/);
+  return m ? `${m[2]} #${m[3]}` : l;
+}

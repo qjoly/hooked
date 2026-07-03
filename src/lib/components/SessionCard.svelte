@@ -7,7 +7,8 @@
   // Carte de statut vivante pour un lien profond de session (`[label](/session/<id>)`), rendue par
   // <Markdown> à la place de l'anchor brute. La racine reste une anchor `data-session-link` → le
   // handler délégué de +layout.svelte gère le focus + la nav SvelteKit sans code supplémentaire.
-  let { sessionId, label = '' } = $props();
+  // `block` : variante pleine largeur (liste du sous-onglet Sub-sessions) au lieu de la puce inline.
+  let { sessionId, label = '', block = false } = $props();
 
   // Source vivante : l'entrée du store des sessions (rafraîchie à chaque tick SSE). Repli : un fetch
   // ponctuel de /api/session si la session n'est pas (encore) dans la liste — autre projet, filtrée,
@@ -36,7 +37,7 @@
 </script>
 
 {#if s}
-  <a {href} class="session-card s-{s.state}" data-session-link title="{title} — {statusText}">
+  <a {href} class="session-card s-{s.state}" class:block data-session-link title="{title} — {statusText}">
     <span class="sc-dot sdot"></span>
     <span class="sc-body">
       <span class="sc-title">{title}</span>
@@ -49,7 +50,7 @@
   </a>
 {:else}
   <!-- session inconnue (jamais chargée / supprimée) : lien texte simple, identique au rendu actuel. -->
-  <a {href} class="session-link" data-session-link>{label || sessionId}</a>
+  <a {href} class="session-link" class:block data-session-link>{label || sessionId}</a>
 {/if}
 
 <style>
@@ -84,4 +85,18 @@
   .s-idle .sc-status { color: var(--idle); }
   .s-ended .sc-status { color: var(--ended); }
   .s-past .sc-status { color: var(--past); }
+
+  /* variante pleine largeur : liste verticale (sous-onglet Sub-sessions) au lieu de la puce inline.
+     La carte grandit pour remplir la ligne ; titre/sous-titre libérés de la contrainte inline. */
+  .session-card.block { display: flex; margin: 0; padding: 8px 12px; vertical-align: initial; }
+  .session-card.block .sc-body { display: flex; flex: 1; }
+  .session-card.block .sc-title,
+  .session-card.block .sc-sub { max-width: none; }
+  /* repli pleine largeur (session non résolue) : coquille de carte cohérente avec le reste. */
+  .session-link.block {
+    display: flex; align-items: center; padding: 8px 12px;
+    background: var(--bg2); border: 1px solid var(--border); border-radius: 10px;
+    text-decoration: none; color: var(--text); line-height: 1.25;
+  }
+  .session-link.block:hover { background: var(--bg3); }
 </style>

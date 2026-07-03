@@ -413,7 +413,17 @@ function readPaneModeSync(pane) {
 // serait pris pour un vrai → faux « working » quand la session est en fait à l'arrêt. Dernier match
 // dans la fenêtre = le plus proche de l'invite (le vrai spinner, s'il y a aussi une citation juste
 // au-dessus). Vérifié en live : footer « ✻ Accomplishing… (3m 25s · ↓ 11.3k tokens) ».
-const SPINNER_RE = /^[ \t]*(?:[✻✽✶✢✳✺✷✵✴]|·)[ \t]+([A-Za-z][A-Za-z '-]{0,40}?)(?:…|\.\.\.)[ \t]*\(/;
+// Le glyphe de tête = un glyphe « étoile/sparkle » du CYCLE d'animation : le spinner anime son glyphe
+// et cycle sur ✻ ✽ ✶ ✢ · et « * » (astérisque, U+002A). On matche donc TOUT le bloc dingbat-étoiles
+// (U+2722–U+273D) + « * » + « · » plutôt qu'une liste figée (source du bug : « * » manquait → ~1 frame
+// sur 6 ratée → état clignotant working↔waiting), en EXCLUANT les préfixes de sortie d'outil (⎿ U+23BF,
+// ● U+25CF) et de todo (✔ ◻…) — pas des spinners. La forme « …(durée » + le bornage au footer écartent
+// une citation ; le format fini « <glyphe> Verbe for <durée> » (sans …/() reste rejeté.
+// Libellé capturé = une lettre puis TOUT sauf « ( … \n » : Claude Code affiche parfois la TODO en
+// cours comme libellé (ex. « Recreating talos-mono for IDEM-4/5 » — chiffres, « / »…), pas seulement
+// un gérondif → on ne le restreint PAS aux lettres/espaces (sinon un chiffre coupe le match avant le
+// « … » → spinner non détecté → busy=false → session affichée « background » alors qu'elle mouline).
+const SPINNER_RE = /^[ \t]*[*·✢-✽][ \t]+([A-Za-z][^(…\n]{0,80}?)(?:…|\.\.\.)[ \t]*\(/;
 const SPINNER_FOOTER_SPAN = 14;
 function parseSpinner(screen) {
   const lines = String(screen).split('\n');

@@ -56,6 +56,15 @@ function buildConversation(fp, includeSidechain) {
       }
       continue;
     }
+    // Message tapé dans hooked PENDANT que l'agent travaille : Claude le met en FILE d'attente et
+    // le journalise comme queue-operation dont le `content` est le texte brut (SANS
+    // <task-notification>, déjà capté ci-dessus). Sans ça il tombe entre user/assistant et n'est
+    // jamais rendu → la bulle « ⏳ queued » optimiste ne se résout jamais et le message disparaît
+    // au refresh. On le rend comme une vraie bulle user (miroir du push type:"user" ci-dessous).
+    if (j.type === 'queue-operation' && typeof j.content === 'string' && j.content.trim()) {
+      msgs.push({ role: 'user', ts: j.timestamp, text: j.content.slice(0, 8000), tools: [], forkUuid: j.uuid });
+      continue;
+    }
     if (j.type === 'user' && j.message) {
       const c = j.message.content;
       if (Array.isArray(c) && c.some((b) => b && b.type === 'tool_result')) continue;

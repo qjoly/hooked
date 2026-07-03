@@ -3,7 +3,7 @@
   import { goto } from '$app/navigation';
   import { ui, data, settings, loadSessions, openModal, sessionTitle, renameSession, toggleFocus } from '$lib/state.svelte.js';
   import { getSession, kill, setMode, setModelEffort, openInVscode, openInGhostty, fork, showInPane, killPane, deleteSession } from '$lib/api.js';
-  import { STATE_LABEL, fmtCost, fmtTokens, fmtDuration, shortModel, prLabel, PERMISSION_MODES, modeLabel, modeMeta, modelAlias } from '$lib/format.js';
+  import { STATE_LABEL, fmtCost, fmtTokens, fmtDuration, shortModel, prLabel, issueLabel, PERMISSION_MODES, modeLabel, modeMeta, modelAlias } from '$lib/format.js';
   import ModelEffort from './ModelEffort.svelte';
   import ChatBubble from './ChatBubble.svelte';
   import Question from './Question.svelte';
@@ -11,6 +11,9 @@
   import Composer from './Composer.svelte';
   import Changes from './Changes.svelte';
   import Subagents from './Subagents.svelte';
+  import SubSessions from './SubSessions.svelte';
+  import PrLinks from './PrLinks.svelte';
+  import IssueLinks from './IssueLinks.svelte';
   import Todos from './Todos.svelte';
   import Background from './Background.svelte';
   import Terminal from './Terminal.svelte';
@@ -55,6 +58,9 @@
   // messages envoyés en attente d'apparaître dans le transcript (file d'attente, comme le CLI).
   let queued = $state([]);
   let forceBottom = false;          // force le scroll en bas au prochain rendu (envoi d'un message)
+  // « collé en bas » : vrai tant que l'utilisateur suit la conversation (proche du bas). Dès qu'il
+  // scrolle vers le haut (lire l'historique / composer), on NE le ramène plus en bas aux ticks SSE.
+  let stickToBottom = true;
 
   const shownPanes = $derived(s ? (s.shownPanes || []) : []);
 
@@ -74,31 +80,42 @@
     changes:    { icon: '📝', label: 'Files' },
     todos:      { icon: '✅', label: 'Tasks' },
     subagents:  { icon: '🤖', label: 'Subagents' },
+    subsessions:{ icon: '🔗', label: 'Sub-sessions' },
     background: { icon: '🌀', label: 'Background' },
     terminal:   { icon: '🖥', label: 'Terminal' },
+    pr:         { icon: '🔀', label: 'PRs' },
+    issues:     { icon: '🐛', label: 'Issues' },
   };
   const subtabCount = $derived({
     chat: (s?.messages || []).length,
     changes: (s?.changes || []).length,
     todos: (s?.todos || []).length,
     subagents: (s?.subagents || []).length,
+    subsessions: (s?.subSessions || []).length,
     background: (s?.bgJobs || []).length,
     terminal: terminals.length,
+    pr: (s?.prLinks || []).length,
+    issues: (s?.issueLinks || []).length,
   });
   const subtabShown = $derived({
     chat: true, changes: true,
     todos: subtabCount.todos > 0,
     subagents: subtabCount.subagents > 0,
+    subsessions: subtabCount.subsessions > 0,
     background: subtabCount.background > 0,
     terminal: subtabCount.terminal > 0,
+    pr: subtabCount.pr > 0,
+    issues: subtabCount.issues > 0,
   });
   // Ordre persistant (settings.subtabOrder), PUIS toute clé connue absente de l'ordre sauvegardé
   // (migration : un réglage antérieur à un nouveau sous-onglet — ex. `background` — le verrait
   // sinon jamais, car on itère l'ordre persistant). On complète à la fin, seulement si disponible.
   const orderedSubtabs = $derived.by(() => {
     const order = settings.subtabOrder || [];
+    const hidden = new Set(settings.subtabHidden || []);
     const keys = [...order.filter((k) => SUBTAB_META[k]), ...Object.keys(SUBTAB_META).filter((k) => !order.includes(k))];
-    return keys.filter((k) => subtabShown[k]).map((k) => ({ key: k, ...SUBTAB_META[k], count: subtabCount[k] }));
+    // masqué manuellement (réglages) sauf 'chat', EN PLUS de l'auto-masquage quand vide (subtabShown).
+    return keys.filter((k) => subtabShown[k] && (k === 'chat' || !hidden.has(k))).map((k) => ({ key: k, ...SUBTAB_META[k], count: subtabCount[k] }));
   });
   // Ouvre le 1er onglet disponible selon l'ordre configuré (une seule fois, dès que s est chargé).
   let tabInit = false;
@@ -106,6 +123,29 @@
     const first = orderedSubtabs[0];
     if (tabInit || !s || !first) return;
     untrack(() => { tab = first.key; tabInit = true; });
+  });
+
+  // Footer « working » live : tant que la session travaille, le transcript ne reçoit pas de
+  // nouvelle bulle avant le flush du message → la conversation paraît figée. On affiche donc,
+  // sous la dernière bulle, le verbe d'activité (s.activity) + un temps écoulé. L'écoulé est
+  // ancré côté client au moment où l'on OBSERVE l'état working (workingSince) et rafraîchi par
+  // une horloge locale à la seconde ; il disparaît dès que l'état quitte « working ».
+  let workingSince = $state(null);
+  let nowMs = $state(Date.now());
+  $effect(() => {
+    const working = s?.state === 'working';  // dep suivie lue AVANT toute garde (piège Svelte 5)
+    if (!working) { if (workingSince !== null) untrack(() => { workingSince = null; }); return; }
+    untrack(() => { if (workingSince === null) workingSince = Date.now(); });
+  });
+  onMount(() => {
+    const iv = setInterval(() => { nowMs = Date.now(); }, 1000);
+    return () => clearInterval(iv);
+  });
+  // écoulé compact : « 12s » puis « 2m7s ». Vide tant qu'on n'a pas d'ancre.
+  const workElapsed = $derived.by(() => {
+    if (!workingSince) return '';
+    const sec = Math.max(0, Math.floor((nowMs - workingSince) / 1000));
+    return sec < 60 ? `${sec}s` : `${Math.floor(sec / 60)}m${sec % 60}s`;
   });
 
   let wantPane = $state(null); // pane à sélectionner dès qu'il apparaît (après « + Pane »)
@@ -155,12 +195,16 @@
     return null;
   });
 
+  // Visibilité des éléments de la barre de statut. Lire settings.statusBar AVANT tout guard
+  // (règle réactivité Svelte 5 : une dépendance derrière un court-circuit n'est pas suivie).
+  const sb = $derived(settings.statusBar || {});
+  // Ordre d'affichage des éléments de la barre de statut (réorganisable dans les réglages, comme
+  // les sous-onglets). Le conteneur .head-stats est flex → on pose `order:` sur chaque élément.
+  // Lu AVANT toute garde (règle réactivité Svelte 5). Clé inconnue → ordre élevé (rejetée en fin).
+  const sbOrder = $derived(settings.statusBarOrder || []);
+  const sbOrd = (k) => { const i = sbOrder.indexOf(k); return i === -1 ? 90 : i; };
+
   async function load(isRefresh) {
-    let prevScroll = null, wasAtBottom = false;
-    if (isRefresh && body) {
-      prevScroll = body.scrollTop;
-      wasAtBottom = (body.scrollHeight - body.scrollTop - body.clientHeight) < 60;
-    }
     let d;
     try { d = await getSession(id); } catch (_) { return; }
     s = d;
@@ -173,12 +217,14 @@
       queued = queued.filter((q) => !userTexts.has(q.text.trim()));
     }
     await tick();
-    // ancre #msg-<ts> (depuis la page Recherche) : scroll vers la bulle ciblée
-    // au premier load, court-circuite le scroll auto en bas.
+    // ancre #msg-<ts> (depuis la page Recherche) : scroll vers la bulle ciblée au 1er load.
     if (!isRefresh && scrollToHashMsg()) return;
-    const keepPos = isRefresh && !wasAtBottom && !forceBottom && prevScroll != null;
+    // On force le bas UNIQUEMENT si : envoi (forceBottom), 1er chargement, ou l'utilisateur suivait
+    // déjà (collé en bas). Sinon on NE touche PAS à scrollTop → un lecteur scrollé vers le haut (ou en
+    // train de composer) n'est JAMAIS ramené en bas par un refetch de tick SSE. (L'ancien code
+    // restaurait un scrollTop capturé AVANT le fetch async → il combattait le scroll/typing en cours.)
+    if (body && (forceBottom || !isRefresh || stickToBottom)) body.scrollTop = body.scrollHeight;
     forceBottom = false;
-    if (body) body.scrollTop = keepPos ? prevScroll : body.scrollHeight;
   }
 
   // localise la bulle dont data-msg-ts correspond à l'ancre URL #msg-<ts encodé> et
@@ -208,6 +254,7 @@
     if (s && s.pendingQuestion) s.pendingQuestion = null;
     queued = [...queued, { text: t, ts: new Date().toISOString() }];
     forceBottom = true;
+    stickToBottom = true;            // après un envoi, on re-suit la conversation
     await tick();
     if (body) body.scrollTop = body.scrollHeight;
   }
@@ -222,6 +269,7 @@
   $effect(() => {
     const t = tab;
     if (t === 'chat' && prevTab !== 'chat') {
+      stickToBottom = true;          // revenir sur Conversation = re-suivre le bas
       tick().then(() => { if (body) body.scrollTop = body.scrollHeight; });
     }
     prevTab = t;
@@ -391,8 +439,8 @@
     <div class="card-top" style="cursor:default;margin-bottom:6px">
       <button class="pane-back" onclick={() => goto('/')} title="Back to list">←</button>
       <span class="proj">{s.projectName || '?'}</span>
-      {#if s.gitBranch}<span class="branch">{s.gitBranch}</span>{/if}
-      <span class="badge s-badge" style="margin-left:0"><span class="bdot"></span>{s.state === 'working' && s.activity ? s.activity + '…' : (STATE_LABEL[s.state] || s.state)}</span>
+      {#if s.gitBranch && sb.branch !== false}<span class="branch">{s.gitBranch}</span>{/if}
+      {#if sb.stateBadge !== false}<span class="badge s-badge" style="margin-left:0"><span class="bdot"></span>{s.state === 'working' && s.activity ? s.activity + '…' : (STATE_LABEL[s.state] || s.state)}</span>{/if}
       {#if s.tmuxAlive}
         <span class="ro-tag live">↩ reply available</span>
         <button class="stop-btn" disabled={stopping} onclick={stop}>{stopping ? '⏳ stopping…' : '⏹ Stop'}</button>
@@ -413,7 +461,7 @@
           <button class="vscode-btn" disabled={vscodeBusy} onclick={openVscode} title="Open the entire project in VS Code">{vscodeBusy ? '⏳' : '⧉'} Open in VS Code</button>
           <button class="vscode-btn" disabled={ghosttyBusy} onclick={openGhostty} title="Open the session in Ghostty (attaches tmux if alive)">{ghosttyBusy ? '⏳' : '⧉'} Open in Ghostty</button>
           <button class="vscode-btn" onclick={copyExport} title="Copy the conversation as Markdown to the clipboard">{exportCopied ? '✓ copied' : '⧉ Copy as Markdown'}</button>
-          <button class="vscode-btn" class:on={ui.focus} onclick={toggleFocus} title="Focus mode: full-screen conversation (sidebar + header collapsed)">⛶ {ui.focus ? 'Exit focus' : 'Focus'}</button>
+          {#if sb.focusBtn !== false}<button class="vscode-btn" class:on={ui.focus} onclick={toggleFocus} title="Focus mode: full-screen conversation (sidebar + header collapsed)">⛶ {ui.focus ? 'Exit focus' : 'Focus'}</button>{/if}
           <button class="vscode-btn del-btn" disabled={deleting} onclick={del} title="Move to trash: removes from dashboard; transcript kept in bin/ (recoverable)">{deleting ? '⏳' : '🗑'} Delete</button>
         </div>
       </details>
@@ -430,45 +478,54 @@
         {#if ui.names[s.id]}<button class="sess-rename-btn" title="Restore auto title" aria-label="Auto title" onclick={() => renameSession(s.id, '')}>↺</button>{/if}
       </h2>
     {/if}
-    {#if s.tmuxAlive}
+    {#if s.tmuxAlive && (sb.permissionMode !== false || sb.modelEffort !== false)}
       {@const cur = modeMeta(modeView)}
       <div class="head-toolbar">
-        <div class="tb-group" title="Claude's permission mode (Shift+Tab in the session)">
-          {#if !PERMISSION_MODES.some((m) => m.key === modeView)}
-            <span class="mode-now mode-{modeView}" title={cur.title}><span class="mode-ico">{cur.icon}</span>{cur.label}</span>
-          {/if}
-          {#each PERMISSION_MODES as m}
-            <button class="mode-chip" class:active={modeView === m.key} disabled={modeBusy}
-                    onclick={() => switchMode(m.key)} title={m.title}>
-              <span class="mode-ico">{m.icon}</span>{m.label}
-            </button>
-          {/each}
-          {#if modeStatus}<span class="mode-status">{modeStatus}</span>{/if}
-        </div>
-        <span class="tb-sep"></span>
-        <div class="tb-group" title="Session model and effort — applies /model and /effort in the TUI">
-          <ModelEffort compact bind:model={editModel} bind:effort={editEffort} onchange={applyModelEffort} disabled={meBusy} />
-          {#if meStatus}<span class="mode-status">{meStatus}</span>{/if}
-        </div>
+        {#if sb.permissionMode !== false}
+          <div class="tb-group" title="Claude's permission mode (Shift+Tab in the session)">
+            {#if !PERMISSION_MODES.some((m) => m.key === modeView)}
+              <span class="mode-now mode-{modeView}" title={cur.title}><span class="mode-ico">{cur.icon}</span>{cur.label}</span>
+            {/if}
+            {#each PERMISSION_MODES as m}
+              <button class="mode-chip" class:active={modeView === m.key} disabled={modeBusy}
+                      onclick={() => switchMode(m.key)} title={m.title}>
+                <span class="mode-ico">{m.icon}</span>{m.label}
+              </button>
+            {/each}
+            {#if modeStatus}<span class="mode-status">{modeStatus}</span>{/if}
+          </div>
+        {/if}
+        {#if sb.permissionMode !== false && sb.modelEffort !== false}<span class="tb-sep"></span>{/if}
+        {#if sb.modelEffort !== false}
+          <div class="tb-group" title="Session model and effort — applies /model and /effort in the TUI">
+            <ModelEffort compact bind:model={editModel} bind:effort={editEffort} onchange={applyModelEffort} disabled={meBusy} />
+            {#if meStatus}<span class="mode-status">{meStatus}</span>{/if}
+          </div>
+        {/if}
       </div>
     {/if}
     <div class="head-stats" onclick={() => openModal('cost')} title="View estimated cost breakdown">
-      <span><b>{fmtCost(s.cost)}</b>{#if s.subagentCost > 0} <span class="hs-sub">({fmtCost(s.subagentCost)} agents)</span>{/if}</span>
-      <span class="hs-dot">·</span><span>{s.userPrompts} prompts</span>
-      <span class="hs-dot">·</span><span>{fmtTokens(s.usage.output)} out</span>
-      <span class="hs-dot">·</span><span>{fmtTokens(s.usage.cacheRead)} cache</span>
-      {#if !s.tmuxAlive && s.model}<span class="hs-dot">·</span><span>{shortModel(s.model)}</span>{/if}
-      {#if stat5h && stat5h.pct != null}
-        <span class="hs-dot">·</span>
-        <span class="hs-5h" class:warn={stat5h.pct >= 75} class:full={stat5h.pct >= 95} title={stat5h.title}>⏳ {stat5h.pct}%{#if stat5h.est} est.{/if}</span>
+      {#if sb.cost !== false}<span style="order:{sbOrd('cost')}"><b>{fmtCost(s.cost)}</b>{#if s.subagentCost > 0} <span class="hs-sub">({fmtCost(s.subagentCost)} agents)</span>{/if}</span>{/if}
+      {#if sb.prompts !== false}<span class="hs-dot" style="order:{sbOrd('prompts')}">·</span><span style="order:{sbOrd('prompts')}">{s.userPrompts} prompts</span>{/if}
+      {#if sb.tokens !== false}<span class="hs-dot" style="order:{sbOrd('tokens')}">·</span><span style="order:{sbOrd('tokens')}">{fmtTokens(s.usage.output)} out</span><span class="hs-dot" style="order:{sbOrd('tokens')}">·</span><span style="order:{sbOrd('tokens')}">{fmtTokens(s.usage.cacheRead)} cache</span>{/if}
+      {#if !s.tmuxAlive && s.model && sb.model !== false}<span class="hs-dot" style="order:{sbOrd('model')}">·</span><span style="order:{sbOrd('model')}">{shortModel(s.model)}</span>{/if}
+      {#if stat5h && stat5h.pct != null && sb.usage5h !== false}
+        <span class="hs-dot" style="order:{sbOrd('usage5h')}">·</span>
+        <span class="hs-5h" style="order:{sbOrd('usage5h')}" class:warn={stat5h.pct >= 75} class:full={stat5h.pct >= 95} title={stat5h.title}>⏳ {stat5h.pct}%{#if stat5h.est} est.{/if}</span>
       {/if}
-      {#if s.prLinks && s.prLinks.length}
+      {#if s.prLinks && s.prLinks.length && sb.prLinks !== false}
         {#each s.prLinks as l}
-          <span class="hs-dot">·</span>
-          <a class="hs-pr" href={l} target="_blank" rel="noopener" title={l} onclick={(e) => e.stopPropagation()}>🔗 {prLabel(l)}</a>
+          <span class="hs-dot" style="order:{sbOrd('prLinks')}">·</span>
+          <a class="hs-pr" style="order:{sbOrd('prLinks')}" href={l} target="_blank" rel="noopener" title={l} onclick={(e) => e.stopPropagation()}>🔗 {prLabel(l)}</a>
         {/each}
       {/if}
-      <span class="hs-more">›</span>
+      {#if s.issueLinks && s.issueLinks.length && sb.issueLinks !== false}
+        {#each s.issueLinks as l}
+          <span class="hs-dot" style="order:{sbOrd('issueLinks')}">·</span>
+          <a class="hs-pr" style="order:{sbOrd('issueLinks')}" href={l} target="_blank" rel="noopener" title={l} onclick={(e) => e.stopPropagation()}>🐛 {issueLabel(l)}</a>
+        {/each}
+      {/if}
+      <span class="hs-more" style="order:99">›</span>
     </div>
     <div class="subtabs">
       {#each orderedSubtabs as st (st.key)}
@@ -477,7 +534,8 @@
     </div>
   </div>
 
-  <div class="pane-body" bind:this={body}>
+  <div class="pane-body" bind:this={body}
+       onscroll={() => { if (body) stickToBottom = (body.scrollHeight - body.scrollTop - body.clientHeight) < 60; }}>
     <div class="pane" class:active={tab === 'chat'}>
       <div class="chat">
         {#if (s.messages || []).length}
@@ -491,6 +549,13 @@
             <div class="md">{q.text}</div>
           </div>
         {/each}
+        {#if s.state === 'working' && tab === 'chat'}
+          <div class="working-live" title="Claude is working — new messages appear once flushed">
+            <span class="wl-dots" aria-hidden="true"><span></span><span></span><span></span></span>
+            <span class="wl-verb">{s.activity || 'Working'}…</span>
+            {#if workElapsed}<span class="wl-sep">·</span><span class="wl-time">{workElapsed}</span>{/if}
+          </div>
+        {/if}
       </div>
       {#if s.pendingQuestion}<Question {id} pq={s.pendingQuestion} />{/if}
       {#if s.pendingPlan}<Plan {id} pp={s.pendingPlan} />{/if}
@@ -506,6 +571,18 @@
 
     <div class="pane" class:active={tab === 'subagents'}>
       <div class="changes"><Subagents subagents={s.subagents || []} session={id} /></div>
+    </div>
+
+    <div class="pane" class:active={tab === 'subsessions'}>
+      <div class="changes"><SubSessions subSessions={s.subSessions || []} /></div>
+    </div>
+
+    <div class="pane" class:active={tab === 'pr'}>
+      <PrLinks prLinks={s.prLinks || []} />
+    </div>
+
+    <div class="pane" class:active={tab === 'issues'}>
+      <IssueLinks issueLinks={s.issueLinks || []} />
     </div>
 
     <div class="pane" class:active={tab === 'todos'}>
@@ -583,5 +660,26 @@
   .hdr-menu :global(.vscode-btn) {
     display: flex; align-items: center; width: 100%; justify-content: flex-start; text-align: left;
     border: none; border-radius: 8px; padding: 7px 10px;
+  }
+  /* indicateur « working » sous la dernière bulle : slim, discret, respire (couleur de statut) */
+  .working-live {
+    display: flex; align-items: center; gap: 6px;
+    margin: 4px 2px 2px; padding: 2px 2px;
+    font-size: 12.5px; color: var(--working); font-weight: 600;
+  }
+  .wl-verb { animation: act-pulse 1.6s ease-in-out infinite; }
+  .wl-sep { opacity: .5; }
+  .wl-time { color: var(--muted); font-weight: 500; font-variant-numeric: tabular-nums; }
+  /* trois points qui rebondissent en cascade */
+  .wl-dots { display: inline-flex; gap: 3px; }
+  .wl-dots span {
+    width: 5px; height: 5px; border-radius: 50%; background: var(--working);
+    animation: wl-bounce 1.2s ease-in-out infinite;
+  }
+  .wl-dots span:nth-child(2) { animation-delay: .18s; }
+  .wl-dots span:nth-child(3) { animation-delay: .36s; }
+  @keyframes wl-bounce {
+    0%, 80%, 100% { transform: translateY(0); opacity: .45; }
+    40% { transform: translateY(-3px); opacity: 1; }
   }
 </style>
