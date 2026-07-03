@@ -3,6 +3,7 @@
 // ici : elle est portée par l'URL (routing SvelteKit). Ne restent que les filtres de la
 // sidebar, l'état live (SSE), le tick de rafraîchissement et la modale.
 import { getSessions, connectSSE, getSettings, saveSettings as apiSaveSettings } from './api.js';
+import { NOTIFY_KINDS, notifyKeyFor, countsForBadge } from './notify.js';
 
 const LS_KEY = 'hooked.ui';
 const persisted = (() => {
@@ -113,23 +114,11 @@ export function cycleTheme() {
 export const data = $state({ sessions: [] });
 
 // ─── Notifications navigateur ────────────────────────────────────────────────────────────────
-// Notifie quand une session « a fini / attend ta réponse » : passage à waiting (fin de tour,
-// cf. hook Stop), attention (permission), une question en attente (hasQuestion), ou ended
-// (session terminée). On ne notifie que sur le FRONT MONTANT (changement d'état), jamais en
-// rafale au chargement (1er passage = mémorisation seule).
-const NOTIFY_KINDS = {
-  q:         { icon: '⌨️', label: 'awaiting your reply' },
-  attention: { icon: '🔴', label: 'action required' },
-  waiting:   { icon: '🟡', label: 'finished — waiting for you' },
-  ended:     { icon: '🏁', label: 'session ended' },
-};
-function notifyKeyFor(s) {
-  if (s.hasQuestion) return 'q';
-  if (s.state === 'attention') return 'attention';
-  if (s.state === 'waiting') return 'waiting';
-  if (s.state === 'ended') return 'ended';
-  return '';
-}
+// Notifie quand une session « a fini / attend ta réponse » : question en attente (hasQuestion),
+// attention (permission), waiting (fin de tour, hook Stop), background (fin de tour + job de fond
+// encore actif) ou ended (session terminée). Logique pure extraite dans ./notify.js (testable).
+// On ne notifie que sur le FRONT MONTANT (changement d'état), jamais en rafale au chargement
+// (1er passage = mémorisation seule).
 const prevNotifyKey = new Map(); // sessionId → dernière clé notifiable connue
 let notifySeeded = false;         // 1er passage : on mémorise l'état sans notifier
 function notifyEnabled() {
@@ -175,8 +164,7 @@ function applyTitleBadge(sessions = data.sessions) {
   if (!ui.notify) { document.title = base; return; }
   const n = sessions.reduce((a, s) => {
     if (ui.notifyPinnedOnly && !ui.pinned.includes(s.id)) return a;
-    const k = notifyKeyFor(s);
-    return a + (k === 'q' || k === 'attention' || k === 'waiting' ? 1 : 0);
+    return a + (countsForBadge(notifyKeyFor(s)) ? 1 : 0);
   }, 0);
   document.title = n > 0 ? `(${n}) 🔔 ${base}` : base;
 }
