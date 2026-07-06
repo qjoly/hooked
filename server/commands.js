@@ -64,15 +64,31 @@ let _extractCache = null;   // { path, mtime, list } commandes extraites
 
 function resolveClaudeBin() {
   if (_binCache !== null) return _binCache;
-  let resolved = null;
+  let found = null;
+  // 1) PATH lookup — works when hooked runs from an interactive shell.
   try {
     const which = cp.execSync('command -v claude', { encoding: 'utf8' }).trim();
-    if (which) {
-      // suit les symlinks jusqu'au binaire réel (.exe natif embarquant le bundle JS, ou cli.js)
-      const real = cp.execSync('readlink -f ' + JSON.stringify(which), { encoding: 'utf8' }).trim();
-      resolved = real || which;
+    if (which) found = which;
+  } catch (_) { /* not on PATH */ }
+  // 2) Fallback: under systemd the service PATH is minimal (no Homebrew / npm-global), so `command -v`
+  //    misses a real install. Probe the usual locations directly — same fix as server/ghMeta.js for gh.
+  if (!found) {
+    for (const c of [
+      '/home/linuxbrew/.linuxbrew/bin/claude', '/opt/homebrew/bin/claude', '/usr/local/bin/claude',
+      path.join(HOME, '.local/bin/claude'), path.join(HOME, '.claude/local/claude'),
+      path.join(HOME, '.npm-global/bin/claude'), '/usr/bin/claude',
+    ]) {
+      try { fs.accessSync(c, fs.constants.X_OK); found = c; break; } catch (_) { /* next candidate */ }
     }
-  } catch (_) { /* claude absent du PATH */ }
+  }
+  let resolved = null;
+  if (found) {
+    // suit les symlinks jusqu'au binaire réel (.exe natif embarquant le bundle JS, ou cli.js)
+    try {
+      const real = cp.execSync('readlink -f ' + JSON.stringify(found), { encoding: 'utf8' }).trim();
+      resolved = real || found;
+    } catch (_) { resolved = found; }
+  }
   _binCache = resolved;
   return resolved;
 }
