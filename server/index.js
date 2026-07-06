@@ -29,6 +29,7 @@ export * from './images.js';
 export * from './usage.js';
 export * from './status.js';
 export * from './stats.js';
+export * from './claudeUpdate.js';
 export * from './editor.js';
 export * from './trash.js';
 export * as searchIndex from './searchIndex.js';
