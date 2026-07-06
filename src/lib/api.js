@@ -48,6 +48,15 @@ export const checkoutBranch = (branch, strategy) => jpost('/api/git', { action: 
 // Efface la bannière « redémarrage nécessaire ».
 export const dismissRestartNotice = () => jpost('/api/git', { action: 'dismiss-restart' });
 
+// Version claude-code installée + méthode d'installation (garde sudo) + sessions live qui tournent
+// une version plus ancienne (page Réglages). GET → { install, installed, outdated }.
+export const getClaudeVersion = () => jget('/api/claude');
+// Déclenche l'upgrade de claude. Ne lance jamais sudo : si le préfixe n'est pas inscriptible,
+// renvoie { ok:false, needsSudo, warning, cmd } sans rien exécuter.
+export const upgradeClaude = () => jpost('/api/claude', { action: 'upgrade' });
+// Redémarre une session (kill + `claude --resume <id>`) pour qu'elle reparte sur la version installée.
+export const restartClaudeSession = (id) => jpost('/api/claude', { action: 'restart', id });
+
 export const reply = (id, text) => jpost('/api/reply', { id, text });
 // Réponse à un AskUserQuestion : on transmet les indices sélectionnés par question
 // ([{ multi, indices }]) ; le serveur pilote le TUI au clavier plutôt que de taper les labels.
