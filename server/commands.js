@@ -62,35 +62,40 @@ const INTERNAL = new Set(['daemon', 'heapdump', 'bridge-kick', 'init-verifiers',
 let _binCache = null;       // { path, mtime } résolution du binaire
 let _extractCache = null;   // { path, mtime, list } commandes extraites
 
+// Locate the claude binary. We cache the stable PATH entry / symlink (`_binCache`) — which survives
+// version upgrades — but re-derive the REAL target (`readlink -f`) FRESH on every call, so an
+// out-of-band upgrade (the symlink now points at a new versioned path, e.g. a brew-cask bump) is
+// reflected immediately instead of pinning a now-deleted versioned path. Re-resolve if the cached
+// entry has vanished (uninstall / relocation).
 function resolveClaudeBin() {
-  if (_binCache !== null) return _binCache;
-  let found = null;
-  // 1) PATH lookup — works when hooked runs from an interactive shell.
-  try {
-    const which = cp.execSync('command -v claude', { encoding: 'utf8' }).trim();
-    if (which) found = which;
-  } catch (_) { /* not on PATH */ }
-  // 2) Fallback: under systemd the service PATH is minimal (no Homebrew / npm-global), so `command -v`
-  //    misses a real install. Probe the usual locations directly — same fix as server/ghMeta.js for gh.
-  if (!found) {
-    for (const c of [
-      '/home/linuxbrew/.linuxbrew/bin/claude', '/opt/homebrew/bin/claude', '/usr/local/bin/claude',
-      path.join(HOME, '.local/bin/claude'), path.join(HOME, '.claude/local/claude'),
-      path.join(HOME, '.npm-global/bin/claude'), '/usr/bin/claude',
-    ]) {
-      try { fs.accessSync(c, fs.constants.X_OK); found = c; break; } catch (_) { /* next candidate */ }
-    }
-  }
-  let resolved = null;
-  if (found) {
-    // suit les symlinks jusqu'au binaire réel (.exe natif embarquant le bundle JS, ou cli.js)
+  if (_binCache && !fs.existsSync(_binCache)) _binCache = null;   // cached entry gone → re-resolve
+  if (_binCache === null) {
+    let found = null;
+    // 1) PATH lookup — works when hooked runs from an interactive shell.
     try {
-      const real = cp.execSync('readlink -f ' + JSON.stringify(found), { encoding: 'utf8' }).trim();
-      resolved = real || found;
-    } catch (_) { resolved = found; }
+      const which = cp.execSync('command -v claude', { encoding: 'utf8' }).trim();
+      if (which) found = which;
+    } catch (_) { /* not on PATH */ }
+    // 2) Fallback: under systemd the service PATH is minimal (no Homebrew / npm-global), so `command -v`
+    //    misses a real install. Probe the usual locations directly — same fix as server/ghMeta.js for gh.
+    if (!found) {
+      for (const c of [
+        '/home/linuxbrew/.linuxbrew/bin/claude', '/opt/homebrew/bin/claude', '/usr/local/bin/claude',
+        path.join(HOME, '.local/bin/claude'), path.join(HOME, '.claude/local/claude'),
+        path.join(HOME, '.npm-global/bin/claude'), '/usr/bin/claude',
+      ]) {
+        try { fs.accessSync(c, fs.constants.X_OK); found = c; break; } catch (_) { /* next candidate */ }
+      }
+    }
+    _binCache = found;   // the stable symlink / PATH entry (NOT the versioned real path)
   }
-  _binCache = resolved;
-  return resolved;
+  if (!_binCache) return null;
+  // follow symlinks to the real binary FRESH (native .exe bundle or cli.js) so a version bump behind
+  // the symlink is reflected on the very next call.
+  try {
+    const real = cp.execSync('readlink -f ' + JSON.stringify(_binCache), { encoding: 'utf8' }).trim();
+    return real || _binCache;
+  } catch (_) { return _binCache; }
 }
 
 // Scanne le bundle pour les déclarations `type:"local|local-jsx|prompt",name:"…"[,description:"…"]`.
