@@ -17,7 +17,7 @@ import { buildSubSessions } from './subSessions.js';
 import { buildFileChanges } from './changes.js';
 import { buildSubagents } from './subagents.js';
 import { latestTodos, todoSummary } from './todos.js';
-import { buildBackgroundJobs, activeBackgroundJobs } from './background.js';
+import { buildBackgroundJobs, jobStatus } from './background.js';
 
 // Sessions « live-only » : présentes dans les évènements de hooks mais pas encore
 // dans un transcript (Claude Code n'écrit le .jsonl qu'au premier message de
@@ -133,13 +133,15 @@ function buildSessions() {
     // pas de `capture-pane` supplémentaire. Appelé à CHAQUE tick pour garder la référence à jour.
     const active = s.tmuxAlive ? paneActiveSync(s.tmuxPane) : null;
     s.state = refineWithPane(s.state, s.tmuxAlive, busy, active);
-    // jobs de fond encore actifs (Bash run_in_background / Monitor / ScheduleWakeup) : forme légère
-    // pour la sidebar. Un 'waiting' au pane vivant qui en a → 'background' (« tourne en fond »),
-    // distinct de « en attente de toi ». Cf. server/background.js + withBackgroundState.
-    const bgActive = activeBackgroundJobs(s.file);
-    s.bgJobs = bgActive.map((j) => ({ kind: j.kind, label: j.description || j.command || j.prompt || j.kind, startedAt: j.startTs }));
+    // jobs de fond de la session, chacun classé par jobStatus (croise notif terminale, timeout
+    // Monitor, vivacité du pane). SEUL 'running' compte comme actif → forme légère pour la sidebar.
+    // Un 'waiting' au pane vivant qui en a → 'background' (« tourne en fond »), distinct de « en
+    // attente de toi ». Cf. server/background.js + withBackgroundState.
+    const bgRunning = buildBackgroundJobs(s.file).jobs
+      .filter((j) => jobStatus(j, s.tmuxAlive, now) === 'running');
+    s.bgJobs = bgRunning.map((j) => ({ kind: j.kind, label: j.description || j.command || j.prompt || j.kind, startedAt: j.startTs, status: 'running' }));
     // 'working' prime sur 'background' quand la session a un job de fond ET mouline vraiment.
-    s.state = withBackgroundState(s.state, s.tmuxAlive, bgActive.length, busy);
+    s.state = withBackgroundState(s.state, s.tmuxAlive, bgRunning.length, busy);
     // verbe d'activité live (« Accomplishing »…) quand Claude mouline — le petit mot animé du TUI.
     // Capture déjà en cache (paneBusySync l'a lue au même tick, cf. busy) → pas de coût tmux en plus.
     s.activity = (s.state === 'working' && s.tmuxAlive) ? paneActivitySync(s.tmuxPane) : null;
@@ -228,6 +230,8 @@ function buildBackgroundView() {
         command: j.command || j.prompt || null,
         taskId: j.taskId || null,
         startedAt: j.startTs || null,
+        // pane vivant ici (gate tmuxAlive au-dessus) → alive=true ; distingue running d'un Monitor expiré.
+        status: jobStatus(j, true, Date.now()),
       });
     }
   }
@@ -276,13 +280,24 @@ function sessionDetail(id) {
   // le corps de conversation bouge-t-il encore ? (écriture vs tour terminé) — même capture en cache.
   const active = alive ? paneActiveSync(pane) : null;
   const refined = refineWithPane(last ? last.state : (s.state || 'past'), alive, busy, active);
-  // jobs de fond encore actifs (liste complète pour l'onglet Background) + relabel 'background'.
+  // jobs de fond de la session : TOUS (actifs + historique) avec leur statut, pour l'onglet Background.
   const bg = buildBackgroundJobs(s.file);
-  const state = withBackgroundState(refined, alive, bg.active.length, busy);
+  const now = Date.now();
+  const bgJobs = bg.jobs
+    .map((j) => ({ ...j, status: jobStatus(j, alive, now) }))
+    // running d'abord, puis les plus récents (doneAt sinon startTs) en tête ; borné à ~30 (payload).
+    .sort((a, b) => {
+      const ar = a.status === 'running' ? 1 : 0, br = b.status === 'running' ? 1 : 0;
+      if (ar !== br) return br - ar;
+      return String(b.doneAt || b.startTs || '').localeCompare(String(a.doneAt || a.startTs || ''));
+    })
+    .slice(0, 30);
+  const runningCount = bgJobs.filter((j) => j.status === 'running').length;
+  const state = withBackgroundState(refined, alive, runningCount, busy);
   return {
     ...s, pendingQuestion, pendingPlan,
     state, currentTool: last ? last.tool : null,
-    bgJobs: bg.active,
+    bgJobs,
     // verbe d'activité live du spinner TUI (« Accomplishing »…) quand la session mouline, sinon null.
     activity: (state === 'working' && alive) ? paneActivitySync(pane) : null,
     tmuxPane: pane, tmuxAlive: alive, tmuxAttach,
