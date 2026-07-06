@@ -8,7 +8,7 @@ import { scanSessions, blankSummary } from './transcript.js';
 import { repoSlug } from './git.js';
 import { readEvents, lastEventBySession, paneForSession, sessionForPane, modeForSession, liveQuestionForSession, livePlanForSession, eventSessionMeta } from './events.js';
 import { liveStateFor } from './live.js';
-import { resolveLaunchForSession, paneTmuxNames, tmuxAlive, readPaneModeSync, paneBusySync, paneActivitySync } from './tmux.js';
+import { resolveLaunchForSession, paneTmuxNames, tmuxAlive, readPaneModeSync, paneBusySync, paneActivitySync, paneActiveSync } from './tmux.js';
 import { shownPanesFor } from './pane.js';
 import { usageWindow } from './usage.js';
 import { sessionStatus, sessionStatusRaw, accountRateLimits, freshestStatusId } from './status.js';
@@ -48,34 +48,39 @@ function eventOnlySessions(knownIds, now = Date.now()) {
 
 // Affinage de l'état déduit des hooks par une lecture du pane vivant. Les hooks ne signalent pas la
 // réflexion/le streaming (aucun event entre deux outils) → une session qui mouline longtemps tombe à
-// tort en 'idle', et une session finie sans Stop capté finit par retomber en 'idle' (cf. liveStateFor,
-// péremption à 5 min). La ligne spinner du footer présente ⇒ Claude bosse (working) ; absente alors
-// qu'on le croyait 'idle' ⇒ il attend (waiting). On ne touche jamais 'attention' ni 'ended'.
+// tort en 'idle', et une session finie sans Stop capté resterait 'working' pour toujours. La ligne
+// spinner du footer présente ⇒ Claude bosse (working) ; absente ⇒ on regarde si le pane BOUGE encore.
+// On ne touche jamais 'attention' ni 'ended'.
 // `busy` (calculé par l'appelant via paneBusySync) : true = vrai spinner du footer, false = boîte de
 // saisie seule, null = pane injoignable (on ne tranche pas).
+// `active` (calculé par l'appelant via paneActiveSync) : true = le corps de conversation a changé
+// depuis le tick précédent (Claude écrit), false = corps statique (tour terminé), null = injoignable.
 //
 // Pane MORT (tmux fermé) : aucun process ne tourne, la session ne PEUT pas être 'working' — un
 // 'working' hérité d'un dernier hook sans Stop/SessionEnd capté est périmé → on le rétrograde en
 // 'waiting' (à relancer / en attente de toi). Les autres états (idle/attention/ended/past) restent.
 //
-// IMPORTANT — on NE rétrograde PAS 'working' → 'waiting' sur busy===false. « Pas de spinner » ≠ « tour
-// fini » : c'est AUSSI vrai pendant que Claude STREAME sa réponse finale (après le dernier outil, avant
-// le Stop). Le footer n'a alors ni spinner (parseSpinner=null) ni « esc to interrupt » → busy false,
-// mais la session travaille encore (texte qui s'écrit). L'ancienne règle la faisait clignoter en
-// 'waiting' à tort. Un tour 'working' se termine par un signal AUTORITAIRE : le hook Stop (→ 'waiting',
-// cf. liveStateFor) ou un pane mort (ligne 59). Le cas « Stop raté sur pane vivant » n'est pas perdu :
-// liveStateFor périme PreToolUse/PostToolUse en 'idle' après 5 min → la démotion 'idle' → 'waiting'
-// ci-dessous le rattrape (juste différé, ce cas est rare). Cf. bug « en écriture affiché en attente ».
-function refineWithPane(state, alive, busy) {
+// SIGNAL « fini » ROBUSTE (busy===false). « Pas de spinner » est vrai DANS DEUX cas indistinguables au
+// seul footer : (1) Claude STREAME sa réponse finale (tour EN COURS, texte qui s'écrit) ; (2) le tour
+// est TERMINÉ (réponse affichée, composer prêt). On les sépare par le MOUVEMENT du corps de conversation
+// (paneActiveSync) : en écriture il grandit (active===true) → on reste 'working' ; terminé il est figé
+// (active===false) → on rétrograde 'working'/'idle' → 'waiting'. C'est ce qui remplace l'ancienne
+// démotion inconditionnelle sur busy===false (qui faisait clignoter une session EN ÉCRITURE en 'waiting'
+// à tort, cf. 52e5e68) tout en rattrapant enfin le Stop raté/absent (bug « working après tour fini »).
+// active===null (pane injoignable) ⇒ on ne tranche pas ; active===true seul (1re observation, pas encore
+// de recul) ⇒ prudence, on garde l'état. Un Stop capté (→ 'waiting', liveStateFor) reste autoritaire.
+function refineWithPane(state, alive, busy, active) {
   if (!alive) return state === 'working' ? 'waiting' : state;
   // busy = vrai spinner d'activité DANS LE FOOTER (parseSpinner est borné aux ~14 lignes au-dessus de
   // l'invite ❯ → un spinner CITÉ dans la conversation ne compte pas, cf. fix dd850e0). On promeut donc
   // 'waiting' → 'working' quand le pane mouline vraiment : après un Stop capté (→ waiting), une
   // ré-invocation par un veilleur / message en file / ScheduleWakeup remet Claude à réfléchir AVANT tout
   // nouveau hook UserPromptSubmit ; sans ça la session resterait figée en 'waiting' (ou 'background')
-  // alors qu'elle travaille. pane mort (alive faux, traité ligne 59) → jamais 'working' (fix 1f98901).
+  // alors qu'elle travaille. pane mort (alive faux, traité au-dessus) → jamais 'working' (fix 1f98901).
   if (busy === true && (state === 'working' || state === 'idle' || state === 'waiting')) return 'working';
-  if (busy === false && state === 'idle') return 'waiting';
+  // busy===false : pas de spinner. On ne rétrograde QUE si le corps est AUSSI figé (active===false) —
+  // tour réellement terminé. active===true (en écriture) ou null (1re obs / injoignable) → on n'y touche pas.
+  if (busy === false && active === false && (state === 'working' || state === 'idle')) return 'waiting';
   return state;
 }
 
@@ -124,7 +129,10 @@ function buildSessions() {
     // busy réel du pane, calculé UNE fois et partagé par refineWithPane + withBackgroundState (le
     // cache de capture ne fait qu'un `capture-pane` de toute façon, mais on évite le double appel).
     const busy = s.tmuxAlive ? paneBusySync(s.tmuxPane) : null;
-    s.state = refineWithPane(s.state, s.tmuxAlive, busy);
+    // le corps de conversation bouge-t-il encore ? (écriture vs tour terminé) — même capture en cache,
+    // pas de `capture-pane` supplémentaire. Appelé à CHAQUE tick pour garder la référence à jour.
+    const active = s.tmuxAlive ? paneActiveSync(s.tmuxPane) : null;
+    s.state = refineWithPane(s.state, s.tmuxAlive, busy, active);
     // jobs de fond encore actifs (Bash run_in_background / Monitor / ScheduleWakeup) : forme légère
     // pour la sidebar. Un 'waiting' au pane vivant qui en a → 'background' (« tourne en fond »),
     // distinct de « en attente de toi ». Cf. server/background.js + withBackgroundState.
@@ -265,7 +273,9 @@ function sessionDetail(id) {
   const alive = tmuxAlive(pane);
   // busy réel du pane, calculé une fois et partagé par refineWithPane + withBackgroundState.
   const busy = alive ? paneBusySync(pane) : null;
-  const refined = refineWithPane(last ? last.state : (s.state || 'past'), alive, busy);
+  // le corps de conversation bouge-t-il encore ? (écriture vs tour terminé) — même capture en cache.
+  const active = alive ? paneActiveSync(pane) : null;
+  const refined = refineWithPane(last ? last.state : (s.state || 'past'), alive, busy, active);
   // jobs de fond encore actifs (liste complète pour l'onglet Background) + relabel 'background'.
   const bg = buildBackgroundJobs(s.file);
   const state = withBackgroundState(refined, alive, bg.active.length, busy);

@@ -381,10 +381,47 @@ function capturePaneTextSync(pane, ttl = 2500) {
   return text;
 }
 
-// Purge les caches pane (liste des panes + texte capturé) → la prochaine dérivation d'état relit
-// tmux à froid (liveness + footer), sans attendre l'expiration des caches 2,5–3 s. Utilisé par le
-// resync manuel des Réglages pour débloquer une session au statut périmé.
-function clearPaneCaches() { paneNameCache.at = 0; _paneTextCache.clear(); }
+// Corps STABLE de la conversation : le texte capturé PRIVÉ de sa zone d'invite + footer (tout ce qui
+// se trouve à partir de la dernière ligne d'invite ❯ incluse — boîte de saisie, ligne de mode
+// « ⏵⏵ … (shift+tab to cycle) », lignes de sous-agents « ○ … »). C'est la partie qui NE bouge PAS
+// quand le pane est au repos : le footer, lui, « respire » entre deux captures (tips qui tournent,
+// curseur, compteur) même sur un pane idle → le comparer ferait passer un pane inactif pour actif.
+// À l'inverse, pendant que Claude STREAME sa réponse finale (busy=false, pas de spinner), c'est
+// justement ce corps qui grandit → le signal fiable « en train d'écrire vs terminé ». Cf. paneActiveSync.
+// Fallback sans invite ❯ (écran plein, menu…) : tout le texte moins les lignes vides de queue.
+function conversationBody(text) {
+  const lines = String(text).split('\n');
+  let end = lines.length;
+  for (let i = lines.length - 1; i >= 0; i--) { if (/^[ \t]*❯/.test(lines[i])) { end = i; break; } }
+  const body = lines.slice(0, end);
+  // rogner les lignes de queue vides / de bordure de boîte (statiques mais bruit) pour comparer net.
+  while (body.length && /^[ \t]*[╭╮╰╯─│▁▔]*[ \t]*$/.test(body[body.length - 1])) body.pop();
+  return body.join('\n');
+}
+
+// Le corps de conversation du pane a-t-il CHANGÉ depuis la dernière lecture ? true = il bouge
+// (Claude écrit / mouline), false = statique (tour terminé), null = pane injoignable. On mémorise par
+// pane le dernier corps observé ET le texte brut associé : deux appels au MÊME tick (liste + détail)
+// relisent le MÊME texte en cache (capturePaneTextSync, TTL 2,5 s) → on renvoie alors le MÊME verdict
+// (sinon le 2ᵉ appel comparerait le corps à lui-même et conclurait « statique » à tort). Première
+// observation d'un pane : pas de référence → on répond `true` (actif) par prudence, pour ne JAMAIS
+// rétrograder un tour en cours faute de recul ; le tick suivant tranche pour de bon.
+const _paneBodyCache = new Map(); // pane -> { text, body, active }
+function paneActiveSync(pane) {
+  const text = capturePaneTextSync(pane);
+  if (text == null) return null;
+  const prev = _paneBodyCache.get(pane);
+  if (prev && prev.text === text) return prev.active; // même capture (cache) au même tick → verdict stable
+  const body = conversationBody(text);
+  const active = prev ? body !== prev.body : true; // 1re observation : pas de référence → actif par prudence
+  _paneBodyCache.set(pane, { text, body, active });
+  return active;
+}
+
+// Purge les caches pane (liste des panes + texte capturé + corps observé) → la prochaine dérivation
+// d'état relit tmux à froid (liveness + footer + détection de changement), sans attendre l'expiration
+// des caches 2,5–3 s. Utilisé par le resync manuel des Réglages pour débloquer une session périmée.
+function clearPaneCaches() { paneNameCache.at = 0; _paneTextCache.clear(); _paneBodyCache.clear(); }
 
 // Lecture synchrone du mode (pour enrichir le détail de session sans casser son API synchrone).
 function readPaneModeSync(pane) {
@@ -603,4 +640,4 @@ function killSession(id, cb) {
   });
 }
 
-export { paneTmuxNames, invalidatePaneCache, clearPaneCaches, tmuxAlive, launchInfoForPane, resolveLaunchForSession, deliverReply, deliverQuestion, deliverQuestionWithNote, deliverQuestionFreeText, deliverPlanChoice, parsePlanPrompt, sendKey, parsePaneMode, readPaneMode, readPaneModeSync, paneBusySync, parseSpinner, paneActivitySync, setMode, setModelEffort, launchSession, killSession, err400 };
+export { paneTmuxNames, invalidatePaneCache, clearPaneCaches, tmuxAlive, launchInfoForPane, resolveLaunchForSession, deliverReply, deliverQuestion, deliverQuestionWithNote, deliverQuestionFreeText, deliverPlanChoice, parsePlanPrompt, sendKey, parsePaneMode, readPaneMode, readPaneModeSync, paneBusySync, parseSpinner, paneActivitySync, conversationBody, paneActiveSync, setMode, setModelEffort, launchSession, killSession, err400 };
