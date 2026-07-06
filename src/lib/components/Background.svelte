@@ -82,7 +82,7 @@
   <div class="bg-item">
     <div class="bg-top">
       <span class="bg-kind">{meta(j.kind).icon} {meta(j.kind).label}</span>
-      <span class="badge" style="color: var(--{stat(j.status).var}); border-color: var(--{stat(j.status).var});">{stat(j.status).label}</span>
+      <span class="bg-status" style="color: var(--{stat(j.status).var}); border-color: var(--{stat(j.status).var});">{stat(j.status).label}</span>
       {#if j.taskId}<span class="bg-id">{j.taskId}</span>{/if}
       <span class="bg-ago">{ago(j.startTs)}</span>
     </div>
@@ -131,8 +131,11 @@
   .bg-top { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
   .bg-kind { font-weight: 700; font-size: 13px; color: var(--text); }
   .bg-id { font-family: var(--mono); font-size: 10.5px; color: var(--muted); background: var(--bg3); border-radius: 6px; padding: 0 6px; }
-  /* pastille de statut : couleur d'état (var passée en inline style) sur fond transparent. */
-  .badge {
+  /* pastille de statut : couleur d'état (var passée en inline style) sur fond transparent.
+     Classe dédiée (pas `.badge`) pour n'hériter NI du `.badge { margin-left:auto }` global ni des
+     `.s-<state> .badge { background }` (app.css) — sinon la couleur d'état de la SESSION bavait sur
+     la pastille du job et le `margin-left:auto` la décalait au milieu de .bg-top. */
+  .bg-status {
     font-size: 10px; font-weight: 700; letter-spacing: 0.03em; text-transform: uppercase;
     border: 1px solid var(--muted); border-radius: 999px; padding: 1px 7px; line-height: 1.5;
   }
