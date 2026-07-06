@@ -399,23 +399,38 @@ function conversationBody(text) {
   return body.join('\n');
 }
 
-// Le corps de conversation du pane a-t-il CHANGÉ depuis la dernière lecture ? true = il bouge
-// (Claude écrit / mouline), false = statique (tour terminé), null = pane injoignable. On mémorise par
-// pane le dernier corps observé ET le texte brut associé : deux appels au MÊME tick (liste + détail)
-// relisent le MÊME texte en cache (capturePaneTextSync, TTL 2,5 s) → on renvoie alors le MÊME verdict
-// (sinon le 2ᵉ appel comparerait le corps à lui-même et conclurait « statique » à tort). Première
-// observation d'un pane : pas de référence → on répond `true` (actif) par prudence, pour ne JAMAIS
-// rétrograder un tour en cours faute de recul ; le tick suivant tranche pour de bon.
-const _paneBodyCache = new Map(); // pane -> { text, body, active }
+// Décision pure de l'activité du corps : à partir de l'entrée précédente, de l'ESTAMPILLE de capture
+// (`stamp` = ts de la lecture tmux, cf. _paneTextCache) et du texte courant, renvoie la nouvelle entrée
+// { stamp, body, active }. `active` = le corps a-t-il changé depuis le tick précédent ? true = il bouge
+// (Claude écrit / mouline), false = statique (tour terminé). Première observation : pas de référence →
+// `true` (actif) par prudence, pour ne JAMAIS rétrograder un tour en cours faute de recul ; le tick
+// suivant tranche pour de bon.
+//
+// La dédup « même tick » se fait sur `stamp`, PAS sur le texte : deux appels au MÊME tick (liste +
+// détail) relisent la MÊME capture en cache (capturePaneTextSync, TTL 2,5 s) → même ts → même verdict
+// stable (sinon le 2ᵉ appel comparerait le corps à lui-même et conclurait « statique » à tort). Une
+// nouvelle capture FRAÎCHE (tick suivant) a toujours un ts neuf, MÊME si ses octets sont identiques —
+// ce qui arrive dès que le footer ne « respire » pas (Claude Code récent : pane idle = capture figée
+// bit-à-bit). Clé sur le texte, cette égalité rejouait éternellement le `active=true` de la 1re
+// observation → la session finie restait 'working' à vie (bug « working après tour fini » que la
+// démotion de refineWithPane était justement censée rattraper). Clé sur `stamp`, un pane figé retombe
+// bien à active=false au tick suivant.
+function paneActiveStep(prev, stamp, text) {
+  if (prev && prev.stamp === stamp) return prev; // même capture (même tick) → entrée inchangée
+  const body = conversationBody(text);
+  const active = prev ? body !== prev.body : true; // 1re observation : pas de référence → actif par prudence
+  return { stamp, body, active };
+}
+
+const _paneBodyCache = new Map(); // pane -> { stamp, body, active }
 function paneActiveSync(pane) {
   const text = capturePaneTextSync(pane);
   if (text == null) return null;
-  const prev = _paneBodyCache.get(pane);
-  if (prev && prev.text === text) return prev.active; // même capture (cache) au même tick → verdict stable
-  const body = conversationBody(text);
-  const active = prev ? body !== prev.body : true; // 1re observation : pas de référence → actif par prudence
-  _paneBodyCache.set(pane, { text, body, active });
-  return active;
+  const c = _paneTextCache.get(pane);
+  const stamp = c ? c.ts : null; // ts de la capture : neuf à chaque lecture fraîche, stable sur cache-hit
+  const next = paneActiveStep(_paneBodyCache.get(pane), stamp, text);
+  _paneBodyCache.set(pane, next);
+  return next.active;
 }
 
 // Purge les caches pane (liste des panes + texte capturé + corps observé) → la prochaine dérivation
@@ -656,4 +671,4 @@ function restartSession(id, { model, effort } = {}, cb) {
   }
 }
 
-export { paneTmuxNames, invalidatePaneCache, clearPaneCaches, tmuxAlive, launchInfoForPane, resolveLaunchForSession, deliverReply, deliverQuestion, deliverQuestionWithNote, deliverQuestionFreeText, deliverPlanChoice, parsePlanPrompt, sendKey, parsePaneMode, readPaneMode, readPaneModeSync, paneBusySync, parseSpinner, paneActivitySync, conversationBody, paneActiveSync, setMode, setModelEffort, launchSession, killSession, restartSession, err400 };
+export { paneTmuxNames, invalidatePaneCache, clearPaneCaches, tmuxAlive, launchInfoForPane, resolveLaunchForSession, deliverReply, deliverQuestion, deliverQuestionWithNote, deliverQuestionFreeText, deliverPlanChoice, parsePlanPrompt, sendKey, parsePaneMode, readPaneMode, readPaneModeSync, paneBusySync, parseSpinner, paneActivitySync, conversationBody, paneActiveSync, paneActiveStep, setMode, setModelEffort, launchSession, killSession, restartSession, err400 };
