@@ -110,7 +110,7 @@
     todos: (s?.todos || []).length,
     subagents: (s?.subagents || []).length,
     subsessions: (s?.subSessions || []).length,
-    background: (s?.bgJobs || []).length,
+    background: (s?.bgJobs || []).filter((j) => (j.status || 'running') === 'running').length,
     terminal: terminals.length,
     pr: (s?.prLinks || []).length,
     issues: (s?.issueLinks || []).length,
@@ -120,7 +120,9 @@
     todos: subtabCount.todos > 0,
     subagents: subtabCount.subagents > 0,
     subsessions: subtabCount.subsessions > 0,
-    background: subtabCount.background > 0,
+    // le badge compte les jobs RUNNING (honnête), mais l'onglet reste visible tant qu'il existe des
+    // jobs (running OU terminés) pour laisser accéder à l'historique « Finished ».
+    background: (s?.bgJobs || []).length > 0,
     terminal: subtabCount.terminal > 0,
     pr: subtabCount.pr > 0,
     issues: subtabCount.issues > 0,

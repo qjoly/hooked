@@ -10,7 +10,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { buildBackgroundJobs, activeBackgroundJobs, withBackgroundState } from '../server/index.js';
+import { buildBackgroundJobs, activeBackgroundJobs, withBackgroundState, jobStatus } from '../server/index.js';
 
 const DIR = path.dirname(fileURLToPath(import.meta.url));
 const FP = path.join(DIR, 'fixtures', 'background.jsonl');
@@ -57,6 +57,13 @@ describe('buildBackgroundJobs — cycle de vie des jobs de fond', () => {
     expect(wk.length).toBe(1);
     expect(wk[0].prompt).toBe('Resume the deploy check');
     expect(wk[0].done).toBe(false);
+  });
+
+  it('Monitor : le timeout propre (timeout 600000ms) est extrait dans job.timeoutMs', () => {
+    expect(byId.mon_active_1.timeoutMs).toBe(600000);
+    expect(byId.mon_done_1.timeoutMs).toBe(600000);
+    // un job non-monitor (bash) ne porte pas de timeoutMs.
+    expect(byId.bg_active_1.timeoutMs).toBeUndefined();
   });
 
   it('activeBackgroundJobs = raccourci sur .active ; fichier absent → []', () => {
@@ -114,5 +121,59 @@ describe('withBackgroundState — relabel waiting → background', () => {
   it("pane mort ne devient jamais working, même avec busy truthy résiduel", () => {
     // alive faux ⇒ on n'entre pas dans la branche : reste waiting (cf. fix dead-pane 1f98901).
     expect(withBackgroundState('waiting', false, 2, true)).toBe('waiting');
+  });
+});
+
+describe('jobStatus — statut pur d\'un job (croise notif terminale, timeout Monitor, vivacité pane)', () => {
+  const NOW = Date.parse('2026-06-20T12:00:00Z');
+  // fabrique un job minimal ; done+doneReason pour les statuts terminaux, sinon !done.
+  const mk = (o) => ({ kind: 'monitor', startTs: '2026-06-20T11:59:00Z', done: false, doneReason: null, timeoutMs: null, ...o });
+
+  it('completed : done + reason ∈ {completed, exited, done}', () => {
+    expect(jobStatus(mk({ done: true, doneReason: 'completed' }), true, NOW)).toBe('completed');
+    expect(jobStatus(mk({ done: true, doneReason: 'exited' }), true, NOW)).toBe('completed');
+    expect(jobStatus(mk({ done: true, doneReason: 'done' }), true, NOW)).toBe('completed');
+  });
+  it('failed : done + reason ∈ {failed, error, killed, timeout, interrupted, …}', () => {
+    for (const r of ['failed', 'error', 'errored', 'killed', 'timeout', 'timedout', 'timed_out', 'interrupted'])
+      expect(jobStatus(mk({ done: true, doneReason: r }), true, NOW)).toBe('failed');
+  });
+  it('stopped : done + reason ∈ {stopped, cancelled, canceled}', () => {
+    for (const r of ['stopped', 'cancelled', 'canceled'])
+      expect(jobStatus(mk({ done: true, doneReason: r }), true, NOW)).toBe('stopped');
+  });
+  it('fired : done + reason = fired (wakeup déclenché)', () => {
+    expect(jobStatus(mk({ kind: 'wakeup', done: true, doneReason: 'fired' }), true, NOW)).toBe('fired');
+  });
+  it('orphaned : pas terminé & pane mort (alive=false) — prioritaire sur expired', () => {
+    expect(jobStatus(mk({}), false, NOW)).toBe('orphaned');
+    // même expiré, un pane mort → orphaned (le gate !alive passe en premier).
+    expect(jobStatus(mk({ startTs: '2026-06-20T10:00:00Z', timeoutMs: 60000 }), false, NOW)).toBe('orphaned');
+  });
+  it('expired : monitor non terminé, pane vivant, startTs + timeoutMs < now', () => {
+    // armé à 10:00 avec un timeout de 1 min → expiré bien avant 12:00.
+    expect(jobStatus(mk({ startTs: '2026-06-20T10:00:00Z', timeoutMs: 60000 }), true, NOW)).toBe('expired');
+    // sans timeoutMs connu on ne peut pas expirer → running.
+    expect(jobStatus(mk({ startTs: '2026-06-20T10:00:00Z', timeoutMs: null }), true, NOW)).toBe('running');
+    // un bash (non-monitor) n'expire jamais par timeout, même vieux.
+    expect(jobStatus(mk({ kind: 'bash', startTs: '2026-06-20T10:00:00Z', timeoutMs: 60000 }), true, NOW)).toBe('running');
+  });
+  it('running : pas terminé, pane vivant, dans la fenêtre de timeout', () => {
+    // armé à 11:59 avec 10 min de timeout → encore dans la fenêtre à 12:00.
+    expect(jobStatus(mk({ startTs: '2026-06-20T11:59:00Z', timeoutMs: 600000 }), true, NOW)).toBe('running');
+  });
+
+  it('running-count exclut expired / orphaned / résolus', () => {
+    const jobs = [
+      mk({ startTs: '2026-06-20T11:59:00Z', timeoutMs: 600000 }),         // running
+      mk({ startTs: '2026-06-20T10:00:00Z', timeoutMs: 60000 }),          // expired
+      mk({ done: true, doneReason: 'completed' }),                        // completed
+      mk({ done: true, doneReason: 'failed' }),                           // failed
+      mk({ kind: 'wakeup', done: true, doneReason: 'fired' }),            // fired
+    ];
+    const running = jobs.filter((j) => jobStatus(j, true, NOW) === 'running');
+    expect(running.length).toBe(1);
+    // pane mort → tout devient orphaned/terminé, aucun running.
+    expect(jobs.filter((j) => jobStatus(j, false, NOW) === 'running').length).toBe(0);
   });
 });
