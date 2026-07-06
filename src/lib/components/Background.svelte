@@ -2,8 +2,8 @@
   import { tick, onDestroy } from 'svelte';
   import { ago } from '$lib/format.js';
   import { connectBackgroundLog } from '$lib/api.js';
-  // Jobs de fond ENCORE ACTIFS de la session (server/background.js → sessionDetail.bgJobs).
-  // { kind:'bash'|'monitor'|'wakeup', taskId, command, description, startTs, outputPath }
+  // Jobs de fond de la session (server/background.js → sessionDetail.bgJobs) : running + historique.
+  // { kind:'bash'|'monitor'|'wakeup', taskId, command, description, startTs, outputPath, status }
   let { jobs = [], session } = $props();
 
   const KIND = {
@@ -12,6 +12,23 @@
     wakeup:  { icon: '⏰', label: 'Scheduled wakeup' },
   };
   const meta = (k) => KIND[k] || { icon: '🌀', label: k };
+
+  // Statut d'un job (cf. jobStatus, server/background.js) → libellé + variable de couleur d'état.
+  const STATUS = {
+    running:   { label: 'Running',   var: 'background' },
+    completed: { label: 'Completed', var: 'ended' },
+    fired:     { label: 'Fired',     var: 'ended' },
+    failed:    { label: 'Failed',    var: 'attention' },
+    expired:   { label: 'Expired',   var: 'waiting' },
+    stopped:   { label: 'Stopped',   var: 'waiting' },
+    orphaned:  { label: 'Orphaned',  var: 'muted' },
+  };
+  const stat = (s) => STATUS[s] || { label: s || 'Running', var: 'muted' };
+
+  // Actifs (en tête) vs terminés (repliés). Un job sans statut (payload legacy) est traité 'running'.
+  const isActive = (j) => ['running', 'expired', 'orphaned'].includes(j.status || 'running');
+  const active = $derived(jobs.filter(isActive));
+  const finished = $derived(jobs.filter((j) => !isActive(j)));
 
   // Accordéon : un seul log ouvert à la fois (un seul EventSource vivant).
   let openId = $state(null);
@@ -61,32 +78,46 @@
   onDestroy(close);
 </script>
 
+{#snippet jobItem(j, i)}
+  <div class="bg-item">
+    <div class="bg-top">
+      <span class="bg-kind">{meta(j.kind).icon} {meta(j.kind).label}</span>
+      <span class="badge" style="color: var(--{stat(j.status).var}); border-color: var(--{stat(j.status).var});">{stat(j.status).label}</span>
+      {#if j.taskId}<span class="bg-id">{j.taskId}</span>{/if}
+      <span class="bg-ago">{ago(j.startTs)}</span>
+    </div>
+    {#if j.description}<div class="bg-desc">{j.description}</div>{/if}
+    {#if j.command}<pre class="bg-cmd">{j.command}</pre>{/if}
+    {#if j.outputPath}
+      <button class="bg-log-toggle" onclick={() => toggle(j)} aria-expanded={openId === j.taskId}>
+        {openId === j.taskId ? '▾ Hide log' : '▸ View log'}
+      </button>
+    {:else}
+      <div class="bg-nolog">no log available</div>
+    {/if}
+    {#if openId === j.taskId}
+      <pre class="bg-log" bind:this={logEl} onscroll={onScroll}>{#if logStatus === 'unavailable'}(no log available){:else if logStatus === 'connecting' && !logText}connecting…{:else}{logText}{/if}</pre>
+    {/if}
+  </div>
+{/snippet}
+
 <div class="bg-list">
-  {#if !jobs.length}
-    <div class="pane-empty">No active background jobs.</div>
-  {:else}
+  {#if active.length}
     <p class="bg-hint">🌀 This session's turn ended, but these background jobs are still running — they'll re-invoke Claude when they finish.</p>
-    {#each jobs as j, i (j.taskId || j.command || i)}
-      <div class="bg-item">
-        <div class="bg-top">
-          <span class="bg-kind">{meta(j.kind).icon} {meta(j.kind).label}</span>
-          {#if j.taskId}<span class="bg-id">{j.taskId}</span>{/if}
-          <span class="bg-ago">{ago(j.startTs)}</span>
-        </div>
-        {#if j.description}<div class="bg-desc">{j.description}</div>{/if}
-        {#if j.command}<pre class="bg-cmd">{j.command}</pre>{/if}
-        {#if j.outputPath}
-          <button class="bg-log-toggle" onclick={() => toggle(j)} aria-expanded={openId === j.taskId}>
-            {openId === j.taskId ? '▾ Hide log' : '▸ View log'}
-          </button>
-        {:else}
-          <div class="bg-nolog">no log available</div>
-        {/if}
-        {#if openId === j.taskId}
-          <pre class="bg-log" bind:this={logEl} onscroll={onScroll}>{#if logStatus === 'unavailable'}(no log available){:else if logStatus === 'connecting' && !logText}connecting…{:else}{logText}{/if}</pre>
-        {/if}
-      </div>
+    {#each active as j, i (j.taskId || j.command || i)}
+      {@render jobItem(j, i)}
     {/each}
+  {:else}
+    <div class="pane-empty">No active background jobs.</div>
+  {/if}
+
+  {#if finished.length}
+    <details class="bg-finished">
+      <summary>Finished ({finished.length})</summary>
+      {#each finished as j, i (j.taskId || j.command || i)}
+        {@render jobItem(j, i)}
+      {/each}
+    </details>
   {/if}
 </div>
 
@@ -100,6 +131,20 @@
   .bg-top { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
   .bg-kind { font-weight: 700; font-size: 13px; color: var(--text); }
   .bg-id { font-family: var(--mono); font-size: 10.5px; color: var(--muted); background: var(--bg3); border-radius: 6px; padding: 0 6px; }
+  /* pastille de statut : couleur d'état (var passée en inline style) sur fond transparent. */
+  .badge {
+    font-size: 10px; font-weight: 700; letter-spacing: 0.03em; text-transform: uppercase;
+    border: 1px solid var(--muted); border-radius: 999px; padding: 1px 7px; line-height: 1.5;
+  }
+  .bg-finished { margin-top: 6px; }
+  .bg-finished > summary {
+    cursor: pointer; font-size: 12.5px; font-weight: 600; color: var(--muted);
+    padding: 4px 2px; list-style-position: inside;
+  }
+  .bg-finished > summary:hover { color: var(--text); }
+  .bg-finished[open] > summary { margin-bottom: 8px; }
+  .bg-finished .bg-item { margin-bottom: 8px; }
+  .bg-finished .bg-item:last-child { margin-bottom: 0; }
   .bg-ago { margin-left: auto; font-size: 11px; color: var(--muted); }
   .bg-desc { margin-top: 6px; font-size: 13px; color: var(--text); }
   .bg-cmd {
