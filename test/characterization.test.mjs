@@ -148,6 +148,28 @@ describe('buildConversation', () => {
       expect(msgs.some((m) => m.role === 'user' && m.text.includes('task-notification'))).toBe(false);
     });
   });
+
+  // Dedup : un queue-operation traité en tour user réel ne doit apparaître qu'une seule fois.
+  describe('queue-operation dedup (message traité → bulle unique)', () => {
+    const DDUP = path.join(DIR, 'fixtures', 'queue-op-dedup.jsonl');
+    it('queue-op suivi d\'un user turn identique → une seule bulle user', () => {
+      const msgs = lib.buildConversation(DDUP);
+      const bubbles = msgs.filter((m) => m.role === 'user' && m.text === 'Hello again');
+      expect(bubbles.length).toBe(1);
+    });
+    it('la bulle retenue est celle du tour user réel (timestamp/uuid du user turn)', () => {
+      const msgs = lib.buildConversation(DDUP);
+      const bubble = msgs.find((m) => m.role === 'user' && m.text === 'Hello again');
+      expect(bubble.ts).toBe('2026-06-20T11:00:30Z');   // timestamp du user turn, pas du queue-op
+      expect(bubble.forkUuid).toBe('u10');               // uuid du user turn
+    });
+    it('queue-op sans tour user correspondant reste visible (message encore en attente)', () => {
+      const msgs = lib.buildConversation(DDUP);
+      const pending = msgs.find((m) => m.role === 'user' && m.text === 'Still pending');
+      expect(pending).toBeTruthy();
+      expect(pending.forkUuid).toBe('q11');
+    });
+  });
 });
 
 describe('buildFileChanges', () => {
