@@ -640,4 +640,20 @@ function killSession(id, cb) {
   });
 }
 
-export { paneTmuxNames, invalidatePaneCache, clearPaneCaches, tmuxAlive, launchInfoForPane, resolveLaunchForSession, deliverReply, deliverQuestion, deliverQuestionWithNote, deliverQuestionFreeText, deliverPlanChoice, parsePlanPrompt, sendKey, parsePaneMode, readPaneMode, readPaneModeSync, paneBusySync, parseSpinner, paneActivitySync, conversationBody, paneActiveSync, setMode, setModelEffort, launchSession, killSession, err400 };
+// Redémarre une session pour qu'elle reparte sur la version claude installée : on tue le pane où
+// tourne l'ancien process, puis on relance `claude --resume <id>` dans une NOUVELLE session tmux
+// détachée (launchSession). L'état en mémoire est volontairement perdu ; la reprise recharge le
+// transcript (cf. philosophie « reconnect » du projet). model/effort sont ré-épinglés à la reprise.
+// hooked resuit la session par son id : `paneForSession` la retrouve via les nouveaux évènements.
+function restartSession(id, { model, effort } = {}, cb) {
+  const pane = paneForSession(id);
+  const relaunch = () => launchSession({ resumeId: id, model, effort }, cb);
+  // Pane encore vivant → on le tue d'abord ; sinon (déjà fermé) on enchaîne directement sur la reprise.
+  if (pane && /^%\d+$/.test(pane) && tmuxAlive(pane)) {
+    execFile('tmux', ['kill-pane', '-t', pane], () => relaunch()); // erreur ignorée : le pane a pu mourir entre-temps
+  } else {
+    relaunch();
+  }
+}
+
+export { paneTmuxNames, invalidatePaneCache, clearPaneCaches, tmuxAlive, launchInfoForPane, resolveLaunchForSession, deliverReply, deliverQuestion, deliverQuestionWithNote, deliverQuestionFreeText, deliverPlanChoice, parsePlanPrompt, sendKey, parsePaneMode, readPaneMode, readPaneModeSync, paneBusySync, parseSpinner, paneActivitySync, conversationBody, paneActiveSync, setMode, setModelEffort, launchSession, killSession, restartSession, err400 };
