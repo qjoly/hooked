@@ -259,6 +259,14 @@
     if (body) body.scrollTop = body.scrollHeight;
   }
 
+  // Revue de fichiers → on bascule sur la Conversation (pour voir la file d'attente + le statut)
+  // et on délègue au Composer, qui gère l'envoi comme un message normal (alive / relance).
+  async function reviewChanges(prompt) {
+    tab = 'chat';
+    await tick();
+    if (composer) composer.sendText(prompt);
+  }
+
   onMount(() => load(false));
 
   // Retour sur l'onglet Conversation : re-scroll en bas. Les sous-onglets partagent le même
@@ -566,7 +574,7 @@
     </div>
 
     <div class="pane" class:active={tab === 'changes'}>
-      <div class="changes"><Changes changes={s.changes || []} /></div>
+      <div class="changes"><Changes changes={s.changes || []} onReview={reviewChanges} canReview={!!(s.tmuxPane)} /></div>
     </div>
 
     <div class="pane" class:active={tab === 'subagents'}>
