@@ -58,6 +58,24 @@
   // messages envoyés en attente d'apparaître dans le transcript (file d'attente, comme le CLI).
   let queued = $state([]);
   let forceBottom = false;          // force le scroll en bas au prochain rendu (envoi d'un message)
+  // Fenêtrage du transcript : sur une grosse conv (1M+ tokens) monter toutes les bulles (chacune =
+  // plusieurs Markdown parsés) fige l'UI, d'autant qu'un tick SSE refetch et re-diffe tout. On ne
+  // rend que la QUEUE (les MSG_WINDOW derniers messages) ; « plus haut » en révèle MSG_STEP de plus.
+  const MSG_WINDOW = 120;
+  const MSG_STEP = 200;
+  let visibleCount = $state(MSG_WINDOW);
+  const msgCount = $derived((s?.messages || []).length);
+  const startIdx = $derived(Math.max(0, msgCount - visibleCount));
+  // changement de session (prop id, sans remount) → on repart de la queue.
+  $effect(() => { id; untrack(() => { visibleCount = MSG_WINDOW; }); });
+  // révèle un cran de messages plus anciens en gardant la vue ancrée (le contenu ajouté au-dessus
+  // pousserait tout vers le bas sinon).
+  async function showEarlier() {
+    const prev = body ? body.scrollHeight : 0;
+    visibleCount = Math.min(msgCount, visibleCount + MSG_STEP);
+    await tick();
+    if (body) body.scrollTop += body.scrollHeight - prev;
+  }
   // « collé en bas » : vrai tant que l'utilisateur suit la conversation (proche du bas). Dès qu'il
   // scrolle vers le haut (lire l'historique / composer), on NE le ramène plus en bas aux ticks SSE.
   let stickToBottom = true;
@@ -216,6 +234,10 @@
       const userTexts = new Set((d.messages || []).filter((m) => m.role === 'user').map((m) => (m.text || '').trim()));
       queued = queued.filter((q) => !userTexts.has(q.text.trim()));
     }
+    // deep-link #msg-<ts> (page Recherche) : la cible peut être hors fenêtre → tout rendre une fois
+    // pour que scrollToHashMsg la trouve.
+    if (!isRefresh && typeof window !== 'undefined' && (window.location.hash || '').startsWith('#msg-'))
+      visibleCount = (d.messages || []).length;
     await tick();
     // ancre #msg-<ts> (depuis la page Recherche) : scroll vers la bulle ciblée au 1er load.
     if (!isRefresh && scrollToHashMsg()) return;
@@ -546,8 +568,15 @@
        onscroll={() => { if (body) stickToBottom = (body.scrollHeight - body.scrollTop - body.clientHeight) < 60; }}>
     <div class="pane" class:active={tab === 'chat'}>
       <div class="chat">
+        {#if startIdx > 0}
+          <button class="show-earlier" onclick={showEarlier}>⬆ Show earlier messages · {startIdx} hidden</button>
+        {/if}
         {#if (s.messages || []).length}
-          {#each s.messages as m, i (m.ts + ':' + i)}<ChatBubble {m} onfork={quickFork} onforkadvanced={openFork} {forkState} />{/each}
+          <!-- key by stable ABSOLUTE index (startIdx + j), NOT m.ts: the streaming turn's ts advances on every
+               block (conversation.js rewrites prev.ts), so a ts-based key destroys+recreates the whole live bubble
+               each tick → the "jumps". Transcript is append/merge-only, so a message's absolute index never moves,
+               even as the render window slides → the key stays stable across MSG_STEP expansions and new ticks. -->
+          {#each (s.messages || []).slice(startIdx) as m, j (startIdx + j)}<ChatBubble {m} onfork={quickFork} onforkadvanced={openFork} {forkState} />{/each}
         {:else if !queued.length}
           <div class="pane-empty">Empty conversation.</div>
         {/if}
@@ -669,6 +698,14 @@
     display: flex; align-items: center; width: 100%; justify-content: flex-start; text-align: left;
     border: none; border-radius: 8px; padding: 7px 10px;
   }
+  /* bouton « révéler les messages plus anciens » en tête du transcript fenêtré */
+  .show-earlier {
+    display: block; margin: 4px auto 10px; padding: 5px 14px;
+    font-size: 12.5px; color: var(--muted); font-weight: 600;
+    background: var(--bg2); border: 1px dashed var(--border); border-radius: 999px;
+    cursor: pointer;
+  }
+  .show-earlier:hover { color: var(--text); background: var(--bg3); border-color: var(--accent); }
   /* indicateur « working » sous la dernière bulle : slim, discret, respire (couleur de statut) */
   .working-live {
     display: flex; align-items: center; gap: 6px;
