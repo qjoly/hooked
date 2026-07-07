@@ -7,7 +7,7 @@
    *   edit     : old = old_string, new = new_string
    */
   import PierreDiff from './PierreDiff.svelte';
-  let { o, name = 'file.txt' } = $props();
+  let { o, name = 'file.txt', commentable = false, comments = [], onCommit = null, onDelete = null } = $props();
   const oldStr = $derived(o.kind === 'edit' ? (o.old || '') : '');
   const newStr = $derived(o.kind === 'write' ? (o.content || '') : (o.new || ''));
 </script>
@@ -16,5 +16,5 @@
   {#if o.kind === 'write'}<div class="diff-tag write">＋ new content</div>{/if}
   {#if o.kind === 'notebook'}<div class="diff-tag write">notebook</div>{/if}
   {#if o.all}<div class="diff-tag">replace all occurrences</div>{/if}
-  <PierreDiff {oldStr} {newStr} {name} diffStyle="split" />
+  <PierreDiff {oldStr} {newStr} {name} diffStyle="split" {commentable} {comments} {onCommit} {onDelete} />
 </div>

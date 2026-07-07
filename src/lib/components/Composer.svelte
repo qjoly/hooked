@@ -227,6 +227,17 @@
     queueMicrotask(() => { if (ta) { ta.focus(); autosize(); ta.selectionStart = ta.selectionEnd = ta.value.length; } });
   }
 
+  // Envoi programmatique (revue de fichiers) : on remplit le composer avec le prompt généré
+  // puis on réutilise `send()` tel quel — même chemin alive/relance/nouvelle session, même
+  // file d'attente + scroll. La revue apparaît donc comme un message normal dans le chat.
+  export function sendText(t) {
+    const v = typeof t === 'string' ? t.trim() : '';
+    if (!v || busy || uploading) return;
+    text = v;
+    autosize();
+    send();
+  }
+
   async function send() {
     const t = text.trim();
     if ((!t && !images.length) || busy || uploading) return;
