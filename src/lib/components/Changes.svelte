@@ -1,9 +1,33 @@
 <script>
   import Diff from './Diff.svelte';
+  import { getVcsDiff } from '$lib/api.js';
   // `onReview(prompt)` : envoie le prompt de revue généré (branché sur le Composer par le parent).
   // `canReview` : faux si aucun pane tmux → on ne peut rien envoyer, on désactive le bouton.
-  let { changes, onReview = null, canReview = true } = $props();
-  let openSet = $state({}); // index -> bool
+  // `id` : session id, requis pour charger le diff VCS (git/jj) du working tree à la demande.
+  let { changes, id = null, onReview = null, canReview = true } = $props();
+  let openSet = $state({}); // clé `${view}:${index}` -> bool
+
+  // ----- sous-onglets : diff « Claude » (reconstruit du transcript) vs diff VCS (git/jj) -----
+  let view = $state('claude'); // 'claude' | 'vcs'
+  // État du diff VCS, chargé paresseusement au 1er passage sur l'onglet (puis rafraîchissable).
+  let vcs = $state({ loaded: false, loading: false, error: null, kind: null, changes: [] });
+  const VCS_META = {
+    git: { icon: '🔀', label: 'Git' },
+    jj:  { icon: '🥋', label: 'Jujutsu' },
+  };
+  const vcsMeta = $derived(VCS_META[vcs.kind] || { icon: '🔀', label: 'VCS' });
+
+  async function loadVcs(force = false) {
+    if (!id || vcs.loading || (vcs.loaded && !force)) return;
+    vcs = { ...vcs, loading: true, error: null };
+    try {
+      const r = await getVcsDiff(id);
+      vcs = { loaded: true, loading: false, error: null, kind: r.vcs, changes: r.changes || [] };
+    } catch (e) {
+      vcs = { ...vcs, loading: false, loaded: true, error: 'Failed to load diff.' };
+    }
+  }
+  function selectVcs() { view = 'vcs'; loadVcs(false); }
 
   // ----- revue de fichiers (commentaires inline façon PR GitHub, envoyés en batch) -----
   // Chaque commentaire porte sur une ligne / un groupe de lignes d'un diff, posé via le gutter
@@ -71,49 +95,104 @@
   }
 </script>
 
-{#if !changes.length}
-  <div class="pane-empty">No file changes in this session.</div>
-{:else}
-  {#each changes as c, i}
-    <div class="change" class:open={openSet[i]}>
-      <div class="change-head" title={c.file} onclick={() => (openSet = { ...openSet, [i]: !openSet[i] })}>
+<!-- Une carte fichier, partagée par les deux vues. `commentable` : gutter de revue inline (Claude). -->
+{#snippet cards(list, commentable)}
+  {#each list as c, i}
+    {@const key = view + ':' + i}
+    <div class="change" class:open={openSet[key]}>
+      <div class="change-head" title={c.file} onclick={() => (openSet = { ...openSet, [key]: !openSet[key] })}>
         <span class="ch-arrow">▸</span>
         <span class="ch-name">{c.name}</span>
         <span class="ch-path">{c.file}</span>
         <a class="ch-open" href={'vscode://file' + c.file} title="Open in VS Code"
            onclick={(e) => e.stopPropagation()}>↗ editor</a>
-        <span class="ch-count">{c.count} {c.count > 1 ? 'edits' : 'edit'}</span>
+        <span class="ch-count">{c.badge ?? (c.count + ' ' + (c.count > 1 ? 'edits' : 'edit'))}</span>
       </div>
       <div class="change-ops">
-        <div class="op-hint">Hover a line and click <span class="op-hint-plus">＋</span> to comment, like a GitHub PR.</div>
-        {#each c.ops as o, j}
-          <div class="op-wrap">
-            <Diff {o} name={c.name}
-                  commentable={true}
-                  comments={lineCommentsFor(c.file, j)}
-                  onCommit={(p) => addLineComment(c.file, j, c.name, p)}
-                  onDelete={removeLineComment} />
-          </div>
-        {/each}
+        {#if c.binary}
+          <div class="op-hint">Binary file — no diff.</div>
+        {:else}
+          {#if commentable}
+            <div class="op-hint">Hover a line and click <span class="op-hint-plus">＋</span> to comment, like a GitHub PR.</div>
+          {/if}
+          {#each c.ops as o, j}
+            <div class="op-wrap">
+              {#if commentable}
+                <Diff {o} name={c.name}
+                      commentable={true}
+                      comments={lineCommentsFor(c.file, j)}
+                      onCommit={(p) => addLineComment(c.file, j, c.name, p)}
+                      onDelete={removeLineComment} />
+              {:else}
+                <Diff {o} name={c.name} />
+              {/if}
+            </div>
+          {/each}
+        {/if}
       </div>
     </div>
   {/each}
+{/snippet}
 
-  {#if activeCount}
-    <div class="review-bar">
-      <textarea class="review-note" rows="1" bind:value={note}
-                placeholder="Optional general note (e.g. run the tests after fixing)…"></textarea>
-      <span class="review-count">{activeCount} {activeCount > 1 ? 'comments' : 'comment'}</span>
-      <button class="review-clear" onclick={clearReview} disabled={sending}>Clear</button>
-      <button class="review-send" onclick={sendReview} disabled={sending || !canReview}
-              title={canReview ? 'Generate a prompt from your comments and send it to the session' : 'No live tmux session to send to'}>
-        {sending ? 'Sending…' : 'Send review ↩'}
-      </button>
-    </div>
+<div class="subview-bar">
+  <button class="subview" class:active={view === 'claude'} onclick={() => (view = 'claude')}>📝 Claude</button>
+  <button class="subview" class:active={view === 'vcs'} onclick={selectVcs}>{vcsMeta.icon} {vcsMeta.label}</button>
+  {#if view === 'vcs' && vcs.loaded && !vcs.loading}
+    <button class="subview-refresh" title="Reload the working-tree diff" onclick={() => loadVcs(true)}>⟳</button>
+  {/if}
+</div>
+
+{#if view === 'claude'}
+  {#if !changes.length}
+    <div class="pane-empty">No file changes in this session.</div>
+  {:else}
+    {@render cards(changes, true)}
+    {#if activeCount}
+      <div class="review-bar">
+        <textarea class="review-note" rows="1" bind:value={note}
+                  placeholder="Optional general note (e.g. run the tests after fixing)…"></textarea>
+        <span class="review-count">{activeCount} {activeCount > 1 ? 'comments' : 'comment'}</span>
+        <button class="review-clear" onclick={clearReview} disabled={sending}>Clear</button>
+        <button class="review-send" onclick={sendReview} disabled={sending || !canReview}
+                title={canReview ? 'Generate a prompt from your comments and send it to the session' : 'No live tmux session to send to'}>
+          {sending ? 'Sending…' : 'Send review ↩'}
+        </button>
+      </div>
+    {/if}
+  {/if}
+{:else}
+  {#if vcs.loading}
+    <div class="pane-empty">Loading working-tree diff…</div>
+  {:else if vcs.error}
+    <div class="pane-empty">{vcs.error}</div>
+  {:else if vcs.kind === null}
+    <div class="pane-empty">This project is not in a git or jj repository.</div>
+  {:else if !vcs.changes.length}
+    <div class="pane-empty">No uncommitted changes in the working tree.</div>
+  {:else}
+    {@render cards(vcs.changes, false)}
   {/if}
 {/if}
 
 <style>
+  /* --- barre des sous-onglets (Claude / VCS) --- */
+  .subview-bar {
+    display: flex; align-items: center; gap: 6px; padding: 8px 14px 4px 14px;
+    position: sticky; top: 0; z-index: 4; background: var(--bg);
+  }
+  .subview {
+    background: transparent; border: 1px solid var(--border2); border-radius: 8px;
+    color: var(--muted); font-family: var(--mono); font-size: 12px; font-weight: 700;
+    padding: 5px 12px; cursor: pointer; transition: color .12s, border-color .12s, background .12s;
+  }
+  .subview:hover { color: var(--text); border-color: var(--muted); }
+  .subview.active { color: var(--accent-d); border-color: var(--accent); background: var(--accent-soft); }
+  .subview-refresh {
+    margin-left: auto; background: transparent; border: 1px solid var(--border2); border-radius: 8px;
+    color: var(--muted); font-size: 13px; padding: 4px 9px; cursor: pointer;
+  }
+  .subview-refresh:hover { color: var(--text); border-color: var(--muted); }
+
   .op-wrap { position: relative; }
 
   /* --- hint de découvrabilité du commentaire inline --- */
