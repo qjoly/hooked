@@ -603,7 +603,7 @@
     </div>
 
     <div class="pane" class:active={tab === 'changes'}>
-      <div class="changes"><Changes changes={s.changes || []} onReview={reviewChanges} canReview={!!(s.tmuxPane)} /></div>
+      <div class="changes"><Changes changes={s.changes || []} {id} onReview={reviewChanges} canReview={!!(s.tmuxPane)} /></div>
     </div>
 
     <div class="pane" class:active={tab === 'subagents'}>
