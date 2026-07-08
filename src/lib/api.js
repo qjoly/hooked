@@ -14,6 +14,8 @@ async function jpost(url, body) {
 export const getSessions = async () => (await jget('/api/sessions')).sessions;
 export const getSession = (id) => jget('/api/session?id=' + encodeURIComponent(id));
 export const getStats = (range) => jget('/api/stats?range=' + encodeURIComponent(range));
+// Diff du working tree (git/jj) du projet de la session. { vcs:'git'|'jj'|null, changes:[…] }.
+export const getVcsDiff = (id) => jget('/api/session/vcs-diff?id=' + encodeURIComponent(id));
 // Usage « /usage » : rate limits du compte (5 h / 7 j) + contexte/effort de la session courante + budget 5 h.
 export const getUsage = () => jget('/api/usage');
 // Jobs de fond encore actifs, toutes sessions confondues (carte Overview). { jobs, count }.
