@@ -1,7 +1,7 @@
 <script>
   import { untrack, onMount } from 'svelte';
   import { ui, settings, updateSettings, setTheme, loadSessions } from '$lib/state.svelte.js';
-  import { resync, getGit, checkoutBranch, dismissRestartNotice } from '$lib/api.js';
+  import { resync, getGit, checkoutBranch, dismissRestartNotice, getClaudeVersion, upgradeClaude, restartClaudeSession } from '$lib/api.js';
 
   // Métadonnées d'affichage des sous-onglets (miroir de SessionDetail / server/settings.js).
   const SUBTAB_META = {
@@ -116,6 +116,86 @@
     setTimeout(() => { resyncStatus = ''; }, 3000);
   }
 
+  // ── Claude Code version (installed binary + outdated live sessions) ───────────────────────────
+  // A session keeps running the version it started with: upgrading the binary doesn't touch live
+  // sessions until they're restarted (kill + `claude --resume`). We surface which live sessions run
+  // an older version than installed, let the user upgrade the binary (never sudo), and reconnect.
+  let claude = $state(null);           // { install, installed, outdated } | { error }
+  let claudeLoading = $state(false);
+  let claudeStatus = $state('');
+  let upgrading = $state(false);
+  let restartingId = $state('');       // session id currently restarting (single-flight)
+  let bulkBusy = $state(false);        // "Upgrade & reconnect all" in flight
+  const restarted = $state(new Set()); // ids restarted this visit → filtered out (transcript version lags until it next writes)
+
+  const outdatedRows = $derived((claude?.outdated || []).filter((r) => !restarted.has(r.id)));
+
+  async function loadClaude() {
+    claudeLoading = true;
+    try {
+      claude = await getClaudeVersion();
+    } catch (e) {
+      claude = { error: e.message || 'failed to load claude version' };
+    }
+    claudeLoading = false;
+  }
+
+  async function doUpgrade() {
+    if (upgrading || !claude?.install) return;
+    upgrading = true; claudeStatus = '⏳ upgrading…';
+    const res = await upgradeClaude().catch((e) => ({ ok: false, data: { error: e.message } }));
+    upgrading = false;
+    if (res.ok) {
+      claudeStatus = `✓ upgraded to ${res.data.installed}`;
+      await loadClaude();
+    } else if (res.data?.needsSudo) {
+      claudeStatus = '✗ ' + (res.data.warning || 'upgrade needs elevated permissions');
+    } else {
+      claudeStatus = '✗ ' + (res.data?.warning || res.data?.error || 'upgrade failed');
+    }
+    setTimeout(() => { claudeStatus = ''; }, 6000);
+  }
+
+  // Restart one session so it picks up the installed version. A session that's actively working is
+  // guarded behind a confirm (kill + resume loses in-memory state; the transcript is reloaded).
+  async function doRestart(row) {
+    if (restartingId || bulkBusy) return false;
+    if (row.state === 'working' && !confirm(`“${row.projectName || row.id}” is working right now.\nRestart it? In-memory state is lost; the session resumes from its transcript.`)) return false;
+    restartingId = row.id; claudeStatus = '';
+    const res = await restartClaudeSession(row.id).catch((e) => ({ ok: false, data: { error: e.message } }));
+    restartingId = '';
+    if (res.ok) { restarted.add(row.id); claude = { ...claude }; return true; }
+    claudeStatus = '✗ ' + (res.data?.error || 'restart failed');
+    setTimeout(() => { claudeStatus = ''; }, 5000);
+    return false;
+  }
+
+  // Upgrade the binary first (if possible), then reconnect every still-outdated session in sequence.
+  async function doUpgradeAndReconnect() {
+    if (bulkBusy || restartingId) return;
+    bulkBusy = true;
+    try {
+      if (claude?.install?.upgrade && !claude.install.needsSudo) {
+        claudeStatus = '⏳ upgrading…';
+        const up = await upgradeClaude().catch((e) => ({ ok: false, data: { error: e.message } }));
+        if (up.ok) { await loadClaude(); }
+        else { claudeStatus = '✗ ' + (up.data?.warning || up.data?.error || 'upgrade failed'); bulkBusy = false; setTimeout(() => { claudeStatus = ''; }, 6000); return; }
+      }
+      const rows = [...(claude?.outdated || [])].filter((r) => !restarted.has(r.id));
+      let done = 0;
+      for (const r of rows) {
+        claudeStatus = `⏳ reconnecting ${done + 1}/${rows.length}…`;
+        const res = await restartClaudeSession(r.id).catch(() => ({ ok: false }));
+        if (res.ok) { restarted.add(r.id); done++; }
+      }
+      claude = { ...claude };
+      claudeStatus = `✓ reconnected ${done} session${done === 1 ? '' : 's'}`;
+    } finally {
+      bulkBusy = false;
+      setTimeout(() => { claudeStatus = ''; }, 6000);
+    }
+  }
+
   // ── Git branch of the running hooked instance ─────────────────────────────────────────────────
   // Operates on the repo the server itself lives in (resolved server-side at runtime).
   let git = $state(null);          // { current, dirty, ahead, behind, upstream, branches, sync } | { error }
@@ -136,7 +216,7 @@
     }
     gitLoading = false;
   }
-  onMount(loadGit);
+  onMount(() => { loadGit(); loadClaude(); });
 
   async function doCheckout(strategy) {
     if (!selected || checkingOut) return;
@@ -188,6 +268,66 @@
         <button class="save" onclick={doResync} disabled={resyncing}>{resyncing ? '⏳ Resyncing…' : '↻ Resync live states'}</button>
         {#if resyncStatus}<span class="status">{resyncStatus}</span>{/if}
       </div>
+    </div>
+
+    <div class="card">
+      <h2>Claude Code</h2>
+      <p class="hint">A running session keeps the claude version it started with. Upgrading the binary doesn't touch live sessions until they restart — reconnecting resumes them from their transcript on the new version. In-memory state is lost by design.</p>
+
+      {#if claudeLoading && !claude}
+        <p class="hint">Loading…</p>
+      {:else if claude?.error}
+        <p class="hint">✗ {claude.error}</p>
+      {:else if claude}
+        <p class="hint" style="margin-bottom:12px">
+          {#if claude.install?.method === 'absent'}
+            <strong>claude not found on PATH</strong>
+          {:else}
+            Installed: <strong>{claude.installed || '(unknown)'}</strong>
+            <span class="badge">{claude.install?.label || claude.install?.method || 'unknown'}</span>
+            {#if claude.install?.real}<span class="path" title={claude.install.real}>{claude.install.real}</span>{/if}
+          {/if}
+        </p>
+
+        {#if claude.install?.method !== 'absent'}
+          {#if claude.install?.needsSudo}
+            <div class="restart-notice">
+              <span>🔒 Upgrade needs elevated permissions (install prefix not writable). Run <code>{claude.install.upgrade}</code> in a terminal.</span>
+            </div>
+          {:else if claude.install?.upgrade}
+            <div class="cmd-row" style="margin-bottom:12px">
+              <button class="save" onclick={doUpgrade} disabled={upgrading || bulkBusy}>{upgrading ? '⏳ Upgrading…' : '⬆ Upgrade claude'}</button>
+              <span class="hint" style="margin:0"><code>{claude.install.upgrade}</code></span>
+            </div>
+          {:else}
+            <p class="hint" style="margin-bottom:12px">Unknown install method — upgrade claude manually.</p>
+          {/if}
+        {/if}
+
+        {#if outdatedRows.length}
+          <div class="cmd-row" style="margin-bottom:10px">
+            <strong style="font-size:13px">{outdatedRows.length} live session{outdatedRows.length === 1 ? '' : 's'} running an older version</strong>
+            <button class="save" onclick={doUpgradeAndReconnect} disabled={bulkBusy || !!restartingId || upgrading}>{bulkBusy ? '⏳ Working…' : '⬆ Upgrade & reconnect all'}</button>
+          </div>
+          <ul class="reorder">
+            {#each outdatedRows as row (row.id)}
+              <li>
+                <span class="ro-name">{row.projectName || row.id}</span>
+                <span class="ver">{row.version} → {row.installed}</span>
+                {#if row.state === 'working'}<span class="badge dirty">working</span>{/if}
+                <span class="ro-actions">
+                  <button class="mini wide" disabled={!!restartingId || bulkBusy} onclick={() => doRestart(row)}>
+                    {restartingId === row.id ? '⏳' : '↻ Restart & reconnect'}
+                  </button>
+                </span>
+              </li>
+            {/each}
+          </ul>
+        {:else if claude.installed}
+          <p class="hint" style="margin:0">✓ All live sessions are on the installed version.</p>
+        {/if}
+        {#if claudeStatus}<p class="status" style="margin:10px 0 0">{claudeStatus}</p>{/if}
+      {/if}
     </div>
 
     <div class="card">
@@ -390,4 +530,8 @@
   .pv-sb-permissionMode, .pv-sb-modelEffort { background: var(--bg3); border: 1px solid var(--border); border-radius: 6px; padding: 1px 8px; }
   .pv-sb-cost { font-weight: 700; color: var(--text); }
   .pv-empty { font-size: 12px; color: var(--muted); font-style: italic; }
+  /* Claude Code card: resolved binary path + running→installed version + wide restart button. */
+  .path { display: inline-block; margin-left: 8px; font-size: 11px; color: var(--muted); max-width: 340px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: middle; }
+  .ver { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .mini.wide { width: auto; padding: 0 12px; font-weight: 600; }
 </style>
