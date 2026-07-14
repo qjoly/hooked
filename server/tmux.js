@@ -5,7 +5,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFile, execFileSync } from 'node:child_process';
-import { LAUNCHES_FILE, SESSION_LAUNCH_FILE, EFFORTS, PERMISSION_MODES, LAUNCH_PERMISSION_MODES, isValidModelArg } from './config.js';
+import { LAUNCHES_FILE, SESSION_LAUNCH_FILE, PERMISSION_MODES, LAUNCH_PERMISSION_MODES, isValidModelArg } from './config.js';
+import { isValidEffort } from './capabilities.js';
 import { statSafe } from './util.js';
 import { launchConfigByTmux, paneForSession } from './events.js';
 import { scanSessions } from './transcript.js';
@@ -542,7 +543,7 @@ function err400(msg) { const e = new Error(msg); e.code = 400; return e; }
 function setModelEffort(pane, { model, effort, sessionId }, cb) {
   if (!/^%\d+$/.test(pane || '')) return cb(err400('invalid pane'));
   if (model && !isValidModelArg(model)) return cb(err400('unknown model: ' + model));
-  if (effort && !EFFORTS.includes(effort)) return cb(err400('unknown effort: ' + effort));
+  if (effort && !isValidEffort(effort)) return cb(err400('unknown effort: ' + effort));
   if (!model && !effort) return cb(err400('model or effort required'));
   const cmds = [];
   if (model) cmds.push('/model ' + model);
@@ -589,7 +590,7 @@ function launchSession({ resumeId, cwd, prompt, model, effort, worktree, permiss
 
   // model/effort : validés contre une liste blanche (sécurise l'injection shell ET rejette l'inconnu).
   if (model && !isValidModelArg(model)) return cb(err400('unknown model: ' + model));
-  if (effort && !EFFORTS.includes(effort)) return cb(err400('unknown effort: ' + effort));
+  if (effort && !isValidEffort(effort)) return cb(err400('unknown effort: ' + effort));
   if (permissionMode && !LAUNCH_PERMISSION_MODES.includes(permissionMode)) return cb(err400('unknown permission mode: ' + permissionMode));
   // worktree : sans objet sur une reprise (la session est rouverte dans son dossier d'origine).
   const useWorktree = !!worktree && !id;

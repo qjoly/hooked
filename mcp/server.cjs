@@ -90,8 +90,9 @@ function resultFrom(r) {
 
 // --- définition des outils ----------------------------------------------------
 
-const MODELS = ['opus', 'sonnet', 'haiku', 'fable'];
-const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];
+// Modèles & efforts ne sont plus énumérés ici (liste figée = obsolète) : `type: string` libre,
+// le serveur hooked valide contre les valeurs dérivées du binaire claude (cf. server/capabilities.js)
+// et renvoie une erreur si la valeur est inconnue. MODES reste une liste (concept propre à hooked).
 const MODES = ['default', 'auto', 'plan'];
 
 const TOOLS = [
@@ -131,8 +132,8 @@ const TOOLS = [
       properties: {
         cwd: { type: 'string', description: 'dossier de travail (requis sauf reprise, où il est déduit)' },
         prompt: { type: 'string', description: 'premier message optionnel envoyé à la session' },
-        model: { type: 'string', enum: MODELS, description: 'modèle optionnel' },
-        effort: { type: 'string', enum: EFFORTS, description: 'niveau d\'effort optionnel' },
+        model: { type: 'string', description: 'modèle optionnel : alias de famille (opus/sonnet/haiku/fable) ou version complète (ex. claude-opus-4-8). Valeurs valides = install claude locale ; une valeur inconnue est rejetée par le serveur.' },
+        effort: { type: 'string', description: 'niveau d\'effort optionnel (low/medium/high/xhigh/max, + ultracode si claude ≥ 2.1.203). Validé par le serveur.' },
         resumeId: { type: 'string', description: 'id d\'une session existante à reprendre' },
         worktree: { type: 'boolean', description: 'démarrer dans un git worktree dédié (session neuve uniquement)' },
       },
@@ -199,8 +200,8 @@ const TOOLS = [
       type: 'object',
       properties: {
         id: { type: 'string', description: 'id de la session' },
-        model: { type: 'string', enum: MODELS, description: 'nouveau modèle' },
-        effort: { type: 'string', enum: EFFORTS, description: 'nouvel effort' },
+        model: { type: 'string', description: 'nouveau modèle : alias de famille (opus/sonnet/haiku/fable) ou version complète (ex. claude-opus-4-8)' },
+        effort: { type: 'string', description: 'nouvel effort (low/medium/high/xhigh/max, + ultracode si claude ≥ 2.1.203)' },
       },
       required: ['id'],
       additionalProperties: false,

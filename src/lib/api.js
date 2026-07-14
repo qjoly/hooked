@@ -35,6 +35,11 @@ export const getCommands = (id, q, cwd) => jget(`/api/commands?id=${encodeURICom
 export const getAgent = (session, agent) => jget(`/api/agent?session=${encodeURIComponent(session)}&agent=${encodeURIComponent(agent)}`);
 // Défauts modèle/effort lus depuis ~/.claude (config Claude Code de l'utilisateur).
 export const getDefaults = () => jget('/api/defaults');
+// Modèles (groupés) & efforts DISPONIBLES, dérivés du binaire claude par le serveur (aucune liste
+// figée) — cf. server/capabilities.js. Mémoïsé : une seule requête par chargement de page, partagée
+// entre toutes les instances du sélecteur. Reset en cas d'échec pour permettre un nouvel essai.
+let _capsPromise = null;
+export const getCapabilities = () => (_capsPromise ||= jget('/api/capabilities').catch((e) => { _capsPromise = null; throw e; }));
 // Réglages persistants de hooked (settings.json côté serveur, partagés entre navigateurs).
 export const getSettings = () => jget('/api/settings');
 export const saveSettings = (patch) => jpost('/api/settings', patch);
