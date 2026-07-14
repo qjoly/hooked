@@ -34,6 +34,10 @@ const cache = new Map(); // path -> { key, val }
 
 const RE_BASH_ID = /running in background with ID:\s*(\S+?)[.\s]/i;
 const RE_MONITOR_ID = /Monitor started \(task\s+(\S+?)[,)]/i;
+// timeout propre du Monitor, porté par son tool_result (« Monitor started (task X, timeout 600000ms) »).
+// Le harnais termine le Monitor à son timeout → startTs + timeoutMs = borne DURE (non heuristique) du
+// « encore en cours » (cf. jobStatus → 'expired'). Vérifié réel : 25/27 sur a8ff7279, 3/3 sur 358f0e33.
+const RE_MONITOR_TIMEOUT = /Monitor started \([^)]*\btimeout\s+(\d+)ms/i;
 // chemin du fichier de sortie d'un Bash run_in_background (« Output is being written to: <path>.output »).
 const RE_OUTPUT = /Output is being written to:\s*(\S+?\.output)\b/i;
 const RE_NOTE_TOOLUSE = /<tool-use-id>\s*(\S+?)\s*<\/tool-use-id>/i;
@@ -44,6 +48,31 @@ const RE_EXIT_RC = /EXIT rc=(-?\d+)/i;
 
 // statuts terminaux d'une <task-notification> (tout le reste = encore en cours : running/pending/…).
 const TERMINAL = new Set(['completed', 'complete', 'done', 'exited', 'failed', 'error', 'errored', 'killed', 'stopped', 'cancelled', 'canceled', 'timeout', 'timedout', 'timed_out', 'interrupted']);
+
+// Sous-catégories terminales de TERMINAL, pour bucketer job.doneReason en un statut lisible (jobStatus).
+const DONE_COMPLETED = new Set(['completed', 'complete', 'done', 'exited']);
+const DONE_FAILED = new Set(['failed', 'error', 'errored', 'killed', 'timeout', 'timedout', 'timed_out', 'interrupted']);
+const DONE_STOPPED = new Set(['stopped', 'cancelled', 'canceled']);
+
+// Statut PUR d'un job de fond → exactement une valeur. C'est la « meilleure traque » du plan : au lieu
+// de « pas de notif ⇒ encore en cours », on croise TROIS signaux fiables — notification terminale du
+// transcript (job.done + doneReason), timeout propre du Monitor (borne dure → 'expired'), et vivacité
+// du pane (mort → 'orphaned'). SEUL 'running' compte comme actif (badge 🌀, liste sidebar, état
+// 'background'). `alive` = pane tmux vivant ; `now` = Date.now() (injecté pour tester l'expiration).
+function jobStatus(job, alive, now) {
+  if (job.done) {
+    const r = String(job.doneReason || '').toLowerCase();
+    if (r === 'fired') return 'fired';                 // ScheduleWakeup déclenché
+    if (DONE_FAILED.has(r)) return 'failed';
+    if (DONE_STOPPED.has(r)) return 'stopped';
+    return 'completed';                                // completed/exited/done + repli terminal inconnu
+  }
+  // pas encore terminé : le pane est-il mort ? (process de fond mort avec lui)
+  if (!alive) return 'orphaned';
+  // Monitor au-delà de son timeout déclaré → le harnais l'a terminé, la notif ne viendra pas.
+  if (job.kind === 'monitor' && job.timeoutMs && job.startTs && Date.parse(job.startTs) + job.timeoutMs < now) return 'expired';
+  return 'running';
+}
 
 // texte d'un `content` de tool_result / message : string, ou tableau de blocs { type:'text' }.
 function textOfContent(c) {
@@ -115,7 +144,7 @@ function compute(fp) {
         if (b.name === 'Bash' && inp.run_in_background === true && b.id) {
           jobsByToolUse.set(b.id, { kind: 'bash', toolUseId: b.id, taskId: null, command: String(inp.command || '').slice(0, 2000), description: String(inp.description || ''), startTs: ts, done: false, doneReason: null, doneAt: null, exitCode: null, outputPath: null });
         } else if (b.name === 'Monitor' && b.id) {
-          jobsByToolUse.set(b.id, { kind: 'monitor', toolUseId: b.id, taskId: null, command: String(inp.command || '').slice(0, 2000), description: String(inp.description || ''), startTs: ts, done: false, doneReason: null, doneAt: null, exitCode: null, outputPath: null });
+          jobsByToolUse.set(b.id, { kind: 'monitor', toolUseId: b.id, taskId: null, command: String(inp.command || '').slice(0, 2000), description: String(inp.description || ''), startTs: ts, done: false, doneReason: null, doneAt: null, exitCode: null, outputPath: null, timeoutMs: null });
         } else if (b.name === 'ScheduleWakeup') {
           const prompt = String(inp.prompt || '').slice(0, 2000);
           wakeup = { kind: 'wakeup', toolUseId: b.id || null, taskId: null, command: prompt, prompt, description: String(inp.reason || '').slice(0, 500), startTs: ts, done: false, doneReason: null, doneAt: null, exitCode: null, outputPath: null, idx };
@@ -138,6 +167,11 @@ function compute(fp) {
         const txt = textOfContent(b.content);
         const m = job.kind === 'bash' ? txt.match(RE_BASH_ID) : txt.match(RE_MONITOR_ID);
         if (m) { job.taskId = m[1]; jobsByTask.set(m[1], job); }
+        // timeout propre du Monitor (borne dure du « encore en cours ») : lu dans le même tool_result.
+        if (job.kind === 'monitor' && job.timeoutMs == null) {
+          const tm = txt.match(RE_MONITOR_TIMEOUT);
+          if (tm) job.timeoutMs = Number(tm[1]);
+        }
         // fichier de sortie du Bash bg (pour le tail live) : seulement si la forme attendue
         // (…/tasks/<id>.output) — garde-fou contre un chemin exotique injecté dans le transcript.
         const om = txt.match(RE_OUTPUT);
@@ -177,4 +211,4 @@ function activeBackgroundJobs(fp) {
   return buildBackgroundJobs(fp).active;
 }
 
-export { buildBackgroundJobs, activeBackgroundJobs };
+export { buildBackgroundJobs, activeBackgroundJobs, jobStatus };

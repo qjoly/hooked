@@ -22,6 +22,7 @@ function blankSummary(sessionId, fp) {
     gitBranch: null,
     agentId: null,           // présent => ce transcript est un sub-agent (fichier agent-*.jsonl)
     sessionIdInternal: null, // sessionId interne : pour un sub-agent, c'est l'id de la session parente
+    version: null,           // version claude-code de la DERNIÈRE ligne écrite = version que tourne le process
     model: null,
     title: null,
     firstPrompt: null,
@@ -63,6 +64,9 @@ function parseTranscript(fp, sessionId) {
     if (j.gitBranch) s.gitBranch = j.gitBranch;
     if (j.sessionId && !s.sessionIdInternal) s.sessionIdInternal = j.sessionId;
     if (j.agentId && !s.agentId) s.agentId = j.agentId;
+    // version claude-code stampée à chaque ligne : on garde la DERNIÈRE vue (= version du process
+    // qui a écrit le message le plus récent → la version que la session tourne réellement).
+    if (j.version) s.version = j.version;
     if (j.timestamp) {
       if (!s.startTs || j.timestamp < s.startTs) s.startTs = j.timestamp;
       if (!s.lastTs || j.timestamp > s.lastTs) s.lastTs = j.timestamp;
