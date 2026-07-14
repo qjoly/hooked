@@ -21,6 +21,7 @@ export * from './background.js';
 export * from './fileStream.js';
 export * from './files.js';
 export * from './commands.js';
+export * from './capabilities.js';
 export * from './events.js';
 export * from './live.js';
 export * from './tmux.js';
