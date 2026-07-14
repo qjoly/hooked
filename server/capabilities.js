@@ -3,8 +3,9 @@
  * hardcoded list (which silently goes stale — e.g. a new model version, or `ultracode`).
  *
  *   - efforts : parsed from `claude --help` (the `--effort` option documents its choices), plus
- *     `ultracode` appended when the installed claude is recent enough to accept `/effort ultracode`
- *     (v2.1.203+ — it is NOT listed among the plain --effort choices, being xhigh + auto-workflows).
+ *     `ultracode` appended when the bundle implements it (session-level `/effort ultracode`, xhigh +
+ *     auto-workflows — NOT among the plain --effort choices). Detected FROM THE BINARY, not a version
+ *     number (ultracode shipped in 2.1.202, not the 2.1.203 first assumed → a version gate drifts).
  *   - models  : scraped from the claude bundle (same technique as commands.extractBuiltins), grouped
  *     by family, family alias first (the account default), concrete non-dated versions newest-first.
  *
@@ -23,8 +24,6 @@ import { resolveClaudeBin } from './commands.js';
 
 const FAMILIES = ['opus', 'sonnet', 'haiku', 'fable'];
 const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
-// claude 2.1.203 introduced session-level `/effort ultracode` (and `--effort ultracode`).
-const ULTRACODE_MIN = [2, 1, 203];
 
 // ---------- pure parsers (unit-tested on fixtures, no binary needed) ----------
 
@@ -74,22 +73,15 @@ function binStat() {
   try { return { bin, mtime: fs.statSync(bin).mtimeMs }; } catch (_) { return null; }
 }
 
-let _verCache = null; // { bin, mtime, nums }
-function versionNums(bs) {
-  if (_verCache && _verCache.bin === bs.bin && _verCache.mtime === bs.mtime) return _verCache.nums;
-  let nums = null;
+// Does the claude bundle implement session-level ultracode? Grep the binary for distinctive markers
+// (same read technique as fetchModelGroups). Version-agnostic → no threshold to drift. grep exits 1
+// with no match → execFileSync throws; treat that (empty stdout) as "not found".
+function bundleHasUltracode(bin) {
   try {
-    const out = cp.execFileSync(bs.bin, ['--version'], { encoding: 'utf8', timeout: 5000 });
-    const m = out.match(/(\d+)\.(\d+)\.(\d+)/);
-    if (m) nums = [Number(m[1]), Number(m[2]), Number(m[3])];
-  } catch (_) { /* binary refused --version */ }
-  _verCache = { bin: bs.bin, mtime: bs.mtime, nums };
-  return nums;
-}
-function atLeast(nums, min) {
-  if (!nums) return false;
-  for (let i = 0; i < min.length; i++) { if (nums[i] !== min[i]) return (nums[i] || 0) > min[i]; }
-  return true;
+    const out = cp.execFileSync('grep', ['-aoE', 'ultracodeKeywordTrigger|ultracode \\(xhigh', bin],
+      { encoding: 'utf8', maxBuffer: 1 << 20 });
+    return out.trim().length > 0;
+  } catch (e) { return !!(e && e.stdout && String(e.stdout).trim()); }
 }
 
 let _effortCache = null; // { bin, mtime, list }
@@ -102,7 +94,7 @@ export function fetchEfforts() {
     const help = cp.execFileSync(bs.bin, ['--help'], { encoding: 'utf8', timeout: 5000, maxBuffer: 4 << 20 });
     list = parseEffortsFromHelp(help);
   } catch (_) { list = []; }
-  if (list.length && atLeast(versionNums(bs), ULTRACODE_MIN) && !list.includes('ultracode')) list.push('ultracode');
+  if (list.length && !list.includes('ultracode') && bundleHasUltracode(bs.bin)) list.push('ultracode');
   _effortCache = { bin: bs.bin, mtime: bs.mtime, list };
   return list;
 }
