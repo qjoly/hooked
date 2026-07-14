@@ -17,14 +17,25 @@ function buildConversation(fp, includeSidechain) {
   try { data = fs.readFileSync(fp, 'utf8'); } catch (_) { return []; }
   const lines = data.split('\n');
   // passe 1 : indexe les résultats d'outils par tool_use_id
+  // + collecte les textes des vrais tours user (pour dédup des queue-operations traitées)
   const results = new Map();
+  const processedUserTexts = new Set();
   for (const line of lines) {
     if (!line) continue;
     let j;
     try { j = JSON.parse(line); } catch (_) { continue; }
-    if (j.type === 'user' && j.message && Array.isArray(j.message.content)) {
-      for (const b of j.message.content) {
-        if (b && b.type === 'tool_result' && b.tool_use_id) results.set(b.tool_use_id, toolResultText(b.content));
+    if (j.type === 'user' && j.message) {
+      const c = j.message.content;
+      if (Array.isArray(c)) {
+        for (const b of c) {
+          if (b && b.type === 'tool_result' && b.tool_use_id) results.set(b.tool_use_id, toolResultText(b.content));
+        }
+      }
+      const isToolResult = Array.isArray(c) && c.some((b) => b && b.type === 'tool_result');
+      const isTaskNotif = typeof c === 'string' && c.includes('<task-notification>');
+      if (!isToolResult && !isTaskNotif) {
+        const text = chatText(c).trim();
+        if (text) processedUserTexts.add(text);
       }
     }
   }
@@ -62,6 +73,8 @@ function buildConversation(fp, includeSidechain) {
     // jamais rendu → la bulle « ⏳ queued » optimiste ne se résout jamais et le message disparaît
     // au refresh. On le rend comme une vraie bulle user (miroir du push type:"user" ci-dessous).
     if (j.type === 'queue-operation' && typeof j.content === 'string' && j.content.trim()) {
+      // Skip if already processed into a real user turn (dedup: queue-op + matching user turn → show only user turn)
+      if (processedUserTexts.has(j.content.trim())) continue;
       msgs.push({ role: 'user', ts: j.timestamp, text: j.content.slice(0, 8000), tools: [], forkUuid: j.uuid });
       continue;
     }
