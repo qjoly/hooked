@@ -36,13 +36,12 @@ const PORT = parseInt(process.env.HOOKED_PORT || '4123', 10);
 const SESSION_BUDGET = parseFloat(process.env.HOOKED_SESSION_BUDGET || '40') || 40;
 const SESSION_HOURS = 5;
 
-const MODELS = ['opus', 'sonnet', 'haiku', 'fable'];
 // Argument `--model` accepté : alias de famille (`opus`) ou version explicite (`opus-4-7`).
 // Regex stricte (anti-injection) : la valeur est interpolée dans une commande shell par
-// launchSession et tapée dans `/model <name>` par setModelEffort.
-const MODEL_ARG_RE = /^(claude-)?(opus|sonnet|haiku|fable)(-\d{1,2}(-\d{1,2})?)?$/;
+// launchSession et tapée dans `/model <name>` par setModelEffort. La *liste* des modèles/efforts
+// proposés n'est plus figée ici : elle est dérivée du binaire claude (cf. server/capabilities.js).
+const MODEL_ARG_RE = /^(claude-)?(opus|sonnet|haiku|fable)(-\d+(-\d+)?)?$/;
 const isValidModelArg = (m) => typeof m === 'string' && MODEL_ARG_RE.test(m);
-const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];
 
 // Modes de permission Claude Code proposés au sélecteur (liste blanche des cibles).
 // Le changement se fait en boucle fermée (cf. tmux.setMode) : on lit le mode affiché dans
@@ -76,9 +75,11 @@ function readClaudeDefaults() {
   const normalized = typeof model === 'string' ? model.toLowerCase() : '';
   return {
     model: isValidModelArg(normalized) ? normalized : 'opus',
-    effort: EFFORTS.includes(effort) ? effort : 'high',
+    // effort : valeur libre de la config utilisateur (validée par charset, pas contre une liste
+    // figée) ; le vrai contrôle contre les efforts dispos se fait au lancement (cf. isValidEffort).
+    effort: (typeof effort === 'string' && /^[a-z]+$/.test(effort)) ? effort : 'high',
     mode: LAUNCH_PERMISSION_MODES.includes(mode) ? mode : 'default',
   };
 }
 
-export { HOME, PROJECTS_DIR, HOOKED_DIR, EVENTS_FILE, LAUNCHES_FILE, SESSION_LAUNCH_FILE, SHOWN_PANES_FILE, STATUS_DIR, ROOT, PUBLIC_DIR, PORT, SESSION_BUDGET, SESSION_HOURS, MODELS, EFFORTS, PERMISSION_MODES, LAUNCH_PERMISSION_MODES, isValidModelArg, readClaudeDefaults };
+export { HOME, PROJECTS_DIR, HOOKED_DIR, EVENTS_FILE, LAUNCHES_FILE, SESSION_LAUNCH_FILE, SHOWN_PANES_FILE, STATUS_DIR, ROOT, PUBLIC_DIR, PORT, SESSION_BUDGET, SESSION_HOURS, PERMISSION_MODES, LAUNCH_PERMISSION_MODES, isValidModelArg, readClaudeDefaults };
