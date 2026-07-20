@@ -1,9 +1,12 @@
 /*
  * Tests du découpage markdown (mdSegments) et de la coloration syntaxique (highlight).
+ * Le rendu markdown est délégué à markdown-it (GFM complet, html:true) ; on caractérise ici
+ * l'intégration hooked : découpage texte/code, liens de session → cartes vivantes, langage des
+ * fences (dont mermaid), et les grandes familles de la syntaxe GFM.
  * Imports relatifs : ces modules front n'ont pas de dépendance Svelte.
  */
 import { describe, it, expect } from 'vitest';
-import { mdSegments, mdLite, mdInline, splitMessageImages } from '../src/lib/format.js';
+import { mdSegments, mdInline, splitMessageImages } from '../src/lib/format.js';
 import { highlight, langLabel } from '../src/lib/highlight.js';
 
 describe('splitMessageImages — images jointes séparées du texte', () => {
@@ -32,10 +35,11 @@ describe('splitMessageImages — images jointes séparées du texte', () => {
 describe('mdSegments — découpage texte / code', () => {
   it('sépare texte et bloc de code avec langage', () => {
     const segs = mdSegments('Voici :\n```js\nconst a = 1\n```\nfin');
-    // un segment texte porte désormais des sous-parties (html brut / liens de session).
-    expect(segs[0]).toEqual({ type: 'text', parts: [{ type: 'html', html: 'Voici :<br>' }] });
+    expect(segs[0].type).toBe('text');
+    expect(segs[0].parts[0].html).toContain('Voici');
     expect(segs[1]).toEqual({ type: 'code', lang: 'js', code: 'const a = 1' });
     expect(segs[2].type).toBe('text');
+    expect(segs[2].parts[0].html).toContain('fin');
   });
 
   it('découpe un lien de session en sous-partie « session » (id + label)', () => {
@@ -60,20 +64,147 @@ describe('mdSegments — découpage texte / code', () => {
     expect(seg).toEqual({ type: 'code', lang: '', code: 'plain text' });
   });
 
-  it('fence sur une seule ligne : pas de faux langage', () => {
-    const [seg] = mdSegments('```const x```');
-    expect(seg).toEqual({ type: 'code', lang: '', code: 'const x' });
-  });
-
   it('retire le saut de ligne final avant la fence fermante', () => {
     const [seg] = mdSegments('```py\nx = 1\n```');
     expect(seg.code).toBe('x = 1');
   });
 
-  it('ignore les segments de texte vides', () => {
-    const segs = mdSegments('```js\na\n```');
-    expect(segs).toHaveLength(1);
-    expect(segs[0].type).toBe('code');
+  it('conserve `lang: mermaid` — contrat de routage vers <Mermaid>', () => {
+    // Markdown.svelte s'appuie sur `s.lang === 'mermaid'` pour rendre le bloc en diagramme.
+    const [seg] = mdSegments('```mermaid\ngraph TD\n  A --> B\n```');
+    expect(seg).toEqual({ type: 'code', lang: 'mermaid', code: 'graph TD\n  A --> B' });
+  });
+
+  it('un bloc de code imbriqué (dans une liste) reste inline, pas extrait', () => {
+    // seul le PREMIER NIVEAU devient un segment code (<CodeBlock>) ; l'imbriqué reste <pre>.
+    const segs = mdSegments('- item\n    ```\n  nested\n    ```');
+    expect(segs.every((s) => s.type === 'text')).toBe(true);
+  });
+});
+
+describe('mdInline — GFM (markdown-it)', () => {
+  it('gras / italique / barré / code inline', () => {
+    expect(mdInline('**x**')).toBe('<strong>x</strong>');
+    expect(mdInline('*x*')).toBe('<em>x</em>');
+    expect(mdInline('~~x~~')).toBe('<s>x</s>');
+    expect(mdInline('use `x`')).toBe('use <code>x</code>');
+  });
+
+  it('n\'italique PAS un underscore intra-mot (snake_case)', () => {
+    expect(mdInline('my_var_name')).toBe('my_var_name');
+  });
+
+  it('titres h1–h6', () => {
+    expect(mdInline('# Title')).toBe('<h1>Title</h1>');
+    expect(mdInline('### Sub')).toBe('<h3>Sub</h3>');
+  });
+
+  it('liste non ordonnée', () => {
+    const h = mdInline('- a\n- b');
+    expect(h).toContain('<ul>');
+    expect(h).toContain('<li>a</li>');
+    expect(h).toContain('<li>b</li>');
+  });
+
+  it('liste ordonnée avec numéro de départ', () => {
+    expect(mdInline('3. a\n4. b')).toContain('<ol start="3">');
+  });
+
+  it('liste imbriquée', () => {
+    const h = mdInline('- a\n  - b');
+    expect(h).toContain('<li>a');
+    expect(h).toMatch(/<ul>[\s\S]*<li>b<\/li>[\s\S]*<\/ul>/);
+  });
+
+  it('cases à cocher GFM (task list)', () => {
+    const h = mdInline('- [ ] todo\n- [x] done');
+    expect(h).toContain('contains-task-list');
+    expect(h).toContain('task-list-item-checkbox');
+    expect(h).toMatch(/checked[^>]*type="checkbox"|type="checkbox"[^>]*checked/);
+  });
+
+  it('tableau GFM avec alignement', () => {
+    const h = mdInline('| a | b |\n|---|:-:|\n| 1 | 2 |');
+    expect(h).toContain('<table>');
+    expect(h).toContain('text-align:center');
+    expect(h).toContain('<td>1</td>');
+  });
+
+  it('filet horizontal', () => {
+    expect(mdInline('---')).toBe('<hr>');
+  });
+
+  it('image → <img> avec loading lazy et classe md-img', () => {
+    const h = mdInline('![cat](https://x.com/c.png)');
+    expect(h).toContain('src="https://x.com/c.png"');
+    expect(h).toContain('class="md-img"');
+    expect(h).toContain('loading="lazy"');
+  });
+
+  it('laisse passer le HTML brut librement (html:true)', () => {
+    expect(mdInline('avant <span style="color:red">RED</span> après'))
+      .toContain('<span style="color:red">RED</span>');
+  });
+
+  it('paragraphe unique : pas d\'enveloppe <p> ; multi-paragraphes : <p> conservés', () => {
+    expect(mdInline('just one line')).toBe('just one line');
+    expect(mdInline('para one\n\npara two')).toBe('<p>para one</p>\n<p>para two</p>');
+  });
+});
+
+describe('mdInline — blockquotes', () => {
+  it('rend une citation dans <blockquote>', () => {
+    expect(mdInline('> bonjour')).toContain('<blockquote>');
+    expect(mdInline('> bonjour')).toContain('bonjour');
+  });
+  it('interprète gras et code à l\'intérieur de la citation', () => {
+    const h = mdInline('> **gras** et `code`');
+    expect(h).toContain('<strong>gras</strong>');
+    expect(h).toContain('<code>code</code>');
+  });
+});
+
+describe('mdInline — alertes GitHub (callouts)', () => {
+  for (const [marker, type] of [['NOTE', 'note'], ['TIP', 'tip'], ['IMPORTANT', 'important'], ['WARNING', 'warning'], ['CAUTION', 'caution']]) {
+    it(`[!${marker}] → div.md-alert-${type} avec titre et contenu`, () => {
+      const h = mdInline(`> [!${marker}]\n> Contenu.`);
+      expect(h).toContain(`<div class="md-alert md-alert-${type}">`);
+      expect(h).toContain('md-alert-title');
+      expect(h).toContain('Contenu.');
+      expect(h).not.toContain(`[!${marker}]`); // marqueur retiré du rendu
+    });
+  }
+  it('un blockquote ordinaire reste un <blockquote>', () => {
+    const h = mdInline('> juste une citation');
+    expect(h).toContain('<blockquote>');
+    expect(h).not.toContain('md-alert');
+  });
+  it('conserve le formatage inline dans le corps de l\'alerte', () => {
+    const h = mdInline('> [!WARNING]\n> Attention **fort**.');
+    expect(h).toContain('md-alert-warning');
+    expect(h).toContain('<strong>fort</strong>');
+  });
+});
+
+describe('mdInline — liens', () => {
+  const A = 'target="_blank" rel="noopener noreferrer"';
+  it('lien markdown [texte](url) → nouvel onglet', () => {
+    expect(mdInline('[#1447](https://github.com/LuccaSA/Infra.Charts/pull/1447)'))
+      .toBe(`<a href="https://github.com/LuccaSA/Infra.Charts/pull/1447" ${A}>#1447</a>`);
+  });
+  it('autolinkifie une URL nue', () => {
+    expect(mdInline('voir https://google.com ok'))
+      .toContain(`<a href="https://google.com" ${A}>https://google.com</a>`);
+  });
+  it('lien interne /session/<id> → signature session-link (nav client, pas de nouvel onglet)', () => {
+    const h = mdInline('[Voir](/session/abc-123)');
+    expect(h).toContain('class="session-link"');
+    expect(h).toContain('data-session-link');
+    expect(h).not.toContain('target="_blank"');
+  });
+  it('refuse un schéma dangereux (markdown-it validateLink) et garde le texte', () => {
+    expect(mdInline('[x](javascript:alert(1))')).toContain('javascript:alert(1)');
+    expect(mdInline('[x](javascript:alert(1))')).not.toContain('href="javascript:');
   });
 });
 
@@ -112,97 +243,5 @@ describe('highlight — coloration', () => {
     expect(langLabel('ts')).toBe('TypeScript');
     expect(langLabel('sh')).toBe('Shell');
     expect(langLabel('')).toBe('Texte');
-  });
-});
-
-describe('mdInline — blockquotes', () => {
-  it('rend une citation simple dans <blockquote>', () => {
-    expect(mdInline('> bonjour')).toBe('<blockquote>bonjour</blockquote>');
-  });
-
-  it('regroupe les lignes consécutives en une seule citation (br entre les lignes)', () => {
-    expect(mdInline('> une\n> deux')).toBe('<blockquote>une<br>deux</blockquote>');
-  });
-
-  it('interprète gras et code à l\'intérieur de la citation', () => {
-    expect(mdInline('> **gras** et `code`')).toBe('<blockquote><b>gras</b> et <code>code</code></blockquote>');
-  });
-
-  it('gère le marqueur sans espace et les citations imbriquées (>>)', () => {
-    expect(mdInline('>a')).toBe('<blockquote>a</blockquote>');
-    expect(mdInline('> > niché')).toBe('<blockquote><blockquote>niché</blockquote></blockquote>');
-  });
-
-  it('sépare la citation du texte qui suit', () => {
-    expect(mdInline('> cité\nnormal')).toBe('<blockquote>cité</blockquote>normal');
-  });
-
-  it('échappe le HTML à l\'intérieur de la citation', () => {
-    expect(mdInline('> <script>')).toBe('<blockquote>&lt;script&gt;</blockquote>');
-  });
-});
-
-describe('mdInline — autolink', () => {
-  const A = 'target="_blank" rel="noopener noreferrer"';
-  it('linkifie une URL http(s)', () => {
-    expect(mdInline('voir https://google.com ok'))
-      .toBe(`voir <a href="https://google.com" ${A}>https://google.com</a> ok`);
-  });
-  it('linkifie un domaine nu (schéma https ajouté)', () => {
-    expect(mdInline('juste google.com'))
-      .toBe(`juste <a href="https://google.com" ${A}>google.com</a>`);
-  });
-  it('garde la ponctuation de fin de phrase hors du lien', () => {
-    expect(mdInline('cf https://x.com/a/b.')).toContain('>https://x.com/a/b</a>.');
-  });
-  it('équilibre les parenthèses fermantes orphelines', () => {
-    expect(mdInline('(voir https://x.com)')).toContain('>https://x.com</a>)');
-  });
-  it('conserve le & d\'une query string (échappé en &amp;)', () => {
-    expect(mdInline('http://x.com/?a=1&b=2'))
-      .toContain('href="http://x.com/?a=1&amp;b=2"');
-  });
-  it('se termine avant un guillemet', () => {
-    expect(mdInline('"https://x.com"')).toBe(`&quot;<a href="https://x.com" ${A}>https://x.com</a>&quot;`);
-  });
-  it('ne linkifie PAS les noms de fichiers (extensions ≠ TLD)', () => {
-    for (const f of ['format.js', 'README.md', 'server.cjs', 'app.d.ts', 'package.json'])
-      expect(mdInline(f)).toBe(f);
-  });
-  it('ne linkifie PAS le domaine d\'un email', () => {
-    expect(mdInline('a@google.com')).toBe('a@google.com');
-  });
-});
-
-describe('mdInline — liens markdown & barré', () => {
-  const A = 'target="_blank" rel="noopener noreferrer"';
-  it('rend un lien markdown [texte](url)', () => {
-    expect(mdInline('[#1447](https://github.com/LuccaSA/Infra.Charts/pull/1447)'))
-      .toBe(`<a href="https://github.com/LuccaSA/Infra.Charts/pull/1447" ${A}>#1447</a>`);
-  });
-  it('rend plusieurs liens markdown séparés', () => {
-    expect(mdInline('[#1](https://x.com/1) · [#2](https://x.com/2)'))
-      .toBe(`<a href="https://x.com/1" ${A}>#1</a> · <a href="https://x.com/2" ${A}>#2</a>`);
-  });
-  it('applique le gras autour d\'un lien markdown', () => {
-    expect(mdInline('**[#1263](https://x.com/1263)**'))
-      .toBe(`<b><a href="https://x.com/1263" ${A}>#1263</a></b>`);
-  });
-  it('n\'autolinkifie pas l\'URL d\'un lien markdown (utilise le texte)', () => {
-    expect(mdInline('[Infra.Charts](https://github.com/x)'))
-      .toBe(`<a href="https://github.com/x" ${A}>Infra.Charts</a>`);
-  });
-  it('rend le barré ~~texte~~', () => {
-    expect(mdInline('~~#1255~~ · ~~#1259~~')).toBe('<del>#1255</del> · <del>#1259</del>');
-  });
-  it('refuse un schéma dangereux et garde le texte brut', () => {
-    expect(mdInline('[x](javascript:alert(1))')).toBe('[x](javascript:alert(1))');
-  });
-});
-
-describe('mdLite — compat (inchangé)', () => {
-  it('rend toujours <pre><code> et le gras', () => {
-    expect(mdLite('**x**')).toBe('<b>x</b>');
-    expect(mdLite('```js\na\n```')).toContain('<pre><code>');
   });
 });

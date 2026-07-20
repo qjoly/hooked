@@ -29,6 +29,9 @@
     "vitest": "^2.1.0"
   },
   "dependencies": {
-    "@pierre/diffs": "^1.2.12"
+    "@pierre/diffs": "^1.2.12",
+    "markdown-it": "^14.3.0",
+    "markdown-it-task-lists": "^2.1.1",
+    "mermaid": "^11.16.0"
   }
 }
