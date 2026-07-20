@@ -1,5 +1,8 @@
 // Helpers de formatage — portés à l'identique depuis l'ancien app.js.
 
+import MarkdownIt from 'markdown-it';
+import taskLists from 'markdown-it-task-lists';
+
 export const esc = (s) => String(s == null ? '' : s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
 export function fmtTokens(n) {
@@ -111,150 +114,119 @@ export const PERMISSION_MODES = ['default', 'auto', 'plan'].map((k) => ({ key: k
 export const MODE_OPTS = ['default', 'acceptEdits', 'auto', 'plan', 'bypassPermissions']
   .map((k) => [k, `${MODE_META[k].icon} ${MODE_META[k].label}`]);
 
-// TLD autorisés pour les domaines « nus » (sans schéma, ex. « google.com »). Liste courte et
-// volontairement conservatrice : on veut linkifier un vrai domaine, PAS transformer « format.js »,
-// « README.md » ou « server.cjs » en lien — donc aucun TLD qui collisionne avec une extension de
-// fichier courante (js, ts, md, sh, rs, json, svelte…).
-const LINK_TLDS = 'com|org|net|edu|gov|io|dev|ai|app|co|info|xyz|fr|uk|eu|de';
-const LINK_RE = new RegExp(
-  '\\[([^\\]]+)\\]\\(([^)\\s]+)\\)' +          // 1,2 = lien markdown [texte](url)
-  '|https?:\\/\\/[^\\s<>"\'`]+' +               // URL avec schéma
-  // domaine nu : un ou plusieurs labels + TLD connu, port et/ou chemin optionnels.
-  '|(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\\.)+(?:' + LINK_TLDS + ')\\b(?::\\d+)?(?:\\/[^\\s<>"\'`]*)?',
-  'gi'
-);
-const countChar = (s, c) => s.split(c).length - 1;
-const A_ATTRS = 'target="_blank" rel="noopener noreferrer"';
 // Lien profond RELATIF vers une autre session hooked (émis par un agent : `[label](/session/<id>)`).
 // Rendu comme un <a> interne SANS target="_blank" → le routeur client SvelteKit intercepte le clic
 // (même origine, pas de nouvel onglet) et focalise la session sans rechargement complet.
 const SESSION_LINK_RE = /^\/session\/[^/?#\s]+$/;
 
-// href sûr pour un lien markdown : http(s)/mailto/relatif tels quels, domaine nu préfixé de
-// https://, tout autre schéma (javascript:, data:…) refusé → null, on garde alors le texte brut.
-function safeHref(url) {
-  if (/^(https?:\/\/|mailto:|\/|#)/i.test(url)) return url;
-  if (/^[a-z0-9-]+(?:\.[a-z0-9-]+)+(?:[/:?#]|$)/i.test(url)) return 'https://' + url;
-  return null;
-}
+// Alertes GitHub (« callouts ») : un blockquote dont la 1re ligne est `[!NOTE]` / `[!TIP]` /
+// `[!IMPORTANT]` / `[!WARNING]` / `[!CAUTION]`. Rendu en <div class="md-alert md-alert-<type>">
+// coiffé d'un titre iconisé (cf. app.css). Marqueur seul sur sa ligne (comportement GitHub).
+const ALERT_TYPES = {
+  note: { label: 'Note', icon: 'ℹ️' },
+  tip: { label: 'Tip', icon: '💡' },
+  important: { label: 'Important', icon: '❗' },
+  warning: { label: 'Warning', icon: '⚠️' },
+  caution: { label: 'Caution', icon: '🛑' },
+};
+const ALERT_RE = /^\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\][ \t]*(?:\r?\n|$)/i;
 
-// Rendu des liens : markdown [texte](url), URLs http(s) et domaines nus → <a> ; le reste est échappé.
-// Opère sur le texte BRUT (avant code/gras/barré) : terminaison propre sur «"», espaces et ponctuation,
-// et le `&` d'une query string est conservé puis échappé en &amp; (correct en attribut href).
-function autolink(raw) {
-  let out = '', last = 0;
-  for (const mm of raw.matchAll(LINK_RE)) {
-    const start = mm.index;
-    out += esc(raw.slice(last, start));
-    last = start + mm[0].length;
-    if (mm[1] !== undefined) { // lien markdown [texte](url)
-      const href = safeHref(mm[2]);
-      if (href && SESSION_LINK_RE.test(href)) {
-        // lien interne vers une session : pas de target="_blank" → nav client SvelteKit, sans reload.
-        out += `<a href="${esc(href)}" class="session-link" data-session-link>${esc(mm[1])}</a>`;
-      } else {
-        out += href ? `<a href="${esc(href)}" ${A_ATTRS}>${esc(mm[1])}</a>` : esc(mm[0]);
+// Plugin : règle core (après parsing inline → les `children` existent) qui transforme les
+// blockquotes-alertes en <div> et injecte le titre.
+function githubAlerts(mdit) {
+  mdit.core.ruler.push('github_alerts', (state) => {
+    const toks = state.tokens;
+    for (let i = 0; i < toks.length; i++) {
+      if (toks[i].type !== 'blockquote_open') continue;
+      const pOpen = toks[i + 1], inl = toks[i + 2];
+      if (!pOpen || pOpen.type !== 'paragraph_open' || !inl || inl.type !== 'inline') continue;
+      const m = ALERT_RE.exec(inl.content);
+      if (!m) continue;
+      const type = m[1].toLowerCase();
+      const meta = ALERT_TYPES[type];
+
+      // blockquote_open → <div class="md-alert md-alert-<type>"> et son close → </div>
+      toks[i].tag = 'div';
+      toks[i].attrSet('class', `md-alert md-alert-${type}`);
+      for (let j = i + 1, depth = 1; j < toks.length; j++) {
+        if (toks[j].type === 'blockquote_open') depth++;
+        else if (toks[j].type === 'blockquote_close' && --depth === 0) { toks[j].tag = 'div'; break; }
       }
-      continue;
-    }
-    // URL ou domaine nu : collé à « @ » ou à un caractère de mot en amont ⇒ email/identifiant, pas un lien.
-    const prev = start > 0 ? raw[start - 1] : '';
-    if (prev === '@' || /[a-z0-9]/i.test(prev)) { out += esc(mm[0]); continue; }
-    let url = mm[0], trail = '';
-    const pm = url.match(/[.,;:!?'"]+$/); // ponctuation de fin de phrase → hors du lien
-    if (pm) { trail = pm[0]; url = url.slice(0, -pm[0].length); }
-    // parenthèse fermante orpheline (« (voir https://x.com) ») → hors du lien
-    while (url.endsWith(')') && countChar(url, '(') < countChar(url, ')')) {
-      trail = ')' + trail; url = url.slice(0, -1);
-    }
-    const href = /^https?:\/\//i.test(url) ? url : 'https://' + url;
-    out += `<a href="${esc(href)}" ${A_ATTRS}>${esc(url)}</a>` + esc(trail);
-  }
-  return out + esc(raw.slice(last));
-}
 
-// formatage inline d'un fragment (sans gestion des lignes) : liens, `code`, ~~barré~~, **gras**. Échappe le reste.
-function mdFrag(t) {
-  return autolink(String(t == null ? '' : t))
-    .replace(/`([^`]+)`/g, '<code>$1</code>')
-    .replace(/~~([^~]+)~~/g, '<del>$1</del>')
-    .replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>');
-}
-
-// découpe une ligne de tableau GFM en cellules (retire les | de bord, gère \| échappé).
-const tableCells = (l) =>
-  l.trim().replace(/^\|/, '').replace(/\|$/, '')
-    .split(/(?<!\\)\|/).map((c) => c.replace(/\\\|/g, '|').trim());
-
-// ligne séparatrice d'un tableau : « |---|:--:|--:| » (au moins une cellule de tirets).
-const isTableSep = (l) => /^\s*\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?\s*$/.test(l);
-
-function renderTable(header, aligns, rows) {
-  const al = (i) => (aligns[i] ? ` style="text-align:${aligns[i]}"` : '');
-  const th = header.map((c, i) => `<th${al(i)}>${mdFrag(c)}</th>`).join('');
-  const trs = rows
-    .map((r) => '<tr>' + header.map((_, i) => `<td${al(i)}>${mdFrag(r[i] || '')}</td>`).join('') + '</tr>')
-    .join('');
-  return `<table><thead><tr>${th}</tr></thead><tbody>${trs}</tbody></table>`;
-}
-
-// rendu inline (hors blocs de code) : tableaux GFM, `code`, **gras**, titres #, sauts de ligne.
-export function mdInline(t) {
-  const lines = String(t == null ? '' : t).split('\n');
-  const out = [];
-  let buf = []; // lignes texte en attente, jointes par <br>
-  const flush = () => { if (buf.length) { out.push(buf.join('<br>')); buf = []; } };
-  let i = 0;
-  while (i < lines.length) {
-    // tableau : ligne d'en-tête contenant un | suivie d'une ligne séparatrice |---|.
-    if (lines[i].includes('|') && i + 1 < lines.length && isTableSep(lines[i + 1])) {
-      flush();
-      const header = tableCells(lines[i]);
-      const aligns = tableCells(lines[i + 1]).map((c) => {
-        const l = c.startsWith(':'), r = c.endsWith(':');
-        return l && r ? 'center' : r ? 'right' : l ? 'left' : '';
-      });
-      i += 2;
-      const rows = [];
-      while (i < lines.length && lines[i].includes('|')) { rows.push(tableCells(lines[i])); i++; }
-      out.push(renderTable(header, aligns, rows));
-    } else if (/^\s*>/.test(lines[i])) {
-      // blockquote : lignes consécutives préfixées par « > ». On retire le marqueur
-      // (et un espace) puis on rend le contenu récursivement → gras, titres, tableaux
-      // et citations imbriquées (« >> ») fonctionnent dedans.
-      flush();
-      const inner = [];
-      while (i < lines.length && /^\s*>/.test(lines[i])) {
-        inner.push(lines[i].replace(/^\s*>\s?/, ''));
-        i++;
+      // retirer le marqueur [!TYPE] du contenu ET des enfants inline (1er texte + saut de ligne)
+      inl.content = inl.content.slice(m[0].length);
+      const ch = inl.children || [];
+      if (ch[0] && ch[0].type === 'text') {
+        ch[0].content = ch[0].content.replace(/^\[!(?:NOTE|TIP|IMPORTANT|WARNING|CAUTION)\][ \t]*/i, '');
       }
-      out.push(`<blockquote>${mdInline(inner.join('\n'))}</blockquote>`);
-    } else {
-      const h = lines[i].match(/^#{1,4} (.+)$/);
-      buf.push(h ? `<b>${mdFrag(h[1])}</b>` : mdFrag(lines[i]));
-      i++;
-    }
-  }
-  flush();
-  return out.join('');
-}
+      let k = ch[0] && ch[0].type === 'text' && ch[0].content === '' ? 1 : 0;
+      if (ch[k] && (ch[k].type === 'softbreak' || ch[k].type === 'hardbreak')) k++;
+      if (k) inl.children = ch.slice(k);
 
-// markdown léger : code fences ``` , `code`, **gras**, titres #, sauts de ligne. Échappe le reste.
-export function mdLite(t) {
-  const parts = String(t).split(/```/);
-  let out = '';
-  parts.forEach((seg, i) => {
-    if (i % 2 === 1) out += `<pre><code>${esc(seg.replace(/^[a-zA-Z0-9]*\n/, ''))}</code></pre>`;
-    else out += mdInline(seg);
+      // injecter le titre (html_block) juste après l'ouverture du <div>
+      const title = new state.Token('html_block', '', 0);
+      title.block = true;
+      title.content = `<p class="md-alert-title"><span class="md-alert-icon">${meta.icon}</span>${meta.label}</p>`;
+      toks.splice(i + 1, 0, title);
+      i += 1; // sauter le titre injecté
+    }
   });
-  return out;
 }
 
-// Anchor émise par autolink() pour un lien profond de session (`[label](/session/<id>)`) — voir
-// SESSION_LINK_RE plus haut. On la re-repère dans le HTML rendu pour la remplacer par un <SessionCard>
-// vivant. `href` et `label` ont déjà été échappés par esc() lors du rendu → on les dé-échappe ici pour
-// récupérer l'id/le libellé bruts que le composant re-échappera à sa façon. Groupes : 1 = href, 2 = label.
-const SESSION_ANCHOR_RE = /<a href="([^"]*)" class="session-link" data-session-link>([\s\S]*?)<\/a>/g;
+// Moteur markdown : GitHub Flavored Markdown complet via markdown-it.
+// - html:true → le HTML brut d'un message passe LIBREMENT (choix assumé : dashboard local
+//   mono-utilisateur ; conséquence : un message peut injecter du HTML/handlers arbitraires).
+// - linkify → URLs nues autolinkées ; breaks → un simple \n devient <br> (UX chat, comme GitHub
+//   dans les commentaires) ; typographer désactivé (pas de substitution de guillemets/tirets).
+// - task-lists → cases à cocher `- [ ]` / `- [x]` (désactivées) ; github-alerts → callouts.
+const md = new MarkdownIt({ html: true, linkify: true, breaks: true, typographer: false })
+  .use(taskLists)
+  .use(githubAlerts);
+
+// Liens : les liens internes `/session/<id>` reçoivent la signature reconnue par splitSessionLinks
+// (→ <SessionCard> vivant, nav client). Les liens http(s) externes s'ouvrent dans un nouvel onglet.
+const defaultLinkOpen = md.renderer.rules.link_open
+  || ((tokens, idx, options, env, self) => self.renderToken(tokens, idx, options));
+md.renderer.rules.link_open = (tokens, idx, options, env, self) => {
+  const href = tokens[idx].attrGet('href') || '';
+  if (SESSION_LINK_RE.test(href)) {
+    tokens[idx].attrSet('class', 'session-link');
+    tokens[idx].attrSet('data-session-link', '');
+  } else if (/^https?:\/\//i.test(href)) {
+    tokens[idx].attrSet('target', '_blank');
+    tokens[idx].attrSet('rel', 'noopener noreferrer');
+  }
+  return defaultLinkOpen(tokens, idx, options, env, self);
+};
+
+// Images : chargement paresseux + classe pour contraindre la largeur (cf. app.css .md-img).
+const defaultImage = md.renderer.rules.image;
+md.renderer.rules.image = (tokens, idx, options, env, self) => {
+  tokens[idx].attrSet('loading', 'lazy');
+  const cls = tokens[idx].attrGet('class');
+  tokens[idx].attrSet('class', cls ? `${cls} md-img` : 'md-img');
+  return defaultImage(tokens, idx, options, env, self);
+};
+
+// Un message d'un seul paragraphe ne doit pas hériter des marges d'un <p> ni être coupé par un
+// lien de session (le split entre deux {@html} briserait la balise <p>). Quand le HTML rendu EST
+// un unique paragraphe (aucun autre bloc dedans), on retire l'enveloppe <p> → rendu inline, comme
+// l'ancien moteur. Le multi-bloc garde ses <p> (stylés dans app.css).
+function stripSoleParagraph(html) {
+  const m = /^<p>([\s\S]*)<\/p>$/.exec(html);
+  return m && !/<(?:p|ul|ol|h[1-6]|blockquote|table|pre|hr|div)\b/i.test(m[1]) ? m[1] : html;
+}
+
+// rendu markdown complet → chaîne HTML. Utilisé pour du markdown « plat » (sans découpage en
+// segments / cartes de session) et par mdSegments pour chaque bloc de texte.
+export function mdInline(t) {
+  return stripSoleParagraph(md.render(String(t == null ? '' : t)).trim());
+}
+
+// Anchor émise par le rendu markdown pour un lien profond de session (`[label](/session/<id>)`).
+// On la re-repère dans le HTML pour la remplacer par un <SessionCard> vivant. Regex tolérante à
+// l'ordre des attributs : on repère `class="session-link"` puis on extrait href et le libellé.
+const SESSION_ANCHOR_RE = /<a\b([^>]*\bclass="session-link"[^>]*)>([\s\S]*?)<\/a>/g;
 const unesc = (s) => String(s).replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"');
 // id de session extrait d'un href `/session/<id>` (déjà dé-échappé). null si non conforme.
 function sessionIdFromHref(href) {
@@ -271,7 +243,8 @@ function splitSessionLinks(html) {
   let last = 0, m;
   SESSION_ANCHOR_RE.lastIndex = 0;
   while ((m = SESSION_ANCHOR_RE.exec(html)) !== null) {
-    const id = sessionIdFromHref(unesc(m[1]));
+    const hrefMatch = /href="([^"]*)"/.exec(m[1]);
+    const id = hrefMatch ? sessionIdFromHref(unesc(hrefMatch[1])) : null;
     if (!id) continue; // href inattendu : on laisse l'anchor tel quel dans le html environnant
     if (m.index > last) out.push({ type: 'html', html: html.slice(last, m.index) });
     out.push({ type: 'session', id, label: unesc(m[2]) });
@@ -282,28 +255,35 @@ function splitSessionLinks(html) {
   return out;
 }
 
-// découpe un texte markdown léger en segments : { type:'text', parts } ou
-// { type:'code', lang, code }. Le composant <Markdown> rend les blocs de code via
-// <CodeBlock> (coloration syntaxique + bouton copier) et le texte via ses sous-parties
-// (html en {@html}, session en <SessionCard> vivant).
+// langage d'un bloc de code fence : premier mot de l'info-string, en minuscule ('' si absent).
+const fenceLang = (info) => (info || '').trim().split(/\s+/)[0].toLowerCase();
+
+// découpe un texte markdown en segments : { type:'text', parts } ou { type:'code', lang, code }.
+// Les blocs de code de PREMIER NIVEAU (fence ``` ou indenté) sont extraits pour être rendus par
+// <CodeBlock> (coloration + copie) ou <Mermaid> (lang === 'mermaid') ; tout le reste est rendu en
+// HTML par markdown-it puis découpé en sous-parties (html en {@html}, session en <SessionCard>).
+// Un bloc de code IMBRIQUÉ (dans une liste/citation) reste rendu inline par markdown-it (<pre>).
 export function mdSegments(t) {
-  const parts = String(t).split(/```/);
+  const src = String(t == null ? '' : t);
+  const tokens = md.parse(src, {});
   const segs = [];
-  parts.forEach((seg, i) => {
-    if (i % 2 === 1) {
-      // 1re ligne = langage éventuel (alphanum + quelques signes), retirée du contenu.
-      const nl = seg.indexOf('\n');
-      const head = nl === -1 ? '' : seg.slice(0, nl).trim();
-      let lang = '', code = seg;
-      if (nl !== -1 && /^[a-zA-Z0-9+#._-]*$/.test(head)) {
-        lang = head.toLowerCase();
-        code = seg.slice(nl + 1);
-      }
-      segs.push({ type: 'code', lang, code: code.replace(/\n$/, '') });
-    } else if (seg) {
-      segs.push({ type: 'text', parts: splitSessionLinks(mdInline(seg)) });
+  let run = []; // tokens de bloc accumulés (non-code, premier niveau) à rendre ensemble
+  const flushRun = () => {
+    if (!run.length) return;
+    const html = stripSoleParagraph(md.renderer.render(run, md.options, {}).trim());
+    run = [];
+    if (html) segs.push({ type: 'text', parts: splitSessionLinks(html) });
+  };
+  for (const tok of tokens) {
+    if (tok.level === 0 && (tok.type === 'fence' || tok.type === 'code_block')) {
+      flushRun();
+      const lang = tok.type === 'fence' ? fenceLang(tok.info) : '';
+      segs.push({ type: 'code', lang, code: tok.content.replace(/\n$/, '') });
+    } else {
+      run.push(tok);
     }
-  });
+  }
+  flushRun();
   return segs;
 }
 

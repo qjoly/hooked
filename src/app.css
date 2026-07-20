@@ -485,6 +485,38 @@ code.path { color: var(--muted); font-size: 11px; word-break: break-all; font-fa
 .bubble .md blockquote { margin: 6px 0; padding: 2px 0 2px 12px; border-left: 3px solid rgba(120,95,60,.38); color: var(--muted); }
 .bubble .md blockquote blockquote { margin: 4px 0; }
 .bubble.user .md blockquote { border-left-color: rgba(255,255,255,.45); color: rgba(255,255,255,.82); }
+
+/* ----- GFM (markdown-it) : blocs communs à tous les rendus <Markdown> (chat, plan, sous-agents) */
+.md p { margin: 0 0 8px; }
+.md > *:last-child, .md li > *:last-child { margin-bottom: 0; }
+.md h1, .md h2, .md h3, .md h4, .md h5, .md h6 { margin: 14px 0 6px; line-height: 1.25; font-weight: 700; }
+.md > *:first-child { margin-top: 0; }
+.md h1 { font-size: 1.4em; } .md h2 { font-size: 1.25em; } .md h3 { font-size: 1.12em; }
+.md h4 { font-size: 1em; } .md h5, .md h6 { font-size: .92em; color: var(--muted); }
+.md ul, .md ol { margin: 6px 0; padding-left: 22px; }
+.md li { margin: 2px 0; }
+.md li > ul, .md li > ol { margin: 2px 0; }
+.md hr { border: 0; border-top: 1px solid var(--border2); margin: 12px 0; }
+.md img.md-img { max-width: 100%; height: auto; border-radius: 6px; margin: 4px 0; }
+.md strong, .md b { font-weight: 700; }
+.md em, .md i { font-style: italic; }
+/* blocs de code IMBRIQUÉS (dans liste/citation) — rendus <pre> par markdown-it, pas par <CodeBlock> */
+.md pre { margin: 8px 0; padding: 10px 12px; overflow-x: auto; background: #2b2620; border-radius: 8px; }
+.md pre code { color: #e7e0d0; background: none; padding: 0; }
+/* cases à cocher GFM (markdown-it-task-lists) : pas de puce, alignement propre */
+.md ul.contains-task-list { list-style: none; padding-left: 4px; }
+.md li.task-list-item { display: flex; align-items: flex-start; gap: 7px; }
+.md li.task-list-item .task-list-item-checkbox { margin: 3px 0 0; flex: none; accent-color: var(--accent); }
+/* alertes GitHub (callouts) — transformées depuis un blockquote `[!TYPE]` par githubAlerts() */
+.md-alert { margin: 8px 0; padding: 8px 12px 8px 13px; border-left: 3px solid var(--al-c); background: var(--al-bg); border-radius: 0 7px 7px 0; }
+.md-alert > *:last-child { margin-bottom: 0; }
+.md-alert-title { display: flex; align-items: center; gap: 6px; margin: 0 0 4px; font-weight: 700; font-size: 12.5px; color: var(--al-c); }
+.md-alert-icon { font-size: 13px; line-height: 1; }
+.md-alert-note      { --al-c: #4a9eda; --al-bg: rgba(74,158,218,.10); }
+.md-alert-tip       { --al-c: #3aa657; --al-bg: rgba(58,166,87,.10); }
+.md-alert-important { --al-c: #a371f7; --al-bg: rgba(163,113,247,.12); }
+.md-alert-warning   { --al-c: #cf8b1a; --al-bg: rgba(207,139,26,.12); }
+.md-alert-caution   { --al-c: #e5534b; --al-bg: rgba(229,83,75,.12); }
 /* flash sur la bulle ciblée par une ancre #msg-... (depuis la recherche). */
 .bubble.flash { animation: bubble-flash 1.6s ease-out; }
 @keyframes bubble-flash {
@@ -494,7 +526,9 @@ code.path { color: var(--muted); font-size: 11px; word-break: break-all; font-fa
 
 /* bloc de code : panneau « éditeur » sombre, en-tête (langage + bouton copier) + corps coloré.
    Indépendant de la bulle (toujours sombre), aussi bien chez l'utilisateur que Claude. */
-.code-block { margin: 8px 0; border-radius: 10px; overflow: hidden; border: 1px solid rgba(0,0,0,.25); box-shadow: var(--shadow-sm); }
+/* background + isolation : évitent le « corner bleed » (liseré blanc de la page visible au coin
+   arrondi à cause de overflow:hidden + bordure) → l'interstice montre le fond sombre du bloc. */
+.code-block { margin: 8px 0; border-radius: 10px; overflow: hidden; border: 1px solid rgba(0,0,0,.25); box-shadow: var(--shadow-sm); background: #211d18; isolation: isolate; }
 .cb-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 4px 6px 4px 12px; background: #211d18; border-bottom: 1px solid rgba(255,255,255,.07); }
 .cb-lang { font-size: 10px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: #9a9081; font-family: var(--mono); }
 .cb-copy { font: inherit; font-size: 11px; font-weight: 600; color: #cfc6b4; background: transparent; border: 1px solid rgba(255,255,255,.14); border-radius: 7px; padding: 3px 9px; cursor: pointer; transition: background .15s, color .15s, border-color .15s; }
@@ -502,6 +536,16 @@ code.path { color: var(--muted); font-size: 11px; word-break: break-all; font-fa
 .cb-copy.done { color: #a9c089; border-color: rgba(169,192,137,.5); }
 .code-block pre { margin: 0; padding: 11px 13px; overflow-x: auto; background: #2b2620; font-size: 12px; line-height: 1.55; }
 .code-block code { font-family: var(--mono); color: #e7e0d0; }
+
+/* diagramme Mermaid : en-tête façon bloc de code (cf. .cb-*), canvas au thème de la page */
+.mermaid-block { margin: 8px 0; border-radius: 10px; overflow: hidden; border: 1px solid var(--border2); box-shadow: var(--shadow-sm); background: var(--bg2); isolation: isolate; }
+.mmd-actions { display: flex; gap: 6px; }
+.mmd-canvas { display: flex; justify-content: center; padding: 16px 14px; background: var(--bg2); overflow-x: auto; }
+.mmd-canvas svg { max-width: 100%; height: auto; }
+.mmd-loading { padding: 16px 14px; background: var(--bg2); color: var(--muted); font-family: var(--mono); font-size: 12px; }
+.mmd-error { padding: 8px 13px; background: rgba(192,73,44,.14); color: var(--accent-d); font-family: var(--mono); font-size: 11.5px; font-weight: 600; border-bottom: 1px solid var(--border); }
+.mmd-src { margin: 0; padding: 11px 13px; overflow-x: auto; background: #2b2620; font-size: 12px; line-height: 1.55; }
+.mmd-src code { font-family: var(--mono); color: #e7e0d0; }
 
 /* jetons de coloration syntaxique (cf. src/lib/highlight.js) */
 .hl-com  { color: #8f8675; font-style: italic; }

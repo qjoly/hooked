@@ -1,6 +1,7 @@
 <script>
   import { mdSegments } from '$lib/format.js';
   import CodeBlock from './CodeBlock.svelte';
+  import Mermaid from './Mermaid.svelte';
   import SessionCard from './SessionCard.svelte';
 
   let { text = '' } = $props();
@@ -9,7 +10,11 @@
 
 {#each segs as s, i (i)}
   {#if s.type === 'code'}
-    <CodeBlock code={s.code} lang={s.lang} />
+    {#if s.lang === 'mermaid'}
+      <Mermaid code={s.code} />
+    {:else}
+      <CodeBlock code={s.code} lang={s.lang} />
+    {/if}
   {:else}
     <!-- un segment texte est une suite de sous-parties : html brut ({@html}) et liens de
          session rendus comme des cartes vivantes (<SessionCard>). -->
