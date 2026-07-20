@@ -24,6 +24,7 @@
 
   let mermaid = null;
   let renderSeq = 0; // garde anti-course : seul le dernier rendu lancé peut écrire l'état
+  let renderedKey = null; // source+thème du dernier rendu réussi → skip des rendus redondants
 
   async function ensureMermaid() {
     if (!mermaid) {
@@ -33,10 +34,29 @@
     return mermaid;
   }
 
+  // Conteneur de mesure HORS-FLUX (`position:absolute`, hors écran) passé en 3e argument à
+  // `mermaid.render`. Sans lui, Mermaid attache son <div> temporaire de mesure à <body> DANS le
+  // flux normal → dans notre shell flex (`main{flex:1}`), ce nœud (~150px) vole de la hauteur à
+  // `main` le temps d'une frame → toute la vue session se contracte puis se rétablit (le « flicker »
+  // à chaque tick SSE). Absolu + hors écran = aucune incidence sur la mise en page.
+  function offscreenHost() {
+    const el = document.createElement('div');
+    el.style.cssText = 'position:absolute;left:-99999px;top:-99999px;width:1200px;height:auto;overflow:hidden;pointer-events:none';
+    el.setAttribute('aria-hidden', 'true');
+    document.body.appendChild(el);
+    return el;
+  }
+
   async function render(src, tt) {
     const seq = ++renderSeq;
     const trimmed = String(src || '').trim();
-    if (!trimmed) { svg = ''; error = ''; started = true; return; }
+    if (!trimmed) { svg = ''; error = ''; started = true; renderedKey = `|${tt}`; return; }
+    // Rendu idempotent : une source + un thème identiques redonnent le même SVG. Comme chaque tick
+    // SSE réassigne `s` (donc re-propage `code`), re-rendre à l'identique ne sert à rien et fait
+    // clignoter le diagramme → on court-circuite si rien n'a changé depuis le dernier rendu réussi.
+    const key = `${trimmed}|${tt}`;
+    if (key === renderedKey) { started = true; return; }
+    let host;
     try {
       const m = await ensureMermaid();
       if (seq !== renderSeq) return;
@@ -51,15 +71,19 @@
       const ok = await m.parse(trimmed, { suppressErrors: true });
       if (seq !== renderSeq) return;
       if (!ok) throw new Error('Invalid Mermaid syntax');
-      const { svg: out } = await m.render(`mmd-${mermaidSeq++}`, trimmed);
+      host = offscreenHost();
+      const { svg: out } = await m.render(`mmd-${mermaidSeq++}`, trimmed, host);
       if (seq !== renderSeq) return;
       svg = out;
       error = '';
+      renderedKey = key;
     } catch (e) {
       if (seq !== renderSeq) return;
       svg = '';
       error = e?.message || 'Mermaid render error';
+      renderedKey = null; // échec → autoriser une nouvelle tentative au prochain changement
     } finally {
+      host?.remove();
       if (seq === renderSeq) started = true;
     }
   }
