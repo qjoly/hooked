@@ -27,6 +27,20 @@ if [ "$installed" -eq 0 ]; then
   exit 1
 fi
 
+# Optional: build the native instruction panel used by the "(cite)" action. If swiftc
+# isn't available the action falls back to an AppleScript dialog, so this is best-effort.
+PANEL_SRC="$SRC_DIR/hooked-prompt-panel.swift"
+if [ -f "$PANEL_SRC" ] && command -v swiftc >/dev/null 2>&1; then
+  mkdir -p "$HOME/bin"
+  if swiftc -O "$PANEL_SRC" -o "$HOME/bin/hooked-prompt-panel" 2>/dev/null; then
+    echo "Built: $HOME/bin/hooked-prompt-panel"
+  else
+    echo "warning: hooked-prompt-panel failed to build — (cite) will use the AppleScript dialog" >&2
+  fi
+elif [ -f "$PANEL_SRC" ]; then
+  echo "note: swiftc not found — (cite) will use the AppleScript dialog fallback"
+fi
+
 # Refresh the Services cache so the items show without a re-login.
 /System/Library/CoreServices/pbs -flush >/dev/null 2>&1 || true
 
