@@ -5,7 +5,9 @@
   // `onchange` : callback appelé à chaque changement (sert au changement à chaud d'une session).
   // `showMode` : ajoute le sélecteur de mode de permission (→ claude --permission-mode) au
   // lancement d'une session. Absent du changement à chaud (qui a son propre sélecteur live).
-  let { model = $bindable('opus'), effort = $bindable('high'), mode = $bindable('default'), compact = false, showMode = false, onchange = null, disabled = false } = $props();
+  // `allowInherit` : ajoute une option « hériter » (valeur '') en tête de chaque sélecteur — sert
+  // aux défauts de session (Réglages), où '' signifie « retomber sur la config Claude Code ».
+  let { model = $bindable('opus'), effort = $bindable('high'), mode = $bindable('default'), compact = false, showMode = false, allowInherit = false, onchange = null, disabled = false } = $props();
   const fire = () => onchange && onchange();
 
   // Modèles & efforts dérivés LIVE du binaire claude (cf. server/capabilities.js), chargés une fois
@@ -34,6 +36,7 @@
     <span class="me-pill" title="Model">
       <span class="me-ico">✳</span>
       <select bind:value={model} onchange={fire} {disabled}>
+        {#if allowInherit}<option value="">Inherit</option>{/if}
         {#each modelView as g}
           <optgroup label={g.label}>
             {#each g.opts as [v, l]}<option value={v}>{l}</option>{/each}
@@ -44,6 +47,7 @@
     <span class="me-pill" title="Reasoning effort">
       <span class="me-ico">⚡</span>
       <select bind:value={effort} onchange={fire} {disabled}>
+        {#if allowInherit}<option value="">Inherit</option>{/if}
         {#each effortOpts as v}<option value={v}>{v}</option>{/each}
       </select>
     </span>
@@ -51,6 +55,7 @@
       <span class="me-pill" title="Permission mode at launch (claude --permission-mode)">
         <span class="me-ico">🛡</span>
         <select bind:value={mode} onchange={fire} {disabled}>
+          {#if allowInherit}<option value="">Inherit</option>{/if}
           {#each MODE_OPTS as [v, l]}<option value={v}>{l}</option>{/each}
         </select>
       </span>
@@ -61,6 +66,7 @@
     <div>
       <label class="lf-label">Model</label>
       <select class="lf-input" bind:value={model} onchange={fire} {disabled}>
+        {#if allowInherit}<option value="">Inherit (Claude Code default)</option>{/if}
         {#each modelView as g}
           <optgroup label={g.label}>
             {#each g.opts as [v, l]}<option value={v}>{l}</option>{/each}
@@ -71,6 +77,7 @@
     <div>
       <label class="lf-label">Effort</label>
       <select class="lf-input" bind:value={effort} onchange={fire} {disabled}>
+        {#if allowInherit}<option value="">Inherit</option>{/if}
         {#each effortOpts as v}<option value={v}>{v}</option>{/each}
       </select>
     </div>
@@ -79,6 +86,7 @@
     <div class="lf-mode">
       <label class="lf-label">Permission mode</label>
       <select class="lf-input" bind:value={mode} onchange={fire} {disabled}>
+        {#if allowInherit}<option value="">Inherit (Claude Code default)</option>{/if}
         {#each MODE_OPTS as [v, l]}<option value={v}>{l}</option>{/each}
       </select>
     </div>

@@ -2,7 +2,7 @@
   import { onMount, untrack } from 'svelte';
   import { goto } from '$app/navigation';
   import { page } from '$app/state';
-  import { data, ui } from '$lib/state.svelte.js';
+  import { data, ui, settings } from '$lib/state.svelte.js';
   import { getDefaults, pickFolder } from '$lib/api.js';
   import Composer from './Composer.svelte';
   import ModelEffort from './ModelEffort.svelte';
@@ -26,19 +26,29 @@
   let search = $state('');
   let selected = $state(null);
   let customCwd = $state('');
-  // Défauts provisoires, remplacés au montage par ceux de ~/.claude (config Claude Code).
+  // Défauts provisoires, remplacés par ceux des Réglages hooked (settings) puis, à défaut, ceux
+  // de ~/.claude (config Claude Code). L'utilisateur peut ensuite les changer à la main.
   let model = $state('opus');
   let effort = $state('high');
   let mode = $state('default'); // mode de permission au lancement (claude --permission-mode)
   let worktree = $state(false); // lance `claude --worktree` (git worktree isolé)
 
-  onMount(async () => {
-    try {
-      const d = await getDefaults();
-      if (d?.model) model = d.model;
-      if (d?.effort) effort = d.effort;
-      if (d?.mode) mode = d.mode;
-    } catch (_) {}
+  // Défauts de la config Claude Code (~/.claude), chargés au montage. Les défauts hooked (settings)
+  // les surchargent quand ils sont définis (non vides).
+  let claudeDefaults = $state(null);
+  onMount(async () => { try { claudeDefaults = await getDefaults(); } catch (_) {} });
+  // Tant que l'utilisateur n'a pas touché aux sélecteurs, on (re)dérive les valeurs depuis
+  // settings + claudeDefaults (deps lues AVANT la garde, cf. règle réactivité Svelte 5).
+  let picked = false;
+  $effect(() => {
+    const sm = settings.defaultModel, se = settings.defaultEffort, smo = settings.defaultMode;
+    const d = claudeDefaults;
+    if (picked) return;
+    untrack(() => {
+      model = sm || d?.model || 'opus';
+      effort = se || d?.effort || 'high';
+      mode = smo || d?.mode || 'default';
+    });
   });
 
   const hits = $derived.by(() => {
@@ -100,7 +110,7 @@
     <Composer newSession project={cwd} {model} {effort} {mode} {worktree} {onLaunched} />
 
     <div class="ns-controls">
-      <ModelEffort compact showMode bind:model bind:effort bind:mode />
+      <ModelEffort compact showMode bind:model bind:effort bind:mode onchange={() => (picked = true)} />
       <label class="me-pill ns-worktree" title="Launch the session in a dedicated git worktree (claude --worktree)">
         <input type="checkbox" bind:checked={worktree} />
         <span class="me-ico">🌿</span> worktree

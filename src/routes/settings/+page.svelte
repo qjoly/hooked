@@ -2,6 +2,7 @@
   import { untrack, onMount } from 'svelte';
   import { ui, settings, updateSettings, setTheme, loadSessions } from '$lib/state.svelte.js';
   import { resync, getGit, checkoutBranch, dismissRestartNotice, getClaudeVersion, upgradeClaude, restartClaudeSession } from '$lib/api.js';
+  import ModelEffort from '$lib/components/ModelEffort.svelte';
 
   // Métadonnées d'affichage des sous-onglets (miroir de SessionDetail / server/settings.js).
   const SUBTAB_META = {
@@ -38,6 +39,17 @@
     { key: 'light',  icon: '☀️', label: 'Light' },
     { key: 'dark',   icon: '🌙', label: 'Dark' },
   ];
+
+  // Défauts de session (modèle / effort / mode de permission) pré-sélectionnés dans les formulaires
+  // Nouvelle session et Resume. '' = hériter de la config Claude Code (~/.claude). Champs locaux
+  // resynchronisés depuis le store, persistés à chaque changement du sélecteur.
+  let defModel = $state(settings.defaultModel || '');
+  let defEffort = $state(settings.defaultEffort || '');
+  let defMode = $state(settings.defaultMode || '');
+  $effect(() => { defModel = settings.defaultModel || ''; defEffort = settings.defaultEffort || ''; defMode = settings.defaultMode || ''; });
+  function saveDefaults() {
+    updateSettings({ defaultModel: defModel, defaultEffort: defEffort, defaultMode: defMode });
+  }
 
   // Ordre local des sous-onglets, resynchronisé depuis le store (sauf pendant une réorganisation).
   let order = $state([...settings.subtabOrder]);
@@ -259,6 +271,12 @@
           </button>
         {/each}
       </div>
+    </div>
+
+    <div class="card">
+      <h2>New session defaults</h2>
+      <p class="hint">Model, reasoning effort and permission mode pre-selected when you start a new session or resume one. <strong>Inherit</strong> falls back to your Claude Code config (<code>~/.claude</code>).</p>
+      <ModelEffort showMode allowInherit bind:model={defModel} bind:effort={defEffort} bind:mode={defMode} onchange={saveDefaults} />
     </div>
 
     <div class="card">
