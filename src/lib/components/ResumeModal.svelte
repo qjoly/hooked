@@ -1,14 +1,15 @@
 <script>
-  import { loadSessions, ui } from '$lib/state.svelte.js';
+  import { loadSessions, ui, settings } from '$lib/state.svelte.js';
   import { launch } from '$lib/api.js';
   import ModelEffort from './ModelEffort.svelte';
   import LaunchResult from './LaunchResult.svelte';
 
   let { r } = $props();
-  // pré-sélection : modèle/effort réels de la session d'origine (sinon valeurs par défaut).
-  let model = $state(r.model || 'opus');
-  let effort = $state(r.effort || 'high');
-  let mode = $state('default'); // mode de permission au lancement (claude --permission-mode)
+  // pré-sélection : défauts hooked (Réglages) s'ils sont définis, sinon le modèle/effort réels de
+  // la session d'origine, sinon les valeurs par défaut du sélecteur.
+  let model = $state(settings.defaultModel || r.model || 'opus');
+  let effort = $state(settings.defaultEffort || r.effort || 'high');
+  let mode = $state(settings.defaultMode || 'default'); // mode de permission au lancement (claude --permission-mode)
   let prompt = $state('');
   let status = $state({ text: '', cls: '' });
   let busy = $state(false);
