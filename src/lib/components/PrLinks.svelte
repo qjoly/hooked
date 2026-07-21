@@ -40,35 +40,27 @@
       {@const entry = metaByUrl[url]}
       {@const meta = entry?.meta}
       <li class="pr-row">
-        <div class="pr-card">
-          <a class="pr-link" href={url} target="_blank" rel="noopener"
+        <div class="pr-head">
+          <a class="pr-lnk" href={url} target="_blank" rel="noopener"
              onclick={(e) => e.stopPropagation()}>
-            <span class="pr-header">
-              <span class="pr-label">{prLabel(url)}</span>
-              {#if meta}
-                {#if meta.state}
-                  <span class="pr-badge {stateClass(meta.state)}">{meta.state.toLowerCase()}</span>
-                {/if}
-                {#if meta.author}
-                  <span class="pr-author">@{meta.author}</span>
-                {/if}
-              {/if}
-            </span>
-            {#if meta?.title}
-              <span class="pr-title">{meta.title}</span>
-            {/if}
+            <span class="pr-label">{prLabel(url)}</span>
+            {#if meta?.title}<span class="pr-title">{meta.title}</span>{/if}
             <span class="pr-url">{url}</span>
           </a>
-          {#if meta?.body}
-            <button class="pr-toggle" type="button"
-                    onclick={(e) => { e.stopPropagation(); expanded[url] = !expanded[url]; }}>
-              {expanded[url] ? '▾ Hide description' : '▸ Show description'}
-            </button>
-            {#if expanded[url]}
-              <div class="pr-body"><Markdown text={meta.body} /></div>
-            {/if}
+          {#if meta}
+            {#if meta.state}<span class="pr-state s-{stateClass(meta.state)}">{meta.state}</span>{/if}
+            {#if meta.author}<span class="pr-author">@{meta.author}</span>{/if}
+          {:else if entry?.loading}
+            <span class="pr-muted">…</span>
           {/if}
         </div>
+        {#if meta?.body}
+          <button class="pr-toggle" type="button"
+                  onclick={(e) => { e.stopPropagation(); expanded[url] = !expanded[url]; }}>
+            {expanded[url] ? '▾ Hide description' : '▸ Show description'}
+          </button>
+          {#if expanded[url]}<div class="pr-body"><Markdown text={meta.body} /></div>{/if}
+        {/if}
       </li>
     {/each}
   </ul>
@@ -77,6 +69,7 @@
 {/if}
 
 <style>
+  /* Aligné sur l'onglet Issues (IssueLinks.svelte) : même carte, même en-tête, mêmes badges. */
   .pr-list {
     list-style: none;
     margin: 0;
@@ -87,54 +80,35 @@
   }
   .pr-row {
     display: flex;
-  }
-  .pr-card {
-    display: flex;
     flex-direction: column;
-    gap: 0.25rem;
+    gap: 0.35rem;
     padding: 0.5rem 0.75rem;
     border-radius: 6px;
     background: var(--bg2);
     border: 1px solid var(--border);
     min-width: 0;
-    flex: 1;
   }
-  .pr-link {
+  .pr-head {
+    display: flex;
+    align-items: baseline;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+  }
+  /* NB: classe .pr-lnk (pas .pr-link) — un .pr-link GLOBAL existe dans app.css (chips PR du
+     header de conversation) et fuirait ici (align-items:center → texte centré). */
+  .pr-lnk {
     display: flex;
     flex-direction: column;
     gap: 0.15rem;
     text-decoration: none;
     min-width: 0;
+    flex: 1;
   }
-  .pr-card:hover {
-    background: var(--bg3);
-  }
-  .pr-header {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    flex-wrap: wrap;
-  }
+  .pr-lnk:hover .pr-label { text-decoration: underline; }
   .pr-label {
     font-weight: 600;
     font-size: 0.875rem;
     color: var(--fg);
-  }
-  .pr-badge {
-    font-size: 0.7rem;
-    font-weight: 600;
-    text-transform: capitalize;
-    padding: 0.05rem 0.4rem;
-    border-radius: 999px;
-    color: #fff;
-    background: var(--fg2);
-  }
-  .pr-badge.open { background: #2ea043; }
-  .pr-badge.merged { background: #8957e5; }
-  .pr-badge.closed { background: #cf222e; }
-  .pr-author {
-    font-size: 0.75rem;
-    color: var(--fg2);
   }
   .pr-title {
     font-size: 0.85rem;
@@ -147,26 +121,42 @@
     text-overflow: ellipsis;
     white-space: nowrap;
   }
+  .pr-state {
+    font-size: 0.7rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    padding: 1px 8px;
+    border-radius: 20px;
+    color: #fff;
+    background: var(--muted);
+  }
+  .pr-state.s-open { background: #2da44e; }   /* open → green */
+  .pr-state.s-merged { background: #8250df; } /* merged → purple */
+  .pr-state.s-closed { background: #cf222e; } /* closed → red */
+  .pr-author {
+    font-size: 0.75rem;
+    color: var(--fg2);
+  }
+  .pr-muted { font-size: 0.75rem; color: var(--fg2); }
   .pr-toggle {
     align-self: flex-start;
     background: none;
     border: none;
-    padding: 0;
-    margin-top: 0.15rem;
+    color: var(--accent-d);
     font-size: 0.75rem;
-    color: var(--accent, var(--fg2));
     cursor: pointer;
+    padding: 0;
   }
   .pr-body {
-    margin: 0.25rem 0 0;
-    padding: 0.35rem 0.6rem;
-    border-radius: 4px;
-    background: var(--bg1, var(--bg));
-    border: 1px solid var(--border);
+    margin: 0;
+    padding: 0.35rem 0.75rem;
+    background: var(--bg3);
+    border-radius: 6px;
     font-size: 0.8rem;
-    color: var(--fg2);
+    color: var(--fg);
     word-break: break-word;
-    max-height: 20rem;
-    overflow-y: auto;
+    max-height: 320px;
+    overflow: auto;
   }
 </style>

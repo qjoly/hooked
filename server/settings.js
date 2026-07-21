@@ -10,7 +10,7 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
-import { HOOKED_DIR } from './config.js';
+import { HOOKED_DIR, LAUNCH_PERMISSION_MODES } from './config.js';
 
 const SETTINGS_FILE = path.join(HOOKED_DIR, 'settings.json');
 
@@ -58,6 +58,13 @@ const DEFAULTS = {
   gitAutoRestartOnLock: false,
   // Afficher la bannière « redémarrage nécessaire / effectué » dans l'UI (indépendant de l'auto-restart).
   gitRestartNotice: true,
+  // Défauts pré-sélectionnés au lancement/à la reprise d'une session (formulaires Nouvelle session
+  // et Resume). Chaîne vide = « hériter » : on retombe sur la config Claude Code de l'utilisateur
+  // (~/.claude, cf. readClaudeDefaults) puis sur le défaut du sélecteur. defaultMode '' = hériter ;
+  // 'default' = mode Normal explicite (aucun flag). Validés à l'écriture ; le lancement re-valide.
+  defaultModel: '',
+  defaultEffort: '',
+  defaultMode: '',
   // Visibilité des éléments de la barre de statut (en-tête du détail de session). Tout à true par
   // défaut sauf prLinks / issueLinks (false : les onglets dédiés PR/Issues sont le lieu principal ;
   // chips masqués par défaut).
@@ -88,6 +95,11 @@ function sanitize(raw) {
     if (rawSb[k] !== undefined) return [k, rawSb[k] !== false];
     return [k, !STATUS_BAR_HIDDEN_DEFAULT.has(k)]; // absent → défaut (prLinks/issueLinks → false)
   }));
+  // Défauts de session : '' (hériter) autorisé. Modèle → charset de --model ; effort → alpha ;
+  // mode → liste blanche du lancement. Tout inconnu retombe sur '' (hériter).
+  const defaultModel = typeof o.defaultModel === 'string' && /^[a-z0-9-]{1,60}$/i.test(o.defaultModel) ? o.defaultModel : '';
+  const defaultEffort = typeof o.defaultEffort === 'string' && /^[a-z]{1,20}$/.test(o.defaultEffort) ? o.defaultEffort : '';
+  const defaultMode = LAUNCH_PERMISSION_MODES.includes(o.defaultMode) ? o.defaultMode : '';
   return {
     subtabOrder: order,
     statusBarOrder: sbOrder,
@@ -98,6 +110,9 @@ function sanitize(raw) {
     // Défaut à true : une config antérieure à cette clé ne doit pas la forcer à false.
     gitRestartNotice: o.gitRestartNotice === undefined ? true : !!o.gitRestartNotice,
     statusBar,
+    defaultModel,
+    defaultEffort,
+    defaultMode,
   };
 }
 
