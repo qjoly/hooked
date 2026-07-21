@@ -1,7 +1,7 @@
 <script>
   import { untrack, onMount } from 'svelte';
-  import { ui, settings, updateSettings, setTheme, loadSessions } from '$lib/state.svelte.js';
-  import { resync, getGit, checkoutBranch, dismissRestartNotice, getClaudeVersion, upgradeClaude, restartClaudeSession } from '$lib/api.js';
+  import { data, ui, settings, updateSettings, setTheme, loadSessions } from '$lib/state.svelte.js';
+  import { resync, getGit, checkoutBranch, dismissRestartNotice, getClaudeVersion, upgradeClaude, restartClaudeSession, pickFolder } from '$lib/api.js';
   import ModelEffort from '$lib/components/ModelEffort.svelte';
 
   // Métadonnées d'affichage des sous-onglets (miroir de SessionDetail / server/settings.js).
@@ -49,6 +49,36 @@
   $effect(() => { defModel = settings.defaultModel || ''; defEffort = settings.defaultEffort || ''; defMode = settings.defaultMode || ''; });
   function saveDefaults() {
     updateSettings({ defaultModel: defModel, defaultEffort: defEffort, defaultMode: defMode });
+  }
+
+  // Projet de démarrage rapide : cwd utilisé quand une session est lancée sans dossier (p.ex. un
+  // raccourci macOS qui POST /api/launch avec juste un prompt). Liste = projets connus (comme la
+  // Nouvelle session), + « Other folder… » via le sélecteur natif. '' = aucun (cwd requis comme avant).
+  const projs = $derived.by(() => {
+    const m = new Map();
+    for (const s of data.sessions) {
+      if (!s.project) continue;
+      const e = m.get(s.project) || { name: s.projectName || s.project, count: 0, last: '' };
+      e.count++;
+      const t = s.lastActivity || '';
+      if (t > e.last) e.last = t;
+      m.set(s.project, e);
+    }
+    return [...m.entries()]
+      .sort((a, b) => String(b[1].last).localeCompare(String(a[1].last)) || b[1].count - a[1].count)
+      .map(([cwd, e]) => [cwd, e.name]);
+  });
+  const quickProject = $derived(settings.quickLaunchProject || '');
+  let picking = $state(false);
+  async function browseQuickProject() {
+    if (picking) return;
+    picking = true;
+    try {
+      const r = await pickFolder(quickProject || undefined);
+      if (r.ok && r.data?.dir) updateSettings({ quickLaunchProject: r.data.dir });
+    } finally {
+      picking = false;
+    }
   }
 
   // Ordre local des sous-onglets, resynchronisé depuis le store (sauf pendant une réorganisation).
@@ -277,6 +307,23 @@
       <h2>New session defaults</h2>
       <p class="hint">Model, reasoning effort and permission mode pre-selected when you start a new session or resume one. <strong>Inherit</strong> falls back to your Claude Code config (<code>~/.claude</code>).</p>
       <ModelEffort showMode allowInherit bind:model={defModel} bind:effort={defEffort} bind:mode={defMode} onchange={saveDefaults} />
+    </div>
+
+    <div class="card">
+      <h2>Default project</h2>
+      <p class="hint">Working directory used when a session is launched <strong>without</strong> a folder — e.g. from a macOS shortcut that posts to <code>/api/launch</code> with only a prompt. Leave empty to keep requiring an explicit folder.</p>
+      <div class="cmd-row">
+        <select class="cmd-input" value={quickProject} onchange={(e) => updateSettings({ quickLaunchProject: e.currentTarget.value })}>
+          <option value="">— None —</option>
+          {#each projs as [cwd, name] (cwd)}
+            <option value={cwd}>{name} — {cwd}</option>
+          {/each}
+          {#if quickProject && !projs.some(([c]) => c === quickProject)}
+            <option value={quickProject}>{quickProject}</option>
+          {/if}
+        </select>
+        <button class="save" onclick={browseQuickProject} disabled={picking}>{picking ? '⏳' : '📂'} Browse…</button>
+      </div>
     </div>
 
     <div class="card">

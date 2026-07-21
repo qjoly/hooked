@@ -10,6 +10,7 @@ import { isValidEffort } from './capabilities.js';
 import { statSafe } from './util.js';
 import { launchConfigByTmux, paneForSession } from './events.js';
 import { scanSessions } from './transcript.js';
+import { readSettings } from './settings.js';
 
 // Délai entre la saisie d'un texte et l'Entrée de validation. Le TUI de Claude Code détecte les
 // frappes rapprochées comme un *collage* : une Entrée envoyée trop tôt après le texte est avalée
@@ -630,6 +631,12 @@ function launchSession({ resumeId, cwd, prompt, model, effort, worktree, permiss
     if (!sess) return cb(err400('session not found'));
     dir = dir || sess.project; // on reprend dans le dossier d'origine de la session
     id = resumeId;
+  }
+  // Aucun cwd fourni (ni resume) : retomber sur le projet par défaut des réglages (quickLaunchProject).
+  // Permet à un déclencheur externe (Quick Action macOS) de POST /api/launch avec seulement un prompt.
+  if (!dir) {
+    const def = readSettings().quickLaunchProject;
+    if (def) dir = def;
   }
   if (!dir) return cb(err400('directory (cwd) required'));
   const st = statSafe(dir);
