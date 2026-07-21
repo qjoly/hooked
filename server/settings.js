@@ -65,6 +65,10 @@ const DEFAULTS = {
   defaultModel: '',
   defaultEffort: '',
   defaultMode: '',
+  // Projet par défaut (cwd absolu) utilisé quand une session est lancée sans cwd — p.ex. depuis
+  // un raccourci macOS (Quick Action) qui POST /api/launch avec seulement un prompt. '' = aucun ;
+  // launchSession exige alors un cwd explicite comme avant.
+  quickLaunchProject: '',
   // Visibilité des éléments de la barre de statut (en-tête du détail de session). Tout à true par
   // défaut sauf prLinks / issueLinks (false : les onglets dédiés PR/Issues sont le lieu principal ;
   // chips masqués par défaut).
@@ -100,6 +104,12 @@ function sanitize(raw) {
   const defaultModel = typeof o.defaultModel === 'string' && /^[a-z0-9-]{1,60}$/i.test(o.defaultModel) ? o.defaultModel : '';
   const defaultEffort = typeof o.defaultEffort === 'string' && /^[a-z]{1,20}$/.test(o.defaultEffort) ? o.defaultEffort : '';
   const defaultMode = LAUNCH_PERMISSION_MODES.includes(o.defaultMode) ? o.defaultMode : '';
+  // quickLaunchProject : chemin absolu ou '' (aucun). L'existence du dossier n'est PAS vérifiée ici
+  // (le disque peut varier dans le temps) — launchSession valide le dossier au lancement.
+  const quickLaunchProject =
+    typeof o.quickLaunchProject === 'string' && o.quickLaunchProject.startsWith('/')
+      ? o.quickLaunchProject.slice(0, 4096)
+      : '';
   return {
     subtabOrder: order,
     statusBarOrder: sbOrder,
@@ -113,6 +123,7 @@ function sanitize(raw) {
     defaultModel,
     defaultEffort,
     defaultMode,
+    quickLaunchProject,
   };
 }
 
