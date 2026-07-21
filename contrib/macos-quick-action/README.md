@@ -50,17 +50,23 @@ Each workflow is a single **Run Shell Script** action (input → stdin):
 4. On success: notification + `open http://localhost:$PORT/`. On failure: notification with the server's error.
 
 **Start hooked session (cite)** — same, but first prompts for an instruction:
-- If `~/bin/hooked-prompt-panel` is executable, it's used to collect the instruction (a nicer native panel).
+- If `~/bin/hooked-prompt-panel` is executable, it's used to collect the instruction (a glassy Spotlight-style native panel).
 - Otherwise it falls back to an AppleScript `display dialog`. **The panel is optional** — the action works without it.
 - The selection is prefixed with `> ` per line and the instruction appended, so the session opens with the cited text as context plus your ask.
 
-> [!NOTE]
-> `~/bin/hooked-prompt-panel` is **not bundled** here — it's a separately-built helper (a compiled binary), and the workflow degrades gracefully to the AppleScript dialog without it. If you want the panel, install it yourself at that path.
+### The native panel (`hooked-prompt-panel`)
+
+The panel source is bundled: [`hooked-prompt-panel.swift`](./hooked-prompt-panel.swift) — a small AppKit one-shot input (reads the citation on stdin, prints the typed instruction on stdout; exit 0 = submitted, 1 = cancelled). `install.sh` builds it to `~/bin/hooked-prompt-panel` when `swiftc` is present; otherwise `(cite)` uses the AppleScript dialog. Build manually with:
+
+```bash
+swiftc -O hooked-prompt-panel.swift -o ~/bin/hooked-prompt-panel
+```
 
 ## Uninstall
 
 ```bash
 rm -rf "$HOME/Library/Services/Start hooked session"*.workflow
+rm -f "$HOME/bin/hooked-prompt-panel"   # if the native panel was built
 /System/Library/CoreServices/pbs -flush
 ```
 
