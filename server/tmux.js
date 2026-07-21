@@ -31,6 +31,26 @@ const REPL_PROMPT_RE = /(^|\n)[ \t]*❯/;
 // (e.g. `❯ 1. Red`), which REPL_PROMPT_RE also matches. This narrower pattern detects that
 // option-cursor so we can tell "widget still up" from "composer ready" (see waitForQuestionDismissed).
 const QUESTION_CURSOR_RE = /(^|\n)[ \t]*❯[ \t]+\d+\./;
+// A brand-new / never-trusted cwd triggers Claude Code's trust dialog on first launch ("Quick
+// safety check: Is this a project you created or one you trust? … 1. Yes, I trust this folder").
+// It's a numbered menu whose `❯ 1. …` cursor ALSO matches REPL_PROMPT_RE, so a plain
+// waitForReplReady reports "ready" while it's up and the seed prompt gets typed into the dialog
+// (its Enter accepts trust) → folder trusted but the conversation stays empty. Matched on stable
+// wording so we can accept it before seeding (see waitForComposerReady).
+const TRUST_PROMPT_RE = /Quick safety check|trust (?:the files|this folder)|Do you trust/i;
+
+// True when the pane shows the real REPL composer, ready for a typed message: the `❯` prompt is
+// present (REPL_PROMPT_RE) AND it isn't a numbered menu (QUESTION_CURSOR_RE — trust dialog or an
+// AskUserQuestion widget). Pure/testable; source of truth shared by the readiness waiters below.
+function isComposerReady(screen) {
+  const s = String(screen);
+  return REPL_PROMPT_RE.test(s) && !QUESTION_CURSOR_RE.test(s);
+}
+
+// True when the pane shows Claude Code's "trust this folder?" dialog (see TRUST_PROMPT_RE).
+function isTrustPrompt(screen) {
+  return TRUST_PROMPT_RE.test(String(screen));
+}
 
 // Poll capture-pane until the claude REPL prompt appears (see REPL_PROMPT_RE). `cb(ready)`: true if
 // the prompt was detected, false on timeout (the caller then sends anyway, best-effort). Never
@@ -47,17 +67,40 @@ function waitForReplReady(pane, cb) {
   probe();
 }
 
-// Poll until a pending AskUserQuestion widget has been dismissed and the composer prompt is back:
-// the composer `❯` is present (REPL_PROMPT_RE) AND the widget's numbered-option cursor is gone
-// (QUESTION_CURSOR_RE). Plain waitForReplReady is NOT enough here — it matches the `❯` the widget
-// draws on its highlighted option, so it reports "ready" while the widget is still up and we'd type
-// into it (its Enter then selects the highlighted option). `cb()` fires when dismissed or on timeout.
+// Like waitForReplReady but robust to the trust dialog on a fresh/never-trusted cwd (see
+// TRUST_PROMPT_RE): when the dialog is up we accept it (Enter on its default "Yes, I trust this
+// folder" option — cursor starts there) instead of typing the seed into it, then keep polling for
+// the REAL composer (isComposerReady — `❯` with no numbered-option cursor). Waiting alone would not
+// help: nothing else dismisses the dialog, so we'd just time out and then seed into it anyway. Used
+// by launchSession before injecting the first prompt. `cb(ready)`: true if the composer appeared,
+// false on timeout (caller seeds best-effort). Never errors.
+function waitForComposerReady(pane, cb) {
+  const deadline = Date.now() + REPL_READY_TIMEOUT;
+  let trustAccepted = false;
+  const probe = () => {
+    execFile('tmux', ['capture-pane', '-t', pane, '-p'], (e, out) => {
+      const s = out || '';
+      if (!e && !trustAccepted && isTrustPrompt(s) && !isComposerReady(s)) {
+        trustAccepted = true; // accept once, then wait for the composer to render
+        return execFile('tmux', ['send-keys', '-t', pane, 'Enter'], () => setTimeout(probe, REPL_POLL_INTERVAL));
+      }
+      if (!e && isComposerReady(s)) return cb(true);
+      if (Date.now() >= deadline) return cb(false);
+      setTimeout(probe, REPL_POLL_INTERVAL);
+    });
+  };
+  probe();
+}
+
+// Poll until a pending AskUserQuestion widget has been dismissed and the composer prompt is back
+// (isComposerReady). Plain waitForReplReady is NOT enough here — it matches the `❯` the widget draws
+// on its highlighted option, so it reports "ready" while the widget is still up and we'd type into
+// it (its Enter then selects the highlighted option). `cb()` fires when dismissed or on timeout.
 function waitForQuestionDismissed(pane, cb) {
   const deadline = Date.now() + REPL_READY_TIMEOUT;
   const probe = () => {
     execFile('tmux', ['capture-pane', '-t', pane, '-p'], (e, out) => {
-      const s = out || '';
-      if (!e && REPL_PROMPT_RE.test(s) && !QUESTION_CURSOR_RE.test(s)) return cb();
+      if (!e && isComposerReady(out || '')) return cb();
       if (Date.now() >= deadline) return cb();
       setTimeout(probe, REPL_POLL_INTERVAL);
     });
@@ -630,17 +673,18 @@ function launchSession({ resumeId, cwd, prompt, model, effort, worktree, permiss
       fs.appendFileSync(LAUNCHES_FILE, JSON.stringify({ ts: new Date().toISOString(), tmux: name, cwd: dir, model: model || null, effort: effort || null, worktree: useWorktree }) + '\n');
     } catch (_) {}
     // Optional first prompt: best-effort, IN THE BACKGROUND (we return right away via the cb below,
-    // without waiting for the TUI to boot). Resolve the session's pane, wait for the REPL to be
-    // ready (waitForReplReady), then inject the prompt via deliverReply — exactly the reply path's
-    // mechanism (send-keys -l + Enter after ENTER_DELAY, which lets the paste-detection window close
-    // before validating). A fixed delay wasn't enough: on a slow start the prompt was typed into a
-    // TUI that wasn't ready and lost.
+    // without waiting for the TUI to boot). Resolve the session's pane, wait for the composer to be
+    // ready (waitForComposerReady — which also accepts the trust dialog on a fresh/never-trusted cwd,
+    // otherwise the seed is typed into that dialog and lost), then inject the prompt via deliverReply
+    // — exactly the reply path's mechanism (send-keys -l + Enter after ENTER_DELAY, which lets the
+    // paste-detection window close before validating). A fixed delay wasn't enough: on a slow start
+    // the prompt was typed into a TUI that wasn't ready and lost.
     const seed = prompt && typeof prompt === 'string' ? prompt.trim() : '';
     if (seed) {
       execFile('tmux', ['display-message', '-p', '-t', name, '#{pane_id}'], (ePane, paneOut) => {
         const pane = (paneOut || '').trim();
         if (ePane || !/^%\d+$/.test(pane)) return; // pane not resolved: drop the seed (best-effort)
-        waitForReplReady(pane, () => deliverReply(pane, seed, false, () => {}));
+        waitForComposerReady(pane, () => deliverReply(pane, seed, false, () => {}));
       });
     }
     // NB: no `link` field here — at launch the real session id isn't known yet (id is null for a
@@ -676,4 +720,4 @@ function restartSession(id, { model, effort } = {}, cb) {
   }
 }
 
-export { paneTmuxNames, invalidatePaneCache, clearPaneCaches, tmuxAlive, launchInfoForPane, resolveLaunchForSession, deliverReply, deliverQuestion, questionKeys, deliverQuestionWithNote, deliverQuestionFreeText, deliverPlanChoice, parsePlanPrompt, sendKey, parsePaneMode, readPaneMode, readPaneModeSync, paneBusySync, parseSpinner, paneActivitySync, conversationBody, paneActiveSync, paneActiveStep, setMode, setModelEffort, launchSession, killSession, restartSession, err400 };
+export { paneTmuxNames, invalidatePaneCache, clearPaneCaches, tmuxAlive, launchInfoForPane, resolveLaunchForSession, deliverReply, deliverQuestion, questionKeys, deliverQuestionWithNote, deliverQuestionFreeText, deliverPlanChoice, parsePlanPrompt, isTrustPrompt, isComposerReady, sendKey, parsePaneMode, readPaneMode, readPaneModeSync, paneBusySync, parseSpinner, paneActivitySync, conversationBody, paneActiveSync, paneActiveStep, setMode, setModelEffort, launchSession, killSession, restartSession, err400 };
