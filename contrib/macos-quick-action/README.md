@@ -1,20 +1,29 @@
-# macOS Quick Action — "Start hooked session"
+# macOS Quick Actions — "Start hooked session"
 
-Start a hooked session from **any** app: select text, right-click → **Services → "Start hooked session"**. The selection is sent as the first prompt; the session launches in the **default project** configured in hooked.
+Start a hooked session from **any** app: select text, right-click → **Services → "Start hooked session"** (or the **(cite)** variant). The session launches in the **default project** configured in hooked.
+
+Two Quick Actions are bundled:
+
+| Action | Prompt it sends |
+|---|---|
+| **Start hooked session** | the raw selection, verbatim |
+| **Start hooked session (cite)** | the selection quoted as a markdown blockquote (`> …`), a blank line, then an **instruction** you type in a dialog |
 
 ```mermaid
 flowchart LR
-  A[Select text anywhere] --> B[Services → Start hooked session]
-  B --> C["POST /api/launch { prompt }"]
-  C --> D[hooked → tmux session in default project]
-  D --> E[Notification + opens dashboard]
+  A[Select text anywhere] --> B{Which action?}
+  B -->|plain| C["POST /api/launch { prompt: selection }"]
+  B -->|cite| P[Ask for instruction] --> D["POST /api/launch { prompt: quote + instruction }"]
+  C --> E[hooked → tmux session in default project]
+  D --> E
+  E --> F[Notification + opens dashboard]
 ```
 
 ## Prerequisites
 
 - **hooked running** on `http://localhost:4123` (override with `HOOKED_PORT`).
-- **A default project set**: hooked → Settings → **Default project**. The Quick Action sends no `cwd`, so `launchSession` falls back to `quickLaunchProject`. Without it the launch returns `directory (cwd) required` (surfaced as a notification).
-- **`jq`** and **`curl`** on `PATH`. The bundled script sets `PATH` to `/run/current-system/sw/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin` (covers Nix, Homebrew arm64/x86, and system paths). If your `jq` lives elsewhere, edit the first `export PATH=...` line in the workflow's shell action.
+- **A default project set**: hooked → Settings → **Default project**. The Quick Actions send no `cwd`, so `launchSession` falls back to `quickLaunchProject`. Without it the launch returns `directory (cwd) required` (surfaced as a notification).
+- **`jq`** and **`curl`** on `PATH`. The bundled scripts set `PATH` to `/run/current-system/sw/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin` (covers Nix, Homebrew arm64/x86, and system paths). If your `jq` lives elsewhere, edit the first `export PATH=...` line in the workflow's shell action.
 
 ## Install
 
@@ -22,31 +31,40 @@ flowchart LR
 ./install.sh
 ```
 
-Copies the bundle to `~/Library/Services/` and flushes the Services cache. Idempotent — re-run to update.
+Installs every `*.workflow` next to the script into `~/Library/Services/` and flushes the Services cache. Idempotent — re-run to update.
 
 ## Use
 
-1. Select text in any app → right-click → **Services → "Start hooked session"**.
+1. Select text in any app → right-click → **Services → "Start hooked session"** (or **"(cite)"**).
 2. On first run macOS may ask to allow Apple events / notifications — approve once.
-3. **Optional shortcut**: System Settings → Keyboard → Keyboard Shortcuts → **Services** → Text → assign a key to "Start hooked session".
+3. **Optional shortcut**: System Settings → Keyboard → Keyboard Shortcuts → **Services** → Text → assign a key to either action.
 
-## What it does
+## What they do
 
-The workflow is a single **Run Shell Script** action (input → stdin):
+Each workflow is a single **Run Shell Script** action (input → stdin):
 
-1. Read the selection from stdin; empty selection → notify and stop.
+**Start hooked session**
+1. Read the selection from stdin; empty → notify and stop.
 2. Build the JSON body with `jq -Rs '{prompt: .}'` (safe escaping of quotes / newlines).
 3. `POST /api/launch` with only `{ prompt }` — no `cwd`.
-4. On success: notification + `open http://localhost:$PORT/`. On failure: notification with the server's error message.
+4. On success: notification + `open http://localhost:$PORT/`. On failure: notification with the server's error.
+
+**Start hooked session (cite)** — same, but first prompts for an instruction:
+- If `~/bin/hooked-prompt-panel` is executable, it's used to collect the instruction (a nicer native panel).
+- Otherwise it falls back to an AppleScript `display dialog`. **The panel is optional** — the action works without it.
+- The selection is prefixed with `> ` per line and the instruction appended, so the session opens with the cited text as context plus your ask.
+
+> [!NOTE]
+> `~/bin/hooked-prompt-panel` is **not bundled** here — it's a separately-built helper (a compiled binary), and the workflow degrades gracefully to the AppleScript dialog without it. If you want the panel, install it yourself at that path.
 
 ## Uninstall
 
 ```bash
-rm -rf "$HOME/Library/Services/Start hooked session.workflow"
+rm -rf "$HOME/Library/Services/Start hooked session"*.workflow
 /System/Library/CoreServices/pbs -flush
 ```
 
 ## Notes
 
-- The bundle is plain XML plists (`Info.plist` + `document.wflow`); edit and re-run `install.sh` to iterate. Validate with `plutil -lint`.
-- The setting lives server-side in hooked (`settings.json`), so the shell trigger stays dumb — change projects in the UI, not here.
+- The bundles are plain XML plists (`Info.plist` + `document.wflow`); edit and re-run `install.sh` to iterate. Validate with `plutil -lint`. In `document.wflow`, shell `>` redirections appear XML-escaped as `&gt;` — that's expected.
+- The default project lives server-side in hooked (`settings.json`), so the shell triggers stay dumb — change projects in the UI, not here.
