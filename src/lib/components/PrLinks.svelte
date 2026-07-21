@@ -41,7 +41,7 @@
       {@const meta = entry?.meta}
       <li class="pr-row">
         <div class="pr-head">
-          <a class="pr-link" href={url} target="_blank" rel="noopener"
+          <a class="pr-lnk" href={url} target="_blank" rel="noopener"
              onclick={(e) => e.stopPropagation()}>
             <span class="pr-label">{prLabel(url)}</span>
             {#if meta?.title}<span class="pr-title">{meta.title}</span>{/if}
@@ -94,7 +94,9 @@
     gap: 0.5rem;
     flex-wrap: wrap;
   }
-  .pr-link {
+  /* NB: classe .pr-lnk (pas .pr-link) — un .pr-link GLOBAL existe dans app.css (chips PR du
+     header de conversation) et fuirait ici (align-items:center → texte centré). */
+  .pr-lnk {
     display: flex;
     flex-direction: column;
     gap: 0.15rem;
@@ -102,7 +104,7 @@
     min-width: 0;
     flex: 1;
   }
-  .pr-link:hover .pr-label { text-decoration: underline; }
+  .pr-lnk:hover .pr-label { text-decoration: underline; }
   .pr-label {
     font-weight: 600;
     font-size: 0.875rem;
