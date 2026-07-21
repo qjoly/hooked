@@ -229,6 +229,7 @@ export const settings = $state({
     branch: true, stateBadge: true, permissionMode: true, modelEffort: true,
     cost: true, prompts: true, tokens: true, model: true, usage5h: true, prLinks: false, issueLinks: false, focusBtn: true,
   },
+  defaultModel: '', defaultEffort: '', defaultMode: '',
 });
 export async function loadSettings() {
   try { Object.assign(settings, await getSettings()); } catch (_) {}
