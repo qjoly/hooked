@@ -100,7 +100,11 @@ function buildConversation(fp, includeSidechain) {
           tools.push(tool);
           // `diff` carried on the part (not on `tool`, which is shared with `tools[]` frozen
           // by the test baseline) → rendered as a collapsible Pierre diff in the conversation.
-          parts.push({ type: 'tool', tool, diff: toolDiffOps(b.name, b.input) });
+          // `ask` carries the raw AskUserQuestion payload on the part (like `diff`, invisible to
+          // the characterization baseline which strips parts) so the chip renders the question +
+          // options read-only instead of dumping raw JSON.
+          const ask = b.name === 'AskUserQuestion' && Array.isArray(b.input?.questions) ? b.input.questions : null;
+          parts.push({ type: 'tool', tool, diff: toolDiffOps(b.name, b.input), ask });
         }
       }
       text = text.trim();
