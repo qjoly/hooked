@@ -756,7 +756,23 @@ code.path { color: var(--muted); font-size: 11px; word-break: break-all; font-fa
 .q-recap { flex: 1; min-width: 0; font-size: 12.5px; color: var(--accent-d); font-family: var(--mono); overflow: hidden; text-overflow: ellipsis; }
 .q-recap.ok { color: var(--ended); }
 .q-recap.err { color: var(--attention); }
-.question.sent { opacity: .7; }
+/* Answered: keep everything legible (you often want to re-read what you picked while
+   Claude works on the reply). Signal "done / inactive" by muting the accent bar + shadow,
+   never by dimming text — the green "✓ sent" recap already confirms the submission. */
+.question.sent { border-left-color: var(--border2); box-shadow: none; }
+
+/* AskUserQuestion rendered read-only inside its expanded tool chip (transcript): reuse the live
+   card's .q-* look but non-interactive, the chosen option(s) keeping the .sel accent. */
+.ask-ro { padding: 8px 10px 10px; }
+.ask-ro .q-block { margin-bottom: 12px; }
+.ask-ro .q-block:last-child { margin-bottom: 0; }
+.ask-ro .q-text { font-size: 13.5px; }
+.ask-ro .q-opts { margin-top: 8px; gap: 6px; }
+.ask-ro .q-opt { cursor: default; padding: 8px 11px; }
+.ask-ro .q-opt:hover { border-color: var(--border); background: var(--bg2); }
+.ask-ro .q-opt.sel, .ask-ro .q-opt.sel:hover { border-color: var(--accent); background: var(--accent-soft); }
+.ask-ro .ask-check { color: var(--accent-d); font-weight: 700; }
+.ask-answer { padding: 4px 10px 10px; font-family: var(--mono); font-size: 11.5px; line-height: 1.5; color: var(--text); white-space: pre-wrap; word-break: break-word; }
 
 /* lancer / reprendre une session */
 .side-actions { display: flex; gap: 8px; }
