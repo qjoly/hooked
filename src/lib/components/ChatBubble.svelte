@@ -25,6 +25,14 @@
     for (let i = parts.length - 1; i >= 0; i--) if (parts[i].type === 'text') return i;
     return -1;
   });
+  // A text block renders as the contrasted "final" answer only if it's the last one; earlier
+  // blocks are dimmed as reasoning. Exception: text that directly precedes a hand-back-to-user
+  // tool (AskUserQuestion / ExitPlanMode) is the lead-in to that prompt, not reasoning — keep it
+  // full-contrast. Without this it dims the instant the turn continues after you answer (the
+  // lead-in stops being the last text block once the reply is appended to the same bubble).
+  const HANDOFF_TOOLS = new Set(['AskUserQuestion', 'ExitPlanMode']);
+  const isFinalText = (i) => i === lastTextIdx
+    || (parts[i + 1]?.type === 'tool' && HANDOFF_TOOLS.has(parts[i + 1].tool?.name));
   // user message: pasted images are stored as absolute paths prefixed to the text → render them as
   // expandable thumbnails and drop the raw paths from the displayed text.
   const userMsg = $derived(m.role === 'user' ? splitMessageImages(m.text) : null);
@@ -60,13 +68,13 @@
     <div class="parts">
       {#each parts as p, i (i)}
         {#if p.type === 'text'}
-          {#if i === lastTextIdx}
+          {#if isFinalText(i)}
             <div class="md final"><Markdown text={p.text} /></div>
           {:else}
             <div class="md reasoning"><Markdown text={p.text} /></div>
           {/if}
         {:else}
-          <div class="part-tool"><ToolChip t={p.tool} diff={p.diff} /></div>
+          <div class="part-tool"><ToolChip t={p.tool} diff={p.diff} ask={p.ask} /></div>
         {/if}
       {/each}
     </div>
