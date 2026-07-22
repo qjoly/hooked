@@ -372,6 +372,76 @@ function deliverPlanChoice(pane, action, feedback, cb) {
   });
 }
 
+// Changing effort OR model MID-CONVERSATION (once the transcript has messages) makes Claude Code pop
+// a confirmation dialog before applying: the prompt cache is bound to the current effort/model, so
+// switching forces the whole history to be re-read next turn (slower + more tokens). Seen on v2.1.206:
+//     Change effort level?      (or:  Switch model?)
+//     Your next response will be slower and use more tokens
+//     This conversation is cached for the current effort level. Switching to xhigh means the full
+//     history gets re-read on your next message.
+//     ❯ 1. Yes, switch to xhigh
+//       2. No, go back
+// setModelEffort types `/effort <x>` / `/model <x>` + Enter, which only SUBMITS the command: the
+// dialog then stays open, unconfirmed, and the change never takes effect (the user just sees a menu
+// asking whether it may re-read the prompt). We detect that dialog and confirm it — the change was
+// explicitly requested from the UI, so "Yes, switch to …" is the intended answer (sending "No" would
+// merely discard their action). The dialog does NOT show up when nothing actually changes (already on
+// the target, or first turn / empty transcript): there setModelEffort applies directly.
+const SWITCH_CONFIRM_RE = /Change effort level\?|Switch model\?/;
+const SWITCH_CONFIRM_GRACE = 700;    // min wait before concluding "composer is back = no dialog"
+const SWITCH_CONFIRM_TIMEOUT = 2500; // hard cap: in practice the dialog renders in ~100ms
+
+// Parse the effort/model switch-confirmation dialog from a captured screen. Returns its numbered
+// options ([{ num, label, cursor }]) when present (guarded by the header, so it can't match the
+// ExitPlanMode menu or the trust dialog), else null. Pure/testable.
+function parseSwitchPrompt(screen) {
+  const s = String(screen);
+  if (!SWITCH_CONFIRM_RE.test(s)) return null;
+  const opts = [];
+  for (const line of s.split('\n')) {
+    const m = line.match(/^\s*(❯)?\s*(\d+)\.\s+(.*\S)\s*$/);
+    if (m) opts.push({ cursor: !!m[1], num: parseInt(m[2], 10), label: m[3] });
+  }
+  return opts.length >= 2 ? opts : null;
+}
+
+// Navigate the switch dialog to "Yes, switch to …" (matched by LABEL, never a hardcoded index) from
+// the cursor row, then confirm with Enter. Same key spacing as deliverPlanChoice (ink drops keys
+// sent too close together).
+function confirmSwitchChoice(pane, opts, cb) {
+  const target = opts.findIndex((o) => /^yes,\s*switch to/i.test(o.label));
+  if (target < 0) return cb(); // unexpected labels: leave the dialog (best-effort), never press blindly
+  const cur = Math.max(0, opts.findIndex((o) => o.cursor));
+  const delta = target - cur;
+  const dir = delta >= 0 ? 'Down' : 'Up';
+  const KEY_DELAY = 300;
+  const press = (k, done) => execFile('tmux', ['send-keys', '-t', pane, k], (er) => (er ? done() : setTimeout(done, KEY_DELAY)));
+  const nav = (n, done) => (n <= 0 ? done() : press(dir, () => nav(n - 1, done)));
+  nav(Math.abs(delta), () => execFile('tmux', ['send-keys', '-t', pane, 'Enter'], () => setTimeout(cb, 200)));
+}
+
+// After submitting a /effort or /model command, watch for the confirmation dialog (see
+// parseSwitchPrompt) and confirm it ("Yes, switch to …") so the change actually applies. Best-effort
+// and time-bounded like the other waiters: if no dialog shows (nothing changed / empty transcript) we
+// return as soon as the composer is back (after a short grace, so we don't mistake the pre-render
+// frame for "no dialog"), or on timeout. Never errors.
+function confirmModelEffortSwitch(pane, cb) {
+  if (!/^%\d+$/.test(pane || '')) return cb();
+  const start = Date.now();
+  const deadline = start + SWITCH_CONFIRM_TIMEOUT;
+  const probe = () => {
+    execFile('tmux', ['capture-pane', '-t', pane, '-p'], (e, out) => {
+      const s = out || '';
+      const opts = !e ? parseSwitchPrompt(s) : null;
+      if (opts) return confirmSwitchChoice(pane, opts, () => waitForQuestionDismissed(pane, cb));
+      if (Date.now() >= deadline) return cb();
+      if (!e && Date.now() - start >= SWITCH_CONFIRM_GRACE && isComposerReady(s)) return cb();
+      setTimeout(probe, REPL_POLL_INTERVAL);
+    });
+  };
+  probe();
+}
+
 // Envoie une touche « nommée » (ex. Escape) au pane : sert à interrompre Claude depuis l'UI,
 // exactement comme une frappe Echap dans le TUI interactif.
 function sendKey(pane, key, cb) {
@@ -612,7 +682,10 @@ function setModelEffort(pane, { model, effort, sessionId }, cb) {
       if (e) return cb(e);
       setTimeout(() => execFile('tmux', ['send-keys', '-t', pane, 'Enter'], (e2) => {
         if (e2) return cb(e2);
-        setTimeout(() => step(i + 1), 300); // laisser le TUI ingérer la commande avant la suivante
+        // Mid-conversation, /effort and /model pop a "re-read the history?" dialog that must be
+        // confirmed or the change never applies (see confirmModelEffortSwitch). It also waits for the
+        // composer to come back → the previous fixed delay is no longer needed.
+        confirmModelEffortSwitch(pane, () => step(i + 1));
       }), 120);
     });
   };
@@ -727,4 +800,4 @@ function restartSession(id, { model, effort } = {}, cb) {
   }
 }
 
-export { paneTmuxNames, invalidatePaneCache, clearPaneCaches, tmuxAlive, launchInfoForPane, resolveLaunchForSession, deliverReply, deliverQuestion, questionKeys, deliverQuestionWithNote, deliverQuestionFreeText, deliverPlanChoice, parsePlanPrompt, isTrustPrompt, isComposerReady, sendKey, parsePaneMode, readPaneMode, readPaneModeSync, paneBusySync, parseSpinner, paneActivitySync, conversationBody, paneActiveSync, paneActiveStep, setMode, setModelEffort, launchSession, killSession, restartSession, err400 };
+export { paneTmuxNames, invalidatePaneCache, clearPaneCaches, tmuxAlive, launchInfoForPane, resolveLaunchForSession, deliverReply, deliverQuestion, questionKeys, deliverQuestionWithNote, deliverQuestionFreeText, deliverPlanChoice, parsePlanPrompt, parseSwitchPrompt, isTrustPrompt, isComposerReady, sendKey, parsePaneMode, readPaneMode, readPaneModeSync, paneBusySync, parseSpinner, paneActivitySync, conversationBody, paneActiveSync, paneActiveStep, setMode, setModelEffort, launchSession, killSession, restartSession, err400 };
