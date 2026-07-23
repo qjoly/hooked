@@ -2,7 +2,7 @@
 // La navigation (vue courante, session ouverte, écran « nouvelle session ») n'est PLUS
 // ici : elle est portée par l'URL (routing SvelteKit). Ne restent que les filtres de la
 // sidebar, l'état live (SSE), le tick de rafraîchissement et la modale.
-import { getSessions, connectSSE, getSettings, saveSettings as apiSaveSettings } from './api.js';
+import { getSessions, connectSSE, getSettings, saveSettings as apiSaveSettings, getTags, saveTags, replaceTags } from './api.js';
 import { NOTIFY_KINDS, notifyKeyFor, countsForBadge } from './notify.js';
 
 const LS_KEY = 'hooked.ui';
@@ -20,7 +20,7 @@ export const ui = $state({
   collapsed: persisted.collapsed ?? {}, // { [projet]: true } → groupes repliés dans la sidebar
   pinned: persisted.pinned ?? [],       // [sessionId] → sessions épinglées, remontées en tête de sidebar
   names: persisted.names ?? {},         // { [sessionId]: titre custom } → renommage local (comme les pins)
-  tags: persisted.tags ?? {},           // { [sessionId]: [tag] } → étiquettes locales (ex. "In review", "Pending")
+  tags: {},                             // { [sessionId]: [tag] } → miroir réactif du store serveur (tags.json), chargé au démarrage
   focus: persisted.focus ?? false,      // mode focus : discussion plein écran (header global + sidebar repliés)
   sidebarPeek: false,                   // (transitoire) ré-ouverture ponctuelle de la sidebar pendant le focus
   modal: null,               // { type, data } | null
@@ -34,7 +34,7 @@ export const ui = $state({
 if (typeof localStorage !== 'undefined') {
   $effect.root(() => {
     $effect(() => {
-      const snapshot = { hideOld: ui.hideOld, collapsed: ui.collapsed, pinned: ui.pinned, names: ui.names, tags: ui.tags, focus: ui.focus, notify: ui.notify, notifyPinnedOnly: ui.notifyPinnedOnly, diffSplit: ui.diffSplit };
+      const snapshot = { hideOld: ui.hideOld, collapsed: ui.collapsed, pinned: ui.pinned, names: ui.names, focus: ui.focus, notify: ui.notify, notifyPinnedOnly: ui.notifyPinnedOnly, diffSplit: ui.diffSplit };
       try { localStorage.setItem(LS_KEY, JSON.stringify(snapshot)); } catch {}
     });
   });
@@ -54,17 +54,19 @@ export function renameSession(id, name) {
   ui.names = next;
 }
 
-// tags d'une session (tableau, jamais null). Persisté comme les pins/renommages.
+// tags d'une session (tableau, jamais null). Miroir du store serveur (tags.json).
 export function sessionTags(id) {
   return ui.tags[id] || [];
 }
 // remplace les tags d'une session (dédupliqués, rognés). Liste vide → on retire l'entrée.
+// Mise à jour optimiste du miroir local + persistance serveur (le serveur re-normalise et fait foi).
 export function setSessionTags(id, list) {
   const clean = [...new Set(list.map((t) => t.trim()).filter(Boolean).map((t) => t.slice(0, 40)))];
   const next = { ...ui.tags };
   if (clean.length) next[id] = clean;
   else delete next[id];
   ui.tags = next;
+  saveTags(id, clean).then((res) => { if (res.ok && res.data.tags) ui.tags = res.data.tags; }).catch(() => {});
 }
 // tous les tags en usage (triés, uniques) — alimente la barre de filtres.
 export function allTags() {
@@ -240,6 +242,21 @@ export async function updateSettings(patch) {
   return res;
 }
 
+// ─── Étiquettes de session (tags.json côté serveur, partagées entre navigateurs) ──────────────
+// Chargé au démarrage (startLive). Les tags vivaient autrefois dans localStorage ('hooked.ui') ;
+// au 1er chargement où le store serveur est vide, on migre une fois les tags locaux historiques.
+export async function loadTags() {
+  try {
+    const res = await getTags();
+    let server = res.tags || {};
+    if (!Object.keys(server).length && persisted.tags && Object.keys(persisted.tags).length) {
+      const r = await replaceTags(persisted.tags);
+      if (r.ok && r.data.tags) server = r.data.tags;
+    }
+    ui.tags = server;
+  } catch (_) {}
+}
+
 // Version du build front (générée par SvelteKit, change à chaque build). Sert à l'auto-reload :
 // si le service est redéployé avec un nouveau front, on le détecte à la reconnexion SSE.
 let loadedVersion = null;
@@ -259,6 +276,7 @@ export function startLive() {
   lastLoadAt = Date.now();
   loadSessions();
   loadSettings();
+  loadTags();
   appVersion().then((v) => { loadedVersion = v; }); // version de référence (au chargement)
   connectSSE({
     onOpen: async () => {
