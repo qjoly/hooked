@@ -4,14 +4,20 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>🪝 hooked — Claude sessions</title>
-  <!-- Thème : applique le choix persistant AVANT le premier rendu pour éviter le flash de
-       thème (FOUC). 'system' (défaut) → aucun attribut, c'est prefers-color-scheme qui décide ;
-       'light'/'dark' → data-theme forcé sur <html>. Doit rester synchro avec state.svelte.js. -->
+  <!-- Thème : applique les choix persistants AVANT le premier rendu pour éviter le flash de
+       thème (FOUC). Deux axes ORTHOGONAUX, tous deux relus ici :
+       • clair/sombre — 'system' (défaut) → aucun attribut, prefers-color-scheme décide ;
+         'light'/'dark' → data-theme forcé sur <html>.
+       • palette (color-scheme) — 'default' (défaut) → aucun attribut ; 'legacy' → data-scheme
+         forcé (rappelle l'ancien thème crème/terracotta).
+       Doit rester synchro avec state.svelte.js. -->
   <script>
     (function () {
       try {
         var t = localStorage.getItem('hooked.theme');
         if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t);
+        var s = localStorage.getItem('hooked.scheme');
+        if (s === 'legacy') document.documentElement.setAttribute('data-scheme', s);
       } catch (e) {}
     })();
   </script>
