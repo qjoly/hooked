@@ -1,6 +1,7 @@
 <script>
   import { untrack, onMount } from 'svelte';
-  import { data, ui, settings, updateSettings, setTheme, setScheme, loadSessions } from '$lib/state.svelte.js';
+  import { data, ui, settings, updateSettings, setTheme, setScheme, loadSessions, allTags, tagUsage, deleteTag } from '$lib/state.svelte.js';
+  import { tagColor } from '$lib/format.js';
   import { resync, getGit, checkoutBranch, dismissRestartNotice, getClaudeVersion, upgradeClaude, restartClaudeSession, pickFolder } from '$lib/api.js';
   import ModelEffort from '$lib/components/ModelEffort.svelte';
 
@@ -13,9 +14,17 @@
     { id: 'pset-live', label: 'Live state' },
     { id: 'pset-claude', label: 'Claude Code' },
     { id: 'pset-git', label: 'Git' },
+    { id: 'pset-tags', label: 'Tags' },
     { id: 'pset-interface', label: 'Interface' },
   ];
   let activeSec = $state(NAV[0].id);
+  // Tag deletion is two-click (arm → confirm) to avoid removing a tag from every session by mistake.
+  let confirmTag = $state(null);
+  function removeTag(tag) {
+    if (confirmTag !== tag) { confirmTag = tag; return; }
+    deleteTag(tag);
+    confirmTag = null;
+  }
   function goTo(id) {
     activeSec = id;
     document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -520,6 +529,32 @@
       </div>
     </div>
 
+    <div class="card" id="pset-tags" data-sec>
+      <h2>Tags</h2>
+      <p class="hint">Tags live only through the sessions that carry them — deleting one removes it from every session and clears it from any active filter. This can't be undone.</p>
+      {#if allTags().length}
+        <ul class="taglist">
+          {#each allTags() as t (t)}
+            {@const n = tagUsage(t)}
+            <li>
+              <span class="pt-pill" style="--c:{tagColor(t)}"># {t}</span>
+              <span class="tl-count">{n} session{n === 1 ? '' : 's'}</span>
+              <span class="tl-actions">
+                {#if confirmTag === t}
+                  <button class="mini danger" onclick={() => removeTag(t)} title="Confirm deletion">Confirm</button>
+                  <button class="mini" onclick={() => (confirmTag = null)} title="Cancel">Cancel</button>
+                {:else}
+                  <button class="mini" onclick={() => removeTag(t)} title="Delete tag" aria-label="Delete tag">🗑</button>
+                {/if}
+              </span>
+            </li>
+          {/each}
+        </ul>
+      {:else}
+        <p class="hint tl-empty">No tags yet. Add tags to a session from its ⋯ menu in the sidebar.</p>
+      {/if}
+    </div>
+
     <div class="card" id="pset-interface" data-sec>
       <h2>Session status bar</h2>
       <p class="hint">Reorder the elements with ▲/▼ and toggle which ones appear in the session header. Click the eye to hide or show each one.</p>
@@ -662,4 +697,18 @@
   .path { display: inline-block; margin-left: 8px; font-size: 11px; color: var(--muted); max-width: 340px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: middle; }
   .ver { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
   .mini.wide { width: auto; padding: 0 12px; font-weight: 600; }
+  .mini.danger { width: auto; padding: 0 12px; font-weight: 600; color: #b42318; border-color: #f0a99f; background: #fef3f2; }
+  .mini.danger:hover:not(:disabled) { border-color: #d92d20; color: #b42318; }
+
+  .taglist { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+  .taglist li { display: flex; align-items: center; gap: 10px; padding: 6px 4px; border-bottom: 1px solid var(--border); }
+  .taglist li:last-child { border-bottom: 0; }
+  .taglist .pt-pill {
+    font-family: var(--mono); font-size: 11px; font-weight: 600; line-height: 1.7;
+    color: var(--c); background: color-mix(in srgb, var(--c) 13%, transparent);
+    border-radius: 6px; padding: 1px 8px;
+  }
+  .tl-count { color: var(--muted); font-size: 12px; }
+  .tl-actions { margin-left: auto; display: flex; gap: 6px; }
+  .tl-empty { margin: 0; }
 </style>
