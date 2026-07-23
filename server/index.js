@@ -5,6 +5,7 @@
 // tmux.js exporte `err400`, donc pas d'ambiguïté.
 export * from './config.js';
 export * from './settings.js';
+export * from './tags.js';
 export * from './util.js';
 export * from './git.js';
 export * from './gitOps.js';

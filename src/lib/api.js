@@ -43,6 +43,10 @@ export const getCapabilities = () => (_capsPromise ||= jget('/api/capabilities')
 // Réglages persistants de hooked (settings.json côté serveur, partagés entre navigateurs).
 export const getSettings = () => jget('/api/settings');
 export const saveSettings = (patch) => jpost('/api/settings', patch);
+// Étiquettes de session persistées côté serveur (tags.json, partagées entre navigateurs).
+export const getTags = () => jget('/api/tags');
+export const saveTags = (id, tags) => jpost('/api/tags', { id, tags });
+export const replaceTags = (map) => jpost('/api/tags', { replace: map });
 // Force a live-state resync: re-reads every session's tmux pane at cold (drops the caches) to fix a
 // stale status (e.g. a session stuck on "working" after its tmux was closed). Returns state counts.
 export const resync = () => jpost('/api/resync', {});
