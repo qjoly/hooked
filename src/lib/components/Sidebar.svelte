@@ -44,14 +44,15 @@
     else alert('✗ delete failed');
   }
 
-  // Scope segmenté (Needs you / Working / All). Défaut « Needs you » (triage d'abord, comme le
-  // prototype) : n'affiche que le peu de sessions qui t'attendent → liste courte et rapide.
+  // Scope segmenté (Active / Needs you / Working / All). Défaut « Active » : tout ce qui est
+  // vivant (attend une réponse OU travaille), sans le bruit des sessions terminées.
   const SCOPES = [
+    { key: 'active', label: 'Active' },
     { key: 'needs', label: 'Needs you' },
     { key: 'working', label: 'Working' },
     { key: 'all', label: 'All' },
   ];
-  let scope = $state('needs');
+  let scope = $state('active');
 
   const needsReply = (s) => s.hasQuestion || s.hasPlan || s.state === 'waiting' || s.state === 'attention';
   const isWorking = (s) => s.state === 'working' || s.state === 'background';
@@ -74,8 +75,9 @@
 
   const cNeeds = $derived(matched.filter(needsReply).length);
   const cWorking = $derived(matched.filter((s) => isWorking(s) && !needsReply(s)).length);
+  const cActive = $derived(cNeeds + cWorking);
   const cAll = $derived(matched.length);
-  const scopeCount = (k) => (k === 'needs' ? cNeeds : k === 'working' ? cWorking : cAll);
+  const scopeCount = (k) => (k === 'active' ? cActive : k === 'needs' ? cNeeds : k === 'working' ? cWorking : cAll);
 
   const byActivity = (a, b) => {
     const pa = pinnedSet.has(a.id), pb = pinnedSet.has(b.id);
@@ -83,7 +85,8 @@
     return String(b.lastActivity || '').localeCompare(String(a.lastActivity || ''));
   };
 
-  // sections affichées selon le scope. « all » montre les trois ; « needs »/« working » une seule.
+  // sections affichées selon le scope. « all » montre les trois ; « active » les deux vivantes ;
+  // « needs »/« working » une seule.
   const sections = $derived.by(() => {
     const needs = matched.filter(needsReply).sort(byActivity);
     const working = matched.filter((s) => isWorking(s) && !needsReply(s)).sort(byActivity);
@@ -93,6 +96,9 @@
       out.push({ key: 'needs', label: 'Needs your reply', tone: 'warn', items: needs });
     } else if (scope === 'working') {
       out.push({ key: 'working', label: 'Working', tone: 'info', items: working });
+    } else if (scope === 'active') {
+      if (needs.length) out.push({ key: 'needs', label: 'Needs your reply', tone: 'warn', items: needs });
+      if (working.length) out.push({ key: 'working', label: 'Working', tone: 'info', items: working });
     } else {
       if (needs.length) out.push({ key: 'needs', label: 'Needs your reply', tone: 'warn', items: needs });
       if (working.length) out.push({ key: 'working', label: 'Working', tone: 'info', items: working });
@@ -178,7 +184,7 @@
     {#if !windowed.length}
       <div class="ibx-empty">
         {#if scope !== 'all' && cAll > 0}
-          Nothing {scope === 'needs' ? 'needs your reply' : 'working'} right now.
+          Nothing {scope === 'needs' ? 'needs your reply' : scope === 'working' ? 'working' : 'active'} right now.
           <button class="ibx-viewall" onclick={() => (scope = 'all')}>View all {cAll}</button>
         {:else}
           No sessions.
@@ -284,9 +290,10 @@
 
   .ibx-seg { display: flex; gap: 2px; background: var(--input); border-radius: 9px; padding: 3px; }
   .seg {
-    flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 5px;
-    background: transparent; border: none; border-radius: 7px; padding: 6px 4px; cursor: pointer;
-    font: inherit; font-size: 12px; font-weight: 600; color: var(--muted); transition: background .12s, color .12s;
+    flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 4px;
+    background: transparent; border: none; border-radius: 7px; padding: 6px 2px; cursor: pointer;
+    font: inherit; font-size: 11.5px; font-weight: 600; color: var(--muted); white-space: nowrap;
+    transition: background .12s, color .12s;
   }
   .seg:hover { color: var(--text); }
   .seg.active { background: var(--bg2); color: var(--text); box-shadow: var(--shadow-sm); }
