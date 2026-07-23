@@ -165,6 +165,157 @@
   --track-dark: rgba(255,255,255,.1);
   --diff-add-fg: #a9dcc0; --diff-del-fg: #f0a99d;
 }
+
+/* ─── Color scheme « legacy » — l'ancien thème crème / papier / terracotta ───────────────────
+   Un second axe, ORTHOGONAL au clair/sombre : `data-scheme="legacy"` sur <html> (absent =
+   palette « default » de la refonte ci-dessus). On ré-override TOUS les jetons de palette
+   (y compris les triplets RGB `--*-rgb` que consomment les nombreux `rgba(var(--x-rgb), a)`)
+   pour que chaque composant retrouve la teinte chaude d'origine « gratuitement ».
+
+   Spécificité : chaque sélecteur legacy ajoute `[data-scheme="legacy"]` par-dessus son homologue
+   « default », donc il gagne TOUJOURS, quel que soit l'ordre source. Les variantes sombres
+   combinent `[data-scheme="legacy"]` + condition sombre → spécificité (0,3,0) qui bat la
+   variante claire legacy (0,2,0) comme la variante sombre default (0,2,0). */
+:root[data-scheme="legacy"] {
+  color-scheme: light;
+  --fg: #2f2b23;
+  --card: #ffffff;
+  --hover: #ece6d8;
+  --input: #ece6d8;
+  --chip: #ece6d8;
+  --accent-fg: #ffffff;
+  --code-bg: #201a14;
+  --warn: #c2912f;  --warn-soft: #f6eed6;
+  --info: #4f7d8c;  --info-soft: #e4edf0;
+  --success: #7e9a68; --success-soft: #eaf0e2;
+  --danger: #c0492c; --danger-soft: #f7e6df; --danger-border: #ecd2c5;
+  --bg: #e9e3d4;        /* crème profond */
+  --bg2: #f5f2ea;
+  --bg3: #ece6d8;
+  --panel: #f7f5ef;
+  --surface: #ffffff;
+  --border: #e2dccd;
+  --border2: #d6cdb9;
+  --text: #2f2b23;
+  --muted: #7d7362;
+  --accent: #b05a34;    /* terracotta */
+  --accent-d: #9a4d2b;
+  --accent-soft: rgba(176,90,52,.12);
+  --working: var(--info);
+  --waiting: var(--warn);
+  --attention: var(--danger);
+  --background: #7a63b8; /* indigo doux — « tourne en fond » */
+  --idle: #a79f8d;
+  --ended: var(--success);
+  --past: #c4bca9;
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  --font: -apple-system, "SF Pro Text", "Inter", Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+  --shadow: 0 6px 18px -12px rgba(var(--shadow-rgb),.20);
+  --shadow-sm: 0 1px 3px rgba(var(--shadow-rgb),.10);
+  --accent-rgb: 176,90,52;
+  --info-rgb: 79,125,140;
+  --warn-rgb: 194,145,47;
+  --danger-rgb: 192,73,44;
+  --bgjob-rgb: 122,99,184;
+  --success-rgb: 126,154,104;
+  --ink-rgb: 120,95,60;
+  --shadow-rgb: 74,56,38;
+  --overlay: rgba(46,35,22,.42);
+  --grid: rgba(var(--ink-rgb),.035);
+  --code-inline: rgba(var(--ink-rgb),.14);
+  --track-dark: rgba(0,0,0,.08);
+  --diff-add-bg: rgba(var(--success-rgb),.14); --diff-add-fg: #4a6b39;
+  --diff-del-bg: rgba(var(--danger-rgb),.1);   --diff-del-fg: #9a3a25;
+}
+/* legacy — variante sombre (deux voies, mêmes valeurs), cf. le bloc default sombre ci-dessus. */
+@media (prefers-color-scheme: dark) {
+  :root[data-scheme="legacy"]:not([data-theme="light"]) {
+    color-scheme: dark;
+    --fg: #ece5d8;
+    --card: #201a14;
+    --hover: #2a231b;
+    --input: #2a231b;
+    --chip: #2a231b;
+    --code-bg: #15110d;
+    --warn: #d9a83f;  --warn-soft: #2b2413;
+    --info: #6fa4b5;  --info-soft: #17242a;
+    --success: #93b47a; --success-soft: #1c261a;
+    --danger: #e06a4a; --danger-soft: #2b1a13; --danger-border: #3d271d;
+    --bg: #15110d;
+    --bg2: #201a14;
+    --bg3: #2a231b;
+    --panel: #1a1510;
+    --surface: #2f2820;
+    --border: #342c23;
+    --border2: #473c30;
+    --text: #ece5d8;
+    --muted: #a89e8d;
+    --accent: #cf6f45;
+    --accent-d: #e08256;
+    --accent-soft: rgba(207,111,69,.16);
+    --background: #a992e0;
+    --idle: #8a8172;
+    --past: #5a5245;
+    --accent-rgb: 207,111,69;
+    --info-rgb: 111,164,181;
+    --warn-rgb: 217,168,63;
+    --danger-rgb: 224,106,74;
+    --bgjob-rgb: 169,146,224;
+    --success-rgb: 147,180,122;
+    --ink-rgb: 200,170,120;
+    --shadow-rgb: 0,0,0;
+    --shadow: 0 6px 18px -12px rgba(0,0,0,.5);
+    --shadow-sm: 0 1px 3px rgba(0,0,0,.35);
+    --overlay: rgba(0,0,0,.6);
+    --code-inline: rgba(255,255,255,.09);
+    --track-dark: rgba(255,255,255,.1);
+    --diff-add-bg: rgba(var(--success-rgb),.18); --diff-add-fg: #a9c089;
+    --diff-del-bg: rgba(var(--danger-rgb),.2);   --diff-del-fg: #e6998a;
+  }
+}
+:root[data-scheme="legacy"][data-theme="dark"] {
+  color-scheme: dark;
+  --fg: #ece5d8;
+  --card: #201a14;
+  --hover: #2a231b;
+  --input: #2a231b;
+  --chip: #2a231b;
+  --code-bg: #15110d;
+  --warn: #d9a83f;  --warn-soft: #2b2413;
+  --info: #6fa4b5;  --info-soft: #17242a;
+  --success: #93b47a; --success-soft: #1c261a;
+  --danger: #e06a4a; --danger-soft: #2b1a13; --danger-border: #3d271d;
+  --bg: #15110d;
+  --bg2: #201a14;
+  --bg3: #2a231b;
+  --panel: #1a1510;
+  --surface: #2f2820;
+  --border: #342c23;
+  --border2: #473c30;
+  --text: #ece5d8;
+  --muted: #a89e8d;
+  --accent: #cf6f45;
+  --accent-d: #e08256;
+  --accent-soft: rgba(207,111,69,.16);
+  --background: #a992e0;
+  --idle: #8a8172;
+  --past: #5a5245;
+  --accent-rgb: 207,111,69;
+  --info-rgb: 111,164,181;
+  --warn-rgb: 217,168,63;
+  --danger-rgb: 224,106,74;
+  --bgjob-rgb: 169,146,224;
+  --success-rgb: 147,180,122;
+  --ink-rgb: 200,170,120;
+  --shadow-rgb: 0,0,0;
+  --shadow: 0 6px 18px -12px rgba(0,0,0,.5);
+  --shadow-sm: 0 1px 3px rgba(0,0,0,.35);
+  --overlay: rgba(0,0,0,.6);
+  --code-inline: rgba(255,255,255,.09);
+  --track-dark: rgba(255,255,255,.1);
+  --diff-add-bg: rgba(var(--success-rgb),.18); --diff-add-fg: #a9c089;
+  --diff-del-bg: rgba(var(--danger-rgb),.2);   --diff-del-fg: #e6998a;
+}
 * { box-sizing: border-box; }
 html, body { height: 100%; }
 body {
