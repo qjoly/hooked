@@ -180,21 +180,14 @@
     return sec < 60 ? `${sec}s` : `${Math.floor(sec / 60)}m${sec % 60}s`;
   });
 
-  // Proposition de suivi : un tour qui se termine sans question/plan en attente se clôt souvent sur
-  // une offre (« Dis-moi si je le fais », une commande, un next step). On la surface au-dessus du
-  // composer pour la reprendre en 1 clic. Heuristique : dernier paragraphe du dernier message
-  // assistant. ponytail: heuristique volontaire, pas un parseur de « proposition ».
-  let dismissedFollowup = $state(null); // proposition masquée localement (revient si le texte change)
-  const followup = $derived.by(() => {
-    if (!s || s.state === 'working' || s.pendingQuestion || s.pendingPlan || !s.tmuxPane) return null;
-    const msgs = s.messages || [];
-    const last = msgs[msgs.length - 1];
-    if (!last || last.role !== 'assistant' || !last.text) return null;
-    const paras = last.text.split(/\n{2,}/).map((p) => p.trim()).filter(Boolean);
-    let snippet = paras[paras.length - 1] || last.text.trim();
-    if (snippet.length > 400) snippet = '…' + snippet.slice(-400).replace(/^\S+\s/, '');
-    return snippet;
-  });
+  // Prompt de follow-up : la suggestion pré-remplie par le TUI de Claude Code (ghost text de la
+  // boîte de saisie), lue côté serveur dans la pane (cf. paneFollowupSync). C'est un vrai prompt
+  // actionnable — pas la dernière phrase de Claude. On la surface au-dessus du composer pour la
+  // reprendre en 1 clic. Masquée si une question/plan est déjà en attente.
+  let dismissedFollowup = $state(null); // suggestion masquée localement (revient si le texte change)
+  const followup = $derived(
+    (s && s.followupSuggestion && !s.pendingQuestion && !s.pendingPlan) ? s.followupSuggestion : null,
+  );
   const showFollowup = $derived(followup && followup !== dismissedFollowup && !queued.length);
   async function takeFollowup() {
     if (!composer || !followup) return;
@@ -648,7 +641,7 @@
       {#if showFollowup}
         <div class="followup">
           <div class="fu-head">
-            <span class="fu-ico">💡</span> Claude a terminé — proposition de suivi
+            <span class="fu-ico">💡</span> Prompt de follow-up suggéré
             <button class="fu-x" title="Dismiss" aria-label="Dismiss" onclick={() => (dismissedFollowup = followup)}>✕</button>
           </div>
           <div class="fu-text">{followup}</div>
