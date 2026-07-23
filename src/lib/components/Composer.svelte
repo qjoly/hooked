@@ -227,6 +227,16 @@
     queueMicrotask(() => { if (ta) { ta.focus(); autosize(); ta.selectionStart = ta.selectionEnd = ta.value.length; } });
   }
 
+  // Préremplit le composer SANS envoyer (carte « proposition de suivi ») : on récupère le texte
+  // proposé par Claude, l'utilisateur l'édite puis envoie. Le curseur va en fin de texte.
+  export function prefill(t) {
+    const v = typeof t === 'string' ? t.trim() : '';
+    if (!v) return;
+    text = v;
+    autosize();
+    queueMicrotask(() => { if (ta) { ta.focus(); ta.selectionStart = ta.selectionEnd = ta.value.length; autosize(); } });
+  }
+
   // Envoi programmatique (revue de fichiers) : on remplit le composer avec le prompt généré
   // puis on réutilise `send()` tel quel — même chemin alive/relance/nouvelle session, même
   // file d'attente + scroll. La revue apparaît donc comme un message normal dans le chat.

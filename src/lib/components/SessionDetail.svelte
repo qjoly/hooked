@@ -180,6 +180,29 @@
     return sec < 60 ? `${sec}s` : `${Math.floor(sec / 60)}m${sec % 60}s`;
   });
 
+  // Proposition de suivi : un tour qui se termine sans question/plan en attente se clôt souvent sur
+  // une offre (« Dis-moi si je le fais », une commande, un next step). On la surface au-dessus du
+  // composer pour la reprendre en 1 clic. Heuristique : dernier paragraphe du dernier message
+  // assistant. ponytail: heuristique volontaire, pas un parseur de « proposition ».
+  let dismissedFollowup = $state(null); // proposition masquée localement (revient si le texte change)
+  const followup = $derived.by(() => {
+    if (!s || s.state === 'working' || s.pendingQuestion || s.pendingPlan || !s.tmuxPane) return null;
+    const msgs = s.messages || [];
+    const last = msgs[msgs.length - 1];
+    if (!last || last.role !== 'assistant' || !last.text) return null;
+    const paras = last.text.split(/\n{2,}/).map((p) => p.trim()).filter(Boolean);
+    let snippet = paras[paras.length - 1] || last.text.trim();
+    if (snippet.length > 400) snippet = '…' + snippet.slice(-400).replace(/^\S+\s/, '');
+    return snippet;
+  });
+  const showFollowup = $derived(followup && followup !== dismissedFollowup && !queued.length);
+  async function takeFollowup() {
+    if (!composer || !followup) return;
+    tab = 'chat';
+    await tick();
+    composer.prefill(followup);
+  }
+
   let wantPane = $state(null); // pane à sélectionner dès qu'il apparaît (après « + Pane »)
   // pane Terminal sélectionné : le pane qu'on vient d'ouvrir dès qu'il arrive, sinon le pane « show »
   // le plus récent (un agent a voulu montrer qqch), sinon le pane Claude. Rebascule si le courant part.
@@ -622,6 +645,16 @@
       </div>
       {#if s.pendingQuestion}<Question {id} pq={s.pendingQuestion} />{/if}
       {#if s.pendingPlan}<Plan {id} pp={s.pendingPlan} />{/if}
+      {#if showFollowup}
+        <div class="followup">
+          <div class="fu-head">
+            <span class="fu-ico">💡</span> Claude a terminé — proposition de suivi
+            <button class="fu-x" title="Dismiss" aria-label="Dismiss" onclick={() => (dismissedFollowup = followup)}>✕</button>
+          </div>
+          <div class="fu-text">{followup}</div>
+          <button class="fu-take" onclick={takeFollowup}>↵ Reprendre dans le composer</button>
+        </div>
+      {/if}
       {#if s.tmuxPane}
         <Composer bind:this={composer} {id} alive={s.tmuxAlive} project={s.project}
                   resumeModel={s.launchModel} resumeEffort={s.effort} lastPrompt={s.lastPrompt || ''} {onSent} />
@@ -738,6 +771,26 @@
     cursor: pointer;
   }
   .show-earlier:hover { color: var(--text); background: var(--bg3); border-color: var(--accent); }
+  /* carte « proposition de suivi » : entre la conversation et le composer, filet accent à gauche. */
+  .followup {
+    margin: 4px 2px 8px; padding: 10px 12px;
+    background: var(--bg2); border: 1px solid var(--border2);
+    border-left: 3px solid var(--accent); border-radius: 10px;
+  }
+  .fu-head { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; color: var(--muted); }
+  .fu-ico { font-size: 14px; }
+  .fu-x { margin-left: auto; border: none; background: transparent; color: var(--muted); cursor: pointer; font-size: 13px; padding: 0 4px; line-height: 1; }
+  .fu-x:hover { color: var(--text); }
+  .fu-text {
+    margin: 6px 0 8px; font-size: 13px; color: var(--text); line-height: 1.4; white-space: pre-wrap;
+    display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden;
+  }
+  .fu-take {
+    font-size: 12.5px; font-weight: 600; color: var(--accent);
+    background: transparent; border: 1px solid var(--accent-soft, var(--border)); border-radius: 8px;
+    padding: 5px 12px; cursor: pointer;
+  }
+  .fu-take:hover { background: var(--bg3); }
   /* indicateur « working » sous la dernière bulle : slim, discret, respire (couleur de statut) */
   .working-live {
     display: flex; align-items: center; gap: 6px;
