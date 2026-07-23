@@ -73,6 +73,23 @@ export function setSessionTags(id, list) {
 export function allTags() {
   return [...new Set(Object.values(ui.tags).flat())].sort((a, b) => a.localeCompare(b));
 }
+// nombre de sessions portant un tag donné.
+export function tagUsage(tag) {
+  return Object.values(ui.tags).filter((list) => list.includes(tag)).length;
+}
+// supprime un tag globalement (retiré de toutes les sessions) — les tags n'ont pas
+// d'existence propre, ils vivent via les sessions. Retire aussi le tag des filtres actifs.
+// Mise à jour optimiste du miroir local + persistance serveur (le serveur re-normalise et fait foi).
+export function deleteTag(tag) {
+  const next = {};
+  for (const [id, list] of Object.entries(ui.tags)) {
+    const kept = list.filter((t) => t !== tag);
+    if (kept.length) next[id] = kept;
+  }
+  ui.tags = next;
+  ui.tagFilters = ui.tagFilters.filter((t) => t !== tag);
+  replaceTags(next).then((res) => { if (res.ok && res.data.tags) ui.tags = res.data.tags; }).catch(() => {});
+}
 
 // titre à afficher pour une session : surcharge custom si présente, sinon titre auto.
 export function sessionTitle(s) {
