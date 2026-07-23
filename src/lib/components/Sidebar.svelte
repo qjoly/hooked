@@ -1,12 +1,13 @@
 <script>
+  import { untrack } from 'svelte';
   import { goto } from '$app/navigation';
   import { page } from '$app/state';
-  import { ui, data, loadSessions, togglePin, sessionTitle, openModal, sessionTags, setSessionTags, allTags } from '$lib/state.svelte.js';
+  import { ui, data, loadSessions, togglePin, sessionTitle, openModal, sessionTags, allTags } from '$lib/state.svelte.js';
   import { reply, deleteSession } from '$lib/api.js';
-  import { STATUS_FILTERS, filterMatches, filterMatchesAny, ago } from '$lib/format.js';
+  import { ago, tagColor } from '$lib/format.js';
 
-  // Réponse en 1 clic : on n'affiche les options inline que pour une question unique à choix
-  // simple (le cas des « permissions »). Multi-select / questions multiples → on ouvre la session.
+  // Réponse en 1 clic : options inline seulement pour une question unique à choix simple
+  // (cas « permissions »). Multi-select / questions multiples → on ouvre la session.
   function quickOpts(q) {
     const qs = q && q.questions;
     if (!qs || qs.length !== 1 || qs[0].multiSelect) return null;
@@ -27,9 +28,15 @@
   }
 
   let deletingId = $state(null);
-  async function delSession(s) {
+  function delSession(s) {
     if (deletingId) return;
-    if (!confirm(`Move to trash: "${sessionTitle(s)}"?\nThe transcript is moved to bin/ (recoverable), the session leaves the dashboard.`)) return;
+    openModal('confirm', {
+      title: 'Move to trash?',
+      message: `"${sessionTitle(s)}"\n\nThe transcript is kept in bin/ (recoverable); the session leaves the dashboard.`,
+      confirmLabel: '🗑 Move to trash', danger: true, onConfirm: () => doDelSession(s),
+    });
+  }
+  async function doDelSession(s) {
     deletingId = s.id;
     const res = await deleteSession(s.id).catch(() => ({ ok: false }));
     deletingId = null;
@@ -37,54 +44,26 @@
     else alert('✗ delete failed');
   }
 
-  // Sélection de filtre : clic simple = remplace ; Ctrl/⌘+clic = ajoute/retire (multi-sélection).
-  function selectFilter(key, e) {
-    if (e.ctrlKey || e.metaKey) {
-      const next = ui.statusFilters.includes(key)
-        ? ui.statusFilters.filter((k) => k !== key)
-        : [...ui.statusFilters, key];
-      ui.statusFilters = next.length ? next : ['all'];
-    } else {
-      ui.statusFilters = [key];
-    }
-  }
+  // Scope segmenté (Needs you / Working / All). Défaut « Needs you » (triage d'abord, comme le
+  // prototype) : n'affiche que le peu de sessions qui t'attendent → liste courte et rapide.
+  const SCOPES = [
+    { key: 'needs', label: 'Needs you' },
+    { key: 'working', label: 'Working' },
+    { key: 'all', label: 'All' },
+  ];
+  let scope = $state('needs');
 
-  function count(f) {
-    return f.states === null ? data.sessions.length : data.sessions.filter((s) => filterMatches(f, s.state)).length;
-  }
+  const needsReply = (s) => s.hasQuestion || s.hasPlan || s.state === 'waiting' || s.state === 'attention';
+  const isWorking = (s) => s.state === 'working' || s.state === 'background';
 
-  // couleur stable dérivée du texte : hash → teinte. Même texte ⇒ même couleur.
-  function tagHue(t) {
-    let h = 0;
-    for (let i = 0; i < t.length; i++) h = (h * 31 + t.charCodeAt(i)) >>> 0;
-    return h % 360;
-  }
+  const pinnedSet = $derived(new Set(ui.pinned));
 
-  const tagList = $derived(allTags());
-  // filtre de tag : clic simple = remplace ; Ctrl/⌘+clic = ajoute/retire (multi-sélection, ET logique).
-  function selectTag(tag, e) {
-    if (e.ctrlKey || e.metaKey) {
-      ui.tagFilters = ui.tagFilters.includes(tag) ? ui.tagFilters.filter((t) => t !== tag) : [...ui.tagFilters, tag];
-    } else {
-      ui.tagFilters = ui.tagFilters.length === 1 && ui.tagFilters[0] === tag ? [] : [tag];
-    }
-  }
-  // édition des tags d'une session (comma-separated). Repli le plus simple qui marche.
-  function editTags(s, e) {
-    e.stopPropagation();
-    const next = prompt(`Tags for "${sessionTitle(s)}" (comma-separated):`, sessionTags(s.id).join(', '));
-    if (next != null) setSessionTags(s.id, next.split(','));
-  }
-
-  // liste filtrée (statut + tags + masquer > 24h + recherche). La recherche matche aussi les tags.
-  const filtered = $derived.by(() => {
+  // recherche + filtres de tags (ET logique) — appliqués avant le regroupement par statut.
+  const matched = $derived.by(() => {
     const q = ui.search.toLowerCase().trim();
-    const now = Date.now();
     return data.sessions.filter((s) => {
-      if (!filterMatchesAny(ui.statusFilters, s.state)) return false;
       const tags = sessionTags(s.id);
       if (ui.tagFilters.length && !ui.tagFilters.every((t) => tags.includes(t))) return false;
-      if (ui.hideOld && s.lastActivity && (now - Date.parse(s.lastActivity)) > 86400000) return false;
       if (q) {
         const hay = `${s.repo} ${s.projectName} ${s.title} ${s.lastPrompt} ${s.gitBranch} ${tags.join(' ')}`.toLowerCase();
         if (!hay.includes(q)) return false;
@@ -93,187 +72,311 @@
     });
   });
 
-  const pinnedSet = $derived(new Set(ui.pinned));
+  const cNeeds = $derived(matched.filter(needsReply).length);
+  const cWorking = $derived(matched.filter((s) => isWorking(s) && !needsReply(s)).length);
+  const cAll = $derived(matched.length);
+  const scopeCount = (k) => (k === 'needs' ? cNeeds : k === 'working' ? cWorking : cAll);
 
-  // sessions épinglées (toutes projets confondus), remontées en tête de sidebar
-  const pinnedItems = $derived(
-    filtered
-      .filter((s) => pinnedSet.has(s.id))
-      .sort((a, b) => String(b.lastActivity || '').localeCompare(String(a.lastActivity || ''))),
-  );
+  const byActivity = (a, b) => {
+    const pa = pinnedSet.has(a.id), pb = pinnedSet.has(b.id);
+    if (pa !== pb) return pa ? -1 : 1; // épinglées en tête
+    return String(b.lastActivity || '').localeCompare(String(a.lastActivity || ''));
+  };
 
-  // regroupe par dépôt GitHub (owner/repo), à défaut par nom de dossier (hors dépôt git),
-  // hors épinglées, trié par activité la plus récente
-  const groups = $derived.by(() => {
-    const g = {};
-    for (const s of filtered) {
-      if (pinnedSet.has(s.id)) continue;
-      const key = s.repo || s.projectName || '?';
-      (g[key] = g[key] || []).push(s);
+  // sections affichées selon le scope. « all » montre les trois ; « needs »/« working » une seule.
+  const sections = $derived.by(() => {
+    const needs = matched.filter(needsReply).sort(byActivity);
+    const working = matched.filter((s) => isWorking(s) && !needsReply(s)).sort(byActivity);
+    const others = matched.filter((s) => !needsReply(s) && !isWorking(s)).sort(byActivity);
+    const out = [];
+    if (scope === 'needs') {
+      out.push({ key: 'needs', label: 'Needs your reply', tone: 'warn', items: needs });
+    } else if (scope === 'working') {
+      out.push({ key: 'working', label: 'Working', tone: 'info', items: working });
+    } else {
+      if (needs.length) out.push({ key: 'needs', label: 'Needs your reply', tone: 'warn', items: needs });
+      if (working.length) out.push({ key: 'working', label: 'Working', tone: 'info', items: working });
+      if (others.length) out.push({ key: 'others', label: 'Idle & ended', tone: 'muted', items: others });
     }
-    const lastOf = (arr) => Math.max(...arr.map((s) => Date.parse(s.lastActivity || 0) || 0));
-    const order = Object.keys(g).sort((a, b) => lastOf(g[b]) - lastOf(g[a]));
-    return order.map((proj) => ({
-      proj,
-      items: g[proj].slice().sort((a, b) => String(b.lastActivity || '').localeCompare(String(a.lastActivity || ''))),
-    }));
+    return out.filter((sec) => sec.items.length);
   });
 
-  function projFlag(items) {
-    if (items.some((s) => s.state === 'attention')) return 'a';
-    if (items.some((s) => s.state === 'waiting' || s.state === 'working' || s.state === 'background')) return 'w';
-    return '';
+  // Fenêtrage de la liste : sous « All » la section « Idle & ended » peut compter ~160 lignes.
+  // On ne monte qu'une fenêtre de lignes (WINDOW), « Show more » en révèle STEP de plus — même
+  // principe que le transcript du cockpit (MSG_WINDOW). Borne le DOM sans virtualisation fragile.
+  const WINDOW = 60, STEP = 120;
+  let shown = $state(WINDOW);
+  // repart de la fenêtre initiale quand le filtrage change (scope / recherche / tags).
+  $effect(() => { scope; ui.search; ui.tagFilters; untrack(() => { shown = WINDOW; }); });
+
+  const totalRows = $derived(sections.reduce((n, sec) => n + sec.items.length, 0));
+  // sections tronquées au budget « shown » (les entêtes de section vides disparaissent).
+  const windowed = $derived.by(() => {
+    let budget = shown;
+    const out = [];
+    for (const sec of sections) {
+      if (budget <= 0) break;
+      const items = sec.items.slice(0, budget);
+      budget -= items.length;
+      out.push({ ...sec, items });
+    }
+    return out;
+  });
+  const hiddenCount = $derived(Math.max(0, totalRows - shown));
+
+  const tagList = $derived(allTags());
+  function tagCount(t) {
+    return data.sessions.filter((s) => sessionTags(s.id).includes(t)).length;
   }
-  function toggle(proj) {
-    ui.collapsed = { ...ui.collapsed, [proj]: !ui.collapsed[proj] };
+  // filtre de tag : clic = bascule (un seul actif) ; Ctrl/⌘+clic = combine (ET logique).
+  function selectTag(tag, e) {
+    if (e.ctrlKey || e.metaKey) {
+      ui.tagFilters = ui.tagFilters.includes(tag) ? ui.tagFilters.filter((t) => t !== tag) : [...ui.tagFilters, tag];
+    } else {
+      ui.tagFilters = ui.tagFilters.length === 1 && ui.tagFilters[0] === tag ? [] : [tag];
+    }
   }
+
+  const dotClass = (s) => (needsReply(s) ? 'warn' : isWorking(s) ? 'info' : 'muted');
 </script>
 
-<aside class="sidebar">
-  <div class="side-head">
-    <div class="side-actions">
-      <button class="ov-btn" onclick={() => goto('/')}>🏠 Overview</button>
-      <button class="new-btn" onclick={() => goto('/new')}>＋ New session</button>
+<aside class="inbox">
+  <div class="ibx-head">
+    <div class="ibx-top">
+      <h1 class="ibx-title">Inbox</h1>
+      <button class="ibx-new" onclick={() => goto('/new')} title="New session">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
+        New
+      </button>
     </div>
-    <input id="search" type="search" placeholder="Search…" bind:value={ui.search} />
-    <div class="status-filter">
-      {#each STATUS_FILTERS.filter((f) => f.key === 'all' || count(f) > 0 || ui.statusFilters.includes(f.key)) as f}
-        <button class="sf-chip" class:active={ui.statusFilters.includes(f.key)} title="Ctrl/⌘+click to combine filters" onclick={(e) => selectFilter(f.key, e)}>
-          {f.label}<span class="sf-n">{count(f)}</span>
+
+    <div class="ibx-search">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+      <input type="search" placeholder="Search sessions…" bind:value={ui.search} />
+    </div>
+
+    <div class="ibx-seg">
+      {#each SCOPES as sc}
+        <button class="seg" class:active={scope === sc.key} onclick={() => (scope = sc.key)}>
+          {sc.label} <span class="seg-n">{scopeCount(sc.key)}</span>
         </button>
       {/each}
     </div>
+
     {#if tagList.length}
-      <div class="tag-filter">
+      <div class="ibx-tags">
         {#each tagList as t}
-          <button class="tf-chip" class:active={ui.tagFilters.includes(t)} style="--h:{tagHue(t)}" title="Ctrl/⌘+click to combine tags" onclick={(e) => selectTag(t, e)}>🏷 {t}</button>
+          {@const on = ui.tagFilters.includes(t)}
+          <button class="tf" class:on style="--c:{tagColor(t)}" title="Click to filter · Ctrl/⌘+click to combine"
+                  onclick={(e) => selectTag(t, e)}># {t} <span class="tf-n">{tagCount(t)}</span></button>
         {/each}
-        {#if ui.tagFilters.length}<button class="tf-chip tf-clear" onclick={() => (ui.tagFilters = [])}>✕ clear</button>{/if}
       </div>
     {/if}
-    <label class="chk"><input type="checkbox" bind:checked={ui.hideOld} /> hide &gt; 24h</label>
   </div>
 
-  <div class="side-list">
-    {#if !groups.length && !pinnedItems.length}
-      <div class="empty">No sessions.</div>
+  <div class="ibx-list">
+    {#if !windowed.length}
+      <div class="ibx-empty">
+        {#if scope !== 'all' && cAll > 0}
+          Nothing {scope === 'needs' ? 'needs your reply' : 'working'} right now.
+          <button class="ibx-viewall" onclick={() => (scope = 'all')}>View all {cAll}</button>
+        {:else}
+          No sessions.
+        {/if}
+      </div>
     {:else}
-      {#if pinnedItems.length}
-        <div class="pgroup">
-          <div class="phead phead-pin">
-            <span class="pname">📌 Pinned</span>
-            <span class="pcount">{pinnedItems.length}</span>
-          </div>
-          <div class="plist">
-            {#each pinnedItems as s (s.id)}{@render srow(s)}{/each}
-          </div>
-        </div>
-      {/if}
-      {#each groups as g (g.proj)}
-        <div class="pgroup" class:collapsed={ui.collapsed[g.proj]}>
-          <div class="phead" onclick={() => toggle(g.proj)}>
-            <span class="parrow">▾</span>
-            <span class="pname">{g.proj}</span>
-            {#if projFlag(g.items)}<span class="pflag {projFlag(g.items)}"></span>{/if}
-            <span class="pcount">{g.items.length}</span>
-            <button class="pnew" title="New session in this project"
-                    onclick={(e) => { e.stopPropagation(); goto('/new?project=' + encodeURIComponent(g.items[0].project)); }}>＋</button>
-          </div>
-          <div class="plist">
-            {#each g.items as s (s.id)}{@render srow(s)}{/each}
-          </div>
-        </div>
+      {#each windowed as sec (sec.key)}
+        <div class="ibx-sec ibx-sec-{sec.tone}">{sec.label}</div>
+        {#each sec.items as s (s.id)}{@render row(s)}{/each}
       {/each}
+      {#if hiddenCount > 0}
+        <button class="ibx-more" onclick={() => (shown += STEP)}>Show {Math.min(STEP, hiddenCount)} more · {hiddenCount} hidden</button>
+      {/if}
     {/if}
-  </div>
-
-  <div class="side-foot">
-    <button class="ov-btn trash-btn" onclick={() => openModal('trash')}
-            title="View trash (deleted sessions, recoverable)">🗑 Trash</button>
   </div>
 </aside>
 
-{#snippet srow(s)}
-  <div class="srow s-{s.state}" class:has-q={s.hasQuestion || s.hasPlan} class:active={page.params.id === s.id}
+{#snippet row(s)}
+  <div class="pt-row" class:active={page.params.id === s.id}
        onclick={() => goto('/session/' + encodeURIComponent(s.id))}>
-    <span class="sdot"></span>
-    <div class="srow-main">
-      <div class="srow-title">
-        {#if s.hasQuestion}<span class="q-flag" title="Claude is awaiting your reply">⌨</span>{/if}{#if s.hasPlan}<span class="q-flag" title="Plan awaiting approval">📋</span>{/if}{sessionTitle(s)}
+    <span class="pt-dot pt-dot-{dotClass(s)}"></span>
+    <div class="pt-body">
+      <div class="pt-titlerow">
+        <div class="pt-titlewrap">
+          {#if pinnedSet.has(s.id)}
+            <svg class="pt-pin" width="11" height="11" viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M16 3l5 5-4 1-3 3 1 5-3-3-6 6-1-1 6-6-3-3 5-1 3-3z"/></svg>
+          {/if}
+          <span class="pt-name">{sessionTitle(s)}</span>
+        </div>
+        <span class="pt-time">{ago(s.lastActivity)}</span>
       </div>
-      <div class="srow-sub">{#if s.gitBranch}{s.gitBranch} · {/if}{ago(s.lastActivity)}</div>
+      <div class="pt-sub">{s.repo || s.projectName || '—'}{#if s.gitBranch} · {s.gitBranch}{/if}</div>
       {#if s.state === 'working' && s.activity}
-        <div class="srow-activity" title="Claude is working">✻ {s.activity}…</div>
-      {/if}
-      {#if s.bgJobs && s.bgJobs.length}
-        <div class="srow-bg" title="Active background job(s) — turn ended but work is still running">🌀 {s.bgJobs.length} background job{s.bgJobs.length > 1 ? 's' : ''}{#if s.bgJobs[0].label} · {s.bgJobs[0].label}{/if}</div>
+        <div class="pt-snip pt-working">✦ {s.activity}…</div>
+      {:else if s.bgJobs && s.bgJobs.length}
+        <div class="pt-snip pt-working">🌀 {s.bgJobs.length} background job{s.bgJobs.length > 1 ? 's' : ''}{#if s.bgJobs[0].label} · {s.bgJobs[0].label}{/if}</div>
+      {:else if s.todo && s.todo.current}
+        <div class="pt-snip">▶ {s.todo.current} <span class="pt-frac">{s.todo.done}/{s.todo.total}</span></div>
+      {:else if s.lastPrompt}
+        <div class="pt-snip">{s.lastPrompt}</div>
       {/if}
       {#if sessionTags(s.id).length}
-        <div class="srow-tags">{#each sessionTags(s.id) as t}<span class="stag" style="--h:{tagHue(t)}">{t}<button class="stag-x" title="Remove tag" onclick={(e) => { e.stopPropagation(); setSessionTags(s.id, sessionTags(s.id).filter((x) => x !== t)); }}>✕</button></span>{/each}</div>
-      {/if}
-      {#if s.todo && s.todo.current}
-        <div class="srow-todo" title="Current task (TodoWrite)">▶ {s.todo.current}<span class="todo-frac">{s.todo.done}/{s.todo.total}</span></div>
+        <div class="pt-pills">
+          {#each sessionTags(s.id) as t}
+            <span class="pt-pill" style="--c:{tagColor(t)}"># {t}</span>
+          {/each}
+        </div>
       {/if}
       {#if sentId === s.id}
-        <div class="q-quick-sent">✓ reply sent</div>
+        <div class="pt-sent">✓ reply sent</div>
       {:else if s.hasQuestion && quickOpts(s.question)}
-        <div class="q-quick">
+        <div class="pt-quick">
           {#each quickOpts(s.question) as o}
-            <button class="q-quick-opt" disabled={sendingId === s.id} title={o.description || o.label}
+            <button class="pt-quick-opt" disabled={sendingId === s.id} title={o.description || o.label}
                     onclick={(e) => { e.stopPropagation(); quickReply(s, o.label); }}>{o.label}</button>
           {/each}
         </div>
       {/if}
     </div>
-    <button class="pin-btn tag-btn" class:tagged={sessionTags(s.id).length} title="Edit tags" onclick={(e) => editTags(s, e)}>🏷</button>
-    <button class="pin-btn" class:pinned={pinnedSet.has(s.id)}
-            title={pinnedSet.has(s.id) ? 'Unpin' : 'Pin'}
-            onclick={(e) => { e.stopPropagation(); togglePin(s.id); }}>📌</button>
-    <button class="pin-btn del-row" title="Move to trash (transcript kept in bin/)"
-            disabled={deletingId === s.id}
-            onclick={(e) => { e.stopPropagation(); delSession(s); }}>🗑</button>
+
+    <div class="pt-acts">
+      <button class="pt-act" title="Edit tags" aria-label="Edit tags"
+              onclick={(e) => { e.stopPropagation(); openModal('editTags', { sessionId: s.id }); }}>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.6 13.4 12 22l-8-8V4h10z"/><circle cx="7.5" cy="7.5" r="1.2" fill="currentColor"/></svg>
+      </button>
+      <button class="pt-act" class:on={pinnedSet.has(s.id)} title={pinnedSet.has(s.id) ? 'Unpin' : 'Pin'} aria-label="Pin"
+              onclick={(e) => { e.stopPropagation(); togglePin(s.id); }}>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill={pinnedSet.has(s.id) ? 'currentColor' : 'none'} stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 3l5 5-4 1-3 3 1 5-3-3-6 6-1-1 6-6-3-3 5-1 3-3z"/></svg>
+      </button>
+      <button class="pt-act" title="Move to trash (transcript kept in bin/)" aria-label="Delete" disabled={deletingId === s.id}
+              onclick={(e) => { e.stopPropagation(); delSession(s); }}>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>
+      </button>
+    </div>
   </div>
 {/snippet}
 
 <style>
-  /* le 🏷 grisé/transparent de .pin-btn est illisible → on le dégrise et on le rend plus présent */
-  .tag-btn { filter: none; }
-  .tag-btn.tagged { opacity: 1; }
-  .tag-filter { display: flex; flex-wrap: wrap; gap: 4px; padding: 6px 10px 0; }
-  .tf-chip {
-    background: hsl(var(--h) 60% 50% / 0.14); color: hsl(var(--h) 55% 45%);
-    border: 1px solid hsl(var(--h) 55% 50% / 0.4);
-    border-radius: 999px; padding: 2px 8px; font-size: 11px; font-weight: 600; cursor: pointer;
+  .inbox {
+    width: 326px; min-width: 326px; background: var(--bg2);
+    border-right: 1px solid var(--border); display: flex; flex-direction: column;
+    transition: width .18s ease, min-width .18s ease;
   }
-  .tf-chip:hover { filter: brightness(1.1); }
-  .tf-chip.active { background: hsl(var(--h) 60% 45%); color: #fff; border-color: transparent; }
-  .tf-clear { --h: 0; opacity: 0.7; }
-  .srow-tags { display: flex; flex-wrap: wrap; gap: 3px; margin-top: 3px; }
-  .stag {
-    display: inline-flex; align-items: center; gap: 3px;
-    background: hsl(var(--h) 60% 50% / 0.14); color: hsl(var(--h) 55% 45%);
-    border: 1px solid hsl(var(--h) 55% 50% / 0.4);
-    border-radius: 999px; padding: 0 6px; font-size: 10px; font-weight: 600; line-height: 15px;
+  .ibx-head { padding: 15px; border-bottom: 1px solid var(--border); display: flex; flex-direction: column; gap: 11px; }
+  .ibx-top { display: flex; align-items: center; justify-content: space-between; }
+  .ibx-title { font-size: 18px; font-weight: 800; letter-spacing: -.01em; margin: 0; }
+  .ibx-new {
+    display: inline-flex; align-items: center; gap: 5px;
+    background: var(--accent); color: var(--accent-fg); border: none; border-radius: 8px;
+    padding: 7px 12px; font: inherit; font-size: 13px; font-weight: 700; cursor: pointer;
+    transition: background .12s;
   }
-  .stag-x {
-    background: none; border: none; color: inherit; cursor: pointer; padding: 0;
-    font-size: 9px; line-height: 1; opacity: 0.55;
-  }
-  .stag-x:hover { opacity: 1; }
-  /* fond sombre → texte plus clair pour rester lisible (thème forcé sombre, ou système en sombre) */
-  :global([data-theme='dark']) .tf-chip:not(.active),
-  :global([data-theme='dark']) .stag { color: hsl(var(--h) 65% 72%); }
-  @media (prefers-color-scheme: dark) {
-    :global(:root:not([data-theme])) .tf-chip:not(.active),
-    :global(:root:not([data-theme])) .stag { color: hsl(var(--h) 65% 72%); }
-  }
+  .ibx-new:hover { background: var(--accent-d); }
 
-  .side-foot { margin-top: auto; padding: 8px 10px 12px; }
-  /* action secondaire : bouton discret, pas un gros CTA plein */
-  .side-foot .trash-btn {
-    width: 100%; background: transparent; color: var(--muted);
-    border: 1px solid var(--border); border-radius: 10px;
-    padding: 8px 12px; font-size: 13px; font-weight: 600; box-shadow: none;
+  .ibx-search { position: relative; display: flex; align-items: center; }
+  .ibx-search svg { position: absolute; left: 11px; color: var(--muted); pointer-events: none; }
+  .ibx-search input {
+    width: 100%; box-sizing: border-box; background: var(--input); border: 1px solid var(--border);
+    border-radius: 9px; padding: 9px 12px 9px 34px; font: inherit; font-size: 13px; color: var(--text);
   }
-  .side-foot .trash-btn:hover { background: var(--bg3); color: var(--text); }
+  .ibx-search input::placeholder { color: var(--muted); }
+  .ibx-search input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+
+  .ibx-seg { display: flex; gap: 2px; background: var(--input); border-radius: 9px; padding: 3px; }
+  .seg {
+    flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 5px;
+    background: transparent; border: none; border-radius: 7px; padding: 6px 4px; cursor: pointer;
+    font: inherit; font-size: 12px; font-weight: 600; color: var(--muted); transition: background .12s, color .12s;
+  }
+  .seg:hover { color: var(--text); }
+  .seg.active { background: var(--bg2); color: var(--text); box-shadow: var(--shadow-sm); }
+  .seg-n { font-size: 11px; opacity: .8; }
+
+  .ibx-tags { display: flex; flex-wrap: wrap; gap: 5px; }
+  .tf {
+    display: inline-flex; align-items: center; gap: 4px;
+    background: color-mix(in srgb, var(--c) 13%, transparent); color: var(--c);
+    border: none; border-radius: 6px; padding: 3px 8px; cursor: pointer;
+    font: inherit; font-family: var(--mono); font-size: 10.5px; font-weight: 600;
+  }
+  .tf:hover { filter: brightness(1.05); }
+  .tf.on { background: var(--c); color: #fff; }
+  .tf-n { opacity: .7; }
+  .tf.on .tf-n { opacity: .85; }
+
+  .ibx-list { flex: 1; overflow-y: auto; padding: 8px; }
+  .ibx-empty { color: var(--muted); text-align: center; padding: 40px 12px; font-size: 13px; line-height: 1.6; }
+  .ibx-viewall { display: inline; background: none; border: none; padding: 0; font: inherit; font-weight: 600; color: var(--accent); cursor: pointer; }
+  .ibx-viewall:hover { text-decoration: underline; }
+  .ibx-more {
+    display: block; width: calc(100% - 4px); margin: 8px 2px 4px; padding: 8px;
+    background: var(--bg2); border: 1px dashed var(--border); border-radius: 9px;
+    color: var(--muted); font: inherit; font-size: 12px; font-weight: 600; cursor: pointer;
+    transition: background .12s, color .12s, border-color .12s;
+  }
+  .ibx-more:hover { background: var(--hover); color: var(--text); border-color: var(--accent); }
+  .ibx-sec {
+    font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em;
+    padding: 12px 8px 6px; font-family: var(--mono);
+  }
+  .ibx-sec-warn { color: var(--warn); }
+  .ibx-sec-info { color: var(--info); }
+  .ibx-sec-muted { color: var(--muted); }
+
+  .pt-row {
+    position: relative; display: flex; gap: 10px; align-items: flex-start;
+    padding: 11px 10px; border-radius: 10px; margin-bottom: 3px; cursor: pointer;
+    transition: background .1s;
+  }
+  .pt-row:hover { background: var(--hover); }
+  .pt-row.active { background: var(--accent-soft); box-shadow: inset 2px 0 0 var(--accent); }
+  .pt-dot { width: 8px; height: 8px; border-radius: 50%; margin-top: 5px; flex: 0 0 auto; }
+  .pt-dot-info { background: var(--info); }
+  .pt-dot-warn { background: var(--warn); }
+  .pt-dot-muted { background: var(--muted); }
+  .pt-body { min-width: 0; flex: 1; }
+  .pt-titlerow { display: flex; align-items: baseline; gap: 8px; }
+  .pt-titlewrap { display: flex; align-items: center; gap: 5px; min-width: 0; flex: 1; }
+  .pt-pin { color: var(--accent); flex: 0 0 auto; }
+  .pt-name { font-size: 13px; font-weight: 600; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pt-row.active .pt-name { font-weight: 700; }
+  .pt-time { font-family: var(--mono); font-size: 10.5px; color: var(--muted); flex: 0 0 auto; white-space: nowrap; }
+  .pt-sub { font-family: var(--mono); font-size: 10.5px; color: var(--muted); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pt-snip { font-size: 11.5px; color: var(--muted); margin-top: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pt-working { color: var(--info); font-style: italic; }
+  .pt-frac { font-family: var(--mono); font-size: 10px; color: var(--muted); }
+  .pt-pills { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+  .pt-pill {
+    font-family: var(--mono); font-size: 10px; font-weight: 600; line-height: 1.6;
+    color: var(--c); background: color-mix(in srgb, var(--c) 13%, transparent);
+    border-radius: 6px; padding: 0 6px;
+  }
+  .pt-sent { margin-top: 6px; font-size: 11.5px; font-weight: 600; color: var(--success); }
+  .pt-quick { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 7px; }
+  .pt-quick-opt {
+    background: var(--accent-soft); color: var(--accent); border: 1px solid var(--accent-soft);
+    border-radius: 7px; padding: 3px 9px; font: inherit; font-size: 11.5px; font-weight: 600; cursor: pointer;
+    max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; transition: background .12s, color .12s;
+  }
+  .pt-quick-opt:hover { background: var(--accent); color: var(--accent-fg); }
+  .pt-quick-opt:disabled { opacity: .55; cursor: default; }
+
+  .pt-acts {
+    position: absolute; top: 8px; right: 8px; display: flex; gap: 2px;
+    background: var(--bg2); border: 1px solid var(--border); border-radius: 8px; padding: 2px;
+    box-shadow: var(--shadow-sm); opacity: 0; transition: opacity .12s;
+  }
+  .pt-row:hover .pt-acts { opacity: 1; }
+  .pt-act {
+    width: 24px; height: 24px; display: flex; align-items: center; justify-content: center;
+    background: transparent; border: none; border-radius: 6px; color: var(--muted); cursor: pointer; padding: 0;
+    transition: background .12s, color .12s;
+  }
+  .pt-act:hover { background: var(--chip); color: var(--text); }
+  .pt-act.on { color: var(--accent); background: var(--accent-soft); }
+  .pt-act:disabled { opacity: .5; cursor: default; }
+
+  @media (max-width: 900px) {
+    .inbox { width: 100%; min-width: 0; border-right: none; border-bottom: 1px solid var(--border); }
+  }
 </style>
