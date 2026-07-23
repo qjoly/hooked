@@ -21,7 +21,12 @@
   import { conversationToMarkdown } from '$lib/exportConversation.js';
 
   let { id } = $props();
-  let s = $state(null);          // détail de session
+  // $state.raw (pas $state) : le détail contient un tableau `messages` de 1000+ objets profonds.
+  // $state proxifie récursivement à l'affectation `s = d` → tâche synchrone de plusieurs centaines
+  // de ms qui GÈLE l'UI au changement de session. On ne mute jamais un message en place (on
+  // remplace `s` en entier au refetch), donc raw est correct : réactif à la réaffectation, sans
+  // proxy profond. Coût de `s = d` : O(1) au lieu de O(nombre de nœuds du transcript).
+  let s = $state.raw(null);      // détail de session
   let tab = $state('chat');
   let termPane = $state(null);   // pane « show » courant affiché dans l'onglet Terminal
   let termInteractive = $state(true);  // onglet Terminal : interactif (frappes → tmux) par défaut
@@ -61,8 +66,8 @@
   // Fenêtrage du transcript : sur une grosse conv (1M+ tokens) monter toutes les bulles (chacune =
   // plusieurs Markdown parsés) fige l'UI, d'autant qu'un tick SSE refetch et re-diffe tout. On ne
   // rend que la QUEUE (les MSG_WINDOW derniers messages) ; « plus haut » en révèle MSG_STEP de plus.
-  const MSG_WINDOW = 120;
-  const MSG_STEP = 200;
+  const MSG_WINDOW = 40;
+  const MSG_STEP = 120;
   let visibleCount = $state(MSG_WINDOW);
   const msgCount = $derived((s?.messages || []).length);
   const startIdx = $derived(Math.max(0, msgCount - visibleCount));
@@ -144,6 +149,13 @@
     if (tabInit || !s || !first) return;
     untrack(() => { tab = first.key; tabInit = true; });
   });
+
+  // Lazy-mount des sous-onglets. Svelte monte TOUS les panes (les inactifs sont seulement masqués
+  // en CSS) → l'onglet Fichiers (jusqu'à des dizaines de diffs Pierre = coloration TextMate lourde)
+  // se rendait à CHAQUE ouverture de session, même invisible → gel ~600 ms au changement de session.
+  // On ne monte le contenu d'un pane qu'une fois son onglet visité, puis on le garde (retour instantané).
+  let seen = $state({});
+  $effect(() => { const t = tab; if (t && !seen[t]) untrack(() => { seen = { ...seen, [t]: true }; }); });
 
   // Footer « working » live : tant que la session travaille, le transcript ne reçoit pas de
   // nouvelle bulle avant le flush du message → la conversation paraît figée. On affiche donc,
@@ -275,7 +287,8 @@
     // Sending free text while a question is pending dismisses it (the backend sends Escape then
     // types) → hide the card immediately; the event-driven refetch (UserPromptSubmit clears
     // liveQuestionForSession) confirms it. No-op when nothing is pending.
-    if (s && s.pendingQuestion) s.pendingQuestion = null;
+    // réaffectation (pas mutation en place) : `s` est en $state.raw → seule la réaffectation est réactive.
+    if (s && s.pendingQuestion) s = { ...s, pendingQuestion: null };
     queued = [...queued, { text: t, ts: new Date().toISOString() }];
     forceBottom = true;
     stickToBottom = true;            // après un envoi, on re-suit la conversation
@@ -329,9 +342,11 @@
       const cardWanted = sess.hasQuestion || sess.hasPlan;
       const qChanged = (cardWanted && !cardShown) || (!cardWanted && cardShown);
       const activityChanged = sess.lastActivity && sess.lastActivity !== lastActivity;
-      // session live : on recharge aussi pour capter l'arrivée/fermeture des panes « show »
-      // (panes.jsonl déclenche un tick) → l'onglet Terminal apparaît/disparaît tout seul.
-      if (qChanged || (tab === 'chat' && (sess.state === 'working' || activityChanged)) || s.tmuxAlive) load(true);
+      // Refetch UNIQUEMENT quand quelque chose a vraiment changé — plus de refetch aveugle à chaque
+      // tick pour toute session live (c'était 1,8 MB de transcript rechargés/sec pour une session
+      // juste ouverte). On recharge sur : question (dis)parue, nouvelle activité (lastActivity a
+      // avancé), chat d'une session qui travaille, ou onglet Terminal actif (capter les panes « show »).
+      if (qChanged || activityChanged || (tab === 'chat' && sess.state === 'working') || (tab === 'terminal' && s.tmuxAlive)) load(true);
     });
   });
 
@@ -404,16 +419,28 @@
     }
     meBusy = false;
   }
-  async function stop() {
-    if (!confirm('Stop this session? The tmux pane running Claude will be closed.')) return;
+  function stop() {
+    openModal('confirm', {
+      title: 'Stop this session?',
+      message: 'The tmux pane running Claude will be closed.',
+      confirmLabel: '⏹ Stop session', danger: true, onConfirm: doStop,
+    });
+  }
+  async function doStop() {
     stopping = true;
     const res = await kill(s.id).catch((e) => ({ ok: false, data: { error: e.message } }));
     if (res.ok) { setTimeout(() => { loadSessions(); ui.tick++; }, 800); }
     else { stopping = false; alert('✗ ' + (res.data.error || 'failed')); }
   }
   let deleting = $state(false);
-  async function del() {
-    if (!confirm('Move this session to trash?\nThe transcript is moved to "bin/" (recoverable), the session leaves the dashboard.')) return;
+  function del() {
+    openModal('confirm', {
+      title: 'Move to trash?',
+      message: 'The transcript is kept in bin/ (recoverable) and the session leaves the dashboard.',
+      confirmLabel: '🗑 Move to trash', danger: true, onConfirm: doDel,
+    });
+  }
+  async function doDel() {
     deleting = true;
     const res = await deleteSession(s.id).catch((e) => ({ ok: false, data: { error: e.message } }));
     if (res.ok) { loadSessions(); ui.tick++; goto('/'); }
@@ -486,6 +513,29 @@
       <details class="hdr-more">
         <summary title="More actions" aria-label="More actions">⋯</summary>
         <div class="hdr-menu">
+          {#if s.tmuxAlive && (sb.permissionMode !== false || sb.modelEffort !== false)}
+            {@const cur = modeMeta(modeView)}
+            <div class="hdr-controls">
+              {#if sb.permissionMode !== false}
+                <div class="hc-label">Permission mode</div>
+                <div class="hc-modes">
+                  {#if !PERMISSION_MODES.some((m) => m.key === modeView)}
+                    <span class="mode-now mode-{modeView}" title={cur.title}><span class="mode-ico">{cur.icon}</span>{cur.label}</span>
+                  {/if}
+                  {#each PERMISSION_MODES as m}
+                    <button class="mode-chip" class:active={modeView === m.key} disabled={modeBusy}
+                            onclick={() => switchMode(m.key)} title={m.title}><span class="mode-ico">{m.icon}</span>{m.label}</button>
+                  {/each}
+                </div>
+              {/if}
+              {#if sb.modelEffort !== false}
+                <div class="hc-label">Model · effort</div>
+                <ModelEffort compact bind:model={editModel} bind:effort={editEffort} onchange={applyModelEffort} disabled={meBusy} />
+              {/if}
+              {#if modeStatus || meStatus}<div class="mode-status">{modeStatus || meStatus}</div>{/if}
+            </div>
+            <div class="hdr-div"></div>
+          {/if}
           <button class="vscode-btn" title="Copy a shareable link that opens this session in hooked" onclick={copyLink}>{linkCopied ? '✓ copied' : '🔗 Copy link'}</button>
           {#if s.tmuxAlive && s.tmuxAttach}
             <button class="vscode-btn" title={s.tmuxAttach} onclick={copyAttach}>{attachCopied ? '✓ copied' : '⧉ Copy attach'}</button>
@@ -509,32 +559,6 @@
         <button class="sess-rename-btn" title="Rename this session (local)" aria-label="Rename" onclick={startRename}>✎</button>
         {#if ui.names[s.id]}<button class="sess-rename-btn" title="Restore auto title" aria-label="Auto title" onclick={() => renameSession(s.id, '')}>↺</button>{/if}
       </h2>
-    {/if}
-    {#if s.tmuxAlive && (sb.permissionMode !== false || sb.modelEffort !== false)}
-      {@const cur = modeMeta(modeView)}
-      <div class="head-toolbar">
-        {#if sb.permissionMode !== false}
-          <div class="tb-group" title="Claude's permission mode (Shift+Tab in the session)">
-            {#if !PERMISSION_MODES.some((m) => m.key === modeView)}
-              <span class="mode-now mode-{modeView}" title={cur.title}><span class="mode-ico">{cur.icon}</span>{cur.label}</span>
-            {/if}
-            {#each PERMISSION_MODES as m}
-              <button class="mode-chip" class:active={modeView === m.key} disabled={modeBusy}
-                      onclick={() => switchMode(m.key)} title={m.title}>
-                <span class="mode-ico">{m.icon}</span>{m.label}
-              </button>
-            {/each}
-            {#if modeStatus}<span class="mode-status">{modeStatus}</span>{/if}
-          </div>
-        {/if}
-        {#if sb.permissionMode !== false && sb.modelEffort !== false}<span class="tb-sep"></span>{/if}
-        {#if sb.modelEffort !== false}
-          <div class="tb-group" title="Session model and effort — applies /model and /effort in the TUI">
-            <ModelEffort compact bind:model={editModel} bind:effort={editEffort} onchange={applyModelEffort} disabled={meBusy} />
-            {#if meStatus}<span class="mode-status">{meStatus}</span>{/if}
-          </div>
-        {/if}
-      </div>
     {/if}
     <div class="head-stats" onclick={() => openModal('cost')} title="View estimated cost breakdown">
       {#if sb.cost !== false}<span style="order:{sbOrd('cost')}"><b>{fmtCost(s.cost)}</b>{#if s.subagentCost > 0} <span class="hs-sub">({fmtCost(s.subagentCost)} agents)</span>{/if}</span>{/if}
@@ -605,31 +629,31 @@
     </div>
 
     <div class="pane" class:active={tab === 'changes'}>
-      <div class="changes"><Changes changes={s.changes || []} {id} onReview={reviewChanges} canReview={!!(s.tmuxPane)} /></div>
+      {#if seen.changes}<div class="changes"><Changes changes={s.changes || []} {id} onReview={reviewChanges} canReview={!!(s.tmuxPane)} /></div>{/if}
     </div>
 
     <div class="pane" class:active={tab === 'subagents'}>
-      <div class="changes"><Subagents subagents={s.subagents || []} session={id} /></div>
+      {#if seen.subagents}<div class="changes"><Subagents subagents={s.subagents || []} session={id} /></div>{/if}
     </div>
 
     <div class="pane" class:active={tab === 'subsessions'}>
-      <div class="changes"><SubSessions subSessions={s.subSessions || []} /></div>
+      {#if seen.subsessions}<div class="changes"><SubSessions subSessions={s.subSessions || []} /></div>{/if}
     </div>
 
     <div class="pane" class:active={tab === 'pr'}>
-      <PrLinks prLinks={s.prLinks || []} />
+      {#if seen.pr}<PrLinks prLinks={s.prLinks || []} />{/if}
     </div>
 
     <div class="pane" class:active={tab === 'issues'}>
-      <IssueLinks issueLinks={s.issueLinks || []} />
+      {#if seen.issues}<IssueLinks issueLinks={s.issueLinks || []} />{/if}
     </div>
 
     <div class="pane" class:active={tab === 'todos'}>
-      <Todos todos={s.todos || []} />
+      {#if seen.todos}<Todos todos={s.todos || []} />{/if}
     </div>
 
     <div class="pane" class:active={tab === 'background'}>
-      <Background jobs={s.bgJobs || []} session={id} />
+      {#if seen.background}<Background jobs={s.bgJobs || []} session={id} />{/if}
     </div>
 
     <div class="pane" class:active={tab === 'terminal'}>
@@ -691,10 +715,16 @@
   .hdr-more[open] > summary { background: var(--bg3); color: var(--text); border-color: var(--accent); }
   .hdr-menu {
     position: absolute; right: 0; top: calc(100% + 6px); z-index: 30;
-    display: flex; flex-direction: column; gap: 4px; min-width: 190px; padding: 6px;
+    display: flex; flex-direction: column; gap: 4px; min-width: 240px; padding: 6px;
     background: var(--surface); border: 1px solid var(--border2); border-radius: 12px;
     box-shadow: var(--shadow);
   }
+  /* Live-session controls (permission mode + model/effort) moved into the ⋯ menu so the cockpit
+     bar stays clean (repo/branch/status · title · meta · tabs), matching the design. */
+  .hdr-controls { display: flex; flex-direction: column; gap: 7px; padding: 4px 6px 2px; }
+  .hc-label { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
+  .hc-modes { display: flex; flex-wrap: wrap; gap: 5px; }
+  .hdr-div { height: 1px; background: var(--border); margin: 6px 2px; }
   /* dans le menu : boutons pleine largeur, alignés à gauche, sans bordure individuelle */
   .hdr-menu :global(.vscode-btn) {
     display: flex; align-items: center; width: 100%; justify-content: flex-start; text-align: left;

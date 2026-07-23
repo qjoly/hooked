@@ -162,10 +162,19 @@ function buildSessions() {
   sessions.sort((a, b) => String(b.lastActivity || '').localeCompare(String(a.lastActivity || '')));
   // on n'expose pas byDay en entier dans la liste (lourd) — juste un flag + la question
   // (légère) pour permettre la réponse en 1 clic directement depuis la sidebar.
-  return sessions.map(({ byDay, file, pendingQuestion, liveQuestion, livePlan, ...rest }) => {
+  return sessions.map(({ byDay, file, pendingQuestion, liveQuestion, livePlan,
+                         firstPrompt, prLinks, issueLinks, tools, lastPrompt, ...rest }) => {
     const question = liveQuestion || pendingQuestion || null;
-    // le plan complet (markdown) reste au détail ; la liste n'expose qu'un flag (payload léger).
-    return { ...rest, hasQuestion: !!question, question, hasPlan: !!livePlan };
+    // Payload léger pour la LISTE (inbox / board / overview). On retire les champs que seul le
+    // DÉTAIL consomme — firstPrompt (Trash a son propre endpoint), prLinks/issueLinks (onglets du
+    // cockpit, via sessionDetail), tools (byTool est calculé côté stats sur scanSessions), et le
+    // plan complet (juste un flag ici) — et on tronque lastPrompt (affiché en snippet 1 ligne +
+    // recherche par préfixe). sessionDetail garde tout, texte intégral. Cf. réduction ~300KB→~180KB.
+    return {
+      ...rest,
+      lastPrompt: typeof lastPrompt === 'string' ? lastPrompt.slice(0, 160) : lastPrompt,
+      hasQuestion: !!question, question, hasPlan: !!livePlan,
+    };
   });
 }
 
