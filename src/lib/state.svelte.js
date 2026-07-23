@@ -252,6 +252,11 @@ let started = false;
 export function startLive() {
   if (started) return; // une seule connexion SSE pour toute la durée de vie de l'app
   started = true;
+  // 1er chargement immédiat. On marque « chargé maintenant » AVANT le fetch (pas dans le .then) :
+  // sinon lastLoadAt reste à 0 pendant ~550 ms et la RAFALE de ticks SSE au connect passe sous le
+  // plancher de 250 ms → un 2e /api/sessions part en concurrence du 1er. En le posant tout de suite,
+  // le throttle (1 s) absorbe la rafale de connect → un seul chargement au démarrage.
+  lastLoadAt = Date.now();
   loadSessions();
   loadSettings();
   appVersion().then((v) => { loadedVersion = v; }); // version de référence (au chargement)
@@ -263,13 +268,28 @@ export function startLive() {
       if (loadedVersion) { const v = await appVersion(); if (v && v !== loadedVersion) location.reload(); }
     },
     onError: () => { ui.live = false; },
-    onTick: () => { refresh(); },
+    onTick: scheduleRefresh,
   });
-  // filet : rafraîchit la liste toutes les 5 s même sans évènement
-  setInterval(refresh, 5000);
+  // filet : rafraîchit la liste régulièrement même sans évènement
+  setInterval(scheduleRefresh, 5000);
+}
+
+// Coalescing + throttle des refetch. Une rafale de ticks SSE (surtout le rejeu au CONNECT) se
+// réduit à UN seul /api/sessions au lieu de 3-4 : trailing-debounce (les ticks rapprochés sont
+// absorbés) + intervalle minimum entre deux chargements. Le live tolère très bien ~250 ms de
+// latence sur une mise à jour ; ça supprime le pic de requêtes au premier chargement.
+let refreshTimer = null;
+let lastLoadAt = 0;
+const REFRESH_DEBOUNCE = 250;   // ms : fenêtre d'absorption des ticks rapprochés
+const REFRESH_MIN_GAP = 1000;   // ms : jamais plus d'un /api/sessions par seconde
+function scheduleRefresh() {
+  if (refreshTimer) return; // un refetch est déjà programmé → tick intermédiaire absorbé
+  const wait = Math.max(REFRESH_DEBOUNCE, REFRESH_MIN_GAP - (Date.now() - lastLoadAt));
+  refreshTimer = setTimeout(() => { refreshTimer = null; refresh(); }, wait);
 }
 
 async function refresh() {
+  lastLoadAt = Date.now();
   await loadSessions();
   ui.tick++; // signale aux effets (détail de session ouvert, vue d'ensemble…) de se réévaluer
 }

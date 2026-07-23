@@ -20,40 +20,37 @@
   const isPicked = (label) => answers.some((a) => a === label || a.split(',').map((s) => s.trim()).includes(label));
   const answerText = $derived(answers.length ? answers.join('  ·  ') : (ask && t.result ? t.result.trim() : ''));
 
-  // diff tools: inline, clamped, expandable only when the content exceeds the clamp
+  // diff tools: COLLAPSED by default — the diff renders (and highlights) only when you open it.
+  // Rendering a diff runs @pierre/diffs' TextMate/oniguruma highlighter (findNextMatchSync); on some
+  // code its grammar regexes backtrack catastrophically → a single session switch froze the UI
+  // ~700ms. Collapsed = zero highlight cost when switching/loading a session; the (one) diff you open
+  // pays its own cost. State is local, keyed by tool_use id, so it survives live re-renders.
   let expanded = $state(false);
-  let box = $state(null);          // the clamped diff container
-  let overflowing = $state(false);
-  const CLAMP = 260;               // ~12 lines; small edits fit without scrolling
-  $effect(() => {
-    const el = box;                // read tracked deps before the guard
-    if (!hasDiff || !el) return;
-    const check = () => { overflowing = el.scrollHeight > CLAMP + 8; };
-    const ro = new ResizeObserver(check);
-    ro.observe(el);
-    check();
-    return () => ro.disconnect();
+  const diffLines = $derived.by(() => {
+    if (!hasDiff) return 0;
+    const nl = (x) => (x ? (x.match(/\n/g) || []).length + 1 : 0);
+    let n = 0;
+    for (const o of diff.ops) n += Math.max(nl(o.old), nl(o.new), nl(o.content));
+    return n;
   });
 </script>
 
 {#if hasDiff}
   <div class="tool tool-diff" class:expanded>
-    <span class="chip chip-diff" class:clickable={overflowing}
-          onclick={() => { if (overflowing) expanded = !expanded; }}>
-      🔧 {t.name}{#if t.detail}<span class="chip-d">{t.detail}</span>{/if}{#if overflowing}<span class="chip-x">▸</span>{/if}
+    <span class="chip chip-diff clickable" onclick={() => (expanded = !expanded)}>
+      🔧 {t.name}{#if t.detail}<span class="chip-d">{t.detail}</span>{/if}<span class="diff-size">{diffLines} {diffLines > 1 ? 'lines' : 'line'}</span><span class="chip-x">▸</span>
     </span>
-    <div class="td-diff" class:clamped={!expanded} bind:this={box}>
-      {#each diff.ops as o}
-        {#if o.all}<div class="diff-tag">replace all occurrences</div>{/if}
-        <PierreDiff
-          oldStr={o.kind === 'edit' ? (o.old || '') : ''}
-          newStr={o.kind === 'write' ? (o.content || '') : (o.new || '')}
-          name={diff.name}
-          diffStyle={ui.diffSplit ? 'split' : 'unified'} />
-      {/each}
-    </div>
-    {#if overflowing}
-      <button class="diff-more" onclick={() => (expanded = !expanded)}>{expanded ? '▲ Show less' : '▼ Show more'}</button>
+    {#if expanded}
+      <div class="td-diff">
+        {#each diff.ops as o}
+          {#if o.all}<div class="diff-tag">replace all occurrences</div>{/if}
+          <PierreDiff
+            oldStr={o.kind === 'edit' ? (o.old || '') : ''}
+            newStr={o.kind === 'write' ? (o.content || '') : (o.new || '')}
+            name={diff.name}
+            diffStyle={ui.diffSplit ? 'split' : 'unified'} />
+        {/each}
+      </div>
     {/if}
   </div>
 {:else}
@@ -95,3 +92,8 @@
     {/if}
   </div>
 {/if}
+
+<style>
+  /* taille d'un gros diff replié (indice avant ouverture) */
+  .diff-size { font-family: var(--mono); font-size: 10px; color: var(--muted); margin-left: 6px; }
+</style>
