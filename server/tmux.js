@@ -500,6 +500,38 @@ function capturePaneTextSync(pane, ttl = 2500) {
   return text;
 }
 
+// Capture synchrone AVEC séquences ANSI (`-e`), cache court séparé. Le plain (`-p`) perd les
+// attributs de couleur ; on en a besoin pour lire le DIM (ESC[2m) du ghost text de suggestion.
+const _paneAnsiCache = new Map(); // pane -> { ts, text }
+function capturePaneAnsiSync(pane, ttl = 2500) {
+  if (!/^%\d+$/.test(pane || '')) return null;
+  const c = _paneAnsiCache.get(pane);
+  const now = Date.now();
+  if (c && now - c.ts < ttl) return c.text;
+  let text = null;
+  try { text = execFileSync('tmux', ['capture-pane', '-t', pane, '-p', '-e'], { encoding: 'utf8', timeout: 800 }); }
+  catch (_) { text = null; }
+  _paneAnsiCache.set(pane, { ts: now, text });
+  return text;
+}
+
+// Prompt de « follow-up » suggéré par Claude Code : après un tour, le TUI pré-remplit la boîte de
+// saisie avec une suggestion de prochain prompt (feature promptSuggestions), peinte en DIM (ESC[2m)
+// juste après l'invite « ❯ ». Cette suggestion n'est PAS persistée dans le transcript → la pane est
+// la seule source. On la distingue d'un message tapé/en file (peint avec un fond, ESC[48;5;255m) et
+// du placeholder « Try "…" ». null si aucune suggestion / pane injoignable.
+// ponytail: on ne lit que la 1re ligne dim (une suggestion qui wrappe est tronquée au retour à la ligne du TUI).
+function paneFollowupSync(pane) {
+  const text = capturePaneAnsiSync(pane);
+  if (text == null) return null;
+  // séparateur ❯ ↔ texte = espace INSÉCABLE (U+00A0) dans le TUI, pas un espace normal.
+  const m = text.match(/❯[  ]*\x1b\[2m([^\x1b]*)/);
+  if (!m) return null;
+  const s = m[1].trim();
+  if (!s || /^Try ["“]/.test(s)) return null; // boîte vide / placeholder
+  return s;
+}
+
 // Corps STABLE de la conversation : le texte capturé PRIVÉ de sa zone d'invite + footer (tout ce qui
 // se trouve à partir de la dernière ligne d'invite ❯ incluse — boîte de saisie, ligne de mode
 // « ⏵⏵ … (shift+tab to cycle) », lignes de sous-agents « ○ … »). C'est la partie qui NE bouge PAS
@@ -800,4 +832,4 @@ function restartSession(id, { model, effort } = {}, cb) {
   }
 }
 
-export { paneTmuxNames, invalidatePaneCache, clearPaneCaches, tmuxAlive, launchInfoForPane, resolveLaunchForSession, deliverReply, deliverQuestion, questionKeys, deliverQuestionWithNote, deliverQuestionFreeText, deliverPlanChoice, parsePlanPrompt, parseSwitchPrompt, isTrustPrompt, isComposerReady, sendKey, parsePaneMode, readPaneMode, readPaneModeSync, paneBusySync, parseSpinner, paneActivitySync, conversationBody, paneActiveSync, paneActiveStep, setMode, setModelEffort, launchSession, killSession, restartSession, err400 };
+export { paneTmuxNames, invalidatePaneCache, clearPaneCaches, tmuxAlive, launchInfoForPane, resolveLaunchForSession, deliverReply, deliverQuestion, questionKeys, deliverQuestionWithNote, deliverQuestionFreeText, deliverPlanChoice, parsePlanPrompt, parseSwitchPrompt, isTrustPrompt, isComposerReady, sendKey, parsePaneMode, readPaneMode, readPaneModeSync, paneBusySync, parseSpinner, paneActivitySync, paneFollowupSync, conversationBody, paneActiveSync, paneActiveStep, setMode, setModelEffort, launchSession, killSession, restartSession, err400 };
