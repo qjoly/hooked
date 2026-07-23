@@ -193,7 +193,7 @@
     if (!composer || !followup) return;
     tab = 'chat';
     await tick();
-    composer.prefill(followup);
+    composer.sendText(followup); // envoi direct (remplit + envoie), comme la revue de fichiers
   }
 
   let wantPane = $state(null); // pane à sélectionner dès qu'il apparaît (après « + Pane »)
@@ -645,7 +645,7 @@
             <button class="fu-x" title="Dismiss" aria-label="Dismiss" onclick={() => (dismissedFollowup = followup)}>✕</button>
           </div>
           <div class="fu-text">{followup}</div>
-          <button class="fu-take" onclick={takeFollowup}>↵ Reprendre dans le composer</button>
+          <button class="fu-take" onclick={takeFollowup}>↵ Envoyer</button>
         </div>
       {/if}
       {#if s.tmuxPane}
