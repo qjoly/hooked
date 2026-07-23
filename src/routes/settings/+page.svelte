@@ -1,6 +1,6 @@
 <script>
   import { untrack, onMount } from 'svelte';
-  import { data, ui, settings, updateSettings, setTheme, loadSessions } from '$lib/state.svelte.js';
+  import { data, ui, settings, updateSettings, setTheme, setScheme, loadSessions } from '$lib/state.svelte.js';
   import { resync, getGit, checkoutBranch, dismissRestartNotice, getClaudeVersion, upgradeClaude, restartClaudeSession, pickFolder } from '$lib/api.js';
   import ModelEffort from '$lib/components/ModelEffort.svelte';
 
@@ -66,6 +66,11 @@
     { key: 'system', icon: '🖥️', label: 'System' },
     { key: 'light',  icon: '☀️', label: 'Light' },
     { key: 'dark',   icon: '🌙', label: 'Dark' },
+  ];
+  // Palette (axe orthogonal au clair/sombre). 'default' = refonte indigo ; 'legacy' = ancien thème crème.
+  const SCHEMES = [
+    { key: 'default', icon: '🟣', label: 'Default' },
+    { key: 'legacy',  icon: '🟤', label: 'Legacy' },
   ];
 
   // Défauts de session (modèle / effort / mode de permission) pré-sélectionnés dans les formulaires
@@ -334,6 +339,16 @@
         {#each THEMES as t (t.key)}
           <button class="chip" class:active={ui.theme === t.key} onclick={() => setTheme(t.key)}>
             {t.icon} {t.label}
+          </button>
+        {/each}
+      </div>
+
+      <h2 style="margin-top:22px">Color scheme</h2>
+      <p class="hint">Palette used for both light and dark. <strong>Legacy</strong> restores the previous warm cream / terracotta look. (Per-browser preference.)</p>
+      <div class="chips">
+        {#each SCHEMES as s (s.key)}
+          <button class="chip" class:active={ui.scheme === s.key} onclick={() => setScheme(s.key)}>
+            {s.icon} {s.label}
           </button>
         {/each}
       </div>

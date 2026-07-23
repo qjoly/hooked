@@ -26,6 +26,7 @@ export const ui = $state({
   modal: null,               // { type, data } | null
   tick: 0,                   // incrémenté à chaque évènement live → relance les effets
   theme: readTheme(),        // 'system' | 'light' | 'dark' (persisté à part, cf. app.html)
+  scheme: readScheme(),      // 'default' | 'legacy' — palette (color-scheme), axe orthogonal au clair/sombre
   notify: persisted.notify ?? false,    // notifications navigateur (session finie / en attente de toi)
   notifyPinnedOnly: persisted.notifyPinnedOnly ?? false, // if true: only notify for pinned sessions
   diffSplit: persisted.diffSplit ?? false, // render conversation diffs side-by-side (split) instead of unified
@@ -111,6 +112,35 @@ export function setTheme(t) {
 // cycle Système → Clair → Sombre → Système… (le bouton du header appelle ça).
 export function cycleTheme() {
   setTheme(THEME_ORDER[(THEME_ORDER.indexOf(ui.theme) + 1) % THEME_ORDER.length]);
+}
+
+// ─── Color scheme (palette : default / legacy) ──────────────────────────────────────────────
+// Axe ORTHOGONAL au clair/sombre : on choisit la palette, le clair/sombre reste géré par `theme`.
+// Persisté sous 'hooked.scheme', relu par le script anti-FOUC de app.html.
+// 'default' (défaut) = aucun data-scheme → palette indigo de la refonte ;
+// 'legacy' = data-scheme="legacy" → ancien thème crème/terracotta.
+const SCHEME_KEY = 'hooked.scheme';
+const SCHEME_ORDER = ['default', 'legacy'];
+function readScheme() {
+  if (typeof localStorage === 'undefined') return 'default';
+  try { const s = localStorage.getItem(SCHEME_KEY); return SCHEME_ORDER.includes(s) ? s : 'default'; }
+  catch { return 'default'; }
+}
+// pose (ou retire) l'attribut data-scheme sur <html> selon le choix courant.
+function applyScheme() {
+  if (typeof document === 'undefined') return;
+  const root = document.documentElement;
+  if (ui.scheme === 'legacy') root.setAttribute('data-scheme', ui.scheme);
+  else root.removeAttribute('data-scheme'); // 'default' → aucun attribut, palette de base
+}
+export function setScheme(s) {
+  ui.scheme = SCHEME_ORDER.includes(s) ? s : 'default';
+  try { localStorage.setItem(SCHEME_KEY, ui.scheme); } catch {}
+  applyScheme();
+}
+// cycle default → legacy → default…
+export function cycleScheme() {
+  setScheme(SCHEME_ORDER[(SCHEME_ORDER.indexOf(ui.scheme) + 1) % SCHEME_ORDER.length]);
 }
 
 export const data = $state({ sessions: [] });
