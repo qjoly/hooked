@@ -48,8 +48,10 @@
             <span class="pr-url">{url}</span>
           </a>
           {#if meta}
-            {#if meta.state}<span class="pr-state s-{stateClass(meta.state)}">{meta.state}</span>{/if}
-            {#if meta.author}<span class="pr-author">@{meta.author}</span>{/if}
+            <div class="pr-right">
+              {#if meta.state}<span class="pr-state s-{stateClass(meta.state)}">{meta.state}</span>{/if}
+              {#if meta.author}<span class="pr-author">@{meta.author}</span>{/if}
+            </div>
           {:else if entry?.loading}
             <span class="pr-muted">…</span>
           {/if}
@@ -70,93 +72,38 @@
 
 <style>
   /* Aligné sur l'onglet Issues (IssueLinks.svelte) : même carte, même en-tête, mêmes badges. */
-  .pr-list {
-    list-style: none;
-    margin: 0;
-    padding: 0.75rem 1rem;
-    display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
-  }
+  .pr-list { list-style: none; margin: 0; padding: 4px 0; display: flex; flex-direction: column; gap: 10px; }
   .pr-row {
-    display: flex;
-    flex-direction: column;
-    gap: 0.35rem;
-    padding: 0.5rem 0.75rem;
-    border-radius: 6px;
-    background: var(--bg2);
-    border: 1px solid var(--border);
-    min-width: 0;
+    display: flex; flex-direction: column; gap: 8px;
+    padding: 15px 17px; border-radius: 12px;
+    background: var(--card); border: 1px solid var(--border); min-width: 0;
   }
-  .pr-head {
-    display: flex;
-    align-items: baseline;
-    gap: 0.5rem;
-    flex-wrap: wrap;
-  }
+  .pr-head { display: flex; align-items: flex-start; gap: 12px; }
   /* NB: classe .pr-lnk (pas .pr-link) — un .pr-link GLOBAL existe dans app.css (chips PR du
      header de conversation) et fuirait ici (align-items:center → texte centré). */
-  .pr-lnk {
-    display: flex;
-    flex-direction: column;
-    gap: 0.15rem;
-    text-decoration: none;
-    min-width: 0;
-    flex: 1;
-  }
+  .pr-lnk { display: flex; flex-direction: column; gap: 3px; text-decoration: none; min-width: 0; flex: 1; }
+  .pr-label { font-weight: 700; font-size: 13.5px; color: var(--accent); }
   .pr-lnk:hover .pr-label { text-decoration: underline; }
-  .pr-label {
-    font-weight: 600;
-    font-size: 0.875rem;
-    color: var(--fg);
-  }
-  .pr-title {
-    font-size: 0.85rem;
-    color: var(--fg);
-  }
-  .pr-url {
-    font-size: 0.75rem;
-    color: var(--fg2);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
+  .pr-title { font-size: 13.5px; color: var(--text); }
+  .pr-url { font-family: var(--mono); font-size: 11.5px; color: var(--accent); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pr-right { display: flex; flex-direction: column; align-items: flex-end; gap: 5px; flex: 0 0 auto; }
   .pr-state {
-    font-size: 0.7rem;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.03em;
-    padding: 1px 8px;
-    border-radius: 20px;
-    color: #fff;
-    background: var(--muted);
+    font-family: var(--mono); font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .03em;
+    padding: 2px 9px; border-radius: 20px; color: #fff; background: #6b7280;
   }
-  .pr-state.s-open { background: #2da44e; }   /* open → green */
-  .pr-state.s-merged { background: #8250df; } /* merged → purple */
-  .pr-state.s-closed { background: #cf222e; } /* closed → red */
-  .pr-author {
-    font-size: 0.75rem;
-    color: var(--fg2);
-  }
-  .pr-muted { font-size: 0.75rem; color: var(--fg2); }
+  .pr-state.s-open { background: #2a9d63; }
+  .pr-state.s-merged { background: #8250df; }
+  .pr-state.s-closed { background: #cf222e; }
+  .pr-author { font-family: var(--mono); font-size: 11.5px; color: var(--muted); }
+  .pr-muted { font-size: 11.5px; color: var(--muted); }
   .pr-toggle {
-    align-self: flex-start;
-    background: none;
-    border: none;
-    color: var(--accent-d);
-    font-size: 0.75rem;
-    cursor: pointer;
-    padding: 0;
+    align-self: flex-start; background: none; border: none; color: var(--accent);
+    font: inherit; font-size: 12px; font-weight: 600; cursor: pointer; padding: 0;
   }
+  .pr-toggle:hover { text-decoration: underline; }
   .pr-body {
-    margin: 0;
-    padding: 0.35rem 0.75rem;
-    background: var(--bg3);
-    border-radius: 6px;
-    font-size: 0.8rem;
-    color: var(--fg);
-    word-break: break-word;
-    max-height: 320px;
-    overflow: auto;
+    margin: 0; padding: 12px 14px; background: var(--bg); border: 1px solid var(--border); border-radius: 9px;
+    font-size: 12.5px; line-height: 1.65; color: var(--text); word-break: break-word;
+    max-height: 320px; overflow: auto; white-space: pre-wrap;
   }
 </style>
