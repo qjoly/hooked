@@ -8,7 +8,7 @@ import { scanSessions, blankSummary } from './transcript.js';
 import { repoSlug } from './git.js';
 import { readEvents, lastEventBySession, paneForSession, sessionForPane, modeForSession, liveQuestionForSession, livePlanForSession, eventSessionMeta } from './events.js';
 import { liveStateFor } from './live.js';
-import { resolveLaunchForSession, paneTmuxNames, tmuxAlive, readPaneModeSync, paneBusySync, paneActivitySync, paneActiveSync } from './tmux.js';
+import { resolveLaunchForSession, paneTmuxNames, tmuxAlive, readPaneModeSync, paneBusySync, paneActivitySync, paneFollowupSync, paneActiveSync } from './tmux.js';
 import { shownPanesFor } from './pane.js';
 import { usageWindow } from './usage.js';
 import { sessionStatus, sessionStatusRaw, accountRateLimits, freshestStatusId } from './status.js';
@@ -309,6 +309,9 @@ function sessionDetail(id) {
     bgJobs,
     // verbe d'activité live du spinner TUI (« Accomplishing »…) quand la session mouline, sinon null.
     activity: (state === 'working' && alive) ? paneActivitySync(pane) : null,
+    // prompt de follow-up suggéré par le TUI (ghost text de la boîte de saisie) quand le tour est
+    // fini : lu dans la pane (non persisté ailleurs). null si la session mouline / pas de suggestion.
+    followupSuggestion: (alive && state !== 'working') ? paneFollowupSync(pane) : null,
     tmuxPane: pane, tmuxAlive: alive, tmuxAttach,
     // deep-link relatif vers cette session (à émettre par un agent en markdown : `[label](/session/<id>)`).
     link: '/session/' + encodeURIComponent(id),
