@@ -325,9 +325,17 @@
 
   .pt-row {
     position: relative; display: flex; gap: 10px; align-items: flex-start;
-    padding: 11px 10px; border-radius: 10px; margin-bottom: 3px; cursor: pointer;
+    padding: 12px 10px; border-radius: 9px; cursor: pointer;
     transition: background .1s;
   }
+  /* hairline separator between consecutive sessions (not after a section header) */
+  .pt-row + .pt-row::before {
+    content: ""; position: absolute; left: 30px; right: 4px; top: -1px;
+    border-top: 1px solid var(--border);
+  }
+  .pt-row:hover, .pt-row.active { border-radius: 9px; }
+  .pt-row:hover::before, .pt-row:hover + .pt-row::before,
+  .pt-row.active::before, .pt-row.active + .pt-row::before { display: none; }
   .pt-row:hover { background: var(--hover); }
   .pt-row.active { background: var(--accent-soft); box-shadow: inset 2px 0 0 var(--accent); }
   .pt-dot { width: 8px; height: 8px; border-radius: 50%; margin-top: 5px; flex: 0 0 auto; }
