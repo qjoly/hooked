@@ -29,9 +29,9 @@
   /* redesign semantic surfaces */
   --fg: #181b20;
   --card: #ffffff;
-  --hover: #f2f4f7;
-  --input: #f2f4f7;
-  --chip: #eef0f4;
+  --hover: #eef0f4;
+  --input: #eef0f4;
+  --chip: #e3e6ec;
   --accent-fg: #ffffff;
   --code-bg: #0f1218;
   --warn: #c08a1a;  --warn-soft: #f6efda;
@@ -39,15 +39,15 @@
   --success: #2a9d63; --success-soft: #e5f4ec;
   --danger: #dc4b3e; --danger-soft: #fbede4; --danger-border: #f0d3c1;
   /* legacy surface names → mapped onto the redesign palette */
-  --bg: #f7f8fa;        /* page */
+  --bg: #e7eaef;        /* page canvas — clearly gray so white panels float above it */
   --bg2: #ffffff;       /* panels: inbox / rail / headers (redesign --panel) */
-  --bg3: #eef0f4;       /* fills, tracks, chips (redesign --chip) */
-  --panel: #f7f8fa;     /* main content / cockpit area (redesign --bg) */
+  --bg3: #e3e6ec;       /* fills, tracks, chips (redesign --chip) */
+  --panel: #e7eaef;     /* main content / cockpit area (redesign --bg) */
   --surface: var(--card); /* raised: bubbles, composer, cards */
-  --border: #e5e8ec;
-  --border2: #d7dbe0;
+  --border: #d3d8e0;
+  --border2: #bcc3cd;
   --text: var(--fg);
-  --muted: #8b929e;
+  --muted: #656d79;   /* ~5:1 on white — AA legible (was #8b929e, ~3.1:1) */
   --accent: #4f46e5;    /* indigo */
   --accent-d: #4338ca;  /* darker indigo (hover) */
   --accent-soft: #eceafe;
@@ -102,9 +102,9 @@
     --bg2: #1a1a1e;
     --bg3: #212127;
     --panel: #101013;
-    --border: #2d2d34;
-    --border2: #3a3a42;
-    --muted: #9797a1;
+    --border: #34343c;
+    --border2: #44444e;
+    --muted: #a7a7b2;
     --accent: #7d74f5;
     --accent-d: #918af7;
     --accent-soft: #26243a;
@@ -142,9 +142,9 @@
   --bg2: #1a1a1e;
   --bg3: #212127;
   --panel: #101013;
-  --border: #2d2d34;
-  --border2: #3a3a42;
-  --muted: #9797a1;
+  --border: #34343c;
+  --border2: #44444e;
+  --muted: #a7a7b2;
   --accent: #7d74f5;
   --accent-d: #918af7;
   --accent-soft: #26243a;
