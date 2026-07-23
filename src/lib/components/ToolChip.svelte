@@ -20,14 +20,28 @@
   const isPicked = (label) => answers.some((a) => a === label || a.split(',').map((s) => s.trim()).includes(label));
   const answerText = $derived(answers.length ? answers.join('  ·  ') : (ask && t.result ? t.result.trim() : ''));
 
-  // diff tools: inline, clamped, expandable only when the content exceeds the clamp
+  // diff tools: SMALL diffs render inline (at-a-glance), clamped + "Show more" if they overflow.
+  // BIG diffs stay collapsed and render only on expand. Rendering a diff runs @pierre/diffs' TextMate
+  // highlighter, which is heavy for large hunks — but the old freeze on session switch was the
+  // hidden Files pane rendering every diff at once (now lazy-mounted), not these few inline ones,
+  // so small conversation edits are cheap to show. State is local, keyed by tool_use id.
   let expanded = $state(false);
-  let box = $state(null);          // the clamped diff container
+  let box = $state(null);          // the clamped diff container (inline/small only)
   let overflowing = $state(false);
   const CLAMP = 260;               // ~12 lines; small edits fit without scrolling
+  const diffLines = $derived.by(() => {
+    if (!hasDiff) return 0;
+    const nl = (x) => (x ? (x.match(/\n/g) || []).length + 1 : 0);
+    let n = 0;
+    for (const o of diff.ops) n += Math.max(nl(o.old), nl(o.new), nl(o.content));
+    return n;
+  });
+  const BIG_DIFF = 12;             // > ~12 lines → collapsed by default (render on expand)
+  const bigDiff = $derived(diffLines > BIG_DIFF);
+  const showDiff = $derived(hasDiff && (!bigDiff || expanded));
   $effect(() => {
     const el = box;                // read tracked deps before the guard
-    if (!hasDiff || !el) return;
+    if (!showDiff || bigDiff || !el) return; // clamp/overflow logic is for the inline (small) case
     const check = () => { overflowing = el.scrollHeight > CLAMP + 8; };
     const ro = new ResizeObserver(check);
     ro.observe(el);
@@ -38,21 +52,23 @@
 
 {#if hasDiff}
   <div class="tool tool-diff" class:expanded>
-    <span class="chip chip-diff" class:clickable={overflowing}
-          onclick={() => { if (overflowing) expanded = !expanded; }}>
-      🔧 {t.name}{#if t.detail}<span class="chip-d">{t.detail}</span>{/if}{#if overflowing}<span class="chip-x">▸</span>{/if}
+    <span class="chip chip-diff" class:clickable={bigDiff || overflowing}
+          onclick={() => { if (bigDiff || overflowing) expanded = !expanded; }}>
+      🔧 {t.name}{#if t.detail}<span class="chip-d">{t.detail}</span>{/if}{#if bigDiff}<span class="diff-size">{diffLines} lines</span>{/if}{#if bigDiff || overflowing}<span class="chip-x">▸</span>{/if}
     </span>
-    <div class="td-diff" class:clamped={!expanded} bind:this={box}>
-      {#each diff.ops as o}
-        {#if o.all}<div class="diff-tag">replace all occurrences</div>{/if}
-        <PierreDiff
-          oldStr={o.kind === 'edit' ? (o.old || '') : ''}
-          newStr={o.kind === 'write' ? (o.content || '') : (o.new || '')}
-          name={diff.name}
-          diffStyle={ui.diffSplit ? 'split' : 'unified'} />
-      {/each}
-    </div>
-    {#if overflowing}
+    {#if showDiff}
+      <div class="td-diff" class:clamped={!bigDiff && !expanded} bind:this={box}>
+        {#each diff.ops as o}
+          {#if o.all}<div class="diff-tag">replace all occurrences</div>{/if}
+          <PierreDiff
+            oldStr={o.kind === 'edit' ? (o.old || '') : ''}
+            newStr={o.kind === 'write' ? (o.content || '') : (o.new || '')}
+            name={diff.name}
+            diffStyle={ui.diffSplit ? 'split' : 'unified'} />
+        {/each}
+      </div>
+    {/if}
+    {#if !bigDiff && overflowing}
       <button class="diff-more" onclick={() => (expanded = !expanded)}>{expanded ? '▲ Show less' : '▼ Show more'}</button>
     {/if}
   </div>
@@ -95,3 +111,8 @@
     {/if}
   </div>
 {/if}
+
+<style>
+  /* taille d'un gros diff replié (indice avant ouverture) */
+  .diff-size { font-family: var(--mono); font-size: 10px; color: var(--muted); margin-left: 6px; }
+</style>

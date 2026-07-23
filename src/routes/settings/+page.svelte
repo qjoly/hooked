@@ -4,6 +4,34 @@
   import { resync, getGit, checkoutBranch, dismissRestartNotice, getClaudeVersion, upgradeClaude, restartClaudeSession, pickFolder } from '$lib/api.js';
   import ModelEffort from '$lib/components/ModelEffort.svelte';
 
+  // Navigation de section (rail gauche collant). Chaque entrée pointe l'id d'une carte ;
+  // les cartes secondaires appartiennent à la section la plus proche au-dessus.
+  const NAV = [
+    { id: 'pset-appearance', label: 'Appearance' },
+    { id: 'pset-new', label: 'New session defaults' },
+    { id: 'pset-project', label: 'Default project' },
+    { id: 'pset-live', label: 'Live state' },
+    { id: 'pset-claude', label: 'Claude Code' },
+    { id: 'pset-git', label: 'Git' },
+    { id: 'pset-interface', label: 'Interface' },
+  ];
+  let activeSec = $state(NAV[0].id);
+  function goTo(id) {
+    activeSec = id;
+    document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+  // scroll-spy : la section dont le haut franchit la bande supérieure devient active.
+  onMount(() => {
+    const root = document.getElementById('view-settings');
+    if (!root) return;
+    const secs = [...root.querySelectorAll('[data-sec]')];
+    const io = new IntersectionObserver((entries) => {
+      for (const e of entries) if (e.isIntersecting) activeSec = e.target.id;
+    }, { root, rootMargin: '-8% 0px -80% 0px', threshold: 0 });
+    secs.forEach((s) => io.observe(s));
+    return () => io.disconnect();
+  });
+
   // Métadonnées d'affichage des sous-onglets (miroir de SessionDetail / server/settings.js).
   const SUBTAB_META = {
     chat:        { icon: '💬', label: 'Conversation' },
@@ -287,11 +315,19 @@
 </script>
 
 <section id="view-settings" class="view active">
-  <div class="settings">
+  <div class="set-wrap">
+    <nav class="set-nav">
+      <div class="set-nav-title">Settings</div>
+      {#each NAV as n (n.id)}
+        <a href="#{n.id}" class:active={activeSec === n.id} onclick={(e) => { e.preventDefault(); goTo(n.id); }}>{n.label}</a>
+      {/each}
+    </nav>
+
+    <div class="settings">
     <h1>Settings</h1>
     <p class="lead">Persisted server-side (shared across browsers). More will be added as needed.</p>
 
-    <div class="card">
+    <div class="card" id="pset-appearance" data-sec>
       <h2>Theme</h2>
       <p class="hint">Interface appearance. (Per-browser preference.)</p>
       <div class="chips">
@@ -303,13 +339,13 @@
       </div>
     </div>
 
-    <div class="card">
+    <div class="card" id="pset-new" data-sec>
       <h2>New session defaults</h2>
       <p class="hint">Model, reasoning effort and permission mode pre-selected when you start a new session or resume one. <strong>Inherit</strong> falls back to your Claude Code config (<code>~/.claude</code>).</p>
       <ModelEffort showMode allowInherit bind:model={defModel} bind:effort={defEffort} bind:mode={defMode} onchange={saveDefaults} />
     </div>
 
-    <div class="card">
+    <div class="card" id="pset-project" data-sec>
       <h2>Default project</h2>
       <p class="hint">Working directory used when a session is launched <strong>without</strong> a folder — e.g. from a macOS shortcut that posts to <code>/api/launch</code> with only a prompt. Leave empty to keep requiring an explicit folder.</p>
       <div class="cmd-row">
@@ -326,7 +362,7 @@
       </div>
     </div>
 
-    <div class="card">
+    <div class="card" id="pset-live" data-sec>
       <h2>Live state</h2>
       <p class="hint">Re-reads every session's tmux pane fresh to fix a stale status — e.g. a session stuck on “working” after it finished or after its terminal was closed.</p>
       <div class="cmd-row">
@@ -335,7 +371,7 @@
       </div>
     </div>
 
-    <div class="card">
+    <div class="card" id="pset-claude" data-sec>
       <h2>Claude Code</h2>
       <p class="hint">A running session keeps the claude version it started with. Upgrading the binary doesn't touch live sessions until they restart — reconnecting resumes them from their transcript on the new version. In-memory state is lost by design.</p>
 
@@ -395,7 +431,7 @@
       {/if}
     </div>
 
-    <div class="card">
+    <div class="card" id="pset-git" data-sec>
       <h2>Git branch</h2>
       <p class="hint">Branch of the running hooked instance itself (the repo the server lives in). Checkout is blocked when the working tree is dirty; overrides let you stash or force.</p>
 
@@ -469,7 +505,7 @@
       </div>
     </div>
 
-    <div class="card">
+    <div class="card" id="pset-interface" data-sec>
       <h2>Session status bar</h2>
       <p class="hint">Reorder the elements with ▲/▼ and toggle which ones appear in the session header. Click the eye to hide or show each one.</p>
       <ul class="reorder">
@@ -539,16 +575,28 @@
         {#if cmdStatus}<span class="status">{cmdStatus}</span>{/if}
       </div>
     </div>
+    </div>
   </div>
 </section>
 
 <style>
   #view-settings { overflow-y: auto; padding: 26px; }
-  .settings { max-width: 720px; margin: 0 auto; }
-  h1 { font-size: 22px; margin: 0 0 4px; }
+  .set-wrap { display: flex; align-items: flex-start; gap: 32px; max-width: 1000px; margin: 0 auto; }
+  .set-nav { position: sticky; top: 0; flex: 0 0 190px; width: 190px; display: flex; flex-direction: column; gap: 2px; padding-top: 40px; }
+  .set-nav-title { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); padding: 6px 10px; }
+  .set-nav a { display: block; padding: 7px 10px; border-radius: 8px; font-size: 13px; font-weight: 600; color: var(--muted); text-decoration: none; transition: background .12s, color .12s; }
+  .set-nav a:hover { color: var(--text); background: var(--hover); }
+  .set-nav a.active { color: var(--accent); background: var(--accent-soft); }
+  .settings { flex: 1; min-width: 0; max-width: 720px; }
+  [data-sec] { scroll-margin-top: 16px; }
+  h1 { font-size: 24px; font-weight: 800; letter-spacing: -.01em; margin: 0 0 4px; }
   .lead { color: var(--muted); margin: 0 0 22px; font-size: 13px; }
-  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 18px 20px; margin-bottom: 16px; box-shadow: var(--shadow-sm); }
-  h2 { font-size: 15px; margin: 0 0 4px; }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 22px 24px; margin-bottom: 20px; }
+  h2 { font-size: 15px; font-weight: 800; margin: 0 0 4px; }
+  @media (max-width: 780px) {
+    .set-nav { display: none; }
+    .settings { max-width: none; }
+  }
   .hint { color: var(--muted); font-size: 12.5px; margin: 0 0 14px; }
   .chips { display: flex; gap: 8px; flex-wrap: wrap; }
   .chip { background: var(--bg3); border: 1px solid var(--border); color: var(--text); border-radius: 20px; padding: 6px 14px; cursor: pointer; font-size: 13px; font-weight: 600; }

@@ -152,16 +152,15 @@
     padding: 11px 14px;
     font-size: 15px;
     color: var(--text);
-    background: #fff;
-    border: 1px solid var(--border2);
-    border-radius: 10px;
-    box-shadow: var(--shadow-sm);
+    background: var(--card);
+    border: 2px solid var(--accent);
+    border-radius: 11px;
     outline: none;
-    transition: border-color .15s, box-shadow .15s;
+    transition: box-shadow .15s;
   }
-  .search-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+  .search-input:focus { box-shadow: 0 0 0 3px var(--accent-soft); }
   .filter { display: inline-flex; gap: 6px; align-items: center; margin-top: 8px; font-size: 13px; color: var(--muted); }
-  .filter select { padding: 4px 8px; border: 1px solid var(--border2); border-radius: 8px; background: #fff; color: var(--text); }
+  .filter select { padding: 4px 8px; border: 1px solid var(--border2); border-radius: 8px; background: var(--card); color: var(--text); }
 
   .status-line { padding: 12px 0; color: var(--muted); font-size: 13px; }
   .status-line strong { color: var(--text); }
@@ -185,7 +184,7 @@
   .gproject { color: var(--text); font-weight: 700; text-decoration: none; font-family: var(--mono); font-size: 12px; }
   .gproject:hover { color: var(--accent); }
   .gid { font-family: var(--mono); font-size: 11px; opacity: .7; }
-  .gcount { background: #fff; border: 1px solid var(--border2); border-radius: 999px; padding: 1px 9px; font-size: 11px; font-weight: 600; color: var(--muted); }
+  .gcount { background: var(--card); border: 1px solid var(--border2); border-radius: 999px; padding: 1px 9px; font-size: 11px; font-weight: 600; color: var(--muted); }
   .gopen { margin-left: auto; color: var(--accent); text-decoration: none; font-weight: 600; font-size: 12px; }
   .gopen:hover { color: var(--accent-d); text-decoration: underline; }
 

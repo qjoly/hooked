@@ -66,6 +66,19 @@ export const STATE_LABEL = {
   background: 'Running in background', idle: 'Paused', ended: 'Ended', past: 'Past',
 };
 
+// Couleur stable d'un tag (palette du redesign). Noms connus → couleur fixe ; sinon hash du nom →
+// index dans la palette. Le fond de pilule = couleur + '22' (13% alpha). Partagé entre l'inbox et
+// la modale d'édition des tags.
+const TAG_BASE = { azure: '#c62a9e', constant: '#0f8a7e', chart: '#c27a12', infra: '#3b6fd4', urgent: '#d1493a' };
+const TAG_PALETTE = ['#c62a9e', '#0f8a7e', '#c27a12', '#3b6fd4', '#d1493a', '#7c4bd0', '#2a9d63'];
+export function tagColor(name) {
+  const n = (name || '').toLowerCase();
+  if (TAG_BASE[n]) return TAG_BASE[n];
+  let h = 0;
+  for (let i = 0; i < n.length; i++) h = (h * 31 + n.charCodeAt(i)) >>> 0;
+  return TAG_PALETTE[h % TAG_PALETTE.length];
+}
+
 export const LIVE_STATES = ['working', 'background', 'waiting', 'attention', 'idle'];
 
 // filtres par statut (single-select). `states` = états couverts par le filtre.
