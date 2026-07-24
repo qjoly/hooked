@@ -123,6 +123,12 @@ Un **sélecteur de thème** (🎨 Hooked, Dracula, Nord, Solarized, Gruvbox, Lig
 
 Les **TUI plein écran** (`nvim`, `htop`, `less`, le TUI claude…) rejoints en cours de route sont gérés : à l'amorçage on rejoue les **modes du terminal** lus dans tmux (écran alterné, touches curseur applicatives, auto-wrap, visibilité du curseur) pour resynchroniser xterm — sans quoi les flèches et les redraws partaient en vrille en mode interactif.
 
+### 🧭 Sidebar tmux — naviguer entre sessions
+
+Une **sidebar dans tmux** (à la [opensessions](https://github.com/Ataraxy-Labs/opensessions)) qui liste les sessions **actives** de l'inbox et **switch la session tmux courante** au fil de la navigation (`j`/`k`) ; `/` filtre, `d` stoppe, `n` crée une session via un popup. TUI Node **zéro dépendance** (ANSI brut) qui suit le client en re-`join-pane`-ant son propre pane — sans jamais toucher aux panes Claude gérés par hooked.
+
+👉 **Installation et détails : [`tmux/README.md`](tmux/README.md).**
+
 ### 📊 Vue Stats & usage
 
 Coût estimé, tokens, sessions, tours, prompts — avec des graphes par **jour / modèle / projet / outil** et des plages **1j / 7j / 30j / tout**.
@@ -162,6 +168,8 @@ server/                logique back, zéro dépendance (ESM), en modules testabl
   ├─ tmux.js           lancer / reprendre / stopper / répondre
   └─ stats.js          sessions, stats, détail
 hook.cjs               capteur d'évènements (branché sur les hooks)
+scripts/hooked-whoami.sh  identité hooked de la session courante (pane → session_id)
+tmux/                  plugin sidebar tmux (cf. tmux/README.md) : TUI + toggle + popup
 test/                  fixtures synthétiques + tests différentiels (ancien vs nouveau)
 ```
 
