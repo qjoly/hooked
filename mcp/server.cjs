@@ -260,6 +260,18 @@ const TOOLS = [
     },
     run: (a) => httpRequest('GET', '/api/stats' + (a.range ? '?range=' + encodeURIComponent(a.range) : '')),
   },
+  {
+    name: 'get_digest',
+    description: 'Digest quotidien (récap IA de l\'activité des sessions un jour donné). Sans `date` : index des digests + dernier disponible. Avec `date` (YYYY-MM-DD) : le digest de ce jour.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        date: { type: 'string', description: 'jour au format YYYY-MM-DD (défaut : liste tous les digests)' },
+      },
+      additionalProperties: false,
+    },
+    run: (a) => httpRequest('GET', '/api/digest' + (a.date ? '?date=' + encodeURIComponent(a.date) : '')),
+  },
 ];
 
 const TOOL_BY_NAME = new Map(TOOLS.map((t) => [t.name, t]));

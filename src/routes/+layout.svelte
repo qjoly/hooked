@@ -37,7 +37,8 @@
   const onSettings = $derived(page.url.pathname.startsWith('/settings'));
   const onNew = $derived(page.url.pathname.startsWith('/new'));
   const onBoard = $derived(page.url.pathname.startsWith('/board'));
-  const onSessions = $derived(!onStats && !onSearch && !onSettings && !onNew && !onBoard);
+  const onDigest = $derived(page.url.pathname.startsWith('/digest'));
+  const onSessions = $derived(!onStats && !onSearch && !onSettings && !onNew && !onBoard && !onDigest);
 
   // pastille « à traiter » sur l'icône Sessions du rail : question/plan en attente, ou état
   // waiting/attention (Claude t'attend). Miroir logique du badge d'onglet (notify.js).
@@ -64,6 +65,9 @@
     </a>
     <a class="rail-item" class:active={onStats} href="/stats" title="Stats & usage" aria-label="Stats and usage">
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="20" x2="12" y2="10"/><line x1="18" y1="20" x2="18" y2="4"/><line x1="6" y1="20" x2="6" y2="16"/></svg>
+    </a>
+    <a class="rail-item" class:active={onDigest} href="/digest" title="Daily digest" aria-label="Daily digest">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/><path d="M9 7h7M9 11h7"/></svg>
     </a>
 
     <div class="rail-spacer"></div>

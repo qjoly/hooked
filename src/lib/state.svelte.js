@@ -280,6 +280,7 @@ export const settings = $state({
     cost: true, prompts: true, tokens: true, model: true, usage5h: true, prLinks: false, issueLinks: false, focusBtn: true,
   },
   defaultModel: '', defaultEffort: '', defaultMode: '',
+  digest: { auto: true, hour: 7, model: '' },
 });
 export async function loadSettings() {
   try { Object.assign(settings, await getSettings()); } catch (_) {}
