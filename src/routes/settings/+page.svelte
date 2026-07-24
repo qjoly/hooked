@@ -9,6 +9,7 @@
   // les cartes secondaires appartiennent à la section la plus proche au-dessus.
   const NAV = [
     { id: 'pset-appearance', label: 'Appearance' },
+    { id: 'pset-sidebar', label: 'Sidebar' },
     { id: 'pset-new', label: 'New session defaults' },
     { id: 'pset-project', label: 'Default project' },
     { id: 'pset-live', label: 'Live state' },
@@ -361,6 +362,15 @@
           </button>
         {/each}
       </div>
+    </div>
+
+    <div class="card" id="pset-sidebar" data-sec>
+      <h2>Inbox grouping</h2>
+      <p class="hint">Group the sidebar sessions by project (repository / folder) with collapsible headers, instead of the status sections (Needs your reply / Working / Idle). The Active / Needs you / Working / All scope still applies. (Per-browser preference.)</p>
+      <label class="check">
+        <input type="checkbox" checked={ui.groupByProject} onchange={(e) => (ui.groupByProject = e.currentTarget.checked)} />
+        <span>Group sessions by project</span>
+      </label>
     </div>
 
     <div class="card" id="pset-new" data-sec>
