@@ -20,7 +20,14 @@ import { capturePane } from './pane.js';
 const g = globalThis;
 const streams = (g.__hookedPaneStreams ??= new Map()); // pane(%NN) → état du stream
 
-const SAFETY_POLL_MS = 200;      // backstop si fs.watch rate un append (selon plateforme)
+// Lecture des octets ajoutés : sur macOS `fs.watch` sur un fichier en append est coalescé/peu
+// fiable (FSEvents) → c'est ce poll rapide qui pilote réellement le redraw ET l'écho des frappes
+// (l'écho revient par ce même chemin). On le veut donc court. Il ne fait QUE `readNew` (fstat + read,
+// bon marché) — surtout PAS de commande tmux (spawn de process) à cette cadence.
+const READ_POLL_MS = 33;
+// Liveness (tmuxAlive) + changement de taille (checkSize) : chacun spawn un process tmux → cadence
+// lente, séparée du poll de lecture pour ne pas multiplier les spawns.
+const LIFECYCLE_POLL_MS = 700;
 const ROTATE_BYTES = 2 * 1024 * 1024; // tronque le fichier de flux passé ce seuil (+ re-snapshot)
 
 function streamFile(pane) {
@@ -123,16 +130,19 @@ function startStream(pane) {
   try { fs.mkdirSync(dir, { recursive: true }); } catch (_) {}
   const file = streamFile(pane);
   try { fs.writeFileSync(file, ''); } catch (_) {} // repart d'un flux vide
-  const st = { subscribers: new Set(), file, pos: 0, watcher: null, poll: null, lastSize: '', reading: false, pendingRead: false };
+  const st = { subscribers: new Set(), file, pos: 0, watcher: null, poll: null, lifecycle: null, lastSize: '', reading: false, pendingRead: false };
   // branche le flux de sortie du pane vers le fichier (sortie = défaut de pipe-pane).
   execFile('tmux', ['pipe-pane', '-t', pane, `cat >> '${file}'`], () => {});
   try { st.watcher = fs.watch(file, () => readNew(pane, st)); } catch (_) {}
-  st.poll = setInterval(() => {
+  // poll rapide : uniquement la lecture des octets (pas de spawn tmux).
+  st.poll = setInterval(() => readNew(pane, st), READ_POLL_MS);
+  // poll lent : liveness + taille (chacun spawn un process tmux).
+  st.lifecycle = setInterval(() => {
     if (!tmuxAlive(pane)) { for (const sub of st.subscribers) { try { sub('dead', ''); } catch (_) {} } stopStream(pane); return; }
-    readNew(pane, st);
     checkSize(pane, st);
-  }, SAFETY_POLL_MS);
+  }, LIFECYCLE_POLL_MS);
   if (st.poll.unref) st.poll.unref();
+  if (st.lifecycle.unref) st.lifecycle.unref();
   streams.set(pane, st);
   return st;
 }
@@ -154,6 +164,7 @@ function stopStream(pane) {
   if (!st) return;
   if (st.watcher) { try { st.watcher.close(); } catch (_) {} }
   if (st.poll) clearInterval(st.poll);
+  if (st.lifecycle) clearInterval(st.lifecycle);
   execFile('tmux', ['pipe-pane', '-t', pane], () => {}); // sans commande → coupe le pipe
   try { fs.unlinkSync(st.file); } catch (_) {}
   streams.delete(pane);
