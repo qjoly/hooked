@@ -44,6 +44,13 @@ run = "npm run dev"
 description = "Lance le serveur Node en mode dev"
 run = "node build"
 
+[tasks.tmux]
+description = "Ouvre/ferme la sidebar tmux (à lancer depuis tmux)"
+run = '''
+[ -n "${TMUX:-}" ] || { echo "À lancer depuis une session tmux."; exit 1; }
+bash tmux/hooked-sidebar.sh
+'''
+
 [tasks.test]
 description = "Lance la suite Vitest"
 run = "npm test"
