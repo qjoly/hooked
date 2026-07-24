@@ -515,6 +515,43 @@ function capturePaneAnsiSync(pane, ttl = 2500) {
   return text;
 }
 
+// Réchauffe EN ASYNCHRONE et CONCURRENT les caches de capture (_paneTextCache / _paneAnsiCache) pour
+// une liste de panes, AVANT que la dérivation d'état synchrone (buildSessions / sessionDetail) ne
+// lise ces caches. Sans ça, chaque session vivante déclenchait un `capture-pane` SYNCHRONE
+// (capturePaneTextSync, ~74 ms) dans la boucle → sur l'unique event loop Node, N sessions = N
+// blocages en série (pics ~500 ms–1 s mesurés à 79 sessions) qui gelaient AUSSI le flux SSE du
+// terminal et la saisie. Ici : execFile async (ne bloque pas l'event loop) + concurrence bornée
+// (pas de tempête de process). On respecte le même TTL que le chemin sync : un cache encore frais
+// n'est pas re-capturé. Après ce warm, les helpers *Sync tombent sur un cache chaud (0 spawn).
+function _captureAsync(pane, ansi) {
+  return new Promise((resolve) => {
+    const args = ansi ? ['capture-pane', '-t', pane, '-p', '-e'] : ['capture-pane', '-t', pane, '-p'];
+    execFile('tmux', args, { encoding: 'utf8', timeout: 800, maxBuffer: 8 << 20 }, (e, out) => resolve(e ? null : out));
+  });
+}
+async function warmPaneCaptures(panes, { ansi = false, ttl = 2500, concurrency = 12 } = {}) {
+  const now = Date.now();
+  const jobs = [];
+  const seen = new Set();
+  for (const pane of panes || []) {
+    if (!/^%\d+$/.test(pane || '') || seen.has(pane)) continue;
+    seen.add(pane);
+    const c = _paneTextCache.get(pane);
+    if (!c || now - c.ts >= ttl) jobs.push([pane, false]);
+    if (ansi) { const a = _paneAnsiCache.get(pane); if (!a || now - a.ts >= ttl) jobs.push([pane, true]); }
+  }
+  if (!jobs.length) return;
+  let i = 0;
+  async function worker() {
+    while (i < jobs.length) {
+      const [pane, isAnsi] = jobs[i++];
+      const text = await _captureAsync(pane, isAnsi);
+      (isAnsi ? _paneAnsiCache : _paneTextCache).set(pane, { ts: Date.now(), text });
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(concurrency, jobs.length) }, worker));
+}
+
 // Prompt de « follow-up » suggéré par Claude Code : après un tour, le TUI pré-remplit la boîte de
 // saisie avec une suggestion de prochain prompt (feature promptSuggestions), peinte en DIM (ESC[2m)
 // juste après l'invite « ❯ ». Cette suggestion n'est PAS persistée dans le transcript → la pane est
@@ -832,4 +869,4 @@ function restartSession(id, { model, effort } = {}, cb) {
   }
 }
 
-export { paneTmuxNames, invalidatePaneCache, clearPaneCaches, tmuxAlive, launchInfoForPane, resolveLaunchForSession, deliverReply, deliverQuestion, questionKeys, deliverQuestionWithNote, deliverQuestionFreeText, deliverPlanChoice, parsePlanPrompt, parseSwitchPrompt, isTrustPrompt, isComposerReady, sendKey, parsePaneMode, readPaneMode, readPaneModeSync, paneBusySync, parseSpinner, paneActivitySync, paneFollowupSync, conversationBody, paneActiveSync, paneActiveStep, setMode, setModelEffort, launchSession, killSession, restartSession, err400 };
+export { paneTmuxNames, invalidatePaneCache, clearPaneCaches, tmuxAlive, launchInfoForPane, resolveLaunchForSession, deliverReply, deliverQuestion, questionKeys, deliverQuestionWithNote, deliverQuestionFreeText, deliverPlanChoice, parsePlanPrompt, parseSwitchPrompt, isTrustPrompt, isComposerReady, sendKey, parsePaneMode, readPaneMode, readPaneModeSync, paneBusySync, parseSpinner, paneActivitySync, paneFollowupSync, conversationBody, paneActiveSync, paneActiveStep, warmPaneCaptures, setMode, setModelEffort, launchSession, killSession, restartSession, err400 };
