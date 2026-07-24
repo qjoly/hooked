@@ -8,7 +8,7 @@ import { scanSessions, blankSummary } from './transcript.js';
 import { repoSlug } from './git.js';
 import { readEvents, lastEventBySession, paneForSession, sessionForPane, modeForSession, liveQuestionForSession, livePlanForSession, eventSessionMeta } from './events.js';
 import { liveStateFor } from './live.js';
-import { resolveLaunchForSession, paneTmuxNames, tmuxAlive, readPaneModeSync, paneBusySync, paneActivitySync, paneFollowupSync, paneActiveSync } from './tmux.js';
+import { resolveLaunchForSession, paneTmuxNames, tmuxAlive, readPaneModeSync, paneBusySync, paneActivitySync, paneFollowupSync, paneActiveSync, warmPaneCaptures } from './tmux.js';
 import { shownPanesFor } from './pane.js';
 import { usageWindow } from './usage.js';
 import { sessionStatus, sessionStatusRaw, accountRateLimits, freshestStatusId } from './status.js';
@@ -178,6 +178,35 @@ function buildSessions() {
   });
 }
 
+// Enveloppe ASYNCHRONE de buildSessions pour les endpoints chauds (/api/sessions, poll ~5 s) :
+// réchauffe en concurrence les captures de pane AVANT la boucle synchrone, pour qu'aucun
+// capturePaneTextSync ne spawn un `capture-pane` bloquant sur l'event loop (cf. warmPaneCaptures —
+// c'était la cause des gels ~500 ms du terminal). buildSessions reste synchrone (aucune signature
+// changée pour ses autres appelants) ; seul le warm est asynchrone. Les appels scanSessions/
+// eventOnlySessions sont cachés → le doublon avec buildSessions est quasi gratuit.
+async function buildSessionsWarm() {
+  const sessions = scanSessions();
+  const all = sessions.concat(eventOnlySessions(new Set(sessions.map((s) => s.id))));
+  const last = lastEventBySession();
+  const panes = [];
+  for (const s of all) {
+    const ev = last.get(s.id);
+    const pane = (ev && ev.tmux_pane) || paneForSession(s.id);
+    if (pane && tmuxAlive(pane)) panes.push(pane);
+  }
+  await warmPaneCaptures(panes);
+  return buildSessions();
+}
+
+// Idem pour le détail d'une session (l'onglet Terminal vit DANS cette vue, polling répété) : on
+// réchauffe le texte ET l'ANSI (paneFollowupSync lit le cache -e) du pane concerné en concurrence
+// avant l'appel sync, pour ne pas bloquer sur deux `capture-pane` en série (~150 ms).
+async function sessionDetailWarm(id) {
+  const pane = paneForSession(id);
+  if (pane && tmuxAlive(pane)) await warmPaneCaptures([pane], { ansi: true });
+  return sessionDetail(id);
+}
+
 function buildStats(rangeDays) {
   const sessions = scanSessions();
   const cutoff = rangeDays ? Date.now() - rangeDays * 86400000 : 0;
@@ -341,4 +370,4 @@ function sessionByPane(pane) {
   return sessionDetail(id);
 }
 
-export { buildSessions, buildStats, buildUsage, sessionDetail, sessionByPane, eventOnlySessions, refineWithPane, withBackgroundState, buildBackgroundView, resolveBackgroundOutput };
+export { buildSessions, buildSessionsWarm, buildStats, buildUsage, sessionDetail, sessionDetailWarm, sessionByPane, eventOnlySessions, refineWithPane, withBackgroundState, buildBackgroundView, resolveBackgroundOutput };

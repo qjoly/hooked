@@ -1,6 +1,6 @@
 import { json } from '@sveltejs/kit';
-import { buildSessions } from '$lib/server/core.js';
+import { buildSessionsWarm } from '$lib/server/core.js';
 
-export function GET() {
-  return json({ sessions: buildSessions(), now: new Date().toISOString() });
+export async function GET() {
+  return json({ sessions: await buildSessionsWarm(), now: new Date().toISOString() });
 }
