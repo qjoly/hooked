@@ -13,6 +13,7 @@ import { paneForSession } from './events.js';
 import { tmuxAlive, invalidatePaneCache, paneTmuxNames, err400 } from './tmux.js';
 import { scanSessions } from './transcript.js';
 import { readSettings } from './settings.js';
+import { sendKeysHex } from './paneInput.js';
 
 // délai avant de « taper » la commande dans le nouveau pane (laisser le shell démarrer), puis
 // avant l'Entrée de validation — même piège de détection de collage que tmux.deliverReply.
@@ -99,6 +100,10 @@ function sendInput(pane, data, cb) {
   // octets → paires hex ; les caractères non-ASCII (UTF-8 multioctets) sont décomposés en octets.
   const hex = Buffer.from(data, 'utf8').toString('hex').match(/../g) || [];
   if (!hex.length) return cb(null, { pane });
+  // Chemin rapide : canal control mode PERSISTANT (aucun spawn par frappe — ~34 ms → ~0). On répond
+  // dès la mise en file (l'ordre est garanti par le pipe unique lu séquentiellement par tmux).
+  if (sendKeysHex(pane, hex)) return cb(null, { pane });
+  // Repli : spawn ponctuel `send-keys` si le canal persistant est indisponible (tmux absent, etc.).
   execFile('tmux', ['send-keys', '-t', pane, '-H', ...hex], (e) => {
     if (e) return cb(new Error('send-keys failed: ' + (e.message || e)));
     cb(null, { pane });
