@@ -82,6 +82,11 @@ function buildConversation(fp, includeSidechain) {
       const c = j.message.content;
       if (Array.isArray(c) && c.some((b) => b && b.type === 'tool_result')) continue;
       const text = chatText(c);
+      // Invocation d'un skill (outil Skill / slash command) : Claude Code injecte tout le SKILL.md
+      // comme un tour user isMeta commençant par « Base directory for this skill: … ». Sans ça il
+      // s'afficherait comme une énorme fausse bulle « 🧑 You ». On le drop ; le chip 🔧 Skill suffit
+      // à marquer qu'un skill a tourné.
+      if (/^Base directory for this skill:/.test(text)) continue;
       // Tour ré-invoqué par un ScheduleWakeup : ligne user injectée (promptSource:"sdk" + isMeta).
       // On la marque `auto` pour qu'elle ne se lise pas comme un message tapé par l'utilisateur.
       const auto = j.promptSource === 'sdk' && !!j.isMeta;
