@@ -83,11 +83,11 @@
     return u;
   }
 
-  // saisie : on envoie CHAQUE chunk onData séparément (sérialisé, ordre préservé). On NE fusionne
-  // PAS : dans un TUI (vim/nvim/claude), un `\x1b` (Échap) qui arriverait dans le même send-keys
-  // que les octets suivants serait lu comme une SÉQUENCE d'échappement (flèche/méta) plutôt qu'un
-  // Échap simple → « Échap ne marche pas ». Garder les chunks séparés préserve le délai qui permet
-  // au programme de désambiguïser (son ttimeout). Une frappe = un onData = un send-keys.
+  // saisie : sérialisée, ordre préservé. On COALESCE les chunks onData SANS `\x1b` (Échap) en un
+  // seul send-keys (moins de spawns tmux sur un collage / une frappe rapide — identique à taper la
+  // même suite d'octets). Un chunk contenant `\x1b` est envoyé SEUL : le fusionner ferait lire un
+  // Échap comme une SÉQUENCE d'échappement (flèche/méta) dans un TUI (vim/nvim/claude) → « Échap ne
+  // marche pas ». L'envoyer isolé préserve le délai qui laisse le programme désambiguïser (ttimeout).
   const inputQueue = [];
   let sending = false;
   function queueInput(d) { inputQueue.push(d); pump(); }
@@ -95,7 +95,10 @@
     if (sending || destroyed) return;
     sending = true;
     while (inputQueue.length) {
-      const d = inputQueue.shift();
+      let d = inputQueue.shift();
+      if (!d.includes('\x1b')) {
+        while (inputQueue.length && !inputQueue[0].includes('\x1b')) d += inputQueue.shift();
+      }
       try { await sendPaneInput(pane, d); } catch (_) {}
     }
     sending = false;
