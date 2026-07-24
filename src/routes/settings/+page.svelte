@@ -12,6 +12,7 @@
     { id: 'pset-sidebar', label: 'Sidebar' },
     { id: 'pset-new', label: 'New session defaults' },
     { id: 'pset-project', label: 'Default project' },
+    { id: 'pset-digest', label: 'Daily digest' },
     { id: 'pset-live', label: 'Live state' },
     { id: 'pset-claude', label: 'Claude Code' },
     { id: 'pset-git', label: 'Git' },
@@ -396,6 +397,35 @@
       </div>
     </div>
 
+    <div class="card" id="pset-digest" data-sec>
+      <h2>Daily digest</h2>
+      <p class="hint">Generate an AI recap of the previous day's sessions each morning — see the <strong>Digest</strong> tab. Runs a headless <code>claude -p</code> pass. Manual generation from the tab always works, even with auto off.</p>
+      <label class="check">
+        <input type="checkbox" checked={settings.digest?.auto ?? true}
+               onchange={(e) => updateSettings({ digest: { ...settings.digest, auto: e.currentTarget.checked } })} />
+        <span>Generate yesterday's digest automatically each day</span>
+      </label>
+      <div class="cmd-row" style="margin-top:6px">
+        <label class="dg-field">At
+          <select class="dg-sel" value={String(settings.digest?.hour ?? 7)} disabled={!(settings.digest?.auto ?? true)}
+                  onchange={(e) => updateSettings({ digest: { ...settings.digest, hour: parseInt(e.currentTarget.value, 10) } })}>
+            {#each Array.from({ length: 24 }, (_, h) => h) as h}<option value={String(h)}>{String(h).padStart(2, '0')}:00</option>{/each}
+          </select>
+          local time
+        </label>
+        <label class="dg-field">Model
+          <select class="dg-sel" value={settings.digest?.model ?? ''}
+                  onchange={(e) => updateSettings({ digest: { ...settings.digest, model: e.currentTarget.value } })}>
+            <option value="">Inherit (your default)</option>
+            <option value="haiku">haiku</option>
+            <option value="sonnet">sonnet</option>
+            <option value="opus">opus</option>
+          </select>
+        </label>
+      </div>
+      <p class="hint" style="margin:12px 0 0">A cheaper model (e.g. <code>haiku</code>/<code>sonnet</code>) keeps daily cost low on busy days.</p>
+    </div>
+
     <div class="card" id="pset-live" data-sec>
       <h2>Live state</h2>
       <p class="hint">Re-reads every session's tmux pane fresh to fix a stale status — e.g. a session stuck on “working” after it finished or after its terminal was closed.</p>
@@ -718,6 +748,10 @@
     color: var(--c); background: color-mix(in srgb, var(--c) 13%, transparent);
     border-radius: 6px; padding: 1px 8px;
   }
+  .dg-field { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); }
+  .dg-sel { background: var(--surface); border: 1px solid var(--border2); border-radius: 8px; padding: 7px 10px; color: var(--text); font-size: 13px; font-family: inherit; }
+  .dg-sel:focus { outline: none; border-color: var(--accent); }
+  .dg-sel:disabled { opacity: .5; }
   .tl-count { color: var(--muted); font-size: 12px; }
   .tl-actions { margin-left: auto; display: flex; gap: 6px; }
   .tl-empty { margin: 0; }
