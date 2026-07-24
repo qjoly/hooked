@@ -33,3 +33,21 @@ describe('quickLaunchProject', () => {
     expect(writeSettings({ quickLaunchProject: 42 }).quickLaunchProject).toBe('');
   });
 });
+
+describe('digest', () => {
+  it('defaults to { auto:true, hour:7, model:"" }', () => {
+    expect(readSettings().digest).toEqual({ auto: true, hour: 7, model: '' });
+  });
+
+  it('persists auto/hour and a valid model alias', () => {
+    const s = writeSettings({ digest: { auto: false, hour: 9, model: 'sonnet' } });
+    expect(s.digest).toEqual({ auto: false, hour: 9, model: 'sonnet' });
+    expect(readSettings().digest).toEqual({ auto: false, hour: 9, model: 'sonnet' });
+  });
+
+  it('clamps an out-of-range hour and rejects an unknown model', () => {
+    const s = writeSettings({ digest: { auto: true, hour: 99, model: 'bogus' } });
+    expect(s.digest.hour).toBe(7);
+    expect(s.digest.model).toBe('');
+  });
+});

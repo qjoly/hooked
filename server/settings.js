@@ -10,7 +10,7 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
-import { HOOKED_DIR, LAUNCH_PERMISSION_MODES } from './config.js';
+import { HOOKED_DIR, LAUNCH_PERMISSION_MODES, isValidModelArg } from './config.js';
 
 const SETTINGS_FILE = path.join(HOOKED_DIR, 'settings.json');
 
@@ -69,6 +69,10 @@ const DEFAULTS = {
   // un raccourci macOS (Quick Action) qui POST /api/launch avec seulement un prompt. '' = aucun ;
   // launchSession exige alors un cwd explicite comme avant.
   quickLaunchProject: '',
+  // Digest quotidien (onglet Digest / server/digests.js). auto : génère le digest de la veille
+  // chaque jour à `hour` (heure locale) ; model : modèle passé à `claude -p` ('' = hérite du défaut
+  // Claude Code). Remplace les anciennes variables d'env HOOKED_DIGEST_*.
+  digest: { auto: true, hour: 7, model: '' },
   // Visibilité des éléments de la barre de statut (en-tête du détail de session). Tout à true par
   // défaut sauf prLinks / issueLinks (false : les onglets dédiés PR/Issues sont le lieu principal ;
   // chips masqués par défaut).
@@ -110,6 +114,14 @@ function sanitize(raw) {
     typeof o.quickLaunchProject === 'string' && o.quickLaunchProject.startsWith('/')
       ? o.quickLaunchProject.slice(0, 4096)
       : '';
+  // digest : auto (bool, défaut true), hour (entier 0-23, défaut 7), model ('' = hérite, sinon
+  // validé contre --model comme au lancement — jamais interpolé brut dans un shell sans ce filtre).
+  const rawDg = o.digest && typeof o.digest === 'object' ? o.digest : {};
+  const digest = {
+    auto: rawDg.auto === undefined ? true : !!rawDg.auto,
+    hour: Number.isInteger(rawDg.hour) && rawDg.hour >= 0 && rawDg.hour <= 23 ? rawDg.hour : 7,
+    model: typeof rawDg.model === 'string' && isValidModelArg(rawDg.model) ? rawDg.model : '',
+  };
   return {
     subtabOrder: order,
     statusBarOrder: sbOrder,
@@ -124,6 +136,7 @@ function sanitize(raw) {
     defaultEffort,
     defaultMode,
     quickLaunchProject,
+    digest,
   };
 }
 

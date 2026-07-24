@@ -47,6 +47,13 @@ export const saveSettings = (patch) => jpost('/api/settings', patch);
 export const getTags = () => jget('/api/tags');
 export const saveTags = (id, tags) => jpost('/api/tags', { id, tags });
 export const replaceTags = (map) => jpost('/api/tags', { replace: map });
+// Daily digests: an AI-written recap of a day's sessions. GET (no date) → history index + latest
+// date; getDigest(date) → one digest (or { status:'absent' }); generateDigest → kick off (async)
+// generation, poll getDigest until status is done/partial/error.
+export const getDigests = () => jget('/api/digest');
+export const getDigest = (date) => jget('/api/digest?date=' + encodeURIComponent(date));
+export const generateDigest = (date, force) => jpost('/api/digest', { date, force: !!force });
+
 // Force a live-state resync: re-reads every session's tmux pane at cold (drops the caches) to fix a
 // stale status (e.g. a session stuck on "working" after its tmux was closed). Returns state counts.
 export const resync = () => jpost('/api/resync', {});
