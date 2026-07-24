@@ -85,9 +85,37 @@
     return String(b.lastActivity || '').localeCompare(String(a.lastActivity || ''));
   };
 
-  // sections affichées selon le scope. « all » montre les trois ; « active » les deux vivantes ;
-  // « needs »/« working » une seule.
+  // Sessions du scope courant (avant regroupement) : « needs »/« working » filtrent à une catégorie,
+  // « active » garde les deux vivantes, « all » garde tout.
+  const scoped = $derived.by(() => {
+    if (scope === 'needs') return matched.filter(needsReply);
+    if (scope === 'working') return matched.filter((s) => isWorking(s) && !needsReply(s));
+    if (scope === 'active') return matched.filter((s) => needsReply(s) || isWorking(s));
+    return matched;
+  });
+
+  // clé de regroupement par projet : dépôt GitHub (owner/repo) sinon nom de dossier.
+  const projectKey = (s) => s.repo || s.projectName || '—';
+
+  // sections affichées. Deux modes :
+  //  • groupByProject : un groupe repliable par projet (trié par activité récente), toutes catégories mêlées.
+  //  • statut : sections Needs / Working / Idle selon le scope (le mode historique de l'inbox).
   const sections = $derived.by(() => {
+    if (ui.groupByProject) {
+      const g = new Map();
+      for (const s of scoped) {
+        const k = projectKey(s);
+        if (!g.has(k)) g.set(k, []);
+        g.get(k).push(s);
+      }
+      const lastOf = (arr) => arr.reduce((m, s) => Math.max(m, Date.parse(s.lastActivity || 0) || 0), 0);
+      return [...g.keys()]
+        .sort((a, b) => lastOf(g.get(b)) - lastOf(g.get(a)))
+        .map((proj) => {
+          const items = g.get(proj).slice().sort(byActivity);
+          return { key: 'proj:' + proj, label: proj, tone: 'proj', project: proj, newProject: items[0]?.project || '', count: items.length, items };
+        });
+    }
     const needs = matched.filter(needsReply).sort(byActivity);
     const working = matched.filter((s) => isWorking(s) && !needsReply(s)).sort(byActivity);
     const others = matched.filter((s) => !needsReply(s) && !isWorking(s)).sort(byActivity);
@@ -107,28 +135,37 @@
     return out.filter((sec) => sec.items.length);
   });
 
+  function toggleGroup(proj) {
+    ui.collapsed = { ...ui.collapsed, [proj]: !ui.collapsed[proj] };
+  }
+
   // Fenêtrage de la liste : sous « All » la section « Idle & ended » peut compter ~160 lignes.
   // On ne monte qu'une fenêtre de lignes (WINDOW), « Show more » en révèle STEP de plus — même
   // principe que le transcript du cockpit (MSG_WINDOW). Borne le DOM sans virtualisation fragile.
   const WINDOW = 60, STEP = 120;
   let shown = $state(WINDOW);
-  // repart de la fenêtre initiale quand le filtrage change (scope / recherche / tags).
-  $effect(() => { scope; ui.search; ui.tagFilters; untrack(() => { shown = WINDOW; }); });
+  // repart de la fenêtre initiale quand le filtrage change (scope / recherche / tags / mode de regroupement).
+  $effect(() => { scope; ui.search; ui.tagFilters; ui.groupByProject; untrack(() => { shown = WINDOW; }); });
 
-  const totalRows = $derived(sections.reduce((n, sec) => n + sec.items.length, 0));
-  // sections tronquées au budget « shown » (les entêtes de section vides disparaissent).
+  // un groupe (projet) replié n'affiche pas ses lignes mais garde son entête ; il ne consomme pas
+  // le budget de fenêtrage et ne compte pas dans les lignes « cachées » par le fenêtrage.
+  const isCollapsed = (sec) => ui.groupByProject && sec.project != null && !!ui.collapsed[sec.project];
+  const visibleRows = $derived(sections.reduce((n, sec) => n + (isCollapsed(sec) ? 0 : sec.items.length), 0));
+  // sections tronquées au budget « shown ». En mode projet on garde l'entête même quand le budget
+  // est épuisé (pour ne pas faire disparaître des projets) ; en mode statut, une section vide tombe.
   const windowed = $derived.by(() => {
     let budget = shown;
+    const grouping = ui.groupByProject;
     const out = [];
     for (const sec of sections) {
-      if (budget <= 0) break;
-      const items = sec.items.slice(0, budget);
+      if (isCollapsed(sec)) { out.push({ ...sec, items: [] }); continue; }
+      const items = budget > 0 ? sec.items.slice(0, budget) : [];
       budget -= items.length;
-      out.push({ ...sec, items });
+      if (grouping || items.length) out.push({ ...sec, items });
     }
     return out;
   });
-  const hiddenCount = $derived(Math.max(0, totalRows - shown));
+  const hiddenCount = $derived(Math.max(0, visibleRows - shown));
 
   const tagList = $derived(allTags());
   function tagCount(t) {
@@ -192,7 +229,19 @@
       </div>
     {:else}
       {#each windowed as sec (sec.key)}
-        <div class="ibx-sec ibx-sec-{sec.tone}">{sec.label}</div>
+        {#if sec.project != null}
+          <div class="ibx-sec ibx-sec-proj" class:collapsed={ui.collapsed[sec.project]}>
+            <button class="ibx-sec-toggle" onclick={() => toggleGroup(sec.project)} title="Collapse / expand this project">
+              <svg class="ibx-sec-arrow" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+              <span class="ibx-sec-name">{sec.label}</span>
+              <span class="ibx-sec-count">{sec.count}</span>
+            </button>
+            <button class="ibx-sec-new" title="New session in this project" aria-label="New session in this project"
+                    onclick={() => goto('/new?project=' + encodeURIComponent(sec.newProject))}>＋</button>
+          </div>
+        {:else}
+          <div class="ibx-sec ibx-sec-{sec.tone}">{sec.label}</div>
+        {/if}
         {#each sec.items as s (s.id)}{@render row(s)}{/each}
       {/each}
       {#if hiddenCount > 0}
@@ -329,6 +378,31 @@
   .ibx-sec-warn { color: var(--warn); }
   .ibx-sec-info { color: var(--info); }
   .ibx-sec-muted { color: var(--muted); }
+
+  /* Entête de groupe par projet : région cliquable (repli) + bouton « nouveau ». */
+  .ibx-sec-proj { display: flex; align-items: center; gap: 2px; padding: 6px 4px 4px 0; }
+  .ibx-sec-toggle {
+    flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px;
+    background: none; border: none; cursor: pointer; text-align: left; color: var(--text); font: inherit;
+    font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em;
+    padding: 6px 8px; font-family: var(--mono);
+  }
+  .ibx-sec-toggle:hover { color: var(--accent-d); }
+  .ibx-sec-arrow { flex: 0 0 auto; color: var(--muted); transition: transform .12s; }
+  .ibx-sec-proj.collapsed .ibx-sec-arrow { transform: rotate(-90deg); }
+  .ibx-sec-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ibx-sec-count {
+    flex: 0 0 auto; font-size: 10px; color: var(--muted);
+    background: var(--chip); border-radius: 20px; padding: 1px 7px;
+  }
+  .ibx-sec-new {
+    flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center;
+    width: 22px; height: 22px; border-radius: 6px; border: none; background: none; cursor: pointer;
+    color: var(--muted); font-size: 15px; line-height: 1;
+    opacity: 0; transition: opacity .12s, background .12s, color .12s;
+  }
+  .ibx-sec-proj:hover .ibx-sec-new { opacity: 1; }
+  .ibx-sec-new:hover { background: var(--accent-soft); color: var(--accent); }
 
   .pt-row {
     position: relative; display: flex; gap: 10px; align-items: flex-start;
