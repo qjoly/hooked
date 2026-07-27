@@ -85,6 +85,14 @@
     return String(b.lastActivity || '').localeCompare(String(a.lastActivity || ''));
   };
 
+  // repère de date grossier pour retrouver les sessions récentes dans « Idle & ended » (scope All).
+  const startOfDay = (ms) => { const d = new Date(ms); d.setHours(0, 0, 0, 0); return d.getTime(); };
+  function dayBucket(iso) {
+    if (!iso) return 'Older';
+    const days = Math.floor((startOfDay(Date.now()) - startOfDay(Date.parse(iso))) / 86400000);
+    return days <= 0 ? 'Today' : days === 1 ? 'Yesterday' : 'Older';
+  }
+
   // Sessions du scope courant (avant regroupement) : « needs »/« working » filtrent à une catégorie,
   // « active » garde les deux vivantes, « all » garde tout.
   const scoped = $derived.by(() => {
@@ -130,7 +138,7 @@
     } else {
       if (needs.length) out.push({ key: 'needs', label: 'Needs your reply', tone: 'warn', items: needs });
       if (working.length) out.push({ key: 'working', label: 'Working', tone: 'info', items: working });
-      if (others.length) out.push({ key: 'others', label: 'Idle & ended', tone: 'muted', items: others });
+      if (others.length) out.push({ key: 'others', label: 'Idle & ended', tone: 'muted', items: others, dated: true });
     }
     return out.filter((sec) => sec.items.length);
   });
@@ -242,7 +250,12 @@
         {:else}
           <div class="ibx-sec ibx-sec-{sec.tone}">{sec.label}</div>
         {/if}
-        {#each sec.items as s (s.id)}{@render row(s)}{/each}
+        {#each sec.items as s, i (s.id)}
+          {#if sec.dated && (i === 0 || dayBucket(sec.items[i - 1].lastActivity) !== dayBucket(s.lastActivity))}
+            <div class="ibx-datesep">{dayBucket(s.lastActivity)}</div>
+          {/if}
+          {@render row(s)}
+        {/each}
       {/each}
       {#if hiddenCount > 0}
         <button class="ibx-more" onclick={() => (shown += STEP)}>Show {Math.min(STEP, hiddenCount)} more · {hiddenCount} hidden</button>
@@ -378,6 +391,10 @@
   .ibx-sec-warn { color: var(--warn); }
   .ibx-sec-info { color: var(--info); }
   .ibx-sec-muted { color: var(--muted); }
+  .ibx-datesep {
+    font-family: var(--mono); font-size: 9.5px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: .08em; color: var(--muted); opacity: .65; padding: 9px 8px 3px;
+  }
 
   /* Entête de groupe par projet : région cliquable (repli) + bouton « nouveau ». */
   .ibx-sec-proj { display: flex; align-items: center; gap: 2px; padding: 6px 4px 4px 0; }
