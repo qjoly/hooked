@@ -42,6 +42,17 @@ function paneForSession(id, eventsFile = EVENTS_FILE) {
   return null;
 }
 
+// map session_id -> dernier pane tmux connu, en UNE passe. Équivaut à paneForSession appelé pour
+// chaque session, mais en O(évènements) au lieu de O(sessions × évènements) : buildSessions le
+// résout pour ~180 sessions à chaque poll (~5 s) → l'appel par session dominait le résiduel de
+// blocage de l'event loop. Dernier write = évènement le plus récent (comme le parcours à rebours).
+function paneBySession(eventsFile = EVENTS_FILE) {
+  const ev = readEvents(eventsFile);
+  const map = new Map();
+  for (const e of ev) { if (e.session_id && e.tmux_pane) map.set(e.session_id, e.tmux_pane); }
+  return map;
+}
+
 // réciproque : dernière session connue pour un pane tmux (parcourt les évènements à rebours).
 // Sert au « whoami » : une session ne connaît que son $TMUX_PANE, pas son session_id hooked.
 // On prend l'évènement le plus récent car un pane peut être réutilisé après une reprise.
@@ -64,20 +75,47 @@ function modeForSession(id, eventsFile = EVENTS_FILE) {
   return null;
 }
 
+// État « question en attente » d'une session après un évènement : l'objet question (PreToolUse
+// AskUserQuestion), null (l'évènement clôt l'attente : réponse / Stop / fin / nouveau prompt), ou
+// `cur` inchangé (évènement neutre). Partagé par la vue par-id et la vue par-session (une passe).
+function questionStep(cur, e) {
+  if (e.event === 'PreToolUse' && e.tool === 'AskUserQuestion' && Array.isArray(e.ask) && e.ask.length) {
+    return { id: 'live:' + e.ts, questions: e.ask };
+  }
+  if ((e.event === 'PostToolUse' && e.tool === 'AskUserQuestion') || e.event === 'Stop' || e.event === 'SubagentStop' || e.event === 'SessionEnd' || e.event === 'UserPromptSubmit') {
+    return null;
+  }
+  return cur;
+}
+
 // Question AskUserQuestion *en attente* pour une session, reconstruite depuis les évènements live.
 // Indispensable car le tool_use n'est écrit dans le transcript qu'une fois la question répondue.
 function liveQuestionForSession(id, eventsFile = EVENTS_FILE) {
   const ev = readEvents(eventsFile);
   let pending = null;
-  for (const e of ev) {
-    if (e.session_id !== id) continue;
-    if (e.event === 'PreToolUse' && e.tool === 'AskUserQuestion' && Array.isArray(e.ask) && e.ask.length) {
-      pending = { id: 'live:' + e.ts, questions: e.ask };
-    } else if ((e.event === 'PostToolUse' && e.tool === 'AskUserQuestion') || e.event === 'Stop' || e.event === 'SubagentStop' || e.event === 'SessionEnd' || e.event === 'UserPromptSubmit') {
-      pending = null;
-    }
-  }
+  for (const e of ev) { if (e.session_id === id) pending = questionStep(pending, e); }
   return pending;
+}
+
+// map session_id -> question en attente, en UNE passe (vs liveQuestionForSession par session, qui
+// rebalayait les ~8000 évènements pour CHAQUE session à chaque poll — O(sessions × évènements)).
+function liveQuestionBySession(eventsFile = EVENTS_FILE) {
+  const ev = readEvents(eventsFile);
+  const map = new Map();
+  for (const e of ev) { if (e.session_id) map.set(e.session_id, questionStep(map.get(e.session_id) || null, e)); }
+  return map;
+}
+
+// État « plan en attente » d'une session après un évènement (même forme que questionStep). NB : à
+// la différence de la question, SubagentStop ne clôt PAS un plan (seul l'agent principal approuve).
+function planStep(cur, e) {
+  if (e.event === 'PreToolUse' && e.tool === 'ExitPlanMode' && typeof e.plan === 'string' && e.plan) {
+    return { id: 'live:' + e.ts, ts: e.ts, plan: e.plan };
+  }
+  if ((e.event === 'PostToolUse' && e.tool === 'ExitPlanMode') || e.event === 'Stop' || e.event === 'SessionEnd' || e.event === 'UserPromptSubmit') {
+    return null;
+  }
+  return cur;
 }
 
 // Plan en attente d'approbation (ExitPlanMode) : posé au PreToolUse, levé quand le plan est
@@ -86,15 +124,16 @@ function liveQuestionForSession(id, eventsFile = EVENTS_FILE) {
 function livePlanForSession(id, eventsFile = EVENTS_FILE) {
   const ev = readEvents(eventsFile);
   let pending = null;
-  for (const e of ev) {
-    if (e.session_id !== id) continue;
-    if (e.event === 'PreToolUse' && e.tool === 'ExitPlanMode' && typeof e.plan === 'string' && e.plan) {
-      pending = { id: 'live:' + e.ts, ts: e.ts, plan: e.plan };
-    } else if ((e.event === 'PostToolUse' && e.tool === 'ExitPlanMode') || e.event === 'Stop' || e.event === 'SessionEnd' || e.event === 'UserPromptSubmit') {
-      pending = null;
-    }
-  }
+  for (const e of ev) { if (e.session_id === id) pending = planStep(pending, e); }
   return pending;
+}
+
+// map session_id -> plan en attente, en UNE passe (vs livePlanForSession par session).
+function livePlanBySession(eventsFile = EVENTS_FILE) {
+  const ev = readEvents(eventsFile);
+  const map = new Map();
+  for (const e of ev) { if (e.session_id) map.set(e.session_id, planStep(map.get(e.session_id) || null, e)); }
+  return map;
 }
 
 // Métadonnées des sessions vues dans les évènements (cwd, transcript, timestamps).
@@ -138,4 +177,4 @@ function launchConfigByTmux(launchesFile = LAUNCHES_FILE) {
   return map;
 }
 
-export { readEvents, lastEventBySession, paneForSession, sessionForPane, modeForSession, liveQuestionForSession, livePlanForSession, launchConfigByTmux, eventSessionMeta };
+export { readEvents, lastEventBySession, paneForSession, paneBySession, sessionForPane, modeForSession, liveQuestionForSession, liveQuestionBySession, livePlanForSession, livePlanBySession, launchConfigByTmux, eventSessionMeta };

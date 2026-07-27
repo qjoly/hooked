@@ -111,19 +111,42 @@ function waitForQuestionDismissed(pane, cb) {
 
 // map pane tmux (%NN) → nom de session tmux, rafraîchie au plus toutes les 3 s.
 let paneNameCache = { at: 0, map: new Map() };
+const PANE_NAMES_TTL = 3000;
+const PANE_NAMES_ARGS = ['list-panes', '-a', '-F', '#{pane_id} #{session_name}'];
+function parsePaneList(out) {
+  const map = new Map();
+  for (const line of out.split('\n')) {
+    const sp = line.indexOf(' ');
+    if (sp > 0) map.set(line.slice(0, sp), line.slice(sp + 1).trim());
+  }
+  return map;
+}
 function paneTmuxNames() {
   const now = Date.now();
-  if (now - paneNameCache.at < 3000) return paneNameCache.map;
-  const map = new Map();
+  if (now - paneNameCache.at < PANE_NAMES_TTL) return paneNameCache.map;
+  let map = new Map();
   try {
-    const out = execFileSync('tmux', ['list-panes', '-a', '-F', '#{pane_id} #{session_name}'], { encoding: 'utf8', timeout: 1500 });
-    for (const line of out.split('\n')) {
-      const sp = line.indexOf(' ');
-      if (sp > 0) map.set(line.slice(0, sp), line.slice(sp + 1).trim());
-    }
+    map = parsePaneList(execFileSync('tmux', PANE_NAMES_ARGS, { encoding: 'utf8', timeout: 1500 }));
   } catch (_) { /* tmux absent ou aucun serveur : pas grave */ }
   paneNameCache = { at: now, map };
   return map;
+}
+
+// Réchauffe EN ASYNCHRONE le cache pane→nom (même TTL 3 s), à appeler AVANT la dérivation d'état
+// synchrone (buildSessions / sessionDetail). Sans ça, le premier tmuxAlive() après expiration du
+// cache déclenchait un `tmux list-panes -a` SYNCHRONE (~250 ms à 130+ panes) qui bloquait l'event
+// loop → hoquet périodique du terminal toutes les ~3 s. Ici execFile async : l'event loop tourne
+// pendant le spawn, et le chemin sync tombe ensuite sur un cache chaud (0 spawn). Cache encore
+// frais → resolve immédiat, aucun spawn. En cas d'échec tmux : on laisse le cache tel quel (le
+// chemin sync retombera sur son fallback execFileSync habituel — comportement inchangé).
+function warmPaneNames() {
+  return new Promise((resolve) => {
+    if (Date.now() - paneNameCache.at < PANE_NAMES_TTL) return resolve();
+    execFile('tmux', PANE_NAMES_ARGS, { encoding: 'utf8', timeout: 1500, maxBuffer: 8 << 20 }, (e, out) => {
+      if (!e) paneNameCache = { at: Date.now(), map: parsePaneList(out) };
+      resolve();
+    });
+  });
 }
 
 // Force le rafraîchissement du cache pane→nom au prochain appel. Utile juste après avoir créé
@@ -167,11 +190,14 @@ function sessionLaunchMap() {
 
 // modèle/effort d'une session, en privilégiant la résolution persistée (survit à la mort du
 // tmux). À défaut, résolution live (pane→nom→launches) que l'on persiste alors pour la suite.
-function resolveLaunchForSession(id) {
+// `pane` : le pane déjà résolu par l'appelant (buildSessions le connaît via paneBySession) — évite
+// un paneForSession(id) par session dans la boucle chaude (O(sessions × évènements)). Omis → on le
+// résout ici (appelants hors boucle) ; passé explicitement (même null) → on ne rescanne pas.
+function resolveLaunchForSession(id, pane) {
   if (!id) return null;
   const persisted = sessionLaunchMap().get(id);
   if (persisted) return persisted;
-  const pane = paneForSession(id);
+  if (pane === undefined) pane = paneForSession(id);
   const li = launchInfoForPane(pane);
   if (li && (li.model || li.effort)) {
     try {
@@ -529,16 +555,24 @@ function _captureAsync(pane, ansi) {
     execFile('tmux', args, { encoding: 'utf8', timeout: 800, maxBuffer: 8 << 20 }, (e, out) => resolve(e ? null : out));
   });
 }
+// Marge de re-warm : on rafraîchit un cache AVANT sa péremption (le TTL que lit le chemin sync)
+// pour qu'il reste frais PENDANT le warm lui-même (jusqu'à ~350 ms observés) PUIS la dérivation
+// synchrone qui suit immédiatement (paneBusySync/paneActiveSync/… sur ~10 panes). Sans marge, un
+// cache à ~2,4 s est jugé « frais » par le warm (donc non re-capturé), mais franchit les 2,5 s
+// avant le read sync → capturePaneTextSync re-spawn un `capture-pane` SYNCHRONE → pic ~200 ms
+// toutes les ~2,5 s qui gèle l'event loop (mesuré : 4–5 spawns/poll sur la fenêtre de course).
+const CAPTURE_WARM_MARGIN = 1200;
 async function warmPaneCaptures(panes, { ansi = false, ttl = 2500, concurrency = 12 } = {}) {
   const now = Date.now();
+  const cutoff = Math.max(0, ttl - CAPTURE_WARM_MARGIN); // re-warm plus tôt que le TTL sync
   const jobs = [];
   const seen = new Set();
   for (const pane of panes || []) {
     if (!/^%\d+$/.test(pane || '') || seen.has(pane)) continue;
     seen.add(pane);
     const c = _paneTextCache.get(pane);
-    if (!c || now - c.ts >= ttl) jobs.push([pane, false]);
-    if (ansi) { const a = _paneAnsiCache.get(pane); if (!a || now - a.ts >= ttl) jobs.push([pane, true]); }
+    if (!c || now - c.ts >= cutoff) jobs.push([pane, false]);
+    if (ansi) { const a = _paneAnsiCache.get(pane); if (!a || now - a.ts >= cutoff) jobs.push([pane, true]); }
   }
   if (!jobs.length) return;
   let i = 0;
@@ -869,4 +903,4 @@ function restartSession(id, { model, effort } = {}, cb) {
   }
 }
 
-export { paneTmuxNames, invalidatePaneCache, clearPaneCaches, tmuxAlive, launchInfoForPane, resolveLaunchForSession, deliverReply, deliverQuestion, questionKeys, deliverQuestionWithNote, deliverQuestionFreeText, deliverPlanChoice, parsePlanPrompt, parseSwitchPrompt, isTrustPrompt, isComposerReady, sendKey, parsePaneMode, readPaneMode, readPaneModeSync, paneBusySync, parseSpinner, paneActivitySync, paneFollowupSync, conversationBody, paneActiveSync, paneActiveStep, warmPaneCaptures, setMode, setModelEffort, launchSession, killSession, restartSession, err400 };
+export { paneTmuxNames, invalidatePaneCache, clearPaneCaches, tmuxAlive, launchInfoForPane, resolveLaunchForSession, deliverReply, deliverQuestion, questionKeys, deliverQuestionWithNote, deliverQuestionFreeText, deliverPlanChoice, parsePlanPrompt, parseSwitchPrompt, isTrustPrompt, isComposerReady, sendKey, parsePaneMode, readPaneMode, readPaneModeSync, paneBusySync, parseSpinner, paneActivitySync, paneFollowupSync, conversationBody, paneActiveSync, paneActiveStep, warmPaneCaptures, warmPaneNames, setMode, setModelEffort, launchSession, killSession, restartSession, err400 };
