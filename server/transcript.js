@@ -7,8 +7,7 @@ import path from 'node:path';
 import { PROJECTS_DIR } from './config.js';
 import { readdirSafe, statSafe, textOf, cleanPrompt } from './util.js';
 import { costForUsage } from './pricing.js';
-
-const parseCache = new Map(); // path -> { key, summary }
+import { incrementalReader } from './incremental.js';
 
 // Squelette d'un résumé de session, avec toutes les valeurs par défaut. Factorisé pour
 // que les sessions « synthétiques » (issues des hooks, avant écriture du transcript) aient
@@ -44,128 +43,160 @@ function blankSummary(sessionId, fp) {
   };
 }
 
-function parseTranscript(fp, sessionId) {
-  let data;
-  try { data = fs.readFileSync(fp, 'utf8'); } catch (_) { return null; }
-  const s = blankSummary(sessionId, fp);
-  const seenMsg = new Set();
-  const modelCount = {};
-  // questions interactives (AskUserQuestion) : on retient chaque tool_use dans l'ordre,
-  // et l'ensemble des tool_use_id déjà répondus (tool_result). À la fin, la dernière
-  // question sans réponse = la question en attente à afficher dans l'UI.
-  const asked = [];          // [{ id, questions }]
-  const answered = new Set(); // tool_use_id ayant reçu un tool_result
-  const lines = data.split('\n');
-  for (const line of lines) {
-    if (!line) continue;
-    let j;
-    try { j = JSON.parse(line); } catch (_) { continue; }
-    if (j.cwd && !s.project) { s.project = j.cwd; s.projectName = path.basename(j.cwd); }
-    if (j.gitBranch) s.gitBranch = j.gitBranch;
-    if (j.sessionId && !s.sessionIdInternal) s.sessionIdInternal = j.sessionId;
-    if (j.agentId && !s.agentId) s.agentId = j.agentId;
-    // version claude-code stampée à chaque ligne : on garde la DERNIÈRE vue (= version du process
-    // qui a écrit le message le plus récent → la version que la session tourne réellement).
-    if (j.version) s.version = j.version;
-    if (j.timestamp) {
-      if (!s.startTs || j.timestamp < s.startTs) s.startTs = j.timestamp;
-      if (!s.lastTs || j.timestamp > s.lastTs) s.lastTs = j.timestamp;
-    }
-    if (j.type === 'ai-title' && j.aiTitle) s.title = j.aiTitle;
+const PR_RE = /https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/pull\/\d+/g;
+const ISSUE_RE = /https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/issues\/\d+/g;
 
-    if (j.type === 'user' && j.message) {
-      const c = j.message.content;
-      // marque les tool_result : leur tool_use_id correspond à un AskUserQuestion répondu
-      if (Array.isArray(c)) {
-        for (const b of c) {
-          if (b && b.type === 'tool_result' && b.tool_use_id) answered.add(b.tool_use_id);
-        }
+// Accumulateur d'un parse : le résumé en cours + l'état transitoire nécessaire pour
+// REPRENDRE le parse sur des octets ajoutés (parse incrémental, cf. getSummary). Les
+// transcripts .jsonl étant append-only, on garde ces accumulateurs entre deux polls et on
+// ne replie QUE les lignes nouvelles au lieu de tout relire — O(octets ajoutés) au lieu de
+// O(taille du fichier). seenMsg (dédup usage par id de message), modelCount (modèle dominant),
+// asked/answered (question en attente) et prRaw/issueRaw (liens GitHub) DOIVENT persister,
+// sinon un fold suivant recompterait ou perdrait de l'état.
+function newAcc(sessionId, fp) {
+  return {
+    s: blankSummary(sessionId, fp),
+    seenMsg: new Set(),  // ids de message déjà comptés (anti double-comptage usage)
+    modelCount: {},      // modèle -> occurrences (pour le modèle dominant)
+    asked: [],           // [{ id, questions }] AskUserQuestion dans l'ordre
+    answered: new Set(), // tool_use_id ayant reçu un tool_result
+    prRaw: [],           // matches d'URL de PR dans l'ordre du fichier (dédup/reverse au finalize)
+    issueRaw: [],        // idem pour les issues
+    aiTitle: null,       // dernier ai-title vu (prioritaire sur le fallback firstPrompt)
+  };
+}
+
+// Replie UNE ligne de transcript dans l'accumulateur. Même logique par ligne que l'ancien
+// parseTranscript ; extraite pour être partagée entre parse complet et parse incrémental.
+function foldLine(acc, line) {
+  if (!line) return;
+  const s = acc.s;
+  // liens GitHub : regex sur la ligne brute (comme l'ancien regex sur tout le fichier — une URL
+  // ne peut pas enjamber un \n, donc l'union par ligne = même liste, même ordre).
+  const prm = line.match(PR_RE); if (prm) for (const x of prm) acc.prRaw.push(x);
+  const ism = line.match(ISSUE_RE); if (ism) for (const x of ism) acc.issueRaw.push(x);
+  let j;
+  try { j = JSON.parse(line); } catch (_) { return; }
+  if (j.cwd && !s.project) { s.project = j.cwd; s.projectName = path.basename(j.cwd); }
+  if (j.gitBranch) s.gitBranch = j.gitBranch;
+  if (j.sessionId && !s.sessionIdInternal) s.sessionIdInternal = j.sessionId;
+  if (j.agentId && !s.agentId) s.agentId = j.agentId;
+  // version claude-code stampée à chaque ligne : on garde la DERNIÈRE vue (= version du process
+  // qui a écrit le message le plus récent → la version que la session tourne réellement).
+  if (j.version) s.version = j.version;
+  if (j.timestamp) {
+    if (!s.startTs || j.timestamp < s.startTs) s.startTs = j.timestamp;
+    if (!s.lastTs || j.timestamp > s.lastTs) s.lastTs = j.timestamp;
+  }
+  if (j.type === 'ai-title' && j.aiTitle) acc.aiTitle = j.aiTitle;
+
+  if (j.type === 'user' && j.message) {
+    const c = j.message.content;
+    // marque les tool_result : leur tool_use_id correspond à un AskUserQuestion répondu
+    if (Array.isArray(c)) {
+      for (const b of c) {
+        if (b && b.type === 'tool_result' && b.tool_use_id) acc.answered.add(b.tool_use_id);
       }
     }
-    if (j.type === 'user' && j.message && !j.isSidechain) {
-      const c = j.message.content;
-      // ignore les tool_result (réponses d'outils, pas des prompts humains)
-      const isToolResult = Array.isArray(c) && c.some((b) => b && b.type === 'tool_result');
-      if (!isToolResult) {
-        const t = cleanPrompt(textOf(c));
-        if (t) {
-          s.userPrompts++;
-          if (!s.firstPrompt) s.firstPrompt = t;
-          s.lastPrompt = t;
-        }
+  }
+  if (j.type === 'user' && j.message && !j.isSidechain) {
+    const c = j.message.content;
+    // ignore les tool_result (réponses d'outils, pas des prompts humains)
+    const isToolResult = Array.isArray(c) && c.some((b) => b && b.type === 'tool_result');
+    if (!isToolResult) {
+      const t = cleanPrompt(textOf(c));
+      if (t) {
+        s.userPrompts++;
+        if (!s.firstPrompt) s.firstPrompt = t;
+        s.lastPrompt = t;
       }
     }
+  }
 
-    if (j.type === 'assistant' && j.message) {
-      const msg = j.message;
-      const mid = msg.id || (j.timestamp + ':' + (msg.usage ? msg.usage.output_tokens : ''));
-      if (msg.model) modelCount[msg.model] = (modelCount[msg.model] || 0) + 1;
-      // outils
-      if (Array.isArray(msg.content)) {
-        for (const b of msg.content) {
-          if (b && b.type === 'tool_use' && b.name) {
-            s.tools[b.name] = (s.tools[b.name] || 0) + 1;
-            if (b.name === 'AskUserQuestion' && b.id && b.input && Array.isArray(b.input.questions)) {
-              asked.push({ id: b.id, questions: b.input.questions });
-            }
+  if (j.type === 'assistant' && j.message) {
+    const msg = j.message;
+    const mid = msg.id || (j.timestamp + ':' + (msg.usage ? msg.usage.output_tokens : ''));
+    if (msg.model) acc.modelCount[msg.model] = (acc.modelCount[msg.model] || 0) + 1;
+    // outils
+    if (Array.isArray(msg.content)) {
+      for (const b of msg.content) {
+        if (b && b.type === 'tool_use' && b.name) {
+          s.tools[b.name] = (s.tools[b.name] || 0) + 1;
+          if (b.name === 'AskUserQuestion' && b.id && b.input && Array.isArray(b.input.questions)) {
+            acc.asked.push({ id: b.id, questions: b.input.questions });
           }
         }
       }
-      // usage (dédupliqué par id de message pour éviter le double comptage)
-      if (msg.usage && !seenMsg.has(mid)) {
-        seenMsg.add(mid);
-        s.assistantTurns++;
-        const u = msg.usage;
-        const k = costForUsage(u, msg.model);
-        s.usage.input += k.inp; s.usage.output += k.out; s.usage.cacheCreate += k.cc; s.usage.cacheRead += k.cr;
-        s.cost += k.total;
-        s.costBreak.input += k.cIn; s.costBreak.output += k.cOut; s.costBreak.cacheCreate += k.cCc; s.costBreak.cacheRead += k.cCr;
-        const day = (j.timestamp || '').slice(0, 10) || 'unknown';
-        const d = (s.byDay[day] = s.byDay[day] || { input: 0, output: 0, cacheCreate: 0, cacheRead: 0, cost: 0, turns: 0 });
-        d.input += k.inp; d.output += k.out; d.cacheCreate += k.cc; d.cacheRead += k.cr; d.cost += k.total; d.turns++;
-      }
     }
-
-    // Coût des sous-agents : Claude Code journalise leur conso réelle dans toolUseResult.usage
-    // (sur la ligne tool_result du parent), avec le modèle réel dans resolvedModel.
-    // Ces tokens ne sont PAS comptés ailleurs (les lignes user ne portent pas d'usage) → on les ajoute.
-    if (j.toolUseResult && j.toolUseResult.usage && (j.toolUseResult.agentType || j.toolUseResult.agentId)) {
-      const r = j.toolUseResult;
-      const k = costForUsage(r.usage, r.resolvedModel);
+    // usage (dédupliqué par id de message pour éviter le double comptage)
+    if (msg.usage && !acc.seenMsg.has(mid)) {
+      acc.seenMsg.add(mid);
+      s.assistantTurns++;
+      const u = msg.usage;
+      const k = costForUsage(u, msg.model);
       s.usage.input += k.inp; s.usage.output += k.out; s.usage.cacheCreate += k.cc; s.usage.cacheRead += k.cr;
-      s.cost += k.total; s.subagents++; s.subagentCost += k.total;
+      s.cost += k.total;
       s.costBreak.input += k.cIn; s.costBreak.output += k.cOut; s.costBreak.cacheCreate += k.cCc; s.costBreak.cacheRead += k.cCr;
       const day = (j.timestamp || '').slice(0, 10) || 'unknown';
       const d = (s.byDay[day] = s.byDay[day] || { input: 0, output: 0, cacheCreate: 0, cacheRead: 0, cost: 0, turns: 0 });
-      d.input += k.inp; d.output += k.out; d.cacheCreate += k.cc; d.cacheRead += k.cr; d.cost += k.total;
+      d.input += k.inp; d.output += k.out; d.cacheCreate += k.cc; d.cacheRead += k.cr; d.cost += k.total; d.turns++;
     }
   }
-  // liens de PR GitHub mentionnés dans la session. Dernier d'abord, dédupliqué.
-  const prMatches = data.match(/https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/pull\/\d+/g) || [];
-  s.prLinks = [...new Set(prMatches.reverse())].slice(0, 12);
-  // liens d'issue GitHub mentionnés dans la session (même mécanisme que prLinks). Dernier d'abord.
-  const issueMatches = data.match(/https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/issues\/\d+/g) || [];
-  s.issueLinks = [...new Set(issueMatches.reverse())].slice(0, 12);
-  // modèle dominant
-  s.model = Object.keys(modelCount).sort((a, b) => modelCount[b] - modelCount[a])[0] || null;
-  if (!s.title) s.title = (s.firstPrompt || '').slice(0, 80) || '(sans titre)';
+
+  // Coût des sous-agents : Claude Code journalise leur conso réelle dans toolUseResult.usage
+  // (sur la ligne tool_result du parent), avec le modèle réel dans resolvedModel.
+  // Ces tokens ne sont PAS comptés ailleurs (les lignes user ne portent pas d'usage) → on les ajoute.
+  if (j.toolUseResult && j.toolUseResult.usage && (j.toolUseResult.agentType || j.toolUseResult.agentId)) {
+    const r = j.toolUseResult;
+    const k = costForUsage(r.usage, r.resolvedModel);
+    s.usage.input += k.inp; s.usage.output += k.out; s.usage.cacheCreate += k.cc; s.usage.cacheRead += k.cr;
+    s.cost += k.total; s.subagents++; s.subagentCost += k.total;
+    s.costBreak.input += k.cIn; s.costBreak.output += k.cOut; s.costBreak.cacheCreate += k.cCc; s.costBreak.cacheRead += k.cCr;
+    const day = (j.timestamp || '').slice(0, 10) || 'unknown';
+    const d = (s.byDay[day] = s.byDay[day] || { input: 0, output: 0, cacheCreate: 0, cacheRead: 0, cost: 0, turns: 0 });
+    d.input += k.inp; d.output += k.out; d.cacheCreate += k.cc; d.cacheRead += k.cr; d.cost += k.total;
+  }
+}
+
+// Champs DÉRIVÉS de l'accumulateur (à recalculer à chaque lecture — idempotent, car ils
+// dépendent de l'état complet accumulé, pas du dernier fold). Sûr à rappeler après un fold
+// incrémental comme après un parse complet.
+function finalize(acc) {
+  const s = acc.s;
+  // liens de PR/issue GitHub, dernier d'abord, dédupliqué (slice() pour ne pas muter prRaw persistant).
+  s.prLinks = [...new Set(acc.prRaw.slice().reverse())].slice(0, 12);
+  s.issueLinks = [...new Set(acc.issueRaw.slice().reverse())].slice(0, 12);
+  // modèle dominant (tri stable → départage identique au parse en une passe)
+  s.model = Object.keys(acc.modelCount).sort((a, b) => acc.modelCount[b] - acc.modelCount[a])[0] || null;
+  s.title = acc.aiTitle != null ? acc.aiTitle : ((s.firstPrompt || '').slice(0, 80) || '(sans titre)');
   // dernière question AskUserQuestion sans réponse = question en attente
-  for (let i = asked.length - 1; i >= 0; i--) {
-    if (!answered.has(asked[i].id)) { s.pendingQuestion = asked[i]; break; }
+  s.pendingQuestion = null;
+  for (let i = acc.asked.length - 1; i >= 0; i--) {
+    if (!acc.answered.has(acc.asked[i].id)) { s.pendingQuestion = acc.asked[i]; break; }
   }
   return s;
 }
 
-function getSummary(fp, sessionId) {
-  const st = statSafe(fp);
-  if (!st) return null;
-  const key = st.mtimeMs + ':' + st.size;
-  const cached = parseCache.get(fp);
-  if (cached && cached.key === key) return cached.summary;
-  const summary = parseTranscript(fp, sessionId);
-  if (summary) parseCache.set(fp, { key, summary });
-  return summary;
+// Parse complet exposé (utilisé par les tests différentiels) : replie TOUTES les lignes du
+// fichier, y compris une éventuelle dernière ligne partielle (comportement historique figé).
+function parseTranscript(fp, sessionId) {
+  let data;
+  try { data = fs.readFileSync(fp, 'utf8'); } catch (_) { return null; }
+  const acc = newAcc(sessionId, fp);
+  for (const line of data.split('\n')) foldLine(acc, line);
+  return finalize(acc);
 }
+
+// Résumé caché et INCRÉMENTAL : sur une session active (transcript qui grandit) on ne replie que
+// les octets ajoutés au lieu de relire tout le fichier à chaque poll (cf. server/incremental.js).
+// finalize retourne acc.s (l'objet résumé, stable entre polls — buildSessions y ajoute son état
+// live, réécrit à chaque tick).
+const getSummary = incrementalReader({
+  init: (fp, sessionId) => newAcc(sessionId, fp),
+  fold: foldLine,
+  finalize,
+  empty: null,
+});
 
 // scanne les sessions de premier niveau. Les sous-agents (agent-*.jsonl) ne sont PAS scannés
 // ici : leur coût est déjà replié dans le parent via toolUseResult.usage (cf. parseTranscript).

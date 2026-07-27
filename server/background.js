@@ -27,10 +27,7 @@
  * (repli : « completed (exit code N) » / « EXIT rc=N » dans le résumé, pour l'ancien format sans
  * <status>). Un TaskStop {task_id} clôt aussi (arrêt explicite).
  */
-import fs from 'node:fs';
-import { statSafe } from './util.js';
-
-const cache = new Map(); // path -> { key, val }
+import { incrementalReader } from './incremental.js';
 
 const RE_BASH_ID = /running in background with ID:\s*(\S+?)[.\s]/i;
 const RE_MONITOR_ID = /Monitor started \(task\s+(\S+?)[,)]/i;
@@ -89,122 +86,121 @@ function taskNotification(j) {
   return null;
 }
 
-function compute(fp) {
-  let data;
-  try { data = fs.readFileSync(fp, 'utf8'); } catch (_) { return { jobs: [], active: [] }; }
+// ScheduleWakeup : le harnais ne garde qu'UN wakeup en attente par session — chaque nouvel appel
+// REMPLACE le précédent. On ne suit donc que le dernier, repéré par sa POSITION (idx). Il est encore
+// en attente SEULEMENT si rien n'a « repris » après lui (le déclenchement produit une ligne d'activité
+// à un index supérieur). Modèle positionnel → robuste au promptSource variable (sdk/system) et au
+// contenu réécrit à la volée, contrairement à un appariement de texte. Ces index sont append-only
+// (ils ne font que croître) → l'état est réutilisable en parse incrémental (cf. server/incremental.js).
+function newAcc() {
+  return {
+    jobsByToolUse: new Map(), // tool_use_id (armement) -> job (bash | monitor)
+    jobsByTask: new Map(),    // task-id (résolu depuis le tool_result) -> job
+    wakeup: null,             // dernier ScheduleWakeup { kind:'wakeup', …, idx }
+    lastResumeIdx: -1,        // dernier index d'une activité de reprise (notif, tool non-wakeup, prompt)
+    idx: -1,                  // index de ligne courant (non-vides uniquement)
+  };
+}
 
-  const jobsByToolUse = new Map(); // tool_use_id (armement) -> job (bash | monitor)
-  const jobsByTask = new Map();    // task-id (résolu depuis le tool_result) -> job
-  // ScheduleWakeup : le harnais ne garde qu'UN wakeup en attente par session — chaque nouvel appel
-  // REMPLACE le précédent. On ne suit donc que le dernier, repéré par sa position. Il est encore en
-  // attente SEULEMENT si rien n'a « repris » après lui (le déclenchement produit une ligne d'activité
-  // à un index supérieur). Modèle positionnel → robuste au promptSource variable (sdk/system) et au
-  // contenu réécrit à la volée, contrairement à un appariement de texte.
-  let wakeup = null;       // dernier ScheduleWakeup { kind:'wakeup', …, idx }
-  let lastResumeIdx = -1;  // dernier index d'une activité de reprise (notif, tool non-wakeup, prompt)
-  let idx = -1;
+function foldLine(acc, line) {
+  if (!line) return;
+  acc.idx++;
+  let j;
+  try { j = JSON.parse(line); } catch (_) { return; }
+  const ts = j.timestamp || null;
+  const { jobsByToolUse, jobsByTask } = acc;
 
-  for (const line of data.split('\n')) {
-    if (!line) continue;
-    idx++;
-    let j;
-    try { j = JSON.parse(line); } catch (_) { continue; }
-    const ts = j.timestamp || null;
-
-    // A) task-notification (tous porteurs) : complétion d'un Bash bg / Monitor. Idempotent (une
-    //    même notif peut arriver en double sur plusieurs porteurs → on ne clôt qu'une fois). C'est
-    //    aussi une reprise (ré-invocation) → bump lastResumeIdx.
-    const note = taskNotification(j);
-    if (note) {
-      lastResumeIdx = idx;
-      const tu = (note.match(RE_NOTE_TOOLUSE) || [])[1];
-      const tid = (note.match(RE_NOTE_TASK) || [])[1];
-      const status = (note.match(RE_NOTE_STATUS) || [])[1];
-      const job = (tu && jobsByToolUse.get(tu)) || (tid && jobsByTask.get(tid)) || null;
-      const terminalStatus = status && TERMINAL.has(status.toLowerCase());
-      const bashCompleted = /completed \(exit code/i.test(note); // repli ancien format (sans <status>)
-      const monitorExited = RE_EXIT_RC.test(note);
-      if (job && !job.done && (terminalStatus || (job.kind === 'bash' && bashCompleted) || (job.kind === 'monitor' && monitorExited))) {
-        job.done = true;
-        job.doneReason = terminalStatus ? status.toLowerCase() : (job.kind === 'monitor' ? 'exited' : 'completed');
-        job.doneAt = ts;
-        const ec = note.match(RE_EXIT_RC) || note.match(RE_EXIT_CODE);
-        if (ec) job.exitCode = Number(ec[1]);
-      }
-      continue; // une notif n'est jamais un armement ni un tool_result exploitable
+  // A) task-notification (tous porteurs) : complétion d'un Bash bg / Monitor. Idempotent (une
+  //    même notif peut arriver en double sur plusieurs porteurs → on ne clôt qu'une fois). C'est
+  //    aussi une reprise (ré-invocation) → bump lastResumeIdx.
+  const note = taskNotification(j);
+  if (note) {
+    acc.lastResumeIdx = acc.idx;
+    const tu = (note.match(RE_NOTE_TOOLUSE) || [])[1];
+    const tid = (note.match(RE_NOTE_TASK) || [])[1];
+    const status = (note.match(RE_NOTE_STATUS) || [])[1];
+    const job = (tu && jobsByToolUse.get(tu)) || (tid && jobsByTask.get(tid)) || null;
+    const terminalStatus = status && TERMINAL.has(status.toLowerCase());
+    const bashCompleted = /completed \(exit code/i.test(note); // repli ancien format (sans <status>)
+    const monitorExited = RE_EXIT_RC.test(note);
+    if (job && !job.done && (terminalStatus || (job.kind === 'bash' && bashCompleted) || (job.kind === 'monitor' && monitorExited))) {
+      job.done = true;
+      job.doneReason = terminalStatus ? status.toLowerCase() : (job.kind === 'monitor' ? 'exited' : 'completed');
+      job.doneAt = ts;
+      const ec = note.match(RE_EXIT_RC) || note.match(RE_EXIT_CODE);
+      if (ec) job.exitCode = Number(ec[1]);
     }
+    return; // une notif n'est jamais un armement ni un tool_result exploitable
+  }
 
-    // B) tool_use assistant : armement (Bash bg / Monitor / ScheduleWakeup) + arrêt explicite (TaskStop).
-    if (j.type === 'assistant' && j.message && Array.isArray(j.message.content)) {
-      let hasNonWakeupTool = false;
-      for (const b of j.message.content) {
-        if (!b || b.type !== 'tool_use') continue;
-        if (b.name !== 'ScheduleWakeup') hasNonWakeupTool = true;
-        const inp = b.input || {};
-        if (b.name === 'Bash' && inp.run_in_background === true && b.id) {
-          jobsByToolUse.set(b.id, { kind: 'bash', toolUseId: b.id, taskId: null, command: String(inp.command || '').slice(0, 2000), description: String(inp.description || ''), startTs: ts, done: false, doneReason: null, doneAt: null, exitCode: null, outputPath: null });
-        } else if (b.name === 'Monitor' && b.id) {
-          jobsByToolUse.set(b.id, { kind: 'monitor', toolUseId: b.id, taskId: null, command: String(inp.command || '').slice(0, 2000), description: String(inp.description || ''), startTs: ts, done: false, doneReason: null, doneAt: null, exitCode: null, outputPath: null, timeoutMs: null });
-        } else if (b.name === 'ScheduleWakeup') {
-          const prompt = String(inp.prompt || '').slice(0, 2000);
-          wakeup = { kind: 'wakeup', toolUseId: b.id || null, taskId: null, command: prompt, prompt, description: String(inp.reason || '').slice(0, 500), startTs: ts, done: false, doneReason: null, doneAt: null, exitCode: null, outputPath: null, idx };
-        } else if (b.name === 'TaskStop' && inp.task_id) {
-          const job = jobsByTask.get(inp.task_id);
-          if (job && !job.done) { job.done = true; job.doneReason = 'stopped'; job.doneAt = ts; }
-        }
-      }
-      // un tour qui fait un vrai travail (autre chose que planifier un wakeup) = reprise
-      if (hasNonWakeupTool) lastResumeIdx = idx;
-    }
-
-    // C) tool_result user : le task-id des Bash bg / Monitor n'apparaît QUE dans le résultat →
-    //    on le résout pour permettre la corrélation par task-id (repli si <tool-use-id> absent).
-    if (j.type === 'user' && j.message && Array.isArray(j.message.content)) {
-      for (const b of j.message.content) {
-        if (!b || b.type !== 'tool_result' || !b.tool_use_id) continue;
-        const job = jobsByToolUse.get(b.tool_use_id);
-        if (!job || job.taskId) continue;
-        const txt = textOfContent(b.content);
-        const m = job.kind === 'bash' ? txt.match(RE_BASH_ID) : txt.match(RE_MONITOR_ID);
-        if (m) { job.taskId = m[1]; jobsByTask.set(m[1], job); }
-        // timeout propre du Monitor (borne dure du « encore en cours ») : lu dans le même tool_result.
-        if (job.kind === 'monitor' && job.timeoutMs == null) {
-          const tm = txt.match(RE_MONITOR_TIMEOUT);
-          if (tm) job.timeoutMs = Number(tm[1]);
-        }
-        // fichier de sortie du Bash bg (pour le tail live) : seulement si la forme attendue
-        // (…/tasks/<id>.output) — garde-fou contre un chemin exotique injecté dans le transcript.
-        const om = txt.match(RE_OUTPUT);
-        if (om && om[1].includes('/tasks/')) job.outputPath = om[1];
+  // B) tool_use assistant : armement (Bash bg / Monitor / ScheduleWakeup) + arrêt explicite (TaskStop).
+  if (j.type === 'assistant' && j.message && Array.isArray(j.message.content)) {
+    let hasNonWakeupTool = false;
+    for (const b of j.message.content) {
+      if (!b || b.type !== 'tool_use') continue;
+      if (b.name !== 'ScheduleWakeup') hasNonWakeupTool = true;
+      const inp = b.input || {};
+      if (b.name === 'Bash' && inp.run_in_background === true && b.id) {
+        jobsByToolUse.set(b.id, { kind: 'bash', toolUseId: b.id, taskId: null, command: String(inp.command || '').slice(0, 2000), description: String(inp.description || ''), startTs: ts, done: false, doneReason: null, doneAt: null, exitCode: null, outputPath: null });
+      } else if (b.name === 'Monitor' && b.id) {
+        jobsByToolUse.set(b.id, { kind: 'monitor', toolUseId: b.id, taskId: null, command: String(inp.command || '').slice(0, 2000), description: String(inp.description || ''), startTs: ts, done: false, doneReason: null, doneAt: null, exitCode: null, outputPath: null, timeoutMs: null });
+      } else if (b.name === 'ScheduleWakeup') {
+        const prompt = String(inp.prompt || '').slice(0, 2000);
+        acc.wakeup = { kind: 'wakeup', toolUseId: b.id || null, taskId: null, command: prompt, prompt, description: String(inp.reason || '').slice(0, 500), startTs: ts, done: false, doneReason: null, doneAt: null, exitCode: null, outputPath: null, idx: acc.idx };
+      } else if (b.name === 'TaskStop' && inp.task_id) {
+        const job = jobsByTask.get(inp.task_id);
+        if (job && !job.done) { job.done = true; job.doneReason = 'stopped'; job.doneAt = ts; }
       }
     }
+    // un tour qui fait un vrai travail (autre chose que planifier un wakeup) = reprise
+    if (hasNonWakeupTool) acc.lastResumeIdx = acc.idx;
+  }
 
-    // D) prompt / ligne user injectée (hors tool_result et hors task-notification déjà traitée) =
-    //    reprise : déclenchement d'un wakeup (sdk/system) ou message humain → bump lastResumeIdx.
-    if (j.type === 'user' && j.message) {
-      const c = j.message.content;
-      const isToolResult = Array.isArray(c) && c.some((b) => b && b.type === 'tool_result');
-      if (!isToolResult) lastResumeIdx = idx;
+  // C) tool_result user : le task-id des Bash bg / Monitor n'apparaît QUE dans le résultat →
+  //    on le résout pour permettre la corrélation par task-id (repli si <tool-use-id> absent).
+  if (j.type === 'user' && j.message && Array.isArray(j.message.content)) {
+    for (const b of j.message.content) {
+      if (!b || b.type !== 'tool_result' || !b.tool_use_id) continue;
+      const job = jobsByToolUse.get(b.tool_use_id);
+      if (!job || job.taskId) continue;
+      const txt = textOfContent(b.content);
+      const m = job.kind === 'bash' ? txt.match(RE_BASH_ID) : txt.match(RE_MONITOR_ID);
+      if (m) { job.taskId = m[1]; jobsByTask.set(m[1], job); }
+      // timeout propre du Monitor (borne dure du « encore en cours ») : lu dans le même tool_result.
+      if (job.kind === 'monitor' && job.timeoutMs == null) {
+        const tm = txt.match(RE_MONITOR_TIMEOUT);
+        if (tm) job.timeoutMs = Number(tm[1]);
+      }
+      // fichier de sortie du Bash bg (pour le tail live) : seulement si la forme attendue
+      // (…/tasks/<id>.output) — garde-fou contre un chemin exotique injecté dans le transcript.
+      const om = txt.match(RE_OUTPUT);
+      if (om && om[1].includes('/tasks/')) job.outputPath = om[1];
     }
   }
 
-  // le wakeup n'est en attente que si RIEN n'a repris après lui (sinon il a été déclenché/remplacé).
-  if (wakeup && lastResumeIdx > wakeup.idx) { wakeup.done = true; wakeup.doneReason = 'fired'; }
+  // D) prompt / ligne user injectée (hors tool_result et hors task-notification déjà traitée) =
+  //    reprise : déclenchement d'un wakeup (sdk/system) ou message humain → bump lastResumeIdx.
+  if (j.type === 'user' && j.message) {
+    const c = j.message.content;
+    const isToolResult = Array.isArray(c) && c.some((b) => b && b.type === 'tool_result');
+    if (!isToolResult) acc.lastResumeIdx = acc.idx;
+  }
+}
 
-  const jobs = [...jobsByToolUse.values(), ...(wakeup ? [wakeup] : [])];
+function finalize(acc) {
+  const { wakeup } = acc;
+  // le wakeup n'est en attente que si RIEN n'a repris après lui (sinon il a été déclenché/remplacé).
+  // Idempotent : lastResumeIdx ne fait que croître et un nouveau wakeup repart avec done=false, donc
+  // rappeler finalize après un fold incrémental donne le même verdict qu'un parse complet.
+  if (wakeup && acc.lastResumeIdx > wakeup.idx) { wakeup.done = true; wakeup.doneReason = 'fired'; }
+  const jobs = [...acc.jobsByToolUse.values(), ...(wakeup ? [wakeup] : [])];
   const active = jobs.filter((x) => !x.done);
   return { jobs, active };
 }
 
-// cycle de vie complet des jobs de fond du transcript (caché par mtime). fp falsy → aucun job.
-function buildBackgroundJobs(fp) {
-  const st = fp ? statSafe(fp) : null;
-  const key = st ? st.mtimeMs + ':' + st.size : null;
-  if (key) { const c = cache.get(fp); if (c && c.key === key) return c.val; }
-  const val = fp ? compute(fp) : { jobs: [], active: [] };
-  if (key) cache.set(fp, { key, val });
-  return val;
-}
+// cycle de vie complet des jobs de fond du transcript, caché et INCRÉMENTAL (append-only → on ne
+// replie que les octets ajoutés à chaque poll). fp falsy / illisible → aucun job.
+const buildBackgroundJobs = incrementalReader({ init: newAcc, fold: foldLine, finalize, empty: { jobs: [], active: [] } });
 
 // jobs de fond ENCORE ACTIFS uniquement (forme légère pour la sidebar). [] si le fichier est absent.
 function activeBackgroundJobs(fp) {
