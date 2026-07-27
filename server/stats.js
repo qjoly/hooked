@@ -6,9 +6,9 @@ import path from 'node:path';
 import { statSafe } from './util.js';
 import { scanSessions, blankSummary } from './transcript.js';
 import { repoSlug } from './git.js';
-import { readEvents, lastEventBySession, paneForSession, sessionForPane, modeForSession, liveQuestionForSession, livePlanForSession, eventSessionMeta } from './events.js';
+import { readEvents, lastEventBySession, paneForSession, paneBySession, sessionForPane, modeForSession, liveQuestionForSession, liveQuestionBySession, livePlanForSession, livePlanBySession, eventSessionMeta } from './events.js';
 import { liveStateFor } from './live.js';
-import { resolveLaunchForSession, paneTmuxNames, tmuxAlive, readPaneModeSync, paneBusySync, paneActivitySync, paneFollowupSync, paneActiveSync, warmPaneCaptures } from './tmux.js';
+import { resolveLaunchForSession, paneTmuxNames, tmuxAlive, readPaneModeSync, paneBusySync, paneActivitySync, paneFollowupSync, paneActiveSync, warmPaneCaptures, warmPaneNames } from './tmux.js';
 import { shownPanesFor } from './pane.js';
 import { usageWindow } from './usage.js';
 import { sessionStatus, sessionStatusRaw, accountRateLimits, freshestStatusId } from './status.js';
@@ -106,12 +106,15 @@ function buildSessions() {
   const known = new Set(sessions.map((s) => s.id));
   sessions.push(...eventOnlySessions(known));
   const last = lastEventBySession();
+  const panes = paneBySession(); // résolu en une passe (vs paneForSession par session)
+  const questions = liveQuestionBySession(); // idem : une passe (vs liveQuestionForSession par session)
+  const plans = livePlanBySession();         // idem pour les plans ExitPlanMode
   const now = Date.now();
   for (const s of sessions) {
     // dépôt GitHub (owner/repo) pour le regroupement sidebar ; null hors dépôt git.
     s.repo = repoSlug(s.project);
     const ev = last.get(s.id);
-    s.tmuxPane = (ev && ev.tmux_pane) || paneForSession(s.id);
+    s.tmuxPane = (ev && ev.tmux_pane) || panes.get(s.id) || null;
     const live = liveStateFor(ev);
     if (live) {
       s.state = live.state;
@@ -147,14 +150,14 @@ function buildSessions() {
     s.activity = (s.state === 'working' && s.tmuxAlive) ? paneActivitySync(s.tmuxPane) : null;
     // effort : vrai effort de la statusline (toutes sessions) en priorité, sinon résolution
     // persistée du lancement hooked (survit à la mort du tmux). modèle explicite idem.
-    const li = resolveLaunchForSession(s.id);
+    const li = resolveLaunchForSession(s.id, s.tmuxPane);
     const raw = sessionStatusRaw(s.id);
     s.effort = (raw && raw.effort && raw.effort.level) || (li ? li.effort : null);
     if (li && li.model && !s.model) s.model = li.model;
     // question en attente : transcript (rare, déjà répondue en pratique) OU live (cas réel)
-    s.liveQuestion = liveQuestionForSession(s.id);
+    s.liveQuestion = questions.get(s.id) || null;
     // plan ExitPlanMode en attente d'approbation (source live des hooks) — pour le flag sidebar.
-    s.livePlan = livePlanForSession(s.id);
+    s.livePlan = plans.get(s.id) || null;
     // résumé compact de la TodoList (où en est la session) — léger, pour la sidebar.
     s.todo = todoSummary(latestTodos(s.file));
   }
@@ -188,10 +191,14 @@ async function buildSessionsWarm() {
   const sessions = scanSessions();
   const all = sessions.concat(eventOnlySessions(new Set(sessions.map((s) => s.id))));
   const last = lastEventBySession();
+  const paneMap = paneBySession(); // une passe (vs paneForSession par session)
+  // warm pane→nom AVANT la boucle : tmuxAlive() en dépend, sinon le 1er appel spawn un
+  // `tmux list-panes` synchrone (~250 ms) qui bloque l'event loop (cf. warmPaneNames).
+  await warmPaneNames();
   const panes = [];
   for (const s of all) {
     const ev = last.get(s.id);
-    const pane = (ev && ev.tmux_pane) || paneForSession(s.id);
+    const pane = (ev && ev.tmux_pane) || paneMap.get(s.id) || null;
     if (pane && tmuxAlive(pane)) panes.push(pane);
   }
   await warmPaneCaptures(panes);
@@ -202,6 +209,7 @@ async function buildSessionsWarm() {
 // réchauffe le texte ET l'ANSI (paneFollowupSync lit le cache -e) du pane concerné en concurrence
 // avant l'appel sync, pour ne pas bloquer sur deux `capture-pane` en série (~150 ms).
 async function sessionDetailWarm(id) {
+  await warmPaneNames(); // tmuxAlive() ci-dessous + dans sessionDetail en dépendent (évite le spawn sync)
   const pane = paneForSession(id);
   if (pane && tmuxAlive(pane)) await warmPaneCaptures([pane], { ansi: true });
   return sessionDetail(id);
@@ -303,7 +311,7 @@ function sessionDetail(id) {
   const subagents = buildSubagents(s.file);
   const todos = latestTodos(s.file);
   const pane = paneForSession(id);
-  const li = resolveLaunchForSession(id);
+  const li = resolveLaunchForSession(id, pane);
   const tmuxName = pane ? paneTmuxNames().get(pane) : null;
   const tmuxAttach = tmuxName ? `tmux attach -t ${tmuxName}` : null;
   // pendingQuestion live (hook) prioritaire ; fallback sur le transcript.
