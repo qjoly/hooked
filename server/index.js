@@ -12,6 +12,7 @@ export * from './remoteControl.js';
 export * from './util.js';
 export * from './git.js';
 export * from './gitOps.js';
+export * from './prReviewTags.js';
 export * from './pricing.js';
 export * from './transcript.js';
 export * from './conversation.js';
