@@ -1,5 +1,5 @@
 import { json } from '@sveltejs/kit';
-import { readSettings, writeSettings, applyGitSyncSetting } from '$lib/server/core.js';
+import { readSettings, writeSettings, applyGitSyncSetting, applyRemoteControlSetting } from '$lib/server/core.js';
 import { fail, readJson } from '$lib/server/respond.js';
 
 // Réglages persistants de hooked (settings.json côté serveur). GET renvoie l'objet complet
@@ -19,6 +19,7 @@ export async function POST({ request }) {
   try {
     const settings = writeSettings(body);
     applyGitSyncSetting(settings); // (dé)marre la boucle immédiatement au toggle de autoGitSync
+    applyRemoteControlSetting(settings); // réconcilie les démons remote-control au changement de liste
     return json({ ok: true, settings });
   } catch (e) {
     return fail(500, e.message || String(e));
