@@ -1,13 +1,17 @@
 <script>
+  import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
   import { ago } from '$lib/format.js';
 
   let q = $state('');
+  let searchInput;
   let project = $state('');
   let results = $state([]);
   let loading = $state(false);
   let lastQ = $state('');
   let timer = null;
+
+  onMount(() => { searchInput?.focus(); });
 
   // Le snippet renvoyé par sqlite contient déjà <mark>…</mark> ; on l'injecte tel quel
   // mais on échappe le reste pour éviter toute injection HTML depuis le contenu indexé.
@@ -79,6 +83,7 @@
     <h2>🔎 Full-text search</h2>
     <p class="hint">Searches all your prompts and Claude's replies. The index is built/refreshed on the first query.</p>
     <input
+      bind:this={searchInput}
       class="search-input"
       type="search"
       placeholder="e.g. kubernetes, sealed secret, ArgoCD…"
