@@ -45,8 +45,10 @@ async function ghView(url) {
   if (hit && Date.now() - hit.at < TTL_MS) return hit.data;
   const gh = await resolveGh();
   const kind = m[1] === 'pull' ? 'pr' : 'issue';
-  const d = await run(gh, [kind, 'view', url, '--json', 'title,body,state,author,number']);
-  const out = d ? { kind, number: d.number, title: d.title, state: d.state, author: d.author?.login || '', body: (d.body || '').slice(0, 4000) } : null;
+  // reviewDecision n'existe que pour `pr view` (APPROVED/CHANGES_REQUESTED/REVIEW_REQUIRED/'').
+  const fields = kind === 'pr' ? 'title,body,state,author,number,reviewDecision' : 'title,body,state,author,number';
+  const d = await run(gh, [kind, 'view', url, '--json', fields]);
+  const out = d ? { kind, number: d.number, title: d.title, state: d.state, author: d.author?.login || '', body: (d.body || '').slice(0, 4000), reviewDecision: d.reviewDecision || '' } : null;
   cache.set(url, { at: Date.now(), data: out });
   return out;
 }
