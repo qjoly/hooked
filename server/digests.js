@@ -28,6 +28,10 @@ const GEN_TIMEOUT_MS = 5 * 60 * 1000;
 
 const isValidDate = (d) => typeof d === 'string' && DATE_RE.test(d);
 
+// Our own `claude -p` digest runs get recorded as sessions like any other. Skip them so a digest
+// doesn't summarize itself — matched by the fixed prefix of buildPrompt's instruction.
+const DIGEST_PROMPT_PREFIX = 'You are writing a concise daily engineering digest';
+
 // Local-timezone day string (YYYY-MM-DD). Digest days follow the user's wall clock, not UTC —
 // transcript `byDay` slices ISO timestamps to UTC dates, so we recompute from Date locally.
 function localDay(d) {
@@ -114,6 +118,7 @@ function collectSessionsForDay(date) {
       }
     }
     if (!prompts.length && !assistantTurns) continue; // no activity this day
+    if (prompts[0]?.startsWith(DIGEST_PROMPT_PREFIX)) continue; // ponytail: our own digest run, not real work
     out.push({
       id: s.id,
       title: s.title,
@@ -186,7 +191,7 @@ function buildBrief(date, sessions, truncated) {
 
 function buildPrompt(date, sessions, truncated) {
   const brief = buildBrief(date, sessions, truncated);
-  return `You are writing a concise daily engineering digest for ${date}, summarizing the work done across the Claude Code sessions below. Each session has a numeric label [N] and an id.
+  return `${DIGEST_PROMPT_PREFIX} for ${date}, summarizing the work done across the Claude Code sessions below. Each session has a numeric label [N] and an id.
 
 ${brief}
 
@@ -201,17 +206,19 @@ Keep it factual and grounded in the briefs above. Prefer specifics (file/feature
 }
 
 // Extract a JSON object from `claude -p --output-format json` output. The envelope wraps the model
-// text in `.result`; the model text may itself be fenced. Robust to leading/trailing noise.
-function parseModelJson(stdout) {
-  let text = stdout;
-  try {
-    const env = JSON.parse(stdout);
-    if (env && typeof env.result === 'string') text = env.result;
-  } catch (_) { /* not an envelope — treat stdout as the text */ }
+// text in `.result`; the model text may itself be fenced. A login-shell preamble (zoxide/p10k/nvm)
+// can prepend noise to stdout, so extract the object by braces rather than JSON.parse-ing the whole
+// stream — then unwrap `.result` if we landed on the envelope. Robust to leading/trailing noise.
+function objFromBraces(text) {
   const start = text.indexOf('{');
   const end = text.lastIndexOf('}');
   if (start === -1 || end === -1 || end < start) return null;
   try { return JSON.parse(text.slice(start, end + 1)); } catch (_) { return null; }
+}
+function parseModelJson(stdout) {
+  let obj = objFromBraces(stdout);
+  if (obj && typeof obj.result === 'string') obj = objFromBraces(obj.result); // unwrap envelope → model text
+  return obj;
 }
 
 // Run `claude -p` headless, feeding the prompt on stdin. Wrapped in a login+interactive shell for

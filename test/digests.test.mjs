@@ -95,6 +95,13 @@ describe('parseModelJson', () => {
   it('returns null on unparseable output', () => {
     expect(mod.parseModelJson('not json at all')).toBeNull();
   });
+  it('unwraps the envelope even when a login-shell preamble pollutes stdout', () => {
+    // The regression: shell noise before the envelope made JSON.parse(stdout) fail, so the old
+    // parser grabbed the whole envelope object (no summary/highlights) instead of `.result`.
+    const env = JSON.stringify({ type: 'result', result: '{"summary":"real","highlights":["h"]}' });
+    const polluted = 'zoxide: detected a possible configuration issue.\n\n' + env;
+    expect(mod.parseModelJson(polluted)).toEqual({ summary: 'real', highlights: ['h'] });
+  });
 });
 
 describe('generateDigest (claude stubbed) + persistence', () => {
