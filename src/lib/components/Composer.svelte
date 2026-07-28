@@ -28,6 +28,7 @@
       if (saved) { text = saved; queueMicrotask(autosize); }
     } catch (_) {}
     restored = true;
+    if (newSession) queueMicrotask(() => ta?.focus());
   });
   $effect(() => {
     const t = text;             // dépendance réactive
