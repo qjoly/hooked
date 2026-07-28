@@ -119,17 +119,21 @@
 
     <label class="lf-label">Project</label>
     <input type="search" class="lf-input" placeholder="🔍 Search a project…" bind:value={search} />
-    <div class="lf-picklist">
+    <div class="lf-picklist" role="listbox" aria-label="Projects">
       {#if hits.length}
         {#each hits as [c, name]}
-          <div class="lf-pick" class:sel={selected === c} onclick={() => (selected = c)}>
+          <div class="lf-pick" class:sel={selected === c} tabindex="0" role="option" aria-selected={selected === c}
+               onclick={() => (selected = c)}
+               onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); selected = c; } }}>
             <span class="pn">{name}</span><span class="pp">{c}</span>
           </div>
         {/each}
       {:else}
         <div class="lf-empty">No project — use "Other folder…"</div>
       {/if}
-      <div class="lf-pick custom" class:sel={selected === '__custom'} onclick={chooseFolder}>📁 Other folder…</div>
+      <div class="lf-pick custom" class:sel={selected === '__custom'} tabindex="0" role="option" aria-selected={selected === '__custom'}
+           onclick={chooseFolder}
+           onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); chooseFolder(); } }}>📁 Other folder…</div>
     </div>
     {#if selected === '__custom'}
       <div class="ns-custom-row">
