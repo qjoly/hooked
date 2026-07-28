@@ -2,7 +2,7 @@
   import { untrack, onMount } from 'svelte';
   import { data, ui, settings, updateSettings, setTheme, setScheme, loadSessions, allTags, tagUsage, deleteTag } from '$lib/state.svelte.js';
   import { tagColor } from '$lib/format.js';
-  import { resync, getGit, checkoutBranch, dismissRestartNotice, getClaudeVersion, upgradeClaude, restartClaudeSession, pickFolder } from '$lib/api.js';
+  import { resync, getGit, checkoutBranch, dismissRestartNotice, getClaudeVersion, upgradeClaude, restartClaudeSession, pickFolder, getRemoteControl } from '$lib/api.js';
   import ModelEffort from '$lib/components/ModelEffort.svelte';
 
   // Navigation de section (rail gauche collant). Chaque entrée pointe l'id d'une carte ;
@@ -12,6 +12,7 @@
     { id: 'pset-sidebar', label: 'Sidebar' },
     { id: 'pset-new', label: 'New session defaults' },
     { id: 'pset-project', label: 'Default project' },
+    { id: 'pset-remote-control', label: 'Remote control' },
     { id: 'pset-digest', label: 'Daily digest' },
     { id: 'pset-live', label: 'Live state' },
     { id: 'pset-claude', label: 'Claude Code' },
@@ -124,6 +125,42 @@
       picking = false;
     }
   }
+
+  // ── Remote control ────────────────────────────────────────────────────────────────────────────
+  // Projects the hooked server keeps a `claude --remote-control` daemon alive for → start sessions
+  // on them from the Claude app. The list lives in settings.remoteControlProjects; the server
+  // reconciles the `hooked-rc-*` tmux sessions on every write. We poll /api/remote-control for the
+  // per-project daemon status (up / down / missing path).
+  const rcProjects = $derived(settings.remoteControlProjects || []);
+  let rcStatus = $state([]);          // [{ project, name, running, exists }]
+  let rcPicking = $state(false);
+  const rcStatusFor = (p) => rcStatus.find((r) => r.project === p) || null;
+  async function loadRcStatus() {
+    try { rcStatus = (await getRemoteControl()).projects || []; } catch (_) { rcStatus = []; }
+  }
+  function addRcProject(cwd) {
+    if (!cwd || rcProjects.includes(cwd)) return;
+    updateSettings({ remoteControlProjects: [...rcProjects, cwd] }).then(loadRcStatus);
+  }
+  function removeRcProject(cwd) {
+    updateSettings({ remoteControlProjects: rcProjects.filter((p) => p !== cwd) }).then(loadRcStatus);
+  }
+  async function browseRcProject() {
+    if (rcPicking) return;
+    rcPicking = true;
+    try {
+      const r = await pickFolder();
+      if (r.ok && r.data?.dir) addRcProject(r.data.dir);
+    } finally {
+      rcPicking = false;
+    }
+  }
+  onMount(() => {
+    loadRcStatus();
+    // Le démon peut mettre un instant à monter après un ajout → rafraîchit périodiquement le statut.
+    const t = setInterval(loadRcStatus, 4000);
+    return () => clearInterval(t);
+  });
 
   // Ordre local des sous-onglets, resynchronisé depuis le store (sauf pendant une réorganisation).
   let order = $state([...settings.subtabOrder]);
@@ -395,6 +432,37 @@
         </select>
         <button class="save" onclick={browseQuickProject} disabled={picking}>{picking ? '⏳' : '📂'} Browse…</button>
       </div>
+    </div>
+
+    <div class="card" id="pset-remote-control" data-sec>
+      <h2>Remote control</h2>
+      <p class="hint">Projects the hooked server keeps a <code>claude remote-control</code> server running for, so each shows up as a launchable <strong>environment</strong> in the Claude app (start new sessions on it from claude.ai/code or mobile). Each daemon runs in a detached tmux session (<code>hooked-rc-…</code>), self-heals if it exits, and is hidden from the dashboard. Removing a project stops its daemon.</p>
+      <div class="cmd-row">
+        <select class="cmd-input" value="" onchange={(e) => { addRcProject(e.currentTarget.value); e.currentTarget.value = ''; }}>
+          <option value="">— Add a project… —</option>
+          {#each projs as [cwd, name] (cwd)}
+            {#if !rcProjects.includes(cwd)}
+              <option value={cwd}>{name} — {cwd}</option>
+            {/if}
+          {/each}
+        </select>
+        <button class="save" onclick={browseRcProject} disabled={rcPicking}>{rcPicking ? '⏳' : '📂'} Browse…</button>
+      </div>
+      {#if rcProjects.length}
+        <ul class="rc-list">
+          {#each rcProjects as cwd (cwd)}
+            {@const st = rcStatusFor(cwd)}
+            <li class="rc-row">
+              <span class="rc-dot" class:on={st?.running} class:err={st && !st.exists} title={st ? (!st.exists ? 'Path is not a directory' : st.running ? 'Daemon running' : 'Daemon down') : 'Unknown'}></span>
+              <span class="rc-path" title={cwd}>{cwd}</span>
+              <span class="rc-state">{st ? (!st.exists ? 'missing path' : st.running ? 'running' : 'starting…') : ''}</span>
+              <button class="rc-rm" onclick={() => removeRcProject(cwd)} title="Stop daemon & remove">✕</button>
+            </li>
+          {/each}
+        </ul>
+      {:else}
+        <p class="hint" style="margin-top:8px">No projects yet — add one to expose it to the Claude app.</p>
+      {/if}
     </div>
 
     <div class="card" id="pset-digest" data-sec>
@@ -706,6 +774,15 @@
   .save { background: var(--accent); border: none; color: #fff; border-radius: 8px; padding: 9px 16px; cursor: pointer; font-weight: 600; font-size: 13px; }
   .save:hover { background: var(--accent-d); }
   .status { color: var(--muted); font-size: 12.5px; }
+  .rc-list { list-style: none; padding: 0; margin: 14px 0 0; display: flex; flex-direction: column; gap: 6px; }
+  .rc-row { display: flex; align-items: center; gap: 10px; background: var(--bg2); border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px; }
+  .rc-dot { flex: 0 0 auto; width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+  .rc-dot.on { background: #12b76a; }
+  .rc-dot.err { background: #f04438; }
+  .rc-path { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12.5px; font-family: var(--mono, ui-monospace, monospace); }
+  .rc-state { flex: 0 0 auto; color: var(--muted); font-size: 11.5px; }
+  .rc-rm { flex: 0 0 auto; background: var(--surface); border: 1px solid var(--border); color: var(--muted); border-radius: 6px; width: 26px; height: 24px; cursor: pointer; font-size: 11px; }
+  .rc-rm:hover { border-color: #f04438; color: #f04438; }
   .badge { display: inline-block; margin-left: 6px; padding: 1px 8px; border-radius: 20px; font-size: 11px; font-weight: 600; background: var(--bg3); border: 1px solid var(--border); color: var(--muted); vertical-align: middle; }
   .badge.dirty { color: var(--accent-d); border-color: var(--accent); background: var(--accent-soft); }
   .chip.danger { color: #b42318; border-color: #f0a99f; background: #fef3f2; }
