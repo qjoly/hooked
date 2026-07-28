@@ -3,6 +3,7 @@
   import { page } from '$app/state';
   import { ui, data, startLive, toggleFocus, toggleSidebarPeek, cycleTheme, toggleNotify, toggleNotifyPinnedOnly, openModal } from '$lib/state.svelte.js';
   import Modal from '$lib/components/Modal.svelte';
+  import CommandPalette from '$lib/components/CommandPalette.svelte';
   import '../app.css';
 
   let { children } = $props();
@@ -116,6 +117,7 @@
 </div>
 
 <Modal />
+<CommandPalette />
 
 <style>
   .shell { flex: 1 1 auto; min-height: 0; display: flex; }
