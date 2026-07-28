@@ -18,6 +18,7 @@ import { buildFileChanges } from './changes.js';
 import { buildSubagents } from './subagents.js';
 import { latestTodos, todoSummary } from './todos.js';
 import { buildBackgroundJobs, jobStatus } from './background.js';
+import { isRcTmuxName, markRcSession, rcSessionIdSet } from './remoteControl.js';
 
 // Sessions « live-only » : présentes dans les évènements de hooks mais pas encore
 // dans un transcript (Claude Code n'écrit le .jsonl qu'au premier message de
@@ -109,8 +110,19 @@ function buildSessions() {
   const panes = paneBySession(); // résolu en une passe (vs paneForSession par session)
   const questions = liveQuestionBySession(); // idem : une passe (vs liveQuestionForSession par session)
   const plans = livePlanBySession();         // idem pour les plans ExitPlanMode
+  // Démons remote-control (`hooked-rc-*`) : masqués de la liste — ce sont de l'infra, pas des
+  // sessions qu'on pilote depuis hooked. On les reconnaît par le nom tmux de leur pane (live), et on
+  // mémorise leur id pour qu'ils restent masqués une fois le pane mort (transcript persistant).
+  const paneNames = paneTmuxNames();
+  const hiddenRc = rcSessionIdSet();
+  const visible = sessions.filter((s) => {
+    const ev = last.get(s.id);
+    const pane = (ev && ev.tmux_pane) || panes.get(s.id) || null;
+    if (isRcTmuxName(pane ? paneNames.get(pane) : null)) { markRcSession(s.id); return false; }
+    return !hiddenRc.has(s.id);
+  });
   const now = Date.now();
-  for (const s of sessions) {
+  for (const s of visible) {
     // dépôt GitHub (owner/repo) pour le regroupement sidebar ; null hors dépôt git.
     s.repo = repoSlug(s.project);
     const ev = last.get(s.id);
@@ -162,10 +174,10 @@ function buildSessions() {
     s.todo = todoSummary(latestTodos(s.file));
   }
   // tri : plus récente activité d'abord
-  sessions.sort((a, b) => String(b.lastActivity || '').localeCompare(String(a.lastActivity || '')));
+  visible.sort((a, b) => String(b.lastActivity || '').localeCompare(String(a.lastActivity || '')));
   // on n'expose pas byDay en entier dans la liste (lourd) — juste un flag + la question
   // (légère) pour permettre la réponse en 1 clic directement depuis la sidebar.
-  return sessions.map(({ byDay, file, pendingQuestion, liveQuestion, livePlan,
+  return visible.map(({ byDay, file, pendingQuestion, liveQuestion, livePlan,
                          firstPrompt, prLinks, issueLinks, tools, lastPrompt, ...rest }) => {
     const question = liveQuestion || pendingQuestion || null;
     // Payload léger pour la LISTE (inbox / board / overview). On retire les champs que seul le

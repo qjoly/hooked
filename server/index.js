@@ -8,6 +8,7 @@ export * from './settings.js';
 export * from './tags.js';
 export * from './digests.js';
 export * from './digestScheduler.js';
+export * from './remoteControl.js';
 export * from './util.js';
 export * from './git.js';
 export * from './gitOps.js';

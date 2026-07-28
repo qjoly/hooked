@@ -34,6 +34,29 @@ describe('quickLaunchProject', () => {
   });
 });
 
+describe('remoteControlProjects', () => {
+  it('defaults to an empty list', () => {
+    expect(readSettings().remoteControlProjects).toEqual([]);
+  });
+
+  it('keeps absolute paths, deduped', () => {
+    const s = writeSettings({ remoteControlProjects: ['/a/proj', '/b/proj', '/a/proj'] });
+    expect(s.remoteControlProjects).toEqual(['/a/proj', '/b/proj']);
+    expect(readSettings().remoteControlProjects).toEqual(['/a/proj', '/b/proj']);
+  });
+
+  it('drops relative paths and non-strings', () => {
+    expect(writeSettings({ remoteControlProjects: ['rel/dir', 42, null, '/ok'] }).remoteControlProjects)
+      .toEqual(['/ok']);
+    expect(writeSettings({ remoteControlProjects: 'not-an-array' }).remoteControlProjects).toEqual([]);
+  });
+
+  it('caps the list at 32 entries', () => {
+    const many = Array.from({ length: 40 }, (_, i) => `/p/${i}`);
+    expect(writeSettings({ remoteControlProjects: many }).remoteControlProjects.length).toBe(32);
+  });
+});
+
 describe('digest', () => {
   it('defaults to { auto:true, hour:7, model:"" }', () => {
     expect(readSettings().digest).toEqual({ auto: true, hour: 7, model: '' });

@@ -43,6 +43,9 @@ export const getCapabilities = () => (_capsPromise ||= jget('/api/capabilities')
 // Réglages persistants de hooked (settings.json côté serveur, partagés entre navigateurs).
 export const getSettings = () => jget('/api/settings');
 export const saveSettings = (patch) => jpost('/api/settings', patch);
+
+// Per-project status of the remote-control daemons (Settings → Remote control).
+export const getRemoteControl = () => jget('/api/remote-control');
 // Étiquettes de session persistées côté serveur (tags.json, partagées entre navigateurs).
 export const getTags = () => jget('/api/tags');
 export const saveTags = (id, tags) => jpost('/api/tags', { id, tags });

@@ -69,6 +69,10 @@ const DEFAULTS = {
   // un raccourci macOS (Quick Action) qui POST /api/launch avec seulement un prompt. '' = aucun ;
   // launchSession exige alors un cwd explicite comme avant.
   quickLaunchProject: '',
+  // Projets pour lesquels le serveur hooked maintient un démon `claude remote-control` (mode serveur :
+  // le projet devient un ENVIRONNEMENT lançable depuis l'app Claude). Liste de chemins absolus ; le serveur
+  // réconcilie les sessions tmux `hooked-rc-*` à cette liste (cf. server/remoteControl.js). [] = aucun.
+  remoteControlProjects: [],
   // Digest quotidien (onglet Digest / server/digests.js). auto : génère le digest de la veille
   // chaque jour à `hour` (heure locale) ; model : modèle passé à `claude -p` ('' = hérite du défaut
   // Claude Code). Remplace les anciennes variables d'env HOOKED_DIGEST_*.
@@ -114,6 +118,12 @@ function sanitize(raw) {
     typeof o.quickLaunchProject === 'string' && o.quickLaunchProject.startsWith('/')
       ? o.quickLaunchProject.slice(0, 4096)
       : '';
+  // remoteControlProjects : liste de chemins absolus, dédupée et bornée (anti-abus : chaque démon
+  // spawn un process claude). L'existence du dossier n'est PAS vérifiée ici (le disque peut varier) —
+  // reconcileRemoteControl saute au lancement un chemin qui n'est plus un dossier.
+  const rcProjects = Array.isArray(o.remoteControlProjects)
+    ? [...new Set(o.remoteControlProjects.filter((p) => typeof p === 'string' && p.startsWith('/')).map((p) => p.slice(0, 4096)))].slice(0, 32)
+    : [];
   // digest : auto (bool, défaut true), hour (entier 0-23, défaut 7), model ('' = hérite, sinon
   // validé contre --model comme au lancement — jamais interpolé brut dans un shell sans ce filtre).
   const rawDg = o.digest && typeof o.digest === 'object' ? o.digest : {};
@@ -136,6 +146,7 @@ function sanitize(raw) {
     defaultEffort,
     defaultMode,
     quickLaunchProject,
+    remoteControlProjects: rcProjects,
     digest,
   };
 }
