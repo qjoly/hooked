@@ -1,12 +1,15 @@
 <script>
   import { onMount } from 'svelte';
+  import { goto } from '$app/navigation';
   import { page } from '$app/state';
   import { ui, data, startLive, toggleFocus, toggleSidebarPeek, cycleTheme, toggleNotify, toggleNotifyPinnedOnly, openModal } from '$lib/state.svelte.js';
+  import { matchShortcut } from '$lib/shortcuts.js';
   import Modal from '$lib/components/Modal.svelte';
   import CommandPalette from '$lib/components/CommandPalette.svelte';
   import '../app.css';
 
   let { children } = $props();
+  let palette;
   onMount(startLive);
 
   // Deep-links de session (`[label](/session/<id>)` rendus par autolink) : le routeur client
@@ -23,11 +26,8 @@
     return () => document.removeEventListener('click', onClick);
   });
 
-  // Bouton de thème : cycle Système → Clair → Sombre. L'icône reflète le choix courant.
   const themeLabel = $derived({ system: 'System', light: 'Light', dark: 'Dark' }[ui.theme] ?? 'System');
 
-  // Le rail et l'inbox vivent dans deux layouts distincts ; <body> est leur ancêtre commun →
-  // on reflète le mode focus sur body et tout le CSS focus s'y accroche.
   $effect(() => {
     document.body.classList.toggle('focus', ui.focus);
     document.body.classList.toggle('sidebar-peek', ui.focus && ui.sidebarPeek);
@@ -41,12 +41,41 @@
   const onDigest = $derived(page.url.pathname.startsWith('/digest'));
   const onSessions = $derived(!onStats && !onSearch && !onSettings && !onNew && !onBoard && !onDigest);
 
-  // pastille « à traiter » sur l'icône Sessions du rail : question/plan en attente, ou état
-  // waiting/attention (Claude t'attend). Miroir logique du badge d'onglet (notify.js).
   const needsReply = $derived(
     data.sessions.filter((s) => s.hasQuestion || s.hasPlan || s.state === 'waiting' || s.state === 'attention').length,
   );
+
+  function onGlobalKeydown(e) {
+    const id = matchShortcut(e);
+    if (!id) return;
+
+    const tag = e.target?.tagName;
+    const isInput = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || e.target?.isContentEditable;
+    const alwaysActive = ['command-palette', 'commands-only', 'new-session', 'search', 'settings',
+      'go-sessions', 'go-board', 'go-search', 'go-stats', 'go-digest', 'focus-mode', 'theme-cycle'];
+    if (isInput && !alwaysActive.includes(id)) return;
+
+    e.preventDefault();
+    switch (id) {
+      case 'command-palette': palette?.toggle(); break;
+      case 'commands-only': palette?.openCommands(); break;
+      case 'new-session': goto('/new'); break;
+      case 'search': goto('/search'); break;
+      case 'settings': goto('/settings'); break;
+      case 'go-sessions': goto('/'); break;
+      case 'go-board': goto('/board'); break;
+      case 'go-search': goto('/search'); break;
+      case 'go-stats': goto('/stats'); break;
+      case 'go-digest': goto('/digest'); break;
+      case 'focus-mode': toggleFocus(); break;
+      case 'theme-cycle': cycleTheme(); break;
+    }
+  }
 </script>
+
+<svelte:window onkeydown={onGlobalKeydown} />
+
+<a href="#main-content" class="skip-link">Skip to main content</a>
 
 <div class="shell">
   <nav class="rail" aria-label="Primary">
@@ -104,7 +133,7 @@
     <div class="rail-avatar" class:live={ui.live} title={ui.live ? 'Live — connected' : 'Reconnecting…'}>BT</div>
   </nav>
 
-  <main>
+  <main id="main-content">
     {@render children()}
   </main>
 
@@ -117,9 +146,17 @@
 </div>
 
 <Modal />
-<CommandPalette />
+<CommandPalette bind:this={palette} />
 
 <style>
+  .skip-link {
+    position: fixed; top: -100px; left: 16px; z-index: 9999;
+    background: var(--accent); color: var(--accent-fg); padding: 8px 16px;
+    border-radius: 0 0 8px 8px; font-weight: 700; font-size: 13px;
+    text-decoration: none; transition: top .15s;
+  }
+  .skip-link:focus { top: 0; }
+
   .shell { flex: 1 1 auto; min-height: 0; display: flex; }
 
   .rail {
@@ -147,6 +184,7 @@
   .rail-item.on { color: var(--accent); }
   .rail-item:disabled { opacity: .4; cursor: default; }
   .rail-item:disabled:hover { background: transparent; color: var(--muted); }
+  .rail-item:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   .rail-dot {
     position: absolute; top: 5px; right: 5px; width: 7px; height: 7px; border-radius: 50%;
     background: var(--warn); border: 1.5px solid var(--bg2);

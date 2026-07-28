@@ -3,6 +3,7 @@
   import { page } from '$app/state';
   import { ui, data, sessionTitle, cycleScheme, setTheme, toggleFocus, toggleNotify, openModal } from '$lib/state.svelte.js';
   import { kill, interrupt, openInVscode, openInGhostty, resync } from '$lib/api.js';
+  import { shortcutForCommand, formatKeys } from '$lib/shortcuts.js';
 
   let open = $state(false);
   let query = $state('');
@@ -104,17 +105,24 @@
   });
 
   $effect(() => {
-    query; // reset selection only when the user types
+    query;
     sel = 0;
   });
 
-  function toggle() {
+  export function toggle() {
     open = !open;
     if (open) {
       query = '';
       sel = 0;
       requestAnimationFrame(() => input?.focus());
     }
+  }
+
+  export function openCommands() {
+    open = true;
+    query = '>';
+    sel = 0;
+    requestAnimationFrame(() => input?.focus());
   }
 
   function execute(item) {
@@ -124,11 +132,6 @@
   }
 
   function onKeydown(e) {
-    if ((e.metaKey || e.ctrlKey) && e.key === 'p') {
-      e.preventDefault();
-      toggle();
-      return;
-    }
     if (!open) return;
     if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); open = false; return; }
     if (e.key === 'ArrowDown') { e.preventDefault(); sel = Math.min(sel + 1, filtered.length - 1); scrollIntoView(); return; }
@@ -139,7 +142,7 @@
   let listEl;
   function scrollIntoView() {
     requestAnimationFrame(() => {
-      const el = listEl?.querySelector('.selected');
+      const el = listEl?.querySelector('[aria-selected="true"]');
       el?.scrollIntoView({ block: 'nearest' });
     });
   }
@@ -149,13 +152,18 @@
     const prev = filtered[i - 1];
     return prev.section !== item.section ? item.section : null;
   }
+
+  function shortcutHint(item) {
+    const keys = shortcutForCommand(item.id);
+    return keys ? formatKeys(keys) : '';
+  }
 </script>
 
 <svelte:window onkeydown={onKeydown} />
 
 {#if open}
-  <div class="palette-overlay" onclick={() => { open = false; }}>
-    <div class="palette" onclick={(e) => e.stopPropagation()}>
+  <div class="palette-overlay" onclick={() => { open = false; }} role="presentation">
+    <div class="palette" role="dialog" aria-modal="true" aria-label="Command palette" onclick={(e) => e.stopPropagation()}>
       <div class="palette-input-row">
         <svg class="palette-search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
         <input
@@ -165,21 +173,29 @@
           placeholder="Search sessions and commands… (type > for commands)"
           spellcheck="false"
           autocomplete="off"
+          role="combobox"
+          aria-expanded="true"
+          aria-controls="palette-listbox"
+          aria-activedescendant={filtered.length ? `palette-item-${sel}` : undefined}
         />
         <kbd class="palette-kbd">esc</kbd>
       </div>
-      <div class="palette-list" bind:this={listEl}>
+      <div class="palette-list" bind:this={listEl} id="palette-listbox" role="listbox" aria-label="Results">
         {#if filtered.length === 0}
           <div class="palette-empty">No results</div>
         {/if}
         {#each filtered as item, i}
           {@const section = sectionHeader(item, i)}
+          {@const hint = shortcutHint(item)}
           {#if section}
-            <div class="palette-section">{section}</div>
+            <div class="palette-section" role="presentation">{section}</div>
           {/if}
-          <button
+          <div
+            id="palette-item-{i}"
             class="palette-item"
             class:selected={i === sel}
+            role="option"
+            aria-selected={i === sel}
             onmouseenter={() => { sel = i; }}
             onclick={() => execute(item)}
           >
@@ -188,7 +204,10 @@
             {#if item.detail}
               <span class="palette-detail">{item.detail}</span>
             {/if}
-          </button>
+            {#if hint}
+              <kbd class="palette-shortcut">{hint}</kbd>
+            {/if}
+          </div>
         {/each}
       </div>
       <div class="palette-footer">
@@ -265,6 +284,12 @@
   .palette-detail {
     flex: 0 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
     color: var(--muted); font-size: 12px; max-width: 200px;
+  }
+  .palette-shortcut {
+    flex: 0 0 auto;
+    font: 11px/1 var(--mono); color: var(--muted);
+    background: var(--bg3); border: 1px solid var(--border);
+    border-radius: 4px; padding: 2px 6px; white-space: nowrap;
   }
   .palette-footer {
     display: flex; gap: 16px; padding: 8px 16px;
