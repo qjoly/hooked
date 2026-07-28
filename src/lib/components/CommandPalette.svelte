@@ -1,0 +1,279 @@
+<script>
+  import { goto } from '$app/navigation';
+  import { page } from '$app/state';
+  import { ui, data, sessionTitle, cycleScheme, setTheme, toggleFocus, toggleNotify, openModal } from '$lib/state.svelte.js';
+  import { kill, interrupt, openInVscode, openInGhostty, resync } from '$lib/api.js';
+
+  let open = $state(false);
+  let query = $state('');
+  let sel = $state(0);
+  let input;
+
+  const STATUS_ICONS = { working: '🔵', waiting: '🟡', attention: '🔴', background: '🟣', ended: '✅', idle: '⚪' };
+
+  const currentSessionId = $derived.by(() => {
+    const m = page.url.pathname.match(/^\/session\/(.+)/);
+    return m ? decodeURIComponent(m[1]) : null;
+  });
+  const currentSession = $derived.by(() => {
+    const id = currentSessionId;
+    return id ? data.sessions.find(s => s.id === id) : null;
+  });
+
+  const NAV_COMMANDS = [
+    { id: 'nav:board', label: 'Go to Board', section: 'Navigation', icon: '📋', action: () => goto('/board') },
+    { id: 'nav:sessions', label: 'Go to Sessions', section: 'Navigation', icon: '📥', action: () => goto('/') },
+    { id: 'nav:new', label: 'New session', section: 'Navigation', icon: '➕', action: () => goto('/new') },
+    { id: 'nav:search', label: 'Go to Search', section: 'Navigation', icon: '🔍', action: () => goto('/search') },
+    { id: 'nav:stats', label: 'Go to Stats', section: 'Navigation', icon: '📊', action: () => goto('/stats') },
+    { id: 'nav:digest', label: 'Go to Digest', section: 'Navigation', icon: '📖', action: () => goto('/digest') },
+    { id: 'nav:settings', label: 'Go to Settings', section: 'Navigation', icon: '⚙️', action: () => goto('/settings') },
+  ];
+
+  const commands = $derived.by(() => {
+    const cs = currentSession;
+    const cmds = [
+      ...NAV_COMMANDS,
+      { id: 'act:theme-light', label: 'Theme: Light', section: 'Appearance', icon: '☀️', action: () => setTheme('light') },
+      { id: 'act:theme-dark', label: 'Theme: Dark', section: 'Appearance', icon: '🌙', action: () => setTheme('dark') },
+      { id: 'act:theme-system', label: 'Theme: System', section: 'Appearance', icon: '🖥️', action: () => setTheme('system') },
+      { id: 'act:scheme', label: `Color scheme: switch to ${ui.scheme === 'default' ? 'Legacy' : 'Default'}`, section: 'Appearance', icon: '🎨', action: cycleScheme },
+      { id: 'act:focus', label: ui.focus ? 'Exit focus mode' : 'Enter focus mode', section: 'Actions', icon: '🎯', action: toggleFocus },
+      { id: 'act:notify', label: ui.notify ? 'Disable notifications' : 'Enable notifications', section: 'Actions', icon: ui.notify ? '🔔' : '🔕', action: toggleNotify },
+      { id: 'act:trash', label: 'Open trash', section: 'Actions', icon: '🗑️', action: () => openModal('trash') },
+      { id: 'act:diffmode', label: `Diff: switch to ${ui.diffSplit ? 'unified' : 'split'}`, section: 'Actions', icon: '📝', action: () => { ui.diffSplit = !ui.diffSplit; } },
+      { id: 'act:grouping', label: `Sidebar: group by ${ui.groupByProject ? 'status' : 'project'}`, section: 'Actions', icon: '📂', action: () => { ui.groupByProject = !ui.groupByProject; } },
+      { id: 'act:resync', label: 'Force resync all sessions', section: 'Actions', icon: '🔄', action: () => resync() },
+    ];
+    if (cs) {
+      cmds.push(
+        { id: 'ctx:copy-path', label: `Copy project path: ${cs.projectName || cs.cwd}`, section: 'Current session', icon: '📋', action: () => navigator.clipboard.writeText(cs.cwd) },
+        { id: 'ctx:vscode', label: 'Open project in VS Code', section: 'Current session', icon: '💻', action: () => openInVscode(cs.id) },
+        { id: 'ctx:ghostty', label: 'Open in Ghostty', section: 'Current session', icon: '👻', action: () => openInGhostty(cs.id) },
+        { id: 'ctx:interrupt', label: 'Interrupt session', section: 'Current session', icon: '⏸️', action: () => interrupt(cs.id), hidden: cs.state !== 'working' },
+        { id: 'ctx:stop', label: 'Stop session', section: 'Current session', icon: '⏹️', action: () => kill(cs.id), hidden: cs.state === 'ended' },
+      );
+    }
+    return cmds.filter(c => !c.hidden);
+  });
+
+  const sessionItems = $derived.by(() => {
+    return data.sessions.map(s => ({
+      id: 'session:' + s.id,
+      label: sessionTitle(s),
+      detail: [s.projectName, s.gitBranch].filter(Boolean).join(' · '),
+      icon: STATUS_ICONS[s.state] || '⚪',
+      section: 'Sessions',
+      sessionId: s.id,
+      action: () => goto('/session/' + encodeURIComponent(s.id)),
+    }));
+  });
+
+  function fuzzy(text, q) {
+    const lower = text.toLowerCase();
+    const ql = q.toLowerCase();
+    let score = 0;
+    let j = 0;
+    for (let i = 0; i < ql.length; i++) {
+      const idx = lower.indexOf(ql[i], j);
+      if (idx === -1) return -1;
+      score += (idx === j) ? 2 : (idx === 0 || text[idx - 1] === ' ' || text[idx - 1] === '/') ? 1 : 0;
+      j = idx + 1;
+    }
+    if (lower.startsWith(ql)) score += 10;
+    else if (lower.includes(ql)) score += 5;
+    return score;
+  }
+
+  const filtered = $derived.by(() => {
+    const q = query.trim();
+    if (!q) return [...sessionItems.slice(0, 8), ...commands];
+    const isCmd = q.startsWith('>');
+    const search = isCmd ? q.slice(1).trim() : q;
+    if (!search && isCmd) return commands;
+
+    const scored = [];
+    const pool = isCmd ? commands : [...sessionItems, ...commands];
+    for (const item of pool) {
+      const haystack = item.label + ' ' + (item.detail || '');
+      const s = fuzzy(haystack, search);
+      if (s >= 0) scored.push({ item, score: s });
+    }
+    scored.sort((a, b) => b.score - a.score);
+    return scored.map(s => s.item);
+  });
+
+  $effect(() => {
+    query; // reset selection only when the user types
+    sel = 0;
+  });
+
+  function toggle() {
+    open = !open;
+    if (open) {
+      query = '';
+      sel = 0;
+      requestAnimationFrame(() => input?.focus());
+    }
+  }
+
+  function execute(item) {
+    if (!item) return;
+    open = false;
+    item.action();
+  }
+
+  function onKeydown(e) {
+    if ((e.metaKey || e.ctrlKey) && e.key === 'p') {
+      e.preventDefault();
+      toggle();
+      return;
+    }
+    if (!open) return;
+    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); open = false; return; }
+    if (e.key === 'ArrowDown') { e.preventDefault(); sel = Math.min(sel + 1, filtered.length - 1); scrollIntoView(); return; }
+    if (e.key === 'ArrowUp') { e.preventDefault(); sel = Math.max(sel - 1, 0); scrollIntoView(); return; }
+    if (e.key === 'Enter') { e.preventDefault(); execute(filtered[sel]); return; }
+  }
+
+  let listEl;
+  function scrollIntoView() {
+    requestAnimationFrame(() => {
+      const el = listEl?.querySelector('.selected');
+      el?.scrollIntoView({ block: 'nearest' });
+    });
+  }
+
+  function sectionHeader(item, i) {
+    if (i === 0) return item.section;
+    const prev = filtered[i - 1];
+    return prev.section !== item.section ? item.section : null;
+  }
+</script>
+
+<svelte:window onkeydown={onKeydown} />
+
+{#if open}
+  <div class="palette-overlay" onclick={() => { open = false; }}>
+    <div class="palette" onclick={(e) => e.stopPropagation()}>
+      <div class="palette-input-row">
+        <svg class="palette-search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+        <input
+          bind:this={input}
+          bind:value={query}
+          class="palette-input"
+          placeholder="Search sessions and commands… (type > for commands)"
+          spellcheck="false"
+          autocomplete="off"
+        />
+        <kbd class="palette-kbd">esc</kbd>
+      </div>
+      <div class="palette-list" bind:this={listEl}>
+        {#if filtered.length === 0}
+          <div class="palette-empty">No results</div>
+        {/if}
+        {#each filtered as item, i}
+          {@const section = sectionHeader(item, i)}
+          {#if section}
+            <div class="palette-section">{section}</div>
+          {/if}
+          <button
+            class="palette-item"
+            class:selected={i === sel}
+            onmouseenter={() => { sel = i; }}
+            onclick={() => execute(item)}
+          >
+            <span class="palette-icon">{item.icon}</span>
+            <span class="palette-label">{item.label}</span>
+            {#if item.detail}
+              <span class="palette-detail">{item.detail}</span>
+            {/if}
+          </button>
+        {/each}
+      </div>
+      <div class="palette-footer">
+        <span><kbd>↑↓</kbd> navigate</span>
+        <span><kbd>↵</kbd> select</span>
+        <span><kbd>esc</kbd> close</span>
+        <span><kbd>&gt;</kbd> commands only</span>
+      </div>
+    </div>
+  </div>
+{/if}
+
+<style>
+  .palette-overlay {
+    position: fixed; inset: 0; z-index: 1000;
+    background: var(--overlay);
+    display: flex; justify-content: center; padding-top: min(20vh, 120px);
+  }
+  .palette {
+    width: min(640px, calc(100vw - 32px));
+    max-height: min(480px, 70vh);
+    background: var(--bg2);
+    border: 1px solid var(--border2);
+    border-radius: 12px;
+    box-shadow: 0 16px 48px -8px rgba(0,0,0,.4);
+    display: flex; flex-direction: column;
+    overflow: hidden;
+    align-self: flex-start;
+  }
+  .palette-input-row {
+    display: flex; align-items: center; gap: 8px;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border);
+  }
+  .palette-search-icon { flex: 0 0 auto; color: var(--muted); }
+  .palette-input {
+    flex: 1; background: none; border: none; outline: none;
+    font: 15px/1.4 var(--font); color: var(--text);
+  }
+  .palette-input::placeholder { color: var(--muted); }
+  .palette-kbd {
+    flex: 0 0 auto;
+    font: 11px/1 var(--mono); color: var(--muted);
+    background: var(--bg3); border: 1px solid var(--border);
+    border-radius: 4px; padding: 2px 6px;
+  }
+  .palette-list {
+    flex: 1 1 auto; overflow-y: auto; padding: 4px 0;
+  }
+  .palette-empty {
+    padding: 24px 16px; text-align: center;
+    color: var(--muted); font: 14px/1.4 var(--font);
+  }
+  .palette-section {
+    padding: 8px 16px 4px;
+    font: 600 11px/1 var(--font); color: var(--muted);
+    text-transform: uppercase; letter-spacing: .06em;
+  }
+  .palette-item {
+    display: flex; align-items: center; gap: 10px;
+    width: 100%; padding: 7px 16px;
+    background: none; border: none; cursor: pointer;
+    font: 14px/1.4 var(--font); color: var(--text);
+    text-align: left; transition: background .06s;
+  }
+  .palette-item:hover, .palette-item.selected {
+    background: var(--hover);
+  }
+  .palette-item.selected {
+    background: var(--accent-soft);
+  }
+  .palette-icon { flex: 0 0 auto; font-size: 15px; width: 22px; text-align: center; }
+  .palette-label { flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .palette-detail {
+    flex: 0 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    color: var(--muted); font-size: 12px; max-width: 200px;
+  }
+  .palette-footer {
+    display: flex; gap: 16px; padding: 8px 16px;
+    border-top: 1px solid var(--border);
+    font: 12px/1 var(--font); color: var(--muted);
+  }
+  .palette-footer kbd {
+    font: 11px/1 var(--mono); background: var(--bg3);
+    border: 1px solid var(--border); border-radius: 3px;
+    padding: 1px 4px; margin-right: 2px;
+  }
+</style>
