@@ -32,6 +32,22 @@
     if (s === 'OPEN') return 'open';
     return '';
   }
+
+  function reviewClass(rd) {
+    const s = String(rd || '').toUpperCase();
+    if (s === 'APPROVED') return 'approved';
+    if (s === 'CHANGES_REQUESTED') return 'changes';
+    if (s === 'REVIEW_REQUIRED') return 'pending';
+    return '';
+  }
+
+  function reviewLabel(rd) {
+    const s = String(rd || '').toUpperCase();
+    if (s === 'APPROVED') return 'Approved';
+    if (s === 'CHANGES_REQUESTED') return 'Changes requested';
+    if (s === 'REVIEW_REQUIRED') return 'Review required';
+    return '';
+  }
 </script>
 
 {#if prLinks.length}
@@ -50,6 +66,7 @@
           {#if meta}
             <div class="pr-right">
               {#if meta.state}<span class="pr-state s-{stateClass(meta.state)}">{meta.state}</span>{/if}
+              {#if meta.reviewDecision}<span class="pr-review r-{reviewClass(meta.reviewDecision)}">{reviewLabel(meta.reviewDecision)}</span>{/if}
               {#if meta.author}<span class="pr-author">@{meta.author}</span>{/if}
             </div>
           {:else if entry?.loading}
@@ -94,6 +111,13 @@
   .pr-state.s-open { background: #2a9d63; }
   .pr-state.s-merged { background: #8250df; }
   .pr-state.s-closed { background: #cf222e; }
+  .pr-review {
+    font-family: var(--mono); font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .03em;
+    padding: 2px 9px; border-radius: 20px; color: #fff; background: #6b7280;
+  }
+  .pr-review.r-approved { background: #2a9d63; }
+  .pr-review.r-changes { background: #cf222e; }
+  .pr-review.r-pending { background: #9a6700; }
   .pr-author { font-family: var(--mono); font-size: 11.5px; color: var(--muted); }
   .pr-muted { font-size: 11.5px; color: var(--muted); }
   .pr-toggle {
