@@ -3,6 +3,7 @@
   import { data, ui, settings, updateSettings, setTheme, setScheme, loadSessions, allTags, tagUsage, deleteTag } from '$lib/state.svelte.js';
   import { tagColor } from '$lib/format.js';
   import { resync, getGit, checkoutBranch, dismissRestartNotice, getClaudeVersion, upgradeClaude, restartClaudeSession, pickFolder, getRemoteControl } from '$lib/api.js';
+  import { getAllBindings, setBinding, resetBinding, resetAll as resetAllShortcuts, formatKeys, keysFromEvent } from '$lib/shortcuts.js';
   import ModelEffort from '$lib/components/ModelEffort.svelte';
 
   // Navigation de section (rail gauche collant). Chaque entrée pointe l'id d'une carte ;
@@ -18,6 +19,7 @@
     { id: 'pset-claude', label: 'Claude Code' },
     { id: 'pset-git', label: 'Git' },
     { id: 'pset-tags', label: 'Tags' },
+    { id: 'pset-shortcuts', label: 'Keyboard shortcuts' },
     { id: 'pset-interface', label: 'Interface' },
   ];
   let activeSec = $state(NAV[0].id);
@@ -341,6 +343,20 @@
   }
   onMount(() => { loadGit(); loadClaude(); });
 
+  // ── Keyboard shortcuts ─────────────────────────────────────────────────────────────────────
+  let shortcuts = $state(getAllBindings());
+  let recordingId = $state(null);
+  function startRecording(id) { recordingId = id; }
+  function cancelRecording() { recordingId = null; }
+  function doResetBinding(id) {
+    resetBinding(id);
+    shortcuts = getAllBindings();
+  }
+  function doResetAll() {
+    resetAllShortcuts();
+    shortcuts = getAllBindings();
+  }
+
   async function doCheckout(strategy) {
     if (!selected || checkingOut) return;
     checkingOut = true; checkoutStatus = strategy === 'block' ? '' : '';
@@ -366,6 +382,18 @@
     if (res?.ok && git) git = { ...git, sync: res.data.sync };
   }
 </script>
+
+<svelte:window onkeydown={(e) => {
+  if (!recordingId) return;
+  e.preventDefault();
+  e.stopPropagation();
+  if (e.key === 'Escape') { recordingId = null; return; }
+  const keys = keysFromEvent(e);
+  if (!keys) return;
+  setBinding(recordingId, keys);
+  recordingId = null;
+  shortcuts = getAllBindings();
+}} />
 
 <section id="view-settings" class="view active">
   <div class="set-wrap">
@@ -663,6 +691,37 @@
       {/if}
     </div>
 
+    <div class="card" id="pset-shortcuts" data-sec>
+      <h2>Keyboard shortcuts</h2>
+      <p class="hint">Click a shortcut to record a new binding. All shortcuts are stored per-browser.</p>
+      {#each ['Navigation', 'Actions'] as section}
+        <h3 class="sc-section">{section}</h3>
+        <ul class="reorder">
+          {#each shortcuts.filter(s => s.section === section) as sc (sc.id)}
+            <li>
+              <span class="ro-name">{sc.label}</span>
+              <span class="ro-actions sc-actions">
+                {#if recordingId === sc.id}
+                  <kbd class="sc-recording">Press a key combo…</kbd>
+                  <button class="mini" onclick={cancelRecording} title="Cancel">✕</button>
+                {:else}
+                  <button class="sc-key" onclick={() => startRecording(sc.id)} title="Click to remap">
+                    {formatKeys(sc.keys)}
+                  </button>
+                  {#if sc.isCustom}
+                    <button class="mini" onclick={() => doResetBinding(sc.id)} title="Reset to default">↺</button>
+                  {/if}
+                {/if}
+              </span>
+            </li>
+          {/each}
+        </ul>
+      {/each}
+      <div class="cmd-row" style="margin-top:14px">
+        <button class="chip" onclick={doResetAll}>Reset all to defaults</button>
+      </div>
+    </div>
+
     <div class="card" id="pset-interface" data-sec>
       <h2>Session status bar</h2>
       <p class="hint">Reorder the elements with ▲/▼ and toggle which ones appear in the session header. Click the eye to hide or show each one.</p>
@@ -832,4 +891,25 @@
   .tl-count { color: var(--muted); font-size: 12px; }
   .tl-actions { margin-left: auto; display: flex; gap: 6px; }
   .tl-empty { margin: 0; }
+
+  /* Keyboard shortcuts */
+  .sc-section { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 14px 0 6px; }
+  .sc-section:first-of-type { margin-top: 0; }
+  .sc-actions { display: flex; gap: 4px; align-items: center; }
+  .sc-key {
+    display: inline-flex; align-items: center; gap: 4px;
+    font: 12px/1 var(--mono); color: var(--text);
+    background: var(--bg3); border: 1px solid var(--border); border-radius: 6px;
+    padding: 4px 10px; cursor: pointer; white-space: nowrap;
+    transition: border-color .12s, background .12s;
+  }
+  .sc-key:hover { border-color: var(--accent); background: var(--accent-soft); }
+  .sc-recording {
+    display: inline-flex; align-items: center;
+    font: 12px/1 var(--mono); color: var(--accent);
+    background: var(--accent-soft); border: 2px solid var(--accent); border-radius: 6px;
+    padding: 4px 10px; white-space: nowrap; outline: none;
+    animation: sc-pulse 1s ease-in-out infinite;
+  }
+  @keyframes sc-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .6; } }
 </style>

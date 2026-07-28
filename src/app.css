@@ -430,6 +430,8 @@ input[type=search], select, input.lf-input, textarea.lf-input {
 }
 input[type=search]::placeholder, .lf-input::placeholder { color: var(--muted); }
 input[type=search]:focus, select:focus, .lf-input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+input:focus-visible, textarea:focus-visible, select:focus-visible { outline: none; }
 .chk { color: var(--muted); display: flex; align-items: center; gap: 6px; font-size: 13px; cursor: pointer; }
 .chk input { accent-color: var(--accent); }
 

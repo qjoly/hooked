@@ -265,8 +265,9 @@
 </aside>
 
 {#snippet row(s)}
-  <div class="pt-row" class:active={page.params.id === s.id}
-       onclick={() => goto('/session/' + encodeURIComponent(s.id))}>
+  <div class="pt-row" class:active={page.params.id === s.id} tabindex="0" role="link"
+       onclick={() => goto('/session/' + encodeURIComponent(s.id))}
+       onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); goto('/session/' + encodeURIComponent(s.id)); } }}>
     <span class="pt-dot pt-dot-{dotClass(s)}"></span>
     <div class="pt-body">
       <div class="pt-titlerow">
@@ -433,9 +434,11 @@
   }
   .pt-row:hover, .pt-row.active { border-radius: 9px; }
   .pt-row:hover::before, .pt-row:hover + .pt-row::before,
-  .pt-row.active::before, .pt-row.active + .pt-row::before { display: none; }
+  .pt-row.active::before, .pt-row.active + .pt-row::before,
+  .pt-row:focus-visible::before, .pt-row:focus-visible + .pt-row::before { display: none; }
   .pt-row:hover { background: var(--hover); }
   .pt-row.active { background: var(--accent-soft); box-shadow: inset 2px 0 0 var(--accent); }
+  .pt-row:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; background: var(--hover); }
   .pt-dot { width: 8px; height: 8px; border-radius: 50%; margin-top: 5px; flex: 0 0 auto; }
   .pt-dot-info { background: var(--info); }
   .pt-dot-warn { background: var(--warn); }
