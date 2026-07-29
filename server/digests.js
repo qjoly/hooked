@@ -28,6 +28,28 @@ const GEN_TIMEOUT_MS = 5 * 60 * 1000;
 
 const isValidDate = (d) => typeof d === 'string' && DATE_RE.test(d);
 
+// Per-session overall-status categories. The LLM picks one; `mergeLlm` validates against this set
+// and falls back to a deterministic guess (fallbackStatus) when the model omits or invents one.
+const STATUS_KINDS = new Set(['shipped', 'in-review', 'blocked', 'question', 'in-progress', 'done']);
+
+// Deterministic status when the model didn't supply one (partial mode, or a session the model
+// skipped). Ordered by urgency: an unanswered question or an open PR is more informative than a
+// generic "in progress". `pending` is only ever set by the LLM, so it's empty in partial mode.
+function fallbackStatus(s) {
+  if (s.pendingQuestion?.length) return { status: 'Awaiting your answer', statusKind: 'question' };
+  if (s.prLinks?.length) return { status: 'PR opened, not merged', statusKind: 'in-review' };
+  if (s.pending) return { status: 'Work in progress', statusKind: 'in-progress' };
+  return { status: 'Wrapped up', statusKind: 'done' };
+}
+
+// Fill any missing status/statusKind from the deterministic fallback (idempotent).
+function ensureStatus(s) {
+  if (s.status && s.statusKind) return;
+  const fb = fallbackStatus(s);
+  if (!s.status) s.status = fb.status;
+  if (!s.statusKind) s.statusKind = fb.statusKind;
+}
+
 // Our own `claude -p` digest runs get recorded as sessions like any other. Skip them so a digest
 // doesn't summarize itself — matched by the fixed prefix of buildPrompt's instruction.
 const DIGEST_PROMPT_PREFIX = 'You are writing a concise daily engineering digest';
@@ -141,6 +163,8 @@ function collectSessionsForDay(date) {
       // filled by the LLM pass:
       accomplished: '',
       pending: '',
+      status: '',       // short one-line overall status (e.g. "PR #42 opened, not merged")
+      statusKind: '',   // one of STATUS_KINDS — drives the status dot colour in the UI
     });
   }
   // Busiest first, then cap.
@@ -199,10 +223,11 @@ Respond with ONLY a JSON object (no markdown fence, no prose around it) of this 
 {
   "summary": "2-5 sentence markdown recap of the day's work overall",
   "highlights": ["short bullet of a notable accomplishment", "..."],
-  "perSession": [ { "id": "<session id>", "accomplished": "1-2 sentences on what this session did", "pending": "what is left to do / blocked, or empty string" } ],
+  "perSession": [ { "id": "<session id>", "accomplished": "1-2 sentences on what this session did", "pending": "what is left to do / blocked, or empty string", "status": "at most ~6 words capturing the overall state, e.g. 'PR #42 opened, not merged', 'Blocked on INC-4021', 'Merged and deployed'", "statusKind": "one of: shipped | in-review | blocked | question | in-progress | done" } ],
   "blockers": ["anything explicitly blocked or awaiting a decision, or omit if none"]
 }
-Keep it factual and grounded in the briefs above. Prefer specifics (file/feature/PR names) over generic phrasing. Include a perSession entry for every session id.`;
+statusKind guide: "shipped" = merged/deployed, nothing left; "in-review" = PR opened but not yet merged; "blocked" = waiting on an external decision, issue, or person; "question" = needs an answer from the user; "in-progress" = work continues, not blocked; "done" = finished with nothing outstanding.
+Keep it factual and grounded in the briefs above. Prefer specifics (file/feature/PR names) over generic phrasing. Include a perSession entry for every session id, always with both a status and a statusKind.`;
 }
 
 // Extract a JSON object from `claude -p --output-format json` output. The envelope wraps the model
@@ -253,7 +278,14 @@ function mergeLlm(sessions, llm) {
   const byId = new Map((llm.perSession || []).map((p) => [p.id, p]));
   for (const s of sessions) {
     const p = byId.get(s.id);
-    if (p) { s.accomplished = String(p.accomplished || ''); s.pending = String(p.pending || ''); }
+    if (p) {
+      s.accomplished = String(p.accomplished || '');
+      s.pending = String(p.pending || '');
+      s.status = String(p.status || '').slice(0, 80);
+      const kind = String(p.statusKind || '').toLowerCase();
+      s.statusKind = STATUS_KINDS.has(kind) ? kind : '';
+    }
+    ensureStatus(s);
   }
 }
 
@@ -320,6 +352,7 @@ async function generate(date) {
   }
 
   // Model failed: keep the deterministic digest, flag the AI error (still fully usable).
+  sessions.forEach(ensureStatus);
   return writeDigest(date, {
     ...base,
     status: 'partial',
