@@ -43,8 +43,12 @@
   const sessions = $derived(ready ? (digest.sessions || []) : []);
   const pending = $derived(ready ? (digest.pending || []) : []);
   const blockers = $derived(ready ? (digest.blockers || []) : []);
+  const highlights = $derived(ready ? (digest.highlights || []) : []);
   const totals = $derived(digest?.totals || null);
   const toolList = (t) => Object.entries(t || {}).sort((a, b) => b[1] - a[1]);
+
+  // statusKind → CSS class; colour lives in the stylesheet (.k-<kind>).
+  const kindClass = (k) => `k-${k || 'in-progress'}`;
 </script>
 
 <div class="digest">
@@ -96,68 +100,87 @@
 
       {#if totals}
         <div class="kpis">
-          <div class="kpi"><b>{totals.sessions}</b><span>sessions</span></div>
-          <div class="kpi"><b>{totals.turns}</b><span>turns</span></div>
-          <div class="kpi"><b>{totals.prompts}</b><span>prompts</span></div>
-          <div class="kpi"><b>{fmtCost(totals.cost)}</b><span>est. cost</span></div>
+          <span class="kpi"><b>{totals.sessions}</b> session{totals.sessions === 1 ? '' : 's'}</span>
+          <span class="dotsep"></span>
+          <span class="kpi"><b>{totals.turns}</b> turns</span>
+          <span class="dotsep"></span>
+          <span class="kpi"><b>{totals.prompts}</b> prompts</span>
+          <span class="dotsep"></span>
+          <span class="kpi"><b>{fmtCost(totals.cost)}</b> est. cost</span>
         </div>
       {/if}
 
-      {#if digest.summary}
-        <section class="card summary"><Markdown text={digest.summary} /></section>
-      {/if}
-
-      {#if digest.highlights?.length}
-        <section class="card">
-          <h3>Highlights</h3>
-          <ul class="hl">{#each digest.highlights as h}<li>{h}</li>{/each}</ul>
+      <!-- HERO: highlights are the main part of the show. -->
+      {#if highlights.length}
+        <section class="hero">
+          <div class="hero-eyebrow">Highlights</div>
+          <ul class="hero-list">
+            {#each highlights as h}<li>{h}</li>{/each}
+          </ul>
         </section>
+      {:else if digest.summary}
+        <section class="hero"><div class="hero-summary"><Markdown text={digest.summary} /></div></section>
       {/if}
 
-      {#if pending.length || blockers.length}
+      <!-- Full recap: secondary, collapsed (the highlights already lead). -->
+      {#if digest.summary && highlights.length}
+        <details class="recap">
+          <summary><span class="caret">›</span> Show full recap</summary>
+          <div class="recap-body"><Markdown text={digest.summary} /></div>
+        </details>
+      {/if}
+
+      {#if blockers.length || pending.length}
         <section class="card pending">
-          <h3>Still pending</h3>
+          <h3>Needs attention</h3>
           {#if blockers.length}
             <ul class="hl">{#each blockers as b}<li class="blocker">{b}</li>{/each}</ul>
           {/if}
           {#if pending.length}
             <ul class="pend">
               {#each pending as p (p.id + p.text)}
-                <li><span class="pk">{p.kind}</span> <a href={p.link} data-session-link class="slink">{p.title}</a> — {p.text}</li>
+                <li><span class="pk q">{p.kind}</span> <a href={p.link} data-session-link class="slink">{p.title}</a> — {p.text}</li>
               {/each}
             </ul>
           {/if}
         </section>
       {/if}
 
+      <!-- Compact session-status list; each row expands to the full per-session recap. -->
       <section class="sessions">
         <h3>{sessions.length} session{sessions.length === 1 ? '' : 's'}</h3>
         {#if digest.truncated}<div class="notice small">Showing the busiest {sessions.length} sessions of the day.</div>{/if}
         {#each sessions as s (s.id)}
-          <div class="scard">
-            <div class="sc-head">
-              <a href={s.link} data-session-link class="sc-title slink">{s.title || '(untitled)'}</a>
-              <div class="sc-meta">
-                {#if s.projectName}<span class="chip">{s.projectName}</span>{/if}
-                {#if s.gitBranch}<span class="chip br">{s.gitBranch}</span>{/if}
-                {#each s.tags as t}<span class="chip tag">{t}</span>{/each}
-              </div>
-            </div>
-            {#if s.accomplished}<p class="sc-acc">{s.accomplished}</p>{/if}
-            {#if s.pending}<p class="sc-pend"><span class="pk">pending</span> {s.pending}</p>{/if}
-            {#if s.pendingQuestion?.length}
-              <p class="sc-pend"><span class="pk q">open question</span> {s.pendingQuestion.join(' · ')}</p>
-            {/if}
-            {#if toolList(s.tools).length}
-              <div class="tools">{#each toolList(s.tools) as [n, c]}<span class="tchip">{n}<i>{c}</i></span>{/each}</div>
-            {/if}
-            {#if s.prLinks?.length || s.issueLinks?.length}
-              <div class="links">
+          <details class="srow">
+            <summary class="srow-sum">
+              <span class="dot {kindClass(s.statusKind)}"></span>
+              <span class="srow-main">
+                <span class="srow-title">{s.title || '(untitled)'}</span>
+                <span class="srow-sub">
+                  {#if s.projectName}<span class="chip">{s.projectName}</span>{/if}
+                  {#if s.gitBranch}<span class="chip br">{s.gitBranch}</span>{/if}
+                  {#each s.tags as t}<span class="chip tag">{t}</span>{/each}
+                </span>
+              </span>
+              {#if s.status}<span class="srow-status {kindClass(s.statusKind)}">{s.status}</span>{/if}
+              <span class="caret">›</span>
+            </summary>
+            <div class="srow-body">
+              {#if s.accomplished}<p class="sc-acc">{s.accomplished}</p>{/if}
+              {#if s.pending}<p class="sc-pend"><span class="pk">pending</span> {s.pending}</p>{/if}
+              {#if s.pendingQuestion?.length}
+                <p class="sc-pend"><span class="pk q">open question</span> {s.pendingQuestion.join(' · ')}</p>
+              {/if}
+              {#if toolList(s.tools).length}
+                <div class="tools">{#each toolList(s.tools) as [n, c]}<span class="tchip">{n}<i>{c}</i></span>{/each}</div>
+              {/if}
+              <div class="srow-foot">
                 {#each s.prLinks as l}<a href={l} target="_blank" rel="noopener noreferrer" class="ext pr">{prLabel(l)}</a>{/each}
                 {#each s.issueLinks as l}<a href={l} target="_blank" rel="noopener noreferrer" class="ext iss">{issueLabel(l)}</a>{/each}
+                <a href={s.link} data-session-link class="ext open">Open session →</a>
               </div>
-            {/if}
-          </div>
+            </div>
+          </details>
         {/each}
       </section>
     {/if}
@@ -210,14 +233,40 @@
   .notice { background: color-mix(in srgb, var(--warn) 12%, transparent); color: var(--warn); border-radius: 8px; padding: 8px 12px; font-size: 13px; margin-bottom: 14px; }
   .notice.small { font-size: 12px; padding: 5px 10px; }
 
-  .kpis { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 16px; }
-  .kpi { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 10px 16px; min-width: 84px; }
-  .kpi b { display: block; font-size: 20px; font-variant-numeric: tabular-nums; }
-  .kpi span { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .03em; }
+  /* Compact KPI strip — context, not headline. */
+  .kpis { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 18px; color: var(--muted); font-size: 13px; }
+  .kpi b { color: var(--text); font-size: 15px; font-variant-numeric: tabular-nums; margin-right: 3px; }
+  .dotsep { width: 3px; height: 3px; border-radius: 50%; background: var(--border2, var(--border)); }
+
+  /* HERO — highlights lead the page. */
+  .hero {
+    background: linear-gradient(180deg, var(--accent-soft), color-mix(in srgb, var(--accent-soft) 30%, var(--card)));
+    border: 1px solid color-mix(in srgb, var(--accent) 25%, var(--border));
+    border-radius: 16px; padding: 18px 22px; margin-bottom: 16px;
+  }
+  .hero-eyebrow { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--accent); margin-bottom: 10px; }
+  .hero-list { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 9px; }
+  .hero-list li { position: relative; padding-left: 22px; font-size: 16px; line-height: 1.45; }
+  .hero-list li::before { content: '★'; position: absolute; left: 0; top: 1px; font-size: 12px; color: var(--accent); }
+  .hero-summary { font-size: 15px; line-height: 1.6; }
+
+  /* Full recap — collapsed disclosure. */
+  .recap { margin-bottom: 16px; }
+  .recap > summary {
+    list-style: none; cursor: pointer; display: inline-flex; align-items: center; gap: 6px;
+    font-size: 13px; color: var(--muted); user-select: none; padding: 4px 0;
+  }
+  .recap > summary::-webkit-details-marker { display: none; }
+  .recap > summary:hover { color: var(--text); }
+  .recap-body {
+    margin-top: 8px; font-size: 15px; line-height: 1.6;
+    background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 14px 18px;
+  }
+  .caret { display: inline-block; transition: transform .15s ease; color: var(--muted); font-size: 14px; }
+  details[open] > summary .caret { transform: rotate(90deg); }
 
   .card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 14px 18px; margin-bottom: 16px; }
   .card h3 { margin: 0 0 8px; font-size: 13px; text-transform: uppercase; letter-spacing: .03em; color: var(--muted); }
-  .summary { font-size: 15px; line-height: 1.6; }
   .hl { margin: 0; padding-left: 20px; }
   .hl li { margin: 3px 0; }
   .hl li.blocker { color: var(--danger); }
@@ -228,27 +277,51 @@
   .pk.q { background: var(--accent-soft); color: var(--accent); }
 
   .sessions h3 { font-size: 13px; text-transform: uppercase; letter-spacing: .03em; color: var(--muted); margin: 4px 0 12px; }
-  .scard { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 14px 18px; margin-bottom: 12px; }
-  .sc-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
-  .sc-title { font-size: 15px; font-weight: 600; }
-  .slink { color: var(--accent); text-decoration: none; }
-  .slink:hover { text-decoration: underline; }
-  .sc-meta { display: flex; gap: 5px; flex-wrap: wrap; }
+
+  /* Compact status rows — a scannable list; click to expand the full per-session recap. */
+  .srow { background: var(--card); border: 1px solid var(--border); border-radius: 10px; margin-bottom: 8px; }
+  .srow[open] { border-color: var(--border2, var(--border)); }
+  .srow-sum {
+    list-style: none; cursor: pointer; display: flex; align-items: center; gap: 10px;
+    padding: 11px 14px; user-select: none; border-radius: 10px;
+  }
+  .srow-sum::-webkit-details-marker { display: none; }
+  .srow-sum:hover { background: var(--hover); }
+  .dot { flex: 0 0 auto; width: 9px; height: 9px; border-radius: 50%; background: var(--dot, var(--muted)); box-shadow: 0 0 0 3px color-mix(in srgb, var(--dot, var(--muted)) 18%, transparent); }
+  .srow-main { flex: 1 1 auto; min-width: 0; display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+  .srow-title { font-size: 14px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
+  .srow-sub { display: flex; gap: 5px; flex-wrap: wrap; }
+  .srow-status { flex: 0 0 auto; font-size: 12.5px; font-weight: 600; color: var(--dot, var(--muted)); white-space: nowrap; }
+  .srow .caret { margin-left: 2px; }
+
+  /* statusKind → dot / status-text colour. */
+  .k-shipped     { --dot: var(--success); }
+  .k-in-review   { --dot: #c27a12; }
+  .k-blocked     { --dot: var(--danger); }
+  .k-question    { --dot: var(--accent); }
+  .k-in-progress { --dot: var(--muted); }
+  .k-done        { --dot: color-mix(in srgb, var(--success) 70%, var(--muted)); }
+
+  .srow-body { padding: 0 14px 13px 33px; }
+  .sc-acc { margin: 2px 0 6px; font-size: 14px; line-height: 1.5; }
+  .sc-pend { margin: 4px 0; font-size: 13px; color: var(--muted); }
   .chip { font-size: 11px; background: var(--chip); color: var(--muted); border-radius: 6px; padding: 2px 7px; }
   .chip.br { font-family: var(--mono); }
   .chip.tag { background: var(--accent-soft); color: var(--accent); }
-  .sc-acc { margin: 8px 0 4px; font-size: 14px; line-height: 1.5; }
-  .sc-pend { margin: 4px 0; font-size: 13px; color: var(--muted); }
   .tools { display: flex; gap: 5px; flex-wrap: wrap; margin-top: 8px; }
   .tchip { font-size: 11px; font-family: var(--mono); background: var(--chip); color: var(--muted); border-radius: 6px; padding: 2px 6px; }
   .tchip i { font-style: normal; opacity: .7; margin-left: 3px; }
-  .links { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+  .srow-foot { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; align-items: center; }
   .ext { font-size: 12px; text-decoration: none; border-radius: 6px; padding: 2px 8px; border: 1px solid var(--border); color: var(--text); }
   .ext:hover { background: var(--hover); }
   .ext.pr { color: var(--success); border-color: color-mix(in srgb, var(--success) 40%, var(--border)); }
+  .ext.open { border-color: transparent; color: var(--accent); margin-left: auto; }
+  .slink { color: var(--accent); text-decoration: none; }
+  .slink:hover { text-decoration: underline; }
 
   @media (max-width: 720px) {
     .digest { flex-direction: column; }
     .hist { width: auto; border-right: none; border-bottom: 1px solid var(--border); max-height: 130px; }
+    .srow-status { max-width: 40%; overflow: hidden; text-overflow: ellipsis; }
   }
 </style>
