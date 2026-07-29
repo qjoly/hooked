@@ -126,6 +126,40 @@ describe('generateDigest (claude stubbed) + persistence', () => {
     delete process.env.HOOKED_DIGEST_STUB;
   });
 
+  it('takes the LLM status/statusKind when valid, and validates the kind against the enum', async () => {
+    process.env.HOOKED_DIGEST_STUB = JSON.stringify({
+      summary: 's', highlights: [],
+      perSession: [{ id: 'sessA', accomplished: 'a', pending: 'p', status: 'PR #42 opened, not merged', statusKind: 'in-review' }],
+      blockers: [],
+    });
+    const d = await mod.generateDigest('2026-07-22');
+    expect(d.sessions[0].status).toBe('PR #42 opened, not merged');
+    expect(d.sessions[0].statusKind).toBe('in-review');
+
+    // An invalid statusKind is dropped, then backfilled by the deterministic fallback.
+    process.env.HOOKED_DIGEST_STUB = JSON.stringify({
+      summary: 's', highlights: [],
+      perSession: [{ id: 'sessA', accomplished: 'a', pending: 'p', status: 'weird', statusKind: 'bogus' }],
+      blockers: [],
+    });
+    const d2 = await mod.generateDigest('2026-07-22');
+    expect(d2.sessions[0].status).toBe('weird');           // free-text status kept
+    expect(['question', 'in-review', 'in-progress', 'done']).toContain(d2.sessions[0].statusKind);
+    delete process.env.HOOKED_DIGEST_STUB;
+  });
+
+  it('falls back to a deterministic status when the model omits it (sessA has an open question → question)', async () => {
+    process.env.HOOKED_DIGEST_STUB = JSON.stringify({
+      summary: 's', highlights: [],
+      perSession: [{ id: 'sessA', accomplished: 'a', pending: '' }],   // no status/statusKind
+      blockers: [],
+    });
+    const d = await mod.generateDigest('2026-07-22');
+    expect(d.sessions[0].statusKind).toBe('question');     // sessA has a pending AskUserQuestion
+    expect(d.sessions[0].status).toBe('Awaiting your answer');
+    delete process.env.HOOKED_DIGEST_STUB;
+  });
+
   it('produces an empty digest for a day with no activity, without calling claude', async () => {
     const d = await mod.generateDigest('2026-07-21');
     expect(d.status).toBe('done');
