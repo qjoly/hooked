@@ -58,16 +58,25 @@
     return cmds.filter(c => !c.hidden);
   });
 
+  const ACTIVE_STATES = new Set(['attention', 'waiting', 'working', 'background']);
   const sessionItems = $derived.by(() => {
-    return data.sessions.map(s => ({
-      id: 'session:' + s.id,
-      label: sessionTitle(s),
-      detail: [s.projectName, s.gitBranch].filter(Boolean).join(' · '),
-      icon: STATUS_ICONS[s.state] || '⚪',
-      section: 'Sessions',
-      sessionId: s.id,
-      action: () => goto('/session/' + encodeURIComponent(s.id)),
-    }));
+    return data.sessions
+      .slice()
+      .sort((a, b) => {
+        const aa = ACTIVE_STATES.has(a.state), ab = ACTIVE_STATES.has(b.state);
+        if (aa !== ab) return aa ? -1 : 1;
+        return String(b.lastActivity || '').localeCompare(String(a.lastActivity || ''));
+      })
+      .map(s => ({
+        id: 'session:' + s.id,
+        label: sessionTitle(s),
+        detail: [s.projectName, s.gitBranch].filter(Boolean).join(' · '),
+        icon: STATUS_ICONS[s.state] || '⚪',
+        section: 'Sessions',
+        sessionId: s.id,
+        active: ACTIVE_STATES.has(s.state),
+        action: () => goto('/session/' + encodeURIComponent(s.id)),
+      }));
   });
 
   function fuzzy(text, q) {
@@ -100,7 +109,10 @@
       const s = fuzzy(haystack, search);
       if (s >= 0) scored.push({ item, score: s });
     }
-    scored.sort((a, b) => b.score - a.score);
+    scored.sort((a, b) => {
+      if (!!a.item.active !== !!b.item.active) return a.item.active ? -1 : 1;
+      return b.score - a.score;
+    });
     return scored.map(s => s.item);
   });
 
