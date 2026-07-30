@@ -27,8 +27,9 @@
     if (ui.modal) {
       prevFocus = document.activeElement;
       requestAnimationFrame(() => {
-        const first = card?.querySelector('a[href],button:not([disabled]),textarea,input:not([disabled]),select:not([disabled]),[tabindex]:not([tabindex="-1"])');
-        first?.focus();
+        // un [autofocus] explicite gagne (ex. bouton Confirm), sinon premier focusable
+        const target = card?.querySelector('[autofocus]') || card?.querySelector('a[href],button:not([disabled]),textarea,input:not([disabled]),select:not([disabled]),[tabindex]:not([tabindex="-1"])');
+        target?.focus();
       });
     } else if (prevFocus) {
       prevFocus.focus?.();
