@@ -3,10 +3,14 @@ node = "24"
 
 [env]
 PORT = "4123"
+# HOST is intentionally NOT set here: mise's [env] templating can't reference
+# its own key from the invoking shell (`env.HOST` resolves against mise's own
+# config context, not the process env), so `HOST=0.0.0.0 mise run ...` would
+# silently be ignored. Each task instead defaults HOST via plain shell
+# expansion (`${HOST:-127.0.0.1}`), which does see the real process env.
 # Bind local-only by default. adapter-node listens on 0.0.0.0 out of the box,
 # which would expose the dashboard (and tmux session piloting) to the whole LAN.
-# Override to expose it: `HOST=0.0.0.0 mise run start` (or set HOST in your env).
-HOST = "{{ env.HOST | default(value='127.0.0.1') }}"
+# Override to expose it: `HOST=0.0.0.0 mise run start`.
 
 [tasks.install]
 description = "Installe les dépendances de build (devDeps front Svelte)"
@@ -34,7 +38,7 @@ echo "↻  Pense à redémarrer tes sessions Claude Code pour activer les hooks.
 
 [tasks.start]
 description = "Démarre le dashboard (http://localhost:4123)"
-run = "node build"
+run = "HOST=${HOST:-127.0.0.1} node build"
 
 [tasks.dev]
 description = "Lance Vite en mode dev (front uniquement)"
