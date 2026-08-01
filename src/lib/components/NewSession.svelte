@@ -8,15 +8,24 @@
   import ModelEffort from './ModelEffort.svelte';
 
   // projets uniques triés par activité la plus récente (puis nb de sessions). [[cwd, name], …]
+  // Quand `collapseWorktrees` est actif, un worktree `<projet>/.claude/worktrees/<nom>` est replié
+  // sur son projet parent (`<projet>`) : on ne veut pas polluer le sélecteur avec les worktrees
+  // éphémères de `claude --worktree`, le projet racine suffit à en relancer un.
   const projs = $derived.by(() => {
+    const collapse = ui.collapseWorktrees;
     const m = new Map();
     for (const s of data.sessions) {
       if (!s.project) continue;
-      const e = m.get(s.project) || { name: s.projectName || s.project, count: 0, last: '' };
+      const wt = collapse ? s.project.indexOf('/.claude/worktrees/') : -1;
+      const cwd = wt > 0 ? s.project.slice(0, wt) : s.project;
+      const native = cwd === s.project; // pas un worktree replié → source fiable pour le nom
+      const e = m.get(cwd) || { name: native ? (s.projectName || cwd) : (cwd.split('/').pop() || cwd), count: 0, last: '', native: false };
       e.count++;
+      // un nom issu d'une session « native » (dépôt racine) prime sur le basename dérivé d'un worktree
+      if (native && !e.native) { e.name = s.projectName || cwd; e.native = true; }
       const t = s.lastActivity || '';
       if (t > e.last) e.last = t;
-      m.set(s.project, e);
+      m.set(cwd, e);
     }
     return [...m.entries()]
       .sort((a, b) => String(b[1].last).localeCompare(String(a[1].last)) || b[1].count - a[1].count)
@@ -117,7 +126,13 @@
       </label>
     </div>
 
-    <label class="lf-label">Project</label>
+    <div class="ns-proj-head">
+      <label class="lf-label">Project</label>
+      <label class="ns-wt-toggle" title="Hide git worktrees nested in .claude/worktrees/ — list their parent project instead">
+        <input type="checkbox" bind:checked={ui.collapseWorktrees} />
+        <span>Collapse worktrees</span>
+      </label>
+    </div>
     <input type="search" class="lf-input" placeholder="🔍 Search a project…" bind:value={search} />
     <div class="lf-picklist">
       {#if hits.length}
