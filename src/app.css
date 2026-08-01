@@ -1072,6 +1072,11 @@ code.path { color: var(--muted); font-size: 11px; word-break: break-all; font-fa
 .lf-label { display: block; font-size: 12px; font-weight: 700; color: var(--muted); margin: 16px 0 6px; text-transform: uppercase; letter-spacing: .05em; }
 .lf-input { width: 100%; box-sizing: border-box; font-size: 14px; }
 textarea.lf-input { font-family: inherit; resize: vertical; }
+.ns-proj-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.ns-proj-head .lf-label { margin-bottom: 6px; }
+.ns-wt-toggle { display: inline-flex; align-items: center; gap: 5px; cursor: pointer; user-select: none; font-size: 12px; color: var(--muted); white-space: nowrap; }
+.ns-wt-toggle input { margin: 0; cursor: pointer; accent-color: var(--accent-d); }
+.ns-wt-toggle:has(input:checked) { color: var(--text); }
 .lf-actions { display: flex; align-items: center; gap: 14px; margin-top: 20px; }
 .lf-actions .reply-send { grid-column: auto; }
 .attach-row { display: flex; align-items: center; gap: 10px; background: var(--bg3); border: 1px solid var(--border2); border-radius: 10px; padding: 10px 12px; }
