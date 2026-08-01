@@ -327,6 +327,7 @@ body {
   display: flex;
   flex-direction: column;
   height: 100vh;
+  height: 100dvh;
   overflow: hidden;
   -webkit-font-smoothing: antialiased;
 }
@@ -402,7 +403,7 @@ body.focus.sidebar-peek .inbox { width: 326px; min-width: 326px; border-right: 1
 .pane-head { flex: 0 0 auto; padding: 15px 24px 0; border-bottom: 1px solid var(--border); background: var(--bg2); z-index: 3; }
 /* titre de session dans l'en-tête du cockpit */
 .pane-head .sess-title { font-size: 19px; font-weight: 800; letter-spacing: -.01em; margin: 6px 0 0 !important; }
-.pane-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 20px 24px 28px; background: var(--panel); }
+.pane-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden; padding: 20px 24px 28px; background: var(--panel); }
 .overview { flex: 1 1 auto; overflow-y: auto; padding: 28px; }
 .ro-tag { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); border: 1px solid var(--border2); border-radius: 7px; padding: 3px 8px; font-family: var(--mono); }
 .ov-hint, .pane-empty { color: var(--muted); padding: 60px 20px; text-align: center; }
@@ -457,7 +458,7 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { outline: non
 .s-ended .stripe { background: var(--ended); }
 .s-past .stripe { background: var(--past); }
 
-.card-top { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.card-top { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
 .proj { font-weight: 700; font-size: 13px; }
 .branch { color: var(--muted); font-size: 11.5px; font-family: var(--mono); white-space: nowrap; }
 .branch::before { content: "⎇ "; }
@@ -745,8 +746,9 @@ code.path { color: var(--muted); font-size: 11px; word-break: break-all; font-fa
 .ro-tag.live { color: var(--success); border-color: transparent; background: var(--success-soft); }
 .composer {
   position: sticky; bottom: 0; margin-top: 20px;
-  display: grid; grid-template-columns: 1fr auto; gap: 10px 12px;
-  padding: 14px; background: var(--bg2); border: 1px solid var(--border2); border-radius: 18px;
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px 12px;
+  padding: 14px; padding-bottom: calc(14px + env(safe-area-inset-bottom));
+  background: var(--bg2); border: 1px solid var(--border2); border-radius: 18px;
   box-shadow: var(--shadow); transition: border-color .15s, box-shadow .15s;
 }
 /* Scrim above the sticky composer: messages scrolling behind fade into the
@@ -1278,6 +1280,16 @@ textarea.lf-input { font-family: inherit; resize: vertical; }
   /* sous-onglets : scroll horizontal plutôt que wrap */
   .subtabs { overflow-x: auto; flex-wrap: nowrap; }
   .subtab { white-space: nowrap; flex: 0 0 auto; }
+
+  /* pane-head cockpit : trop d'éléments pour une seule ligne sur mobile */
+  .card-top { row-gap: 6px; }
+  .pane-head .badge { margin-left: 0; }
+  .pane-head .ro-tag.live { order: 1; }
+  .pane-head .stop-btn, .pane-head .resume-btn { order: 1; }
+  .pane-head .hdr-more { margin-left: auto; order: 2; }
+
+  /* liste de tags PR/issue : laisse respirer plutôt que déborder */
+  .head-stats { row-gap: 4px; }
 
   /* daybars un peu plus courts */
   .daybars { height: 110px; }
