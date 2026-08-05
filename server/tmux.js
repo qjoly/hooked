@@ -476,6 +476,33 @@ function sendKey(pane, key, cb) {
   execFile('tmux', ['send-keys', '-t', pane, key], (e) => cb(e || null));
 }
 
+// Interrompt Claude depuis l'UI PUIS efface le prompt qu'il réinjecte dans la saisie.
+// Sur Échap en cours de requête, Claude Code interrompt ET remet le prompt soumis dans le
+// composer (pour l'éditer/renvoyer). hooked pilote toute saisie depuis le composer web : ce
+// texte réinjecté est donc un fantôme — la boîte web est vide (ou rechargée) alors que la saisie
+// du pane garde le message annulé, qui préfixe la réponse suivante. On l'efface via le
+// « Échap, Échap pour effacer » natif : C-u ne suffit pas (il ne tue que la ligne du curseur →
+// un prompt multi-lignes garde ses lignes précédentes).
+//
+// GARDE : les deux Échap d'effacement ne sont sûrs que si un prompt a bien été réinjecté. Sur une
+// saisie VIDE au repos, deux Échap ouvrent le menu rewind/checkpoint de Claude → on n'efface donc
+// que si le pane MOULINAIT (une requête à interrompre). Vérifié en live sur Claude Code v2.1.x.
+const INTERRUPT_CLEAR_GAP = 300; // ms : au-dessus du seuil de coalescence d'ink, sous la fenêtre « Échap encore »
+function interruptSession(pane, cb) {
+  if (!/^%\d+$/.test(pane || '')) return cb(err400('invalid pane'));
+  capturePaneTextSync(pane, 0); // lecture fraîche : ne pas décider « moulinait » sur un cache périmé
+  const wasBusy = paneBusySync(pane) === true;
+  execFile('tmux', ['send-keys', '-t', pane, 'Escape'], (err) => {
+    if (err) return cb(err);
+    if (!wasBusy) return cb(null);
+    // laisser l'interruption aboutir + le prompt réinjecté s'afficher (~<100 ms), puis armer + effacer.
+    setTimeout(() => execFile('tmux', ['send-keys', '-t', pane, 'Escape'], (e2) => {
+      if (e2) return cb(e2);
+      setTimeout(() => execFile('tmux', ['send-keys', '-t', pane, 'Escape'], (e3) => cb(e3 || null)), INTERRUPT_CLEAR_GAP);
+    }), INTERRUPT_CLEAR_GAP);
+  });
+}
+
 // Mode de permission lu DIRECTEMENT à l'écran du TUI (footer). C'est la source fiable et
 // temps-réel : le TUI affiche dans le footer « ⏵⏵ auto mode on (shift+tab to cycle) »,
 // « ⏵⏵ accept edits on … », « ⏸ plan mode on … » ; en mode normal il n'y a pas de ligne
@@ -903,4 +930,4 @@ function restartSession(id, { model, effort } = {}, cb) {
   }
 }
 
-export { paneTmuxNames, invalidatePaneCache, clearPaneCaches, tmuxAlive, launchInfoForPane, resolveLaunchForSession, deliverReply, deliverQuestion, questionKeys, deliverQuestionWithNote, deliverQuestionFreeText, deliverPlanChoice, parsePlanPrompt, parseSwitchPrompt, isTrustPrompt, isComposerReady, sendKey, parsePaneMode, readPaneMode, readPaneModeSync, paneBusySync, parseSpinner, paneActivitySync, paneFollowupSync, conversationBody, paneActiveSync, paneActiveStep, warmPaneCaptures, warmPaneNames, setMode, setModelEffort, launchSession, killSession, restartSession, err400 };
+export { paneTmuxNames, invalidatePaneCache, clearPaneCaches, tmuxAlive, launchInfoForPane, resolveLaunchForSession, deliverReply, deliverQuestion, questionKeys, deliverQuestionWithNote, deliverQuestionFreeText, deliverPlanChoice, parsePlanPrompt, parseSwitchPrompt, isTrustPrompt, isComposerReady, sendKey, interruptSession, parsePaneMode, readPaneMode, readPaneModeSync, paneBusySync, parseSpinner, paneActivitySync, paneFollowupSync, conversationBody, paneActiveSync, paneActiveStep, warmPaneCaptures, warmPaneNames, setMode, setModelEffort, launchSession, killSession, restartSession, err400 };
