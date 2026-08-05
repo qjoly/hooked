@@ -618,7 +618,7 @@
                block (conversation.js rewrites prev.ts), so a ts-based key destroys+recreates the whole live bubble
                each tick → the "jumps". Transcript is append/merge-only, so a message's absolute index never moves,
                even as the render window slides → the key stays stable across MSG_STEP expansions and new ticks. -->
-          {#each (s.messages || []).slice(startIdx) as m, j (startIdx + j)}<ChatBubble {m} onfork={quickFork} onforkadvanced={openFork} {forkState} />{/each}
+          {#each (s.messages || []).slice(startIdx) as m, j (startIdx + j)}<ChatBubble {m} onfork={quickFork} onforkadvanced={openFork} {forkState} session={id} />{/each}
         {:else if !queued.length}
           <div class="pane-empty">Empty conversation.</div>
         {/if}

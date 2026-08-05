@@ -7,8 +7,16 @@
   // State is local; since the list is keyed by tool_use id it survives live re-renders.
   import PierreDiff from './PierreDiff.svelte';
   import { ui } from '$lib/state.svelte.js';
-  let { t, diff = null, ask = null } = $props();
+  import { userFileUrl } from '$lib/api.js';
+  let { t, diff = null, ask = null, send = null, session = null, agent = null } = $props();
   const hasDiff = $derived(!!(diff && diff.ops && diff.ops.length));
+
+  // SendUserFile: files delivered to the user. Images render as click-to-expand thumbnails; other
+  // files render as a click-to-open link. URLs are served by /api/user-file (transcript allowlist).
+  const hasSend = $derived(!!(send && send.files && send.files.length));
+  const fileUrl = (f) => userFileUrl(session, agent, f.path);
+  let zoom = $state(null);
+  function imgFail(e) { const b = e.currentTarget.closest('.send-img'); if (b) b.style.display = 'none'; }
 
   // non-diff tools: collapsible JSON input / result. AskUserQuestion (`ask` = the questions
   // payload) renders read-only — header, question, options — instead of raw JSON, and marks the
@@ -72,6 +80,28 @@
       <button class="diff-more" onclick={() => (expanded = !expanded)}>{expanded ? '▲ Show less' : '▼ Show more'}</button>
     {/if}
   </div>
+{:else if hasSend}
+  <div class="tool tool-send">
+    <span class="chip chip-send">📎 Sent to you{#if send.caption}<span class="chip-d">{send.caption}</span>{/if}</span>
+    <div class="send-files">
+      {#each send.files as f}
+        {#if f.kind === 'image'}
+          <button class="send-img" title="{f.name} — click to expand" onclick={() => (zoom = fileUrl(f))}>
+            <img src={fileUrl(f)} alt={f.name} loading="lazy" onerror={imgFail} />
+          </button>
+        {:else}
+          <a class="send-file" href={fileUrl(f)} target="_blank" rel="noopener" title={f.path}>
+            <span class="sf-ico">📄</span><span class="sf-name">{f.name}</span><span class="sf-open">↗</span>
+          </a>
+        {/if}
+      {/each}
+    </div>
+  </div>
+  {#if zoom}
+    <div class="lightbox" role="presentation" onclick={() => (zoom = null)}>
+      <img class="lightbox-img" src={zoom} alt="" />
+    </div>
+  {/if}
 {:else}
   <div class="tool" class:has-detail={hasDetail} class:open>
     <span class="chip" onclick={() => { if (hasDetail) open = !open; }}>
@@ -112,7 +142,34 @@
   </div>
 {/if}
 
+<svelte:window onkeydown={(e) => { if (e.key === 'Escape' && zoom) zoom = null; }} />
+
 <style>
   /* taille d'un gros diff replié (indice avant ouverture) */
   .diff-size { font-family: var(--mono); font-size: 10px; color: var(--muted); margin-left: 6px; }
+
+  /* SendUserFile : chip « envoyé » + miniatures images / liens fichiers */
+  .tool-send { display: flex; flex-direction: column; gap: 6px; }
+  .chip-send { align-self: flex-start; }
+  .send-files { display: flex; flex-wrap: wrap; gap: 8px; }
+  .send-img {
+    padding: 0; border: 1px solid var(--border); border-radius: 8px; background: var(--bg2);
+    cursor: zoom-in; overflow: hidden; line-height: 0; max-width: 220px;
+  }
+  .send-img:hover { border-color: var(--accent); }
+  .send-img img { display: block; max-width: 220px; max-height: 160px; object-fit: contain; }
+  .send-file {
+    display: inline-flex; align-items: center; gap: 6px; max-width: 260px;
+    padding: 6px 10px; border: 1px solid var(--border); border-radius: 8px;
+    background: var(--bg2); color: var(--text); text-decoration: none; font-size: 12.5px;
+  }
+  .send-file:hover { border-color: var(--accent); background: var(--bg3); }
+  .sf-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .sf-open { color: var(--muted); margin-left: 2px; }
+
+  .lightbox {
+    position: fixed; inset: 0; z-index: 200; display: flex; align-items: center; justify-content: center;
+    background: rgba(0, 0, 0, 0.8); cursor: zoom-out; padding: 24px;
+  }
+  .lightbox-img { max-width: 96vw; max-height: 92vh; object-fit: contain; border-radius: 6px; box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5); }
 </style>
