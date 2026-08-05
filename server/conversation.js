@@ -9,7 +9,7 @@
  * transcripts sans uuid laissent simplement ce champ à undefined (fork indisponible).
  */
 import fs from 'node:fs';
-import { chatText, toolDetail, toolDiffOps, toolInputText, toolResultText } from './util.js';
+import { chatText, toolDetail, toolDiffOps, toolInputText, toolResultText, toolSendFiles } from './util.js';
 
 // includeSidechain : pour un transcript de sous-agent (tout est isSidechain), on garde tout.
 function buildConversation(fp, includeSidechain) {
@@ -109,7 +109,9 @@ function buildConversation(fp, includeSidechain) {
           // the characterization baseline which strips parts) so the chip renders the question +
           // options read-only instead of dumping raw JSON.
           const ask = b.name === 'AskUserQuestion' && Array.isArray(b.input?.questions) ? b.input.questions : null;
-          parts.push({ type: 'tool', tool, diff: toolDiffOps(b.name, b.input), ask });
+          // `send` carries the files delivered by SendUserFile (like `diff`/`ask`, on the part) so
+          // the chip renders image thumbnails / open-file links instead of raw JSON.
+          parts.push({ type: 'tool', tool, diff: toolDiffOps(b.name, b.input), ask, send: toolSendFiles(b.name, b.input, j.cwd) });
         }
       }
       text = text.trim();
