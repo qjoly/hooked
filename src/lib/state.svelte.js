@@ -282,6 +282,7 @@ export const settings = $state({
   },
   defaultModel: '', defaultEffort: '', defaultMode: '',
   remoteControlProjects: [],
+  favoriteProjects: [],
   digest: { auto: true, hour: 7, model: '' },
 });
 export async function loadSettings() {

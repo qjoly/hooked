@@ -33,6 +33,7 @@ export * from './tmux.js';
 export * from './pane.js';
 export * from './paneStream.js';
 export * from './images.js';
+export * from './userFiles.js';
 export * from './usage.js';
 export * from './status.js';
 export * from './stats.js';
