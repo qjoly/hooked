@@ -57,6 +57,12 @@
   const needsReply = (s) => s.hasQuestion || s.hasPlan || s.state === 'waiting' || s.state === 'attention';
   const isWorking = (s) => s.state === 'working' || s.state === 'background';
 
+  // Libellé de statut par ligne pour la section « Pinned » (qui mélange les états, contrairement
+  // aux sections par statut). Aligné sur dotClass : warn = attend une réponse, info = travaille.
+  const STATUS_TEXT = { waiting: 'Waiting for you', attention: 'Action required', working: 'Working', background: 'Background', idle: 'Paused', ended: 'Ended', past: 'Past' };
+  const statusLabel = (s) =>
+    s.hasPlan ? 'Plan to review' : s.hasQuestion ? 'Question for you' : STATUS_TEXT[s.state] || 'Idle';
+
   const pinnedSet = $derived(new Set(ui.pinned));
 
   // recherche + filtres de tags (ET logique) — appliqués avant le regroupement par statut.
@@ -124,10 +130,15 @@
           return { key: 'proj:' + proj, label: proj, tone: 'proj', project: proj, newProject: items[0]?.project || '', count: items.length, items };
         });
     }
-    const needs = matched.filter(needsReply).sort(byActivity);
-    const working = matched.filter((s) => isWorking(s) && !needsReply(s)).sort(byActivity);
-    const others = matched.filter((s) => !needsReply(s) && !isWorking(s)).sort(byActivity);
+    // Épinglées : leur propre section en tête, toujours visible quel que soit le scope, avec un
+    // libellé de statut par ligne. Retirées des sections par statut pour ne pas apparaître deux fois.
+    const pinned = matched.filter((s) => pinnedSet.has(s.id)).sort(byActivity);
+    const rest = matched.filter((s) => !pinnedSet.has(s.id));
+    const needs = rest.filter(needsReply).sort(byActivity);
+    const working = rest.filter((s) => isWorking(s) && !needsReply(s)).sort(byActivity);
+    const others = rest.filter((s) => !needsReply(s) && !isWorking(s)).sort(byActivity);
     const out = [];
+    if (pinned.length) out.push({ key: 'pinned', label: 'Pinned', tone: 'pin', items: pinned, perRowStatus: true });
     if (scope === 'needs') {
       out.push({ key: 'needs', label: 'Needs your reply', tone: 'warn', items: needs });
     } else if (scope === 'working') {
@@ -247,6 +258,11 @@
             <button class="ibx-sec-new" title="New session in this project" aria-label="New session in this project"
                     onclick={() => goto('/new?project=' + encodeURIComponent(sec.newProject))}>＋</button>
           </div>
+        {:else if sec.tone === 'pin'}
+          <div class="ibx-sec ibx-sec-pin">
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M16 3l5 5-4 1-3 3 1 5-3-3-6 6-1-1 6-6-3-3 5-1 3-3z"/></svg>
+            {sec.label}
+          </div>
         {:else}
           <div class="ibx-sec ibx-sec-{sec.tone}">{sec.label}</div>
         {/if}
@@ -254,7 +270,7 @@
           {#if sec.dated && (i === 0 || dayBucket(sec.items[i - 1].lastActivity) !== dayBucket(s.lastActivity))}
             <div class="ibx-datesep">{dayBucket(s.lastActivity)}</div>
           {/if}
-          {@render row(s)}
+          {@render row(s, sec.perRowStatus)}
         {/each}
       {/each}
       {#if hiddenCount > 0}
@@ -264,7 +280,7 @@
   </div>
 </aside>
 
-{#snippet row(s)}
+{#snippet row(s, showStatus)}
   <div class="pt-row" class:active={page.params.id === s.id} tabindex="0" role="link"
        onclick={() => goto('/session/' + encodeURIComponent(s.id))}
        onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); goto('/session/' + encodeURIComponent(s.id)); } }}>
@@ -279,7 +295,10 @@
         </div>
         <span class="pt-time">{ago(s.lastActivity)}</span>
       </div>
-      <div class="pt-sub">{s.repo || s.projectName || '—'}{#if s.gitBranch} · {s.gitBranch}{/if}</div>
+      <div class="pt-sub">
+        {#if showStatus}<span class="pt-status pt-status-{dotClass(s)}">{statusLabel(s)}</span>{/if}
+        {s.repo || s.projectName || '—'}{#if s.gitBranch} · {s.gitBranch}{/if}
+      </div>
       {#if s.state === 'working' && s.activity}
         <div class="pt-snip pt-working">✦ {s.activity}…</div>
       {:else if s.bgJobs && s.bgJobs.length}
@@ -392,6 +411,7 @@
   .ibx-sec-warn { color: var(--warn); }
   .ibx-sec-info { color: var(--info); }
   .ibx-sec-muted { color: var(--muted); }
+  .ibx-sec-pin { color: var(--accent); display: flex; align-items: center; gap: 5px; }
   .ibx-datesep {
     font-family: var(--mono); font-size: 9.5px; font-weight: 700; text-transform: uppercase;
     letter-spacing: .08em; color: var(--muted); opacity: .65; padding: 9px 8px 3px;
@@ -451,6 +471,13 @@
   .pt-row.active .pt-name { font-weight: 700; }
   .pt-time { font-family: var(--mono); font-size: 10.5px; color: var(--muted); flex: 0 0 auto; white-space: nowrap; }
   .pt-sub { font-family: var(--mono); font-size: 10.5px; color: var(--muted); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pt-status {
+    font-family: var(--mono); font-size: 9.5px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: .04em; border-radius: 5px; padding: 1px 6px; margin-right: 6px;
+  }
+  .pt-status-warn { color: var(--warn); background: color-mix(in srgb, var(--warn) 14%, transparent); }
+  .pt-status-info { color: var(--info); background: color-mix(in srgb, var(--info) 14%, transparent); }
+  .pt-status-muted { color: var(--muted); background: color-mix(in srgb, var(--muted) 16%, transparent); }
   .pt-snip { font-size: 11.5px; color: var(--muted); margin-top: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .pt-working { color: var(--info); font-style: italic; }
   .pt-frac { font-family: var(--mono); font-size: 10px; color: var(--muted); }
