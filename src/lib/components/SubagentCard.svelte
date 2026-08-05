@@ -55,7 +55,7 @@
           {:else if trace}
             <div class="chat sa-chat">
               {#if trace.length}
-                {#each trace as m, i (m.ts + ':' + i)}<ChatBubble {m} />{/each}
+                {#each trace as m, i (m.ts + ':' + i)}<ChatBubble {m} {session} agent={a.agentId} />{/each}
               {:else}
                 <div class="pane-empty">No internal steps.</div>
               {/if}

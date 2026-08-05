@@ -89,6 +89,12 @@ export const planAction = (id, action, feedback) => jpost('/api/plan', { id, act
 export const uploadImage = (dataUrl) => jpost('/api/upload-image', { dataUrl });
 // URL to display an attached image (served from hooked's images dir) by its absolute path.
 export const imageUrl = (p) => '/api/image?path=' + encodeURIComponent(p);
+// URL to display/download a file delivered by SendUserFile. Served only if it appears in the
+// session's (or sub-agent's) transcript SendUserFile calls — see /api/user-file.
+export const userFileUrl = (session, agent, p) =>
+  '/api/user-file?session=' + encodeURIComponent(session || '') +
+  (agent ? '&agent=' + encodeURIComponent(agent) : '') +
+  '&path=' + encodeURIComponent(p || '');
 export const interrupt = (id) => jpost('/api/interrupt', { id });
 export const setMode = (id, mode) => jpost('/api/mode', { id, mode });
 export const setModelEffort = (id, model, effort) => jpost('/api/model', { id, model, effort });

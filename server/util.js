@@ -1,5 +1,6 @@
 /* Utilitaires fs + extraction de texte depuis les contenus de messages/outils. */
 import fs from 'node:fs';
+import path from 'node:path';
 
 const readdirSafe = (p) => { try { return fs.readdirSync(p); } catch (_) { return []; } };
 const statSafe = (p) => { try { return fs.statSync(p); } catch (_) { return null; } };
@@ -90,4 +91,27 @@ function toolDiffOps(toolName, input) {
   return { file, name: String(file).split('/').pop(), ops };
 }
 
-export { readdirSafe, statSafe, textOf, cleanPrompt, chatText, toolDetail, toolResultText, toolInputText, toolDiffOps };
+// Files sent to the user via the SendUserFile tool. Rendered inline in the conversation (image
+// thumbnails + a click-to-expand lightbox for images, a click-to-open chip for other files).
+// Returns null for any other tool. Carried on `parts` (like `diff`/`ask`, invisible to the
+// characterization baseline). Paths resolve against the tool_use line's `cwd` when relative.
+// The absolute path is only a display/URL hint — the serving endpoint re-derives the allowlist
+// from the transcript itself (cf. server/userFiles.js), so a tampered path is never served.
+const SEND_IMAGE_EXT = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp']);
+function toolSendFiles(toolName, input, cwd) {
+  if (toolName !== 'SendUserFile' || !input || typeof input !== 'object') return null;
+  const files = Array.isArray(input.files) ? input.files : [];
+  const attach = input.display === 'attach'; // caller forces the download chip even for images
+  const out = [];
+  for (const f of files) {
+    if (typeof f !== 'string' || !f) continue;
+    const abs = path.isAbsolute(f) ? f : (cwd ? path.resolve(cwd, f) : f);
+    const name = abs.split('/').pop();
+    const ext = name.includes('.') ? name.slice(name.lastIndexOf('.') + 1).toLowerCase() : '';
+    out.push({ path: abs, name, kind: (!attach && SEND_IMAGE_EXT.has(ext)) ? 'image' : 'file' });
+  }
+  if (!out.length) return null;
+  return { caption: typeof input.caption === 'string' ? input.caption.slice(0, 300) : '', files: out };
+}
+
+export { readdirSafe, statSafe, textOf, cleanPrompt, chatText, toolDetail, toolResultText, toolInputText, toolDiffOps, toolSendFiles };

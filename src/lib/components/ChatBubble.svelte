@@ -10,7 +10,9 @@
   //   `forkState`         = retour inline du fork express en cours pour CE message
   //                         ({ uuid, phase: 'busy'|'done'|'err', text }).
   // Tout absent pour les traces de sous-agents (non reprenables).
-  let { m, onfork = null, onforkadvanced = null, forkState = null } = $props();
+  // `session` / `agent` : identifiants pour servir les fichiers SendUserFile (cf. userFileUrl).
+  // `agent` non nul quand la bulle appartient au déroulé d'un sous-agent (SubagentCard).
+  let { m, onfork = null, onforkadvanced = null, forkState = null, session = null, agent = null } = $props();
 
   // Style claude-cli : on rend les blocs dans l'ordre, et on distingue le DERNIER
   // bloc texte (réponse finale, contrasté) des précédents (raisonnement, discret).
@@ -74,7 +76,7 @@
             <div class="md reasoning"><Markdown text={p.text} /></div>
           {/if}
         {:else}
-          <div class="part-tool"><ToolChip t={p.tool} diff={p.diff} ask={p.ask} /></div>
+          <div class="part-tool"><ToolChip t={p.tool} diff={p.diff} ask={p.ask} send={p.send} {session} {agent} /></div>
         {/if}
       {/each}
     </div>
