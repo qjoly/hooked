@@ -995,13 +995,19 @@ code.path { color: var(--muted); font-size: 11px; word-break: break-all; font-fa
 .sess-rename:focus { outline: none; box-shadow: 0 0 0 2px var(--accent-soft); }
 
 /* sélecteur de projet recherchable (nouvelle session) */
-.lf-picklist { max-height: 196px; overflow-y: auto; border: 1px solid var(--border2); border-radius: 10px; background: var(--bg3); margin-top: 6px; }
-.lf-pick { padding: 8px 12px; cursor: pointer; border-bottom: 1px solid var(--border); }
+.lf-picklist { max-height: 380px; overflow-y: auto; border: 1px solid var(--border2); border-radius: 10px; background: var(--bg3); margin-top: 6px; }
+.lf-pick { display: flex; align-items: center; gap: 8px; padding: 8px 12px; cursor: pointer; border-bottom: 1px solid var(--border); }
 .lf-pick:last-child { border-bottom: none; }
 .lf-pick:hover { background: var(--bg2); }
 .lf-pick.sel { background: var(--accent-soft); }
+.lf-pick-main { flex: 1; min-width: 0; }
 .lf-pick .pn { font-size: 13px; font-weight: 600; }
 .lf-pick .pp { display: block; color: var(--muted); font-family: var(--mono); font-size: 11px; word-break: break-all; margin-top: 1px; }
+/* étoile favori : discrète au repos, révélée au survol/focus de la ligne, pleine quand épinglée */
+.lf-star { flex: none; background: none; border: none; cursor: pointer; font-size: 16px; line-height: 1; padding: 2px 5px; border-radius: 6px; color: var(--muted); opacity: 0; transition: opacity .12s, background .12s, color .12s; }
+.lf-pick:hover .lf-star, .lf-pick:focus-within .lf-star { opacity: .75; }
+.lf-star:hover { opacity: 1; background: var(--bg3); }
+.lf-star.on { opacity: 1; color: var(--accent); }
 .lf-pick.custom { color: var(--accent); font-weight: 600; font-size: 13px; }
 .lf-pick.hide { display: none; }
 .lf-empty { padding: 10px 12px; color: var(--muted); font-size: 12.5px; }
