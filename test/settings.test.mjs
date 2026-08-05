@@ -57,6 +57,29 @@ describe('remoteControlProjects', () => {
   });
 });
 
+describe('favoriteProjects', () => {
+  it('defaults to an empty list', () => {
+    expect(readSettings().favoriteProjects).toEqual([]);
+  });
+
+  it('keeps absolute paths, deduped', () => {
+    const s = writeSettings({ favoriteProjects: ['/a/proj', '/b/proj', '/a/proj'] });
+    expect(s.favoriteProjects).toEqual(['/a/proj', '/b/proj']);
+    expect(readSettings().favoriteProjects).toEqual(['/a/proj', '/b/proj']);
+  });
+
+  it('drops relative paths and non-strings', () => {
+    expect(writeSettings({ favoriteProjects: ['rel/dir', 42, null, '/ok'] }).favoriteProjects)
+      .toEqual(['/ok']);
+    expect(writeSettings({ favoriteProjects: 'not-an-array' }).favoriteProjects).toEqual([]);
+  });
+
+  it('caps the list at 64 entries', () => {
+    const many = Array.from({ length: 80 }, (_, i) => `/p/${i}`);
+    expect(writeSettings({ favoriteProjects: many }).favoriteProjects.length).toBe(64);
+  });
+});
+
 describe('digest', () => {
   it('defaults to { auto:true, hour:7, model:"" }', () => {
     expect(readSettings().digest).toEqual({ auto: true, hour: 7, model: '' });
