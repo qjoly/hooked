@@ -2,17 +2,18 @@
   import { onMount, untrack } from 'svelte';
   import { goto } from '$app/navigation';
   import { page } from '$app/state';
-  import { data, ui, settings } from '$lib/state.svelte.js';
+  import { data, ui, settings, updateSettings } from '$lib/state.svelte.js';
   import { getDefaults, pickFolder } from '$lib/api.js';
   import Composer from './Composer.svelte';
   import ModelEffort from './ModelEffort.svelte';
 
-  // projets uniques triés par activité la plus récente (puis nb de sessions). [[cwd, name], …]
-  // Quand `collapseWorktrees` est actif, un worktree `<projet>/.claude/worktrees/<nom>` est replié
-  // sur son projet parent (`<projet>`) : on ne veut pas polluer le sélecteur avec les worktrees
-  // éphémères de `claude --worktree`, le projet racine suffit à en relancer un.
+  // projets uniques triés favoris d'abord, puis par activité la plus récente (puis nb de sessions).
+  // [[cwd, name, fav], …]. Quand `collapseWorktrees` est actif, un worktree
+  // `<projet>/.claude/worktrees/<nom>` est replié sur son projet parent (`<projet>`) : on ne veut pas
+  // polluer le sélecteur avec les worktrees éphémères de `claude --worktree`, le projet racine suffit.
   const projs = $derived.by(() => {
     const collapse = ui.collapseWorktrees;
+    const fav = new Set(settings.favoriteProjects || []);
     const m = new Map();
     for (const s of data.sessions) {
       if (!s.project) continue;
@@ -27,10 +28,22 @@
       if (t > e.last) e.last = t;
       m.set(cwd, e);
     }
+    // un favori sans session enregistrée doit tout de même apparaître (nom = basename du chemin).
+    for (const cwd of fav) if (!m.has(cwd)) m.set(cwd, { name: cwd.split('/').pop() || cwd, count: 0, last: '', native: false });
     return [...m.entries()]
-      .sort((a, b) => String(b[1].last).localeCompare(String(a[1].last)) || b[1].count - a[1].count)
-      .map(([cwd, e]) => [cwd, e.name]);
+      .sort((a, b) =>
+        ((fav.has(b[0]) ? 1 : 0) - (fav.has(a[0]) ? 1 : 0)) ||
+        String(b[1].last).localeCompare(String(a[1].last)) || b[1].count - a[1].count)
+      .map(([cwd, e]) => [cwd, e.name, fav.has(cwd)]);
   });
+
+  // Épingle/désépingle un projet (maj optimiste du miroir réactif puis persistance côté serveur).
+  function toggleFavorite(cwd) {
+    const cur = settings.favoriteProjects || [];
+    const next = cur.includes(cwd) ? cur.filter((p) => p !== cwd) : [...cur, cwd];
+    settings.favoriteProjects = next;
+    updateSettings({ favoriteProjects: next });
+  }
 
   let search = $state('');
   let selected = $state(null);
@@ -136,11 +149,15 @@
     <input type="search" class="lf-input" placeholder="🔍 Search a project…" bind:value={search} />
     <div class="lf-picklist" role="listbox" aria-label="Projects">
       {#if hits.length}
-        {#each hits as [c, name]}
+        {#each hits as [c, name, fav]}
           <div class="lf-pick" class:sel={selected === c} tabindex="0" role="option" aria-selected={selected === c}
                onclick={() => (selected = c)}
                onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); selected = c; } }}>
-            <span class="pn">{name}</span><span class="pp">{c}</span>
+            <button class="lf-star" class:on={fav} aria-pressed={fav}
+                    title={fav ? 'Remove from favorites' : 'Add to favorites'}
+                    aria-label={fav ? 'Remove from favorites' : 'Add to favorites'}
+                    onclick={(e) => { e.stopPropagation(); toggleFavorite(c); }}>{fav ? '★' : '☆'}</button>
+            <span class="lf-pick-main"><span class="pn">{name}</span><span class="pp">{c}</span></span>
           </div>
         {/each}
       {:else}

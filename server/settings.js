@@ -77,6 +77,9 @@ const DEFAULTS = {
   // le projet devient un ENVIRONNEMENT lançable depuis l'app Claude). Liste de chemins absolus ; le serveur
   // réconcilie les sessions tmux `hooked-rc-*` à cette liste (cf. server/remoteControl.js). [] = aucun.
   remoteControlProjects: [],
+  // Projets épinglés en favori (cwd absolus) : remontés en tête du sélecteur de la Nouvelle session.
+  // Même forme que remoteControlProjects (liste de chemins absolus, dédupée/bornée). [] = aucun.
+  favoriteProjects: [],
   // Digest quotidien (onglet Digest / server/digests.js). auto : génère le digest de la veille
   // chaque jour à `hour` (heure locale) ; model : modèle passé à `claude -p` ('' = hérite du défaut
   // Claude Code). Remplace les anciennes variables d'env HOOKED_DIGEST_*.
@@ -128,6 +131,10 @@ function sanitize(raw) {
   const rcProjects = Array.isArray(o.remoteControlProjects)
     ? [...new Set(o.remoteControlProjects.filter((p) => typeof p === 'string' && p.startsWith('/')).map((p) => p.slice(0, 4096)))].slice(0, 32)
     : [];
+  // favoriteProjects : même traitement que remoteControlProjects (chemins absolus, dédupés, bornés).
+  const favProjects = Array.isArray(o.favoriteProjects)
+    ? [...new Set(o.favoriteProjects.filter((p) => typeof p === 'string' && p.startsWith('/')).map((p) => p.slice(0, 4096)))].slice(0, 64)
+    : [];
   // digest : auto (bool, défaut true), hour (entier 0-23, défaut 7), model ('' = hérite, sinon
   // validé contre --model comme au lancement — jamais interpolé brut dans un shell sans ce filtre).
   const rawDg = o.digest && typeof o.digest === 'object' ? o.digest : {};
@@ -152,6 +159,7 @@ function sanitize(raw) {
     defaultMode,
     quickLaunchProject,
     remoteControlProjects: rcProjects,
+    favoriteProjects: favProjects,
     digest,
   };
 }
