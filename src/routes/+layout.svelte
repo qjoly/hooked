@@ -39,7 +39,8 @@
   const onNew = $derived(page.url.pathname.startsWith('/new'));
   const onBoard = $derived(page.url.pathname.startsWith('/board'));
   const onDigest = $derived(page.url.pathname.startsWith('/digest'));
-  const onSessions = $derived(!onStats && !onSearch && !onSettings && !onNew && !onBoard && !onDigest);
+  const onMemory = $derived(page.url.pathname.startsWith('/memory'));
+  const onSessions = $derived(!onStats && !onSearch && !onSettings && !onNew && !onBoard && !onDigest && !onMemory);
 
   const needsReply = $derived(
     data.sessions.filter((s) => s.hasQuestion || s.hasPlan || s.state === 'waiting' || s.state === 'attention').length,
@@ -52,7 +53,7 @@
     const tag = e.target?.tagName;
     const isInput = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || e.target?.isContentEditable;
     const alwaysActive = ['command-palette', 'commands-only', 'new-session', 'search', 'settings',
-      'go-sessions', 'go-board', 'go-search', 'go-stats', 'go-digest', 'focus-mode', 'theme-cycle'];
+      'go-sessions', 'go-board', 'go-search', 'go-stats', 'go-digest', 'go-memory', 'focus-mode', 'theme-cycle'];
     if (isInput && !alwaysActive.includes(id)) return;
 
     e.preventDefault();
@@ -67,6 +68,7 @@
       case 'go-search': goto('/search'); break;
       case 'go-stats': goto('/stats'); break;
       case 'go-digest': goto('/digest'); break;
+      case 'go-memory': goto('/memory'); break;
       case 'focus-mode': toggleFocus(); break;
       case 'theme-cycle': cycleTheme(); break;
     }
@@ -98,6 +100,10 @@
     </a>
     <a class="rail-item" class:active={onDigest} href="/digest" title="Daily digest" aria-label="Daily digest">
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/><path d="M9 7h7M9 11h7"/></svg>
+    </a>
+
+    <a class="rail-item" class:active={onMemory} href="/memory" title="Memory — what Claude remembers" aria-label="Memory">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a7 7 0 0 0-7 7c0 2 .8 3.3 1.8 4.4.8.9 1.2 1.6 1.2 2.6v1a2 2 0 0 0 2 2h4a2 2 0 0 0 2-2v-1c0-1 .4-1.7 1.2-2.6C18.2 12.3 19 11 19 9a7 7 0 0 0-7-7z"/><path d="M9 21h6"/><path d="M12 9v4"/><path d="M9.5 11h5"/></svg>
     </a>
 
     <div class="rail-spacer"></div>

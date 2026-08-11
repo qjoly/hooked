@@ -28,6 +28,7 @@
     { id: 'nav:search', label: 'Go to Search', section: 'Navigation', icon: '🔍', action: () => goto('/search') },
     { id: 'nav:stats', label: 'Go to Stats', section: 'Navigation', icon: '📊', action: () => goto('/stats') },
     { id: 'nav:digest', label: 'Go to Digest', section: 'Navigation', icon: '📖', action: () => goto('/digest') },
+    { id: 'nav:memory', label: 'Go to Memory', section: 'Navigation', icon: '🧠', action: () => goto('/memory') },
     { id: 'nav:settings', label: 'Go to Settings', section: 'Navigation', icon: '⚙️', action: () => goto('/settings') },
   ];
 
