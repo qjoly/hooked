@@ -7,6 +7,7 @@ export * from './config.js';
 export * from './settings.js';
 export * from './tags.js';
 export * from './digests.js';
+export * from './memory.js';
 export * from './digestScheduler.js';
 export * from './remoteControl.js';
 export * from './util.js';
