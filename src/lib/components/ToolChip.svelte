@@ -60,9 +60,9 @@
 
 {#if hasDiff}
   <div class="tool tool-diff" class:expanded>
-    <span class="chip chip-diff" class:clickable={bigDiff || overflowing}
-          onclick={() => { if (bigDiff || overflowing) expanded = !expanded; }}>
-      🔧 {t.name}{#if t.detail}<span class="chip-d">{t.detail}</span>{/if}{#if bigDiff}<span class="diff-size">{diffLines} lines</span>{/if}{#if bigDiff || overflowing}<span class="chip-x">▸</span>{/if}
+    <!-- toujours cliquable : même sur un petit diff, le clic déplie le chemin complet -->
+    <span class="chip chip-diff clickable" onclick={() => (expanded = !expanded)}>
+      🔧 {t.name}{#if t.detail}<span class="chip-d" title={t.detail}>{t.detail}</span>{/if}{#if bigDiff}<span class="diff-size">{diffLines} lines</span>{/if}<span class="chip-x">▸</span>
     </span>
     {#if showDiff}
       <div class="td-diff" class:clamped={!bigDiff && !expanded} bind:this={box}>
@@ -105,7 +105,7 @@
 {:else}
   <div class="tool" class:has-detail={hasDetail} class:open>
     <span class="chip" onclick={() => { if (hasDetail) open = !open; }}>
-      🔧 {t.name}{#if t.detail}<span class="chip-d">{t.detail}</span>{/if}{#if hasDetail}<span class="chip-x">▸</span>{/if}
+      🔧 {t.name}{#if t.detail}<span class="chip-d" title={t.detail}>{t.detail}</span>{/if}{#if hasDetail}<span class="chip-x">▸</span>{/if}
     </span>
     {#if hasDetail}
       <div class="tool-detail">
