@@ -10,7 +10,6 @@ import { readEvents, lastEventBySession, paneForSession, paneBySession, sessionF
 import { liveStateFor } from './live.js';
 import { resolveLaunchForSession, paneTmuxNames, tmuxAlive, readPaneModeSync, paneBusySync, paneActivitySync, paneFollowupSync, paneActiveSync, warmPaneCaptures, warmPaneNames } from './tmux.js';
 import { shownPanesFor } from './pane.js';
-import { usageWindow } from './usage.js';
 import { sessionStatus, sessionStatusRaw, accountRateLimits, freshestStatusId } from './status.js';
 import { buildConversation } from './conversation.js';
 import { buildSubSessions } from './subSessions.js';
@@ -260,13 +259,13 @@ function buildStats(rangeDays) {
 }
 
 // Équivalent de `/usage` pour l'onglet Stats : rate limits du compte (5 h / 7 j, globaux),
-// contexte/effort/modèle de la session la plus fraîche (statusline), + fenêtre budget 5 h (proxy
-// coût). Réutilise server/status.js + server/usage.js ; dégrade en null si aucun snapshot.
+// contexte/effort/modèle de la session la plus fraîche (statusline) + rate limits du compte.
+// Réutilise server/status.js ; dégrade en null si aucun snapshot.
 function buildUsage() {
   const id = freshestStatusId();
   const session = id ? sessionStatus(id) : null;   // contexte/effort/modèle/fastMode + rateLimit
   const account = accountRateLimits();             // le + frais AVEC rate_limits, toutes sessions
-  return { sessionId: id, session, account, budget: usageWindow() };
+  return { sessionId: id, session, account };
 }
 
 // Vue GLOBALE des jobs de fond encore actifs, toutes sessions confondues (pour /api/background +
