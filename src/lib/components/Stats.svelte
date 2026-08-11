@@ -82,23 +82,6 @@
       <div class="empty">Loading usage…</div>
     {/if}
   </div>
-
-  <!-- Fenêtre budget 5 h (proxy coût, propre à hooked) -->
-  <div class="card usage-card">
-    <h3>5-hour budget <span class="sub">(estimated cost)</span></h3>
-    {#if u && u.budget}
-      {@const b = u.budget}
-      <div class="ubar-row">
-        <div class="ubar-head"><span>{fmtCost(b.cost)} / {fmtCost(b.budget)}</span><span class="pct">{b.pct ?? 0}%</span></div>
-        <div class="ubar"><div class="ubar-fill" style="width:{barW(b.pct)}%"></div></div>
-        <div class="ubar-sub">{b.resetInMin != null ? `resets in ${fmtDuration(b.resetInMin)}` : 'no activity in window'}</div>
-      </div>
-    {:else if u}
-      <div class="empty">No usage in the last 5 h.</div>
-    {:else}
-      <div class="empty">Loading usage…</div>
-    {/if}
-  </div>
 </div>
 
 <div class="toolbar">
