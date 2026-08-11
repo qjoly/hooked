@@ -29,12 +29,6 @@ const ROOT = path.join(import.meta.dirname, '..');
 // Le front Svelte est buildé dans dist/ (npm run build) — seule source servie.
 const PUBLIC_DIR = path.join(ROOT, 'dist');
 const PORT = parseInt(process.env.HOOKED_PORT || '4123', 10);
-// budget de référence ($) pour la fenêtre de session de 5 h → sert de dénominateur à la
-// barre de progression « limite de session ». Le plafond réel d'abonnement n'étant pas
-// exposé par Anthropic (et variant selon le plan), on l'estime via le coût et on le rend
-// configurable. HOOKED_SESSION_BUDGET pour l'ajuster à son plan.
-const SESSION_BUDGET = parseFloat(process.env.HOOKED_SESSION_BUDGET || '40') || 40;
-const SESSION_HOURS = 5;
 
 // Argument `--model` accepté : alias de famille (`opus`) ou version explicite (`opus-4-7`).
 // Regex stricte (anti-injection) : la valeur est interpolée dans une commande shell par
@@ -82,4 +76,4 @@ function readClaudeDefaults() {
   };
 }
 
-export { HOME, PROJECTS_DIR, HOOKED_DIR, EVENTS_FILE, LAUNCHES_FILE, SESSION_LAUNCH_FILE, SHOWN_PANES_FILE, STATUS_DIR, ROOT, PUBLIC_DIR, PORT, SESSION_BUDGET, SESSION_HOURS, PERMISSION_MODES, LAUNCH_PERMISSION_MODES, isValidModelArg, readClaudeDefaults };
+export { HOME, PROJECTS_DIR, HOOKED_DIR, EVENTS_FILE, LAUNCHES_FILE, SESSION_LAUNCH_FILE, SHOWN_PANES_FILE, STATUS_DIR, ROOT, PUBLIC_DIR, PORT, PERMISSION_MODES, LAUNCH_PERMISSION_MODES, isValidModelArg, readClaudeDefaults };
