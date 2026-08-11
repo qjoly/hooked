@@ -53,6 +53,8 @@ export const replaceTags = (map) => jpost('/api/tags', { replace: map });
 // Daily digests: an AI-written recap of a day's sessions. GET (no date) → history index + latest
 // date; getDigest(date) → one digest (or { status:'absent' }); generateDigest → kick off (async)
 // generation, poll getDigest until status is done/partial/error.
+export const getMemory = () => jget('/api/memory');
+
 export const getDigests = () => jget('/api/digest');
 export const getDigest = (date) => jget('/api/digest?date=' + encodeURIComponent(date));
 export const generateDigest = (date, force) => jpost('/api/digest', { date, force: !!force });
