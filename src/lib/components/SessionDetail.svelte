@@ -229,16 +229,13 @@
     else alert('✗ ' + (res.data.error || 'failed'));
   }
 
-  // indicateur 5 h compact pour la ligne de stats : valeur réelle (statusline) sinon estimation.
+  // indicateur 5 h compact pour la ligne de stats : uniquement la valeur réelle (statusline).
+  // Pas d'estimation de repli → masqué tant que le vrai % n'est pas connu.
   const stat5h = $derived.by(() => {
     if (!s) return null;
     const rl = s.rateLimit && s.rateLimit.fiveHour;
     if (rl && rl.pct != null) {
-      return { pct: rl.pct, est: false, title: '5 h session rate limit (actual)' + (rl.resetInMin != null ? ` — resets in ${fmtDuration(rl.resetInMin)}` : '') };
-    }
-    if (s.usage5h) {
-      const u = s.usage5h;
-      return { pct: u.pct, est: true, title: `5 h estimate: ${fmtCost(u.cost)} / ${fmtCost(u.budget)}` + (u.resetInMin != null ? ` — resets in ${fmtDuration(u.resetInMin)}` : '') };
+      return { pct: rl.pct, title: '5 h session rate limit (actual)' + (rl.resetInMin != null ? ` — resets in ${fmtDuration(rl.resetInMin)}` : '') };
     }
     return null;
   });
@@ -583,7 +580,7 @@
       {#if !s.tmuxAlive && s.model && sb.model !== false}<span class="hs-dot" style="order:{sbOrd('model')}">·</span><span style="order:{sbOrd('model')}">{shortModel(s.model)}</span>{/if}
       {#if stat5h && stat5h.pct != null && sb.usage5h !== false}
         <span class="hs-dot" style="order:{sbOrd('usage5h')}">·</span>
-        <span class="hs-5h" style="order:{sbOrd('usage5h')}" class:warn={stat5h.pct >= 75} class:full={stat5h.pct >= 95} title={stat5h.title}>⏳ {stat5h.pct}%{#if stat5h.est} est.{/if}</span>
+        <span class="hs-5h" style="order:{sbOrd('usage5h')}" class:warn={stat5h.pct >= 75} class:full={stat5h.pct >= 95} title={stat5h.title}>⏳ {stat5h.pct}%</span>
       {/if}
       {#if s.prLinks && s.prLinks.length && sb.prLinks !== false}
         {#each s.prLinks as l}

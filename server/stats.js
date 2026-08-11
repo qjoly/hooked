@@ -376,7 +376,6 @@ function sessionDetail(id) {
     rateLimit: status ? status.rateLimit : null,   // vrais % 5 h / 7 j du compte (via statusline)
     context: status ? status.context : null,        // remplissage de la fenêtre de contexte
     fastMode: status ? status.fastMode : false,
-    usage5h: usageWindow(5),                          // proxy coût (fallback si pas de statusline)
     events: ev, messages, subSessions, changes, subagents,
     todos: todos ? todos.todos : [], todoTs: todos ? todos.ts : null,
   };
