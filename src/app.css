@@ -720,6 +720,9 @@ code.path { color: var(--muted); font-size: 11px; word-break: break-all; font-fa
 .chips { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 6px; margin-top: 8px; }
 .chip { background: var(--accent-soft); color: var(--accent-d); border: 1px solid rgba(var(--accent-rgb),.22); border-radius: 8px; padding: 3px 9px; font-size: 11px; display: inline-flex; align-items: center; gap: 6px; max-width: 100%; }
 .chip-d { color: var(--muted); font-family: var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 280px; }
+/* pastille dépliée : chemin complet sur plusieurs lignes plutôt que tronqué */
+.tool.open > .chip .chip-d,
+.tool-diff.expanded > .chip .chip-d { max-width: none; white-space: normal; overflow-wrap: anywhere; text-align: left; }
 
 /* outils cliquables : pastille + détail entrée/sortie repliable */
 .tool { display: flex; flex-direction: column; gap: 0; max-width: 100%; }
