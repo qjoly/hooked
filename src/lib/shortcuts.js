@@ -11,6 +11,7 @@ export const SHORTCUT_DEFS = [
   { id: 'go-search', label: 'Go to Search', section: 'Navigation', defaultKeys: { alt: true, key: '3' } },
   { id: 'go-stats', label: 'Go to Stats', section: 'Navigation', defaultKeys: { alt: true, key: '4' } },
   { id: 'go-digest', label: 'Go to Digest', section: 'Navigation', defaultKeys: { alt: true, key: '5' } },
+  { id: 'go-memory', label: 'Go to Memory', section: 'Navigation', defaultKeys: { alt: true, key: '6' } },
   { id: 'focus-mode', label: 'Toggle focus mode', section: 'Actions', defaultKeys: { mod: true, shift: true, key: 'f' } },
   { id: 'theme-cycle', label: 'Cycle theme', section: 'Actions', defaultKeys: { mod: true, shift: true, key: 't' } },
 ];
