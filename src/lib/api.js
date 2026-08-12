@@ -31,6 +31,36 @@ export function connectBackgroundLog({ id, taskId, onSeed, onData, onUnavailable
   return es;
 }
 export const getFiles = (id, q, cwd) => jget(`/api/files?id=${encodeURIComponent(id || '')}&q=${encodeURIComponent(q)}${cwd ? '&cwd=' + encodeURIComponent(cwd) : ''}`);
+
+// ── Éditeur IDE (Monaco) ─────────────────────────────────────────────────────────────────────
+// base64 (contenu UTF-8) → string. atob rend une chaîne d'octets ; on repasse par TextDecoder
+// pour décoder correctement l'UTF-8 (accents, emoji…).
+function decodeB64Utf8(b64) {
+  const bin = atob(b64);
+  const bytes = Uint8Array.from(bin, (c) => c.charCodeAt(0));
+  return new TextDecoder().decode(bytes);
+}
+// Lit un fichier du projet de la session. Renvoie le body JSON tel quel (ok:true|false) — pas
+// d'exception sur 400 (binaire / trop gros / hors projet portent un `error` explicite).
+export async function getProjectFile(id, path) {
+  const r = await fetch(`/api/project-file?id=${encodeURIComponent(id)}&path=${encodeURIComponent(path)}`);
+  return r.json().catch(() => ({ ok: false, error: 'bad response' }));
+}
+// Auto-save d'un fichier projet. { ok, mtimeMs } | { ok:false, error }.
+export const saveProjectFile = (id, path, content) => jpost('/api/project-file', { id, path, content });
+// Liste plate de tous les fichiers du projet (tree-view IDE). { ok, files:[relpaths] }.
+export const getProjectTree = (id) => jget(`/api/project-tree?id=${encodeURIComponent(id)}`);
+// Flux SSE du contenu live d'un fichier : `onChange({ content, mtimeMs })` à chaque écriture
+// disque (dont celles de Claude). `onUnavailable()` si le fichier n'est pas éditable. Renvoie
+// l'EventSource (appeler .close()).
+export function connectProjectFile({ id, path, onChange, onUnavailable }) {
+  const es = new EventSource(`/api/project-file/stream?id=${encodeURIComponent(id)}&path=${encodeURIComponent(path)}`);
+  es.addEventListener('change', (e) => {
+    try { onChange && onChange(JSON.parse(decodeB64Utf8(e.data))); } catch (_) {}
+  });
+  es.addEventListener('unavailable', () => onUnavailable && onUnavailable());
+  return es;
+}
 export const getCommands = (id, q, cwd) => jget(`/api/commands?id=${encodeURIComponent(id || '')}&q=${encodeURIComponent(q)}${cwd ? '&cwd=' + encodeURIComponent(cwd) : ''}`);
 export const getAgent = (session, agent) => jget(`/api/agent?session=${encodeURIComponent(session)}&agent=${encodeURIComponent(agent)}`);
 // Défauts modèle/effort lus depuis ~/.claude (config Claude Code de l'utilisateur).
