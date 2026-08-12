@@ -17,6 +17,7 @@
   import Todos from './Todos.svelte';
   import Background from './Background.svelte';
   import Terminal from './Terminal.svelte';
+  import Ide from './Ide.svelte';
   import { TERM_THEMES, DEFAULT_TERM_THEME, TERM_FONTS, DEFAULT_TERM_FONT } from '$lib/terminalThemes.js';
   import { conversationToMarkdown } from '$lib/exportConversation.js';
 
@@ -28,6 +29,32 @@
   // proxy profond. Coût de `s = d` : O(1) au lieu de O(nombre de nœuds du transcript).
   let s = $state.raw(null);      // détail de session
   let tab = $state('chat');
+  // Onglet IDE (Monaco) : 'off' | 'split' (côte à côte avec le chat) | 'full' (plein écran).
+  let ideMode = $state('off');
+  let ideWidth = $state(62);     // largeur % de la colonne IDE en mode split (redimensionnable)
+  let shell;                     // ref .detail-shell (pour mesurer pendant le drag)
+  function startIdeResize(e) {
+    e.preventDefault();
+    const rect = shell?.getBoundingClientRect();
+    if (!rect) return;
+    const move = (ev) => {
+      const px = (ev.touches ? ev.touches[0].clientX : ev.clientX) - rect.left;
+      ideWidth = Math.min(80, Math.max(20, 100 - (px / rect.width) * 100));
+    };
+    const up = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+  }
+  // Mode IDE 'full' = vrai plein écran : on masque l'inbox (liste de sessions) via une classe
+  // globale sur <body> (même approche que le mode focus). Le cleanup couvre re-run ET démontage.
+  $effect(() => {
+    const full = ideMode === 'full';
+    document.body.classList.toggle('ide-full', full);
+    return () => document.body.classList.remove('ide-full');
+  });
   let termPane = $state(null);   // pane « show » courant affiché dans l'onglet Terminal
   let termInteractive = $state(true);  // onglet Terminal : interactif (frappes → tmux) par défaut
   let termFit = $state(true);          // adapter le pane tmux à la place dispo dans la vue web
@@ -507,6 +534,9 @@
 </script>
 
 {#if s}
+  <div class="detail-shell" class:ide-split={ideMode === 'split'} class:ide-full={ideMode === 'full'}
+       style="--ide-w:{ideWidth}%" bind:this={shell}>
+  <div class="detail-main">
   <div class="pane-head s-{s.state}">
     <div class="card-top" style="cursor:default;margin-bottom:6px">
       <button class="pane-back" onclick={() => goto('/')} title="Back to list">←</button>
@@ -553,6 +583,7 @@
           {#if s.tmuxAlive && s.tmuxAttach}
             <button class="vscode-btn" title={s.tmuxAttach} onclick={copyAttach}>{attachCopied ? '✓ copied' : '⧉ Copy attach'}</button>
           {/if}
+          <button class="vscode-btn" onclick={() => (ideMode = ideMode === 'off' ? 'split' : 'off')} title="Open a Monaco editor side by side to view & edit Claude's changes (auto-save)">🧩 {ideMode === 'off' ? 'Open IDE' : 'Close IDE'}</button>
           <button class="vscode-btn" disabled={vscodeBusy} onclick={openVscode} title="Open the entire project in VS Code">{vscodeBusy ? '⏳' : '⧉'} Open in VS Code</button>
           <button class="vscode-btn" disabled={ghosttyBusy} onclick={openGhostty} title="Open the session in Ghostty (attaches tmux if alive)">{ghosttyBusy ? '⏳' : '⧉'} Open in Ghostty</button>
           <button class="vscode-btn" onclick={copyExport} title="Copy the conversation as Markdown to the clipboard">{exportCopied ? '✓ copied' : '⧉ Copy as Markdown'}</button>
@@ -722,9 +753,39 @@
       {/if}
     </div>
   </div>
+  </div>
+  {#if ideMode === 'split'}
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <div class="ide-resize" onpointerdown={startIdeResize} title="Drag to resize"></div>
+  {/if}
+  {#if ideMode !== 'off'}
+    <div class="ide-col">
+      <Ide {id} changes={s.changes || []} mode={ideMode}
+           onmode={(m) => (ideMode = m)} onclose={() => (ideMode = 'off')} />
+    </div>
+  {/if}
+  </div>
 {/if}
 
 <style>
+  /* ── Coquille détail + colonne IDE (Monaco) ─────────────────────────────────────────────
+     .detail-shell est l'unique enfant flex de .main-pane (flex column). En mode normal c'est
+     une colonne (head + body). En 'split' elle passe en RANGÉE : chat à gauche, IDE à droite
+     (largeur --ide-w redimensionnable). En 'full' le chat est masqué, l'IDE prend tout. */
+  .detail-shell { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+  .detail-main { flex: 1 1 auto; min-height: 0; min-width: 0; display: flex; flex-direction: column; }
+  .detail-shell.ide-split { flex-direction: row; }
+  .detail-shell.ide-split .detail-main { flex: 1 1 0; min-width: 0; }
+  .detail-shell.ide-split .ide-col { flex: 0 0 var(--ide-w, 50%); min-width: 0; }
+  .detail-shell.ide-full .detail-main { display: none; }
+  .detail-shell.ide-full .ide-col { flex: 1 1 auto; min-width: 0; }
+  .ide-col { display: flex; min-height: 0; min-width: 0; border-left: 1px solid var(--border); }
+  .ide-resize {
+    flex: 0 0 6px; cursor: col-resize; background: var(--border);
+    transition: background .12s;
+  }
+  .ide-resize:hover { background: var(--accent); }
+
   /* menu « ⋯ » des actions secondaires de l'en-tête (natif <details>, sans JS) */
   .hdr-more { position: relative; margin-left: auto; }
   .hdr-more > summary {

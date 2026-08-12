@@ -14,6 +14,14 @@ const pierreWebComponents = fileURLToPath(
   new URL('./node_modules/@pierre/diffs/dist/components/web-components.js', import.meta.url),
 );
 
+// Monaco 0.56 expose ses sous-modules via un `exports` en wildcard (`"./*": "./esm/vs/*.js"`).
+// Le résolveur de Rollup/Vite ne matche pas ce wildcard pour les workers de langage importés en
+// `…?worker` (« failed to resolve import monaco-editor/language/json/json.worker?worker »). On
+// contourne `exports` en aliasant CHAQUE worker vers son vrai fichier sous node_modules, tout en
+// PRÉSERVANT le suffixe `?worker` (lookahead) pour que le plugin worker de Vite le construise.
+const monacoEsmVs = fileURLToPath(new URL('./node_modules/monaco-editor/esm/vs/', import.meta.url));
+const monacoWorkerAlias = { find: /^monaco-editor\/(.*\.worker)(?=\?worker$)/, replacement: monacoEsmVs + '$1' };
+
 // Front + API dans un seul process : `npm run dev` sert le front (HMR) ET les
 // endpoints /api/* (routes +server.js). Plus de proxy ni de serveur Node séparé.
 export default defineConfig({
@@ -22,8 +30,17 @@ export default defineConfig({
     allowedHosts: true,
   },
   resolve: {
-    alias: {
-      '@pierre/diffs/web-components': pierreWebComponents,
-    },
+    // Forme tableau (regex possible) : l'alias worker Monaco a besoin d'un `find` RegExp.
+    alias: [
+      { find: '@pierre/diffs/web-components', replacement: pierreWebComponents },
+      monacoWorkerAlias,
+    ],
+  },
+  // On EXCLUT monaco du dep-optimizer : sinon Vite tente de pré-bundler ses imports `…?worker` et
+  // sert des URLs `.vite/deps/…_worker?worker.js` qui 404 → « Failed to fetch dynamically imported
+  // module …/monaco.js » et l'éditeur ne monte jamais. Exclu, monaco + ses workers sont servis
+  // depuis la source et le plugin worker de Vite les construit correctement.
+  optimizeDeps: {
+    exclude: ['monaco-editor'],
   },
 });
