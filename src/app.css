@@ -358,6 +358,8 @@ main { flex: 1 1 auto; min-width: 0; min-height: 0; overflow: hidden; background
    On replie le header du cockpit (.pane-head) et l'inbox (ré-ouvrable « en peek » via ☰). */
 body.focus .pane-head { display: none; }
 body.focus .inbox { width: 0; min-width: 0; border-right: 0; overflow: hidden; }
+/* IDE plein écran : masque l'inbox pour que l'éditeur occupe toute la largeur (bord à bord). */
+body.ide-full .inbox { width: 0; min-width: 0; border-right: 0; overflow: hidden; }
 body.focus.sidebar-peek .inbox { width: 326px; min-width: 326px; border-right: 1px solid var(--border); overflow: visible; }
 /* .focus-ctl / .focus-fab-btn now live (scoped) in the rail layout component. */
 .vscode-btn.on { background: var(--accent-soft); border-color: var(--accent); color: var(--accent-d); }
