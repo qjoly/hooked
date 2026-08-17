@@ -60,6 +60,10 @@ function newAcc(sessionId, fp) {
     modelCount: {},      // modèle -> occurrences (pour le modèle dominant)
     asked: [],           // [{ id, questions }] AskUserQuestion dans l'ordre
     answered: new Set(), // tool_use_id ayant reçu un tool_result
+    resolved: new Set(), // AskUserQuestion résolues SANS tool_result : répondre en tapant (au lieu
+                         // de choisir une option) abandonne l'outil → Claude Code n'émet pas de
+                         // tool_result. Tout prompt humain postérieur résout les questions déjà
+                         // posées, sinon la carte resterait « en attente » à vie (cf. finalize).
     prRaw: [],           // matches d'URL de PR dans l'ordre du fichier (dédup/reverse au finalize)
     issueRaw: [],        // idem pour les issues
     aiTitle: null,       // dernier ai-title vu (prioritaire sur le fallback firstPrompt)
@@ -109,6 +113,11 @@ function foldLine(acc, line) {
         s.userPrompts++;
         if (!s.firstPrompt) s.firstPrompt = t;
         s.lastPrompt = t;
+        // Un prompt humain qui suit une AskUserQuestion la résout : soit l'utilisateur a répondu en
+        // texte libre (l'outil est alors abandonné, aucun tool_result), soit il est passé à autre
+        // chose — dans les deux cas la question n'est plus « en attente ». Toute question déjà dans
+        // acc.asked à cet instant est, par construction, antérieure à ce prompt → résolue.
+        for (const a of acc.asked) acc.resolved.add(a.id);
       }
     }
   }
@@ -169,10 +178,13 @@ function finalize(acc) {
   // modèle dominant (tri stable → départage identique au parse en une passe)
   s.model = Object.keys(acc.modelCount).sort((a, b) => acc.modelCount[b] - acc.modelCount[a])[0] || null;
   s.title = acc.aiTitle != null ? acc.aiTitle : ((s.firstPrompt || '').slice(0, 80) || '(sans titre)');
-  // dernière question AskUserQuestion sans réponse = question en attente
+  // dernière question AskUserQuestion ni répondue (tool_result) ni résolue (prompt postérieur) =
+  // question en attente. Sans `resolved`, une question à laquelle on répond en TAPANT resterait
+  // « en attente » à vie (l'outil abandonné n'émet aucun tool_result).
   s.pendingQuestion = null;
   for (let i = acc.asked.length - 1; i >= 0; i--) {
-    if (!acc.answered.has(acc.asked[i].id)) { s.pendingQuestion = acc.asked[i]; break; }
+    const id = acc.asked[i].id;
+    if (!acc.answered.has(id) && !acc.resolved.has(id)) { s.pendingQuestion = acc.asked[i]; break; }
   }
   return s;
 }
