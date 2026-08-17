@@ -85,10 +85,12 @@
   const cAll = $derived(matched.length);
   const scopeCount = (k) => (k === 'active' ? cActive : k === 'needs' ? cNeeds : k === 'working' ? cWorking : cAll);
 
+  // Ordre STABLE : on trie sur la date de démarrage (immuable), pas sur lastActivity — sinon chaque
+  // tick de poll réordonne la liste sous le curseur. Fallback id pour les sessions sans startTs.
   const byActivity = (a, b) => {
     const pa = pinnedSet.has(a.id), pb = pinnedSet.has(b.id);
     if (pa !== pb) return pa ? -1 : 1; // épinglées en tête
-    return String(b.lastActivity || '').localeCompare(String(a.lastActivity || ''));
+    return String(b.startTs || '').localeCompare(String(a.startTs || '')) || String(a.id).localeCompare(String(b.id));
   };
 
   // repère de date grossier pour retrouver les sessions récentes dans « Idle & ended » (scope All).
@@ -122,9 +124,10 @@
         if (!g.has(k)) g.set(k, []);
         g.get(k).push(s);
       }
-      const lastOf = (arr) => arr.reduce((m, s) => Math.max(m, Date.parse(s.lastActivity || 0) || 0), 0);
+      // même logique : la session la plus RÉCEMMENT DÉMARRÉE fixe le rang du projet.
+      const newestOf = (arr) => arr.reduce((m, s) => Math.max(m, Date.parse(s.startTs || 0) || 0), 0);
       return [...g.keys()]
-        .sort((a, b) => lastOf(g.get(b)) - lastOf(g.get(a)))
+        .sort((a, b) => newestOf(g.get(b)) - newestOf(g.get(a)) || String(a).localeCompare(String(b)))
         .map((proj) => {
           const items = g.get(proj).slice().sort(byActivity);
           return { key: 'proj:' + proj, label: proj, tone: 'proj', project: proj, newProject: items[0]?.project || '', count: items.length, items };
