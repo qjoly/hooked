@@ -69,7 +69,15 @@ describe('pricing — costForUsage', () => {
 describe('parseTranscript', () => {
   for (const [name, fp] of Object.entries(FILES)) {
     it(`identique pour ${name}`, () => {
-      expect(lib.parseTranscript(fp, name)).toEqual(legacy.parseTranscript(fp, name));
+      const cur = lib.parseTranscript(fp, name);
+      const old = legacy.parseTranscript(fp, name);
+      // `pendingQuestion` diverge VOLONTAIREMENT du legacy figé : un prompt humain qui suit une
+      // AskUserQuestion la résout désormais (fix de la carte « en attente » fantôme). Legacy ne
+      // connaissait que le tool_result → il gardait la question `Deploy` d'`alpha` en attente alors
+      // que /deploy la suit. Tout le RESTE reste identique ; la nouvelle sémantique de
+      // pendingQuestion est couverte par test/pendingQuestion.test.mjs.
+      delete cur.pendingQuestion; delete old.pendingQuestion;
+      expect(cur).toEqual(old);
     });
   }
   it('valeurs concrètes attendues (sess-alpha)', () => {
@@ -84,8 +92,10 @@ describe('parseTranscript', () => {
     expect(s.tools).toEqual({ Bash: 1, Write: 1, Edit: 1, MultiEdit: 1, NotebookEdit: 1, AskUserQuestion: 2, Agent: 1 });
     expect(s.prLinks).toEqual(['https://github.com/acme/repo/pull/7', 'https://github.com/acme/repo/pull/42']);
     expect(s.issueLinks).toEqual([]);       // détection d'issues distincte des PR (aucun /issues/ ici)
-    expect(s.pendingQuestion).not.toBeNull();
-    expect(s.pendingQuestion.questions[0].header).toBe('Deploy');
+    // `alpha` pose 2 questions : Style (répondue par tool_result) puis Deploy (JAMAIS répondue par
+    // tool_result). Comme /deploy suit la question Deploy, un prompt humain postérieur la résout →
+    // plus de carte « en attente » fantôme une fois la session repartie. (cf. pendingQuestion.test.mjs)
+    expect(s.pendingQuestion).toBeNull();
     expect(Object.keys(s.byDay).sort()).toEqual(['2026-06-10', '2026-06-11']);
     expect(s.subagentCost).toBeGreaterThan(0);
   });
@@ -234,7 +244,11 @@ describe('files — fuzzyScore / matchFiles', () => {
 
 describe('scanSessions', () => {
   it('identique', () => {
-    expect(lib.scanSessions()).toEqual(legacy.scanSessions());
+    // `pendingQuestion` diverge volontairement du legacy figé (cf. parseTranscript ci-dessus :
+    // un prompt humain postérieur résout une AskUserQuestion sans tool_result). On le retire des
+    // deux côtés ; sa nouvelle sémantique est couverte par test/pendingQuestion.test.mjs.
+    const strip = (arr) => arr.map(({ pendingQuestion, ...rest }) => rest);
+    expect(strip(lib.scanSessions())).toEqual(strip(legacy.scanSessions()));
   });
   it('exclut les sous-agents (agent-*.jsonl) et les non-.jsonl', () => {
     const ids = lib.scanSessions().map((s) => s.id).sort();
