@@ -275,6 +275,9 @@
   // Lu AVANT toute garde (règle réactivité Svelte 5). Clé inconnue → ordre élevé (rejetée en fin).
   const sbOrder = $derived(settings.statusBarOrder || []);
   const sbOrd = (k) => { const i = sbOrder.indexOf(k); return i === -1 ? 90 : i; };
+  // Chips PR / issue de la barre de statut : bornés par le réglage (0 = tous), surplus résumé en « +N ».
+  const linkLimit = $derived(settings.statusBarLinkLimit || 0);
+  const shownLinks = (links) => (linkLimit ? links.slice(0, linkLimit) : links);
 
   async function load(isRefresh) {
     let d;
@@ -614,16 +617,26 @@
         <span class="hs-5h" style="order:{sbOrd('usage5h')}" class:warn={stat5h.pct >= 75} class:full={stat5h.pct >= 95} title={stat5h.title}>⏳ {stat5h.pct}%</span>
       {/if}
       {#if s.prLinks && s.prLinks.length && sb.prLinks !== false}
-        {#each s.prLinks as l}
+        {#each shownLinks(s.prLinks) as l}
           <span class="hs-dot" style="order:{sbOrd('prLinks')}">·</span>
           <a class="hs-pr" style="order:{sbOrd('prLinks')}" href={l} target="_blank" rel="noopener" title={l} onclick={(e) => e.stopPropagation()}>🔗 {prLabel(l)}</a>
         {/each}
+        {#if linkLimit && s.prLinks.length > linkLimit}
+          <span class="hs-dot" style="order:{sbOrd('prLinks')}">·</span>
+          <button class="hs-pr hs-rest" style="order:{sbOrd('prLinks')}" title="Show all linked PRs"
+                  onclick={(e) => { e.stopPropagation(); tab = 'pr'; }}>+{s.prLinks.length - linkLimit}</button>
+        {/if}
       {/if}
       {#if s.issueLinks && s.issueLinks.length && sb.issueLinks !== false}
-        {#each s.issueLinks as l}
+        {#each shownLinks(s.issueLinks) as l}
           <span class="hs-dot" style="order:{sbOrd('issueLinks')}">·</span>
           <a class="hs-pr" style="order:{sbOrd('issueLinks')}" href={l} target="_blank" rel="noopener" title={l} onclick={(e) => e.stopPropagation()}>🐛 {issueLabel(l)}</a>
         {/each}
+        {#if linkLimit && s.issueLinks.length > linkLimit}
+          <span class="hs-dot" style="order:{sbOrd('issueLinks')}">·</span>
+          <button class="hs-pr hs-rest" style="order:{sbOrd('issueLinks')}" title="Show all linked issues"
+                  onclick={(e) => { e.stopPropagation(); tab = 'issues'; }}>+{s.issueLinks.length - linkLimit}</button>
+        {/if}
       {/if}
       <span class="hs-more" style="order:99">›</span>
     </div>

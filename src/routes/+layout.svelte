@@ -40,7 +40,8 @@
   const onBoard = $derived(page.url.pathname.startsWith('/board'));
   const onDigest = $derived(page.url.pathname.startsWith('/digest'));
   const onMemory = $derived(page.url.pathname.startsWith('/memory'));
-  const onSessions = $derived(!onStats && !onSearch && !onSettings && !onNew && !onBoard && !onDigest && !onMemory);
+  const onSplit = $derived(page.url.pathname.startsWith('/split'));
+  const onSessions = $derived(!onStats && !onSearch && !onSettings && !onNew && !onBoard && !onDigest && !onMemory && !onSplit);
 
   const needsReply = $derived(
     data.sessions.filter((s) => s.hasQuestion || s.hasPlan || s.state === 'waiting' || s.state === 'attention').length,
@@ -91,6 +92,9 @@
     </a>
     <a class="rail-item" class:active={onNew} href="/new" title="New session" aria-label="New session">
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
+    </a>
+    <a class="rail-item" class:active={onSplit} href="/split" title="Split view — several sessions side by side" aria-label="Split view">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="12" y1="3" x2="12" y2="21"/></svg>
     </a>
     <a class="rail-item" class:active={onSearch} href="/search" title="Search" aria-label="Search">
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>

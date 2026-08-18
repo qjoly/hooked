@@ -88,6 +88,9 @@ const DEFAULTS = {
   // défaut sauf prLinks / issueLinks (false : les onglets dédiés PR/Issues sont le lieu principal ;
   // chips masqués par défaut).
   statusBar: Object.fromEntries(STATUS_BAR_KEYS.map((k) => [k, !STATUS_BAR_HIDDEN_DEFAULT.has(k)])),
+  // Nombre max de chips PR / issue affichés dans la barre de statut (0 = tous). Le surplus est
+  // résumé par un « +N » ; les onglets dédiés restent exhaustifs.
+  statusBarLinkLimit: 0,
 };
 
 // Ramène un objet arbitraire (fichier ou payload client) à des valeurs sûres et complètes.
@@ -114,6 +117,10 @@ function sanitize(raw) {
     if (rawSb[k] !== undefined) return [k, rawSb[k] !== false];
     return [k, !STATUS_BAR_HIDDEN_DEFAULT.has(k)]; // absent → défaut (prLinks/issueLinks → false)
   }));
+  // statusBarLinkLimit : entier 0-50 (0 = pas de limite). Toute valeur hors bornes retombe sur 0.
+  const linkLimit = Number.isInteger(o.statusBarLinkLimit) && o.statusBarLinkLimit >= 0 && o.statusBarLinkLimit <= 50
+    ? o.statusBarLinkLimit
+    : 0;
   // Défauts de session : '' (hériter) autorisé. Modèle → charset de --model ; effort → alpha ;
   // mode → liste blanche du lancement. Tout inconnu retombe sur '' (hériter).
   const defaultModel = typeof o.defaultModel === 'string' && /^[a-z0-9-]{1,60}$/i.test(o.defaultModel) ? o.defaultModel : '';
@@ -154,6 +161,7 @@ function sanitize(raw) {
     // Défaut à true : une config antérieure à cette clé ne doit pas la forcer à false.
     gitRestartNotice: o.gitRestartNotice === undefined ? true : !!o.gitRestartNotice,
     statusBar,
+    statusBarLinkLimit: linkLimit,
     defaultModel,
     defaultEffort,
     defaultMode,
