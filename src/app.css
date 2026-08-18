@@ -829,6 +829,7 @@ code.path { color: var(--muted); font-size: 11px; word-break: break-all; font-fa
 .hs-5h.full { color: var(--attention); }
 .hs-pr { color: var(--accent-d); text-decoration: none; }
 .hs-pr:hover { text-decoration: underline; }
+.hs-rest { background: none; border: none; padding: 0; font: inherit; font-weight: 700; cursor: pointer; }
 .hs-more { color: var(--accent-d); font-weight: 700; }
 
 /* ---------- écran « nouvelle session » (chat plein écran) ---------- */

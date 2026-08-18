@@ -744,6 +744,16 @@
           </li>
         {/each}
       </ul>
+      <div class="cmd-row" style="margin-top:6px">
+        <label class="dg-field">Show at most
+          <select class="dg-sel" value={String(settings.statusBarLinkLimit ?? 0)}
+                  onchange={(e) => updateSettings({ statusBarLinkLimit: parseInt(e.currentTarget.value, 10) })}>
+            <option value="0">all</option>
+            {#each [1, 2, 3, 5, 10] as n}<option value={String(n)}>{n}</option>{/each}
+          </select>
+          linked PRs / issues in the header — the rest becomes a “+N” link to the tab.
+        </label>
+      </div>
       <div class="preview">
         <span class="preview-label">Preview</span>
         <div class="pv-statusbar">
