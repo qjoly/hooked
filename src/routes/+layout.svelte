@@ -54,7 +54,7 @@
     const tag = e.target?.tagName;
     const isInput = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || e.target?.isContentEditable;
     const alwaysActive = ['command-palette', 'commands-only', 'new-session', 'search', 'settings',
-      'go-sessions', 'go-board', 'go-search', 'go-stats', 'go-digest', 'go-memory', 'focus-mode', 'theme-cycle'];
+      'go-sessions', 'go-board', 'go-search', 'go-stats', 'go-digest', 'go-memory', 'go-split', 'focus-mode', 'theme-cycle'];
     if (isInput && !alwaysActive.includes(id)) return;
 
     e.preventDefault();
@@ -70,6 +70,7 @@
       case 'go-stats': goto('/stats'); break;
       case 'go-digest': goto('/digest'); break;
       case 'go-memory': goto('/memory'); break;
+      case 'go-split': goto('/split'); break;
       case 'focus-mode': toggleFocus(); break;
       case 'theme-cycle': cycleTheme(); break;
     }

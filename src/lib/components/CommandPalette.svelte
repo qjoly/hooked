@@ -29,6 +29,7 @@
     { id: 'nav:stats', label: 'Go to Stats', section: 'Navigation', icon: '📊', action: () => goto('/stats') },
     { id: 'nav:digest', label: 'Go to Digest', section: 'Navigation', icon: '📖', action: () => goto('/digest') },
     { id: 'nav:memory', label: 'Go to Memory', section: 'Navigation', icon: '🧠', action: () => goto('/memory') },
+    { id: 'nav:split', label: 'Go to Split view', section: 'Navigation', icon: '🪟', action: () => goto('/split') },
     { id: 'nav:settings', label: 'Go to Settings', section: 'Navigation', icon: '⚙️', action: () => goto('/settings') },
   ];
 

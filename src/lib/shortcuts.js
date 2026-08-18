@@ -12,6 +12,7 @@ export const SHORTCUT_DEFS = [
   { id: 'go-stats', label: 'Go to Stats', section: 'Navigation', defaultKeys: { alt: true, key: '4' } },
   { id: 'go-digest', label: 'Go to Digest', section: 'Navigation', defaultKeys: { alt: true, key: '5' } },
   { id: 'go-memory', label: 'Go to Memory', section: 'Navigation', defaultKeys: { alt: true, key: '6' } },
+  { id: 'go-split', label: 'Go to Split view', section: 'Navigation', defaultKeys: { alt: true, key: '7' } },
   { id: 'focus-mode', label: 'Toggle focus mode', section: 'Actions', defaultKeys: { mod: true, shift: true, key: 'f' } },
   { id: 'theme-cycle', label: 'Cycle theme', section: 'Actions', defaultKeys: { mod: true, shift: true, key: 't' } },
 ];
@@ -109,6 +110,7 @@ export function shortcutForCommand(commandId) {
     'nav:sessions': 'go-sessions',
     'nav:new': 'new-session',
     'nav:search': 'go-search',
+    'nav:split': 'go-split',
     'nav:settings': 'settings',
     'act:focus': 'focus-mode',
   };
