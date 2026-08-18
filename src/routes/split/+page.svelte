@@ -113,17 +113,54 @@
     picking = null;
     query = '';
   }
+
+  // ── raccourcis du volet actif ─────────────────────────────────────────────────────────────
+  // Le volet actif = le dernier cliqué (ou focusé au clavier) ; les raccourcis de découpe s'y
+  // appliquent. Tout est en Alt+Shift : aucune collision avec les Alt+chiffre de navigation
+  // globale, et rien d'utile n'est masqué dans le composer. `e.code` (pas `e.key`) car Shift+1
+  // ne produit pas « 1 » selon la disposition clavier.
+  let active = $state('0:0');
+  const SPLIT_KEYS = [
+    { keys: '⌥⇧1…5', what: 'preset layouts' },
+    { keys: '⌥⇧→', what: 'split the active pane to the right' },
+    { keys: '⌥⇧↓', what: 'split the active pane downwards' },
+    { keys: '⌥⇧S', what: 'change the session of the active pane' },
+    { keys: '⌥⇧W', what: 'close the active pane' },
+  ];
+
+  function onKeydown(e) {
+    if (!e.altKey || !e.shiftKey || e.metaKey || e.ctrlKey) return;
+    const preset = /^Digit([1-5])$/.exec(e.code);
+    if (preset) { e.preventDefault(); applyPreset(PRESETS[+preset[1] - 1].counts); return; }
+
+    let [ci, pi] = active.split(':').map(Number);
+    if (!cols[ci]?.panes[pi]) { ci = 0; pi = 0; }
+    switch (e.code) {
+      case 'ArrowRight': e.preventDefault(); splitRight(ci); break;
+      case 'ArrowDown': e.preventDefault(); splitDown(ci, pi); break;
+      case 'KeyS': e.preventDefault(); picking = `${ci}:${pi}`; query = ''; break;
+      case 'KeyW': e.preventDefault(); closePane(ci, pi); active = '0:0'; break;
+    }
+  }
 </script>
+
+<svelte:window onkeydown={onKeydown} />
 
 <div class="split-view">
   <header class="split-bar">
     <span class="sb-label">Split</span>
     <div class="sb-group">
-      {#each PRESETS as p}
-        <button class="glyph" title={p.title} onclick={() => applyPreset(p.counts)}>{p.label}</button>
+      {#each PRESETS as p, i}
+        <button class="glyph" title="{p.title} (⌥⇧{i + 1})" onclick={() => applyPreset(p.counts)}>{p.label}</button>
       {/each}
     </div>
-    <span class="sb-hint">⇥ / ⤓ on a pane to split it · drag the dividers to resize</span>
+    <details class="sb-keys">
+      <summary title="Keyboard shortcuts">⌨ shortcuts</summary>
+      <ul>
+        {#each SPLIT_KEYS as k}<li><kbd>{k.keys}</kbd> {k.what}</li>{/each}
+        <li><kbd>⌥7</kbd> jump to this page from anywhere</li>
+      </ul>
+    </details>
   </header>
 
   <div class="split-box" bind:this={boxEl}>
@@ -138,7 +175,9 @@
             <div class="handle h" role="separator" tabindex="-1"
                  onpointerdown={(e) => startDrag(e, col.panes, pi - 1, 'y', colEls[ci])}></div>
           {/if}
-          <section class="split-pane" style="flex-basis:{p.h}%">
+          <section class="split-pane" class:active={active === `${ci}:${pi}`} style="flex-basis:{p.h}%"
+                   onpointerdowncapture={() => (active = `${ci}:${pi}`)}
+                   onfocusincapture={() => (active = `${ci}:${pi}`)}>
             <div class="pane-bar">
               <button class="pane-name" onclick={() => { picking = `${ci}:${pi}`; query = ''; }}
                       title="Change session">
@@ -205,6 +244,25 @@
   .split-pane {
     flex: 0 0 auto; min-width: 0; min-height: 0; overflow: hidden;
     display: flex; flex-direction: column; background: var(--bg);
+  }
+
+  .split-pane.active > .pane-bar { background: var(--accent-soft); border-bottom-color: var(--accent); }
+
+  .sb-keys { margin-left: auto; position: relative; font-size: 11px; color: var(--muted); }
+  .sb-keys > summary { cursor: pointer; list-style: none; user-select: none; }
+  .sb-keys > summary::-webkit-details-marker { display: none; }
+  .sb-keys > summary:hover { color: var(--text); }
+  .sb-keys ul {
+    position: absolute; right: 0; top: calc(100% + 6px); z-index: 30; margin: 0;
+    min-width: 300px; padding: 8px 10px; list-style: none;
+    display: flex; flex-direction: column; gap: 5px;
+    background: var(--surface); border: 1px solid var(--border2); border-radius: 10px; box-shadow: var(--shadow);
+  }
+  .sb-keys li { display: flex; align-items: center; gap: 8px; color: var(--text); }
+  .sb-keys kbd {
+    flex: 0 0 auto; min-width: 54px; text-align: center; font-family: var(--mono); font-size: 10.5px;
+    padding: 2px 6px; color: var(--muted); background: var(--bg3);
+    border: 1px solid var(--border2); border-radius: 6px;
   }
 
   .handle { flex: 0 0 6px; background: var(--border); transition: background .12s; }
