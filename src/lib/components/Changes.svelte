@@ -10,19 +10,21 @@
   // ----- sous-onglets : diff « Claude » (reconstruit du transcript) vs diff VCS (git/jj) -----
   let view = $state('claude'); // 'claude' | 'vcs'
   // État du diff VCS, chargé paresseusement au 1er passage sur l'onglet (puis rafraîchissable).
-  let vcs = $state({ loaded: false, loading: false, error: null, kind: null, changes: [] });
+  // `repos` : un item par dépôt détecté (principal en premier + sous-dépôts imbriqués).
+  let vcs = $state({ loaded: false, loading: false, error: null, kind: null, repos: [], truncated: false });
   const VCS_META = {
     git: { icon: '🔀', label: 'Git' },
     jj:  { icon: '🥋', label: 'Jujutsu' },
   };
   const vcsMeta = $derived(VCS_META[vcs.kind] || { icon: '🔀', label: 'VCS' });
+  const repoName = (p) => (p || '').split('/').filter(Boolean).pop() || p;
 
   async function loadVcs(force = false) {
     if (!id || vcs.loading || (vcs.loaded && !force)) return;
     vcs = { ...vcs, loading: true, error: null };
     try {
       const r = await getVcsDiff(id);
-      vcs = { loaded: true, loading: false, error: null, kind: r.vcs, changes: r.changes || [] };
+      vcs = { loaded: true, loading: false, error: null, kind: r.vcs, repos: r.repos || [], truncated: !!r.truncated };
     } catch (e) {
       vcs = { ...vcs, loading: false, loaded: true, error: 'Failed to load diff.' };
     }
@@ -95,10 +97,11 @@
   }
 </script>
 
-<!-- Une carte fichier, partagée par les deux vues. `commentable` : gutter de revue inline (Claude). -->
-{#snippet cards(list, commentable)}
+<!-- Une carte fichier, partagée par les deux vues. `commentable` : gutter de revue inline (Claude).
+     `prefix` : espace de clés d'ouverture — indispensable côté VCS où chaque dépôt a sa section. -->
+{#snippet cards(list, commentable, prefix)}
   {#each list as c, i}
-    {@const key = view + ':' + i}
+    {@const key = prefix + ':' + i}
     <div class="change" class:open={openSet[key]}>
       <div class="change-head" title={c.file} onclick={() => (openSet = { ...openSet, [key]: !openSet[key] })}>
         <span class="ch-arrow">▸</span>
@@ -146,7 +149,7 @@
   {#if !changes.length}
     <div class="pane-empty">No file changes in this session.</div>
   {:else}
-    {@render cards(changes, true)}
+    {@render cards(changes, true, 'claude')}
     {#if activeCount}
       <div class="review-bar">
         <textarea class="review-note" rows="1" bind:value={note}
@@ -165,12 +168,30 @@
     <div class="pane-empty">Loading working-tree diff…</div>
   {:else if vcs.error}
     <div class="pane-empty">{vcs.error}</div>
-  {:else if vcs.kind === null}
+  {:else if !vcs.repos.length}
     <div class="pane-empty">This project is not in a git or jj repository.</div>
-  {:else if !vcs.changes.length}
-    <div class="pane-empty">No uncommitted changes in the working tree.</div>
+  {:else if vcs.repos.length === 1}
+    {#if !vcs.repos[0].changes.length}
+      <div class="pane-empty">No uncommitted changes in the working tree.</div>
+    {:else}
+      {@render cards(vcs.repos[0].changes, false, 'vcs:0')}
+    {/if}
+  {:else if vcs.repos.every((r) => !r.changes.length)}
+    <div class="pane-empty">No uncommitted changes in any repository.</div>
   {:else}
-    {@render cards(vcs.changes, false)}
+    {#each vcs.repos as repo, ri}
+      <div class="repo-head" title={repo.root}>
+        <span class="repo-icon">{(VCS_META[repo.kind] || vcsMeta).icon}</span>
+        <span class="repo-label">{repo.label || repoName(repo.root)}</span>
+        <span class="repo-count" class:clean={!repo.changes.length}>
+          {repo.changes.length ? repo.changes.length + (repo.changes.length > 1 ? ' files' : ' file') : 'clean'}
+        </span>
+      </div>
+      {@render cards(repo.changes, false, 'vcs:' + ri)}
+    {/each}
+  {/if}
+  {#if vcs.truncated}
+    <div class="vcs-trunc">File limit reached — some repositories are truncated.</div>
   {/if}
 {/if}
 
@@ -194,6 +215,22 @@
   .subview-refresh:hover { color: var(--text); border-color: var(--muted); }
 
   .op-wrap { position: relative; }
+
+  /* --- en-tête de section par dépôt (vue VCS multi-dépôts) --- */
+  .repo-head {
+    display: flex; align-items: center; gap: 8px; padding: 12px 14px 4px 14px;
+    font-family: var(--mono); font-size: 12px; color: var(--muted);
+  }
+  .repo-label { font-weight: 700; color: var(--text); }
+  .repo-count {
+    color: var(--accent-d); background: var(--accent-soft);
+    border-radius: 20px; padding: 1px 9px; font-size: 11px; font-weight: 700;
+  }
+  .repo-count.clean { color: var(--muted); background: var(--bg3); }
+  .vcs-trunc {
+    padding: 8px 14px; color: var(--muted); font-size: 11px; font-style: italic;
+    font-family: var(--mono);
+  }
 
   /* --- hint de découvrabilité du commentaire inline --- */
   .op-hint {

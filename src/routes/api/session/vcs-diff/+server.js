@@ -7,6 +7,6 @@ export async function GET({ url }) {
   const id = url.searchParams.get('id');
   const s = scanSessions().find((x) => x.id === id);
   const cwd = s ? s.project : null;
-  if (!cwd) return json({ vcs: null, changes: [] });
+  if (!cwd) return json({ vcs: null, root: null, changes: [], truncated: false, repos: [] });
   return json(await buildVcsChanges(cwd));
 }
