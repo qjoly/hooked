@@ -72,7 +72,9 @@ function buildConversation(fp, includeSidechain) {
     // <task-notification>, déjà capté ci-dessus). Sans ça il tombe entre user/assistant et n'est
     // jamais rendu → la bulle « ⏳ queued » optimiste ne se résout jamais et le message disparaît
     // au refresh. On le rend comme une vraie bulle user (miroir du push type:"user" ci-dessous).
-    if (j.type === 'queue-operation' && typeof j.content === 'string' && j.content.trim()) {
+    // `operation:"remove"` = la MÊME entrée sortant de la file (dequeue au traitement, ou annulation
+    // par l'utilisateur) : la rendre en plus de son `enqueue` affichait chaque message en file DEUX fois.
+    if (j.type === 'queue-operation' && j.operation !== 'remove' && typeof j.content === 'string' && j.content.trim()) {
       // Skip if already processed into a real user turn (dedup: queue-op + matching user turn → show only user turn)
       if (processedUserTexts.has(j.content.trim())) continue;
       msgs.push({ role: 'user', ts: j.timestamp, text: j.content.slice(0, 8000), tools: [], forkUuid: j.uuid });
