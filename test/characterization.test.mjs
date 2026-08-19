@@ -173,6 +173,12 @@ describe('buildConversation', () => {
       expect(bubble.ts).toBe('2026-06-20T11:00:30Z');   // timestamp du user turn, pas du queue-op
       expect(bubble.forkUuid).toBe('u10');               // uuid du user turn
     });
+    it('enqueue + remove du même message → une seule bulle (pas de doublon)', () => {
+      const msgs = lib.buildConversation(DDUP);
+      const bubbles = msgs.filter((m) => m.role === 'user' && m.text === 'Queued then dequeued');
+      expect(bubbles.length).toBe(1);
+      expect(bubbles[0].forkUuid).toBe('q12');
+    });
     it('queue-op sans tour user correspondant reste visible (message encore en attente)', () => {
       const msgs = lib.buildConversation(DDUP);
       const pending = msgs.find((m) => m.role === 'user' && m.text === 'Still pending');
