@@ -3,3 +3,5 @@
 {"type":"user","uuid":"u10","timestamp":"2026-06-20T11:00:30Z","message":{"role":"user","content":"Hello again"}}
 {"type":"assistant","uuid":"a10","timestamp":"2026-06-20T11:00:35Z","message":{"role":"assistant","content":[{"type":"text","text":"Got it!"}]}}
 {"type":"queue-operation","uuid":"q11","timestamp":"2026-06-20T11:01:00Z","content":"Still pending"}
+{"type":"queue-operation","operation":"enqueue","uuid":"q12","timestamp":"2026-06-20T11:02:00Z","content":"Queued then dequeued"}
+{"type":"queue-operation","operation":"remove","uuid":"q13","timestamp":"2026-06-20T11:02:01Z","content":"Queued then dequeued"}
