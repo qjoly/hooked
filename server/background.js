@@ -43,6 +43,12 @@ const RE_NOTE_STATUS = /<status>\s*([\w-]+)\s*<\/status>/i;
 const RE_EXIT_CODE = /exit code\s+(-?\d+)/i;
 const RE_EXIT_RC = /EXIT rc=(-?\d+)/i;
 
+// Borne haute de repli pour un Monitor NON persistant dont on n'a pas pu lire le timeout déclaré
+// dans le tool_result (timeoutMs null — invocation ancienne/atypique, ex. schéma `timeout_seconds`).
+// Le tool Monitor plafonne timeout_ms à 1h : au-delà, un monitor qui n'a jamais émis de notif
+// terminale (event perdu, restart du harnais) ne peut pas légitimement être encore actif. Cf. jobStatus.
+const MONITOR_MAX_TIMEOUT_MS = 3600000;
+
 // statuts terminaux d'une <task-notification> (tout le reste = encore en cours : running/pending/…).
 const TERMINAL = new Set(['completed', 'complete', 'done', 'exited', 'failed', 'error', 'errored', 'killed', 'stopped', 'cancelled', 'canceled', 'timeout', 'timedout', 'timed_out', 'interrupted']);
 
@@ -66,8 +72,14 @@ function jobStatus(job, alive, now) {
   }
   // pas encore terminé : le pane est-il mort ? (process de fond mort avec lui)
   if (!alive) return 'orphaned';
-  // Monitor au-delà de son timeout déclaré → le harnais l'a terminé, la notif ne viendra pas.
-  if (job.kind === 'monitor' && job.timeoutMs && job.startTs && Date.parse(job.startTs) + job.timeoutMs < now) return 'expired';
+  // Monitor au-delà de son timeout → le harnais l'a terminé, la notif ne viendra pas. Si on n'a pas
+  // pu lire de timeout déclaré (timeoutMs null), on retombe sur le max 1h du tool Monitor, pour qu'un
+  // monitor sans notif terminale ne reste pas 'running' à vie. Les monitors persistants n'ont pas de
+  // borne temporelle (clos uniquement par une notif de fin ou un pane mort → 'orphaned').
+  if (job.kind === 'monitor' && !job.persistent && job.startTs) {
+    const tmo = job.timeoutMs || MONITOR_MAX_TIMEOUT_MS;
+    if (Date.parse(job.startTs) + tmo < now) return 'expired';
+  }
   return 'running';
 }
 
@@ -143,7 +155,7 @@ function foldLine(acc, line) {
       if (b.name === 'Bash' && inp.run_in_background === true && b.id) {
         jobsByToolUse.set(b.id, { kind: 'bash', toolUseId: b.id, taskId: null, command: String(inp.command || '').slice(0, 2000), description: String(inp.description || ''), startTs: ts, done: false, doneReason: null, doneAt: null, exitCode: null, outputPath: null });
       } else if (b.name === 'Monitor' && b.id) {
-        jobsByToolUse.set(b.id, { kind: 'monitor', toolUseId: b.id, taskId: null, command: String(inp.command || '').slice(0, 2000), description: String(inp.description || ''), startTs: ts, done: false, doneReason: null, doneAt: null, exitCode: null, outputPath: null, timeoutMs: null });
+        jobsByToolUse.set(b.id, { kind: 'monitor', toolUseId: b.id, taskId: null, command: String(inp.command || '').slice(0, 2000), description: String(inp.description || ''), startTs: ts, done: false, doneReason: null, doneAt: null, exitCode: null, outputPath: null, timeoutMs: null, persistent: inp.persistent === true });
       } else if (b.name === 'ScheduleWakeup') {
         const prompt = String(inp.prompt || '').slice(0, 2000);
         acc.wakeup = { kind: 'wakeup', toolUseId: b.id || null, taskId: null, command: prompt, prompt, description: String(inp.reason || '').slice(0, 500), startTs: ts, done: false, doneReason: null, doneAt: null, exitCode: null, outputPath: null, idx: acc.idx };
