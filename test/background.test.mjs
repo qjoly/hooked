@@ -153,8 +153,13 @@ describe('jobStatus — statut pur d\'un job (croise notif terminale, timeout Mo
   it('expired : monitor non terminé, pane vivant, startTs + timeoutMs < now', () => {
     // armé à 10:00 avec un timeout de 1 min → expiré bien avant 12:00.
     expect(jobStatus(mk({ startTs: '2026-06-20T10:00:00Z', timeoutMs: 60000 }), true, NOW)).toBe('expired');
-    // sans timeoutMs connu on ne peut pas expirer → running.
-    expect(jobStatus(mk({ startTs: '2026-06-20T10:00:00Z', timeoutMs: null }), true, NOW)).toBe('running');
+    // sans timeoutMs lu, on retombe sur le max 1h du tool Monitor → un monitor non-persistant
+    // vieux de plus d'1h est 'expired' (évite le fantôme « running à vie », cf. hooked ghost bgJob).
+    expect(jobStatus(mk({ startTs: '2026-06-20T10:00:00Z', timeoutMs: null }), true, NOW)).toBe('expired');
+    // … mais dans la fenêtre de repli d'1h → encore running.
+    expect(jobStatus(mk({ startTs: '2026-06-20T11:30:00Z', timeoutMs: null }), true, NOW)).toBe('running');
+    // un monitor PERSISTANT sans timeout n'expire jamais par le temps (clos par notif / pane mort).
+    expect(jobStatus(mk({ startTs: '2026-06-20T10:00:00Z', timeoutMs: null, persistent: true }), true, NOW)).toBe('running');
     // un bash (non-monitor) n'expire jamais par timeout, même vieux.
     expect(jobStatus(mk({ kind: 'bash', startTs: '2026-06-20T10:00:00Z', timeoutMs: 60000 }), true, NOW)).toBe('running');
   });
