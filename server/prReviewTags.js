@@ -4,12 +4,40 @@
  * globalThis (survives Vite HMR). Reuses ghMeta.ghView (5 min cache, already fetches
  * reviewDecision) and the existing session-tags store (tags.js) — no new storage.
  */
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { scanSessions } from './transcript.js';
 import { ghView } from './ghMeta.js';
 import { readTags, setTags } from './tags.js';
 
-// Aligned on ghMeta's own cache TTL (5 min): no point polling faster than the cached data changes.
+// Aligned on ghMeta's own cache TTL: no point polling faster than the cached data changes.
 const TICK_INTERVAL = parseInt(process.env.HOOKED_PR_REVIEW_INTERVAL || '300000', 10) || 300000;
+
+// Verrou inter-process (best-effort). Plusieurs `node build` peuvent coexister (relances launchd,
+// dev en parallèle…) ; chacun lançait son propre tick → N pollers GitHub simultanés qui vidaient le
+// quota GraphQL. On garantit qu'un seul process poll à la fois : les autres voient un verrou vivant
+// et récent, et sautent leur tick sans frapper l'API. La rare course (deux writers) coûte au pire
+// quelques requêtes en double une fois, sans commune mesure avec l'amplification par N instances.
+const LOCK_FILE = path.join(os.tmpdir(), 'hooked-pr-review.lock');
+const LOCK_STALE_MS = TICK_INTERVAL * 3; // au-delà, on considère le détenteur mort ou gelé
+function readLock() {
+  try { return JSON.parse(fs.readFileSync(LOCK_FILE, 'utf8')); } catch { return null; }
+}
+function pidAlive(pid) {
+  try { process.kill(pid, 0); return true; } catch (e) { return e.code === 'EPERM'; }
+}
+function acquirePollLock() {
+  const cur = readLock();
+  // Un autre process détient un verrou récent ET est toujours vivant → on lui laisse le polling.
+  if (cur && cur.pid !== process.pid && pidAlive(cur.pid) && Date.now() - (cur.at || 0) < LOCK_STALE_MS) return false;
+  try { fs.writeFileSync(LOCK_FILE, JSON.stringify({ pid: process.pid, at: Date.now() })); return true; }
+  catch { return false; }
+}
+function releasePollLock() {
+  const cur = readLock();
+  if (cur && cur.pid === process.pid) { try { fs.unlinkSync(LOCK_FILE); } catch { /* ignore */ } }
+}
 
 const TAG_BY_DECISION = { APPROVED: 'pr-approved', CHANGES_REQUESTED: 'pr-changes-requested' };
 const PR_REVIEW_TAGS = Object.values(TAG_BY_DECISION);
@@ -18,6 +46,7 @@ const PR_REVIEW_TAGS = Object.values(TAG_BY_DECISION);
 // that reopens a second PR later is expected to be about that latest one, not an older, likely
 // already-merged one.
 async function prReviewTick() {
+  if (!acquirePollLock()) return; // un autre process poll déjà GitHub → on n'ajoute pas de charge
   for (const s of scanSessions()) {
     const url = s.prLinks && s.prLinks[0];
     if (!url) continue;
@@ -45,7 +74,7 @@ function startPrReviewTags() {
 }
 function stopPrReviewTags() {
   const h = handle();
-  if (h.timer) { clearInterval(h.timer); h.timer = null; console.log('[hooked] pr-review-tags: stopped.'); }
+  if (h.timer) { clearInterval(h.timer); h.timer = null; releasePollLock(); console.log('[hooked] pr-review-tags: stopped.'); }
 }
 // Idempotent : (dé)marre la boucle selon settings.autoPrReviewTag.
 function applyPrReviewTagSetting(settings) {
