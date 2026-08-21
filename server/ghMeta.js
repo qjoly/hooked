@@ -1,7 +1,12 @@
 import { execFile } from 'node:child_process';
 import fs from 'node:fs';
 
-const TTL_MS = 5 * 60 * 1000;
+// TTL découplé du tick pr-review (5 min) : à TTL == tick, toute entrée expirait pile au passage
+// suivant → le cache ne servait jamais et chaque tick re-frappait l'API GraphQL pour tous les liens.
+const TTL_MS = 15 * 60 * 1000;
+// États terminaux d'une PR/issue : reviewDecision/state n'y bougent plus → cache permanent (aucun
+// re-fetch), ce qui élimine l'essentiel des appels (la plupart des PR suivies sont déjà mergées).
+const TERMINAL_STATES = new Set(['MERGED', 'CLOSED']);
 const cache = new Map();
 const GH_URL = /^https?:\/\/github\.com\/[^/]+\/[^/]+\/(pull|issues)\/\d+/;
 
@@ -42,14 +47,16 @@ async function ghView(url) {
   const m = GH_URL.exec(String(url || ''));
   if (!m) return null;
   const hit = cache.get(url);
-  if (hit && Date.now() - hit.at < TTL_MS) return hit.data;
+  if (hit && (hit.permanent || Date.now() - hit.at < TTL_MS)) return hit.data;
   const gh = await resolveGh();
   const kind = m[1] === 'pull' ? 'pr' : 'issue';
   // reviewDecision n'existe que pour `pr view` (APPROVED/CHANGES_REQUESTED/REVIEW_REQUIRED/'').
   const fields = kind === 'pr' ? 'title,body,state,author,number,reviewDecision' : 'title,body,state,author,number';
   const d = await run(gh, [kind, 'view', url, '--json', fields]);
   const out = d ? { kind, number: d.number, title: d.title, state: d.state, author: d.author?.login || '', body: (d.body || '').slice(0, 4000), reviewDecision: d.reviewDecision || '' } : null;
-  cache.set(url, { at: Date.now(), data: out });
+  // Une PR/issue en état terminal ne changera plus : on la fige pour ne plus jamais la re-fetcher.
+  const permanent = !!(out && TERMINAL_STATES.has(String(out.state).toUpperCase()));
+  cache.set(url, { at: Date.now(), data: out, permanent });
   return out;
 }
 
