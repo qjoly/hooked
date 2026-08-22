@@ -20,6 +20,9 @@ function buildConversation(fp, includeSidechain) {
   // + collecte les textes des vrais tours user (pour dédup des queue-operations traitées)
   const results = new Map();
   const processedUserTexts = new Set();
+  // clé de dédup queue-op ↔ tour user : on collapse TOUT le whitespace (pas seulement `[ \t]+`
+  // comme chatText) pour qu'un collage multi-espaces (table alignée) ou multi-lignes matche.
+  const dedupKey = (t) => chatText(t).replace(/\s+/g, ' ').trim();
   for (const line of lines) {
     if (!line) continue;
     let j;
@@ -34,7 +37,7 @@ function buildConversation(fp, includeSidechain) {
       const isToolResult = Array.isArray(c) && c.some((b) => b && b.type === 'tool_result');
       const isTaskNotif = typeof c === 'string' && c.includes('<task-notification>');
       if (!isToolResult && !isTaskNotif) {
-        const text = chatText(c).trim();
+        const text = dedupKey(c);
         if (text) processedUserTexts.add(text);
       }
     }
@@ -76,7 +79,7 @@ function buildConversation(fp, includeSidechain) {
     // par l'utilisateur) : la rendre en plus de son `enqueue` affichait chaque message en file DEUX fois.
     if (j.type === 'queue-operation' && j.operation !== 'remove' && typeof j.content === 'string' && j.content.trim()) {
       // Skip if already processed into a real user turn (dedup: queue-op + matching user turn → show only user turn)
-      if (processedUserTexts.has(j.content.trim())) continue;
+      if (processedUserTexts.has(dedupKey(j.content))) continue;
       msgs.push({ role: 'user', ts: j.timestamp, text: j.content.slice(0, 8000), tools: [], forkUuid: j.uuid });
       continue;
     }
