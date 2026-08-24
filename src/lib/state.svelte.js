@@ -25,6 +25,7 @@ export const ui = $state({
   focus: persisted.focus ?? false,      // mode focus : discussion plein écran (header global + sidebar repliés)
   sidebarPeek: false,                   // (transitoire) ré-ouverture ponctuelle de la sidebar pendant le focus
   splitCompact: false,                  // (transitoire) split trop étroit → masque les menus latéraux
+  toolsOpen: false,                     // (transitoire, off au chargement) déplie l'input/result de tous les outils
   modal: null,               // { type, data } | null
   tick: 0,                   // incrémenté à chaque évènement live → relance les effets
   theme: readTheme(),        // 'system' | 'light' | 'dark' (persisté à part, cf. app.html)
