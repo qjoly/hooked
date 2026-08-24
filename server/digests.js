@@ -364,6 +364,7 @@ async function generate(date) {
 }
 
 export {
+  DIGEST_PROMPT_PREFIX,
   DIGESTS_DIR,
   isValidDate,
   yesterdayLocal,
