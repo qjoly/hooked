@@ -118,11 +118,13 @@
     : s.state === 'background' ? 'bgjob'
     : s.state === 'waiting' ? 'waiting'
     : s.state === 'ended' ? 'ended' : 'idle';
-  function snippet(s) {
+  // live activity only (no lastPrompt fallback) — the cards show the last exchange separately,
+  // so the fallback would just duplicate the user message.
+  function liveSnippet(s) {
     if (s.state === 'working' && s.activity) return '✦ ' + s.activity + '…';
     if (s.bgJobs && s.bgJobs.length) return '🌀 ' + s.bgJobs.length + ' job' + (s.bgJobs.length > 1 ? 's' : '') + (s.bgJobs[0].label ? ' · ' + s.bgJobs[0].label : '');
     if (s.todo && s.todo.current) return '▶ ' + s.todo.current + ' (' + s.todo.done + '/' + s.todo.total + ')';
-    return s.lastPrompt || '';
+    return '';
   }
 
   // Archived sessions are NEVER shown in the repo-grouped fleet; they live in their own collapsed
@@ -205,10 +207,11 @@
                 {/if}
               {:else if kind === 'permission'}
                 <div class="tperm">Claude is waiting for a permission in the terminal.</div>
-                {#if s.lastPrompt}<div class="tsnip">{s.lastPrompt}</div>{/if}
+                {@render convo(s)}
               {:else}
                 <div class="twait">{STATE_LABEL[s.state] || 'Finished — waiting for you'}</div>
-                {#if snippet(s)}<div class="tsnip">{snippet(s)}</div>{/if}
+                {#if liveSnippet(s)}<div class="tsnip">{liveSnippet(s)}</div>{/if}
+                {@render convo(s)}
                 {#if s.followup}
                   <!-- suggestion de follow-up (ghost text du TUI) : la carte porte SON propre bouton
                        d'envoi (lien clair texte ↔ action). -->
@@ -301,6 +304,15 @@
   </div>
 </div>
 
+{#snippet convo(s)}
+  {#if s.lastPrompt || s.lastReply}
+    <span class="fconv">
+      {#if s.lastPrompt}<span class="fmsg me">{s.lastPrompt}</span>{/if}
+      {#if s.lastReply}<span class="fmsg ai">{s.lastReply}</span>{/if}
+    </span>
+  {/if}
+{/snippet}
+
 {#snippet fcard(s)}
   {@const ended = s.state === 'ended' || s.state === 'past'}
   <div class="fcard" class:dim={!isLive(s) || isSessionArchived(s)} class:archived={isSessionArchived(s)}
@@ -311,9 +323,10 @@
       <span class="ft">{sessionTitle(s)}</span>
       <span class="fago">{ago(s.lastActivity)}</span>
     </span>
-    {#if snippet(s)}
-      <span class="fact" class:working={s.state === 'working'}>{snippet(s)}</span>
+    {#if liveSnippet(s)}
+      <span class="fact" class:working={s.state === 'working'}>{liveSnippet(s)}</span>
     {/if}
+    {@render convo(s)}
     {#if sessionTags(s.id).length}
       <span class="fpills">
         {#each sessionTags(s.id) as t}<span class="fpill" style="--c:{tagColor(t)}"># {t}</span>{/each}
@@ -496,6 +509,16 @@
   .fago { margin-left: auto; font-family: var(--mono); font-size: 9.5px; color: var(--muted); flex: 0 0 auto; }
   .fact { font-size: 11px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .fact.working { color: var(--working); font-style: italic; }
+  /* last exchange preview: the user's message aligned right, Claude's reply left, both clamped. */
+  .fconv { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+  .tbody .fconv { margin: 6px 0 10px; }
+  .fmsg {
+    max-width: 88%; font-size: 11px; line-height: 1.4; border-radius: 9px; padding: 4px 8px;
+    overflow: hidden; text-overflow: ellipsis; word-break: break-word;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+  }
+  .fmsg.me { align-self: flex-end; background: var(--accent-soft); color: var(--accent-d); border-bottom-right-radius: 3px; }
+  .fmsg.ai { align-self: flex-start; background: var(--bg3); color: var(--muted); border-bottom-left-radius: 3px; }
   .fpills { display: flex; flex-wrap: wrap; gap: 4px; }
   .fmore {
     background: none; border: 1px dashed var(--border2); border-radius: 10px; color: var(--muted);
