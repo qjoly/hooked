@@ -1,5 +1,6 @@
 <script>
   import { getStats, getUsage } from '$lib/api.js';
+  import Icon from '$lib/components/Icon.svelte';
   import { fmtCost, fmtTokens, shortModel, fmtDuration, ago } from '$lib/format.js';
   import { ui } from '$lib/state.svelte.js';
   import BarChart from './BarChart.svelte';
@@ -74,7 +75,7 @@
       <div class="chips">
         <span class="chip">Effort: <b>{s.effort || '—'}</b></span>
         <span class="chip">Model: <b>{s.modelName || shortModel(s.modelId) || '—'}</b></span>
-        {#if s.fastMode}<span class="chip fast">⚡ Fast</span>{/if}
+        {#if s.fastMode}<span class="chip fast"><Icon name="fast" size={13} /> Fast</span>{/if}
       </div>
     {:else if u}
       <div class="empty">No active session snapshot.</div>

@@ -6,6 +6,7 @@
   import { ui, data, settings, cycleTheme, toggleNotify, openModal, isArchived, snoozeUntil } from '$lib/state.svelte.js';
   import { getUsage } from '$lib/api.js';
   import { NAV_TABS, NAV_KEYS, pageHref } from '$lib/nav.js';
+  import Icon from '$lib/components/Icon.svelte';
 
   let { onOmnibar } = $props();
 
@@ -52,11 +53,11 @@
 
   <nav class="tb-spaces" aria-label="Spaces">
     <a class="tb-space" class:on={onDeck} href="/">
-      🛬 Deck
+      <Icon name="deck" size={14} /> Deck
       {#if decisions > 0}<span class="tb-badge" title="{decisions} decision{decisions > 1 ? 's' : ''} awaiting you">{decisions}</span>{/if}
     </a>
     {#each tabs as t (t.key)}
-      <a class="tb-space" class:on={tabActive(t)} href={t.href}>{t.icon} {t.label}</a>
+      <a class="tb-space" class:on={tabActive(t)} href={t.href}><Icon name={t.icon} size={14} /> {t.label}</a>
     {/each}
   </nav>
 
@@ -103,7 +104,7 @@
     </a>
   </div>
 
-  <a class="tb-new" href="/new">＋ Session</a>
+  <a class="tb-new" href="/new"><Icon name="plus" size={14} /> Session</a>
   <div class="tb-avatar" class:live={ui.live} title={ui.live ? 'Live — connected' : 'Reconnecting…'}>BT</div>
 </header>
 

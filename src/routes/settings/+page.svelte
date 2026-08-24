@@ -6,6 +6,7 @@
   import { getAllBindings, setBinding, resetBinding, resetAll as resetAllShortcuts, formatKeys, keysFromEvent } from '$lib/shortcuts.js';
   import { NAV_TABS } from '$lib/nav.js';
   import ModelEffort from '$lib/components/ModelEffort.svelte';
+  import Icon from '$lib/components/Icon.svelte';
 
   // Navigation de section (rail gauche collant). Chaque entrée pointe l'id d'une carte ;
   // les cartes secondaires appartiennent à la section la plus proche au-dessus.
@@ -49,15 +50,15 @@
 
   // Métadonnées d'affichage des sous-onglets (miroir de SessionDetail / server/settings.js).
   const SUBTAB_META = {
-    chat:        { icon: '💬', label: 'Conversation' },
-    changes:     { icon: '📝', label: 'Files' },
-    todos:       { icon: '✅', label: 'Tasks' },
-    subagents:   { icon: '🤖', label: 'Subagents' },
-    subsessions: { icon: '🔗', label: 'Sub-sessions' },
-    background:  { icon: '🌀', label: 'Background' },
-    terminal:    { icon: '🖥', label: 'Terminal' },
-    pr:          { icon: '🔀', label: 'PRs' },
-    issues:      { icon: '🐛', label: 'Issues' },
+    chat:        { icon: 'converse', label: 'Conversation' },
+    changes:     { icon: 'diff', label: 'Files' },
+    todos:       { icon: 'tasks', label: 'Tasks' },
+    subagents:   { icon: 'bot', label: 'Subagents' },
+    subsessions: { icon: 'link', label: 'Sub-sessions' },
+    background:  { icon: 'background', label: 'Background' },
+    terminal:    { icon: 'shell', label: 'Terminal' },
+    pr:          { icon: 'pr', label: 'PRs' },
+    issues:      { icon: 'issue', label: 'Issues' },
   };
 
   // Elements of the session status bar (header) that can be toggled on/off and reordered.
@@ -78,14 +79,14 @@
   };
 
   const THEMES = [
-    { key: 'system', icon: '🖥️', label: 'System' },
-    { key: 'light',  icon: '☀️', label: 'Light' },
-    { key: 'dark',   icon: '🌙', label: 'Dark' },
+    { key: 'system', icon: 'theme-system', label: 'System' },
+    { key: 'light',  icon: 'theme-light', label: 'Light' },
+    { key: 'dark',   icon: 'theme-dark', label: 'Dark' },
   ];
   // Palette (axe orthogonal au clair/sombre). 'default' = refonte indigo ; 'legacy' = ancien thème crème.
   const SCHEMES = [
-    { key: 'default', icon: '🟣', label: 'Default' },
-    { key: 'legacy',  icon: '🟤', label: 'Legacy' },
+    { key: 'default', icon: 'dot', color: '#7d74f5', label: 'Default' },
+    { key: 'legacy',  icon: 'dot', color: '#a07a55', label: 'Legacy' },
   ];
 
   // Défauts de session (modèle / effort / mode de permission) pré-sélectionnés dans les formulaires
@@ -415,7 +416,7 @@
       <div class="chips">
         {#each THEMES as t (t.key)}
           <button class="chip" class:active={ui.theme === t.key} onclick={() => setTheme(t.key)}>
-            {t.icon} {t.label}
+            <Icon name={t.icon} size={14} /> {t.label}
           </button>
         {/each}
       </div>
@@ -425,7 +426,7 @@
       <div class="chips">
         {#each SCHEMES as s (s.key)}
           <button class="chip" class:active={ui.scheme === s.key} onclick={() => setScheme(s.key)}>
-            {s.icon} {s.label}
+            <Icon name={s.icon} color={s.color} size={14} /> {s.label}
           </button>
         {/each}
       </div>
@@ -440,7 +441,7 @@
           <label class="check">
             <input type="checkbox" checked={on}
                    onchange={() => updateSettings({ navTabs: on ? settings.navTabs.filter((k) => k !== t.key) : [...(settings.navTabs || []), t.key] })} />
-            <span>{t.icon} {t.label}</span>
+            <span><Icon name={t.icon} size={14} /> {t.label}</span>
           </label>
         {/each}
       </div>
@@ -448,8 +449,8 @@
       <p class="hint">Which space opens when you first load hooked (also where the logo goes).</p>
       <label class="filter" style="margin-bottom:16px">
         <select value={settings.defaultPage} onchange={(e) => updateSettings({ defaultPage: e.currentTarget.value })}>
-          <option value="deck">🛬 Deck (triage)</option>
-          {#each NAV_TABS as t (t.key)}<option value={t.key}>{t.icon} {t.label}</option>{/each}
+          <option value="deck">Deck (triage)</option>
+          {#each NAV_TABS as t (t.key)}<option value={t.key}>{t.label}</option>{/each}
         </select>
       </label>
       <h2 style="margin-top:6px">Session grouping</h2>
@@ -479,7 +480,7 @@
             <option value={quickProject}>{quickProject}</option>
           {/if}
         </select>
-        <button class="save" onclick={browseQuickProject} disabled={picking}>{picking ? '⏳' : '📂'} Browse…</button>
+        <button class="save" onclick={browseQuickProject} disabled={picking}>{#if picking}<Icon name="queued" size={14} />{:else}<Icon name="folder-open" size={14} />{/if} Browse…</button>
       </div>
     </div>
 
@@ -495,7 +496,7 @@
             {/if}
           {/each}
         </select>
-        <button class="save" onclick={browseRcProject} disabled={rcPicking}>{rcPicking ? '⏳' : '📂'} Browse…</button>
+        <button class="save" onclick={browseRcProject} disabled={rcPicking}>{#if rcPicking}<Icon name="queued" size={14} />{:else}<Icon name="folder-open" size={14} />{/if} Browse…</button>
       </div>
       {#if rcProjects.length}
         <ul class="rc-list">
@@ -505,7 +506,7 @@
               <span class="rc-dot" class:on={st?.running} class:err={st && !st.exists} title={st ? (!st.exists ? 'Path is not a directory' : st.running ? 'Daemon running' : 'Daemon down') : 'Unknown'}></span>
               <span class="rc-path" title={cwd}>{cwd}</span>
               <span class="rc-state">{st ? (!st.exists ? 'missing path' : st.running ? 'running' : 'starting…') : ''}</span>
-              <button class="rc-rm" onclick={() => removeRcProject(cwd)} title="Stop daemon & remove">✕</button>
+              <button class="rc-rm" onclick={() => removeRcProject(cwd)} title="Stop daemon & remove" aria-label="Stop daemon & remove"><Icon name="close" size={13} /></button>
             </li>
           {/each}
         </ul>
@@ -547,7 +548,7 @@
       <h2>Live state</h2>
       <p class="hint">Re-reads every session's tmux pane fresh to fix a stale status — e.g. a session stuck on “working” after it finished or after its terminal was closed.</p>
       <div class="cmd-row">
-        <button class="save" onclick={doResync} disabled={resyncing}>{resyncing ? '⏳ Resyncing…' : '↻ Resync live states'}</button>
+        <button class="save" onclick={doResync} disabled={resyncing}>{#if resyncing}<Icon name="queued" size={14} /> Resyncing…{:else}<Icon name="refresh" size={14} /> Resync live states{/if}</button>
         {#if resyncStatus}<span class="status">{resyncStatus}</span>{/if}
       </div>
     </div>
@@ -559,7 +560,7 @@
       {#if claudeLoading && !claude}
         <p class="hint">Loading…</p>
       {:else if claude?.error}
-        <p class="hint">✗ {claude.error}</p>
+        <p class="hint"><Icon name="close" size={13} /> {claude.error}</p>
       {:else if claude}
         <p class="hint" style="margin-bottom:12px">
           {#if claude.install?.method === 'absent'}
@@ -574,11 +575,11 @@
         {#if claude.install?.method !== 'absent'}
           {#if claude.install?.needsSudo}
             <div class="restart-notice">
-              <span>🔒 Upgrade needs elevated permissions (install prefix not writable). Run <code>{claude.install.upgrade}</code> in a terminal.</span>
+              <span><Icon name="lock" size={14} /> Upgrade needs elevated permissions (install prefix not writable). Run <code>{claude.install.upgrade}</code> in a terminal.</span>
             </div>
           {:else if claude.install?.upgrade}
             <div class="cmd-row" style="margin-bottom:12px">
-              <button class="save" onclick={doUpgrade} disabled={upgrading || bulkBusy}>{upgrading ? '⏳ Upgrading…' : '⬆ Upgrade claude'}</button>
+              <button class="save" onclick={doUpgrade} disabled={upgrading || bulkBusy}>{#if upgrading}<Icon name="queued" size={14} /> Upgrading…{:else}<Icon name="arrow-up" size={14} /> Upgrade claude{/if}</button>
               <span class="hint" style="margin:0"><code>{claude.install.upgrade}</code></span>
             </div>
           {:else}
@@ -589,24 +590,24 @@
         {#if outdatedRows.length}
           <div class="cmd-row" style="margin-bottom:10px">
             <strong style="font-size:13px">{outdatedRows.length} live session{outdatedRows.length === 1 ? '' : 's'} running an older version</strong>
-            <button class="save" onclick={doUpgradeAndReconnect} disabled={bulkBusy || !!restartingId || upgrading}>{bulkBusy ? '⏳ Working…' : '⬆ Upgrade & reconnect all'}</button>
+            <button class="save" onclick={doUpgradeAndReconnect} disabled={bulkBusy || !!restartingId || upgrading}>{#if bulkBusy}<Icon name="queued" size={14} /> Working…{:else}<Icon name="arrow-up" size={14} /> Upgrade & reconnect all{/if}</button>
           </div>
           <ul class="reorder">
             {#each outdatedRows as row (row.id)}
               <li>
                 <span class="ro-name">{row.projectName || row.id}</span>
-                <span class="ver">{row.version} → {row.installed}</span>
+                <span class="ver">{row.version} <Icon name="arrow-right" size={12} /> {row.installed}</span>
                 {#if row.state === 'working'}<span class="badge dirty">working</span>{/if}
                 <span class="ro-actions">
                   <button class="mini wide" disabled={!!restartingId || bulkBusy} onclick={() => doRestart(row)}>
-                    {restartingId === row.id ? '⏳' : '↻ Restart & reconnect'}
+                    {#if restartingId === row.id}<Icon name="queued" size={13} />{:else}<Icon name="refresh" size={13} /> Restart & reconnect{/if}
                   </button>
                 </span>
               </li>
             {/each}
           </ul>
         {:else if claude.installed}
-          <p class="hint" style="margin:0">✓ All live sessions are on the installed version.</p>
+          <p class="hint" style="margin:0"><Icon name="check" size={13} /> All live sessions are on the installed version.</p>
         {/if}
         {#if claudeStatus}<p class="status" style="margin:10px 0 0">{claudeStatus}</p>{/if}
       {/if}
@@ -618,24 +619,24 @@
 
       {#if git?.sync?.restartNeeded}
         <div class="restart-notice">
-          <span>♻️ {git.sync.note || 'A restart is needed to finish applying an update.'}</span>
+          <span><Icon name="refresh" size={14} /> {git.sync.note || 'A restart is needed to finish applying an update.'}</span>
           <button class="mini" onclick={dismissRestart}>Dismiss</button>
         </div>
       {:else if git?.sync?.note}
-        <p class="hint" style="margin-bottom:12px">ℹ️ {git.sync.note}</p>
+        <p class="hint" style="margin-bottom:12px"><Icon name="info" size={14} /> {git.sync.note}</p>
       {/if}
 
       {#if gitLoading && !git}
         <p class="hint">Loading…</p>
       {:else if git?.error}
-        <p class="hint">✗ {git.error}</p>
+        <p class="hint"><Icon name="close" size={13} /> {git.error}</p>
       {:else if git}
         <p class="hint" style="margin-bottom:12px">
           Current: <strong>{git.detached ? '(detached HEAD)' : git.current}</strong>
           {#if git.dirty}<span class="badge dirty">dirty</span>{/if}
-          {#if git.behind}<span class="badge">↓{git.behind} behind</span>{/if}
-          {#if git.ahead}<span class="badge">↑{git.ahead} ahead</span>{/if}
-          {#if git.upstream}<span class="badge">→ {git.upstream}</span>{/if}
+          {#if git.behind}<span class="badge"><Icon name="arrow-down" size={12} />{git.behind} behind</span>{/if}
+          {#if git.ahead}<span class="badge"><Icon name="arrow-up" size={12} />{git.ahead} ahead</span>{/if}
+          {#if git.upstream}<span class="badge"><Icon name="arrow-right" size={12} /> {git.upstream}</span>{/if}
         </p>
         <div class="cmd-row">
           <select class="cmd-input" bind:value={selected}>
@@ -646,15 +647,15 @@
             {/each}
           </select>
           <button class="save" onclick={() => doCheckout('block')} disabled={checkingOut || !selected || selected === git.current}>
-            {checkingOut ? '⏳' : 'Checkout'}
+            {#if checkingOut}<Icon name="queued" size={14} />{:else}Checkout{/if}
           </button>
           {#if checkoutStatus}<span class="status">{checkoutStatus}</span>{/if}
         </div>
         {#if showOverrides}
           <div class="cmd-row" style="margin-top:10px">
             <span class="hint" style="margin:0">Working tree is dirty:</span>
-            <button class="chip" onclick={() => doCheckout('stash')} disabled={checkingOut}>📦 Stash &amp; checkout</button>
-            <button class="chip danger" onclick={() => doCheckout('force')} disabled={checkingOut}>⚠ Force (discard changes)</button>
+            <button class="chip" onclick={() => doCheckout('stash')} disabled={checkingOut}><Icon name="package" size={14} /> Stash &amp; checkout</button>
+            <button class="chip danger" onclick={() => doCheckout('force')} disabled={checkingOut}><Icon name="warning" size={14} /> Force (discard changes)</button>
           </div>
         {/if}
       {/if}
@@ -681,8 +682,8 @@
       <h2>Conversation diffs</h2>
       <p class="hint">How file edits render inline in the conversation. (Per-browser preference.)</p>
       <div class="chips">
-        <button class="chip" class:active={!ui.diffSplit} onclick={() => (ui.diffSplit = false)}>▤ Unified</button>
-        <button class="chip" class:active={ui.diffSplit} onclick={() => (ui.diffSplit = true)}>▥ Side-by-side</button>
+        <button class="chip" class:active={!ui.diffSplit} onclick={() => (ui.diffSplit = false)}><Icon name="menu" size={14} /> Unified</button>
+        <button class="chip" class:active={ui.diffSplit} onclick={() => (ui.diffSplit = true)}><Icon name="pane" size={14} /> Side-by-side</button>
       </div>
     </div>
 
@@ -705,7 +706,7 @@
                   <button class="mini danger" onclick={() => removeTag(t)} title="Confirm deletion">Confirm</button>
                   <button class="mini" onclick={() => (confirmTag = null)} title="Cancel">Cancel</button>
                 {:else}
-                  <button class="mini" onclick={() => removeTag(t)} title="Delete tag" aria-label="Delete tag">🗑</button>
+                  <button class="mini" onclick={() => removeTag(t)} title="Delete tag" aria-label="Delete tag"><Icon name="trash" size={14} /></button>
                 {/if}
               </span>
             </li>
@@ -728,13 +729,13 @@
               <span class="ro-actions sc-actions">
                 {#if recordingId === sc.id}
                   <kbd class="sc-recording">Press a key combo…</kbd>
-                  <button class="mini" onclick={cancelRecording} title="Cancel">✕</button>
+                  <button class="mini" onclick={cancelRecording} title="Cancel" aria-label="Cancel"><Icon name="close" size={13} /></button>
                 {:else}
                   <button class="sc-key" onclick={() => startRecording(sc.id)} title="Click to remap">
                     {formatKeys(sc.keys)}
                   </button>
                   {#if sc.isCustom}
-                    <button class="mini" onclick={() => doResetBinding(sc.id)} title="Reset to default">↺</button>
+                    <button class="mini" onclick={() => doResetBinding(sc.id)} title="Reset to default" aria-label="Reset to default"><Icon name="refresh" size={13} /></button>
                   {/if}
                 {/if}
               </span>
@@ -756,11 +757,11 @@
             <span class="ro-pos">{i + 1}</span>
             <span class="ro-name">{STATUS_BAR_META[key]?.label ?? key}</span>
             <span class="ro-actions">
-              <button class="mini" disabled={i === 0} onclick={() => moveSb(i, -1)} title="Move up" aria-label="Move up">▲</button>
-              <button class="mini" disabled={i === sbOrder.length - 1} onclick={() => moveSb(i, 1)} title="Move down" aria-label="Move down">▼</button>
+              <button class="mini" disabled={i === 0} onclick={() => moveSb(i, -1)} title="Move up" aria-label="Move up"><Icon name="arrow-up" size={13} /></button>
+              <button class="mini" disabled={i === sbOrder.length - 1} onclick={() => moveSb(i, 1)} title="Move down" aria-label="Move down"><Icon name="arrow-down" size={13} /></button>
               <button class="mini vis" class:off={!sbOn(key)} onclick={() => toggleStatusBar(key)}
                       title={sbOn(key) ? 'Shown — click to hide' : 'Hidden — click to show'}
-                      aria-label="Toggle visibility">{sbOn(key) ? '👁' : '🚫'}</button>
+                      aria-label="Toggle visibility">{#if sbOn(key)}<Icon name="eye" size={13} />{:else}<Icon name="eye-off" size={13} />{/if}</button>
             </span>
           </li>
         {/each}
@@ -793,14 +794,14 @@
         {#each order as key, i (key)}
           <li class:row-off={hidden.has(key)}>
             <span class="ro-pos">{i + 1}</span>
-            <span class="ro-name">{SUBTAB_META[key]?.icon ?? '•'} {SUBTAB_META[key]?.label ?? key}</span>
+            <span class="ro-name"><Icon name={SUBTAB_META[key]?.icon ?? 'circle'} size={14} /> {SUBTAB_META[key]?.label ?? key}</span>
             <span class="ro-actions">
-              <button class="mini" disabled={i === 0} onclick={() => move(i, -1)} title="Move up" aria-label="Move up">▲</button>
-              <button class="mini" disabled={i === order.length - 1} onclick={() => move(i, 1)} title="Move down" aria-label="Move down">▼</button>
+              <button class="mini" disabled={i === 0} onclick={() => move(i, -1)} title="Move up" aria-label="Move up"><Icon name="arrow-up" size={13} /></button>
+              <button class="mini" disabled={i === order.length - 1} onclick={() => move(i, 1)} title="Move down" aria-label="Move down"><Icon name="arrow-down" size={13} /></button>
               <button class="mini vis" class:off={hidden.has(key)} disabled={key === 'chat'}
                       onclick={() => toggleSubtab(key)}
                       title={key === 'chat' ? 'Always shown' : (hidden.has(key) ? 'Hidden — click to show' : 'Shown — click to hide')}
-                      aria-label="Toggle visibility">{hidden.has(key) ? '🚫' : '👁'}</button>
+                      aria-label="Toggle visibility">{#if hidden.has(key)}<Icon name="eye-off" size={13} />{:else}<Icon name="eye" size={13} />{/if}</button>
             </span>
           </li>
         {/each}
@@ -809,7 +810,7 @@
         <span class="preview-label">Preview</span>
         <div class="pv-subtabs">
           {#each previewSubtabs as key, i (key)}
-            <span class="pv-subtab" class:active={i === 0}>{SUBTAB_META[key]?.icon} {SUBTAB_META[key]?.label ?? key}</span>
+            <span class="pv-subtab" class:active={i === 0}><Icon name={SUBTAB_META[key]?.icon} size={14} /> {SUBTAB_META[key]?.label ?? key}</span>
           {/each}
           {#if !previewSubtabs.length}<span class="pv-empty">(all hidden)</span>{/if}
         </div>

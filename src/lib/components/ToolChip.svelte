@@ -6,6 +6,7 @@
   // overflows the clamp. Other tools keep a compact chip that expands to JSON input/result.
   // State is local; since the list is keyed by tool_use id it survives live re-renders.
   import PierreDiff from './PierreDiff.svelte';
+  import Icon from '$lib/components/Icon.svelte';
   import { ui } from '$lib/state.svelte.js';
   import { userFileUrl } from '$lib/api.js';
   let { t, diff = null, ask = null, send = null, session = null, agent = null } = $props();
@@ -64,7 +65,7 @@
   <div class="tool tool-diff" class:expanded>
     <!-- toujours cliquable : même sur un petit diff, le clic déplie le chemin complet -->
     <span class="chip chip-diff clickable" onclick={() => (expanded = !expanded)}>
-      🔧 {t.name}{#if t.detail}<span class="chip-d" title={t.detail}>{t.detail}</span>{/if}{#if bigDiff}<span class="diff-size">{diffLines} lines</span>{/if}<span class="chip-x">▸</span>
+      <Icon name="tool" size={13} /> {t.name}{#if t.detail}<span class="chip-d" title={t.detail}>{t.detail}</span>{/if}{#if bigDiff}<span class="diff-size">{diffLines} lines</span>{/if}<span class="chip-x"><Icon name="chevron-right" size={13} /></span>
     </span>
     {#if showDiff}
       <div class="td-diff" class:clamped={!bigDiff && !expanded} bind:this={box}>
@@ -79,12 +80,12 @@
       </div>
     {/if}
     {#if !bigDiff && overflowing}
-      <button class="diff-more" onclick={() => (expanded = !expanded)}>{expanded ? '▲ Show less' : '▼ Show more'}</button>
+      <button class="diff-more" onclick={() => (expanded = !expanded)}>{#if expanded}<Icon name="arrow-up" size={13} /> Show less{:else}<Icon name="chevron-down" size={13} /> Show more{/if}</button>
     {/if}
   </div>
 {:else if hasSend}
   <div class="tool tool-send">
-    <span class="chip chip-send">📎 Sent to you{#if send.caption}<span class="chip-d">{send.caption}</span>{/if}</span>
+    <span class="chip chip-send"><Icon name="paperclip" size={13} /> Sent to you{#if send.caption}<span class="chip-d">{send.caption}</span>{/if}</span>
     <div class="send-files">
       {#each send.files as f}
         {#if f.kind === 'image'}
@@ -93,7 +94,7 @@
           </button>
         {:else}
           <a class="send-file" href={fileUrl(f)} target="_blank" rel="noopener" title={f.path}>
-            <span class="sf-ico">📄</span><span class="sf-name">{f.name}</span><span class="sf-open">↗</span>
+            <span class="sf-ico"><Icon name="file" size={13} /></span><span class="sf-name">{f.name}</span><span class="sf-open"><Icon name="external" size={13} /></span>
           </a>
         {/if}
       {/each}
@@ -107,7 +108,7 @@
 {:else}
   <div class="tool" class:has-detail={hasDetail} class:open={shown}>
     <span class="chip" onclick={() => { if (hasDetail) open = !open; }}>
-      🔧 {t.name}{#if t.detail}<span class="chip-d" title={t.detail}>{t.detail}</span>{/if}{#if hasDetail}<span class="chip-x">▸</span>{/if}
+      <Icon name="tool" size={13} /> {t.name}{#if t.detail}<span class="chip-d" title={t.detail}>{t.detail}</span>{/if}{#if hasDetail}<span class="chip-x"><Icon name="chevron-right" size={13} /></span>{/if}
     </span>
     {#if shown}
       <div class="tool-detail">
@@ -124,7 +125,7 @@
                     {#each q.options || [] as o}
                       <div class="q-opt" class:sel={isPicked(o.label)}>
                         <span class="q-opt-body">
-                          <span class="q-opt-label">{#if isPicked(o.label)}<span class="ask-check">✓ </span>{/if}{o.label}</span>
+                          <span class="q-opt-label">{#if isPicked(o.label)}<span class="ask-check"><Icon name="check" size={13} /> </span>{/if}{o.label}</span>
                           {#if o.description}<span class="q-opt-desc">{o.description}</span>{/if}
                         </span>
                       </div>

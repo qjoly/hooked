@@ -1,5 +1,6 @@
 <script>
   import SessionCard from './SessionCard.svelte';
+  import Icon from '$lib/components/Icon.svelte';
 
   // Sessions que cette conversation a créées ou référencées : `[{ id, label, source }]` calculé
   // côté serveur (server/subSessions.js) et transporté dans le détail → reste vivant au tick SSE.
@@ -13,7 +14,7 @@
       <div class="ss-row">
         <SessionCard sessionId={ss.id} label={ss.label} block />
         <span class="ss-source ss-{ss.source}" title={ss.source === 'created' ? 'Started by this conversation' : 'Linked from this conversation'}>
-          {ss.source === 'created' ? '✦ created' : '↗ referenced'}
+          {#if ss.source === 'created'}<Icon name="activity" size={12} /> created{:else}<Icon name="external" size={12} /> referenced{/if}
         </span>
       </div>
     {/each}

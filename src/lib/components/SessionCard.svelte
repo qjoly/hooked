@@ -3,6 +3,7 @@
   import { data, sessionTitle } from '$lib/state.svelte.js';
   import { getSession } from '$lib/api.js';
   import { STATE_LABEL } from '$lib/format.js';
+  import Icon from '$lib/components/Icon.svelte';
 
   // Carte de statut vivante pour un lien profond de session (`[label](/session/<id>)`), rendue par
   // <Markdown> à la place de l'anchor brute. La racine reste une anchor `data-session-link` → le
@@ -44,7 +45,7 @@
       <span class="sc-sub">
         <span class="sc-status">{statusText}</span>
         {#if s.projectName}<span class="sc-proj">· {s.projectName}</span>{/if}
-        {#if bg}<span class="sc-bg">· 🌀 {bg} bg job{bg > 1 ? 's' : ''}</span>{/if}
+        {#if bg}<span class="sc-bg">· <Icon name="background" color="var(--background)" size={13} /> {bg} bg job{bg > 1 ? 's' : ''}</span>{/if}
       </span>
     </span>
   </a>

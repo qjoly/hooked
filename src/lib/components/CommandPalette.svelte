@@ -4,13 +4,14 @@
   import { ui, data, sessionTitle, cycleScheme, setTheme, toggleFocus, toggleNotify, openModal } from '$lib/state.svelte.js';
   import { kill, interrupt, openInVscode, openInGhostty, resync } from '$lib/api.js';
   import { shortcutForCommand, formatKeys } from '$lib/shortcuts.js';
+  import Icon from '$lib/components/Icon.svelte';
 
   let open = $state(false);
   let query = $state('');
   let sel = $state(0);
   let input;
 
-  const STATUS_ICONS = { working: '🔵', waiting: '🟡', attention: '🔴', background: '🟣', ended: '✅', idle: '⚪' };
+  const STATUS_ICONS = { working: 'working', waiting: 'waiting', attention: 'attention', background: 'background', ended: 'ended', idle: 'idle' };
 
   const currentSessionId = $derived.by(() => {
     const m = page.url.pathname.match(/^\/session\/(.+)/);
@@ -22,47 +23,47 @@
   });
 
   const NAV_COMMANDS = [
-    { id: 'nav:deck', label: 'Go to Deck', section: 'Navigation', icon: '🛬', action: () => goto('/') },
-    { id: 'nav:sessions', label: 'Go to Sessions', section: 'Navigation', icon: '🗂', action: () => goto('/sessions') },
-    { id: 'nav:new', label: 'New session', section: 'Navigation', icon: '➕', action: () => goto('/new') },
-    { id: 'nav:search', label: 'Go to Search', section: 'Navigation', icon: '🔍', action: () => goto('/search') },
-    { id: 'nav:stats', label: 'Go to Stats', section: 'Navigation', icon: '📊', action: () => goto('/stats') },
-    { id: 'nav:digest', label: 'Go to Digest', section: 'Navigation', icon: '📖', action: () => goto('/digest') },
-    { id: 'nav:memory', label: 'Go to Memory', section: 'Navigation', icon: '🧠', action: () => goto('/memory') },
-    { id: 'nav:settings', label: 'Go to Settings', section: 'Navigation', icon: '⚙️', action: () => goto('/settings') },
+    { id: 'nav:deck', label: 'Go to Deck', section: 'Navigation', icon: 'deck', action: () => goto('/') },
+    { id: 'nav:sessions', label: 'Go to Sessions', section: 'Navigation', icon: 'sessions', action: () => goto('/sessions') },
+    { id: 'nav:new', label: 'New session', section: 'Navigation', icon: 'plus', action: () => goto('/new') },
+    { id: 'nav:search', label: 'Go to Search', section: 'Navigation', icon: 'search', action: () => goto('/search') },
+    { id: 'nav:stats', label: 'Go to Stats', section: 'Navigation', icon: 'stats', action: () => goto('/stats') },
+    { id: 'nav:digest', label: 'Go to Digest', section: 'Navigation', icon: 'digest', action: () => goto('/digest') },
+    { id: 'nav:memory', label: 'Go to Memory', section: 'Navigation', icon: 'memory', action: () => goto('/memory') },
+    { id: 'nav:settings', label: 'Go to Settings', section: 'Navigation', icon: 'settings', action: () => goto('/settings') },
   ];
 
   const commands = $derived.by(() => {
     const cs = currentSession;
     const cmds = [
       ...NAV_COMMANDS,
-      { id: 'act:theme-light', label: 'Theme: Light', section: 'Appearance', icon: '☀️', action: () => setTheme('light') },
-      { id: 'act:theme-dark', label: 'Theme: Dark', section: 'Appearance', icon: '🌙', action: () => setTheme('dark') },
-      { id: 'act:theme-system', label: 'Theme: System', section: 'Appearance', icon: '🖥️', action: () => setTheme('system') },
-      { id: 'act:scheme-default', label: 'Color scheme: Default', section: 'Appearance', icon: '🟣', action: () => setScheme('default') },
-      { id: 'act:scheme-legacy', label: 'Color scheme: Legacy', section: 'Appearance', icon: '🟤', action: () => setScheme('legacy') },
-      { id: 'act:scheme-ocean', label: 'Color scheme: Ocean', section: 'Appearance', icon: '🌊', action: () => setScheme('ocean') },
-      { id: 'act:scheme-forest', label: 'Color scheme: Forest', section: 'Appearance', icon: '🌲', action: () => setScheme('forest') },
-      { id: 'act:scheme-rose', label: 'Color scheme: Rosé', section: 'Appearance', icon: '🌸', action: () => setScheme('rose') },
-      { id: 'act:scheme-dracula', label: 'Color scheme: Dracula', section: 'Appearance', icon: '🧛', action: () => setScheme('dracula') },
-      { id: 'act:focus', label: ui.focus ? 'Exit focus mode' : 'Enter focus mode', section: 'Actions', icon: '🎯', action: toggleFocus },
-      { id: 'act:notify', label: ui.notify ? 'Disable notifications' : 'Enable notifications', section: 'Actions', icon: ui.notify ? '🔔' : '🔕', action: toggleNotify },
-      { id: 'act:trash', label: 'Open trash', section: 'Actions', icon: '🗑️', action: () => openModal('trash') },
-      { id: 'act:tools', label: `Tool details: ${ui.toolsOpen ? 'collapse all' : 'expand all'}`, section: 'Actions', icon: '🔧', action: () => { ui.toolsOpen = !ui.toolsOpen; } },
-      { id: 'act:diffmode', label: `Diff: switch to ${ui.diffSplit ? 'unified' : 'split'}`, section: 'Actions', icon: '📝', action: () => { ui.diffSplit = !ui.diffSplit; } },
-      { id: 'act:grouping', label: `Sidebar: group by ${ui.groupByProject ? 'status' : 'project'}`, section: 'Actions', icon: '📂', action: () => { ui.groupByProject = !ui.groupByProject; } },
-      { id: 'act:resync', label: 'Force resync all sessions', section: 'Actions', icon: '🔄', action: () => resync() },
+      { id: 'act:theme-light', label: 'Theme: Light', section: 'Appearance', icon: 'theme-light', action: () => setTheme('light') },
+      { id: 'act:theme-dark', label: 'Theme: Dark', section: 'Appearance', icon: 'theme-dark', action: () => setTheme('dark') },
+      { id: 'act:theme-system', label: 'Theme: System', section: 'Appearance', icon: 'theme-system', action: () => setTheme('system') },
+      { id: 'act:scheme-default', label: 'Color scheme: Default', section: 'Appearance', icon: 'dot', color: '#7d74f5', action: () => setScheme('default') },
+      { id: 'act:scheme-legacy', label: 'Color scheme: Legacy', section: 'Appearance', icon: 'dot', color: '#a07a55', action: () => setScheme('legacy') },
+      { id: 'act:scheme-ocean', label: 'Color scheme: Ocean', section: 'Appearance', icon: 'dot', color: '#2b8fb3', action: () => setScheme('ocean') },
+      { id: 'act:scheme-forest', label: 'Color scheme: Forest', section: 'Appearance', icon: 'dot', color: '#3f9d5a', action: () => setScheme('forest') },
+      { id: 'act:scheme-rose', label: 'Color scheme: Rosé', section: 'Appearance', icon: 'dot', color: '#d16a9a', action: () => setScheme('rose') },
+      { id: 'act:scheme-dracula', label: 'Color scheme: Dracula', section: 'Appearance', icon: 'dot', color: '#bd93f9', action: () => setScheme('dracula') },
+      { id: 'act:focus', label: ui.focus ? 'Exit focus mode' : 'Enter focus mode', section: 'Actions', icon: 'focus', action: toggleFocus },
+      { id: 'act:notify', label: ui.notify ? 'Disable notifications' : 'Enable notifications', section: 'Actions', icon: ui.notify ? 'bell' : 'bell-off', action: toggleNotify },
+      { id: 'act:trash', label: 'Open trash', section: 'Actions', icon: 'trash', action: () => openModal('trash') },
+      { id: 'act:tools', label: `Tool details: ${ui.toolsOpen ? 'collapse all' : 'expand all'}`, section: 'Actions', icon: 'tool', action: () => { ui.toolsOpen = !ui.toolsOpen; } },
+      { id: 'act:diffmode', label: `Diff: switch to ${ui.diffSplit ? 'unified' : 'split'}`, section: 'Actions', icon: 'diff', action: () => { ui.diffSplit = !ui.diffSplit; } },
+      { id: 'act:grouping', label: `Sidebar: group by ${ui.groupByProject ? 'status' : 'project'}`, section: 'Actions', icon: 'folder-open', action: () => { ui.groupByProject = !ui.groupByProject; } },
+      { id: 'act:resync', label: 'Force resync all sessions', section: 'Actions', icon: 'resync', action: () => resync() },
     ];
     if (cs) {
       cmds.push(
-        { id: 'ctx:lens-chat', label: 'Lens: Converse', section: 'Current session', icon: '💬', action: () => goto('/session/' + encodeURIComponent(cs.id) + '?lens=chat') },
-        { id: 'ctx:lens-terminal', label: 'Lens: Shell', section: 'Current session', icon: '🖥', action: () => goto('/session/' + encodeURIComponent(cs.id) + '?lens=terminal') },
-        { id: 'ctx:lens-ship', label: 'Lens: Ship (review)', section: 'Current session', icon: '🚢', action: () => goto('/session/' + encodeURIComponent(cs.id) + '?lens=ship') },
-        { id: 'ctx:copy-path', label: `Copy project path: ${cs.projectName || cs.cwd}`, section: 'Current session', icon: '📋', action: () => navigator.clipboard.writeText(cs.cwd) },
-        { id: 'ctx:vscode', label: 'Open project in VS Code', section: 'Current session', icon: '💻', action: () => openInVscode(cs.id) },
-        { id: 'ctx:ghostty', label: 'Open in Ghostty', section: 'Current session', icon: '👻', action: () => openInGhostty(cs.id) },
-        { id: 'ctx:interrupt', label: 'Interrupt session', section: 'Current session', icon: '⏸️', action: () => interrupt(cs.id), hidden: cs.state !== 'working' },
-        { id: 'ctx:stop', label: 'Stop session', section: 'Current session', icon: '⏹️', action: () => kill(cs.id), hidden: cs.state === 'ended' },
+        { id: 'ctx:lens-chat', label: 'Lens: Converse', section: 'Current session', icon: 'converse', action: () => goto('/session/' + encodeURIComponent(cs.id) + '?lens=chat') },
+        { id: 'ctx:lens-terminal', label: 'Lens: Shell', section: 'Current session', icon: 'shell', action: () => goto('/session/' + encodeURIComponent(cs.id) + '?lens=terminal') },
+        { id: 'ctx:lens-ship', label: 'Lens: Ship (review)', section: 'Current session', icon: 'ship', action: () => goto('/session/' + encodeURIComponent(cs.id) + '?lens=ship') },
+        { id: 'ctx:copy-path', label: `Copy project path: ${cs.projectName || cs.cwd}`, section: 'Current session', icon: 'clipboard', action: () => navigator.clipboard.writeText(cs.cwd) },
+        { id: 'ctx:vscode', label: 'Open project in VS Code', section: 'Current session', icon: 'vscode', action: () => openInVscode(cs.id) },
+        { id: 'ctx:ghostty', label: 'Open in Ghostty', section: 'Current session', icon: 'ghostty', action: () => openInGhostty(cs.id) },
+        { id: 'ctx:interrupt', label: 'Interrupt session', section: 'Current session', icon: 'interrupt', action: () => interrupt(cs.id), hidden: cs.state !== 'working' },
+        { id: 'ctx:stop', label: 'Stop session', section: 'Current session', icon: 'stop', action: () => kill(cs.id), hidden: cs.state === 'ended' },
       );
     }
     return cmds.filter(c => !c.hidden);
@@ -81,7 +82,8 @@
         id: 'session:' + s.id,
         label: sessionTitle(s),
         detail: [s.projectName, s.gitBranch].filter(Boolean).join(' · '),
-        icon: STATUS_ICONS[s.state] || '⚪',
+        icon: STATUS_ICONS[s.state] || 'idle',
+        color: `var(--${STATUS_ICONS[s.state] || 'idle'})`,
         section: 'Sessions',
         sessionId: s.id,
         active: ACTIVE_STATES.has(s.state),
@@ -221,7 +223,7 @@
             onmouseenter={() => { sel = i; }}
             onclick={() => execute(item)}
           >
-            <span class="palette-icon">{item.icon}</span>
+            <span class="palette-icon"><Icon name={item.icon} color={item.color} /></span>
             <span class="palette-label">{item.label}</span>
             {#if item.detail}
               <span class="palette-detail">{item.detail}</span>

@@ -8,6 +8,7 @@
   import Modal from '$lib/components/Modal.svelte';
   import CommandPalette from '$lib/components/CommandPalette.svelte';
   import TopBar from '$lib/components/TopBar.svelte';
+  import Icon from '$lib/components/Icon.svelte';
   import '../app.css';
 
   let { children } = $props();
@@ -99,8 +100,8 @@
   <!-- Contrôles du mode focus (flottants) : ré-ouvrir la flotte (☰) et quitter le focus (✕). -->
   <div class="focus-ctl">
     <button class="focus-fab-btn" onclick={toggleSidebarPeek}
-            title={ui.sidebarPeek ? 'Collapse fleet' : 'Re-open fleet'} aria-label="Toggle fleet">☰</button>
-    <button class="focus-fab-btn" onclick={toggleFocus} title="Exit focus mode" aria-label="Exit focus">✕</button>
+            title={ui.sidebarPeek ? 'Collapse fleet' : 'Re-open fleet'} aria-label="Toggle fleet"><Icon name="menu" /></button>
+    <button class="focus-fab-btn" onclick={toggleFocus} title="Exit focus mode" aria-label="Exit focus"><Icon name="close" /></button>
   </div>
 </div>
 

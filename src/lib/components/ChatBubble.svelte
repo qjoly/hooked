@@ -3,6 +3,7 @@
   import ToolChip from './ToolChip.svelte';
   import Markdown from './Markdown.svelte';
   import MessageImages from './MessageImages.svelte';
+  import Icon from '$lib/components/Icon.svelte';
   // Fork (uniquement si le message a un point de coupe `forkUuid`) :
   //   `onfork(m)`         = fork express en 1 clic — aucune saisie, modèle/effort de la
   //                         session, branche indépendante qui attend (pas de modale).
@@ -71,20 +72,20 @@
 
 {#if m.role === 'system'}
   <div class="sysline" class:bg={m.kind === 'bg'} data-msg-ts={m.ts || ''}>
-    <span class="sys-txt">{m.kind === 'bg' ? '🌀 ' : ''}{m.text}</span>
+    <span class="sys-txt">{#if m.kind === 'bg'}<Icon name="background" size={13} color="var(--background)" /> {/if}{m.text}</span>
     <span class="t">{ago(m.ts)}</span>
   </div>
 {:else}
 <div class="bubble {m.role}" class:auto={m.auto} data-msg-ts={m.ts || ''}>
-  <div class="who">{m.role === 'user' ? (m.auto ? '↻ Auto-resumed (background job)' : '🧑 You') : '🤖 Claude'}<span class="t">{ago(m.ts)}</span>
+  <div class="who">{#if m.role === 'user'}{#if m.auto}<Icon name="rotate-cw" size={14} /> Auto-resumed (background job){:else}<Icon name="user" size={14} /> You{/if}{:else}<Icon name="bot" size={14} /> Claude{/if}<span class="t">{ago(m.ts)}</span>
     {#if onfork && m.forkUuid}
       <span class="fork-ctl">
         <button class="fork-btn fork-main" title="Fork here without a message — independent branch waiting for you"
-                onclick={() => onfork(m)}>⑂ Fork</button>
+                onclick={() => onfork(m)}><Icon name="git-branch" size={13} /> Fork</button>
         {#if onforkadvanced}
           <button class="fork-btn fork-caret" aria-label="Fork options"
                   title="Fork options (model, effort, immediate message…)"
-                  onclick={() => onforkadvanced(m)}>▾</button>
+                  onclick={() => onforkadvanced(m)}><Icon name="chevron-down" size={13} /></button>
         {/if}
       </span>
       {#if forkState && forkState.uuid === m.forkUuid}
@@ -114,7 +115,7 @@
           {#if folded.length >= FOLD_MIN && !openRuns[b.start]}
             <button class="tool-fold" onclick={() => (openRuns = { ...openRuns, [b.start]: true })}
                     title="Show these tool calls">
-              <span class="tf-chip">▸ {folded.length} tool calls · {runLabel(folded)}</span>
+              <span class="tf-chip"><Icon name="chevron-right" size={13} /> {folded.length} tool calls · {runLabel(folded)}</span>
               <span class="tf-rule"></span>
             </button>
           {:else}
@@ -123,7 +124,7 @@
             {/each}
             {#if folded.length >= FOLD_MIN}
               <button class="tool-fold" onclick={() => (openRuns = { ...openRuns, [b.start]: false })} title="Collapse">
-                <span class="tf-chip">▾ collapse {folded.length} tool calls</span>
+                <span class="tf-chip"><Icon name="chevron-down" size={13} /> collapse {folded.length} tool calls</span>
                 <span class="tf-rule"></span>
               </button>
             {/if}

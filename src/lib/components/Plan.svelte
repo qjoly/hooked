@@ -1,6 +1,7 @@
 <script>
   import { untrack } from 'svelte';
   import Markdown from './Markdown.svelte';
+  import Icon from '$lib/components/Icon.svelte';
   import { planAction } from '$lib/api.js';
   import { loadSessions, ui } from '$lib/state.svelte.js';
 
@@ -90,7 +91,7 @@
 
 <div class="plan-card">
   <div class="plan-head">
-    <span class="plan-ico">📋</span>
+    <span class="plan-ico"><Icon name="plan" size={16} /></span>
     <span class="plan-title">Proposed plan — awaiting approval</span>
     <span class="plan-hint">select text to comment</span>
   </div>
@@ -100,7 +101,7 @@
     <div class="plan-comments">
       {#each comments as c, i}
         <div class="pc">
-          <button class="pc-x" title="Remove comment" onclick={() => removeComment(i)}>✕</button>
+          <button class="pc-x" title="Remove comment" onclick={() => removeComment(i)}><Icon name="close" size={12} /></button>
           <blockquote class="pc-quote">{c.quote}</blockquote>
           <div class="pc-note">{c.comment}</div>
         </div>
@@ -134,7 +135,7 @@
 </div>
 
 {#if sel && !drafting}
-  <button class="sel-comment" style="top:{sel.top - 34}px; left:{sel.left}px" onmousedown={(e) => e.preventDefault()} onclick={openDraft}>✎ Comment</button>
+  <button class="sel-comment" style="top:{sel.top - 34}px; left:{sel.left}px" onmousedown={(e) => e.preventDefault()} onclick={openDraft}><Icon name="pencil" size={13} /> Comment</button>
 {/if}
 
 <style>
