@@ -1,4 +1,6 @@
 <script>
+  import Icon from '$lib/components/Icon.svelte';
+
   let { d } = $props();
   let copied = $state(false);
   async function copy() {
@@ -6,13 +8,13 @@
   }
 </script>
 
-<h2 style="margin:0 0 10px">✓ Session {d.forkedFrom ? 'forked' : d.resume ? 'resumed' : 'launched'}</h2>
+<h2 style="margin:0 0 10px"><Icon name="check" size={18} /> Session {d.forkedFrom ? 'forked' : d.resume ? 'resumed' : 'launched'}</h2>
 <p style="color:var(--muted);font-size:12.5px;line-height:1.6;margin:0 0 14px">
   <code>claude{d.resume ? ' --resume ' + d.resume.slice(0, 8) + '…' : ''}{d.worktree ? ' --worktree' : ''}</code> is running in tmux session
   <b>{d.tmux}</b><br>folder <code>{d.cwd}</code>{d.worktree ? ' (dedicated git worktree)' : ''}. Attach:</p>
 <div class="attach-row">
   <code>{d.attach}</code>
-  <button class="reply-send" onclick={copy}>{copied === true ? '✓ copied' : copied === 'manual' ? 'copy manually' : 'Copy'}</button>
+  <button class="reply-send" onclick={copy}>{#if copied === true}<Icon name="check" size={14} /> copied{:else if copied === 'manual'}copy manually{:else}Copy{/if}</button>
 </div>
 <p style="color:var(--muted);font-size:12px;margin:14px 0 0">
   It will appear in the list as soon as the first hook event fires — you can then reply directly from the UI.</p>

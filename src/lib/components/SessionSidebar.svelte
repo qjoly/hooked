@@ -7,6 +7,7 @@
   import { page } from '$app/state';
   import { ui, data, sessionTitle, sessionTags, togglePin, allTags, tagUsage, openModal, isSessionArchived, isArchived, toggleArchive, addSplit, isInSplit, canSplit } from '$lib/state.svelte.js';
   import { ago, tagColor } from '$lib/format.js';
+  import Icon from '$lib/components/Icon.svelte';
 
   let tab = $state('active'); // 'active' | 'archived'
   const currentId = $derived(page.params.id || null);
@@ -90,9 +91,9 @@
         <button class="ssb-tab" class:on={tab === 'archived'} onclick={() => (tab = 'archived')}>Archived <span class="ssb-count">{archived.length}</span></button>
       </div>
       <button class="ssb-icon" title="Group by project on/off" aria-label="Toggle grouping"
-              onclick={() => (ui.groupByProject = !ui.groupByProject)}>{ui.groupByProject ? '📂' : '☰'}</button>
+              onclick={() => (ui.groupByProject = !ui.groupByProject)}>{#if ui.groupByProject}<Icon name="folder-open" size={14} />{:else}<Icon name="menu" size={14} />{/if}</button>
       <button class="ssb-icon" title="Collapse sidebar (⌘/Ctrl+B)" aria-label="Collapse sidebar"
-              onclick={() => (ui.sideMenuOpen = false)}>◀</button>
+              onclick={() => (ui.sideMenuOpen = false)}><Icon name="arrow-left" size={14} /></button>
     </div>
     {#if knownTags.length}
       <div class="ssb-filters">
@@ -104,7 +105,7 @@
           </button>
         {/each}
         {#if ui.tagFilters.length}
-          <button class="ssb-tf clear" title="Clear tag filter" onclick={() => (ui.tagFilters = [])}>✕</button>
+          <button class="ssb-tf clear" title="Clear tag filter" onclick={() => (ui.tagFilters = [])}><Icon name="close" size={12} /></button>
         {/if}
       </div>
     {/if}
@@ -112,7 +113,7 @@
       {#each groups as g (g.key)}
         {#if g.label}
           <button class="ssb-group" class:collapsed={ui.collapsed[g.key]} onclick={() => toggleGroup(g.key)}>
-            <span class="ssb-chev">▸</span><span class="ssb-gname">{g.label}</span><span class="ssb-gn">{g.items.length}</span>
+            <span class="ssb-chev"><Icon name="chevron-right" size={12} /></span><span class="ssb-gname">{g.label}</span><span class="ssb-gn">{g.items.length}</span>
           </button>
         {/if}
         {#if !g.label || !ui.collapsed[g.key]}
@@ -122,19 +123,19 @@
                  onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(s); } }}>
               <div class="ssb-line">
                 <span class="ssb-dot ssb-{dotClass(s)}"></span>
-                {#if isPinned(s.id)}<span class="ssb-pin-mark" title="Pinned">📌</span>{/if}
+                {#if isPinned(s.id)}<span class="ssb-pin-mark" title="Pinned"><Icon name="pin" size={11} /></span>{/if}
                 <span class="ssb-name">{sessionTitle(s)}</span>
                 <span class="ssb-ago">{ago(s.lastActivity)}</span>
                 <!-- actions au survol : tag · pin · (split / unarchive) -->
                 <span class="ssb-acts">
                   <button class="ssb-act" title="Edit tags" aria-label="Edit tags"
-                          onclick={(e) => { e.stopPropagation(); openModal('editTags', { sessionId: s.id }); }}>🏷</button>
+                          onclick={(e) => { e.stopPropagation(); openModal('editTags', { sessionId: s.id }); }}><Icon name="tag" size={13} /></button>
                   <button class="ssb-act" class:on={isPinned(s.id)} title={isPinned(s.id) ? 'Unpin' : 'Pin'} aria-label="Pin"
-                          onclick={(e) => { e.stopPropagation(); togglePin(s.id); }}>📌</button>
+                          onclick={(e) => { e.stopPropagation(); togglePin(s.id); }}><Icon name="pin" size={13} /></button>
                   {#if tab === 'archived' && isArchived(s.id)}
-                    <button class="ssb-act" title="Unarchive" onclick={(e) => { e.stopPropagation(); toggleArchive(s.id); }}>↩</button>
+                    <button class="ssb-act" title="Unarchive" onclick={(e) => { e.stopPropagation(); toggleArchive(s.id); }}><Icon name="unarchive" size={13} /></button>
                   {:else if tab === 'active' && s.id !== currentId && !isInSplit(s.id) && canSplit()}
-                    <button class="ssb-act" title="Split beside the current session" onclick={(e) => { e.stopPropagation(); addSplit(s.id); }}>⊞</button>
+                    <button class="ssb-act" title="Split beside the current session" onclick={(e) => { e.stopPropagation(); addSplit(s.id); }}><Icon name="pane" size={13} /></button>
                   {/if}
                 </span>
               </div>
@@ -159,7 +160,7 @@
   <!-- collapsed: a thin rail of clickable status tiles so you can still switch sessions -->
   <div class="ssb-collapsed">
     <button class="ssb-icon expand" title="Expand session sidebar (⌘/Ctrl+B)" aria-label="Expand sidebar"
-            onclick={() => (ui.sideMenuOpen = true)}>▶</button>
+            onclick={() => (ui.sideMenuOpen = true)}><Icon name="arrow-right" size={14} /></button>
     <div class="ssb-tiles">
       {#each active as s (s.id)}
         <a class="ssb-tile" class:cur={s.id === currentId} class:dim={!isActive(s)}
@@ -240,16 +241,16 @@
   .ssb-ago { flex: 0 0 auto; font-family: var(--mono); font-size: 9.5px; color: var(--muted); }
   .ssb-pin-mark { flex: 0 0 auto; font-size: 9px; line-height: 1; opacity: .8; }
   /* actions au survol : groupe ancré à droite, masqué au repos, révélé au hover de la ligne */
-  .ssb-acts { position: absolute; right: 4px; display: none; gap: 2px; background: var(--bg2); padding-left: 4px; }
+  .ssb-acts { position: absolute; right: 4px; display: none; gap: 2px; background: transparent; padding-left: 4px; }
   .ssb-row:hover .ssb-acts { display: inline-flex; }
   .ssb-row:hover .ssb-ago { visibility: hidden; }
   .ssb-act {
-    width: 20px; height: 20px; border: 1px solid var(--border2);
-    background: var(--bg2); color: var(--muted); border-radius: 0; font-size: 11px; cursor: pointer; padding: 0;
+    width: 22px; height: 22px; border: none;
+    background: transparent; color: var(--muted); border-radius: 6px; cursor: pointer; padding: 0;
     display: inline-flex; align-items: center; justify-content: center;
   }
-  .ssb-act:hover { background: var(--accent-soft); color: var(--accent-d); border-color: var(--accent); }
-  .ssb-act.on { color: var(--accent-d); border-color: var(--accent); }
+  .ssb-act:hover { background: var(--accent-soft); color: var(--accent-d); }
+  .ssb-act.on { color: var(--accent-d); }
 
   /* barre de filtre par tag (chips, comme l'ancienne inbox) */
   .ssb-filters { display: flex; flex-wrap: wrap; gap: 4px; padding: 6px 8px; border-bottom: 1px solid var(--border); }

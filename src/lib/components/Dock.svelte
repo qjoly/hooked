@@ -8,6 +8,7 @@
   import Background from './Background.svelte';
   import PrLinks from './PrLinks.svelte';
   import IssueLinks from './IssueLinks.svelte';
+  import Icon from '$lib/components/Icon.svelte';
   import { fmtCost, prLabel, issueLabel } from '$lib/format.js';
   import { ui } from '$lib/state.svelte.js';
 
@@ -41,7 +42,7 @@
   let expanded = $state({}); // cardKey → bool
   const toggle = (k) => { expanded = { ...expanded, [k]: !expanded[k] }; };
 
-  const JOB_ICON = { bash: '⚙️', monitor: '👁', wakeup: '⏰' };
+  const JOB_ICON = { bash: 'bash', monitor: 'eye', wakeup: 'wakeup' };
 </script>
 
 <aside class="dock" aria-label="Session context" style="width:{ui.dockWidth}px;min-width:{ui.dockWidth}px">
@@ -51,7 +52,7 @@
   {#if todos.length}
     <div class="dcard">
       <button class="dh" onclick={() => toggle('todos')}>
-        <span class="dh-ico">✅</span> Tasks
+        <span class="dh-ico"><Icon name="tasks" size={13} /></span> Tasks
         <span class="dh-n">{todosDone}/{todos.length}</span>
         <span class="dh-chev" class:open={expanded.todos}>▾</span>
       </button>
@@ -61,10 +62,10 @@
       {:else}
         <div class="db">
           {#if todoCurrent}
-            <div class="ditem cur"><span class="dst">▶</span><span class="dtxt">{todoCurrent.activeForm || todoCurrent.content}</span></div>
+            <div class="ditem cur"><span class="dst"><Icon name="in-progress" size={13} /></span><span class="dtxt">{todoCurrent.activeForm || todoCurrent.content}</span></div>
           {/if}
           {#each todos.filter((t) => t.status === 'pending').slice(0, 3) as t}
-            <div class="ditem"><span class="dst">☐</span><span class="dtxt">{t.content}</span></div>
+            <div class="ditem"><span class="dst"><Icon name="checkbox" size={13} /></span><span class="dtxt">{t.content}</span></div>
           {/each}
         </div>
       {/if}
@@ -74,7 +75,7 @@
   {#if changes.length}
     <div class="dcard">
       <button class="dh" onclick={() => onship && onship()} title="Open the Ship lens">
-        <span class="dh-ico">📝</span> Changes
+        <span class="dh-ico"><Icon name="diff" size={13} /></span> Changes
         <span class="dh-n">{changes.length} file{changes.length > 1 ? 's' : ''}</span>
         <span class="dh-chev">→</span>
       </button>
@@ -95,7 +96,7 @@
   {#if subagents.length}
     <div class="dcard">
       <button class="dh" onclick={() => toggle('agents')}>
-        <span class="dh-ico">🤖</span> Agents
+        <span class="dh-ico"><Icon name="bot" size={13} /></span> Agents
         <span class="dh-n">{subagents.length}{#if agentCost > 0} · {fmtCost(agentCost)}{/if}</span>
         <span class="dh-chev" class:open={expanded.agents}>▾</span>
       </button>
@@ -114,7 +115,7 @@
   {#if subSessions.length}
     <div class="dcard">
       <button class="dh" onclick={() => toggle('subs')}>
-        <span class="dh-ico">🔗</span> Sub-sessions
+        <span class="dh-ico"><Icon name="link" size={13} /></span> Sub-sessions
         <span class="dh-n">{subSessions.length}</span>
         <span class="dh-chev" class:open={expanded.subs}>▾</span>
       </button>
@@ -127,7 +128,7 @@
   {#if jobs.length}
     <div class="dcard">
       <button class="dh" onclick={() => toggle('jobs')}>
-        <span class="dh-ico">🌀</span> Background
+        <span class="dh-ico"><Icon name="background" size={13} color="var(--background)" /></span> Background
         <span class="dh-n">{runningJobs.length} running</span>
         <span class="dh-chev" class:open={expanded.jobs}>▾</span>
       </button>
@@ -136,7 +137,7 @@
       {:else}
         <div class="db">
           {#each runningJobs.slice(0, 3) as j}
-            <div class="ditem"><span class="dst">{JOB_ICON[j.kind] || '🌀'}</span><span class="dtxt mono">{j.label || j.kind}</span></div>
+            <div class="ditem"><span class="dst"><Icon name={JOB_ICON[j.kind] || 'background'} size={13} color={JOB_ICON[j.kind] ? undefined : 'var(--background)'} /></span><span class="dtxt mono">{j.label || j.kind}</span></div>
           {/each}
         </div>
       {/if}
@@ -146,7 +147,7 @@
   {#if prLinks.length || issueLinks.length}
     <div class="dcard">
       <button class="dh" onclick={() => toggle('links')}>
-        <span class="dh-ico">🔗</span> Links
+        <span class="dh-ico"><Icon name="link" size={13} /></span> Links
         <span class="dh-n">{prLinks.length + issueLinks.length}</span>
         <span class="dh-chev" class:open={expanded.links}>▾</span>
       </button>
@@ -157,8 +158,8 @@
         </div>
       {:else}
         <div class="db dpills">
-          {#each prLinks as l}<a class="dpill pr" href={l} target="_blank" rel="noopener">🔀 {prLabel(l)}</a>{/each}
-          {#each issueLinks as l}<a class="dpill" href={l} target="_blank" rel="noopener">🐛 {issueLabel(l)}</a>{/each}
+          {#each prLinks as l}<a class="dpill pr" href={l} target="_blank" rel="noopener"><Icon name="pr" size={13} /> {prLabel(l)}</a>{/each}
+          {#each issueLinks as l}<a class="dpill" href={l} target="_blank" rel="noopener"><Icon name="issue" size={13} /> {issueLabel(l)}</a>{/each}
         </div>
       {/if}
     </div>

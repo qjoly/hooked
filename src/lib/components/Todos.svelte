@@ -1,6 +1,8 @@
 <script>
+  import Icon from '$lib/components/Icon.svelte';
+
   let { todos } = $props();
-  const ICON = { completed: '☑', in_progress: '▶', pending: '☐' };
+  const ICON = { completed: 'checkbox-done', in_progress: 'in-progress', pending: 'checkbox' };
   const done = $derived(todos.filter((t) => t.status === 'completed').length);
   const pct = $derived(todos.length ? Math.round((done / todos.length) * 100) : 0);
 </script>
@@ -16,7 +18,7 @@
     <ul class="todo-list">
       {#each todos as t, i (i)}
         <li class="todo todo-{t.status}">
-          <span class="todo-ico">{ICON[t.status] || '☐'}</span>
+          <span class="todo-ico"><Icon name={ICON[t.status] || 'checkbox'} size={14} /></span>
           <span class="todo-body">
             <span class="todo-text">{t.status === 'in_progress' && t.activeForm ? t.activeForm : t.content}</span>
             {#if t.description}<span class="todo-desc">{t.description}</span>{/if}
