@@ -59,6 +59,27 @@ brew install tmux
 sudo apt install tmux
 ```
 
+### 🪟 Et sous Windows ?
+
+Pas de Windows natif : **tmux n'existe pas sur Windows**, et hooked pilote les sessions
+à travers lui. La voie supportée est **WSL2** :
+
+```powershell
+wsl --install -d Ubuntu
+```
+
+Puis **tout se passe dans WSL** — installe **Claude Code**, **mise** et **tmux** dans Ubuntu
+et suis les étapes ci-dessus telles quelles. Deux points d'attention :
+
+- **Claude Code doit tourner dans WSL** (pas côté Windows) : les hooks écrivent dans le
+  `~/.claude` Linux, c'est là que hooked lit tout.
+- Le dashboard lancé dans WSL est accessible depuis ton navigateur Windows sur
+  **http://localhost:4123** (WSL2 forwarde localhost automatiquement).
+
+> [!NOTE]
+> Le service `mise run service-install` (launchd) est macOS-only — sous WSL, lance
+> `mise run start` à la main ou via systemd (activé par défaut dans les WSL récents).
+
 ---
 
 ## Installation
