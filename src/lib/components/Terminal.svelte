@@ -12,7 +12,9 @@
   import { onMount, onDestroy } from 'svelte';
   import { sendPaneInput, resizePane, autosizePane } from '$lib/api.js';
 
-  let { pane, interactive = false, theme = null, fontFamily = null, fit = false } = $props();
+  // `fitContainer` : en mode fit, la boîte remplit son CONTENEUR (panneau shell bas, hauteur
+  // pilotée par le layout/drag) au lieu de « jusqu'au bas du viewport ».
+  let { pane, interactive = false, theme = null, fontFamily = null, fit = false, fitContainer = false } = $props();
 
   // thème appliqué à chaud (xterm v5 : term.options.theme) — pas de remontage au changement.
   // IMPORTANT : on lit `theme` AVANT le garde sur `term`. Sinon `if (term && theme)` court-circuite
@@ -46,7 +48,7 @@
   function applyFit() {
     if (!fit || !term || !fitAddon || destroyed || !host) return;
     const wrap = host.parentElement; // .term-wrap.fit
-    if (wrap) {
+    if (wrap && !fitContainer) {
       const top = wrap.getBoundingClientRect().top;
       const availH = Math.max(160, Math.floor(window.innerHeight - top - 12)); // 12px de marge basse
       const px = availH + 'px';
@@ -144,7 +146,9 @@
         // ResizeObserver sur le conteneur scrollable (.pane-body) : sa taille est pilotée par la mise
         // en page (flex, hauteur fixe) et NON par le contenu du terminal → déclencheur fiable à
         // chaque changement de place dispo, sans boucle. Fallback : la boîte elle-même.
-        const obsTarget = (host.closest && host.closest('.pane-body')) || host.parentElement;
+        const obsTarget = fitContainer
+          ? host.parentElement // panneau bas : le wrap (height 100%) suit le drag/resize du panneau
+          : (host.closest && host.closest('.pane-body')) || host.parentElement;
         try { resizeObs = new ResizeObserver(scheduleFit); resizeObs.observe(obsTarget); } catch (_) {}
         // plusieurs passes : la mise en page et les polices peuvent se stabiliser après le 1er rendu.
         applyFit();
@@ -181,7 +185,7 @@
   });
 </script>
 
-<div class="term-wrap" class:interactive class:fit style:background={theme ? theme.background : '#0b0e14'}>
+<div class="term-wrap" class:interactive class:fit class:contain={fitContainer} style:background={theme ? theme.background : '#0b0e14'}>
   {#if dead}<div class="term-dead">⛔ This tmux pane has been closed.</div>{/if}
   <div class="term-host" bind:this={host}></div>
 </div>
@@ -193,6 +197,8 @@
   /* mode adapter : pleine largeur ; la HAUTEUR est posée en JS (applyFit) = du haut de la boîte au
      bas du viewport, donc exacte quelle que soit la hauteur de l'en-tête. min-height en filet. */
   .term-wrap.fit { width: 100%; min-height: 240px; }
+  /* panneau bas : la hauteur vient du layout (flex), pas du JS */
+  .term-wrap.fit.contain { height: 100%; min-height: 0; flex: 1 1 auto; }
   .term-wrap.fit .term-host { width: 100%; height: 100%; }
   .term-wrap.interactive { outline: 1px solid #1e2a3a; }
   .term-host { width: max-content; }

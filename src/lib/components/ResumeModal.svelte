@@ -1,5 +1,5 @@
 <script>
-  import { loadSessions, ui, settings } from '$lib/state.svelte.js';
+  import { loadSessions, ui, settings, unarchive } from '$lib/state.svelte.js';
   import { launch } from '$lib/api.js';
   import ModelEffort from './ModelEffort.svelte';
   import LaunchResult from './LaunchResult.svelte';
@@ -20,7 +20,7 @@
     status = { text: 'launching…', cls: '' };
     const res = await launch({ resumeId: r.id, prompt: prompt.trim(), model, effort, permissionMode: mode }).catch((e) => ({ ok: false, data: { error: e.message } }));
     busy = false;
-    if (res.ok) { result = res.data; setTimeout(() => { loadSessions(); ui.tick++; }, 1200); }
+    if (res.ok) { result = res.data; unarchive(r.id); setTimeout(() => { loadSessions(); ui.tick++; }, 1200); }
     else status = { text: '✗ ' + (res.data.error || 'failed'), cls: 'err' };
   }
 </script>

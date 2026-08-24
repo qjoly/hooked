@@ -38,6 +38,35 @@
   // user message: pasted images are stored as absolute paths prefixed to the text → render them as
   // expandable thumbnails and drop the raw paths from the displayed text.
   const userMsg = $derived(m.role === 'user' ? splitMessageImages(m.text) : null);
+
+  // ── Tool-call folding (« reading column ») ───────────────────────────────────────────────────
+  // Runs of ≥ FOLD_MIN consecutive "plain" tool calls collapse into one grey line
+  // (`▸ 14 tool calls · read ×9, bash ×5`) you can open — the prose stays readable.
+  // Interactive tools (ask/send), hand-off tools and tool calls carrying a diff stay visible.
+  const FOLD_MIN = 3;
+  const isPlainTool = (p) => p.type === 'tool' && !p.ask && !p.send && !p.diff && !HANDOFF_TOOLS.has(p.tool?.name);
+  const blocks = $derived.by(() => {
+    const out = [];
+    let run = null;
+    parts.forEach((p, i) => {
+      if (isPlainTool(p)) {
+        if (!run) { run = { type: 'run', items: [], start: i }; out.push(run); }
+        run.items.push(p);
+      } else { run = null; out.push({ type: 'part', p, i }); }
+    });
+    return out;
+  });
+  let openRuns = $state({}); // run start index → expanded?
+  // `read ×9, bash ×5` summary, most frequent first.
+  function runLabel(items) {
+    const counts = new Map();
+    for (const p of items) { const n = (p.tool?.name || 'tool').toLowerCase(); counts.set(n, (counts.get(n) || 0) + 1); }
+    return [...counts.entries()].sort((a, b) => b[1] - a[1]).map(([n, c]) => (c > 1 ? `${n} ×${c}` : n)).join(', ');
+  }
+  // While the turn streams, the run in progress ends the message: keep its LAST call visible so
+  // the live activity stays observable — only the settled prefix folds.
+  const lastBlock = $derived(blocks[blocks.length - 1]);
+  const liveTail = (b) => b === lastBlock && parts[parts.length - 1]?.type === 'tool';
 </script>
 
 {#if m.role === 'system'}
@@ -68,15 +97,41 @@
     {#if userMsg.text}<div class="md"><Markdown text={userMsg.text} /></div>{/if}
   {:else}
     <div class="parts">
-      {#each parts as p, i (i)}
-        {#if p.type === 'text'}
-          {#if isFinalText(i)}
-            <div class="md final"><Markdown text={p.text} /></div>
+      {#each blocks as b (b.type === 'run' ? 'r' + b.start : 'p' + b.i)}
+        {#if b.type === 'part'}
+          {#if b.p.type === 'text'}
+            {#if isFinalText(b.i)}
+              <div class="md final"><Markdown text={b.p.text} /></div>
+            {:else}
+              <div class="md reasoning"><Markdown text={b.p.text} /></div>
+            {/if}
           {:else}
-            <div class="md reasoning"><Markdown text={p.text} /></div>
+            <div class="part-tool"><ToolChip t={b.p.tool} diff={b.p.diff} ask={b.p.ask} send={b.p.send} {session} {agent} /></div>
           {/if}
         {:else}
-          <div class="part-tool"><ToolChip t={p.tool} diff={p.diff} ask={p.ask} send={p.send} {session} {agent} /></div>
+          {@const tail = liveTail(b) ? 1 : 0}
+          {@const folded = b.items.slice(0, b.items.length - tail)}
+          {#if folded.length >= FOLD_MIN && !openRuns[b.start]}
+            <button class="tool-fold" onclick={() => (openRuns = { ...openRuns, [b.start]: true })}
+                    title="Show these tool calls">
+              <span class="tf-chip">▸ {folded.length} tool calls · {runLabel(folded)}</span>
+              <span class="tf-rule"></span>
+            </button>
+          {:else}
+            {#each folded as p, k (b.start + k)}
+              <div class="part-tool"><ToolChip t={p.tool} diff={p.diff} ask={p.ask} send={p.send} {session} {agent} /></div>
+            {/each}
+            {#if folded.length >= FOLD_MIN}
+              <button class="tool-fold" onclick={() => (openRuns = { ...openRuns, [b.start]: false })} title="Collapse">
+                <span class="tf-chip">▾ collapse {folded.length} tool calls</span>
+                <span class="tf-rule"></span>
+              </button>
+            {/if}
+          {/if}
+          {#if tail}
+            {@const p = b.items[b.items.length - 1]}
+            <div class="part-tool"><ToolChip t={p.tool} diff={p.diff} ask={p.ask} send={p.send} {session} {agent} /></div>
+          {/if}
         {/if}
       {/each}
     </div>
@@ -99,4 +154,16 @@
   .sysline .t { font-size: 10.5px; color: var(--muted); font-weight: 400; }
   /* message auto-repris (ScheduleWakeup) : liseré indigo pour le distinguer d'un vrai « You ». */
   .bubble.auto { border-left: 3px solid var(--background); }
+
+  /* run de tool calls replié : une ligne grise mono carrée + filet jusqu'au bord. */
+  .tool-fold {
+    display: flex; align-items: center; gap: 10px; width: 100%; margin: 2px 0;
+    background: none; border: none; padding: 0; cursor: pointer; text-align: left;
+  }
+  .tf-chip {
+    flex: 0 0 auto; font: 500 11px var(--mono); color: var(--muted);
+    border: 1px solid var(--border); background: var(--bg2); padding: 3px 7px; border-radius: 0;
+  }
+  .tool-fold:hover .tf-chip { color: var(--text); border-color: var(--border2); }
+  .tf-rule { flex: 1 1 auto; height: 1px; background: var(--border); }
 </style>

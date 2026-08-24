@@ -189,8 +189,22 @@ describe('buildConversation', () => {
 });
 
 describe('buildFileChanges', () => {
-  it('identique (alpha)', () => {
-    expect(lib.buildFileChanges(FILES.alpha)).toEqual(legacy.buildFileChanges(FILES.alpha));
+  // Le redesign (lentille Ship) ajoute `original` (état pré-session reconstruit) et `rawOps`
+  // (ops horodatées, pour le filtre par prompt). On les retire avant la comparaison différentielle
+  // avec la référence figée — le reste de la forme doit rester identique.
+  const stripNew = (ch) => ch.map(({ original, rawOps, truncated, ...rest }) => rest);
+  it('identique (alpha), hors champs original/rawOps ajoutés par le redesign', () => {
+    expect(stripNew(lib.buildFileChanges(FILES.alpha))).toEqual(legacy.buildFileChanges(FILES.alpha));
+  });
+  it('expose original (S0, null si le fichier disque est absent) + rawOps horodatées', () => {
+    const ch = lib.buildFileChanges(FILES.alpha);
+    const byName = Object.fromEntries(ch.map((c) => [c.name, c]));
+    const u = byName['util.js'];
+    // `original` existe toujours (peut être null : les fixtures ne sont pas sur disque, donc la
+    // reconstruction — qui relit le disque — échoue ; en session réelle elle est renseignée).
+    expect('original' in u).toBe(true);
+    expect(u.rawOps.length).toBeGreaterThan(0);
+    expect(u.rawOps.every((o) => 'ts' in o)).toBe(true);
   });
   it('détecte Write/Edit/MultiEdit/NotebookEdit', () => {
     const ch = lib.buildFileChanges(FILES.alpha);

@@ -30,9 +30,9 @@
   },
   "dependencies": {
     "@pierre/diffs": "^1.2.12",
+    "diff": "^7.0.0",
     "markdown-it": "^14.3.0",
     "markdown-it-task-lists": "^2.1.1",
-    "mermaid": "^11.16.0",
-    "monaco-editor": "^0.56.0"
+    "mermaid": "^11.16.0"
   }
 }
