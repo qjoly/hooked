@@ -10,6 +10,7 @@
   // Mode interactif : xterm.onData (frappes, flèches, Ctrl-C, Échap…) est renvoyé au pane via
   // /api/pane/input (tmux send-keys). L'écho revient par le flux SSE (latence d'un aller simple).
   import { onMount, onDestroy } from 'svelte';
+  import Icon from '$lib/components/Icon.svelte';
   import { sendPaneInput, resizePane, autosizePane } from '$lib/api.js';
 
   // `fitContainer` : en mode fit, la boîte remplit son CONTENEUR (panneau shell bas, hauteur
@@ -186,7 +187,7 @@
 </script>
 
 <div class="term-wrap" class:interactive class:fit class:contain={fitContainer} style:background={theme ? theme.background : '#0b0e14'}>
-  {#if dead}<div class="term-dead">⛔ This tmux pane has been closed.</div>{/if}
+  {#if dead}<div class="term-dead"><Icon name="ban" size={14} /> This tmux pane has been closed.</div>{/if}
   <div class="term-host" bind:this={host}></div>
 </div>
 

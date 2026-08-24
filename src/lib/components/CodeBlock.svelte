@@ -1,4 +1,5 @@
 <script>
+  import Icon from '$lib/components/Icon.svelte';
   import { highlight, langLabel } from '$lib/highlight.js';
 
   let { code = '', lang = '' } = $props();
@@ -34,7 +35,7 @@
   <div class="cb-head">
     <span class="cb-lang">{label}</span>
     <button class="cb-copy" class:done={copied} onclick={copy} title="Copy code">
-      {copied ? '✓ Copied' : '⧉ Copy'}
+      {#if copied}<Icon name="check" size={13} /> Copied{:else}<Icon name="copy" size={13} /> Copy{/if}
     </button>
   </div>
   <pre><code>{@html html}</code></pre>

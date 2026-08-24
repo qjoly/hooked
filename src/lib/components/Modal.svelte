@@ -1,6 +1,7 @@
 <script>
   import { onMount } from 'svelte';
   import { ui, closeModal } from '$lib/state.svelte.js';
+  import Icon from '$lib/components/Icon.svelte';
   import CostModal from './CostModal.svelte';
   import ResumeModal from './ResumeModal.svelte';
   import ForkModal from './ForkModal.svelte';
@@ -44,7 +45,7 @@
   <div class="modal" role="dialog" aria-modal="true" aria-label={ui.modal.type}>
     <div class="modal-bg" onclick={closeModal}></div>
     <div class="modal-card" class:narrow={ui.modal.type === 'editTags' || ui.modal.type === 'confirm'} bind:this={card}>
-      <button class="modal-close" onclick={closeModal} aria-label="Close">✕</button>
+      <button class="modal-close" onclick={closeModal} aria-label="Close"><Icon name="close" /></button>
       <div>
         {#if ui.modal.type === 'cost'}
           <CostModal />

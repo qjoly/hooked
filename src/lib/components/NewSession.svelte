@@ -6,6 +6,7 @@
   import { getDefaults, pickFolder } from '$lib/api.js';
   import Composer from './Composer.svelte';
   import ModelEffort from './ModelEffort.svelte';
+  import Icon from '$lib/components/Icon.svelte';
 
   // projets uniques triés favoris d'abord, puis par activité la plus récente (puis nb de sessions).
   // [[cwd, name, fav], …]. Quand `collapseWorktrees` est actif, un worktree
@@ -125,8 +126,8 @@
 
 <div class="newsession">
   <div class="ns-inner">
-    <button class="pane-back" onclick={() => goto('/')} title="Back">←</button>
-    <h1 class="ns-title">🪝 New session</h1>
+    <button class="pane-back" onclick={() => goto('/')} title="Back"><Icon name="arrow-left" /></button>
+    <h1 class="ns-title"><Icon name="hook" size={28} /> New session</h1>
     <p class="ns-sub">Launches <code>claude</code> in a detached <b>tmux</b> session — your subscription, <b>zero token cost</b>.</p>
 
     <Composer newSession project={cwd} {model} {effort} {mode} {worktree} {onLaunched} />
@@ -135,7 +136,7 @@
       <ModelEffort compact showMode bind:model bind:effort bind:mode onchange={() => (picked = true)} />
       <label class="me-pill ns-worktree" title="Launch the session in a dedicated git worktree (claude --worktree)">
         <input type="checkbox" bind:checked={worktree} />
-        <span class="me-ico">🌿</span> worktree
+        <span class="me-ico"><Icon name="git-branch" size={14} /></span> worktree
       </label>
     </div>
 
@@ -146,7 +147,7 @@
         <span>Collapse worktrees</span>
       </label>
     </div>
-    <input type="search" class="lf-input" placeholder="🔍 Search a project…" bind:value={search} />
+    <input type="search" class="lf-input" placeholder="Search a project…" bind:value={search} />
     <div class="lf-picklist" role="listbox" aria-label="Projects">
       {#if hits.length}
         {#each hits as [c, name, fav]}
@@ -156,7 +157,7 @@
             <button class="lf-star" class:on={fav} aria-pressed={fav}
                     title={fav ? 'Remove from favorites' : 'Add to favorites'}
                     aria-label={fav ? 'Remove from favorites' : 'Add to favorites'}
-                    onclick={(e) => { e.stopPropagation(); toggleFavorite(c); }}>{fav ? '★' : '☆'}</button>
+                    onclick={(e) => { e.stopPropagation(); toggleFavorite(c); }}><Icon name="star" size={14} color={fav ? '#e3b341' : null} /></button>
             <span class="lf-pick-main"><span class="pn">{name}</span><span class="pp">{c}</span></span>
           </div>
         {/each}
@@ -165,16 +166,16 @@
       {/if}
       <div class="lf-pick custom" class:sel={selected === '__custom'} tabindex="0" role="option" aria-selected={selected === '__custom'}
            onclick={chooseFolder}
-           onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); chooseFolder(); } }}>📁 Other folder…</div>
+           onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); chooseFolder(); } }}><Icon name="folder" size={14} /> Other folder…</div>
     </div>
     {#if selected === '__custom'}
       <div class="ns-custom-row">
         <input class="lf-input ns-custom" placeholder="/path/to/the/project" bind:value={customCwd} />
         <button class="ns-browse" onclick={chooseFolder} disabled={picking} title="Pick a folder with the OS file explorer">
-          {picking ? '⏳' : '📂'} Browse…
+          {#if picking}<Icon name="queued" size={14} />{:else}<Icon name="folder-open" size={14} />{/if} Browse…
         </button>
       </div>
     {/if}
-    {#if watching}<div class="ns-watch">⏳ session launched — opening on first event…</div>{/if}
+    {#if watching}<div class="ns-watch"><Icon name="queued" size={14} /> session launched — opening on first event…</div>{/if}
   </div>
 </div>

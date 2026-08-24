@@ -12,6 +12,7 @@
   // utilisation, hors du bundle principal. Rendu client uniquement : l'import et `mermaid.render`
   // touchent le DOM, or les $effect ne tournent pas en SSR → aucun garde `browser` nécessaire.
   import { themeType } from '$lib/theme.svelte.js';
+  import Icon from '$lib/components/Icon.svelte';
 
   let { code = '' } = $props();
 
@@ -123,7 +124,7 @@
         {showSource ? '▤ Diagram' : '‹›  Source'}
       </button>
       <button class="cb-copy" class:done={copied} onclick={copy} title="Copy source">
-        {copied ? '✓ Copied' : '⧉ Copy'}
+        {#if copied}<Icon name="check" size={13} /> Copied{:else}<Icon name="copy" size={13} /> Copy{/if}
       </button>
     </div>
   </div>
@@ -134,7 +135,7 @@
     <div class="mmd-loading">Rendering diagram…</div>
   {:else}
     <!-- source brute : demandée (toggle) ou repli quand la syntaxe est invalide -->
-    {#if error}<div class="mmd-error">⚠ {error}</div>{/if}
+    {#if error}<div class="mmd-error"><Icon name="warning" size={13} /> {error}</div>{/if}
     <pre class="mmd-src"><code>{code}</code></pre>
   {/if}
 </div>
