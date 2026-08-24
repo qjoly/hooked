@@ -93,3 +93,24 @@ describe('buildConversation — forkUuid (point de coupe par bulle)', () => {
     }
   });
 });
+
+describe('buildConversation — dédup queue-operation ↔ tour user (collage multi-espaces/lignes)', () => {
+  // Message mis en file (queue-operation, content brut) PUIS traité en tour user (passé par chatText,
+  // qui collapse `[ \t]+`). Un collage de table alignée / multi-lignes doit être dédupliqué en UNE
+  // seule bulle, sinon la table apparaît deux fois (bug « sent » + « ⏳ queued »).
+  it('collapse le whitespace des deux côtés → une seule bulle user', () => {
+    const pasted = 'NODE          NAMESPACE\n172.16.6.31   runtime\n172.16.6.21   runtime';
+    const fp = path.join(os.tmpdir(), `hooked-dedup-${process.pid}.jsonl`);
+    fs.writeFileSync(fp, [
+      L({ type: 'queue-operation', operation: 'add', uuid: 'q1', timestamp: '2026-01-01T00:00:00Z', content: pasted }),
+      L({ type: 'user', uuid: 'u1', timestamp: '2026-01-01T00:00:01Z', message: { content: pasted } }),
+    ].join('\n') + '\n');
+    try {
+      const msgs = buildConversation(fp);
+      const users = msgs.filter((m) => m.role === 'user');
+      expect(users.length).toBe(1);
+    } finally {
+      fs.unlinkSync(fp);
+    }
+  });
+});
