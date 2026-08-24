@@ -6,6 +6,7 @@
 export * from './config.js';
 export * from './settings.js';
 export * from './tags.js';
+export * from './sessionMeta.js';
 export * from './digests.js';
 export * from './memory.js';
 export * from './digestScheduler.js';
@@ -25,8 +26,6 @@ export * from './subagents.js';
 export * from './todos.js';
 export * from './background.js';
 export * from './fileStream.js';
-export * from './projectFiles.js';
-export * from './projectFileWatch.js';
 export * from './files.js';
 export * from './commands.js';
 export * from './capabilities.js';

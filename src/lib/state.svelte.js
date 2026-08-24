@@ -2,7 +2,7 @@
 // La navigation (vue courante, session ouverte, écran « nouvelle session ») n'est PLUS
 // ici : elle est portée par l'URL (routing SvelteKit). Ne restent que les filtres de la
 // sidebar, l'état live (SSE), le tick de rafraîchissement et la modale.
-import { getSessions, connectSSE, getSettings, saveSettings as apiSaveSettings, getTags, saveTags, replaceTags } from './api.js';
+import { getSessions, connectSSE, getSettings, saveSettings as apiSaveSettings, getTags, saveTags, replaceTags, getSessionMeta, saveSessionMeta, replaceSessionMeta, kill } from './api.js';
 import { NOTIFY_KINDS, notifyKeyFor, countsForBadge } from './notify.js';
 
 const LS_KEY = 'hooked.ui';
@@ -21,8 +21,10 @@ export const ui = $state({
   pinned: persisted.pinned ?? [],       // [sessionId] → sessions épinglées, remontées en tête de sidebar
   names: persisted.names ?? {},         // { [sessionId]: titre custom } → renommage local (comme les pins)
   tags: {},                             // { [sessionId]: [tag] } → miroir réactif du store serveur (tags.json), chargé au démarrage
+  meta: {},                             // { [sessionId]: { archived?, snoozeUntil? } } → miroir réactif du store serveur (session-meta.json)
   focus: persisted.focus ?? false,      // mode focus : discussion plein écran (header global + sidebar repliés)
   sidebarPeek: false,                   // (transitoire) ré-ouverture ponctuelle de la sidebar pendant le focus
+  splitCompact: false,                  // (transitoire) split trop étroit → masque les menus latéraux
   modal: null,               // { type, data } | null
   tick: 0,                   // incrémenté à chaque évènement live → relance les effets
   theme: readTheme(),        // 'system' | 'light' | 'dark' (persisté à part, cf. app.html)
@@ -31,13 +33,19 @@ export const ui = $state({
   notifyPinnedOnly: persisted.notifyPinnedOnly ?? false, // if true: only notify for pinned sessions
   diffSplit: persisted.diffSplit ?? false, // render conversation diffs side-by-side (split) instead of unified
   groupByProject: persisted.groupByProject ?? true, // sidebar: regroupe les sessions par projet (dépôt/dossier) au lieu des sections de statut
+  sideMenuOpen: persisted.sideMenuOpen ?? true,     // side menu gauche (liste sessions) déplié ? persisté
+  sidebarWidth: persisted.sidebarWidth ?? 232,      // largeur (px) du side panel gauche déplié, persistée
+  dockWidth: persisted.dockWidth ?? 292,            // largeur (px) du dock droit (lentille Converse), persistée
+  dockHidden: persisted.dockHidden ?? false,        // dock droit masqué par l'utilisateur ? persisté
+  lastSessionId: persisted.lastSessionId ?? null,   // dernière session ouverte — l'onglet Sessions y revient
+  shellHeight: persisted.shellHeight ?? 0,          // hauteur (px) du panneau shell bas ; 0 = défaut (1/3 de fenêtre)
   collapseWorktrees: persisted.collapseWorktrees ?? true, // new-session: replie les worktrees `.claude/worktrees/*` sur leur projet parent dans le sélecteur
 });
 
 if (typeof localStorage !== 'undefined') {
   $effect.root(() => {
     $effect(() => {
-      const snapshot = { hideOld: ui.hideOld, collapsed: ui.collapsed, pinned: ui.pinned, names: ui.names, focus: ui.focus, notify: ui.notify, notifyPinnedOnly: ui.notifyPinnedOnly, diffSplit: ui.diffSplit, groupByProject: ui.groupByProject, collapseWorktrees: ui.collapseWorktrees };
+      const snapshot = { hideOld: ui.hideOld, collapsed: ui.collapsed, pinned: ui.pinned, names: ui.names, focus: ui.focus, notify: ui.notify, notifyPinnedOnly: ui.notifyPinnedOnly, diffSplit: ui.diffSplit, groupByProject: ui.groupByProject, sideMenuOpen: ui.sideMenuOpen, sidebarWidth: ui.sidebarWidth, dockWidth: ui.dockWidth, dockHidden: ui.dockHidden, lastSessionId: ui.lastSessionId, shellHeight: ui.shellHeight, collapseWorktrees: ui.collapseWorktrees };
       try { localStorage.setItem(LS_KEY, JSON.stringify(snapshot)); } catch {}
     });
   });
@@ -46,6 +54,139 @@ if (typeof localStorage !== 'undefined') {
 // épingle / désépingle une session (toggle). Persisté via l'effet ci-dessus.
 export function togglePin(id) {
   ui.pinned = ui.pinned.includes(id) ? ui.pinned.filter((x) => x !== id) : [...ui.pinned, id];
+}
+
+// ─── Per-session Deck metadata (session-meta.json server-side, shared across browsers) ───────
+// Archived flag + snooze deadline live in a server store mirrored in ui.meta (same scheme as
+// tags): optimistic local update, then persistence — the server re-normalizes and is the
+// source of truth (it prunes expired snoozes and empty entries).
+function patchMeta(id, patch) {
+  const merged = { ...(ui.meta[id] || {}), ...patch };
+  if (merged.archived !== true) delete merged.archived;
+  if (!(merged.snoozeUntil > Date.now())) delete merged.snoozeUntil;
+  const next = { ...ui.meta };
+  if (Object.keys(merged).length) next[id] = merged;
+  else delete next[id];
+  ui.meta = next;
+  saveSessionMeta(id, patch).then((res) => { if (res.ok && res.data.meta) ui.meta = res.data.meta; }).catch(() => {});
+}
+// archive / unarchive a session (toggle). An archived session is hidden from the Deck
+// (decision queue + fleet) by default; reversible. Archiving ALSO stops the underlying tmux
+// session — the old stop/archive distinction is gone: archiving IS the "done, shut it down"
+// action. Unarchiving only flips the flag (a dead tmux is restarted via Resume, not here).
+export function toggleArchive(id) {
+  const willArchive = !isArchived(id);
+  patchMeta(id, { archived: willArchive });
+  if (willArchive) kill(id).catch(() => {});
+}
+export function isArchived(id) { return !!(ui.meta[id] && ui.meta[id].archived); }
+// remove the archived flag WITHOUT touching tmux — used when RELAUNCHING an archived session
+// (resume): bringing it back to life should also bring it back into the live fleet. No-op if the
+// session isn't archived.
+export function unarchive(id) { if (isArchived(id)) patchMeta(id, { archived: false }); }
+// "Effectively archived" for the Deck/fleet: explicitly archived OR a finished session
+// (ended / past) — finished sessions are treated as archived (hidden from the live fleet,
+// collected in the Archived section). Takes the session object (needs its state).
+export function isSessionArchived(s) {
+  return !!s && (isArchived(s.id) || s.state === 'ended' || s.state === 'past');
+}
+// snooze a session's decision card for N hours (Deck). Cleared by passing 0/negative hours.
+export function snoozeSession(id, hours = 1) {
+  patchMeta(id, { snoozeUntil: hours > 0 ? Date.now() + hours * 3600_000 : null });
+}
+// epoch ms until which the session's decision is snoozed (0 when not snoozed).
+export function snoozeUntil(id) { return (ui.meta[id] && ui.meta[id].snoozeUntil) || 0; }
+
+// ─── Split view (VS Code / Arc style grid, in the normal session view) ────────────────────────
+// The /session/<id> workspace tiles sessions in a 2D grid: COLUMNS laid out horizontally, each
+// column stacking one or more ROWS (panes) vertically → both horizontal AND vertical splits.
+// Shape: split.cols = [ { w, rows: [ { id, h } ] } ]. `w`/`h` are flex-grow ratios (resizable);
+// `id` is the session shown (null = empty pane → picker). The ANCHOR pane (col 0, row 0) always
+// mirrors the route session (see `anchorSplit`). Persisted across reloads (localStorage).
+const MAX_COLS = 3;      // horizontal splits
+const MAX_ROWS = 3;      // vertical splits per column
+const MAX_PANES = 4;     // total panes (keeps each usable)
+function freshGrid() { return { cols: [{ w: 1, rows: [{ id: null, h: 1 }] }] }; }
+const splitPersisted = (() => {
+  if (typeof localStorage === 'undefined') return null;
+  try {
+    const g = JSON.parse(localStorage.getItem('hooked.split') || 'null');
+    if (g && Array.isArray(g.cols) && g.cols.length && g.cols.every((c) => Array.isArray(c.rows) && c.rows.length)) return g;
+  } catch {}
+  return null;
+})();
+export const split = $state(splitPersisted || freshGrid());
+if (typeof localStorage !== 'undefined') {
+  $effect.root(() => {
+    $effect(() => { try { localStorage.setItem('hooked.split', JSON.stringify({ cols: split.cols })); } catch {} });
+  });
+}
+
+// total panes across the grid.
+export function paneCount() { return split.cols.reduce((n, c) => n + c.rows.length, 0); }
+export function canSplit() { return paneCount() < MAX_PANES; }
+// flat list of every pane with its grid coordinates — [{ id, col, row }].
+export function splitPanes() {
+  const out = [];
+  split.cols.forEach((c, col) => c.rows.forEach((r, row) => out.push({ id: r.id, col, row })));
+  return out;
+}
+// the anchor pane (col 0, row 0) is bound to the route: force it to `primary` on navigation.
+export function anchorSplit(primary) {
+  if (!split.cols.length) split.cols = freshGrid().cols;
+  if (!split.cols[0].rows.length) split.cols[0].rows = [{ id: primary, h: 1 }];
+  if (split.cols[0].rows[0].id !== primary) split.cols[0].rows[0] = { ...split.cols[0].rows[0], id: primary };
+}
+// most-recently-active OTHER session not already in the grid (fills a fresh pane).
+function pickCandidate() {
+  const used = new Set(splitPanes().map((p) => p.id));
+  const cand = data.sessions
+    .filter((s) => !used.has(s.id) && !isSessionArchived(s))
+    .sort((a, b) => String(b.lastActivity || '').localeCompare(String(a.lastActivity || '')));
+  return cand[0]?.id ?? null;
+}
+// add a new COLUMN to the right, seeded with the most-recent free session.
+export function splitRight() {
+  if (split.cols.length >= MAX_COLS || paneCount() >= MAX_PANES) return;
+  split.cols = [...split.cols, { w: 1, rows: [{ id: pickCandidate(), h: 1 }] }];
+}
+// add a ROW below inside a given column (vertical split).
+export function splitDown(col) {
+  const c = split.cols[col];
+  if (!c || c.rows.length >= MAX_ROWS || paneCount() >= MAX_PANES) return;
+  const rows = [...c.rows, { id: pickCandidate(), h: 1 }];
+  split.cols = split.cols.map((x, i) => (i === col ? { ...x, rows } : x));
+}
+// open a new pane (column to the right) showing a SPECIFIC session — the sidebar's "split beside".
+export function addSplit(id) {
+  if (!id || !canSplit() || split.cols.length >= MAX_COLS || isInSplit(id)) return;
+  split.cols = [...split.cols, { w: 1, rows: [{ id, h: 1 }] }];
+}
+// change which session lives in a pane (per-pane picker). Anchor changes are handled by the route.
+export function setPaneSession(col, row, id) {
+  const c = split.cols[col];
+  if (!c || !c.rows[row]) return;
+  const rows = c.rows.map((r, i) => (i === row ? { ...r, id } : r));
+  split.cols = split.cols.map((x, i) => (i === col ? { ...x, rows } : x));
+}
+// close a pane; empties collapse the column. The anchor (0,0) can never be closed.
+export function closePane(col, row) {
+  if (col === 0 && row === 0) return;
+  const c = split.cols[col];
+  if (!c) return;
+  const rows = c.rows.filter((_, i) => i !== row);
+  if (rows.length) split.cols = split.cols.map((x, i) => (i === col ? { ...x, rows } : x));
+  else split.cols = split.cols.filter((_, i) => i !== col);
+}
+// collapse the whole split back to just the anchor.
+export function clearSplit() { split.cols = [{ w: 1, rows: [{ id: split.cols[0]?.rows[0]?.id ?? null, h: 1 }] }]; }
+export function isSplit() { return paneCount() > 1; }
+export function isInSplit(id) { return splitPanes().some((p) => p.id === id); }
+// Split the current session with the most-recently-active OTHER session (header button + shortcut):
+// opens one more pane to the right. No-op if there's no candidate or we're at the pane cap.
+export function splitWithMostRecent(currentId) {
+  if (!canSplit()) return;
+  if (pickCandidate()) splitRight();
 }
 
 // renomme une session (titre custom local, persisté comme les pins). Vide/blanc → on retire
@@ -215,6 +356,7 @@ function applyTitleBadge(sessions = data.sessions) {
   if (!ui.notify) { document.title = base; return; }
   const n = sessions.reduce((a, s) => {
     if (ui.notifyPinnedOnly && !ui.pinned.includes(s.id)) return a;
+    if (snoozeUntil(s.id) > Date.now()) return a; // session snoozée depuis le Deck → pas de badge
     return a + (countsForBadge(notifyKeyFor(s)) ? 1 : 0);
   }, 0);
   document.title = n > 0 ? `(${n}) 🔔 ${base}` : base;
@@ -284,6 +426,8 @@ export const settings = $state({
   remoteControlProjects: [],
   favoriteProjects: [],
   digest: { auto: true, hour: 7, model: '' },
+  defaultPage: 'deck',
+  navTabs: ['sessions', 'search', 'stats', 'digest', 'memory'], // onglets de nav visibles (paramétrable)
 });
 export async function loadSettings() {
   try { Object.assign(settings, await getSettings()); } catch (_) {}
@@ -309,6 +453,34 @@ export async function loadTags() {
   } catch (_) {}
 }
 
+// ─── Per-session Deck metadata (session-meta.json server-side) ────────────────────────────────
+// Loaded at startup (startLive). Archived ids used to live in localStorage ('hooked.ui'.archived)
+// and snoozes in 'hooked.snooze'; on the first load where the server store is empty, the
+// historical local state is migrated once (same scheme as tags).
+export async function loadSessionMeta() {
+  try {
+    const res = await getSessionMeta();
+    let server = res.meta || {};
+    if (!Object.keys(server).length) {
+      const legacy = {};
+      for (const id of Array.isArray(persisted.archived) ? persisted.archived : []) {
+        if (typeof id === 'string' && id) legacy[id] = { archived: true };
+      }
+      try {
+        const snooze = JSON.parse(localStorage.getItem('hooked.snooze') || '{}') || {};
+        for (const [id, until] of Object.entries(snooze)) {
+          if (until > Date.now()) legacy[id] = { ...legacy[id], snoozeUntil: until };
+        }
+      } catch {}
+      if (Object.keys(legacy).length) {
+        const r = await replaceSessionMeta(legacy);
+        if (r.ok && r.data.meta) server = r.data.meta;
+      }
+    }
+    ui.meta = server;
+  } catch (_) {}
+}
+
 // Version du build front (générée par SvelteKit, change à chaque build). Sert à l'auto-reload :
 // si le service est redéployé avec un nouveau front, on le détecte à la reconnexion SSE.
 let loadedVersion = null;
@@ -329,6 +501,7 @@ export function startLive() {
   loadSessions();
   loadSettings();
   loadTags();
+  loadSessionMeta();
   appVersion().then((v) => { loadedVersion = v; }); // version de référence (au chargement)
   connectSSE({
     onOpen: async () => {

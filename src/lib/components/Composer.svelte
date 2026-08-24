@@ -1,7 +1,7 @@
 <script>
   import { onMount } from 'svelte';
   import { reply, interrupt, launch, getFiles, getCommands, uploadImage } from '$lib/api.js';
-  import { loadSessions, ui } from '$lib/state.svelte.js';
+  import { loadSessions, ui, unarchive } from '$lib/state.svelte.js';
 
   // `alive` : pane tmux vivant → on répond direct. Sinon, l'envoi relance `claude --resume`
   // dans une nouvelle session tmux (en conservant modèle/effort d'origine si connus).
@@ -254,6 +254,8 @@
         : await launch({ resumeId: id, prompt: full, cwd: project, model: resumeModel || '', effort: resumeEffort || '' }).catch((e) => ({ ok: false, data: { error: e.message } }));
     if (res.ok) {
       text = ''; images = []; autosize();
+      // relancer une session archivée la désarchive (retour dans la flotte live).
+      if (!newSession && !alive) unarchive(id);
       // file d'attente + scroll auto : on signale au parent le message tout juste envoyé.
       if (alive && !newSession && onSent) onSent(full);
       if (newSession && onLaunched) onLaunched(project);

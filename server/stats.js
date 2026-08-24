@@ -159,6 +159,9 @@ function buildSessions() {
     // verbe d'activité live (« Accomplishing »…) quand Claude mouline — le petit mot animé du TUI.
     // Capture déjà en cache (paneBusySync l'a lue au même tick, cf. busy) → pas de coût tmux en plus.
     s.activity = (s.state === 'working' && s.tmuxAlive) ? paneActivitySync(s.tmuxPane) : null;
+    // prompt de follow-up suggéré par le TUI (ghost text) quand le tour est fini — léger, lu depuis
+    // le cache de pane déjà réchauffé. Exposé dans la liste pour le proposer en quick action au Deck.
+    s.followup = (s.tmuxAlive && s.state !== 'working') ? paneFollowupSync(s.tmuxPane) : null;
     // effort : vrai effort de la statusline (toutes sessions) en priorité, sinon résolution
     // persistée du lancement hooked (survit à la mort du tmux). modèle explicite idem.
     const li = resolveLaunchForSession(s.id, s.tmuxPane);
@@ -319,6 +322,11 @@ function sessionDetail(id) {
   // sessions sœurs créées / référencées par cette conversation (cartes vivantes du sous-onglet).
   const subSessions = buildSubSessions(s.file, id);
   const changes = buildFileChanges(s.file);
+  // Tours (prompts) de la conversation, pour filtrer les changements par prompt dans la lentille
+  // Ship. On exclut les tours auto (wakeups SDK) ; l'attribution op→tour se fait par timestamp.
+  const changeTurns = messages
+    .filter((m) => m.role === 'user' && !m.auto && m.ts)
+    .map((m, i) => ({ turn: i, ts: m.ts, prompt: (m.text || '').replace(/\s+/g, ' ').trim().slice(0, 100) }));
   const subagents = buildSubagents(s.file);
   const todos = latestTodos(s.file);
   const pane = paneForSession(id);
@@ -352,7 +360,7 @@ function sessionDetail(id) {
   const runningCount = bgJobs.filter((j) => j.status === 'running').length;
   const state = withBackgroundState(refined, alive, runningCount, busy);
   return {
-    ...s, pendingQuestion, pendingPlan,
+    ...s, pendingQuestion, pendingPlan, changeTurns,
     state, currentTool: last ? last.tool : null,
     bgJobs,
     // verbe d'activité live du spinner TUI (« Accomplishing »…) quand la session mouline, sinon null.

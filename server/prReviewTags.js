@@ -5,8 +5,8 @@
  * reviewDecision) and the existing session-tags store (tags.js) — no new storage.
  */
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
+import { HOOKED_DIR } from './config.js';
 import { scanSessions } from './transcript.js';
 import { ghView } from './ghMeta.js';
 import { readTags, setTags } from './tags.js';
@@ -19,7 +19,10 @@ const TICK_INTERVAL = parseInt(process.env.HOOKED_PR_REVIEW_INTERVAL || '300000'
 // quota GraphQL. On garantit qu'un seul process poll à la fois : les autres voient un verrou vivant
 // et récent, et sautent leur tick sans frapper l'API. La rare course (deux writers) coûte au pire
 // quelques requêtes en double une fois, sans commune mesure avec l'amplification par N instances.
-const LOCK_FILE = path.join(os.tmpdir(), 'hooked-pr-review.lock');
+// Dans le data dir hooked (PAS os.tmpdir() global) : tous les process d'une même install le
+// partagent (le verrou inter-process fonctionne), mais une install isolée par HOOKED_DATA_DIR
+// (tests, dev parallèle) ne se fait pas voler son tick par le service réel de la machine.
+const LOCK_FILE = path.join(HOOKED_DIR, 'pr-review.lock');
 const LOCK_STALE_MS = TICK_INTERVAL * 3; // au-delà, on considère le détenteur mort ou gelé
 function readLock() {
   try { return JSON.parse(fs.readFileSync(LOCK_FILE, 'utf8')); } catch { return null; }
@@ -31,8 +34,11 @@ function acquirePollLock() {
   const cur = readLock();
   // Un autre process détient un verrou récent ET est toujours vivant → on lui laisse le polling.
   if (cur && cur.pid !== process.pid && pidAlive(cur.pid) && Date.now() - (cur.at || 0) < LOCK_STALE_MS) return false;
-  try { fs.writeFileSync(LOCK_FILE, JSON.stringify({ pid: process.pid, at: Date.now() })); return true; }
-  catch { return false; }
+  try {
+    fs.mkdirSync(path.dirname(LOCK_FILE), { recursive: true }); // data dir peut ne pas exister (1er run / tests)
+    fs.writeFileSync(LOCK_FILE, JSON.stringify({ pid: process.pid, at: Date.now() }));
+    return true;
+  } catch { return false; }
 }
 function releasePollLock() {
   const cur = readLock();

@@ -91,7 +91,14 @@ const DEFAULTS = {
   // Nombre max de chips PR / issue affichés dans la barre de statut (0 = tous). Le surplus est
   // résumé par un « +N » ; les onglets dédiés restent exhaustifs.
   statusBarLinkLimit: 0,
+  // Page d'accueil (espace ouvert à froid au chargement) : 'deck' ou une clé de nav.
+  defaultPage: 'deck',
+  // Onglets de navigation visibles à côté du Deck (paramétrable). Sous-ensemble de NAV_PAGES.
+  navTabs: ['sessions', 'search', 'stats', 'digest', 'memory'],
 };
+
+const NAV_PAGES = ['sessions', 'search', 'stats', 'digest', 'memory'];
+const DEFAULT_PAGES = ['deck', ...NAV_PAGES];
 
 // Ramène un objet arbitraire (fichier ou payload client) à des valeurs sûres et complètes.
 function sanitize(raw) {
@@ -169,6 +176,10 @@ function sanitize(raw) {
     remoteControlProjects: rcProjects,
     favoriteProjects: favProjects,
     digest,
+    defaultPage: DEFAULT_PAGES.includes(o.defaultPage) ? o.defaultPage : 'deck',
+    navTabs: Array.isArray(o.navTabs)
+      ? NAV_PAGES.filter((k) => o.navTabs.includes(k)) // keep known keys, canonical order
+      : [...NAV_PAGES],
   };
 }
 

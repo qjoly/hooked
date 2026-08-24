@@ -1,60 +1,34 @@
 <script>
   import { onMount, onDestroy, tick, untrack } from 'svelte';
   import { goto } from '$app/navigation';
-  import { ui, data, settings, loadSessions, openModal, sessionTitle, renameSession, toggleFocus } from '$lib/state.svelte.js';
-  import { getSession, kill, setMode, setModelEffort, openInVscode, openInGhostty, fork, showInPane, killPane, deleteSession } from '$lib/api.js';
-  import { STATE_LABEL, fmtCost, fmtTokens, fmtDuration, shortModel, prLabel, issueLabel, PERMISSION_MODES, modeLabel, modeMeta, modelAlias } from '$lib/format.js';
+  import { ui, data, settings, loadSessions, openModal, sessionTitle, sessionTags, renameSession, toggleFocus, splitWithMostRecent, canSplit, toggleArchive, isArchived } from '$lib/state.svelte.js';
+  import { getSession, setMode, setModelEffort, openInVscode, openInGhostty, fork, showInPane, killPane, deleteSession } from '$lib/api.js';
+  import { STATE_LABEL, fmtCost, fmtTokens, fmtDuration, shortModel, prLabel, issueLabel, PERMISSION_MODES, modeLabel, modeMeta, modelAlias, tagColor } from '$lib/format.js';
+  import { page } from '$app/state';
   import ModelEffort from './ModelEffort.svelte';
   import ChatBubble from './ChatBubble.svelte';
   import Question from './Question.svelte';
   import Plan from './Plan.svelte';
   import Composer from './Composer.svelte';
-  import Changes from './Changes.svelte';
-  import Subagents from './Subagents.svelte';
-  import SubSessions from './SubSessions.svelte';
-  import PrLinks from './PrLinks.svelte';
-  import IssueLinks from './IssueLinks.svelte';
-  import Todos from './Todos.svelte';
-  import Background from './Background.svelte';
+  import Ship from './Ship.svelte';
+  import Dock from './Dock.svelte';
   import Terminal from './Terminal.svelte';
-  import Ide from './Ide.svelte';
   import { TERM_THEMES, DEFAULT_TERM_THEME, TERM_FONTS, DEFAULT_TERM_FONT } from '$lib/terminalThemes.js';
   import { conversationToMarkdown } from '$lib/exportConversation.js';
 
-  let { id } = $props();
+  // `inSplit`/`focused`/`onClose` : rendu en pane de la vue split (plusieurs sessions côte à côte
+  // dans la vue normale). En split, seul le pane focalisé réagit au clavier (lentilles 1-4, Échap),
+  // et `onClose` affiche une croix pour retirer le pane.
+  let { id, inSplit = false, focused = true, onClose = null } = $props();
   // $state.raw (pas $state) : le détail contient un tableau `messages` de 1000+ objets profonds.
   // $state proxifie récursivement à l'affectation `s = d` → tâche synchrone de plusieurs centaines
   // de ms qui GÈLE l'UI au changement de session. On ne mute jamais un message en place (on
   // remplace `s` en entier au refetch), donc raw est correct : réactif à la réaffectation, sans
   // proxy profond. Coût de `s = d` : O(1) au lieu de O(nombre de nœuds du transcript).
   let s = $state.raw(null);      // détail de session
+  // Lentille active : 'chat' (Converse + dock) / 'terminal' (Shell) / 'ship' (relecture des
+  // diffs + liens). Touches 1-3.
   let tab = $state('chat');
-  // Onglet IDE (Monaco) : 'off' | 'split' (côte à côte avec le chat) | 'full' (plein écran).
-  let ideMode = $state('off');
-  let ideWidth = $state(62);     // largeur % de la colonne IDE en mode split (redimensionnable)
-  let shell;                     // ref .detail-shell (pour mesurer pendant le drag)
-  function startIdeResize(e) {
-    e.preventDefault();
-    const rect = shell?.getBoundingClientRect();
-    if (!rect) return;
-    const move = (ev) => {
-      const px = (ev.touches ? ev.touches[0].clientX : ev.clientX) - rect.left;
-      ideWidth = Math.min(80, Math.max(20, 100 - (px / rect.width) * 100));
-    };
-    const up = () => {
-      window.removeEventListener('pointermove', move);
-      window.removeEventListener('pointerup', up);
-    };
-    window.addEventListener('pointermove', move);
-    window.addEventListener('pointerup', up);
-  }
-  // Mode IDE 'full' = vrai plein écran : on masque l'inbox (liste de sessions) via une classe
-  // globale sur <body> (même approche que le mode focus). Le cleanup couvre re-run ET démontage.
-  $effect(() => {
-    const full = ideMode === 'full';
-    document.body.classList.toggle('ide-full', full);
-    return () => document.body.classList.remove('ide-full');
-  });
   let termPane = $state(null);   // pane « show » courant affiché dans l'onglet Terminal
   let termInteractive = $state(true);  // onglet Terminal : interactif (frappes → tmux) par défaut
   let termFit = $state(true);          // adapter le pane tmux à la place dispo dans la vue web
@@ -78,7 +52,7 @@
   let body;                      // ref .pane-body (conteneur scrollable)
   let composer;                  // ref Composer (pour déclencher interruption + édition via Échap)
   let lastActivity = null;
-  let stopping = $state(false);
+  let archiving = $state(false);
   let attachCopied = $state(false);
   // changement de mode de permission (Normal / Auto-edits / Plan) via Maj+Tab dans le pane.
   let modeBusy = $state(false);
@@ -114,6 +88,14 @@
 
   const shownPanes = $derived(s ? (s.shownPanes || []) : []);
 
+  // Le dock droit n'apparaît que s'il a quelque chose à montrer (tasks / changes / agents /
+  // sub-sessions / jobs / liens) — sinon ni panneau ni rail de réouverture.
+  const dockHasContent = $derived(!!s && !!(
+    (s.todos || []).length || (s.changes || []).length || (s.subagents || []).length ||
+    (s.subSessions || []).length || (s.bgJobs || []).length ||
+    (s.prLinks || []).length || (s.issueLinks || []).length
+  ));
+
   // Liste des terminaux de l'onglet : le pane Claude Code lui-même (si son tmux est vivant) +
   // les panes « show » ouverts par un agent. Le pane Claude est toujours en tête.
   const terminals = $derived.by(() => {
@@ -123,58 +105,36 @@
     return list;
   });
 
-  // Sous-onglets du détail, ordonnés selon le réglage persistant (settings.subtabOrder) et
-  // filtrés sur ceux disponibles. Le 1er de la liste devient l'onglet ouvert à l'arrivée.
-  const SUBTAB_META = {
-    chat:       { icon: '💬', label: 'Conversation' },
-    changes:    { icon: '📝', label: 'Files' },
-    todos:      { icon: '✅', label: 'Tasks' },
-    subagents:  { icon: '🤖', label: 'Subagents' },
-    subsessions:{ icon: '🔗', label: 'Sub-sessions' },
-    background: { icon: '🌀', label: 'Background' },
-    terminal:   { icon: '🖥', label: 'Terminal' },
-    pr:         { icon: '🔀', label: 'PRs' },
-    issues:     { icon: '🐛', label: 'Issues' },
-  };
-  const subtabCount = $derived({
+  // Lentilles du workspace : Converse et Ship. Le Shell n'est PLUS une lentille — c'est un
+  // panneau BAS redimensionnable façon VS Code (1/3 de fenêtre par défaut), togglé par le tiroir
+  // ou la touche 2, visible quelle que soit la lentille active.
+  const LENSES = [
+    { key: 'chat', icon: '💬', label: 'Converse', kbd: '1' },
+    { key: 'ship', icon: '🚢', label: 'Ship', kbd: '3' },
+  ];
+  const lensCount = $derived({
     chat: (s?.messages || []).length,
-    changes: (s?.changes || []).length,
-    todos: (s?.todos || []).length,
-    subagents: (s?.subagents || []).length,
-    subsessions: (s?.subSessions || []).length,
-    background: (s?.bgJobs || []).filter((j) => (j.status || 'running') === 'running').length,
-    terminal: terminals.length,
-    pr: (s?.prLinks || []).length,
-    issues: (s?.issueLinks || []).length,
+    ship: (s?.changes || []).length,
   });
-  const subtabShown = $derived({
-    chat: true, changes: true,
-    todos: subtabCount.todos > 0,
-    subagents: subtabCount.subagents > 0,
-    subsessions: subtabCount.subsessions > 0,
-    // le badge compte les jobs RUNNING (honnête), mais l'onglet reste visible tant qu'il existe des
-    // jobs (running OU terminés) pour laisser accéder à l'historique « Finished ».
-    background: (s?.bgJobs || []).length > 0,
-    terminal: subtabCount.terminal > 0,
-    pr: subtabCount.pr > 0,
-    issues: subtabCount.issues > 0,
-  });
-  // Ordre persistant (settings.subtabOrder), PUIS toute clé connue absente de l'ordre sauvegardé
-  // (migration : un réglage antérieur à un nouveau sous-onglet — ex. `background` — le verrait
-  // sinon jamais, car on itère l'ordre persistant). On complète à la fin, seulement si disponible.
-  const orderedSubtabs = $derived.by(() => {
-    const order = settings.subtabOrder || [];
-    const hidden = new Set(settings.subtabHidden || []);
-    const keys = [...order.filter((k) => SUBTAB_META[k]), ...Object.keys(SUBTAB_META).filter((k) => !order.includes(k))];
-    // masqué manuellement (réglages) sauf 'chat', EN PLUS de l'auto-masquage quand vide (subtabShown).
-    return keys.filter((k) => subtabShown[k] && (k === 'chat' || !hidden.has(k))).map((k) => ({ key: k, ...SUBTAB_META[k], count: subtabCount[k] }));
-  });
-  // Ouvre le 1er onglet disponible selon l'ordre configuré (une seule fois, dès que s est chargé).
-  let tabInit = false;
+  const shownLenses = $derived(LENSES);
+  let shellOpen = $state(false); // panneau shell bas ouvert ? (par pane, non persisté)
+  function startShellResize(e) {
+    e.preventDefault();
+    const startY = e.clientY;
+    const startH = ui.shellHeight || Math.round(window.innerHeight / 3);
+    const move = (ev) => { ui.shellHeight = Math.max(140, Math.min(Math.round(window.innerHeight * 0.8), startH + (startY - ev.clientY))); };
+    const up = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+  }
+  // Deep-link ?lens=<key> (Deck « Open the shell », dock « open Ship », palette…). Réactif à
+  // l'URL : naviguer vers la même session avec un autre ?lens= bascule la lentille sans remount.
+  // `?lens=terminal` (liens historiques) ouvre désormais le panneau shell.
   $effect(() => {
-    const first = orderedSubtabs[0];
-    if (tabInit || !s || !first) return;
-    untrack(() => { tab = first.key; tabInit = true; });
+    const lens = page.url.searchParams.get('lens');
+    if (inSplit) return;
+    if (lens === 'terminal') untrack(() => { shellOpen = true; });
+    else if (LENSES.some((l) => l.key === lens)) untrack(() => { tab = lens; });
   });
 
   // Lazy-mount des sous-onglets. Svelte monte TOUS les panes (les inactifs sont seulement masqués
@@ -243,7 +203,7 @@
     paneBusy = true;
     const res = await showInPane(s.id, '', 'window').catch((e) => ({ ok: false, data: { error: e.message } }));
     paneBusy = false;
-    if (res.ok && res.data.pane) { wantPane = res.data.pane; tab = 'terminal'; setTimeout(() => { loadSessions(); ui.tick++; }, 250); }
+    if (res.ok && res.data.pane) { wantPane = res.data.pane; shellOpen = true; setTimeout(() => { loadSessions(); ui.tick++; }, 250); }
     else if (!res.ok) alert('✗ ' + (res.data.error || 'failed'));
   }
   // ferme un pane « show » (✕).
@@ -367,11 +327,24 @@
     prevTab = t;
   });
 
-  // Échap dans la vue chat (hors textarea — le composer gère lui-même quand il a le focus) :
-  // interrompt Claude et recharge le dernier prompt pour l'éditer, comme dans le CLI claude-code.
+  // Raccourcis fenêtre du workspace :
+  //  • 1-4 (hors saisie) : bascule de lentille (Converse / Build / Shell / Ship) ;
+  //  • Échap dans la vue chat (hors textarea — le composer gère lui-même quand il a le focus) :
+  //    interrompt Claude et recharge le dernier prompt pour l'éditer, comme dans le CLI.
+  const LENS_KEYS = { 1: 'chat', 2: 'shell', 3: 'ship' };
   function onWindowKey(e) {
-    if (e.key !== 'Escape' || tab !== 'chat' || ui.modal) return;
-    if (e.target && e.target.id === 'reply-text') return; // déjà géré par le composer focalisé
+    if (ui.modal) return;
+    if (inSplit && !focused) return; // in split, only the focused pane reacts to keys
+    const t = e.target;
+    const isInput = t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable);
+    if (!isInput && !e.metaKey && !e.ctrlKey && !e.altKey && LENS_KEYS[e.key]) {
+      const k = LENS_KEYS[e.key];
+      if (k === 'shell') { if (terminals.length) { e.preventDefault(); shellOpen = !shellOpen; } }
+      else { e.preventDefault(); tab = k; }
+      return;
+    }
+    if (e.key !== 'Escape' || tab !== 'chat') return;
+    if (t && t.id === 'reply-text') return; // déjà géré par le composer focalisé
     if (!composer) return;
     e.preventDefault();
     composer.interruptEdit();
@@ -389,11 +362,15 @@
       const cardWanted = sess.hasQuestion || sess.hasPlan;
       const qChanged = (cardWanted && !cardShown) || (!cardWanted && cardShown);
       const activityChanged = sess.lastActivity && sess.lastActivity !== lastActivity;
+      // La liste (polée, peu coûteuse) détecte l'apparition/disparition du ghost text de follow-up
+      // AVANT le détail → on refetch pour peupler followupSuggestion. Corrige la carte de follow-up
+      // qui « ne s'affichait plus » (course entre la fin du tour et le rendu du ghost text du TUI).
+      const followupChanged = (sess.followup || null) !== (s.followupSuggestion || null);
       // Refetch UNIQUEMENT quand quelque chose a vraiment changé — plus de refetch aveugle à chaque
       // tick pour toute session live (c'était 1,8 MB de transcript rechargés/sec pour une session
       // juste ouverte). On recharge sur : question (dis)parue, nouvelle activité (lastActivity a
-      // avancé), chat d'une session qui travaille, ou onglet Terminal actif (capter les panes « show »).
-      if (qChanged || activityChanged || (tab === 'chat' && sess.state === 'working') || (tab === 'terminal' && s.tmuxAlive)) load(true);
+      // avancé), follow-up (dis)paru, chat d'une session qui travaille, ou onglet Terminal actif.
+      if (qChanged || activityChanged || followupChanged || (tab === 'chat' && sess.state === 'working') || (shellOpen && s.tmuxAlive)) load(true);
     });
   });
 
@@ -466,18 +443,22 @@
     }
     meBusy = false;
   }
-  function stop() {
+  // Archive replaces the old Stop: it stops the tmux session AND moves the session to Archived
+  // (the two are no longer distinct). `toggleArchive` performs the kill; we just leave the view.
+  const archived = $derived(!!s && isArchived(s.id));
+  function archive() {
+    if (archived) { toggleArchive(s.id); setTimeout(() => { loadSessions(); ui.tick++; }, 400); return; }
     openModal('confirm', {
-      title: 'Stop this session?',
-      message: 'The tmux pane running Claude will be closed.',
-      confirmLabel: '⏹ Stop session', danger: true, onConfirm: doStop,
+      title: 'Archive this session?',
+      message: 'The tmux session running Claude will be stopped and the session moves to Archived (reversible).',
+      confirmLabel: '📥 Archive', danger: true,
+      onConfirm: () => {
+        archiving = true;
+        toggleArchive(s.id);
+        setTimeout(() => { loadSessions(); ui.tick++; }, 800);
+        if (inSplit) onClose?.(); else goto('/');
+      },
     });
-  }
-  async function doStop() {
-    stopping = true;
-    const res = await kill(s.id).catch((e) => ({ ok: false, data: { error: e.message } }));
-    if (res.ok) { setTimeout(() => { loadSessions(); ui.tick++; }, 800); }
-    else { stopping = false; alert('✗ ' + (res.data.error || 'failed')); }
   }
   let deleting = $state(false);
   function del() {
@@ -541,118 +522,108 @@
 </script>
 
 {#if s}
-  <div class="detail-shell" class:ide-split={ideMode === 'split'} class:ide-full={ideMode === 'full'}
-       style="--ide-w:{ideWidth}%" bind:this={shell}>
+  <div class="detail-shell" class:in-split={inSplit} class:focused={inSplit && focused}>
   <div class="detail-main">
   <div class="pane-head s-{s.state}">
-    <div class="card-top" style="cursor:default;margin-bottom:6px">
-      <button class="pane-back" onclick={() => goto('/')} title="Back to list">←</button>
-      <span class="proj">{s.projectName || '?'}</span>
-      {#if s.gitBranch && sb.branch !== false}<span class="branch">{s.gitBranch}</span>{/if}
-      {#if sb.stateBadge !== false}<span class="badge s-badge" style="margin-left:0"><span class="bdot"></span>{s.state === 'working' && s.activity ? s.activity + '…' : (STATE_LABEL[s.state] || s.state)}</span>{/if}
-      {#if s.tmuxAlive}
-        <span class="ro-tag live">↩ reply available</span>
-        <button class="stop-btn" disabled={stopping} onclick={stop}>{stopping ? '⏳ stopping…' : '⏹ Stop'}</button>
-      {:else if s.tmuxPane}
-        <span class="ro-tag">⛔ tmux closed · a message restarts it</span>
-        <button class="resume-btn" onclick={resume}>▶ Resume in tmux</button>
+    <!-- En-tête compact : UNE ligne (nom éditable · repo/branche · état · actions), puis les
+         onglets. La status bar (coût/tokens/liens) est retirée — ces infos vivent dans le dock,
+         la lentille Ship et le menu ⋯. -->
+    <div class="head-line">
+      {#if !inSplit}
+        <button class="pane-back" onclick={() => goto('/')} title="Back to list">←</button>
+      {/if}
+      {#if renaming}
+        <!-- svelte-ignore a11y_autofocus -->
+        <input class="sess-rename-inline" autofocus bind:value={renameVal}
+               placeholder={s.title || 'Session title'}
+               onkeydown={(e) => { if (e.key === 'Enter') commitRename(); else if (e.key === 'Escape') renaming = false; }}
+               onblur={commitRename} />
       {:else}
-        <span class="ro-tag">read-only</span>
-        <button class="resume-btn" onclick={resume}>▶ Resume in tmux</button>
+        <button class="sess-name" onclick={startRename} title="Rename this session (local)">{sessionTitle(s)}</button>
+        {#if ui.names[s.id]}<button class="sess-restore" title="Restore auto title" aria-label="Auto title" onclick={() => renameSession(s.id, '')}>↺</button>{/if}
       {/if}
-      <details class="hdr-more">
-        <summary title="More actions" aria-label="More actions">⋯</summary>
-        <div class="hdr-menu">
-          {#if s.tmuxAlive && (sb.permissionMode !== false || sb.modelEffort !== false)}
-            {@const cur = modeMeta(modeView)}
-            <div class="hdr-controls">
-              {#if sb.permissionMode !== false}
-                <div class="hc-label">Permission mode</div>
-                <div class="hc-modes">
-                  {#if !PERMISSION_MODES.some((m) => m.key === modeView)}
-                    <span class="mode-now mode-{modeView}" title={cur.title}><span class="mode-ico">{cur.icon}</span>{cur.label}</span>
-                  {/if}
-                  {#each PERMISSION_MODES as m}
-                    <button class="mode-chip" class:active={modeView === m.key} disabled={modeBusy}
-                            onclick={() => switchMode(m.key)} title={m.title}><span class="mode-ico">{m.icon}</span>{m.label}</button>
-                  {/each}
-                </div>
-              {/if}
-              {#if sb.modelEffort !== false}
-                <div class="hc-label">Model · effort</div>
-                <ModelEffort compact bind:model={editModel} bind:effort={editEffort} onchange={applyModelEffort} disabled={meBusy} />
-              {/if}
-              {#if modeStatus || meStatus}<div class="mode-status">{modeStatus || meStatus}</div>{/if}
-            </div>
+      <span class="head-meta" title={s.project || ''}>{s.repo || s.projectName || '?'}{#if s.gitBranch} · ⎇ {s.gitBranch}{/if}</span>
+      {#if sessionTags(id).length}
+        <!-- tags de session (manuels + auto-tag PR) : cliquer ouvre l'éditeur -->
+        <button class="head-tags" onclick={() => openModal('editTags', { sessionId: id })} title="Edit tags">
+          {#each sessionTags(id) as t (t)}<span class="head-tag" style="--c:{tagColor(t)}">#{t}</span>{/each}
+        </button>
+      {/if}
+      <span class="badge s-badge"><span class="bdot"></span>{s.state === 'working' && s.activity ? s.activity + '…' : (STATE_LABEL[s.state] || s.state)}</span>
+
+      <div class="head-actions">
+        {#if s.tmuxAlive}
+          <!-- modèle/effort + mode de permission vivent dans le menu ⋯ ; seul le retour
+               éphémère d'un changement (✓ Auto, ✗ failed…) s'affiche ici. -->
+          {#if modeStatus || meStatus}<span class="strip-status">{modeStatus || meStatus}</span>{/if}
+          <button class="stop-btn" disabled={archiving} onclick={archive}
+                  title="Stop the tmux session and move it to Archived">{archiving ? '⏳' : '📥 Archive'}</button>
+        {:else}
+          <button class="resume-btn" onclick={resume}>▶ Resume</button>
+        {/if}
+        {#if !inSplit}
+          <button class="hdr-icon-btn" title="Split with the most recent session (⌘/Ctrl+⇧+S)"
+                  aria-label="Split view" disabled={!canSplit()} onclick={() => splitWithMostRecent(id)}>⊞</button>
+        {/if}
+        <details class="hdr-more">
+          <summary title="More actions" aria-label="More actions">⋯</summary>
+          <div class="hdr-menu">
+            <!-- Réglages fréquents (modèle/effort + mode de permission) : rangés ici en
+                 permanence pour garder l'en-tête compact — le titre reste l'info principale. -->
+            {#if s.tmuxAlive}
+              {@const cur = modeMeta(modeView)}
+              <div class="hdr-menu-cmds">
+                {#if sb.modelEffort !== false}
+                  <ModelEffort compact bind:model={editModel} bind:effort={editEffort} onchange={applyModelEffort} disabled={meBusy} />
+                {/if}
+                {#if sb.permissionMode !== false}
+                  <div class="strip-modes wrap">
+                    {#if !PERMISSION_MODES.some((m) => m.key === modeView)}
+                      <span class="mode-now mode-{modeView}" title={cur.title}><span class="mode-ico">{cur.icon}</span>{cur.label}</span>
+                    {/if}
+                    {#each PERMISSION_MODES as m}
+                      <button class="mode-chip" class:active={modeView === m.key} disabled={modeBusy}
+                              onclick={() => switchMode(m.key)} title={m.title}><span class="mode-ico">{m.icon}</span>{m.label}</button>
+                    {/each}
+                  </div>
+                {/if}
+              </div>
+              <div class="hdr-div cmds-div"></div>
+            {/if}
+            <button class="vscode-btn" onclick={() => openModal('cost')} title="Estimated cost breakdown">💰 Cost · {fmtCost(s.cost)}{#if s.subagentCost > 0} (+{fmtCost(s.subagentCost)} agents){/if}</button>
             <div class="hdr-div"></div>
-          {/if}
-          <button class="vscode-btn" title="Copy a shareable link that opens this session in hooked" onclick={copyLink}>{linkCopied ? '✓ copied' : '🔗 Copy link'}</button>
-          {#if s.tmuxAlive && s.tmuxAttach}
-            <button class="vscode-btn" title={s.tmuxAttach} onclick={copyAttach}>{attachCopied ? '✓ copied' : '⧉ Copy attach'}</button>
-          {/if}
-          <button class="vscode-btn" onclick={() => (ideMode = ideMode === 'off' ? 'split' : 'off')} title="Open a Monaco editor side by side to view & edit Claude's changes (auto-save)">🧩 {ideMode === 'off' ? 'Open IDE' : 'Close IDE'}</button>
-          <button class="vscode-btn" disabled={vscodeBusy} onclick={openVscode} title="Open the entire project in VS Code">{vscodeBusy ? '⏳' : '⧉'} Open in VS Code</button>
-          <button class="vscode-btn" disabled={ghosttyBusy} onclick={openGhostty} title="Open the session in Ghostty (attaches tmux if alive)">{ghosttyBusy ? '⏳' : '⧉'} Open in Ghostty</button>
-          <button class="vscode-btn" onclick={copyExport} title="Copy the conversation as Markdown to the clipboard">{exportCopied ? '✓ copied' : '⧉ Copy as Markdown'}</button>
-          {#if sb.focusBtn !== false}<button class="vscode-btn" class:on={ui.focus} onclick={toggleFocus} title="Focus mode: full-screen conversation (sidebar + header collapsed)">⛶ {ui.focus ? 'Exit focus' : 'Focus'}</button>{/if}
-          <button class="vscode-btn del-btn" disabled={deleting} onclick={del} title="Move to trash: removes from dashboard; transcript kept in bin/ (recoverable)">{deleting ? '⏳' : '🗑'} Delete</button>
-        </div>
-      </details>
+            <button class="vscode-btn" title="Copy a shareable link that opens this session in hooked" onclick={copyLink}>{linkCopied ? '✓ copied' : '🔗 Copy link'}</button>
+            {#if s.tmuxAlive && s.tmuxAttach}
+              <button class="vscode-btn" title={s.tmuxAttach} onclick={copyAttach}>{attachCopied ? '✓ copied' : '⧉ Copy attach'}</button>
+            {/if}
+            <button class="vscode-btn" disabled={vscodeBusy} onclick={openVscode} title="Open the entire project in VS Code">{vscodeBusy ? '⏳' : '⧉'} Open in VS Code</button>
+            <button class="vscode-btn" disabled={ghosttyBusy} onclick={openGhostty} title="Open the session in Ghostty (attaches tmux if alive)">{ghosttyBusy ? '⏳' : '⧉'} Open in Ghostty</button>
+            <button class="vscode-btn" onclick={copyExport} title="Copy the conversation as Markdown to the clipboard">{exportCopied ? '✓ copied' : '⧉ Copy as Markdown'}</button>
+            <button class="vscode-btn" onclick={() => openModal('editTags', { sessionId: id })} title="Add or remove tags on this session (PR review tags are automatic)">🏷 Edit tags</button>
+            {#if sb.focusBtn !== false}<button class="vscode-btn" class:on={ui.focus} onclick={toggleFocus} title="Focus mode: full-screen conversation">⛶ {ui.focus ? 'Exit focus' : 'Focus'}</button>{/if}
+            <div class="hdr-div"></div>
+            <button class="vscode-btn" onclick={archive} title={archived ? 'Restore this session to the live fleet' : 'Stop the tmux session and move it to Archived'}>{archived ? '↩ Unarchive' : '📥 Archive'}</button>
+            <button class="vscode-btn del-btn" disabled={deleting} onclick={del} title="Move to trash: removes from dashboard; transcript kept in bin/ (recoverable)">{deleting ? '⏳' : '🗑'} Delete</button>
+          </div>
+        </details>
+      </div>
     </div>
-    {#if renaming}
-      <!-- svelte-ignore a11y_autofocus -->
-      <input class="sess-rename" autofocus bind:value={renameVal}
-             placeholder={s.title || 'Session title'}
-             onkeydown={(e) => { if (e.key === 'Enter') commitRename(); else if (e.key === 'Escape') renaming = false; }}
-             onblur={commitRename} />
-    {:else}
-      <h2 class="sess-title" style="margin:6px 0 0">{sessionTitle(s)}
-        <button class="sess-rename-btn" title="Rename this session (local)" aria-label="Rename" onclick={startRename}>✎</button>
-        {#if ui.names[s.id]}<button class="sess-rename-btn" title="Restore auto title" aria-label="Auto title" onclick={() => renameSession(s.id, '')}>↺</button>{/if}
-      </h2>
-    {/if}
-    <div class="head-stats" onclick={() => openModal('cost')} title="View estimated cost breakdown">
-      {#if sb.cost !== false}<span style="order:{sbOrd('cost')}"><b>{fmtCost(s.cost)}</b>{#if s.subagentCost > 0} <span class="hs-sub">({fmtCost(s.subagentCost)} agents)</span>{/if}</span>{/if}
-      {#if sb.prompts !== false}<span class="hs-dot" style="order:{sbOrd('prompts')}">·</span><span style="order:{sbOrd('prompts')}">{s.userPrompts} prompts</span>{/if}
-      {#if sb.tokens !== false}<span class="hs-dot" style="order:{sbOrd('tokens')}">·</span><span style="order:{sbOrd('tokens')}">{fmtTokens(s.usage.output)} out</span><span class="hs-dot" style="order:{sbOrd('tokens')}">·</span><span style="order:{sbOrd('tokens')}">{fmtTokens(s.usage.cacheRead)} cache</span>{/if}
-      {#if !s.tmuxAlive && s.model && sb.model !== false}<span class="hs-dot" style="order:{sbOrd('model')}">·</span><span style="order:{sbOrd('model')}">{shortModel(s.model)}</span>{/if}
-      {#if stat5h && stat5h.pct != null && sb.usage5h !== false}
-        <span class="hs-dot" style="order:{sbOrd('usage5h')}">·</span>
-        <span class="hs-5h" style="order:{sbOrd('usage5h')}" class:warn={stat5h.pct >= 75} class:full={stat5h.pct >= 95} title={stat5h.title}>⏳ {stat5h.pct}%</span>
-      {/if}
-      {#if s.prLinks && s.prLinks.length && sb.prLinks !== false}
-        {#each shownLinks(s.prLinks) as l}
-          <span class="hs-dot" style="order:{sbOrd('prLinks')}">·</span>
-          <a class="hs-pr" style="order:{sbOrd('prLinks')}" href={l} target="_blank" rel="noopener" title={l} onclick={(e) => e.stopPropagation()}>🔗 {prLabel(l)}</a>
-        {/each}
-        {#if linkLimit && s.prLinks.length > linkLimit}
-          <span class="hs-dot" style="order:{sbOrd('prLinks')}">·</span>
-          <button class="hs-pr hs-rest" style="order:{sbOrd('prLinks')}" title="Show all linked PRs"
-                  onclick={(e) => { e.stopPropagation(); tab = 'pr'; }}>+{s.prLinks.length - linkLimit}</button>
-        {/if}
-      {/if}
-      {#if s.issueLinks && s.issueLinks.length && sb.issueLinks !== false}
-        {#each shownLinks(s.issueLinks) as l}
-          <span class="hs-dot" style="order:{sbOrd('issueLinks')}">·</span>
-          <a class="hs-pr" style="order:{sbOrd('issueLinks')}" href={l} target="_blank" rel="noopener" title={l} onclick={(e) => e.stopPropagation()}>🐛 {issueLabel(l)}</a>
-        {/each}
-        {#if linkLimit && s.issueLinks.length > linkLimit}
-          <span class="hs-dot" style="order:{sbOrd('issueLinks')}">·</span>
-          <button class="hs-pr hs-rest" style="order:{sbOrd('issueLinks')}" title="Show all linked issues"
-                  onclick={(e) => { e.stopPropagation(); tab = 'issues'; }}>+{s.issueLinks.length - linkLimit}</button>
-        {/if}
-      {/if}
-      <span class="hs-more" style="order:99">›</span>
-    </div>
-    <div class="subtabs">
-      {#each orderedSubtabs as st (st.key)}
-        <button class="subtab" class:active={tab === st.key} onclick={() => (tab = st.key)}>{st.icon} {st.label} <span class="count">{st.count}</span></button>
+    <div class="subtabs lenses">
+      {#each shownLenses as l (l.key)}
+        <button class="subtab" class:active={tab === l.key} onclick={() => { tab = l.key; }}
+                title="{l.label} — key {l.kbd}">
+          {l.icon} {l.label}
+          {#if lensCount[l.key]}<span class="count">{lensCount[l.key]}</span>{/if}
+          <kbd class="lens-kbd">{l.kbd}</kbd>
+        </button>
       {/each}
     </div>
   </div>
 
-  <div class="pane-body" bind:this={body}
+  <div class="body-row">
+  <div class="pane-body" class:flush={tab === 'ship'} bind:this={body}
        onscroll={() => { if (body) stickToBottom = (body.scrollHeight - body.scrollTop - body.clientHeight) < 60; }}>
+    <!-- la conversation reste montée en lentille Build (colonne copilote à côté de l'IDE) -->
     <div class="pane" class:active={tab === 'chat'}>
       <div class="chat">
         {#if startIdx > 0}
@@ -699,109 +670,92 @@
       {/if}
     </div>
 
-    <div class="pane" class:active={tab === 'changes'}>
-      {#if seen.changes}<div class="changes"><Changes changes={s.changes || []} {id} onReview={reviewChanges} canReview={!!(s.tmuxPane)} /></div>{/if}
-    </div>
-
-    <div class="pane" class:active={tab === 'subagents'}>
-      {#if seen.subagents}<div class="changes"><Subagents subagents={s.subagents || []} session={id} /></div>{/if}
-    </div>
-
-    <div class="pane" class:active={tab === 'subsessions'}>
-      {#if seen.subsessions}<div class="changes"><SubSessions subSessions={s.subSessions || []} /></div>{/if}
-    </div>
-
-    <div class="pane" class:active={tab === 'pr'}>
-      {#if seen.pr}<PrLinks prLinks={s.prLinks || []} />{/if}
-    </div>
-
-    <div class="pane" class:active={tab === 'issues'}>
-      {#if seen.issues}<IssueLinks issueLinks={s.issueLinks || []} />{/if}
-    </div>
-
-    <div class="pane" class:active={tab === 'todos'}>
-      {#if seen.todos}<Todos todos={s.todos || []} />{/if}
-    </div>
-
-    <div class="pane" class:active={tab === 'background'}>
-      {#if seen.background}<Background jobs={s.bgJobs || []} session={id} />{/if}
-    </div>
-
-    <div class="pane" class:active={tab === 'terminal'}>
-      {#if terminals.length}
-        <div class="term-bar">
-          <div class="term-tabs">
-            {#each terminals as t (t.pane)}
-              <div class="term-chip" class:active={termPane === t.pane} class:claude={t.kind === 'claude'}>
-                <button class="term-tab" onclick={() => (termPane = t.pane)} title={t.label}>
-                  {t.kind === 'claude' ? '🤖' : t.target === 'window' ? '🗔' : '▦'} {t.label.slice(0, 32)}
-                </button>
-                {#if t.kind === 'show'}
-                  <button class="term-x" title="Close this pane" disabled={paneBusy} onclick={() => closePane(t.pane)}>✕</button>
-                {/if}
-              </div>
-            {/each}
-            <button class="term-new" title="New shell pane" disabled={paneBusy || !(s && s.tmuxAlive)} onclick={newPane}>＋</button>
-          </div>
-          <select class="term-theme" bind:value={termFont} title="Terminal font" aria-label="Terminal font">
-            {#each Object.entries(TERM_FONTS) as [key, f] (key)}
-              <option value={key}>🔤 {f.name}</option>
-            {/each}
-          </select>
-          <select class="term-theme" bind:value={termTheme} title="Terminal color theme" aria-label="Terminal theme">
-            {#each Object.entries(TERM_THEMES) as [key, t] (key)}
-              <option value={key}>🎨 {t.name}</option>
-            {/each}
-          </select>
-          <button class="term-mode" class:on={termFit} onclick={() => (termFit = !termFit)}
-                  title={termFit ? 'Fit: the tmux pane fills the web view' : 'Fixed tmux pane size'}>
-            {termFit ? '⤢ Fit' : '▭ Fixed'}
-          </button>
-          <button class="term-mode" class:on={termInteractive} onclick={() => (termInteractive = !termInteractive)}
-                  title={termInteractive ? 'Interactive: your keystrokes go to the tmux pane' : 'Read-only: observation'}>
-            {termInteractive ? '⌨ Interactive' : '👁 Read-only'}
-          </button>
-        </div>
-        {#if tab === 'terminal' && termPane}
-          {#key termPane + ':' + termInteractive + ':' + termFit}<Terminal pane={termPane} interactive={termInteractive} theme={termThemeObj} fontFamily={termFontFamily} fit={termFit} />{/key}
-        {/if}
-      {:else}
-        <div class="pane-empty">No terminal available (tmux session closed).</div>
+    <!-- Lentille Ship : relecture des changements de Claude + expédition (composant dédié). -->
+    <div class="pane pane-flush" class:active={tab === 'ship'}>
+      {#if seen.ship}
+        <Ship {s} {id} onReview={reviewChanges} canReview={!!(s.tmuxPane)} active={tab === 'ship'} />
       {/if}
     </div>
+
   </div>
-  </div>
-  {#if ideMode === 'split'}
-    <!-- svelte-ignore a11y_no_static_element_interactions -->
-    <div class="ide-resize" onpointerdown={startIdeResize} title="Drag to resize"></div>
+
+  <!-- dock contextuel (lentille Converse) : tasks / changements / agents / jobs / liens.
+       Masquable par l'utilisateur (persisté ui.dockHidden) → rail fin pour le rouvrir.
+       Pas rendu du tout (ni le rail) quand la session n'a AUCUN contenu contextuel. -->
+  {#if tab === 'chat' && dockHasContent && !(inSplit && ui.splitCompact)}
+    {#if ui.dockHidden}
+      <button class="dock-reopen" onclick={() => (ui.dockHidden = false)} title="Show the context panel" aria-label="Show the context panel">‹</button>
+    {:else}
+      <Dock {s} {id} onship={() => (tab = 'ship')} />
+    {/if}
   {/if}
-  {#if ideMode !== 'off'}
-    <div class="ide-col">
-      <Ide {id} changes={s.changes || []} mode={ideMode}
-           onmode={(m) => (ideMode = m)} onclose={() => (ideMode = 'off')} />
+  </div>
+
+  <!-- Shell : panneau bas redimensionnable façon VS Code (1/3 de fenêtre par défaut), visible
+       quelle que soit la lentille active. Le tiroir dessous le toggle (touche 2). -->
+  {#if shellOpen && terminals.length}
+    <div class="shell-panel" style="height:{ui.shellHeight ? ui.shellHeight + 'px' : '33vh'}">
+      <!-- svelte-ignore a11y_no_static_element_interactions -->
+      <div class="shell-resize" onpointerdown={startShellResize} title="Drag to resize"></div>
+      <div class="term-bar">
+        <div class="term-tabs">
+          {#each terminals as t (t.pane)}
+            <div class="term-chip" class:active={termPane === t.pane} class:claude={t.kind === 'claude'}>
+              <button class="term-tab" onclick={() => (termPane = t.pane)} title={t.label}>
+                {t.kind === 'claude' ? '🤖' : t.target === 'window' ? '🗔' : '▦'} {t.label.slice(0, 32)}
+              </button>
+              {#if t.kind === 'show'}
+                <button class="term-x" title="Close this pane" disabled={paneBusy} onclick={() => closePane(t.pane)}>✕</button>
+              {/if}
+            </div>
+          {/each}
+          <button class="term-new" title="New shell pane" disabled={paneBusy || !(s && s.tmuxAlive)} onclick={newPane}>＋</button>
+        </div>
+        <select class="term-theme" bind:value={termFont} title="Terminal font" aria-label="Terminal font">
+          {#each Object.entries(TERM_FONTS) as [key, f] (key)}
+            <option value={key}>🔤 {f.name}</option>
+          {/each}
+        </select>
+        <select class="term-theme" bind:value={termTheme} title="Terminal color theme" aria-label="Terminal theme">
+          {#each Object.entries(TERM_THEMES) as [key, t] (key)}
+            <option value={key}>🎨 {t.name}</option>
+          {/each}
+        </select>
+        <button class="term-mode" class:on={termFit} onclick={() => (termFit = !termFit)}
+                title={termFit ? 'Fit: the tmux pane fills the panel' : 'Fixed tmux pane size'}>
+          {termFit ? '⤢ Fit' : '▭ Fixed'}
+        </button>
+        <button class="term-mode" class:on={termInteractive} onclick={() => (termInteractive = !termInteractive)}
+                title={termInteractive ? 'Interactive: your keystrokes go to the tmux pane' : 'Read-only: observation'}>
+          {termInteractive ? '⌨ Interactive' : '👁 Read-only'}
+        </button>
+        <button class="term-mode" onclick={() => (shellOpen = false)} title="Close the shell panel (key 2)">✕</button>
+      </div>
+      {#if termPane}
+        {#key termPane + ':' + termInteractive + ':' + termFit}<Terminal pane={termPane} interactive={termInteractive} theme={termThemeObj} fontFamily={termFontFamily} fit={termFit} fitContainer />{/key}
+      {/if}
     </div>
   {/if}
+  <!-- tiroir terminal : toggle du panneau shell (ou touche 2) -->
+  {#if terminals.length}
+    <button class="term-drawer" onclick={() => (shellOpen = !shellOpen)} title="Toggle the shell panel (key 2)">
+      <span class="td-name">🖥 Shell</span>
+      <span class="td-prompt">❯</span>
+      <span class="td-info">{s.tmuxAlive ? (s.state === 'working' && s.activity ? s.activity + '…' : 'tmux alive') : 'tmux closed'}{#if shownPanes.length} · {shownPanes.length + 1} panes{/if}</span>
+      <span class="td-open">{shellOpen ? 'close' : 'open'} <kbd>2</kbd> {shellOpen ? '▼' : '▲'}</span>
+    </button>
+  {/if}
+  </div>
   </div>
 {/if}
 
 <style>
-  /* ── Coquille détail + colonne IDE (Monaco) ─────────────────────────────────────────────
-     .detail-shell est l'unique enfant flex de .main-pane (flex column). En mode normal c'est
-     une colonne (head + body). En 'split' elle passe en RANGÉE : chat à gauche, IDE à droite
-     (largeur --ide-w redimensionnable). En 'full' le chat est masqué, l'IDE prend tout. */
   .detail-shell { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+  /* split pane: the ✕ close is always shown, and the focused pane gets an accent rail. */
+  .detail-shell.in-split :global(.pane-back) { display: inline-flex; }
+  .detail-shell.in-split.focused { box-shadow: inset 3px 0 0 var(--accent); }
+  .detail-shell.in-split:not(.focused) { opacity: .92; }
   .detail-main { flex: 1 1 auto; min-height: 0; min-width: 0; display: flex; flex-direction: column; }
-  .detail-shell.ide-split { flex-direction: row; }
-  .detail-shell.ide-split .detail-main { flex: 1 1 0; min-width: 0; }
-  .detail-shell.ide-split .ide-col { flex: 0 0 var(--ide-w, 50%); min-width: 0; }
-  .detail-shell.ide-full .detail-main { display: none; }
-  .detail-shell.ide-full .ide-col { flex: 1 1 auto; min-width: 0; }
-  .ide-col { display: flex; min-height: 0; min-width: 0; border-left: 1px solid var(--border); }
-  .ide-resize {
-    flex: 0 0 6px; cursor: col-resize; background: var(--border);
-    transition: background .12s;
-  }
-  .ide-resize:hover { background: var(--accent); }
 
   /* menu « ⋯ » des actions secondaires de l'en-tête (natif <details>, sans JS) */
   .hdr-more { position: relative; margin-left: auto; }
@@ -820,12 +774,127 @@
     background: var(--surface); border: 1px solid var(--border2); border-radius: 12px;
     box-shadow: var(--shadow);
   }
-  /* Live-session controls (permission mode + model/effort) moved into the ⋯ menu so the cockpit
-     bar stays clean (repo/branch/status · title · meta · tabs), matching the design. */
-  .hdr-controls { display: flex; flex-direction: column; gap: 7px; padding: 4px 6px 2px; }
-  .hc-label { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
-  .hc-modes { display: flex; flex-wrap: wrap; gap: 5px; }
-  .hdr-div { height: 1px; background: var(--border); margin: 6px 2px; }
+  /* En-tête compact sur une seule ligne : nom · repo/branche · état · actions à droite.
+     Les réglages fréquents (modèle/effort + mode) vivent en PERMANENCE dans le menu ⋯. */
+  .head-line { display: flex; align-items: center; gap: 9px; min-width: 0; }
+  .hdr-menu-cmds { display: flex; flex-direction: column; gap: 8px; padding: 4px 6px 2px; }
+  .hdr-menu-cmds .strip-modes.wrap { flex-wrap: wrap; }
+  .cmds-div { display: block; }
+  .sess-name {
+    /* Le TITRE est l'info prioritaire : il PREND l'espace libre (flex-grow) et garde un plancher
+       lisible (min-width), au lieu d'être le premier écrasé. Ce sont la branche/le statut puis les
+       boutons (repliés par les container queries plus bas) qui cèdent la place avant lui. */
+    flex: 1 1 auto; min-width: 96px; max-width: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    background: none; border: none; padding: 0; font: inherit; font-size: 15px; font-weight: 800;
+    letter-spacing: -.01em; color: var(--text); cursor: text; text-align: left;
+  }
+  .sess-name:hover { color: var(--accent-d); }
+  .sess-rename-inline {
+    flex: 0 1 auto; min-width: 120px; max-width: 40vw; font: inherit; font-size: 15px; font-weight: 800;
+    background: var(--input); border: 1px solid var(--accent); border-radius: 7px; padding: 2px 8px; color: var(--text);
+  }
+  .sess-rename-inline:focus { outline: none; box-shadow: 0 0 0 3px var(--accent-soft); }
+  .sess-restore { background: none; border: none; color: var(--muted); cursor: pointer; font-size: 12px; padding: 0 2px; flex: 0 0 auto; }
+  .sess-restore:hover { color: var(--text); }
+  .head-meta {
+    flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    font-family: var(--mono); font-size: 11px; color: var(--muted);
+  }
+  /* tags de session dans l'en-tête : compacts, cliquables (→ éditeur de tags) */
+  .head-tags {
+    flex: 0 1 auto; min-width: 0; display: inline-flex; gap: 4px; overflow: hidden;
+    background: none; border: none; padding: 0; cursor: pointer;
+  }
+  .head-tag {
+    font: 600 9.5px var(--mono); line-height: 1.7; padding: 0 6px; border-radius: 0;
+    color: var(--c); background: color-mix(in srgb, var(--c) 14%, transparent); white-space: nowrap;
+  }
+  .head-tags:hover .head-tag { filter: brightness(1.15); }
+  .head-actions { margin-left: auto; display: flex; align-items: center; gap: 8px; flex: 0 0 auto; }
+  .hdr-icon-btn {
+    width: 30px; height: 28px; border: 1px solid var(--border2); border-radius: 8px;
+    background: transparent; color: var(--muted); font-size: 15px; line-height: 1; cursor: pointer; padding: 0;
+    display: inline-flex; align-items: center; justify-content: center;
+  }
+  .hdr-icon-btn:hover:not(:disabled) { background: var(--bg3); color: var(--text); border-color: var(--accent); }
+  .hdr-icon-btn:disabled { opacity: .4; cursor: default; }
+  /* compact : moins de padding vertical, onglets serrés sous la ligne unique.
+     container-type → les container queries plus bas mesurent la LARGEUR RÉELLE de l'en-tête
+     (donc aussi celle d'un pane de split étroit, pas seulement le viewport). */
+  .pane-head { padding: 9px 18px 0; container-type: inline-size; }
+
+  /* Repli progressif de l'en-tête (du moins important au plus important) ;
+     le TITRE de la session reste toujours lisible. */
+  @container (max-width: 620px) {
+    /* 1) le bouton ⊞ (split) se replie (reste accessible au raccourci / à la palette). */
+    .hdr-icon-btn { display: none; }
+  }
+  @container (max-width: 520px) {
+    /* 2) l'Archive inline se replie (il reste dans le menu ⋯) — seuls ⋯ (et Resume) subsistent. */
+    .stop-btn { display: none; }
+  }
+  @container (max-width: 440px) {
+    /* 3) enfin le statut et la branche disparaissent ; le TITRE, lui, reste toujours lisible. */
+    .head-meta, .s-badge, .head-tags { display: none; }
+  }
+  .head-line + :global(.subtabs) { margin-top: 9px; }
+  .strip-modes { display: flex; gap: 4px; }
+  .strip-status { font-family: var(--mono); font-size: 10.5px; color: var(--muted); }
+
+  /* corps du workspace : la zone scrollable + le dock contextuel côte à côte */
+  .body-row { flex: 1 1 auto; min-height: 0; display: flex; }
+  .body-row :global(.pane-body) { min-width: 0; }
+  /* rail fin pour rouvrir le dock quand il est masqué */
+  .dock-reopen {
+    flex: 0 0 auto; width: 18px; border: none; border-left: 1px solid var(--border);
+    background: var(--bg2); color: var(--muted); cursor: pointer; font-size: 12px; padding: 0;
+    transition: background .12s, color .12s;
+  }
+  .dock-reopen:hover { background: var(--hover); color: var(--text); }
+
+  /* badge clavier des lentilles (1-4) */
+  .lens-kbd {
+    font: 9px/1 var(--mono); color: var(--muted);
+    background: var(--bg3); border: 1px solid var(--border); border-radius: 4px; padding: 1px 4px;
+    margin-left: 2px;
+  }
+  .subtab.active .lens-kbd { color: inherit; background: transparent; border-color: currentColor; opacity: .7; }
+
+  /* Panneau shell bas (façon VS Code) : hauteur pilotée par l'utilisateur (drag), le terminal
+     remplit le reste (Terminal en mode fitContainer). */
+  .shell-panel {
+    flex: 0 0 auto; position: relative; display: flex; flex-direction: column; min-height: 0;
+    border-top: 1px solid var(--border); background: var(--bg2);
+  }
+  .shell-panel > :global(.term-wrap) { flex: 1 1 auto; min-height: 0; }
+  .shell-panel :global(.term-bar) { margin: 0; padding: 5px 10px; border-bottom: 1px solid var(--border); }
+  .shell-resize { position: absolute; top: -3px; left: 0; right: 0; height: 6px; cursor: row-resize; z-index: 6; }
+  .shell-resize:hover { background: var(--accent); opacity: .5; }
+
+  /* tiroir terminal sous la conversation : statut du shell, un clic ouvre la lentille Shell */
+  .term-drawer {
+    flex: 0 0 auto; display: flex; align-items: center; gap: 9px;
+    margin: 0; padding: 7px 16px; width: 100%;
+    background: var(--code-bg); border: none; border-top: 1px solid var(--border);
+    color: #8f96a3; font-family: var(--mono); font-size: 11px; cursor: pointer; text-align: left;
+  }
+  .term-drawer:hover .td-open { color: var(--accent); }
+  .td-name { color: #c9cedb; font-weight: 600; }
+  .td-prompt { color: var(--success); }
+  .td-info { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+  .td-open { margin-left: auto; flex: 0 0 auto; color: #6a7180; }
+  .td-open kbd {
+    font: 9px/1 var(--mono); border: 1px solid #3a3f4a; border-radius: 4px; padding: 1px 4px;
+  }
+
+  /* lentille Ship : le composant Ship gère ses 3 colonnes → on retire le padding/scroll du
+     pane-body pour qu'il occupe toute la hauteur (Ship a ses propres zones scrollables). */
+  .pane-body.flush { padding: 0; overflow: hidden; }
+  .pane-flush { padding-top: 0; }
+  .pane-flush.active { display: flex; height: 100%; min-height: 0; min-width: 0; }
+  /* min-width:0 is essential: without it the flex child won't shrink below its content, the
+     split-diff 1fr columns expand to content width and the ship panel gets pushed off-screen. */
+  .pane-flush.active > :global(*) { flex: 1 1 auto; min-height: 0; min-width: 0; }
   /* dans le menu : boutons pleine largeur, alignés à gauche, sans bordure individuelle */
   .hdr-menu :global(.vscode-btn) {
     display: flex; align-items: center; width: 100%; justify-content: flex-start; text-align: left;
