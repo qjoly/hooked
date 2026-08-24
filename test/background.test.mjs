@@ -73,6 +73,38 @@ describe('buildBackgroundJobs — cycle de vie des jobs de fond', () => {
   });
 });
 
+describe('buildBackgroundJobs — sous-agents lancés en fond (Agent/Task)', () => {
+  const agentUse = (id, bg) => ({ type: 'assistant', timestamp: '2026-06-20T10:00:00Z', message: { content: [{ type: 'tool_use', id, name: 'Agent', input: { description: 'explore the codebase', subagent_type: 'Explore', ...(bg === false ? { run_in_background: false } : {}) } }] } });
+  const launchAck = (toolUseId, agentId) => ({ type: 'user', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: toolUseId, content: `Async agent launched successfully.\nagentId: ${agentId} (internal ID - do not mention).` }] } });
+  const syncResult = (toolUseId) => ({ type: 'user', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: toolUseId, content: 'Here is my final report on the codebase.' }] } });
+  const taskNote = (toolUseId, agentId, status) => ({ type: 'user', promptSource: 'system', message: { role: 'user', content: `<task-notification>\n<task-id>${agentId}</task-id>\n<tool-use-id>${toolUseId}</tool-use-id>\n<status>${status}</status>\n</task-notification>` } });
+
+  it('un sous-agent de fond lancé et non terminé est actif (kind subagent, taskId = agentId)', () => {
+    const fp = mkTranscript('agent-active', [agentUse('t1'), launchAck('t1', 'ag_active_1')]);
+    const { active } = buildBackgroundJobs(fp);
+    expect(active.length).toBe(1);
+    expect(active[0].kind).toBe('subagent');
+    expect(active[0].taskId).toBe('ag_active_1');
+    expect(jobStatus(active[0], true, Date.now())).toBe('running');
+  });
+  it('une <task-notification> completed (corrélée par <tool-use-id>) clôt le sous-agent', () => {
+    const fp = mkTranscript('agent-done', [agentUse('t1'), launchAck('t1', 'ag_done_1'), taskNote('t1', 'ag_done_1', 'completed')]);
+    const { jobs, active } = buildBackgroundJobs(fp);
+    expect(active.length).toBe(0);
+    const job = jobs.find((j) => j.kind === 'subagent');
+    expect(job.done).toBe(true);
+    expect(job.doneReason).toBe('completed');
+  });
+  it('un sous-agent SYNCHRONE (run_in_background:false) n\'est jamais un job de fond', () => {
+    const fp = mkTranscript('agent-sync-explicit', [agentUse('t1', false), syncResult('t1')]);
+    expect(buildBackgroundJobs(fp).active.length).toBe(0);
+  });
+  it('un Task dont le tool_result est un rapport (pas un ack de lancement) est écarté (legacy synchrone)', () => {
+    const fp = mkTranscript('agent-sync-legacy', [agentUse('t1'), syncResult('t1')]);
+    expect(buildBackgroundJobs(fp).active.length).toBe(0);
+  });
+});
+
 describe('ScheduleWakeup — modèle positionnel (rien après ⇒ en attente)', () => {
   it('en attente quand le wakeup est la dernière activité', () => {
     const fp = mkTranscript('wake-pending', [wake('Resume X')]);
