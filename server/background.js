@@ -1,8 +1,9 @@
 /*
  * Détection des jobs/veilleurs de FOND encore actifs dans le transcript d'une session.
  *
- * Quand un agent arme un job de fond (Bash `run_in_background`, un `Monitor` en boucle, ou un
- * `ScheduleWakeup`) son tour se termine → le hook Stop tire → hooked marque la session `waiting`.
+ * Quand un agent arme un job de fond (Bash `run_in_background`, un `Monitor` en boucle, un
+ * `ScheduleWakeup`, ou un sous-agent lancé en fond via `Agent`/`Task`) son tour se termine → le hook
+ * Stop tire → hooked marque la session `waiting`.
  * Mais l'utilisateur n'est PAS le bloquant : un job tourne encore et ré-invoquera l'agent plus tard.
  * On reconstruit le CYCLE DE VIE de chaque job depuis le transcript (même esprit que la détection
  * AskUserQuestion « posé vs répondu » de transcript.js) pour distinguer « encore actif » de
@@ -16,6 +17,9 @@
  *   - ScheduleWakeup : tool_use ScheduleWakeup + input.prompt. tool_result « Next wakeup
  *     scheduled for … ». DÉCLENCHÉ (consommé) : une ligne user injectée promptSource:"sdk" +
  *     isMeta dont message.content == le prompt planifié.
+ *   - Sous-agent en fond : tool_use Agent/Task avec input.run_in_background !== false. Le tool_result
+ *     renvoie AUSSITÔT « Async agent launched successfully … agentId: <id> ». Un sous-agent SYNCHRONE
+ *     (run_in_background:false, ou ancien Task) n'a pas cet ack → on l'écarte (cf. RE_AGENT_LAUNCH).
  *
  * COMPLÉTION d'un Bash bg / Monitor : une `<task-notification>` livrée de façon REDONDANTE et
  * INCOHÉRENTE selon TROIS porteurs (une même complétion n'apparaît pas forcément dans les trois) :
@@ -37,6 +41,11 @@ const RE_MONITOR_ID = /Monitor started \(task\s+(\S+?)[,)]/i;
 const RE_MONITOR_TIMEOUT = /Monitor started \([^)]*\btimeout\s+(\d+)ms/i;
 // chemin du fichier de sortie d'un Bash run_in_background (« Output is being written to: <path>.output »).
 const RE_OUTPUT = /Output is being written to:\s*(\S+?\.output)\b/i;
+// ack d'armement d'un sous-agent lancé en FOND (« Async agent launched successfully … agentId: <id> ») :
+// seul cet ack distingue un vrai lancement en fond d'un sous-agent synchrone (dont le tool_result est
+// le rapport final). L'agentId sert de <task-id> dans la <task-notification> de complétion.
+const RE_AGENT_LAUNCH = /Async agent launched successfully/i;
+const RE_AGENT_ID = /agentId:\s*(\S+)/i;
 const RE_NOTE_TOOLUSE = /<tool-use-id>\s*(\S+?)\s*<\/tool-use-id>/i;
 const RE_NOTE_TASK = /<task-id>\s*(\S+?)\s*<\/task-id>/i;
 const RE_NOTE_STATUS = /<status>\s*([\w-]+)\s*<\/status>/i;
@@ -159,6 +168,10 @@ function foldLine(acc, line) {
       } else if (b.name === 'ScheduleWakeup') {
         const prompt = String(inp.prompt || '').slice(0, 2000);
         acc.wakeup = { kind: 'wakeup', toolUseId: b.id || null, taskId: null, command: prompt, prompt, description: String(inp.reason || '').slice(0, 500), startTs: ts, done: false, doneReason: null, doneAt: null, exitCode: null, outputPath: null, idx: acc.idx };
+      } else if ((b.name === 'Agent' || b.name === 'Task') && inp.run_in_background !== false && b.id) {
+        // confirmed=false : armé optimiste (un Task ancien/synchrone a run_in_background absent) ; on ne
+        // le tient pour un vrai job de fond qu'une fois l'ack de lancement lu (cf. C), sinon on l'écarte.
+        jobsByToolUse.set(b.id, { kind: 'subagent', toolUseId: b.id, taskId: null, command: '', description: String(inp.description || inp.subagent_type || '').slice(0, 500), startTs: ts, done: false, doneReason: null, doneAt: null, exitCode: null, outputPath: null, confirmed: false });
       } else if (b.name === 'TaskStop' && inp.task_id) {
         const job = jobsByTask.get(inp.task_id);
         if (job && !job.done) { job.done = true; job.doneReason = 'stopped'; job.doneAt = ts; }
@@ -176,6 +189,16 @@ function foldLine(acc, line) {
       const job = jobsByToolUse.get(b.tool_use_id);
       if (!job || job.taskId) continue;
       const txt = textOfContent(b.content);
+      if (job.kind === 'subagent') {
+        if (RE_AGENT_LAUNCH.test(txt)) {
+          job.confirmed = true;
+          const am = txt.match(RE_AGENT_ID) || (j.toolUseResult && j.toolUseResult.agentId ? [null, j.toolUseResult.agentId] : null);
+          if (am && am[1]) { job.taskId = am[1]; jobsByTask.set(am[1], job); }
+        } else {
+          jobsByToolUse.delete(b.tool_use_id); // tool_result = rapport final → sous-agent synchrone, pas un job de fond
+        }
+        continue;
+      }
       const m = job.kind === 'bash' ? txt.match(RE_BASH_ID) : txt.match(RE_MONITOR_ID);
       if (m) { job.taskId = m[1]; jobsByTask.set(m[1], job); }
       // timeout propre du Monitor (borne dure du « encore en cours ») : lu dans le même tool_result.
@@ -206,7 +229,10 @@ function finalize(acc) {
   // rappeler finalize après un fold incrémental donne le même verdict qu'un parse complet.
   if (wakeup && acc.lastResumeIdx > wakeup.idx) { wakeup.done = true; wakeup.doneReason = 'fired'; }
   const jobs = [...acc.jobsByToolUse.values(), ...(wakeup ? [wakeup] : [])];
-  const active = jobs.filter((x) => !x.done);
+  // un sous-agent armé mais non confirmé (ack de lancement pas encore lu, ou Task synchrone) n'est
+  // pas un job de fond actif — sinon un sous-agent synchrone paraîtrait « running » entre son
+  // tool_use et son tool_result.
+  const active = jobs.filter((x) => !x.done && !(x.kind === 'subagent' && !x.confirmed));
   return { jobs, active };
 }
 

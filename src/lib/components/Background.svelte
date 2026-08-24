@@ -7,9 +7,10 @@
   let { jobs = [], session } = $props();
 
   const KIND = {
-    bash:    { icon: '⚙️', label: 'Background command' },
-    monitor: { icon: '👁', label: 'Monitor (watcher)' },
-    wakeup:  { icon: '⏰', label: 'Scheduled wakeup' },
+    bash:     { icon: '⚙️', label: 'Background command' },
+    monitor:  { icon: '👁', label: 'Monitor (watcher)' },
+    wakeup:   { icon: '⏰', label: 'Scheduled wakeup' },
+    subagent: { icon: '🤖', label: 'Sub-agent' },
   };
   const meta = (k) => KIND[k] || { icon: '🌀', label: k };
 
