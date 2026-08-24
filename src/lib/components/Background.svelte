@@ -2,17 +2,18 @@
   import { tick, onDestroy } from 'svelte';
   import { ago } from '$lib/format.js';
   import { connectBackgroundLog } from '$lib/api.js';
+  import Icon from '$lib/components/Icon.svelte';
   // Jobs de fond de la session (server/background.js → sessionDetail.bgJobs) : running + historique.
   // { kind:'bash'|'monitor'|'wakeup', taskId, command, description, startTs, outputPath, status }
   let { jobs = [], session } = $props();
 
   const KIND = {
-    bash:     { icon: '⚙️', label: 'Background command' },
-    monitor:  { icon: '👁', label: 'Monitor (watcher)' },
-    wakeup:   { icon: '⏰', label: 'Scheduled wakeup' },
-    subagent: { icon: '🤖', label: 'Sub-agent' },
+    bash:     { icon: 'bash', label: 'Background command' },
+    monitor:  { icon: 'eye', label: 'Monitor (watcher)' },
+    wakeup:   { icon: 'wakeup', label: 'Scheduled wakeup' },
+    subagent: { icon: 'subagent', label: 'Sub-agent' },
   };
-  const meta = (k) => KIND[k] || { icon: '🌀', label: k };
+  const meta = (k) => KIND[k] || { icon: 'background', label: k };
 
   // Statut d'un job (cf. jobStatus, server/background.js) → libellé + variable de couleur d'état.
   const STATUS = {
@@ -82,7 +83,7 @@
 {#snippet jobItem(j, i)}
   <div class="bg-item">
     <div class="bg-top">
-      <span class="bg-kind">{meta(j.kind).icon} {meta(j.kind).label}</span>
+      <span class="bg-kind"><Icon name={meta(j.kind).icon} size={13} color={KIND[j.kind] ? undefined : 'var(--background)'} /> {meta(j.kind).label}</span>
       <span class="bg-status" style="color: var(--{stat(j.status).var}); border-color: var(--{stat(j.status).var});">{stat(j.status).label}</span>
       {#if j.taskId}<span class="bg-id">{j.taskId}</span>{/if}
       <span class="bg-ago">{ago(j.startTs)}</span>
@@ -104,7 +105,7 @@
 
 <div class="bg-list">
   {#if active.length}
-    <p class="bg-hint">🌀 This session's turn ended, but these background jobs are still running — they'll re-invoke Claude when they finish.</p>
+    <p class="bg-hint"><Icon name="background" size={14} color="var(--background)" /> This session's turn ended, but these background jobs are still running — they'll re-invoke Claude when they finish.</p>
     {#each active as j, i (j.taskId || j.command || i)}
       {@render jobItem(j, i)}
     {/each}

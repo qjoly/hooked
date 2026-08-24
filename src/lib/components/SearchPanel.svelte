@@ -2,6 +2,7 @@
   import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
   import { ago } from '$lib/format.js';
+  import Icon from '$lib/components/Icon.svelte';
 
   let q = $state('');
   let searchInput;
@@ -81,7 +82,7 @@
 <!-- Full-text search panel (SQLite FTS) — lives in the Archive space (redesign). -->
 <div class="search-view">
   <div class="search-head">
-    <h2>🔎 Full-text search</h2>
+    <h2><Icon name="search" size={20} /> Full-text search</h2>
     <p class="hint">Searches all your prompts and Claude's replies. The index is built/refreshed on the first query.</p>
     <input
       bind:this={searchInput}
@@ -118,11 +119,11 @@
         <li class="group">
           <div class="ghead">
             <a class="gproject" href={`/session/${encodeURIComponent(g.sessionId)}`}>
-              📁 {basename(g.project) || '—'}
+              <Icon name="folder" size={13} /> {basename(g.project) || '—'}
             </a>
             <span class="gid" title={g.sessionId}>{g.sessionId.slice(0, 8)}</span>
             <span class="gcount">{g.hits.length} match{g.hits.length > 1 ? 's' : ''}</span>
-            <a class="gopen" href={`/session/${encodeURIComponent(g.sessionId)}`}>open session ↗</a>
+            <a class="gopen" href={`/session/${encodeURIComponent(g.sessionId)}`}>open session <Icon name="external" size={13} /></a>
           </div>
           <ul class="hits">
             {#each g.hits as r}
@@ -134,7 +135,7 @@
                 onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openMessage(g.sessionId, r.ts); } }}
               >
                 <div class="meta">
-                  <span class="role role-{r.role}">{r.role === 'user' ? '🧑 you' : '🤖 claude'}</span>
+                  <span class="role role-{r.role}">{#if r.role === 'user'}<Icon name="user" size={13} /> you{:else}<Icon name="bot" size={13} /> claude{/if}</span>
                   <span class="ts">{r.ts ? ago(r.ts) : ''}</span>
                 </div>
                 <div class="snippet">{@html safeSnippet(r.snippet)}</div>

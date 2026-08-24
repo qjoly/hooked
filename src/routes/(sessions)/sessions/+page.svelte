@@ -4,6 +4,7 @@
   // Falls back to the empty state (just the left sidebar) when there's no usable last session.
   import { goto } from '$app/navigation';
   import { ui, data } from '$lib/state.svelte.js';
+  import Icon from '$lib/components/Icon.svelte';
 
   // Redirect once the session list is loaded (so a deleted/stale id doesn't 404 forever):
   // replaceState keeps Back working (it returns to wherever you came from, not to /sessions).
@@ -18,7 +19,7 @@
 
 <div class="sessions-empty">
   <div class="se-inner">
-    <div class="se-ico">🗂</div>
+    <div class="se-ico"><Icon name="sessions" size={34} /></div>
     <p>Pick a session on the left to open it.</p>
   </div>
 </div>

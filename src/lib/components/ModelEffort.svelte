@@ -1,6 +1,7 @@
 <script>
   import { MODE_OPTS, shortModel } from '$lib/format.js';
   import { getCapabilities } from '$lib/api.js';
+  import Icon from '$lib/components/Icon.svelte';
   // `compact` : pilules en ligne (sous une chatbox) plutôt que le formulaire des modales.
   // `onchange` : callback appelé à chaque changement (sert au changement à chaud d'une session).
   // `showMode` : ajoute le sélecteur de mode de permission (→ claude --permission-mode) au
@@ -34,7 +35,7 @@
 {#if compact}
   <div class="me-inline">
     <span class="me-pill" title="Model">
-      <span class="me-ico">✳</span>
+      <span class="me-ico"><Icon name="model" size={14} /></span>
       <select bind:value={model} onchange={fire} {disabled}>
         {#if allowInherit}<option value="">Inherit</option>{/if}
         {#each modelView as g}
@@ -45,7 +46,7 @@
       </select>
     </span>
     <span class="me-pill" title="Reasoning effort">
-      <span class="me-ico">⚡</span>
+      <span class="me-ico"><Icon name="effort" size={14} /></span>
       <select bind:value={effort} onchange={fire} {disabled}>
         {#if allowInherit}<option value="">Inherit</option>{/if}
         {#each effortOpts as v}<option value={v}>{v}</option>{/each}
@@ -53,7 +54,7 @@
     </span>
     {#if showMode}
       <span class="me-pill" title="Permission mode at launch (claude --permission-mode)">
-        <span class="me-ico">🛡</span>
+        <span class="me-ico"><Icon name="mode" size={14} /></span>
         <select bind:value={mode} onchange={fire} {disabled}>
           {#if allowInherit}<option value="">Inherit</option>{/if}
           {#each MODE_OPTS as [v, l]}<option value={v}>{l}</option>{/each}

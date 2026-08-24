@@ -5,6 +5,7 @@
   // passes the NET original→final content so transient add-then-delete never shows.
   import { toSegments, unifiedRows, splitRows, langFromName } from '$lib/difflines.js';
   import { highlight } from '$lib/highlight.js';
+  import Icon from '$lib/components/Icon.svelte';
 
   let {
     oldStr = '', newStr = '', name = 'file.txt', mode = 'split',
@@ -136,7 +137,7 @@
       <div class="dv-bubble">
         <span class="dv-bubble-anchor">{rangeLabel(side, c.start, c.end)}</span>
         <span class="dv-bubble-text">{c.text}</span>
-        {#if onDelete}<button class="dv-bubble-x" title="Remove comment" onclick={() => onDelete(c.id)}>✕</button>{/if}
+        {#if onDelete}<button class="dv-bubble-x" title="Remove comment" onclick={() => onDelete(c.id)}><Icon name="close" size={12} /></button>{/if}
       </div>
     {/each}
     {#if slot.draft}

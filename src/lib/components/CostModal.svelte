@@ -1,5 +1,6 @@
 <script>
   import { data } from '$lib/state.svelte.js';
+  import Icon from '$lib/components/Icon.svelte';
   import { fmtCost, fmtTokens, shortModel } from '$lib/format.js';
 
   const S = $derived(data.sessions);
@@ -30,7 +31,7 @@
   const projRows = $derived(listRows(byProj));
 </script>
 
-<h2 style="margin:0 0 4px">💲 Estimated API cost — {fmtCost(tot)}</h2>
+<h2 style="margin:0 0 4px"><Icon name="cost" size={18} /> Estimated API cost — {fmtCost(tot)}</h2>
 <p style="color:var(--muted);font-size:12.5px;line-height:1.5;margin:0 0 18px">
   Pay-as-you-go API estimate. On a subscription (Max/Pro), this is <b>not</b> your actual bill.
   Rates: Fable 10/50, Opus 5/25, Sonnet 3/15, Haiku 1/5 $/Mtok; cache write ×1.25, read ×0.1.</p>
