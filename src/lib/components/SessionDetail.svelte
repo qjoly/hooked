@@ -13,6 +13,7 @@
   import Ship from './Ship.svelte';
   import Dock from './Dock.svelte';
   import Terminal from './Terminal.svelte';
+  import Icon from '$lib/components/Icon.svelte';
   import { TERM_THEMES, DEFAULT_TERM_THEME, TERM_FONTS, DEFAULT_TERM_FONT } from '$lib/terminalThemes.js';
   import { conversationToMarkdown } from '$lib/exportConversation.js';
 
@@ -109,8 +110,8 @@
   // panneau BAS redimensionnable façon VS Code (1/3 de fenêtre par défaut), togglé par le tiroir
   // ou la touche 2, visible quelle que soit la lentille active.
   const LENSES = [
-    { key: 'chat', icon: '💬', label: 'Converse', kbd: '1' },
-    { key: 'ship', icon: '🚢', label: 'Ship', kbd: '3' },
+    { key: 'chat', icon: 'converse', label: 'Converse', kbd: '1' },
+    { key: 'ship', icon: 'ship', label: 'Ship', kbd: '3' },
   ];
   const lensCount = $derived({
     chat: (s?.messages || []).length,
@@ -451,7 +452,7 @@
     openModal('confirm', {
       title: 'Archive this session?',
       message: 'The tmux session running Claude will be stopped and the session moves to Archived (reversible).',
-      confirmLabel: '📥 Archive', danger: true,
+      confirmLabel: 'Archive', confirmIcon: 'archive', danger: true,
       onConfirm: () => {
         archiving = true;
         toggleArchive(s.id);
@@ -465,7 +466,7 @@
     openModal('confirm', {
       title: 'Move to trash?',
       message: 'The transcript is kept in bin/ (recoverable) and the session leaves the dashboard.',
-      confirmLabel: '🗑 Move to trash', danger: true, onConfirm: doDel,
+      confirmLabel: 'Move to trash', confirmIcon: 'trash', danger: true, onConfirm: doDel,
     });
   }
   async function doDel() {
@@ -530,7 +531,7 @@
          la lentille Ship et le menu ⋯. -->
     <div class="head-line">
       {#if !inSplit}
-        <button class="pane-back" onclick={() => goto('/')} title="Back to list">←</button>
+        <button class="pane-back" onclick={() => goto('/')} title="Back to list"><Icon name="arrow-left" /></button>
       {/if}
       {#if renaming}
         <!-- svelte-ignore a11y_autofocus -->
@@ -540,9 +541,9 @@
                onblur={commitRename} />
       {:else}
         <button class="sess-name" onclick={startRename} title="Rename this session (local)">{sessionTitle(s)}</button>
-        {#if ui.names[s.id]}<button class="sess-restore" title="Restore auto title" aria-label="Auto title" onclick={() => renameSession(s.id, '')}>↺</button>{/if}
+        {#if ui.names[s.id]}<button class="sess-restore" title="Restore auto title" aria-label="Auto title" onclick={() => renameSession(s.id, '')}><Icon name="restore" size={14} /></button>{/if}
       {/if}
-      <span class="head-meta" title={s.project || ''}>{s.repo || s.projectName || '?'}{#if s.gitBranch} · ⎇ {s.gitBranch}{/if}</span>
+      <span class="head-meta" title={s.project || ''}>{s.repo || s.projectName || '?'}{#if s.gitBranch} · <Icon name="git-branch" size={13} /> {s.gitBranch}{/if}</span>
       {#if sessionTags(id).length}
         <!-- tags de session (manuels + auto-tag PR) : cliquer ouvre l'éditeur -->
         <button class="head-tags" onclick={() => openModal('editTags', { sessionId: id })} title="Edit tags">
@@ -557,16 +558,16 @@
                éphémère d'un changement (✓ Auto, ✗ failed…) s'affiche ici. -->
           {#if modeStatus || meStatus}<span class="strip-status">{modeStatus || meStatus}</span>{/if}
           <button class="stop-btn" disabled={archiving} onclick={archive}
-                  title="Stop the tmux session and move it to Archived">{archiving ? '⏳' : '📥 Archive'}</button>
+                  title="Stop the tmux session and move it to Archived">{#if archiving}<Icon name="queued" size={14} />{:else}<Icon name="archive" size={14} /> Archive{/if}</button>
         {:else}
-          <button class="resume-btn" onclick={resume}>▶ Resume</button>
+          <button class="resume-btn" onclick={resume}><Icon name="in-progress" size={14} /> Resume</button>
         {/if}
         {#if !inSplit}
           <button class="hdr-icon-btn" title="Split with the most recent session (⌘/Ctrl+⇧+S)"
-                  aria-label="Split view" disabled={!canSplit()} onclick={() => splitWithMostRecent(id)}>⊞</button>
+                  aria-label="Split view" disabled={!canSplit()} onclick={() => splitWithMostRecent(id)}><Icon name="pane" size={16} /></button>
         {/if}
         <details class="hdr-more">
-          <summary title="More actions" aria-label="More actions">⋯</summary>
+          <summary title="More actions" aria-label="More actions"><Icon name="menu" size={18} /></summary>
           <div class="hdr-menu">
             <!-- Réglages fréquents (modèle/effort + mode de permission) : rangés ici en
                  permanence pour garder l'en-tête compact — le titre reste l'info principale. -->
@@ -590,21 +591,21 @@
               </div>
               <div class="hdr-div cmds-div"></div>
             {/if}
-            <button class="vscode-btn" onclick={() => openModal('cost')} title="Estimated cost breakdown">💰 Cost · {fmtCost(s.cost)}{#if s.subagentCost > 0} (+{fmtCost(s.subagentCost)} agents){/if}</button>
+            <button class="vscode-btn" onclick={() => openModal('cost')} title="Estimated cost breakdown"><Icon name="cost" size={14} /> Cost · {fmtCost(s.cost)}{#if s.subagentCost > 0} (+{fmtCost(s.subagentCost)} agents){/if}</button>
             <div class="hdr-div"></div>
-            <button class="vscode-btn" title="Copy a shareable link that opens this session in hooked" onclick={copyLink}>{linkCopied ? '✓ copied' : '🔗 Copy link'}</button>
+            <button class="vscode-btn" title="Copy a shareable link that opens this session in hooked" onclick={copyLink}>{#if linkCopied}<Icon name="check" size={14} /> copied{:else}<Icon name="link" size={14} /> Copy link{/if}</button>
             {#if s.tmuxAlive && s.tmuxAttach}
-              <button class="vscode-btn" title={s.tmuxAttach} onclick={copyAttach}>{attachCopied ? '✓ copied' : '⧉ Copy attach'}</button>
+              <button class="vscode-btn" title={s.tmuxAttach} onclick={copyAttach}>{#if attachCopied}<Icon name="check" size={14} /> copied{:else}<Icon name="copy" size={14} /> Copy attach{/if}</button>
             {/if}
-            <button class="vscode-btn" disabled={vscodeBusy} onclick={openVscode} title="Open the entire project in VS Code">{vscodeBusy ? '⏳' : '⧉'} Open in VS Code</button>
-            <button class="vscode-btn" disabled={ghosttyBusy} onclick={openGhostty} title="Open the session in Ghostty (attaches tmux if alive)">{ghosttyBusy ? '⏳' : '⧉'} Open in Ghostty</button>
-            <button class="vscode-btn" onclick={copyExport} title="Copy the conversation as Markdown to the clipboard">{exportCopied ? '✓ copied' : '⧉ Copy as Markdown'}</button>
-            <button class="vscode-btn" onclick={() => openModal('editTags', { sessionId: id })} title="Add or remove tags on this session (PR review tags are automatic)">🏷 Edit tags</button>
-            {#if sb.focusBtn !== false}<button class="vscode-btn" class:on={ui.focus} onclick={toggleFocus} title="Focus mode: full-screen conversation">⛶ {ui.focus ? 'Exit focus' : 'Focus'}</button>{/if}
-            <button class="vscode-btn" class:on={ui.toolsOpen} onclick={() => (ui.toolsOpen = !ui.toolsOpen)} title="Expand every tool call's input/result inline (this session only, off on reload)">🔧 {ui.toolsOpen ? 'Collapse tool details' : 'Expand tool details'}</button>
+            <button class="vscode-btn" disabled={vscodeBusy} onclick={openVscode} title="Open the entire project in VS Code">{#if vscodeBusy}<Icon name="queued" size={14} />{:else}<Icon name="vscode" size={14} />{/if} Open in VS Code</button>
+            <button class="vscode-btn" disabled={ghosttyBusy} onclick={openGhostty} title="Open the session in Ghostty (attaches tmux if alive)">{#if ghosttyBusy}<Icon name="queued" size={14} />{:else}<Icon name="ghostty" size={14} />{/if} Open in Ghostty</button>
+            <button class="vscode-btn" onclick={copyExport} title="Copy the conversation as Markdown to the clipboard">{#if exportCopied}<Icon name="check" size={14} /> copied{:else}<Icon name="copy" size={14} /> Copy as Markdown{/if}</button>
+            <button class="vscode-btn" onclick={() => openModal('editTags', { sessionId: id })} title="Add or remove tags on this session (PR review tags are automatic)"><Icon name="tag" size={14} /> Edit tags</button>
+            {#if sb.focusBtn !== false}<button class="vscode-btn" class:on={ui.focus} onclick={toggleFocus} title="Focus mode: full-screen conversation"><Icon name="maximize" size={14} /> {ui.focus ? 'Exit focus' : 'Focus'}</button>{/if}
+            <button class="vscode-btn" class:on={ui.toolsOpen} onclick={() => (ui.toolsOpen = !ui.toolsOpen)} title="Expand every tool call's input/result inline (this session only, off on reload)"><Icon name="tool" size={14} /> {ui.toolsOpen ? 'Collapse tool details' : 'Expand tool details'}</button>
             <div class="hdr-div"></div>
-            <button class="vscode-btn" onclick={archive} title={archived ? 'Restore this session to the live fleet' : 'Stop the tmux session and move it to Archived'}>{archived ? '↩ Unarchive' : '📥 Archive'}</button>
-            <button class="vscode-btn del-btn" disabled={deleting} onclick={del} title="Move to trash: removes from dashboard; transcript kept in bin/ (recoverable)">{deleting ? '⏳' : '🗑'} Delete</button>
+            <button class="vscode-btn" onclick={archive} title={archived ? 'Restore this session to the live fleet' : 'Stop the tmux session and move it to Archived'}>{#if archived}<Icon name="unarchive" size={14} /> Unarchive{:else}<Icon name="archive" size={14} /> Archive{/if}</button>
+            <button class="vscode-btn del-btn" disabled={deleting} onclick={del} title="Move to trash: removes from dashboard; transcript kept in bin/ (recoverable)">{#if deleting}<Icon name="queued" size={14} />{:else}<Icon name="trash" size={14} />{/if} Delete</button>
           </div>
         </details>
       </div>
@@ -613,7 +614,7 @@
       {#each shownLenses as l (l.key)}
         <button class="subtab" class:active={tab === l.key} onclick={() => { tab = l.key; }}
                 title="{l.label} — key {l.kbd}">
-          {l.icon} {l.label}
+          <Icon name={l.icon} size={14} /> {l.label}
           {#if lensCount[l.key]}<span class="count">{lensCount[l.key]}</span>{/if}
           <kbd class="lens-kbd">{l.kbd}</kbd>
         </button>
@@ -628,7 +629,7 @@
     <div class="pane" class:active={tab === 'chat'}>
       <div class="chat">
         {#if startIdx > 0}
-          <button class="show-earlier" onclick={showEarlier}>⬆ Show earlier messages · {startIdx} hidden</button>
+          <button class="show-earlier" onclick={showEarlier}><Icon name="arrow-up" size={14} /> Show earlier messages · {startIdx} hidden</button>
         {/if}
         {#if (s.messages || []).length}
           <!-- key by stable ABSOLUTE index (startIdx + j), NOT m.ts: the streaming turn's ts advances on every
@@ -641,7 +642,7 @@
         {/if}
         {#each queued as q (q.ts)}
           <div class="bubble user queued">
-            <div class="who">🧑 You <span class="t">⏳ queued</span></div>
+            <div class="who"><Icon name="user" size={14} /> You <span class="t"><Icon name="queued" size={13} /> queued</span></div>
             <div class="md">{q.text}</div>
           </div>
         {/each}
@@ -658,11 +659,11 @@
       {#if showFollowup}
         <div class="followup">
           <div class="fu-head">
-            <span class="fu-ico">💡</span> Prompt de follow-up suggéré
-            <button class="fu-x" title="Dismiss" aria-label="Dismiss" onclick={() => (dismissedFollowup = followup)}>✕</button>
+            <span class="fu-ico"><Icon name="lightbulb" size={14} /></span> Prompt de follow-up suggéré
+            <button class="fu-x" title="Dismiss" aria-label="Dismiss" onclick={() => (dismissedFollowup = followup)}><Icon name="close" size={14} /></button>
           </div>
           <div class="fu-text">{followup}</div>
-          <button class="fu-take" onclick={takeFollowup}>↵ Envoyer</button>
+          <button class="fu-take" onclick={takeFollowup}><Icon name="send" size={14} /> Envoyer</button>
         </div>
       {/if}
       {#if s.tmuxPane}
@@ -685,7 +686,7 @@
        Pas rendu du tout (ni le rail) quand la session n'a AUCUN contenu contextuel. -->
   {#if tab === 'chat' && dockHasContent && !(inSplit && ui.splitCompact)}
     {#if ui.dockHidden}
-      <button class="dock-reopen" onclick={() => (ui.dockHidden = false)} title="Show the context panel" aria-label="Show the context panel">‹</button>
+      <button class="dock-reopen" onclick={() => (ui.dockHidden = false)} title="Show the context panel" aria-label="Show the context panel"><Icon name="arrow-left" size={14} /></button>
     {:else}
       <Dock {s} {id} onship={() => (tab = 'ship')} />
     {/if}
@@ -703,14 +704,14 @@
           {#each terminals as t (t.pane)}
             <div class="term-chip" class:active={termPane === t.pane} class:claude={t.kind === 'claude'}>
               <button class="term-tab" onclick={() => (termPane = t.pane)} title={t.label}>
-                {t.kind === 'claude' ? '🤖' : t.target === 'window' ? '🗔' : '▦'} {t.label.slice(0, 32)}
+                {#if t.kind === 'claude'}<Icon name="bot" size={14} />{:else if t.target === 'window'}<Icon name="window" size={14} />{:else}<Icon name="pane" size={14} />{/if} {t.label.slice(0, 32)}
               </button>
               {#if t.kind === 'show'}
-                <button class="term-x" title="Close this pane" disabled={paneBusy} onclick={() => closePane(t.pane)}>✕</button>
+                <button class="term-x" title="Close this pane" disabled={paneBusy} onclick={() => closePane(t.pane)}><Icon name="close" size={14} /></button>
               {/if}
             </div>
           {/each}
-          <button class="term-new" title="New shell pane" disabled={paneBusy || !(s && s.tmuxAlive)} onclick={newPane}>＋</button>
+          <button class="term-new" title="New shell pane" disabled={paneBusy || !(s && s.tmuxAlive)} onclick={newPane}><Icon name="plus" size={14} /></button>
         </div>
         <select class="term-theme" bind:value={termFont} title="Terminal font" aria-label="Terminal font">
           {#each Object.entries(TERM_FONTS) as [key, f] (key)}
@@ -724,13 +725,13 @@
         </select>
         <button class="term-mode" class:on={termFit} onclick={() => (termFit = !termFit)}
                 title={termFit ? 'Fit: the tmux pane fills the panel' : 'Fixed tmux pane size'}>
-          {termFit ? '⤢ Fit' : '▭ Fixed'}
+          {#if termFit}<Icon name="maximize" size={13} /> Fit{:else}<Icon name="window" size={13} /> Fixed{/if}
         </button>
         <button class="term-mode" class:on={termInteractive} onclick={() => (termInteractive = !termInteractive)}
                 title={termInteractive ? 'Interactive: your keystrokes go to the tmux pane' : 'Read-only: observation'}>
-          {termInteractive ? '⌨ Interactive' : '👁 Read-only'}
+          {#if termInteractive}<Icon name="keyboard" size={13} /> Interactive{:else}<Icon name="eye" size={13} /> Read-only{/if}
         </button>
-        <button class="term-mode" onclick={() => (shellOpen = false)} title="Close the shell panel (key 2)">✕</button>
+        <button class="term-mode" onclick={() => (shellOpen = false)} title="Close the shell panel (key 2)"><Icon name="close" size={14} /></button>
       </div>
       {#if termPane}
         {#key termPane + ':' + termInteractive + ':' + termFit}<Terminal pane={termPane} interactive={termInteractive} theme={termThemeObj} fontFamily={termFontFamily} fit={termFit} fitContainer />{/key}
@@ -740,10 +741,10 @@
   <!-- tiroir terminal : toggle du panneau shell (ou touche 2) -->
   {#if terminals.length}
     <button class="term-drawer" onclick={() => (shellOpen = !shellOpen)} title="Toggle the shell panel (key 2)">
-      <span class="td-name">🖥 Shell</span>
-      <span class="td-prompt">❯</span>
+      <span class="td-name"><Icon name="shell" size={13} /> Shell</span>
+      <span class="td-prompt"><Icon name="chevron-right" size={13} /></span>
       <span class="td-info">{s.tmuxAlive ? (s.state === 'working' && s.activity ? s.activity + '…' : 'tmux alive') : 'tmux closed'}{#if shownPanes.length} · {shownPanes.length + 1} panes{/if}</span>
-      <span class="td-open">{shellOpen ? 'close' : 'open'} <kbd>2</kbd> {shellOpen ? '▼' : '▲'}</span>
+      <span class="td-open">{shellOpen ? 'close' : 'open'} <kbd>2</kbd> {#if shellOpen}<Icon name="chevron-down" size={13} />{:else}<Icon name="arrow-up" size={13} />{/if}</span>
     </button>
   {/if}
   </div>
@@ -898,7 +899,7 @@
   .pane-flush.active > :global(*) { flex: 1 1 auto; min-height: 0; min-width: 0; }
   /* dans le menu : boutons pleine largeur, alignés à gauche, sans bordure individuelle */
   .hdr-menu :global(.vscode-btn) {
-    display: flex; align-items: center; width: 100%; justify-content: flex-start; text-align: left;
+    display: flex; align-items: center; gap: 8px; width: 100%; justify-content: flex-start; text-align: left;
     border: none; border-radius: 8px; padding: 7px 10px;
   }
   /* bouton « révéler les messages plus anciens » en tête du transcript fenêtré */

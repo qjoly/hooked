@@ -1,5 +1,6 @@
 <script>
   import { getTrash, restoreSession } from '$lib/api.js';
+  import Icon from '$lib/components/Icon.svelte';
   import { loadSessions, ui } from '$lib/state.svelte.js';
   import { ago, fmtCost } from '$lib/format.js';
 
@@ -52,7 +53,7 @@
             <div class="tr-meta">{it.projectName || '?'} · deleted {ago(it.trashedAt)}{#if it.cost} · {fmtCost(it.cost)}{/if}</div>
           </div>
           <button class="tr-restore" disabled={busy === it.id} onclick={() => restore(it)}>
-            {busy === it.id ? '…' : '↩ Restore'}
+            {#if busy === it.id}…{:else}<Icon name="restore" size={13} /> Restore{/if}
           </button>
         </li>
       {/each}

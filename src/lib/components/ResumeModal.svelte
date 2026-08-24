@@ -1,6 +1,7 @@
 <script>
   import { loadSessions, ui, settings, unarchive } from '$lib/state.svelte.js';
   import { launch } from '$lib/api.js';
+  import Icon from '$lib/components/Icon.svelte';
   import ModelEffort from './ModelEffort.svelte';
   import LaunchResult from './LaunchResult.svelte';
 
@@ -28,16 +29,16 @@
 {#if result}
   <LaunchResult d={result} />
 {:else}
-  <h2 style="margin:0 0 4px">▶ Resume session</h2>
+  <h2 style="margin:0 0 4px"><Icon name="rotate-cw" size={18} /> Resume session</h2>
   <p style="color:var(--muted);font-size:12.5px;line-height:1.5;margin:0 0 16px">
     Re-runs <code>claude --resume …</code> in <code>{r.project || r.projectName || '?'}</code>
     (detached <b>tmux</b> session, subscription, <b>zero token cost</b>).</p>
-  <div class="lf-resume-title">📄 {r.title || r.id}</div>
+  <div class="lf-resume-title"><Icon name="file" size={14} /> {r.title || r.id}</div>
   <ModelEffort showMode bind:model bind:effort bind:mode />
   <label class="lf-label">Message to send <span style="color:var(--muted);font-weight:400">(optional)</span></label>
   <textarea class="lf-input" rows="3" placeholder="Leave empty to just re-open the session…" bind:value={prompt}></textarea>
   <div class="lf-actions">
-    <button class="reply-send" disabled={busy} onclick={go}>Resume ↗</button>
+    <button class="reply-send" disabled={busy} onclick={go}>Resume <Icon name="external" size={14} /></button>
     <div class="reply-status {status.cls}">{status.text}</div>
   </div>
 {/if}

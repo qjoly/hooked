@@ -7,6 +7,7 @@
   //                  a prompt to the live session (batch review, or "open the PR").
   import { untrack } from 'svelte';
   import DiffView from './DiffView.svelte';
+  import Icon from '$lib/components/Icon.svelte';
   import { toSegments, countStats, applyOp } from '$lib/difflines.js';
   import { fmtCost } from '$lib/format.js';
   import { getFileChangeFull } from '$lib/api.js';
@@ -246,10 +247,10 @@
         {#each changes as c, i (c.file)}
           {@const st = fileStats.get(c.file) || { adds: 0, dels: 0 }}
           <button class="sf-item" class:on={i === activeIdx} onclick={() => (activeIdx = i)} title={c.file}>
-            <span class="sf-dot" class:done={isReviewed(c.file)}>{isReviewed(c.file) ? '✓' : ''}</span>
+            <span class="sf-dot" class:done={isReviewed(c.file)}>{#if isReviewed(c.file)}<Icon name="check" size={11} />{/if}</span>
             <span class="sf-name">{c.name}</span>
             <span class="sf-stat">
-              {#if c.truncated}<span class="sf-trunc" title="Large file — capped, load full to see everything">⚠</span>{/if}
+              {#if c.truncated}<span class="sf-trunc" title="Large file — capped, load full to see everything"><Icon name="warning" size={12} /></span>{/if}
               {#if c.binary}<span class="sf-bin">bin</span>{:else}<span class="sf-add">+{st.adds}</span> <span class="sf-del">−{st.dels}</span>{/if}
             </span>
           </button>
@@ -267,19 +268,19 @@
         <div class="sd-head">
           <span class="sd-name">{activeFile.name}</span>
           <span class="sd-path" title={activeFile.file}>{activeFile.file}</span>
-          <a class="sd-editor" href={'vscode://file' + activeFile.file} title="Open in VS Code">↗ editor</a>
+          <a class="sd-editor" href={'vscode://file' + activeFile.file} title="Open in VS Code"><Icon name="external" size={12} /> editor</a>
           <div class="sd-modes">
-            <button class:on={mode === 'unified'} onclick={() => (mode = 'unified')} title="Unified">▤</button>
-            <button class:on={mode === 'split'} onclick={() => (mode = 'split')} title="Side-by-side">▥</button>
+            <button class:on={mode === 'unified'} onclick={() => (mode = 'unified')} title="Unified"><Icon name="menu" size={14} /></button>
+            <button class:on={mode === 'split'} onclick={() => (mode = 'split')} title="Side-by-side"><Icon name="pane" size={14} /></button>
           </div>
           <button class="sd-review" class:done={isReviewed(activeFile.file)} onclick={reviewCurrent}>
-            {isReviewed(activeFile.file) ? '✓ Reviewed' : 'Mark reviewed'}
+            {#if isReviewed(activeFile.file)}<Icon name="check" size={14} /> Reviewed{:else}Mark reviewed{/if}
           </button>
         </div>
         <div class="sd-body">
           {#if activeFile.truncated}
             <div class="sd-trunc">
-              <span>⚠ Large file — this diff is capped and may be missing lines.</span>
+              <span><Icon name="warning" size={14} /> Large file — this diff is capped and may be missing lines.</span>
               <button class="sd-trunc-btn" disabled={loadingFull[activeFile.file]} onclick={() => loadFull(activeFile.file)}>
                 {loadingFull[activeFile.file] ? 'Loading…' : 'Load the full diff'}
               </button>
@@ -305,17 +306,17 @@
     <aside class="ship-panel">
       <div class="sp-card">
         <h4>Ready to ship?</h4>
-        <div class="sp-check"><span class="sp-ico">📝</span> {totals.files} file{totals.files > 1 ? 's' : ''} · <span class="sf-add">+{totals.adds}</span> <span class="sf-del">−{totals.dels}</span></div>
-        {#if s?.gitBranch}<div class="sp-check"><span class="sp-ico">⎇</span> <span class="sp-mono">{s.gitBranch}</span></div>{/if}
-        {#if tasksTotal}<div class="sp-check"><span class="sp-ico" class:ok={tasksDone === tasksTotal}>{tasksDone === tasksTotal ? '✅' : '☐'}</span> {tasksDone}/{tasksTotal} tasks done</div>{/if}
-        <div class="sp-check"><span class="sp-ico" class:ok={reviewedCount === changes.length}>{reviewedCount === changes.length ? '✅' : '◌'}</span> reviewed {reviewedCount}/{changes.length} files</div>
-        {#if pending}<div class="sp-check"><span class="sp-ico">✎</span> {pending} comment{pending > 1 ? 's' : ''} pending</div>{/if}
+        <div class="sp-check"><span class="sp-ico"><Icon name="diff" size={14} /></span> {totals.files} file{totals.files > 1 ? 's' : ''} · <span class="sf-add">+{totals.adds}</span> <span class="sf-del">−{totals.dels}</span></div>
+        {#if s?.gitBranch}<div class="sp-check"><span class="sp-ico"><Icon name="git-branch" size={14} /></span> <span class="sp-mono">{s.gitBranch}</span></div>{/if}
+        {#if tasksTotal}<div class="sp-check"><span class="sp-ico" class:ok={tasksDone === tasksTotal}><Icon name={tasksDone === tasksTotal ? 'checkbox-done' : 'checkbox'} size={14} /></span> {tasksDone}/{tasksTotal} tasks done</div>{/if}
+        <div class="sp-check"><span class="sp-ico" class:ok={reviewedCount === changes.length}><Icon name={reviewedCount === changes.length ? 'checkbox-done' : 'circle'} size={14} /></span> reviewed {reviewedCount}/{changes.length} files</div>
+        {#if pending}<div class="sp-check"><span class="sp-ico"><Icon name="pencil" size={14} /></span> {pending} comment{pending > 1 ? 's' : ''} pending</div>{/if}
       </div>
 
       {#if pending}
         <button class="sp-send" onclick={sendReview} disabled={sending || !canReview}
                 title={canReview ? 'Send your inline comments to the session' : 'No live tmux session to send to'}>
-          {sending ? 'Sending…' : `↩ Send ${pending} comment${pending > 1 ? 's' : ''} to Claude`}
+          {#if sending}Sending…{:else}<Icon name="send" size={14} /> Send {pending} comment{pending > 1 ? 's' : ''} to Claude{/if}
         </button>
       {/if}
 
@@ -323,14 +324,14 @@
         <h4>Pull request</h4>
         {#if (s?.prLinks || []).length}
           {#each s.prLinks as l}
-            <a class="sp-pr" href={l} target="_blank" rel="noopener">🔀 {l.replace(/^https?:\/\/github\.com\//, '')}</a>
+            <a class="sp-pr" href={l} target="_blank" rel="noopener"><Icon name="pr" size={13} /> {l.replace(/^https?:\/\/github\.com\//, '')}</a>
           {/each}
         {:else}
           <p class="sp-hint">No PR yet. Let the session push the branch and draft the description.</p>
         {/if}
         <button class="sp-pr-btn" onclick={askPR} disabled={prBusy || !canReview}
                 title={canReview ? 'Ask the session to open a PR' : 'No live tmux session to send to'}>
-          {prBusy ? 'Asking…' : '🔀 Ask Claude to open the PR'}
+          {#if prBusy}Asking…{:else}<Icon name="pr" size={13} /> Ask Claude to open the PR{/if}
         </button>
       </div>
 

@@ -7,6 +7,7 @@
     splitPanes, anchorSplit, setPaneSession, closePane, splitRight, splitDown, canSplit,
   } from '$lib/state.svelte.js';
   import SessionDetail from '$lib/components/SessionDetail.svelte';
+  import Icon from '$lib/components/Icon.svelte';
 
   const primary = $derived(page.params.id);
   // The anchor pane (col 0, row 0) always mirrors the route session.
@@ -115,7 +116,7 @@
                         onclick={() => splitRight()} aria-label="Split right">▥</button>
                 {#if !(ci === 0 && ri === 0)}
                   <button class="pane-btn close" title="Close this pane"
-                          onclick={() => closePane(ci, ri)} aria-label="Close pane">✕</button>
+                          onclick={() => closePane(ci, ri)} aria-label="Close pane"><Icon name="close" /></button>
                 {/if}
               </div>
               <div class="pane-body-wrap">
