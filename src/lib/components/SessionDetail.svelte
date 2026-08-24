@@ -287,9 +287,13 @@
     // les hooks reflètent enfin le mode visé → on lâche le choix optimiste.
     if (modeOverride && d.permissionMode === modeOverride) modeOverride = null;
     // un message en file disparaît dès qu'il apparaît comme bulle user dans le transcript.
+    // On normalise des DEUX côtés comme chatText (server/util.js) : le transcript collapse déjà
+    // `[ \t]+` et strip les balises, alors que le texte optimiste est brut → un collage multi-espaces
+    // (table alignée) ou multi-lignes ne matchait jamais et restait en double « ⏳ queued ».
     if (queued.length) {
-      const userTexts = new Set((d.messages || []).filter((m) => m.role === 'user').map((m) => (m.text || '').trim()));
-      queued = queued.filter((q) => !userTexts.has(q.text.trim()));
+      const norm = (t) => (t || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+      const userTexts = new Set((d.messages || []).filter((m) => m.role === 'user').map((m) => norm(m.text)));
+      queued = queued.filter((q) => !userTexts.has(norm(q.text)));
     }
     // deep-link #msg-<ts> (page Recherche) : la cible peut être hors fenêtre → tout rendre une fois
     // pour que scrollToHashMsg la trouve.
