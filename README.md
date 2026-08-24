@@ -21,7 +21,7 @@ Quand tu jongles entre plusieurs sessions Claude Code, tu perds vite le fil : la
 
 - **[mise](https://mise.jdx.dev)** — gestionnaire d'outils + task runner : il installe **la bonne version de Node tout seul** (Node ≥ 24, requis pour `node:sqlite`) et pilote toutes les tâches du projet
 - **Claude Code** installé et utilisé sur ta machine
-- **tmux** *(optionnel)* — requis seulement pour répondre / lancer des sessions depuis l'UI
+- **tmux** — hooked pilote les sessions Claude Code à travers lui (répondre, lancer, reprendre, terminal live)
 
 ### 1. Installer mise
 
@@ -46,11 +46,10 @@ echo 'eval "$(mise activate bash)"' >> ~/.bashrc && exec bash
 > [!TIP]
 > Autres méthodes d'installation (apt, dnf, Windows…) : [docs mise](https://mise.jdx.dev/getting-started.html).
 
-### 2. Installer tmux *(optionnel mais recommandé)*
+### 2. Installer tmux
 
-Sans tmux le dashboard reste **100 % fonctionnel en lecture** (sessions, stats, diffs…).
-tmux débloque l'interactif : répondre à Claude depuis le navigateur, lancer / reprendre /
-stopper des sessions, le terminal live et la sidebar tmux.
+tmux est le moteur de tout l'interactif de hooked : répondre à Claude depuis le navigateur,
+lancer / reprendre / stopper des sessions, le terminal live et la sidebar tmux.
 
 ```bash
 # macOS
