@@ -23,6 +23,8 @@
   // option(s) you picked, parsed from the tool result (`…="label"` pairs, comma-joined if multi).
   let open = $state(false);
   const hasDetail = $derived(!!(t.inputText || t.result || ask));
+  // ui.toolsOpen (transitoire) déplie tout : le clic individuel reste possible pour replier
+  const shown = $derived(hasDetail && open !== ui.toolsOpen);
   const answers = $derived.by(() => (ask && t.result)
     ? [...t.result.matchAll(/="([^"]*)"/g)].map((m) => m[1]) : []);
   const isPicked = (label) => answers.some((a) => a === label || a.split(',').map((s) => s.trim()).includes(label));
@@ -103,11 +105,11 @@
     </div>
   {/if}
 {:else}
-  <div class="tool" class:has-detail={hasDetail} class:open>
+  <div class="tool" class:has-detail={hasDetail} class:open={shown}>
     <span class="chip" onclick={() => { if (hasDetail) open = !open; }}>
       🔧 {t.name}{#if t.detail}<span class="chip-d" title={t.detail}>{t.detail}</span>{/if}{#if hasDetail}<span class="chip-x">▸</span>{/if}
     </span>
-    {#if hasDetail}
+    {#if shown}
       <div class="tool-detail">
         {#if ask}
           <div class="td-sec">
