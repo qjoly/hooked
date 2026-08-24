@@ -77,6 +77,9 @@ describe('parseTranscript', () => {
       // que /deploy la suit. Tout le RESTE reste identique ; la nouvelle sémantique de
       // pendingQuestion est couverte par test/pendingQuestion.test.mjs.
       delete cur.pendingQuestion; delete old.pendingQuestion;
+      // `lastReply` (dernier texte assistant, ajout récent pour l'aperçu du Deck) est absent de la
+      // baseline figée → on le retire des deux côtés.
+      delete cur.lastReply; delete old.lastReply;
       expect(cur).toEqual(old);
     });
   }
@@ -267,7 +270,7 @@ describe('scanSessions', () => {
     // `pendingQuestion` diverge volontairement du legacy figé (cf. parseTranscript ci-dessus :
     // un prompt humain postérieur résout une AskUserQuestion sans tool_result). On le retire des
     // deux côtés ; sa nouvelle sémantique est couverte par test/pendingQuestion.test.mjs.
-    const strip = (arr) => arr.map(({ pendingQuestion, ...rest }) => rest);
+    const strip = (arr) => arr.map(({ pendingQuestion, lastReply, ...rest }) => rest);
     expect(strip(lib.scanSessions())).toEqual(strip(legacy.scanSessions()));
   });
   it('exclut les sous-agents (agent-*.jsonl) et les non-.jsonl', () => {

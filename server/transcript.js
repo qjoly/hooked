@@ -26,6 +26,7 @@ function blankSummary(sessionId, fp) {
     title: null,
     firstPrompt: null,
     lastPrompt: null,
+    lastReply: null,   // dernier message TEXTE de l'assistant (pour l'aperçu conversation du Deck)
     startTs: null,
     lastTs: null,
     userPrompts: 0,
@@ -126,6 +127,10 @@ function foldLine(acc, line) {
     const msg = j.message;
     const mid = msg.id || (j.timestamp + ':' + (msg.usage ? msg.usage.output_tokens : ''));
     if (msg.model) acc.modelCount[msg.model] = (acc.modelCount[msg.model] || 0) + 1;
+    // dernier texte assistant (une réponse peut n'être que des tool_use → on ne garde QUE
+    // les tours qui portent du texte, sinon l'aperçu resterait vide pendant que Claude bosse).
+    const replyText = cleanPrompt(textOf(msg.content));
+    if (replyText) s.lastReply = replyText;
     // outils
     if (Array.isArray(msg.content)) {
       for (const b of msg.content) {
