@@ -601,6 +601,7 @@
             <button class="vscode-btn" onclick={copyExport} title="Copy the conversation as Markdown to the clipboard">{exportCopied ? '✓ copied' : '⧉ Copy as Markdown'}</button>
             <button class="vscode-btn" onclick={() => openModal('editTags', { sessionId: id })} title="Add or remove tags on this session (PR review tags are automatic)">🏷 Edit tags</button>
             {#if sb.focusBtn !== false}<button class="vscode-btn" class:on={ui.focus} onclick={toggleFocus} title="Focus mode: full-screen conversation">⛶ {ui.focus ? 'Exit focus' : 'Focus'}</button>{/if}
+            <button class="vscode-btn" class:on={ui.toolsOpen} onclick={() => (ui.toolsOpen = !ui.toolsOpen)} title="Expand every tool call's input/result inline (this session only, off on reload)">🔧 {ui.toolsOpen ? 'Collapse tool details' : 'Expand tool details'}</button>
             <div class="hdr-div"></div>
             <button class="vscode-btn" onclick={archive} title={archived ? 'Restore this session to the live fleet' : 'Stop the tmux session and move it to Archived'}>{archived ? '↩ Unarchive' : '📥 Archive'}</button>
             <button class="vscode-btn del-btn" disabled={deleting} onclick={del} title="Move to trash: removes from dashboard; transcript kept in bin/ (recoverable)">{deleting ? '⏳' : '🗑'} Delete</button>

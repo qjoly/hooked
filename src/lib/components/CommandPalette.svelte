@@ -48,6 +48,7 @@
       { id: 'act:focus', label: ui.focus ? 'Exit focus mode' : 'Enter focus mode', section: 'Actions', icon: '🎯', action: toggleFocus },
       { id: 'act:notify', label: ui.notify ? 'Disable notifications' : 'Enable notifications', section: 'Actions', icon: ui.notify ? '🔔' : '🔕', action: toggleNotify },
       { id: 'act:trash', label: 'Open trash', section: 'Actions', icon: '🗑️', action: () => openModal('trash') },
+      { id: 'act:tools', label: `Tool details: ${ui.toolsOpen ? 'collapse all' : 'expand all'}`, section: 'Actions', icon: '🔧', action: () => { ui.toolsOpen = !ui.toolsOpen; } },
       { id: 'act:diffmode', label: `Diff: switch to ${ui.diffSplit ? 'unified' : 'split'}`, section: 'Actions', icon: '📝', action: () => { ui.diffSplit = !ui.diffSplit; } },
       { id: 'act:grouping', label: `Sidebar: group by ${ui.groupByProject ? 'status' : 'project'}`, section: 'Actions', icon: '📂', action: () => { ui.groupByProject = !ui.groupByProject; } },
       { id: 'act:resync', label: 'Force resync all sessions', section: 'Actions', icon: '🔄', action: () => resync() },
