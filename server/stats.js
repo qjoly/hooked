@@ -18,6 +18,7 @@ import { buildSubagents } from './subagents.js';
 import { latestTodos, todoSummary } from './todos.js';
 import { buildBackgroundJobs, jobStatus } from './background.js';
 import { isRcTmuxName, markRcSession, rcSessionIdSet } from './remoteControl.js';
+import { DIGEST_PROMPT_PREFIX } from './digests.js';
 
 // Sessions « live-only » : présentes dans les évènements de hooks mais pas encore
 // dans un transcript (Claude Code n'écrit le .jsonl qu'au premier message de
@@ -118,6 +119,9 @@ function buildSessions() {
     const ev = last.get(s.id);
     const pane = (ev && ev.tmux_pane) || panes.get(s.id) || null;
     if (isRcTmuxName(pane ? paneNames.get(pane) : null)) { markRcSession(s.id); return false; }
+    // Nos propres runs `claude -p` de génération de digest sont enregistrés comme des sessions ;
+    // on les masque de la liste (infra, pas des sessions qu'on pilote) — cf. server/digests.js.
+    if (typeof s.firstPrompt === 'string' && s.firstPrompt.startsWith(DIGEST_PROMPT_PREFIX)) return false;
     return !hiddenRc.has(s.id);
   });
   const now = Date.now();
