@@ -184,7 +184,7 @@ function buildSessions() {
   // on n'expose pas byDay en entier dans la liste (lourd) — juste un flag + la question
   // (légère) pour permettre la réponse en 1 clic directement depuis la sidebar.
   return visible.map(({ byDay, file, pendingQuestion, liveQuestion, livePlan,
-                         firstPrompt, prLinks, issueLinks, tools, lastPrompt, ...rest }) => {
+                         firstPrompt, prLinks, issueLinks, tools, lastPrompt, lastReply, ...rest }) => {
     const question = liveQuestion || pendingQuestion || null;
     // Payload léger pour la LISTE (inbox / board / overview). On retire les champs que seul le
     // DÉTAIL consomme — firstPrompt (Trash a son propre endpoint), prLinks/issueLinks (onglets du
@@ -194,6 +194,7 @@ function buildSessions() {
     return {
       ...rest,
       lastPrompt: typeof lastPrompt === 'string' ? lastPrompt.slice(0, 160) : lastPrompt,
+      lastReply: typeof lastReply === 'string' ? lastReply.slice(0, 240) : lastReply,
       hasQuestion: !!question, question, hasPlan: !!livePlan,
     };
   });
