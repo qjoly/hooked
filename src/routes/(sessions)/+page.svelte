@@ -1,5 +1,5 @@
 <script>
-  import Overview from '$lib/components/Overview.svelte';
+  import Deck from '$lib/components/Deck.svelte';
 </script>
 
-<Overview />
+<Deck />

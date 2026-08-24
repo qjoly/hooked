@@ -1,18 +1,19 @@
 const LS_KEY = 'hooked.shortcuts';
 
 export const SHORTCUT_DEFS = [
-  { id: 'command-palette', label: 'Command palette', section: 'Navigation', defaultKeys: { mod: true, key: 'p' } },
-  { id: 'commands-only', label: 'Commands only', section: 'Navigation', defaultKeys: { mod: true, shift: true, key: 'p' } },
+  { id: 'command-palette', label: 'Omnibar', section: 'Navigation', defaultKeys: { mod: true, key: 'p' } },
+  { id: 'commands-only', label: 'Omnibar (commands only)', section: 'Navigation', defaultKeys: { mod: true, shift: true, key: 'p' } },
   { id: 'new-session', label: 'New session', section: 'Navigation', defaultKeys: { mod: true, key: 'n' } },
-  { id: 'search', label: 'Search', section: 'Navigation', defaultKeys: { mod: true, key: 'k' } },
+  { id: 'search', label: 'Omnibar (search)', section: 'Navigation', defaultKeys: { mod: true, key: 'k' } },
   { id: 'settings', label: 'Settings', section: 'Navigation', defaultKeys: { mod: true, key: ',' } },
-  { id: 'go-sessions', label: 'Go to Sessions', section: 'Navigation', defaultKeys: { alt: true, key: '1' } },
-  { id: 'go-board', label: 'Go to Board', section: 'Navigation', defaultKeys: { alt: true, key: '2' } },
-  { id: 'go-search', label: 'Go to Search', section: 'Navigation', defaultKeys: { alt: true, key: '3' } },
-  { id: 'go-stats', label: 'Go to Stats', section: 'Navigation', defaultKeys: { alt: true, key: '4' } },
-  { id: 'go-digest', label: 'Go to Digest', section: 'Navigation', defaultKeys: { alt: true, key: '5' } },
-  { id: 'go-memory', label: 'Go to Memory', section: 'Navigation', defaultKeys: { alt: true, key: '6' } },
-  { id: 'go-split', label: 'Go to Split view', section: 'Navigation', defaultKeys: { alt: true, key: '7' } },
+  { id: 'go-sessions', label: 'Go to Deck', section: 'Navigation', defaultKeys: { alt: true, key: '1' } },
+  { id: 'go-board', label: 'Go to Archive', section: 'Navigation', defaultKeys: { alt: true, key: '2' } },
+  { id: 'go-search', label: 'Archive → Search', section: 'Navigation', defaultKeys: { alt: true, key: '3' } },
+  { id: 'go-stats', label: 'Archive → Stats', section: 'Navigation', defaultKeys: { alt: true, key: '4' } },
+  { id: 'go-digest', label: 'Archive → Digest', section: 'Navigation', defaultKeys: { alt: true, key: '5' } },
+  { id: 'go-memory', label: 'Archive → Memory', section: 'Navigation', defaultKeys: { alt: true, key: '6' } },
+  { id: 'toggle-sidebar', label: 'Toggle session sidebar', section: 'Actions', defaultKeys: { mod: true, key: 'b' } },
+  { id: 'split-session', label: 'Split with the most recent session', section: 'Actions', defaultKeys: { mod: true, shift: true, key: 's' } },
   { id: 'focus-mode', label: 'Toggle focus mode', section: 'Actions', defaultKeys: { mod: true, shift: true, key: 'f' } },
   { id: 'theme-cycle', label: 'Cycle theme', section: 'Actions', defaultKeys: { mod: true, shift: true, key: 't' } },
 ];
@@ -106,11 +107,13 @@ export function keysFromEvent(e) {
 
 export function shortcutForCommand(commandId) {
   const map = {
-    'nav:board': 'go-board',
-    'nav:sessions': 'go-sessions',
+    'nav:deck': 'go-sessions',
+    'nav:archive': 'go-board',
     'nav:new': 'new-session',
     'nav:search': 'go-search',
-    'nav:split': 'go-split',
+    'nav:stats': 'go-stats',
+    'nav:digest': 'go-digest',
+    'nav:memory': 'go-memory',
     'nav:settings': 'settings',
     'act:focus': 'focus-mode',
   };

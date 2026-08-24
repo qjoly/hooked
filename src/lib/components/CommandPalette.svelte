@@ -22,14 +22,13 @@
   });
 
   const NAV_COMMANDS = [
-    { id: 'nav:board', label: 'Go to Board', section: 'Navigation', icon: '📋', action: () => goto('/board') },
-    { id: 'nav:sessions', label: 'Go to Sessions', section: 'Navigation', icon: '📥', action: () => goto('/') },
+    { id: 'nav:deck', label: 'Go to Deck', section: 'Navigation', icon: '🛬', action: () => goto('/') },
+    { id: 'nav:sessions', label: 'Go to Sessions', section: 'Navigation', icon: '🗂', action: () => goto('/sessions') },
     { id: 'nav:new', label: 'New session', section: 'Navigation', icon: '➕', action: () => goto('/new') },
     { id: 'nav:search', label: 'Go to Search', section: 'Navigation', icon: '🔍', action: () => goto('/search') },
     { id: 'nav:stats', label: 'Go to Stats', section: 'Navigation', icon: '📊', action: () => goto('/stats') },
     { id: 'nav:digest', label: 'Go to Digest', section: 'Navigation', icon: '📖', action: () => goto('/digest') },
     { id: 'nav:memory', label: 'Go to Memory', section: 'Navigation', icon: '🧠', action: () => goto('/memory') },
-    { id: 'nav:split', label: 'Go to Split view', section: 'Navigation', icon: '🪟', action: () => goto('/split') },
     { id: 'nav:settings', label: 'Go to Settings', section: 'Navigation', icon: '⚙️', action: () => goto('/settings') },
   ];
 
@@ -40,7 +39,12 @@
       { id: 'act:theme-light', label: 'Theme: Light', section: 'Appearance', icon: '☀️', action: () => setTheme('light') },
       { id: 'act:theme-dark', label: 'Theme: Dark', section: 'Appearance', icon: '🌙', action: () => setTheme('dark') },
       { id: 'act:theme-system', label: 'Theme: System', section: 'Appearance', icon: '🖥️', action: () => setTheme('system') },
-      { id: 'act:scheme', label: `Color scheme: switch to ${ui.scheme === 'default' ? 'Legacy' : 'Default'}`, section: 'Appearance', icon: '🎨', action: cycleScheme },
+      { id: 'act:scheme-default', label: 'Color scheme: Default', section: 'Appearance', icon: '🟣', action: () => setScheme('default') },
+      { id: 'act:scheme-legacy', label: 'Color scheme: Legacy', section: 'Appearance', icon: '🟤', action: () => setScheme('legacy') },
+      { id: 'act:scheme-ocean', label: 'Color scheme: Ocean', section: 'Appearance', icon: '🌊', action: () => setScheme('ocean') },
+      { id: 'act:scheme-forest', label: 'Color scheme: Forest', section: 'Appearance', icon: '🌲', action: () => setScheme('forest') },
+      { id: 'act:scheme-rose', label: 'Color scheme: Rosé', section: 'Appearance', icon: '🌸', action: () => setScheme('rose') },
+      { id: 'act:scheme-dracula', label: 'Color scheme: Dracula', section: 'Appearance', icon: '🧛', action: () => setScheme('dracula') },
       { id: 'act:focus', label: ui.focus ? 'Exit focus mode' : 'Enter focus mode', section: 'Actions', icon: '🎯', action: toggleFocus },
       { id: 'act:notify', label: ui.notify ? 'Disable notifications' : 'Enable notifications', section: 'Actions', icon: ui.notify ? '🔔' : '🔕', action: toggleNotify },
       { id: 'act:trash', label: 'Open trash', section: 'Actions', icon: '🗑️', action: () => openModal('trash') },
@@ -50,6 +54,9 @@
     ];
     if (cs) {
       cmds.push(
+        { id: 'ctx:lens-chat', label: 'Lens: Converse', section: 'Current session', icon: '💬', action: () => goto('/session/' + encodeURIComponent(cs.id) + '?lens=chat') },
+        { id: 'ctx:lens-terminal', label: 'Lens: Shell', section: 'Current session', icon: '🖥', action: () => goto('/session/' + encodeURIComponent(cs.id) + '?lens=terminal') },
+        { id: 'ctx:lens-ship', label: 'Lens: Ship (review)', section: 'Current session', icon: '🚢', action: () => goto('/session/' + encodeURIComponent(cs.id) + '?lens=ship') },
         { id: 'ctx:copy-path', label: `Copy project path: ${cs.projectName || cs.cwd}`, section: 'Current session', icon: '📋', action: () => navigator.clipboard.writeText(cs.cwd) },
         { id: 'ctx:vscode', label: 'Open project in VS Code', section: 'Current session', icon: '💻', action: () => openInVscode(cs.id) },
         { id: 'ctx:ghostty', label: 'Open in Ghostty', section: 'Current session', icon: '👻', action: () => openInGhostty(cs.id) },
