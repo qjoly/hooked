@@ -1,22 +1,20 @@
 /*
  * Logique pure des notifications navigateur (src/lib/notify.js).
  *
- * Régression ciblée : une session « tour terminé » re-badgée `background` par
- * withBackgroundState (waiting + pane vivant + job de fond) DOIT rester notifiable.
- * Auparavant notifyKeyFor n'avait pas de cas 'background' → '' → aucune notif ni badge
- * d'onglet, alors que la même session sans job de fond (waiting) notifiait. Bug « job en
- * background, action required, pas notifié ».
+ * Contrat : une session re-badgée `background` par withBackgroundState (waiting + pane vivant +
+ * job/sous-agent de fond ENCORE actif) NE nague PAS — Claude n'est pas bloqué sur toi, un job
+ * tourne. Le ping tombe quand le job finit : la session repasse `background` → `waiting`, et cette
+ * transition est notifiée par checkNotifications. Une question en attente (hasQuestion) prime et
+ * nague quand même, même en background.
  */
 import { describe, it, expect } from 'vitest';
-import { notifyKeyFor, countsForBadge, NOTIFY_KINDS } from '../src/lib/notify.js';
+import { notifyKeyFor, countsForBadge } from '../src/lib/notify.js';
 
 describe('notifyKeyFor — clé notifiable par session', () => {
-  it('background (fin de tour + job de fond) est notifiable', () => {
+  it('background (fin de tour + job de fond) NE nague PAS (Claude n\'est pas bloqué sur toi)', () => {
     const key = notifyKeyFor({ id: 'a', state: 'background', hasQuestion: false });
-    expect(key).toBe('background');
-    expect(key).not.toBe('');
-    expect(NOTIFY_KINDS[key]).toBeDefined(); // une entrée d'affichage existe
-    expect(countsForBadge(key)).toBe(true);  // compte pour le badge d'onglet
+    expect(key).toBe('');                     // ni notif tant qu'un job de fond tourne…
+    expect(countsForBadge(key)).toBe(false);  // …ni badge d'onglet
   });
 
   it('working et idle ne notifient jamais (pas de spam)', () => {
