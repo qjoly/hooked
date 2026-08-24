@@ -5,6 +5,7 @@
   import { ui, data, loadSessions, togglePin, sessionTitle, openModal, sessionTags, allTags } from '$lib/state.svelte.js';
   import { reply, deleteSession } from '$lib/api.js';
   import { ago, tagColor } from '$lib/format.js';
+  import Icon from '$lib/components/Icon.svelte';
 
   // Réponse en 1 clic : options inline seulement pour une question unique à choix simple
   // (cas « permissions »). Multi-select / questions multiples → on ouvre la session.
@@ -33,7 +34,7 @@
     openModal('confirm', {
       title: 'Move to trash?',
       message: `"${sessionTitle(s)}"\n\nThe transcript is kept in bin/ (recoverable); the session leaves the dashboard.`,
-      confirmLabel: '🗑 Move to trash', danger: true, onConfirm: () => doDelSession(s),
+      confirmLabel: 'Move to trash', confirmIcon: 'trash', danger: true, onConfirm: () => doDelSession(s),
     });
   }
   async function doDelSession(s) {
@@ -259,7 +260,7 @@
               <span class="ibx-sec-count">{sec.count}</span>
             </button>
             <button class="ibx-sec-new" title="New session in this project" aria-label="New session in this project"
-                    onclick={() => goto('/new?project=' + encodeURIComponent(sec.newProject))}>＋</button>
+                    onclick={() => goto('/new?project=' + encodeURIComponent(sec.newProject))}><Icon name="plus" size={15} /></button>
           </div>
         {:else if sec.tone === 'pin'}
           <div class="ibx-sec ibx-sec-pin">
@@ -303,11 +304,11 @@
         {s.repo || s.projectName || '—'}{#if s.gitBranch} · {s.gitBranch}{/if}
       </div>
       {#if s.state === 'working' && s.activity}
-        <div class="pt-snip pt-working">✦ {s.activity}…</div>
+        <div class="pt-snip pt-working"><Icon name="activity" size={13} /> {s.activity}…</div>
       {:else if s.bgJobs && s.bgJobs.length}
-        <div class="pt-snip pt-working">🌀 {s.bgJobs.length} background job{s.bgJobs.length > 1 ? 's' : ''}{#if s.bgJobs[0].label} · {s.bgJobs[0].label}{/if}</div>
+        <div class="pt-snip pt-working"><Icon name="background" color="var(--background)" size={13} /> {s.bgJobs.length} background job{s.bgJobs.length > 1 ? 's' : ''}{#if s.bgJobs[0].label} · {s.bgJobs[0].label}{/if}</div>
       {:else if s.todo && s.todo.current}
-        <div class="pt-snip">▶ {s.todo.current} <span class="pt-frac">{s.todo.done}/{s.todo.total}</span></div>
+        <div class="pt-snip"><Icon name="in-progress" size={13} /> {s.todo.current} <span class="pt-frac">{s.todo.done}/{s.todo.total}</span></div>
       {:else if s.lastPrompt}
         <div class="pt-snip">{s.lastPrompt}</div>
       {/if}
@@ -319,7 +320,7 @@
         </div>
       {/if}
       {#if sentId === s.id}
-        <div class="pt-sent">✓ reply sent</div>
+        <div class="pt-sent"><Icon name="check" size={13} /> reply sent</div>
       {:else if s.hasQuestion && quickOpts(s.question)}
         <div class="pt-quick">
           {#each quickOpts(s.question) as o}

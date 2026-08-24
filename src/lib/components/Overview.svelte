@@ -2,6 +2,7 @@
   import { ui, data, openModal } from '$lib/state.svelte.js';
   import { fmtTokens, fmtCost, ago } from '$lib/format.js';
   import { getBackground } from '$lib/api.js';
+  import Icon from '$lib/components/Icon.svelte';
 
   const S = $derived(data.sessions);
   const sum = (f) => S.reduce((a, s) => a + f(s), 0);
@@ -9,7 +10,7 @@
 
   // Jobs de fond actifs, toutes sessions (via /api/background) — rafraîchi à chaque tick live.
   let bg = $state({ jobs: [], count: 0 });
-  const KIND_ICON = { bash: '⚙️', monitor: '👁', wakeup: '⏰', subagent: '🤖' };
+  const KIND_ICON = { bash: 'bash', monitor: 'eye', wakeup: 'wakeup', subagent: 'subagent' };
   $effect(() => {
     ui.tick; // dépendance : re-fetch à chaque tick SSE / poll
     getBackground().then((r) => { bg = r; }).catch(() => {});
@@ -29,12 +30,12 @@
 
   {#if bg.count}
     <div class="ov-bg">
-      <div class="ov-bg-head">🌀 Active background jobs <span class="ov-bg-n">{bg.count}</span></div>
+      <div class="ov-bg-head"><Icon name="background" size={14} color="var(--background)" /> Active background jobs <span class="ov-bg-n">{bg.count}</span></div>
       <ul class="ov-bg-list">
         {#each bg.jobs as j (j.sessionId + ':' + (j.taskId || j.command))}
           <li>
             <a class="ov-bg-item" href="/session/{encodeURIComponent(j.sessionId)}">
-              <span class="ov-bg-kind">{KIND_ICON[j.kind] || '🌀'}</span>
+              <span class="ov-bg-kind"><Icon name={KIND_ICON[j.kind] || 'background'} size={16} color={KIND_ICON[j.kind] ? undefined : 'var(--background)'} /></span>
               <span class="ov-bg-main">
                 <span class="ov-bg-desc">{j.description || j.command || j.kind}</span>
                 <span class="ov-bg-sub">{j.repo || j.projectName || ''} · {j.title || j.sessionId}</span>

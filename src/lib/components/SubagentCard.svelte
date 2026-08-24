@@ -3,6 +3,7 @@
   import { getAgent } from '$lib/api.js';
   import ChatBubble from './ChatBubble.svelte';
   import Markdown from './Markdown.svelte';
+  import Icon from '$lib/components/Icon.svelte';
 
   let { a, session } = $props();
   let open = $state(false);
@@ -23,7 +24,7 @@
     } catch (_) { failed = true; }
     loading = false;
   }
-  const drillLabel = $derived(loading ? 'loading…' : (trace && visible) ? '🔽 Hide trace' : '🔍 View internal trace');
+  const drillLabel = $derived(loading ? 'loading…' : (trace && visible) ? 'Hide trace' : 'View internal trace');
 </script>
 
 <div class="change" class:open>
@@ -39,16 +40,16 @@
   </div>
   <div class="change-ops">
     {#if a.prompt}
-      <div class="sa-block"><div class="sa-label">📥 Instructions</div><div class="md"><Markdown text={a.prompt} /></div></div>
+      <div class="sa-block"><div class="sa-label"><Icon name="file-in" size={13} /> Instructions</div><div class="md"><Markdown text={a.prompt} /></div></div>
     {/if}
     <div class="sa-block">
-      <div class="sa-label">📤 Result</div>
+      <div class="sa-label"><Icon name="file-out" size={13} /> Result</div>
       {#if a.result}<div class="md"><Markdown text={a.result} /></div>
       {:else}<div class="pane-empty">No result (subagent interrupted or produced no output).</div>{/if}
     </div>
     {#if a.agentId}
       <div class="sa-block">
-        <button class="sa-drill" disabled={loading} onclick={drill}>{drillLabel}</button>
+        <button class="sa-drill" disabled={loading} onclick={drill}>{#if !loading}<Icon name={(trace && visible) ? 'chevron-down' : 'chevron-right'} size={13} />{/if} {drillLabel}</button>
         <div class="sa-trace" class:hidden={!visible}>
           {#if failed}
             <div class="pane-empty">Trace unavailable.</div>

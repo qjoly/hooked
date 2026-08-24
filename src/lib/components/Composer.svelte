@@ -1,5 +1,6 @@
 <script>
   import { onMount } from 'svelte';
+  import Icon from '$lib/components/Icon.svelte';
   import { reply, interrupt, launch, getFiles, getCommands, uploadImage } from '$lib/api.js';
   import { loadSessions, ui, unarchive } from '$lib/state.svelte.js';
 
@@ -278,7 +279,7 @@
                 ? 'Reply to Claude…  (Enter to send · Shift+Enter = new line · @ file · / command · paste an image · Esc×2 interrupts)'
                 : 'tmux session closed — sending will re-run claude --resume…  (@ file · / command · paste an image)'}
             oninput={onInput} onkeydown={onKeydown} onpaste={onPaste} onblur={() => setTimeout(closeAc, 150)}></textarea>
-  <button class="reply-send" disabled={busy || uploading > 0} onclick={send}>{newSession ? 'Launch ↗' : alive ? 'Send ↩' : 'Restart ↗'}</button>
+  <button class="reply-send" disabled={busy || uploading > 0} onclick={send}>{#if newSession}Launch <Icon name="external" size={14} />{:else if alive}Send <Icon name="send" size={14} />{:else}Restart <Icon name="external" size={14} />{/if}</button>
   {#if images.length || uploading}
     <div class="img-tray">
       {#each images as im, i}
@@ -287,7 +288,7 @@
           <button class="img-rm" title="Remove" onclick={() => removeImage(i)}>×</button>
         </div>
       {/each}
-      {#if uploading}<div class="img-up">📎 upload…</div>{/if}
+      {#if uploading}<div class="img-up"><Icon name="paperclip" size={13} /> upload…</div>{/if}
     </div>
   {/if}
   <div class="at-pop" class:hidden={!acOpen}>

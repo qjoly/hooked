@@ -1,6 +1,7 @@
 <script>
   import { replyQuestion } from '$lib/api.js';
   import { loadSessions, ui } from '$lib/state.svelte.js';
+  import Icon from '$lib/components/Icon.svelte';
 
   let { id, pq } = $props();
   const questions = $derived(pq.questions || []);
@@ -125,7 +126,7 @@
 </script>
 
 <div class="question" class:sent>
-  <div class="q-head"><span class="q-ico">⌨</span><span class="q-title">Claude is asking you a question</span></div>
+  <div class="q-head"><span class="q-ico"><Icon name="question" size={16} /></span><span class="q-title">Claude is asking you a question</span></div>
   {#each questions as q, qi}
     <div class="q-block">
       {#if q.header}<span class="q-chip">{q.header}</span>{/if}
@@ -148,7 +149,7 @@
                 </span>
               </label>
               <button class="q-annotate" class:on={hasNote(qi, oi)}
-                      title="Take this option and add a note" disabled={sent} onclick={() => toggleNote(qi, oi)}>✎</button>
+                      title="Take this option and add a note" disabled={sent} onclick={() => toggleNote(qi, oi)}><Icon name="pencil" size={14} /></button>
             </div>
             {#if hasNote(qi, oi)}
               <div class="q-note">
@@ -164,7 +165,7 @@
   {/each}
   <div class="q-foot">
     <div class="q-recap {recap.cls}">{recapText}</div>
-    <button class="reply-send" disabled={!allAnswered || sending || sent} onclick={send}>Send ↩</button>
+    <button class="reply-send" disabled={!allAnswered || sending || sent} onclick={send}>Send <Icon name="send" size={14} /></button>
   </div>
 </div>
 

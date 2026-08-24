@@ -9,6 +9,7 @@
   import { ago, tagColor, STATE_LABEL } from '$lib/format.js';
   import Question from './Question.svelte';
   import Plan from './Plan.svelte';
+  import Icon from '$lib/components/Icon.svelte';
 
   const S = $derived(data.sessions);
 
@@ -121,10 +122,10 @@
   // live activity only (no lastPrompt fallback) — the cards show the last exchange separately,
   // so the fallback would just duplicate the user message.
   function liveSnippet(s) {
-    if (s.state === 'working' && s.activity) return '✦ ' + s.activity + '…';
-    if (s.bgJobs && s.bgJobs.length) return '🌀 ' + s.bgJobs.length + ' job' + (s.bgJobs.length > 1 ? 's' : '') + (s.bgJobs[0].label ? ' · ' + s.bgJobs[0].label : '');
-    if (s.todo && s.todo.current) return '▶ ' + s.todo.current + ' (' + s.todo.done + '/' + s.todo.total + ')';
-    return '';
+    if (s.state === 'working' && s.activity) return { name: 'activity', text: s.activity + '…' };
+    if (s.bgJobs && s.bgJobs.length) return { name: 'background', color: 'var(--background)', text: s.bgJobs.length + ' job' + (s.bgJobs.length > 1 ? 's' : '') + (s.bgJobs[0].label ? ' · ' + s.bgJobs[0].label : '') };
+    if (s.todo && s.todo.current) return { name: 'in-progress', text: s.todo.current + ' (' + s.todo.done + '/' + s.todo.total + ')' };
+    return null;
   }
 
   // Archived sessions are NEVER shown in the repo-grouped fleet; they live in their own collapsed
@@ -169,13 +170,13 @@
         <h2>Your move</h2>
         <span class="colcount">{triage.length} decision{triage.length === 1 ? '' : 's'}{#if snoozedCount} · {snoozedCount} snoozed{/if}</span>
         {#if triage.length}
-          <button class="ghost-btn" onclick={snoozeAll}>💤 Snooze all 1h</button>
+          <button class="ghost-btn" onclick={snoozeAll}><Icon name="snooze" size={14} /> Snooze all 1h</button>
         {/if}
       </div>
 
       {#if !triage.length}
         <div class="triage-empty">
-          <div class="te-ico">🎉</div>
+          <div class="te-ico"><Icon name="all-clear" size={28} /></div>
           Inbox zero — nothing needs you right now.
           {#if snoozedCount}<div class="te-sub">{snoozedCount} snoozed decision{snoozedCount > 1 ? 's' : ''} will come back within the hour.</div>{/if}
         </div>
@@ -189,7 +190,7 @@
             <span class="tdot t-{meta.cls}"></span>
             <span class="tkind tk-{meta.cls}">{meta.label}</span>
             <button class="ttitle" onclick={() => open(s)} title="Open the session">{sessionTitle(s)}</button>
-            <span class="tmeta">{s.repo || s.projectName || ''}{#if s.gitBranch} · ⎇ {s.gitBranch}{/if}</span>
+            <span class="tmeta">{s.repo || s.projectName || ''}{#if s.gitBranch} · <Icon name="git-branch" size={12} /> {s.gitBranch}{/if}</span>
             <span class="tago">{ago(s.lastActivity)}</span>
           </header>
 
@@ -210,19 +211,19 @@
                 {@render convo(s)}
               {:else}
                 <div class="twait">{STATE_LABEL[s.state] || 'Finished — waiting for you'}</div>
-                {#if liveSnippet(s)}<div class="tsnip">{liveSnippet(s)}</div>{/if}
+                {#if liveSnippet(s)}{@const snip = liveSnippet(s)}<div class="tsnip"><Icon name={snip.name} color={snip.color} size={13} /> {snip.text}</div>{/if}
                 {@render convo(s)}
                 {#if s.followup}
                   <!-- suggestion de follow-up (ghost text du TUI) : la carte porte SON propre bouton
                        d'envoi (lien clair texte ↔ action). -->
                   <div class="tfollow">
-                    <span class="tfollow-head">💡 Suggested follow-up</span>
+                    <span class="tfollow-head"><Icon name="lightbulb" size={12} /> Suggested follow-up</span>
                     <span class="tfollow-text">{s.followup}</span>
                     {#if sentFollowup === s.id}
-                      <span class="tfollow-sent">✓ sent</span>
+                      <span class="tfollow-sent"><Icon name="check" size={13} /> sent</span>
                     {:else}
                       <button class="tfollow-send" disabled={sendingFollowup === s.id} onclick={() => sendFollowup(s)}>
-                        {sendingFollowup === s.id ? 'Sending…' : '↩ Send this'}
+                        {#if sendingFollowup === s.id}Sending…{:else}<Icon name="send" size={13} /> Send this{/if}
                       </button>
                     {/if}
                   </div>
@@ -231,20 +232,20 @@
             </div>
             {#if clamped[s.id]}
               <button class="tsee-more" onclick={() => open(s)} title="Open the session to see and act on the full content">
-                ⤢ See more in the session
+                <Icon name="maximize" size={13} /> See more in the session
               </button>
             {/if}
           </div>
 
           <footer class="tfoot">
             {#if kind === 'permission'}
-              <button class="tbtn primary" onclick={() => openLens(s, 'terminal')}>🖥 Open the shell</button>
+              <button class="tbtn primary" onclick={() => openLens(s, 'terminal')}><Icon name="shell" size={14} /> Open the shell</button>
             {:else if kind === 'waiting'}
-              <button class="tbtn primary" onclick={() => open(s)}>↩ Reply</button>
+              <button class="tbtn primary" onclick={() => open(s)}><Icon name="send" size={14} /> Reply</button>
             {/if}
             <button class="tbtn" onclick={() => open(s)}>Open the session</button>
-            <button class="tbtn ghost" onclick={() => snoozeOne(s.id)}>💤 1h</button>
-            <button class="tbtn ghost" onclick={() => archiveOne(s.id)} title="Archive this session (hide it from the Deck)">📥 Archive</button>
+            <button class="tbtn ghost" onclick={() => snoozeOne(s.id)}><Icon name="snooze" size={14} /> 1h</button>
+            <button class="tbtn ghost" onclick={() => archiveOne(s.id)} title="Archive this session (hide it from the Deck)"><Icon name="archive" size={14} /> Archive</button>
           </footer>
         </article>
       {/each}
@@ -258,8 +259,8 @@
         <span class="colcount">{fleetTotal} session{fleetTotal === 1 ? '' : 's'} · {active} active</span>
         <input class="fleet-q" type="search" placeholder="Filter…" bind:value={fq} />
         <div class="viewseg">
-          <button class:on={view === 'list'} onclick={() => (view = 'list')} title="List">☰</button>
-          <button class:on={view === 'grid'} onclick={() => (view = 'grid')} title="Grid">▦</button>
+          <button class:on={view === 'list'} onclick={() => (view = 'list')} title="List"><Icon name="list" size={15} /></button>
+          <button class:on={view === 'grid'} onclick={() => (view = 'grid')} title="Grid"><Icon name="pane" size={15} /></button>
         </div>
       </div>
 
@@ -268,7 +269,7 @@
           <div class="repo-head">
             <span class="repo-name">{g.proj}</span>
             <span class="repo-n">{g.items.length}</span>
-            <a class="repo-plus" href={'/new?project=' + encodeURIComponent(g.newProject)} title="New session in this project">＋</a>
+            <a class="repo-plus" href={'/new?project=' + encodeURIComponent(g.newProject)} title="New session in this project"><Icon name="plus" size={15} /></a>
           </div>
           <div class="fleet" class:grid={view === 'grid'}>
             {#each visibleItems(g) as s (s.id)}
@@ -276,7 +277,7 @@
             {/each}
             {#if !expandedGroups[g.proj] && g.items.length > visibleItems(g).length}
               <button class="fmore" onclick={() => (expandedGroups = { ...expandedGroups, [g.proj]: true })}>
-                ＋ {g.items.length - visibleItems(g).length} older session{g.items.length - visibleItems(g).length > 1 ? 's' : ''}
+                <Icon name="plus" size={13} /> {g.items.length - visibleItems(g).length} older session{g.items.length - visibleItems(g).length > 1 ? 's' : ''}
               </button>
             {/if}
           </div>
@@ -288,8 +289,8 @@
       {#if archivedList.length}
         <div class="repo-group arch-group">
           <button class="arch-head" onclick={() => (archivedOpen = !archivedOpen)}>
-            <span class="arch-chev" class:open={archivedOpen}>▸</span>
-            📥 Archived <span class="repo-n">{archivedList.length}</span>
+            <span class="arch-chev" class:open={archivedOpen}><Icon name="chevron-right" size={13} /></span>
+            <Icon name="archive" size={13} /> Archived <span class="repo-n">{archivedList.length}</span>
           </button>
           {#if archivedOpen}
             <div class="fleet" class:grid={view === 'grid'}>
@@ -324,7 +325,8 @@
       <span class="fago">{ago(s.lastActivity)}</span>
     </span>
     {#if liveSnippet(s)}
-      <span class="fact" class:working={s.state === 'working'}>{liveSnippet(s)}</span>
+      {@const snip = liveSnippet(s)}
+      <span class="fact" class:working={s.state === 'working'}><Icon name={snip.name} color={snip.color} size={13} /> {snip.text}</span>
     {/if}
     {@render convo(s)}
     {#if sessionTags(s.id).length}
@@ -334,9 +336,9 @@
     {/if}
     <!-- ↩ unarchive (explicit archive) · 📥 archive (live session) · nothing for finished ones -->
     {#if isArchived(s.id)}
-      <button class="fcard-act" title="Unarchive" onclick={(e) => { e.stopPropagation(); toggleArchive(s.id); }}>↩</button>
+      <button class="fcard-act" title="Unarchive" onclick={(e) => { e.stopPropagation(); toggleArchive(s.id); }}><Icon name="unarchive" size={14} /></button>
     {:else if !ended}
-      <button class="fcard-act" title="Archive" onclick={(e) => { e.stopPropagation(); toggleArchive(s.id); }}>📥</button>
+      <button class="fcard-act" title="Archive" onclick={(e) => { e.stopPropagation(); toggleArchive(s.id); }}><Icon name="archive" size={14} /></button>
     {/if}
   </div>
 {/snippet}

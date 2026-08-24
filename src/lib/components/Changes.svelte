@@ -1,5 +1,6 @@
 <script>
   import Diff from './Diff.svelte';
+  import Icon from '$lib/components/Icon.svelte';
   import { getVcsDiff } from '$lib/api.js';
   // `onReview(prompt)` : envoie le prompt de revue généré (branché sur le Composer par le parent).
   // `canReview` : faux si aucun pane tmux → on ne peut rien envoyer, on désactive le bouton.
@@ -13,10 +14,10 @@
   // `repos` : un item par dépôt détecté (principal en premier + sous-dépôts imbriqués).
   let vcs = $state({ loaded: false, loading: false, error: null, kind: null, repos: [], truncated: false });
   const VCS_META = {
-    git: { icon: '🔀', label: 'Git' },
-    jj:  { icon: '🥋', label: 'Jujutsu' },
+    git: { icon: 'git', label: 'Git' },
+    jj:  { icon: 'jujutsu', label: 'Jujutsu' },
   };
-  const vcsMeta = $derived(VCS_META[vcs.kind] || { icon: '🔀', label: 'VCS' });
+  const vcsMeta = $derived(VCS_META[vcs.kind] || { icon: 'git', label: 'VCS' });
   const repoName = (p) => (p || '').split('/').filter(Boolean).pop() || p;
 
   async function loadVcs(force = false) {
@@ -104,11 +105,11 @@
     {@const key = prefix + ':' + i}
     <div class="change" class:open={openSet[key]}>
       <div class="change-head" title={c.file} onclick={() => (openSet = { ...openSet, [key]: !openSet[key] })}>
-        <span class="ch-arrow">▸</span>
+        <span class="ch-arrow"><Icon name="chevron-right" size={12} /></span>
         <span class="ch-name">{c.name}</span>
         <span class="ch-path">{c.file}</span>
         <a class="ch-open" href={'vscode://file' + c.file} title="Open in VS Code"
-           onclick={(e) => e.stopPropagation()}>↗ editor</a>
+           onclick={(e) => e.stopPropagation()}><Icon name="external" size={12} /> editor</a>
         <span class="ch-count">{c.badge ?? (c.count + ' ' + (c.count > 1 ? 'edits' : 'edit'))}</span>
       </div>
       <div class="change-ops">
@@ -116,7 +117,7 @@
           <div class="op-hint">Binary file — no diff.</div>
         {:else}
           {#if commentable}
-            <div class="op-hint">Hover a line and click <span class="op-hint-plus">＋</span> to comment, like a GitHub PR.</div>
+            <div class="op-hint">Hover a line and click <span class="op-hint-plus"><Icon name="plus" size={12} /></span> to comment, like a GitHub PR.</div>
           {/if}
           {#each c.ops as o, j}
             <div class="op-wrap">
@@ -138,10 +139,10 @@
 {/snippet}
 
 <div class="subview-bar">
-  <button class="subview" class:active={view === 'claude'} onclick={() => (view = 'claude')}>📝 Claude</button>
-  <button class="subview" class:active={view === 'vcs'} onclick={selectVcs}>{vcsMeta.icon} {vcsMeta.label}</button>
+  <button class="subview" class:active={view === 'claude'} onclick={() => (view = 'claude')}><Icon name="diff" size={13} /> Claude</button>
+  <button class="subview" class:active={view === 'vcs'} onclick={selectVcs}><Icon name={vcsMeta.icon} size={13} /> {vcsMeta.label}</button>
   {#if view === 'vcs' && vcs.loaded && !vcs.loading}
-    <button class="subview-refresh" title="Reload the working-tree diff" onclick={() => loadVcs(true)}>⟳</button>
+    <button class="subview-refresh" title="Reload the working-tree diff" onclick={() => loadVcs(true)}><Icon name="rotate-cw" size={13} /></button>
   {/if}
 </div>
 
@@ -158,7 +159,7 @@
         <button class="review-clear" onclick={clearReview} disabled={sending}>Clear</button>
         <button class="review-send" onclick={sendReview} disabled={sending || !canReview}
                 title={canReview ? 'Generate a prompt from your comments and send it to the session' : 'No live tmux session to send to'}>
-          {sending ? 'Sending…' : 'Send review ↩'}
+          {#if sending}Sending…{:else}Send review <Icon name="send" size={13} />{/if}
         </button>
       </div>
     {/if}
@@ -181,7 +182,7 @@
   {:else}
     {#each vcs.repos as repo, ri}
       <div class="repo-head" title={repo.root}>
-        <span class="repo-icon">{(VCS_META[repo.kind] || vcsMeta).icon}</span>
+        <span class="repo-icon"><Icon name={(VCS_META[repo.kind] || vcsMeta).icon} size={13} /></span>
         <span class="repo-label">{repo.label || repoName(repo.root)}</span>
         <span class="repo-count" class:clean={!repo.changes.length}>
           {repo.changes.length ? repo.changes.length + (repo.changes.length > 1 ? ' files' : ' file') : 'clean'}
