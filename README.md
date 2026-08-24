@@ -19,9 +19,46 @@ Quand tu jongles entre plusieurs sessions Claude Code, tu perds vite le fil : la
 
 ## Prérequis
 
-- **Node.js** ≥ 24 (la recherche utilise `node:sqlite`, stabilisé en Node 24)
+- **[mise](https://mise.jdx.dev)** — gestionnaire d'outils + task runner : il installe **la bonne version de Node tout seul** (Node ≥ 24, requis pour `node:sqlite`) et pilote toutes les tâches du projet
 - **Claude Code** installé et utilisé sur ta machine
 - **tmux** *(optionnel)* — requis seulement pour répondre / lancer des sessions depuis l'UI
+
+### 1. Installer mise
+
+```bash
+# macOS (Homebrew)
+brew install mise
+
+# ou n'importe quel OS (script officiel)
+curl https://mise.run | sh
+```
+
+Puis active mise dans ton shell (une seule fois) :
+
+```bash
+# zsh
+echo 'eval "$(mise activate zsh)"' >> ~/.zshrc && exec zsh
+
+# bash
+echo 'eval "$(mise activate bash)"' >> ~/.bashrc && exec bash
+```
+
+> [!TIP]
+> Autres méthodes d'installation (apt, dnf, Windows…) : [docs mise](https://mise.jdx.dev/getting-started.html).
+
+### 2. Installer tmux *(optionnel mais recommandé)*
+
+Sans tmux le dashboard reste **100 % fonctionnel en lecture** (sessions, stats, diffs…).
+tmux débloque l'interactif : répondre à Claude depuis le navigateur, lancer / reprendre /
+stopper des sessions, le terminal live et la sidebar tmux.
+
+```bash
+# macOS
+brew install tmux
+
+# Debian / Ubuntu
+sudo apt install tmux
+```
 
 ---
 
@@ -31,19 +68,39 @@ Quand tu jongles entre plusieurs sessions Claude Code, tu perds vite le fil : la
 git clone git@github.com:briangtn/hooked.git
 cd hooked
 
-npm install       # dépendances (SvelteKit + outillage) — devDeps uniquement
-npm run setup     # branche hooked sur les hooks Claude Code (avec backup automatique)
-npm run dev       # dashboard en dev (front HMR + API + SSE) sur :5173
+mise trust        # autorise le mise.toml du projet (env + tâches)
+mise run setup    # installe Node 24 + les deps, build le front, branche les hooks Claude Code
+mise run start    # démarre le dashboard
 ```
 
-Ouvre ensuite **http://localhost:5173**.
+Ouvre ensuite **http://localhost:4123**.
 
-> En production : `npm run build && npm start` (serveur Node autonome via adapter-node,
-> sur **http://localhost:3000** par défaut).
+`mise run setup` fait tout en une passe : `npm install` (devDeps uniquement), build de prod,
+puis branchement de hooked sur les hooks Claude Code (`~/.claude/settings.json`, **avec backup
+automatique** `settings.json.hooked.bak`).
 
 > ⚠️ Après `setup`, **redémarre tes sessions Claude Code** pour activer les hooks.
 > Les sessions déjà ouvertes restent visibles (via les transcripts), mais leur état
 > live n'apparaît qu'à partir du prochain évènement.
+
+> [!TIP]
+> **macOS** : `mise run service-install` installe hooked comme **service launchd** —
+> démarrage au login, auto-restart, logs dans `~/Library/Logs/hooked/`.
+> (`service-status`, `service-logs`, `service-restart`, `service-uninstall` existent aussi.)
+
+<details>
+<summary><strong>Sans mise (npm directement)</strong></summary>
+
+Il te faut **Node.js ≥ 24** déjà installé.
+
+```bash
+npm install       # dépendances (SvelteKit + outillage) — devDeps uniquement
+npm run setup     # branche hooked sur les hooks Claude Code (avec backup automatique)
+npm run build     # build de prod (adapter-node) → build/
+node build        # démarre le dashboard sur http://localhost:3000 (PORT pour changer)
+```
+
+</details>
 
 ---
 
@@ -138,11 +195,15 @@ Coût estimé, tokens, sessions, tours, prompts — avec des graphes par **jour 
 ## Développement
 
 ```bash
-npm run dev        # front (HMR) + API + SSE dans un seul process Vite, sur :5173
-npm test           # tests de caractérisation (Vitest) — filet anti-régression du back
-npm run build      # build de prod (adapter-node) → build/
-npm start          # lance le serveur de prod (node build) sur :3000
+mise run dev       # front (HMR) + API + SSE dans un seul process Vite, sur :5173
+mise run test      # tests de caractérisation (Vitest) — filet anti-régression du back
+mise run build     # build de prod (adapter-node) → build/
+mise run start     # lance le serveur de prod (node build) sur :4123
+mise run deploy    # rebuild + redémarre le service launchd (si installé)
+mise tasks         # liste toutes les tâches disponibles
 ```
+
+(Équivalents npm : `npm run dev`, `npm test`, `npm run build`, `npm start`.)
 
 ### Architecture
 
@@ -187,10 +248,11 @@ Les tests comparent, sur des fixtures synthétiques, la sortie de l'ancien `serv
 
 | Réglage | Comment |
 |---------|---------|
-| **Changer de port** | `PORT=5000 npm start` (prod) ou `npm run dev -- --port 5000` (dev) |
+| **Changer de port** | `PORT=5000 mise run start` (prod) ou `npm run dev -- --port 5000` (dev) |
+| **Exposer sur le LAN** | `HOST=0.0.0.0 mise run start` — par défaut hooked n'écoute qu'en local (127.0.0.1) |
 | **Ajuster les tarifs** | édite l'objet `PRICING` dans `server/pricing.js` (USD / million de tokens) |
-| **Lancer au démarrage** | `npm run build` puis `nohup node ~/chemin/hooked/build >/tmp/hooked.log 2>&1 &` |
-| **Budget de session (fallback)** | `HOOKED_SESSION_BUDGET=60 npm start` — utilisé pour estimer le % de la fenêtre 5 h **uniquement** si le tap statusline n'est pas en place |
+| **Lancer au démarrage** | `mise run service-install` (macOS, service launchd : login + auto-restart) |
+| **Budget de session (fallback)** | `HOOKED_SESSION_BUDGET=60 mise run start` — utilisé pour estimer le % de la fenêtre 5 h **uniquement** si le tap statusline n'est pas en place |
 
 ### ⏳ Rate limits réels (5 h / 7 j) — tap statusline
 
