@@ -9,7 +9,7 @@
 
   // Jobs de fond actifs, toutes sessions (via /api/background) — rafraîchi à chaque tick live.
   let bg = $state({ jobs: [], count: 0 });
-  const KIND_ICON = { bash: '⚙️', monitor: '👁', wakeup: '⏰' };
+  const KIND_ICON = { bash: '⚙️', monitor: '👁', wakeup: '⏰', subagent: '🤖' };
   $effect(() => {
     ui.tick; // dépendance : re-fetch à chaque tick SSE / poll
     getBackground().then((r) => { bg = r; }).catch(() => {});
