@@ -122,11 +122,46 @@
   "circle-check": "<circle cx=\"12\" cy=\"12\" r=\"10\" /><path d=\"m9 12 2 2 4-4\" />",
   "circle": "<circle cx=\"12\" cy=\"12\" r=\"10\" />",
   };
+
+  // Semantic tints: icons whose meaning already has a token elsewhere in the app pick it up
+  // by default. An explicit `color` prop always wins; pass `tint={false}` where the host
+  // provides its own color (state-driven icons, icons sitting on a colored chip/pill).
+  export const TINTS = {
+    // destructive / blocking — pin is the classic red pushpin, not a danger action
+    "trash": "var(--danger)", "ban": "var(--danger)", "stop": "var(--danger)", "interrupt": "var(--danger)",
+    "issue": "var(--danger)", "pin": "var(--danger)",
+    // done / positive — terminals are green too (prompt vibes)
+    "check": "var(--success)", "circle-check": "var(--success)", "checkbox-done": "var(--success)",
+    "cost": "var(--success)", "dollar": "var(--success)",
+    "shell": "var(--success)", "terminal": "var(--success)", "bash": "var(--success)",
+    "restore": "var(--success)", "unarchive": "var(--success)", "all-clear": "var(--success)",
+    // caution / time / energy — tag is the manila-label yellow (folders stay neutral: too many of them)
+    "warning": "var(--warn)", "lightbulb": "var(--warn)",
+    "clock": "var(--warn)", "snooze": "var(--warn)", "queued": "var(--warn)", "busy": "var(--warn)",
+    "effort": "var(--warn)", "zap": "var(--warn)", "fast": "var(--warn)",
+    "lock": "var(--warn)", "package": "var(--warn)", "tag": "var(--warn)",
+    // identity / VCS / primary objects
+    "git": "var(--accent)", "pr": "var(--accent)", "jujutsu": "var(--accent)", "worktree": "var(--accent)",
+    "git-branch": "var(--accent)", "link": "var(--accent)",
+    "hook": "var(--accent)", "user": "var(--accent)", "model": "var(--accent)", "tasks": "var(--accent)",
+    "palette": "var(--accent)",
+    // informational / review
+    "diff": "var(--info)", "pencil": "var(--info)", "comment": "var(--info)",
+    "question": "var(--info)", "plan": "var(--info)", "mode": "var(--info)",
+    "vscode": "var(--info)", "ship": "var(--info)", "paperclip": "var(--info)",
+    // session states (same tokens the status system uses)
+    "working": "var(--working)", "waiting": "var(--waiting)", "attention": "var(--attention)",
+    "ended": "var(--ended)", "activity": "var(--working)", "in-progress": "var(--working)",
+    // background-job purple
+    "subagent": "var(--background)", "bot": "var(--background)", "wakeup": "var(--background)",
+    "background": "var(--background)", "rotate-cw": "var(--background)",
+  };
 </script>
 
 <script>
-  let { name, size = 16, stroke = 2, color = null, title = null, class: cls = '' } = $props();
+  let { name, size = 16, stroke = 2, color = null, tint = true, title = null, class: cls = '' } = $props();
   const body = $derived(ICONS[name] ?? ICONS.close);
+  const paint = $derived(color ?? (tint ? TINTS[name] ?? null : null));
 </script>
 
 <svg
@@ -139,7 +174,7 @@
   stroke-width={stroke}
   stroke-linecap="round"
   stroke-linejoin="round"
-  style={color ? `color:${color}` : null}
+  style={paint ? `color:${paint}` : null}
   role={title ? 'img' : undefined}
   aria-label={title || undefined}
   aria-hidden={title ? undefined : 'true'}
