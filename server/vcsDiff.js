@@ -29,6 +29,7 @@ import { FILE_IGNORE } from './files.js';
 
 const FILE_MAX = 200000; // cap par côté (old/new) d'un fichier
 const MAX_FILES = 60;    // budget global de fichiers rendus, tous dépôts confondus
+const LOG_MAX = 30;      // commits listés pour le sélecteur Ship (dépôt principal seulement)
 const TIMEOUT = 20000;
 const SUBREPO_MAX = 10;    // max nested repos reported
 const SCAN_DEPTH = 3;      // levels scanned below the base for nested repos
@@ -146,34 +147,39 @@ function makeEntry(root, relPath, badge, oldT, newT) {
   };
 }
 
-// Contenu d'un fichier à HEAD (git), buffer vide si absent (fichier ajouté).
-async function gitShowHead(root, relPath) {
-  const r = await run('git', ['-C', root, 'show', `HEAD:${relPath}`], root);
+// Contenu d'un fichier à une révision git donnée, buffer vide si absent (fichier ajouté).
+async function gitShowAt(root, ref, relPath) {
+  const r = await run('git', ['-C', root, 'show', `${ref}:${relPath}`], root);
   return r.failed ? Buffer.alloc(0) : r.stdout;
 }
 function readDisk(abs) {
   try { return fs.readFileSync(abs); } catch (_) { return Buffer.alloc(0); }
 }
 
+// Sortie `--name-status -z` de git → [{ code, oldp, newp }] (R/C portent deux chemins).
+function parseNameStatusZ(buf) {
+  const specs = [];
+  const toks = buf.toString('utf8').split('\0');
+  let i = 0;
+  while (i < toks.length) {
+    const st = toks[i++];
+    if (!st) continue;
+    const code = st[0];
+    if (code === 'R' || code === 'C') {
+      const oldp = toks[i++]; const newp = toks[i++];
+      specs.push({ code, oldp, newp });
+    } else {
+      const p = toks[i++];
+      if (p) specs.push({ code, oldp: p, newp: p });
+    }
+  }
+  return specs;
+}
+
 async function gitChanges(root, limit = MAX_FILES) {
   const specs = []; // { code, oldp, newp }
   const ns = await run('git', ['-C', root, 'diff', '--name-status', '-z', 'HEAD'], root);
-  if (!ns.failed) {
-    const toks = ns.stdout.toString('utf8').split('\0');
-    let i = 0;
-    while (i < toks.length) {
-      const st = toks[i++];
-      if (!st) continue;
-      const code = st[0];
-      if (code === 'R' || code === 'C') {
-        const oldp = toks[i++]; const newp = toks[i++];
-        specs.push({ code, oldp, newp });
-      } else {
-        const p = toks[i++];
-        if (p) specs.push({ code, oldp: p, newp: p });
-      }
-    }
-  }
+  if (!ns.failed) specs.push(...parseNameStatusZ(ns.stdout));
   const un = await run('git', ['-C', root, 'ls-files', '--others', '--exclude-standard', '-z'], root);
   if (!un.failed) {
     for (const p of un.stdout.toString('utf8').split('\0').filter(Boolean)) specs.push({ code: '?', oldp: p, newp: p });
@@ -188,36 +194,70 @@ async function gitChanges(root, limit = MAX_FILES) {
 
   const capped = files.slice(0, limit);
   const out = await Promise.all(capped.map(async ({ code, oldp, newp }) => {
-    const oldBuf = code === 'A' || code === '?' ? Buffer.alloc(0) : await gitShowHead(root, oldp);
+    const oldBuf = code === 'A' || code === '?' ? Buffer.alloc(0) : await gitShowAt(root, 'HEAD', oldp);
     const newBuf = code === 'D' ? Buffer.alloc(0) : readDisk(path.join(root, newp));
     return makeEntry(root, code === 'D' ? oldp : newp, GIT_STATUS[code] || 'changed', textOrNull(oldBuf), textOrNull(newBuf));
   }));
   return out;
 }
 
+// Arbre vide canonique de git — parent de substitution pour diff-er un commit racine.
+const EMPTY_TREE = '4b825dc642cb6eb9a060e54bf8d69288fbee4904';
+
+// Diff d'UN commit (vs son parent, ou l'arbre vide pour un commit racine).
+async function gitCommitChanges(root, rev, limit = MAX_FILES) {
+  const pr = await run('git', ['-C', root, 'rev-parse', '--verify', '--quiet', rev + '^'], root);
+  const parent = pr.failed ? EMPTY_TREE : pr.stdout.toString('utf8').trim();
+  const ns = await run('git', ['-C', root, 'diff', '--name-status', '-z', '-M', parent, rev], root);
+  if (ns.failed) return [];
+  const specs = parseNameStatusZ(ns.stdout).slice(0, limit);
+  return Promise.all(specs.map(async ({ code, oldp, newp }) => {
+    const oldBuf = code === 'A' ? Buffer.alloc(0) : await gitShowAt(root, parent, oldp);
+    const newBuf = code === 'D' ? Buffer.alloc(0) : await gitShowAt(root, rev, newp);
+    return makeEntry(root, code === 'D' ? oldp : newp, GIT_STATUS[code] || 'changed', textOrNull(oldBuf), textOrNull(newBuf));
+  }));
+}
+
 const JJ_STATUS = { M: 'modified', A: 'added', D: 'deleted', R: 'renamed', C: 'copied' };
 
-// Contenu d'un fichier chez le parent de la copie de travail (@-). Vide si absent (ajouté).
-async function jjShowParent(root, relPath) {
-  const r = await run('jj', ['file', 'show', '-r', '@-', relPath], root);
+// Contenu d'un fichier à un revset jj donné (@- = parent de la copie de travail). Vide si absent.
+async function jjShowAt(root, revset, relPath) {
+  const r = await run('jj', ['file', 'show', '-r', revset, relPath], root);
   return r.failed ? Buffer.alloc(0) : r.stdout;
+}
+
+// Sortie `jj diff --summary` → [{ code, p }].
+function parseJjSummary(buf) {
+  const specs = [];
+  for (const line of buf.toString('utf8').split('\n')) {
+    const m = line.match(/^([A-Z])\s+(.+)$/);
+    if (m) specs.push({ code: m[1], p: m[2].trim() });
+  }
+  return specs;
 }
 
 async function jjChanges(root, limit = MAX_FILES) {
   const sum = await run('jj', ['diff', '--summary'], root);
   if (sum.failed) return [];
-  const specs = [];
-  for (const line of sum.stdout.toString('utf8').split('\n')) {
-    const m = line.match(/^([A-Z])\s+(.+)$/);
-    if (m) specs.push({ code: m[1], p: m[2].trim() });
-  }
-  const capped = specs.slice(0, limit);
+  const capped = parseJjSummary(sum.stdout).slice(0, limit);
   const out = await Promise.all(capped.map(async ({ code, p }) => {
-    const oldBuf = code === 'A' ? Buffer.alloc(0) : await jjShowParent(root, p);
+    const oldBuf = code === 'A' ? Buffer.alloc(0) : await jjShowAt(root, '@-', p);
     const newBuf = code === 'D' ? Buffer.alloc(0) : readDisk(path.join(root, p));
     return makeEntry(root, p, JJ_STATUS[code] || 'changed', textOrNull(oldBuf), textOrNull(newBuf));
   }));
   return out;
+}
+
+// Diff d'UN commit jj (vs son parent, revset `<rev>-`).
+async function jjCommitChanges(root, rev, limit = MAX_FILES) {
+  const sum = await run('jj', ['diff', '--summary', '-r', rev], root);
+  if (sum.failed) return [];
+  const capped = parseJjSummary(sum.stdout).slice(0, limit);
+  return Promise.all(capped.map(async ({ code, p }) => {
+    const oldBuf = code === 'A' ? Buffer.alloc(0) : await jjShowAt(root, rev + '-', p);
+    const newBuf = code === 'D' ? Buffer.alloc(0) : await jjShowAt(root, rev, p);
+    return makeEntry(root, p, JJ_STATUS[code] || 'changed', textOrNull(oldBuf), textOrNull(newBuf));
+  }));
 }
 
 // { vcs, root, changes, truncated, repos:[{ kind, root, label, primary, changes }] }.
@@ -267,4 +307,56 @@ async function buildVcsChanges(cwd) {
   return { vcs, root: base, changes: repos[0].primary ? repos[0].changes : [], truncated, repos };
 }
 
-export { detectVcs, scanSubRepos, buildVcsChanges };
+// Révision hexadécimale telle qu'émise par listVcsCommits. Valider AVANT de la passer en argv :
+// exclut aussi toute chaîne commençant par '-' (injection de flag) ou un revset arbitraire.
+const REV_RE = /^[0-9a-f]{4,64}$/i;
+
+// Commits du dépôt PRINCIPAL de la session, du plus récent au plus ancien — alimente le
+// sélecteur de commit de la lentille Ship (mode VCS). { vcs, root, commits:[{ rev, author,
+// ts, subject }] }. `rev` est l'id complet (sha git / commit_id jj), réutilisable tel quel
+// par buildVcsCommitChanges. Les sous-dépôts imbriqués ne sont pas couverts (hors sujet ici).
+async function listVcsCommits(cwd, limit = LOG_MAX) {
+  const empty = { vcs: null, root: null, commits: [] };
+  if (!cwd) return empty;
+  const primary = await detectVcs(cwd);
+  if (!primary) return empty;
+  const { root, kind, mechanism } = primary;
+  const commits = [];
+  if (mechanism === 'git') {
+    // Tabulations en séparateur, sujet en DERNIER (il peut en contenir — on re-joint le reste).
+    const r = await run('git', ['-C', root, 'log', '-n', String(limit), '--format=%H%x09%an%x09%aI%x09%s'], root);
+    if (!r.failed) {
+      for (const line of r.stdout.toString('utf8').split('\n')) {
+        if (!line) continue;
+        const [rev, author, ts, ...rest] = line.split('\t');
+        if (rev && REV_RE.test(rev)) commits.push({ rev, author: author || '', ts: ts || '', subject: rest.join('\t') });
+      }
+    }
+  } else {
+    const tpl = 'commit_id ++ "\\t" ++ author.name() ++ "\\t" ++ author.timestamp() ++ "\\t" ++ description.first_line() ++ "\\n"';
+    const r = await run('jj', ['log', '-n', String(limit), '--no-graph', '-r', '::@', '-T', tpl], root);
+    if (!r.failed) {
+      for (const line of r.stdout.toString('utf8').split('\n')) {
+        if (!line) continue;
+        const [rev, author, ts, ...rest] = line.split('\t');
+        if (rev && REV_RE.test(rev)) commits.push({ rev, author: author || '', ts: ts || '', subject: rest.join('\t') });
+      }
+    }
+  }
+  return { vcs: kind, root, commits };
+}
+
+// Diff d'UN commit (vs son parent) du dépôt principal. Même forme d'entrées que
+// buildVcsChanges → le rendu Ship/Diff est réutilisé tel quel. { vcs, root, changes }.
+async function buildVcsCommitChanges(cwd, rev) {
+  const empty = { vcs: null, root: null, changes: [] };
+  if (!cwd || typeof rev !== 'string' || !REV_RE.test(rev)) return empty;
+  const primary = await detectVcs(cwd);
+  if (!primary) return empty;
+  const changes = primary.mechanism === 'jj'
+    ? await jjCommitChanges(primary.root, rev)
+    : await gitCommitChanges(primary.root, rev);
+  return { vcs: primary.kind, root: primary.root, changes };
+}
+
+export { detectVcs, scanSubRepos, buildVcsChanges, listVcsCommits, buildVcsCommitChanges };

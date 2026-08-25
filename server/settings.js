@@ -91,6 +91,10 @@ const DEFAULTS = {
   // Nombre max de chips PR / issue affichés dans la barre de statut (0 = tous). Le surplus est
   // résumé par un « +N » ; les onglets dédiés restent exhaustifs.
   statusBarLinkLimit: 0,
+  // Source de diff sur laquelle s'ouvre la lentille Ship : 'claude' (diff reconstruit du
+  // transcript, filtrable par prompt) ou 'vcs' (git/jj : working tree + commits). Le bouton
+  // de bascule dans l'onglet permet toujours de changer ponctuellement.
+  shipDefaultView: 'claude',
   // Page d'accueil (espace ouvert à froid au chargement) : 'deck' ou une clé de nav.
   defaultPage: 'deck',
   // Onglets de navigation visibles à côté du Deck (paramétrable). Sous-ensemble de NAV_PAGES.
@@ -176,6 +180,7 @@ function sanitize(raw) {
     remoteControlProjects: rcProjects,
     favoriteProjects: favProjects,
     digest,
+    shipDefaultView: o.shipDefaultView === 'vcs' ? 'vcs' : 'claude',
     defaultPage: DEFAULT_PAGES.includes(o.defaultPage) ? o.defaultPage : 'deck',
     navTabs: Array.isArray(o.navTabs)
       ? NAV_PAGES.filter((k) => o.navTabs.includes(k)) // keep known keys, canonical order
