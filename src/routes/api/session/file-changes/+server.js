@@ -12,9 +12,9 @@ export function GET({ url }) {
   if (!id || !p) return fail(400, 'id and path required');
   const s = scanSessions().find((x) => x.id === id);
   if (!s || !s.file) return fail(404, 'session not found');
-  const allowed = buildFileChanges(s.file).some((c) => c.file === p);
+  const allowed = buildFileChanges(s.file, id).some((c) => c.file === p);
   if (!allowed) return fail(404, 'file not in this session changes');
-  const entry = buildFileChangeFull(s.file, p);
+  const entry = buildFileChangeFull(s.file, p, id);
   if (!entry) return fail(404, 'no changes for this file');
   return json({ change: entry });
 }
