@@ -669,7 +669,7 @@
           <div class="cmd-row" style="margin-top:10px">
             <span class="hint" style="margin:0">Working tree is dirty:</span>
             <button class="chip" onclick={() => doCheckout('stash')} disabled={checkingOut}><Icon name="package" size={14} /> Stash &amp; checkout</button>
-            <button class="chip danger" onclick={() => doCheckout('force')} disabled={checkingOut}><Icon name="warning" size={14} /> Force (discard changes)</button>
+            <button class="chip danger" onclick={() => doCheckout('force')} disabled={checkingOut}><Icon name="warning" size={14} tint={false} /> Force (discard changes)</button>
           </div>
         {/if}
       {/if}

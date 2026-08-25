@@ -239,7 +239,7 @@
 
           <footer class="tfoot">
             {#if kind === 'permission'}
-              <button class="tbtn primary" onclick={() => openLens(s, 'terminal')}><Icon name="shell" size={14} /> Open the shell</button>
+              <button class="tbtn primary" onclick={() => openLens(s, 'terminal')}><Icon name="shell" size={14} tint={false} /> Open the shell</button>
             {:else if kind === 'waiting'}
               <button class="tbtn primary" onclick={() => open(s)}><Icon name="send" size={14} /> Reply</button>
             {/if}
