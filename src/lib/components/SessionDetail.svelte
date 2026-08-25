@@ -16,6 +16,7 @@
   import Icon from '$lib/components/Icon.svelte';
   import { TERM_THEMES, DEFAULT_TERM_THEME, TERM_FONTS, DEFAULT_TERM_FONT } from '$lib/terminalThemes.js';
   import { conversationToMarkdown } from '$lib/exportConversation.js';
+  import { getBinding, matchesEvent } from '$lib/shortcuts.js';
 
   // `inSplit`/`focused`/`onClose` : rendu en pane de la vue split (plusieurs sessions côte à côte
   // dans la vue normale). En split, seul le pane focalisé réagit au clavier (lentilles 1-4, Échap),
@@ -336,6 +337,19 @@
   function onWindowKey(e) {
     if (ui.modal) return;
     if (inSplit && !focused) return; // in split, only the focused pane reacts to keys
+    if (matchesEvent(getBinding('open-terminal'), e)) {
+      if (terminals.length) { e.preventDefault(); shellOpen = !shellOpen; }
+      return;
+    }
+    if (matchesEvent(getBinding('new-terminal'), e)) {
+      e.preventDefault();
+      newPane();
+      return;
+    }
+    if (matchesEvent(getBinding('toggle-dock'), e)) {
+      if (dockHasContent) { e.preventDefault(); ui.dockHidden = !ui.dockHidden; }
+      return;
+    }
     const t = e.target;
     const isInput = t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable);
     if (!isInput && !e.metaKey && !e.ctrlKey && !e.altKey && LENS_KEYS[e.key]) {
