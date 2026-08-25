@@ -135,7 +135,7 @@
 </div>
 
 {#if sel && !drafting}
-  <button class="sel-comment" style="top:{sel.top - 34}px; left:{sel.left}px" onmousedown={(e) => e.preventDefault()} onclick={openDraft}><Icon name="pencil" size={13} /> Comment</button>
+  <button class="sel-comment" style="top:{sel.top - 34}px; left:{sel.left}px" onmousedown={(e) => e.preventDefault()} onclick={openDraft}><Icon name="pencil" size={13} tint={false} /> Comment</button>
 {/if}
 
 <style>

@@ -38,6 +38,22 @@
       .map(([cwd, e]) => [cwd, e.name, fav.has(cwd)]);
   });
 
+  // Pastille duotone du picker : teinte déterministe par chemin, pour qu'un projet garde sa
+  // couleur d'une visite à l'autre. Jetons uniquement (fonds soft via les triplets --*-rgb),
+  // donc light / dark / scheme legacy résolvent tout seuls.
+  const HUES = [
+    ['var(--accent)', 'rgba(var(--accent-rgb),.12)'],
+    ['var(--info)', 'rgba(var(--info-rgb),.12)'],
+    ['var(--success)', 'rgba(var(--success-rgb),.12)'],
+    ['var(--warn)', 'rgba(var(--warn-rgb),.14)'],
+    ['var(--background)', 'rgba(var(--bgjob-rgb),.12)'],
+  ];
+  function hue(cwd) {
+    let h = 0;
+    for (let i = 0; i < cwd.length; i++) h = (h * 31 + cwd.charCodeAt(i)) | 0;
+    return HUES[Math.abs(h) % HUES.length];
+  }
+
   // Épingle/désépingle un projet (maj optimiste du miroir réactif puis persistance côté serveur).
   function toggleFavorite(cwd) {
     const cur = settings.favoriteProjects || [];
@@ -151,14 +167,16 @@
     <div class="lf-picklist" role="listbox" aria-label="Projects">
       {#if hits.length}
         {#each hits as [c, name, fav]}
+          {@const [hc, hbg] = hue(c)}
           <div class="lf-pick" class:sel={selected === c} tabindex="0" role="option" aria-selected={selected === c}
                onclick={() => (selected = c)}
                onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); selected = c; } }}>
+            <span class="lf-chip" style="background:{hbg}"><Icon name="folder" size={15} color={hc} /></span>
+            <span class="lf-pick-main"><span class="pn">{name}</span><span class="pp">{c}</span></span>
             <button class="lf-star" class:on={fav} aria-pressed={fav}
                     title={fav ? 'Remove from favorites' : 'Add to favorites'}
                     aria-label={fav ? 'Remove from favorites' : 'Add to favorites'}
-                    onclick={(e) => { e.stopPropagation(); toggleFavorite(c); }}><Icon name="star" size={14} color={fav ? '#e3b341' : null} /></button>
-            <span class="lf-pick-main"><span class="pn">{name}</span><span class="pp">{c}</span></span>
+                    onclick={(e) => { e.stopPropagation(); toggleFavorite(c); }}><Icon name="star" size={14} /></button>
           </div>
         {/each}
       {:else}
@@ -166,7 +184,7 @@
       {/if}
       <div class="lf-pick custom" class:sel={selected === '__custom'} tabindex="0" role="option" aria-selected={selected === '__custom'}
            onclick={chooseFolder}
-           onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); chooseFolder(); } }}><Icon name="folder" size={14} /> Other folder…</div>
+           onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); chooseFolder(); } }}><span class="lf-chip" style="background:var(--accent-soft)"><Icon name="folder-open" size={15} color="var(--accent)" /></span> Other folder…</div>
     </div>
     {#if selected === '__custom'}
       <div class="ns-custom-row">
