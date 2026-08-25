@@ -178,6 +178,22 @@ describe('listVcsCommits / buildVcsCommitChanges — git', () => {
     fs.mkdirSync(dir, { recursive: true });
     expect(await listVcsCommits(dir)).toEqual({ vcs: null, root: null, commits: [] });
   });
+
+  it('targets a detected sub-repo via repoRoot, and rejects an arbitrary path', async () => {
+    const parent = await makeHistory(path.join(T, 'log-sub'));
+    const sub = await makeRepo(path.join(parent, 'nested'));
+    // Sub-repo history + its commit diff, addressed by root.
+    const log = await listVcsCommits(parent, sub);
+    expect(log.root).toBe(sub);
+    expect(log.commits.map((c) => c.subject)).toEqual(['init']);
+    const diff = await buildVcsCommitChanges(parent, log.commits[0].rev, sub);
+    expect(diff.root).toBe(sub);
+    expect(diff.changes.map((c) => [c.name, c.badge])).toEqual([['a.txt', 'added']]);
+    // A root outside the detected list must not be honored.
+    const outside = await makeRepo(path.join(T, 'log-outside'));
+    expect(await listVcsCommits(parent, outside)).toEqual({ vcs: null, root: null, commits: [] });
+    expect(await buildVcsCommitChanges(parent, log.commits[0].rev, outside)).toEqual({ vcs: null, root: null, changes: [] });
+  });
 });
 
 describe('buildVcsChanges — global file budget', () => {
