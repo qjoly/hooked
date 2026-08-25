@@ -471,7 +471,7 @@
         archiving = true;
         toggleArchive(s.id);
         setTimeout(() => { loadSessions(); ui.tick++; }, 800);
-        if (inSplit) onClose?.(); else goto('/');
+        if (inSplit) onClose?.();
       },
     });
   }
@@ -486,7 +486,7 @@
   async function doDel() {
     deleting = true;
     const res = await deleteSession(s.id).catch((e) => ({ ok: false, data: { error: e.message } }));
-    if (res.ok) { loadSessions(); ui.tick++; goto('/'); }
+    if (res.ok) { loadSessions(); ui.tick++; }
     else { deleting = false; alert('✗ ' + (res.data.error || 'failed')); }
   }
   async function switchMode(target) {
