@@ -260,15 +260,13 @@ async function jjCommitChanges(root, rev, limit = MAX_FILES) {
   }));
 }
 
-// { vcs, root, changes, truncated, repos:[{ kind, root, label, primary, changes }] }.
-// `repos` lists every detected repo, primary first when it exists; nested repos are scanned
+// Every repo detected for a cwd — primary (if any) first, then nested sub-repos scanned
 // under the base (primary root, or cwd for a plain "workspace of clones" dir — never above,
-// so a cwd inside a sub-repo won't pull in a versioned $HOME or sibling repos). Top-level
-// vcs/root/changes keep mirroring the primary repo. MAX_FILES is a global budget: repos
-// past it stay listed with empty changes and `truncated` flips to true.
-async function buildVcsChanges(cwd) {
-  const empty = { vcs: null, root: null, changes: [], truncated: false, repos: [] };
-  if (!cwd) return empty;
+// so a cwd inside a sub-repo won't pull in a versioned $HOME or sibling repos).
+// { base, list:[{ kind, mechanism, root, primary }] }. Shared by buildVcsChanges and by the
+// commit endpoints, which validate a client-supplied repo root against this list.
+async function detectRepos(cwd) {
+  if (!cwd) return { base: null, list: [] };
   const primary = await detectVcs(cwd);
   const base = primary ? primary.root : cwd;
 
@@ -287,8 +285,28 @@ async function buildVcsChanges(cwd) {
     .slice(0, SUBREPO_MAX)
     .map((s) => ({ ...s, primary: false }));
 
-  const list = primary ? [{ ...primary, primary: true }, ...subs] : subs;
+  return { base, list: primary ? [{ ...primary, primary: true }, ...subs] : subs };
+}
+
+// Repo whose commits are requested: the client-supplied root must be one of the DETECTED
+// repos (never an arbitrary path), else fall back to the primary (first) repo.
+async function resolveRepo(cwd, repoRoot) {
+  const { list } = await detectRepos(cwd);
+  if (!list.length) return null;
+  if (repoRoot) return list.find((r) => r.root === repoRoot) || null;
+  return list[0];
+}
+
+// { vcs, root, changes, truncated, repos:[{ kind, root, label, primary, changes }] }.
+// `repos` lists every detected repo, primary first when it exists. Top-level vcs/root/changes
+// keep mirroring the primary repo. MAX_FILES is a global budget: repos past it stay listed
+// with empty changes and `truncated` flips to true.
+async function buildVcsChanges(cwd) {
+  const empty = { vcs: null, root: null, changes: [], truncated: false, repos: [] };
+  if (!cwd) return empty;
+  const { base, list } = await detectRepos(cwd);
   if (!list.length) return empty;
+  const primary = list[0].primary ? list[0] : null;
 
   let budget = MAX_FILES;
   let truncated = false;
@@ -311,16 +329,17 @@ async function buildVcsChanges(cwd) {
 // exclut aussi toute chaîne commençant par '-' (injection de flag) ou un revset arbitraire.
 const REV_RE = /^[0-9a-f]{4,64}$/i;
 
-// Commits du dépôt PRINCIPAL de la session, du plus récent au plus ancien — alimente le
-// sélecteur de commit de la lentille Ship (mode VCS). { vcs, root, commits:[{ rev, author,
+// Commits d'UN dépôt de la session (le principal par défaut, ou `repoRoot` s'il désigne un
+// des dépôts détectés — jamais un chemin arbitraire), du plus récent au plus ancien — alimente
+// le sélecteur de commit de la lentille Ship (mode VCS). { vcs, root, commits:[{ rev, author,
 // ts, subject }] }. `rev` est l'id complet (sha git / commit_id jj), réutilisable tel quel
-// par buildVcsCommitChanges. Les sous-dépôts imbriqués ne sont pas couverts (hors sujet ici).
-async function listVcsCommits(cwd, limit = LOG_MAX) {
+// par buildVcsCommitChanges.
+async function listVcsCommits(cwd, repoRoot = null, limit = LOG_MAX) {
   const empty = { vcs: null, root: null, commits: [] };
   if (!cwd) return empty;
-  const primary = await detectVcs(cwd);
-  if (!primary) return empty;
-  const { root, kind, mechanism } = primary;
+  const repo = await resolveRepo(cwd, repoRoot);
+  if (!repo) return empty;
+  const { root, kind, mechanism } = repo;
   const commits = [];
   if (mechanism === 'git') {
     // Tabulations en séparateur, sujet en DERNIER (il peut en contenir — on re-joint le reste).
@@ -346,17 +365,18 @@ async function listVcsCommits(cwd, limit = LOG_MAX) {
   return { vcs: kind, root, commits };
 }
 
-// Diff d'UN commit (vs son parent) du dépôt principal. Même forme d'entrées que
-// buildVcsChanges → le rendu Ship/Diff est réutilisé tel quel. { vcs, root, changes }.
-async function buildVcsCommitChanges(cwd, rev) {
+// Diff d'UN commit (vs son parent) d'un dépôt de la session (principal par défaut, ou
+// `repoRoot` parmi les dépôts détectés). Même forme d'entrées que buildVcsChanges → le rendu
+// Ship/Diff est réutilisé tel quel. { vcs, root, changes }.
+async function buildVcsCommitChanges(cwd, rev, repoRoot = null) {
   const empty = { vcs: null, root: null, changes: [] };
   if (!cwd || typeof rev !== 'string' || !REV_RE.test(rev)) return empty;
-  const primary = await detectVcs(cwd);
-  if (!primary) return empty;
-  const changes = primary.mechanism === 'jj'
-    ? await jjCommitChanges(primary.root, rev)
-    : await gitCommitChanges(primary.root, rev);
-  return { vcs: primary.kind, root: primary.root, changes };
+  const repo = await resolveRepo(cwd, repoRoot);
+  if (!repo) return empty;
+  const changes = repo.mechanism === 'jj'
+    ? await jjCommitChanges(repo.root, rev)
+    : await gitCommitChanges(repo.root, rev);
+  return { vcs: repo.kind, root: repo.root, changes };
 }
 
 export { detectVcs, scanSubRepos, buildVcsChanges, listVcsCommits, buildVcsCommitChanges };
