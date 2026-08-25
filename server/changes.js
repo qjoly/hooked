@@ -11,9 +11,18 @@
  * Les contenus sont bornés par défaut (payload du détail de session). Un fichier dont un op dépasse
  * ces bornes (ou trop gros pour la reconstruction) est marqué `truncated:true` ; la lentille Ship
  * propose alors de charger le diff COMPLET à la demande via buildFileChangeFull (caps = Infinity).
+ *
+ * S'y ajoutent les modifications faites PAR LES COMMANDES BASH (invisibles dans le transcript) :
+ * hook.cjs les capture (diff d'état git avant/après chaque Bash) dans
+ * <HOOKED_DIR>/bash-changes/<session_id>.jsonl sous forme de SHAs de blobs git, résolus ici via
+ * `git cat-file` puis fusionnés comme des ops `edit` plein-fichier (old/new = contenu complet),
+ * horodatées → le filtre par prompt du Ship marche tel quel. Un blob élagué par `git gc`
+ * (sessions > ~2 semaines) fait ignorer l'op silencieusement.
  */
 import fs from 'node:fs';
 import path from 'node:path';
+import { execFileSync } from 'node:child_process';
+import { HOOKED_DIR } from './config.js';
 
 // Default caps keep the session-detail payload lean. A file that overflows them is flagged
 // `truncated` and the Ship lens offers to load the FULL diff on demand (buildFileChangeFull).
@@ -56,7 +65,7 @@ function reconstructOriginal(file, ops, mergeMax) {
 function truncateOp(o, editMax, writeMax) {
   if (o.kind === 'write') return { kind: 'write', content: o.content.slice(0, writeMax), ts: o.ts };
   if (o.kind === 'notebook') return { kind: 'notebook', new: o.new.slice(0, editMax), ts: o.ts };
-  return { kind: 'edit', old: o.old.slice(0, editMax), new: o.new.slice(0, editMax), all: o.all, ts: o.ts };
+  return { kind: 'edit', old: o.old.slice(0, editMax), new: o.new.slice(0, editMax), all: o.all, ts: o.ts, ...(o.bash ? { bash: true } : {}) };
 }
 
 // A raw op is "too big" for the given caps → its content would be sliced (→ missing lines).
@@ -108,6 +117,59 @@ function scanOps(fp) {
   return byFile;
 }
 
+// ── Bash-command changes (captured by hook.cjs) ──────────────────────────────────────────────────
+
+const SHA_RE = /^[0-9a-f]{40,64}$/;
+const BLOB_CACHE_MAX = 200;
+const blobCache = new Map(); // `${root}:${sha}` -> content (LRU-ish: cleared when full)
+
+// Contenu d'un blob git épinglé par le hook. null si irrécupérable (blob gc'é, repo disparu).
+function catBlob(root, sha) {
+  if (!SHA_RE.test(sha || '')) return null;
+  const key = root + ':' + sha;
+  if (blobCache.has(key)) return blobCache.get(key);
+  let content = null;
+  try {
+    content = execFileSync('git', ['-C', root, 'cat-file', 'blob', sha],
+      { timeout: 3000, maxBuffer: 8 * 1024 * 1024, encoding: 'utf8' });
+  } catch (_) {}
+  if (blobCache.size >= BLOB_CACHE_MAX) blobCache.clear();
+  blobCache.set(key, content);
+  return content;
+}
+
+// Ops plein-fichier issues des commandes Bash de la session, fusionnées dans byFile (même forme
+// que scanOps). Une op dont un blob non-null ne se résout plus est ignorée (pas de faux diff).
+function mergeBashOps(byFile, sessionId) {
+  if (!sessionId || !/^[\w.-]+$/.test(String(sessionId))) return;
+  const fp = path.join(HOOKED_DIR, 'bash-changes', sessionId + '.jsonl');
+  let data;
+  try { data = fs.readFileSync(fp, 'utf8'); } catch (_) { return; }
+  const touched = new Set();
+  for (const line of data.split('\n')) {
+    if (!line) continue;
+    let j;
+    try { j = JSON.parse(line); } catch (_) { continue; }
+    if (!j || !j.file || !j.root) continue;
+    const oldText = j.old === null ? '' : catBlob(j.root, j.old);
+    const newText = j.new === null ? '' : catBlob(j.root, j.new);
+    if (oldText === null || newText === null || oldText === newText) continue;
+    const entry = byFile.get(j.file) || { file: j.file, name: path.basename(j.file), tool: 'Bash', ops: [], count: 0, lastTs: j.ts || null };
+    entry.ops.push({ kind: 'edit', old: oldText, new: newText, all: false, ts: j.ts || null, bash: true });
+    entry.count += 1;
+    if (j.ts && (!entry.lastTs || j.ts > entry.lastTs)) entry.lastTs = j.ts;
+    byFile.set(j.file, entry);
+    touched.add(j.file);
+  }
+  // Interleave bash ops with transcript ops chronologically (both carry ISO timestamps).
+  for (const f of touched) {
+    const e = byFile.get(f);
+    if (e.ops.some((o) => o.bash) && e.ops.some((o) => !o.bash)) {
+      e.ops.sort((a, b) => String(a.ts || '').localeCompare(String(b.ts || '')));
+    }
+  }
+}
+
 // Build one output entry from an accumulated file entry, under the given caps.
 function buildEntry(e, editMax, writeMax, mergeMax) {
   const merged = reconstructOriginal(e.file, e.ops, mergeMax);
@@ -124,8 +186,11 @@ function buildEntry(e, editMax, writeMax, mergeMax) {
   return { file: e.file, name: e.name, tool: e.tool, ops, count: e.count, lastTs: e.lastTs, original: merged ? merged.old : null, rawOps, truncated };
 }
 
-function buildFileChanges(fp) {
+// `sessionId` (optionnel) : fusionne aussi les modifs capturées sur les commandes Bash de la
+// session (hook.cjs) — absent pour les transcripts de sous-agents.
+function buildFileChanges(fp, sessionId) {
   const byFile = scanOps(fp);
+  mergeBashOps(byFile, sessionId);
   const out = [...byFile.values()].map((e) => buildEntry(e, EDIT_MAX, WRITE_MAX, MERGE_MAX));
   out.sort((a, b) => String(b.lastTs || '').localeCompare(String(a.lastTs || '')));
   return out;
@@ -134,8 +199,10 @@ function buildFileChanges(fp) {
 // Full (uncapped) change entry for ONE file, loaded on demand by the Ship lens when a file was
 // flagged `truncated`. Infinity caps → no slicing, no size bail on reconstruction. null if the file
 // wasn't touched in this transcript.
-function buildFileChangeFull(fp, filePath) {
-  const e = scanOps(fp).get(filePath);
+function buildFileChangeFull(fp, filePath, sessionId) {
+  const byFile = scanOps(fp);
+  mergeBashOps(byFile, sessionId);
+  const e = byFile.get(filePath);
   if (!e) return null;
   return buildEntry(e, Infinity, Infinity, Infinity);
 }

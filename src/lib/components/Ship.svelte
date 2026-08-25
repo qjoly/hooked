@@ -249,6 +249,7 @@
           <button class="sf-item" class:on={i === activeIdx} onclick={() => (activeIdx = i)} title={c.file}>
             <span class="sf-dot" class:done={isReviewed(c.file)}>{#if isReviewed(c.file)}<Icon name="check" size={11} />{/if}</span>
             <span class="sf-name">{c.name}</span>
+            {#if c.tool === 'Bash'}<span class="sf-cmd" title="Changed by a bash command, not an edit tool">cmd</span>{/if}
             <span class="sf-stat">
               {#if c.truncated}<span class="sf-trunc" title="Large file — capped, load full to see everything"><Icon name="warning" size={12} /></span>{/if}
               {#if c.binary}<span class="sf-bin">bin</span>{:else}<span class="sf-add">+{st.adds}</span> <span class="sf-del">−{st.dels}</span>{/if}
@@ -389,6 +390,7 @@
   .sf-add { color: var(--success); }
   .sf-del { color: var(--danger); }
   .sf-bin { color: var(--muted); }
+  .sf-cmd { color: var(--muted); font-size: 9px; border: 1px solid var(--border, currentColor); border-radius: 3px; padding: 0 3px; line-height: 1.4; flex: none; }
   .sf-trunc { color: var(--waiting); font-size: 10px; }
   .sf-foot { border-top: 1px solid var(--border); padding: 10px 14px; }
   .sf-prog { height: 2px; border-radius: 0; background: var(--bg3); overflow: hidden; margin-bottom: 7px; }

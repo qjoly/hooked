@@ -326,7 +326,7 @@ function sessionDetail(id) {
   const messages = buildConversation(s.file);
   // sessions sœurs créées / référencées par cette conversation (cartes vivantes du sous-onglet).
   const subSessions = buildSubSessions(s.file, id);
-  const changes = buildFileChanges(s.file);
+  const changes = buildFileChanges(s.file, id);
   // Tours (prompts) de la conversation, pour filtrer les changements par prompt dans la lentille
   // Ship. On exclut les tours auto (wakeups SDK) ; l'attribution op→tour se fait par timestamp.
   const changeTurns = messages
