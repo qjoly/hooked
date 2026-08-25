@@ -57,7 +57,7 @@
   "interrupt": "<rect x=\"14\" y=\"3\" width=\"5\" height=\"18\" rx=\"1\" /><rect x=\"5\" y=\"3\" width=\"5\" height=\"18\" rx=\"1\" />",
   "stop": "<rect width=\"18\" height=\"18\" x=\"3\" y=\"3\" rx=\"2\" />",
   "activity": "<path d=\"M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2\" />",
-  "snooze": "<circle cx=\"12\" cy=\"12\" r=\"10\" /><path d=\"M12 6v6l4 2\" />",
+  "snooze": "<path d=\"M3 10h8l-8 11h8\" /><path d=\"M14 14h6l-6 7h6\" /><path d=\"M11 2h5l-5 5h5\" />",
   "clock": "<circle cx=\"12\" cy=\"12\" r=\"10\" /><path d=\"M12 6v6l4 2\" />",
   "all-clear": "<path d=\"M5.8 11.3 2 22l10.7-3.79\" /><path d=\"M4 3h.01\" /><path d=\"M22 8h.01\" /><path d=\"M15 2h.01\" /><path d=\"M22 20h.01\" /><path d=\"m22 2-2.24.75a2.9 2.9 0 0 0-1.96 3.12c.1.86-.57 1.63-1.45 1.63h-.38c-.86 0-1.6.6-1.76 1.44L14 10\" /><path d=\"m22 13-.82-.33c-.86-.34-1.82.2-1.98 1.11c-.11.7-.72 1.22-1.43 1.22H17\" /><path d=\"m11 2 .33.82c.34.86-.2 1.82-1.11 1.98C9.52 4.9 9 5.52 9 6.23V7\" /><path d=\"M11 13c1.93 1.93 2.83 4.17 2 5-.83.83-3.07-.07-5-2-1.93-1.93-2.83-4.17-2-5 .83-.83 3.07.07 5 2Z\" />",
   "git-branch": "<path d=\"M15 6a9 9 0 0 0-9 9V3\" /><circle cx=\"18\" cy=\"6\" r=\"3\" /><circle cx=\"6\" cy=\"18\" r=\"3\" />",
@@ -137,9 +137,9 @@
     "restore": "var(--success)", "unarchive": "var(--success)", "all-clear": "var(--success)",
     // caution / time / energy — tag is the manila-label yellow (folders stay neutral: too many of them)
     "warning": "var(--warn)", "lightbulb": "var(--warn)",
-    "clock": "var(--warn)", "snooze": "var(--warn)", "queued": "var(--warn)", "busy": "var(--warn)",
+    "clock": "var(--warn)", "queued": "var(--warn)", "busy": "var(--warn)",
     "effort": "var(--warn)", "zap": "var(--warn)", "fast": "var(--warn)",
-    "lock": "var(--warn)", "package": "var(--warn)", "tag": "var(--warn)",
+    "lock": "var(--warn)", "package": "var(--warn)", "tag": "var(--warn)", "archive": "var(--warn)",
     // identity / VCS / primary objects
     "git": "var(--accent)", "pr": "var(--accent)", "jujutsu": "var(--accent)", "worktree": "var(--accent)",
     "git-branch": "var(--accent)", "link": "var(--accent)",
@@ -149,6 +149,7 @@
     "diff": "var(--info)", "pencil": "var(--info)", "comment": "var(--info)",
     "question": "var(--info)", "plan": "var(--info)", "mode": "var(--info)",
     "vscode": "var(--info)", "ship": "var(--info)", "paperclip": "var(--info)",
+    "snooze": "var(--info)",
     // session states (same tokens the status system uses)
     "working": "var(--working)", "waiting": "var(--waiting)", "attention": "var(--attention)",
     "ended": "var(--ended)", "activity": "var(--working)", "in-progress": "var(--working)",
