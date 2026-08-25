@@ -127,3 +127,44 @@ describe('buildFileChanges merge', () => {
     expect(out.map((c) => c.name)).toEqual(['page.html']);
   });
 });
+
+describe('orphan sweep (subagent bash)', () => {
+  it('a PreToolUse without PostToolUse is swept at the turn boundary (Stop)', () => {
+    // subagent Bash calls fire PreToolUse but no PostToolUse → the snapshot stays orphaned
+    runHook(hookPayload('PreToolUse', 'tu-orphan'));
+    fs.writeFileSync(path.join(repo, 'orphan.txt'), 'made by subagent\n');
+    runHook({ hook_event_name: 'Stop', session_id: SESSION, cwd: repo });
+
+    const lines = fs.readFileSync(path.join(dataDir, 'bash-changes', SESSION + '.jsonl'), 'utf8')
+      .split('\n').filter(Boolean).map((l) => JSON.parse(l));
+    const orphan = lines.find((l) => path.basename(l.file) === 'orphan.txt');
+    expect(orphan).toBeTruthy();
+    expect(orphan.old).toBeNull();
+    expect(orphan.new).toMatch(/^[0-9a-f]{40,64}$/);
+    expect(fs.readdirSync(path.join(dataDir, 'bash-pre'))).toEqual([]); // all snapshots consumed
+  });
+
+  it('chained sweep: a stale orphan from an old turn does not mask a newer deletion', () => {
+    // stale orphan left over from an old turn (file does not exist yet at that point)
+    runHook(hookPayload('PreToolUse', 'tu-stale'));
+    // the file is then created by a normal pre/post pair (recorded on its own)
+    runHook(hookPayload('PreToolUse', 'tu-create'));
+    fs.writeFileSync(path.join(repo, 'ephemeral.txt'), 'hi\n');
+    runHook(hookPayload('PostToolUse', 'tu-create'));
+    // a subagent deletes it: PreToolUse fires, PostToolUse never does
+    runHook(hookPayload('PreToolUse', 'tu-del'));
+    fs.rmSync(path.join(repo, 'ephemeral.txt'));
+    runHook({ hook_event_name: 'Stop', session_id: SESSION, cwd: repo });
+
+    const lines = fs.readFileSync(path.join(dataDir, 'bash-changes', SESSION + '.jsonl'), 'utf8')
+      .split('\n').filter(Boolean).map((l) => JSON.parse(l))
+      .filter((l) => path.basename(l.file) === 'ephemeral.txt');
+    // creation (pre/post pair) then deletion (sweep, via the tu-del snapshot despite tu-stale)
+    expect(lines.length).toBe(2);
+    expect(lines[0].old).toBeNull();
+    expect(lines[0].new).toMatch(/^[0-9a-f]{40,64}$/);
+    expect(lines[1].old).toBe(lines[0].new);
+    expect(lines[1].new).toBeNull();
+    expect(fs.readdirSync(path.join(dataDir, 'bash-pre'))).toEqual([]);
+  });
+});
