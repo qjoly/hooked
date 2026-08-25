@@ -65,6 +65,56 @@ describe('unifiedRows', () => {
   });
 });
 
+describe('gap expansion (GitHub-style expand buttons)', () => {
+  // change · 30 equal lines · change → collapses to 3 head + gap(24) + 3 tail.
+  const eq = Array.from({ length: 30 }, (_, i) => 'line' + i).join('\n');
+  const segs = toSegments('A_OLD\n' + eq + '\nB_OLD\n', 'A_NEW\n' + eq + '\nB_NEW\n');
+  const gapSeg = () => unifiedRows(segs).find((r) => r.kind === 'gap').seg;
+
+  it('gap rows carry their segment index', () => {
+    expect(typeof gapSeg()).toBe('number');
+  });
+
+  it('head expansion reveals lines below the upper context and shrinks the gap', () => {
+    const rows = unifiedRows(segs, { [gapSeg()]: { head: 20 } });
+    const gap = rows.find((r) => r.kind === 'gap');
+    expect(gap.count).toBe(4); // 24 hidden − 20 revealed
+    // line numbering stays correct: the trailing deletion is still old line 32.
+    expect(rows.filter((r) => r.kind === 'del').at(-1).oldNo).toBe(32);
+    // the first revealed line follows the 3 default head-context lines.
+    const ctx = rows.filter((r) => r.kind === 'ctx');
+    expect(ctx[3].text).toBe('line3');
+  });
+
+  it('tail expansion reveals lines above the lower context', () => {
+    const rows = unifiedRows(segs, { [gapSeg()]: { tail: 20 } });
+    expect(rows.find((r) => r.kind === 'gap').count).toBe(4);
+    const ctx = rows.filter((r) => r.kind === 'ctx');
+    expect(ctx.at(-1).text).toBe('line29'); // tail still ends at the default context
+    expect(ctx.length).toBe(3 + 23); // 3 head + (20 revealed + 3 tail)
+  });
+
+  it('expanding past the hidden count removes the gap entirely', () => {
+    const rows = unifiedRows(segs, { [gapSeg()]: { head: 20, tail: 20 } });
+    expect(rows.some((r) => r.kind === 'gap')).toBe(false);
+    expect(rows.filter((r) => r.kind === 'ctx').length).toBe(30);
+    expect(rows.filter((r) => r.kind === 'del').at(-1).oldNo).toBe(32);
+  });
+
+  it('all:true reveals the whole run', () => {
+    const rows = unifiedRows(segs, { [gapSeg()]: { all: true } });
+    expect(rows.some((r) => r.kind === 'gap')).toBe(false);
+    expect(rows.filter((r) => r.kind === 'ctx').length).toBe(30);
+  });
+
+  it('splitRows honours the same expansion contract', () => {
+    const seg = splitRows(segs).find((r) => r.kind === 'gap').seg;
+    const rows = splitRows(segs, { [seg]: { all: true } });
+    expect(rows.some((r) => r.kind === 'gap')).toBe(false);
+    expect(rows.filter((r) => r.kind === 'ctx').at(-1).left.no).toBe(31);
+  });
+});
+
 describe('splitRows', () => {
   it('zips deletions and additions side by side', () => {
     const rows = splitRows(toSegments('a\nb\n', 'a\nB\n'));
