@@ -13,6 +13,7 @@
   const NAV = [
     { id: 'pset-appearance', label: 'Appearance' },
     { id: 'pset-sidebar', label: 'Sidebar' },
+    { id: 'pset-ship', label: 'Ship' },
     { id: 'pset-new', label: 'New session defaults' },
     { id: 'pset-project', label: 'Default project' },
     { id: 'pset-remote-control', label: 'Remote control' },
@@ -459,6 +460,19 @@
         <input type="checkbox" checked={ui.groupByProject} onchange={(e) => (ui.groupByProject = e.currentTarget.checked)} />
         <span>Group sessions by project</span>
       </label>
+    </div>
+
+    <div class="card" id="pset-ship" data-sec>
+      <h2>Ship diff source</h2>
+      <p class="hint">Which diff the Ship lens opens on: <strong>Claude diff</strong> (changes reconstructed from the transcript, filterable by prompt) or <strong>VCS</strong> (git / jj — uncommitted changes and per-commit diffs). The toggle inside the Ship tab always lets you switch on the spot. (Shared setting.)</p>
+      <div class="chips">
+        <button class="chip" class:active={settings.shipDefaultView !== 'vcs'} onclick={() => updateSettings({ shipDefaultView: 'claude' })}>
+          <Icon name="diff" size={14} /> Claude diff
+        </button>
+        <button class="chip" class:active={settings.shipDefaultView === 'vcs'} onclick={() => updateSettings({ shipDefaultView: 'vcs' })}>
+          <Icon name="git" size={14} /> VCS (git / jj)
+        </button>
+      </div>
     </div>
 
     <div class="card" id="pset-new" data-sec>

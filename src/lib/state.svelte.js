@@ -427,6 +427,7 @@ export const settings = $state({
   remoteControlProjects: [],
   favoriteProjects: [],
   digest: { auto: true, hour: 7, model: '' },
+  shipDefaultView: 'claude', // source de diff à l'ouverture de la lentille Ship ('claude' | 'vcs')
   defaultPage: 'deck',
   navTabs: ['sessions', 'search', 'stats', 'digest', 'memory'], // onglets de nav visibles (paramétrable)
 });
