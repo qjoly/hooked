@@ -3,7 +3,7 @@
   // the app tokens, syntax-highlighted per line via the repo's own highlighter, unified or split,
   // with GitHub-style inline comments. Input is a single (oldStr → newStr) pair; the caller (Ship)
   // passes the NET original→final content so transient add-then-delete never shows.
-  import { toSegments, unifiedRows, splitRows, langFromName } from '$lib/difflines.js';
+  import { toSegments, unifiedRows, splitRows, langFromName, EXPAND_STEP } from '$lib/difflines.js';
   import { highlight } from '$lib/highlight.js';
   import Icon from '$lib/components/Icon.svelte';
 
@@ -17,7 +17,18 @@
 
   const lang = $derived(langFromName(name));
   const segs = $derived(toSegments(oldStr, newStr));
-  const rows = $derived(mode === 'split' ? splitRows(segs) : unifiedRows(segs));
+
+  // GitHub-style gap expansion: per equal-segment { head, tail, all } — how many hidden unchanged
+  // lines the user revealed on each side of a collapsed gap. Reset when the diff content changes.
+  let expand = $state({});
+  $effect(() => { oldStr; newStr; expand = {}; });
+  function expandGap(seg, dir) {
+    const e = expand[seg] || { head: 0, tail: 0 };
+    expand = { ...expand, [seg]: { ...e, [dir]: (e[dir] || 0) + EXPAND_STEP } };
+  }
+  function expandAll(seg) { expand = { ...expand, [seg]: { all: true } }; }
+
+  const rows = $derived(mode === 'split' ? splitRows(segs, expand) : unifiedRows(segs, expand));
 
   // highlight cache: identical lines are common (context) → memoise the escaped HTML.
   let hlCache = new Map();
@@ -89,7 +100,19 @@
 <div class="dv {mode}" class:commentable class:dv-dragging={!!drag}>
   {#each rows as r, i (i)}
     {#if r.kind === 'gap'}
-      <div class="dv-gap"><span class="dv-gap-line"></span><span class="dv-gap-txt">⋯ {r.count} unchanged line{r.count > 1 ? 's' : ''}</span><span class="dv-gap-line"></span></div>
+      <div class="dv-gap">
+        <span class="dv-gap-btns">
+          {#if r.count <= EXPAND_STEP}
+            <button class="dv-gap-btn" title="Show all {r.count} lines" onclick={() => expandAll(r.seg)}><Icon name="arrow-up" size={11} /><Icon name="arrow-down" size={11} /></button>
+          {:else}
+            <button class="dv-gap-btn" title="Expand up ({EXPAND_STEP} lines)" onclick={() => expandGap(r.seg, 'tail')}><Icon name="arrow-up" size={11} /></button>
+            <button class="dv-gap-btn" title="Expand down ({EXPAND_STEP} lines)" onclick={() => expandGap(r.seg, 'head')}><Icon name="arrow-down" size={11} /></button>
+          {/if}
+        </span>
+        <span class="dv-gap-line"></span>
+        <button class="dv-gap-txt" title="Show all {r.count} lines" onclick={() => expandAll(r.seg)}>⋯ {r.count} unchanged line{r.count > 1 ? 's' : ''}</button>
+        <span class="dv-gap-line"></span>
+      </div>
     {:else if mode === 'unified'}
       {@const side = r.kind === 'del' ? 'old' : 'new'}
       {@const lineNo = r.kind === 'del' ? r.oldNo : r.newNo}
@@ -207,9 +230,20 @@
   .dv-cell.dv-inrange { background: rgba(var(--accent-rgb), .16); box-shadow: inset 2px 0 0 var(--accent); }
   .dv.dv-dragging { user-select: none; cursor: ns-resize; }
 
-  .dv-gap { display: flex; align-items: center; gap: 10px; padding: 3px 12px; background: rgba(255,255,255,.02); }
+  .dv-gap { display: flex; align-items: center; gap: 10px; padding: 2px 12px 2px 4px; background: rgba(var(--accent-rgb), .05); }
   .dv-gap-line { flex: 1; height: 1px; background: var(--border); }
-  .dv-gap-txt { color: #6a7180; font-size: 10.5px; }
+  .dv-gap-btns { flex: 0 0 auto; display: flex; gap: 2px; }
+  .dv-gap-btn {
+    display: flex; align-items: center; justify-content: center; gap: 0;
+    background: none; border: none; border-radius: 4px; padding: 2px 5px;
+    color: var(--accent); cursor: pointer; line-height: 1;
+  }
+  .dv-gap-btn:hover { background: var(--accent); color: #fff; }
+  .dv-gap-txt {
+    background: none; border: none; padding: 1px 6px; border-radius: 4px;
+    color: #6a7180; font-family: inherit; font-size: 10.5px; cursor: pointer;
+  }
+  .dv-gap-txt:hover { color: var(--accent); background: rgba(var(--accent-rgb), .12); }
 
   /* comments */
   .dv-comments { background: rgba(255,255,255,.02); padding: 4px 12px 4px 52px; font-family: var(--font); }
