@@ -57,7 +57,7 @@
       {#if decisions > 0}<span class="tb-badge" title="{decisions} decision{decisions > 1 ? 's' : ''} awaiting you">{decisions}</span>{/if}
     </a>
     {#each tabs as t (t.key)}
-      <a class="tb-space" class:on={tabActive(t)} href={t.href}><Icon name={t.icon} size={14} /> {t.label}</a>
+      <a class="tb-space" class:on={tabActive(t)} href={t.href} style={t.tint ? `--tab-tint:${t.tint}` : null}><Icon name={t.icon} size={14} /> {t.label}</a>
     {/each}
   </nav>
 
@@ -133,7 +133,9 @@
     box-shadow: inset 0 -2px 0 transparent; transition: color .12s, box-shadow .12s;
   }
   .tb-space:hover { color: var(--text); }
-  .tb-space.on { background: transparent; color: var(--text); box-shadow: inset 0 -2px 0 var(--accent); }
+  /* Active tab: icon + underline pick the tab's tint (nav.js), accent when it has none. */
+  .tb-space.on { background: transparent; color: var(--text); box-shadow: inset 0 -2px 0 var(--tab-tint, var(--accent)); }
+  .tb-space.on :global(svg) { color: var(--tab-tint, var(--accent)); }
   .tb-badge {
     min-width: 16px; height: 16px; padding: 0 4px; border-radius: 9px;
     background: var(--attention); color: #fff; font-size: 10px; font-weight: 800;

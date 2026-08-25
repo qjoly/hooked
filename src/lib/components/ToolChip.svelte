@@ -125,7 +125,7 @@
                     {#each q.options || [] as o}
                       <div class="q-opt" class:sel={isPicked(o.label)}>
                         <span class="q-opt-body">
-                          <span class="q-opt-label">{#if isPicked(o.label)}<span class="ask-check"><Icon name="check" size={13} /> </span>{/if}{o.label}</span>
+                          <span class="q-opt-label">{#if isPicked(o.label)}<span class="ask-check"><Icon name="check" size={13} tint={false} /> </span>{/if}{o.label}</span>
                           {#if o.description}<span class="q-opt-desc">{o.description}</span>{/if}
                         </span>
                       </div>

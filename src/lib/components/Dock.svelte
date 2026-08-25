@@ -158,7 +158,7 @@
         </div>
       {:else}
         <div class="db dpills">
-          {#each prLinks as l}<a class="dpill pr" href={l} target="_blank" rel="noopener"><Icon name="pr" size={13} /> {prLabel(l)}</a>{/each}
+          {#each prLinks as l}<a class="dpill pr" href={l} target="_blank" rel="noopener"><Icon name="pr" size={13} tint={false} /> {prLabel(l)}</a>{/each}
           {#each issueLinks as l}<a class="dpill" href={l} target="_blank" rel="noopener"><Icon name="issue" size={13} /> {issueLabel(l)}</a>{/each}
         </div>
       {/if}

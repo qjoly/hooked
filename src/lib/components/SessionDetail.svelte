@@ -574,7 +574,7 @@
           <button class="stop-btn" disabled={archiving} onclick={archive}
                   title="Stop the tmux session and move it to Archived">{#if archiving}<Icon name="queued" size={14} />{:else}<Icon name="archive" size={14} /> Archive{/if}</button>
         {:else}
-          <button class="resume-btn" onclick={resume}><Icon name="in-progress" size={14} /> Resume</button>
+          <button class="resume-btn" onclick={resume}><Icon name="in-progress" size={14} tint={false} /> Resume</button>
         {/if}
         {#if !inSplit}
           <button class="hdr-icon-btn" title="Split with the most recent session (⌘/Ctrl+⇧+S)"
@@ -619,7 +619,7 @@
             <button class="vscode-btn" class:on={ui.toolsOpen} onclick={() => (ui.toolsOpen = !ui.toolsOpen)} title="Expand every tool call's input/result inline (this session only, off on reload)"><Icon name="tool" size={14} /> {ui.toolsOpen ? 'Collapse tool details' : 'Expand tool details'}</button>
             <div class="hdr-div"></div>
             <button class="vscode-btn" onclick={archive} title={archived ? 'Restore this session to the live fleet' : 'Stop the tmux session and move it to Archived'}>{#if archived}<Icon name="unarchive" size={14} /> Unarchive{:else}<Icon name="archive" size={14} /> Archive{/if}</button>
-            <button class="vscode-btn del-btn" disabled={deleting} onclick={del} title="Move to trash: removes from dashboard; transcript kept in bin/ (recoverable)">{#if deleting}<Icon name="queued" size={14} />{:else}<Icon name="trash" size={14} />{/if} Delete</button>
+            <button class="vscode-btn del-btn" disabled={deleting} onclick={del} title="Move to trash: removes from dashboard; transcript kept in bin/ (recoverable)">{#if deleting}<Icon name="queued" size={14} tint={false} />{:else}<Icon name="trash" size={14} tint={false} />{/if} Delete</button>
           </div>
         </details>
       </div>

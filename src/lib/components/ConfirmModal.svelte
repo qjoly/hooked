@@ -16,7 +16,7 @@
   <div class="cf-foot">
     <button class="cf-btn cf-cancel" onclick={closeModal}>{r.cancelLabel || 'Cancel'}</button>
     <!-- svelte-ignore a11y_autofocus -->
-    <button class="cf-btn cf-confirm" class:danger={r.danger} autofocus onclick={doConfirm}>{#if r.confirmIcon}<Icon name={r.confirmIcon} size={14} />{/if}{r.confirmLabel || 'Confirm'}</button>
+    <button class="cf-btn cf-confirm" class:danger={r.danger} autofocus onclick={doConfirm}>{#if r.confirmIcon}<Icon name={r.confirmIcon} size={14} tint={false} />{/if}{r.confirmLabel || 'Confirm'}</button>
   </div>
 </div>
 
