@@ -14,7 +14,7 @@
   <b>{d.tmux}</b><br>folder <code>{d.cwd}</code>{d.worktree ? ' (dedicated git worktree)' : ''}. Attach:</p>
 <div class="attach-row">
   <code>{d.attach}</code>
-  <button class="reply-send" onclick={copy}>{#if copied === true}<Icon name="check" size={14} /> copied{:else if copied === 'manual'}copy manually{:else}Copy{/if}</button>
+  <button class="reply-send" onclick={copy}>{#if copied === true}<Icon name="check" size={14} tint={false} /> copied{:else if copied === 'manual'}copy manually{:else}Copy{/if}</button>
 </div>
 <p style="color:var(--muted);font-size:12px;margin:14px 0 0">
   It will appear in the list as soon as the first hook event fires — you can then reply directly from the UI.</p>

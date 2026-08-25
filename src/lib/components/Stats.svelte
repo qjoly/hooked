@@ -75,7 +75,7 @@
       <div class="chips">
         <span class="chip">Effort: <b>{s.effort || '—'}</b></span>
         <span class="chip">Model: <b>{s.modelName || shortModel(s.modelId) || '—'}</b></span>
-        {#if s.fastMode}<span class="chip fast"><Icon name="fast" size={13} /> Fast</span>{/if}
+        {#if s.fastMode}<span class="chip fast"><Icon name="fast" size={13} tint={false} /> Fast</span>{/if}
       </div>
     {:else if u}
       <div class="empty">No active session snapshot.</div>
