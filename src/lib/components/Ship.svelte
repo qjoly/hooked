@@ -231,9 +231,24 @@
   }
   const reviewedCount = $derived(changes.filter((c) => reviewed.has(c.file)).length);
 
-  // diff style (persisted)
+  // diff style (persisted). `mode` is the sticky global preference, used for existing-file edits.
   let mode = $state((typeof localStorage !== 'undefined' && localStorage.getItem('hooked.shipDiff')) || 'split');
   $effect(() => { try { localStorage.setItem('hooked.shipDiff', mode); } catch {} });
+
+  // A new file (no prior version — every section is pure additions) defaults to unified: a
+  // side-by-side view of an all-green file is the same text twice. The toggle still wins per
+  // file via `modeOverride`, which is keyed only for new files so it never touches `mode`.
+  let modeOverride = $state({});
+  const isNewFile = $derived.by(() => {
+    if (!activeFile) return false;
+    const ds = fileDiffs(activeFile);
+    return ds.length > 0 && ds.every((d) => !d.oldStr);
+  });
+  const defaultMode = $derived(isNewFile ? 'unified' : mode);
+  function chooseMode(m) {
+    if (isNewFile && activeFile) modeOverride = { ...modeOverride, [activeFile.file]: m };
+    else mode = m;
+  }
 
   // Narrow mode (split pane / small window): Ship's 3 columns don't fit — the side columns
   // collapse (CSS container queries on .ship-wrap) and the diff is FORCED unified (a side-by-side
@@ -246,7 +261,11 @@
     ro.observe(shipEl);
     return () => ro.disconnect();
   });
-  const effMode = $derived(narrow ? 'unified' : mode);
+  const effMode = $derived(
+    narrow ? 'unified'
+    : (activeFile && activeFile.file in modeOverride) ? modeOverride[activeFile.file]
+    : defaultMode
+  );
 
   // ── inline comments (batched, sent to Claude) ──────────────────────────────────────────────
   let comments = $state([]); // { id, file, opIndex, name, side, start, end, text, snippet }
@@ -436,8 +455,8 @@
           <span class="sd-path" title={activeFile.file}>{activeFile.file}</span>
           <a class="sd-editor" href={'vscode://file' + activeFile.file} title="Open in VS Code"><Icon name="external" size={12} /> editor</a>
           <div class="sd-modes">
-            <button class:on={mode === 'unified'} onclick={() => (mode = 'unified')} title="Unified"><Icon name="menu" size={14} /></button>
-            <button class:on={mode === 'split'} onclick={() => (mode = 'split')} title="Side-by-side"><Icon name="pane" size={14} /></button>
+            <button class:on={effMode === 'unified'} onclick={() => chooseMode('unified')} title="Unified"><Icon name="menu" size={14} /></button>
+            <button class:on={effMode === 'split'} onclick={() => chooseMode('split')} title="Side-by-side"><Icon name="pane" size={14} /></button>
           </div>
           <button class="sd-review" class:done={isReviewed(activeFile.file)} onclick={reviewCurrent}>
             {#if isReviewed(activeFile.file)}<Icon name="check" size={14} /> Reviewed{:else}Mark reviewed{/if}
