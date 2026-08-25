@@ -45,43 +45,83 @@
   });
   function setView(v) { viewTouched = true; view = v; activeIdx = 0; }
 
-  let vcs = $state({ loaded: false, loading: false, error: null, kind: null, workChanges: [], commits: [] });
-  let selectedRev = $state(null);   // null = working tree ("Uncommitted")
-  let commitCache = $state({});     // rev -> changes[]
+  let vcs = $state({ loaded: false, loading: false, error: null, kind: null, workChanges: [], repos: [], truncated: false });
+  let selectedRepo = $state(null);  // repo root whose commit HISTORY is shown (default: primary)
+  let selectedRev = $state(null);   // null = working tree ("Uncommitted", every repo flattened)
+  let logCache = $state({});        // repo root -> commits[]
+  let logLoading = $state(false);
+  let commitCache = $state({});     // `${root}:${rev}` -> changes[]
   let commitLoading = $state(false);
   const VCS_META = { git: { icon: 'git', label: 'Git' }, jj: { icon: 'jujutsu', label: 'Jujutsu' } };
   const vcsMeta = $derived(VCS_META[vcs.kind] || { icon: 'git', label: 'VCS' });
+  const repoName = (p) => (p || '').split('/').filter(Boolean).pop() || p;
+
+  async function loadLog(root, force = false) {
+    if (!root || (!force && logCache[root])) return;
+    logLoading = true;
+    try {
+      const log = await getVcsLog(id, root);
+      logCache = { ...logCache, [root]: log.commits || [] };
+    } catch (_) {
+      logCache = { ...logCache, [root]: [] };
+    } finally {
+      logLoading = false;
+    }
+  }
 
   async function loadVcs(force = false) {
     if (!id || vcs.loading || (vcs.loaded && !force)) return;
     vcs = { ...vcs, loading: true, error: null };
     try {
       const [diff, log] = await Promise.all([getVcsDiff(id), getVcsLog(id)]);
-      // Ship's rail is a flat file list → flatten every detected repo's changes together.
-      const workChanges = (diff.repos || []).flatMap((r) => r.changes || []);
-      vcs = { loaded: true, loading: false, error: null, kind: diff.vcs || log.vcs, workChanges, commits: log.commits || [] };
-      if (force) commitCache = {};
+      // Ship's rail stays a flat list (activeIdx / J-K navigation), but with several detected
+      // repos each entry carries its repo so the rail can render per-repo section headers.
+      const repos = diff.repos || [];
+      const multi = repos.length > 1;
+      const repoMeta = repos.map((r) => ({ kind: r.kind, root: r.root, label: r.label || repoName(r.root), primary: r.primary }));
+      const workChanges = repos.flatMap((r, ri) => {
+        if (!multi) return r.changes || [];
+        return (r.changes || []).map((c) => ({ ...c, repo: repoMeta[ri] }));
+      });
+      vcs = { loaded: true, loading: false, error: null, kind: diff.vcs || log.vcs, workChanges, repos: repoMeta, truncated: !!diff.truncated };
+      if (log.root) logCache = { ...logCache, [log.root]: log.commits || [] };
+      if (!selectedRepo || !repoMeta.some((r) => r.root === selectedRepo)) selectedRepo = log.root || repoMeta[0]?.root || null;
+      if (force) { commitCache = {}; if (selectedRepo && selectedRepo !== log.root) loadLog(selectedRepo, true); }
+      else if (selectedRepo && !logCache[selectedRepo]) loadLog(selectedRepo);
     } catch (_) {
       vcs = { ...vcs, loading: false, loaded: true, error: 'Failed to load the VCS diff.' };
     }
   }
   $effect(() => { if (view === 'vcs') loadVcs(false); });
 
+  // Repo picker: changes which repo's commit HISTORY is listed. The "Uncommitted" diff is
+  // untouched (it always flattens every repo's working tree).
+  function selectRepo(root) {
+    if (selectedRepo === root) return;
+    selectedRepo = root;
+    selectedRev = null;
+    activeIdx = 0;
+    loadLog(root);
+  }
+  const commits = $derived(logCache[selectedRepo] || []);
+
   async function selectCommit(rev) {
     selectedRev = rev;
     activeIdx = 0;
-    if (!rev || commitCache[rev]) return;
+    if (!rev) return;
+    const key = selectedRepo + ':' + rev;
+    if (commitCache[key]) return;
     commitLoading = true;
     try {
-      const r = await getVcsCommit(id, rev);
-      commitCache = { ...commitCache, [rev]: r.changes || [] };
+      const r = await getVcsCommit(id, rev, selectedRepo);
+      commitCache = { ...commitCache, [key]: r.changes || [] };
     } catch (_) {
-      commitCache = { ...commitCache, [rev]: [] };
+      commitCache = { ...commitCache, [key]: [] };
     } finally {
       commitLoading = false;
     }
   }
-  const vcsChanges = $derived(selectedRev ? (commitCache[selectedRev] || []) : vcs.workChanges);
+  const vcsChanges = $derived(selectedRev ? (commitCache[selectedRepo + ':' + selectedRev] || []) : vcs.workChanges);
 
   // ── per-prompt filter ───────────────────────────────────────────────────────────────────────
   // Default = the whole conversation (net original→final). The user can restrict to one or more
@@ -113,7 +153,7 @@
     if (view === 'vcs') {
       // VCS entries are single old→new edits; key the sections per commit so inline comments
       // never collide with the Claude view (or another commit) on the same file.
-      const key = 'vcs:' + (selectedRev || 'wt');
+      const key = 'vcs:' + (selectedRev ? selectedRepo + ':' + selectedRev : 'wt');
       return (c.ops || []).map((o, j) => ({ oldStr: o.old || '', newStr: o.new || '', opIndex: key + ':' + j, label: null }));
     }
     if (!filtering) {
@@ -310,7 +350,8 @@
     {:else}
       <button class="st-chip" class:on={!selectedRev} onclick={() => selectCommit(null)}>Uncommitted</button>
       <div class="st-scroll">
-        {#each vcs.commits as c (c.rev)}
+        {#if logLoading && !commits.length}<span class="st-one">Loading commits…</span>{/if}
+        {#each commits as c (c.rev)}
           <button class="st-chip st-prompt" class:on={selectedRev === c.rev}
                   title={(c.subject || '(no message)') + (c.author ? ' — ' + c.author : '') + (c.ts ? ' · ' + c.ts : '')}
                   onclick={() => selectCommit(c.rev)}>
@@ -323,6 +364,20 @@
       </button>
     {/if}
   </div>
+  <!-- ── repo picker (VCS mode, several repos detected) ── picks which repo's commit HISTORY
+       is listed above; the "Uncommitted" diff keeps flattening every repo's working tree. -->
+  {#if view === 'vcs' && vcs.loaded && vcs.repos.length > 1}
+    <div class="ship-repos">
+      <span class="st-label">Repository</span>
+      <div class="st-scroll">
+        {#each vcs.repos as r (r.root)}
+          <button class="st-chip" class:on={selectedRepo === r.root} title={r.root} onclick={() => selectRepo(r.root)}>
+            <Icon name={(VCS_META[r.kind] || vcsMeta).icon} size={11} /> {r.label}
+          </button>
+        {/each}
+      </div>
+    </div>
+  {/if}
   {#if view === 'claude' && !allChanges.length}
     <div class="ship-empty">No file changes in this session yet.</div>
   {:else if view === 'vcs' && (vcs.loading || !vcs.loaded)}
@@ -346,6 +401,12 @@
       <div class="sf-list">
         {#each changes as c, i (c.file)}
           {@const st = fileStats.get(c.file) || { adds: 0, dels: 0 }}
+          {#if c.repo && changes[i - 1]?.repo?.root !== c.repo.root}
+            <div class="sf-repo" title={c.repo.root}>
+              <Icon name={(VCS_META[c.repo.kind] || vcsMeta).icon} size={11} />
+              <span class="sf-repo-name">{c.repo.label}</span>
+            </div>
+          {/if}
           <button class="sf-item" class:on={i === activeIdx} onclick={() => (activeIdx = i)} title={c.file}>
             <span class="sf-dot" class:done={isReviewed(c.file)}>{#if isReviewed(c.file)}<Icon name="check" size={11} />{/if}</span>
             <span class="sf-name">{c.name}</span>
@@ -357,6 +418,9 @@
             </span>
           </button>
         {/each}
+        {#if view === 'vcs' && !selectedRev && vcs.truncated}
+          <div class="sf-truncnote">File limit reached — some repositories are truncated.</div>
+        {/if}
       </div>
       <div class="sf-foot">
         <div class="sf-prog"><i style="width:{changes.length ? Math.round((reviewedCount / changes.length) * 100) : 0}%"></i></div>
@@ -463,6 +527,8 @@
   .st-toggle button:hover { color: var(--text); }
   .st-toggle button.on { background: var(--accent-soft); color: var(--accent-d); }
   .st-one { font-size: 11.5px; color: var(--muted); }
+  /* repo picker row (VCS mode, several repos) */
+  .ship-repos { flex: 0 0 auto; display: flex; align-items: center; gap: 8px; padding: 6px 14px; border-bottom: 1px solid var(--border); background: var(--bg2); min-width: 0; }
   .st-refresh {
     flex: 0 0 auto; display: inline-flex; align-items: center; background: none; border: 1px solid var(--border);
     border-radius: 999px; color: var(--muted); padding: 4px 8px; cursor: pointer;
@@ -506,6 +572,15 @@
   .sf-bin { color: var(--muted); }
   .sf-cmd { color: var(--muted); font-size: 9px; border: 1px solid var(--border, currentColor); border-radius: 3px; padding: 0 3px; line-height: 1.4; flex: none; }
   .sf-trunc { color: var(--waiting); font-size: 10px; }
+  /* per-repo section header (VCS view, several repos detected) */
+  .sf-repo {
+    display: flex; align-items: center; gap: 6px; padding: 9px 12px 4px;
+    font-family: var(--mono); font-size: 10px; color: var(--muted);
+    letter-spacing: .05em; text-transform: uppercase;
+    position: sticky; top: 0; z-index: 1; background: var(--bg2);
+  }
+  .sf-repo-name { font-weight: 700; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .sf-truncnote { padding: 8px 12px; font-family: var(--mono); font-size: 10px; font-style: italic; color: var(--muted); }
   .sf-foot { border-top: 1px solid var(--border); padding: 10px 14px; }
   .sf-prog { height: 2px; border-radius: 0; background: var(--bg3); overflow: hidden; margin-bottom: 7px; }
   .sf-prog i { display: block; height: 100%; background: var(--success); transition: width .2s; }
