@@ -76,6 +76,9 @@ function handle(input) {
     if (rec.event === 'PreToolUse') { try { bashPre(j); } catch (_) {} }
     if (rec.event === 'PostToolUse') { try { bashPost(j); } catch (_) {} }
   }
+  // Subagent Bash calls fire PreToolUse but NOT PostToolUse (observed) → their pre snapshots stay
+  // orphaned. At turn boundaries nothing is in flight: sweep them (net diff vs current state).
+  if (rec.event === 'Stop' || rec.event === 'UserPromptSubmit') { try { sweepOrphanPre(j); } catch (_) {} }
 }
 
 // ── Bash file-change capture ─────────────────────────────────────────────────────────────────────
@@ -148,6 +151,9 @@ function bashPre(j) {
   let head = null;
   try { head = git(root, ['rev-parse', 'HEAD']).trim(); } catch (_) {} // empty repo → null
   const dirty = dirtyPaths(root);
+  // `gone` distingue, parmi les fichiers sales non épinglés, ceux ABSENTS du worktree (suppression
+  // trackée) de ceux trop gros pour être épinglés (→ irrésolubles, jamais mal rapportés).
+  const gone = dirty.filter((p) => { try { return !fs.statSync(path.join(root, p)).isFile(); } catch (_) { return true; } });
   fs.mkdirSync(PRE_DIR, { recursive: true });
   // Stale snapshots (denied command → PostToolUse never fired) are reaped after 1 h.
   try {
@@ -156,36 +162,129 @@ function bashPre(j) {
       try { if (Date.now() - fs.statSync(fp).mtimeMs > 3600 * 1000) fs.unlinkSync(fp); } catch (_) {}
     }
   } catch (_) {}
-  fs.writeFileSync(preFileFor(j), JSON.stringify({ root, head, dirty, blobs: pinBlobs(root, dirty) }));
+  fs.writeFileSync(preFileFor(j), JSON.stringify({ root, head, dirty, gone, blobs: pinBlobs(root, dirty) }));
 }
 
-function bashPost(j) {
-  const pf = preFileFor(j);
-  let snap;
-  try { snap = JSON.parse(fs.readFileSync(pf, 'utf8')); } catch (_) { return; }
-  try { fs.unlinkSync(pf); } catch (_) {}
-  if (!snap || !snap.root || !j.session_id) return;
-  const root = snap.root;
-  const preDirty = new Set(snap.dirty || []);
-  const candidates = [...new Set([...(snap.dirty || []), ...dirtyPaths(root)])];
-  if (!candidates.length) return;
-  const newBlobs = pinBlobs(root, candidates);
-  // Old content of files that were CLEAN pre-command = their blob at the pre-command HEAD.
-  const atHead = headBlobs(root, snap.head, candidates.filter((p) => !preDirty.has(p)));
+// ── Vues d'état ──────────────────────────────────────────────────────────────────────────────────
+// L'état d'un chemin, vu d'un instant donné : SHA de blob, null (absent), ou undefined
+// (irrésoluble : fichier trop gros, ou snapshot ancien sans `gone` → on saute, jamais de faux diff).
+
+// Vue depuis un snapshot pre : sale+épinglé → blob ; sale+absent (gone) → null ; sale non épinglé
+// → undefined ; propre → son blob à HEAD au moment du snapshot (absent de HEAD = null : inexistant).
+function snapView(snap, paths) {
+  const dirty = new Set(snap.dirty || []);
+  const gone = new Set(snap.gone || []);
+  const atHead = headBlobs(snap.root, snap.head, paths.filter((p) => !dirty.has(p)));
+  const view = {};
+  for (const p of paths) {
+    if (!dirty.has(p)) { view[p] = atHead[p] !== undefined ? atHead[p] : null; continue; }
+    const pinned = snap.blobs && Object.prototype.hasOwnProperty.call(snap.blobs, p) ? snap.blobs[p] : undefined;
+    view[p] = pinned !== undefined ? pinned : (gone.has(p) ? null : undefined);
+  }
+  return view;
+}
+
+// Vue de l'état ACTUEL du worktree : épinglage à la volée ; absent → null ; trop gros → undefined.
+function liveView(root, paths) {
+  const pinned = pinBlobs(root, paths);
+  const view = {};
+  for (const p of paths) {
+    if (pinned[p] !== undefined) { view[p] = pinned[p]; continue; }
+    let exists = false;
+    try { exists = fs.statSync(path.join(root, p)).isFile(); } catch (_) {}
+    view[p] = exists ? undefined : null;
+  }
+  return view;
+}
+
+// Émet les chemins dont l'état diffère entre deux vues dans bash-changes/<session_id>.jsonl.
+function emitDiff(root, sessionId, candidates, oldView, newView) {
   const ts = new Date().toISOString();
   const lines = [];
   for (const p of candidates) {
-    const abs = path.join(root, p);
-    let existsNow = false;
-    try { existsNow = fs.statSync(abs).isFile(); } catch (_) {}
-    if (existsNow && newBlobs[p] === undefined) continue; // unpinnable (oversized) → skip, don't misreport
-    const oldBlob = preDirty.has(p) ? (snap.blobs && snap.blobs[p]) || null : atHead[p] || null;
-    const newBlob = existsNow ? newBlobs[p] : null;
-    if (oldBlob === newBlob) continue; // same blob (or both absent) → untouched by this command
-    lines.push(JSON.stringify({ ts, root, file: abs, old: oldBlob, new: newBlob }));
+    const oldBlob = oldView[p], newBlob = newView[p];
+    if (oldBlob === undefined || newBlob === undefined) continue; // un côté irrésoluble → on saute
+    if (oldBlob === newBlob) continue; // même blob (ou absent des deux côtés) → pas touché
+    lines.push(JSON.stringify({ ts, root, file: path.join(root, p), old: oldBlob, new: newBlob }));
   }
   if (!lines.length) return;
   fs.mkdirSync(BASH_DIR, { recursive: true });
-  const safe = String(j.session_id).replace(/[^\w.-]/g, '_');
+  const safe = String(sessionId).replace(/[^\w.-]/g, '_');
   fs.appendFileSync(path.join(BASH_DIR, safe + '.jsonl'), lines.join('\n') + '\n');
+}
+
+// Diffe un snapshot pre contre l'état ACTUEL du repo (cas nominal Pre→Post d'une commande).
+function diffSince(snap, sessionId) {
+  if (!snap || !snap.root || !sessionId) return;
+  const candidates = [...new Set([...(snap.dirty || []), ...dirtyPaths(snap.root)])];
+  if (!candidates.length) return;
+  emitDiff(snap.root, sessionId, candidates, snapView(snap, candidates), liveView(snap.root, candidates));
+}
+
+// Lit ET supprime les snapshots orphelins d'une session (optionnellement : seulement ceux plus
+// anciens qu'un mtime donné, et en excluant un fichier précis). Renvoie [{snap, m}].
+function takeOrphans(sessionId, olderThan, exceptFile) {
+  const prefix = String(sessionId).replace(/[^\w.-]/g, '_') + '-';
+  let names = [];
+  try { names = fs.readdirSync(PRE_DIR).filter((n) => n.startsWith(prefix)); } catch (_) { return []; }
+  const out = [];
+  for (const n of names) {
+    const fp = path.join(PRE_DIR, n);
+    if (exceptFile && fp === exceptFile) continue;
+    let snap = null, m = Infinity;
+    try { m = fs.statSync(fp).mtimeMs; snap = JSON.parse(fs.readFileSync(fp, 'utf8')); } catch (_) {}
+    if (olderThan !== null && m >= olderThan) continue;
+    try { fs.unlinkSync(fp); } catch (_) {}
+    if (snap && snap.root) out.push({ snap, m });
+  }
+  return out;
+}
+
+// Chaîne des snapshots orphelins, par repo et du plus ancien au plus récent : diff snapᵢ → snapᵢ₊₁,
+// puis dernier → état terminal (le snapshot `terminal` du repo s'il est fourni, sinon le worktree
+// actuel). Restitue un delta par fenêtre sans jamais recouvrir une paire pre/post déjà consommée.
+function chainOrphans(sessionId, orphans, terminalByRoot) {
+  const byRoot = new Map();
+  for (const s of orphans) {
+    if (!byRoot.has(s.snap.root)) byRoot.set(s.snap.root, []);
+    byRoot.get(s.snap.root).push(s);
+  }
+  for (const [root, list] of byRoot) {
+    list.sort((a, b) => a.m - b.m);
+    const terminal = terminalByRoot ? terminalByRoot.get(root) || null : null;
+    for (let i = 0; i < list.length; i++) {
+      const a = list[i].snap;
+      const b = i + 1 < list.length ? list[i + 1].snap : terminal;
+      try {
+        const candidates = [...new Set([...(a.dirty || []), ...(b ? (b.dirty || []) : dirtyPaths(root))])];
+        if (!candidates.length) continue;
+        emitDiff(root, sessionId, candidates, snapView(a, candidates),
+          b ? snapView(b, candidates) : liveView(root, candidates));
+      } catch (_) {}
+    }
+  }
+}
+
+// Les Bash des SOUS-AGENTS n'émettent qu'un PreToolUse (pas de PostToolUse) → leurs snapshots
+// restent orphelins et leurs modifs seraient perdues. Deux points de résorption :
+//   1. bashPost : avant de diffuser sa propre paire, chaque post consomme les orphelins PLUS
+//      ANCIENS que son snapshot pre, chaînés jusqu'à CE snapshot → aucun orphelin ne recouvre
+//      jamais une paire consommée (pas de doublons), et les deltas restent datés dans le bon tour.
+//   2. sweepOrphanPre (Stop / prompt suivant, plus rien en vol) : chaîne le reliquat jusqu'à
+//      l'état courant du worktree.
+function bashPost(j) {
+  const pf = preFileFor(j);
+  let snap, myM = null;
+  try { myM = fs.statSync(pf).mtimeMs; snap = JSON.parse(fs.readFileSync(pf, 'utf8')); } catch (_) { return; }
+  try { fs.unlinkSync(pf); } catch (_) {}
+  if (!snap || !snap.root || !j.session_id) return;
+  const older = takeOrphans(j.session_id, myM, pf);
+  if (older.length) chainOrphans(j.session_id, older, new Map([[snap.root, snap]]));
+  diffSince(snap, j.session_id);
+}
+
+function sweepOrphanPre(j) {
+  if (!j.session_id) return;
+  const orphans = takeOrphans(j.session_id, null, null);
+  if (orphans.length) chainOrphans(j.session_id, orphans, null);
 }
