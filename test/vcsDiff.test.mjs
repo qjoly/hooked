@@ -15,7 +15,7 @@ const execFileP = promisify(execFile);
 // `git rev-parse --show-toplevel` returns resolved paths — keep both worlds aligned.
 const TMP = () => fs.realpathSync(path.join(os.tmpdir(), 'hooked-vcsdiff-test-' + process.pid));
 
-let buildVcsChanges, scanSubRepos;
+let buildVcsChanges, scanSubRepos, listVcsCommits, buildVcsCommitChanges;
 let T;
 
 const GIT_ID = ['-c', 'user.email=t@test', '-c', 'user.name=t', '-c', 'commit.gpgsign=false'];
@@ -41,7 +41,7 @@ beforeAll(async () => {
   fs.rmSync(raw, { recursive: true, force: true });
   fs.mkdirSync(raw, { recursive: true });
   T = TMP();
-  ({ buildVcsChanges, scanSubRepos } = await import('../server/vcsDiff.js'));
+  ({ buildVcsChanges, scanSubRepos, listVcsCommits, buildVcsCommitChanges } = await import('../server/vcsDiff.js'));
 });
 afterAll(() => {
   fs.rmSync(T, { recursive: true, force: true });
@@ -120,6 +120,63 @@ describe('buildVcsChanges — .gitmodules union', () => {
     const sub = r.repos.find((x) => x.label === path.join('vendor', 'dep'));
     expect(sub).toBeTruthy();
     expect(sub.changes.length).toBe(2);
+  });
+});
+
+describe('listVcsCommits / buildVcsCommitChanges — git', () => {
+  // A repo with two commits: init (a.txt "one") then "second" (a.txt → "two", b.txt added).
+  async function makeHistory(dir) {
+    await makeRepo(dir);
+    fs.writeFileSync(path.join(dir, 'a.txt'), 'two\n');
+    fs.writeFileSync(path.join(dir, 'b.txt'), 'bee\n');
+    await git(dir, 'add', '.');
+    await git(dir, 'commit', '-q', '-m', 'second');
+    return dir;
+  }
+
+  it('lists commits newest first with full hex revs and subjects', async () => {
+    const dir = await makeHistory(path.join(T, 'log'));
+    const r = await listVcsCommits(dir);
+    expect(r.vcs).toBe('git');
+    expect(r.root).toBe(dir);
+    expect(r.commits.map((c) => c.subject)).toEqual(['second', 'init']);
+    expect(r.commits.every((c) => /^[0-9a-f]{40}$/.test(c.rev))).toBe(true);
+    expect(r.commits[0].author).toBe('t');
+  });
+
+  it('diffs one commit against its parent', async () => {
+    const dir = await makeHistory(path.join(T, 'commitdiff'));
+    const { commits } = await listVcsCommits(dir);
+    const r = await buildVcsCommitChanges(dir, commits[0].rev);
+    expect(r.vcs).toBe('git');
+    const byName = Object.fromEntries(r.changes.map((c) => [c.name, c]));
+    expect(byName['a.txt'].badge).toBe('modified');
+    expect(byName['a.txt'].ops[0].old).toBe('one\n');
+    expect(byName['a.txt'].ops[0].new).toBe('two\n');
+    expect(byName['b.txt'].badge).toBe('added');
+    expect(byName['b.txt'].ops[0].new).toBe('bee\n');
+  });
+
+  it('diffs a root commit against the empty tree', async () => {
+    const dir = await makeHistory(path.join(T, 'rootdiff'));
+    const { commits } = await listVcsCommits(dir);
+    const r = await buildVcsCommitChanges(dir, commits[1].rev);
+    expect(r.changes.map((c) => [c.name, c.badge])).toEqual([['a.txt', 'added']]);
+    expect(r.changes[0].ops[0].new).toBe('one\n');
+  });
+
+  it('rejects a non-hex rev (argv injection guard) and an unknown project', async () => {
+    const dir = await makeHistory(path.join(T, 'badrev'));
+    const empty = { vcs: null, root: null, changes: [] };
+    expect(await buildVcsCommitChanges(dir, 'HEAD')).toEqual(empty);
+    expect(await buildVcsCommitChanges(dir, '--help')).toEqual(empty);
+    expect(await buildVcsCommitChanges(null, 'abcdef')).toEqual(empty);
+  });
+
+  it('returns the empty shape when the cwd is under no VCS', async () => {
+    const dir = path.join(T, 'log-novcs');
+    fs.mkdirSync(dir, { recursive: true });
+    expect(await listVcsCommits(dir)).toEqual({ vcs: null, root: null, commits: [] });
   });
 });
 

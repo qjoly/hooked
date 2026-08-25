@@ -10,7 +10,8 @@
   import Icon from '$lib/components/Icon.svelte';
   import { toSegments, countStats, applyOp } from '$lib/difflines.js';
   import { fmtCost } from '$lib/format.js';
-  import { getFileChangeFull } from '$lib/api.js';
+  import { getFileChangeFull, getVcsDiff, getVcsLog, getVcsCommit } from '$lib/api.js';
+  import { settings } from '$lib/state.svelte.js';
 
   let { s, id, onReview = null, canReview = true, active = false } = $props();
 
@@ -30,6 +31,57 @@
     }
   }
   const allChanges = $derived((s?.changes || []).map((c) => fullOverride[c.file] || c));
+
+  // ── diff source: Claude (transcript) vs VCS (git/jj) ───────────────────────────────────────
+  // The lens opens on the user's preference (settings.shipDefaultView); the toggle at the head
+  // of the "Changes for" bar switches on the spot. In VCS mode the prompt chips become COMMIT
+  // chips: "Uncommitted" (working tree, default) or one commit's diff (vs its parent).
+  let view = $state(settings.shipDefaultView === 'vcs' ? 'vcs' : 'claude');
+  // Track the preference until the user touches the toggle (settings may resolve after mount).
+  let viewTouched = false;
+  $effect(() => {
+    const pref = settings.shipDefaultView === 'vcs' ? 'vcs' : 'claude';
+    if (!viewTouched) untrack(() => { view = pref; });
+  });
+  function setView(v) { viewTouched = true; view = v; activeIdx = 0; }
+
+  let vcs = $state({ loaded: false, loading: false, error: null, kind: null, workChanges: [], commits: [] });
+  let selectedRev = $state(null);   // null = working tree ("Uncommitted")
+  let commitCache = $state({});     // rev -> changes[]
+  let commitLoading = $state(false);
+  const VCS_META = { git: { icon: 'git', label: 'Git' }, jj: { icon: 'jujutsu', label: 'Jujutsu' } };
+  const vcsMeta = $derived(VCS_META[vcs.kind] || { icon: 'git', label: 'VCS' });
+
+  async function loadVcs(force = false) {
+    if (!id || vcs.loading || (vcs.loaded && !force)) return;
+    vcs = { ...vcs, loading: true, error: null };
+    try {
+      const [diff, log] = await Promise.all([getVcsDiff(id), getVcsLog(id)]);
+      // Ship's rail is a flat file list → flatten every detected repo's changes together.
+      const workChanges = (diff.repos || []).flatMap((r) => r.changes || []);
+      vcs = { loaded: true, loading: false, error: null, kind: diff.vcs || log.vcs, workChanges, commits: log.commits || [] };
+      if (force) commitCache = {};
+    } catch (_) {
+      vcs = { ...vcs, loading: false, loaded: true, error: 'Failed to load the VCS diff.' };
+    }
+  }
+  $effect(() => { if (view === 'vcs') loadVcs(false); });
+
+  async function selectCommit(rev) {
+    selectedRev = rev;
+    activeIdx = 0;
+    if (!rev || commitCache[rev]) return;
+    commitLoading = true;
+    try {
+      const r = await getVcsCommit(id, rev);
+      commitCache = { ...commitCache, [rev]: r.changes || [] };
+    } catch (_) {
+      commitCache = { ...commitCache, [rev]: [] };
+    } finally {
+      commitLoading = false;
+    }
+  }
+  const vcsChanges = $derived(selectedRev ? (commitCache[selectedRev] || []) : vcs.workChanges);
 
   // ── per-prompt filter ───────────────────────────────────────────────────────────────────────
   // Default = the whole conversation (net original→final). The user can restrict to one or more
@@ -58,6 +110,12 @@
   //   • filter + reconstructed original → replay rawOps and diff the span of the selected turns;
   //   • filter without an original → fall back to the selected raw ops, each its own section.
   function fileDiffs(c) {
+    if (view === 'vcs') {
+      // VCS entries are single old→new edits; key the sections per commit so inline comments
+      // never collide with the Claude view (or another commit) on the same file.
+      const key = 'vcs:' + (selectedRev || 'wt');
+      return (c.ops || []).map((o, j) => ({ oldStr: o.old || '', newStr: o.new || '', opIndex: key + ':' + j, label: null }));
+    }
     if (!filtering) {
       const ops = c.ops || [];
       return ops.map((o, j) => {
@@ -86,8 +144,13 @@
     });
   }
 
-  // files visible under the current filter (touched by at least one selected turn).
-  const changes = $derived(!filtering ? allChanges : allChanges.filter((c) => [...fileTurns(c)].some((t) => selected.has(t))));
+  // files shown: the VCS list (working tree or selected commit), or the Claude changes under
+  // the current per-prompt filter (touched by at least one selected turn).
+  const changes = $derived(
+    view === 'vcs' ? vcsChanges
+    : !filtering ? allChanges
+    : allChanges.filter((c) => [...fileTurns(c)].some((t) => selected.has(t)))
+  );
 
   // +N/−M per file (summed across its displayed sections).
   const fileStats = $derived.by(() => {
@@ -217,25 +280,62 @@
 
 <svelte:window onkeydown={onKey} />
 
-{#if !allChanges.length}
-  <div class="ship-empty">No file changes in this session yet.</div>
-{:else}
-  <div class="ship-wrap" bind:this={shipEl}>
-  {#if turns.length > 1}
-    <!-- ── per-prompt filter ── default: whole conversation; toggle one or more prompts ── -->
-    <div class="ship-turns">
-      <span class="st-label">Changes for</span>
-      <button class="st-chip" class:on={!filtering} onclick={clearTurns}>Whole conversation</button>
+<div class="ship-wrap" bind:this={shipEl}>
+  <!-- ── source toggle + scope chips ── Claude: per-prompt filter (default: whole conversation);
+       VCS: commit picker (default: the uncommitted working tree). -->
+  <div class="ship-turns">
+    <div class="st-toggle">
+      <button class:on={view === 'claude'} onclick={() => setView('claude')} title="Changes reconstructed from Claude's edits">
+        <Icon name="diff" size={12} /> Claude
+      </button>
+      <button class:on={view === 'vcs'} onclick={() => setView('vcs')} title="Changes as seen by the version control system (git / jj)">
+        <Icon name={vcsMeta.icon} size={12} /> {vcsMeta.label}
+      </button>
+    </div>
+    <span class="st-label">Changes for</span>
+    {#if view === 'claude'}
+      {#if turns.length > 1}
+        <button class="st-chip" class:on={!filtering} onclick={clearTurns}>Whole conversation</button>
+        <div class="st-scroll">
+          {#each turns as t (t.turn)}
+            <button class="st-chip st-prompt" class:on={selected.has(t.turn)} title={t.prompt}
+                    onclick={() => toggleTurn(t.turn)}>
+              <span class="st-n">P{t.turn + 1}</span>{t.prompt || '(prompt)'}
+            </button>
+          {/each}
+        </div>
+      {:else}
+        <span class="st-one">Whole conversation</span>
+      {/if}
+    {:else}
+      <button class="st-chip" class:on={!selectedRev} onclick={() => selectCommit(null)}>Uncommitted</button>
       <div class="st-scroll">
-        {#each turns as t (t.turn)}
-          <button class="st-chip st-prompt" class:on={selected.has(t.turn)} title={t.prompt}
-                  onclick={() => toggleTurn(t.turn)}>
-            <span class="st-n">P{t.turn + 1}</span>{t.prompt || '(prompt)'}
+        {#each vcs.commits as c (c.rev)}
+          <button class="st-chip st-prompt" class:on={selectedRev === c.rev}
+                  title={(c.subject || '(no message)') + (c.author ? ' — ' + c.author : '') + (c.ts ? ' · ' + c.ts : '')}
+                  onclick={() => selectCommit(c.rev)}>
+            <span class="st-n">{c.rev.slice(0, 8)}</span>{c.subject || '(no message)'}
           </button>
         {/each}
       </div>
-    </div>
-  {/if}
+      <button class="st-refresh" title="Reload commits and the working-tree diff" onclick={() => loadVcs(true)}>
+        <Icon name="rotate-cw" size={12} />
+      </button>
+    {/if}
+  </div>
+  {#if view === 'claude' && !allChanges.length}
+    <div class="ship-empty">No file changes in this session yet.</div>
+  {:else if view === 'vcs' && (vcs.loading || !vcs.loaded)}
+    <div class="ship-empty">Loading the VCS diff…</div>
+  {:else if view === 'vcs' && vcs.error}
+    <div class="ship-empty">{vcs.error}</div>
+  {:else if view === 'vcs' && !vcs.kind}
+    <div class="ship-empty">This project is not in a git or jj repository.</div>
+  {:else if view === 'vcs' && commitLoading}
+    <div class="ship-empty">Loading the commit diff…</div>
+  {:else if view === 'vcs' && !changes.length}
+    <div class="ship-empty">{selectedRev ? 'This commit changes no files.' : 'No uncommitted changes in the working tree.'}</div>
+  {:else}
   <div class="ship">
     <!-- ── file rail ── -->
     <aside class="ship-files">
@@ -342,8 +442,8 @@
       {/if}
     </aside>
   </div>
-  </div>
-{/if}
+  {/if}
+</div>
 
 <style>
   .ship-empty { padding: 40px 24px; color: var(--muted); font-size: 13px; }
@@ -353,8 +453,21 @@
   .ship { flex: 1 1 auto; min-height: 0; min-width: 0; display: flex; }
 
 
-  /* per-prompt filter bar */
+  /* source toggle + scope chips bar */
   .ship-turns { flex: 0 0 auto; display: flex; align-items: center; gap: 8px; padding: 8px 14px; border-bottom: 1px solid var(--border); background: var(--bg2); min-width: 0; }
+  .st-toggle { display: flex; gap: 2px; background: var(--input); border-radius: 8px; padding: 2px; flex: 0 0 auto; }
+  .st-toggle button {
+    display: inline-flex; align-items: center; gap: 5px; background: none; border: none; border-radius: 6px;
+    color: var(--muted); font: inherit; font-size: 11px; font-weight: 700; padding: 3px 9px; cursor: pointer;
+  }
+  .st-toggle button:hover { color: var(--text); }
+  .st-toggle button.on { background: var(--accent-soft); color: var(--accent-d); }
+  .st-one { font-size: 11.5px; color: var(--muted); }
+  .st-refresh {
+    flex: 0 0 auto; display: inline-flex; align-items: center; background: none; border: 1px solid var(--border);
+    border-radius: 999px; color: var(--muted); padding: 4px 8px; cursor: pointer;
+  }
+  .st-refresh:hover { color: var(--text); border-color: var(--muted); }
   .st-label { font-family: var(--mono); font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); flex: 0 0 auto; }
   .st-scroll { display: flex; gap: 6px; overflow-x: auto; min-width: 0; padding-bottom: 2px; }
   .st-chip {
