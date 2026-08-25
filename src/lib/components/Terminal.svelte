@@ -187,7 +187,7 @@
 </script>
 
 <div class="term-wrap" class:interactive class:fit class:contain={fitContainer} style:background={theme ? theme.background : '#0b0e14'}>
-  {#if dead}<div class="term-dead"><Icon name="ban" size={14} /> This tmux pane has been closed.</div>{/if}
+  {#if dead}<div class="term-dead"><Icon name="ban" size={14} tint={false} /> This tmux pane has been closed.</div>{/if}
   <div class="term-host" bind:this={host}></div>
 </div>
 

@@ -1020,6 +1020,8 @@ code.path { color: var(--muted); font-size: 11px; word-break: break-all; font-fa
 .lf-pick:hover { background: var(--bg2); }
 .lf-pick.sel { background: var(--accent-soft); }
 .lf-pick-main { flex: 1; min-width: 0; }
+/* duotone folder chip — colored icon on its soft counterpart (hue picked in NewSession.svelte) */
+.lf-chip { width: 30px; height: 30px; border-radius: 8px; display: flex; align-items: center; justify-content: center; flex: none; }
 .lf-pick .pn { font-size: 13px; font-weight: 600; }
 .lf-pick .pp { display: block; color: var(--muted); font-family: var(--mono); font-size: 11px; word-break: break-all; margin-top: 1px; }
 /* étoile favori : discrète au repos, révélée au survol/focus de la ligne, pleine quand épinglée */
@@ -1027,6 +1029,7 @@ code.path { color: var(--muted); font-size: 11px; word-break: break-all; font-fa
 .lf-pick:hover .lf-star, .lf-pick:focus-within .lf-star { opacity: .75; }
 .lf-star:hover { opacity: 1; background: var(--bg3); }
 .lf-star.on { opacity: 1; color: var(--accent); }
+.lf-star.on svg { fill: currentColor; } /* filled star when favorited (the old ★ vs ☆) */
 .lf-pick.custom { color: var(--accent); font-weight: 600; font-size: 13px; }
 .lf-pick.hide { display: none; }
 .lf-empty { padding: 10px 12px; color: var(--muted); font-size: 12.5px; }
