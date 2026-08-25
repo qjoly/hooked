@@ -249,7 +249,8 @@
           <button class="sf-item" class:on={i === activeIdx} onclick={() => (activeIdx = i)} title={c.file}>
             <span class="sf-dot" class:done={isReviewed(c.file)}>{#if isReviewed(c.file)}<Icon name="check" size={11} />{/if}</span>
             <span class="sf-name">{c.name}</span>
-            {#if c.tool === 'Bash'}<span class="sf-cmd" title="Changed by a bash command, not an edit tool">cmd</span>{/if}
+            {#if c.tool === 'Bash'}<span class="sf-cmd" title="Changed by a bash command, not an edit tool">cmd</span>
+            {:else if (c.rawOps || []).length && c.rawOps.every((o) => o.agent)}<span class="sf-cmd" title="Changed by a subagent">agent</span>{/if}
             <span class="sf-stat">
               {#if c.truncated}<span class="sf-trunc" title="Large file — capped, load full to see everything"><Icon name="warning" size={12} /></span>{/if}
               {#if c.binary}<span class="sf-bin">bin</span>{:else}<span class="sf-add">+{st.adds}</span> <span class="sf-del">−{st.dels}</span>{/if}
