@@ -27,6 +27,13 @@ const ENTER_DELAY = 400;
 // screens — then type via deliverReply (the proven path).
 const REPL_POLL_INTERVAL = 300;
 const REPL_READY_TIMEOUT = 15000;
+
+// Before typing a reply we wait for the composer to be not just ready but *settled* — done
+// repainting — see waitForComposerSettled. Short interval so a normal reply barely feels it; low
+// timeout so a genuinely churning pane (steering mid-stream) falls back to best-effort quickly
+// instead of stalling the request.
+const COMPOSER_SETTLE_INTERVAL = 150;
+const COMPOSER_SETTLE_TIMEOUT = 2000;
 const REPL_PROMPT_RE = /(^|\n)[ \t]*❯/;
 // The AskUserQuestion widget draws its cursor `❯` on the highlighted *numbered option* line
 // (e.g. `❯ 1. Red`), which REPL_PROMPT_RE also matches. This narrower pattern detects that
@@ -63,6 +70,47 @@ function waitForReplReady(pane, cb) {
       if (!e && REPL_PROMPT_RE.test(out || '')) return cb(true);
       if (Date.now() >= deadline) return cb(false);
       setTimeout(probe, REPL_POLL_INTERVAL);
+    });
+  };
+  probe();
+}
+
+// Volatile footer lines that repaint on every animation frame while Claude works: the spinner
+// activity line (SPINNER_RE), its elapsed-time / token counter (the `(3s · …)` / `(3m 25s · …)`
+// tail — which can also trail a "Cooked for 5s · 1 shell still running" summary), and the rotating
+// "Tip:" hint. Stripped before the settle comparison (composerSettleKey) so the animating spinner
+// on its own can't make two captures differ forever — otherwise a working (steered) pane would
+// never look "settled". Pure/testable.
+function composerSettleKey(screen) {
+  return String(screen)
+    .split('\n')
+    .filter((l) => !SPINNER_RE.test(l) && !/^[ \t]*(?:⎿[ \t]*)?Tip:/.test(l) && !/\(\d+m?[ \t]*\d*s\b/.test(l))
+    .join('\n');
+}
+
+// Wait until the composer is ready (isComposerReady) AND has stopped repainting: two consecutive
+// captures COMPOSER_SETTLE_INTERVAL apart are identical once the volatile lines are stripped
+// (composerSettleKey). This gates deliverReply so a message is never typed into a half-painted
+// prompt. Right after an interrupt Claude repaints the composer ("… What should Claude do
+// instead?"); typing into that repaint dropped the first character (REPRO_MSG_ZZZ arrived as
+// EPRO_MSG_ZZZ) or left the message queued-but-unsent. A working pane being steered settles just
+// as fast — only the stripped lines animate, its bottom `❯` line is static — so steering isn't
+// penalised. Best-effort: cb() also fires on timeout (caller then delivers anyway). Never errors.
+function waitForComposerSettled(pane, cb) {
+  const deadline = Date.now() + COMPOSER_SETTLE_TIMEOUT;
+  let prevKey = null;
+  const probe = () => {
+    execFile('tmux', ['capture-pane', '-t', pane, '-p'], (e, out) => {
+      const s = out || '';
+      if (!e && isComposerReady(s)) {
+        const key = composerSettleKey(s);
+        if (prevKey === key) return cb();
+        prevKey = key;
+      } else {
+        prevKey = null; // menu / mid-transition (no real composer) → restart the stability window
+      }
+      if (Date.now() >= deadline) return cb();
+      setTimeout(probe, COMPOSER_SETTLE_INTERVAL);
     });
   };
   probe();
@@ -240,7 +288,10 @@ function deliverReply(pane, text, isQuestion, cb) {
       setTimeout(() => step(i + 1), 250);
     });
   };
-  step(0);
+  // Wait for the composer to settle before typing (see waitForComposerSettled): typing into a pane
+  // still repainting — typically just after an interrupt — dropped the first character or left the
+  // message queued-but-unsent.
+  waitForComposerSettled(pane, () => step(0));
 }
 
 // Répond à un AskUserQuestion en PILOTANT le TUI au clavier (et non en tapant les labels :
@@ -930,4 +981,4 @@ function restartSession(id, { model, effort } = {}, cb) {
   }
 }
 
-export { paneTmuxNames, invalidatePaneCache, clearPaneCaches, tmuxAlive, launchInfoForPane, resolveLaunchForSession, deliverReply, deliverQuestion, questionKeys, deliverQuestionWithNote, deliverQuestionFreeText, deliverPlanChoice, parsePlanPrompt, parseSwitchPrompt, isTrustPrompt, isComposerReady, sendKey, interruptSession, parsePaneMode, readPaneMode, readPaneModeSync, paneBusySync, parseSpinner, paneActivitySync, paneFollowupSync, conversationBody, paneActiveSync, paneActiveStep, warmPaneCaptures, warmPaneNames, setMode, setModelEffort, launchSession, killSession, restartSession, err400 };
+export { paneTmuxNames, invalidatePaneCache, clearPaneCaches, tmuxAlive, launchInfoForPane, resolveLaunchForSession, deliverReply, deliverQuestion, questionKeys, deliverQuestionWithNote, deliverQuestionFreeText, deliverPlanChoice, parsePlanPrompt, parseSwitchPrompt, isTrustPrompt, isComposerReady, composerSettleKey, waitForComposerSettled, sendKey, interruptSession, parsePaneMode, readPaneMode, readPaneModeSync, paneBusySync, parseSpinner, paneActivitySync, paneFollowupSync, conversationBody, paneActiveSync, paneActiveStep, warmPaneCaptures, warmPaneNames, setMode, setModelEffort, launchSession, killSession, restartSession, err400 };
