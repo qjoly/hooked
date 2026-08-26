@@ -9,6 +9,7 @@
 
   let {
     oldStr = '', newStr = '', name = 'file.txt', mode = 'split',
+    compact = false,          // drop the context lines around each change
     commentable = false,
     comments = [],            // [{ id, side, start, end, text }]
     onComment = null,         // ({ side, start, end, text, snippet }) => void
@@ -28,7 +29,10 @@
   }
   function expandAll(seg) { expand = { ...expand, [seg]: { all: true } }; }
 
-  const rows = $derived(mode === 'split' ? splitRows(segs, expand) : unifiedRows(segs, expand));
+  const rows = $derived.by(() => {
+    const ctx = compact ? 0 : undefined;
+    return mode === 'split' ? splitRows(segs, expand, ctx) : unifiedRows(segs, expand, ctx);
+  });
 
   // highlight cache: identical lines are common (context) → memoise the escaped HTML.
   let hlCache = new Map();
