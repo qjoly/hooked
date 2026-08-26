@@ -3,18 +3,18 @@
 // gaps collapsed. No DOM here — pure data, so it stays testable and cheap.
 import { diffLines } from 'diff';
 
-const CTX = 3;           // context lines kept around a change when collapsing
-const GAP_MIN = CTX * 2 + 2; // an unchanged run longer than this gets a collapsed gap
+const CTX = 3;           // context lines kept around a change when collapsing (0 = compact mode)
 export const EXPAND_STEP = 20; // lines revealed per click on a gap's expand arrows
 
 // How an equal segment is split around its collapsed gap, honouring the caller's expansion
 // state (`e` = { head, tail, all } — extra lines revealed beyond the default context).
 // Returns { head, hidden, tail } where head/tail are the visible line arrays.
-function sliceEqual(lines, first, last, e) {
-  const collapsible = lines.length > GAP_MIN && !(first && last);
+function sliceEqual(lines, first, last, e, ctx = CTX) {
+  // an unchanged run longer than this gets a collapsed gap
+  const collapsible = lines.length > ctx * 2 + 2 && !(first && last);
   if (!collapsible || e?.all) return { head: lines, hidden: 0, tail: [] };
-  const headKeep = (first ? 0 : CTX) + (e?.head || 0);
-  const tailKeep = (last ? 0 : CTX) + (e?.tail || 0);
+  const headKeep = (first ? 0 : ctx) + (e?.head || 0);
+  const tailKeep = (last ? 0 : ctx) + (e?.tail || 0);
   const hidden = lines.length - headKeep - tailKeep;
   if (hidden <= 0) return { head: lines, hidden: 0, tail: [] };
   return { head: lines.slice(0, headKeep), hidden, tail: tailKeep ? lines.slice(-tailKeep) : [] };
@@ -59,7 +59,7 @@ export function countStats(segs) {
 // row: { kind:'ctx'|'add'|'del', oldNo, newNo, text } | { kind:'gap', count, seg }
 // `expand` maps a segment index (the gap row's `seg`) to { head, tail, all } — extra unchanged
 // lines the user revealed GitHub-style (head grows downward from the block above, tail upward).
-export function unifiedRows(segs, expand = {}) {
+export function unifiedRows(segs, expand = {}, ctx = CTX) {
   const rows = [];
   let oldNo = 1, newNo = 1;
   const n = segs.length;
@@ -69,7 +69,7 @@ export function unifiedRows(segs, expand = {}) {
       for (const t of s.add) rows.push({ kind: 'add', oldNo: null, newNo: newNo++, text: t });
       return;
     }
-    const { head, hidden, tail } = sliceEqual(s.lines, i === 0, i === n - 1, expand[i]);
+    const { head, hidden, tail } = sliceEqual(s.lines, i === 0, i === n - 1, expand[i], ctx);
     for (const t of head) rows.push({ kind: 'ctx', oldNo: oldNo++, newNo: newNo++, text: t });
     if (hidden > 0) { rows.push({ kind: 'gap', count: hidden, seg: i }); oldNo += hidden; newNo += hidden; }
     for (const t of tail) rows.push({ kind: 'ctx', oldNo: oldNo++, newNo: newNo++, text: t });
@@ -80,7 +80,7 @@ export function unifiedRows(segs, expand = {}) {
 // ── split rows ────────────────────────────────────────────────────────────────────────────────
 // row: { kind:'ctx'|'change'|'gap', left:{no,text}|null, right:{no,text}|null, count?, seg? }
 // `expand`: same contract as unifiedRows.
-export function splitRows(segs, expand = {}) {
+export function splitRows(segs, expand = {}, ctx = CTX) {
   const rows = [];
   let oldNo = 1, newNo = 1;
   const n = segs.length;
@@ -94,7 +94,7 @@ export function splitRows(segs, expand = {}) {
       }
       return;
     }
-    const { head, hidden, tail } = sliceEqual(s.lines, i === 0, i === n - 1, expand[i]);
+    const { head, hidden, tail } = sliceEqual(s.lines, i === 0, i === n - 1, expand[i], ctx);
     for (const t of head) { rows.push({ kind: 'ctx', left: { no: oldNo, text: t }, right: { no: newNo, text: t } }); oldNo++; newNo++; }
     if (hidden > 0) { rows.push({ kind: 'gap', count: hidden, seg: i }); oldNo += hidden; newNo += hidden; }
     for (const t of tail) { rows.push({ kind: 'ctx', left: { no: oldNo, text: t }, right: { no: newNo, text: t } }); oldNo++; newNo++; }
