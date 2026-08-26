@@ -235,6 +235,10 @@
   let mode = $state((typeof localStorage !== 'undefined' && localStorage.getItem('hooked.shipDiff')) || 'split');
   $effect(() => { try { localStorage.setItem('hooked.shipDiff', mode); } catch {} });
 
+  // Compact: hide the unchanged context around each change (the gaps stay expandable).
+  let compact = $state(typeof localStorage !== 'undefined' && localStorage.getItem('hooked.shipCompact') === '1');
+  $effect(() => { try { localStorage.setItem('hooked.shipCompact', compact ? '1' : '0'); } catch {} });
+
   // A new file (no prior version — every section is pure additions) defaults to unified: a
   // side-by-side view of an all-green file is the same text twice. The toggle still wins per
   // file via `modeOverride`, which is keyed only for new files so it never touches `mode`.
@@ -458,6 +462,9 @@
             <button class:on={effMode === 'unified'} onclick={() => chooseMode('unified')} title="Unified"><Icon name="menu" size={14} /></button>
             <button class:on={effMode === 'split'} onclick={() => chooseMode('split')} title="Side-by-side"><Icon name="pane" size={14} /></button>
           </div>
+          <label class="sd-compact" title="Hide the unchanged context lines">
+            <input type="checkbox" bind:checked={compact} /> compact
+          </label>
           <button class="sd-review" class:done={isReviewed(activeFile.file)} onclick={reviewCurrent}>
             {#if isReviewed(activeFile.file)}<Icon name="check" size={14} /> Reviewed{:else}Mark reviewed{/if}
           </button>
@@ -476,7 +483,7 @@
           {:else}
             {#each fileDiffs(activeFile) as d (d.opIndex)}
               {#if d.label}<div class="sd-oplabel">{d.label}</div>{/if}
-              <DiffView oldStr={d.oldStr} newStr={d.newStr} name={activeFile.name} mode={effMode}
+              <DiffView oldStr={d.oldStr} newStr={d.newStr} name={activeFile.name} mode={effMode} {compact}
                         commentable={!!onReview}
                         comments={commentsFor(activeFile.file, d.opIndex)}
                         onComment={(p) => addComment(activeFile.file, d.opIndex, activeFile.name, p)}
@@ -615,6 +622,8 @@
   .sd-modes { display: flex; gap: 2px; background: var(--input); border-radius: 8px; padding: 2px; flex: 0 0 auto; }
   .sd-modes button { background: none; border: none; border-radius: 6px; color: var(--muted); font-size: 13px; padding: 2px 9px; cursor: pointer; }
   .sd-modes button.on { background: var(--accent-soft); color: var(--accent); }
+  .sd-compact { display: flex; align-items: center; gap: 4px; flex: 0 0 auto; cursor: pointer; font-family: var(--mono); font-size: 10.5px; color: var(--muted); }
+  .sd-compact input { accent-color: var(--accent); margin: 0; cursor: pointer; }
   .sd-review {
     flex: 0 0 auto; background: var(--bg3); border: 1px solid var(--border2); color: var(--text);
     border-radius: 8px; padding: 5px 11px; font: inherit; font-size: 11.5px; font-weight: 600; cursor: pointer;
