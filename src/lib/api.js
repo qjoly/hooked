@@ -131,7 +131,7 @@ export const deleteSession = (id) => jpost('/api/delete', { id });
 // Corbeille : liste des sessions supprimées + restauration.
 export const getTrash = () => jget('/api/trash');
 export const restoreSession = (id) => jpost('/api/restore', { id });
-export const openInVscode = (id) => jpost('/api/open-vscode', { id });
+export const openInEditor = (id) => jpost('/api/open-editor', { id });
 export const openInGhostty = (id) => jpost('/api/open-ghostty', { id });
 // Ouvre un pane/fenêtre tmux dans la session et y lance une commande (mirroir onglet Terminal).
 // Sans `command`, ouvre un pane shell vide (bouton « + Pane »).
