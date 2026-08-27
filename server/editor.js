@@ -6,18 +6,22 @@ import { statSafe } from './util.js';
 import { scanSessions } from './transcript.js';
 import { paneForSession } from './events.js';
 import { paneTmuxNames, tmuxAlive, err400 } from './tmux.js';
+import { readSettings } from './settings.js';
+import { editorFor } from '../src/lib/editors.js';
 
-// Ouvre le dossier projet de la session `id` dans VS Code (`code <dir>`).
-function openInVscode(id, cb) {
+// Ouvre le dossier projet de la session `id` dans l'éditeur préféré (réglage `editor`, cf.
+// src/lib/editors.js) via sa CLI — p.ex. `code -- <dir>` ou `zed <dir>`.
+function openInEditor(id, cb) {
   if (!id) return cb(err400('id required'));
   const sess = scanSessions().find((x) => x.id === id);
   const dir = sess && sess.project;
   if (!dir) return cb(err400('project folder not found for this session'));
   const st = statSafe(dir);
   if (!st || !st.isDirectory()) return cb(err400('invalid project folder: ' + dir));
-  execFile('code', ['--', dir], (err) => {
-    if (err) return cb(new Error('failed to open VS Code (is the `code` CLI installed?): ' + err.message));
-    cb(null, { dir });
+  const ed = editorFor(readSettings().editor);
+  execFile(ed.cli, ed.cliArgs(dir), (err) => {
+    if (err) return cb(new Error(`failed to open ${ed.label} (is the \`${ed.cli}\` CLI installed?): ` + err.message));
+    cb(null, { dir, editor: ed.key });
   });
 }
 
@@ -63,4 +67,4 @@ function pickFolder(start, cb) {
   });
 }
 
-export { openInVscode, openInGhostty, pickFolder };
+export { openInEditor, openInGhostty, pickFolder };
