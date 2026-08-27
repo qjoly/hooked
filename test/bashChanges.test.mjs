@@ -128,6 +128,32 @@ describe('buildFileChanges merge', () => {
   });
 });
 
+describe('blob resolution & caching', () => {
+  it('a blob that no longer resolves (gc\'d) is skipped, and the memo sees the new line', () => {
+    const transcript = path.join(base, 'sess.jsonl');
+    const before = changes.buildFileChanges(transcript, SESSION).map((c) => c.name);
+    const jsonl = path.join(dataDir, 'bash-changes', SESSION + '.jsonl');
+    const root = fs.realpathSync(repo);
+    // well-formed SHA, absent from the object database → `cat-file --batch` reports it missing
+    fs.appendFileSync(jsonl, JSON.stringify({
+      file: path.join(root, 'ghost.txt'), root, old: null,
+      new: 'f'.repeat(40), ts: '2026-08-21T10:00:00.000Z',
+    }) + '\n');
+    // …and a resolvable one, to prove the appended line IS read (memo invalidated by the write)
+    const sha = git(['hash-object', '-w', '--stdin'], { input: 'real\n' }).trim();
+    fs.appendFileSync(jsonl, JSON.stringify({
+      file: path.join(root, 'real.txt'), root, old: null, new: sha, ts: '2026-08-21T10:01:00.000Z',
+    }) + '\n');
+
+    const after = changes.buildFileChanges(transcript, SESSION);
+    const names = after.map((c) => c.name);
+    expect(names).not.toContain('ghost.txt');        // unresolvable blob → op dropped, no fake diff
+    expect(names).toContain('real.txt');             // resolvable one merged
+    expect(before).not.toContain('real.txt');        // …and it really is new since the first call
+    expect(after.find((c) => c.name === 'real.txt').rawOps[0].new).toBe('real\n');
+  });
+});
+
 describe('orphan sweep (subagent bash)', () => {
   it('a PreToolUse without PostToolUse is swept at the turn boundary (Stop)', () => {
     // subagent Bash calls fire PreToolUse but no PostToolUse → the snapshot stays orphaned
