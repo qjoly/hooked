@@ -15,9 +15,15 @@
  * S'y ajoutent les modifications faites PAR LES COMMANDES BASH (invisibles dans le transcript) :
  * hook.cjs les capture (diff d'état git avant/après chaque Bash) dans
  * <HOOKED_DIR>/bash-changes/<session_id>.jsonl sous forme de SHAs de blobs git, résolus ici via
- * `git cat-file` puis fusionnés comme des ops `edit` plein-fichier (old/new = contenu complet),
- * horodatées → le filtre par prompt du Ship marche tel quel. Un blob élagué par `git gc`
- * (sessions > ~2 semaines) fait ignorer l'op silencieusement.
+ * un `git cat-file --batch` par dépôt puis fusionnés comme des ops `edit` plein-fichier (old/new =
+ * contenu complet), horodatées → le filtre par prompt du Ship marche tel quel. Un blob élagué par
+ * `git gc` (sessions > ~2 semaines) fait ignorer l'op silencieusement.
+ *
+ * Perf : ce module est sur le chemin chaud de sessionDetail (rejoué à chaque tick de poll). Trois
+ * caches l'y rendent quasi gratuit — le scan d'un transcript (mtime+taille), les contenus de blobs
+ * (immuables, LRU par octets) et le résultat complet (buildFileChanges, invalidé par les sources ET
+ * l'état disque des fichiers touchés). Tout est synchrone : sans eux, une session bavarde en
+ * commandes Bash bloquait l'event loop plusieurs secondes par requête.
  *
  * Et les modifications faites PAR LES SOUS-AGENTS (outil Agent/Task) : leurs Edit/Write vivent
  * dans des transcripts séparés (<pdir>/<sessionId>/subagents/agent-*.jsonl — les agents imbriqués
@@ -189,38 +195,107 @@ function collect(fp, sessionId) {
 // ── Bash-command changes (captured by hook.cjs) ──────────────────────────────────────────────────
 
 const SHA_RE = /^[0-9a-f]{40,64}$/;
-const BLOB_CACHE_MAX = 200;
-const blobCache = new Map(); // `${root}:${sha}` -> content (LRU-ish: cleared when full)
+const BLOB_CACHE_MAX_BYTES = 64 * 1024 * 1024;
+const blobCache = new Map(); // `${root}:${sha}` -> content|null — LRU par budget d'octets
+let blobCacheBytes = 0;
 
-// Contenu d'un blob git épinglé par le hook. null si irrécupérable (blob gc'é, repo disparu).
-function catBlob(root, sha) {
-  if (!SHA_RE.test(sha || '')) return null;
-  const key = root + ':' + sha;
-  if (blobCache.has(key)) return blobCache.get(key);
-  let content = null;
-  try {
-    content = execFileSync('git', ['-C', root, 'cat-file', 'blob', sha],
-      { timeout: 3000, maxBuffer: 8 * 1024 * 1024, encoding: 'utf8' });
-  } catch (_) {}
-  if (blobCache.size >= BLOB_CACHE_MAX) blobCache.clear();
+// Un blob git est immuable : une fois lu, il n'a jamais à être relu. On évince donc les plus
+// anciennes entrées jusqu'à repasser sous le budget (l'ancien `clear()` global vidait le cache
+// d'un coup et faisait re-spawner git pour TOUTE la session au tick suivant).
+function blobCacheSet(key, content) {
+  if (blobCache.has(key)) blobCacheBytes -= blobCache.get(key)?.length || 0;
   blobCache.set(key, content);
-  return content;
+  blobCacheBytes += content?.length || 0;
+  while (blobCacheBytes > BLOB_CACHE_MAX_BYTES && blobCache.size > 1) {
+    const [k, v] = blobCache.entries().next().value;
+    blobCache.delete(k);
+    blobCacheBytes -= v?.length || 0;
+  }
+}
+
+// Contenus de N blobs d'un même dépôt, en UN SEUL `git cat-file --batch` (stdin = les SHAs,
+// stdout = `<oid> <type> <size>\n<contenu>\n` par blob, ou `<oid> missing\n`). L'ancienne version
+// spawnait un `git cat-file blob` par SHA : ~800 spawns synchrones (≈ 2,8 s d'event loop bloqué)
+// pour une session bavarde en commandes Bash, à CHAQUE appel. → Map sha -> contenu | null
+// (null = irrécupérable : blob gc'é, repo disparu, sortie illisible).
+function catBlobs(root, shas) {
+  const out = new Map();
+  const want = [];
+  for (const sha of shas) {
+    if (out.has(sha)) continue;
+    if (!SHA_RE.test(sha || '')) { out.set(sha, null); continue; }
+    const key = root + ':' + sha;
+    if (blobCache.has(key)) out.set(sha, blobCache.get(key));
+    else { out.set(sha, null); want.push(sha); }
+  }
+  if (!want.length) return out;
+  let buf;
+  try {
+    buf = execFileSync('git', ['-C', root, 'cat-file', '--batch'],
+      { input: want.join('\n') + '\n', timeout: 20000, maxBuffer: 256 * 1024 * 1024 });
+  } catch (_) {
+    for (const sha of want) blobCacheSet(root + ':' + sha, null); // repo mort : ne pas re-spawner
+    return out;
+  }
+  // La sortie suit l'ordre des SHAs demandés. Un en-tête illisible = désynchronisation : on
+  // abandonne le reste du lot (les SHAs non résolus restent à null) plutôt que de découper à côté.
+  let i = 0;
+  for (const sha of want) {
+    const nl = buf.indexOf(0x0a, i);
+    if (nl < 0) break;
+    const header = buf.toString('utf8', i, nl).split(' ');
+    i = nl + 1;
+    if (header.length < 3 || header[1] !== 'blob') {
+      blobCacheSet(root + ':' + sha, null);          // `missing` (blob élagué par git gc)
+      if (header.length >= 2 && header[1] === 'missing') continue;
+      break;
+    }
+    const size = parseInt(header[2], 10);
+    if (!Number.isFinite(size) || i + size > buf.length) break;
+    const content = buf.toString('utf8', i, i + size);
+    i += size + 1;                                    // + le LF de fin ajouté par git
+    out.set(sha, content);
+    blobCacheSet(root + ':' + sha, content);
+  }
+  return out;
+}
+
+// Journal des modifications Bash de la session (déposé par hook.cjs).
+function bashChangesPath(sessionId) {
+  return path.join(HOOKED_DIR, 'bash-changes', sessionId + '.jsonl');
+}
+
+// mtime+taille d'un fichier, ou '-' s'il est absent. Brique des signatures de cache.
+function sigOf(file) {
+  try { const st = fs.statSync(file); return st.mtimeMs + ':' + st.size; } catch (_) { return '-'; }
 }
 
 // Ops plein-fichier issues des commandes Bash de la session, fusionnées dans byFile (même forme
 // que scanOps). Une op dont un blob non-null ne se résout plus est ignorée (pas de faux diff).
 function mergeBashOps(byFile, sessionId) {
   if (!sessionId || !/^[\w.-]+$/.test(String(sessionId))) return;
-  const fp = path.join(HOOKED_DIR, 'bash-changes', sessionId + '.jsonl');
+  const fp = bashChangesPath(sessionId);
   let data;
   try { data = fs.readFileSync(fp, 'utf8'); } catch (_) { return; }
+  const entries = [];
+  const shasByRoot = new Map(); // root -> Set(sha) — un seul `cat-file --batch` par dépôt
   for (const line of data.split('\n')) {
     if (!line) continue;
     let j;
     try { j = JSON.parse(line); } catch (_) { continue; }
     if (!j || !j.file || !j.root) continue;
-    const oldText = j.old === null ? '' : catBlob(j.root, j.old);
-    const newText = j.new === null ? '' : catBlob(j.root, j.new);
+    entries.push(j);
+    const want = shasByRoot.get(j.root) || new Set();
+    if (j.old !== null) want.add(j.old);
+    if (j.new !== null) want.add(j.new);
+    shasByRoot.set(j.root, want);
+  }
+  const blobs = new Map(); // root -> Map(sha -> content|null)
+  for (const [root, shas] of shasByRoot) blobs.set(root, catBlobs(root, [...shas]));
+  for (const j of entries) {
+    const resolved = blobs.get(j.root);
+    const oldText = j.old === null ? '' : resolved.get(j.old) ?? null;
+    const newText = j.new === null ? '' : resolved.get(j.new) ?? null;
     if (oldText === null || newText === null || oldText === newText) continue;
     const entry = byFile.get(j.file) || { file: j.file, name: path.basename(j.file), tool: 'Bash', ops: [], count: 0, lastTs: j.ts || null };
     entry.ops.push({ kind: 'edit', old: oldText, new: newText, all: false, ts: j.ts || null, bash: true });
@@ -247,13 +322,41 @@ function buildEntry(e, editMax, writeMax, mergeMax) {
   return { file: e.file, name: e.name, tool: e.tool, ops, count: e.count, lastTs: e.lastTs, original: merged ? merged.old : null, rawOps, truncated };
 }
 
+// Mémo du résultat complet : sessionDetail tourne à chaque tick de poll et reconstruisait à chaque
+// fois les mêmes mégaoctets de diffs. La signature couvre TOUTES les entrées du calcul :
+//   - les sources d'ops (transcript principal, journal bash, transcripts de sous-agents) ;
+//   - l'état sur disque des fichiers touchés — reconstructOriginal les relit, donc une édition
+//     hors-session (ou un `git checkout`) doit invalider l'entrée.
+// Le tableau rendu est PARTAGÉ : les appelants le sérialisent (payload d'API), ils ne le mutent pas.
+const CHANGES_MEMO_MAX = 8;
+const changesMemo = new Map(); // `${fp}|${sessionId}` -> { sig, files, diskSig, out }
+
+function inputSig(fp, sessionId) {
+  const parts = [sigOf(fp)];
+  if (sessionId) {
+    parts.push(sigOf(bashChangesPath(sessionId)));
+    for (const a of agentTranscripts(fp, sessionId)) parts.push(a.agentId + '=' + sigOf(a.fp));
+  }
+  return parts.join('|');
+}
+const diskSig = (files) => files.map(sigOf).join('|');
+
 // `sessionId` (optionnel) : fusionne aussi les modifs des sous-agents et celles capturées sur les
 // commandes Bash de la session (hook.cjs) — absent pour le drill-in d'UN transcript de sous-agent
 // (/api/agent), qui ne montre que les ops de cet agent.
 function buildFileChanges(fp, sessionId) {
+  const key = fp + '|' + (sessionId || '');
+  const sig = inputSig(fp, sessionId);
+  const hit = changesMemo.get(key);
+  if (hit && hit.sig === sig && hit.diskSig === diskSig(hit.files)) return hit.out;
   const byFile = sessionId ? collect(fp, sessionId) : scanOps(fp);
   const out = [...byFile.values()].map((e) => buildEntry(e, EDIT_MAX, WRITE_MAX, MERGE_MAX));
   out.sort((a, b) => String(b.lastTs || '').localeCompare(String(a.lastTs || '')));
+  const files = [...byFile.keys()];
+  if (changesMemo.size >= CHANGES_MEMO_MAX && !changesMemo.has(key)) {
+    changesMemo.delete(changesMemo.keys().next().value); // la plus ancienne session consultée
+  }
+  changesMemo.set(key, { sig, files, diskSig: diskSig(files), out });
   return out;
 }
 
