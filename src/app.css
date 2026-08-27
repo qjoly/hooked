@@ -967,7 +967,7 @@ code.path { color: var(--muted); font-size: 11px; word-break: break-all; font-fa
   margin-left: 8px; font-family: var(--mono);
 }
 .attach-btn:hover { background: var(--bg3); color: var(--fg); }
-/* boutons d'action secondaires de l'en-tête (VS Code / Ghostty / Focus / Supprimer) :
+/* boutons d’action secondaires de l’en-tête (éditeur / Ghostty / Focus / Supprimer) :
    style « fantôme » uniforme et discret — pas de couleur au repos, révélée au survol. */
 .vscode-btn {
   background: transparent; color: var(--muted); border: 1px solid var(--border2);

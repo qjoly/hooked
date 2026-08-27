@@ -7,6 +7,7 @@
   import { NAV_TABS } from '$lib/nav.js';
   import ModelEffort from '$lib/components/ModelEffort.svelte';
   import Icon from '$lib/components/Icon.svelte';
+  import { EDITORS } from '$lib/editors.js';
 
   // Navigation de section (rail gauche collant). Chaque entrée pointe l'id d'une carte ;
   // les cartes secondaires appartiennent à la section la plus proche au-dessus.
@@ -14,6 +15,7 @@
     { id: 'pset-appearance', label: 'Appearance' },
     { id: 'pset-sidebar', label: 'Sidebar' },
     { id: 'pset-ship', label: 'Ship' },
+    { id: 'pset-editor', label: 'Editor' },
     { id: 'pset-new', label: 'New session defaults' },
     { id: 'pset-project', label: 'Default project' },
     { id: 'pset-remote-control', label: 'Remote control' },
@@ -472,6 +474,18 @@
         <button class="chip" class:active={settings.shipDefaultView === 'vcs'} onclick={() => updateSettings({ shipDefaultView: 'vcs' })}>
           <Icon name="git" size={14} /> VCS (git / jj)
         </button>
+      </div>
+    </div>
+
+    <div class="card" id="pset-editor" data-sec>
+      <h2>Code editor</h2>
+      <p class="hint">Editor used by the <strong>editor</strong> links in the Ship / Files lenses (open one file) and by <strong>Open in …</strong> (open the whole project folder). Opening a file goes through the editor's URL scheme — the editor must be installed and, on first use, the browser will ask to allow it. Opening a folder runs the editor's CLI on the server, so that command must be in <code>PATH</code> (<code>{EDITORS.find((e) => e.key === (settings.editor || 'vscode'))?.cli}</code> for the current choice). (Shared setting.)</p>
+      <div class="chips">
+        {#each EDITORS as ed (ed.key)}
+          <button class="chip" class:active={(settings.editor || 'vscode') === ed.key} onclick={() => updateSettings({ editor: ed.key })}>
+            <Icon name={ed.icon} size={14} /> {ed.label}
+          </button>
+        {/each}
       </div>
     </div>
 
