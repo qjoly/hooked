@@ -11,7 +11,7 @@
   import { toSegments, countStats, applyOp } from '$lib/difflines.js';
   import { fmtCost } from '$lib/format.js';
   import { getFileChangeFull, getVcsDiff, getVcsLog, getVcsCommit } from '$lib/api.js';
-  import { settings } from '$lib/state.svelte.js';
+  import { settings, ui } from '$lib/state.svelte.js';
 
   let { s, id, onReview = null, canReview = true, active = false } = $props();
 
@@ -337,6 +337,47 @@
     }
   }
 
+  // ── panel sizing ── the two side rails are drag-resizable (widths persisted in `ui`);
+  // the diff column takes whatever is left. Double-click a handle to restore the default.
+  const FILES_W = { min: 150, max: 520, def: 232 };
+  const PANEL_W = { min: 200, max: 620, def: 288 };
+  function startResize(side, e) {
+    if (e.button != null && e.button !== 0) return;
+    e.preventDefault();
+    const startX = e.clientX;
+    const left = side === 'files';
+    const lim = left ? FILES_W : PANEL_W;
+    const startW = left ? ui.shipFilesWidth : ui.shipPanelWidth;
+    // left rail grows when dragging right, right panel grows when dragging left.
+    const move = (ev) => {
+      const w = Math.max(lim.min, Math.min(lim.max, startW + (left ? ev.clientX - startX : startX - ev.clientX)));
+      if (left) ui.shipFilesWidth = w; else ui.shipPanelWidth = w;
+    };
+    const up = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+  }
+  function resetWidth(side) {
+    if (side === 'files') ui.shipFilesWidth = FILES_W.def; else ui.shipPanelWidth = PANEL_W.def;
+  }
+  // keyboard-accessible nudge on the focused handle (± 16px).
+  function nudge(side, e) {
+    const d = e.key === 'ArrowLeft' ? -16 : e.key === 'ArrowRight' ? 16 : 0;
+    if (!d) return;
+    e.preventDefault();
+    const left = side === 'files';
+    const lim = left ? FILES_W : PANEL_W;
+    const w = Math.max(lim.min, Math.min(lim.max, (left ? ui.shipFilesWidth : ui.shipPanelWidth) + (left ? d : -d)));
+    if (left) ui.shipFilesWidth = w; else ui.shipPanelWidth = w;
+  }
+
   const tasksDone = $derived((s?.todos || []).filter((t) => t.status === 'completed').length);
   const tasksTotal = $derived((s?.todos || []).length);
 </script>
@@ -414,7 +455,7 @@
   {:else if view === 'vcs' && !changes.length}
     <div class="ship-empty">{selectedRev ? 'This commit changes no files.' : 'No uncommitted changes in the working tree.'}</div>
   {:else}
-  <div class="ship">
+  <div class="ship" style="--ship-files-w:{ui.shipFilesWidth}px;--ship-panel-w:{ui.shipPanelWidth}px">
     <!-- ── file rail ── -->
     <aside class="ship-files">
       <div class="sf-head">
@@ -450,6 +491,11 @@
         <div class="sf-hint">J/K next file · V mark reviewed</div>
       </div>
     </aside>
+    <!-- svelte-ignore a11y_no_noninteractive_element_interactions, a11y_no_noninteractive_tabindex -->
+    <div class="ship-grip" role="separator" aria-label="Resize the file list" aria-orientation="vertical"
+         tabindex="0" title="Drag to resize · double-click to reset"
+         onpointerdown={(e) => startResize('files', e)} ondblclick={() => resetWidth('files')}
+         onkeydown={(e) => nudge('files', e)}></div>
 
     <!-- ── diff ── -->
     <div class="ship-diff">
@@ -493,6 +539,12 @@
         </div>
       {/if}
     </div>
+
+    <!-- svelte-ignore a11y_no_noninteractive_element_interactions, a11y_no_noninteractive_tabindex -->
+    <div class="ship-grip" role="separator" aria-label="Resize the ship panel" aria-orientation="vertical"
+         tabindex="0" title="Drag to resize · double-click to reset"
+         onpointerdown={(e) => startResize('panel', e)} ondblclick={() => resetWidth('panel')}
+         onkeydown={(e) => nudge('panel', e)}></div>
 
     <!-- ── ship panel ── -->
     <aside class="ship-panel">
@@ -574,7 +626,7 @@
   .st-n { font-family: var(--mono); font-size: 9.5px; font-weight: 800; opacity: .8; flex: 0 0 auto; }
 
   /* file rail */
-  .ship-files { width: 232px; min-width: 232px; border-right: 1px solid var(--border); background: var(--bg2); display: flex; flex-direction: column; }
+  .ship-files { width: var(--ship-files-w, 232px); min-width: var(--ship-files-w, 232px); border-right: 1px solid var(--border); background: var(--bg2); display: flex; flex-direction: column; }
   .sf-head { display: flex; align-items: baseline; gap: 8px; padding: 10px 14px 7px; border-bottom: 1px solid var(--border); }
   .sf-title { font: 600 10px var(--mono); letter-spacing: .09em; text-transform: uppercase; color: var(--muted); }
   .sf-rev { margin-left: auto; font-family: var(--mono); font-size: 10px; color: var(--muted); }
@@ -645,7 +697,7 @@
   .sd-empty { padding: 24px; color: var(--muted); font-size: 12.5px; }
 
   /* ship panel */
-  .ship-panel { width: 288px; min-width: 288px; border-left: 1px solid var(--border); background: var(--bg2); overflow-y: auto; padding: 0; display: flex; flex-direction: column; gap: 0; }
+  .ship-panel { width: var(--ship-panel-w, 288px); min-width: var(--ship-panel-w, 288px); border-left: 1px solid var(--border); background: var(--bg2); overflow-y: auto; padding: 0; display: flex; flex-direction: column; gap: 0; }
   .sp-card { border: none; border-radius: 0; background: transparent; border-bottom: 1px solid var(--border); padding: 12px 14px; }
   .sp-card h4 { margin: 0 0 9px; font-family: var(--mono); font-size: 10px; font-weight: 700; letter-spacing: .09em; text-transform: uppercase; color: var(--muted); }
   .sp-check { display: flex; align-items: center; gap: 8px; padding: 3px 0; font-size: 12.5px; min-width: 0; }
@@ -665,16 +717,20 @@
   .sp-meta { font-size: 11px; color: var(--muted); padding: 2px 4px; }
   .sp-meta b { color: var(--text); }
 
-  @media (max-width: 1100px) { .ship-panel { display: none; } }
-  @media (max-width: 900px) { .ship-files { display: none; } }
+  /* drag handles between the columns (2px visual, 7px hit area) */
+  .ship-grip { flex: 0 0 auto; width: 7px; margin: 0 -3px; cursor: col-resize; z-index: 3; background: none; }
+  .ship-grip:hover, .ship-grip:focus-visible { background: var(--accent); opacity: .5; outline: none; }
+
+  @media (max-width: 1100px) { .ship-panel, .ship-grip:last-of-type { display: none; } }
+  @media (max-width: 900px) { .ship-files, .ship-grip:first-of-type { display: none; } }
 
   /* Mode étroit (pane de split / petite fenêtre) : les colonnes latérales cèdent la place au
      diff — d'abord le panneau « ready to ship », puis la liste de fichiers (J/K naviguent). */
   @container (max-width: 760px) {
-    .ship-panel { display: none; }
-    .ship-files { width: 180px; min-width: 180px; }
+    .ship-panel, .ship-grip:last-of-type { display: none; }
+    .ship-files { width: min(var(--ship-files-w, 232px), 180px); min-width: min(var(--ship-files-w, 232px), 180px); }
   }
   @container (max-width: 560px) {
-    .ship-files { display: none; }
+    .ship-files, .ship-grip:first-of-type { display: none; }
   }
 </style>
