@@ -12,6 +12,7 @@
   import { fmtCost } from '$lib/format.js';
   import { getFileChangeFull, getVcsDiff, getVcsLog, getVcsCommit } from '$lib/api.js';
   import { settings, ui } from '$lib/state.svelte.js';
+  import { editorFor } from '$lib/editors.js';
 
   let { s, id, onReview = null, canReview = true, active = false } = $props();
 
@@ -503,7 +504,7 @@
         <div class="sd-head">
           <span class="sd-name">{activeFile.name}</span>
           <span class="sd-path" title={activeFile.file}>{activeFile.file}</span>
-          <a class="sd-editor" href={'vscode://file' + activeFile.file} title="Open in VS Code"><Icon name="external" size={12} /> editor</a>
+          <a class="sd-editor" href={editorFor(settings.editor).fileUrl(activeFile.file)} title={'Open in ' + editorFor(settings.editor).label}><Icon name="external" size={12} /> editor</a>
           <div class="sd-modes">
             <button class:on={effMode === 'unified'} onclick={() => chooseMode('unified')} title="Unified"><Icon name="menu" size={14} /></button>
             <button class:on={effMode === 'split'} onclick={() => chooseMode('split')} title="Side-by-side"><Icon name="pane" size={14} /></button>

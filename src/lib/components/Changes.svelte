@@ -2,6 +2,8 @@
   import Diff from './Diff.svelte';
   import Icon from '$lib/components/Icon.svelte';
   import { getVcsDiff } from '$lib/api.js';
+  import { settings } from '$lib/state.svelte.js';
+  import { editorFor } from '$lib/editors.js';
   // `onReview(prompt)` : envoie le prompt de revue généré (branché sur le Composer par le parent).
   // `canReview` : faux si aucun pane tmux → on ne peut rien envoyer, on désactive le bouton.
   // `id` : session id, requis pour charger le diff VCS (git/jj) du working tree à la demande.
@@ -108,7 +110,7 @@
         <span class="ch-arrow"><Icon name="chevron-right" size={12} /></span>
         <span class="ch-name">{c.name}</span>
         <span class="ch-path">{c.file}</span>
-        <a class="ch-open" href={'vscode://file' + c.file} title="Open in VS Code"
+        <a class="ch-open" href={editorFor(settings.editor).fileUrl(c.file)} title={'Open in ' + editorFor(settings.editor).label}
            onclick={(e) => e.stopPropagation()}><Icon name="external" size={12} /> editor</a>
         <span class="ch-count">{c.badge ?? (c.count + ' ' + (c.count > 1 ? 'edits' : 'edit'))}</span>
       </div>

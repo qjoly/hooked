@@ -2,7 +2,7 @@
   import { onMount, onDestroy, tick, untrack } from 'svelte';
   import { goto } from '$app/navigation';
   import { ui, data, settings, loadSessions, openModal, sessionTitle, sessionTags, renameSession, toggleFocus, splitWithMostRecent, canSplit, toggleArchive, isArchived } from '$lib/state.svelte.js';
-  import { getSession, setMode, setModelEffort, openInVscode, openInGhostty, fork, showInPane, killPane, deleteSession } from '$lib/api.js';
+  import { getSession, setMode, setModelEffort, openInEditor, openInGhostty, fork, showInPane, killPane, deleteSession } from '$lib/api.js';
   import { STATE_LABEL, fmtCost, fmtTokens, fmtDuration, shortModel, prLabel, issueLabel, PERMISSION_MODES, modeLabel, modeMeta, modelAlias, tagColor } from '$lib/format.js';
   import { page } from '$app/state';
   import ModelEffort from './ModelEffort.svelte';
@@ -14,6 +14,7 @@
   import Dock from './Dock.svelte';
   import Terminal from './Terminal.svelte';
   import Icon from '$lib/components/Icon.svelte';
+  import { editorFor } from '$lib/editors.js';
   import { TERM_THEMES, DEFAULT_TERM_THEME, TERM_FONTS, DEFAULT_TERM_FONT } from '$lib/terminalThemes.js';
   import { conversationToMarkdown } from '$lib/exportConversation.js';
   import { getBinding, matchesEvent } from '$lib/shortcuts.js';
@@ -518,13 +519,15 @@
   async function copyExport() {
     try { await navigator.clipboard.writeText(conversationToMarkdown(s)); exportCopied = true; setTimeout(() => (exportCopied = false), 1500); } catch (_) {}
   }
-  let vscodeBusy = $state(false);
-  async function openVscode() {
-    if (vscodeBusy) return;
-    vscodeBusy = true;
-    const res = await openInVscode(s.id).catch((e) => ({ ok: false, data: { error: e.message } }));
+  // Éditeur préféré (réglage partagé) : sert au libellé du bouton et à l'icône.
+  const prefEditor = $derived(editorFor(settings.editor));
+  let editorBusy = $state(false);
+  async function openEditor() {
+    if (editorBusy) return;
+    editorBusy = true;
+    const res = await openInEditor(s.id).catch((e) => ({ ok: false, data: { error: e.message } }));
     if (!res.ok) alert('✗ ' + (res.data.error || 'failed'));
-    vscodeBusy = false;
+    editorBusy = false;
   }
   let ghosttyBusy = $state(false);
   async function openGhostty() {
@@ -611,7 +614,7 @@
             {#if s.tmuxAlive && s.tmuxAttach}
               <button class="vscode-btn" title={s.tmuxAttach} onclick={copyAttach}>{#if attachCopied}<Icon name="check" size={14} /> copied{:else}<Icon name="copy" size={14} /> Copy attach{/if}</button>
             {/if}
-            <button class="vscode-btn" disabled={vscodeBusy} onclick={openVscode} title="Open the entire project in VS Code">{#if vscodeBusy}<Icon name="queued" size={14} />{:else}<Icon name="vscode" size={14} />{/if} Open in VS Code</button>
+            <button class="vscode-btn" disabled={editorBusy} onclick={openEditor} title="Open the entire project in {prefEditor.label} (change it in Settings → Editor)">{#if editorBusy}<Icon name="queued" size={14} />{:else}<Icon name={prefEditor.icon} size={14} />{/if} Open in {prefEditor.label}</button>
             <button class="vscode-btn" disabled={ghosttyBusy} onclick={openGhostty} title="Open the session in Ghostty (attaches tmux if alive)">{#if ghosttyBusy}<Icon name="queued" size={14} />{:else}<Icon name="ghostty" size={14} />{/if} Open in Ghostty</button>
             <button class="vscode-btn" onclick={copyExport} title="Copy the conversation as Markdown to the clipboard">{#if exportCopied}<Icon name="check" size={14} /> copied{:else}<Icon name="copy" size={14} /> Copy as Markdown{/if}</button>
             <button class="vscode-btn" onclick={() => openModal('editTags', { sessionId: id })} title="Add or remove tags on this session (PR review tags are automatic)"><Icon name="tag" size={14} /> Edit tags</button>
