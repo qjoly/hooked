@@ -1,6 +1,6 @@
 <script>
   // Global top bar (redesign shell): spaces (Deck / Archive), omnibar trigger, account usage
-  // gauges (5h / 7d), quick actions (notifications, theme, settings) and the primary
+  // gauges (5h / 7d / model-scoped), quick actions (notifications, theme, settings) and the primary
   // "+ Session" button. Replaces the old 14-icon left rail.
   import { page } from '$app/state';
   import { ui, data, settings, cycleTheme, toggleNotify, openModal, isArchived, snoozeUntil } from '$lib/state.svelte.js';
@@ -32,7 +32,8 @@
       && !isArchived(s.id) && !(snoozeUntil(s.id) > nowMin)).length,
   );
 
-  // Account rate-limit gauges (statusline snapshots). Refreshed on every live tick.
+  // Account rate-limit gauges (statusline snapshots + Claude Code usage cache). Refreshed on
+  // every live tick.
   let usage = $state(null);
   $effect(() => {
     ui.tick;
@@ -40,7 +41,12 @@
   });
   const g5 = $derived(usage?.account?.fiveHour?.pct ?? null);
   const g7 = $derived(usage?.account?.sevenDay?.pct ?? null);
+  // Fable weekly bucket: model-scoped limit, only present on accounts that have one — no bucket,
+  // no gauge (the 5h / 7d ones always apply). Comes from Claude Code's usage cache, not the
+  // statusline, so it carries its own reset countdown.
+  const fable = $derived(usage?.account?.fable ?? null);
   const barW = (pct) => Math.max(0, Math.min(100, pct || 0));
+  const resetHint = (min) => (min == null ? '' : ` — resets in ${min >= 60 ? Math.round(min / 60) + 'h' : min + 'm'}`);
 
   const themeLabel = $derived({ system: 'System', light: 'Light', dark: 'Dark' }[ui.theme] ?? 'System');
   const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.userAgent);
@@ -67,7 +73,7 @@
     <kbd>{isMac ? '⌘' : 'Ctrl'}K</kbd>
   </button>
 
-  <div class="tb-gauges" title="Account rate limits (from statusline snapshots)">
+  <div class="tb-gauges" title="Account rate limits">
     <div class="tb-gauge" class:warn={g5 != null && g5 >= 75}>
       <div class="tb-g-lbl"><span>5H</span><span>{g5 != null ? g5 + '%' : '—'}</span></div>
       <div class="tb-g-track"><div class="tb-g-fill" style="width:{barW(g5)}%"></div></div>
@@ -76,6 +82,13 @@
       <div class="tb-g-lbl"><span>7J</span><span>{g7 != null ? g7 + '%' : '—'}</span></div>
       <div class="tb-g-track"><div class="tb-g-fill" style="width:{barW(g7)}%"></div></div>
     </div>
+    {#if fable}
+      <div class="tb-gauge" class:warn={fable.pct != null && fable.pct >= 75}
+           title="{fable.label} weekly limit{resetHint(fable.resetInMin)}">
+        <div class="tb-g-lbl"><span>FABLE</span><span>{fable.pct != null ? fable.pct + '%' : '—'}</span></div>
+        <div class="tb-g-track"><div class="tb-g-fill" style="width:{barW(fable.pct)}%"></div></div>
+      </div>
+    {/if}
   </div>
 
   <div class="tb-actions">

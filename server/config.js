@@ -4,6 +4,7 @@
  *   HOOKED_PROJECTS_DIR  → transcripts (défaut ~/.claude/projects)
  *   HOOKED_DATA_DIR      → events.jsonl / launches.jsonl (défaut ~/.claude/hooked)
  *   HOOKED_PORT          → port HTTP (défaut 4123)
+ *   HOOKED_CLAUDE_JSON   → config globale Claude Code (défaut ~/.claude.json)
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -25,6 +26,11 @@ const SHOWN_PANES_FILE = path.join(HOOKED_DIR, 'panes.jsonl');
 // snapshots de la statusline Claude Code (déposés par statusline-command.sh) : un fichier
 // JSON par session, contenant les *vraies* infos du compte (effort, rate limits, contexte).
 const STATUS_DIR = path.join(HOOKED_DIR, 'status');
+// Claude Code's global config (~/.claude.json). Carries `cachedUsageUtilization`, the account
+// quota cache the CLI refreshes: the only local source for *model-scoped* buckets (e.g. the
+// weekly Fable limit), which the statusline payload does not expose (5h / 7d only).
+const CLAUDE_JSON = process.env.HOOKED_CLAUDE_JSON
+  || path.join(process.env.CLAUDE_CONFIG_DIR || HOME, '.claude.json');
 const ROOT = path.join(import.meta.dirname, '..');
 // Le front Svelte est buildé dans dist/ (npm run build) — seule source servie.
 const PUBLIC_DIR = path.join(ROOT, 'dist');
@@ -76,4 +82,4 @@ function readClaudeDefaults() {
   };
 }
 
-export { HOME, PROJECTS_DIR, HOOKED_DIR, EVENTS_FILE, LAUNCHES_FILE, SESSION_LAUNCH_FILE, SHOWN_PANES_FILE, STATUS_DIR, ROOT, PUBLIC_DIR, PORT, PERMISSION_MODES, LAUNCH_PERMISSION_MODES, isValidModelArg, readClaudeDefaults };
+export { HOME, PROJECTS_DIR, HOOKED_DIR, EVENTS_FILE, LAUNCHES_FILE, SESSION_LAUNCH_FILE, SHOWN_PANES_FILE, STATUS_DIR, CLAUDE_JSON, ROOT, PUBLIC_DIR, PORT, PERMISSION_MODES, LAUNCH_PERMISSION_MODES, isValidModelArg, readClaudeDefaults };
