@@ -1,8 +1,9 @@
 <script>
   import { goto } from '$app/navigation';
   import { page } from '$app/state';
-  import { ui, data, sessionTitle, cycleScheme, setTheme, toggleFocus, toggleNotify, openModal } from '$lib/state.svelte.js';
-  import { kill, interrupt, openInVscode, openInGhostty, resync } from '$lib/api.js';
+  import { ui, data, settings, sessionTitle, cycleScheme, setTheme, toggleFocus, toggleNotify, openModal } from '$lib/state.svelte.js';
+  import { editorFor } from '$lib/editors.js';
+  import { kill, interrupt, openInEditor, openInGhostty, resync } from '$lib/api.js';
   import { shortcutForCommand, formatKeys } from '$lib/shortcuts.js';
   import Icon from '$lib/components/Icon.svelte';
 
@@ -60,7 +61,7 @@
         { id: 'ctx:lens-terminal', label: 'Lens: Shell', section: 'Current session', icon: 'shell', action: () => goto('/session/' + encodeURIComponent(cs.id) + '?lens=terminal') },
         { id: 'ctx:lens-ship', label: 'Lens: Ship (review)', section: 'Current session', icon: 'ship', action: () => goto('/session/' + encodeURIComponent(cs.id) + '?lens=ship') },
         { id: 'ctx:copy-path', label: `Copy project path: ${cs.projectName || cs.cwd}`, section: 'Current session', icon: 'clipboard', action: () => navigator.clipboard.writeText(cs.cwd) },
-        { id: 'ctx:vscode', label: 'Open project in VS Code', section: 'Current session', icon: 'vscode', action: () => openInVscode(cs.id) },
+        { id: 'ctx:editor', label: `Open project in ${editorFor(settings.editor).label}`, section: 'Current session', icon: editorFor(settings.editor).icon, action: () => openInEditor(cs.id) },
         { id: 'ctx:ghostty', label: 'Open in Ghostty', section: 'Current session', icon: 'ghostty', action: () => openInGhostty(cs.id) },
         { id: 'ctx:interrupt', label: 'Interrupt session', section: 'Current session', icon: 'interrupt', action: () => interrupt(cs.id), hidden: cs.state !== 'working' },
         { id: 'ctx:stop', label: 'Stop session', section: 'Current session', icon: 'stop', action: () => kill(cs.id), hidden: cs.state === 'ended' },
