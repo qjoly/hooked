@@ -11,6 +11,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { HOOKED_DIR, LAUNCH_PERMISSION_MODES, isValidModelArg } from './config.js';
+import { EDITOR_KEYS, DEFAULT_EDITOR } from '../src/lib/editors.js';
 
 const SETTINGS_FILE = path.join(HOOKED_DIR, 'settings.json');
 
@@ -95,6 +96,10 @@ const DEFAULTS = {
   // transcript, filtrable par prompt) ou 'vcs' (git/jj : working tree + commits). Le bouton
   // de bascule dans l'onglet permet toujours de changer ponctuellement.
   shipDefaultView: 'claude',
+  // Éditeur de code préféré : clé du registre src/lib/editors.js ('vscode', 'zed'…). Sert aux
+  // liens « open in editor » de la lentille Ship (côté client) et à l'ouverture du dossier projet
+  // par le serveur (CLI de l'éditeur).
+  editor: DEFAULT_EDITOR,
   // Page d'accueil (espace ouvert à froid au chargement) : 'deck' ou une clé de nav.
   defaultPage: 'deck',
   // Onglets de navigation visibles à côté du Deck (paramétrable). Sous-ensemble de NAV_PAGES.
@@ -181,6 +186,7 @@ function sanitize(raw) {
     favoriteProjects: favProjects,
     digest,
     shipDefaultView: o.shipDefaultView === 'vcs' ? 'vcs' : 'claude',
+    editor: EDITOR_KEYS.includes(o.editor) ? o.editor : DEFAULT_EDITOR,
     defaultPage: DEFAULT_PAGES.includes(o.defaultPage) ? o.defaultPage : 'deck',
     navTabs: Array.isArray(o.navTabs)
       ? NAV_PAGES.filter((k) => o.navTabs.includes(k)) // keep known keys, canonical order
