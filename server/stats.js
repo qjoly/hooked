@@ -8,7 +8,7 @@ import { scanSessions, blankSummary } from './transcript.js';
 import { repoSlug } from './git.js';
 import { readEvents, lastEventBySession, paneForSession, paneBySession, sessionForPane, modeForSession, liveQuestionForSession, liveQuestionBySession, livePlanForSession, livePlanBySession, eventSessionMeta } from './events.js';
 import { liveStateFor } from './live.js';
-import { resolveLaunchForSession, paneTmuxNames, tmuxAlive, readPaneModeSync, paneBusySync, paneActivitySync, paneFollowupSync, paneActiveSync, warmPaneCaptures, warmPaneNames } from './tmux.js';
+import { resolveLaunchForSession, paneTmuxNames, tmuxAlive, readPaneModeSync, paneBusySync, paneActivitySync, paneFollowupSync, paneLastProseSync, paneActiveSync, warmPaneCaptures, warmPaneNames } from './tmux.js';
 import { shownPanesFor } from './pane.js';
 import { sessionStatus, sessionStatusRaw, accountRateLimits, freshestStatusId } from './status.js';
 import { scopedLimit, accountLimit, currentUtilization, usageFreshness } from './utilization.js';
@@ -27,6 +27,9 @@ import { DIGEST_PROMPT_PREFIX } from './digests.js';
 // Garde-fou : seulement les sessions récentes, non terminées, sans transcript sur disque
 // (sinon scanSessions les aurait déjà ; un transcript supprimé reste donc masqué).
 const EVENT_SESSION_MAX_AGE_MIN = 30;
+// Outils qui rendent la main à l'utilisateur : leur tour n'est écrit dans le transcript qu'une fois
+// la réponse donnée (cf. pendingLeadIn dans sessionDetail).
+const HANDOFF_TOOLS = new Set(['AskUserQuestion', 'ExitPlanMode']);
 function eventOnlySessions(knownIds, now = Date.now()) {
   const out = [];
   for (const [id, m] of eventSessionMeta()) {
@@ -363,6 +366,23 @@ function sessionDetail(id) {
   // statut réel issu de la statusline (effort, rate limits du compte, contexte). Prioritaire.
   const status = sessionStatus(id);
   const alive = tmuxAlive(pane);
+  // Texte d'introduction de la question / du plan en attente, LU DANS LA PANE.
+  // Tant qu'une AskUserQuestion (ou un ExitPlanMode) n'a pas reçu sa réponse, Claude Code n'écrit
+  // RIEN du tour dans le transcript : thinking + texte + tool_use y tombent d'un seul coup à la
+  // seconde où l'on répond. La prose qui précède la question — celle dont on a besoin POUR répondre
+  // — n'existe donc sur disque qu'APRÈS coup, et aucun refetch ne la fera apparaître avant.
+  // On la relit dans la pane (seule source vivante) tant que le tour n'est pas retombé dans le
+  // .jsonl. Le témoin du flush : un chip de hand-off SANS RÉSULTAT dans la dernière bulle (l'appel
+  // est écrit, sa réponse pas encore). Tester la seule présence du chip ne marche pas — la bulle
+  // précédente porte le chip de la question DÉJÀ répondue (avec son résultat), ce qui coupait le
+  // lead-in à chaque question posée après une première (mesuré de bout en bout sur l'API).
+  const flushedHandoff = (() => {
+    const m = messages[messages.length - 1];
+    if (!m || m.role !== 'assistant') return false;
+    return (m.parts || []).some((p) => p.type === 'tool' && HANDOFF_TOOLS.has(p.tool && p.tool.name) && !p.tool.result);
+  })();
+  const pendingLeadIn = ((pendingQuestion || pendingPlan) && alive && !flushedHandoff)
+    ? paneLastProseSync(pane) : null;
   // busy réel du pane, calculé une fois et partagé par refineWithPane + withBackgroundState.
   const busy = alive ? paneBusySync(pane) : null;
   // le corps de conversation bouge-t-il encore ? (écriture vs tour terminé) — même capture en cache.
@@ -383,7 +403,7 @@ function sessionDetail(id) {
   const runningCount = bgJobs.filter((j) => j.status === 'running').length;
   const state = withBackgroundState(refined, alive, runningCount, busy);
   return {
-    ...s, pendingQuestion, pendingPlan, changeTurns,
+    ...s, pendingQuestion, pendingPlan, pendingLeadIn, changeTurns,
     state, currentTool: last ? last.tool : null,
     bgJobs,
     // verbe d'activité live du spinner TUI (« Accomplishing »…) quand la session mouline, sinon null.
