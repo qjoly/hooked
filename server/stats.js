@@ -11,7 +11,7 @@ import { liveStateFor } from './live.js';
 import { resolveLaunchForSession, paneTmuxNames, tmuxAlive, readPaneModeSync, paneBusySync, paneActivitySync, paneFollowupSync, paneActiveSync, warmPaneCaptures, warmPaneNames } from './tmux.js';
 import { shownPanesFor } from './pane.js';
 import { sessionStatus, sessionStatusRaw, accountRateLimits, freshestStatusId } from './status.js';
-import { scopedLimit } from './utilization.js';
+import { scopedLimit, accountLimit, currentUtilization, usageFreshness } from './utilization.js';
 import { buildConversation } from './conversation.js';
 import { buildSubSessions } from './subSessions.js';
 import { buildFileChanges } from './changes.js';
@@ -271,13 +271,26 @@ function buildStats(rangeDays) {
 // contexte/effort/modèle de la session la plus fraîche (statusline) + rate limits du compte.
 // Réutilise server/status.js ; dégrade en null si aucun snapshot.
 // The Fable weekly bucket is model-scoped: absent from the statusline payload, so it comes from
-// Claude Code's own usage cache (cf. server/utilization.js) and is merged into `account`.
+// the account usage endpoint / Claude Code's usage cache (cf. server/utilization.js) and is merged
+// into `account`, along with `usage` (which source answered, how old) for the staleness hint.
+// The 5h / 7d buckets stay statusline-driven (refreshed on every render) and only fall back to the
+// usage payload when NO snapshot carries rate limits — e.g. no session open since the last restart.
 function buildUsage() {
   const id = freshestStatusId();
   const session = id ? sessionStatus(id) : null;   // contexte/effort/modèle/fastMode + rateLimit
   const rl = accountRateLimits();                  // le + frais AVEC rate_limits, toutes sessions
-  const fable = scopedLimit('Fable');
-  const account = (rl || fable) ? { fiveHour: null, sevenDay: null, at: null, ...rl, fable } : null;
+  const util = currentUtilization();
+  const fable = scopedLimit('Fable', util);
+  const fresh = usageFreshness();
+  const fallback = rl ? null : {
+    fiveHour: accountLimit('session', util),
+    sevenDay: accountLimit('weekly_all', util),
+    at: fresh.at,
+  };
+  const merged = rl || (fallback && (fallback.fiveHour || fallback.sevenDay) ? fallback : null);
+  const account = (merged || fable)
+    ? { fiveHour: null, sevenDay: null, at: null, ...merged, fable, usage: fresh }
+    : null;
   return { sessionId: id, session, account };
 }
 
