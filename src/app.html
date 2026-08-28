@@ -10,6 +10,7 @@
          'light'/'dark' → data-theme forcé sur <html>.
        • palette (color-scheme) — 'default' (défaut) → aucun attribut ; 'legacy' → data-scheme
          forcé (rappelle l'ancien thème crème/terracotta).
+       • coins — 'round' (défaut) → aucun attribut ; 'sharp' → data-corners, tout à angle vif.
        Doit rester synchro avec state.svelte.js. -->
   <script>
     (function () {
@@ -18,6 +19,8 @@
         if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t);
         var s = localStorage.getItem('hooked.scheme');
         if (s === 'legacy') document.documentElement.setAttribute('data-scheme', s);
+        var c = localStorage.getItem('hooked.corners');
+        if (c === 'sharp') document.documentElement.setAttribute('data-corners', c);
       } catch (e) {}
     })();
   </script>
