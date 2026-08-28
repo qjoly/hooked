@@ -11,6 +11,7 @@
   import Plan from './Plan.svelte';
   import Composer from './Composer.svelte';
   import Ship from './Ship.svelte';
+  import Branch from './Branch.svelte';
   import Dock from './Dock.svelte';
   import Terminal from './Terminal.svelte';
   import Icon from '$lib/components/Icon.svelte';
@@ -114,6 +115,7 @@
   const LENSES = [
     { key: 'chat', icon: 'converse', label: 'Converse', kbd: '1' },
     { key: 'ship', icon: 'ship', label: 'Ship', kbd: '3' },
+    { key: 'branch', icon: 'git-branch', label: 'Branch', kbd: '4' },
   ];
   const lensCount = $derived({
     chat: (s?.messages || []).length,
@@ -334,7 +336,7 @@
   //  • 1-4 (hors saisie) : bascule de lentille (Converse / Build / Shell / Ship) ;
   //  • Échap dans la vue chat (hors textarea — le composer gère lui-même quand il a le focus) :
   //    interrompt Claude et recharge le dernier prompt pour l'éditer, comme dans le CLI.
-  const LENS_KEYS = { 1: 'chat', 2: 'shell', 3: 'ship' };
+  const LENS_KEYS = { 1: 'chat', 2: 'shell', 3: 'ship', 4: 'branch' };
   function onWindowKey(e) {
     if (ui.modal) return;
     if (inSplit && !focused) return; // in split, only the focused pane reacts to keys
@@ -640,7 +642,7 @@
   </div>
 
   <div class="body-row">
-  <div class="pane-body" class:flush={tab === 'ship'} bind:this={body}
+  <div class="pane-body" class:flush={tab === 'ship' || tab === 'branch'} bind:this={body}
        onscroll={() => { if (body) stickToBottom = (body.scrollHeight - body.scrollTop - body.clientHeight) < 60; }}>
     <!-- la conversation reste montée en lentille Build (colonne copilote à côté de l'IDE) -->
     <div class="pane" class:active={tab === 'chat'}>
@@ -693,6 +695,14 @@
     <div class="pane pane-flush" class:active={tab === 'ship'}>
       {#if seen.ship}
         <Ship {s} {id} onReview={reviewChanges} canReview={!!(s.tmuxPane)} active={tab === 'ship'} />
+      {/if}
+    </div>
+
+    <!-- Lentille Branch : le diff COMPLET d'une branche vs une base (merge-base → tête),
+         façon « Files changed » d'une PR, avec sélecteur de branche. -->
+    <div class="pane pane-flush" class:active={tab === 'branch'}>
+      {#if seen.branch}
+        <Branch {s} {id} onReview={reviewChanges} canReview={!!(s.tmuxPane)} active={tab === 'branch'} />
       {/if}
     </div>
 
