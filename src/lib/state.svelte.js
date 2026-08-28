@@ -30,6 +30,7 @@ export const ui = $state({
   tick: 0,                   // incrémenté à chaque évènement live → relance les effets
   theme: readTheme(),        // 'system' | 'light' | 'dark' (persisté à part, cf. app.html)
   scheme: readScheme(),      // 'default' | 'legacy' — palette (color-scheme), axe orthogonal au clair/sombre
+  corners: readCorners(),    // 'round' | 'sharp' — forme des angles, 3e axe orthogonal
   notify: persisted.notify ?? false,    // notifications navigateur (session finie / en attente de toi)
   notifyPinnedOnly: persisted.notifyPinnedOnly ?? false, // if true: only notify for pinned sessions
   diffSplit: persisted.diffSplit ?? false, // render conversation diffs side-by-side (split) instead of unified
@@ -303,6 +304,34 @@ export function setScheme(s) {
 // cycle default → legacy → default…
 export function cycleScheme() {
   setScheme(SCHEME_ORDER[(SCHEME_ORDER.indexOf(ui.scheme) + 1) % SCHEME_ORDER.length]);
+}
+
+// ─── Corners (arrondis : round / sharp) ──────────────────────────────────────────────────────
+// TROISIÈME axe orthogonal, indépendant du clair/sombre ET de la palette : la forme des angles.
+// 'round' (défaut) = aucun attribut ; 'sharp' = data-corners="sharp" → tout à angle vif (cf. la
+// règle unique dans app.css). Séparé de `scheme` à dessein : `scheme` choisit des COULEURS, et on
+// veut pouvoir prendre les angles vifs avec n'importe quelle palette.
+const CORNERS_KEY = 'hooked.corners';
+const CORNERS_ORDER = ['round', 'sharp'];
+function readCorners() {
+  if (typeof localStorage === 'undefined') return 'round';
+  try { const c = localStorage.getItem(CORNERS_KEY); return CORNERS_ORDER.includes(c) ? c : 'round'; }
+  catch { return 'round'; }
+}
+function applyCorners() {
+  if (typeof document === 'undefined') return;
+  const root = document.documentElement;
+  if (ui.corners === 'sharp') root.setAttribute('data-corners', ui.corners);
+  else root.removeAttribute('data-corners'); // 'round' → aucun attribut, arrondis d'origine
+}
+export function setCorners(c) {
+  ui.corners = CORNERS_ORDER.includes(c) ? c : 'round';
+  try { localStorage.setItem(CORNERS_KEY, ui.corners); } catch {}
+  applyCorners();
+}
+// cycle round → sharp → round…
+export function cycleCorners() {
+  setCorners(CORNERS_ORDER[(CORNERS_ORDER.indexOf(ui.corners) + 1) % CORNERS_ORDER.length]);
 }
 
 export const data = $state({ sessions: [] });

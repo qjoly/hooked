@@ -311,6 +311,22 @@
   --diff-add-bg: rgba(var(--success-rgb),.18); --diff-add-fg: #a9c089;
   --diff-del-bg: rgba(var(--danger-rgb),.2);   --diff-del-fg: #e6998a;
 }
+/* ─── Angles vifs (data-corners="sharp") ───────────────────────────────────────────────────────
+   Troisième axe de thème, orthogonal au clair/sombre et à la palette : tout passe à angle vif.
+
+   Le sélecteur universel + !important est ASSUMÉ, et c'est ici le bon outil. Le projet compte 315
+   déclarations `border-radius` réparties dans app.css et une quarantaine de composants ; les
+   dupliquer toutes sous une variante `sharp` créerait 315 endroits à tenir synchronisés, dont
+   chaque nouveau composant oublierait la moitié. Une règle qui balaie tout ne peut pas, elle,
+   diverger. `!important` couvre aussi les `style=""` posés en ligne par les composants (une règle
+   de feuille marquée important l'emporte sur un style inline non-important).
+
+   Les 31 formes circulaires (pastilles d'état, points de chargement, chips en pilule) deviennent
+   carrées elles aussi : c'est voulu, pas un effet de bord — le thème dit « aucun arrondi ». */
+:root[data-corners="sharp"] *,
+:root[data-corners="sharp"] *::before,
+:root[data-corners="sharp"] *::after { border-radius: 0 !important; }
+
 * { box-sizing: border-box; }
 html, body { height: 100%; }
 body {

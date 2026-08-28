@@ -1,6 +1,6 @@
 <script>
   import { untrack, onMount } from 'svelte';
-  import { data, ui, settings, updateSettings, setTheme, setScheme, loadSessions, allTags, tagUsage, deleteTag } from '$lib/state.svelte.js';
+  import { data, ui, settings, updateSettings, setTheme, setScheme, setCorners, loadSessions, allTags, tagUsage, deleteTag } from '$lib/state.svelte.js';
   import { tagColor } from '$lib/format.js';
   import { resync, getGit, checkoutBranch, dismissRestartNotice, getClaudeVersion, upgradeClaude, restartClaudeSession, pickFolder, getRemoteControl } from '$lib/api.js';
   import { getAllBindings, setBinding, resetBinding, resetAll as resetAllShortcuts, formatKeys, keysFromEvent } from '$lib/shortcuts.js';
@@ -89,6 +89,11 @@
   const SCHEMES = [
     { key: 'default', icon: 'dot', color: '#7d74f5', label: 'Default' },
     { key: 'legacy',  icon: 'dot', color: '#a07a55', label: 'Legacy' },
+  ];
+  // Forme des angles (3e axe orthogonal : se combine avec n'importe quel clair/sombre et palette).
+  const CORNERS = [
+    { key: 'round', icon: 'dot', label: 'Rounded' },
+    { key: 'sharp', icon: 'pane', label: 'Square' },
   ];
 
   // Défauts de session (modèle / effort / mode de permission) pré-sélectionnés dans les formulaires
@@ -406,6 +411,16 @@
         {#each THEMES as t (t.key)}
           <button class="chip" class:active={ui.theme === t.key} onclick={() => setTheme(t.key)}>
             <Icon name={t.icon} size={14} /> {t.label}
+          </button>
+        {/each}
+      </div>
+
+      <h2 style="margin-top:22px">Corners</h2>
+      <p class="hint"><strong>Square</strong> removes every rounded corner — cards, buttons, chips, status dots, the lot. Combines with any theme and palette. (Per-browser preference.)</p>
+      <div class="chips">
+        {#each CORNERS as c (c.key)}
+          <button class="chip" class:active={ui.corners === c.key} onclick={() => setCorners(c.key)}>
+            <Icon name={c.icon} size={14} /> {c.label}
           </button>
         {/each}
       </div>
