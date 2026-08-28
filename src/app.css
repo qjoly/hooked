@@ -311,6 +311,163 @@
   --diff-add-bg: rgba(var(--success-rgb),.18); --diff-add-fg: #a9c089;
   --diff-del-bg: rgba(var(--danger-rgb),.2);   --diff-del-fg: #e6998a;
 }
+/* ─── Color scheme « datadog » — violet Datadog, surfaces froides, densité d'outil ───────────
+   Troisième palette sur le MÊME axe orthogonal que « legacy » (`data-scheme="datadog"`), donc
+   combinable avec clair/sombre et avec l'axe des angles. On ré-override tous les jetons, triplets
+   RGB compris, pour que chaque composant récupère la teinte sans le savoir.
+
+   Le violet de marque (#632ca6) est excellent sur fond clair mais trop sombre sur fond sombre :
+   la variante sombre passe donc à un violet clair (#a78bfa), comme le fait Datadog lui-même. Le
+   reste suit leur sémantique : bleu pour l'info, vert franc pour l'ok, ambre pour l'alerte, rouge
+   brique pour l'erreur.
+
+   La partie « style » tient en trois traits, plus bas : angles serrés, ombres quasi nulles, et
+   séparation portée par les BORDURES plutôt que par l'élévation — c'est ce qui donne à Datadog sa
+   densité d'outil de supervision plutôt qu'un aspect de cartes flottantes. */
+:root[data-scheme="datadog"] {
+  color-scheme: light;
+  --fg: #1c1c22;
+  --card: #ffffff;
+  --hover: #ecebf2;
+  --input: #ffffff;
+  --chip: #e9e9f0;
+  --accent-fg: #ffffff;
+  --code-bg: #14141c;
+  --warn: #b3760f;  --warn-soft: #fbf1de;
+  --info: #0f74c4;  --info-soft: #e4f0fb;
+  --success: #1f8f45; --success-soft: #e6f5ea;
+  --danger: #cc2f22; --danger-soft: #fbe9e7; --danger-border: #f2ccc7;
+  --bg: #f2f2f6;
+  --bg2: #ffffff;
+  --bg3: #e9e9f0;
+  --panel: #f7f7fa;
+  --surface: #ffffff;
+  --border: #dcdce6;
+  --border2: #c3c3d2;
+  --text: var(--fg);
+  --muted: #5c5c73;
+  --accent: #632ca6;
+  --accent-d: #4f2286;
+  --accent-soft: #f1eaf9;
+  --working: var(--info);
+  --waiting: var(--warn);
+  --attention: var(--danger);
+  --background: #8a5cd1;
+  --idle: #a0a0b4;
+  --ended: var(--success);
+  --past: #c6c6d3;
+  --accent-rgb: 99,44,166;
+  --info-rgb: 15,116,196;
+  --warn-rgb: 179,118,15;
+  --danger-rgb: 204,47,34;
+  --bgjob-rgb: 138,92,209;
+  --success-rgb: 31,143,69;
+  --ink-rgb: 108,108,132;
+  --shadow-rgb: 20,20,32;
+  --overlay: rgba(20,20,32,.38);
+  --grid: rgba(var(--ink-rgb),.04);
+  --code-inline: rgba(var(--ink-rgb),.14);
+  --track-dark: rgba(0,0,0,.07);
+  --diff-add-bg: rgba(var(--success-rgb),.13); --diff-add-fg: #14663a;
+  --diff-del-bg: rgba(var(--danger-rgb),.11);  --diff-del-fg: #a4251a;
+}
+/* datadog — variante sombre (deux voies, mêmes valeurs), cf. les blocs default/legacy ci-dessus. */
+@media (prefers-color-scheme: dark) {
+  :root[data-scheme="datadog"]:not([data-theme="light"]) {
+    color-scheme: dark;
+    --fg: #e9e9f0;
+    --card: #1c1c26;
+    --hover: #262632;
+    --input: #24242f;
+    --chip: #24242f;
+    --code-bg: #0d0d13;
+    --warn: #e0a92e;  --warn-soft: #2e2513;
+    --info: #4aa3f0;  --info-soft: #132534;
+    --success: #4cc86b; --success-soft: #14291a;
+    --danger: #ef5f4e; --danger-soft: #2c1714; --danger-border: #432019;
+    --bg: #14141c;
+    --bg2: #1c1c26;
+    --bg3: #24242f;
+    --panel: #14141c;
+    --surface: #1c1c26;
+    --border: #33333f;
+    --border2: #454553;
+    --muted: #9d9db3;
+    --accent: #a78bfa;
+    --accent-d: #bda6fc;
+    --accent-soft: #272040;
+    --background: #b18bea;
+    --idle: #6b6b7d;
+    --past: #4a4a58;
+    --accent-rgb: 167,139,250;
+    --info-rgb: 74,163,240;
+    --warn-rgb: 224,169,46;
+    --danger-rgb: 239,95,78;
+    --bgjob-rgb: 177,139,234;
+    --success-rgb: 76,200,107;
+    --ink-rgb: 150,150,172;
+    --shadow-rgb: 0,0,0;
+    --shadow: 0 4px 14px -10px rgba(0,0,0,.6);
+    --shadow-sm: 0 1px 2px rgba(0,0,0,.4);
+    --overlay: rgba(0,0,0,.66);
+    --track-dark: rgba(255,255,255,.09);
+    --diff-add-fg: #9fdcb4; --diff-del-fg: #f4a99e;
+  }
+}
+:root[data-scheme="datadog"][data-theme="dark"] {
+  color-scheme: dark;
+  --fg: #e9e9f0;
+  --card: #1c1c26;
+  --hover: #262632;
+  --input: #24242f;
+  --chip: #24242f;
+  --code-bg: #0d0d13;
+  --warn: #e0a92e;  --warn-soft: #2e2513;
+  --info: #4aa3f0;  --info-soft: #132534;
+  --success: #4cc86b; --success-soft: #14291a;
+  --danger: #ef5f4e; --danger-soft: #2c1714; --danger-border: #432019;
+  --bg: #14141c;
+  --bg2: #1c1c26;
+  --bg3: #24242f;
+  --panel: #14141c;
+  --surface: #1c1c26;
+  --border: #33333f;
+  --border2: #454553;
+  --muted: #9d9db3;
+  --accent: #a78bfa;
+  --accent-d: #bda6fc;
+  --accent-soft: #272040;
+  --background: #b18bea;
+  --idle: #6b6b7d;
+  --past: #4a4a58;
+  --accent-rgb: 167,139,250;
+  --info-rgb: 74,163,240;
+  --warn-rgb: 224,169,46;
+  --danger-rgb: 239,95,78;
+  --bgjob-rgb: 177,139,234;
+  --success-rgb: 76,200,107;
+  --ink-rgb: 150,150,172;
+  --shadow-rgb: 0,0,0;
+  --shadow: 0 4px 14px -10px rgba(0,0,0,.6);
+  --shadow-sm: 0 1px 2px rgba(0,0,0,.4);
+  --overlay: rgba(0,0,0,.66);
+  --track-dark: rgba(255,255,255,.09);
+  --diff-add-fg: #9fdcb4; --diff-del-fg: #f4a99e;
+}
+
+/* datadog — le « style » : dense, à plat, tenu par les bordures.
+   Le balayage de rayon suit la même logique que l'axe des angles (une règle plutôt que 315
+   déclarations à dupliquer). Il est placé AVANT la règle `data-corners="sharp"` : à spécificité
+   égale et `!important` des deux côtés, c'est l'ordre source qui tranche — donc choisir « Square »
+   par-dessus la palette Datadog donne bien du 0. */
+:root[data-scheme="datadog"] *,
+:root[data-scheme="datadog"] *::before,
+:root[data-scheme="datadog"] *::after { border-radius: 3px !important; }
+:root[data-scheme="datadog"] {
+  --shadow: 0 1px 2px rgba(var(--shadow-rgb),.10);
+  --shadow-sm: 0 1px 1px rgba(var(--shadow-rgb),.08);
+}
+
 /* ─── Angles vifs (data-corners="sharp") ───────────────────────────────────────────────────────
    Troisième axe de thème, orthogonal au clair/sombre et à la palette : tout passe à angle vif.
 

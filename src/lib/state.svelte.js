@@ -281,9 +281,10 @@ export function cycleTheme() {
 // Axe ORTHOGONAL au clair/sombre : on choisit la palette, le clair/sombre reste géré par `theme`.
 // Persisté sous 'hooked.scheme', relu par le script anti-FOUC de app.html.
 // 'default' (défaut) = aucun data-scheme → palette indigo de la refonte ;
-// 'legacy' = data-scheme="legacy" → ancien thème crème/terracotta.
+// 'legacy' = data-scheme="legacy" → ancien thème crème/terracotta ;
+// 'datadog' = data-scheme="datadog" → violet Datadog, surfaces froides, densité d'outil.
 const SCHEME_KEY = 'hooked.scheme';
-const SCHEME_ORDER = ['default', 'legacy'];
+const SCHEME_ORDER = ['default', 'legacy', 'datadog'];
 function readScheme() {
   if (typeof localStorage === 'undefined') return 'default';
   try { const s = localStorage.getItem(SCHEME_KEY); return SCHEME_ORDER.includes(s) ? s : 'default'; }
@@ -293,7 +294,7 @@ function readScheme() {
 function applyScheme() {
   if (typeof document === 'undefined') return;
   const root = document.documentElement;
-  if (ui.scheme === 'legacy') root.setAttribute('data-scheme', ui.scheme);
+  if (ui.scheme !== 'default') root.setAttribute('data-scheme', ui.scheme);
   else root.removeAttribute('data-scheme'); // 'default' → aucun attribut, palette de base
 }
 export function setScheme(s) {
@@ -301,7 +302,7 @@ export function setScheme(s) {
   try { localStorage.setItem(SCHEME_KEY, ui.scheme); } catch {}
   applyScheme();
 }
-// cycle default → legacy → default…
+// cycle default → legacy → datadog → default…
 export function cycleScheme() {
   setScheme(SCHEME_ORDER[(SCHEME_ORDER.indexOf(ui.scheme) + 1) % SCHEME_ORDER.length]);
 }
