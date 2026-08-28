@@ -1,11 +1,14 @@
 /*
  * Model-scoped account quotas (server/utilization.js). The statusline payload only carries the
- * 5h / 7d buckets, so the weekly Fable limit is read from `cachedUsageUtilization` in
- * ~/.claude.json. We test the PURE picker on a real-shape payload (no file needed); the reader
- * (readUtilization) just adds an mtime-cached JSON.parse of that file.
+ * 5h / 7d buckets, so the weekly Fable limit comes from the account usage endpoint (live poll) or,
+ * as a fallback, `cachedUsageUtilization` in ~/.claude.json. Both sources share ONE payload shape,
+ * so we test the PURE pickers on a real-shape object (no file, no network needed); the reader
+ * (readUtilization) just adds an mtime-cached JSON.parse of that file, and server/oauth.js the
+ * token lookup whose only pure part (parseCredentials) is covered below.
  */
 import { describe, it, expect } from 'vitest';
-import { readUtilization, scopedLimit } from '../server/utilization.js';
+import { readUtilization, scopedLimit, accountLimit } from '../server/utilization.js';
+import { parseCredentials } from '../server/oauth.js';
 
 const NOW = Date.parse('2026-08-27T07:30:00Z');
 
@@ -50,6 +53,40 @@ describe('scopedLimit', () => {
   it('keeps the gauge usable when the bucket has no reset date', () => {
     const noReset = { limits: [{ kind: 'weekly_scoped', percent: 12, resets_at: null, scope: { model: { display_name: 'Fable' } } }] };
     expect(scopedLimit('Fable', noReset, NOW)).toMatchObject({ pct: 12, resetsAt: null, resetInMin: null, at: null });
+  });
+});
+
+describe('accountLimit', () => {
+  it('picks an account-wide bucket by kind (5h = session, 7d = weekly_all)', () => {
+    expect(accountLimit('session', UTIL, NOW)).toEqual({
+      pct: 0, resetsAt: Date.parse('2026-08-27T11:50:00.483170+00:00'), resetInMin: 260,
+    });
+    expect(accountLimit('weekly_all', UTIL, NOW).pct).toBe(58);
+  });
+  it('never returns a model-scoped bucket (those carry a scope)', () => {
+    const onlyScoped = { limits: UTIL.limits.filter((l) => l.kind === 'weekly_scoped') };
+    expect(accountLimit('weekly_scoped', onlyScoped, NOW)).toBe(null);
+  });
+  it('degrades to null on a missing / malformed payload', () => {
+    expect(accountLimit('session', null, NOW)).toBe(null);
+    expect(accountLimit('session', { limits: 'nope' }, NOW)).toBe(null);
+  });
+});
+
+describe('parseCredentials', () => {
+  it('reads the OAuth access token and its expiry', () => {
+    const raw = JSON.stringify({ claudeAiOauth: { accessToken: 'sk-tok', expiresAt: 1787904724016 } });
+    expect(parseCredentials(raw)).toEqual({ token: 'sk-tok', expiresAtMs: 1787904724016 });
+  });
+  it('tolerates a missing expiry (we then trust the token until the next read)', () => {
+    const raw = JSON.stringify({ claudeAiOauth: { accessToken: 'sk-tok' } });
+    expect(parseCredentials(raw)).toEqual({ token: 'sk-tok', expiresAtMs: null });
+  });
+  it('returns null on anything else (other shapes, garbage, empty)', () => {
+    expect(parseCredentials('{}')).toBe(null);
+    expect(parseCredentials('{"claudeAiOauth":{}}')).toBe(null);
+    expect(parseCredentials('not json')).toBe(null);
+    expect(parseCredentials('')).toBe(null);
   });
 });
 

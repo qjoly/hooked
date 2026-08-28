@@ -42,11 +42,19 @@
   const g5 = $derived(usage?.account?.fiveHour?.pct ?? null);
   const g7 = $derived(usage?.account?.sevenDay?.pct ?? null);
   // Fable weekly bucket: model-scoped limit, only present on accounts that have one — no bucket,
-  // no gauge (the 5h / 7d ones always apply). Comes from Claude Code's usage cache, not the
-  // statusline, so it carries its own reset countdown.
+  // no gauge (the 5h / 7d ones always apply). Comes from the account usage endpoint (or, if we
+  // can't reach it, Claude Code's own cache), not the statusline — so it carries both its own reset
+  // countdown and its own age. Age is worth showing: the cache fallback can be hours old, and a
+  // frozen gauge that looks live is worse than one that says so.
   const fable = $derived(usage?.account?.fable ?? null);
+  const src = $derived(usage?.account?.usage ?? null);
+  const fableAge = $derived(fable?.at ? Math.max(0, Math.round((nowMin - Date.parse(fable.at)) / 60000)) : null);
+  const fableStale = $derived(fableAge != null && fableAge >= 10);
   const barW = (pct) => Math.max(0, Math.min(100, pct || 0));
   const resetHint = (min) => (min == null ? '' : ` — resets in ${min >= 60 ? Math.round(min / 60) + 'h' : min + 'm'}`);
+  const ageHint = $derived(fableAge == null ? ''
+    : `\n${src?.source === 'live' ? 'live' : 'from Claude Code cache'} — ${fableAge < 1 ? 'just now' : fableAge + 'min ago'}`
+      + (src?.error ? ` (live fetch: ${src.error})` : ''));
 
   const themeLabel = $derived({ system: 'System', light: 'Light', dark: 'Dark' }[ui.theme] ?? 'System');
   const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.userAgent);
@@ -83,8 +91,8 @@
       <div class="tb-g-track"><div class="tb-g-fill" style="width:{barW(g7)}%"></div></div>
     </div>
     {#if fable}
-      <div class="tb-gauge" class:warn={fable.pct != null && fable.pct >= 75}
-           title="{fable.label} weekly limit{resetHint(fable.resetInMin)}">
+      <div class="tb-gauge" class:warn={fable.pct != null && fable.pct >= 75} class:stale={fableStale}
+           title="{fable.label} weekly limit{resetHint(fable.resetInMin)}{ageHint}">
         <div class="tb-g-lbl"><span>FABLE</span><span>{fable.pct != null ? fable.pct + '%' : '—'}</span></div>
         <div class="tb-g-track"><div class="tb-g-fill" style="width:{barW(fable.pct)}%"></div></div>
       </div>
@@ -180,6 +188,12 @@
   .tb-g-track { height: 4px; border-radius: 2px; background: var(--bg3); overflow: hidden; }
   .tb-g-fill { height: 100%; border-radius: 2px; background: var(--accent); transition: width .3s ease; }
   .tb-gauge.warn .tb-g-fill { background: var(--waiting); }
+  /* Stale bucket (source older than 10 min): dimmed + hatched, so a frozen number never
+     passes for a live one. The tooltip says how old and why. */
+  .tb-gauge.stale { opacity: .55; }
+  .tb-gauge.stale .tb-g-fill {
+    background-image: repeating-linear-gradient(45deg, transparent 0 2px, rgba(0,0,0,.35) 2px 4px);
+  }
 
   .tb-actions { display: flex; gap: 2px; flex: 0 0 auto; align-self: center; }
   .tb-icon {
