@@ -681,6 +681,79 @@ function paneFollowupSync(pane) {
   return s;
 }
 
+// Capture synchrone AVEC SCROLLBACK (`-S -<n>`), cache court séparé. Le `-p` seul ne rend que la
+// partie VISIBLE du pane : sur une question en attente, la boîte de question mange l'écran et le
+// texte d'introduction de Claude est déjà remonté dans l'historique. Appelée UNIQUEMENT quand une
+// question / un plan est en attente (un seul pane, pas la liste) → coût borné.
+const _paneScrollCache = new Map(); // pane -> { ts, text }
+function capturePaneScrollSync(pane, { lines = 600, ttl = 2500 } = {}) {
+  if (!/^%\d+$/.test(pane || '')) return null;
+  const c = _paneScrollCache.get(pane);
+  const now = Date.now();
+  if (c && now - c.ts < ttl) return c.text;
+  let text = null;
+  try {
+    text = execFileSync('tmux', ['capture-pane', '-t', pane, '-p', '-S', '-' + lines],
+      { encoding: 'utf8', timeout: 800, maxBuffer: 8 << 20 });
+  } catch (_) { text = null; }
+  _paneScrollCache.set(pane, { ts: now, text });
+  return text;
+}
+
+// DERNIER bloc de PROSE de l'assistant tel que peint dans la pane.
+//
+// Pourquoi la pane et pas le transcript : tant qu'une AskUserQuestion (ou un ExitPlanMode) est EN
+// ATTENTE, Claude Code n'a RIEN écrit du tour dans le .jsonl — mesuré : thinking, texte et tool_use
+// apparaissent d'un SEUL coup, à la seconde où l'on répond (leurs `timestamp` sont pourtant ceux du
+// streaming, ce qui rend le retard invisible dans le fichier après coup). Le texte d'introduction —
+// exactement celui dont on a besoin POUR répondre — n'existe donc nulle part sur disque : la pane
+// est la seule source. Aucun refetch ne peut y remédier.
+//
+// Format du TUI : un bloc = une ligne « ⏺ … » puis ses lignes de continuation indentées de 2
+// espaces (lignes vides internes comprises) ; un bloc d'OUTIL porte une ligne de résultat « ⎿ ».
+// On remonte donc depuis la fin jusqu'au premier bloc sans « ⎿ » et non listé dans NOT_PROSE.
+const PANE_BULLET = /^[⏺●]\s+/;
+// « Searched for 6 patterns, read 1 file, listed 2 directories, ran 18 shell commands » : une suite
+// de clauses « <verbe> [for] <n> <nom> » séparées par des virgules, et rien d'autre.
+const ACTIVITY_SUMMARY = /^[A-Za-z]+(?: for)? \d+ [a-z]+(?: [a-z]+)?(?:, [a-z]+(?: for)? \d+ [a-z]+(?: [a-z]+)?)*$/;
+const NOT_PROSE = /^(Running |User answered|Background command|Interrupted|No response requested|\w+\([^)]*\)\s*$)/;
+function lastPaneProse(text, max = 8000) {
+  if (text == null) return null;
+  const lines = String(text).split('\n');
+  // borne haute : la zone d'invite + footer (idem conversationBody). Sur une question en attente il
+  // n'y a pas d'invite ❯ — la boîte de question borne déjà le bloc par ses bordures en colonne 0.
+  let end = lines.length;
+  for (let i = lines.length - 1; i >= 0; i--) { if (/^[ \t]*❯/.test(lines[i])) { end = i; break; } }
+  for (let i = end - 1; i >= 0; i--) {
+    if (!PANE_BULLET.test(lines[i])) continue;
+    const head = lines[i].replace(PANE_BULLET, '');
+    const block = [head];
+    let tool = false;
+    for (let j = i + 1; j < end; j++) {
+      const l = lines[j];
+      if (!l.trim()) { block.push(''); continue; }
+      if (!/^ {2}/.test(l)) break; // contenu en colonne 0/1 → nouveau bloc (⏺, bordure, footer…)
+      if (/^\s*⎿/.test(l)) { tool = true; break; }
+      block.push(l.slice(2));
+    }
+    if (tool || NOT_PROSE.test(head)) continue;
+    // Queue du bloc : lignes vides, et la ligne de RÉSUMÉ d'activité que le TUI colle sous la prose
+    // quand il replie les outils suivants (« Searched for 6 patterns, ran 18 shell commands ») —
+    // indentée comme une continuation, mais ce n'est pas du texte de Claude.
+    for (let k = 0; k < 3; k++) {
+      while (block.length && !block[block.length - 1].trim()) block.pop();
+      if (!block.length || !ACTIVITY_SUMMARY.test(block[block.length - 1].trim())) break;
+      block.pop();
+    }
+    const out = block.join('\n').trim();
+    if (out) return out.slice(0, max);
+  }
+  return null;
+}
+function paneLastProseSync(pane) {
+  return lastPaneProse(capturePaneScrollSync(pane));
+}
+
 // Corps STABLE de la conversation : le texte capturé PRIVÉ de sa zone d'invite + footer (tout ce qui
 // se trouve à partir de la dernière ligne d'invite ❯ incluse — boîte de saisie, ligne de mode
 // « ⏵⏵ … (shift+tab to cycle) », lignes de sous-agents « ○ … »). C'est la partie qui NE bouge PAS
@@ -981,4 +1054,4 @@ function restartSession(id, { model, effort } = {}, cb) {
   }
 }
 
-export { paneTmuxNames, invalidatePaneCache, clearPaneCaches, tmuxAlive, launchInfoForPane, resolveLaunchForSession, deliverReply, deliverQuestion, questionKeys, deliverQuestionWithNote, deliverQuestionFreeText, deliverPlanChoice, parsePlanPrompt, parseSwitchPrompt, isTrustPrompt, isComposerReady, composerSettleKey, waitForComposerSettled, sendKey, interruptSession, parsePaneMode, readPaneMode, readPaneModeSync, paneBusySync, parseSpinner, paneActivitySync, paneFollowupSync, conversationBody, paneActiveSync, paneActiveStep, warmPaneCaptures, warmPaneNames, setMode, setModelEffort, launchSession, killSession, restartSession, err400 };
+export { paneTmuxNames, invalidatePaneCache, clearPaneCaches, tmuxAlive, launchInfoForPane, resolveLaunchForSession, deliverReply, deliverQuestion, questionKeys, deliverQuestionWithNote, deliverQuestionFreeText, deliverPlanChoice, parsePlanPrompt, parseSwitchPrompt, isTrustPrompt, isComposerReady, composerSettleKey, waitForComposerSettled, sendKey, interruptSession, parsePaneMode, readPaneMode, readPaneModeSync, paneBusySync, parseSpinner, paneActivitySync, paneFollowupSync, lastPaneProse, paneLastProseSync, conversationBody, paneActiveSync, paneActiveStep, warmPaneCaptures, warmPaneNames, setMode, setModelEffort, launchSession, killSession, restartSession, err400 };
