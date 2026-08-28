@@ -5,7 +5,8 @@ import { vitePreprocess } from '@sveltejs/vite-plugin-svelte';
 const config = {
   preprocess: vitePreprocess(),
   kit: {
-    // serveur Node long-running : nécessaire pour le SSE + les watchers fs + le pilotage tmux.
+    // serveur Node long-running : nécessaire pour le SSE, les watchers fs, et parce que les
+    // sessions Claude Code pilotées par l'Agent SDK vivent DANS ce processus.
     adapter: adapter(),
   },
 };

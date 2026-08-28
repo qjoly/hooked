@@ -39,7 +39,6 @@ export const ui = $state({
   dockWidth: persisted.dockWidth ?? 292,            // largeur (px) du dock droit (lentille Converse), persistée
   dockHidden: persisted.dockHidden ?? false,        // dock droit masqué par l'utilisateur ? persisté
   lastSessionId: persisted.lastSessionId ?? null,   // dernière session ouverte — l'onglet Sessions y revient
-  shellHeight: persisted.shellHeight ?? 0,          // hauteur (px) du panneau shell bas ; 0 = défaut (1/3 de fenêtre)
   collapseWorktrees: persisted.collapseWorktrees ?? true, // new-session: replie les worktrees `.claude/worktrees/*` sur leur projet parent dans le sélecteur
   shipFilesWidth: persisted.shipFilesWidth ?? 232,  // largeur (px) du rail « Files » de la lentille Ship, persistée
   shipPanelWidth: persisted.shipPanelWidth ?? 288,  // largeur (px) du panneau « Ready to ship » de la lentille Ship, persistée
@@ -48,7 +47,7 @@ export const ui = $state({
 if (typeof localStorage !== 'undefined') {
   $effect.root(() => {
     $effect(() => {
-      const snapshot = { hideOld: ui.hideOld, collapsed: ui.collapsed, pinned: ui.pinned, names: ui.names, focus: ui.focus, notify: ui.notify, notifyPinnedOnly: ui.notifyPinnedOnly, diffSplit: ui.diffSplit, groupByProject: ui.groupByProject, sideMenuOpen: ui.sideMenuOpen, sidebarWidth: ui.sidebarWidth, dockWidth: ui.dockWidth, dockHidden: ui.dockHidden, lastSessionId: ui.lastSessionId, shellHeight: ui.shellHeight, collapseWorktrees: ui.collapseWorktrees, shipFilesWidth: ui.shipFilesWidth, shipPanelWidth: ui.shipPanelWidth };
+      const snapshot = { hideOld: ui.hideOld, collapsed: ui.collapsed, pinned: ui.pinned, names: ui.names, focus: ui.focus, notify: ui.notify, notifyPinnedOnly: ui.notifyPinnedOnly, diffSplit: ui.diffSplit, groupByProject: ui.groupByProject, sideMenuOpen: ui.sideMenuOpen, sidebarWidth: ui.sidebarWidth, dockWidth: ui.dockWidth, dockHidden: ui.dockHidden, lastSessionId: ui.lastSessionId, collapseWorktrees: ui.collapseWorktrees, shipFilesWidth: ui.shipFilesWidth, shipPanelWidth: ui.shipPanelWidth };
       try { localStorage.setItem(LS_KEY, JSON.stringify(snapshot)); } catch {}
     });
   });
@@ -74,16 +73,16 @@ function patchMeta(id, patch) {
   saveSessionMeta(id, patch).then((res) => { if (res.ok && res.data.meta) ui.meta = res.data.meta; }).catch(() => {});
 }
 // archive / unarchive a session (toggle). An archived session is hidden from the Deck
-// (decision queue + fleet) by default; reversible. Archiving ALSO stops the underlying tmux
+// (decision queue + fleet) by default; reversible. Archiving ALSO stops the underlying
 // session — the old stop/archive distinction is gone: archiving IS the "done, shut it down"
-// action. Unarchiving only flips the flag (a dead tmux is restarted via Resume, not here).
+// action. Unarchiving only flips the flag (a stopped session is restarted via Resume, not here).
 export function toggleArchive(id) {
   const willArchive = !isArchived(id);
   patchMeta(id, { archived: willArchive });
   if (willArchive) kill(id).catch(() => {});
 }
 export function isArchived(id) { return !!(ui.meta[id] && ui.meta[id].archived); }
-// remove the archived flag WITHOUT touching tmux — used when RELAUNCHING an archived session
+// remove the archived flag WITHOUT stopping anything — used when RELAUNCHING an archived session
 // (resume): bringing it back to life should also bring it back into the live fleet. No-op if the
 // session isn't archived.
 export function unarchive(id) { if (isArchived(id)) patchMeta(id, { archived: false }); }

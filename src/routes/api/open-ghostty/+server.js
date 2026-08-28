@@ -1,7 +1,7 @@
 import { openInGhostty } from '$lib/server/core.js';
 import { ok, fail, toPromise, readJson } from '$lib/server/respond.js';
 
-// Ouvre la session dans Ghostty (attache le tmux vivant, sinon le dossier projet).
+// Ouvre le dossier projet de la session dans Ghostty.
 export async function POST({ request }) {
   const body = await readJson(request);
   if (!body) return fail(400, 'invalid request');

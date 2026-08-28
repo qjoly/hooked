@@ -1,8 +1,7 @@
 /*
  * Réglages persistants de hooked (à distinguer des prefs par-navigateur en localStorage :
- * thème, prefs terminal…). Stockés côté serveur dans un unique JSON (settings.json de
- * HOOKED_DIR) → partagés entre tous les navigateurs ET lisibles par le back (ex. la commande
- * shell initiale d'un nouveau pane terminal, exécutée par tmux côté serveur).
+ * thème, largeurs de panneaux…). Stockés côté serveur dans un unique JSON (settings.json de
+ * HOOKED_DIR) → partagés entre tous les navigateurs ET lisibles par le back.
  *
  * Volontairement minimal : une liste blanche de clés connues avec valeurs par défaut. On
  * ajoutera des réglages au fil des besoins — chaque nouvelle clé se déclare dans DEFAULTS +
@@ -50,9 +49,6 @@ const DEFAULTS = {
   // 'chat' n'est jamais masquable (vue principale). Défaut : aucun masqué. Distinct de l'auto-masquage
   // d'un onglet vide (géré côté client selon le contenu de la session).
   subtabHidden: [],
-  // Commande lancée automatiquement à l'ouverture d'un nouveau pane terminal (bouton « ＋ »).
-  // Vide = shell nu. Ex. « source .venv/bin/activate », « tmux clock-mode »…
-  initialShellCommand: '',
   // Synchro git du dépôt du serveur (cf. server/gitOps.js) : boucle de fond fetch + pull --ff-only.
   autoGitSync: false,
   // Boucle de fond (cf. server/prReviewTags.js) : tague une session `pr-approved` /
@@ -76,7 +72,7 @@ const DEFAULTS = {
   quickLaunchProject: '',
   // Projets pour lesquels le serveur hooked maintient un démon `claude remote-control` (mode serveur :
   // le projet devient un ENVIRONNEMENT lançable depuis l'app Claude). Liste de chemins absolus ; le serveur
-  // réconcilie les sessions tmux `hooked-rc-*` à cette liste (cf. server/remoteControl.js). [] = aucun.
+  // réconcilie les process démons à cette liste (cf. server/remoteControl.js). [] = aucun.
   remoteControlProjects: [],
   // Projets épinglés en favori (cwd absolus) : remontés en tête du sélecteur de la Nouvelle session.
   // Même forme que remoteControlProjects (liste de chemins absolus, dédupée/bornée). [] = aucun.
@@ -123,9 +119,6 @@ function sanitize(raw) {
   // subtabHidden : sous-ensemble des clés connues, jamais 'chat' (vue principale, toujours visible).
   let hidden = Array.isArray(o.subtabHidden) ? o.subtabHidden.filter((k) => SUBTAB_KEYS.includes(k) && k !== 'chat') : [];
   hidden = [...new Set(hidden)];
-  // initialShellCommand : chaîne, bornée (anti-abus ; jamais interpolée dans un shell — tapée
-  // au clavier via send-keys -l par showInPane).
-  const cmd = typeof o.initialShellCommand === 'string' ? o.initialShellCommand.slice(0, 500) : '';
   // statusBar : objet key→boolean. Toute clé absente = true par défaut, sauf prLinks / issueLinks
   // (false : les onglets dédiés sont le lieu principal ; chips masqués pour éviter le double affichage).
   const rawSb = o.statusBar && typeof o.statusBar === 'object' ? o.statusBar : {};
@@ -170,7 +163,6 @@ function sanitize(raw) {
     subtabOrder: order,
     statusBarOrder: sbOrder,
     subtabHidden: hidden,
-    initialShellCommand: cmd,
     autoGitSync: !!o.autoGitSync,
     autoPrReviewTag: o.autoPrReviewTag === undefined ? true : !!o.autoPrReviewTag,
     gitAutoRestartOnLock: !!o.gitAutoRestartOnLock,
@@ -195,7 +187,7 @@ function sanitize(raw) {
 }
 
 // Lit les réglages (défauts si le fichier est absent/illisible). Pas de cache : lecture directe
-// à chaque appel — le fichier est minuscule et rarement lu (au chargement de page + création de pane).
+// à chaque appel — le fichier est minuscule et rarement lu (au chargement de page).
 function readSettings() {
   try {
     return sanitize(JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf8')));

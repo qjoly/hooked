@@ -14,15 +14,11 @@ const HOME = os.homedir();
 const PROJECTS_DIR = process.env.HOOKED_PROJECTS_DIR || path.join(HOME, '.claude', 'projects');
 const HOOKED_DIR = process.env.HOOKED_DATA_DIR || path.join(HOME, '.claude', 'hooked');
 const EVENTS_FILE = path.join(HOOKED_DIR, 'events.jsonl');
-// config (modèle/effort) des sessions lancées par hooked, indexée par nom de session tmux
+// journal des lancements faits par hooked (cwd, modèle, effort, worktree), pour l'historique.
 const LAUNCHES_FILE = path.join(HOOKED_DIR, 'launches.jsonl');
-// résolution persistée session_id (claude) → modèle/effort : permet de garder l'effort
-// affiché même après la mort du pane tmux (la résolution live pane→nom n'est plus possible).
+// résolution persistée session_id (claude) → modèle/effort : garde l'effort et le modèle affichés
+// même après la fin de la session (le registre en mémoire, lui, ne survit pas au processus).
 const SESSION_LAUNCH_FILE = path.join(HOOKED_DIR, 'session-launch.jsonl');
-// panes tmux « show » ouverts par un agent (via MCP show_in_pane) pour une session : un agent
-// lance une commande dans un nouveau pane/fenêtre du tmux de la session, qu'on mémorise ici
-// pour le mirroir lecture seule de l'UI (onglet Terminal). Indexé par session_id.
-const SHOWN_PANES_FILE = path.join(HOOKED_DIR, 'panes.jsonl');
 // snapshots de la statusline Claude Code (déposés par statusline-command.sh) : un fichier
 // JSON par session, contenant les *vraies* infos du compte (effort, rate limits, contexte).
 const STATUS_DIR = path.join(HOOKED_DIR, 'status');
@@ -37,21 +33,19 @@ const PUBLIC_DIR = path.join(ROOT, 'dist');
 const PORT = parseInt(process.env.HOOKED_PORT || '4123', 10);
 
 // Argument `--model` accepté : alias de famille (`opus`) ou version explicite (`opus-4-7`).
-// Regex stricte (anti-injection) : la valeur est interpolée dans une commande shell par
-// launchSession et tapée dans `/model <name>` par setModelEffort. La *liste* des modèles/efforts
-// proposés n'est plus figée ici : elle est dérivée du binaire claude (cf. server/capabilities.js).
+// Regex stricte : garde-fou contre une valeur inconnue passée à l'Agent SDK (`model` / `setModel`).
+// La *liste* des modèles/efforts proposés n'est plus figée ici : elle est dérivée du binaire claude
+// (cf. server/capabilities.js).
 const MODEL_ARG_RE = /^(claude-)?(opus|sonnet|haiku|fable)(-\d+(-\d+)?)?$/;
 const isValidModelArg = (m) => typeof m === 'string' && MODEL_ARG_RE.test(m);
 
-// Modes de permission Claude Code proposés au sélecteur (liste blanche des cibles).
-// Le changement se fait en boucle fermée (cf. tmux.setMode) : on lit le mode affiché dans
-// le footer du TUI et on envoie des Maj+Tab jusqu'à atteindre la cible — l'ordre du cycle
-// réel (default → acceptEdits → plan → auto → …) n'a donc pas à être encodé ici.
+// Modes de permission Claude Code proposés au sélecteur (liste blanche des cibles). Le changement
+// est une requête de contrôle de l'Agent SDK (cf. agent.setMode → Query.setPermissionMode) : plus
+// besoin de cycler au clavier ni de relire le footer du TUI pour vérifier qu'on est arrivé.
 const PERMISSION_MODES = ['default', 'auto', 'plan'];
 
-// Modes valides pour `claude --permission-mode <mode>` au LANCEMENT d'une session (≠ cycle
-// live ci-dessus, qui passe par des Maj+Tab). Liste blanche stricte : garde anti-injection
-// shell ET garde-fou contre une valeur inconnue. Source : `claude --help`.
+// Modes valides au LANCEMENT d'une session (option `permissionMode` de l'Agent SDK) — sur-ensemble
+// du cycle live ci-dessus. Liste blanche stricte : garde-fou contre une valeur inconnue.
 const LAUNCH_PERMISSION_MODES = ['default', 'acceptEdits', 'auto', 'plan', 'bypassPermissions', 'dontAsk'];
 
 // Défauts modèle/effort/mode lus depuis la config Claude Code de l'utilisateur (~/.claude), à
@@ -82,4 +76,4 @@ function readClaudeDefaults() {
   };
 }
 
-export { HOME, PROJECTS_DIR, HOOKED_DIR, EVENTS_FILE, LAUNCHES_FILE, SESSION_LAUNCH_FILE, SHOWN_PANES_FILE, STATUS_DIR, CLAUDE_JSON, ROOT, PUBLIC_DIR, PORT, PERMISSION_MODES, LAUNCH_PERMISSION_MODES, isValidModelArg, readClaudeDefaults };
+export { HOME, PROJECTS_DIR, HOOKED_DIR, EVENTS_FILE, LAUNCHES_FILE, SESSION_LAUNCH_FILE, STATUS_DIR, CLAUDE_JSON, ROOT, PUBLIC_DIR, PORT, PERMISSION_MODES, LAUNCH_PERMISSION_MODES, isValidModelArg, readClaudeDefaults };

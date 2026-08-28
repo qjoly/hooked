@@ -321,7 +321,7 @@
 
       {#if pending}
         <button class="sp-send" onclick={sendReview} disabled={sending || !canReview}
-                title={canReview ? 'Send your inline comments to the session' : 'No live tmux session to send to'}>
+                title={canReview ? 'Send your inline comments to the session' : 'No live session to send to'}>
           {#if sending}Sending…{:else}<Icon name="send" size={14} /> Send {pending} comment{pending > 1 ? 's' : ''} to Claude{/if}
         </button>
       {/if}

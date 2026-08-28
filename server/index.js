@@ -2,7 +2,7 @@
 // Aucune collision de noms d'exports entre les modules (vérifié : chaque symbole exporté
 // est unique au dossier server/). `export * from` suffit donc — pas de réexport explicite
 // à arbitrer. Note : images.js définit un `err400` interne mais ne l'exporte pas ; seul
-// tmux.js exporte `err400`, donc pas d'ambiguïté.
+// agent.js exporte `err400`, donc pas d'ambiguïté.
 export * from './config.js';
 export * from './settings.js';
 export * from './tags.js';
@@ -31,9 +31,7 @@ export * from './commands.js';
 export * from './capabilities.js';
 export * from './events.js';
 export * from './live.js';
-export * from './tmux.js';
-export * from './pane.js';
-export * from './paneStream.js';
+export * from './agent.js';
 export * from './images.js';
 export * from './userFiles.js';
 export * from './status.js';

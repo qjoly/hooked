@@ -4,8 +4,7 @@
 import { execFile } from 'node:child_process';
 import { statSafe } from './util.js';
 import { scanSessions } from './transcript.js';
-import { paneForSession } from './events.js';
-import { paneTmuxNames, tmuxAlive, err400 } from './tmux.js';
+import { err400 } from './agent.js';
 import { readSettings } from './settings.js';
 import { editorFor } from '../src/lib/editors.js';
 
@@ -25,7 +24,9 @@ function openInEditor(id, cb) {
   });
 }
 
-// Ouvre Ghostty sur la session : attache le tmux vivant si possible, sinon ouvre le dossier projet.
+// Ouvre Ghostty sur le dossier projet de la session. (Avant la migration hors tmux, ce bouton
+// rattachait la session tmux vivante — il n'y a plus de terminal à rattacher : la session est
+// pilotée en processus par l'Agent SDK, et son fil de discussion vit dans le dashboard.)
 function openInGhostty(id, cb) {
   if (!id) return cb(err400('id required'));
   const sess = scanSessions().find((x) => x.id === id);
@@ -34,17 +35,13 @@ function openInGhostty(id, cb) {
   const st = statSafe(dir);
   if (!st || !st.isDirectory()) return cb(err400('invalid project folder: ' + dir));
 
-  const pane = paneForSession(id);
-  const tmuxName = pane && tmuxAlive(pane) ? paneTmuxNames().get(pane) : null;
   // -na : nouvelle instance Ghostty ; --args transmet la config à l'app.
   // --window-save-state=never : empêche la restauration des anciennes fenêtres (sinon la
-  // nouvelle instance recharge une session existante au lieu d'honorer -e / --working-directory).
-  const args = tmuxName
-    ? ['-na', 'Ghostty', '--args', '--window-save-state=never', '-e', 'tmux', 'attach', '-t', tmuxName]
-    : ['-na', 'Ghostty', '--args', '--window-save-state=never', `--working-directory=${dir}`];
+  // nouvelle instance recharge une session existante au lieu d'honorer --working-directory).
+  const args = ['-na', 'Ghostty', '--args', '--window-save-state=never', `--working-directory=${dir}`];
   execFile('open', args, (err) => {
     if (err) return cb(new Error('failed to open Ghostty (installed?): ' + err.message));
-    cb(null, { dir, attached: !!tmuxName });
+    cb(null, { dir });
   });
 }
 
