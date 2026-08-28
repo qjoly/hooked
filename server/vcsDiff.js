@@ -204,18 +204,24 @@ async function gitChanges(root, limit = MAX_FILES) {
 // Arbre vide canonique de git — parent de substitution pour diff-er un commit racine.
 const EMPTY_TREE = '4b825dc642cb6eb9a060e54bf8d69288fbee4904';
 
+// Diff git entre deux révisions arbitraires (from → to) — brique commune du diff d'un commit
+// (parent → commit) et du diff de branche (merge-base → tête de branche).
+async function gitRangeChanges(root, from, to, limit = MAX_FILES) {
+  const ns = await run('git', ['-C', root, 'diff', '--name-status', '-z', '-M', from, to], root);
+  if (ns.failed) return [];
+  const specs = parseNameStatusZ(ns.stdout).slice(0, limit);
+  return Promise.all(specs.map(async ({ code, oldp, newp }) => {
+    const oldBuf = code === 'A' ? Buffer.alloc(0) : await gitShowAt(root, from, oldp);
+    const newBuf = code === 'D' ? Buffer.alloc(0) : await gitShowAt(root, to, newp);
+    return makeEntry(root, code === 'D' ? oldp : newp, GIT_STATUS[code] || 'changed', textOrNull(oldBuf), textOrNull(newBuf));
+  }));
+}
+
 // Diff d'UN commit (vs son parent, ou l'arbre vide pour un commit racine).
 async function gitCommitChanges(root, rev, limit = MAX_FILES) {
   const pr = await run('git', ['-C', root, 'rev-parse', '--verify', '--quiet', rev + '^'], root);
   const parent = pr.failed ? EMPTY_TREE : pr.stdout.toString('utf8').trim();
-  const ns = await run('git', ['-C', root, 'diff', '--name-status', '-z', '-M', parent, rev], root);
-  if (ns.failed) return [];
-  const specs = parseNameStatusZ(ns.stdout).slice(0, limit);
-  return Promise.all(specs.map(async ({ code, oldp, newp }) => {
-    const oldBuf = code === 'A' ? Buffer.alloc(0) : await gitShowAt(root, parent, oldp);
-    const newBuf = code === 'D' ? Buffer.alloc(0) : await gitShowAt(root, rev, newp);
-    return makeEntry(root, code === 'D' ? oldp : newp, GIT_STATUS[code] || 'changed', textOrNull(oldBuf), textOrNull(newBuf));
-  }));
+  return gitRangeChanges(root, parent, rev, limit);
 }
 
 const JJ_STATUS = { M: 'modified', A: 'added', D: 'deleted', R: 'renamed', C: 'copied' };
@@ -246,6 +252,18 @@ async function jjChanges(root, limit = MAX_FILES) {
     return makeEntry(root, p, JJ_STATUS[code] || 'changed', textOrNull(oldBuf), textOrNull(newBuf));
   }));
   return out;
+}
+
+// Diff jj entre deux revsets arbitraires (from → to) — pendant jj de gitRangeChanges.
+async function jjRangeChanges(root, from, to, limit = MAX_FILES) {
+  const sum = await run('jj', ['diff', '--summary', '--from', from, '--to', to], root);
+  if (sum.failed) return [];
+  const capped = parseJjSummary(sum.stdout).slice(0, limit);
+  return Promise.all(capped.map(async ({ code, p }) => {
+    const oldBuf = code === 'A' ? Buffer.alloc(0) : await jjShowAt(root, from, p);
+    const newBuf = code === 'D' ? Buffer.alloc(0) : await jjShowAt(root, to, p);
+    return makeEntry(root, p, JJ_STATUS[code] || 'changed', textOrNull(oldBuf), textOrNull(newBuf));
+  }));
 }
 
 // Diff d'UN commit jj (vs son parent, revset `<rev>-`).
@@ -379,4 +397,116 @@ async function buildVcsCommitChanges(cwd, rev, repoRoot = null) {
   return { vcs: repo.kind, root: repo.root, changes };
 }
 
-export { detectVcs, scanSubRepos, buildVcsChanges, listVcsCommits, buildVcsCommitChanges };
+// ── diff de branche (lentille Branch) ───────────────────────────────────────────────────────
+
+const BRANCH_MAX = 100; // branches listées pour le sélecteur
+// Nom de branche/bookmark tel qu'on accepte de le passer en argv : jamais de '-' initial
+// (injection de flag) ni d'espaces/méta-caractères de revset. Les noms exotiques sont
+// simplement absents du sélecteur.
+const BRANCH_RE = /^[A-Za-z0-9_][A-Za-z0-9._/-]*$/;
+
+// Branches locales d'UN dépôt de la session (principal par défaut, ou `repoRoot` parmi les
+// dépôts détectés). { vcs, root, branches:[{ name, current }], default, repos:[{ kind, root,
+// label, primary }] }. `default` = la branche de référence proposée comme base du diff
+// (origin/HEAD, sinon main/master, sinon la branche courante). `repos` alimente le sélecteur
+// de dépôt du front (mêmes labels que buildVcsChanges).
+async function listVcsBranches(cwd, repoRoot = null, limit = BRANCH_MAX) {
+  const empty = { vcs: null, root: null, branches: [], default: null, repos: [] };
+  if (!cwd) return empty;
+  const { base, list } = await detectRepos(cwd);
+  if (!list.length) return empty;
+  const repo = (repoRoot && list.find((r) => r.root === repoRoot)) || list[0];
+  const repos = list.map((r) => ({ kind: r.kind, root: r.root, label: r.primary ? '' : path.relative(base, r.root), primary: r.primary }));
+  const { root, kind, mechanism } = repo;
+
+  const branches = [];
+  let def = null;
+  if (mechanism === 'git') {
+    const r = await run('git', ['-C', root, 'for-each-ref', 'refs/heads', '--sort=-committerdate',
+      '--format=%(refname:short)\t%(HEAD)', '--count', String(limit)], root);
+    if (!r.failed) {
+      for (const line of r.stdout.toString('utf8').split('\n')) {
+        if (!line) continue;
+        const [name, head] = line.split('\t');
+        if (name && BRANCH_RE.test(name)) branches.push({ name, current: head === '*' });
+      }
+    }
+    // Base par défaut : la branche que origin/HEAD désigne, sinon main/master locale.
+    const oh = await run('git', ['-C', root, 'symbolic-ref', '--short', '--quiet', 'refs/remotes/origin/HEAD'], root);
+    if (!oh.failed) {
+      const name = oh.stdout.toString('utf8').trim().replace(/^origin\//, '');
+      if (branches.some((b) => b.name === name)) def = name;
+    }
+  } else {
+    const r = await run('jj', ['bookmark', 'list', '-T', 'name ++ "\\n"'], root);
+    if (!r.failed) {
+      for (const name of r.stdout.toString('utf8').split('\n')) {
+        if (name && BRANCH_RE.test(name)) branches.push({ name, current: false });
+        if (branches.length >= limit) break;
+      }
+    }
+  }
+  if (!def) def = ['main', 'master', 'trunk'].find((n) => branches.some((b) => b.name === n)) || null;
+  if (!def) def = (branches.find((b) => b.current) || branches[0] || {}).name || null;
+  return { vcs: kind, mechanism, root, branches, default: def, repos };
+}
+
+// Diff COMPLET d'une branche : tout ce que `branch` apporte par rapport à `base` — la somme des
+// commits de la branche depuis son point de fork, comme la vue « Files changed » d'une PR.
+// Cas piège : une branche DÉJÀ MERGÉE dans la base est un ancêtre de la base → son merge-base
+// est sa propre tête et le diff naïf est vide. On retrouve alors le diff historique via le
+// commit de merge (diff fork-point → tête, fork-point = merge-base du 1er parent du merge) et
+// on pose `merged:true`. `branch` et `base` sont re-validés contre la liste des branches du
+// dépôt — jamais une révision arbitraire du client.
+// { vcs, root, branch, base, mergeBase, merged, changes }.
+async function buildVcsBranchChanges(cwd, branch, baseBranch = null, repoRoot = null) {
+  const empty = { vcs: null, root: null, branch: null, base: null, mergeBase: null, merged: false, changes: [] };
+  if (!cwd || typeof branch !== 'string' || !BRANCH_RE.test(branch)) return empty;
+  const listed = await listVcsBranches(cwd, repoRoot);
+  if (!listed.root) return empty;
+  const has = (n) => listed.branches.some((b) => b.name === n);
+  if (!has(branch)) return empty;
+  const base = (baseBranch && BRANCH_RE.test(baseBranch) && has(baseBranch)) ? baseBranch : listed.default;
+  if (!base) return empty;
+  const { root, vcs, mechanism } = listed;
+
+  let mergeBase = null;
+  let merged = false;
+  let changes = [];
+  if (mechanism === 'git') {
+    const mb = await run('git', ['-C', root, 'merge-base', base, branch], root);
+    mergeBase = mb.failed ? null : mb.stdout.toString('utf8').trim() || null;
+    const tipR = await run('git', ['-C', root, 'rev-parse', '--verify', '--quiet', branch], root);
+    const tip = tipR.failed ? null : tipR.stdout.toString('utf8').trim();
+    if (mergeBase && tip && mergeBase === tip) {
+      // Branche déjà mergée. Chercher dans la base le commit de merge dont la tête de branche
+      // est un parent (du plus récent au plus ancien) et re-calculer le fork-point depuis son
+      // PREMIER parent (l'état de la base au moment du merge). Squash/fast-forward : pas de
+      // commit de merge retrouvable → le diff reste vide, `merged` l'explique au front.
+      merged = true;
+      const ml = await run('git', ['-C', root, 'rev-list', '--merges', '--parents', '-n', '1000', base], root);
+      if (!ml.failed) {
+        for (const line of ml.stdout.toString('utf8').split('\n')) {
+          const p = line.trim().split(/\s+/); // [merge, parent1, parent2, …]
+          if (p.length >= 3 && p.slice(2).includes(tip)) {
+            const hb = await run('git', ['-C', root, 'merge-base', p[1], tip], root);
+            const fork = hb.failed ? null : hb.stdout.toString('utf8').trim();
+            if (fork) mergeBase = fork;
+            break;
+          }
+        }
+      }
+    }
+    // Sans merge-base (historiques sans lien), on diffe depuis la base elle-même.
+    changes = await gitRangeChanges(root, mergeBase || base, branch);
+  } else {
+    // Ancêtre commun en revset jj ; s'il n'est pas unique (--from exige UNE révision),
+    // retomber sur la base elle-même.
+    const from = `heads(::"${base}" & ::"${branch}")`;
+    changes = await jjRangeChanges(root, from, `"${branch}"`);
+    if (!changes.length) changes = await jjRangeChanges(root, `"${base}"`, `"${branch}"`);
+  }
+  return { vcs, root, branch, base, mergeBase, merged, changes };
+}
+
+export { detectVcs, scanSubRepos, buildVcsChanges, listVcsCommits, buildVcsCommitChanges, listVcsBranches, buildVcsBranchChanges };

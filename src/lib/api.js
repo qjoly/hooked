@@ -25,6 +25,15 @@ export const getVcsLog = (id, root = null) =>
 // Diff d'UN commit (vs son parent) — dépôt principal par défaut, ou `root`. { vcs, root, changes }.
 export const getVcsCommit = (id, rev, root = null) =>
   jget(`/api/session/vcs-commit?id=${encodeURIComponent(id)}&rev=${encodeURIComponent(rev)}` + (root ? '&root=' + encodeURIComponent(root) : ''));
+// Branches locales (git) / bookmarks (jj) d'un dépôt du projet — sélecteur de la lentille Branch.
+// { vcs, root, branches:[{ name, current }], default, repos:[{ kind, root, label, primary }] }.
+export const getVcsBranches = (id, root = null) =>
+  jget('/api/session/vcs-branches?id=' + encodeURIComponent(id) + (root ? '&root=' + encodeURIComponent(root) : ''));
+// Diff COMPLET d'une branche vs une base (merge-base → tête, façon « Files changed » d'une PR).
+// { vcs, root, branch, base, mergeBase, changes }.
+export const getVcsBranchDiff = (id, branch, base = null, root = null) =>
+  jget(`/api/session/vcs-branch?id=${encodeURIComponent(id)}&branch=${encodeURIComponent(branch)}`
+    + (base ? '&base=' + encodeURIComponent(base) : '') + (root ? '&root=' + encodeURIComponent(root) : ''));
 // Diff COMPLET (sans plafond) d'un fichier changé, chargé à la demande (lentille Ship) quand
 // l'entrée capée était marquée `truncated`. { change: {...} }.
 export const getFileChangeFull = (id, path) =>
