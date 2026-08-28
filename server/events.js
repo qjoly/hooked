@@ -1,9 +1,13 @@
 /*
- * Évènements live (écrits par hook.js dans events.jsonl) + config de lancement
- * (launches.jsonl). Caches invalidés par mtime/size du fichier.
+ * Évènements live (écrits par hook.cjs dans events.jsonl). Caches invalidés par mtime/size du
+ * fichier. Les hooks globaux (~/.claude/settings.json) s'exécutent aussi pour les sessions pilotées
+ * par l'Agent SDK (`settingSources` par défaut = toutes les sources) : c'est ce qui garde cette
+ * couche intacte après la migration hors tmux — questions/plans en attente, todos, jobs de fond,
+ * statusline continuent d'arriver par le même chemin, pour les sessions de hooked comme pour celles
+ * qu'un utilisateur ouvre à la main dans un terminal.
  */
 import fs from 'node:fs';
-import { EVENTS_FILE, LAUNCHES_FILE } from './config.js';
+import { EVENTS_FILE } from './config.js';
 import { statSafe } from './util.js';
 
 let eventsCache = { key: null, list: [] };
@@ -31,38 +35,6 @@ function lastEventBySession(eventsFile = EVENTS_FILE) {
     map.set(e.session_id, e);
   }
   return map;
-}
-
-// dernier pane tmux connu pour une session (parcourt les évènements à rebours).
-function paneForSession(id, eventsFile = EVENTS_FILE) {
-  const ev = readEvents(eventsFile);
-  for (let i = ev.length - 1; i >= 0; i--) {
-    if (ev[i].session_id === id && ev[i].tmux_pane) return ev[i].tmux_pane;
-  }
-  return null;
-}
-
-// map session_id -> dernier pane tmux connu, en UNE passe. Équivaut à paneForSession appelé pour
-// chaque session, mais en O(évènements) au lieu de O(sessions × évènements) : buildSessions le
-// résout pour ~180 sessions à chaque poll (~5 s) → l'appel par session dominait le résiduel de
-// blocage de l'event loop. Dernier write = évènement le plus récent (comme le parcours à rebours).
-function paneBySession(eventsFile = EVENTS_FILE) {
-  const ev = readEvents(eventsFile);
-  const map = new Map();
-  for (const e of ev) { if (e.session_id && e.tmux_pane) map.set(e.session_id, e.tmux_pane); }
-  return map;
-}
-
-// réciproque : dernière session connue pour un pane tmux (parcourt les évènements à rebours).
-// Sert au « whoami » : une session ne connaît que son $TMUX_PANE, pas son session_id hooked.
-// On prend l'évènement le plus récent car un pane peut être réutilisé après une reprise.
-function sessionForPane(pane, eventsFile = EVENTS_FILE) {
-  if (!pane) return null;
-  const ev = readEvents(eventsFile);
-  for (let i = ev.length - 1; i >= 0; i--) {
-    if (ev[i].tmux_pane === pane && ev[i].session_id) return ev[i].session_id;
-  }
-  return null;
 }
 
 // dernier mode de permission connu pour une session (default / acceptEdits / plan / bypassPermissions).
@@ -159,22 +131,14 @@ function eventSessionMeta(eventsFile = EVENTS_FILE) {
   return map;
 }
 
-// config de lancement (modèle/effort) par nom de session tmux ; dernier write gagne.
-let launchCache = { key: null, map: new Map() };
-function launchConfigByTmux(launchesFile = LAUNCHES_FILE) {
-  const st = statSafe(launchesFile);
-  if (!st) return launchCache.map;
-  const key = st.mtimeMs + ':' + st.size;
-  if (launchCache.key === key) return launchCache.map;
-  const map = new Map();
-  let data = '';
-  try { data = fs.readFileSync(launchesFile, 'utf8'); } catch (_) { return launchCache.map; }
-  for (const line of data.split('\n')) {
-    if (!line) continue;
-    try { const j = JSON.parse(line); if (j.tmux) map.set(j.tmux, { model: j.model || null, effort: j.effort || null }); } catch (_) {}
-  }
-  launchCache = { key, map };
-  return map;
+// Sessions appartenant à un démon remote-control : hooked lance ces process avec HOOKED_RC=1 dans
+// leur environnement, que hook.cjs recopie en `rc: true` sur chaque évènement. C'est ce qui remplace
+// l'ancienne reconnaissance par le nom de la session tmux (`hooked-rc-*`) : elles restent masquées de
+// la sidebar (c'est de l'infra, pas des sessions qu'on pilote).
+function rcSessionIdsFromEvents(eventsFile = EVENTS_FILE) {
+  const set = new Set();
+  for (const e of readEvents(eventsFile)) if (e.rc && e.session_id) set.add(e.session_id);
+  return set;
 }
 
-export { readEvents, lastEventBySession, paneForSession, paneBySession, sessionForPane, modeForSession, liveQuestionForSession, liveQuestionBySession, livePlanForSession, livePlanBySession, launchConfigByTmux, eventSessionMeta };
+export { readEvents, lastEventBySession, modeForSession, liveQuestionForSession, liveQuestionBySession, livePlanForSession, livePlanBySession, eventSessionMeta, rcSessionIdsFromEvents };

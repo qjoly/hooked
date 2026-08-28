@@ -1,4 +1,4 @@
-import { paneForSession, liveQuestionForSession, deliverQuestionWithNote, deliverQuestionFreeText, deliverReply } from '$lib/server/core.js';
+import { agentAlive, agentPendingAsk, answerPendingSelection, answerQuestionFreeText, deliverReply } from '$lib/server/core.js';
 import { ok, fail, toPromise, readJson } from '$lib/server/respond.js';
 
 export async function POST({ request }) {
@@ -6,12 +6,13 @@ export async function POST({ request }) {
   if (!body) return fail(400, 'invalid request');
   const id = body.id;
   if (!id) return fail(400, 'id required');
-  const pane = paneForSession(id);
-  if (!pane) return fail(409, 'unknown tmux pane for this session (launched outside tmux, or before this hook?)');
+  if (!agentAlive(id)) return fail(409, 'this session is not driven by hooked (ended, or started outside hooked)');
 
-  // Réponse à un AskUserQuestion : on reçoit les INDICES sélectionnés par question et on
-  // pilote le TUI au clavier (↓/Espace/Entrée). Bien plus fiable que taper les labels —
-  // un multi-select se *navigue*, il ne se *tape* pas.
+  // Réponse PAR SÉLECTION : on reçoit les indices choisis par question. Aiguillée côté serveur vers
+  // l'attente réelle de la session — AskUserQuestion, ou demande de permission d'outil (mêmes
+  // options « Allow once / Allow always / Deny » côté UI). Avant la migration hors tmux il fallait
+  // piloter le widget au clavier (↓/Entrée/→, ~300 ms entre deux frappes pour qu'ink ne les avale
+  // pas) ; maintenant on résout directement la promesse `canUseTool`.
   const sel = body.selections;
   if (Array.isArray(sel)) {
     if (!sel.length) return fail(400, 'empty selections');
@@ -19,32 +20,32 @@ export async function POST({ request }) {
       multi: !!(q && q.multi),
       indices: Array.isArray(q && q.indices) ? q.indices.filter((n) => Number.isInteger(n) && n >= 0) : [],
     }));
-    // optional annotation notes: sent as a follow-up message after the options are checked+submitted
-    // (free text alone doesn't check the boxes, so the structured answer must go through the nav).
+    // Note libre optionnelle : envoyée comme message de suivi après la réponse structurée.
     const note = typeof body.note === 'string' ? body.note.trim() : '';
-    const { err } = await toPromise((cb) => deliverQuestionWithNote(pane, selections, note, cb));
-    if (err) return fail(502, 'tmux send-keys failed : ' + (err.message || err));
-    return ok({ pane });
+    const { err, info } = await toPromise((cb) => answerPendingSelection(id, selections, note, cb));
+    if (err) return fail(err.code === 400 ? 400 : 502, err.message || String(err));
+    return ok(info);
   }
 
-  // `text` : string (texte libre / réponse à choix unique tapée) ou tableau d'intitulés.
+  // `text` : string (texte libre / réponse tapée) ou tableau de messages.
   const raw = body.text;
   const text = Array.isArray(raw)
     ? raw.map((s) => (typeof s === 'string' ? s.trim() : '')).filter(Boolean)
     : (typeof raw === 'string' ? raw.trim() : '');
   const empty = Array.isArray(text) ? !text.length : !text;
   if (empty) return fail(400, 'text required');
-  // Free text while an AskUserQuestion is pending = the user rejected the offered options and typed
-  // their own answer. The selection widget swallows typed characters, so we can't type into it:
-  // deliverQuestionFreeText sends Escape to dismiss the widget, then delivers the text as a normal
-  // reply. Free text is a single message (join a legacy array of labels on newlines).
-  if (liveQuestionForSession(id)) {
+
+  // Texte libre alors qu'une question est en attente = l'utilisateur a rejeté les options proposées
+  // et tape sa propre réponse : elle part comme valeur de réponse de la question (le champ `answers`
+  // du tool accepte n'importe quelle chaîne), pas comme message séparé.
+  const ask = agentPendingAsk(id);
+  if (ask && ask.kind === 'question') {
     const answer = Array.isArray(text) ? text.join('\n') : text;
-    const { err } = await toPromise((cb) => deliverQuestionFreeText(pane, answer, cb));
-    if (err) return fail(502, 'tmux send-keys failed : ' + (err.message || err));
-    return ok({ pane });
+    const { err, info } = await toPromise((cb) => answerQuestionFreeText(id, answer, cb));
+    if (err) return fail(err.code === 400 ? 400 : 502, err.message || String(err));
+    return ok(info);
   }
-  const { err } = await toPromise((cb) => deliverReply(pane, text, false, cb));
-  if (err) return fail(502, 'tmux send-keys failed : ' + (err.message || err));
-  return ok({ pane });
+  const { err, info } = await toPromise((cb) => deliverReply(id, text, cb));
+  if (err) return fail(err.code === 400 ? 400 : 502, err.message || String(err));
+  return ok(info);
 }

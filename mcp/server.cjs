@@ -3,7 +3,7 @@
  * Serveur MCP local (stdio) pour hooked.
  *
  * Client mince : chaque outil MCP appelle l'API HTTP de hooked sur localhost et renvoie
- * la réponse telle quelle. Toute la logique (tmux, états, reprise…) reste côté serveur
+ * la réponse telle quelle. Toute la logique (pilotage Agent SDK, états, reprise…) reste côté serveur
  * hooked — il doit donc tourner (npm run dev / npm start) pour que ces outils marchent.
  *
  * Zéro dépendance (comme hook.cjs) : protocole JSON-RPC MCP implémenté à la main sur
@@ -123,10 +123,10 @@ const TOOLS = [
   {
     name: 'start_session',
     description:
-      'Démarre une nouvelle session Claude Code dans une session tmux (ou reprend une session ' +
-      "existante via resumeId). Le serveur hooked lance `claude` dans le dossier indiqué. La réponse " +
-      'inclut `attach` (commande tmux) et `link` (deep-link relatif `/session/<id>`) : pour pointer ' +
-      "l'utilisateur vers la nouvelle session dans hooked, émets un lien markdown `[label](<link>)`.",
+      'Démarre une nouvelle session Claude Code pilotée par hooked (ou reprend une session ' +
+      'existante via resumeId), dans le dossier indiqué. La réponse inclut `sessionId` et `link` ' +
+      "(deep-link relatif `/session/<id>`) : pour pointer l'utilisateur vers la nouvelle session " +
+      'dans hooked, émets un lien markdown `[label](<link>)`.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -143,7 +143,7 @@ const TOOLS = [
   },
   {
     name: 'stop_session',
-    description: 'Stoppe une session en tuant son pane tmux. Action irréversible : la session se termine.',
+    description: 'Stoppe une session. Action irréversible : le process Claude Code se termine.',
     inputSchema: {
       type: 'object',
       properties: { id: { type: 'string', description: 'id de la session à stopper' } },
@@ -207,26 +207,6 @@ const TOOLS = [
       additionalProperties: false,
     },
     run: (a) => httpRequest('POST', '/api/model', { id: a.id, model: a.model, effort: a.effort }),
-  },
-  {
-    name: 'show_in_pane',
-    description:
-      'Ouvre un NOUVEAU pane (split) ou une NOUVELLE fenêtre tmux dans la MÊME session tmux que la ' +
-      'session Claude Code ciblée, y exécute une commande shell, et fait apparaître un onglet ' +
-      '« Terminal » (mirroir lecture seule) dans l\'UI web de hooked. À utiliser pour MONTRER quelque ' +
-      'chose à l\'utilisateur : lancer un serveur de dev, un htop, une démo, un tail de logs… La ' +
-      'session tmux de la cible doit être vivante.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        id: { type: 'string', description: 'id de la session' },
-        command: { type: 'string', description: 'commande shell à exécuter dans le pane' },
-        target: { type: 'string', enum: ['pane', 'window'], description: 'window (nouvelle fenêtre tmux pleine taille, défaut — recommandé, remplit la vue web) ou pane (split, partage la fenêtre)' },
-      },
-      required: ['id', 'command'],
-      additionalProperties: false,
-    },
-    run: (a) => httpRequest('POST', '/api/pane', { id: a.id, command: a.command, target: a.target }),
   },
   {
     name: 'search_sessions',

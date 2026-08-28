@@ -1,75 +1,74 @@
 /*
- * Tests de refineWithPane (server/stats.js) : l'affinage de l'état déduit des hooks par la lecture
- * du pane vivant. Fonction pure (state, alive, busy, active) → testable sans tmux (busy/active injectés).
+ * Tests de refineWithAgent (server/stats.js) : l'affinage de l'état déduit des hooks par l'état réel
+ * publié par l'Agent SDK. Fonction pure (state, alive, sdkState) → testable sans lancer de session.
  *
- * Deux régressions ciblées, symétriques, toutes deux quand le footer n'a PAS de spinner (busy=false) :
- *  1. EN ÉCRITURE — Claude streame sa réponse finale (dernier outil passé, pas encore de Stop). Le
- *     corps de conversation grandit (active=true) → NE DOIT PAS retomber en 'waiting' (bug 52e5e68).
- *  2. TERMINÉ — le tour est fini mais le Stop a été raté/absent. Le corps est figé (active=false) →
- *     DOIT retomber en 'waiting' (bug « working après tour fini » ; sans ça la session reste working
- *     pour toujours puisque plus rien ne la rétrograde). C'est le signal que `active` apporte.
+ * Ce que la migration hors tmux change ici. L'ancien refineWithPane devait DEVINER l'état depuis
+ * l'écran du TUI et prenait donc deux signaux distincts : `busy` (une ligne de spinner est-elle
+ * peinte dans le footer ?) et `active` (le corps de la conversation a-t-il bougé entre deux
+ * captures ?). Il en fallait deux parce qu'« absence de spinner » couvrait deux cas indistinguables
+ * — Claude streame sa réponse finale, ou le tour est fini — d'où une comparaison de captures pour
+ * les séparer, et deux bugs symétriques (session en écriture affichée « waiting », session finie
+ * bloquée sur « working »).
+ *
+ * Le SDK publie l'état directement (`session_state_changed` : idle / running / requires_action). Un
+ * seul signal, autoritaire, plus d'heuristique — donc plus de « on ne tranche pas » : les cas
+ * ambigus de l'ancienne fonction n'existent plus. Ne restent que les cas de bord réels : session non
+ * pilotée (ouverte à la main dans un terminal, ou terminée) et 'ended' qu'on ne touche jamais.
  */
 import { describe, it, expect } from 'vitest';
-import { refineWithPane } from '../server/index.js';
+import { refineWithAgent } from '../server/index.js';
 
-describe('refineWithPane — affinage de l\'état par le pane', () => {
-  it('BUG FIX 1 : en écriture (working, busy=false, corps qui BOUGE) RESTE working', () => {
-    // Claude a fini de réfléchir/d'utiliser des outils et streame son texte final : ni spinner ni
-    // « esc to interrupt » (busy=false), mais le corps grandit (active=true) → tour PAS fini.
-    expect(refineWithPane('working', true, false, true)).toBe('working');
-  });
-
-  it('BUG FIX 2 : tour terminé (working, busy=false, corps FIGÉ) → waiting', () => {
-    // Réponse finale affichée, composer prêt, corps statique (active=false) : le Stop a été raté/absent
-    // mais le pane ne bouge plus → la session attend. Sans cette démotion elle resterait working à vie.
-    expect(refineWithPane('working', true, false, false)).toBe('waiting');
-  });
-
-  it('busy=true promeut working / idle / waiting → working (quel que soit `active`)', () => {
-    for (const active of [true, false, null]) {
-      expect(refineWithPane('working', true, true, active)).toBe('working');
-      expect(refineWithPane('idle', true, true, active)).toBe('working');
-      expect(refineWithPane('waiting', true, true, active)).toBe('working'); // wakeup/message en file
+describe('refineWithAgent — affinage de l\'état par le registre de sessions', () => {
+  it('running → working, quel que soit l\'état capté par les hooks', () => {
+    // Un wakeup de fond (Monitor / ScheduleWakeup / message en file) remet Claude à réfléchir AVANT
+    // tout nouveau hook UserPromptSubmit : l'état capté est encore 'waiting', le SDK dit 'running'.
+    for (const st of ['working', 'idle', 'waiting', 'background', 'attention', 'past']) {
+      expect(refineWithAgent(st, true, 'running')).toBe('working');
     }
   });
 
-  it('idle + pane inactif figé (busy=false, active=false) → waiting : rattrape un Stop raté', () => {
-    expect(refineWithPane('idle', true, false, false)).toBe('waiting');
-  });
-
-  it('waiting capté (Stop autoritaire) reste waiting, corps figé ou non', () => {
-    expect(refineWithPane('waiting', true, false, false)).toBe('waiting');
-    expect(refineWithPane('waiting', true, false, true)).toBe('waiting');
-  });
-
-  it('busy=false mais active=null (1re observation / injoignable) : on ne rétrograde PAS', () => {
-    // Pas encore de recul sur le mouvement du corps → prudence : on garde l'état capté (pas de démotion
-    // hâtive d'un tour peut-être en cours). Le tick suivant, `active` deviendra true/false et tranchera.
-    expect(refineWithPane('working', true, false, null)).toBe('working');
-    expect(refineWithPane('idle', true, false, null)).toBe('idle');
-  });
-
-  it('pane MORT : working périmé → waiting ; les autres états inchangés', () => {
-    expect(refineWithPane('working', false, false, false)).toBe('waiting');
-    expect(refineWithPane('working', false, true, true)).toBe('waiting'); // busy/active résiduels ignorés : pane mort
-    for (const st of ['idle', 'waiting', 'attention', 'ended', 'past']) {
-      expect(refineWithPane(st, false, null, null)).toBe(st);
+  it('requires_action → attention (question / plan / permission en attente)', () => {
+    for (const st of ['working', 'idle', 'waiting', 'past']) {
+      expect(refineWithAgent(st, true, 'requires_action')).toBe('attention');
     }
   });
 
-  it('ne touche jamais attention / ended / past sur pane vivant, quels que soient busy/active', () => {
-    for (const busy of [true, false, null]) {
-      for (const active of [true, false, null]) {
-        for (const st of ['attention', 'ended', 'past']) {
-          expect(refineWithPane(st, true, busy, active)).toBe(st);
-        }
+  it('idle → waiting : rattrape un Stop raté ou absent', () => {
+    // Sans cette démotion, une session finie sans Stop capté resterait 'working' à vie — c'est le
+    // bug que l'ancienne comparaison de captures servait à rattraper.
+    expect(refineWithAgent('working', true, 'idle')).toBe('waiting');
+    expect(refineWithAgent('idle', true, 'idle')).toBe('waiting');
+    expect(refineWithAgent('waiting', true, 'idle')).toBe('waiting');
+  });
+
+  it('idle ne dégrade PAS un attention capté par les hooks', () => {
+    // Une question posée par un sous-agent peut arriver dans les évènements avant que l'état de la
+    // session principale ne repasse à 'running' : on ne la fait pas disparaître de la file d'attente.
+    expect(refineWithAgent('attention', true, 'idle')).toBe('attention');
+  });
+
+  it('session non pilotée : working périmé → waiting, les autres états inchangés', () => {
+    // Vrai pour une session terminée ET pour une session qu'un utilisateur a ouverte à la main dans
+    // un terminal : elle reste visible et à jour via les hooks, mais on ne peut rien affirmer de
+    // plus qu'eux — un 'working' hérité d'un dernier hook sans Stop est simplement périmé.
+    expect(refineWithAgent('working', false, null)).toBe('waiting');
+    for (const st of ['idle', 'waiting', 'attention', 'past']) {
+      expect(refineWithAgent(st, false, null)).toBe(st);
+    }
+  });
+
+  it('ended n\'est jamais touché', () => {
+    for (const alive of [true, false]) {
+      for (const sdk of ['running', 'idle', 'requires_action', null]) {
+        expect(refineWithAgent('ended', alive, sdk)).toBe('ended');
       }
     }
   });
 
-  it('busy=null (pane injoignable) : on ne tranche pas, l\'état capté est conservé', () => {
-    expect(refineWithPane('working', true, null, false)).toBe('working');
-    expect(refineWithPane('idle', true, null, false)).toBe('idle');
-    expect(refineWithPane('waiting', true, null, false)).toBe('waiting');
+  it('sdkState inconnu / absent sur session vivante : l\'état capté est conservé', () => {
+    for (const st of ['working', 'idle', 'waiting', 'past']) {
+      expect(refineWithAgent(st, true, null)).toBe(st);
+      expect(refineWithAgent(st, true, 'something-new')).toBe(st);
+    }
   });
 });

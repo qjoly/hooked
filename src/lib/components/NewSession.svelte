@@ -144,7 +144,7 @@
   <div class="ns-inner">
     <button class="pane-back" onclick={() => goto('/')} title="Back"><Icon name="arrow-left" /></button>
     <h1 class="ns-title"><Icon name="hook" size={28} /> New session</h1>
-    <p class="ns-sub">Launches <code>claude</code> in a detached <b>tmux</b> session — your subscription, <b>zero token cost</b>.</p>
+    <p class="ns-sub">Launches <code>claude</code> through the <b>Agent SDK</b>, driven by hooked — your subscription, <b>zero token cost</b>.</p>
 
     <Composer newSession project={cwd} {model} {effort} {mode} {worktree} {onLaunched} />
 
