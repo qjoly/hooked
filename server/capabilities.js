@@ -12,10 +12,10 @@
  * NO hardcoded fallback: no resolvable claude → empty lists. hooked exists only to drive claude, so
  * "no claude" legitimately means "nothing to offer". The strict per-token charset checks below are
  * the anti-injection guard (values are interpolated into `claude --model/--effort` and typed into
- * `/model` / `/effort` via tmux send-keys), NOT a fallback list.
+ * the Agent SDK), NOT a fallback list.
  *
  * Node stdlib only. Depends solely on commands.resolveClaudeBin() — must NOT import claudeUpdate.js
- * (claudeUpdate → stats → tmux, and tmux imports THIS module → import cycle). Hence the small inline
+ * (claudeUpdate → stats → agent, and agent imports THIS module → import cycle). Hence the small inline
  * version read rather than reusing claudeUpdate.installedVersion.
  */
 import fs from 'node:fs';
@@ -119,5 +119,5 @@ export function fetchModelGroups() {
   return groups;
 }
 
-// tmux.js validates effort against this at launch / live change (charset already enforced above).
+// agent.js validates effort against this at launch / live change (charset already enforced above).
 export function isValidEffort(e) { return typeof e === 'string' && fetchEfforts().includes(e); }

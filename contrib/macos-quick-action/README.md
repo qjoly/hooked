@@ -14,7 +14,7 @@ flowchart LR
   A[Select text anywhere] --> B{Which action?}
   B -->|plain| C["POST /api/launch { prompt: selection }"]
   B -->|cite| P[Ask for instruction] --> D["POST /api/launch { prompt: quote + instruction }"]
-  C --> E[hooked → tmux session in default project]
+  C --> E[hooked → new session in default project]
   D --> E
   E --> F[Notification + opens dashboard]
 ```

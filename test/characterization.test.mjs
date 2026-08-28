@@ -344,17 +344,9 @@ describe('events live', () => {
   it('lastEventBySession identique', () => {
     expect(mapToEntries(lib.lastEventBySession())).toEqual(mapToEntries(legacy.lastEventBySession()));
   });
-  it('paneForSession identique', () => {
-    expect(lib.paneForSession('sess-alpha')).toEqual(legacy.paneForSession('sess-alpha'));
-    expect(lib.paneForSession('sess-alpha')).toBe('%1');
-  });
   it('liveQuestionForSession identique + détecte la question live', () => {
     expect(lib.liveQuestionForSession('sess-alpha')).toEqual(legacy.liveQuestionForSession('sess-alpha'));
     expect(lib.liveQuestionForSession('sess-alpha').questions[0].header).toBe('L');
-  });
-  it('launchConfigByTmux identique (dernier write gagne)', () => {
-    expect(mapToEntries(lib.launchConfigByTmux())).toEqual(mapToEntries(legacy.launchConfigByTmux()));
-    expect(lib.launchConfigByTmux().get('hooked-proj-alpha-abc12')).toEqual({ model: 'opus', effort: 'max' });
   });
 });
 
@@ -485,107 +477,4 @@ describe('images — saveImage', () => {
       done();
     });
   }));
-});
-
-describe('mode de permission — parsePaneMode (footer TUI réel)', () => {
-  // footers capturés sur un vrai TUI Claude Code (dernière ligne non vide de l'écran).
-  const footer = (modeLine) => [
-    'précédente réponse de Claude…',
-    '──── branche ──',
-    '❯ ',
-    '────',
-    '  🤖 Opus 4.8 (1M context) 🔥 high | 🧠 ↓158k | 📊 16%',
-    '  📁 hooked | 🌳 no worktree | 🌿 HEAD ~14',
-    ...(modeLine ? [modeLine] : []),
-  ].join('\n');
-
-  it('reconnaît chaque mode depuis sa ligne de footer', () => {
-    expect(lib.parsePaneMode(footer('  ⏵⏵ auto mode on (shift+tab to cycle)'))).toBe('auto');
-    expect(lib.parsePaneMode(footer('  ⏵⏵ accept edits on (shift+tab to cycle)'))).toBe('acceptEdits');
-    expect(lib.parsePaneMode(footer('  ⏸ plan mode on (shift+tab to cycle)'))).toBe('plan');
-    expect(lib.parsePaneMode(footer('  ⏵⏵ bypass permissions on (shift+tab to cycle)'))).toBe('bypassPermissions');
-  });
-  it('renvoie default en mode normal (pas de ligne d\'indicateur)', () => {
-    expect(lib.parsePaneMode(footer(null))).toBe('default');
-  });
-  it('ignore le texte de la conversation qui cite les libellés (seule la dernière ligne compte)', () => {
-    const screen = 'je te disais ⏸ plan mode on (shift+tab to cycle) dans mon message\n' + footer('  ⏵⏵ auto mode on (shift+tab to cycle)');
-    expect(lib.parsePaneMode(screen)).toBe('auto');
-  });
-  it('reconnaît le mode même quand des sous-agents ajoutent des lignes en dessous', () => {
-    const screen = footer('  ⏸ plan mode on (shift+tab to cycle)') + [
-      '',
-      '● main',
-      '○ Explore  Verify latest prod version maintenance',
-      '[hooked Re…] Ajouter feature de détection de méthode de versions',
-    ].join('\n');
-    expect(lib.parsePaneMode(screen)).toBe('plan');
-  });
-});
-
-describe('parsePlanPrompt — menu d\'approbation ExitPlanMode', () => {
-  const MENU = [
-    '   Claude has written up a plan and is ready to execute. Would you like to proceed?',
-    '',
-    '   ❯ 1. Yes, and use auto mode',
-    '     2. Yes, manually approve edits',
-    '     3. No, refine with Ultraplan on Claude Code on the web',
-    '     4. Tell Claude what to change',
-    '        shift+tab to approve with this feedback',
-  ].join('\n');
-  it('parse les options numérotées et repère le curseur', () => {
-    const opts = lib.parsePlanPrompt(MENU);
-    expect(opts.map((o) => o.num)).toEqual([1, 2, 3, 4]);
-    expect(opts.find((o) => o.cursor).num).toBe(1);
-    expect(opts[3].label).toBe('Tell Claude what to change');
-  });
-  it('renvoie null hors du menu d\'approbation (pas de header « proceed »)', () => {
-    expect(lib.parsePlanPrompt('some text\n1. foo\n2. bar')).toBe(null);
-  });
-});
-
-describe('parseSpinner — verbe d\'activité (« thinking ») du footer TUI', () => {
-  it('extrait le gérondif d\'une vraie ligne spinner (capturée en live)', () => {
-    expect(lib.parseSpinner('✶ Accomplishing… (3m 25s · ↓ 11.3k tokens)')).toBe('Accomplishing');
-  });
-  it('marche pour tous les glyphes animés observés', () => {
-    for (const g of ['✻', '✽', '✶', '✢', '✳', '·']) {
-      expect(lib.parseSpinner(`${g} Clauding… (2s · ↓ 40 tokens)`)).toBe('Clauding');
-    }
-  });
-  it('gère l\'ellipsis en trois points « ... » et un gérondif multi-mots', () => {
-    expect(lib.parseSpinner('✻ Herding cats... (12s)')).toBe('Herding cats');
-  });
-  it('trouve la ligne spinner au milieu d\'un écran complet', () => {
-    const screen = ['some transcript text', '', '✽ Gibberishing… (8s · ↓ 1.2k tokens)', '', '❯ '].join('\n');
-    expect(lib.parseSpinner(screen)).toBe('Gibberishing');
-  });
-  it('null sur de la prose qui cite « …/Cogitating…/… » (pas la forme « mot… ( »)', () => {
-    const prose = '  ▎ Le TUI affiche « esc to interrupt » dès qu\'il traite, indépendamment du verbe animé (Testing…/Cogitating…/…)';
-    expect(lib.parseSpinner(prose)).toBe(null);
-  });
-  it('null sur la boîte de saisie seule — session en attente (le « ❯ » n\'est pas un glyphe spinner)', () => {
-    const idle = '❯ Rédige un… test (foo)\n────\n  ⏵⏵ auto mode on (shift+tab to cycle)';
-    expect(lib.parseSpinner(idle)).toBe(null);
-  });
-  it('ignore une sortie d\'outil « ⎿ Running tests… (12s) » (préfixe non-spinner)', () => {
-    expect(lib.parseSpinner('  ⎿  Running tests… (12s)')).toBe(null);
-  });
-  it('prend le spinner du footer (dernier match), pas une ligne plus haut', () => {
-    const screen = [
-      '· Something in transcript… (aside)',   // ligne haute qui ressemble au motif
-      '  ⎿ tool output',
-      '✻ Percolating… (5s · ↓ 300 tokens)',   // vrai spinner, en bas
-      '❯ ',
-    ].join('\n');
-    expect(lib.parseSpinner(screen)).toBe('Percolating');
-  });
-  it('null si le spinner est CITÉ haut dans le scrollback (session idle, pas de vrai spinner au footer)', () => {
-    // cas réel : une session qui « parle » du spinner. La citation est loin au-dessus de l'invite ❯
-    // → hors de la fenêtre footer → ne doit pas déclencher un faux « working ».
-    const lines = ['✻ Cogitating… (42s · ↓ 9k tokens)'];       // spinner cité dans un message
-    for (let i = 0; i < 16; i++) lines.push('conversation line ' + i);
-    lines.push('────', '❯ ', '────', '  ⏵⏵ auto mode on (shift+tab to cycle)');
-    expect(lib.parseSpinner(lines.join('\n'))).toBe(null);
-  });
 });

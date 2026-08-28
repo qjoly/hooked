@@ -1,15 +1,10 @@
-/* Polices empaquetées pour le terminal (servies depuis static/, donc disponibles partout, sans
-   rien installer). « JetBrains Mono » = texte (comme Ghostty par défaut) ; « Symbols Nerd Font
-   Mono » = glyphes d'icônes Nerd Font en repli par glyphe. */
+/* Police monospace empaquetée (servie depuis static/, donc disponible partout, sans rien
+   installer) : code, chemins, ids. Le « Symbols Nerd Font Mono » qui l'accompagnait n'existait que
+   pour le repli par glyphe du terminal xterm, disparu avec la migration hors tmux. */
 @font-face {
   font-family: 'JetBrains Mono Web';
   src: url('/fonts/JetBrainsMono-Regular.woff2') format('woff2');
   font-weight: 400; font-style: normal; font-display: swap;
-}
-@font-face {
-  font-family: 'Symbols Nerd Font Mono Web';
-  src: url('/fonts/SymbolsNerdFontMono-Regular.ttf') format('truetype');
-  font-weight: normal; font-style: normal; font-display: swap;
 }
 /* Public Sans — the redesign's UI font. Bundled (latin variable woff2) so it works offline,
    same approach as the terminal fonts above. */
@@ -583,26 +578,6 @@ code.path { color: var(--muted); font-size: 11px; word-break: break-all; font-fa
 .subtab.active .count { background: transparent; color: var(--accent-d); opacity: 1; }
 .pane { display: none; padding-top: 14px; }
 .pane.active { display: block; }
-
-/* onglet Terminal (mirroir des panes « show » ouverts par un agent) */
-.term-bar { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
-.term-theme { margin-left: auto; flex: 0 0 auto; background: var(--bg3); border: 1px solid var(--border); color: var(--muted); border-radius: 6px; padding: 4px 8px; cursor: pointer; font-size: 12px; font-weight: 600; }
-.term-theme:hover { color: var(--text); }
-.term-mode { flex: 0 0 auto; background: var(--bg3); border: 1px solid var(--border); color: var(--muted); border-radius: 6px; padding: 4px 10px; cursor: pointer; font-size: 12px; font-weight: 600; }
-.term-mode:hover { color: var(--text); }
-.term-mode.on { color: var(--accent-d); border-color: var(--accent); }
-.term-tabs { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
-.term-chip { display: inline-flex; align-items: center; background: var(--bg3); border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
-.term-chip.active { border-color: var(--accent); }
-.term-chip.active .term-tab { color: var(--accent-d); }
-.term-chip.claude .term-tab { font-weight: 700; }
-.term-tab { background: none; border: none; color: var(--muted); padding: 4px 9px; cursor: pointer; font-size: 12px; font-family: ui-monospace, Menlo, monospace; }
-.term-tab:hover { color: var(--text); }
-.term-x { background: none; border: none; border-left: 1px solid var(--border); color: var(--muted); cursor: pointer; padding: 4px 7px; font-size: 11px; line-height: 1; }
-.term-x:hover:not(:disabled) { color: #e45649; background: rgba(228, 70, 73, .12); }
-.term-new { background: var(--bg3); border: 1px dashed var(--border2); color: var(--muted); border-radius: 6px; padding: 4px 11px; cursor: pointer; font-size: 13px; font-weight: 700; line-height: 1; }
-.term-new:hover:not(:disabled) { color: var(--accent-d); border-color: var(--accent); }
-.term-new:disabled { opacity: .4; cursor: default; }
 
 /* chat */
 .chat { display: flex; flex-direction: column; gap: 12px; padding-right: 4px; }

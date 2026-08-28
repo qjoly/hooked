@@ -1,6 +1,7 @@
 /*
  * Sauvegarde des images collées depuis le composer. Le serveur tournant sur la même machine
- * que les sessions tmux (100 % local), on décode le data-URL et on écrit le fichier sur disque.
+ * que les sessions pilotées par hooked (100 % local), on décode le data-URL et on écrit le fichier
+ * sur disque.
  * Le composer envoie ensuite son chemin absolu dans le message : Claude Code lit les images
  * référencées par chemin (comme un drag-drop dans le TUI).
  */

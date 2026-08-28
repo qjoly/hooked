@@ -6,7 +6,7 @@
  * codée en dur.
  *
  * Sécurité : toutes les commandes passent par execFile('git', [argv…]) — JAMAIS d'interpolation
- * shell (cf. server/tmux.js). Les noms de branche fournis par le client sont validés contre une
+ * shell. Les noms de branche fournis par le client sont validés contre une
  * liste blanche stricte (BRANCH_RE, dans l'esprit de MODEL_ARG_RE de config.js) avant tout usage.
  *
  * Toutes les fonctions acceptent une racine explicite (défaut resolveGitRoot()) → testables
