@@ -688,6 +688,21 @@
             <div class="md">{q.text}</div>
           </div>
         {/each}
+        <!-- Introduction de la question / du plan en attente, LUE DANS LA PANE (server: pendingLeadIn).
+             Tant qu'on n'a pas répondu, Claude Code n'a rien écrit du tour dans le transcript → sans
+             ça la carte question arrivait SANS le texte qui l'explique (et il fallait répondre pour
+             enfin le lire). Rendu en monospace tel que peint par le TUI : les lignes sont déjà
+             coupées à la largeur de la pane (tableaux, code) — les reflower en markdown les casse. -->
+        {#if s.pendingLeadIn && tab === 'chat'}
+          <div class="bubble assistant leadin">
+            <div class="who"><Icon name="bot" size={14} /> Claude
+              <span class="t" title="Claude Code n'écrit ce tour dans le transcript qu'après votre réponse — texte relu dans le terminal">
+                <Icon name="terminal" size={13} /> lu dans le terminal
+              </span>
+            </div>
+            <pre class="leadin-txt">{s.pendingLeadIn}</pre>
+          </div>
+        {/if}
         {#if s.state === 'working' && tab === 'chat'}
           <div class="working-live" title="Claude is working — new messages appear once flushed">
             <span class="wl-dots" aria-hidden="true"><span></span><span></span><span></span></span>
@@ -953,6 +968,12 @@
     display: flex; align-items: center; gap: 8px; width: 100%; justify-content: flex-start; text-align: left;
     border: none; border-radius: 8px; padding: 7px 10px;
   }
+  /* bulle « lu dans le terminal » : introduction d'une question en attente, absente du transcript
+     tant qu'on n'a pas répondu. Liseré pointillé = contenu volatile (relu dans la pane). */
+  .bubble.leadin { border-style: dashed; max-width: 100%; }
+  .bubble.leadin .who .t { color: var(--success); font-weight: 600; display: inline-flex; align-items: center; gap: 4px; }
+  .leadin-txt { margin: 0; white-space: pre-wrap; overflow-x: auto; font: 12px/1.55 var(--mono); }
+
   /* bouton « révéler les messages plus anciens » en tête du transcript fenêtré */
   .show-earlier {
     display: block; margin: 4px auto 10px; padding: 5px 14px;
