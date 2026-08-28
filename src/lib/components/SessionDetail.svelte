@@ -1,8 +1,8 @@
 <script>
   import { onMount, onDestroy, tick, untrack } from 'svelte';
   import { goto } from '$app/navigation';
-  import { ui, data, settings, loadSessions, openModal, sessionTitle, sessionTags, renameSession, toggleFocus, splitWithMostRecent, canSplit, toggleArchive, isArchived } from '$lib/state.svelte.js';
-  import { getSession, setMode, setModelEffort, openInEditor, openInGhostty, fork, showInPane, killPane, deleteSession } from '$lib/api.js';
+  import { ui, data, settings, loadSessions, openModal, sessionTitle, sessionTags, renameSession, toggleFocus, splitWithMostRecent, canSplit, toggleArchive, isArchived, unarchive } from '$lib/state.svelte.js';
+  import { getSession, setMode, setModelEffort, openInEditor, openInGhostty, fork, launch, showInPane, killPane, deleteSession } from '$lib/api.js';
   import { STATE_LABEL, fmtCost, fmtTokens, fmtDuration, shortModel, prLabel, issueLabel, PERMISSION_MODES, modeLabel, modeMeta, modelAlias, tagColor } from '$lib/format.js';
   import { page } from '$app/state';
   import ModelEffort from './ModelEffort.svelte';
@@ -390,8 +390,29 @@
     });
   });
 
-  function resume() {
-    ui.modal = { type: 'resume', data: { id: s.id, project: s.project, projectName: s.projectName, title: s.title, model: s.launchModel || modelAlias(s.model), effort: s.effort } };
+  // One-click resume: re-runs `claude --resume` directly (hooked defaults from Settings if set,
+  // otherwise the session's own model/effort), no modal and no message — the Composer takes over
+  // once the session is back up.
+  let resuming = $state(false);
+  let resumeStatus = $state('');
+  async function resume() {
+    if (resuming) return;
+    resuming = true;
+    resumeStatus = '';
+    const res = await launch({
+      resumeId: s.id, prompt: '',
+      model: settings.defaultModel || s.launchModel || modelAlias(s.model) || 'opus',
+      effort: settings.defaultEffort || s.effort || 'high',
+      permissionMode: settings.defaultMode || 'default',
+    }).catch((e) => ({ ok: false, data: { error: e?.message || 'failed' } }));
+    if (res.ok) {
+      unarchive(s.id);
+      setTimeout(() => { loadSessions(); ui.tick++; resuming = false; }, 1200);
+    } else {
+      resuming = false;
+      resumeStatus = '✗ ' + (res.data?.error || 'failed');
+      setTimeout(() => { resumeStatus = ''; }, 5000);
+    }
   }
 
   // Renommage local de la session (titre custom, persisté côté navigateur comme les pins).
@@ -577,7 +598,9 @@
           <button class="stop-btn" disabled={archiving} onclick={archive}
                   title="Stop the tmux session and move it to Archived">{#if archiving}<Icon name="queued" size={14} />{:else}<Icon name="archive" size={14} /> Archive{/if}</button>
         {:else}
-          <button class="resume-btn" onclick={resume}><Icon name="in-progress" size={14} tint={false} /> Resume</button>
+          {#if resumeStatus}<span class="strip-status err">{resumeStatus}</span>{/if}
+          <button class="resume-btn" disabled={resuming} onclick={resume}
+                  title="Re-run claude --resume in a detached tmux session">{#if resuming}<Icon name="queued" size={14} />{:else}<Icon name="in-progress" size={14} tint={false} />{/if} Resume</button>
         {/if}
         {#if !inSplit}
           <button class="hdr-icon-btn" title="Split with the most recent session (⌘/Ctrl+⇧+S)"
@@ -859,6 +882,7 @@
   .head-line + :global(.subtabs) { margin-top: 9px; }
   .strip-modes { display: flex; gap: 4px; }
   .strip-status { font-family: var(--mono); font-size: 10.5px; color: var(--muted); }
+  .strip-status.err { color: var(--danger); }
 
   /* corps du workspace : la zone scrollable + le dock contextuel côte à côte */
   .body-row { flex: 1 1 auto; min-height: 0; display: flex; }
