@@ -15,7 +15,7 @@ const execFileP = promisify(execFile);
 // `git rev-parse --show-toplevel` returns resolved paths — keep both worlds aligned.
 const TMP = () => fs.realpathSync(path.join(os.tmpdir(), 'hooked-vcsdiff-test-' + process.pid));
 
-let buildVcsChanges, scanSubRepos, listVcsCommits, buildVcsCommitChanges;
+let buildVcsChanges, scanSubRepos, listVcsCommits, buildVcsCommitChanges, listVcsBranches, buildVcsBranchChanges;
 let T;
 
 const GIT_ID = ['-c', 'user.email=t@test', '-c', 'user.name=t', '-c', 'commit.gpgsign=false'];
@@ -41,7 +41,7 @@ beforeAll(async () => {
   fs.rmSync(raw, { recursive: true, force: true });
   fs.mkdirSync(raw, { recursive: true });
   T = TMP();
-  ({ buildVcsChanges, scanSubRepos, listVcsCommits, buildVcsCommitChanges } = await import('../server/vcsDiff.js'));
+  ({ buildVcsChanges, scanSubRepos, listVcsCommits, buildVcsCommitChanges, listVcsBranches, buildVcsBranchChanges } = await import('../server/vcsDiff.js'));
 });
 afterAll(() => {
   fs.rmSync(T, { recursive: true, force: true });
@@ -206,5 +206,96 @@ describe('buildVcsChanges — global file budget', () => {
     expect(r.changes.length).toBe(60);
     const sub = r.repos.find((x) => x.label === 'sub');
     expect(sub.changes).toEqual([]);
+  });
+});
+
+// A repo with a main branch (2 commits) and a feature branch adding + modifying files, with
+// main advancing AFTER the fork — the branch diff must NOT show main's later commit reversed.
+async function makeBranched(dir) {
+  fs.mkdirSync(dir, { recursive: true });
+  await git(dir, 'init', '-q', '-b', 'main');
+  fs.writeFileSync(path.join(dir, 'a.txt'), 'one\n');
+  await git(dir, 'add', '.');
+  await git(dir, 'commit', '-q', '-m', 'init');
+  await git(dir, 'checkout', '-q', '-b', 'feature');
+  fs.writeFileSync(path.join(dir, 'a.txt'), 'one\nfeature\n');
+  fs.writeFileSync(path.join(dir, 'b.txt'), 'new on feature\n');
+  await git(dir, 'add', '.');
+  await git(dir, 'commit', '-q', '-m', 'feature work');
+  await git(dir, 'checkout', '-q', 'main');
+  fs.writeFileSync(path.join(dir, 'main-only.txt'), 'advanced\n');
+  await git(dir, 'add', '.');
+  await git(dir, 'commit', '-q', '-m', 'main advances');
+  await git(dir, 'checkout', '-q', 'feature');
+  return dir;
+}
+
+describe('listVcsBranches', () => {
+  it('lists local branches, marks the current one and picks main as default', async () => {
+    const dir = await makeBranched(path.join(T, 'branches'));
+    const r = await listVcsBranches(dir);
+    expect(r.vcs).toBe('git');
+    expect(r.root).toBe(dir);
+    expect(r.branches.map((b) => b.name).sort()).toEqual(['feature', 'main']);
+    expect(r.branches.find((b) => b.current).name).toBe('feature');
+    expect(r.default).toBe('main');
+    expect(r.repos).toHaveLength(1);
+  });
+
+  it('returns the empty shape when the cwd is under no VCS', async () => {
+    const dir = path.join(T, 'branches-novcs');
+    fs.mkdirSync(dir, { recursive: true });
+    expect(await listVcsBranches(dir)).toEqual({ vcs: null, root: null, branches: [], default: null, repos: [] });
+  });
+});
+
+describe('buildVcsBranchChanges', () => {
+  it('diffs merge-base → branch head: the branch work only, not main advancing after the fork', async () => {
+    const dir = await makeBranched(path.join(T, 'branchdiff'));
+    const r = await buildVcsBranchChanges(dir, 'feature', 'main');
+    expect(r.vcs).toBe('git');
+    expect(r.branch).toBe('feature');
+    expect(r.base).toBe('main');
+    expect(r.mergeBase).toMatch(/^[0-9a-f]{40}$/);
+    const byName = Object.fromEntries(r.changes.map((c) => [c.name, c]));
+    expect(Object.keys(byName).sort()).toEqual(['a.txt', 'b.txt']);
+    expect(byName['a.txt'].badge).toBe('modified');
+    expect(byName['a.txt'].ops[0].old).toBe('one\n');
+    expect(byName['a.txt'].ops[0].new).toBe('one\nfeature\n');
+    expect(byName['b.txt'].badge).toBe('added');
+    // main's own later commit must be absent from the branch diff.
+    expect(byName['main-only.txt']).toBeUndefined();
+  });
+
+  it('falls back to the detected default base when none is given', async () => {
+    const dir = await makeBranched(path.join(T, 'branchdiff-def'));
+    const r = await buildVcsBranchChanges(dir, 'feature');
+    expect(r.base).toBe('main');
+    expect(r.changes.map((c) => c.name).sort()).toEqual(['a.txt', 'b.txt']);
+  });
+
+  it('recovers the historical diff of a branch already merged into the base', async () => {
+    const dir = await makeBranched(path.join(T, 'branchdiff-merged'));
+    await git(dir, 'checkout', '-q', 'main');
+    await git(dir, 'merge', '-q', '--no-ff', '-m', 'merge feature', 'feature');
+    const r = await buildVcsBranchChanges(dir, 'feature', 'main');
+    expect(r.merged).toBe(true);
+    // fork-point → tip: the branch's own commits, not an empty tip-vs-tip diff.
+    expect(r.changes.map((c) => c.name).sort()).toEqual(['a.txt', 'b.txt']);
+    expect(r.changes.find((c) => c.name === 'a.txt').ops[0].old).toBe('one\n');
+    // A live (unmerged) branch is not flagged.
+    const live = await buildVcsBranchChanges(await makeBranched(path.join(T, 'branchdiff-live')), 'feature', 'main');
+    expect(live.merged).toBe(false);
+  });
+
+  it('rejects unknown or malformed branch names', async () => {
+    const dir = await makeBranched(path.join(T, 'branchdiff-bad'));
+    const empty = { vcs: null, root: null, branch: null, base: null, mergeBase: null, merged: false, changes: [] };
+    expect(await buildVcsBranchChanges(dir, 'nope')).toEqual(empty);
+    expect(await buildVcsBranchChanges(dir, '--help')).toEqual(empty);
+    expect(await buildVcsBranchChanges(dir, 'feature; rm -rf /')).toEqual(empty);
+    // An unknown base falls back to the default instead of being passed through.
+    const r = await buildVcsBranchChanges(dir, 'feature', '--exec=evil');
+    expect(r.base).toBe('main');
   });
 });
