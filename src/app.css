@@ -620,6 +620,83 @@
 :root[data-scheme="datadog"] .tbtn { padding: 3px 9px; font-size: 11px; }
 :root[data-scheme="datadog"] .tdot { width: 3px; height: 12px; border-radius: 0 !important; animation: none; }
 
+/* ── Zone 3 — session cockpit header: one compact toolbar ───────────────────────────────────── */
+:root[data-scheme="datadog"] .pane-head { padding: 5px 12px 0; }
+:root[data-scheme="datadog"] .sess-name { font-size: 13px; font-weight: 700; }
+:root[data-scheme="datadog"] .head-meta { font-size: 10px; }
+:root[data-scheme="datadog"] .subtabs { gap: 10px; margin-top: 5px; }
+:root[data-scheme="datadog"] .subtab {
+  padding: 4px 2px 7px; font-family: var(--mono); font-size: 10px;
+  font-weight: 700; letter-spacing: .08em; text-transform: uppercase;
+}
+/* Status stops being a filled pill: an uppercase mono token behind a colour bar. Scoring (0,3,0)
+   this beats the `.s-working .s-badge` family (0,2,0) without reaching for !important. */
+:root[data-scheme="datadog"] .s-badge {
+  background: transparent; padding: 0; gap: 5px;
+  font-family: var(--mono); font-size: 9.5px; font-weight: 700;
+  letter-spacing: .1em; text-transform: uppercase;
+}
+:root[data-scheme="datadog"] .s-badge .bdot,
+:root[data-scheme="datadog"] .badge .bdot { width: 3px; height: 11px; border-radius: 0 !important; }
+:root[data-scheme="datadog"] .badge {
+  background: transparent; padding: 0 0 0 1px; gap: 5px;
+  font-family: var(--mono); font-size: 9.5px; letter-spacing: .1em; text-transform: uppercase;
+}
+:root[data-scheme="datadog"] .hdr-icon-btn, :root[data-scheme="datadog"] .hdr-more > summary { height: 24px; width: 26px; }
+
+/* ── Zone 4 — context dock: shorter sections, quieter captions ──────────────────────────────── */
+:root[data-scheme="datadog"] .dh { padding: 6px 10px 4px; font-size: 9px; letter-spacing: .12em; }
+:root[data-scheme="datadog"] .db { padding: 0 10px 7px; font-size: 11px; }
+:root[data-scheme="datadog"] .ditem, :root[data-scheme="datadog"] .dfile { padding: 1px 0; }
+:root[data-scheme="datadog"] .dprog { margin: 0 10px 5px; }
+
+/* ── Zone 5 — Stats: the KPI tiles become ONE metric strip ──────────────────────────────────── */
+/* Five floating tiles → a single bordered band split by 1px rules. This is the most recognisably
+   Datadog move in the whole theme: numbers in tabular mono, labels as small tracked captions.
+   `flex-wrap` + a flex-basis floor keeps it usable when the window is too narrow for five. */
+:root[data-scheme="datadog"] .kpis {
+  display: flex; flex-wrap: wrap; gap: 0; margin-bottom: 14px;
+  border: 1px solid var(--border); background: var(--bg2);
+}
+:root[data-scheme="datadog"] .kpi {
+  flex: 1 1 120px; min-width: 120px;
+  border: 0; border-left: 1px solid var(--border);
+  padding: 8px 12px; background: transparent;
+}
+:root[data-scheme="datadog"] .kpi:first-child { border-left: 0; }
+:root[data-scheme="datadog"] .kpi .v {
+  font-family: var(--mono); font-size: 18px; letter-spacing: -.02em; font-variant-numeric: tabular-nums;
+}
+:root[data-scheme="datadog"] .kpi .l {
+  margin-top: 2px; font-family: var(--mono); font-size: 9px;
+  letter-spacing: .1em; text-transform: uppercase;
+}
+/* Panels: flat, tight, separated by their 1px frame alone. */
+:root[data-scheme="datadog"] .card { box-shadow: none; padding: 10px 12px; }
+:root[data-scheme="datadog"] .charts, :root[data-scheme="datadog"] .usage-grid { gap: 10px; }
+:root[data-scheme="datadog"] .chart-card h3,
+:root[data-scheme="datadog"] .usage-card h3,
+:root[data-scheme="datadog"] .usage-title,
+:root[data-scheme="datadog"] .group h2 {
+  margin-bottom: 8px; font-family: var(--mono); font-size: 10px; font-weight: 700;
+  letter-spacing: .12em; text-transform: uppercase; color: var(--muted);
+}
+/* Flat fills instead of gradients — a gauge reports a value, it doesn't need a sheen. */
+:root[data-scheme="datadog"] .bar-row .fill,
+:root[data-scheme="datadog"] .daybars .b,
+:root[data-scheme="datadog"] .ubar-fill { background: var(--accent); }
+:root[data-scheme="datadog"] .bar-row { margin-bottom: 3px; font-size: 11px; }
+:root[data-scheme="datadog"] .bar-row .track { height: 11px; }
+:root[data-scheme="datadog"] .bar-row .val,
+:root[data-scheme="datadog"] .ubar-head .pct { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+:root[data-scheme="datadog"] .range { padding: 2px; gap: 2px; }
+:root[data-scheme="datadog"] .range button { padding: 4px 10px; font-size: 11px; }
+/* Overview strip: same metric-band treatment as the Stats KPIs. */
+:root[data-scheme="datadog"] .global-bar { gap: 0; border: 1px solid var(--border); }
+:root[data-scheme="datadog"] .gp { border: 0; border-left: 1px solid var(--border); padding: 8px 12px; }
+:root[data-scheme="datadog"] .gp .gp-v { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+:root[data-scheme="datadog"] .gp .gp-l { font-family: var(--mono); font-size: 9px; letter-spacing: .1em; text-transform: uppercase; }
+
 /* ─── Angles vifs (data-corners="sharp") ───────────────────────────────────────────────────────
    Troisième axe de thème, orthogonal au clair/sombre et à la palette : tout passe à angle vif.
 
