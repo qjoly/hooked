@@ -538,6 +538,88 @@
 /* Section headers: quiet, uppercase, widely tracked — a rule, not a title. */
 :root[data-scheme="datadog"] .ssb-group { padding: 3px 8px; font-size: 9px; letter-spacing: .12em; }
 
+/* ── Zone 2 — Deck fleet: status | session | branch | status | age ──────────────────────────────
+   Applies to the LIST view only (`.fleet:not(.grid)`). The grid/list toggle stays meaningful:
+   "list" becomes a real table, "grid" stays a (flattened) card grid.
+   The preview lines a card carried — last exchange, activity verb, tag pills — are dropped here:
+   a table row is one line high, and mixed-height rows are exactly what makes a card wall hard to
+   scan. That information stays one click away in the session, and in the sidebar for the tags. */
+:root[data-scheme="datadog"] .fleet:not(.grid) {
+  display: grid;
+  grid-template-columns: 3px minmax(0, 2fr) minmax(0, 1fr) max-content max-content;
+  column-gap: 10px;
+  row-gap: 0;
+}
+:root[data-scheme="datadog"] .fleet:not(.grid) .fcard,
+:root[data-scheme="datadog"] .fleet:not(.grid) .fhead {
+  display: grid;
+  grid-template-columns: subgrid;
+  grid-column: 1 / -1;
+  align-items: center;
+  gap: 0 10px;
+  padding: 0;
+  border: 0;
+  border-bottom: var(--dd-rule);
+  background: transparent;
+  box-shadow: none;
+  min-height: 22px;
+}
+:root[data-scheme="datadog"] .fleet:not(.grid) .fcard:hover { background: var(--hover); box-shadow: none; }
+:root[data-scheme="datadog"] .fleet:not(.grid) .frow1 { display: contents; }
+/* The status bar fills the row's full height — a Datadog table's leading severity rail. */
+:root[data-scheme="datadog"] .fleet:not(.grid) .fdot {
+  grid-column: 1; width: 3px; height: 100%; border-radius: 0 !important;
+}
+:root[data-scheme="datadog"] .fleet:not(.grid) .ft { grid-column: 2; font-size: 12px; font-weight: 500; }
+:root[data-scheme="datadog"] .fleet:not(.grid) .fbranch {
+  display: block; grid-column: 3; min-width: 0;
+  font-family: var(--mono); font-size: 10px; color: var(--muted);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+:root[data-scheme="datadog"] .fleet:not(.grid) .fstate {
+  display: block; grid-column: 4; width: 15ch;
+  font-family: var(--mono); font-size: 10px; color: var(--muted);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+:root[data-scheme="datadog"] .fleet:not(.grid) .fago {
+  grid-column: 5; margin: 0; text-align: right; font-variant-numeric: tabular-nums;
+}
+/* One line per row: the card-era preview blocks would break the alignment. */
+:root[data-scheme="datadog"] .fleet:not(.grid) .fact,
+:root[data-scheme="datadog"] .fleet:not(.grid) .fconv,
+:root[data-scheme="datadog"] .fleet:not(.grid) .fpills { display: none; }
+:root[data-scheme="datadog"] .fleet:not(.grid) .fcard-act { top: 0; bottom: 0; height: auto; border: 0; background: transparent; }
+/* Column header: the quiet uppercase caption row every console table carries. */
+:root[data-scheme="datadog"] .fleet:not(.grid) .fhead {
+  border-bottom: 1px solid var(--border2);
+  font-family: var(--mono); font-size: 9px; font-weight: 700;
+  letter-spacing: .12em; text-transform: uppercase; color: var(--muted);
+  min-height: 18px;
+}
+:root[data-scheme="datadog"] .fleet:not(.grid) .fhead .fh-age { text-align: right; }
+/* The "N older sessions" expander is a full-width footer band, not a cell. */
+:root[data-scheme="datadog"] .fleet:not(.grid) .fmore {
+  grid-column: 1 / -1; border: 0; border-bottom: var(--dd-rule); padding: 4px; font-size: 10px;
+}
+
+/* ── Zone 2b — Deck chrome: column captions and flattened decision cards ────────────────────── */
+/* Column titles ("Your move", "The fleet") become section captions, not headlines. */
+:root[data-scheme="datadog"] .colhead { gap: 8px; margin: 0 0 6px; }
+:root[data-scheme="datadog"] .colhead h2 {
+  font-family: var(--mono); font-size: 10px; font-weight: 700;
+  letter-spacing: .12em; text-transform: uppercase; color: var(--muted);
+}
+:root[data-scheme="datadog"] .repo-head { gap: 6px; margin-bottom: 2px; }
+:root[data-scheme="datadog"] .repo-group { margin-bottom: 10px; }
+/* Decision cards keep their structure (they hold a live Question/Plan) but lose the elevation:
+   separation comes from the 1px frame and the left severity rail alone. */
+:root[data-scheme="datadog"] .tcard { box-shadow: none; margin-bottom: 8px; }
+:root[data-scheme="datadog"] .tcard-head { padding: 5px 10px; gap: 7px; }
+:root[data-scheme="datadog"] .tfoot { padding: 6px 10px; gap: 5px; }
+:root[data-scheme="datadog"] .tbody { padding: 2px 10px; }
+:root[data-scheme="datadog"] .tbtn { padding: 3px 9px; font-size: 11px; }
+:root[data-scheme="datadog"] .tdot { width: 3px; height: 12px; border-radius: 0 !important; animation: none; }
+
 /* ─── Angles vifs (data-corners="sharp") ───────────────────────────────────────────────────────
    Troisième axe de thème, orthogonal au clair/sombre et à la palette : tout passe à angle vif.
 

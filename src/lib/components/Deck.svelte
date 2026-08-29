@@ -272,6 +272,7 @@
             <a class="repo-plus" href={'/new?project=' + encodeURIComponent(g.newProject)} title="New session in this project"><Icon name="plus" size={15} /></a>
           </div>
           <div class="fleet" class:grid={view === 'grid'}>
+            {@render fhead()}
             {#each visibleItems(g) as s (s.id)}
               {@render fcard(s)}
             {/each}
@@ -294,6 +295,7 @@
           </button>
           {#if archivedOpen}
             <div class="fleet" class:grid={view === 'grid'}>
+              {@render fhead()}
               {#each archivedList as s (s.id)}
                 {@render fcard(s)}
               {/each}
@@ -314,6 +316,13 @@
   {/if}
 {/snippet}
 
+{#snippet fhead()}
+  <!-- Column header for the datadog table view. Hidden in every other scheme (see <style>). -->
+  <div class="fhead">
+    <span class="fh-st"></span><span>Session</span><span>Branch</span><span>Status</span><span class="fh-age">Age</span>
+  </div>
+{/snippet}
+
 {#snippet fcard(s)}
   {@const ended = s.state === 'ended' || s.state === 'past'}
   <div class="fcard" class:dim={!isLive(s) || isSessionArchived(s)} class:archived={isSessionArchived(s)}
@@ -322,6 +331,11 @@
     <span class="frow1">
       <span class="fdot f-{dotClass(s)}"></span>
       <span class="ft">{sessionTitle(s)}</span>
+      <!-- Table cells for the datadog scheme. Markup cannot be conditioned on a palette, so they
+           ship for every scheme and are hidden by default (see .fbranch/.fstate in <style>);
+           only :root[data-scheme="datadog"] reveals them, in app.css. -->
+      <span class="fbranch">{s.gitBranch || ''}</span>
+      <span class="fstate">{STATE_LABEL[s.state] || s.state}</span>
       <span class="fago">{ago(s.lastActivity)}</span>
     </span>
     {#if liveSnippet(s)}
@@ -532,4 +546,8 @@
     color: var(--c); background: color-mix(in srgb, var(--c) 13%, transparent);
     border-radius: 6px; padding: 0 6px;
   }
+  /* Cells that only the datadog scheme uses (it lays the fleet out as a table — see app.css).
+     Markup is not scopable per palette, so they are emitted for everyone and hidden here;
+     `display: none` costs nothing and keeps every other scheme pixel-identical. */
+  .fbranch, .fstate, .fhead { display: none; }
 </style>
