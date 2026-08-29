@@ -466,7 +466,77 @@
 :root[data-scheme="datadog"] {
   --shadow: 0 1px 2px rgba(var(--shadow-rgb),.10);
   --shadow-sm: 0 1px 1px rgba(var(--shadow-rgb),.08);
+  /* Layout tokens for the console density below. Only this scheme reads them. */
+  --dd-row: 3px 8px;        /* list row padding — short lines, tight gutters */
+  --dd-rule: 1px solid var(--border);  /* separation is a filet, never elevation */
 }
+
+/* ═══ datadog — the LAYOUT: a supervision console, not a reskin ═══════════════════════════════
+   Everything below is gated by `:root[data-scheme="datadog"]`, so Default and legacy cannot
+   regress by construction: without the attribute, not one of these selectors matches.
+
+   WHY THIS LIVES IN app.css AND NOT IN EACH COMPONENT
+   First, the thing that trips everyone up: `:global()` is a SVELTE COMPILER construct, valid only
+   inside a `<style>` block of a .svelte file. app.css is a plain stylesheet — writing `:global()`
+   here produces an invalid selector and the browser drops the whole rule. Nothing in this file
+   needs it anyway: app.css is already global by definition.
+
+   What Svelte's scoping actually does is add a hash class to the element and rewrite the
+   COMPONENT's own selectors (`.ssb-row` → `.ssb-row.svelte-xxxx`, specificity (0,2,0)). The
+   element still carries a plain `ssb-row` class, so a selector from here matches it fine — this
+   is a SPECIFICITY contest, not a visibility one. `:root[data-scheme="datadog"] .ssb-row` scores
+   (0,3,0) and wins over the component rule without a single `!important`.
+
+   Given that, the choice was: one block here, or a `:root[data-scheme="datadog"] { … }` section
+   inside each of the six components. Kept here, because this is ONE feature ("this palette is
+   also a layout") — split across six files it becomes six places to keep in sync and six chances
+   for the next component to forget one. Together, it reviews and deletes as a single diff.
+   The tradeoff accepted: these selectors sit outside the components they restyle, so renaming a
+   class in Deck.svelte silently no-ops here. Class names in this codebase are prefixed per
+   component (ssb-, tb-, f*, t*, d*), which keeps that risk legible.
+
+   HOW THE TABLES ARE BUILT
+   Lists become real tables via `grid-template-columns: subgrid` — the row keeps being a genuine
+   box (hover, :focus-visible, and position:relative for its absolutely-placed hover actions all
+   survive), while its cells align with every sibling row. Only the inert layout wrapper INSIDE
+   the row (.ssb-line, .frow1) is flattened with `display: contents`.
+   Every cell is placed EXPLICITLY (`grid-column: N`) rather than by auto-flow, because several
+   cells are conditional (a pin mark, an activity verb). Under auto-placement a row missing one of
+   them would slide every following cell one column left and break the alignment. */
+
+/* ── Zone 1 — session sidebar: status | pin | name | age, aligned across all rows ───────────── */
+:root[data-scheme="datadog"] .ssb-list {
+  display: grid;
+  grid-template-columns: max-content max-content minmax(0, 1fr) max-content;
+  align-content: start;
+  column-gap: 7px;
+}
+/* Full-width bands: group headers and the empty state are not table rows. */
+:root[data-scheme="datadog"] .ssb-group,
+:root[data-scheme="datadog"] .ssb-empty { grid-column: 1 / -1; }
+:root[data-scheme="datadog"] .ssb-row {
+  display: grid;
+  grid-template-columns: subgrid;
+  grid-column: 1 / -1;
+  align-items: center;
+  padding: var(--dd-row);
+  row-gap: 1px;
+}
+:root[data-scheme="datadog"] .ssb-line { display: contents; }
+/* Status is a bar at the head of the line, not a floating dot. The radius sweep above is
+   !important, so overriding it here has to be too. */
+:root[data-scheme="datadog"] .ssb-dot {
+  grid-column: 1; width: 3px; height: 13px; border-radius: 0 !important;
+}
+:root[data-scheme="datadog"] .ssb-pin-mark { grid-column: 2; }
+:root[data-scheme="datadog"] .ssb-name { grid-column: 3; font-size: 12px; }
+/* Ages go tabular so digits line up column-under-column. */
+:root[data-scheme="datadog"] .ssb-ago {
+  grid-column: 4; font-variant-numeric: tabular-nums; text-align: right;
+}
+:root[data-scheme="datadog"] .ssb-tags { grid-column: 3 / -1; padding-left: 0; }
+/* Section headers: quiet, uppercase, widely tracked — a rule, not a title. */
+:root[data-scheme="datadog"] .ssb-group { padding: 3px 8px; font-size: 9px; letter-spacing: .12em; }
 
 /* ─── Angles vifs (data-corners="sharp") ───────────────────────────────────────────────────────
    Troisième axe de thème, orthogonal au clair/sombre et à la palette : tout passe à angle vif.
