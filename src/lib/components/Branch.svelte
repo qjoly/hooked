@@ -14,6 +14,8 @@
   import { getVcsBranches, getVcsBranchDiff } from '$lib/api.js';
   import { settings, ui } from '$lib/state.svelte.js';
   import { editorFor } from '$lib/editors.js';
+  import { fingerprint, isReviewed as hasReview, toggleReviewed as tickReview,
+           toMap as reviewedToMap, toEntries as reviewedToEntries } from '$lib/reviewState.js';
   import { loadDraft, saveDraft } from '$lib/reviewDraft.js';
 
   let { s, id, onReview = null, canReview = true, active = false } = $props();
@@ -106,21 +108,27 @@
   $effect(() => { changes.length; untrack(() => { if (activeIdx >= changes.length) activeIdx = Math.max(0, changes.length - 1); }); });
   const activeFile = $derived(changes[activeIdx] || null);
 
-  // review tracking (per browser session, in-memory keyed by file path)
-  let reviewed = $state(new Set());
-  const isReviewed = (f) => reviewed.has(f);
-  function toggleReviewed(f) {
-    const next = new Set(reviewed);
-    next.has(f) ? next.delete(f) : next.add(f);
-    reviewed = next;
-  }
+  // ── review ticks ── bound to the CONTENT reviewed, not just to the path ─────────────────
+  // `fileFp` fingerprints the diff a file currently shows; a tick stores that fingerprint. So a
+  // file edited after being ticked comes back un-ticked (rail AND the reviewed N/M counters),
+  // while going back to a state already signed off shows its tick again.
+  let reviewed = $state(new Map()); // file -> [fingerprint of each state signed off]
+  const fps = $derived(new Map(changes.map((c) => [c.file, fileFp(c)])));
+  const isReviewed = (f) => hasReview(reviewed, f, fps.get(f));
+  function toggleReviewed(f) { reviewed = tickReview(reviewed, f, fps.get(f)); }
   function reviewCurrent() {
     if (!activeFile) return;
-    const wasReviewed = reviewed.has(activeFile.file);
+    const wasReviewed = isReviewed(activeFile.file);
     toggleReviewed(activeFile.file);
     if (!wasReviewed && activeIdx < changes.length - 1) activeIdx += 1;
   }
-  const reviewedCount = $derived(changes.filter((c) => reviewed.has(c.file)).length);
+  const reviewedCount = $derived(changes.filter((c) => isReviewed(c.file)).length);
+
+  // Branch entries are a single old→new edit per file; a base or branch swap changes them, and
+  // with them the fingerprint.
+  function fileFp(c) {
+    return fingerprint((c.ops || []).flatMap((o) => [o.old || '', o.new || '']));
+  }
 
   // diff style — shared with Ship (same localStorage keys: one preference for both lenses).
   let mode = $state((typeof localStorage !== 'undefined' && localStorage.getItem('hooked.shipDiff')) || 'split');
@@ -179,11 +187,11 @@
     untrack(() => {
       const d = loadDraft(k);
       comments = d.comments;
-      reviewed = new Set(d.reviewed);
+      reviewed = reviewedToMap(d.reviewed);
     });
   });
   $effect(() => {
-    const snap = { comments, reviewed: [...reviewed] };   // read first: both are tracked deps
+    const snap = { comments, reviewed: reviewedToEntries(reviewed) };   // read first: both are tracked deps
     untrack(() => saveDraft(draftKey, snap));
   });
 
