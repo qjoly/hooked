@@ -93,6 +93,68 @@
     if (!side || endLine == null) return { list: [], draft: false };
     return { list: commentsAt(side, endLine), draft: draftAt(side, endLine) };
   }
+  // ── occurrence echo ─────────────────────────────────────────────────────────────────────
+  // Selecting a bit of text paints every OTHER occurrence of it in this diff (VS Code style):
+  // select "pro" and the "pro" inside "professional" lights up too. Purely visual — it uses the
+  // CSS Custom Highlight API, so no node is added or split and the diff text is never touched.
+  // Browsers without the API simply show nothing extra.
+  const HL_NAME = 'dv-occurrence';
+  const MAX_OCC = 500;      // stop painting past this many hits (huge diffs / one-letter needles)
+  let root;                 // the .dv container
+  let occRaf = 0;
+
+  const hlStore = () => (typeof CSS !== 'undefined' && CSS.highlights) || null;
+  function clearOcc() { const st = hlStore(); if (st) st.delete(HL_NAME); }
+
+  function paintOcc() {
+    occRaf = 0;
+    const store = hlStore();
+    if (!store || !root) return;
+    const sel = document.getSelection();
+    if (!sel || sel.isCollapsed || !sel.rangeCount) return clearOcc();
+    if (!root.contains(sel.getRangeAt(0).commonAncestorContainer)) return clearOcc();
+    const needle = sel.toString();
+    // one line, non-blank, long enough to mean something
+    if (needle.length < 2 || needle.length > 200 || !needle.trim() || /[\n\r]/.test(needle)) return clearOcc();
+
+    const ranges = [];
+    for (const code of root.querySelectorAll('.dv-code')) {
+      if (ranges.length >= MAX_OCC) break;
+      // flatten the line's text nodes once, so a match may span syntax-highlight tokens
+      const nodes = [], starts = [];
+      let text = '';
+      const w = document.createTreeWalker(code, NodeFilter.SHOW_TEXT);
+      for (let n = w.nextNode(); n; n = w.nextNode()) { nodes.push(n); starts.push(text.length); text += n.nodeValue; }
+      if (!text) continue;
+      const at = (idx) => { // absolute offset -> [node, offsetInNode]
+        let i = starts.length - 1;
+        while (i > 0 && starts[i] > idx) i--;
+        return [nodes[i], idx - starts[i]];
+      };
+      for (let i = text.indexOf(needle); i !== -1 && ranges.length < MAX_OCC; i = text.indexOf(needle, i + needle.length)) {
+        const [sn, so] = at(i), [en, eo] = at(i + needle.length - 1);
+        const rg = document.createRange();
+        rg.setStart(sn, so); rg.setEnd(en, eo + 1);
+        ranges.push(rg);
+      }
+    }
+    if (ranges.length) store.set(HL_NAME, new Highlight(...ranges));
+    else clearOcc();
+  }
+
+  // selectionchange fires on every pointer move while dragging → coalesce to one paint per frame
+  function scheduleOcc() { if (!occRaf) occRaf = requestAnimationFrame(paintOcc); }
+
+  $effect(() => {
+    if (!hlStore()) return;
+    document.addEventListener('selectionchange', scheduleOcc);
+    return () => {
+      document.removeEventListener('selectionchange', scheduleOcc);
+      if (occRaf) cancelAnimationFrame(occRaf);
+      clearOcc();
+    };
+  });
+
   const rangeLabel = (side, start, end) => {
     const p = side === 'old' ? '−' : '+';
     return start === end ? `${p}L${end}` : `${p}L${start}–${end}`;
@@ -101,7 +163,7 @@
 
 <svelte:window onpointerup={endDrag} />
 
-<div class="dv {mode}" class:commentable class:dv-dragging={!!drag}>
+<div class="dv {mode}" bind:this={root} class:commentable class:dv-dragging={!!drag}>
   {#each rows as r, i (i)}
     {#if r.kind === 'gap'}
       <div class="dv-gap">

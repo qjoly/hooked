@@ -1334,3 +1334,11 @@ textarea.lf-input { font-family: inherit; resize: vertical; }
 @media (max-width: 380px) {
   .global-bar, .kpis, .detail-grid { grid-template-columns: 1fr; }
 }
+
+/* Diff "occurrence echo": every other copy of the selected text inside a DiffView (Ship /
+   Branch lenses). Painted with the CSS Custom Highlight API — see DiffView.svelte. The live
+   selection is painted above it by the browser, so the selected copy keeps its normal look. */
+::highlight(dv-occurrence) {
+  background-color: rgba(var(--accent-rgb), .32);
+  color: #fff;
+}
