@@ -146,6 +146,15 @@ export const setAutoApprove = (id, on) => jpost('/api/auto-approve', { id, on })
 export const openInEditor = (id) => jpost('/api/open-editor', { id });
 export const openInGhostty = (id) => jpost('/api/open-ghostty', { id });
 
+// ── Terminaux shell (PTY réels, cf. server/terminal.js) ────────────────────────────────────────
+// Un terminal n'est PAS lié à une session Claude : il tourne dans le dossier d'un projet et lui
+// survit. `sessionId` ne sert qu'à l'étiqueter pour le regrouper dans l'UI.
+export const listTerminals = (sessionId) => jget('/api/terminal' + (sessionId ? '?sessionId=' + encodeURIComponent(sessionId) : ''));
+export const openTerminal = (cwd, sessionId, cols, rows) => jpost('/api/terminal', { cwd, sessionId, cols, rows });
+export const sendTerminalInput = (id, data) => jpost('/api/terminal/input', { id, data });
+export const resizeTerminal = (id, cols, rows) => jpost('/api/terminal/resize', { id, cols, rows });
+export const killTerminal = (id) => jpost('/api/terminal/kill', { id });
+
 // Flux SSE PAR SESSION : avancement d'un tour au fil de l'eau (texte en cours, raisonnement, outil,
 // état). Renvoie une fonction de fermeture. `onSnap` reçoit `{ live, state, busy, activity, text,
 // thinking, tool, ended }` ; `live:false` = session non pilotée, rien ne viendra.
