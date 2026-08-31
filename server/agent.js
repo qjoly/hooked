@@ -728,10 +728,30 @@ function parseBangCommand(text) {
   return cmd && !cmd.startsWith('!') ? cmd : null;
 }
 
+// Séquences d'échappement ANSI (couleurs, déplacements de curseur, titre de fenêtre). Les outils
+// les omettent d'ordinaire ici — `spawn` sans PTY laisse `isatty()` faux, donc la couleur est
+// désactivée — mais un `FORCE_COLOR` dans le profil de l'utilisateur suffit à les faire réapparaître.
+// On les retire : elles ne veulent rien dire ni pour Claude, ni pour un bloc rendu en HTML.
+const ANSI_RE = /\x1b\[[0-9;?]*[a-zA-Z]|\x1b\][^\x07]*(?:\x07|\x1b\\)|\x1b[=>()][0-9A-Za-z]?/g;
+const stripAnsi = (s) => String(s).replace(ANSI_RE, '');
+
 // Met en forme le compte rendu injecté dans le contexte de la session. Pur/testable.
-function formatLocalCommand(command, code, output, truncated) {
-  const head = `Local command (run from the hooked composer, exit ${code}${truncated ? ', output truncated' : ''}):`;
-  return `${head}\n$ ${command}\n${output || '(no output)'}`;
+//
+// C'est un BLOC DE CODE FENCÉ `console`, avec le code de sortie et le dossier dans l'info-string.
+// Deux lecteurs, un seul format : Claude y lit une transcription de terminal on ne peut plus
+// ordinaire, et l'UI reconnaît le langage `console` pour rendre la bulle comme un terminal (cf.
+// TerminalBlock.svelte) au lieu d'un paragraphe de texte. Avant, l'en-tête était de la prose
+// (« Local command (…exit 0) »), donc le front aurait dû reconnaître une phrase — fragile, et
+// impossible à distinguer d'un utilisateur qui l'aurait tapée.
+function formatLocalCommand(command, code, output, truncated, cwd) {
+  const info = ['console', `exit=${code}`];
+  if (cwd) info.push(`cwd=${cwd}`);
+  if (truncated) info.push('truncated=1');
+  const body = stripAnsi(output || '').replace(/\n+$/, '');
+  // Une fence dont le CONTENU contient ``` casserait le bloc : on allonge le délimiteur au besoin.
+  const longest = (body.match(/`{3,}/g) || []).reduce((m, r) => Math.max(m, r.length), 0);
+  const fence = '`'.repeat(Math.max(3, longest + 1));
+  return `${fence}${info.join(' ')}\n$ ${command}\n${body}\n${fence}`;
 }
 
 // Exécute la commande dans le dossier de la session, avec l'environnement du shell de login (le même
@@ -767,7 +787,7 @@ function runLocalCommand(id, command, cb) {
       const output = truncated ? out.slice(0, LOCAL_CMD_MAX_OUTPUT) : out;
       // `shouldQuery: false` : la sortie rejoint le contexte SANS déclencher de tour modèle —
       // exactement le comportement du mode bash du TUI. Sans ça, chaque `!ls` ferait répondre Claude.
-      st.input.push({ ...userMessage(formatLocalCommand(command, code, output, truncated)), shouldQuery: false });
+      st.input.push({ ...userMessage(formatLocalCommand(command, code, output, truncated, st.cwd)), shouldQuery: false });
       cb(null, {
         sessionId: id,
         localCommand: { command, code, output, truncated, durationMs: Date.now() - startedAt, cwd: st.cwd },
@@ -1028,6 +1048,6 @@ export {
   launchSession, killSession, restartSession,
   deliverReply, answerQuestion, answerQuestionFreeText, answerPlan, answerPermission, answerPendingSelection,
   interruptSession, setMode, setModelEffort, setAutoApprove, alwaysAllowRules, clearAgentState,
-  parseBangCommand, formatLocalCommand, runLocalCommand,
+  parseBangCommand, formatLocalCommand, stripAnsi, runLocalCommand,
   PLAN_ACTIONS, err400,
 };
