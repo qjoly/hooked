@@ -2,7 +2,7 @@
   import { onMount, onDestroy, tick, untrack } from 'svelte';
   import { goto } from '$app/navigation';
   import { ui, data, settings, loadSessions, openModal, sessionTitle, sessionTags, renameSession, toggleFocus, splitWithMostRecent, canSplit, toggleArchive, isArchived, unarchive } from '$lib/state.svelte.js';
-  import { getSession, setMode, setModelEffort, setAutoApprove, openInEditor, openInGhostty, fork, launch, deleteSession, connectSessionStream } from '$lib/api.js';
+  import { getSession, setMode, setModelEffort, setAutoApprove, openInEditor, openInGhostty, fork, launch, deleteSession, connectSessionStream, listTerminals, openTerminal, killTerminal } from '$lib/api.js';
   import { STATE_LABEL, fmtCost, fmtTokens, fmtDuration, shortModel, prLabel, issueLabel, PERMISSION_MODES, modeLabel, modeMeta, modelAlias, tagColor } from '$lib/format.js';
   import { page } from '$app/state';
   import ModelEffort from './ModelEffort.svelte';
@@ -13,6 +13,7 @@
   import Ship from './Ship.svelte';
   import Branch from './Branch.svelte';
   import Dock from './Dock.svelte';
+  import Terminal from './Terminal.svelte';
   import Icon from '$lib/components/Icon.svelte';
   import { editorFor } from '$lib/editors.js';
   import { conversationToMarkdown } from '$lib/exportConversation.js';
@@ -140,6 +141,53 @@
   const liveText = $derived(live && typeof live.text === 'string' ? live.text : '');
   const liveThinking = $derived(live && typeof live.thinking === 'string' ? live.thinking : '');
   const liveTool = $derived(live ? live.tool : null);
+
+  // ── Terminaux shell ───────────────────────────────────────────────────────────────────────────
+  // Panneau bas redimensionnable, un onglet par terminal. Ce sont de vrais shells (PTY) ouverts sur
+  // le dossier du projet — ils ne parlent PAS à la session Claude et lui survivent : fermer l'onglet
+  // du navigateur ou recharger la page ne les tue pas, ils vivent dans le processus hooked. C'est ce
+  // qui remplace le mirroir de pane tmux, réduit à ce qu'on lui demandait : lancer des commandes.
+  let terms = $state([]);
+  let termId = $state(null);
+  let termOpen = $state(false);
+  let termBusy = $state(false);
+  async function refreshTerms() {
+    const res = await listTerminals(id).catch(() => null);
+    if (!res || !res.ok) return;
+    terms = res.data.terminals || [];
+    if (!terms.some((t) => t.id === termId)) termId = terms.length ? terms[terms.length - 1].id : null;
+  }
+  // Au changement de session : on récupère SES terminaux (ceux d'une autre session restent ouverts
+  // côté serveur, simplement pas listés ici).
+  $effect(() => { const sid = id; if (sid) untrack(() => { refreshTerms(); }); });
+  async function newTerm() {
+    if (termBusy || !s || !s.project) return;
+    termBusy = true;
+    const res = await openTerminal(s.project, id).catch((e) => ({ ok: false, data: { error: e.message } }));
+    termBusy = false;
+    if (res.ok) { termOpen = true; termId = res.data.id; await refreshTerms(); }
+    else alert('✗ ' + (res.data.error || 'failed to open a terminal'));
+  }
+  async function closeTerm(tid) {
+    if (termBusy) return;
+    termBusy = true;
+    await killTerminal(tid).catch(() => {});
+    termBusy = false;
+    await refreshTerms();
+    if (!terms.length) termOpen = false;
+  }
+  // le composant signale la fin du flux (shell sorti, ou terminal tué ailleurs) → on resynchronise.
+  function onTermClosed() { refreshTerms(); }
+
+  function startTermResize(e) {
+    e.preventDefault();
+    const startY = e.clientY;
+    const startH = ui.termHeight || Math.round(window.innerHeight / 3);
+    const move = (ev) => { ui.termHeight = Math.max(120, Math.min(Math.round(window.innerHeight * 0.8), startH + (startY - ev.clientY))); };
+    const up = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+  }
 
   // écoulé compact : « 12s » puis « 2m7s ». Vide tant qu'on n'a pas d'ancre.
   const workElapsed = $derived.by(() => {
@@ -292,6 +340,14 @@
     if (!isInput && !e.metaKey && !e.ctrlKey && !e.altKey && LENS_KEYS[e.key]) {
       e.preventDefault();
       tab = LENS_KEYS[e.key];
+      return;
+    }
+    // 2 = bascule du panneau terminal (il n'est pas une lentille : il reste visible par-dessus
+    // n'importe laquelle). Ouvre un premier shell s'il n'y en a aucun.
+    if (!isInput && !e.metaKey && !e.ctrlKey && !e.altKey && e.key === '2') {
+      e.preventDefault();
+      if (!terms.length) newTerm();
+      else termOpen = !termOpen;
       return;
     }
     if (e.key !== 'Escape' || tab !== 'chat') return;
@@ -725,6 +781,46 @@
   {/if}
   </div>
 
+  <!-- Terminaux shell : panneau bas redimensionnable, visible quelle que soit la lentille active.
+       Le tiroir dessous le bascule (touche 2). Ces shells sont indépendants de la session Claude et
+       lui survivent — recharger la page ne les tue pas, ils vivent dans le processus hooked. -->
+  {#if termOpen && terms.length}
+    <div class="term-panel" style="height:{ui.termHeight ? ui.termHeight + 'px' : '33vh'}">
+      <!-- svelte-ignore a11y_no_static_element_interactions -->
+      <div class="term-resize" onpointerdown={startTermResize} title="Drag to resize"></div>
+      <div class="term-bar">
+        <div class="term-tabs">
+          {#each terms as t (t.id)}
+            <div class="term-chip" class:active={termId === t.id} class:dead={t.exited}>
+              <button class="term-tab" onclick={() => (termId = t.id)} title={t.cwd}>
+                <Icon name="shell" size={13} /> {t.id.slice(-4)}{#if t.exited} · exited{/if}
+              </button>
+              <button class="term-x" title="Close this terminal" disabled={termBusy}
+                      onclick={() => closeTerm(t.id)}><Icon name="close" size={13} /></button>
+            </div>
+          {/each}
+          <button class="term-new" title="New shell in this project" disabled={termBusy || !s.project}
+                  onclick={newTerm}><Icon name="plus" size={13} /></button>
+        </div>
+        <button class="term-close" onclick={() => (termOpen = false)} title="Hide the terminal panel (key 2)">
+          <Icon name="chevron-down" size={14} />
+        </button>
+      </div>
+      <!-- key : remonter le composant au changement d'onglet, chaque terminal a son propre flux -->
+      {#key termId}
+        {#if termId}<Terminal id={termId} onclosed={onTermClosed} />{/if}
+      {/key}
+    </div>
+  {/if}
+  <!-- tiroir : ouvre le panneau, ou crée le premier shell s'il n'y en a aucun -->
+  {#if !termOpen}
+    <button class="term-drawer" onclick={() => (terms.length ? (termOpen = true) : newTerm())}
+            title="Shell in this project (key 2)">
+      <span class="td-name"><Icon name="shell" size={13} /> Terminal</span>
+      <span class="td-info">{terms.length ? terms.length + ' open' : 'open a shell in ' + (s.projectName || 'this project')}</span>
+      <span class="td-open">open <kbd>2</kbd> <Icon name="arrow-up" size={13} /></span>
+    </button>
+  {/if}
   </div>
   </div>
 {/if}
@@ -835,6 +931,53 @@
     background: var(--accent); animation: sd-pulse 1s ease-in-out infinite;
   }
   @keyframes sd-pulse { 0%, 100% { opacity: .3; } 50% { opacity: 1; } }
+
+  /* Panneau terminal bas : hauteur pilotée par l'utilisateur (drag), xterm remplit le reste.
+     Styles gardés DANS le composant plutôt que dans app.css — scoping Svelte, et app.css est
+     retravaillé en parallèle pour le thème Datadog. */
+  .term-panel {
+    flex: 0 0 auto; position: relative; display: flex; flex-direction: column; min-height: 0;
+    border-top: 1px solid var(--border); background: var(--bg2);
+  }
+  .term-resize { position: absolute; top: -3px; left: 0; right: 0; height: 6px; cursor: row-resize; z-index: 6; }
+  .term-resize:hover { background: var(--accent); opacity: .5; }
+  .term-bar {
+    flex: 0 0 auto; display: flex; align-items: center; gap: 8px;
+    padding: 4px 8px; border-bottom: 1px solid var(--border); background: var(--bg3);
+  }
+  .term-tabs { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; min-width: 0; }
+  .term-chip { display: inline-flex; align-items: center; background: var(--bg2); border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+  .term-chip.active { border-color: var(--accent); }
+  .term-chip.active .term-tab { color: var(--accent-d); }
+  .term-chip.dead .term-tab { opacity: .55; }
+  .term-tab {
+    background: none; border: none; color: var(--muted); padding: 3px 8px; cursor: pointer;
+    font-family: var(--mono); font-size: 11px; display: inline-flex; align-items: center; gap: 5px;
+  }
+  .term-tab:hover { color: var(--text); }
+  .term-x { background: none; border: none; border-left: 1px solid var(--border); color: var(--muted); cursor: pointer; padding: 3px 5px; line-height: 1; }
+  .term-x:hover:not(:disabled) { color: var(--danger); background: rgba(var(--danger-rgb), .12); }
+  .term-new {
+    background: var(--bg2); border: 1px dashed var(--border2); color: var(--muted);
+    border-radius: 6px; padding: 3px 9px; cursor: pointer; line-height: 1;
+  }
+  .term-new:hover:not(:disabled) { color: var(--accent-d); border-color: var(--accent); }
+  .term-new:disabled { opacity: .4; cursor: default; }
+  .term-close { margin-left: auto; flex: 0 0 auto; background: none; border: none; color: var(--muted); cursor: pointer; padding: 2px 4px; }
+  .term-close:hover { color: var(--text); }
+
+  /* tiroir sous la conversation : un clic ouvre le panneau (ou crée le premier shell) */
+  .term-drawer {
+    flex: 0 0 auto; display: flex; align-items: center; gap: 9px;
+    margin: 0; padding: 6px 16px; width: 100%;
+    background: var(--code-bg); border: none; border-top: 1px solid var(--border);
+    color: var(--muted); font-family: var(--mono); font-size: 11px; cursor: pointer; text-align: left;
+  }
+  .term-drawer:hover .td-open { color: var(--accent); }
+  .td-name { color: var(--text); font-weight: 600; }
+  .td-info { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+  .td-open { margin-left: auto; flex: 0 0 auto; display: inline-flex; align-items: center; gap: 4px; }
+  .td-open kbd { font: 9px/1 var(--mono); border: 1px solid var(--border2); border-radius: 4px; padding: 1px 4px; }
 
   .auto-chip { border-style: dashed; }
   .auto-chip.active { border-style: solid; }
