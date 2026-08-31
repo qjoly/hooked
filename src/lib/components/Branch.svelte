@@ -8,6 +8,7 @@
   // default branch (origin/HEAD, else main/master).
   import { untrack } from 'svelte';
   import DiffView from './DiffView.svelte';
+  import Grip from './Grip.svelte';
   import Icon from '$lib/components/Icon.svelte';
   import { toSegments, countStats } from '$lib/difflines.js';
   import { getVcsBranches, getVcsBranchDiff } from '$lib/api.js';
@@ -187,6 +188,11 @@
       reviewCurrent();
     }
   }
+  // ── panel sizing ── the rails resize through the shared <Grip>, on the SAME persisted
+  // widths as the Ship lens so the two twin layouts stay in sync.
+  const FILES_W = { min: 150, max: 520, def: 232 };
+  const PANEL_W = { min: 200, max: 620, def: 288 };
+
 </script>
 
 <svelte:window onkeydown={onKey} />
@@ -273,6 +279,8 @@
         <div class="sf-hint">J/K next file · V mark reviewed</div>
       </div>
     </aside>
+    <Grip value={ui.shipFilesWidth} set={(w) => (ui.shipFilesWidth = w)}
+          min={FILES_W.min} max={FILES_W.max} def={FILES_W.def} label="Resize the file list" />
 
     <!-- ── diff ── -->
     <div class="ship-diff">
@@ -307,6 +315,9 @@
         </div>
       {/if}
     </div>
+
+    <Grip value={ui.shipPanelWidth} set={(w) => (ui.shipPanelWidth = w)}
+          min={PANEL_W.min} max={PANEL_W.max} def={PANEL_W.def} invert label="Resize the side panel" />
 
     <!-- ── side panel ── -->
     <aside class="ship-panel">
