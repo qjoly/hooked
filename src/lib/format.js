@@ -66,6 +66,18 @@ export const STATE_LABEL = {
   background: 'Running in background', idle: 'Paused', ended: 'Ended', past: 'Past',
 };
 
+// Une session terminée ET froide, c'est-à-dire sans activité depuis 24 h. C'est le seul cas où
+// « terminée » vaut « rangée » : une session qui vient de finir a le plus souvent été tuée par un
+// redémarrage de hooked, et la sortir de la liste active sur le champ obligeait à aller la
+// rechercher dans l'onglet Archived. Partie PURE de isSessionArchived (state.svelte.js), sortie ici
+// pour être testable — state.svelte.js utilise des runes, que Vitest ne compile pas.
+export const COLD_MS = 86400000;
+export function isFinishedAndCold(s, now = Date.now()) {
+  if (!s || (s.state !== 'ended' && s.state !== 'past')) return false;
+  const t = s.lastActivity ? Date.parse(s.lastActivity) : 0;
+  return !t || Number.isNaN(t) || now - t > COLD_MS;
+}
+
 // Couleur stable d'un tag (palette du redesign). Noms connus → couleur fixe ; sinon hash du nom →
 // index dans la palette. Le fond de pilule = couleur + '22' (13% alpha). Partagé entre l'inbox et
 // la modale d'édition des tags.

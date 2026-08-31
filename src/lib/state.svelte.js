@@ -4,6 +4,7 @@
 // sidebar, l'état live (SSE), le tick de rafraîchissement et la modale.
 import { getSessions, connectSSE, getSettings, saveSettings as apiSaveSettings, getTags, saveTags, replaceTags, getSessionMeta, saveSessionMeta, replaceSessionMeta, kill } from './api.js';
 import { NOTIFY_KINDS, notifyKeyFor, countsForBadge } from './notify.js';
+import { isFinishedAndCold } from './format.js';
 
 const LS_KEY = 'hooked.ui';
 const persisted = (() => {
@@ -88,11 +89,16 @@ export function isArchived(id) { return !!(ui.meta[id] && ui.meta[id].archived);
 // (resume): bringing it back to life should also bring it back into the live fleet. No-op if the
 // session isn't archived.
 export function unarchive(id) { if (isArchived(id)) patchMeta(id, { archived: false }); }
-// "Effectively archived" for the Deck/fleet: explicitly archived OR a finished session
-// (ended / past) — finished sessions are treated as archived (hidden from the live fleet,
-// collected in the Archived section). Takes the session object (needs its state).
+// "Effectively archived" for the Deck/fleet: explicitly archived, or a finished session that has
+// gone cold. Takes the session object (needs its state and lastActivity).
+//
+// "Finished" and "archived" are NOT the same thing, and conflating them cost real time: restarting
+// hooked kills the CLI subprocesses, `SessionEnd` fires, the session flips to 'ended' and used to
+// leave the active list on the spot — so a session you never archived had to be hunted down in the
+// Archived tab. A session that ended in the last 24 h stays where you look for it, with its Resume
+// button. Only an EXPLICIT archive moves a session immediately.
 export function isSessionArchived(s) {
-  return !!s && (isArchived(s.id) || s.state === 'ended' || s.state === 'past');
+  return !!s && (isArchived(s.id) || isFinishedAndCold(s));
 }
 // snooze a session's decision card for N hours (Deck). Cleared by passing 0/negative hours.
 export function snoozeSession(id, hours = 1) {
