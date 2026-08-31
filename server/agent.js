@@ -24,7 +24,7 @@ import fs from 'node:fs';
 import { spawn } from 'node:child_process';
 import { execFile } from 'node:child_process';
 import { query } from '@anthropic-ai/claude-agent-sdk';
-import { LAUNCHES_FILE, SESSION_LAUNCH_FILE, PERMISSION_MODES, LAUNCH_PERMISSION_MODES, isValidModelArg } from './config.js';
+import { LAUNCHES_FILE, SESSION_LAUNCH_FILE, DRIVEN_FILE, PERMISSION_MODES, LAUNCH_PERMISSION_MODES, isValidModelArg } from './config.js';
 import { isValidEffort } from './capabilities.js';
 import { statSafe } from './util.js';
 import { scanSessions } from './transcript.js';
@@ -1033,6 +1033,89 @@ function restartSession(id, { model, effort } = {}, cb) {
   setTimeout(relaunch, 250); // laisser le sous-processus rendre le verrou de session
 }
 
+// ── Reprise après un redémarrage de hooked ───────────────────────────────────────────────────────
+//
+// Les sessions vivent dans CE processus, donc `mise deploy` (launchd kickstart -k) les tue toutes —
+// c'est le compromis assumé du modèle « hooked possède le process », et le plus gros irritant au
+// quotidien. On tient donc un instantané du jeu piloté sur disque et on le rejoue au démarrage.
+// Le tour en cours est perdu (il ne nous a jamais appartenu), mais les sessions redeviennent
+// pilotables sans aller les repêcher une par une.
+
+const DRIVEN_MAX = 6;                     // chaque reprise = un process claude, on borne le boot
+const DRIVEN_FRESH_MS = 12 * 3600 * 1000; // hooked éteint plus longtemps → on ne réveille rien
+const SNAPSHOT_MS = 10000;
+
+// Choisit ce qui mérite d'être repris. Pure et exportée : c'est la seule partie qui décide, et la
+// tester ne doit pas demander de lancer une vraie session.
+function pickResumable(snap, now = Date.now()) {
+  const list = snap && Array.isArray(snap.sessions) ? snap.sessions : [];
+  if (!list.length) return [];
+  // Un instantané sans date ou périmé ne dit plus rien de l'intention de l'utilisateur.
+  const ts = Date.parse((snap && snap.ts) || '');
+  if (!Number.isFinite(ts) || now - ts > DRIVEN_FRESH_MS || now - ts < 0) return [];
+  return list.filter((s) => s && typeof s.id === 'string' && s.id && typeof s.cwd === 'string' && s.cwd)
+    .slice(0, DRIVEN_MAX);
+}
+
+function drivenSnapshot() {
+  const out = [];
+  for (const [id, st] of live) {
+    if (!id || st.ended) continue;
+    out.push({
+      id, cwd: st.cwd, model: st.launchModel || null, effort: st.launchEffort || null,
+      permissionMode: st.permissionMode || null, autoApprove: !!st.autoApprove,
+    });
+  }
+  return out;
+}
+
+// ponytail: instantané par sondage (10 s) plutôt que sur chaque mutation du registre — `live` est
+// muté depuis six endroits (lancement, init, kill, restart, échec, fin de readLoop) et en oublier un
+// donnerait un fichier faux, ce qui est pire qu'une fenêtre de 10 s. Passer à un `setLive/dropLive`
+// centralisé si la fenêtre devient un problème.
+let lastDriven = null;
+function saveDriven() {
+  const sessions = drivenSnapshot();
+  const body = JSON.stringify(sessions);
+  if (body === lastDriven) return; // rien n'a changé : pas d'écriture
+  lastDriven = body;
+  try { fs.writeFileSync(DRIVEN_FILE, JSON.stringify({ ts: new Date().toISOString(), sessions })); } catch (_) {}
+}
+
+const SNAPSHOT_TIMER = Symbol.for('hooked.agent.snapshotTimer');
+function startDrivenSnapshot() {
+  if (globalThis[SNAPSHOT_TIMER]) return;
+  const t = setInterval(saveDriven, SNAPSHOT_MS);
+  t.unref?.(); // ne doit jamais retenir le processus à la sortie
+  globalThis[SNAPSHOT_TIMER] = t;
+}
+
+// Relance les sessions pilotées au moment du dernier arrêt. Séquentiel et espacé : chaque reprise
+// spawne un CLI qui relit son transcript, les lancer d'un bloc ferait un pic pour rien. Aucun prompt
+// n'est poussé, donc aucun tour n'est consommé — la session repart et attend.
+function resumeDrivenSessions(cb) {
+  const done = typeof cb === 'function' ? cb : () => {};
+  if (process.env.HOOKED_NO_RESUME) return done(null, { resumed: 0, skipped: 'HOOKED_NO_RESUME' });
+  let snap = null;
+  try { snap = JSON.parse(fs.readFileSync(DRIVEN_FILE, 'utf8')); } catch (_) { return done(null, { resumed: 0 }); }
+  const take = pickResumable(snap);
+  if (!take.length) return done(null, { resumed: 0 });
+  const failed = [];
+  let i = 0;
+  const next = () => {
+    const s = take[i++];
+    if (!s) return done(null, { resumed: take.length - failed.length, failed });
+    launchSession({
+      resumeId: s.id, cwd: s.cwd, model: s.model, effort: s.effort,
+      permissionMode: s.permissionMode || undefined, autoApprove: s.autoApprove,
+    }, (err) => {
+      if (err) failed.push({ id: s.id, error: (err && err.message) || String(err) });
+      setTimeout(next, 1500);
+    });
+  };
+  next();
+}
+
 // Purge l'état volatil dérivé du flux (activité / suggestion) pour toutes les sessions vivantes :
 // utilisé par le resync manuel des Réglages, qui servait avant à vider les caches de capture tmux.
 function clearAgentState() {
@@ -1048,6 +1131,7 @@ export {
   launchSession, killSession, restartSession,
   deliverReply, answerQuestion, answerQuestionFreeText, answerPlan, answerPermission, answerPendingSelection,
   interruptSession, setMode, setModelEffort, setAutoApprove, alwaysAllowRules, clearAgentState,
+  resumeDrivenSessions, startDrivenSnapshot, pickResumable, saveDriven,
   parseBangCommand, formatLocalCommand, stripAnsi, runLocalCommand,
   PLAN_ACTIONS, err400,
 };

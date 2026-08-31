@@ -19,6 +19,10 @@ const LAUNCHES_FILE = path.join(HOOKED_DIR, 'launches.jsonl');
 // résolution persistée session_id (claude) → modèle/effort : garde l'effort et le modèle affichés
 // même après la fin de la session (le registre en mémoire, lui, ne survit pas au processus).
 const SESSION_LAUNCH_FILE = path.join(HOOKED_DIR, 'session-launch.jsonl');
+// Instantané du jeu de sessions PILOTÉES (cf. server/agent.js). Les sessions vivent dans le
+// processus hooked : un redémarrage les tue toutes. Ce fichier est ce qui permet de les reprendre au
+// démarrage suivant. Écrasé, pas append : c'est un état courant, pas un journal.
+const DRIVEN_FILE = path.join(HOOKED_DIR, 'driven-sessions.json');
 // snapshots de la statusline Claude Code (déposés par statusline-command.sh) : un fichier
 // JSON par session, contenant les *vraies* infos du compte (effort, rate limits, contexte).
 const STATUS_DIR = path.join(HOOKED_DIR, 'status');
@@ -76,4 +80,4 @@ function readClaudeDefaults() {
   };
 }
 
-export { HOME, PROJECTS_DIR, HOOKED_DIR, EVENTS_FILE, LAUNCHES_FILE, SESSION_LAUNCH_FILE, STATUS_DIR, CLAUDE_JSON, ROOT, PUBLIC_DIR, PORT, PERMISSION_MODES, LAUNCH_PERMISSION_MODES, isValidModelArg, readClaudeDefaults };
+export { HOME, PROJECTS_DIR, HOOKED_DIR, EVENTS_FILE, LAUNCHES_FILE, SESSION_LAUNCH_FILE, DRIVEN_FILE, STATUS_DIR, CLAUDE_JSON, ROOT, PUBLIC_DIR, PORT, PERMISSION_MODES, LAUNCH_PERMISSION_MODES, isValidModelArg, readClaudeDefaults };
