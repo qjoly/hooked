@@ -73,6 +73,16 @@
     drag = null;
     draft = { side, start, end, text: '' };
   }
+  // Focus the editor as it opens. The `autofocus` ATTRIBUTE could not be trusted here: a document
+  // honours it only for the first autofocus element it ever processes, so every editor opened after
+  // that one — the first comment on the next file, typically — came up unfocused and you had to
+  // click into it. An action runs on every insertion instead. The rAF lets the rows around the
+  // draft settle first, so focus is not taken by a textarea that is about to be re-created.
+  function focusOnOpen(node) {
+    const id = requestAnimationFrame(() => node.focus());
+    return { destroy: () => cancelAnimationFrame(id) };
+  }
+
   function commitDraft() {
     const d = draft;
     if (d && d.text.trim() && onComment)
@@ -276,8 +286,7 @@
     {#if slot.draft}
       <div class="dv-editor">
         <div class="dv-editor-lbl">Comment on {rangeLabel(side, draft.start, draft.end)}{#if draft.start !== draft.end} · {draft.end - draft.start + 1} lines{/if}</div>
-        <!-- svelte-ignore a11y_autofocus -->
-        <textarea autofocus rows="2" bind:value={draft.text}
+        <textarea use:focusOnOpen rows="2" bind:value={draft.text}
                   placeholder="Leave a comment…  (⌘/Ctrl+Enter to save · Esc to cancel)"
                   onkeydown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); commitDraft(); } else if (e.key === 'Escape') { e.preventDefault(); cancelDraft(); } }}></textarea>
         <div class="dv-editor-bar">
