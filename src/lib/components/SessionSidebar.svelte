@@ -54,9 +54,35 @@
     return ((w.length >= 2 ? w.slice(0, 3).map((x) => x[0]).join('') : t.slice(0, 3)) || '·').toUpperCase().slice(0, 3);
   }
 
+  // `hideOld` (« hide > 24h ») : masque les sessions sans activité depuis plus de 24 h. Le réglage
+  // existait avant la refonte inbox/cockpit, qui a retiré le filtre et sa case à cocher mais a laissé
+  // la clé persistée — donc un réglage sauvegardé qui ne faisait plus rien. On restaure la sémantique
+  // d'origine (seuil 24 h) plutôt que d'en inventer une autre.
+  //
+  // Trois catégories échappent au filtre, quel que soit leur âge : la session COURANTE (la faire
+  // disparaître sous le curseur en cochant la case serait absurde), les ÉPINGLÉES (c'est le sens
+  // d'une épingle) et celles qui ATTENDENT une décision — une question posée il y a 30 h reste une
+  // question à traiter, la cacher est exactement le contraire du service rendu.
+  const OLD_MS = 86400000;
+  const keptDespiteAge = (s) => s.id === currentId || isPinned(s.id) || needsDecision(s);
+  function passesAge(s, now) {
+    if (!ui.hideOld || keptDespiteAge(s)) return true;
+    return !s.lastActivity || (now - Date.parse(s.lastActivity)) <= OLD_MS;
+  }
+
   // active list (hide archived/finished, keep current) vs archived list — both honour the tag filter.
-  const active = $derived(data.sessions.filter((s) => (s.id === currentId || !isSessionArchived(s)) && matchesTagFilter(s)).sort(byActivity));
-  const archived = $derived(data.sessions.filter((s) => isSessionArchived(s) && matchesTagFilter(s)).sort(byActivity));
+  const active = $derived.by(() => {
+    const now = Date.now();
+    return data.sessions
+      .filter((s) => (s.id === currentId || !isSessionArchived(s)) && matchesTagFilter(s) && passesAge(s, now))
+      .sort(byActivity);
+  });
+  const archived = $derived.by(() => {
+    const now = Date.now();
+    return data.sessions
+      .filter((s) => isSessionArchived(s) && matchesTagFilter(s) && passesAge(s, now))
+      .sort(byActivity);
+  });
   const shown = $derived(tab === 'archived' ? archived : active);
   const projectKey = (s) => s.repo || s.projectName || '—';
 
@@ -68,6 +94,37 @@
     return [...g.keys()].sort((a, b) => lastOf(g.get(b)) - lastOf(g.get(a)))
       .map((proj) => ({ key: proj, label: proj, items: g.get(proj) }));
   });
+
+  // Fenêtrage de la liste. Sans ça, la sidebar montait UNE LIGNE PAR SESSION — 157 sur cette
+  // instance, chacune avec ses trois boutons d'action au survol et sa rangée de tags — alors que la
+  // vue Deck, qui liste la même chose, se limite depuis toujours à une fenêtre par groupe avec un
+  // « +N older ». Deux composants qui affichent les mêmes données avec deux politiques opposées.
+  //
+  // On ne coupe jamais dans ce qui compte : le tri (byActivity) place déjà épinglées → en attente de
+  // décision → actives → récentes, donc les premières lignes SONT les importantes, et la fenêtre
+  // s'étend pour les prendre toutes s'il y en a plus que SIDEBAR_WINDOW.
+  //
+  // 8 comme la vue Deck, délibérément : deux listes des mêmes sessions qui se coupent au même
+  // endroit sont prévisibles. Mesuré sur 157 sessions / 48 groupes (médiane 1 session par groupe,
+  // 29 groupes singletons) : la fenêtre retire ~25 % des lignes en mode groupé et ~95 % en liste
+  // unique. Le mode groupé plafonne là parce que sa traîne est faite de groupes d'UNE session —
+  // aucune fenêtre ne peut la réduire, c'est `hideOld` qui s'en charge (157 → 10 ici).
+  const SIDEBAR_WINDOW = 8;
+  let expanded = $state({});
+  function toggleExpanded(k) { expanded = { ...expanded, [k]: !expanded[k] }; }
+  function windowSize(g) {
+    // La session courante n'est VOLONTAIREMENT pas remontée en tête (cf. la note sur byActivity :
+    // sélectionner une session ne doit pas réordonner la liste sous le curseur). Elle peut donc se
+    // trouver au-delà de la fenêtre — on étend jusqu'à elle, sinon ouvrir une vieille session la
+    // ferait disparaître de la liste au moment même où on la consulte.
+    const cur = g.items.findIndex((s) => s.id === currentId);
+    return Math.max(
+      SIDEBAR_WINDOW,
+      g.items.filter((s) => isPinned(s.id) || needsDecision(s) || isActive(s)).length,
+      cur >= 0 ? cur + 1 : 0,
+    );
+  }
+  const visibleItems = (g) => (expanded[g.key] ? g.items : g.items.slice(0, windowSize(g)));
 
   function toggleGroup(k) { ui.collapsed = { ...ui.collapsed, [k]: !ui.collapsed[k] }; }
   const open = (s) => goto('/session/' + encodeURIComponent(s.id));
@@ -90,6 +147,9 @@
         <button class="ssb-tab" class:on={tab === 'active'} onclick={() => (tab = 'active')}>Sessions <span class="ssb-count">{active.length}</span></button>
         <button class="ssb-tab" class:on={tab === 'archived'} onclick={() => (tab = 'archived')}>Archived <span class="ssb-count">{archived.length}</span></button>
       </div>
+      <button class="ssb-icon" class:on={ui.hideOld} aria-label="Hide sessions idle for more than 24h"
+              title={ui.hideOld ? 'Showing only the last 24h — click to show everything' : 'Show only sessions active in the last 24h (pinned, awaiting-decision and current sessions always stay)'}
+              onclick={() => (ui.hideOld = !ui.hideOld)}><Icon name="clock" size={14} /></button>
       <button class="ssb-icon" title="Group by project on/off" aria-label="Toggle grouping"
               onclick={() => (ui.groupByProject = !ui.groupByProject)}>{#if ui.groupByProject}<Icon name="folder-open" size={14} />{:else}<Icon name="menu" size={14} />{/if}</button>
       <button class="ssb-icon" title="Collapse sidebar (⌘/Ctrl+B)" aria-label="Collapse sidebar"
@@ -117,7 +177,7 @@
           </button>
         {/if}
         {#if !g.label || !ui.collapsed[g.key]}
-          {#each g.items as s (s.id)}
+          {#each visibleItems(g) as s (s.id)}
             <div class="ssb-row" class:cur={s.id === currentId} class:dim={!isActive(s)}
                  role="button" tabindex="0" onclick={() => open(s)}
                  onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(s); } }}>
@@ -147,6 +207,16 @@
               {/if}
             </div>
           {/each}
+          {#if !expanded[g.key] && g.items.length > visibleItems(g).length}
+            {@const hidden = g.items.length - visibleItems(g).length}
+            <button class="ssb-more" onclick={() => toggleExpanded(g.key)}>
+              <Icon name="plus" size={12} /> {hidden} older session{hidden > 1 ? 's' : ''}
+            </button>
+          {:else if expanded[g.key] && g.items.length > windowSize(g)}
+            <button class="ssb-more" onclick={() => toggleExpanded(g.key)}>
+              <Icon name="chevron-down" size={12} /> show less
+            </button>
+          {/if}
         {/if}
       {/each}
       {#if !shown.length}
@@ -193,6 +263,19 @@
     border-radius: 7px; cursor: pointer; font-size: 12px; display: inline-flex; align-items: center; justify-content: center;
   }
   .ssb-icon:hover { background: var(--hover); color: var(--text); }
+  /* état actif d'une bascule d'en-tête (« hide > 24h ») : sans marqueur visible, un filtre actif est
+     invisible et on croit avoir perdu des sessions. */
+  .ssb-icon.on { background: var(--accent-soft); color: var(--accent-d); }
+
+  /* « +N older sessions » / « show less » : même bandeau discret que les en-têtes de groupe, pour
+     que l'extension de la fenêtre se lise comme une ligne de structure et pas comme une session. */
+  .ssb-more {
+    display: flex; align-items: center; gap: 6px; width: 100%; background: transparent; border: none;
+    border-bottom: 1px solid var(--border);
+    color: var(--muted); font: inherit; font-family: var(--mono); font-size: 10px; font-weight: 600;
+    letter-spacing: .06em; padding: 6px 10px 6px 22px; cursor: pointer; text-align: left;
+  }
+  .ssb-more:hover { background: var(--hover); color: var(--text); }
 
   /* Side panel sans gap (anti-bulle) : liste affleurante — une ligne = un filet, group headers
      en bandeaux uppercase, session courante = rail accent 2px + fond de surface. */
