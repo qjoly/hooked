@@ -7,8 +7,8 @@
   // Ce composant remplace le mirroir de pane tmux. Deux simplifications par rapport à lui : il n'y a
   // plus de session Claude à recopier (donc plus de mode lecture seule ni d'évènement `meta` pour se
   // caler sur la taille d'un pane distant — ici c'est NOUS qui dimensionnons le PTY), et le thème
-  // n'est plus un sélecteur mais une dérivation des variables CSS de hooked : le terminal suit donc
-  // la palette active (y compris Datadog) sans un réglage de plus à maintenir.
+  // n'est plus un sélecteur : seul le FOND vient des variables CSS de hooked, le reste est une
+  // palette de terminal sombre fixe (cf. readTheme).
   import { onMount, onDestroy } from 'svelte';
   import { sendTerminalInput, resizeTerminal } from '$lib/api.js';
 
@@ -19,23 +19,22 @@
   let fitAddon = null, fitTimer = null, lastDims = '', resizeObs = null;
   let closed = $state(false);
 
-  // Palette xterm dérivée des variables CSS du thème actif. Lue au montage puis à chaque changement
-  // de thème/palette (l'attribut change sur <html>, donc un MutationObserver suffit) — un sélecteur
-  // de thème dédié au terminal serait un réglage de plus à tenir synchronisé pour rien.
+  // Palette du terminal. On ne dérive QUE le fond des variables CSS : `--code-bg` est sombre dans
+  // tous les thèmes, donc le texte doit être clair dans tous les thèmes aussi. Dériver l'avant-plan
+  // de `--fg` donnait #181b20 sur #0f1218 en thème clair — noir sur noir, illisible. Les couleurs
+  // ANSI restent celles d'un terminal sombre standard : les accents de l'UI en thème clair sont
+  // calculés pour un fond clair et passent mal ici, et un `ls` ou un prompt doit ressembler à ce
+  // qu'il donne dans n'importe quel autre terminal.
+  const TERM_FG = '#d6dae2';
   function readTheme() {
     if (typeof getComputedStyle === 'undefined' || !host) return null;
-    const cs = getComputedStyle(document.documentElement);
-    const v = (n, dflt) => (cs.getPropertyValue(n) || '').trim() || dflt;
+    const bg = (getComputedStyle(document.documentElement).getPropertyValue('--code-bg') || '').trim();
     return {
-      background: v('--code-bg', '#0b0e14'),
-      foreground: v('--fg', '#c7d0e0'),
-      cursor: v('--accent', '#7dd3fc'),
-      selectionBackground: v('--accent-soft', 'rgba(125,116,245,.35)'),
-      red: v('--danger', '#e06a4a'),
-      green: v('--success', '#2a9d63'),
-      yellow: v('--warn', '#c08a1a'),
-      blue: v('--info', '#3b82c4'),
-      magenta: v('--background', '#8250df'),
+      background: bg || '#0b0e14',
+      foreground: TERM_FG,
+      cursor: TERM_FG,
+      cursorAccent: bg || '#0b0e14',
+      selectionBackground: 'rgba(125,116,245,.35)',
     };
   }
   function applyTheme() {
