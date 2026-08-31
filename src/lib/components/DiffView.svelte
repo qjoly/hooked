@@ -6,6 +6,7 @@
   import { toSegments, unifiedRows, splitRows, langFromName, EXPAND_STEP } from '$lib/difflines.js';
   import { highlight } from '$lib/highlight.js';
   import Icon from '$lib/components/Icon.svelte';
+  import { ui } from '$lib/state.svelte.js';
 
   let {
     oldStr = '', newStr = '', name = 'file.txt', mode = 'split',
@@ -72,6 +73,16 @@
     drag = null;
     draft = { side, start, end, text: '' };
   }
+  // Focus the editor as it opens. The `autofocus` ATTRIBUTE could not be trusted here: a document
+  // honours it only for the first autofocus element it ever processes, so every editor opened after
+  // that one — the first comment on the next file, typically — came up unfocused and you had to
+  // click into it. An action runs on every insertion instead. The rAF lets the rows around the
+  // draft settle first, so focus is not taken by a textarea that is about to be re-created.
+  function focusOnOpen(node) {
+    const id = requestAnimationFrame(() => node.focus());
+    return { destroy: () => cancelAnimationFrame(id) };
+  }
+
   function commitDraft() {
     const d = draft;
     if (d && d.text.trim() && onComment)
@@ -93,6 +104,103 @@
     if (!side || endLine == null) return { list: [], draft: false };
     return { list: commentsAt(side, endLine), draft: draftAt(side, endLine) };
   }
+  // ── side-by-side divider ─────────────────────────────────────────────────────────────────
+  // In split mode the old/new columns are 50/50 by default; the bar between them can be dragged
+  // to give one side more room (ratio persisted in `ui`, so it holds across files and lenses).
+  // Double-click restores 50/50, ←/→ nudge the focused bar. The two 46px line-number gutters sit
+  // outside the ratio, hence the `- GUTTERS` in every conversion.
+  const GUTTERS = 92;
+  const RATIO = { min: 0.15, max: 0.85, def: 0.5, step: 0.04 };
+  const clampRatio = (r) => Math.max(RATIO.min, Math.min(RATIO.max, r));
+  const ratio = $derived(clampRatio(ui.diffRatio ?? RATIO.def));
+
+  function startSplitDrag(e) {
+    if (e.button != null && e.button !== 0) return;
+    e.preventDefault();
+    const rect = root.getBoundingClientRect();
+    const span = rect.width - GUTTERS;
+    if (span <= 0) return;
+    const move = (ev) => { ui.diffRatio = clampRatio((ev.clientX - rect.left - GUTTERS / 2) / span); };
+    const up = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+  }
+  function nudgeSplit(e) {
+    const d = e.key === 'ArrowLeft' ? -RATIO.step : e.key === 'ArrowRight' ? RATIO.step : 0;
+    if (!d) return;
+    e.preventDefault();
+    ui.diffRatio = clampRatio(ratio + d);
+  }
+
+  // ── occurrence echo ─────────────────────────────────────────────────────────────────────
+  // Selecting a bit of text paints every OTHER occurrence of it in this diff (VS Code style):
+  // select "pro" and the "pro" inside "professional" lights up too. Purely visual — it uses the
+  // CSS Custom Highlight API, so no node is added or split and the diff text is never touched.
+  // Browsers without the API simply show nothing extra.
+  const HL_NAME = 'dv-occurrence';
+  const MAX_OCC = 500;      // stop painting past this many hits (huge diffs / one-letter needles)
+  let root;                 // the .dv container
+  let occRaf = 0;
+
+  const hlStore = () => (typeof CSS !== 'undefined' && CSS.highlights) || null;
+  function clearOcc() { const st = hlStore(); if (st) st.delete(HL_NAME); }
+
+  function paintOcc() {
+    occRaf = 0;
+    const store = hlStore();
+    if (!store || !root) return;
+    const sel = document.getSelection();
+    if (!sel || sel.isCollapsed || !sel.rangeCount) return clearOcc();
+    if (!root.contains(sel.getRangeAt(0).commonAncestorContainer)) return clearOcc();
+    const needle = sel.toString();
+    // one line, non-blank, long enough to mean something
+    if (needle.length < 2 || needle.length > 200 || !needle.trim() || /[\n\r]/.test(needle)) return clearOcc();
+
+    const ranges = [];
+    for (const code of root.querySelectorAll('.dv-code')) {
+      if (ranges.length >= MAX_OCC) break;
+      // flatten the line's text nodes once, so a match may span syntax-highlight tokens
+      const nodes = [], starts = [];
+      let text = '';
+      const w = document.createTreeWalker(code, NodeFilter.SHOW_TEXT);
+      for (let n = w.nextNode(); n; n = w.nextNode()) { nodes.push(n); starts.push(text.length); text += n.nodeValue; }
+      if (!text) continue;
+      const at = (idx) => { // absolute offset -> [node, offsetInNode]
+        let i = starts.length - 1;
+        while (i > 0 && starts[i] > idx) i--;
+        return [nodes[i], idx - starts[i]];
+      };
+      for (let i = text.indexOf(needle); i !== -1 && ranges.length < MAX_OCC; i = text.indexOf(needle, i + needle.length)) {
+        const [sn, so] = at(i), [en, eo] = at(i + needle.length - 1);
+        const rg = document.createRange();
+        rg.setStart(sn, so); rg.setEnd(en, eo + 1);
+        ranges.push(rg);
+      }
+    }
+    if (ranges.length) store.set(HL_NAME, new Highlight(...ranges));
+    else clearOcc();
+  }
+
+  // selectionchange fires on every pointer move while dragging → coalesce to one paint per frame
+  function scheduleOcc() { if (!occRaf) occRaf = requestAnimationFrame(paintOcc); }
+
+  $effect(() => {
+    if (!hlStore()) return;
+    document.addEventListener('selectionchange', scheduleOcc);
+    return () => {
+      document.removeEventListener('selectionchange', scheduleOcc);
+      if (occRaf) cancelAnimationFrame(occRaf);
+      clearOcc();
+    };
+  });
+
   const rangeLabel = (side, start, end) => {
     const p = side === 'old' ? '−' : '+';
     return start === end ? `${p}L${end}` : `${p}L${start}–${end}`;
@@ -101,7 +209,15 @@
 
 <svelte:window onpointerup={endDrag} />
 
-<div class="dv {mode}" class:commentable class:dv-dragging={!!drag}>
+<div class="dv {mode}" bind:this={root} class:commentable class:dv-dragging={!!drag}
+     style={mode === 'split' ? `--dv-l:${ratio}fr;--dv-r:${1 - ratio}fr;--dv-k:${ratio}` : null}>
+  {#if mode === 'split'}
+    <!-- svelte-ignore a11y_no_noninteractive_element_interactions, a11y_no_noninteractive_tabindex -->
+    <div class="dv-split-grip" role="separator" aria-label="Resize the diff columns" aria-orientation="vertical"
+         tabindex="0" title="Drag to resize the two sides · double-click to reset"
+         onpointerdown={startSplitDrag} ondblclick={() => (ui.diffRatio = RATIO.def)}
+         onkeydown={nudgeSplit}></div>
+  {/if}
   {#each rows as r, i (i)}
     {#if r.kind === 'gap'}
       <div class="dv-gap">
@@ -170,8 +286,7 @@
     {#if slot.draft}
       <div class="dv-editor">
         <div class="dv-editor-lbl">Comment on {rangeLabel(side, draft.start, draft.end)}{#if draft.start !== draft.end} · {draft.end - draft.start + 1} lines{/if}</div>
-        <!-- svelte-ignore a11y_autofocus -->
-        <textarea autofocus rows="2" bind:value={draft.text}
+        <textarea use:focusOnOpen rows="2" bind:value={draft.text}
                   placeholder="Leave a comment…  (⌘/Ctrl+Enter to save · Esc to cancel)"
                   onkeydown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); commitDraft(); } else if (e.key === 'Escape') { e.preventDefault(); cancelDraft(); } }}></textarea>
         <div class="dv-editor-bar">
@@ -186,12 +301,20 @@
 <style>
   .dv {
     font-family: var(--mono); font-size: 12px; line-height: 1.55;
-    background: var(--code-bg); color: #c9cedb; overflow-x: hidden;
+    background: var(--code-bg); color: #c9cedb; overflow-x: hidden; position: relative;
   }
   .dv-row { display: grid; align-items: stretch; }
   .dv.unified .dv-row { grid-template-columns: 46px 46px 16px 1fr; }
   .dv.unified.commentable .dv-row { grid-template-columns: 46px 46px 16px 18px 1fr; }
-  .dv.split .dv-row { grid-template-columns: 46px minmax(0, 1fr) 46px minmax(0, 1fr); }
+  .dv.split .dv-row { grid-template-columns: 46px minmax(0, var(--dv-l, 1fr)) 46px minmax(0, var(--dv-r, 1fr)); }
+
+  /* draggable old|new divider — sits on the boundary between the left cell and the right
+     gutter, i.e. after the 46px gutter plus the old side's share of the remaining width. */
+  .dv-split-grip {
+    position: absolute; top: 0; bottom: 0; width: 9px; margin-left: -4px; z-index: 4;
+    left: calc(46px + (100% - 92px) * var(--dv-k, .5)); cursor: col-resize; background: none;
+  }
+  .dv-split-grip:hover, .dv-split-grip:focus-visible { background: var(--accent); opacity: .5; outline: none; }
 
   .dv-no {
     text-align: right; padding: 0 8px; color: #5a6072; user-select: none;

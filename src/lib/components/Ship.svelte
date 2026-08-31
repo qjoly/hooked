@@ -7,12 +7,16 @@
   //                  a prompt to the live session (batch review, or "open the PR").
   import { untrack } from 'svelte';
   import DiffView from './DiffView.svelte';
+  import Grip from './Grip.svelte';
   import Icon from '$lib/components/Icon.svelte';
   import { toSegments, countStats, applyOp } from '$lib/difflines.js';
   import { fmtCost } from '$lib/format.js';
   import { getFileChangeFull, getVcsDiff, getVcsLog, getVcsCommit } from '$lib/api.js';
   import { settings, ui } from '$lib/state.svelte.js';
   import { editorFor } from '$lib/editors.js';
+  import { fingerprint, isReviewed as hasReview, toggleReviewed as tickReview,
+           toMap as reviewedToMap, toEntries as reviewedToEntries } from '$lib/reviewState.js';
+  import { loadDraft, saveDraft } from '$lib/reviewDraft.js';
 
   let { s, id, onReview = null, canReview = true, active = false } = $props();
 
@@ -214,23 +218,31 @@
   $effect(() => { changes.length; untrack(() => { if (activeIdx >= changes.length) activeIdx = Math.max(0, changes.length - 1); }); });
   const activeFile = $derived(changes[activeIdx] || null);
 
-  // review tracking (per browser session, in-memory keyed by file path)
-  let reviewed = $state(new Set());
-  const isReviewed = (f) => reviewed.has(f);
-  function toggleReviewed(f) {
-    const next = new Set(reviewed);
-    next.has(f) ? next.delete(f) : next.add(f);
-    reviewed = next;
-  }
+  // ── review ticks ── bound to the CONTENT reviewed, not just to the path ─────────────────
+  // `fileFp` fingerprints the diff a file currently shows; a tick stores that fingerprint. So a
+  // file edited after being ticked comes back un-ticked (rail AND the reviewed N/M counters),
+  // while going back to a state already signed off shows its tick again.
+  let reviewed = $state(new Map()); // file -> [fingerprint of each state signed off]
+  const fps = $derived(new Map(changes.map((c) => [c.file, fileFp(c)])));
+  const isReviewed = (f) => hasReview(reviewed, f, fps.get(f));
+  function toggleReviewed(f) { reviewed = tickReview(reviewed, f, fps.get(f)); }
   // "Mark reviewed" on the active file: marking it (not un-marking) auto-advances to the next
   // file — so you can review a diff, hit V / the button, and land on the next one.
   function reviewCurrent() {
     if (!activeFile) return;
-    const wasReviewed = reviewed.has(activeFile.file);
+    const wasReviewed = isReviewed(activeFile.file);
     toggleReviewed(activeFile.file);
     if (!wasReviewed && activeIdx < changes.length - 1) activeIdx += 1;
   }
-  const reviewedCount = $derived(changes.filter((c) => reviewed.has(c.file)).length);
+  const reviewedCount = $derived(changes.filter((c) => isReviewed(c.file)).length);
+
+  // The pieces a file's on-screen diff is built from — same inputs as fileDiffs(), minus the
+  // replay, so fingerprinting the whole rail stays cheap.
+  function fileFp(c) {
+    const ops = (o) => o.flatMap((x) => [x.content || '', x.old || '', x.new || '']);
+    if (view === 'vcs' || !filtering) return fingerprint(ops(c.ops || []));
+    return fingerprint([c.original || '', ...ops((c.rawOps || []).filter(opSelected))]);
+  }
 
   // diff style (persisted). `mode` is the sticky global preference, used for existing-file edits.
   let mode = $state((typeof localStorage !== 'undefined' && localStorage.getItem('hooked.shipDiff')) || 'split');
@@ -301,6 +313,25 @@
   }
 
   let sending = $state(false);
+
+  // ── draft persistence ── the review survives leaving the lens ────────────────────────────
+  // `comments` + `reviewed` live in component state, which dies on unmount (another tab, another
+  // session, a reload). Mirror them under a per-session key and hydrate on the way back in, so a
+  // half-written review is never lost; sending it empties the draft through the same effect.
+  const draftKey = $derived(id ? 'ship:' + id : null);
+  $effect(() => {
+    const k = draftKey;
+    untrack(() => {
+      const d = loadDraft(k);
+      comments = d.comments;
+      reviewed = reviewedToMap(d.reviewed);
+    });
+  });
+  $effect(() => {
+    const snap = { comments, reviewed: reviewedToEntries(reviewed) };   // read first: both are tracked deps
+    untrack(() => saveDraft(draftKey, snap));
+  });
+
   async function sendReview() {
     if (!onReview || !pending || sending) return;
     const prompt = buildReviewPrompt();
@@ -338,46 +369,10 @@
     }
   }
 
-  // ── panel sizing ── the two side rails are drag-resizable (widths persisted in `ui`);
-  // the diff column takes whatever is left. Double-click a handle to restore the default.
+  // ── panel sizing ── the two side rails are drag-resizable through the shared <Grip>
+  // (widths persisted in `ui`, shared with the Branch lens); the diff column takes what's left.
   const FILES_W = { min: 150, max: 520, def: 232 };
   const PANEL_W = { min: 200, max: 620, def: 288 };
-  function startResize(side, e) {
-    if (e.button != null && e.button !== 0) return;
-    e.preventDefault();
-    const startX = e.clientX;
-    const left = side === 'files';
-    const lim = left ? FILES_W : PANEL_W;
-    const startW = left ? ui.shipFilesWidth : ui.shipPanelWidth;
-    // left rail grows when dragging right, right panel grows when dragging left.
-    const move = (ev) => {
-      const w = Math.max(lim.min, Math.min(lim.max, startW + (left ? ev.clientX - startX : startX - ev.clientX)));
-      if (left) ui.shipFilesWidth = w; else ui.shipPanelWidth = w;
-    };
-    const up = () => {
-      window.removeEventListener('pointermove', move);
-      window.removeEventListener('pointerup', up);
-      document.body.style.cursor = '';
-      document.body.style.userSelect = '';
-    };
-    document.body.style.cursor = 'col-resize';
-    document.body.style.userSelect = 'none';
-    window.addEventListener('pointermove', move);
-    window.addEventListener('pointerup', up);
-  }
-  function resetWidth(side) {
-    if (side === 'files') ui.shipFilesWidth = FILES_W.def; else ui.shipPanelWidth = PANEL_W.def;
-  }
-  // keyboard-accessible nudge on the focused handle (± 16px).
-  function nudge(side, e) {
-    const d = e.key === 'ArrowLeft' ? -16 : e.key === 'ArrowRight' ? 16 : 0;
-    if (!d) return;
-    e.preventDefault();
-    const left = side === 'files';
-    const lim = left ? FILES_W : PANEL_W;
-    const w = Math.max(lim.min, Math.min(lim.max, (left ? ui.shipFilesWidth : ui.shipPanelWidth) + (left ? d : -d)));
-    if (left) ui.shipFilesWidth = w; else ui.shipPanelWidth = w;
-  }
 
   const tasksDone = $derived((s?.todos || []).filter((t) => t.status === 'completed').length);
   const tasksTotal = $derived((s?.todos || []).length);
@@ -492,11 +487,8 @@
         <div class="sf-hint">J/K next file · V mark reviewed</div>
       </div>
     </aside>
-    <!-- svelte-ignore a11y_no_noninteractive_element_interactions, a11y_no_noninteractive_tabindex -->
-    <div class="ship-grip" role="separator" aria-label="Resize the file list" aria-orientation="vertical"
-         tabindex="0" title="Drag to resize · double-click to reset"
-         onpointerdown={(e) => startResize('files', e)} ondblclick={() => resetWidth('files')}
-         onkeydown={(e) => nudge('files', e)}></div>
+    <Grip value={ui.shipFilesWidth} set={(w) => (ui.shipFilesWidth = w)}
+          min={FILES_W.min} max={FILES_W.max} def={FILES_W.def} label="Resize the file list" />
 
     <!-- ── diff ── -->
     <div class="ship-diff">
@@ -541,11 +533,8 @@
       {/if}
     </div>
 
-    <!-- svelte-ignore a11y_no_noninteractive_element_interactions, a11y_no_noninteractive_tabindex -->
-    <div class="ship-grip" role="separator" aria-label="Resize the ship panel" aria-orientation="vertical"
-         tabindex="0" title="Drag to resize · double-click to reset"
-         onpointerdown={(e) => startResize('panel', e)} ondblclick={() => resetWidth('panel')}
-         onkeydown={(e) => nudge('panel', e)}></div>
+    <Grip value={ui.shipPanelWidth} set={(w) => (ui.shipPanelWidth = w)}
+          min={PANEL_W.min} max={PANEL_W.max} def={PANEL_W.def} invert label="Resize the ship panel" />
 
     <!-- ── ship panel ── -->
     <aside class="ship-panel">
@@ -719,19 +708,18 @@
   .sp-meta b { color: var(--text); }
 
   /* drag handles between the columns (2px visual, 7px hit area) */
-  .ship-grip { flex: 0 0 auto; width: 7px; margin: 0 -3px; cursor: col-resize; z-index: 3; background: none; }
-  .ship-grip:hover, .ship-grip:focus-visible { background: var(--accent); opacity: .5; outline: none; }
+  /* the rail handles are <Grip> — styled globally in app.css (out of this scope) */
 
-  @media (max-width: 1100px) { .ship-panel, .ship-grip:last-of-type { display: none; } }
-  @media (max-width: 900px) { .ship-files, .ship-grip:first-of-type { display: none; } }
+  @media (max-width: 1100px) { .ship-panel { display: none; } }
+  @media (max-width: 900px) { .ship-files { display: none; } }
 
   /* Mode étroit (pane de split / petite fenêtre) : les colonnes latérales cèdent la place au
      diff — d'abord le panneau « ready to ship », puis la liste de fichiers (J/K naviguent). */
   @container (max-width: 760px) {
-    .ship-panel, .ship-grip:last-of-type { display: none; }
+    .ship-panel { display: none; }
     .ship-files { width: min(var(--ship-files-w, 232px), 180px); min-width: min(var(--ship-files-w, 232px), 180px); }
   }
   @container (max-width: 560px) {
-    .ship-files, .ship-grip:first-of-type { display: none; }
+    .ship-files { display: none; }
   }
 </style>

@@ -8,11 +8,15 @@
   // default branch (origin/HEAD, else main/master).
   import { untrack } from 'svelte';
   import DiffView from './DiffView.svelte';
+  import Grip from './Grip.svelte';
   import Icon from '$lib/components/Icon.svelte';
   import { toSegments, countStats } from '$lib/difflines.js';
   import { getVcsBranches, getVcsBranchDiff } from '$lib/api.js';
   import { settings, ui } from '$lib/state.svelte.js';
   import { editorFor } from '$lib/editors.js';
+  import { fingerprint, isReviewed as hasReview, toggleReviewed as tickReview,
+           toMap as reviewedToMap, toEntries as reviewedToEntries } from '$lib/reviewState.js';
+  import { loadDraft, saveDraft } from '$lib/reviewDraft.js';
 
   let { s, id, onReview = null, canReview = true, active = false } = $props();
 
@@ -104,21 +108,27 @@
   $effect(() => { changes.length; untrack(() => { if (activeIdx >= changes.length) activeIdx = Math.max(0, changes.length - 1); }); });
   const activeFile = $derived(changes[activeIdx] || null);
 
-  // review tracking (per browser session, in-memory keyed by file path)
-  let reviewed = $state(new Set());
-  const isReviewed = (f) => reviewed.has(f);
-  function toggleReviewed(f) {
-    const next = new Set(reviewed);
-    next.has(f) ? next.delete(f) : next.add(f);
-    reviewed = next;
-  }
+  // ── review ticks ── bound to the CONTENT reviewed, not just to the path ─────────────────
+  // `fileFp` fingerprints the diff a file currently shows; a tick stores that fingerprint. So a
+  // file edited after being ticked comes back un-ticked (rail AND the reviewed N/M counters),
+  // while going back to a state already signed off shows its tick again.
+  let reviewed = $state(new Map()); // file -> [fingerprint of each state signed off]
+  const fps = $derived(new Map(changes.map((c) => [c.file, fileFp(c)])));
+  const isReviewed = (f) => hasReview(reviewed, f, fps.get(f));
+  function toggleReviewed(f) { reviewed = tickReview(reviewed, f, fps.get(f)); }
   function reviewCurrent() {
     if (!activeFile) return;
-    const wasReviewed = reviewed.has(activeFile.file);
+    const wasReviewed = isReviewed(activeFile.file);
     toggleReviewed(activeFile.file);
     if (!wasReviewed && activeIdx < changes.length - 1) activeIdx += 1;
   }
-  const reviewedCount = $derived(changes.filter((c) => reviewed.has(c.file)).length);
+  const reviewedCount = $derived(changes.filter((c) => isReviewed(c.file)).length);
+
+  // Branch entries are a single old→new edit per file; a base or branch swap changes them, and
+  // with them the fingerprint.
+  function fileFp(c) {
+    return fingerprint((c.ops || []).flatMap((o) => [o.old || '', o.new || '']));
+  }
 
   // diff style — shared with Ship (same localStorage keys: one preference for both lenses).
   let mode = $state((typeof localStorage !== 'undefined' && localStorage.getItem('hooked.shipDiff')) || 'split');
@@ -166,6 +176,25 @@
   }
 
   let sending = $state(false);
+
+  // ── draft persistence ── the review survives leaving the lens ────────────────────────────
+  // `comments` + `reviewed` live in component state, which dies on unmount (another tab, another
+  // session, a reload). Mirror them under a per-session key and hydrate on the way back in, so a
+  // half-written review is never lost; sending it empties the draft through the same effect.
+  const draftKey = $derived(id ? 'branch:' + id : null);
+  $effect(() => {
+    const k = draftKey;
+    untrack(() => {
+      const d = loadDraft(k);
+      comments = d.comments;
+      reviewed = reviewedToMap(d.reviewed);
+    });
+  });
+  $effect(() => {
+    const snap = { comments, reviewed: reviewedToEntries(reviewed) };   // read first: both are tracked deps
+    untrack(() => saveDraft(draftKey, snap));
+  });
+
   async function sendReview() {
     if (!onReview || !pending || sending) return;
     const prompt = buildReviewPrompt();
@@ -187,6 +216,11 @@
       reviewCurrent();
     }
   }
+  // ── panel sizing ── the rails resize through the shared <Grip>, on the SAME persisted
+  // widths as the Ship lens so the two twin layouts stay in sync.
+  const FILES_W = { min: 150, max: 520, def: 232 };
+  const PANEL_W = { min: 200, max: 620, def: 288 };
+
 </script>
 
 <svelte:window onkeydown={onKey} />
@@ -273,6 +307,8 @@
         <div class="sf-hint">J/K next file · V mark reviewed</div>
       </div>
     </aside>
+    <Grip value={ui.shipFilesWidth} set={(w) => (ui.shipFilesWidth = w)}
+          min={FILES_W.min} max={FILES_W.max} def={FILES_W.def} label="Resize the file list" />
 
     <!-- ── diff ── -->
     <div class="ship-diff">
@@ -307,6 +343,9 @@
         </div>
       {/if}
     </div>
+
+    <Grip value={ui.shipPanelWidth} set={(w) => (ui.shipPanelWidth = w)}
+          min={PANEL_W.min} max={PANEL_W.max} def={PANEL_W.def} invert label="Resize the side panel" />
 
     <!-- ── side panel ── -->
     <aside class="ship-panel">
