@@ -14,6 +14,7 @@
   import { getFileChangeFull, getVcsDiff, getVcsLog, getVcsCommit } from '$lib/api.js';
   import { settings, ui } from '$lib/state.svelte.js';
   import { editorFor } from '$lib/editors.js';
+  import { loadDraft, saveDraft } from '$lib/reviewDraft.js';
 
   let { s, id, onReview = null, canReview = true, active = false } = $props();
 
@@ -302,6 +303,25 @@
   }
 
   let sending = $state(false);
+
+  // ── draft persistence ── the review survives leaving the lens ────────────────────────────
+  // `comments` + `reviewed` live in component state, which dies on unmount (another tab, another
+  // session, a reload). Mirror them under a per-session key and hydrate on the way back in, so a
+  // half-written review is never lost; sending it empties the draft through the same effect.
+  const draftKey = $derived(id ? 'ship:' + id : null);
+  $effect(() => {
+    const k = draftKey;
+    untrack(() => {
+      const d = loadDraft(k);
+      comments = d.comments;
+      reviewed = new Set(d.reviewed);
+    });
+  });
+  $effect(() => {
+    const snap = { comments, reviewed: [...reviewed] };   // read first: both are tracked deps
+    untrack(() => saveDraft(draftKey, snap));
+  });
+
   async function sendReview() {
     if (!onReview || !pending || sending) return;
     const prompt = buildReviewPrompt();
