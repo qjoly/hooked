@@ -11,7 +11,7 @@
  * rendu injecté. L'exécution elle-même (spawn + env de login) se vérifie en bout-en-bout.
  */
 import { describe, it, expect } from 'vitest';
-import { parseBangCommand, formatLocalCommand } from '../server/agent.js';
+import { parseBangCommand, formatLocalCommand, stripAnsi } from '../server/agent.js';
 
 describe('parseBangCommand', () => {
   it('reconnaît une commande, avec ou sans espace après le !', () => {
@@ -46,25 +46,57 @@ describe('parseBangCommand', () => {
   });
 });
 
-describe('formatLocalCommand', () => {
-  it('rappelle la commande et son code de sortie', () => {
-    const out = formatLocalCommand('git status', 0, 'nothing to commit\n', false);
-    expect(out).toContain('exit 0');
+describe('formatLocalCommand — bloc fencé `console`', () => {
+  // Le compte rendu a DEUX lecteurs : Claude, qui doit y lire une transcription de terminal
+  // ordinaire, et l'UI, qui reconnaît le langage `console` pour rendre la bulle comme un terminal
+  // (TerminalBlock) au lieu d'un paragraphe. D'où le format unique plutôt qu'un en-tête en prose,
+  // que le front aurait dû reconnaître à la phrase — fragile, et impossible à distinguer d'un
+  // utilisateur qui l'aurait tapée.
+  it('ouvre une fence `console` portant le code de sortie et le dossier', () => {
+    const out = formatLocalCommand('git status', 0, 'nothing to commit\n', false, '/tmp/p');
+    expect(out.split('\n')[0]).toBe('```console exit=0 cwd=/tmp/p');
     expect(out).toContain('$ git status');
     expect(out).toContain('nothing to commit');
+    expect(out.endsWith('```')).toBe(true);
+  });
+
+  it('conserve un code de sortie non nul (c\'est ce qui pilote le rendu « échec »)', () => {
+    expect(formatLocalCommand('false', 1, '', false, '/tmp')).toContain('exit=1');
   });
 
   it('signale une sortie tronquée pour que Claude sache qu\'il n\'a pas tout', () => {
-    expect(formatLocalCommand('find /', 0, 'x', true)).toContain('output truncated');
-    expect(formatLocalCommand('find /', 0, 'x', false)).not.toContain('truncated');
+    expect(formatLocalCommand('find /', 0, 'x', true, '/tmp')).toContain('truncated=1');
+    expect(formatLocalCommand('find /', 0, 'x', false, '/tmp')).not.toContain('truncated');
   });
 
-  it('dit explicitement « pas de sortie » plutôt que de laisser un blanc', () => {
-    // Un blanc se lit comme « la commande n'a rien renvoyé » OU « le compte rendu est cassé ».
-    expect(formatLocalCommand('true', 0, '', false)).toContain('(no output)');
+  it('omet cwd quand il est inconnu, sans laisser `cwd=` vide', () => {
+    const out = formatLocalCommand('pwd', 0, '/tmp', false, null);
+    expect(out.split('\n')[0]).toBe('```console exit=0');
   });
 
-  it('conserve un code de sortie non nul', () => {
-    expect(formatLocalCommand('false', 1, '', false)).toContain('exit 1');
+  it('retire les séquences ANSI : ni Claude ni le HTML n\'en font quoi que ce soit', () => {
+    const out = formatLocalCommand('ls', 0, '\x1b[31mrouge\x1b[0m\n', false, '/tmp');
+    expect(out).toContain('rouge');
+    expect(out).not.toContain('\x1b');
+  });
+
+  it('allonge le délimiteur quand la sortie contient elle-même des backticks', () => {
+    // Sinon un ``` dans la sortie (un README, un `cat` de doc) fermerait la fence en plein milieu
+    // et le reste s'afficherait comme du markdown.
+    const out = formatLocalCommand('cat r.md', 0, 'texte\n```js\ncode\n```\n', false, '/tmp');
+    expect(out.startsWith('````console')).toBe(true);
+    expect(out.endsWith('\n````')).toBe(true);
+  });
+});
+
+describe('stripAnsi', () => {
+  it('retire couleurs, déplacements de curseur et titres de fenêtre', () => {
+    expect(stripAnsi('\x1b[1;32mok\x1b[0m')).toBe('ok');
+    expect(stripAnsi('a\x1b[2Kb')).toBe('ab');
+    expect(stripAnsi('\x1b]0;titre\x07reste')).toBe('reste');
+  });
+
+  it('laisse le texte ordinaire intact, sauts de ligne compris', () => {
+    expect(stripAnsi('ligne 1\nligne 2\t fin')).toBe('ligne 1\nligne 2\t fin');
   });
 });

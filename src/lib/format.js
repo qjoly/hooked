@@ -271,6 +271,18 @@ function splitSessionLinks(html) {
 // langage d'un bloc de code fence : premier mot de l'info-string, en minuscule ('' si absent).
 const fenceLang = (info) => (info || '').trim().split(/\s+/)[0].toLowerCase();
 
+// Métadonnées d'une info-string, après le langage : `console exit=0 cwd=/tmp` → { exit:'0', cwd:'/tmp' }.
+// Sert aux blocs qui portent un contexte structuré plutôt qu'un simple langage — un compte rendu de
+// commande locale, par exemple, a besoin de son code de sortie pour être rendu correctement.
+export function fenceMeta(info) {
+  const out = {};
+  for (const part of String(info || '').trim().split(/\s+/).slice(1)) {
+    const eq = part.indexOf('=');
+    if (eq > 0) out[part.slice(0, eq)] = part.slice(eq + 1);
+  }
+  return out;
+}
+
 // découpe un texte markdown en segments : { type:'text', parts } ou { type:'code', lang, code }.
 // Les blocs de code de PREMIER NIVEAU (fence ``` ou indenté) sont extraits pour être rendus par
 // <CodeBlock> (coloration + copie) ou <Mermaid> (lang === 'mermaid') ; tout le reste est rendu en
@@ -291,7 +303,8 @@ export function mdSegments(t) {
     if (tok.level === 0 && (tok.type === 'fence' || tok.type === 'code_block')) {
       flushRun();
       const lang = tok.type === 'fence' ? fenceLang(tok.info) : '';
-      segs.push({ type: 'code', lang, code: tok.content.replace(/\n$/, '') });
+      const meta = tok.type === 'fence' ? fenceMeta(tok.info) : {};
+      segs.push({ type: 'code', lang, meta, code: tok.content.replace(/\n$/, '') });
     } else {
       run.push(tok);
     }
