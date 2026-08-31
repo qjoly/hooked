@@ -152,9 +152,11 @@
   let termOpen = $state(false);
   let termBusy = $state(false);
   async function refreshTerms() {
+    // jget renvoie le corps BRUT (`{ok, terminals}`), pas la forme `{ok, data}` de jpost. Chercher
+    // la liste sous `data` levait donc une TypeError à chaque appel, et `terms` restait vide.
     const res = await listTerminals(id).catch(() => null);
     if (!res || !res.ok) return;
-    terms = res.data.terminals || [];
+    terms = res.terminals || [];
     if (!terms.some((t) => t.id === termId)) termId = terms.length ? terms[terms.length - 1].id : null;
     // Seul endroit où `terms` est réassigné, donc seul endroit où poser l'invariant : plus de
     // terminal ⇒ on replie. Sans ça, changer de session vidait la liste en laissant le panneau
