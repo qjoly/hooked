@@ -156,6 +156,10 @@
     if (!res || !res.ok) return;
     terms = res.data.terminals || [];
     if (!terms.some((t) => t.id === termId)) termId = terms.length ? terms[terms.length - 1].id : null;
+    // Seul endroit où `terms` est réassigné, donc seul endroit où poser l'invariant : plus de
+    // terminal ⇒ on replie. Sans ça, changer de session vidait la liste en laissant le panneau
+    // « ouvert » sur rien — ni panneau ni tiroir affiché, et aucun moyen de revenir.
+    if (!terms.length) termOpen = false;
   }
   // Au changement de session : on récupère SES terminaux (ceux d'une autre session restent ouverts
   // côté serveur, simplement pas listés ici).
@@ -174,7 +178,6 @@
     await killTerminal(tid).catch(() => {});
     termBusy = false;
     await refreshTerms();
-    if (!terms.length) termOpen = false;
   }
   // le composant signale la fin du flux (shell sorti, ou terminal tué ailleurs) → on resynchronise.
   function onTermClosed() { refreshTerms(); }
@@ -784,7 +787,7 @@
   <!-- Terminaux shell : panneau bas redimensionnable, visible quelle que soit la lentille active.
        Le tiroir dessous le bascule (touche 2). Ces shells sont indépendants de la session Claude et
        lui survivent — recharger la page ne les tue pas, ils vivent dans le processus hooked. -->
-  {#if termOpen && terms.length}
+  {#if termOpen}
     <div class="term-panel" style="height:{ui.termHeight ? ui.termHeight + 'px' : '33vh'}">
       <!-- svelte-ignore a11y_no_static_element_interactions -->
       <div class="term-resize" onpointerdown={startTermResize} title="Drag to resize"></div>
@@ -808,7 +811,11 @@
       </div>
       <!-- key : remonter le composant au changement d'onglet, chaque terminal a son propre flux -->
       {#key termId}
-        {#if termId}<Terminal id={termId} onclosed={onTermClosed} />{/if}
+        {#if termId}
+          <Terminal id={termId} onclosed={onTermClosed} />
+        {:else}
+          <div class="term-void">{termBusy ? 'opening a shell…' : 'no shell here yet — hit + to open one'}</div>
+        {/if}
       {/key}
     </div>
   {/if}
@@ -965,14 +972,20 @@
   .term-new:disabled { opacity: .4; cursor: default; }
   .term-close { margin-left: auto; flex: 0 0 auto; background: none; border: none; color: var(--muted); cursor: pointer; padding: 2px 4px; }
   .term-close:hover { color: var(--text); }
+  /* panneau ouvert sans terminal actif (le temps d'en créer un, ou après avoir fermé le dernier) */
+  .term-void {
+    flex: 1 1 auto; display: flex; align-items: center; justify-content: center;
+    font-family: var(--mono); font-size: 11px; color: var(--muted); background: var(--code-bg);
+  }
 
   /* tiroir sous la conversation : un clic ouvre le panneau (ou crée le premier shell) */
   .term-drawer {
     flex: 0 0 auto; display: flex; align-items: center; gap: 9px;
     margin: 0; padding: 6px 16px; width: 100%;
-    background: var(--code-bg); border: none; border-top: 1px solid var(--border);
+    background: var(--bg3); border: none; border-top: 1px solid var(--border);
     color: var(--muted); font-family: var(--mono); font-size: 11px; cursor: pointer; text-align: left;
   }
+  .term-drawer:hover { background: var(--hover); color: var(--text); }
   .term-drawer:hover .td-open { color: var(--accent); }
   .td-name { color: var(--text); font-weight: 600; }
   .td-info { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
