@@ -66,6 +66,19 @@ export const STATE_LABEL = {
   background: 'Running in background', idle: 'Paused', ended: 'Ended', past: 'Past',
 };
 
+// Le composer a-t-il envoyé une COMMANDE plutôt qu'un message ? Sert uniquement à l'affichage
+// (libellé + couleur de la bulle optimiste) — le parsing qui décide vraiment reste côté serveur
+// (parseBangCommand). Les deux sont tenus d'accord par un test qui les compare sur la même table,
+// donc ce doublon-là ne peut pas dériver en silence.
+export function bangKind(text) {
+  if (typeof text !== 'string') return null;
+  const m = text.match(/^(!!?)\s*(\S[\s\S]*)$/);
+  if (!m) return null;
+  const cmd = m[2].trim();
+  if (!cmd || cmd.startsWith('!')) return null;
+  return m[1] === '!!' ? 'interactive' : 'shell';
+}
+
 // Commande à coller dans un terminal pour reprendre une session À LA MAIN. L'Agent SDK spawne
 // exactement ça (`claude --resume=<id>`, vérifiable dans un `ps`), donc c'est bien la MÊME session
 // qui repart, pas une copie. Corollaire à garder en tête : ne pas la lancer pendant que hooked pilote
