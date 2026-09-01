@@ -11,6 +11,15 @@
 import fs from 'node:fs';
 import { chatText, toolDetail, toolDiffOps, toolInputText, toolResultText, toolSendFiles } from './util.js';
 
+// Plafond par message dans la charge utile de la conversation : une session porte des centaines
+// de messages et la liste entière repart à chaque rafraîchissement. Au-delà, le texte est coupé
+// ET marqué `truncated` — la fin n'est plus perdue, elle est à une requête (readMessageText) :
+// le front la charge quand on déplie le message. Le drapeau n'est posé QUE s'il y a coupe (les
+// messages courts gardent leur forme d'origine, cf. la baseline de caractérisation).
+const TEXT_CAP = 8000;
+const FULL_CAP = 400000; // garde-fou sur le texte complet servi à la demande
+const capped = (t) => (t.length > TEXT_CAP ? { text: t.slice(0, TEXT_CAP), truncated: true } : { text: t });
+
 // includeSidechain : pour un transcript de sous-agent (tout est isSidechain), on garde tout.
 function buildConversation(fp, includeSidechain) {
   let data;
@@ -80,7 +89,7 @@ function buildConversation(fp, includeSidechain) {
     if (j.type === 'queue-operation' && j.operation !== 'remove' && typeof j.content === 'string' && j.content.trim()) {
       // Skip if already processed into a real user turn (dedup: queue-op + matching user turn → show only user turn)
       if (processedUserTexts.has(dedupKey(j.content))) continue;
-      msgs.push({ role: 'user', ts: j.timestamp, text: j.content.slice(0, 8000), tools: [], forkUuid: j.uuid });
+      msgs.push({ role: 'user', ts: j.timestamp, ...capped(j.content), tools: [], forkUuid: j.uuid });
       continue;
     }
     if (j.type === 'user' && j.message) {
@@ -95,7 +104,7 @@ function buildConversation(fp, includeSidechain) {
       // Tour ré-invoqué par un ScheduleWakeup : ligne user injectée (promptSource:"sdk" + isMeta).
       // On la marque `auto` pour qu'elle ne se lise pas comme un message tapé par l'utilisateur.
       const auto = j.promptSource === 'sdk' && !!j.isMeta;
-      if (text) msgs.push({ role: 'user', ts: j.timestamp, text: text.slice(0, 8000), tools: [], forkUuid: j.uuid, auto });
+      if (text) msgs.push({ role: 'user', ts: j.timestamp, ...capped(text), tools: [], forkUuid: j.uuid, auto });
     } else if (j.type === 'assistant' && j.message && Array.isArray(j.message.content)) {
       // parts : blocs (text / tool) dans l'ordre d'arrivée pour rendu inline (style claude-cli)
       let text = '';
@@ -144,4 +153,27 @@ function buildConversation(fp, includeSidechain) {
   return msgs;
 }
 
-export { buildConversation };
+// Texte COMPLET d'un message user, à la demande, retrouvé par l'uuid de sa ligne de transcript
+// (le même `forkUuid` que porte la bulle). Sert la fin d'un message coupé par TEXT_CAP.
+// Limité aux tours user : une bulle assistant fusionne plusieurs lignes du transcript, son uuid
+// ne désigne donc pas tout son texte.
+function readMessageText(fp, uuid) {
+  if (!fp || !uuid) return null;
+  let data;
+  try { data = fs.readFileSync(fp, 'utf8'); } catch (_) { return null; }
+  for (const line of data.split('\n')) {
+    if (!line || !line.includes(uuid)) continue; // pré-filtre : évite de parser tout le fichier
+    let j;
+    try { j = JSON.parse(line); } catch (_) { continue; }
+    if (j.uuid !== uuid) continue;
+    if (j.type === 'queue-operation' && typeof j.content === 'string') return j.content.slice(0, FULL_CAP);
+    if (j.type === 'user' && j.message) {
+      const t = chatText(j.message.content);
+      return t ? t.slice(0, FULL_CAP) : null;
+    }
+    return null;
+  }
+  return null;
+}
+
+export { buildConversation, readMessageText };
