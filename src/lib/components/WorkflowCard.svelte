@@ -27,6 +27,19 @@
   };
   const stat = $derived(STATUS[w.status] || { label: w.status || 'Running', var: 'muted' });
 
+  // États d'agent observés dans les enregistrements réels : `done`, `progress`, `start`, `error`
+  // — les deux du milieu n'apparaissent que sur un run TUÉ (agent interrompu en vol). `running`
+  // est la valeur que le back synthétise pour un run live. Ne pas tout rabattre sur « terminé » :
+  // un agent interrompu rendu en coche verte ment sur ce qui s'est passé.
+  const STATE = {
+    done:     { icon: 'circle-check', tint: 'ended',     label: 'finished' },
+    running:  { icon: 'working',      tint: 'working',   label: 'running' },
+    progress: { icon: 'working',      tint: 'waiting',   label: 'interrupted while running' },
+    start:    { icon: 'queued',       tint: 'muted',     label: 'never got past launch' },
+    error:    { icon: 'attention',    tint: 'attention', label: 'errored' },
+  };
+  const agentState = (st) => STATE[st] || { icon: 'circle', tint: 'muted', label: st || 'unknown' };
+
   const dur = (ms) => {
     if (!ms && ms !== 0) return '';
     const s = Math.round(ms / 1000);
@@ -130,8 +143,8 @@
 {#snippet agentRow(a)}
   <details class="wa">
     <summary>
-      <span class="wa-st" style="color: var(--{a.state === 'running' ? 'working' : 'ended'})">
-        <Icon name={a.state === 'running' ? 'working' : 'circle-check'} size={13} />
+      <span class="wa-st" style="color: var(--{agentState(a.state).tint})" title={agentState(a.state).label}>
+        <Icon name={agentState(a.state).icon} size={13} />
       </span>
       <span class="wa-i">{a.index}</span>
       <span class="wa-main">
