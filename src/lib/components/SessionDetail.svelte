@@ -14,6 +14,7 @@
   import Branch from './Branch.svelte';
   import Dock from './Dock.svelte';
   import Terminal from './Terminal.svelte';
+  import Mcp from './Mcp.svelte';
   import Icon from '$lib/components/Icon.svelte';
   import { editorFor } from '$lib/editors.js';
   import { conversationToMarkdown } from '$lib/exportConversation.js';
@@ -30,7 +31,7 @@
   // proxy profond. Coût de `s = d` : O(1) au lieu de O(nombre de nœuds du transcript).
   let s = $state.raw(null);      // détail de session
   // Lentille active : 'chat' (Converse + dock) / 'ship' (relecture des diffs + liens) /
-  // 'branch'. Touches 1, 3, 4.
+  // 'branch' / 'mcp'. Touches 1, 3, 4, 5.
   let tab = $state('chat');
   let body;                      // ref .pane-body (conteneur scrollable)
   let composer;                  // ref Composer (pour déclencher interruption + édition via Échap)
@@ -76,13 +77,16 @@
     (s.prLinks || []).length || (s.issueLinks || []).length
   ));
 
-  // Lentilles du workspace : Converse, Ship et Branch. Le panneau Shell (mirroir xterm d'un pane
-  // tmux) a disparu avec la migration hors tmux : il n'y a plus de terminal à mirrorer, la session
-  // est pilotée en processus par l'Agent SDK et tout son fil passe par Converse.
+  // Lentilles du workspace : Converse, Ship, Branch et MCP. Le panneau Shell (mirroir xterm d'un
+  // pane tmux) a disparu avec la migration hors tmux : il n'y a plus de terminal à mirrorer, la
+  // session est pilotée en processus par l'Agent SDK et tout son fil passe par Converse.
+  // MCP était une page de nav avec son propre sélecteur de projet : les scopes MCP étant
+  // par-répertoire, la lentille prend le projet de la session et le sélecteur disparaît.
   const LENSES = [
     { key: 'chat', icon: 'converse', label: 'Converse', kbd: '1' },
     { key: 'ship', icon: 'ship', label: 'Ship', kbd: '3' },
     { key: 'branch', icon: 'git-branch', label: 'Branch', kbd: '4' },
+    { key: 'mcp', icon: 'mcp', label: 'MCP', kbd: '5' },
   ];
   const lensCount = $derived({
     chat: (s?.messages || []).length,
@@ -334,10 +338,10 @@
   });
 
   // Raccourcis fenêtre du workspace :
-  //  • 1, 3, 4 (hors saisie) : bascule de lentille (Converse / Ship / Branch) ;
+  //  • 1, 3, 4, 5 (hors saisie) : bascule de lentille (Converse / Ship / Branch / MCP) ;
   //  • Échap dans la vue chat (hors textarea — le composer gère lui-même quand il a le focus) :
   //    interrompt Claude et recharge le dernier prompt pour l'éditer, comme dans le CLI.
-  const LENS_KEYS = { 1: 'chat', 3: 'ship', 4: 'branch' };
+  const LENS_KEYS = { 1: 'chat', 3: 'ship', 4: 'branch', 5: 'mcp' };
   function onWindowKey(e) {
     if (ui.modal) return;
     if (inSplit && !focused) return; // in split, only the focused pane reacts to keys
@@ -817,6 +821,13 @@
     <div class="pane pane-flush" class:active={tab === 'branch'}>
       {#if seen.branch}
         <Branch {s} {id} onReview={reviewChanges} canReview={!!(s.live)} active={tab === 'branch'} />
+      {/if}
+    </div>
+
+    <!-- Lentille MCP : santé des serveurs MCP du projet de la session + ré-authentification. -->
+    <div class="pane" class:active={tab === 'mcp'}>
+      {#if seen.mcp}
+        <Mcp project={s.project || ''} />
       {/if}
     </div>
 
