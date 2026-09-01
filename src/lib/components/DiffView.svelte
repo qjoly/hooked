@@ -5,6 +5,7 @@
   // passes the NET original→final content so transient add-then-delete never shows.
   import { toSegments, unifiedRows, splitRows, langFromName, EXPAND_STEP } from '$lib/difflines.js';
   import { highlight } from '$lib/highlight.js';
+  import { ago } from '$lib/format.js';
   import Icon from '$lib/components/Icon.svelte';
   import { ui } from '$lib/state.svelte.js';
 
@@ -15,6 +16,10 @@
     comments = [],            // [{ id, side, start, end, text }]
     onComment = null,         // ({ side, start, end, text, snippet }) => void
     onDelete = null,          // (id) => void
+    // git blame of the hovered line: { file, old, new, load } — `old`/`new` are the revisions
+    // each side of this diff comes from ('' = working tree, null = don't blame that side), and
+    // `load(rev)` fetches the blame of `file` at `rev`. Null disables the feature entirely.
+    blame = null,
   } = $props();
 
   const lang = $derived(langFromName(name));
@@ -47,7 +52,9 @@
 
   // Comments anchor to a LINE RANGE [start, end] on one side. A committed comment / the draft is
   // rendered under its `end` line; the whole range is highlighted while drafting.
-  const src = (side) => (side === 'old' ? (oldStr || '') : (newStr || '')).split('\n');
+  const oldLines = $derived((oldStr || '').split('\n'));
+  const newLines = $derived((newStr || '').split('\n'));
+  const src = (side) => (side === 'old' ? oldLines : newLines);
   function snippetFor(side, start, end) {
     return src(side).slice(Math.max(0, start - 1), Math.max(start, end)).join('\n');
   }
@@ -139,6 +146,65 @@
     ui.diffRatio = clampRatio(ratio + d);
   }
 
+  // ── blame of the hovered line ────────────────────────────────────────────────────────────
+  // Hovering a line asks the server for that side's blame (once per revision, then cached) and
+  // annotates the hovered line INLINE — dimmed, at the end of the line, GitLens style. The
+  // annotation sits BESIDE `.dv-code`, never inside it, so it stays out of the text selection
+  // and out of the occurrence-echo walker below. The blame is keyed by LINE
+  // NUMBER, so it is only trusted when the blamed line's text still matches the one on screen —
+  // a diff can show content newer than the revision blamed (e.g. Claude's own uncommitted edit).
+  let hover = $state(null);       // { side, line } — the line under the pointer
+  let blameData = $state({});     // rev -> payload | 'loading' | 'error'
+  $effect(() => { blame?.file; blameData = {}; hover = null; }); // new file → drop the blames
+
+  const blameRev = (side) => {
+    if (!blame || !blame.load) return null;
+    const r = side === 'old' ? blame.old : blame.new;
+    return typeof r === 'string' ? r : null;
+  };
+  function setHover(side, lineNo) {
+    if (lineNo == null || !blame) { if (hover) hover = null; return; }
+    if (hover && hover.side === side && hover.line === lineNo) return;
+    hover = { side, line: lineNo };
+  }
+  $effect(() => {
+    const h = hover;
+    if (!h) return;
+    const rev = blameRev(h.side);
+    if (rev == null || blameData[rev] !== undefined) return;
+    const file = blame.file;
+    blameData = { ...blameData, [rev]: 'loading' };
+    blame.load(rev)
+      .then((r) => { if (blame.file === file) blameData = { ...blameData, [rev]: r || 'error' }; })
+      .catch(() => { if (blame.file === file) blameData = { ...blameData, [rev]: 'error' }; });
+  });
+
+  // { state: 'loading' | 'ok', … } for the annotation; null when there is nothing to show.
+  const hoverBlame = $derived.by(() => {
+    const h = hover;
+    if (!h) return null;
+    const rev = blameRev(h.side);
+    if (rev == null) return null;
+    const d = blameData[rev];
+    if (d === undefined || d === 'loading') return { state: 'loading' };
+    if (d === 'error' || !d.supported || !d.lines?.length) return null;
+    const rec = d.lines[h.line - 1];
+    if (!rec) return null;
+    const shown = (h.side === 'old' ? oldLines : newLines)[h.line - 1];
+    if (shown === undefined || rec.t !== shown) return null; // stale blame → stay silent
+    const c = d.commits[rec.c];
+    if (!c) return null;
+    return {
+      state: 'ok', side: h.side, line: h.line,
+      author: c.uncommitted ? 'Not committed yet' : (c.author || 'unknown'),
+      uncommitted: c.uncommitted,
+      when: c.time ? ago(new Date(c.time * 1000).toISOString()) : '',
+      // for an uncommitted line git's "summary" is boilerplate ("Version of x from x") — drop it
+      summary: c.uncommitted ? '' : (c.summary || ''),
+      rev: c.rev || '',
+    };
+  });
+
   // ── occurrence echo ─────────────────────────────────────────────────────────────────────
   // Selecting a bit of text paints every OTHER occurrence of it in this diff (VS Code style):
   // select "pro" and the "pro" inside "professional" lights up too. Purely visual — it uses the
@@ -201,6 +267,10 @@
     };
   });
 
+  // the inline annotation belongs to the hovered line only
+  const blameOn = (side, lineNo) =>
+    (hoverBlame && hover && hover.side === side && hover.line === lineNo) ? hoverBlame : null;
+
   const rangeLabel = (side, start, end) => {
     const p = side === 'old' ? '−' : '+';
     return start === end ? `${p}L${end}` : `${p}L${start}–${end}`;
@@ -210,6 +280,7 @@
 <svelte:window onpointerup={endDrag} />
 
 <div class="dv {mode}" bind:this={root} class:commentable class:dv-dragging={!!drag}
+     onpointerleave={() => (hover = null)}
      style={mode === 'split' ? `--dv-l:${ratio}fr;--dv-r:${1 - ratio}fr;--dv-k:${ratio}` : null}>
   {#if mode === 'split'}
     <!-- svelte-ignore a11y_no_noninteractive_element_interactions, a11y_no_noninteractive_tabindex -->
@@ -238,7 +309,7 @@
       {@const lineNo = r.kind === 'del' ? r.oldNo : r.newNo}
       {@const slot = slotFor(side, lineNo)}
       <div class="dv-row u {r.kind}" class:dv-inrange={inDraft(side, lineNo)}
-           onpointerenter={() => overLine(side, lineNo)}>
+           onpointerenter={() => { overLine(side, lineNo); setHover(side, lineNo); }}>
         <span class="dv-no">{r.oldNo ?? ''}</span>
         <span class="dv-no">{r.newNo ?? ''}</span>
         <span class="dv-sign">{r.kind === 'add' ? '+' : r.kind === 'del' ? '−' : ''}</span>
@@ -246,7 +317,10 @@
           <button class="dv-plus" title="Comment — click a line or drag over several"
                   onpointerdown={(e) => startDrag(side, lineNo, e)}>+</button>
         {/if}
-        <code class="dv-code">{@html hl(r.text)}</code>
+        <span class="dv-line">
+          <code class="dv-code">{@html hl(r.text)}</code>
+          {#if blameOn(side, lineNo)}{@render blameTag(blameOn(side, lineNo))}{/if}
+        </span>
       </div>
       {#if slot.list.length || slot.draft}
         {@render commentSlot(slot, side, lineNo)}
@@ -255,15 +329,17 @@
       <div class="dv-row s">
         <span class="dv-no">{r.left ? r.left.no : ''}</span>
         <span class="dv-cell {r.left ? (r.kind === 'change' ? 'del' : 'ctx') : 'empty'}" class:dv-inrange={r.left && inDraft('old', r.left.no)}
-              onpointerenter={() => r.left && overLine('old', r.left.no)}>
+              onpointerenter={() => { if (r.left) { overLine('old', r.left.no); setHover('old', r.left.no); } }}>
           {#if commentable && r.left}<button class="dv-plus" title="Comment — click a line or drag over several" onpointerdown={(e) => startDrag('old', r.left.no, e)}>+</button>{/if}
           <code class="dv-code">{@html r.left ? hl(r.left.text) : ''}</code>
+          {#if r.left && blameOn('old', r.left.no)}{@render blameTag(blameOn('old', r.left.no))}{/if}
         </span>
         <span class="dv-no">{r.right ? r.right.no : ''}</span>
         <span class="dv-cell {r.right ? (r.kind === 'change' ? 'add' : 'ctx') : 'empty'}" class:dv-inrange={r.right && inDraft('new', r.right.no)}
-              onpointerenter={() => r.right && overLine('new', r.right.no)}>
+              onpointerenter={() => { if (r.right) { overLine('new', r.right.no); setHover('new', r.right.no); } }}>
           {#if commentable && r.right}<button class="dv-plus" title="Comment — click a line or drag over several" onpointerdown={(e) => startDrag('new', r.right.no, e)}>+</button>{/if}
           <code class="dv-code">{@html r.right ? hl(r.right.text) : ''}</code>
+          {#if r.right && blameOn('new', r.right.no)}{@render blameTag(blameOn('new', r.right.no))}{/if}
         </span>
       </div>
       {@const ls = r.left ? slotFor('old', r.left.no) : { list: [], draft: false }}
@@ -273,6 +349,18 @@
     {/if}
   {/each}
 </div>
+
+{#snippet blameTag(b)}
+  <span class="dv-blame" class:loading={b.state === 'loading'}>
+    {#if b.state === 'loading'}
+      …
+    {:else}
+      <span class="dv-blame-who" class:wip={b.uncommitted}>{b.author}</span>{#if b.when}, {b.when}{/if}{#if b.summary}
+        <span class="dv-blame-sep">•</span> <span class="dv-blame-msg">{b.summary}</span>{/if}{#if b.rev && !b.uncommitted}
+        <span class="dv-blame-rev">{b.rev}</span>{/if}
+    {/if}
+  </span>
+{/snippet}
 
 {#snippet commentSlot(slot, side, lineNo)}
   <div class="dv-comments">
@@ -337,7 +425,7 @@
   .dv.unified .dv-row.del:hover { background: rgba(var(--danger-rgb), .17); }
 
   /* split cells */
-  .dv-cell { position: relative; display: flex; min-width: 0; }
+  .dv-cell { position: relative; display: flex; min-width: 0; overflow: hidden; }
   .dv-cell.add { background: rgba(var(--success-rgb), .13); }
   .dv-cell.del { background: rgba(var(--danger-rgb), .12); }
   .dv-cell.empty { background: rgba(255,255,255,.015); }
@@ -356,6 +444,26 @@
   .dv.unified .dv-row.dv-inrange { background: rgba(var(--accent-rgb), .16); box-shadow: inset 2px 0 0 var(--accent); }
   .dv-cell.dv-inrange { background: rgba(var(--accent-rgb), .16); box-shadow: inset 2px 0 0 var(--accent); }
   .dv.dv-dragging { user-select: none; cursor: ns-resize; }
+
+
+  /* inline blame — dimmed, right after the last character of the hovered line (GitLens style).
+     It is a SIBLING of .dv-code: inside it, the text would join the selection and the occurrence
+     echo. The code box shrink-wraps its text (flex: 0 1 auto) so the annotation starts exactly
+     where the line ends; the annotation itself is a ZERO-WIDTH flex item whose content overflows
+     to the right, so it takes no space in the layout and can never re-wrap the code under it.
+     Whatever does not fit is simply clipped at the edge of the line's own box. */
+  .dv-line { display: flex; align-items: baseline; min-width: 0; overflow: hidden; }
+  .dv-line .dv-code, .dv-cell:has(.dv-blame) .dv-code { flex: 0 1 auto; }
+  .dv-blame {
+    flex: 0 0 auto; width: 0; pointer-events: none; user-select: none;
+    color: #6a7180; font-size: 10.5px; font-style: italic; white-space: nowrap;
+  }
+  .dv-blame::before { content: ''; display: inline-block; width: 10px; } /* gap, outside the box */
+  .dv-blame.loading { opacity: .55; }
+  .dv-blame-who { color: #8b93a7; font-weight: 700; font-style: normal; }
+  .dv-blame-who.wip { color: var(--accent); }
+  .dv-blame-sep { opacity: .55; }
+  .dv-blame-rev { opacity: .7; }
 
   .dv-gap { display: flex; align-items: center; gap: 10px; padding: 2px 12px 2px 4px; background: rgba(var(--accent-rgb), .05); }
   .dv-gap-line { flex: 1; height: 1px; background: var(--border); }

@@ -11,12 +11,13 @@
   import Icon from '$lib/components/Icon.svelte';
   import { toSegments, countStats, applyOp } from '$lib/difflines.js';
   import { fmtCost } from '$lib/format.js';
-  import { getFileChangeFull, getVcsDiff, getVcsLog, getVcsCommit } from '$lib/api.js';
+  import { getFileChangeFull, getVcsDiff, getVcsLog, getVcsCommit, getVcsBlame } from '$lib/api.js';
   import { settings, ui } from '$lib/state.svelte.js';
   import { editorFor } from '$lib/editors.js';
   import { fingerprint, isReviewed as hasReview, toggleReviewed as tickReview,
            toMap as reviewedToMap, toEntries as reviewedToEntries } from '$lib/reviewState.js';
   import { loadDraft, saveDraft } from '$lib/reviewDraft.js';
+  import { getBinding, matchesEvent, formatKeys } from '$lib/shortcuts.js';
 
   let { s, id, onReview = null, canReview = true, active = false } = $props();
 
@@ -218,6 +219,23 @@
   $effect(() => { changes.length; untrack(() => { if (activeIdx >= changes.length) activeIdx = Math.max(0, changes.length - 1); }); });
   const activeFile = $derived(changes[activeIdx] || null);
 
+  // ── blame under the cursor ─────────────────────────────────────────────────────────────────
+  // Which git revision each side of the shown diff comes from, so DiffView can ask "who wrote
+  // this line?" for the line under the pointer:
+  //   • Claude view      — new side = the working tree (the file on disk), old side is the
+  //                        pre-Claude content, which matches no revision → not blamed;
+  //   • VCS, uncommitted — HEAD → working tree;
+  //   • VCS, one commit  — the commit's parent → the commit.
+  // DiffView drops the answer whenever the blamed line's text no longer matches the line shown,
+  // so a stale revision never puts a name on the wrong line.
+  const blameFor = $derived.by(() => {
+    if (!activeFile || activeFile.binary) return null;
+    const [old, next] = view !== 'vcs' ? [null, '']
+      : selectedRev ? [selectedRev + '^', selectedRev]
+      : ['HEAD', ''];
+    return { file: activeFile.file, old, new: next, load: (rev) => getVcsBlame(id, activeFile.file, rev) };
+  });
+
   // ── review ticks ── bound to the CONTENT reviewed, not just to the path ─────────────────
   // `fileFp` fingerprints the diff a file currently shows; a tick stores that fingerprint. So a
   // file edited after being ticked comes back un-ticked (rail AND the reviewed N/M counters),
@@ -356,13 +374,15 @@
 
   // keyboard: J/K next/prev file, V mark reviewed + advance — only while Ship is the active lens
   // and the user isn't typing in a field.
+  const reviewKeys = getBinding('review-file');
+  const reviewKey = formatKeys(reviewKeys);
   function onKey(e) {
     if (!active || e.metaKey || e.ctrlKey || e.altKey) return;
     const t = e.target;
     if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
     if (e.key === 'j' || e.key === 'J') { e.preventDefault(); activeIdx = Math.min(changes.length - 1, activeIdx + 1); }
     else if (e.key === 'k' || e.key === 'K') { e.preventDefault(); activeIdx = Math.max(0, activeIdx - 1); }
-    else if (e.key === 'v' || e.key === 'V') {
+    else if (matchesEvent(reviewKeys, e)) {
       if (!activeFile) return;
       e.preventDefault();
       reviewCurrent();
@@ -484,7 +504,7 @@
       </div>
       <div class="sf-foot">
         <div class="sf-prog"><i style="width:{changes.length ? Math.round((reviewedCount / changes.length) * 100) : 0}%"></i></div>
-        <div class="sf-hint">J/K next file · V mark reviewed</div>
+        <div class="sf-hint">J/K next file · {reviewKey} mark reviewed</div>
       </div>
     </aside>
     <Grip value={ui.shipFilesWidth} set={(w) => (ui.shipFilesWidth = w)}
@@ -504,7 +524,8 @@
           <label class="sd-compact" title="Hide the unchanged context lines">
             <input type="checkbox" bind:checked={compact} /> compact
           </label>
-          <button class="sd-review" class:done={isReviewed(activeFile.file)} onclick={reviewCurrent}>
+          <button class="sd-review" class:done={isReviewed(activeFile.file)} onclick={reviewCurrent}
+                  title="Mark this file reviewed ({reviewKey})">
             {#if isReviewed(activeFile.file)}<Icon name="check" size={14} /> Reviewed{:else}Mark reviewed{/if}
           </button>
         </div>
@@ -523,6 +544,7 @@
             {#each fileDiffs(activeFile) as d (d.opIndex)}
               {#if d.label}<div class="sd-oplabel">{d.label}</div>{/if}
               <DiffView oldStr={d.oldStr} newStr={d.newStr} name={activeFile.name} mode={effMode} {compact}
+                        blame={blameFor}
                         commentable={!!onReview}
                         comments={commentsFor(activeFile.file, d.opIndex)}
                         onComment={(p) => addComment(activeFile.file, d.opIndex, activeFile.name, p)}
