@@ -40,6 +40,14 @@ export const getVcsBranchDiff = (id, branch, base = null, root = null) =>
 export const getVcsBlame = (id, file, rev = '') =>
   jget(`/api/session/vcs-blame?id=${encodeURIComponent(id)}&file=${encodeURIComponent(file)}`
     + (rev ? '&rev=' + encodeURIComponent(rev) : ''));
+// Threads de revue ancrés dans la diff (Ship / Branch) : conversation par commentaire, partagée
+// entre navigateurs et avec Claude (qui y répond via l'outil MCP reply_review_comment).
+export const getReviewThreads = (id) => jget('/api/review?id=' + encodeURIComponent(id));
+export const postReviewComment = (id, thread) => jpost('/api/review', { id, action: 'comment', thread });
+export const deleteReviewThread = (id, threadId) => jpost('/api/review', { id, action: 'delete', threadId });
+export const replyReviewThread = (id, threadId, text) => jpost('/api/review', { id, action: 'reply', threadId, text });
+export const resolveReviewThread = (id, threadId, resolved = true) => jpost('/api/review', { id, action: 'resolve', threadId, resolved });
+export const markReviewSent = (id, ids) => jpost('/api/review', { id, action: 'sent', ids });
 // Texte COMPLET d'un message user coupé dans la conversation (bulle marquée `truncated`),
 // chargé quand on déplie la bulle. `uuid` = le forkUuid du message. { text }.
 export const getMessageText = (id, uuid, agent = null) =>
