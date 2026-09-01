@@ -448,6 +448,26 @@ function handleToolPermission(st, toolName, toolInput, ctx) {
 
 // Boucle de lecture du flux : c'est elle qui tient l'état à jour. Ne rejette jamais — une erreur
 // est enregistrée sur l'entrée de registre et la session passe en 'ended'.
+// Démolit une entrée qui n'a jamais réussi à démarrer. Même nettoyage que le `finally` de readLoop,
+// mais applicable quand readLoop n'a rien à finir : sans ça l'entrée reste dans `live` avec
+// ended:false et devient un trou noir — deliverReply y pousse des messages et répond OK.
+function failStartup(st) {
+  clearTimeout(st.watchdog);
+  try { st.input.close(); } catch (_) {}
+  try { st.abort.abort(); } catch (_) {}
+  st.ended = true;
+  st.busy = false;
+  st.activity = null;
+  st.sdkState = 'idle';
+  if (st.pendingAsk) { const r = st.pendingAsk.resolve; st.pendingAsk = null; try { r(null); } catch (_) {} }
+  if (st.id) {
+    emitAgent(st.id, () => streamSnapshot(st), true);
+    live.delete(st.id);
+  }
+  pending.delete(st.launchKey);
+  if (st.onInit) { const f = st.onInit; st.onInit = null; f(st); }
+}
+
 async function readLoop(st) {
   try {
     for await (const msg of st.q) {
@@ -457,6 +477,7 @@ async function readLoop(st) {
         pending.delete(st.launchKey);
         if (st.onInit) { const f = st.onInit; st.onInit = null; f(st); }
       }
+      if (!st.sawMsg) { st.sawMsg = true; clearTimeout(st.watchdog); }
       const changed = applyMessage(st, msg);
       st.lastMsgAt = Date.now();
       // On ne pousse aux abonnés que quand l'état visible a bougé. Les deltas de texte passent par
@@ -472,6 +493,7 @@ async function readLoop(st) {
   } catch (e) {
     st.error = e && e.name === 'AbortError' ? null : String((e && e.message) || e);
   } finally {
+    clearTimeout(st.watchdog);
     st.ended = true;
     st.busy = false;
     st.activity = null;
@@ -583,6 +605,8 @@ function launchSession({ resumeId, cwd, prompt, model, effort, worktree, permiss
     autoApprove: autoApprove !== false,
     ended: false,
     error: null,
+    sawMsg: false,   // le CLI a-t-il produit au moins un message ? (cf. chien de garde)
+    watchdog: null,
     startedAt: new Date().toISOString(),
     lastMsgAt: Date.now(),
   };
@@ -604,13 +628,22 @@ function launchSession({ resumeId, cwd, prompt, model, effort, worktree, permiss
     try {
       st.q = query({ prompt: input, options: sdkOptions({ cwd: dir, model, effort, permissionMode, resumeId: id, worktree: useWorktree, input, st, env }) });
     } catch (e) {
-      pending.delete(st.launchKey);
-      if (id) live.delete(id);
-      st.ended = true;
       st.error = 'agent sdk query failed: ' + ((e && e.message) || e);
-      if (st.onInit) { const f = st.onInit; st.onInit = null; f(st); }
+      failStartup(st);
       return;
     }
+    // Chien de garde de DÉMARRAGE : un CLI qui ne produit aucun message n'a pas démarré. Sans ça
+    // l'entrée reste dans `live` avec ended:false, readLoop attend un flux qui ne viendra jamais, et
+    // deliverReply pousse dans une file que personne ne vide — l'envoi répond OK et le message est
+    // perdu en silence. Cas réel : reprise au boot alors qu'un CLI orphelin d'un hooked précédent
+    // tenait encore le verrou de la session. Ne surveille QUE le premier message : une session
+    // saine, elle, peut rester silencieuse aussi longtemps qu'elle veut.
+    st.watchdog = setTimeout(() => {
+      if (st.sawMsg || st.ended) return;
+      st.error = `session produced no output within ${INIT_TIMEOUT / 1000}s`;
+      failStartup(st);
+    }, INIT_TIMEOUT);
+    st.watchdog.unref?.();
     readLoop(st);
   });
 
@@ -799,6 +832,10 @@ function runLocalCommand(id, command, cb) {
 function deliverReply(id, text, cb) {
   const st = agentSession(id);
   if (!st) return cb(err400('no live agent session for this id'));
+  // Une session qui n'a pas encore produit son premier message n'est pas prête : y pousser un texte
+  // le mettrait dans une file que personne ne vide, en répondant OK. Mieux vaut un refus explicite
+  // et un nouvel essai qu'un message perdu en silence (cf. le chien de garde de démarrage).
+  if (!st.sawMsg) return cb(err400('session is still starting — try again in a moment'));
   const parts = (Array.isArray(text) ? text : [text])
     .map((s) => (typeof s === 'string' ? s.trim() : ''))
     .filter(Boolean);
@@ -1131,7 +1168,7 @@ export {
   launchSession, killSession, restartSession,
   deliverReply, answerQuestion, answerQuestionFreeText, answerPlan, answerPermission, answerPendingSelection,
   interruptSession, setMode, setModelEffort, setAutoApprove, alwaysAllowRules, clearAgentState,
-  resumeDrivenSessions, startDrivenSnapshot, pickResumable, saveDriven,
+  resumeDrivenSessions, startDrivenSnapshot, pickResumable, saveDriven, failStartup,
   parseBangCommand, formatLocalCommand, stripAnsi, runLocalCommand,
   PLAN_ACTIONS, err400,
 };
