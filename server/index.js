@@ -23,6 +23,7 @@ export * from './fork.js';
 export * from './changes.js';
 export * from './vcsDiff.js';
 export * from './subagents.js';
+export * from './workflows.js';
 export * from './todos.js';
 export * from './background.js';
 export * from './fileStream.js';
