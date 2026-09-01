@@ -33,18 +33,21 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
-import { statSafe, toolDetail } from './util.js';
+import { statSafe, readdirSafe, toolDetail } from './util.js';
 import { incrementalReader } from './incremental.js';
 import { costForUsage } from './pricing.js';
+import { TERMINAL_TASK_STATUS, taskNotificationText } from './background.js';
 
 // ancre de lancement : seul le tool_result d'un `Workflow` porte ce status.
 const LAUNCH_STATUS = 'async_launched';
-// une <task-notification> de complétion (même forme que pour les jobs de fond).
+// une <task-notification> de complétion. Le vocabulaire terminal ET l'extraction des TROIS
+// porteurs redondants viennent de background.js : un workflow est, de ce point de vue, un job de
+// fond comme un autre. Une copie privée avait divergé (il lui manquait `stopped`, le statut émis
+// quand on arrête un workflow depuis l'UI ou via TaskStop — précisément le cas où AUCUN
+// enregistrement final n'est écrit, donc où la notification est le seul signal existant).
 const RE_NOTE_TOOLUSE = /<tool-use-id>\s*(\S+?)\s*<\/tool-use-id>/i;
 const RE_NOTE_TASK = /<task-id>\s*(\S+?)\s*<\/task-id>/i;
 const RE_NOTE_STATUS = /<status>\s*([\w-]+)\s*<\/status>/i;
-// statuts terminaux : tout le reste (progress…) laisse le run « en cours ».
-const TERMINAL = new Set(['completed', 'failed', 'killed', 'cancelled', 'error', 'timeout']);
 
 const PREVIEW = 400;       // aperçus (prompt / résultat) — le détail complet est dans le drill-in
 const MAX_RUNS = 20;       // bornage du payload : les runs les plus récents
@@ -86,10 +89,14 @@ function parseScriptPhases(src) {
   if (typeof src !== 'string') return [];
   const meta = src.indexOf('export const meta');
   if (meta < 0) return [];
-  const key = src.indexOf('phases', meta);
-  if (key < 0) return [];
-  const open = src.indexOf('[', key);
-  if (open < 0) return [];
+  // ancrage sur la CLÉ `phases:` suivie de son crochet, pas sur le mot « phases » : une
+  // description qui contient « phases » ferait sinon pointer le `indexOf('[')` sur un tout autre
+  // tableau (ou sur un `[` dans une chaîne), et le parse rendrait zéro phase en silence.
+  const re = /\bphases\s*:\s*\[/g;
+  re.lastIndex = meta;
+  const hit = re.exec(src);
+  if (!hit) return [];
+  const open = hit.index + hit[0].length - 1;
   const close = endOfArray(src, open);
   if (close < 0) return [];
   const out = [];
@@ -143,11 +150,22 @@ const readJournal = incrementalReader({
 // Mesuré sur un run réel : contexte de pointe = valeur enregistrée à ±25 tokens près, là où la
 // somme des usages la dépasse d'un facteur ~30. On y ajoute ce que seul le live peut montrer :
 // le dernier outil appelé.
+//
+// DÉDUP DE L'USAGE — DERNIÈRE LIGNE GAGNANTE, et c'est contre-intuitif : un même `message.id`
+// apparaît sur PLUSIEURS lignes au fil du streaming, et les premières portent un `output_tokens`
+// de remplissage (1, 2, 4, 6…) avant le total réel. Garder la PREMIÈRE (le réflexe anti-double-
+// comptage) sous-compte donc massivement : mesuré 5 972 au lieu de 41 398 sur un seul agent.
+// Le contexte (input/cache) est identique d'une ligne à l'autre, et les `tool_use`, eux, ne se
+// répètent PAS (la 1re ligne n'en porte aucun) — leur somme sur toutes les lignes redonne
+// exactement le compte enregistré, donc toolCalls reste une addition franche.
 const readAgent = incrementalReader({
   init: () => ({
     model: null, peakContext: 0, output: 0, toolCalls: 0, cost: 0,
     firstPrompt: null, startTs: null, lastTs: null, lastTool: null, lastToolDetail: '',
-    seenMsg: new Set(),   // dedup usage par id de message (une ligne peut etre reecrite)
+    // id de message → dernier usage vu (+ son modèle). Doit persister entre deux replis
+    // incrémentaux : une ligne ultérieure supplante celle déjà comptée.
+    usageById: new Map(),
+    anonOutput: 0, anonCost: 0,   // lignes d'usage sans message.id : rien à dédupliquer
   }),
   fold: (acc, line) => {
     if (!line) return;
@@ -164,12 +182,12 @@ const readAgent = incrementalReader({
     if (j.type !== 'assistant' || !msg) return;
     if (msg.model) acc.model = msg.model;
     const u = msg.usage;
-    if (u && !(msg.id && acc.seenMsg.has(msg.id))) {
-      if (msg.id) acc.seenMsg.add(msg.id);
+    if (u) {
+      // le contexte est stable d'une ligne à l'autre : un max est idempotent, il reste ici.
       const ctx = (u.input_tokens || 0) + (u.cache_read_input_tokens || 0) + (u.cache_creation_input_tokens || 0);
       if (ctx > acc.peakContext) acc.peakContext = ctx;
-      acc.output += u.output_tokens || 0;
-      acc.cost += costForUsage(u, msg.model).total;
+      if (msg.id) acc.usageById.set(msg.id, { u, model: msg.model });
+      else { acc.anonOutput += u.output_tokens || 0; acc.anonCost += costForUsage(u, msg.model).total; }
     }
     for (const b of Array.isArray(msg.content) ? msg.content : []) {
       if (!b || b.type !== 'tool_use') continue;
@@ -178,7 +196,18 @@ const readAgent = incrementalReader({
       acc.lastToolDetail = toolDetail(b.input);
     }
   },
-  finalize: (acc) => acc,
+  // output/cost sont DÉRIVÉS (jamais accumulés) : un repli ultérieur peut supplanter l'usage d'un
+  // message déjà vu, donc on recalcule depuis la map — idempotent, et O(messages) et non O(octets).
+  finalize: (acc) => {
+    let output = acc.anonOutput, cost = acc.anonCost;
+    for (const { u, model } of acc.usageById.values()) {
+      output += u.output_tokens || 0;
+      cost += costForUsage(u, model).total;
+    }
+    acc.output = output;
+    acc.cost = cost;
+    return acc;
+  },
   empty: null,
 });
 
@@ -317,6 +346,12 @@ const scanLaunches = incrementalReader({
     if (!line) return;
     let j;
     try { j = JSON.parse(line); } catch (_) { return; }
+    // La notification est cherchée sur TOUS les porteurs, avant tout aiguillage par type : le plus
+    // fourni d'entre eux est un message user à `content` STRING, qui ne passait pas le test
+    // `Array.isArray` de la branche tool_result et disparaissait donc silencieusement.
+    const note = taskNotificationText(j);
+    if (note) noteFrom(acc, note, j.timestamp);
+
     if (j.type === 'assistant' && j.message && Array.isArray(j.message.content)) {
       for (const b of j.message.content) {
         if (b && b.type === 'tool_use' && b.name === 'Workflow' && b.id) acc.pending.add(b.id);
@@ -339,41 +374,57 @@ const scanLaunches = incrementalReader({
           transcriptDir: tur.transcriptDir || null,
           scriptPath: tur.scriptPath || null,
           launchedAt: j.timestamp || null,
-          noteStatus: null,
+          noteStatus: null,   // statut terminal lu dans la <task-notification>, si elle arrive
+          noteTs: null,       // et son horodatage : la seule borne de fin quand aucun record n'est écrit
         };
         acc.runs.push(run);
         acc.byToolUse.set(b.tool_use_id, run);
         if (run.taskId) acc.byTask.set(run.taskId, run);
       }
-      // une <task-notification> peut aussi arriver par un message user `promptSource:"system"`.
-      noteFrom(acc, textOfContent(j.message.content));
-      return;
     }
-    // les deux autres porteurs de la notification (cf. server/background.js).
-    if (j.type === 'queue-operation' && typeof j.content === 'string') noteFrom(acc, j.content);
-    else if (j.type === 'attachment' && j.attachment && typeof j.attachment.prompt === 'string') noteFrom(acc, j.attachment.prompt);
   },
   finalize: (acc) => acc,
   empty: null,
 });
 
-// texte brut d'un `message.content` (string, ou blocs {type:'text'}) — pour y chercher une notif.
-function textOfContent(c) {
-  if (typeof c === 'string') return c;
-  if (!Array.isArray(c)) return '';
-  return c.map((b) => (b && b.type === 'text' ? b.text || '' : '')).join('\n');
-}
-
-// Applique une <task-notification> au run qu'elle concerne (corrélation par tool-use-id, à
-// défaut par task-id). Seul un statut TERMINAL clôt le run.
-function noteFrom(acc, text) {
-  if (!text || text.indexOf('<task-notification>') < 0) return;
+// Applique une <task-notification> au run qu'elle concerne (corrélation par tool-use-id, à défaut
+// par task-id). Seul un statut TERMINAL clôt le run. On retient AUSSI l'horodatage de la ligne :
+// sans enregistrement final il n'existe aucune autre borne de fin, et `now - startedAt` ferait
+// gonfler indéfiniment la durée d'un run mort.
+function noteFrom(acc, text, ts) {
   const st = RE_NOTE_STATUS.exec(text);
-  if (!st || !TERMINAL.has(st[1].toLowerCase())) return;
+  if (!st || !TERMINAL_TASK_STATUS.has(st[1].toLowerCase())) return;
   const tu = RE_NOTE_TOOLUSE.exec(text);
   const tk = RE_NOTE_TASK.exec(text);
   const run = (tu && acc.byToolUse.get(tu[1])) || (tk && acc.byTask.get(tk[1])) || null;
-  if (run) run.noteStatus = st[1].toLowerCase();
+  if (!run) return;
+  run.noteStatus = st[1].toLowerCase();
+  if (ts && !run.noteTs) run.noteTs = ts;
+}
+
+// Un run REPRIS (`resumeFromRunId`) depuis une autre session du même projet voit son
+// enregistrement final écrit sous CETTE autre session, pas sous celle qui l'a lancé : le dossier
+// d'exécution reste d'un côté, le record atterrit de l'autre. Sans ce rattrapage, la session
+// d'origine croit son run éternellement en cours (observé sur f5807f5e… → record sous 224da693…).
+// On ne balaie les sessions sœurs QUE si le chemin direct n'a rien donné, et le résultat est mis
+// en cache par runId : un run vivant coûte alors un readdir, une fois.
+const siblingCache = new Map(); // runId → chemin du record, ou null si aucune session sœur n'en a
+function siblingRecord(fp, runId) {
+  const projDir = path.dirname(fp);
+  const self = path.basename(fp, '.jsonl');
+  const cacheKey = `${projDir}::${runId}`;
+  let hit = siblingCache.get(cacheKey);
+  if (hit === undefined) {
+    hit = null;
+    for (const entry of readdirSafe(projDir)) {
+      if (entry === self || entry.endsWith('.jsonl')) continue;   // sessions sœurs = les dossiers
+      const cand = path.join(projDir, entry, 'workflows', `${runId}.json`);
+      const st = statSafe(cand);
+      if (st && st.isFile()) { hit = cand; break; }
+    }
+    siblingCache.set(cacheKey, hit);
+  }
+  return hit ? readJsonCached(hit) : null;
 }
 
 // ————————————————————————————————————————————————————————————————————————
@@ -382,10 +433,10 @@ function noteFrom(acc, text) {
 
 /**
  * Runs de workflow de la session, le plus récent d'abord.
- * @param {string} fp   transcript principal de la session
- * @param {string} id   session_id (pour localiser l'enregistrement final)
+ * @param {string} fp  transcript principal de la session (`<proj>/<session>.jsonl`) — tous les
+ *                     chemins du run en sont dérivés, cf. runPaths.
  */
-function buildWorkflows(fp, id) {
+function buildWorkflows(fp) {
   const scanned = scanLaunches(fp);
   if (!scanned || !scanned.runs.length) return [];
   const now = Date.now();
@@ -393,7 +444,7 @@ function buildWorkflows(fp, id) {
   for (const run of scanned.runs.slice(-MAX_RUNS)) {
     const paths = runPaths(fp, run.runId, run.scriptPath);
     if (!paths) continue;                       // runId inattendu → on n'invente pas de chemin
-    const rec = readJsonCached(paths.record);
+    const rec = readJsonCached(paths.record) || siblingRecord(fp, run.runId);
 
     let agents, phases, status, startedAt, durationMs, totalTokens, totalToolCalls, model, logs;
     if (rec) {
@@ -409,10 +460,13 @@ function buildWorkflows(fp, id) {
       const src = paths.script ? safeRead(paths.script) : null;
       ({ agents, phases } = fromRunDir(paths.dir, src));
       // pas d'enregistrement final : le run tourne encore, sauf si une notif terminale est déjà
-      // passée (record pas encore écrit, ou run tué sans écriture).
+      // passée (record pas encore écrit, ou run arrêté/tué sans écriture).
       status = run.noteStatus || 'running';
       startedAt = run.launchedAt ? Date.parse(run.launchedAt) : null;
-      durationMs = startedAt ? now - startedAt : null;
+      // GELER l'horloge dès que le run est terminal : sans record il n'y a pas d'autre borne de
+      // fin, et `now - startedAt` afficherait une durée qui grandit indéfiniment pour un run mort.
+      const endedAt = run.noteTs ? Date.parse(run.noteTs) : (run.noteStatus ? null : now);
+      durationMs = (startedAt && endedAt) ? endedAt - startedAt : null;
       totalTokens = agents.reduce((a, x) => a + (x.tokens || 0), 0);
       totalToolCalls = agents.reduce((a, x) => a + (x.toolCalls || 0), 0);
       model = agents.map((a) => a.model).find(Boolean) || null;

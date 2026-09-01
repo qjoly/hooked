@@ -128,6 +128,29 @@ describe('buildWorkflows — run EN COURS (pas encore d\'enregistrement final)',
     expect(w.unphased).toHaveLength(2);
   });
 
+  it("compte les tokens de sortie sur la DERNIÈRE ligne d'un message, pas la première", () => {
+    // Un même message.id apparaît sur plusieurs lignes au fil du streaming ; les premières
+    // portent un output_tokens de remplissage. Garder la première (réflexe anti-double-comptage)
+    // sous-compte le coût d'un facteur ~7 sur un agent réel.
+    const d = scaffold('lastwins');
+    write(d.fp, launch());
+    write(path.join(d.run, 'journal.jsonl'), [{ type: 'started', key: 'v2:aaa', agentId: 'aaa' }]);
+    const usage = (out) => ({ input_tokens: 10, cache_read_input_tokens: 990, cache_creation_input_tokens: 0, output_tokens: out });
+    write(path.join(d.run, 'agent-aaa.jsonl'), [
+      { type: 'user', timestamp: '2026-09-01T10:00:02.000Z', message: { role: 'user', content: 'go' } },
+      // même id, trois lignes : 1 (placeholder) → 2 (placeholder) → 900 (le vrai total)
+      { type: 'assistant', timestamp: '2026-09-01T10:00:03.000Z', message: { id: 'm1', role: 'assistant', model: 'claude-opus-5', usage: usage(1), content: [] } },
+      { type: 'assistant', timestamp: '2026-09-01T10:00:04.000Z', message: { id: 'm1', role: 'assistant', model: 'claude-opus-5', usage: usage(2), content: [] } },
+      { type: 'assistant', timestamp: '2026-09-01T10:00:05.000Z', message: { id: 'm1', role: 'assistant', model: 'claude-opus-5', usage: usage(900), content: [{ type: 'tool_use', id: 't', name: 'Read', input: {} }] } },
+    ]);
+    const [w] = buildWorkflows(d.fp);
+    // opus : 900 tok de sortie à 25 $/Mtok = 0,0225 $, + l'entrée (10 à 5 $/Mtok) + cache read
+    // (990 à 0,5 $/Mtok). Le point du test : 900, jamais 1 ni 903.
+    expect(w.cost).toBeCloseTo(900 * 25e-6 + 10 * 5e-6 + 990 * 0.5e-6, 9);
+    expect(w.agents[0].tokens).toBe(1000);   // contexte de pointe, inchangé
+    expect(w.agents[0].toolCalls).toBe(1);   // les tool_use ne se répètent pas : addition franche
+  });
+
   it('étiquette les agents par la ligne qui les DISTINGUE (préambule commun retiré)', () => {
     const d = scaffold('hint');
     write(d.fp, launch());
@@ -159,6 +182,57 @@ describe('buildWorkflows — run EN COURS (pas encore d\'enregistrement final)',
     const [w] = buildWorkflows(d.fp, SESSION);
     expect(w.status).toBe('killed');
     expect(w.live).toBe(true);
+  });
+
+  it("clôt aussi sur `stopped` — l'arrêt depuis l'UI / TaskStop n'écrit AUCUN record", () => {
+    // Régression : le vocabulaire terminal local avait divergé de celui de background.js et
+    // ignorait `stopped`. Or c'est précisément le cas où la notification est le SEUL signal
+    // existant (rien n'est écrit dans workflows/<runId>.json), donc le run restait « en cours »
+    // pour toujours, avec une durée qui grandissait à chaque poll.
+    const d = scaffold('stopped');
+    write(d.fp, [...launch(), notification('stopped')]);
+    write(path.join(d.run, 'journal.jsonl'), [{ type: 'started', key: 'v2:aaa', agentId: 'aaa' }]);
+    write(path.join(d.run, 'agent-aaa.jsonl'), agentTranscript('x'));
+    const [w] = buildWorkflows(d.fp);
+    expect(w.status).toBe('stopped');
+  });
+
+  it('accepte la notification portée par un message user à contenu STRING', () => {
+    // Le porteur le plus fourni des trois. Il était filtré par un test `Array.isArray` et
+    // disparaissait en silence : le run restait « running » malgré une complétion annoncée.
+    const d = scaffold('carrier');
+    write(d.fp, [...launch(), {
+      type: 'user', promptSource: 'system',
+      message: { role: 'user', content: `<task-notification>\n<task-id>wtask01</task-id>\n<tool-use-id>tu1</tool-use-id>\n<status>completed</status>\n</task-notification>` },
+    }]);
+    expect(buildWorkflows(d.fp)[0].status).toBe('completed');
+  });
+
+  it("fige la durée d'un run terminé sans record (sinon elle grandit à chaque poll)", () => {
+    const d = scaffold('frozen');
+    write(d.fp, [...launch(), {
+      type: 'queue-operation', operation: 'enqueue',
+      timestamp: '2026-09-01T10:05:01.000Z',   // lancé à 10:00:01 → 5 min pile
+      content: `<task-notification>\n<tool-use-id>tu1</tool-use-id>\n<status>killed</status>\n</task-notification>`,
+    }]);
+    const [w] = buildWorkflows(d.fp);
+    expect(w.status).toBe('killed');
+    expect(w.durationMs).toBe(300000);
+  });
+
+  it("retrouve le record écrit sous une session SŒUR (run repris ailleurs)", () => {
+    // `resumeFromRunId` depuis une autre session du même projet : le dossier d'exécution reste
+    // sous la session d'origine, l'enregistrement final atterrit sous la session qui a repris.
+    const d = scaffold('sibling');
+    write(d.fp, launch());
+    fs.rmSync(d.record, { force: true });
+    const sibling = path.join(path.dirname(d.fp), 'aaaaaaaa-0000-4000-8000-000000000000', 'workflows');
+    fs.mkdirSync(sibling, { recursive: true });
+    fs.writeFileSync(path.join(sibling, `${RUN}.json`),
+      JSON.stringify({ runId: RUN, status: 'killed', phases: [], workflowProgress: [] }));
+    const [w] = buildWorkflows(d.fp);
+    expect(w.status).toBe('killed');
+    expect(w.live).toBe(false);
   });
 
   it('un run sans dossier d\'exécution ni script ne casse pas (agents vides)', () => {
