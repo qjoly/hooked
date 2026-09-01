@@ -748,7 +748,7 @@
     <div class="card" id="pset-shortcuts" data-sec>
       <h2>Keyboard shortcuts</h2>
       <p class="hint">Click a shortcut to record a new binding. All shortcuts are stored per-browser.</p>
-      {#each ['Navigation', 'Actions'] as section}
+      {#each ['Navigation', 'Actions', 'Review'] as section}
         <h3 class="sc-section">{section}</h3>
         <ul class="reorder">
           {#each shortcuts.filter(s => s.section === section) as sc (sc.id)}
