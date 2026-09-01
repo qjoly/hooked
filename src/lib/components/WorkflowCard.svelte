@@ -34,7 +34,11 @@
   const STATE = {
     done:     { icon: 'circle-check', tint: 'ended',     label: 'finished' },
     running:  { icon: 'working',      tint: 'working',   label: 'running' },
-    progress: { icon: 'working',      tint: 'waiting',   label: 'interrupted while running' },
+    // `progress` = interrompu EN VOL. Il lui faut un glyphe à lui, pas le spinner de `running` :
+    // Icon résout sa couleur en `color ?? TINTS[name]`, donc réutiliser l'icône `working` en
+    // espérant la reteinter depuis le parent ne donnait rien — les deux états s'affichaient à
+    // l'identique, et la distinction n'existait qu'au survol.
+    progress: { icon: 'ban',          tint: 'waiting',   label: 'interrupted while running' },
     start:    { icon: 'queued',       tint: 'muted',     label: 'never got past launch' },
     error:    { icon: 'attention',    tint: 'attention', label: 'errored' },
   };
@@ -143,19 +147,21 @@
 {#snippet agentRow(a)}
   <details class="wa">
     <summary>
-      <span class="wa-st" style="color: var(--{agentState(a.state).tint})" title={agentState(a.state).label}>
-        <Icon name={agentState(a.state).icon} size={13} />
+      <!-- `title` sur le span = infobulle au survol ; celui d'Icon devient un aria-label (pas de
+           tooltip visuelle). Les deux, pour que l'état soit lisible à la souris ET au lecteur. -->
+      <span class="wa-st" title={agentState(a.state).label}>
+        <Icon name={agentState(a.state).icon} size={13}
+              color="var(--{agentState(a.state).tint})" title={agentState(a.state).label} />
       </span>
       <span class="wa-i">{a.index}</span>
       <span class="wa-main">
         <!-- run terminé : le vrai label (« fix:backup-restore »). Run en cours : pas de label sur
              disque, on montre à la place la consigne qui distingue cet agent (cf. workflows.js). -->
         <span class="wa-label" title={a.hint || a.label}>{a.hint || a.label}</span>
-        <span class="wa-num">
-          {#if a.model}{a.model}{/if}
-          {#if a.tokens} · {fmtTokens(a.tokens)} tok{/if}
-          {#if a.durationMs != null} · {dur(a.durationMs)}{/if}
-        </span>
+        <!-- segments joints, jamais concaténés à la main : un agent tout juste lancé n'a pas
+             encore de modèle, et un « · » en tête serait le premier caractère de la ligne. -->
+        <span class="wa-num">{[a.model, a.tokens ? `${fmtTokens(a.tokens)} tok` : null,
+                              a.durationMs != null ? dur(a.durationMs) : null].filter(Boolean).join(' · ')}</span>
       </span>
     </summary>
     {#if a.lastTool}
@@ -273,7 +279,10 @@
     font-family: var(--mono); font-weight: 600;
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
-  .wa-num { font-size: 10.5px; color: var(--muted); font-family: var(--mono); white-space: nowrap; }
+  .wa-num {
+    font-size: 10.5px; color: var(--muted); font-family: var(--mono);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
   .wa-i {
     flex: 0 0 auto; font-family: var(--mono); font-size: 9.5px; color: var(--muted);
     background: var(--bg3); border-radius: 5px; padding: 0 4px; align-self: center;
