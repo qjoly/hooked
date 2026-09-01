@@ -11,7 +11,7 @@
   import Icon from '$lib/components/Icon.svelte';
   import { toSegments, countStats, applyOp } from '$lib/difflines.js';
   import { fmtCost } from '$lib/format.js';
-  import { getFileChangeFull, getVcsDiff, getVcsLog, getVcsCommit } from '$lib/api.js';
+  import { getFileChangeFull, getVcsDiff, getVcsLog, getVcsCommit, getVcsBlame } from '$lib/api.js';
   import { settings, ui } from '$lib/state.svelte.js';
   import { editorFor } from '$lib/editors.js';
   import { fingerprint, isReviewed as hasReview, toggleReviewed as tickReview,
@@ -218,6 +218,23 @@
   let activeIdx = $state(0);
   $effect(() => { changes.length; untrack(() => { if (activeIdx >= changes.length) activeIdx = Math.max(0, changes.length - 1); }); });
   const activeFile = $derived(changes[activeIdx] || null);
+
+  // ── blame under the cursor ─────────────────────────────────────────────────────────────────
+  // Which git revision each side of the shown diff comes from, so DiffView can ask "who wrote
+  // this line?" for the line under the pointer:
+  //   • Claude view      — new side = the working tree (the file on disk), old side is the
+  //                        pre-Claude content, which matches no revision → not blamed;
+  //   • VCS, uncommitted — HEAD → working tree;
+  //   • VCS, one commit  — the commit's parent → the commit.
+  // DiffView drops the answer whenever the blamed line's text no longer matches the line shown,
+  // so a stale revision never puts a name on the wrong line.
+  const blameFor = $derived.by(() => {
+    if (!activeFile || activeFile.binary) return null;
+    const [old, next] = view !== 'vcs' ? [null, '']
+      : selectedRev ? [selectedRev + '^', selectedRev]
+      : ['HEAD', ''];
+    return { file: activeFile.file, old, new: next, load: (rev) => getVcsBlame(id, activeFile.file, rev) };
+  });
 
   // ── review ticks ── bound to the CONTENT reviewed, not just to the path ─────────────────
   // `fileFp` fingerprints the diff a file currently shows; a tick stores that fingerprint. So a
@@ -527,6 +544,7 @@
             {#each fileDiffs(activeFile) as d (d.opIndex)}
               {#if d.label}<div class="sd-oplabel">{d.label}</div>{/if}
               <DiffView oldStr={d.oldStr} newStr={d.newStr} name={activeFile.name} mode={effMode} {compact}
+                        blame={blameFor}
                         commentable={!!onReview}
                         comments={commentsFor(activeFile.file, d.opIndex)}
                         onComment={(p) => addComment(activeFile.file, d.opIndex, activeFile.name, p)}
