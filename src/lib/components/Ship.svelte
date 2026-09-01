@@ -347,7 +347,7 @@
   }
   const commentsFor = (file, opIndex) =>
     threads.filter((c) => c.file === file && c.opIndex === opIndex)
-      .map((c) => ({ id: c.id, side: c.side, start: c.start, end: c.end, status: c.status, sent: c.sent, messages: c.messages }));
+      .map((c) => ({ id: c.id, side: c.side, start: c.start, end: c.end, snippet: c.snippet, status: c.status, sent: c.sent, messages: c.messages }));
 
   const anchorLabel = (c) => {
     const p = c.side === 'old' ? '−L' : '+L';
