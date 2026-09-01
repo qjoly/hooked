@@ -509,4 +509,4 @@ async function buildVcsBranchChanges(cwd, branch, baseBranch = null, repoRoot = 
   return { vcs, root, branch, base, mergeBase, merged, changes };
 }
 
-export { detectVcs, scanSubRepos, buildVcsChanges, listVcsCommits, buildVcsCommitChanges, listVcsBranches, buildVcsBranchChanges };
+export { detectVcs, detectRepos, scanSubRepos, buildVcsChanges, listVcsCommits, buildVcsCommitChanges, listVcsBranches, buildVcsBranchChanges };

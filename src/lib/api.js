@@ -34,6 +34,12 @@ export const getVcsBranches = (id, root = null) =>
 export const getVcsBranchDiff = (id, branch, base = null, root = null) =>
   jget(`/api/session/vcs-branch?id=${encodeURIComponent(id)}&branch=${encodeURIComponent(branch)}`
     + (base ? '&base=' + encodeURIComponent(base) : '') + (root ? '&root=' + encodeURIComponent(root) : ''));
+// Blame d'un fichier à une révision (vide = arbre de travail) — l'auteur de la ligne survolée
+// dans un diff. { supported, root, rev, commits:[{ rev, author, mail, time, summary,
+// uncommitted }], lines:[{ c, t } | null] } (`c` = index dans `commits`, `t` = texte de la ligne).
+export const getVcsBlame = (id, file, rev = '') =>
+  jget(`/api/session/vcs-blame?id=${encodeURIComponent(id)}&file=${encodeURIComponent(file)}`
+    + (rev ? '&rev=' + encodeURIComponent(rev) : ''));
 // Diff COMPLET (sans plafond) d'un fichier changé, chargé à la demande (lentille Ship) quand
 // l'entrée capée était marquée `truncated`. { change: {...} }.
 export const getFileChangeFull = (id, path) =>
