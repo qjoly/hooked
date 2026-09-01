@@ -479,17 +479,10 @@
   const archived = $derived(!!s && isArchived(s.id));
   function archive() {
     if (archived) { toggleArchive(s.id); setTimeout(() => { loadSessions(); ui.tick++; }, 400); return; }
-    openModal('confirm', {
-      title: 'Archive this session?',
-      message: 'The Claude Code process will be stopped and the session moves to Archived (reversible).',
-      confirmLabel: 'Archive', confirmIcon: 'archive', danger: true,
-      onConfirm: () => {
-        archiving = true;
-        toggleArchive(s.id);
-        setTimeout(() => { loadSessions(); ui.tick++; }, 800);
-        if (inSplit) onClose?.();
-      },
-    });
+    archiving = true;
+    toggleArchive(s.id);
+    setTimeout(() => { loadSessions(); ui.tick++; }, 800);
+    if (inSplit) onClose?.();
   }
   let deleting = $state(false);
   function del() {
