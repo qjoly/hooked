@@ -13,9 +13,14 @@
     oldStr = '', newStr = '', name = 'file.txt', mode = 'split',
     compact = false,          // drop the context lines around each change
     commentable = false,
-    comments = [],            // [{ id, side, start, end, text }]
-    onComment = null,         // ({ side, start, end, text, snippet }) => void
-    onDelete = null,          // (id) => void
+    // threads: [{ id, side, start, end, status, sent, messages: [{ author, text, ts }] }] —
+    // GitHub-style conversations anchored to a line range. A thread with a single user message
+    // and sent:false is a pending (batched, not yet sent) comment.
+    comments = [],
+    onComment = null,         // ({ side, start, end, text, snippet }) => void — new thread
+    onDelete = null,          // (id) => void — pending threads only
+    onReply = null,           // (id, text) => void — follow-up inside a thread (sent instantly)
+    onResolve = null,         // (id, resolved) => void
     // git blame of the hovered line: { file, old, new, load } — `old`/`new` are the revisions
     // each side of this diff comes from ('' = working tree, null = don't blame that side), and
     // `load(rev)` fetches the blame of `file` at `rev`. Null disables the feature entirely.
@@ -105,6 +110,16 @@
     if (draft && draft.side === side) return lineNo >= draft.start && lineNo <= draft.end;
     return false;
   };
+
+  // Per-thread UI state: the open reply editor and which resolved threads are unfolded.
+  let replyDraft = $state(null);      // { id, text } — one reply editor open at a time
+  let openResolved = $state({});      // thread id → unfolded?
+  function startReply(id) { replyDraft = { id, text: '' }; }
+  function commitReply() {
+    const d = replyDraft;
+    if (d && d.text.trim() && onReply) onReply(d.id, d.text.trim());
+    replyDraft = null;
+  }
 
   // A comment "slot" belongs after a row when a draft or committed comment anchors its END here.
   function slotFor(side, endLine) {
@@ -365,11 +380,55 @@
 {#snippet commentSlot(slot, side, lineNo)}
   <div class="dv-comments">
     {#each slot.list as c (c.id)}
-      <div class="dv-bubble">
-        <span class="dv-bubble-anchor">{rangeLabel(side, c.start, c.end)}</span>
-        <span class="dv-bubble-text">{c.text}</span>
-        {#if onDelete}<button class="dv-bubble-x" title="Remove comment" onclick={() => onDelete(c.id)}><Icon name="close" size={12} /></button>{/if}
-      </div>
+      {#if c.status === 'resolved' && !openResolved[c.id]}
+        <button class="dv-thread-folded" onclick={() => (openResolved = { ...openResolved, [c.id]: true })}>
+          <Icon name="check" size={12} /> Resolved · {rangeLabel(side, c.start, c.end)} ·
+          {c.messages.length} message{c.messages.length > 1 ? 's' : ''}
+          <span class="dv-thread-peek">{c.messages[0]?.text}</span>
+        </button>
+      {:else}
+        <div class="dv-thread" class:resolved={c.status === 'resolved'}>
+          <div class="dv-thread-head">
+            <span class="dv-bubble-anchor">{rangeLabel(side, c.start, c.end)}</span>
+            {#if !c.sent}<span class="dv-thread-badge pending">pending</span>
+            {:else if c.status === 'resolved'}<span class="dv-thread-badge done"><Icon name="check" size={11} /> resolved</span>{/if}
+            <span class="dv-thread-actions">
+              {#if c.status === 'resolved'}
+                <button class="dv-tbtn" onclick={() => (openResolved = { ...openResolved, [c.id]: false })}>collapse</button>
+              {/if}
+              {#if c.sent && onResolve}
+                <button class="dv-tbtn" onclick={() => onResolve(c.id, c.status !== 'resolved')}>
+                  {c.status === 'resolved' ? 'reopen' : 'resolve'}
+                </button>
+              {/if}
+              {#if !c.sent && onDelete}
+                <button class="dv-tbtn" title="Remove comment" onclick={() => onDelete(c.id)}><Icon name="close" size={12} /></button>
+              {/if}
+            </span>
+          </div>
+          {#each c.messages as msg, mi (mi)}
+            <div class="dv-msg {msg.author}">
+              <span class="dv-msg-who">{msg.author === 'claude' ? 'Claude' : 'You'}</span>
+              <span class="dv-msg-text">{msg.text}</span>
+            </div>
+          {/each}
+          {#if c.sent && onReply}
+            {#if replyDraft && replyDraft.id === c.id}
+              <div class="dv-editor">
+                <textarea use:focusOnOpen rows="2" bind:value={replyDraft.text}
+                          placeholder="Reply — sent to Claude immediately  (⌘/Ctrl+Enter to send · Esc to cancel)"
+                          onkeydown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); commitReply(); } else if (e.key === 'Escape') { e.preventDefault(); replyDraft = null; } }}></textarea>
+                <div class="dv-editor-bar">
+                  <button class="dv-btn" onclick={() => (replyDraft = null)}>Cancel</button>
+                  <button class="dv-btn primary" onclick={commitReply}>Reply</button>
+                </div>
+              </div>
+            {:else}
+              <button class="dv-reply-open" onclick={() => startReply(c.id)}>Reply…</button>
+            {/if}
+          {/if}
+        </div>
+      {/if}
     {/each}
     {#if slot.draft}
       <div class="dv-editor">
@@ -482,15 +541,43 @@
 
   /* comments */
   .dv-comments { background: rgba(255,255,255,.02); padding: 4px 12px 4px 52px; font-family: var(--font); }
-  .dv-bubble {
-    display: flex; align-items: flex-start; gap: 8px; margin: 4px 0; padding: 8px 10px;
+  .dv-thread {
+    margin: 4px 0; padding: 8px 10px;
     background: var(--surface); border: 1px solid var(--border2); border-left: 3px solid var(--accent);
-    border-radius: 10px;
+    border-radius: 10px; display: flex; flex-direction: column; gap: 6px;
   }
-  .dv-bubble-anchor { flex: 0 0 auto; font-family: var(--mono); font-size: 10.5px; font-weight: 700; color: var(--accent-d); margin-top: 1px; }
-  .dv-bubble-text { flex: 1 1 auto; min-width: 0; font-size: 12.5px; color: var(--text); white-space: pre-wrap; word-break: break-word; }
-  .dv-bubble-x { flex: 0 0 auto; background: none; border: none; color: var(--muted); cursor: pointer; font-size: 12px; padding: 0 2px; }
-  .dv-bubble-x:hover { color: var(--text); }
+  .dv-thread.resolved { border-left-color: var(--success); opacity: .92; }
+  .dv-thread-head { display: flex; align-items: center; gap: 8px; }
+  .dv-bubble-anchor { font-family: var(--mono); font-size: 10.5px; font-weight: 700; color: var(--accent-d); }
+  .dv-thread-badge {
+    font-family: var(--mono); font-size: 9.5px; font-weight: 700; text-transform: uppercase;
+    padding: 1px 7px; border-radius: 999px; display: inline-flex; align-items: center; gap: 3px;
+  }
+  .dv-thread-badge.pending { background: rgba(var(--accent-rgb), .14); color: var(--accent-d); }
+  .dv-thread-badge.done { background: color-mix(in srgb, var(--success) 16%, transparent); color: var(--success); }
+  .dv-thread-actions { margin-left: auto; display: flex; gap: 6px; }
+  .dv-tbtn {
+    background: none; border: none; padding: 0 2px; cursor: pointer;
+    font-family: var(--mono); font-size: 10.5px; color: var(--muted);
+  }
+  .dv-tbtn:hover { color: var(--text); }
+  .dv-msg { display: flex; gap: 8px; align-items: baseline; }
+  .dv-msg-who { flex: 0 0 52px; font-family: var(--mono); font-size: 10px; font-weight: 700; color: var(--muted); text-align: right; }
+  .dv-msg.claude .dv-msg-who { color: var(--accent-d); }
+  .dv-msg-text { flex: 1 1 auto; min-width: 0; font-size: 12.5px; color: var(--text); white-space: pre-wrap; word-break: break-word; }
+  .dv-reply-open {
+    align-self: flex-start; margin-left: 60px; background: none; border: none; padding: 0;
+    color: var(--muted); font-size: 11.5px; cursor: pointer; font-family: var(--font);
+  }
+  .dv-reply-open:hover { color: var(--accent-d); }
+  .dv-thread-folded {
+    display: flex; align-items: center; gap: 6px; width: 100%; margin: 4px 0; padding: 5px 10px;
+    background: var(--surface); border: 1px solid var(--border2); border-left: 3px solid var(--success);
+    border-radius: 10px; cursor: pointer; text-align: left;
+    font-family: var(--mono); font-size: 10.5px; color: var(--muted);
+  }
+  .dv-thread-folded:hover { border-color: var(--border); color: var(--text); }
+  .dv-thread-peek { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--font); font-size: 11.5px; opacity: .8; }
   .dv-editor {
     margin: 4px 0; padding: 8px; background: var(--surface); border: 1px solid var(--accent); border-radius: 10px;
     display: flex; flex-direction: column; gap: 6px;
