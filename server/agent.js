@@ -753,12 +753,20 @@ const LOCAL_CMD_MAX_OUTPUT = 60000; // borne la sortie injectée dans le context
 // Extrait la commande d'une saisie en mode bash, ou null si ce n'en est pas une. Pur/testable.
 // Strict : un « ! » de tête suivi d'au moins un caractère non blanc. Un texte qui commence par
 // « !! » ou « ! » seul n'en est pas une — on n'attrape pas une exclamation de prose par erreur.
+// Mode bash du composer. Deux formes, une seule différence : le TTY.
+//   `!cmd`  → capture (spawn, sortie relevée puis rendue en bloc `console`) ;
+//   `!!cmd` → PTY interactif rendu dans le fil, pour tout ce qui EXIGE un terminal — un mot de
+//             passe, une confirmation, `claude mcp login` qui refuse de s'authentifier sans stdin
+//             sur un terminal, un pager, un TUI.
+// Renvoie { command, interactive } ou null. `!!` valait « null » avant (rappel d'historique shell) ;
+// personne ne s'en servait à travers hooked, et le sens gagné vaut mieux que la compatibilité perdue.
 function parseBangCommand(text) {
   if (typeof text !== 'string') return null;
-  const m = text.match(/^!\s*(\S[\s\S]*)$/);
+  const m = text.match(/^(!!?)\s*(\S[\s\S]*)$/);
   if (!m) return null;
-  const cmd = m[1].trim();
-  return cmd && !cmd.startsWith('!') ? cmd : null;
+  const cmd = m[2].trim();
+  if (!cmd || cmd.startsWith('!')) return null;   // `!!!` etc. : pas une commande
+  return { command: cmd, interactive: m[1] === '!!' };
 }
 
 // Séquences d'échappement ANSI (couleurs, déplacements de curseur, titre de fenêtre). Les outils
@@ -792,6 +800,37 @@ function formatLocalCommand(command, code, output, truncated, cwd) {
 // `sh -c` est volontaire : l'utilisateur A ÉCRIT une ligne de shell, on veut ses pipes et ses
 // redirections. Ce n'est pas une surface d'injection — c'est la saisie de l'utilisateur, sur une
 // interface liée à localhost, dans une session qui peut déjà tout faire.
+// Fence d'un terminal INTERACTIF. Porte l'id du PTY : le bloc du chat s'y abonne et rend un vrai
+// terminal. Contrairement à `console`, la sortie n'est PAS recopiée ici — elle vit dans le PTY, et un
+// transcript n'a pas à contenir les 200 repaints d'un TUI. Le fence reste donc lisible même quand le
+// terminal a disparu (redémarrage de hooked) : on sait quelle commande a été lancée, et où.
+function formatInteractiveCommand(command, terminalId, cwd) {
+  const info = ['pty', `id=${terminalId}`];
+  if (cwd) info.push(`cwd=${cwd}`);
+  return `\`\`\`${info.join(' ')}\n$ ${command}\n\`\`\``;
+}
+
+// `!!commande` : ouvre un PTY sur le dossier de la session et y écrit la commande. Le shell reste
+// interactif après coup — on peut répondre à un prompt, faire Ctrl-C, enchaîner une autre commande.
+function runInteractiveCommand(id, command, cb) {
+  const st = agentSession(id);
+  if (!st) return cb(err400('no live agent session for this id'));
+  if (!command) return cb(err400('command required'));
+  // Import PARESSEUX : terminal.js importe loginEnv/err400 d'ici, un import statique ferait un cycle.
+  // Effet de bord utile : node-pty reste hors du chemin de démarrage tant qu'on n'ouvre aucun PTY.
+  import('./terminal.js').then(({ openTerminal, writeTerminal }) => {
+    openTerminal({ cwd: st.cwd, sessionId: id }, (err, info) => {
+      if (err) return cb(err);
+      // Écrite DANS le PTY, pas passée en argv : c'est ce qui laisse la main à l'utilisateur ensuite.
+      // Vérifié : pas besoin d'attendre le prompt, le tampon du tty met la frappe en file et zsh la
+      // lit après son init (mesuré, écriture immédiate et à 800 ms donnent le même résultat).
+      writeTerminal(info.id, command + '\n', () => {});
+      st.input.push({ ...userMessage(formatInteractiveCommand(command, info.id, st.cwd)), shouldQuery: false });
+      cb(null, { sessionId: id, interactiveCommand: { command, terminalId: info.id, cwd: st.cwd } });
+    });
+  }).catch((e) => cb(new Error('failed to open an interactive terminal: ' + ((e && e.message) || e))));
+}
+
 function runLocalCommand(id, command, cb) {
   const st = agentSession(id);
   if (!st) return cb(err400('no live agent session for this id'));
@@ -844,7 +883,11 @@ function deliverReply(id, text, cb) {
   // Seulement sur une saisie SIMPLE — un envoi multiple est une file de messages, pas une commande.
   if (parts.length === 1) {
     const bang = parseBangCommand(parts[0]);
-    if (bang) return runLocalCommand(id, bang, cb);
+    if (bang) {
+      return bang.interactive
+        ? runInteractiveCommand(id, bang.command, cb)
+        : runLocalCommand(id, bang.command, cb);
+    }
   }
   for (const p of parts) {
     if (!st.input.push(userMessage(p))) return cb(new Error('session input closed'));
@@ -1169,6 +1212,7 @@ export {
   deliverReply, answerQuestion, answerQuestionFreeText, answerPlan, answerPermission, answerPendingSelection,
   interruptSession, setMode, setModelEffort, setAutoApprove, alwaysAllowRules, clearAgentState,
   resumeDrivenSessions, startDrivenSnapshot, pickResumable, saveDriven, failStartup,
+  runInteractiveCommand, formatInteractiveCommand,
   parseBangCommand, formatLocalCommand, stripAnsi, runLocalCommand,
   PLAN_ACTIONS, err400,
 };

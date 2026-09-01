@@ -15,16 +15,16 @@ import { parseBangCommand, formatLocalCommand, stripAnsi } from '../server/agent
 
 describe('parseBangCommand', () => {
   it('reconnaît une commande, avec ou sans espace après le !', () => {
-    expect(parseBangCommand('!ls -la')).toBe('ls -la');
-    expect(parseBangCommand('! mise deploy')).toBe('mise deploy');
-    expect(parseBangCommand('!  git status  ')).toBe('git status');
+    expect(parseBangCommand('!ls -la')).toEqual({ command: 'ls -la', interactive: false });
+    expect(parseBangCommand('! mise deploy')).toEqual({ command: 'mise deploy', interactive: false });
+    expect(parseBangCommand('!  git status  ')).toEqual({ command: 'git status', interactive: false });
   });
 
   it('garde les pipes, redirections et guillemets tels quels', () => {
     // La commande part à `sh -c` : c'est une LIGNE DE SHELL écrite par l'utilisateur, pas une
     // liste d'arguments — la démembrer casserait tout ce qui fait l'intérêt du mode bash.
-    expect(parseBangCommand('!git log --oneline | head -3')).toBe('git log --oneline | head -3');
-    expect(parseBangCommand('!echo "a b" > /tmp/x')).toBe('echo "a b" > /tmp/x');
+    expect(parseBangCommand('!git log --oneline | head -3').command).toBe('git log --oneline | head -3');
+    expect(parseBangCommand('!echo "a b" > /tmp/x').command).toBe('echo "a b" > /tmp/x');
   });
 
   it('laisse passer la prose : un ! ailleurs qu\'en tête n\'est pas une commande', () => {
@@ -33,12 +33,12 @@ describe('parseBangCommand', () => {
     }
   });
 
-  it('ignore « ! » seul et « !! » (pas de commande, ou rappel d\'historique shell)', () => {
-    for (const t of ['!', '!  ', '!!', '!!ls']) expect(parseBangCommand(t)).toBe(null);
+  it('ignore « ! » et « !! » seuls (pas de commande), et « !!! »', () => {
+    for (const t of ['!', '!  ', '!!', '!! ', '!!!ls']) expect(parseBangCommand(t)).toBe(null);
   });
 
   it('accepte une commande multi-lignes', () => {
-    expect(parseBangCommand('!for f in *; do\n  echo $f\ndone')).toBe('for f in *; do\n  echo $f\ndone');
+    expect(parseBangCommand('!for f in *; do\n  echo $f\ndone').command).toBe('for f in *; do\n  echo $f\ndone');
   });
 
   it('ne lève pas sur une entrée non-string', () => {
@@ -98,5 +98,19 @@ describe('stripAnsi', () => {
 
   it('laisse le texte ordinaire intact, sauts de ligne compris', () => {
     expect(stripAnsi('ligne 1\nligne 2\t fin')).toBe('ligne 1\nligne 2\t fin');
+  });
+
+  // `!!` : même parsing, seul le TTY change. C'est ce qui débloque tout ce qui refuse de tourner
+  // sans terminal — `claude mcp login` en est l'exemple qui a motivé la fonctionnalité.
+  describe('parseBangCommand — forme interactive', () => {
+    it('marque `!!` comme interactif', () => {
+      expect(parseBangCommand('!!claude mcp login mcp-gateway'))
+        .toEqual({ command: 'claude mcp login mcp-gateway', interactive: true });
+      expect(parseBangCommand('!! vim /tmp/x')).toEqual({ command: 'vim /tmp/x', interactive: true });
+    });
+    it('distingue `!` de `!!` sur la même commande', () => {
+      expect(parseBangCommand('!htop').interactive).toBe(false);
+      expect(parseBangCommand('!!htop').interactive).toBe(true);
+    });
   });
 });
