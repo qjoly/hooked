@@ -12,6 +12,7 @@ export const SHORTCUT_DEFS = [
   { id: 'go-stats', label: 'Archive → Stats', section: 'Navigation', defaultKeys: { alt: true, key: '4' } },
   { id: 'go-digest', label: 'Archive → Digest', section: 'Navigation', defaultKeys: { alt: true, key: '5' } },
   { id: 'go-memory', label: 'Archive → Memory', section: 'Navigation', defaultKeys: { alt: true, key: '6' } },
+  { id: 'go-mcp', label: 'Archive → MCP', section: 'Navigation', defaultKeys: { alt: true, key: '7' } },
   { id: 'toggle-sidebar', label: 'Toggle session sidebar', section: 'Actions', defaultKeys: { mod: true, key: 'b' } },
   { id: 'toggle-dock', label: 'Toggle context panel (tasks / changes / agents)', section: 'Actions', defaultKeys: { mod: true, shift: true, key: 'd' } },
   { id: 'split-session', label: 'Split with the most recent session', section: 'Actions', defaultKeys: { mod: true, shift: true, key: 's' } },
@@ -115,6 +116,7 @@ export function shortcutForCommand(commandId) {
     'nav:stats': 'go-stats',
     'nav:digest': 'go-digest',
     'nav:memory': 'go-memory',
+    'nav:mcp': 'go-mcp',
     'nav:settings': 'settings',
     'act:focus': 'focus-mode',
   };

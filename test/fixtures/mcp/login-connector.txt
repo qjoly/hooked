@@ -1,0 +1,5 @@
+Visit this URL to authorize:
+  ]8;;https://claude.ai/api/organizations/abc/mcp/start-auth/mcpsrv_01?product_surface=sdk-ts[94mhttps://claude.ai/api/organizations/abc/mcp/start-auth/mcpsrv_01?product_surface=sdk-ts[39m]8;;
+
+Once authorized on claude.ai, the connector will be available the next time you start Claude Code.
+[?25h
