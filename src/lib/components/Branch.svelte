@@ -11,7 +11,9 @@
   import Grip from './Grip.svelte';
   import Icon from '$lib/components/Icon.svelte';
   import { toSegments, countStats } from '$lib/difflines.js';
-  import { getVcsBranches, getVcsBranchDiff, getVcsBlame } from '$lib/api.js';
+  import { getVcsBranches, getVcsBranchDiff, getVcsBlame,
+           getReviewThreads, postReviewComment, deleteReviewThread, replyReviewThread,
+           resolveReviewThread, markReviewSent, reply as sendToSession } from '$lib/api.js';
   import { settings, ui } from '$lib/state.svelte.js';
   import { editorFor } from '$lib/editors.js';
   import { fingerprint, isReviewed as hasReview, toggleReviewed as tickReview,
@@ -162,51 +164,81 @@
   });
   const effMode = $derived(narrow ? 'unified' : mode);
 
-  // ── inline comments (batched, sent to Claude) — same protocol as Ship ──────────────────────
-  let comments = $state([]); // { id, file, opIndex, name, side, start, end, text, snippet }
-  const pending = $derived(comments.length);
-  function addComment(file, opIndex, name, payload) {
-    comments = [...comments, { id: crypto.randomUUID(), file, opIndex, name, ...payload }];
+  // ── review threads — same protocol as Ship (server-side store, see Ship.svelte) ────────────
+  let threads = $state([]);
+  async function loadThreads() {
+    if (!id) return;
+    try { const r = await getReviewThreads(id); threads = r.threads || []; } catch (_) {}
   }
-  function delComment(cid) { comments = comments.filter((c) => c.id !== cid); }
+  $effect(() => { id; loadThreads(); });
+  $effect(() => { ui.tick; if (active) loadThreads(); });
+
+  const pendingThreads = $derived(threads.filter((t) => !t.sent));
+  const pending = $derived(pendingThreads.length);
+  async function addComment(file, opIndex, name, payload) {
+    const r = await postReviewComment(id, { file, opIndex, name, ...payload });
+    if (r && r.thread) threads = [...threads, r.thread];
+  }
+  async function delComment(tid) {
+    threads = threads.filter((t) => t.id !== tid);
+    try { await deleteReviewThread(id, tid); } catch (_) {}
+  }
+  async function resolveComment(tid, resolved) {
+    threads = threads.map((t) => (t.id === tid ? { ...t, status: resolved ? 'resolved' : 'open' } : t));
+    try { await resolveReviewThread(id, tid, resolved); } catch (_) {}
+  }
+  async function replyComment(tid, text) {
+    const t = threads.find((x) => x.id === tid);
+    if (!t) return;
+    threads = threads.map((x) => (x.id === tid ? { ...x, status: 'open', messages: [...x.messages, { author: 'user', text, ts: new Date().toISOString() }] } : x));
+    try { await replyReviewThread(id, tid, text); } catch (_) {}
+    if (!canReview) return;
+    const prompt =
+      `Follow-up on review thread ${tid} — ${t.file} (${anchorLabel(t)}):\n> ${text.replace(/\n/g, '\n> ')}\n` +
+      THREAD_INSTR;
+    try { await sendToSession(id, prompt); } catch (_) {}
+  }
   const commentsFor = (file, opIndex) =>
-    comments.filter((c) => c.file === file && c.opIndex === opIndex).map((c) => ({ id: c.id, side: c.side, start: c.start, end: c.end, text: c.text }));
+    threads.filter((c) => c.file === file && c.opIndex === opIndex)
+      .map((c) => ({ id: c.id, side: c.side, start: c.start, end: c.end, status: c.status, sent: c.sent, messages: c.messages }));
 
   const anchorLabel = (c) => {
     const p = c.side === 'old' ? '−L' : '+L';
     return c.start === c.end ? p + c.end : p + c.start + '–' + c.end;
   };
+  const THREAD_INSTR =
+    'Reply in the thread with the hooked MCP tool reply_review_comment (id = this session, thread_id above), ' +
+    'and call resolve_review_comment once the code is fixed. Keep your chat answer to a one-line summary — ' +
+    'the details belong in the thread.';
   function buildReviewPrompt() {
     const items = [];
     for (const c of changes) {
-      const forFile = comments.filter((lc) => lc.file === c.file).sort((a, b) => String(a.opIndex).localeCompare(String(b.opIndex)) || a.start - b.start);
+      const forFile = pendingThreads.filter((lc) => lc.file === c.file).sort((a, b) => String(a.opIndex).localeCompare(String(b.opIndex)) || a.start - b.start);
       for (const lc of forFile) {
         const snip = (lc.snippet || '').split('\n').map((l) => '   | ' + l).join('\n');
-        const body = (lc.text || '').replace(/\n/g, '\n   > ');
-        items.push(`${items.length + 1}) ${c.file} (${anchorLabel(lc)})\n   > ${body}\n   Relevant code:\n${snip}`);
+        const body = (lc.messages[0]?.text || '').replace(/\n/g, '\n   > ');
+        items.push(`${items.length + 1}) ${c.file} (${anchorLabel(lc)}) [thread_id: ${lc.id}]\n   > ${body}\n   Relevant code:\n${snip}`);
       }
     }
     if (!items.length) return '';
-    return `I reviewed the full diff of branch \`${branch}\` against \`${base}\` and left the following inline comments. Please address each one:\n\n` + items.join('\n\n');
+    return `I reviewed the full diff of branch \`${branch}\` against \`${base}\` and left the following inline comments. Address each one, then, for each: ` +
+      THREAD_INSTR + '\n\n' + items.join('\n\n');
   }
 
   let sending = $state(false);
 
-  // ── draft persistence ── the review survives leaving the lens ────────────────────────────
-  // `comments` + `reviewed` live in component state, which dies on unmount (another tab, another
-  // session, a reload). Mirror them under a per-session key and hydrate on the way back in, so a
-  // half-written review is never lost; sending it empties the draft through the same effect.
+  // ── draft persistence ── only the "reviewed" ticks still live client-side (comments are
+  // server threads now). Same key/shape as before, comments left empty.
   const draftKey = $derived(id ? 'branch:' + id : null);
   $effect(() => {
     const k = draftKey;
     untrack(() => {
       const d = loadDraft(k);
-      comments = d.comments;
       reviewed = reviewedToMap(d.reviewed);
     });
   });
   $effect(() => {
-    const snap = { comments, reviewed: reviewedToEntries(reviewed) };   // read first: both are tracked deps
+    const snap = { comments: [], reviewed: reviewedToEntries(reviewed) };
     untrack(() => saveDraft(draftKey, snap));
   });
 
@@ -215,7 +247,12 @@
     const prompt = buildReviewPrompt();
     if (!prompt) return;
     sending = true;
-    try { await onReview(prompt); comments = []; } finally { sending = false; }
+    const ids = pendingThreads.map((t) => t.id);
+    try {
+      await onReview(prompt);
+      threads = threads.map((t) => (ids.includes(t.id) ? { ...t, sent: true } : t));
+      await markReviewSent(id, ids);
+    } finally { sending = false; }
   }
 
   // keyboard: J/K next/prev file, V mark reviewed — only while Branch is the active lens.
@@ -356,7 +393,7 @@
                         commentable={!!onReview}
                         comments={commentsFor(activeFile.file, d.opIndex)}
                         onComment={(p) => addComment(activeFile.file, d.opIndex, activeFile.name, p)}
-                        onDelete={delComment} />
+                        onDelete={delComment} onReply={replyComment} onResolve={resolveComment} />
             {/each}
           {/if}
         </div>
