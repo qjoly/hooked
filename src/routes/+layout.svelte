@@ -58,7 +58,7 @@
     const tag = e.target?.tagName;
     const isInput = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || e.target?.isContentEditable;
     const alwaysActive = ['command-palette', 'commands-only', 'new-session', 'search', 'settings',
-      'go-sessions', 'go-board', 'go-search', 'go-stats', 'go-digest', 'go-memory', 'go-mcp',
+      'go-sessions', 'go-board', 'go-search', 'go-stats', 'go-digest', 'go-memory',
       'toggle-sidebar', 'split-session', 'focus-mode', 'theme-cycle'];
     if (isInput && !alwaysActive.includes(id)) return;
 
@@ -76,7 +76,6 @@
       case 'go-stats': goto('/stats'); break;
       case 'go-digest': goto('/digest'); break;
       case 'go-memory': goto('/memory'); break;
-      case 'go-mcp': goto('/mcp'); break;
       case 'toggle-sidebar': ui.sideMenuOpen = !ui.sideMenuOpen; break;
       case 'split-session': {
         const m = page.url.pathname.match(/^\/session\/(.+)/);

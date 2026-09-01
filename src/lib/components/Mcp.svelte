@@ -1,10 +1,12 @@
 <script>
-  import { onMount, onDestroy } from 'svelte';
-  import { data, settings, loadSessions } from '$lib/state.svelte.js';
-  import { getMcpServers, mcpAction, pickFolder } from '$lib/api.js';
+  import { onDestroy, untrack } from 'svelte';
+  import { getMcpServers, mcpAction } from '$lib/api.js';
   import Icon from './Icon.svelte';
 
-  let cwd = $state('');
+  // MCP scopes are per-directory, so the lens is pinned to the session's own project — there is
+  // no picker to get wrong.
+  let { project = '' } = $props();
+
   let res = $state(null);          // { cwd, servers, diagnostics, error }
   let loading = $state(true);
   let busy = $state('');           // name of the server a logout/detail call is running for
@@ -15,25 +17,8 @@
   let notice = $state('');
   let poll = null;
 
-  // Known projects, most recently active first — same derivation as Settings. MCP scopes are
-  // per-directory, so the picker is what makes project- and local-scope servers visible at all.
-  const projs = $derived.by(() => {
-    const m = new Map();
-    for (const s of data.sessions) {
-      if (!s.project) continue;
-      const e = m.get(s.project) || { name: s.projectName || s.project, count: 0, last: '' };
-      e.count++;
-      const t = s.lastActivity || '';
-      if (t > e.last) e.last = t;
-      m.set(s.project, e);
-    }
-    return [...m.entries()]
-      .sort((a, b) => String(b[1].last).localeCompare(String(a[1].last)) || b[1].count - a[1].count)
-      .map(([p, e]) => [p, e.name]);
-  });
-
   const RANK = { needs_auth: 0, failed: 1, pending: 2, connected: 3 };
-  // Anything needing a human first: this page exists to fix broken auth, not to admire what works.
+  // Anything needing a human first: this lens exists to fix broken auth, not to admire what works.
   const servers = $derived([...(res?.servers || [])]
     .sort((a, b) => (RANK[a.state] ?? 9) - (RANK[b.state] ?? 9) || a.name.localeCompare(b.name)));
   const broken = $derived(servers.filter((s) => s.state === 'needs_auth' || s.state === 'failed').length);
@@ -46,16 +31,12 @@
   };
   const stateUi = (s) => STATE_UI[s] || { icon: 'dot', color: 'var(--muted)', label: s };
 
-  async function load(next = cwd) {
+  async function load(dir = project) {
     loading = true;
-    cwd = next;
-    try { res = await getMcpServers(next); } catch (_) { res = { servers: [], diagnostics: [], error: 'request failed' }; }
+    open = null;
+    details = {};
+    try { res = await getMcpServers(dir); } catch (_) { res = { servers: [], diagnostics: [], error: 'request failed' }; }
     finally { loading = false; }
-  }
-
-  async function browse() {
-    const r = await pickFolder();
-    if (r.ok && r.data?.dir) load(r.data.dir);
   }
 
   async function toggleDetails(name) {
@@ -63,14 +44,14 @@
     open = name;
     if (details[name]) return;
     busy = name;
-    const r = await mcpAction({ action: 'get', cwd, name });
+    const r = await mcpAction({ action: 'get', cwd: project, name });
     if (r.ok) details = { ...details, [name]: r.data.detail };
     busy = '';
   }
 
   async function logout(name) {
     busy = name;
-    const r = await mcpAction({ action: 'logout', cwd, name });
+    const r = await mcpAction({ action: 'logout', cwd: project, name });
     busy = '';
     notice = r.ok ? `Cleared credentials for ${name}.` : `Logout failed for ${name}.`;
     await load();
@@ -82,7 +63,7 @@
     notice = '';
     redirect = '';
     login = { id: null, name, url: null, done: false, needsPaste: false, output: '', starting: true };
-    const r = await mcpAction({ action: 'login', cwd, name });
+    const r = await mcpAction({ action: 'login', cwd: project, name });
     if (!r.ok) { login = null; notice = r.data?.error || `Could not start login for ${name}.`; return; }
     login = r.data.login;
     // The CLI holds the flow open until the OAuth callback lands (or the redirect URL is pasted),
@@ -113,9 +94,11 @@
 
   function closeLogin() { stopPoll(); login = null; }
 
-  onMount(async () => {
-    if (!data.sessions.length) { try { await loadSessions(); } catch (_) { /* list still usable */ } }
-    load(settings.quickLaunchProject || projs[0]?.[0] || '');
+  // SessionDetail swaps the `id` prop instead of remounting, so the lens has to refetch when the
+  // project underneath it changes.
+  $effect(() => {
+    const dir = project;  // tracked dep read BEFORE any guard (Svelte 5 trap)
+    untrack(() => { stopPoll(); login = null; load(dir); });
   });
   onDestroy(stopPoll);
 </script>
@@ -123,22 +106,16 @@
 <div class="mcp">
   <div class="mcp-head">
     <div>
-      <h1>MCP</h1>
+      <h2>MCP</h2>
       <p class="sub">
-        Servers Claude Code can reach from this project, health-checked live. Re-authenticate one
-        here instead of running <code>/mcp</code> in a terminal.
+        Servers Claude Code can reach from <code>{project || 'the user scope'}</code>, health-checked
+        live. Re-authenticate one here instead of running <code>/mcp</code> in a terminal.
       </p>
     </div>
     <div class="count" class:bad={broken > 0}>{broken > 0 ? `${broken} to fix` : servers.length}</div>
   </div>
 
   <div class="bar">
-    <select class="pick" value={cwd} onchange={(e) => load(e.currentTarget.value)}>
-      <option value="">Home (user scope + connectors)</option>
-      {#each projs as [p, name] (p)}<option value={p}>{name} — {p}</option>{/each}
-      {#if cwd && !projs.some(([p]) => p === cwd)}<option value={cwd}>{cwd}</option>{/if}
-    </select>
-    <button class="btn" onclick={browse}><Icon name="folder-open" size={14} /> Browse…</button>
     <button class="btn" onclick={() => load()} disabled={loading}>
       <Icon name={loading ? 'queued' : 'refresh'} size={14} /> {loading ? 'Checking…' : 'Refresh'}
     </button>
@@ -261,7 +238,7 @@
   .mcp { max-width: 900px; margin: 0 auto; padding: 24px 20px 80px; }
   .mcp-head { display: flex; align-items: flex-start; gap: 16px; margin-bottom: 18px; }
   .mcp-head > div:first-child { flex: 1 1 auto; }
-  h1 { font-size: 22px; margin: 0 0 4px; letter-spacing: -.01em; }
+  h2 { font-size: 18px; margin: 0 0 4px; letter-spacing: -.01em; }
   .sub { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.5; }
   .sub code { background: var(--bg3); padding: 1px 5px; border-radius: 5px; font-size: 12px; }
   .count { flex: none; font-weight: 700; font-size: 18px; background: var(--bg2); border: 1px solid var(--border); border-radius: 12px; padding: 8px 14px; color: var(--accent); }
