@@ -42,6 +42,33 @@ Retiré parce que **spécifique à tmux**, sans équivalent : l'onglet **Termina
 
 Ce qui n'a **plus besoin d'exister** (et ne doit pas revenir) : parsing du spinner / du footer de mode / du ghost text, comparaison de captures d'écran pour deviner « en train d'écrire vs terminé », délais anti-coalescence d'ink entre deux frappes, acceptation du dialogue de confiance, effacement du prompt réinjecté après un Échap, confirmation du dialogue « la conversation va être relue » après `/model`, et tout le pré-chauffage concurrent des captures (`warmPaneCaptures`) qui existait uniquement parce que `capture-pane` était synchrone et bloquait l'event loop.
 
+## Page MCP (`server/mcp.js`, `/mcp`)
+
+`/mcp` était un écran **TUI du CLI**. Les sessions vivant maintenant dans le processus hooked via
+l'Agent SDK, il n'y a plus de terminal interactif où l'ouvrir : un serveur qui retombe en *Needs
+authentication* devenait impossible à réparer depuis hooked. La page `/mcp` le remplace, bâtie sur
+les sous-commandes **non interactives** `claude mcp list|get|login|logout`.
+
+- **On parse la sortie texte de `claude mcp list`**, on ne lit pas les fichiers de config : c'est la
+  seule source qui *health-check* tous les serveurs **et** voit les connecteurs claude.ai (ils vivent
+  sur le compte, pas sur disque). Pas de mode JSON → le format **est** le contrat, épinglé par
+  `test/mcp.test.mjs` sur des captures verbatim (`test/fixtures/mcp/`). Le **scope**, lui, est déduit
+  du disque (`~/.claude.json` + `.mcp.json`) : gratuit, là où `claude mcp get` coûterait un spawn
+  health-checké par serveur.
+- **`claude mcp login` tourne sous un vrai PTY** (node-pty), pas `spawn` : il écrit l'URL via des
+  hyperliens OSC-8 et, pour un serveur OAuth ordinaire, **attend sur stdin** qu'on lui recolle l'URL
+  de redirection. Le PTY maintient ce process vivant entre les deux appels HTTP → les logins vivent
+  dans un registre épinglé sur `globalThis` (même raison que les sessions et les terminaux).
+- **`--no-browser` est toujours passé** : le navigateur doit s'ouvrir sur la machine qui *regarde* le
+  dashboard, pas sur celle qui l'exécute. On affiche l'URL en lien ; si les deux machines sont la
+  même, le callback OAuth retombe sur localhost et le CLI finit tout seul.
+- **Un connecteur claude.ai sort du flux immédiatement** après avoir imprimé l'URL : l'approbation se
+  fait ensuite sur le site. « Le process s'est terminé » n'y vaut donc **pas** « tu es authentifié »
+  — d'où le drapeau `outOfBand` dans le snapshot, et le message distinct côté page.
+- `stripCliAnsi` n'est pas le `stripAnsi` d'`agent.js` (qui ne retire que le CSI) : sans retirer les
+  OSC-8, l'URL apparaît **deux fois** sur la ligne. Noms distincts obligatoires — `server/index.js`
+  ré-exporte en `export *`, et un nom ambigu **disparaît silencieusement** du barrel.
+
 ## Svelte 5
 
 - Piège réactivité : `if (term && x) …` court-circuite sur `term` null (créé en async) → la prop `x` n'est **jamais lue donc non suivie** comme dépendance, et un changement de `x` ne re-déclenche pas l'effet. **Lire les deps suivies AVANT les gardes.**
