@@ -99,10 +99,10 @@ const DEFAULTS = {
   // Page d'accueil (espace ouvert à froid au chargement) : 'deck' ou une clé de nav.
   defaultPage: 'deck',
   // Onglets de navigation visibles à côté du Deck (paramétrable). Sous-ensemble de NAV_PAGES.
-  navTabs: ['sessions', 'search', 'stats', 'digest', 'memory'],
+  navTabs: ['sessions', 'search', 'stats', 'digest', 'memory', 'mcp'],
 };
 
-const NAV_PAGES = ['sessions', 'search', 'stats', 'digest', 'memory'];
+const NAV_PAGES = ['sessions', 'search', 'stats', 'digest', 'memory', 'mcp'];
 const DEFAULT_PAGES = ['deck', ...NAV_PAGES];
 
 // Ramène un objet arbitraire (fichier ou payload client) à des valeurs sûres et complètes.

@@ -33,6 +33,7 @@ export * from './events.js';
 export * from './live.js';
 export * from './agent.js';
 export * from './terminal.js';
+export * from './mcp.js';
 export * from './images.js';
 export * from './userFiles.js';
 export * from './status.js';
