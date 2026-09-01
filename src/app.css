@@ -469,6 +469,32 @@
   /* Layout tokens for the console density below. Only this scheme reads them. */
   --dd-row: 3px 8px;        /* list row padding — short lines, tight gutters */
   --dd-rule: 1px solid var(--border);  /* separation is a filet, never elevation */
+
+  /* ── Severity ramp ────────────────────────────────────────────────────────────────────────
+     The base palette colours a state by IDENTITY (working = brand blue, background = brand
+     violet). A supervision console colours it by HOW MUCH IT NEEDS YOU, so the eye can triage a
+     wall of rows without reading a word:
+
+       attention  → ERROR red     blocked, decide now
+       waiting    → WARN amber    your turn
+       working    → OK green      running, nothing to do
+       background → INFO blue     running, informational
+       idle/ended → dim grey      no signal
+
+     The point is what it does to a full sidebar: everything warm needs you, everything cool is
+     fine, everything grey is over. Under the old mapping, brand blue and brand violet were two
+     loud "all fine" colours competing with amber and red for attention.
+     These are var() indirections, so each one still resolves to its own light/dark value. */
+  --working: var(--success);        /* was --info: a healthy run is OK-green, not brand-blue */
+  --background: var(--info);        /* informational, not brand-violet */
+  --bgjob-rgb: var(--info-rgb);     /* keeps the bg-job glow on the same hue as its dot */
+  --ended: var(--idle);             /* finished = no signal left to report */
+}
+/* Dark redefines --background/--bgjob-rgb literally at (0,3,0), so the ramp has to restate them
+   at equal specificity and later in the file to win the tie. */
+:root[data-scheme="datadog"]:not([data-theme="light"]) {
+  --background: var(--info);
+  --bgjob-rgb: var(--info-rgb);
 }
 
 /* ═══ datadog — the LAYOUT: a supervision console, not a reskin ═══════════════════════════════
@@ -564,6 +590,12 @@
   box-shadow: none;
   min-height: 22px;
 }
+/* Zebra: the faintest possible alternation — enough to track a row across five columns without
+   turning the table into a barcode. Declared BEFORE :hover, which scores the same (0,6,0) and so
+   needs to come later to win the tie. */
+:root[data-scheme="datadog"] .fleet:not(.grid) .fcard:nth-of-type(even) {
+  background: rgba(var(--ink-rgb), .035);
+}
 :root[data-scheme="datadog"] .fleet:not(.grid) .fcard:hover { background: var(--hover); box-shadow: none; }
 :root[data-scheme="datadog"] .fleet:not(.grid) .frow1 { display: contents; }
 /* The status bar fills the row's full height — a Datadog table's leading severity rail. */
@@ -589,8 +621,11 @@
 :root[data-scheme="datadog"] .fleet:not(.grid) .fconv,
 :root[data-scheme="datadog"] .fleet:not(.grid) .fpills { display: none; }
 :root[data-scheme="datadog"] .fleet:not(.grid) .fcard-act { top: 0; bottom: 0; height: auto; border: 0; background: transparent; }
-/* Column header: the quiet uppercase caption row every console table carries. */
+/* Column header: the quiet uppercase caption row every console table carries. Sticky, so the
+   columns stay named once a long repo group scrolls under it — needs its own opaque background,
+   a sticky element still lets content slide beneath it. */
 :root[data-scheme="datadog"] .fleet:not(.grid) .fhead {
+  position: sticky; top: 0; z-index: 2; background: var(--bg2);
   border-bottom: 1px solid var(--border2);
   font-family: var(--mono); font-size: 9px; font-weight: 700;
   letter-spacing: .12em; text-transform: uppercase; color: var(--muted);
@@ -643,6 +678,20 @@
   font-family: var(--mono); font-size: 9.5px; letter-spacing: .1em; text-transform: uppercase;
 }
 :root[data-scheme="datadog"] .hdr-icon-btn, :root[data-scheme="datadog"] .hdr-more > summary { height: 24px; width: 26px; }
+
+/* ── Zone 3b — topbar gauges: a threshold readout, not a progress bar ───────────────────────── */
+/* A console gauge answers "am I about to hit the wall?", so the number carries the colour and the
+   track is a hairline. Two steps: warn >=75%, crit >=90% (the `crit` class comes from TopBar and
+   is inert in every other scheme). */
+:root[data-scheme="datadog"] .tb-gauge { width: 74px; gap: 2px; }
+:root[data-scheme="datadog"] .tb-g-lbl { font-size: 9px; letter-spacing: .1em; font-weight: 700; }
+:root[data-scheme="datadog"] .tb-g-track { height: 3px; background: var(--track-dark); }
+:root[data-scheme="datadog"] .tb-g-fill { background: var(--success); }
+:root[data-scheme="datadog"] .tb-gauge.warn .tb-g-fill { background: var(--warn); }
+:root[data-scheme="datadog"] .tb-gauge.crit .tb-g-fill { background: var(--danger); }
+/* The percentage itself takes the threshold colour — the readable signal at a glance. */
+:root[data-scheme="datadog"] .tb-gauge.warn .tb-g-lbl span:last-child { color: var(--warn); }
+:root[data-scheme="datadog"] .tb-gauge.crit .tb-g-lbl span:last-child { color: var(--danger); }
 
 /* ── Zone 4 — context dock: shorter sections, quieter captions ──────────────────────────────── */
 :root[data-scheme="datadog"] .dh { padding: 6px 10px 4px; font-size: 9px; letter-spacing: .12em; }
