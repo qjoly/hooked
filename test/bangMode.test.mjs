@@ -11,6 +11,7 @@
  * rendu injecté. L'exécution elle-même (spawn + env de login) se vérifie en bout-en-bout.
  */
 import { describe, it, expect } from 'vitest';
+import { bangKind } from '../src/lib/format.js';
 import { parseBangCommand, formatLocalCommand, stripAnsi } from '../server/agent.js';
 
 describe('parseBangCommand', () => {
@@ -111,6 +112,26 @@ describe('stripAnsi', () => {
     it('distingue `!` de `!!` sur la même commande', () => {
       expect(parseBangCommand('!htop').interactive).toBe(false);
       expect(parseBangCommand('!!htop').interactive).toBe(true);
+    });
+  });
+
+  // Le front duplique une détection minimale (bangKind) pour choisir le LIBELLÉ et la COULEUR de la
+  // bulle. Un doublon de règle de parsing dérive toujours, sauf s'il est tenu par un test : les deux
+  // doivent classer la même table de la même façon.
+  describe('bangKind (front) est d\'accord avec parseBangCommand (serveur)', () => {
+    const TABLE = [
+      '!ls -la', '! mise deploy', '!  git status  ', '!git log | head -3', '!echo "a b" > /tmp/x',
+      '!!claude mcp login mcp-gateway', '!! vim /tmp/x', '!!htop',
+      '!', '!  ', '!!', '!! ', '!!!ls', 'ls', '', 'hello !ls', null, undefined, 42,
+      '!for f in *; do\n  echo $f\ndone',
+    ];
+    it('classe chaque entrée pareil : rien, capture, ou interactif', () => {
+      for (const t of TABLE) {
+        const srv = parseBangCommand(t);
+        const front = bangKind(t);
+        const expected = srv === null ? null : (srv.interactive ? 'interactive' : 'shell');
+        expect(front, `désaccord sur ${JSON.stringify(t)}`).toBe(expected);
+      }
     });
   });
 });
