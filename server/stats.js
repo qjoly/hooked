@@ -357,7 +357,7 @@ function sessionDetail(id) {
   const subagents = buildSubagents(s.file);
   // runs de workflow (outil `Workflow`) : phases + agents, live pendant le run puis figés depuis
   // l'enregistrement final. Cf. server/workflows.js pour les deux sources de vérité.
-  const workflows = buildWorkflows(s.file, id);
+  const workflows = buildWorkflows(s.file);
   const todos = latestTodos(s.file);
   const pane = paneForSession(id);
   const li = resolveLaunchForSession(id, pane);
