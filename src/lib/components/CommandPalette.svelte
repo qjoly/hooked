@@ -31,6 +31,7 @@
     { id: 'nav:stats', label: 'Go to Stats', section: 'Navigation', icon: 'stats', action: () => goto('/stats') },
     { id: 'nav:digest', label: 'Go to Digest', section: 'Navigation', icon: 'digest', action: () => goto('/digest') },
     { id: 'nav:memory', label: 'Go to Memory', section: 'Navigation', icon: 'memory', action: () => goto('/memory') },
+  { id: 'nav:mcp', label: 'Go to MCP', section: 'Navigation', icon: 'mcp', action: () => goto('/mcp') },
     { id: 'nav:settings', label: 'Go to Settings', section: 'Navigation', icon: 'settings', action: () => goto('/settings') },
   ];
 
