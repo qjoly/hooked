@@ -46,6 +46,16 @@
   const toggle = (k) => { expanded = { ...expanded, [k]: !expanded[k] }; };
 
   const JOB_ICON = { bash: 'bash', monitor: 'eye', wakeup: 'wakeup' };
+  // issue d'un run de workflow : un run tué ou en échec ne doit pas porter la coche verte.
+  const WF_ICON = {
+    running:   { icon: 'working',      tint: 'working' },
+    completed: { icon: 'circle-check', tint: 'ended' },
+    killed:    { icon: 'ban',          tint: 'waiting' },
+    cancelled: { icon: 'ban',          tint: 'waiting' },
+    timeout:   { icon: 'clock',        tint: 'waiting' },
+    failed:    { icon: 'attention',    tint: 'attention' },
+    error:     { icon: 'attention',    tint: 'attention' },
+  };
 </script>
 
 <aside class="dock" aria-label="Session context" style="width:{ui.dockWidth}px;min-width:{ui.dockWidth}px">
@@ -109,7 +119,7 @@
         <div class="db">
           {#each workflows.slice(0, 3) as w}
             <div class="ditem" class:cur={w.status === 'running'}>
-              <span class="dst"><Icon name={w.status === 'running' ? 'working' : 'circle-check'} size={13} color={w.status === 'running' ? 'var(--working)' : 'var(--ended)'} /></span>
+              <span class="dst"><Icon name={WF_ICON[w.status]?.icon || 'circle'} size={13} color="var(--{WF_ICON[w.status]?.tint || 'muted'})" title={w.status} /></span>
               <span class="dtxt mono">{w.name}</span>
               <span class="dnum">{w.doneCount}/{w.agentCount}</span>
             </div>
