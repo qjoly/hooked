@@ -3,7 +3,7 @@
   import { goto } from '$app/navigation';
   import { ui, data, settings, loadSessions, openModal, sessionTitle, sessionTags, renameSession, toggleFocus, splitWithMostRecent, canSplit, toggleArchive, isArchived, unarchive } from '$lib/state.svelte.js';
   import { getSession, setMode, setModelEffort, setAutoApprove, openInEditor, openInGhostty, fork, launch, deleteSession, connectSessionStream, listTerminals, openTerminal, killTerminal } from '$lib/api.js';
-  import { STATE_LABEL, fmtCost, fmtTokens, fmtDuration, shortModel, prLabel, issueLabel, PERMISSION_MODES, modeLabel, modeMeta, modelAlias, tagColor } from '$lib/format.js';
+  import { STATE_LABEL, fmtCost, fmtTokens, fmtDuration, shortModel, prLabel, issueLabel, PERMISSION_MODES, modeLabel, modeMeta, modelAlias, tagColor, resumeCommand } from '$lib/format.js';
   import { page } from '$app/state';
   import ModelEffort from './ModelEffort.svelte';
   import ChatBubble from './ChatBubble.svelte';
@@ -547,6 +547,15 @@
   async function copyExport() {
     try { await navigator.clipboard.writeText(conversationToMarkdown(s)); exportCopied = true; setTimeout(() => (exportCopied = false), 1500); } catch (_) {}
   }
+  // Commande de reprise manuelle. Utile quand on veut la session dans son propre terminal plutôt
+  // que dans hooked (un TUI, un pager, du copier-coller lourd) — c'est la MÊME session, l'Agent SDK
+  // spawne exactement cette ligne.
+  let cmdCopied = $state(false);
+  async function copyResumeCmd() {
+    const cmd = resumeCommand(s);
+    if (!cmd) return;
+    try { await navigator.clipboard.writeText(cmd); cmdCopied = true; setTimeout(() => (cmdCopied = false), 1500); } catch (_) {}
+  }
   // Éditeur préféré (réglage partagé) : sert au libellé du bouton et à l'icône.
   const prefEditor = $derived(editorFor(settings.editor));
   let editorBusy = $state(false);
@@ -651,6 +660,10 @@
             <button class="vscode-btn" title="Copy a shareable link that opens this session in hooked" onclick={copyLink}>{#if linkCopied}<Icon name="check" size={14} /> copied{:else}<Icon name="link" size={14} /> Copy link{/if}</button>
             <button class="vscode-btn" disabled={editorBusy} onclick={openEditor} title="Open the entire project in {prefEditor.label} (change it in Settings → Editor)">{#if editorBusy}<Icon name="queued" size={14} />{:else}<Icon name={prefEditor.icon} size={14} />{/if} Open in {prefEditor.label}</button>
             <button class="vscode-btn" disabled={ghosttyBusy} onclick={openGhostty} title="Open the project folder in Ghostty">{#if ghosttyBusy}<Icon name="queued" size={14} />{:else}<Icon name="ghostty" size={14} />{/if} Open in Ghostty</button>
+            <button class="vscode-btn" onclick={copyResumeCmd}
+                    title={s.live
+                      ? 'Copy `claude --resume` for this session — WARNING: hooked is driving it right now, running the command too would fight over the session lock'
+                      : 'Copy `claude --resume` for this session, to reopen it in your own terminal'}>{#if cmdCopied}<Icon name="check" size={14} /> copied{:else}<Icon name="shell" size={14} /> Copy resume command{/if}</button>
             <button class="vscode-btn" onclick={copyExport} title="Copy the conversation as Markdown to the clipboard">{#if exportCopied}<Icon name="check" size={14} /> copied{:else}<Icon name="copy" size={14} /> Copy as Markdown{/if}</button>
             <button class="vscode-btn" onclick={() => openModal('editTags', { sessionId: id })} title="Add or remove tags on this session (PR review tags are automatic)"><Icon name="tag" size={14} /> Edit tags</button>
             {#if sb.focusBtn !== false}<button class="vscode-btn" class:on={ui.focus} onclick={toggleFocus} title="Focus mode: full-screen conversation"><Icon name="maximize" size={14} /> {ui.focus ? 'Exit focus' : 'Focus'}</button>{/if}

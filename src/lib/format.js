@@ -66,6 +66,22 @@ export const STATE_LABEL = {
   background: 'Running in background', idle: 'Paused', ended: 'Ended', past: 'Past',
 };
 
+// Commande à coller dans un terminal pour reprendre une session À LA MAIN. L'Agent SDK spawne
+// exactement ça (`claude --resume=<id>`, vérifiable dans un `ps`), donc c'est bien la MÊME session
+// qui repart, pas une copie. Corollaire à garder en tête : ne pas la lancer pendant que hooked pilote
+// déjà cette session — deux process sur un même transcript se disputent le verrou, et le perdant
+// devient un fantôme qui avale les messages.
+export function resumeCommand(s) {
+  if (!s || !s.id) return '';
+  const dir = s.project || s.cwd || '';
+  const cmd = `claude --resume=${s.id}`;
+  return dir ? `cd ${shellQuote(dir)} && ${cmd}` : cmd;
+}
+// Quoting POSIX : un chemin de projet peut contenir une espace, et rien n'interdit une apostrophe.
+function shellQuote(v) {
+  return "'" + String(v).replace(/'/g, "'\\''") + "'";
+}
+
 // Une session terminée ET froide, c'est-à-dire sans activité depuis 24 h. C'est le seul cas où
 // « terminée » vaut « rangée » : une session qui vient de finir a le plus souvent été tuée par un
 // redémarrage de hooked, et la sortir de la liste active sur le champ obligeait à aller la
