@@ -40,6 +40,11 @@ export const getVcsBranchDiff = (id, branch, base = null, root = null) =>
 export const getVcsBlame = (id, file, rev = '') =>
   jget(`/api/session/vcs-blame?id=${encodeURIComponent(id)}&file=${encodeURIComponent(file)}`
     + (rev ? '&rev=' + encodeURIComponent(rev) : ''));
+// Texte COMPLET d'un message user coupé dans la conversation (bulle marquée `truncated`),
+// chargé quand on déplie la bulle. `uuid` = le forkUuid du message. { text }.
+export const getMessageText = (id, uuid, agent = null) =>
+  jget(`/api/session/message?id=${encodeURIComponent(id)}&uuid=${encodeURIComponent(uuid)}`
+    + (agent ? '&agent=' + encodeURIComponent(agent) : ''));
 // Diff COMPLET (sans plafond) d'un fichier changé, chargé à la demande (lentille Ship) quand
 // l'entrée capée était marquée `truncated`. { change: {...} }.
 export const getFileChangeFull = (id, path) =>
