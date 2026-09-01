@@ -1,0 +1,17 @@
+Checking MCP server health…
+
+claude.ai Figma: https://mcp.figma.com/mcp - ! Needs authentication
+claude.ai Datadog: https://mcp.datadoghq.eu/api/unstable/mcp-server/mcp - ! Needs authentication
+claude.ai Linear: https://mcp.linear.app/mcp - ! Needs authentication
+hooked: node /Users/dev/hooked/mcp/server.cjs - ✔ Connected
+incident_io: /Users/dev/.incidentio/incident mcp - ✔ Connected
+mcp-gateway: https://mcp.internal.example.com/mcp (HTTP) - ✔ Connected
+
+MCP config diagnostics ⚠
+
+For help configuring MCP servers, see: https://code.claude.com/docs/en/mcp
+
+[Conflicting scopes]
+├ Server "hooked" is defined in multiple scopes with different endpoints: user (node /Users/dev/hooked/mcp/server.cjs), project (node mcp/server.cjs), local (node /Users/dev/hooked/mcp/server.cjs). OAuth tokens are stored per endpoint, so authenticating in one context will not carry over.
+└ Keep the correct endpoint and remove the others: `claude mcp remove hooked -s user` or `claude mcp remove hooked -s project` or `claude mcp remove hooked -s local`
+

@@ -81,6 +81,10 @@ export const replaceSessionMeta = (map) => jpost('/api/session-meta', { replace:
 // date; getDigest(date) → one digest (or { status:'absent' }); generateDigest → kick off (async)
 // generation, poll getDigest until status is done/partial/error.
 export const getMemory = () => jget('/api/memory');
+// MCP servers of a project (health-checked list, scope, diagnostics) + the OAuth actions.
+// `cwd` selects the project: project- and local-scope servers are per-directory.
+export const getMcpServers = (cwd) => jget('/api/mcp?cwd=' + encodeURIComponent(cwd || ''));
+export const mcpAction = (body) => jpost('/api/mcp', body);
 
 export const getDigests = () => jget('/api/digest');
 export const getDigest = (date) => jget('/api/digest?date=' + encodeURIComponent(date));
