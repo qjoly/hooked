@@ -66,17 +66,28 @@ export const STATE_LABEL = {
   background: 'Running in background', idle: 'Paused', ended: 'Ended', past: 'Past',
 };
 
-// Le composer a-t-il envoyé une COMMANDE plutôt qu'un message ? Sert uniquement à l'affichage
-// (libellé + couleur de la bulle optimiste) — le parsing qui décide vraiment reste côté serveur
-// (parseBangCommand). Les deux sont tenus d'accord par un test qui les compare sur la même table,
-// donc ce doublon-là ne peut pas dériver en silence.
-export function bangKind(text) {
+// Le composer a-t-il envoyé une COMMANDE plutôt qu'un message ? Sert à l'affichage (libellé, couleur
+// de la bulle) et au rattachement de l'écho à son bloc. Le parsing qui décide vraiment reste côté
+// serveur (parseBangCommand) ; même forme de retour exprès, pour qu'un test puisse comparer les deux
+// champ par champ sur une même table — ce doublon ne peut donc pas dériver en silence.
+export function parseBang(text) {
   if (typeof text !== 'string') return null;
   const m = text.match(/^(!!?)\s*(\S[\s\S]*)$/);
   if (!m) return null;
-  const cmd = m[2].trim();
-  if (!cmd || cmd.startsWith('!')) return null;
-  return m[1] === '!!' ? 'interactive' : 'shell';
+  const command = m[2].trim();
+  if (!command || command.startsWith('!')) return null;
+  return { command, kind: m[1] === '!!' ? 'interactive' : 'shell' };
+}
+
+// Ce message du transcript est-il le bloc produit par `command` ? Le serveur écrit le fence avec
+// `$ <commande>` en première ligne du corps (formatLocalCommand / formatInteractiveCommand), c'est
+// donc l'ancre de correspondance. Sert à remonter l'écho de la commande JUSTE AVANT son terminal, au
+// lieu de le laisser tomber tout en bas du fil.
+const BLOCK_CMD_RE = /^```(?:console|pty)\b[^\n]*\n\$ ([^\n]*)/m;
+export function isBlockForCommand(text, command) {
+  if (!text || !command) return false;
+  const m = String(text).match(BLOCK_CMD_RE);
+  return !!m && m[1].trim() === String(command).trim();
 }
 
 // Commande à coller dans un terminal pour reprendre une session À LA MAIN. L'Agent SDK spawne

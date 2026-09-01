@@ -11,7 +11,7 @@
  * rendu injecté. L'exécution elle-même (spawn + env de login) se vérifie en bout-en-bout.
  */
 import { describe, it, expect } from 'vitest';
-import { bangKind } from '../src/lib/format.js';
+import { parseBang, isBlockForCommand } from '../src/lib/format.js';
 import { parseBangCommand, formatLocalCommand, stripAnsi } from '../server/agent.js';
 
 describe('parseBangCommand', () => {
@@ -118,19 +118,53 @@ describe('stripAnsi', () => {
   // Le front duplique une détection minimale (bangKind) pour choisir le LIBELLÉ et la COULEUR de la
   // bulle. Un doublon de règle de parsing dérive toujours, sauf s'il est tenu par un test : les deux
   // doivent classer la même table de la même façon.
-  describe('bangKind (front) est d\'accord avec parseBangCommand (serveur)', () => {
+  describe('parseBang (front) est d\'accord avec parseBangCommand (serveur)', () => {
     const TABLE = [
       '!ls -la', '! mise deploy', '!  git status  ', '!git log | head -3', '!echo "a b" > /tmp/x',
       '!!claude mcp login mcp-gateway', '!! vim /tmp/x', '!!htop',
       '!', '!  ', '!!', '!! ', '!!!ls', 'ls', '', 'hello !ls', null, undefined, 42,
       '!for f in *; do\n  echo $f\ndone',
     ];
-    it('classe chaque entrée pareil : rien, capture, ou interactif', () => {
+    it('extrait la MÊME commande et le même caractère interactif', () => {
       for (const t of TABLE) {
         const srv = parseBangCommand(t);
-        const front = bangKind(t);
-        const expected = srv === null ? null : (srv.interactive ? 'interactive' : 'shell');
-        expect(front, `désaccord sur ${JSON.stringify(t)}`).toBe(expected);
+        const front = parseBang(t);
+        const label = `désaccord sur ${JSON.stringify(t)}`;
+        if (srv === null) { expect(front, label).toBe(null); continue; }
+        expect(front, label).not.toBe(null);
+        expect(front.command, label).toBe(srv.command);
+        expect(front.kind === 'interactive', label).toBe(srv.interactive);
+      }
+    });
+  });
+
+  // L'écho d'une commande doit s'afficher AVANT son bloc, donc il faut savoir quel message du
+  // transcript ce bloc est. L'ancre est `$ <commande>` en première ligne du fence, écrite par
+  // formatLocalCommand / formatInteractiveCommand — d'où un aller-retour avec les vraies sorties.
+  describe('isBlockForCommand', () => {
+    const con = formatLocalCommand('id', 0, 'uid=502(qjoly)\n', false, '/x');
+    const pty = '```pty id=term_37 cwd=/x\n$ id\n```';
+
+    it('reconnaît le bloc capturé produit par la commande', () => {
+      expect(isBlockForCommand(con, 'id')).toBe(true);
+    });
+    it('reconnaît le bloc interactif produit par la commande', () => {
+      expect(isBlockForCommand(pty, 'id')).toBe(true);
+    });
+    it('ne confond pas deux commandes différentes', () => {
+      expect(isBlockForCommand(con, 'ls')).toBe(false);
+      expect(isBlockForCommand(pty, 'id -u')).toBe(false);
+    });
+    it('ignore un message ordinaire qui parle de la commande', () => {
+      expect(isBlockForCommand('lance `id` pour voir', 'id')).toBe(false);
+      expect(isBlockForCommand('$ id', 'id')).toBe(false);   // pas de fence : pas un bloc
+    });
+    it('ne matche pas un fence d\'un autre langage', () => {
+      expect(isBlockForCommand('```sh\n$ id\n```', 'id')).toBe(false);
+    });
+    it('tolère les entrées vides', () => {
+      for (const [t, c] of [[null, 'id'], [con, ''], ['', ''], [undefined, undefined]]) {
+        expect(isBlockForCommand(t, c)).toBe(false);
       }
     });
   });
