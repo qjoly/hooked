@@ -17,6 +17,7 @@
   import { fingerprint, isReviewed as hasReview, toggleReviewed as tickReview,
            toMap as reviewedToMap, toEntries as reviewedToEntries } from '$lib/reviewState.js';
   import { loadDraft, saveDraft } from '$lib/reviewDraft.js';
+  import { getBinding, matchesEvent, formatKeys } from '$lib/shortcuts.js';
 
   let { s, id, onReview = null, canReview = true, active = false } = $props();
 
@@ -204,13 +205,15 @@
   }
 
   // keyboard: J/K next/prev file, V mark reviewed — only while Branch is the active lens.
+  const reviewKeys = getBinding('review-file');
+  const reviewKey = formatKeys(reviewKeys);
   function onKey(e) {
     if (!active || e.metaKey || e.ctrlKey || e.altKey) return;
     const t = e.target;
     if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return;
     if (e.key === 'j' || e.key === 'J') { e.preventDefault(); activeIdx = Math.min(changes.length - 1, activeIdx + 1); }
     else if (e.key === 'k' || e.key === 'K') { e.preventDefault(); activeIdx = Math.max(0, activeIdx - 1); }
-    else if (e.key === 'v' || e.key === 'V') {
+    else if (matchesEvent(reviewKeys, e)) {
       if (!activeFile) return;
       e.preventDefault();
       reviewCurrent();
@@ -304,7 +307,7 @@
       </div>
       <div class="sf-foot">
         <div class="sf-prog"><i style="width:{changes.length ? Math.round((reviewedCount / changes.length) * 100) : 0}%"></i></div>
-        <div class="sf-hint">J/K next file · V mark reviewed</div>
+        <div class="sf-hint">J/K next file · {reviewKey} mark reviewed</div>
       </div>
     </aside>
     <Grip value={ui.shipFilesWidth} set={(w) => (ui.shipFilesWidth = w)}
@@ -324,7 +327,8 @@
           <label class="sd-compact" title="Hide the unchanged context lines">
             <input type="checkbox" bind:checked={compact} /> compact
           </label>
-          <button class="sd-review" class:done={isReviewed(activeFile.file)} onclick={reviewCurrent}>
+          <button class="sd-review" class:done={isReviewed(activeFile.file)} onclick={reviewCurrent}
+                  title="Mark this file reviewed ({reviewKey})">
             {#if isReviewed(activeFile.file)}<Icon name="check" size={14} /> Reviewed{:else}Mark reviewed{/if}
           </button>
         </div>
