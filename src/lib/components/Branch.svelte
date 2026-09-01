@@ -11,7 +11,7 @@
   import Grip from './Grip.svelte';
   import Icon from '$lib/components/Icon.svelte';
   import { toSegments, countStats } from '$lib/difflines.js';
-  import { getVcsBranches, getVcsBranchDiff } from '$lib/api.js';
+  import { getVcsBranches, getVcsBranchDiff, getVcsBlame } from '$lib/api.js';
   import { settings, ui } from '$lib/state.svelte.js';
   import { editorFor } from '$lib/editors.js';
   import { fingerprint, isReviewed as hasReview, toggleReviewed as tickReview,
@@ -108,6 +108,20 @@
   let activeIdx = $state(0);
   $effect(() => { changes.length; untrack(() => { if (activeIdx >= changes.length) activeIdx = Math.max(0, changes.length - 1); }); });
   const activeFile = $derived(changes[activeIdx] || null);
+
+  // Blame under the cursor: this diff runs from the fork point (merge-base, or the base branch
+  // when there is none) to the branch head, so each side is blamed at that revision. DiffView
+  // ignores the answer when the blamed line's text no longer matches the line on screen.
+  const mergeBase = $derived(diffKey ? (diffCache[diffKey]?.mergeBase || null) : null);
+  const blameFor = $derived.by(() => {
+    if (!activeFile || activeFile.binary || meta.vcs === 'jj') return null;
+    return {
+      file: activeFile.file,
+      old: mergeBase || base || null,
+      new: branch || null,
+      load: (rev) => getVcsBlame(id, activeFile.file, rev),
+    };
+  });
 
   // ── review ticks ── bound to the CONTENT reviewed, not just to the path ─────────────────
   // `fileFp` fingerprints the diff a file currently shows; a tick stores that fingerprint. So a
@@ -338,6 +352,7 @@
           {:else}
             {#each fileDiffs(activeFile) as d (d.opIndex)}
               <DiffView oldStr={d.oldStr} newStr={d.newStr} name={activeFile.name} mode={effMode} {compact}
+                        blame={blameFor}
                         commentable={!!onReview}
                         comments={commentsFor(activeFile.file, d.opIndex)}
                         onComment={(p) => addComment(activeFile.file, d.opIndex, activeFile.name, p)}
