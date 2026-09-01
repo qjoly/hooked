@@ -206,6 +206,29 @@ describe('buildWorkflows — enregistrement final (fait autorité)', () => {
     expect(w.agents[0].resultPreview).toBe('r1');
   });
 
+  it("préserve les états d'agent d'un run TUÉ (progress / start), sans les rabattre sur done", () => {
+    // Relevé sur les enregistrements réels : un agent porte `done`, `progress`, `start` ou
+    // `error`. `progress`/`start` n'apparaissent que sur un run tué — l'agent a été interrompu
+    // en vol. Les afficher comme terminés mentirait ; doneCount ne compte donc que les `done`.
+    const d = scaffold('states');
+    write(d.fp, [...launch(), notification('killed')]);
+    fs.writeFileSync(d.record, JSON.stringify({
+      runId: RUN, status: 'killed', phases: [{ title: 'Explore' }],
+      workflowProgress: [
+        { type: 'workflow_agent', index: 1, label: 'a', phaseTitle: 'Explore', agentId: 'aaa', state: 'done' },
+        { type: 'workflow_agent', index: 2, label: 'b', phaseTitle: 'Explore', agentId: 'bbb', state: 'progress' },
+        { type: 'workflow_agent', index: 3, label: 'c', phaseTitle: 'Explore', agentId: 'ccc', state: 'start' },
+        { type: 'workflow_agent', index: 4, label: 'd', phaseTitle: 'Explore', agentId: 'ddd', state: 'error' },
+      ],
+    }));
+    const [w] = buildWorkflows(d.fp, SESSION);
+    expect(w.status).toBe('killed');
+    expect(w.agents.map((a) => a.state)).toEqual(['done', 'progress', 'start', 'error']);
+    expect(w.doneCount).toBe(1);
+    expect(w.runningCount).toBe(0);   // ni `progress` ni `start` ne sont « en cours » : le run est mort
+    expect(w.agentCount).toBe(4);
+  });
+
   it('ajoute une phase mentionnée par un agent mais absente de meta.phases', () => {
     const d = scaffold('extra');
     write(d.fp, launch());
