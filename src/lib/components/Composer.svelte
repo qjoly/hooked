@@ -289,7 +289,7 @@
             placeholder={newSession
               ? 'Describe your task to start the session…  (Enter to launch · @ file · / command · paste an image)'
               : alive
-                ? 'Reply to Claude…  (Enter to send · Shift+Enter = new line · @ file · / command · ! shell · paste an image · Esc×2 interrupts)'
+                ? 'Reply to Claude…  (Enter to send · Shift+Enter = new line · @ file · / command · ! shell · !! interactive shell · paste an image · Esc×2 interrupts)'
                 : 'session not running — sending will re-run claude --resume…  (@ file · / command · paste an image)'}
             oninput={onInput} onkeydown={onKeydown} onpaste={onPaste} onblur={() => setTimeout(closeAc, 150)}></textarea>
   <button class="reply-send" disabled={busy || uploading > 0} onclick={send}>{#if newSession}Launch <Icon name="external" size={14} />{:else if alive}Send <Icon name="send" size={14} />{:else}Restart <Icon name="external" size={14} />{/if}</button>
