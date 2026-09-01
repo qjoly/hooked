@@ -3,7 +3,7 @@
   import { goto } from '$app/navigation';
   import { ui, data, settings, loadSessions, openModal, sessionTitle, sessionTags, renameSession, toggleFocus, splitWithMostRecent, canSplit, toggleArchive, isArchived, unarchive } from '$lib/state.svelte.js';
   import { getSession, setMode, setModelEffort, setAutoApprove, openInEditor, openInGhostty, fork, launch, deleteSession, connectSessionStream, listTerminals, openTerminal, killTerminal } from '$lib/api.js';
-  import { STATE_LABEL, fmtCost, fmtTokens, fmtDuration, shortModel, prLabel, issueLabel, PERMISSION_MODES, modeLabel, modeMeta, modelAlias, tagColor, resumeCommand, bangKind } from '$lib/format.js';
+  import { STATE_LABEL, fmtCost, fmtTokens, fmtDuration, shortModel, prLabel, issueLabel, PERMISSION_MODES, modeLabel, modeMeta, modelAlias, tagColor, resumeCommand, parseBang, isBlockForCommand } from '$lib/format.js';
   import { page } from '$app/state';
   import ModelEffort from './ModelEffort.svelte';
   import ChatBubble from './ChatBubble.svelte';
@@ -301,7 +301,8 @@
     // résultat arrive comme bloc `console` ou terminal `pty`. L'afficher « queued » laissait croire à
     // un envoi bloqué — et le dédoublonnage ne pouvait jamais l'effacer, puisque le transcript
     // contient le bloc, pas le texte tapé. On la marque donc comme commande.
-    queued = [...queued, { text: t, ts: new Date().toISOString(), kind: bangKind(t) }];
+    const bang = parseBang(t);
+    queued = [...queued, { text: t, ts: new Date().toISOString(), kind: bang && bang.kind, cmd: bang ? bang.command : '' }];
     forceBottom = true;
     stickToBottom = true;            // après un envoi, on re-suit la conversation
     await tick();
@@ -541,6 +542,31 @@
     }
     modeBusy = false;
   }
+  // Rattachement de l'écho d'une commande au bloc qu'elle a produit, pour l'afficher JUSTE AVANT son
+  // terminal. Sans ça l'écho tombait après toute la boucle des messages, donc sous le bloc — on lisait
+  // le résultat avant la commande. Une entrée ne s'attache qu'à UN message (le premier qui matche),
+  // sinon deux `!!id` identiques colleraient leur écho au même bloc.
+  const cmdEchoes = $derived.by(() => {
+    const map = new Map();
+    const cmds = queued.filter((q) => q.kind && q.cmd);
+    if (!cmds.length) return map;
+    const msgs = (s && s.messages) || [];
+    const used = new Set();
+    for (let i = 0; i < msgs.length; i++) {
+      if (msgs[i].role !== 'user') continue;
+      const hit = cmds.find((q) => !used.has(q.ts) && isBlockForCommand(msgs[i].text, q.cmd));
+      if (!hit) continue;
+      used.add(hit.ts);
+      map.set(i, [...(map.get(i) || []), hit]);
+    }
+    return map;
+  });
+  // Celles dont le bloc n'est pas encore arrivé : rendues en bas, elles remonteront d'elles-mêmes.
+  const pendingQueued = $derived.by(() => {
+    const attached = new Set([...cmdEchoes.values()].flat().map((q) => q.ts));
+    return queued.filter((q) => !attached.has(q.ts));
+  });
+
   // Copie le deep-link ABSOLU vers cette session (partageable / ouverture à froid). L'origine réelle
   // du navigateur est utilisée → correct quel que soit l'accès (localhost / IP LAN / MagicDNS).
   let linkCopied = $state(false);
@@ -697,19 +723,9 @@
     <!-- la conversation reste montée en lentille Build (colonne copilote à côté de l'IDE) -->
     <div class="pane" class:active={tab === 'chat'}>
       <div class="chat">
-        {#if startIdx > 0}
-          <button class="show-earlier" onclick={showEarlier}><Icon name="arrow-up" size={14} /> Show earlier messages · {startIdx} hidden</button>
-        {/if}
-        {#if (s.messages || []).length}
-          <!-- key by stable ABSOLUTE index (startIdx + j), NOT m.ts: the streaming turn's ts advances on every
-               block (conversation.js rewrites prev.ts), so a ts-based key destroys+recreates the whole live bubble
-               each tick → the "jumps". Transcript is append/merge-only, so a message's absolute index never moves,
-               even as the render window slides → the key stays stable across MSG_STEP expansions and new ticks. -->
-          {#each (s.messages || []).slice(startIdx) as m, j (startIdx + j)}<ChatBubble {m} onfork={quickFork} onforkadvanced={openFork} {forkState} session={id} />{/each}
-        {:else if !queued.length}
-          <div class="pane-empty">Empty conversation.</div>
-        {/if}
-        {#each queued as q (q.ts)}
+        <!-- Une seule définition : la même bulle est rendue soit au-dessus de son bloc (écho rattaché),
+             soit en bas du fil tant que le bloc n'est pas arrivé. -->
+        {#snippet commandBubble(q)}
           <div class="bubble user" class:queued={!q.kind} class:command={q.kind}>
             <div class="who"><Icon name="user" size={14} /> You
               {#if q.kind}
@@ -720,7 +736,23 @@
             </div>
             <div class="md">{q.text}</div>
           </div>
-        {/each}
+        {/snippet}
+        {#if startIdx > 0}
+          <button class="show-earlier" onclick={showEarlier}><Icon name="arrow-up" size={14} /> Show earlier messages · {startIdx} hidden</button>
+        {/if}
+        {#if (s.messages || []).length}
+          <!-- key by stable ABSOLUTE index (startIdx + j), NOT m.ts: the streaming turn's ts advances on every
+               block (conversation.js rewrites prev.ts), so a ts-based key destroys+recreates the whole live bubble
+               each tick → the "jumps". Transcript is append/merge-only, so a message's absolute index never moves,
+               even as the render window slides → the key stays stable across MSG_STEP expansions and new ticks. -->
+          {#each (s.messages || []).slice(startIdx) as m, j (startIdx + j)}
+            {#each cmdEchoes.get(startIdx + j) || [] as q (q.ts)}{@render commandBubble(q)}{/each}
+            <ChatBubble {m} onfork={quickFork} onforkadvanced={openFork} {forkState} session={id} />
+          {/each}
+        {:else if !queued.length}
+          <div class="pane-empty">Empty conversation.</div>
+        {/if}
+        {#each pendingQueued as q (q.ts)}{@render commandBubble(q)}{/each}
         <!-- Introduction de la question / du plan en attente, LUE DANS LA PANE (server: pendingLeadIn).
              Tant qu'on n'a pas répondu, Claude Code n'a rien écrit du tour dans le transcript → sans
              ça la carte question arrivait SANS le texte qui l'explique (et il fallait répondre pour
