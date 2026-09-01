@@ -468,7 +468,7 @@ export const settings = $state({
   editor: 'vscode', // éditeur préféré (clé de src/lib/editors.js) pour les liens « open in editor »
   shipDefaultView: 'claude', // source de diff à l'ouverture de la lentille Ship ('claude' | 'vcs')
   defaultPage: 'deck',
-  navTabs: ['sessions', 'search', 'stats', 'digest', 'memory', 'mcp'], // onglets de nav visibles (paramétrable)
+  navTabs: ['sessions', 'search', 'stats', 'digest', 'memory'], // onglets de nav visibles (paramétrable)
 });
 export async function loadSettings() {
   try { Object.assign(settings, await getSettings()); } catch (_) {}
