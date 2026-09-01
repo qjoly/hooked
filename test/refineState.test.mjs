@@ -57,12 +57,21 @@ describe('refineWithAgent — affinage de l\'état par le registre de sessions',
     }
   });
 
-  it('ended n\'est jamais touché', () => {
-    for (const alive of [true, false]) {
-      for (const sdk of ['running', 'idle', 'requires_action', null]) {
-        expect(refineWithAgent('ended', alive, sdk)).toBe('ended');
-      }
+  it('ended est conservé tant que la session est morte', () => {
+    for (const sdk of ['running', 'idle', 'requires_action', null]) {
+      expect(refineWithAgent('ended', false, sdk)).toBe('ended');
     }
+  });
+
+  // Une session REPRISE est vivante et pilotable : le 'ended' vient du SessionEnd du process
+  // précédent. Le garder affichait ENDED sur une session à laquelle on peut parler — et laissait
+  // croire l'inverse ailleurs, d'où des messages envoyés dans le vide.
+  it('ended cède la place dès que la session est de nouveau vivante', () => {
+    expect(refineWithAgent('ended', true, 'running')).toBe('working');
+    expect(refineWithAgent('ended', true, 'idle')).toBe('waiting');
+    expect(refineWithAgent('ended', true, 'requires_action')).toBe('attention');
+    // sans état SDK exploitable on ne fabrique rien : l'état capté reste
+    expect(refineWithAgent('ended', true, null)).toBe('ended');
   });
 
   it('sdkState inconnu / absent sur session vivante : l\'état capté est conservé', () => {

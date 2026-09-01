@@ -66,7 +66,10 @@ function eventOnlySessions(knownIds, now = Date.now()) {
 // session ouverte à la main dans un terminal), on ne peut rien affirmer de plus que les hooks : on
 // se contente de rétrograder un 'working' périmé en 'waiting'. On ne touche jamais 'ended'.
 function refineWithAgent(state, alive, sdkState) {
-  if (state === 'ended') return state;
+  // 'ended' vient du hook SessionEnd du process PRÉCÉDENT. Une session reprise est vivante et
+  // pilotable : garder 'ended' faisait afficher ENDED sur une session à laquelle on peut parler,
+  // et inversement laissait croire qu'un envoi partirait alors qu'il n'y avait personne.
+  if (state === 'ended' && !alive) return state;
   if (!alive) return state === 'working' ? 'waiting' : state;
   if (sdkState === 'requires_action') return 'attention';
   if (sdkState === 'running') return 'working';
