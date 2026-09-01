@@ -3,7 +3,7 @@
   import { goto } from '$app/navigation';
   import { ui, data, settings, loadSessions, openModal, sessionTitle, sessionTags, renameSession, toggleFocus, splitWithMostRecent, canSplit, toggleArchive, isArchived, unarchive } from '$lib/state.svelte.js';
   import { getSession, setMode, setModelEffort, setAutoApprove, openInEditor, openInGhostty, fork, launch, deleteSession, connectSessionStream, listTerminals, openTerminal, killTerminal } from '$lib/api.js';
-  import { STATE_LABEL, fmtCost, fmtTokens, fmtDuration, shortModel, prLabel, issueLabel, PERMISSION_MODES, modeLabel, modeMeta, modelAlias, tagColor, resumeCommand } from '$lib/format.js';
+  import { STATE_LABEL, fmtCost, fmtTokens, fmtDuration, shortModel, prLabel, issueLabel, PERMISSION_MODES, modeLabel, modeMeta, modelAlias, tagColor, resumeCommand, bangKind } from '$lib/format.js';
   import { page } from '$app/state';
   import ModelEffort from './ModelEffort.svelte';
   import ChatBubble from './ChatBubble.svelte';
@@ -297,7 +297,11 @@
     // liveQuestionForSession) confirms it. No-op when nothing is pending.
     // réaffectation (pas mutation en place) : `s` est en $state.raw → seule la réaffectation est réactive.
     if (s && s.pendingQuestion) s = { ...s, pendingQuestion: null };
-    queued = [...queued, { text: t, ts: new Date().toISOString() }];
+    // Une commande (`!` / `!!`) n'est PAS un message en attente : elle est déjà exécutée, et son
+    // résultat arrive comme bloc `console` ou terminal `pty`. L'afficher « queued » laissait croire à
+    // un envoi bloqué — et le dédoublonnage ne pouvait jamais l'effacer, puisque le transcript
+    // contient le bloc, pas le texte tapé. On la marque donc comme commande.
+    queued = [...queued, { text: t, ts: new Date().toISOString(), kind: bangKind(t) }];
     forceBottom = true;
     stickToBottom = true;            // après un envoi, on re-suit la conversation
     await tick();
@@ -706,8 +710,14 @@
           <div class="pane-empty">Empty conversation.</div>
         {/if}
         {#each queued as q (q.ts)}
-          <div class="bubble user queued">
-            <div class="who"><Icon name="user" size={14} /> You <span class="t"><Icon name="queued" size={13} /> queued</span></div>
+          <div class="bubble user" class:queued={!q.kind} class:command={q.kind}>
+            <div class="who"><Icon name="user" size={14} /> You
+              {#if q.kind}
+                <span class="t"><Icon name="shell" size={13} /> {q.kind === 'interactive' ? 'interactive command' : 'command'}</span>
+              {:else}
+                <span class="t"><Icon name="queued" size={13} /> queued</span>
+              {/if}
+            </div>
             <div class="md">{q.text}</div>
           </div>
         {/each}
@@ -935,6 +945,15 @@
   /* Bulle du tour en cours : même forme qu'une bulle assistant, mais signalée comme provisoire
      (liseré d'accent + texte préformaté pour ne pas reflower du markdown incomplet). */
   .bubble.streaming { border-left: 2px solid var(--accent); opacity: .92; }
+  /* Commande envoyée depuis le composer : rose, pour la distinguer d'un vrai message ET d'un envoi
+     en attente (ambre). Couleur en dur plutôt qu'une variable de thème : il n'y a pas de rose dans
+     la palette, et en inventer une pour un seul usage serait une variable de plus à maintenir. */
+  .bubble.user.command {
+    background: #b8377f; box-shadow: none;
+    border: 1px dashed rgba(255, 255, 255, .5);
+  }
+  .bubble.user.command .who .t { font-weight: 600; opacity: .95; display: inline-flex; align-items: center; gap: 4px; }
+  .bubble.user.command .md { font-family: var(--mono); font-size: 12px; }
   .sd-text { white-space: pre-wrap; }
   .sd-thinking {
     margin: 0 0 8px; padding: 6px 8px; border-radius: 6px;
