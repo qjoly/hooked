@@ -6,6 +6,7 @@
   import { toSegments, unifiedRows, splitRows, langFromName, EXPAND_STEP } from '$lib/difflines.js';
   import { highlight } from '$lib/highlight.js';
   import { ago } from '$lib/format.js';
+  import { reanchor } from '$lib/reviewAnchor.js';
   import Icon from '$lib/components/Icon.svelte';
   import { ui } from '$lib/state.svelte.js';
 
@@ -63,7 +64,7 @@
   function snippetFor(side, start, end) {
     return src(side).slice(Math.max(0, start - 1), Math.max(start, end)).join('\n');
   }
-  const commentsAt = (side, endLine) => comments.filter((c) => c.side === side && c.end === endLine);
+  const commentsAt = (side, endLine) => anchoredThreads.filter((c) => c.side === side && c.end === endLine);
 
   // GitHub-style click-drag range selection. Press the "+" on a line and drag over other lines of
   // the same side; releasing opens the comment editor for the whole range. A plain click (press +
@@ -110,6 +111,15 @@
     if (draft && draft.side === side) return lineNo >= draft.start && lineNo <= draft.end;
     return false;
   };
+
+  // ── re-anchoring ── the code may have moved since a thread was created (typically: Claude's
+  // fix, addressing the very comment, shifts the commented lines). Each thread's anchor is
+  // verified against its stored snippet; a moved snippet drags its thread along, a vanished or
+  // ambiguous one turns the thread `outdated` — shown at the head of the diff, never pinned to
+  // a wrong line. Display-only: the stored anchor remains the historical truth.
+  const threadView = $derived(comments.map((c) => ({ ...c, ...reanchor(c, src(c.side)) })));
+  const anchoredThreads = $derived(threadView.filter((c) => !c.outdated));
+  const outdatedThreads = $derived(threadView.filter((c) => c.outdated));
 
   // Per-thread UI state: the open reply editor and which resolved threads are unfolded.
   let replyDraft = $state(null);      // { id, text } — one reply editor open at a time
@@ -304,6 +314,19 @@
          onpointerdown={startSplitDrag} ondblclick={() => (ui.diffRatio = RATIO.def)}
          onkeydown={nudgeSplit}></div>
   {/if}
+  {#if outdatedThreads.length}
+    <div class="dv-outdated">
+      <div class="dv-outdated-head">
+        <Icon name="warning" size={12} />
+        {outdatedThreads.length} outdated comment{outdatedThreads.length > 1 ? 's' : ''} — the code they were anchored to has changed
+      </div>
+      <div class="dv-comments">
+        {#each outdatedThreads as c (c.id)}
+          {@render threadCard(c, c.side)}
+        {/each}
+      </div>
+    </div>
+  {/if}
   {#each rows as r, i (i)}
     {#if r.kind === 'gap'}
       <div class="dv-gap">
@@ -377,9 +400,7 @@
   </span>
 {/snippet}
 
-{#snippet commentSlot(slot, side, lineNo)}
-  <div class="dv-comments">
-    {#each slot.list as c (c.id)}
+{#snippet threadCard(c, side)}
       {#if c.status === 'resolved' && !openResolved[c.id]}
         <button class="dv-thread-folded" onclick={() => (openResolved = { ...openResolved, [c.id]: true })}>
           <Icon name="check" size={12} /> Resolved · {rangeLabel(side, c.start, c.end)} ·
@@ -389,7 +410,8 @@
       {:else}
         <div class="dv-thread" class:resolved={c.status === 'resolved'}>
           <div class="dv-thread-head">
-            <span class="dv-bubble-anchor">{rangeLabel(side, c.start, c.end)}</span>
+            <span class="dv-bubble-anchor">{c.outdated ? 'was ' : ''}{rangeLabel(side, c.start, c.end)}</span>
+            {#if c.outdated}<span class="dv-thread-badge outdated">outdated</span>{/if}
             {#if !c.sent}<span class="dv-thread-badge pending">pending</span>
             {:else if c.status === 'resolved'}<span class="dv-thread-badge done"><Icon name="check" size={11} /> resolved</span>{/if}
             <span class="dv-thread-actions">
@@ -406,6 +428,7 @@
               {/if}
             </span>
           </div>
+          {#if c.outdated && c.snippet}<pre class="dv-thread-snip">{c.snippet}</pre>{/if}
           {#each c.messages as msg, mi (mi)}
             <div class="dv-msg {msg.author}">
               <span class="dv-msg-who">{msg.author === 'claude' ? 'Claude' : 'You'}</span>
@@ -429,6 +452,12 @@
           {/if}
         </div>
       {/if}
+{/snippet}
+
+{#snippet commentSlot(slot, side, lineNo)}
+  <div class="dv-comments">
+    {#each slot.list as c (c.id)}
+      {@render threadCard(c, side)}
     {/each}
     {#if slot.draft}
       <div class="dv-editor">
@@ -554,6 +583,7 @@
     padding: 1px 7px; border-radius: 999px; display: inline-flex; align-items: center; gap: 3px;
   }
   .dv-thread-badge.pending { background: rgba(var(--accent-rgb), .14); color: var(--accent-d); }
+  .dv-thread-badge.outdated { background: color-mix(in srgb, var(--warning, #c98a1b) 16%, transparent); color: var(--warning, #c98a1b); }
   .dv-thread-badge.done { background: color-mix(in srgb, var(--success) 16%, transparent); color: var(--success); }
   .dv-thread-actions { margin-left: auto; display: flex; gap: 6px; }
   .dv-tbtn {
@@ -570,6 +600,16 @@
     color: var(--muted); font-size: 11.5px; cursor: pointer; font-family: var(--font);
   }
   .dv-reply-open:hover { color: var(--accent-d); }
+  .dv-thread-snip {
+    margin: 0 0 0 60px; padding: 6px 9px; border-radius: 8px; overflow-x: auto;
+    background: var(--code-bg); border: 1px solid var(--border2);
+    font-family: var(--mono); font-size: 11px; line-height: 1.5; color: #8b93a7;
+  }
+  .dv-outdated { border-bottom: 1px solid var(--border); background: rgba(255,255,255,.015); padding-bottom: 2px; }
+  .dv-outdated-head {
+    display: flex; align-items: center; gap: 6px; padding: 6px 12px 2px;
+    font-family: var(--mono); font-size: 10.5px; font-weight: 700; color: var(--warning, #c98a1b);
+  }
   .dv-thread-folded {
     display: flex; align-items: center; gap: 6px; width: 100%; margin: 4px 0; padding: 5px 10px;
     background: var(--surface); border: 1px solid var(--border2); border-left: 3px solid var(--success);
