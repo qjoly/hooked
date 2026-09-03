@@ -5,7 +5,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFile, execFileSync } from 'node:child_process';
-import { LAUNCHES_FILE, SESSION_LAUNCH_FILE, PERMISSION_MODES, LAUNCH_PERMISSION_MODES, isValidModelArg } from './config.js';
+import { HOOKED_DIR, PORT, LAUNCHES_FILE, SESSION_LAUNCH_FILE, PERMISSION_MODES, LAUNCH_PERMISSION_MODES, isValidModelArg } from './config.js';
 import { isValidEffort } from './capabilities.js';
 import { statSafe } from './util.js';
 import { launchConfigByTmux, paneForSession } from './events.js';
@@ -949,6 +949,39 @@ function setModelEffort(pane, { model, effort, sessionId }, cb) {
 // Lance `claude` (ou `claude --resume <id>`) dans une NOUVELLE session tmux détachée.
 // `worktree` : démarre la session dans un git worktree dédié (`claude --worktree`) — ne vaut
 // que pour une session neuve (incompatible avec une reprise, qui rouvre la session existante).
+// hooked's own MCP server (mcp/server.cjs) is what gives a session the reply_review_comment /
+// resolve_review_comment tools that the review prompts (Ship/Branch) rely on. It is only
+// registered project-scope (this repo's .mcp.json): a session launched in ANY OTHER repo has no
+// hooked tools at all unless we pass them explicitly. So every launch carries a `--mcp-config`
+// pointing at mcp/server.cjs by ABSOLUTE path (a relative one resolves against the session's cwd).
+// The repo root can't be derived from import.meta.dirname alone: in dev these modules run from
+// <repo>/server, but the prod bundle (adapter-node) runs them from build/server/chunks — hence
+// the candidate list. process.cwd() first: both `npm run live` and `node build` run at repo root.
+const MCP_SERVER_CANDIDATES = [
+  path.join(process.cwd(), 'mcp', 'server.cjs'),
+  path.join(import.meta.dirname, '..', 'mcp', 'server.cjs'),
+  path.join(import.meta.dirname, '..', '..', 'mcp', 'server.cjs'),
+  path.join(import.meta.dirname, '..', '..', '..', 'mcp', 'server.cjs'),
+];
+
+// (Re)writes the MCP config passed to `claude --mcp-config` and returns its path, or null when
+// mcp/server.cjs can't be located (launch proceeds without hooked tools, as before). Rewritten on
+// every launch: the checkout may move and the port is only known at runtime. HOOKED_PORT is pinned
+// so the proxy dials the hooked instance that launched the session, not the default port.
+function writeMcpLaunchConfig() {
+  const server = MCP_SERVER_CANDIDATES.find((p) => { const st = statSafe(p); return st && st.isFile(); });
+  if (!server) return null;
+  const file = path.join(HOOKED_DIR, 'mcp-launch.json');
+  const cfg = { mcpServers: { hooked: { command: 'node', args: [server], env: { HOOKED_PORT: String(PORT) } } } };
+  try {
+    fs.mkdirSync(HOOKED_DIR, { recursive: true });
+    fs.writeFileSync(file, JSON.stringify(cfg, null, 2) + '\n');
+  } catch (_) {
+    return null;
+  }
+  return file;
+}
+
 function launchSession({ resumeId, cwd, prompt, model, effort, worktree, permissionMode }, cb) {
   let dir = cwd && typeof cwd === 'string' ? cwd : null;
   let id = null;
@@ -981,6 +1014,9 @@ function launchSession({ resumeId, cwd, prompt, model, effort, worktree, permiss
   if (effort) flags += ` --effort ${effort}`;
   // 'default' = comportement natif → pas de flag (commande propre) ; sinon on épingle le mode.
   if (permissionMode && permissionMode !== 'default') flags += ` --permission-mode ${permissionMode}`;
+  // Additif (pas de --strict-mcp-config) : les serveurs user/projet de la session restent chargés.
+  const mcpConfig = writeMcpLaunchConfig();
+  if (mcpConfig) flags += ` --mcp-config "${mcpConfig}"`;
   const claudeCmd = `claude${id ? ` --resume ${id}` : ''}${flags}`;
   const base = path.basename(dir).replace(/[^A-Za-z0-9_]/g, '_').slice(0, 24) || 'session';
   const name = `hooked-${base}-${Date.now().toString(36).slice(-5)}`;
@@ -1054,4 +1090,4 @@ function restartSession(id, { model, effort } = {}, cb) {
   }
 }
 
-export { paneTmuxNames, invalidatePaneCache, clearPaneCaches, tmuxAlive, launchInfoForPane, resolveLaunchForSession, deliverReply, deliverQuestion, questionKeys, deliverQuestionWithNote, deliverQuestionFreeText, deliverPlanChoice, parsePlanPrompt, parseSwitchPrompt, isTrustPrompt, isComposerReady, composerSettleKey, waitForComposerSettled, sendKey, interruptSession, parsePaneMode, readPaneMode, readPaneModeSync, paneBusySync, parseSpinner, paneActivitySync, paneFollowupSync, lastPaneProse, paneLastProseSync, conversationBody, paneActiveSync, paneActiveStep, warmPaneCaptures, warmPaneNames, setMode, setModelEffort, launchSession, killSession, restartSession, err400 };
+export { paneTmuxNames, invalidatePaneCache, clearPaneCaches, tmuxAlive, launchInfoForPane, resolveLaunchForSession, deliverReply, deliverQuestion, questionKeys, deliverQuestionWithNote, deliverQuestionFreeText, deliverPlanChoice, parsePlanPrompt, parseSwitchPrompt, isTrustPrompt, isComposerReady, composerSettleKey, waitForComposerSettled, sendKey, interruptSession, parsePaneMode, readPaneMode, readPaneModeSync, paneBusySync, parseSpinner, paneActivitySync, paneFollowupSync, lastPaneProse, paneLastProseSync, conversationBody, paneActiveSync, paneActiveStep, warmPaneCaptures, warmPaneNames, setMode, setModelEffort, launchSession, killSession, restartSession, writeMcpLaunchConfig, err400 };
