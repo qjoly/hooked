@@ -21,6 +21,7 @@
   "arrow-down": "<path d=\"M12 5v14\" /><path d=\"m19 12-7 7-7-7\" />",
   "chevron-right": "<path d=\"m9 18 6-6-6-6\" />",
   "chevron-down": "<path d=\"m6 9 6 6 6-6\" />",
+  "chevron-up": "<path d=\"m18 15-6-6-6 6\" />",
   "working": "<path d=\"M21 12a9 9 0 1 1-6.219-8.56\" />",
   "waiting": "<circle cx=\"12\" cy=\"12\" r=\"10\" /><path d=\"M12 6v6l4 2\" />",
   "attention": "<circle cx=\"12\" cy=\"12\" r=\"10\" /><line x1=\"12\" x2=\"12\" y1=\"8\" y2=\"12\" /><line x1=\"12\" x2=\"12.01\" y1=\"16\" y2=\"16\" />",

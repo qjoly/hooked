@@ -39,18 +39,19 @@ export const ui = $state({
   sideMenuOpen: persisted.sideMenuOpen ?? true,     // side menu gauche (liste sessions) déplié ? persisté
   sidebarWidth: persisted.sidebarWidth ?? 232,      // largeur (px) du side panel gauche déplié, persistée
   dockWidth: persisted.dockWidth ?? 292,            // largeur (px) du dock droit (lentille Converse), persistée
-  termHeight: persisted.termHeight ?? 0,            // hauteur (px) du panneau terminal bas ; 0 = défaut (1/3 de fenêtre)            // largeur (px) du dock droit (lentille Converse), persistée
+  termHeight: persisted.termHeight ?? 0,            // hauteur (px) du panneau terminal bas ; 0 = défaut (1/3 de fenêtre)
   dockHidden: persisted.dockHidden ?? false,        // dock droit masqué par l'utilisateur ? persisté
   lastSessionId: persisted.lastSessionId ?? null,   // dernière session ouverte — l'onglet Sessions y revient
   collapseWorktrees: persisted.collapseWorktrees ?? true, // new-session: replie les worktrees `.claude/worktrees/*` sur leur projet parent dans le sélecteur
   shipFilesWidth: persisted.shipFilesWidth ?? 232,  // largeur (px) du rail « Files » de la lentille Ship, persistée
   shipPanelWidth: persisted.shipPanelWidth ?? 288,  // largeur (px) du panneau « Ready to ship » de la lentille Ship, persistée
+  diffRatio: persisted.diffRatio ?? 0.5,            // part (0..1) de la colonne « old » dans un diff side-by-side (barre déplaçable), persistée
 });
 
 if (typeof localStorage !== 'undefined') {
   $effect.root(() => {
     $effect(() => {
-      const snapshot = { hideOld: ui.hideOld, collapsed: ui.collapsed, pinned: ui.pinned, names: ui.names, focus: ui.focus, notify: ui.notify, notifyPinnedOnly: ui.notifyPinnedOnly, diffSplit: ui.diffSplit, groupByProject: ui.groupByProject, sideMenuOpen: ui.sideMenuOpen, sidebarWidth: ui.sidebarWidth, dockWidth: ui.dockWidth, dockHidden: ui.dockHidden, lastSessionId: ui.lastSessionId, termHeight: ui.termHeight, collapseWorktrees: ui.collapseWorktrees, shipFilesWidth: ui.shipFilesWidth, shipPanelWidth: ui.shipPanelWidth };
+      const snapshot = { hideOld: ui.hideOld, collapsed: ui.collapsed, pinned: ui.pinned, names: ui.names, focus: ui.focus, notify: ui.notify, notifyPinnedOnly: ui.notifyPinnedOnly, diffSplit: ui.diffSplit, groupByProject: ui.groupByProject, sideMenuOpen: ui.sideMenuOpen, sidebarWidth: ui.sidebarWidth, dockWidth: ui.dockWidth, dockHidden: ui.dockHidden, lastSessionId: ui.lastSessionId, termHeight: ui.termHeight, collapseWorktrees: ui.collapseWorktrees, shipFilesWidth: ui.shipFilesWidth, shipPanelWidth: ui.shipPanelWidth, diffRatio: ui.diffRatio };
       try { localStorage.setItem(LS_KEY, JSON.stringify(snapshot)); } catch {}
     });
   });
