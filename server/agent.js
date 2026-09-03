@@ -448,11 +448,43 @@ function handleToolPermission(st, toolName, toolInput, ctx) {
 
 // Boucle de lecture du flux : c'est elle qui tient l'état à jour. Ne rejette jamais — une erreur
 // est enregistrée sur l'entrée de registre et la session passe en 'ended'.
+// Combien de temps un appelant accepte d'attendre qu'une session reprise devienne prête. Plus court
+// que le chien de garde (30 s) : au-delà, mieux vaut rendre la main que faire mariner une requête.
+const READY_TIMEOUT = 15000;
+
+// Résout les attentes de disponibilité. Appelé quand la session parle pour la première fois (ok) ou
+// quand elle meurt sans avoir parlé (échec).
+function settleReady(st, ok) {
+  const waiters = st.readyWaiters;
+  if (!waiters || !waiters.length) return;
+  st.readyWaiters = [];
+  for (const w of waiters) { try { w(ok); } catch (_) {} }
+}
+
+// Attend que la session ait produit son premier message. Une session reprise au démarrage met
+// quelques secondes à parler ; refuser sur-le-champ transformait chaque redémarrage de hooked en mur
+// d'erreurs rouges, alors qu'il suffisait d'attendre. On attend donc ICI, une seule fois, pour TOUS
+// les appelants (UI web, MCP, API) — plutôt que d'apprendre à chacun à réessayer.
+function whenReady(st) {
+  if (st.sawMsg) return Promise.resolve(true);
+  if (st.ended) return Promise.resolve(false);
+  return new Promise((resolve) => {
+    const waiters = st.readyWaiters || (st.readyWaiters = []);
+    const timer = setTimeout(() => {
+      st.readyWaiters = (st.readyWaiters || []).filter((w) => w !== entry);
+      resolve(false);
+    }, READY_TIMEOUT);
+    const entry = (ok) => { clearTimeout(timer); resolve(ok); };
+    waiters.push(entry);
+  });
+}
+
 // Démolit une entrée qui n'a jamais réussi à démarrer. Même nettoyage que le `finally` de readLoop,
 // mais applicable quand readLoop n'a rien à finir : sans ça l'entrée reste dans `live` avec
 // ended:false et devient un trou noir — deliverReply y pousse des messages et répond OK.
 function failStartup(st) {
   clearTimeout(st.watchdog);
+  settleReady(st, false);
   try { st.input.close(); } catch (_) {}
   try { st.abort.abort(); } catch (_) {}
   st.ended = true;
@@ -477,7 +509,7 @@ async function readLoop(st) {
         pending.delete(st.launchKey);
         if (st.onInit) { const f = st.onInit; st.onInit = null; f(st); }
       }
-      if (!st.sawMsg) { st.sawMsg = true; clearTimeout(st.watchdog); }
+      if (!st.sawMsg) { st.sawMsg = true; clearTimeout(st.watchdog); settleReady(st, true); }
       const changed = applyMessage(st, msg);
       st.lastMsgAt = Date.now();
       // On ne pousse aux abonnés que quand l'état visible a bougé. Les deltas de texte passent par
@@ -494,6 +526,7 @@ async function readLoop(st) {
     st.error = e && e.name === 'AbortError' ? null : String((e && e.message) || e);
   } finally {
     clearTimeout(st.watchdog);
+    settleReady(st, false);
     st.ended = true;
     st.busy = false;
     st.activity = null;
@@ -607,6 +640,7 @@ function launchSession({ resumeId, cwd, prompt, model, effort, worktree, permiss
     error: null,
     sawMsg: false,   // le CLI a-t-il produit au moins un message ? (cf. chien de garde)
     watchdog: null,
+    readyWaiters: [],   // appelants qui attendent ce premier message (cf. whenReady)
     startedAt: new Date().toISOString(),
     lastMsgAt: Date.now(),
   };
@@ -868,13 +902,25 @@ function runLocalCommand(id, command, cb) {
   }).catch((e) => cb(new Error('failed to resolve the login environment: ' + ((e && e.message) || e))));
 }
 
+// Une session qui n'a pas encore produit son premier message n'est pas prête : y pousser un texte le
+// mettrait dans une file que personne ne vide, en répondant OK (cf. le chien de garde de démarrage).
+// Mais refuser SÈCHEMENT était trop brutal — juste après un redémarrage, les sessions reprises
+// mettent quelques secondes à parler et tout envoi se soldait par une erreur rouge. On attend donc
+// qu'elle soit prête, et on ne refuse que si elle ne l'est jamais devenue.
 function deliverReply(id, text, cb) {
   const st = agentSession(id);
   if (!st) return cb(err400('no live agent session for this id'));
-  // Une session qui n'a pas encore produit son premier message n'est pas prête : y pousser un texte
-  // le mettrait dans une file que personne ne vide, en répondant OK. Mieux vaut un refus explicite
-  // et un nouvel essai qu'un message perdu en silence (cf. le chien de garde de démarrage).
-  if (!st.sawMsg) return cb(err400('session is still starting — try again in a moment'));
+  if (st.sawMsg) return pushReply(st, id, text, cb);
+  whenReady(st).then((ready) => {
+    if (!ready) return cb(err400('session never finished starting — use Restart'));
+    // la session a pu disparaître pendant l'attente
+    const cur = agentSession(id);
+    if (!cur) return cb(err400('no live agent session for this id'));
+    pushReply(cur, id, text, cb);
+  });
+}
+
+function pushReply(st, id, text, cb) {
   const parts = (Array.isArray(text) ? text : [text])
     .map((s) => (typeof s === 'string' ? s.trim() : ''))
     .filter(Boolean);
@@ -1212,7 +1258,7 @@ export {
   deliverReply, answerQuestion, answerQuestionFreeText, answerPlan, answerPermission, answerPendingSelection,
   interruptSession, setMode, setModelEffort, setAutoApprove, alwaysAllowRules, clearAgentState,
   resumeDrivenSessions, startDrivenSnapshot, pickResumable, saveDriven, failStartup,
-  runInteractiveCommand, formatInteractiveCommand,
+  runInteractiveCommand, formatInteractiveCommand, whenReady, settleReady,
   parseBangCommand, formatLocalCommand, stripAnsi, runLocalCommand,
   PLAN_ACTIONS, err400,
 };
