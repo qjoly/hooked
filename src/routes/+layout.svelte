@@ -52,8 +52,11 @@
   function onGlobalKeydown(e) {
     const id = matchShortcut(e);
     if (!id) return;
-    // Session-scoped shortcuts, handled by SessionDetail's own window listener.
-    if (id === 'toggle-dock') return;
+    // Session-scoped shortcuts, handled by SessionDetail's own window listener — and the
+    // lens-scoped review key, handled by Ship / Branch themselves. `open-terminal` and
+    // `new-terminal` are NOT listed: they went away with tmux, and the terminal panel is on a
+    // hardcoded `2` in SessionDetail.
+    if (id === 'toggle-dock' || id === 'review-file') return;
 
     const tag = e.target?.tagName;
     const isInput = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || e.target?.isContentEditable;

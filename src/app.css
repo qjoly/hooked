@@ -1760,3 +1760,23 @@ textarea.lf-input { font-family: inherit; resize: vertical; }
 @media (max-width: 380px) {
   .global-bar, .kpis, .detail-grid { grid-template-columns: 1fr; }
 }
+
+/* Diff "occurrence echo": every other copy of the selected text inside a DiffView (Ship /
+   Branch lenses). Painted with the CSS Custom Highlight API — see DiffView.svelte. The live
+   selection is painted above it by the browser, so the selected copy keeps its normal look. */
+::highlight(dv-occurrence) {
+  background-color: rgba(var(--accent-rgb), .32);
+  color: #fff;
+}
+
+/* Lens rail handles (Grip.svelte, used by the Ship and Branch lenses). The look lives here
+   rather than in the lenses because the grip is now its own component — Svelte scopes each
+   lens stylesheet to its own markup and would not reach it. `:first-of-type`/`:last-of-type`
+   pick the left / right handle among the `.ship` row's divs. */
+.ship-grip { flex: 0 0 auto; width: 7px; margin: 0 -3px; cursor: col-resize; z-index: 3; background: none; }
+.ship-grip:hover, .ship-grip:focus-visible { background: var(--accent); opacity: .5; outline: none; }
+
+@media (max-width: 1100px) { .ship-grip:last-of-type { display: none; } }
+@media (max-width: 900px) { .ship-grip:first-of-type { display: none; } }
+@container (max-width: 760px) { .ship-grip:last-of-type { display: none; } }
+@container (max-width: 560px) { .ship-grip:first-of-type { display: none; } }

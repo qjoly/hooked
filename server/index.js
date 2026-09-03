@@ -22,6 +22,8 @@ export * from './subSessions.js';
 export * from './fork.js';
 export * from './changes.js';
 export * from './vcsDiff.js';
+export * from './vcsBlame.js';
+export * from './reviewThreads.js';
 export * from './subagents.js';
 export * from './todos.js';
 export * from './background.js';

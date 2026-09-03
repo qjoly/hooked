@@ -1,9 +1,3 @@
 {
-  "mcpServers": {
-    "hooked": {
-      "command": "node",
-      "args": ["mcp/server.cjs"],
-      "env": {}
-    }
-  }
+  "mcpServers": {}
 }

@@ -1,5 +1,6 @@
 <script>
   import { ago, splitMessageImages } from '$lib/format.js';
+  import { getMessageText } from '$lib/api.js';
   import ToolChip from './ToolChip.svelte';
   import Markdown from './Markdown.svelte';
   import MessageImages from './MessageImages.svelte';
@@ -36,9 +37,48 @@
   const HANDOFF_TOOLS = new Set(['AskUserQuestion', 'ExitPlanMode']);
   const isFinalText = (i) => i === lastTextIdx
     || (parts[i + 1]?.type === 'tool' && HANDOFF_TOOLS.has(parts[i + 1].tool?.name));
+  // ── long user messages ──────────────────────────────────────────────────────────────────────
+  // A batched review, a pasted log: a sent message can run for hundreds of lines, and the server
+  // caps what it puts in the conversation payload. Rather than dumping it (or cutting it with no
+  // way back), the bubble shows its first CLAMP_LINES lines and a "Show more" button. The clamp
+  // is a max-height, not a cut in the text: the markdown is never sliced mid-fence. When the
+  // server flagged the message `truncated`, expanding also FETCHES the tail it left out.
+  const CLAMP_LINES = 10;
+  let expanded = $state(false);
+  let fullText = $state(null);   // tail fetched for a `truncated` message
+  let loadingFull = $state(false);
+  let bodyEl = $state(null);
+  let overflowing = $state(false); // measured while collapsed: is there anything hidden?
+
   // user message: pasted images are stored as absolute paths prefixed to the text → render them as
   // expandable thumbnails and drop the raw paths from the displayed text.
-  const userMsg = $derived(m.role === 'user' ? splitMessageImages(m.text) : null);
+  const userMsg = $derived(m.role === 'user' ? splitMessageImages(fullText ?? m.text) : null);
+  // The tail can only be fetched when we know which session (and, in a subagent trace, which
+  // agent) the bubble belongs to, and where to cut in the transcript.
+  const canLoadFull = $derived(!!(m.truncated && session && m.forkUuid));
+  const foldable = $derived(overflowing || canLoadFull);
+
+  // Measure only while collapsed — expanded, scrollHeight == clientHeight and the flag would
+  // clear itself, taking the "Show less" button with it.
+  $effect(() => {
+    if (expanded || !bodyEl || !userMsg?.text) return;
+    overflowing = bodyEl.scrollHeight > bodyEl.clientHeight + 2;
+  });
+
+  async function toggleExpand() {
+    if (!expanded && canLoadFull && fullText == null && !loadingFull) {
+      loadingFull = true;
+      try {
+        const r = await getMessageText(session, m.forkUuid, agent);
+        if (r && typeof r.text === 'string') fullText = r.text;
+      } catch (_) {
+        // the tail stays unavailable — the capped text is still there, and so is the button
+      } finally {
+        loadingFull = false;
+      }
+    }
+    expanded = !expanded;
+  }
 
   // ── Tool-call folding (« reading column ») ───────────────────────────────────────────────────
   // Runs of ≥ FOLD_MIN consecutive "plain" tool calls collapse into one grey line
@@ -95,7 +135,16 @@
   </div>
   {#if m.role === 'user'}
     {#if userMsg.images.length}<MessageImages images={userMsg.images} />{/if}
-    {#if userMsg.text}<div class="md"><Markdown text={userMsg.text} /></div>{/if}
+    {#if userMsg.text}
+      <div class="md" class:clamped={foldable && !expanded} style="--clamp-lines:{CLAMP_LINES}"
+           bind:this={bodyEl}><Markdown text={userMsg.text} /></div>
+      {#if foldable}
+        <button class="more" onclick={toggleExpand} disabled={loadingFull}>
+          <Icon name={expanded ? 'chevron-up' : 'chevron-down'} size={12} />
+          {loadingFull ? 'Loading the rest…' : expanded ? 'Show less' : 'Show more'}
+        </button>
+      {/if}
+    {/if}
   {:else}
     <div class="parts">
       {#each blocks as b (b.type === 'run' ? 'r' + b.start : 'p' + b.i)}
@@ -147,6 +196,21 @@
      maximale d'une bulle, et PtyBlock la remplit. `:has()` parce que la contrainte est sur l'ANCÊTRE
      de l'élément concerné, et que le bloc est rendu deux composants plus bas (Markdown → PtyBlock). */
   .bubble:has(:global(.pb)) { width: 85%; max-width: 85%; padding: 7px 8px; }
+  /* message long : replié sur ses 10 premières lignes, dégradé de sortie + bouton « Show more ».
+     C'est une hauteur max, pas une coupe dans le texte — le markdown reste entier. */
+  .md.clamped {
+    max-height: calc(var(--clamp-lines) * 1.5em); overflow: hidden;
+    -webkit-mask-image: linear-gradient(to bottom, #000 72%, transparent 100%);
+    mask-image: linear-gradient(to bottom, #000 72%, transparent 100%);
+  }
+  .more {
+    display: inline-flex; align-items: center; gap: 5px; margin-top: 6px;
+    font: inherit; font-size: 11px; font-weight: 700; line-height: 1.4; cursor: pointer;
+    border: 1px solid rgba(255,255,255,.45); background: rgba(255,255,255,.12); color: inherit;
+    border-radius: 999px; padding: 2px 10px;
+  }
+  .more:hover:not(:disabled) { background: rgba(255,255,255,.24); border-color: #fff; }
+  .more:disabled { opacity: .65; cursor: default; }
 
   /* ligne système sobre, centrée — notification de tâche de fond (queued_command) dans le fil. */
   .sysline {
