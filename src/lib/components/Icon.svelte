@@ -94,6 +94,7 @@
   "bash": "<path d=\"M12 19h8\" /><path d=\"m4 17 6-6-6-6\" />",
   "wakeup": "<circle cx=\"12\" cy=\"13\" r=\"8\" /><path d=\"M12 9v4l2 2\" /><path d=\"M5 3 2 6\" /><path d=\"m22 6-3-3\" /><path d=\"M6.38 18.7 4 21\" /><path d=\"M17.64 18.67 20 21\" />",
   "subagent": "<path d=\"M12 8V4H8\" /><rect width=\"16\" height=\"12\" x=\"4\" y=\"8\" rx=\"2\" /><path d=\"M2 14h2\" /><path d=\"M20 14h2\" /><path d=\"M15 13v2\" /><path d=\"M9 13v2\" />",
+  "workflow": "<rect width=\"8\" height=\"8\" x=\"3\" y=\"3\" rx=\"2\" /><path d=\"M7 11v4a2 2 0 0 0 2 2h4\" /><rect width=\"8\" height=\"8\" x=\"13\" y=\"13\" rx=\"2\" />",
   "checkbox-done": "<rect width=\"18\" height=\"18\" x=\"3\" y=\"3\" rx=\"2\" /><path d=\"m9 12 2 2 4-4\" />",
   "checkbox": "<rect width=\"18\" height=\"18\" x=\"3\" y=\"3\" rx=\"2\" />",
   "in-progress": "<circle cx=\"12\" cy=\"12\" r=\"10\" /><circle cx=\"12\" cy=\"12\" r=\"1\" />",
@@ -156,6 +157,7 @@
     "ended": "var(--ended)", "activity": "var(--working)", "in-progress": "var(--working)",
     // background-job purple
     "subagent": "var(--background)", "bot": "var(--background)", "wakeup": "var(--background)",
+    "workflow": "var(--background)",
     "background": "var(--background)", "rotate-cw": "var(--background)",
   };
 </script>
