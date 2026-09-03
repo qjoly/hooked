@@ -33,6 +33,30 @@ Le terminal web mirrore un pane tmux : amorçage par `capture-pane`, puis **stre
 - **Polices empaquetées** (`static/fonts/` : JetBrains Mono + Symbols Nerd Font) : `await document.fonts.load(...)` **avant** que xterm mesure la grille, sinon cellules mal dimensionnées.
 - Le pane **Claude Code n'est pas fermable** (pas de ✕) ; seuls les panes « show » le sont.
 
+## Workflows (outil `Workflow`) — deux sources, jamais les deux à la fois
+
+La carte « Workflows » du dock (cf. `server/workflows.js`) reconstruit ce que montre le `/workflows`
+de la CLI. Le piège structurant :
+
+- **`<proj>/<session>/workflows/<runId>.json` n'est écrit qu'À LA FIN** du run (ou au kill), d'un
+  seul bloc — jamais pendant. Il porte `workflowProgress[]`, le modèle exact du TUI (labels,
+  `phaseTitle`, états, tokens, tool calls, aperçus). Quand il existe, il fait autorité.
+- **Pendant le run**, seuls existent `<session>/subagents/workflows/<runId>/journal.jsonl`
+  (`{type:"started"|"result", key, agentId}`) et un `agent-<id>.jsonl` par agent démarré.
+  **Ni les `label`, ni l'attribution agent→phase n'existent sur disque** tant que le run tourne
+  (la CLI les tient en mémoire) : ne pas les deviner. On affiche les phases déclarées dans le `meta`
+  du script, et on distingue les agents par la première ligne de prompt qui leur est propre (le
+  préambule commun est retiré).
+- Le compteur de tokens du TUI est le **contexte de pointe** d'une requête
+  (`input + cache_read + cache_creation`), pas l'usage cumulé — sommer les usages le surestime d'un
+  facteur ~30.
+- Les chemins d'un run se **déduisent du transcript de la session**, jamais des chemins absolus
+  enregistrés dans le `toolUseResult` (source de données ≠ source de confiance, et une arborescence
+  relogée reste lisible).
+- Le lancement (`toolUseResult.status === "async_launched"`) et la complétion
+  (`<task-notification>`, même triple porteur redondant que `server/background.js`) vivent dans le
+  transcript principal.
+
 ## Svelte 5
 
 - Piège réactivité : `if (term && x) …` court-circuite sur `term` null (créé en async) → la prop `x` n'est **jamais lue donc non suivie** comme dépendance, et un changement de `x` ne re-déclenche pas l'effet. **Lire les deps suivies AVANT les gardes.**
