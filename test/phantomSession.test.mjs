@@ -11,7 +11,7 @@
  * donne une prise pour fabriquer le cas sans lancer de vraie session.
  */
 import { describe, it, expect, beforeEach } from 'vitest';
-import { deliverReply, failStartup, makeInputQueue } from '../server/agent.js';
+import { deliverReply, failStartup, makeInputQueue, settleReady } from '../server/agent.js';
 
 const live = globalThis[Symbol.for('hooked.agent.registry')];
 const ID = 'phantom-test-session';
@@ -29,13 +29,35 @@ function phantom(extra = {}) {
 beforeEach(() => live.delete(ID));
 
 describe('phantom session', () => {
-  it('refuses a reply to a session that has not spoken yet', () => {
-    phantom();
-    let err = null;
+  // Refuser sur-le-champ était trop brutal : juste après un redémarrage, les sessions reprises
+  // mettent quelques secondes à parler et tout envoi se soldait par une erreur rouge. On attend, et
+  // le message part dès que la session est prête — sans être perdu au passage.
+  it('holds a reply until the session speaks, then delivers it', async () => {
+    const st = phantom();
+    let err = 'unset', info = null;
+    deliverReply(ID, 'hello', (e, i) => { err = e; info = i; });
+    await Promise.resolve();
+    expect(err, 'ne doit pas encore avoir répondu').toBe('unset');
+
+    st.sawMsg = true;          // ce que fait readLoop au premier message
+    settleReady(st, true);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(err).toBe(null);
+    expect(info).toEqual({ sessionId: ID, sent: 1 });
+  });
+
+  it('refuses once the session is known never to have started', async () => {
+    const st = phantom();
+    let err = 'unset';
     deliverReply(ID, 'hello', (e) => { err = e; });
+    await Promise.resolve();
+    expect(err).toBe('unset');
+
+    settleReady(st, false);    // ce que fait le chien de garde / la fin de readLoop
+    await new Promise((r) => setTimeout(r, 0));
     expect(err).toBeTruthy();
     expect(err.code).toBe(400);
-    expect(err.message).toMatch(/still starting/);
+    expect(err.message).toMatch(/never finished starting/);
   });
 
   it('accepts a reply once the session has produced a message', () => {
@@ -69,5 +91,17 @@ describe('phantom session', () => {
     deliverReply(ID, 'hello', (e) => { err = e; });
     expect(err).toBeTruthy();
     expect(err.message).toMatch(/no live agent session/);
+  });
+
+  it('failStartup releases a caller waiting on readiness', async () => {
+    const st = phantom();
+    let err = 'unset';
+    deliverReply(ID, 'hello', (e) => { err = e; });
+    await Promise.resolve();
+    failStartup(st);
+    await new Promise((r) => setTimeout(r, 0));
+    // sans settleReady dans failStartup, l'appelant attendrait les 15 s du délai pour rien
+    expect(err).toBeTruthy();
+    expect(err.message).toMatch(/never finished starting/);
   });
 });
