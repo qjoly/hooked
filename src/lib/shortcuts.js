@@ -17,6 +17,8 @@ export const SHORTCUT_DEFS = [
   { id: 'split-session', label: 'Split with the most recent session', section: 'Actions', defaultKeys: { mod: true, shift: true, key: 's' } },
   { id: 'focus-mode', label: 'Toggle focus mode', section: 'Actions', defaultKeys: { mod: true, shift: true, key: 'f' } },
   { id: 'theme-cycle', label: 'Cycle theme', section: 'Actions', defaultKeys: { mod: true, shift: true, key: 't' } },
+  // Lens-scoped: only the Ship / Branch review surfaces listen for it, hence a bare key.
+  { id: 'review-file', label: 'Mark the current file reviewed', section: 'Review', defaultKeys: { key: 'v' } },
 ];
 
 function loadOverrides() {

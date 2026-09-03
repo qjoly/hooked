@@ -7,12 +7,19 @@
   //                  a prompt to the live session (batch review, or "open the PR").
   import { untrack } from 'svelte';
   import DiffView from './DiffView.svelte';
+  import Grip from './Grip.svelte';
   import Icon from '$lib/components/Icon.svelte';
   import { toSegments, countStats, applyOp } from '$lib/difflines.js';
   import { fmtCost } from '$lib/format.js';
-  import { getFileChangeFull, getVcsDiff, getVcsLog, getVcsCommit } from '$lib/api.js';
+  import { getFileChangeFull, getVcsDiff, getVcsLog, getVcsCommit, getVcsBlame,
+           getReviewThreads, postReviewComment, deleteReviewThread, replyReviewThread,
+           resolveReviewThread, markReviewSent, reply as sendToSession } from '$lib/api.js';
   import { settings, ui } from '$lib/state.svelte.js';
   import { editorFor } from '$lib/editors.js';
+  import { fingerprint, isReviewed as hasReview, toggleReviewed as tickReview,
+           toMap as reviewedToMap, toEntries as reviewedToEntries } from '$lib/reviewState.js';
+  import { loadDraft, saveDraft } from '$lib/reviewDraft.js';
+  import { getBinding, matchesEvent, formatKeys } from '$lib/shortcuts.js';
 
   let { s, id, onReview = null, canReview = true, active = false } = $props();
 
@@ -214,23 +221,48 @@
   $effect(() => { changes.length; untrack(() => { if (activeIdx >= changes.length) activeIdx = Math.max(0, changes.length - 1); }); });
   const activeFile = $derived(changes[activeIdx] || null);
 
-  // review tracking (per browser session, in-memory keyed by file path)
-  let reviewed = $state(new Set());
-  const isReviewed = (f) => reviewed.has(f);
-  function toggleReviewed(f) {
-    const next = new Set(reviewed);
-    next.has(f) ? next.delete(f) : next.add(f);
-    reviewed = next;
-  }
+  // ── blame under the cursor ─────────────────────────────────────────────────────────────────
+  // Which git revision each side of the shown diff comes from, so DiffView can ask "who wrote
+  // this line?" for the line under the pointer:
+  //   • Claude view      — new side = the working tree (the file on disk), old side is the
+  //                        pre-Claude content, which matches no revision → not blamed;
+  //   • VCS, uncommitted — HEAD → working tree;
+  //   • VCS, one commit  — the commit's parent → the commit.
+  // DiffView drops the answer whenever the blamed line's text no longer matches the line shown,
+  // so a stale revision never puts a name on the wrong line.
+  const blameFor = $derived.by(() => {
+    if (!activeFile || activeFile.binary) return null;
+    const [old, next] = view !== 'vcs' ? [null, '']
+      : selectedRev ? [selectedRev + '^', selectedRev]
+      : ['HEAD', ''];
+    return { file: activeFile.file, old, new: next, load: (rev) => getVcsBlame(id, activeFile.file, rev) };
+  });
+
+  // ── review ticks ── bound to the CONTENT reviewed, not just to the path ─────────────────
+  // `fileFp` fingerprints the diff a file currently shows; a tick stores that fingerprint. So a
+  // file edited after being ticked comes back un-ticked (rail AND the reviewed N/M counters),
+  // while going back to a state already signed off shows its tick again.
+  let reviewed = $state(new Map()); // file -> [fingerprint of each state signed off]
+  const fps = $derived(new Map(changes.map((c) => [c.file, fileFp(c)])));
+  const isReviewed = (f) => hasReview(reviewed, f, fps.get(f));
+  function toggleReviewed(f) { reviewed = tickReview(reviewed, f, fps.get(f)); }
   // "Mark reviewed" on the active file: marking it (not un-marking) auto-advances to the next
   // file — so you can review a diff, hit V / the button, and land on the next one.
   function reviewCurrent() {
     if (!activeFile) return;
-    const wasReviewed = reviewed.has(activeFile.file);
+    const wasReviewed = isReviewed(activeFile.file);
     toggleReviewed(activeFile.file);
     if (!wasReviewed && activeIdx < changes.length - 1) activeIdx += 1;
   }
-  const reviewedCount = $derived(changes.filter((c) => reviewed.has(c.file)).length);
+  const reviewedCount = $derived(changes.filter((c) => isReviewed(c.file)).length);
+
+  // The pieces a file's on-screen diff is built from — same inputs as fileDiffs(), minus the
+  // replay, so fingerprinting the whole rail stays cheap.
+  function fileFp(c) {
+    const ops = (o) => o.flatMap((x) => [x.content || '', x.old || '', x.new || '']);
+    if (view === 'vcs' || !filtering) return fingerprint(ops(c.ops || []));
+    return fingerprint([c.original || '', ...ops((c.rawOps || []).filter(opSelected))]);
+  }
 
   // diff style (persisted). `mode` is the sticky global preference, used for existing-file edits.
   let mode = $state((typeof localStorage !== 'undefined' && localStorage.getItem('hooked.shipDiff')) || 'split');
@@ -272,41 +304,102 @@
     : defaultMode
   );
 
-  // ── inline comments (batched, sent to Claude) ──────────────────────────────────────────────
-  let comments = $state([]); // { id, file, opIndex, name, side, start, end, text, snippet }
-  const pending = $derived(comments.length);
-  function addComment(file, opIndex, name, payload) {
-    comments = [...comments, { id: crypto.randomUUID(), file, opIndex, name, ...payload }];
+  // ── review threads (GitHub-style, anchored in the diff) ─────────────────────────────────────
+  // Threads live SERVER-side (HOOKED_DIR/reviews/<id>.json), not in component state: Claude
+  // writes into them (MCP reply_review_comment) and every browser sees the same conversation.
+  // Flow: a new comment is a `pending` thread (batched) → "Send N comments" ships the batch and
+  // marks them `sent` → follow-ups inside a thread go to the session immediately.
+  let threads = $state([]);
+  async function loadThreads() {
+    if (!id) return;
+    try { const r = await getReviewThreads(id); threads = r.threads || []; } catch (_) {}
   }
-  function delComment(cid) { comments = comments.filter((c) => c.id !== cid); }
+  $effect(() => { id; loadThreads(); });
+  // Live refresh while the lens is active: Claude's replies/resolves appear as they happen.
+  $effect(() => { ui.tick; if (active) loadThreads(); });
+
+  const pendingThreads = $derived(threads.filter((t) => !t.sent));
+  const pending = $derived(pendingThreads.length);
+  async function addComment(file, opIndex, name, payload) {
+    const r = await postReviewComment(id, { file, opIndex, name, ...payload });
+    if (r && r.thread) threads = [...threads, r.thread];
+  }
+  async function delComment(tid) {
+    threads = threads.filter((t) => t.id !== tid);
+    try { await deleteReviewThread(id, tid); } catch (_) {}
+  }
+  async function resolveComment(tid, resolved) {
+    threads = threads.map((t) => (t.id === tid ? { ...t, status: resolved ? 'resolved' : 'open' } : t));
+    try { await resolveReviewThread(id, tid, resolved); } catch (_) {}
+  }
+  // Follow-up inside a sent thread: stored, then pushed to the live session IMMEDIATELY (no
+  // batch, no tab switch) with the thread id so Claude answers back into the same thread.
+  async function replyComment(tid, text) {
+    const t = threads.find((x) => x.id === tid);
+    if (!t) return;
+    threads = threads.map((x) => (x.id === tid ? { ...x, status: 'open', messages: [...x.messages, { author: 'user', text, ts: new Date().toISOString() }] } : x));
+    try { await replyReviewThread(id, tid, text); } catch (_) {}
+    if (!canReview) return;
+    const prompt =
+      `Follow-up on review thread ${tid} — ${t.file} (${anchorLabel(t)}):\n> ${text.replace(/\n/g, '\n> ')}\n` +
+      THREAD_INSTR;
+    try { await sendToSession(id, prompt); } catch (_) {}
+  }
   const commentsFor = (file, opIndex) =>
-    comments.filter((c) => c.file === file && c.opIndex === opIndex).map((c) => ({ id: c.id, side: c.side, start: c.start, end: c.end, text: c.text }));
+    threads.filter((c) => c.file === file && c.opIndex === opIndex)
+      .map((c) => ({ id: c.id, side: c.side, start: c.start, end: c.end, snippet: c.snippet, status: c.status, sent: c.sent, messages: c.messages }));
 
   const anchorLabel = (c) => {
     const p = c.side === 'old' ? '−L' : '+L';
     return c.start === c.end ? p + c.end : p + c.start + '–' + c.end;
   };
+  const THREAD_INSTR =
+    'Reply in the thread with the hooked MCP tool reply_review_comment (id = this session, thread_id above), ' +
+    'and call resolve_review_comment once the code is fixed. Keep your chat answer to a one-line summary — ' +
+    'the details belong in the thread.';
   function buildReviewPrompt() {
     const items = [];
     for (const c of changes) {
-      const forFile = comments.filter((lc) => lc.file === c.file).sort((a, b) => a.opIndex - b.opIndex || a.start - b.start);
+      const forFile = pendingThreads.filter((lc) => lc.file === c.file).sort((a, b) => String(a.opIndex).localeCompare(String(b.opIndex)) || a.start - b.start);
       for (const lc of forFile) {
         const snip = (lc.snippet || '').split('\n').map((l) => '   | ' + l).join('\n');
-        const body = (lc.text || '').replace(/\n/g, '\n   > ');
-        items.push(`${items.length + 1}) ${c.file} (${anchorLabel(lc)})\n   > ${body}\n   Relevant code:\n${snip}`);
+        const body = (lc.messages[0]?.text || '').replace(/\n/g, '\n   > ');
+        items.push(`${items.length + 1}) ${c.file} (${anchorLabel(lc)}) [thread_id: ${lc.id}]\n   > ${body}\n   Relevant code:\n${snip}`);
       }
     }
     if (!items.length) return '';
-    return 'I reviewed your changes and left the following inline comments. Please address each one:\n\n' + items.join('\n\n');
+    return 'I reviewed your changes and left the following inline comments. Address each one, then, for each: ' +
+      THREAD_INSTR + '\n\n' + items.join('\n\n');
   }
 
   let sending = $state(false);
+
+  // ── draft persistence ── only the per-file "reviewed" ticks still live client-side (the
+  // comments themselves are server threads now). Same key/shape as before, comments left empty.
+  const draftKey = $derived(id ? 'ship:' + id : null);
+  $effect(() => {
+    const k = draftKey;
+    untrack(() => {
+      const d = loadDraft(k);
+      reviewed = reviewedToMap(d.reviewed);
+    });
+  });
+  $effect(() => {
+    const snap = { comments: [], reviewed: reviewedToEntries(reviewed) };
+    untrack(() => saveDraft(draftKey, snap));
+  });
+
   async function sendReview() {
     if (!onReview || !pending || sending) return;
     const prompt = buildReviewPrompt();
     if (!prompt) return;
     sending = true;
-    try { await onReview(prompt); comments = []; } finally { sending = false; }
+    const ids = pendingThreads.map((t) => t.id);
+    try {
+      await onReview(prompt);
+      threads = threads.map((t) => (ids.includes(t.id) ? { ...t, sent: true } : t));
+      await markReviewSent(id, ids);
+    } finally { sending = false; }
   }
 
   const PR_PROMPT =
@@ -325,59 +418,25 @@
 
   // keyboard: J/K next/prev file, V mark reviewed + advance — only while Ship is the active lens
   // and the user isn't typing in a field.
+  const reviewKeys = getBinding('review-file');
+  const reviewKey = formatKeys(reviewKeys);
   function onKey(e) {
     if (!active || e.metaKey || e.ctrlKey || e.altKey) return;
     const t = e.target;
     if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
     if (e.key === 'j' || e.key === 'J') { e.preventDefault(); activeIdx = Math.min(changes.length - 1, activeIdx + 1); }
     else if (e.key === 'k' || e.key === 'K') { e.preventDefault(); activeIdx = Math.max(0, activeIdx - 1); }
-    else if (e.key === 'v' || e.key === 'V') {
+    else if (matchesEvent(reviewKeys, e)) {
       if (!activeFile) return;
       e.preventDefault();
       reviewCurrent();
     }
   }
 
-  // ── panel sizing ── the two side rails are drag-resizable (widths persisted in `ui`);
-  // the diff column takes whatever is left. Double-click a handle to restore the default.
+  // ── panel sizing ── the two side rails are drag-resizable through the shared <Grip>
+  // (widths persisted in `ui`, shared with the Branch lens); the diff column takes what's left.
   const FILES_W = { min: 150, max: 520, def: 232 };
   const PANEL_W = { min: 200, max: 620, def: 288 };
-  function startResize(side, e) {
-    if (e.button != null && e.button !== 0) return;
-    e.preventDefault();
-    const startX = e.clientX;
-    const left = side === 'files';
-    const lim = left ? FILES_W : PANEL_W;
-    const startW = left ? ui.shipFilesWidth : ui.shipPanelWidth;
-    // left rail grows when dragging right, right panel grows when dragging left.
-    const move = (ev) => {
-      const w = Math.max(lim.min, Math.min(lim.max, startW + (left ? ev.clientX - startX : startX - ev.clientX)));
-      if (left) ui.shipFilesWidth = w; else ui.shipPanelWidth = w;
-    };
-    const up = () => {
-      window.removeEventListener('pointermove', move);
-      window.removeEventListener('pointerup', up);
-      document.body.style.cursor = '';
-      document.body.style.userSelect = '';
-    };
-    document.body.style.cursor = 'col-resize';
-    document.body.style.userSelect = 'none';
-    window.addEventListener('pointermove', move);
-    window.addEventListener('pointerup', up);
-  }
-  function resetWidth(side) {
-    if (side === 'files') ui.shipFilesWidth = FILES_W.def; else ui.shipPanelWidth = PANEL_W.def;
-  }
-  // keyboard-accessible nudge on the focused handle (± 16px).
-  function nudge(side, e) {
-    const d = e.key === 'ArrowLeft' ? -16 : e.key === 'ArrowRight' ? 16 : 0;
-    if (!d) return;
-    e.preventDefault();
-    const left = side === 'files';
-    const lim = left ? FILES_W : PANEL_W;
-    const w = Math.max(lim.min, Math.min(lim.max, (left ? ui.shipFilesWidth : ui.shipPanelWidth) + (left ? d : -d)));
-    if (left) ui.shipFilesWidth = w; else ui.shipPanelWidth = w;
-  }
 
   const tasksDone = $derived((s?.todos || []).filter((t) => t.status === 'completed').length);
   const tasksTotal = $derived((s?.todos || []).length);
@@ -489,14 +548,11 @@
       </div>
       <div class="sf-foot">
         <div class="sf-prog"><i style="width:{changes.length ? Math.round((reviewedCount / changes.length) * 100) : 0}%"></i></div>
-        <div class="sf-hint">J/K next file · V mark reviewed</div>
+        <div class="sf-hint">J/K next file · {reviewKey} mark reviewed</div>
       </div>
     </aside>
-    <!-- svelte-ignore a11y_no_noninteractive_element_interactions, a11y_no_noninteractive_tabindex -->
-    <div class="ship-grip" role="separator" aria-label="Resize the file list" aria-orientation="vertical"
-         tabindex="0" title="Drag to resize · double-click to reset"
-         onpointerdown={(e) => startResize('files', e)} ondblclick={() => resetWidth('files')}
-         onkeydown={(e) => nudge('files', e)}></div>
+    <Grip value={ui.shipFilesWidth} set={(w) => (ui.shipFilesWidth = w)}
+          min={FILES_W.min} max={FILES_W.max} def={FILES_W.def} label="Resize the file list" />
 
     <!-- ── diff ── -->
     <div class="ship-diff">
@@ -512,7 +568,8 @@
           <label class="sd-compact" title="Hide the unchanged context lines">
             <input type="checkbox" bind:checked={compact} /> compact
           </label>
-          <button class="sd-review" class:done={isReviewed(activeFile.file)} onclick={reviewCurrent}>
+          <button class="sd-review" class:done={isReviewed(activeFile.file)} onclick={reviewCurrent}
+                  title="Mark this file reviewed ({reviewKey})">
             {#if isReviewed(activeFile.file)}<Icon name="check" size={14} /> Reviewed{:else}Mark reviewed{/if}
           </button>
         </div>
@@ -531,21 +588,19 @@
             {#each fileDiffs(activeFile) as d (d.opIndex)}
               {#if d.label}<div class="sd-oplabel">{d.label}</div>{/if}
               <DiffView oldStr={d.oldStr} newStr={d.newStr} name={activeFile.name} mode={effMode} {compact}
+                        blame={blameFor}
                         commentable={!!onReview}
                         comments={commentsFor(activeFile.file, d.opIndex)}
                         onComment={(p) => addComment(activeFile.file, d.opIndex, activeFile.name, p)}
-                        onDelete={delComment} />
+                        onDelete={delComment} onReply={replyComment} onResolve={resolveComment} />
             {/each}
           {/if}
         </div>
       {/if}
     </div>
 
-    <!-- svelte-ignore a11y_no_noninteractive_element_interactions, a11y_no_noninteractive_tabindex -->
-    <div class="ship-grip" role="separator" aria-label="Resize the ship panel" aria-orientation="vertical"
-         tabindex="0" title="Drag to resize · double-click to reset"
-         onpointerdown={(e) => startResize('panel', e)} ondblclick={() => resetWidth('panel')}
-         onkeydown={(e) => nudge('panel', e)}></div>
+    <Grip value={ui.shipPanelWidth} set={(w) => (ui.shipPanelWidth = w)}
+          min={PANEL_W.min} max={PANEL_W.max} def={PANEL_W.def} invert label="Resize the ship panel" />
 
     <!-- ── ship panel ── -->
     <aside class="ship-panel">
@@ -719,19 +774,18 @@
   .sp-meta b { color: var(--text); }
 
   /* drag handles between the columns (2px visual, 7px hit area) */
-  .ship-grip { flex: 0 0 auto; width: 7px; margin: 0 -3px; cursor: col-resize; z-index: 3; background: none; }
-  .ship-grip:hover, .ship-grip:focus-visible { background: var(--accent); opacity: .5; outline: none; }
+  /* the rail handles are <Grip> — styled globally in app.css (out of this scope) */
 
-  @media (max-width: 1100px) { .ship-panel, .ship-grip:last-of-type { display: none; } }
-  @media (max-width: 900px) { .ship-files, .ship-grip:first-of-type { display: none; } }
+  @media (max-width: 1100px) { .ship-panel { display: none; } }
+  @media (max-width: 900px) { .ship-files { display: none; } }
 
   /* Mode étroit (pane de split / petite fenêtre) : les colonnes latérales cèdent la place au
      diff — d'abord le panneau « ready to ship », puis la liste de fichiers (J/K naviguent). */
   @container (max-width: 760px) {
-    .ship-panel, .ship-grip:last-of-type { display: none; }
+    .ship-panel { display: none; }
     .ship-files { width: min(var(--ship-files-w, 232px), 180px); min-width: min(var(--ship-files-w, 232px), 180px); }
   }
   @container (max-width: 560px) {
-    .ship-files, .ship-grip:first-of-type { display: none; }
+    .ship-files { display: none; }
   }
 </style>

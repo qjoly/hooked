@@ -8,11 +8,18 @@
   // default branch (origin/HEAD, else main/master).
   import { untrack } from 'svelte';
   import DiffView from './DiffView.svelte';
+  import Grip from './Grip.svelte';
   import Icon from '$lib/components/Icon.svelte';
   import { toSegments, countStats } from '$lib/difflines.js';
-  import { getVcsBranches, getVcsBranchDiff } from '$lib/api.js';
+  import { getVcsBranches, getVcsBranchDiff, getVcsBlame,
+           getReviewThreads, postReviewComment, deleteReviewThread, replyReviewThread,
+           resolveReviewThread, markReviewSent, reply as sendToSession } from '$lib/api.js';
   import { settings, ui } from '$lib/state.svelte.js';
   import { editorFor } from '$lib/editors.js';
+  import { fingerprint, isReviewed as hasReview, toggleReviewed as tickReview,
+           toMap as reviewedToMap, toEntries as reviewedToEntries } from '$lib/reviewState.js';
+  import { loadDraft, saveDraft } from '$lib/reviewDraft.js';
+  import { getBinding, matchesEvent, formatKeys } from '$lib/shortcuts.js';
 
   let { s, id, onReview = null, canReview = true, active = false } = $props();
 
@@ -104,21 +111,41 @@
   $effect(() => { changes.length; untrack(() => { if (activeIdx >= changes.length) activeIdx = Math.max(0, changes.length - 1); }); });
   const activeFile = $derived(changes[activeIdx] || null);
 
-  // review tracking (per browser session, in-memory keyed by file path)
-  let reviewed = $state(new Set());
-  const isReviewed = (f) => reviewed.has(f);
-  function toggleReviewed(f) {
-    const next = new Set(reviewed);
-    next.has(f) ? next.delete(f) : next.add(f);
-    reviewed = next;
-  }
+  // Blame under the cursor: this diff runs from the fork point (merge-base, or the base branch
+  // when there is none) to the branch head, so each side is blamed at that revision. DiffView
+  // ignores the answer when the blamed line's text no longer matches the line on screen.
+  const mergeBase = $derived(diffKey ? (diffCache[diffKey]?.mergeBase || null) : null);
+  const blameFor = $derived.by(() => {
+    if (!activeFile || activeFile.binary || meta.vcs === 'jj') return null;
+    return {
+      file: activeFile.file,
+      old: mergeBase || base || null,
+      new: branch || null,
+      load: (rev) => getVcsBlame(id, activeFile.file, rev),
+    };
+  });
+
+  // ── review ticks ── bound to the CONTENT reviewed, not just to the path ─────────────────
+  // `fileFp` fingerprints the diff a file currently shows; a tick stores that fingerprint. So a
+  // file edited after being ticked comes back un-ticked (rail AND the reviewed N/M counters),
+  // while going back to a state already signed off shows its tick again.
+  let reviewed = $state(new Map()); // file -> [fingerprint of each state signed off]
+  const fps = $derived(new Map(changes.map((c) => [c.file, fileFp(c)])));
+  const isReviewed = (f) => hasReview(reviewed, f, fps.get(f));
+  function toggleReviewed(f) { reviewed = tickReview(reviewed, f, fps.get(f)); }
   function reviewCurrent() {
     if (!activeFile) return;
-    const wasReviewed = reviewed.has(activeFile.file);
+    const wasReviewed = isReviewed(activeFile.file);
     toggleReviewed(activeFile.file);
     if (!wasReviewed && activeIdx < changes.length - 1) activeIdx += 1;
   }
-  const reviewedCount = $derived(changes.filter((c) => reviewed.has(c.file)).length);
+  const reviewedCount = $derived(changes.filter((c) => isReviewed(c.file)).length);
+
+  // Branch entries are a single old→new edit per file; a base or branch swap changes them, and
+  // with them the fingerprint.
+  function fileFp(c) {
+    return fingerprint((c.ops || []).flatMap((o) => [o.old || '', o.new || '']));
+  }
 
   // diff style — shared with Ship (same localStorage keys: one preference for both lenses).
   let mode = $state((typeof localStorage !== 'undefined' && localStorage.getItem('hooked.shipDiff')) || 'split');
@@ -137,56 +164,117 @@
   });
   const effMode = $derived(narrow ? 'unified' : mode);
 
-  // ── inline comments (batched, sent to Claude) — same protocol as Ship ──────────────────────
-  let comments = $state([]); // { id, file, opIndex, name, side, start, end, text, snippet }
-  const pending = $derived(comments.length);
-  function addComment(file, opIndex, name, payload) {
-    comments = [...comments, { id: crypto.randomUUID(), file, opIndex, name, ...payload }];
+  // ── review threads — same protocol as Ship (server-side store, see Ship.svelte) ────────────
+  let threads = $state([]);
+  async function loadThreads() {
+    if (!id) return;
+    try { const r = await getReviewThreads(id); threads = r.threads || []; } catch (_) {}
   }
-  function delComment(cid) { comments = comments.filter((c) => c.id !== cid); }
+  $effect(() => { id; loadThreads(); });
+  $effect(() => { ui.tick; if (active) loadThreads(); });
+
+  const pendingThreads = $derived(threads.filter((t) => !t.sent));
+  const pending = $derived(pendingThreads.length);
+  async function addComment(file, opIndex, name, payload) {
+    const r = await postReviewComment(id, { file, opIndex, name, ...payload });
+    if (r && r.thread) threads = [...threads, r.thread];
+  }
+  async function delComment(tid) {
+    threads = threads.filter((t) => t.id !== tid);
+    try { await deleteReviewThread(id, tid); } catch (_) {}
+  }
+  async function resolveComment(tid, resolved) {
+    threads = threads.map((t) => (t.id === tid ? { ...t, status: resolved ? 'resolved' : 'open' } : t));
+    try { await resolveReviewThread(id, tid, resolved); } catch (_) {}
+  }
+  async function replyComment(tid, text) {
+    const t = threads.find((x) => x.id === tid);
+    if (!t) return;
+    threads = threads.map((x) => (x.id === tid ? { ...x, status: 'open', messages: [...x.messages, { author: 'user', text, ts: new Date().toISOString() }] } : x));
+    try { await replyReviewThread(id, tid, text); } catch (_) {}
+    if (!canReview) return;
+    const prompt =
+      `Follow-up on review thread ${tid} — ${t.file} (${anchorLabel(t)}):\n> ${text.replace(/\n/g, '\n> ')}\n` +
+      THREAD_INSTR;
+    try { await sendToSession(id, prompt); } catch (_) {}
+  }
   const commentsFor = (file, opIndex) =>
-    comments.filter((c) => c.file === file && c.opIndex === opIndex).map((c) => ({ id: c.id, side: c.side, start: c.start, end: c.end, text: c.text }));
+    threads.filter((c) => c.file === file && c.opIndex === opIndex)
+      .map((c) => ({ id: c.id, side: c.side, start: c.start, end: c.end, snippet: c.snippet, status: c.status, sent: c.sent, messages: c.messages }));
 
   const anchorLabel = (c) => {
     const p = c.side === 'old' ? '−L' : '+L';
     return c.start === c.end ? p + c.end : p + c.start + '–' + c.end;
   };
+  const THREAD_INSTR =
+    'Reply in the thread with the hooked MCP tool reply_review_comment (id = this session, thread_id above), ' +
+    'and call resolve_review_comment once the code is fixed. Keep your chat answer to a one-line summary — ' +
+    'the details belong in the thread.';
   function buildReviewPrompt() {
     const items = [];
     for (const c of changes) {
-      const forFile = comments.filter((lc) => lc.file === c.file).sort((a, b) => String(a.opIndex).localeCompare(String(b.opIndex)) || a.start - b.start);
+      const forFile = pendingThreads.filter((lc) => lc.file === c.file).sort((a, b) => String(a.opIndex).localeCompare(String(b.opIndex)) || a.start - b.start);
       for (const lc of forFile) {
         const snip = (lc.snippet || '').split('\n').map((l) => '   | ' + l).join('\n');
-        const body = (lc.text || '').replace(/\n/g, '\n   > ');
-        items.push(`${items.length + 1}) ${c.file} (${anchorLabel(lc)})\n   > ${body}\n   Relevant code:\n${snip}`);
+        const body = (lc.messages[0]?.text || '').replace(/\n/g, '\n   > ');
+        items.push(`${items.length + 1}) ${c.file} (${anchorLabel(lc)}) [thread_id: ${lc.id}]\n   > ${body}\n   Relevant code:\n${snip}`);
       }
     }
     if (!items.length) return '';
-    return `I reviewed the full diff of branch \`${branch}\` against \`${base}\` and left the following inline comments. Please address each one:\n\n` + items.join('\n\n');
+    return `I reviewed the full diff of branch \`${branch}\` against \`${base}\` and left the following inline comments. Address each one, then, for each: ` +
+      THREAD_INSTR + '\n\n' + items.join('\n\n');
   }
 
   let sending = $state(false);
+
+  // ── draft persistence ── only the "reviewed" ticks still live client-side (comments are
+  // server threads now). Same key/shape as before, comments left empty.
+  const draftKey = $derived(id ? 'branch:' + id : null);
+  $effect(() => {
+    const k = draftKey;
+    untrack(() => {
+      const d = loadDraft(k);
+      reviewed = reviewedToMap(d.reviewed);
+    });
+  });
+  $effect(() => {
+    const snap = { comments: [], reviewed: reviewedToEntries(reviewed) };
+    untrack(() => saveDraft(draftKey, snap));
+  });
+
   async function sendReview() {
     if (!onReview || !pending || sending) return;
     const prompt = buildReviewPrompt();
     if (!prompt) return;
     sending = true;
-    try { await onReview(prompt); comments = []; } finally { sending = false; }
+    const ids = pendingThreads.map((t) => t.id);
+    try {
+      await onReview(prompt);
+      threads = threads.map((t) => (ids.includes(t.id) ? { ...t, sent: true } : t));
+      await markReviewSent(id, ids);
+    } finally { sending = false; }
   }
 
   // keyboard: J/K next/prev file, V mark reviewed — only while Branch is the active lens.
+  const reviewKeys = getBinding('review-file');
+  const reviewKey = formatKeys(reviewKeys);
   function onKey(e) {
     if (!active || e.metaKey || e.ctrlKey || e.altKey) return;
     const t = e.target;
     if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return;
     if (e.key === 'j' || e.key === 'J') { e.preventDefault(); activeIdx = Math.min(changes.length - 1, activeIdx + 1); }
     else if (e.key === 'k' || e.key === 'K') { e.preventDefault(); activeIdx = Math.max(0, activeIdx - 1); }
-    else if (e.key === 'v' || e.key === 'V') {
+    else if (matchesEvent(reviewKeys, e)) {
       if (!activeFile) return;
       e.preventDefault();
       reviewCurrent();
     }
   }
+  // ── panel sizing ── the rails resize through the shared <Grip>, on the SAME persisted
+  // widths as the Ship lens so the two twin layouts stay in sync.
+  const FILES_W = { min: 150, max: 520, def: 232 };
+  const PANEL_W = { min: 200, max: 620, def: 288 };
+
 </script>
 
 <svelte:window onkeydown={onKey} />
@@ -270,9 +358,11 @@
       </div>
       <div class="sf-foot">
         <div class="sf-prog"><i style="width:{changes.length ? Math.round((reviewedCount / changes.length) * 100) : 0}%"></i></div>
-        <div class="sf-hint">J/K next file · V mark reviewed</div>
+        <div class="sf-hint">J/K next file · {reviewKey} mark reviewed</div>
       </div>
     </aside>
+    <Grip value={ui.shipFilesWidth} set={(w) => (ui.shipFilesWidth = w)}
+          min={FILES_W.min} max={FILES_W.max} def={FILES_W.def} label="Resize the file list" />
 
     <!-- ── diff ── -->
     <div class="ship-diff">
@@ -288,7 +378,8 @@
           <label class="sd-compact" title="Hide the unchanged context lines">
             <input type="checkbox" bind:checked={compact} /> compact
           </label>
-          <button class="sd-review" class:done={isReviewed(activeFile.file)} onclick={reviewCurrent}>
+          <button class="sd-review" class:done={isReviewed(activeFile.file)} onclick={reviewCurrent}
+                  title="Mark this file reviewed ({reviewKey})">
             {#if isReviewed(activeFile.file)}<Icon name="check" size={14} /> Reviewed{:else}Mark reviewed{/if}
           </button>
         </div>
@@ -298,15 +389,19 @@
           {:else}
             {#each fileDiffs(activeFile) as d (d.opIndex)}
               <DiffView oldStr={d.oldStr} newStr={d.newStr} name={activeFile.name} mode={effMode} {compact}
+                        blame={blameFor}
                         commentable={!!onReview}
                         comments={commentsFor(activeFile.file, d.opIndex)}
                         onComment={(p) => addComment(activeFile.file, d.opIndex, activeFile.name, p)}
-                        onDelete={delComment} />
+                        onDelete={delComment} onReply={replyComment} onResolve={resolveComment} />
             {/each}
           {/if}
         </div>
       {/if}
     </div>
+
+    <Grip value={ui.shipPanelWidth} set={(w) => (ui.shipPanelWidth = w)}
+          min={PANEL_W.min} max={PANEL_W.max} def={PANEL_W.def} invert label="Resize the side panel" />
 
     <!-- ── side panel ── -->
     <aside class="ship-panel">
