@@ -72,7 +72,7 @@
         {#each diff.ops as o}
           {#if o.all}<div class="diff-tag">replace all occurrences</div>{/if}
           <PierreDiff
-            oldStr={o.kind === 'edit' ? (o.old || '') : ''}
+            oldStr={o.kind === 'notebook' ? '' : (o.old || '')}
             newStr={o.kind === 'write' ? (o.content || '') : (o.new || '')}
             name={diff.name}
             diffStyle={ui.diffSplit ? 'split' : 'unified'} />
