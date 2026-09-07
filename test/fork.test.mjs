@@ -1,6 +1,6 @@
 /*
  * Tests du fork de session (server/fork.js + forkUuid de buildConversation).
- * Le lancement tmux de forkSession() n'est pas testé ici (effet de bord système) ; on
+ * Le lancement de session de forkSession() n'est pas testé ici (effet de bord système) ; on
  * couvre la logique pure de découpe/réécriture, qui en est le cœur.
  */
 import { describe, it, expect } from 'vitest';

@@ -1,6 +1,6 @@
 <script>
   import { untrack, onMount } from 'svelte';
-  import { data, ui, settings, updateSettings, setTheme, setScheme, loadSessions, allTags, tagUsage, deleteTag } from '$lib/state.svelte.js';
+  import { data, ui, settings, updateSettings, setTheme, setScheme, setCorners, loadSessions, allTags, tagUsage, deleteTag } from '$lib/state.svelte.js';
   import { tagColor } from '$lib/format.js';
   import { resync, getGit, checkoutBranch, dismissRestartNotice, getClaudeVersion, upgradeClaude, restartClaudeSession, pickFolder, getRemoteControl } from '$lib/api.js';
   import { getAllBindings, setBinding, resetBinding, resetAll as resetAllShortcuts, formatKeys, keysFromEvent } from '$lib/shortcuts.js';
@@ -59,7 +59,6 @@
     subagents:   { icon: 'bot', label: 'Subagents' },
     subsessions: { icon: 'link', label: 'Sub-sessions' },
     background:  { icon: 'background', label: 'Background' },
-    terminal:    { icon: 'shell', label: 'Terminal' },
     pr:          { icon: 'pr', label: 'PRs' },
     issues:      { icon: 'issue', label: 'Issues' },
   };
@@ -90,6 +89,12 @@
   const SCHEMES = [
     { key: 'default', icon: 'dot', color: '#7d74f5', label: 'Default' },
     { key: 'legacy',  icon: 'dot', color: '#a07a55', label: 'Legacy' },
+    { key: 'datadog', icon: 'dot', color: '#632ca6', label: 'Datadog' },
+  ];
+  // Forme des angles (3e axe orthogonal : se combine avec n'importe quel clair/sombre et palette).
+  const CORNERS = [
+    { key: 'round', icon: 'dot', label: 'Rounded' },
+    { key: 'sharp', icon: 'pane', label: 'Square' },
   ];
 
   // Défauts de session (modèle / effort / mode de permission) pré-sélectionnés dans les formulaires
@@ -136,7 +141,7 @@
   // ── Remote control ────────────────────────────────────────────────────────────────────────────
   // Projects the hooked server keeps a `claude --remote-control` daemon alive for → start sessions
   // on them from the Claude app. The list lives in settings.remoteControlProjects; the server
-  // reconciles the `hooked-rc-*` tmux sessions on every write. We poll /api/remote-control for the
+  // reconciles the detached daemon processes on every write. We poll /api/remote-control for the
   // per-project daemon status (up / down / missing path).
   const rcProjects = $derived(settings.remoteControlProjects || []);
   let rcStatus = $state([]);          // [{ project, name, running, exists }]
@@ -216,20 +221,7 @@
     usage5h: '43%', prLinks: '🔗 hooked #18', issueLinks: '🐛 hooked #21', focusBtn: '⛶ Focus',
   };
 
-  // Commande shell initiale : champ local resynchronisé depuis le store TANT QUE l'utilisateur
-  // n'a pas commencé à éditer (sinon la resync async au chargement écraserait sa frappe).
-  let cmd = $state('');
-  let cmdDirty = false;
-  $effect(() => { const v = settings.initialShellCommand; if (!cmdDirty) untrack(() => (cmd = v)); });
-  let cmdStatus = $state('');
-  async function saveCmd() {
-    const res = await updateSettings({ initialShellCommand: cmd });
-    cmdDirty = false;
-    cmdStatus = res.ok ? '✓ saved' : '✗ ' + (res.data?.error || 'failed');
-    setTimeout(() => { cmdStatus = ''; }, 2500);
-  }
-
-  // Resync live states: re-reads every session's tmux pane at cold to clear a stale status.
+  // Resync live states: recomputes every session's state now instead of waiting for the poll.
   let resyncing = $state(false);
   let resyncStatus = $state('');
   async function doResync() {
@@ -424,8 +416,18 @@
         {/each}
       </div>
 
+      <h2 style="margin-top:22px">Corners</h2>
+      <p class="hint"><strong>Square</strong> removes every rounded corner — cards, buttons, chips, status dots, the lot. Combines with any theme and palette. (Per-browser preference.)</p>
+      <div class="chips">
+        {#each CORNERS as c (c.key)}
+          <button class="chip" class:active={ui.corners === c.key} onclick={() => setCorners(c.key)}>
+            <Icon name={c.icon} size={14} /> {c.label}
+          </button>
+        {/each}
+      </div>
+
       <h2 style="margin-top:22px">Color scheme</h2>
-      <p class="hint">Palette used for both light and dark. <strong>Legacy</strong> restores the previous warm cream / terracotta look. (Per-browser preference.)</p>
+      <p class="hint">Palette used for both light and dark. <strong>Legacy</strong> restores the previous warm cream / terracotta look; <strong>Datadog</strong> is a cool purple, tighter corners and flatter surfaces, closer to a monitoring console. (Per-browser preference.)</p>
       <div class="chips">
         {#each SCHEMES as s (s.key)}
           <button class="chip" class:active={ui.scheme === s.key} onclick={() => setScheme(s.key)}>
@@ -514,7 +516,7 @@
 
     <div class="card" id="pset-remote-control" data-sec>
       <h2>Remote control</h2>
-      <p class="hint">Projects the hooked server keeps a <code>claude remote-control</code> server running for, so each shows up as a launchable <strong>environment</strong> in the Claude app (start new sessions on it from claude.ai/code or mobile). Each daemon runs in a detached tmux session (<code>hooked-rc-…</code>), self-heals if it exits, and is hidden from the dashboard. Removing a project stops its daemon.</p>
+      <p class="hint">Projects the hooked server keeps a <code>claude remote-control</code> server running for, so each shows up as a launchable <strong>environment</strong> in the Claude app (start new sessions on it from claude.ai/code or mobile). Each daemon runs as a detached process (supervised by a restart loop, so it self-heals if it exits) and is hidden from the dashboard. Removing a project stops its daemon.</p>
       <div class="cmd-row">
         <select class="cmd-input" value="" onchange={(e) => { addRcProject(e.currentTarget.value); e.currentTarget.value = ''; }}>
           <option value="">— Add a project… —</option>
@@ -574,7 +576,7 @@
 
     <div class="card" id="pset-live" data-sec>
       <h2>Live state</h2>
-      <p class="hint">Re-reads every session's tmux pane fresh to fix a stale status — e.g. a session stuck on “working” after it finished or after its terminal was closed.</p>
+      <p class="hint">Recomputes every session's live state now to fix a stale status — e.g. a session stuck on “working” after it finished.</p>
       <div class="cmd-row">
         <button class="save" onclick={doResync} disabled={resyncing}>{#if resyncing}<Icon name="queued" size={14} /> Resyncing…{:else}<Icon name="refresh" size={14} /> Resync live states{/if}</button>
         {#if resyncStatus}<span class="status">{resyncStatus}</span>{/if}
@@ -845,17 +847,6 @@
       </div>
     </div>
 
-    <div class="card">
-      <h2>Initial shell command (new terminal)</h2>
-      <p class="hint">Run automatically when opening a new terminal pane (＋ button). Empty = bare shell.</p>
-      <div class="cmd-row">
-        <input class="cmd-input" bind:value={cmd} placeholder="e.g. source .venv/bin/activate"
-               oninput={() => (cmdDirty = true)}
-               onkeydown={(e) => { if (e.key === 'Enter') saveCmd(); }} />
-        <button class="save" onclick={saveCmd}>Save</button>
-        {#if cmdStatus}<span class="status">{cmdStatus}</span>{/if}
-      </div>
-    </div>
     </div>
   </div>
 </section>

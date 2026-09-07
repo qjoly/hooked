@@ -13,8 +13,6 @@ export const SHORTCUT_DEFS = [
   { id: 'go-digest', label: 'Archive → Digest', section: 'Navigation', defaultKeys: { alt: true, key: '5' } },
   { id: 'go-memory', label: 'Archive → Memory', section: 'Navigation', defaultKeys: { alt: true, key: '6' } },
   { id: 'toggle-sidebar', label: 'Toggle session sidebar', section: 'Actions', defaultKeys: { mod: true, key: 'b' } },
-  { id: 'open-terminal', label: 'Toggle terminal', section: 'Actions', defaultKeys: { mod: true, key: 'j' } },
-  { id: 'new-terminal', label: 'New terminal tab', section: 'Actions', defaultKeys: { mod: true, shift: true, key: 'j' } },
   { id: 'toggle-dock', label: 'Toggle context panel (tasks / changes / agents)', section: 'Actions', defaultKeys: { mod: true, shift: true, key: 'd' } },
   { id: 'split-session', label: 'Split with the most recent session', section: 'Actions', defaultKeys: { mod: true, shift: true, key: 's' } },
   { id: 'focus-mode', label: 'Toggle focus mode', section: 'Actions', defaultKeys: { mod: true, shift: true, key: 'f' } },

@@ -5,7 +5,7 @@
  * `uuid` stable et un `sessionId` (= nom du fichier). Forker « à partir d'un message » =
  * copier le PRÉFIXE brut du transcript jusqu'à la ligne de ce message (incluse), réécrire
  * le `sessionId` sur un nouvel id, écrire ce préfixe dans `<projet>/<newId>.jsonl`, puis
- * `claude --resume <newId>` (cf. tmux.launchSession). La session d'origine n'est JAMAIS
+ * `claude --resume <newId>` (cf. agent.launchSession). La session d'origine n'est JAMAIS
  * touchée (fichier distinct) — c'est une vraie branche indépendante.
  *
  * Le point de coupe (`forkUuid`) est l'uuid exposé par buildConversation sur chaque bulle.
@@ -14,7 +14,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { scanSessions } from './transcript.js';
-import { launchSession, err400 } from './tmux.js';
+import { launchSession, err400 } from './agent.js';
 
 function safeParse(line) { try { return JSON.parse(line); } catch (_) { return null; } }
 
@@ -59,7 +59,7 @@ function buildForkLines(rawText, forkUuid, newId) {
 }
 
 // Forke la session `id` au message `forkUuid`, puis reprend la branche dans une nouvelle
-// session tmux (modèle/effort optionnels, prompt optionnel envoyé après démarrage).
+// session pilotée par l'Agent SDK (modèle/effort optionnels, prompt optionnel envoyé au démarrage).
 function forkSession({ id, forkUuid, prompt, model, effort, permissionMode }, cb) {
   if (!/^[A-Za-z0-9._-]+$/.test(id || '')) return cb(err400('invalid session id'));
   if (!/^[A-Za-z0-9-]{6,}$/.test(forkUuid || '')) return cb(err400('invalid message (uuid)'));
@@ -81,7 +81,7 @@ function forkSession({ id, forkUuid, prompt, model, effort, permissionMode }, cb
   // on reprend dans le dossier d'origine de la session (cwd conservé dans le préfixe copié).
   launchSession({ resumeId: newId, cwd: sess.project, prompt, model, effort, permissionMode }, (err, info) => {
     if (err) {
-      try { fs.unlinkSync(newFile); } catch (_) {} // nettoyage si le lancement tmux échoue
+      try { fs.unlinkSync(newFile); } catch (_) {} // nettoyage si le lancement échoue
       return cb(err);
     }
     cb(null, { ...info, forkedFrom: id });

@@ -69,8 +69,8 @@ const DONE_STOPPED = new Set(['stopped', 'cancelled', 'canceled']);
 // Statut PUR d'un job de fond → exactement une valeur. C'est la « meilleure traque » du plan : au lieu
 // de « pas de notif ⇒ encore en cours », on croise TROIS signaux fiables — notification terminale du
 // transcript (job.done + doneReason), timeout propre du Monitor (borne dure → 'expired'), et vivacité
-// du pane (mort → 'orphaned'). SEUL 'running' compte comme actif (badge 🌀, liste sidebar, état
-// 'background'). `alive` = pane tmux vivant ; `now` = Date.now() (injecté pour tester l'expiration).
+// de la SESSION (morte → 'orphaned'). SEUL 'running' compte comme actif (badge 🌀, liste sidebar,
+// état 'background'). `alive` = la session tourne encore ; `now` = Date.now() (injecté pour les tests).
 function jobStatus(job, alive, now) {
   if (job.done) {
     const r = String(job.doneReason || '').toLowerCase();
@@ -79,12 +79,12 @@ function jobStatus(job, alive, now) {
     if (DONE_STOPPED.has(r)) return 'stopped';
     return 'completed';                                // completed/exited/done + repli terminal inconnu
   }
-  // pas encore terminé : le pane est-il mort ? (process de fond mort avec lui)
+  // pas encore terminé : la session est-elle morte ? (process de fond mort avec elle)
   if (!alive) return 'orphaned';
   // Monitor au-delà de son timeout → le harnais l'a terminé, la notif ne viendra pas. Si on n'a pas
   // pu lire de timeout déclaré (timeoutMs null), on retombe sur le max 1h du tool Monitor, pour qu'un
   // monitor sans notif terminale ne reste pas 'running' à vie. Les monitors persistants n'ont pas de
-  // borne temporelle (clos uniquement par une notif de fin ou un pane mort → 'orphaned').
+  // borne temporelle (clos uniquement par une notif de fin ou une session morte → 'orphaned').
   if (job.kind === 'monitor' && !job.persistent && job.startTs) {
     const tmo = job.timeoutMs || MONITOR_MAX_TIMEOUT_MS;
     if (Date.parse(job.startTs) + tmo < now) return 'expired';

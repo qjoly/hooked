@@ -1,6 +1,6 @@
 # CLAUDE.md — hooked
 
-Dashboard local des sessions Claude Code. **Back zéro dépendance** (stdlib Node : `server/*` + `hook.cjs`) ; **front SvelteKit / Svelte 5** ; pilotage des sessions via **tmux** (`send-keys` / `capture-pane` / `pipe-pane`). Le serveur **MCP** (`mcp/server.cjs`) est un client mince qui proxy l'API HTTP locale.
+Dashboard local des sessions Claude Code. **Front SvelteKit / Svelte 5** ; **back Node stdlib** (`server/*` + `hook.cjs`) avec **une seule dépendance runtime côté pilotage** : l'**Agent SDK d'Anthropic** (`@anthropic-ai/claude-agent-sdk`). Le serveur **MCP** (`mcp/server.cjs`) est un client mince qui proxy l'API HTTP locale.
 
 ## Contributing (English)
 
@@ -18,20 +18,63 @@ Dashboard local des sessions Claude Code. **Back zéro dépendance** (stdlib Nod
 - C'est une **SPA** : naviguer entre sessions = routing client → l'onglet garde l'ancien JS. Pour charger du nouveau code il faut un **rechargement complet du navigateur** (Cmd+Shift+R), pas un clic in-app.
 - Avant de conclure « ça ne marche pas », vérifier qu'on teste bien le **dernier build** (process `node build` redémarré + hard-reload), surtout sur navigateur Gecko/Firefox.
 
-## Onglet Terminal (mirroir tmux → xterm) — gotchas
+## Pilotage des sessions (`server/agent.js`)
 
-Le terminal web mirrore un pane tmux : amorçage par `capture-pane`, puis **stream incrémental** via `pipe-pane` → fichier → SSE (`/api/pane/stream`) → `xterm.write`. Saisie clavier via `send-keys`. Pièges durement acquis (cf. `server/pane.js`, `server/paneStream.js`, `Terminal.svelte`) :
+Les sessions Claude Code tournent **dans le processus hooked**, via `query()` de l'Agent SDK en mode **streaming input/output**. `server/agent.js` tient un registre `session_id → entrée vivante` et expose tout le pilotage (lancement, réponse, interruption, mode, modèle/effort, kill/restart, réponses aux questions/plans/permissions).
 
-- **Un nouveau pane = une nouvelle FENÊTRE tmux, pas un split** (défaut de `showInPane`). Un split partage la fenêtre → chaque pane n'a qu'une **fraction de la hauteur**, et le mode Adapter (`resize-window`) gonfle la **fenêtre** mais pas le pane individuel → gros vide sous le programme + pane Claude rétréci. `new-window` se cible sur la **session** (`-t <pane>` échoue : « can't specify pane here ») ; `split-window` se cible sur le pane.
-- **Mode Adapter** = `tmux resize-window` (passe la fenêtre en `window-size=manual`, marche sur session détachée, persiste, pane-cible résolu vers sa fenêtre). À la fermeture de la vue web : restaurer `window-size latest` (rattachement Ghostty normal). Mesurer la hauteur dispo en **JS** (haut de la boîte → bas du viewport), pas un `calc(100dvh - …)` en dur (l'en-tête est haut/variable).
-- **Snapshot `capture-pane`** : lignes séparées par des `\n` simples (lignes *logiques*). Peindre **chaque ligne en position absolue** (`ESC[<row>;1H`), JAMAIS recoller avec `\n`/`\r\n` (escalier ; et une ligne pleine largeur cumule auto-wrap + saut de ligne). `capture-pane` n'émet **ni position curseur ni modes** → pour un TUI rejoint en cours (nvim, claude), rejouer depuis les format vars tmux : `cursor_x/y`, `alternate_on`, `cursor_flag`, `keypad_cursor_flag`, `keypad_flag`, `wrap_flag` (écran alterné, touches curseur applicatives…), sinon flèches/redraws cassés.
-- **Lecture du flux SÉRIALISÉE** : `fs.watch` + poll de secours lisent depuis un offset partagé `st.pos` → deux lectures concurrentes **dupliquent ET sautent** des octets ; un `ESC[J` (effacement) sauté = **lignes fantômes** quand un TUI rétrécit. Verrou `reading` + `pendingRead`.
-- **Saisie : un `onData` xterm = un `send-keys` séparé, jamais fusionné.** Un ESC (`0x1b`) collé aux octets suivants est lu comme une **séquence d'échappement** (flèche/méta), pas un Échap → « Échap ne marche pas ». Utiliser `send-keys -H` (hex) pour forwarder octets bruts / de contrôle proprement.
-- **Firefox/Gecko** : la touche **Échap déclenche `window.stop()`** → avorte le flux SSE. `preventDefault` sur Échap (en capture, **sans** `stopPropagation` pour que xterm émette quand même l'ESC).
-- **JSON ≠ octets de contrôle bruts** : un ESC brut dans un body JSON = JSON invalide (400). `JSON.stringify` l'échappe en `\u001b` (le client s'en charge).
-- **Cache pane→nom de 3 s** (`paneTmuxNames`) : un pane tout neuf paraît « mort » (`tmuxAlive` faux) jusqu'à 3 s → appeler `invalidatePaneCache()` après création ; un test qui capture juste après doit attendre > 3 s.
-- **Polices empaquetées** (`static/fonts/` : JetBrains Mono + Symbols Nerd Font) : `await document.fonts.load(...)` **avant** que xterm mesure la grille, sinon cellules mal dimensionnées.
-- Le pane **Claude Code n'est pas fermable** (pas de ✕) ; seuls les panes « show » le sont.
+- **Le registre est épinglé sur `globalThis`** (`Symbol.for('hooked.agent.registry')`). Sans ça, la ré-exécution de module de Vite après une modif back en `npm run live` repartirait d'un registre vide et **perdrait les sessions en cours** — elles vivent dans ce processus, pas dans un tmux détaché.
+- **Un tour en cours ne survit pas à un redémarrage de hooked, la session si.** Le process meurt avec hooked (c'est le compromis assumé du modèle « hooked possède le process »), mais un **instantané du jeu piloté** est tenu à jour dans `driven-sessions.json` et **rejoué au démarrage** : `resumeDrivenSessions()` relance chaque entrée en `--resume`, séquentiellement, sans pousser de prompt (donc sans consommer de tour). Garde-fous : **6 sessions max** par boot, et rien n'est réveillé si l'instantané a **plus de 12 h** — hooked éteint depuis une semaine ne doit pas spawner six CLI au login. `HOOKED_NO_RESUME=1` coupe le mécanisme. L'instantané est écrit **par sondage (10 s)** et non à chaque mutation de `live` : le registre est muté depuis six endroits, en oublier un donnerait un fichier faux. Le bouton **Resume** reste là pour tout le reste.
+- **« Terminée » n'est pas « archivée ».** Un redémarrage tue les sous-process → `SessionEnd` → `ended`. `isSessionArchived()` assimilait ça à un archivage, donc la session quittait la liste active et il fallait la repêcher dans l'onglet Archived. Une session terminée ne compte comme archivée qu'une fois **froide** (24 h sans activité, cf. `isFinishedAndCold` dans `format.js`) ; un archivage **explicite** déplace toujours immédiatement.
+- **Les hooks globaux continuent de tourner.** `settingSources` est laissé au défaut (toutes les sources), donc `~/.claude/settings.json` — donc `hook.cjs`, donc `events.jsonl` — s'exécute pour les sessions du SDK comme pour une session ouverte à la main. **Ne pas passer `settingSources: []`** : ça couperait d'un coup les questions/plans en attente, les todos, les jobs de fond et la statusline. Vérifié de bout en bout : une session lancée par le SDK écrit bien `SessionStart` / `UserPromptSubmit` / `Stop` dans `events.jsonl`.
+- **Deux couches se recouvrent volontairement pour l'état.** Le **registre** est autoritaire pour une session pilotée (la promesse `canUseTool` *est* l'attente, aucun décalage possible) ; les **évènements de hooks** restent le repli, et la seule source pour une session ouverte hors hooked — elle reste visible et à jour, simplement pas pilotable.
+- **`canUseTool` bloque Claude** tant qu'on n'a pas résolu la promesse. Trois cas, un seul en attente à la fois :
+  - `AskUserQuestion` → on renvoie `{behavior:'allow', updatedInput:{…, answers}}` (`answers` = map `texte de question → libellé`, virgules en multi-select) ;
+  - `ExitPlanMode` → `allow` (+ `setPermissionMode` vers `acceptEdits`/`auto`) pour approuver, `deny` avec le feedback comme message pour refuser ;
+  - **tout autre outil** = demande de permission. Elle est présentée à l'UI **sous la forme d'une AskUserQuestion à 3 options** (`Allow once` / `Allow always` / `Deny`) → le composant `Question` existant la rend sans une ligne de front en plus, et approuver un outil depuis le web devient possible (avant il fallait l'onglet Terminal, donc tmux). **L'ordre des options est un contrat** avec l'aiguillage de `answerPendingSelection` (indice 0/1/2).
+- **Toujours libérer une attente avant de tuer/interrompre.** Une promesse `canUseTool` laissée pendante bloque le sous-processus à la sortie — `readLoop` (finally), `interruptSession` et `killSession` la résolvent tous.
+- **L'environnement du profil utilisateur doit être réinjecté à la main.** L'ancien pilotage lançait `claude` via `$SHELL -l -i -c …`, donc `~/.zprofile` / `~/.zshrc` étaient sourcés. Le SDK spawne le CLI avec l'env de hooked — sous launchd, un PATH figé à l'installation du service. Mesuré : **26 entrées de PATH perdues** (`~/.krew/bin`, `~/.nix-profile/bin`, `~/go/bin`, `~/.local/bin`, `/sbin`, `/usr/sbin`…) et des variables réelles avec (`GITHUB_TOKEN`, `NIX_SSL_CERT_FILE`, `K9S_CONFIG_DIR`…) → `kubectl` sans son plugin d'auth OIDC, `gh` sans token. `loginEnv()` résout donc l'env du shell de login **une fois** (~1,8 s, async, caché sur `globalThis`, pré-chauffé à l'import) et le passe en `env` au SDK. Ordre de fusion `{...process.env, ...profil}` — le profil gagne, comme avant. Les variables du shell *résolveur* (`PWD`, `SHLVL`, `TMUX*`, `__MISE_*`) sont filtrées : les injecter serait faux.
+  > Corollaire à garder en tête : si un profil exportait `ANTHROPIC_API_KEY`, toutes les sessions basculeraient sur la facturation API au lieu de l'abonnement. C'était déjà vrai du temps de tmux, mais ça reste un piège.
+- **`bypassPermissions` court-circuite `canUseTool` pour les outils ordinaires**, pas pour `AskUserQuestion` / `ExitPlanMode` (vérifié en live sur `auto` ET `bypassPermissions` : les deux livrent bien la question au callback). Donc en mode bypass on perd la carte de permission — c'est l'effet voulu du mode — sans perdre les questions ni les plans. Le SDK émet un avertissement à chaque lancement dans ce mode : c'est du bruit, pas un bug.
+- Le **premier prompt part immédiatement** : le SDK bufferise l'entrée jusqu'à ce que le CLI soit prêt. Rien à attendre, rien à détecter.
+
+## Ce que la migration hors tmux a supprimé
+
+Retiré parce que **spécifique à tmux**, sans équivalent : l'onglet **Terminal** (mirroir xterm d'un pane), le MCP `show_in_pane`, `Copy attach` / `tmux attach`, la **sidebar tmux** (`tmux/`), et le pilotage d'une session **lancée hors hooked** (il venait de `send-keys`). Les démons **remote-control** sont conservés : ce sont maintenant des **process détachés** supervisés par un fichier de PID (`rc-daemons.json`), reconnus dans le dashboard via `HOOKED_RC=1` → drapeau `rc` recopié par `hook.cjs`.
+
+Ce qui n'a **plus besoin d'exister** (et ne doit pas revenir) : parsing du spinner / du footer de mode / du ghost text, comparaison de captures d'écran pour deviner « en train d'écrire vs terminé », délais anti-coalescence d'ink entre deux frappes, acceptation du dialogue de confiance, effacement du prompt réinjecté après un Échap, confirmation du dialogue « la conversation va être relue » après `/model`, et tout le pré-chauffage concurrent des captures (`warmPaneCaptures`) qui existait uniquement parce que `capture-pane` était synchrone et bloquait l'event loop.
+
+## Lentille MCP (`server/mcp.js`, `Mcp.svelte`)
+
+`/mcp` était un écran **TUI du CLI**. Les sessions vivant maintenant dans le processus hooked via
+l'Agent SDK, il n'y a plus de terminal interactif où l'ouvrir : un serveur qui retombe en *Needs
+authentication* devenait impossible à réparer depuis hooked. La **lentille MCP** du workspace
+(touche `5`, à côté de Converse / Ship / Branch) le remplace, bâtie sur les sous-commandes **non
+interactives** `claude mcp list|get|login|logout`.
+
+- **C'est une lentille de session, pas une page de nav.** Les scopes MCP sont **par-répertoire** :
+  la lentille prend le `project` de la session ouverte, donc le sélecteur de projet (et le
+  `Browse…`) de l'ancienne page `/mcp` n'a plus de raison d'être. `SessionDetail` échange la prop
+  `id` sans remonter → `Mcp.svelte` refetch sur un `$effect` qui suit `project`.
+
+- **On parse la sortie texte de `claude mcp list`**, on ne lit pas les fichiers de config : c'est la
+  seule source qui *health-check* tous les serveurs **et** voit les connecteurs claude.ai (ils vivent
+  sur le compte, pas sur disque). Pas de mode JSON → le format **est** le contrat, épinglé par
+  `test/mcp.test.mjs` sur des captures verbatim (`test/fixtures/mcp/`). Le **scope**, lui, est déduit
+  du disque (`~/.claude.json` + `.mcp.json`) : gratuit, là où `claude mcp get` coûterait un spawn
+  health-checké par serveur.
+- **`claude mcp login` tourne sous un vrai PTY** (node-pty), pas `spawn` : il écrit l'URL via des
+  hyperliens OSC-8 et, pour un serveur OAuth ordinaire, **attend sur stdin** qu'on lui recolle l'URL
+  de redirection. Le PTY maintient ce process vivant entre les deux appels HTTP → les logins vivent
+  dans un registre épinglé sur `globalThis` (même raison que les sessions et les terminaux).
+- **`--no-browser` est toujours passé** : le navigateur doit s'ouvrir sur la machine qui *regarde* le
+  dashboard, pas sur celle qui l'exécute. On affiche l'URL en lien ; si les deux machines sont la
+  même, le callback OAuth retombe sur localhost et le CLI finit tout seul.
+- **Un connecteur claude.ai sort du flux immédiatement** après avoir imprimé l'URL : l'approbation se
+  fait ensuite sur le site. « Le process s'est terminé » n'y vaut donc **pas** « tu es authentifié »
+  — d'où le drapeau `outOfBand` dans le snapshot, et le message distinct côté page.
+- `stripCliAnsi` n'est pas le `stripAnsi` d'`agent.js` (qui ne retire que le CSI) : sans retirer les
+  OSC-8, l'URL apparaît **deux fois** sur la ligne. Noms distincts obligatoires — `server/index.js`
+  ré-exporte en `export *`, et un nom ambigu **disparaît silencieusement** du barrel.
 
 ## Workflows (outil `Workflow`) — deux sources, jamais les deux à la fois
 
@@ -64,4 +107,5 @@ de la CLI. Le piège structurant :
 ## Tests
 
 - `npm test` (Vitest) = tests de caractérisation sur fixtures (`test/fixtures/…`, surchargés via `HOOKED_DATA_DIR` / `HOOKED_PROJECTS_DIR`). Le filet anti-régression du back.
-- Pour tester le pilotage tmux sans toucher aux vraies sessions : créer une session tmux jetable, écrire un `events.jsonl` fixture pointant un `tmux_pane` réel, et appeler les fonctions `server/*` avec `HOOKED_DATA_DIR` sur un tmpdir.
+- La dérivation d'état du flux SDK est **pure et testée sans lancer de session** : `applyMessage(st, msg)` (`test/agentState.test.mjs`) et `refineWithAgent(state, alive, sdkState)` (`test/refineState.test.mjs`).
+- Pour tester un vrai bout-en-bout de pilotage : appeler `launchSession` / `deliverReply` / `killSession` de `server/agent.js` avec `HOOKED_DATA_DIR` sur un tmpdir et un projet jetable. Ça consomme un tour réel — à garder hors de `npm test`.

@@ -100,13 +100,17 @@ export const replaceSessionMeta = (map) => jpost('/api/session-meta', { replace:
 // date; getDigest(date) → one digest (or { status:'absent' }); generateDigest → kick off (async)
 // generation, poll getDigest until status is done/partial/error.
 export const getMemory = () => jget('/api/memory');
+// MCP servers of a project (health-checked list, scope, diagnostics) + the OAuth actions.
+// `cwd` selects the project: project- and local-scope servers are per-directory.
+export const getMcpServers = (cwd) => jget('/api/mcp?cwd=' + encodeURIComponent(cwd || ''));
+export const mcpAction = (body) => jpost('/api/mcp', body);
 
 export const getDigests = () => jget('/api/digest');
 export const getDigest = (date) => jget('/api/digest?date=' + encodeURIComponent(date));
 export const generateDigest = (date, force) => jpost('/api/digest', { date, force: !!force });
 
-// Force a live-state resync: re-reads every session's tmux pane at cold (drops the caches) to fix a
-// stale status (e.g. a session stuck on "working" after its tmux was closed). Returns state counts.
+// Force a live-state resync: drops the volatile per-session bits derived from the SDK stream and
+// rebuilds the list now instead of waiting for the poll. Returns state counts.
 export const resync = () => jpost('/api/resync', {});
 
 // Git du dépôt du serveur hooked lui-même (page Réglages) : état + branches + synchro.
@@ -150,27 +154,38 @@ export const launch = (payload) => jpost('/api/launch', payload);
 // Ouvre le sélecteur de dossier natif de l'OS (macOS) ; renvoie { dir } ou { canceled }.
 export const pickFolder = (start) => jpost('/api/pick-folder', start ? { start } : {});
 // Fork d'une session à partir d'un message (uuid de la bulle) : crée une branche
-// indépendante (copie du préfixe du transcript) et la reprend dans une session tmux.
+// indépendante (copie du préfixe du transcript) et la reprend dans une nouvelle session.
 export const fork = (payload) => jpost('/api/fork', payload);
 export const kill = (id) => jpost('/api/kill', { id });
 // Met une session à la corbeille : déplace le transcript dans <projet>/bin/ (récupérable),
-// la retire du dashboard. ≠ kill (qui ferme le pane tmux). Voir /api/delete.
+// la retire du dashboard. ≠ kill (qui termine le process de la session). Voir /api/delete.
 export const deleteSession = (id) => jpost('/api/delete', { id });
 // Corbeille : liste des sessions supprimées + restauration.
 export const getTrash = () => jget('/api/trash');
 export const restoreSession = (id) => jpost('/api/restore', { id });
+// Auto-approbation des permissions d'outil pour une session : les demandes cessent d'être posées,
+// les questions et les plans continuent d'arriver (cf. /api/auto-approve).
+export const setAutoApprove = (id, on) => jpost('/api/auto-approve', { id, on });
 export const openInEditor = (id) => jpost('/api/open-editor', { id });
 export const openInGhostty = (id) => jpost('/api/open-ghostty', { id });
-// Ouvre un pane/fenêtre tmux dans la session et y lance une commande (mirroir onglet Terminal).
-// Sans `command`, ouvre un pane shell vide (bouton « + Pane »).
-export const showInPane = (id, command, target) => jpost('/api/pane', { id, command, target });
-// Ferme un pane « show » (tue le pane tmux).
-export const killPane = (pane) => jpost('/api/pane/kill', { pane });
-// Saisie clavier interactive vers un pane (xterm.onData → tmux send-keys).
-export const sendPaneInput = (pane, data) => jpost('/api/pane/input', { pane, data });
-// Redimensionne la fenêtre tmux du pane pour remplir la vue web (ou restaure l'auto via {auto}).
-export const resizePane = (pane, cols, rows) => jpost('/api/pane/resize', { pane, cols, rows });
-export const autosizePane = (pane) => jpost('/api/pane/resize', { pane, auto: true });
+
+// ── Terminaux shell (PTY réels, cf. server/terminal.js) ────────────────────────────────────────
+// Un terminal n'est PAS lié à une session Claude : il tourne dans le dossier d'un projet et lui
+// survit. `sessionId` ne sert qu'à l'étiqueter pour le regrouper dans l'UI.
+export const listTerminals = (sessionId) => jget('/api/terminal' + (sessionId ? '?sessionId=' + encodeURIComponent(sessionId) : ''));
+export const openTerminal = (cwd, sessionId, cols, rows) => jpost('/api/terminal', { cwd, sessionId, cols, rows });
+export const sendTerminalInput = (id, data) => jpost('/api/terminal/input', { id, data });
+export const resizeTerminal = (id, cols, rows) => jpost('/api/terminal/resize', { id, cols, rows });
+export const killTerminal = (id) => jpost('/api/terminal/kill', { id });
+
+// Flux SSE PAR SESSION : avancement d'un tour au fil de l'eau (texte en cours, raisonnement, outil,
+// état). Renvoie une fonction de fermeture. `onSnap` reçoit `{ live, state, busy, activity, text,
+// thinking, tool, ended }` ; `live:false` = session non pilotée, rien ne viendra.
+export function connectSessionStream(id, onSnap) {
+  const es = new EventSource('/api/session/stream?id=' + encodeURIComponent(id));
+  es.onmessage = (e) => { try { onSnap(JSON.parse(e.data)); } catch (_) {} };
+  return () => es.close();
+}
 
 // Flux SSE : appelle onTick() à chaque « tick » poussé par le serveur.
 export function connectSSE({ onTick, onOpen, onError }) {
