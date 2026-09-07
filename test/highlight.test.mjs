@@ -37,7 +37,7 @@ describe('mdSegments — découpage texte / code', () => {
     const segs = mdSegments('Voici :\n```js\nconst a = 1\n```\nfin');
     expect(segs[0].type).toBe('text');
     expect(segs[0].parts[0].html).toContain('Voici');
-    expect(segs[1]).toEqual({ type: 'code', lang: 'js', code: 'const a = 1' });
+    expect(segs[1]).toEqual({ type: 'code', lang: 'js', meta: {}, code: 'const a = 1' });
     expect(segs[2].type).toBe('text');
     expect(segs[2].parts[0].html).toContain('fin');
   });
@@ -61,7 +61,7 @@ describe('mdSegments — découpage texte / code', () => {
 
   it('bloc sans langage → lang vide', () => {
     const [seg] = mdSegments('```\nplain text\n```');
-    expect(seg).toEqual({ type: 'code', lang: '', code: 'plain text' });
+    expect(seg).toEqual({ type: 'code', lang: '', meta: {}, code: 'plain text' });
   });
 
   it('retire le saut de ligne final avant la fence fermante', () => {
@@ -72,7 +72,7 @@ describe('mdSegments — découpage texte / code', () => {
   it('conserve `lang: mermaid` — contrat de routage vers <Mermaid>', () => {
     // Markdown.svelte s'appuie sur `s.lang === 'mermaid'` pour rendre le bloc en diagramme.
     const [seg] = mdSegments('```mermaid\ngraph TD\n  A --> B\n```');
-    expect(seg).toEqual({ type: 'code', lang: 'mermaid', code: 'graph TD\n  A --> B' });
+    expect(seg).toEqual({ type: 'code', lang: 'mermaid', meta: {}, code: 'graph TD\n  A --> B' });
   });
 
   it('un bloc de code imbriqué (dans une liste) reste inline, pas extrait', () => {

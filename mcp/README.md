@@ -37,12 +37,11 @@ claude mcp add hooked -- node /chemin/vers/hooked/mcp/server.cjs
 | `list_sessions` | `GET /api/sessions` | Liste les sessions (live + passées) avec leur état |
 | `get_session` | `GET /api/session` | Détail complet d'une session |
 | `start_session` | `POST /api/launch` | Démarre / reprend une session (cwd, prompt, model, effort, resumeId, worktree) |
-| `stop_session` | `POST /api/kill` | Stoppe une session (tue le pane tmux) |
+| `stop_session` | `POST /api/kill` | Stoppe une session (termine son process Claude Code) |
 | `reply_to_session` | `POST /api/reply` | Envoie un message à une session live |
 | `interrupt_session` | `POST /api/interrupt` | Envoie Échap (interrompt Claude) |
 | `set_mode` | `POST /api/mode` | Change le mode de permission (default / auto / plan) |
 | `set_model` | `POST /api/model` | Change le modèle et/ou l'effort |
-| `show_in_pane` | `POST /api/pane` | Ouvre un pane/fenêtre tmux dans la session et y lance une commande (mirroir read-only dans l'onglet « Terminal ») |
 | `search_sessions` | `GET /api/search` | Recherche plein-texte |
 | `get_stats` | `GET /api/stats` | Statistiques d'usage |
 

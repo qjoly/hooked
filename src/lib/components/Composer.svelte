@@ -4,8 +4,8 @@
   import { reply, interrupt, launch, getFiles, getCommands, uploadImage } from '$lib/api.js';
   import { loadSessions, ui, unarchive } from '$lib/state.svelte.js';
 
-  // `alive` : pane tmux vivant → on répond direct. Sinon, l'envoi relance `claude --resume`
-  // dans une nouvelle session tmux (en conservant modèle/effort d'origine si connus).
+  // `alive` : session pilotée par hooked → on répond direct. Sinon, l'envoi relance
+  // `claude --resume` dans une nouvelle session (en conservant modèle/effort d'origine si connus).
   // `newSession` : pas d'id encore — l'envoi LANCE une session neuve dans `project` (cwd) avec
   // le `model`/`effort` choisis ; `onLaunched(cwd)` est notifié pour ouvrir la session créée.
   // `worktree` : ne vaut que pour une session neuve — lance `claude --worktree` (dossier isolé).
@@ -257,10 +257,23 @@
       text = ''; images = []; autosize();
       // relancer une session archivée la désarchive (retour dans la flotte live).
       if (!newSession && !alive) unarchive(id);
+      // Mode bash (`!commande`, cf. server/agent.js → runLocalCommand) : rien n'est parti au
+      // modèle, donc pas de bulle « en file d'attente » — le compte rendu de la commande arrive
+      // directement dans le transcript au prochain refetch. On affiche juste le code de sortie.
+      const lc = res.data.localCommand;
+      if (lc) {
+        status = { text: (lc.code === 0 ? '✓' : '✗') + ' ' + lc.command.slice(0, 40) + ' → exit ' + lc.code, cls: lc.code === 0 ? 'ok' : 'err' };
+        setTimeout(() => { status = { text: '', cls: '' }; }, 4000);
+        setTimeout(() => { loadSessions(); ui.tick++; }, 300);
+        busy = false;
+        queueMicrotask(() => ta && ta.focus());
+        return;
+      }
       // file d'attente + scroll auto : on signale au parent le message tout juste envoyé.
       if (alive && !newSession && onSent) onSent(full);
       if (newSession && onLaunched) onLaunched(project);
-      status = { text: newSession ? ('✓ session launched (' + (res.data.tmux || 'tmux') + (res.data.worktree ? ' · worktree' : '') + ')') : (alive ? ('✓ sent to ' + res.data.pane) : ('✓ session restarted (' + (res.data.tmux || 'tmux') + ')')), cls: 'ok' };
+      const short = (res.data.sessionId || '').slice(0, 8);
+      status = { text: newSession ? ('✓ session launched' + (short ? ' (' + short + ')' : '') + (res.data.worktree ? ' · worktree' : '')) : (alive ? '✓ sent' : ('✓ session restarted' + (short ? ' (' + short + ')' : ''))), cls: 'ok' };
       setTimeout(() => { status = { text: '', cls: '' }; }, 3000);
       setTimeout(() => { loadSessions(); ui.tick++; }, 600);
     } else {
@@ -276,8 +289,8 @@
             placeholder={newSession
               ? 'Describe your task to start the session…  (Enter to launch · @ file · / command · paste an image)'
               : alive
-                ? 'Reply to Claude…  (Enter to send · Shift+Enter = new line · @ file · / command · paste an image · Esc×2 interrupts)'
-                : 'tmux session closed — sending will re-run claude --resume…  (@ file · / command · paste an image)'}
+                ? 'Reply to Claude…  (Enter to send · Shift+Enter = new line · @ file · / command · ! shell · !! interactive shell · paste an image · Esc×2 interrupts)'
+                : 'session not running — sending will re-run claude --resume…  (@ file · / command · paste an image)'}
             oninput={onInput} onkeydown={onKeydown} onpaste={onPaste} onblur={() => setTimeout(closeAc, 150)}></textarea>
   <button class="reply-send" disabled={busy || uploading > 0} onclick={send}>{#if newSession}Launch <Icon name="external" size={14} />{:else if alive}Send <Icon name="send" size={14} />{:else}Restart <Icon name="external" size={14} />{/if}</button>
   {#if images.length || uploading}

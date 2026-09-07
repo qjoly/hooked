@@ -34,7 +34,7 @@
   <p style="color:var(--muted);font-size:12.5px;line-height:1.5;margin:0 0 16px">
     Creates an <b>independent branch</b>: copies the conversation <b>up to and including this message</b>,
     then re-runs <code>claude --resume …</code> on it in <code>{r.project || r.projectName || '?'}</code>
-    (detached <b>tmux</b> session, <b>zero token cost</b>). The original session is not modified.</p>
+    (a new session driven by hooked, <b>zero token cost</b>). The original session is not modified.</p>
   <div class="lf-resume-title"><Icon name="file" size={14} /> {r.title || r.id}</div>
   <div class="fork-from {r.role}">
     <span class="fork-from-who">{#if r.role === 'user'}<Icon name="user" size={13} /> your message{:else}<Icon name="bot" size={13} /> Claude's message{/if} — cut point</span>

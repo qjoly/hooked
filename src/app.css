@@ -1,15 +1,10 @@
-/* Polices empaquetées pour le terminal (servies depuis static/, donc disponibles partout, sans
-   rien installer). « JetBrains Mono » = texte (comme Ghostty par défaut) ; « Symbols Nerd Font
-   Mono » = glyphes d'icônes Nerd Font en repli par glyphe. */
+/* Police monospace empaquetée (servie depuis static/, donc disponible partout, sans rien
+   installer) : code, chemins, ids. Le « Symbols Nerd Font Mono » qui l'accompagnait n'existait que
+   pour le repli par glyphe du terminal xterm, disparu avec la migration hors tmux. */
 @font-face {
   font-family: 'JetBrains Mono Web';
   src: url('/fonts/JetBrainsMono-Regular.woff2') format('woff2');
   font-weight: 400; font-style: normal; font-display: swap;
-}
-@font-face {
-  font-family: 'Symbols Nerd Font Mono Web';
-  src: url('/fonts/SymbolsNerdFontMono-Regular.ttf') format('truetype');
-  font-weight: normal; font-style: normal; font-display: swap;
 }
 /* Public Sans — the redesign's UI font. Bundled (latin variable woff2) so it works offline,
    same approach as the terminal fonts above. */
@@ -316,6 +311,457 @@
   --diff-add-bg: rgba(var(--success-rgb),.18); --diff-add-fg: #a9c089;
   --diff-del-bg: rgba(var(--danger-rgb),.2);   --diff-del-fg: #e6998a;
 }
+/* ─── Color scheme « datadog » — violet Datadog, surfaces froides, densité d'outil ───────────
+   Troisième palette sur le MÊME axe orthogonal que « legacy » (`data-scheme="datadog"`), donc
+   combinable avec clair/sombre et avec l'axe des angles. On ré-override tous les jetons, triplets
+   RGB compris, pour que chaque composant récupère la teinte sans le savoir.
+
+   Le violet de marque (#632ca6) est excellent sur fond clair mais trop sombre sur fond sombre :
+   la variante sombre passe donc à un violet clair (#a78bfa), comme le fait Datadog lui-même. Le
+   reste suit leur sémantique : bleu pour l'info, vert franc pour l'ok, ambre pour l'alerte, rouge
+   brique pour l'erreur.
+
+   La partie « style » tient en trois traits, plus bas : angles serrés, ombres quasi nulles, et
+   séparation portée par les BORDURES plutôt que par l'élévation — c'est ce qui donne à Datadog sa
+   densité d'outil de supervision plutôt qu'un aspect de cartes flottantes. */
+:root[data-scheme="datadog"] {
+  color-scheme: light;
+  --fg: #1c1c22;
+  --card: #ffffff;
+  --hover: #ecebf2;
+  --input: #ffffff;
+  --chip: #e9e9f0;
+  --accent-fg: #ffffff;
+  --code-bg: #14141c;
+  --warn: #b3760f;  --warn-soft: #fbf1de;
+  --info: #0f74c4;  --info-soft: #e4f0fb;
+  --success: #1f8f45; --success-soft: #e6f5ea;
+  --danger: #cc2f22; --danger-soft: #fbe9e7; --danger-border: #f2ccc7;
+  --bg: #f2f2f6;
+  --bg2: #ffffff;
+  --bg3: #e9e9f0;
+  --panel: #f7f7fa;
+  --surface: #ffffff;
+  --border: #dcdce6;
+  --border2: #c3c3d2;
+  --text: var(--fg);
+  --muted: #5c5c73;
+  --accent: #632ca6;
+  --accent-d: #4f2286;
+  --accent-soft: #f1eaf9;
+  --working: var(--info);
+  --waiting: var(--warn);
+  --attention: var(--danger);
+  --background: #8a5cd1;
+  --idle: #a0a0b4;
+  --ended: var(--success);
+  --past: #c6c6d3;
+  --accent-rgb: 99,44,166;
+  --info-rgb: 15,116,196;
+  --warn-rgb: 179,118,15;
+  --danger-rgb: 204,47,34;
+  --bgjob-rgb: 138,92,209;
+  --success-rgb: 31,143,69;
+  --ink-rgb: 108,108,132;
+  --shadow-rgb: 20,20,32;
+  --overlay: rgba(20,20,32,.38);
+  --grid: rgba(var(--ink-rgb),.04);
+  --code-inline: rgba(var(--ink-rgb),.14);
+  --track-dark: rgba(0,0,0,.07);
+  --diff-add-bg: rgba(var(--success-rgb),.13); --diff-add-fg: #14663a;
+  --diff-del-bg: rgba(var(--danger-rgb),.11);  --diff-del-fg: #a4251a;
+}
+/* datadog — variante sombre (deux voies, mêmes valeurs), cf. les blocs default/legacy ci-dessus. */
+@media (prefers-color-scheme: dark) {
+  :root[data-scheme="datadog"]:not([data-theme="light"]) {
+    color-scheme: dark;
+    --fg: #e9e9f0;
+    --card: #1c1c26;
+    --hover: #262632;
+    --input: #24242f;
+    --chip: #24242f;
+    --code-bg: #0d0d13;
+    --warn: #e0a92e;  --warn-soft: #2e2513;
+    --info: #4aa3f0;  --info-soft: #132534;
+    --success: #4cc86b; --success-soft: #14291a;
+    --danger: #ef5f4e; --danger-soft: #2c1714; --danger-border: #432019;
+    --bg: #14141c;
+    --bg2: #1c1c26;
+    --bg3: #24242f;
+    --panel: #14141c;
+    --surface: #1c1c26;
+    --border: #33333f;
+    --border2: #454553;
+    --muted: #9d9db3;
+    --accent: #a78bfa;
+    --accent-d: #bda6fc;
+    --accent-soft: #272040;
+    --background: #b18bea;
+    --idle: #6b6b7d;
+    --past: #4a4a58;
+    --accent-rgb: 167,139,250;
+    --info-rgb: 74,163,240;
+    --warn-rgb: 224,169,46;
+    --danger-rgb: 239,95,78;
+    --bgjob-rgb: 177,139,234;
+    --success-rgb: 76,200,107;
+    --ink-rgb: 150,150,172;
+    --shadow-rgb: 0,0,0;
+    --shadow: 0 4px 14px -10px rgba(0,0,0,.6);
+    --shadow-sm: 0 1px 2px rgba(0,0,0,.4);
+    --overlay: rgba(0,0,0,.66);
+    --track-dark: rgba(255,255,255,.09);
+    --diff-add-fg: #9fdcb4; --diff-del-fg: #f4a99e;
+  }
+}
+:root[data-scheme="datadog"][data-theme="dark"] {
+  color-scheme: dark;
+  --fg: #e9e9f0;
+  --card: #1c1c26;
+  --hover: #262632;
+  --input: #24242f;
+  --chip: #24242f;
+  --code-bg: #0d0d13;
+  --warn: #e0a92e;  --warn-soft: #2e2513;
+  --info: #4aa3f0;  --info-soft: #132534;
+  --success: #4cc86b; --success-soft: #14291a;
+  --danger: #ef5f4e; --danger-soft: #2c1714; --danger-border: #432019;
+  --bg: #14141c;
+  --bg2: #1c1c26;
+  --bg3: #24242f;
+  --panel: #14141c;
+  --surface: #1c1c26;
+  --border: #33333f;
+  --border2: #454553;
+  --muted: #9d9db3;
+  --accent: #a78bfa;
+  --accent-d: #bda6fc;
+  --accent-soft: #272040;
+  --background: #b18bea;
+  --idle: #6b6b7d;
+  --past: #4a4a58;
+  --accent-rgb: 167,139,250;
+  --info-rgb: 74,163,240;
+  --warn-rgb: 224,169,46;
+  --danger-rgb: 239,95,78;
+  --bgjob-rgb: 177,139,234;
+  --success-rgb: 76,200,107;
+  --ink-rgb: 150,150,172;
+  --shadow-rgb: 0,0,0;
+  --shadow: 0 4px 14px -10px rgba(0,0,0,.6);
+  --shadow-sm: 0 1px 2px rgba(0,0,0,.4);
+  --overlay: rgba(0,0,0,.66);
+  --track-dark: rgba(255,255,255,.09);
+  --diff-add-fg: #9fdcb4; --diff-del-fg: #f4a99e;
+}
+
+/* datadog — le « style » : dense, à plat, tenu par les bordures.
+   Le balayage de rayon suit la même logique que l'axe des angles (une règle plutôt que 315
+   déclarations à dupliquer). Il est placé AVANT la règle `data-corners="sharp"` : à spécificité
+   égale et `!important` des deux côtés, c'est l'ordre source qui tranche — donc choisir « Square »
+   par-dessus la palette Datadog donne bien du 0. */
+:root[data-scheme="datadog"] *,
+:root[data-scheme="datadog"] *::before,
+:root[data-scheme="datadog"] *::after { border-radius: 3px !important; }
+:root[data-scheme="datadog"] {
+  --shadow: 0 1px 2px rgba(var(--shadow-rgb),.10);
+  --shadow-sm: 0 1px 1px rgba(var(--shadow-rgb),.08);
+  /* Layout tokens for the console density below. Only this scheme reads them. */
+  --dd-row: 3px 8px;        /* list row padding — short lines, tight gutters */
+  --dd-rule: 1px solid var(--border);  /* separation is a filet, never elevation */
+
+  /* ── Severity ramp ────────────────────────────────────────────────────────────────────────
+     The base palette colours a state by IDENTITY (working = brand blue, background = brand
+     violet). A supervision console colours it by HOW MUCH IT NEEDS YOU, so the eye can triage a
+     wall of rows without reading a word:
+
+       attention  → ERROR red     blocked, decide now
+       waiting    → WARN amber    your turn
+       working    → OK green      running, nothing to do
+       background → INFO blue     running, informational
+       idle/ended → dim grey      no signal
+
+     The point is what it does to a full sidebar: everything warm needs you, everything cool is
+     fine, everything grey is over. Under the old mapping, brand blue and brand violet were two
+     loud "all fine" colours competing with amber and red for attention.
+     These are var() indirections, so each one still resolves to its own light/dark value. */
+  --working: var(--success);        /* was --info: a healthy run is OK-green, not brand-blue */
+  --background: var(--info);        /* informational, not brand-violet */
+  --bgjob-rgb: var(--info-rgb);     /* keeps the bg-job glow on the same hue as its dot */
+  --ended: var(--idle);             /* finished = no signal left to report */
+}
+/* Dark redefines --background/--bgjob-rgb literally at (0,3,0), so the ramp has to restate them
+   at equal specificity and later in the file to win the tie. */
+:root[data-scheme="datadog"]:not([data-theme="light"]) {
+  --background: var(--info);
+  --bgjob-rgb: var(--info-rgb);
+}
+
+/* ═══ datadog — the LAYOUT: a supervision console, not a reskin ═══════════════════════════════
+   Everything below is gated by `:root[data-scheme="datadog"]`, so Default and legacy cannot
+   regress by construction: without the attribute, not one of these selectors matches.
+
+   WHY THIS LIVES IN app.css AND NOT IN EACH COMPONENT
+   First, the thing that trips everyone up: `:global()` is a SVELTE COMPILER construct, valid only
+   inside a `<style>` block of a .svelte file. app.css is a plain stylesheet — writing `:global()`
+   here produces an invalid selector and the browser drops the whole rule. Nothing in this file
+   needs it anyway: app.css is already global by definition.
+
+   What Svelte's scoping actually does is add a hash class to the element and rewrite the
+   COMPONENT's own selectors (`.ssb-row` → `.ssb-row.svelte-xxxx`, specificity (0,2,0)). The
+   element still carries a plain `ssb-row` class, so a selector from here matches it fine — this
+   is a SPECIFICITY contest, not a visibility one. `:root[data-scheme="datadog"] .ssb-row` scores
+   (0,3,0) and wins over the component rule without a single `!important`.
+
+   Given that, the choice was: one block here, or a `:root[data-scheme="datadog"] { … }` section
+   inside each of the six components. Kept here, because this is ONE feature ("this palette is
+   also a layout") — split across six files it becomes six places to keep in sync and six chances
+   for the next component to forget one. Together, it reviews and deletes as a single diff.
+   The tradeoff accepted: these selectors sit outside the components they restyle, so renaming a
+   class in Deck.svelte silently no-ops here. Class names in this codebase are prefixed per
+   component (ssb-, tb-, f*, t*, d*), which keeps that risk legible.
+
+   HOW THE TABLES ARE BUILT
+   Lists become real tables via `grid-template-columns: subgrid` — the row keeps being a genuine
+   box (hover, :focus-visible, and position:relative for its absolutely-placed hover actions all
+   survive), while its cells align with every sibling row. Only the inert layout wrapper INSIDE
+   the row (.ssb-line, .frow1) is flattened with `display: contents`.
+   Every cell is placed EXPLICITLY (`grid-column: N`) rather than by auto-flow, because several
+   cells are conditional (a pin mark, an activity verb). Under auto-placement a row missing one of
+   them would slide every following cell one column left and break the alignment. */
+
+/* ── Zone 1 — session sidebar: status | pin | name | age, aligned across all rows ───────────── */
+:root[data-scheme="datadog"] .ssb-list {
+  display: grid;
+  grid-template-columns: max-content max-content minmax(0, 1fr) max-content;
+  align-content: start;
+  column-gap: 7px;
+}
+/* Full-width bands: group headers and the empty state are not table rows. */
+:root[data-scheme="datadog"] .ssb-group,
+:root[data-scheme="datadog"] .ssb-empty { grid-column: 1 / -1; }
+:root[data-scheme="datadog"] .ssb-row {
+  display: grid;
+  grid-template-columns: subgrid;
+  grid-column: 1 / -1;
+  align-items: center;
+  padding: var(--dd-row);
+  row-gap: 1px;
+}
+:root[data-scheme="datadog"] .ssb-line { display: contents; }
+/* Status is a bar at the head of the line, not a floating dot. The radius sweep above is
+   !important, so overriding it here has to be too. */
+:root[data-scheme="datadog"] .ssb-dot {
+  grid-column: 1; width: 3px; height: 13px; border-radius: 0 !important;
+}
+:root[data-scheme="datadog"] .ssb-pin-mark { grid-column: 2; }
+:root[data-scheme="datadog"] .ssb-name { grid-column: 3; font-size: 12px; }
+/* Ages go tabular so digits line up column-under-column. */
+:root[data-scheme="datadog"] .ssb-ago {
+  grid-column: 4; font-variant-numeric: tabular-nums; text-align: right;
+}
+:root[data-scheme="datadog"] .ssb-tags { grid-column: 3 / -1; padding-left: 0; }
+/* Section headers: quiet, uppercase, widely tracked — a rule, not a title. */
+:root[data-scheme="datadog"] .ssb-group { padding: 3px 8px; font-size: 9px; letter-spacing: .12em; }
+
+/* ── Zone 2 — Deck fleet: status | session | branch | status | age ──────────────────────────────
+   Applies to the LIST view only (`.fleet:not(.grid)`). The grid/list toggle stays meaningful:
+   "list" becomes a real table, "grid" stays a (flattened) card grid.
+   The preview lines a card carried — last exchange, activity verb, tag pills — are dropped here:
+   a table row is one line high, and mixed-height rows are exactly what makes a card wall hard to
+   scan. That information stays one click away in the session, and in the sidebar for the tags. */
+:root[data-scheme="datadog"] .fleet:not(.grid) {
+  display: grid;
+  grid-template-columns: 3px minmax(0, 2fr) minmax(0, 1fr) max-content max-content;
+  column-gap: 10px;
+  row-gap: 0;
+}
+:root[data-scheme="datadog"] .fleet:not(.grid) .fcard,
+:root[data-scheme="datadog"] .fleet:not(.grid) .fhead {
+  display: grid;
+  grid-template-columns: subgrid;
+  grid-column: 1 / -1;
+  align-items: center;
+  gap: 0 10px;
+  padding: 0;
+  border: 0;
+  border-bottom: var(--dd-rule);
+  background: transparent;
+  box-shadow: none;
+  min-height: 22px;
+}
+/* Zebra: the faintest possible alternation — enough to track a row across five columns without
+   turning the table into a barcode. Declared BEFORE :hover, which scores the same (0,6,0) and so
+   needs to come later to win the tie. */
+:root[data-scheme="datadog"] .fleet:not(.grid) .fcard:nth-of-type(even) {
+  background: rgba(var(--ink-rgb), .035);
+}
+:root[data-scheme="datadog"] .fleet:not(.grid) .fcard:hover { background: var(--hover); box-shadow: none; }
+:root[data-scheme="datadog"] .fleet:not(.grid) .frow1 { display: contents; }
+/* The status bar fills the row's full height — a Datadog table's leading severity rail. */
+:root[data-scheme="datadog"] .fleet:not(.grid) .fdot {
+  grid-column: 1; width: 3px; height: 100%; border-radius: 0 !important;
+}
+:root[data-scheme="datadog"] .fleet:not(.grid) .ft { grid-column: 2; font-size: 12px; font-weight: 500; }
+:root[data-scheme="datadog"] .fleet:not(.grid) .fbranch {
+  display: block; grid-column: 3; min-width: 0;
+  font-family: var(--mono); font-size: 10px; color: var(--muted);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+:root[data-scheme="datadog"] .fleet:not(.grid) .fstate {
+  display: block; grid-column: 4; width: 15ch;
+  font-family: var(--mono); font-size: 10px; color: var(--muted);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+:root[data-scheme="datadog"] .fleet:not(.grid) .fago {
+  grid-column: 5; margin: 0; text-align: right; font-variant-numeric: tabular-nums;
+}
+/* One line per row: the card-era preview blocks would break the alignment. */
+:root[data-scheme="datadog"] .fleet:not(.grid) .fact,
+:root[data-scheme="datadog"] .fleet:not(.grid) .fconv,
+:root[data-scheme="datadog"] .fleet:not(.grid) .fpills { display: none; }
+:root[data-scheme="datadog"] .fleet:not(.grid) .fcard-act { top: 0; bottom: 0; height: auto; border: 0; background: transparent; }
+/* Column header: the quiet uppercase caption row every console table carries. Sticky, so the
+   columns stay named once a long repo group scrolls under it — needs its own opaque background,
+   a sticky element still lets content slide beneath it. */
+:root[data-scheme="datadog"] .fleet:not(.grid) .fhead {
+  position: sticky; top: 0; z-index: 2; background: var(--bg2);
+  border-bottom: 1px solid var(--border2);
+  font-family: var(--mono); font-size: 9px; font-weight: 700;
+  letter-spacing: .12em; text-transform: uppercase; color: var(--muted);
+  min-height: 18px;
+}
+:root[data-scheme="datadog"] .fleet:not(.grid) .fhead .fh-age { text-align: right; }
+/* The "N older sessions" expander is a full-width footer band, not a cell. */
+:root[data-scheme="datadog"] .fleet:not(.grid) .fmore {
+  grid-column: 1 / -1; border: 0; border-bottom: var(--dd-rule); padding: 4px; font-size: 10px;
+}
+
+/* ── Zone 2b — Deck chrome: column captions and flattened decision cards ────────────────────── */
+/* Column titles ("Your move", "The fleet") become section captions, not headlines. */
+:root[data-scheme="datadog"] .colhead { gap: 8px; margin: 0 0 6px; }
+:root[data-scheme="datadog"] .colhead h2 {
+  font-family: var(--mono); font-size: 10px; font-weight: 700;
+  letter-spacing: .12em; text-transform: uppercase; color: var(--muted);
+}
+:root[data-scheme="datadog"] .repo-head { gap: 6px; margin-bottom: 2px; }
+:root[data-scheme="datadog"] .repo-group { margin-bottom: 10px; }
+/* Decision cards keep their structure (they hold a live Question/Plan) but lose the elevation:
+   separation comes from the 1px frame and the left severity rail alone. */
+:root[data-scheme="datadog"] .tcard { box-shadow: none; margin-bottom: 8px; }
+:root[data-scheme="datadog"] .tcard-head { padding: 5px 10px; gap: 7px; }
+:root[data-scheme="datadog"] .tfoot { padding: 6px 10px; gap: 5px; }
+:root[data-scheme="datadog"] .tbody { padding: 2px 10px; }
+:root[data-scheme="datadog"] .tbtn { padding: 3px 9px; font-size: 11px; }
+:root[data-scheme="datadog"] .tdot { width: 3px; height: 12px; border-radius: 0 !important; animation: none; }
+
+/* ── Zone 3 — session cockpit header: one compact toolbar ───────────────────────────────────── */
+:root[data-scheme="datadog"] .pane-head { padding: 5px 12px 0; }
+:root[data-scheme="datadog"] .sess-name { font-size: 13px; font-weight: 700; }
+:root[data-scheme="datadog"] .head-meta { font-size: 10px; }
+:root[data-scheme="datadog"] .subtabs { gap: 10px; margin-top: 5px; }
+:root[data-scheme="datadog"] .subtab {
+  padding: 4px 2px 7px; font-family: var(--mono); font-size: 10px;
+  font-weight: 700; letter-spacing: .08em; text-transform: uppercase;
+}
+/* Status stops being a filled pill: an uppercase mono token behind a colour bar. Scoring (0,3,0)
+   this beats the `.s-working .s-badge` family (0,2,0) without reaching for !important. */
+:root[data-scheme="datadog"] .s-badge {
+  background: transparent; padding: 0; gap: 5px;
+  font-family: var(--mono); font-size: 9.5px; font-weight: 700;
+  letter-spacing: .1em; text-transform: uppercase;
+}
+:root[data-scheme="datadog"] .s-badge .bdot,
+:root[data-scheme="datadog"] .badge .bdot { width: 3px; height: 11px; border-radius: 0 !important; }
+:root[data-scheme="datadog"] .badge {
+  background: transparent; padding: 0 0 0 1px; gap: 5px;
+  font-family: var(--mono); font-size: 9.5px; letter-spacing: .1em; text-transform: uppercase;
+}
+:root[data-scheme="datadog"] .hdr-icon-btn, :root[data-scheme="datadog"] .hdr-more > summary { height: 24px; width: 26px; }
+
+/* ── Zone 3b — topbar gauges: a threshold readout, not a progress bar ───────────────────────── */
+/* A console gauge answers "am I about to hit the wall?", so the number carries the colour and the
+   track is a hairline. Two steps: warn >=75%, crit >=90% (the `crit` class comes from TopBar and
+   is inert in every other scheme). */
+:root[data-scheme="datadog"] .tb-gauge { width: 74px; gap: 2px; }
+:root[data-scheme="datadog"] .tb-g-lbl { font-size: 9px; letter-spacing: .1em; font-weight: 700; }
+:root[data-scheme="datadog"] .tb-g-track { height: 3px; background: var(--track-dark); }
+:root[data-scheme="datadog"] .tb-g-fill { background: var(--success); }
+:root[data-scheme="datadog"] .tb-gauge.warn .tb-g-fill { background: var(--warn); }
+:root[data-scheme="datadog"] .tb-gauge.crit .tb-g-fill { background: var(--danger); }
+/* The percentage itself takes the threshold colour — the readable signal at a glance. */
+:root[data-scheme="datadog"] .tb-gauge.warn .tb-g-lbl span:last-child { color: var(--warn); }
+:root[data-scheme="datadog"] .tb-gauge.crit .tb-g-lbl span:last-child { color: var(--danger); }
+
+/* ── Zone 4 — context dock: shorter sections, quieter captions ──────────────────────────────── */
+:root[data-scheme="datadog"] .dh { padding: 6px 10px 4px; font-size: 9px; letter-spacing: .12em; }
+:root[data-scheme="datadog"] .db { padding: 0 10px 7px; font-size: 11px; }
+:root[data-scheme="datadog"] .ditem, :root[data-scheme="datadog"] .dfile { padding: 1px 0; }
+:root[data-scheme="datadog"] .dprog { margin: 0 10px 5px; }
+
+/* ── Zone 5 — Stats: the KPI tiles become ONE metric strip ──────────────────────────────────── */
+/* Five floating tiles → a single bordered band split by 1px rules. This is the most recognisably
+   Datadog move in the whole theme: numbers in tabular mono, labels as small tracked captions.
+   `flex-wrap` + a flex-basis floor keeps it usable when the window is too narrow for five. */
+:root[data-scheme="datadog"] .kpis {
+  display: flex; flex-wrap: wrap; gap: 0; margin-bottom: 14px;
+  border: 1px solid var(--border); background: var(--bg2);
+}
+:root[data-scheme="datadog"] .kpi {
+  flex: 1 1 120px; min-width: 120px;
+  border: 0; border-left: 1px solid var(--border);
+  padding: 8px 12px; background: transparent;
+}
+:root[data-scheme="datadog"] .kpi:first-child { border-left: 0; }
+:root[data-scheme="datadog"] .kpi .v {
+  font-family: var(--mono); font-size: 18px; letter-spacing: -.02em; font-variant-numeric: tabular-nums;
+}
+:root[data-scheme="datadog"] .kpi .l {
+  margin-top: 2px; font-family: var(--mono); font-size: 9px;
+  letter-spacing: .1em; text-transform: uppercase;
+}
+/* Panels: flat, tight, separated by their 1px frame alone. */
+:root[data-scheme="datadog"] .card { box-shadow: none; padding: 10px 12px; }
+:root[data-scheme="datadog"] .charts, :root[data-scheme="datadog"] .usage-grid { gap: 10px; }
+:root[data-scheme="datadog"] .chart-card h3,
+:root[data-scheme="datadog"] .usage-card h3,
+:root[data-scheme="datadog"] .usage-title,
+:root[data-scheme="datadog"] .group h2 {
+  margin-bottom: 8px; font-family: var(--mono); font-size: 10px; font-weight: 700;
+  letter-spacing: .12em; text-transform: uppercase; color: var(--muted);
+}
+/* Flat fills instead of gradients — a gauge reports a value, it doesn't need a sheen. */
+:root[data-scheme="datadog"] .bar-row .fill,
+:root[data-scheme="datadog"] .daybars .b,
+:root[data-scheme="datadog"] .ubar-fill { background: var(--accent); }
+:root[data-scheme="datadog"] .bar-row { margin-bottom: 3px; font-size: 11px; }
+:root[data-scheme="datadog"] .bar-row .track { height: 11px; }
+:root[data-scheme="datadog"] .bar-row .val,
+:root[data-scheme="datadog"] .ubar-head .pct { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+:root[data-scheme="datadog"] .range { padding: 2px; gap: 2px; }
+:root[data-scheme="datadog"] .range button { padding: 4px 10px; font-size: 11px; }
+/* Overview strip: same metric-band treatment as the Stats KPIs. */
+:root[data-scheme="datadog"] .global-bar { gap: 0; border: 1px solid var(--border); }
+:root[data-scheme="datadog"] .gp { border: 0; border-left: 1px solid var(--border); padding: 8px 12px; }
+:root[data-scheme="datadog"] .gp .gp-v { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+:root[data-scheme="datadog"] .gp .gp-l { font-family: var(--mono); font-size: 9px; letter-spacing: .1em; text-transform: uppercase; }
+
+/* ─── Angles vifs (data-corners="sharp") ───────────────────────────────────────────────────────
+   Troisième axe de thème, orthogonal au clair/sombre et à la palette : tout passe à angle vif.
+
+   Le sélecteur universel + !important est ASSUMÉ, et c'est ici le bon outil. Le projet compte 315
+   déclarations `border-radius` réparties dans app.css et une quarantaine de composants ; les
+   dupliquer toutes sous une variante `sharp` créerait 315 endroits à tenir synchronisés, dont
+   chaque nouveau composant oublierait la moitié. Une règle qui balaie tout ne peut pas, elle,
+   diverger. `!important` couvre aussi les `style=""` posés en ligne par les composants (une règle
+   de feuille marquée important l'emporte sur un style inline non-important).
+
+   Les 31 formes circulaires (pastilles d'état, points de chargement, chips en pilule) deviennent
+   carrées elles aussi : c'est voulu, pas un effet de bord — le thème dit « aucun arrondi ». */
+:root[data-corners="sharp"] *,
+:root[data-corners="sharp"] *::before,
+:root[data-corners="sharp"] *::after { border-radius: 0 !important; }
+
 * { box-sizing: border-box; }
 html, body { height: 100%; }
 body {
@@ -583,26 +1029,6 @@ code.path { color: var(--muted); font-size: 11px; word-break: break-all; font-fa
 .subtab.active .count { background: transparent; color: var(--accent-d); opacity: 1; }
 .pane { display: none; padding-top: 14px; }
 .pane.active { display: block; }
-
-/* onglet Terminal (mirroir des panes « show » ouverts par un agent) */
-.term-bar { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
-.term-theme { margin-left: auto; flex: 0 0 auto; background: var(--bg3); border: 1px solid var(--border); color: var(--muted); border-radius: 6px; padding: 4px 8px; cursor: pointer; font-size: 12px; font-weight: 600; }
-.term-theme:hover { color: var(--text); }
-.term-mode { flex: 0 0 auto; background: var(--bg3); border: 1px solid var(--border); color: var(--muted); border-radius: 6px; padding: 4px 10px; cursor: pointer; font-size: 12px; font-weight: 600; }
-.term-mode:hover { color: var(--text); }
-.term-mode.on { color: var(--accent-d); border-color: var(--accent); }
-.term-tabs { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
-.term-chip { display: inline-flex; align-items: center; background: var(--bg3); border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
-.term-chip.active { border-color: var(--accent); }
-.term-chip.active .term-tab { color: var(--accent-d); }
-.term-chip.claude .term-tab { font-weight: 700; }
-.term-tab { background: none; border: none; color: var(--muted); padding: 4px 9px; cursor: pointer; font-size: 12px; font-family: ui-monospace, Menlo, monospace; }
-.term-tab:hover { color: var(--text); }
-.term-x { background: none; border: none; border-left: 1px solid var(--border); color: var(--muted); cursor: pointer; padding: 4px 7px; font-size: 11px; line-height: 1; }
-.term-x:hover:not(:disabled) { color: #e45649; background: rgba(228, 70, 73, .12); }
-.term-new { background: var(--bg3); border: 1px dashed var(--border2); color: var(--muted); border-radius: 6px; padding: 4px 11px; cursor: pointer; font-size: 13px; font-weight: 700; line-height: 1; }
-.term-new:hover:not(:disabled) { color: var(--accent-d); border-color: var(--accent); }
-.term-new:disabled { opacity: .4; cursor: default; }
 
 /* chat */
 .chat { display: flex; flex-direction: column; gap: 12px; padding-right: 4px; }

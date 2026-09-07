@@ -1,9 +1,8 @@
 /*
- * Streaming SSE d'un FICHIER TEXTE en append (tail -f) — même mécanique que paneStream.js
- * (fs.watch + poll de secours + lecture SÉRIALISÉE depuis un offset partagé), mais pour un
- * fichier ordinaire au lieu d'un pane tmux. Sert à suivre en direct le `.output` d'un job de
- * fond Bash (run_in_background). On n'écrit ni ne supprime le fichier (il appartient au harnais
- * Claude Code) — on ne fait que le lire.
+ * Streaming SSE d'un FICHIER TEXTE en append (tail -f) : fs.watch + poll de secours + lecture
+ * SÉRIALISÉE depuis un offset partagé. Sert à suivre en direct le `.output` d'un job de fond Bash
+ * (run_in_background). On n'écrit ni ne supprime le fichier (il appartient au harnais Claude Code) —
+ * on ne fait que le lire.
  *
  * IMPORTANT sécurité : ce module streame le chemin qu'on lui donne. La RÉSOLUTION du chemin
  * (session + taskId → .output) est faite côté serveur par l'appelant (cf. resolveBackgroundOutput
@@ -20,7 +19,7 @@ const SEED_MAX = 256 * 1024;         // amorçage : au plus les derniers 256 Ko 
 
 // Lit les octets ajoutés depuis st.pos et les diffuse (base64) à tous les abonnés. SÉRIALISÉ
 // (fs.watch ET le poll appellent readNew) : deux lectures concurrentes liraient depuis le même
-// st.pos → octets dupliqués/sautés. Verrou `reading` + `pendingRead` (cf. paneStream.js).
+// st.pos → octets dupliqués/sautés. Verrou `reading` + `pendingRead`.
 function readNew(st) {
   if (st.reading) { st.pendingRead = true; return; }
   st.reading = true;

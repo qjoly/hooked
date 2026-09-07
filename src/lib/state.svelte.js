@@ -4,6 +4,7 @@
 // sidebar, l'état live (SSE), le tick de rafraîchissement et la modale.
 import { getSessions, connectSSE, getSettings, saveSettings as apiSaveSettings, getTags, saveTags, replaceTags, getSessionMeta, saveSessionMeta, replaceSessionMeta, kill } from './api.js';
 import { NOTIFY_KINDS, notifyKeyFor, countsForBadge } from './notify.js';
+import { isFinishedAndCold } from './format.js';
 
 const LS_KEY = 'hooked.ui';
 const persisted = (() => {
@@ -30,6 +31,7 @@ export const ui = $state({
   tick: 0,                   // incrémenté à chaque évènement live → relance les effets
   theme: readTheme(),        // 'system' | 'light' | 'dark' (persisté à part, cf. app.html)
   scheme: readScheme(),      // 'default' | 'legacy' — palette (color-scheme), axe orthogonal au clair/sombre
+  corners: readCorners(),    // 'round' | 'sharp' — forme des angles, 3e axe orthogonal
   notify: persisted.notify ?? false,    // notifications navigateur (session finie / en attente de toi)
   notifyPinnedOnly: persisted.notifyPinnedOnly ?? false, // if true: only notify for pinned sessions
   diffSplit: persisted.diffSplit ?? false, // render conversation diffs side-by-side (split) instead of unified
@@ -37,9 +39,9 @@ export const ui = $state({
   sideMenuOpen: persisted.sideMenuOpen ?? true,     // side menu gauche (liste sessions) déplié ? persisté
   sidebarWidth: persisted.sidebarWidth ?? 232,      // largeur (px) du side panel gauche déplié, persistée
   dockWidth: persisted.dockWidth ?? 292,            // largeur (px) du dock droit (lentille Converse), persistée
+  termHeight: persisted.termHeight ?? 0,            // hauteur (px) du panneau terminal bas ; 0 = défaut (1/3 de fenêtre)
   dockHidden: persisted.dockHidden ?? false,        // dock droit masqué par l'utilisateur ? persisté
   lastSessionId: persisted.lastSessionId ?? null,   // dernière session ouverte — l'onglet Sessions y revient
-  shellHeight: persisted.shellHeight ?? 0,          // hauteur (px) du panneau shell bas ; 0 = défaut (1/3 de fenêtre)
   collapseWorktrees: persisted.collapseWorktrees ?? true, // new-session: replie les worktrees `.claude/worktrees/*` sur leur projet parent dans le sélecteur
   shipFilesWidth: persisted.shipFilesWidth ?? 232,  // largeur (px) du rail « Files » de la lentille Ship, persistée
   shipPanelWidth: persisted.shipPanelWidth ?? 288,  // largeur (px) du panneau « Ready to ship » de la lentille Ship, persistée
@@ -49,7 +51,7 @@ export const ui = $state({
 if (typeof localStorage !== 'undefined') {
   $effect.root(() => {
     $effect(() => {
-      const snapshot = { hideOld: ui.hideOld, collapsed: ui.collapsed, pinned: ui.pinned, names: ui.names, focus: ui.focus, notify: ui.notify, notifyPinnedOnly: ui.notifyPinnedOnly, diffSplit: ui.diffSplit, groupByProject: ui.groupByProject, sideMenuOpen: ui.sideMenuOpen, sidebarWidth: ui.sidebarWidth, dockWidth: ui.dockWidth, dockHidden: ui.dockHidden, lastSessionId: ui.lastSessionId, shellHeight: ui.shellHeight, collapseWorktrees: ui.collapseWorktrees, shipFilesWidth: ui.shipFilesWidth, shipPanelWidth: ui.shipPanelWidth, diffRatio: ui.diffRatio };
+      const snapshot = { hideOld: ui.hideOld, collapsed: ui.collapsed, pinned: ui.pinned, names: ui.names, focus: ui.focus, notify: ui.notify, notifyPinnedOnly: ui.notifyPinnedOnly, diffSplit: ui.diffSplit, groupByProject: ui.groupByProject, sideMenuOpen: ui.sideMenuOpen, sidebarWidth: ui.sidebarWidth, dockWidth: ui.dockWidth, dockHidden: ui.dockHidden, lastSessionId: ui.lastSessionId, termHeight: ui.termHeight, collapseWorktrees: ui.collapseWorktrees, shipFilesWidth: ui.shipFilesWidth, shipPanelWidth: ui.shipPanelWidth, diffRatio: ui.diffRatio };
       try { localStorage.setItem(LS_KEY, JSON.stringify(snapshot)); } catch {}
     });
   });
@@ -75,24 +77,29 @@ function patchMeta(id, patch) {
   saveSessionMeta(id, patch).then((res) => { if (res.ok && res.data.meta) ui.meta = res.data.meta; }).catch(() => {});
 }
 // archive / unarchive a session (toggle). An archived session is hidden from the Deck
-// (decision queue + fleet) by default; reversible. Archiving ALSO stops the underlying tmux
+// (decision queue + fleet) by default; reversible. Archiving ALSO stops the underlying
 // session — the old stop/archive distinction is gone: archiving IS the "done, shut it down"
-// action. Unarchiving only flips the flag (a dead tmux is restarted via Resume, not here).
+// action. Unarchiving only flips the flag (a stopped session is restarted via Resume, not here).
 export function toggleArchive(id) {
   const willArchive = !isArchived(id);
   patchMeta(id, { archived: willArchive });
   if (willArchive) kill(id).catch(() => {});
 }
 export function isArchived(id) { return !!(ui.meta[id] && ui.meta[id].archived); }
-// remove the archived flag WITHOUT touching tmux — used when RELAUNCHING an archived session
+// remove the archived flag WITHOUT stopping anything — used when RELAUNCHING an archived session
 // (resume): bringing it back to life should also bring it back into the live fleet. No-op if the
 // session isn't archived.
 export function unarchive(id) { if (isArchived(id)) patchMeta(id, { archived: false }); }
-// "Effectively archived" for the Deck/fleet: explicitly archived OR a finished session
-// (ended / past) — finished sessions are treated as archived (hidden from the live fleet,
-// collected in the Archived section). Takes the session object (needs its state).
+// "Effectively archived" for the Deck/fleet: explicitly archived, or a finished session that has
+// gone cold. Takes the session object (needs its state and lastActivity).
+//
+// "Finished" and "archived" are NOT the same thing, and conflating them cost real time: restarting
+// hooked kills the CLI subprocesses, `SessionEnd` fires, the session flips to 'ended' and used to
+// leave the active list on the spot — so a session you never archived had to be hunted down in the
+// Archived tab. A session that ended in the last 24 h stays where you look for it, with its Resume
+// button. Only an EXPLICIT archive moves a session immediately.
 export function isSessionArchived(s) {
-  return !!s && (isArchived(s.id) || s.state === 'ended' || s.state === 'past');
+  return !!s && (isArchived(s.id) || isFinishedAndCold(s));
 }
 // snooze a session's decision card for N hours (Deck). Cleared by passing 0/negative hours.
 export function snoozeSession(id, hours = 1) {
@@ -282,9 +289,10 @@ export function cycleTheme() {
 // Axe ORTHOGONAL au clair/sombre : on choisit la palette, le clair/sombre reste géré par `theme`.
 // Persisté sous 'hooked.scheme', relu par le script anti-FOUC de app.html.
 // 'default' (défaut) = aucun data-scheme → palette indigo de la refonte ;
-// 'legacy' = data-scheme="legacy" → ancien thème crème/terracotta.
+// 'legacy' = data-scheme="legacy" → ancien thème crème/terracotta ;
+// 'datadog' = data-scheme="datadog" → violet Datadog, surfaces froides, densité d'outil.
 const SCHEME_KEY = 'hooked.scheme';
-const SCHEME_ORDER = ['default', 'legacy'];
+const SCHEME_ORDER = ['default', 'legacy', 'datadog'];
 function readScheme() {
   if (typeof localStorage === 'undefined') return 'default';
   try { const s = localStorage.getItem(SCHEME_KEY); return SCHEME_ORDER.includes(s) ? s : 'default'; }
@@ -294,7 +302,7 @@ function readScheme() {
 function applyScheme() {
   if (typeof document === 'undefined') return;
   const root = document.documentElement;
-  if (ui.scheme === 'legacy') root.setAttribute('data-scheme', ui.scheme);
+  if (ui.scheme !== 'default') root.setAttribute('data-scheme', ui.scheme);
   else root.removeAttribute('data-scheme'); // 'default' → aucun attribut, palette de base
 }
 export function setScheme(s) {
@@ -302,9 +310,37 @@ export function setScheme(s) {
   try { localStorage.setItem(SCHEME_KEY, ui.scheme); } catch {}
   applyScheme();
 }
-// cycle default → legacy → default…
+// cycle default → legacy → datadog → default…
 export function cycleScheme() {
   setScheme(SCHEME_ORDER[(SCHEME_ORDER.indexOf(ui.scheme) + 1) % SCHEME_ORDER.length]);
+}
+
+// ─── Corners (arrondis : round / sharp) ──────────────────────────────────────────────────────
+// TROISIÈME axe orthogonal, indépendant du clair/sombre ET de la palette : la forme des angles.
+// 'round' (défaut) = aucun attribut ; 'sharp' = data-corners="sharp" → tout à angle vif (cf. la
+// règle unique dans app.css). Séparé de `scheme` à dessein : `scheme` choisit des COULEURS, et on
+// veut pouvoir prendre les angles vifs avec n'importe quelle palette.
+const CORNERS_KEY = 'hooked.corners';
+const CORNERS_ORDER = ['round', 'sharp'];
+function readCorners() {
+  if (typeof localStorage === 'undefined') return 'round';
+  try { const c = localStorage.getItem(CORNERS_KEY); return CORNERS_ORDER.includes(c) ? c : 'round'; }
+  catch { return 'round'; }
+}
+function applyCorners() {
+  if (typeof document === 'undefined') return;
+  const root = document.documentElement;
+  if (ui.corners === 'sharp') root.setAttribute('data-corners', ui.corners);
+  else root.removeAttribute('data-corners'); // 'round' → aucun attribut, arrondis d'origine
+}
+export function setCorners(c) {
+  ui.corners = CORNERS_ORDER.includes(c) ? c : 'round';
+  try { localStorage.setItem(CORNERS_KEY, ui.corners); } catch {}
+  applyCorners();
+}
+// cycle round → sharp → round…
+export function cycleCorners() {
+  setCorners(CORNERS_ORDER[(CORNERS_ORDER.indexOf(ui.corners) + 1) % CORNERS_ORDER.length]);
 }
 
 export const data = $state({ sessions: [] });

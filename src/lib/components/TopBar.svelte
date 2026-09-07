@@ -81,17 +81,19 @@
     <kbd>{isMac ? '⌘' : 'Ctrl'}K</kbd>
   </button>
 
+  <!-- `crit` (>=90%) is a second threshold above `warn` (>=75%). Only the datadog scheme styles
+       it (app.css); everywhere else it is an inert class, so nothing changes visually. -->
   <div class="tb-gauges" title="Account rate limits">
-    <div class="tb-gauge" class:warn={g5 != null && g5 >= 75}>
+    <div class="tb-gauge" class:warn={g5 != null && g5 >= 75} class:crit={g5 != null && g5 >= 90}>
       <div class="tb-g-lbl"><span>5H</span><span>{g5 != null ? g5 + '%' : '—'}</span></div>
       <div class="tb-g-track"><div class="tb-g-fill" style="width:{barW(g5)}%"></div></div>
     </div>
-    <div class="tb-gauge" class:warn={g7 != null && g7 >= 75}>
+    <div class="tb-gauge" class:warn={g7 != null && g7 >= 75} class:crit={g7 != null && g7 >= 90}>
       <div class="tb-g-lbl"><span>7J</span><span>{g7 != null ? g7 + '%' : '—'}</span></div>
       <div class="tb-g-track"><div class="tb-g-fill" style="width:{barW(g7)}%"></div></div>
     </div>
     {#if fable}
-      <div class="tb-gauge" class:warn={fable.pct != null && fable.pct >= 75} class:stale={fableStale}
+      <div class="tb-gauge" class:warn={fable.pct != null && fable.pct >= 75} class:crit={fable.pct != null && fable.pct >= 90} class:stale={fableStale}
            title="{fable.label} weekly limit{resetHint(fable.resetInMin)}{ageHint}">
         <div class="tb-g-lbl"><span>FABLE</span><span>{fable.pct != null ? fable.pct + '%' : '—'}</span></div>
         <div class="tb-g-track"><div class="tb-g-fill" style="width:{barW(fable.pct)}%"></div></div>
