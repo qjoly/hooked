@@ -1,0 +1,47 @@
+/* Agrégateur : point d'entrée unique de la logique métier (back). */
+// Aucune collision de noms d'exports entre les modules (vérifié : chaque symbole exporté
+// est unique au dossier server/). `export * from` suffit donc — pas de réexport explicite
+// à arbitrer. Note : images.js définit un `err400` interne mais ne l'exporte pas ; seul
+// agent.js exporte `err400`, donc pas d'ambiguïté.
+export * from './config.js';
+export * from './settings.js';
+export * from './tags.js';
+export * from './sessionMeta.js';
+export * from './digests.js';
+export * from './memory.js';
+export * from './digestScheduler.js';
+export * from './remoteControl.js';
+export * from './util.js';
+export * from './git.js';
+export * from './gitOps.js';
+export * from './prReviewTags.js';
+export * from './pricing.js';
+export * from './transcript.js';
+export * from './conversation.js';
+export * from './subSessions.js';
+export * from './fork.js';
+export * from './changes.js';
+export * from './vcsDiff.js';
+export * from './vcsBlame.js';
+export * from './reviewThreads.js';
+export * from './subagents.js';
+export * from './workflows.js';
+export * from './todos.js';
+export * from './background.js';
+export * from './fileStream.js';
+export * from './files.js';
+export * from './commands.js';
+export * from './capabilities.js';
+export * from './events.js';
+export * from './live.js';
+export * from './agent.js';
+export * from './terminal.js';
+export * from './mcp.js';
+export * from './images.js';
+export * from './userFiles.js';
+export * from './status.js';
+export * from './stats.js';
+export * from './claudeUpdate.js';
+export * from './editor.js';
+export * from './trash.js';
+export * as searchIndex from './searchIndex.js';

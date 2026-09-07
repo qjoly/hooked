@@ -1,0 +1,6 @@
+{"type":"user","uuid":"u1","timestamp":"2026-06-20T10:00:00Z","message":{"role":"user","content":"Start the migration"}}
+{"type":"assistant","uuid":"a1","timestamp":"2026-06-20T10:00:05Z","message":{"role":"assistant","content":[{"type":"text","text":"On y va."}]}}
+{"type":"queue-operation","uuid":"q1","timestamp":"2026-06-20T10:00:10Z","content":"Continue democratic-csi NFS migration: whoami pod should be Ready now"}
+{"type":"queue-operation","uuid":"q2","timestamp":"2026-06-20T10:00:11Z","content":"   "}
+{"type":"queue-operation","uuid":"q3","timestamp":"2026-06-20T10:00:12Z","content":"<task-notification><task-id>bg-1</task-id><summary>Build finished</summary></task-notification>"}
+{"type":"assistant","uuid":"a2","timestamp":"2026-06-20T10:00:20Z","message":{"role":"assistant","content":[{"type":"text","text":"Reçu, je continue."}]}}

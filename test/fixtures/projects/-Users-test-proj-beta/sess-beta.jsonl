@@ -1,0 +1,2 @@
+{"type":"user","isSidechain":false,"sessionId":"sess-beta","cwd":"/Users/test/proj-beta","gitBranch":"feature/x","timestamp":"2026-06-09T14:00:00.000Z","message":{"role":"user","content":"Corrige le bug de login"}}
+{"type":"assistant","timestamp":"2026-06-09T14:00:05.000Z","message":{"id":"b-msg-1","model":"claude-sonnet-4-6","usage":{"input_tokens":80,"output_tokens":200,"cache_read_input_tokens":500},"content":[{"type":"text","text":"Corrigé."},{"type":"tool_use","id":"b-tu-1","name":"Read","input":{"file_path":"/Users/test/proj-beta/login.js"}}]}}

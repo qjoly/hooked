@@ -1,0 +1,9 @@
+{"type":"assistant","timestamp":"2026-06-17T09:00:00Z","message":{"content":[{"type":"tool_use","name":"TaskCreate","id":"c1","input":{"subject":"Lire le code","description":"Parcourir les modules","activeForm":"Lecture du code"}}]}}
+{"type":"user","timestamp":"2026-06-17T09:00:01Z","message":{"content":[{"type":"tool_result","tool_use_id":"c1","content":"Task #1 created successfully: Lire le code"}]}}
+{"type":"assistant","timestamp":"2026-06-17T09:00:02Z","message":{"content":[{"type":"tool_use","name":"TaskCreate","id":"c2","input":{"subject":"Écrire le module","activeForm":"Écriture du module"}}]}}
+{"type":"assistant","timestamp":"2026-06-17T09:00:03Z","message":{"content":[{"type":"tool_use","name":"TaskCreate","id":"c3","input":{"subject":"Ajouter les tests","activeForm":"Ajout des tests"}}]}}
+{"type":"assistant","timestamp":"2026-06-17T09:00:04Z","message":{"content":[{"type":"tool_use","name":"TaskCreate","id":"c4","input":{"subject":"Tâche à supprimer","activeForm":"Suppression"}}]}}
+{"type":"assistant","timestamp":"2026-06-17T09:01:00Z","message":{"content":[{"type":"tool_use","name":"TaskUpdate","id":"u1","input":{"taskId":"1","status":"completed"}}]}}
+{"type":"assistant","timestamp":"2026-06-17T09:02:00Z","message":{"content":[{"type":"tool_use","name":"TaskUpdate","id":"u2","input":{"taskId":"2","status":"in_progress"}}]}}
+{"type":"assistant","timestamp":"2026-06-17T09:03:00Z","message":{"content":[{"type":"tool_use","name":"TaskUpdate","id":"u3","input":{"taskId":"4","status":"deleted"}}]}}
+{"type":"assistant","timestamp":"2026-06-17T09:04:00Z","message":{"content":[{"type":"tool_use","name":"TaskUpdate","id":"u4","input":{"taskId":"99","status":"completed"}}]}}
