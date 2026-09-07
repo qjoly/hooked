@@ -71,7 +71,7 @@ Puis **tout se passe dans WSL** — installe **Claude Code** et **mise** dans Ub
 ## Installation
 
 ```bash
-git clone git@github.com:briangtn/hooked.git
+git clone git@github.com:LuccaSA/hooked.git
 cd hooked
 
 mise trust        # autorise le mise.toml du projet (env + tâches)
