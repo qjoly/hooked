@@ -2,8 +2,8 @@
   import { onMount, onDestroy, tick, untrack } from 'svelte';
   import { goto } from '$app/navigation';
   import { ui, data, settings, loadSessions, openModal, sessionTitle, sessionTags, renameSession, toggleFocus, splitWithMostRecent, canSplit, toggleArchive, isArchived, unarchive } from '$lib/state.svelte.js';
-  import { getSession, setMode, setModelEffort, openInEditor, openInGhostty, fork, launch, showInPane, killPane, deleteSession } from '$lib/api.js';
-  import { STATE_LABEL, fmtCost, fmtTokens, fmtDuration, shortModel, prLabel, issueLabel, PERMISSION_MODES, modeLabel, modeMeta, modelAlias, tagColor } from '$lib/format.js';
+  import { getSession, setMode, setModelEffort, setAutoApprove, openInEditor, openInGhostty, fork, launch, deleteSession, connectSessionStream, listTerminals, openTerminal, killTerminal } from '$lib/api.js';
+  import { STATE_LABEL, fmtCost, fmtTokens, fmtDuration, shortModel, prLabel, issueLabel, PERMISSION_MODES, modeLabel, modeMeta, modelAlias, tagColor, resumeCommand, parseBang, isBlockForCommand } from '$lib/format.js';
   import { page } from '$app/state';
   import ModelEffort from './ModelEffort.svelte';
   import ChatBubble from './ChatBubble.svelte';
@@ -14,9 +14,9 @@
   import Branch from './Branch.svelte';
   import Dock from './Dock.svelte';
   import Terminal from './Terminal.svelte';
+  import Mcp from './Mcp.svelte';
   import Icon from '$lib/components/Icon.svelte';
   import { editorFor } from '$lib/editors.js';
-  import { TERM_THEMES, DEFAULT_TERM_THEME, TERM_FONTS, DEFAULT_TERM_FONT } from '$lib/terminalThemes.js';
   import { conversationToMarkdown } from '$lib/exportConversation.js';
   import { getBinding, matchesEvent } from '$lib/shortcuts.js';
 
@@ -30,35 +30,14 @@
   // remplace `s` en entier au refetch), donc raw est correct : réactif à la réaffectation, sans
   // proxy profond. Coût de `s = d` : O(1) au lieu de O(nombre de nœuds du transcript).
   let s = $state.raw(null);      // détail de session
-  // Lentille active : 'chat' (Converse + dock) / 'terminal' (Shell) / 'ship' (relecture des
-  // diffs + liens). Touches 1-3.
+  // Lentille active : 'chat' (Converse + dock) / 'ship' (relecture des diffs + liens) /
+  // 'branch' / 'mcp'. Touches 1, 3, 4, 5.
   let tab = $state('chat');
-  let termPane = $state(null);   // pane « show » courant affiché dans l'onglet Terminal
-  let termInteractive = $state(true);  // onglet Terminal : interactif (frappes → tmux) par défaut
-  let termFit = $state(true);          // adapter le pane tmux à la place dispo dans la vue web
-  let termTheme = $state(DEFAULT_TERM_THEME); // thème xterm choisi (persisté en localStorage)
-  let termFont = $state(DEFAULT_TERM_FONT);   // police choisie (persistée)
-  // restaure les préférences mémorisées ; chacune persiste à son changement.
-  onMount(() => {
-    try {
-      const v = localStorage.getItem('hooked.termTheme'); if (v && TERM_THEMES[v]) termTheme = v;
-      const f = localStorage.getItem('hooked.termFont'); if (f && TERM_FONTS[f]) termFont = f;
-      const it = localStorage.getItem('hooked.termInteractive'); if (it != null) termInteractive = it === '1';
-      const ft = localStorage.getItem('hooked.termFit'); if (ft != null) termFit = ft === '1';
-    } catch (_) {}
-  });
-  $effect(() => { try { localStorage.setItem('hooked.termTheme', termTheme); } catch (_) {} });
-  $effect(() => { try { localStorage.setItem('hooked.termFont', termFont); } catch (_) {} });
-  $effect(() => { try { localStorage.setItem('hooked.termInteractive', termInteractive ? '1' : '0'); } catch (_) {} });
-  $effect(() => { try { localStorage.setItem('hooked.termFit', termFit ? '1' : '0'); } catch (_) {} });
-  const termThemeObj = $derived((TERM_THEMES[termTheme] || TERM_THEMES[DEFAULT_TERM_THEME]).theme);
-  const termFontFamily = $derived((TERM_FONTS[termFont] || TERM_FONTS[DEFAULT_TERM_FONT]).family);
   let body;                      // ref .pane-body (conteneur scrollable)
   let composer;                  // ref Composer (pour déclencher interruption + édition via Échap)
   let lastActivity = null;
   let archiving = $state(false);
-  let attachCopied = $state(false);
-  // changement de mode de permission (Normal / Auto-edits / Plan) via Maj+Tab dans le pane.
+  // changement de mode de permission (Normal / Auto / Plan) — requête de contrôle de l'Agent SDK.
   let modeBusy = $state(false);
   let modeStatus = $state('');
   let modeOverride = $state(null);  // mode visé en optimiste, tant que les hooks ne le reflètent pas
@@ -90,8 +69,6 @@
   // scrolle vers le haut (lire l'historique / composer), on NE le ramène plus en bas aux ticks SSE.
   let stickToBottom = true;
 
-  const shownPanes = $derived(s ? (s.shownPanes || []) : []);
-
   // Le dock droit n'apparaît que s'il a quelque chose à montrer (tasks / changes / workflows /
   // agents / sub-sessions / jobs / liens) — sinon ni panneau ni rail de réouverture.
   const dockHasContent = $derived(!!s && !!(
@@ -101,46 +78,29 @@
     (s.prLinks || []).length || (s.issueLinks || []).length
   ));
 
-  // Liste des terminaux de l'onglet : le pane Claude Code lui-même (si son tmux est vivant) +
-  // les panes « show » ouverts par un agent. Le pane Claude est toujours en tête.
-  const terminals = $derived.by(() => {
-    const list = [];
-    if (s && s.tmuxAlive && s.tmuxPane) list.push({ pane: s.tmuxPane, label: 'Claude Code', kind: 'claude' });
-    for (const p of shownPanes) list.push({ pane: p.pane, label: p.command || 'shell', kind: 'show', target: p.target });
-    return list;
-  });
-
-  // Lentilles du workspace : Converse et Ship. Le Shell n'est PLUS une lentille — c'est un
-  // panneau BAS redimensionnable façon VS Code (1/3 de fenêtre par défaut), togglé par le tiroir
-  // ou la touche 2, visible quelle que soit la lentille active.
+  // Lentilles du workspace : Converse, Ship, Branch et MCP. Le panneau Shell (mirroir xterm d'un
+  // pane tmux) a disparu avec la migration hors tmux : il n'y a plus de terminal à mirrorer, la
+  // session est pilotée en processus par l'Agent SDK et tout son fil passe par Converse.
+  // MCP était une page de nav avec son propre sélecteur de projet : les scopes MCP étant
+  // par-répertoire, la lentille prend le projet de la session et le sélecteur disparaît.
   const LENSES = [
     { key: 'chat', icon: 'converse', label: 'Converse', kbd: '1' },
     { key: 'ship', icon: 'ship', label: 'Ship', kbd: '3' },
     { key: 'branch', icon: 'git-branch', label: 'Branch', kbd: '4' },
+    { key: 'mcp', icon: 'mcp', label: 'MCP', kbd: '5' },
   ];
   const lensCount = $derived({
     chat: (s?.messages || []).length,
     ship: (s?.changes || []).length,
   });
   const shownLenses = $derived(LENSES);
-  let shellOpen = $state(false); // panneau shell bas ouvert ? (par pane, non persisté)
-  function startShellResize(e) {
-    e.preventDefault();
-    const startY = e.clientY;
-    const startH = ui.shellHeight || Math.round(window.innerHeight / 3);
-    const move = (ev) => { ui.shellHeight = Math.max(140, Math.min(Math.round(window.innerHeight * 0.8), startH + (startY - ev.clientY))); };
-    const up = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); };
-    window.addEventListener('pointermove', move);
-    window.addEventListener('pointerup', up);
-  }
-  // Deep-link ?lens=<key> (Deck « Open the shell », dock « open Ship », palette…). Réactif à
-  // l'URL : naviguer vers la même session avec un autre ?lens= bascule la lentille sans remount.
-  // `?lens=terminal` (liens historiques) ouvre désormais le panneau shell.
+  // Deep-link ?lens=<key> (dock « open Ship », palette…). Réactif à l'URL : naviguer vers la même
+  // session avec un autre ?lens= bascule la lentille sans remount. Les anciens liens `?lens=shell`
+  // et `?lens=terminal` retombent sur Converse (le panneau Shell n'existe plus).
   $effect(() => {
     const lens = page.url.searchParams.get('lens');
     if (inSplit) return;
-    if (lens === 'terminal') untrack(() => { shellOpen = true; });
-    else if (LENSES.some((l) => l.key === lens)) untrack(() => { tab = lens; });
+    if (LENSES.some((l) => l.key === lens)) untrack(() => { tab = lens; });
   });
 
   // Lazy-mount des sous-onglets. Svelte monte TOUS les panes (les inactifs sont seulement masqués
@@ -166,6 +126,79 @@
     const iv = setInterval(() => { nowMs = Date.now(); }, 1000);
     return () => clearInterval(iv);
   });
+  // ── Streaming temps réel du tour en cours ─────────────────────────────────────────────────────
+  // Le transcript n'est écrit qu'au FLUSH de chaque message : entre deux, la conversation paraît
+  // figée alors que Claude écrit. On s'abonne donc au flux par session (/api/session/stream) et on
+  // rend le texte en cours sous la dernière bulle. Ce n'est qu'un tampon d'affichage : dès que le
+  // message tombe dans le transcript, le refetch normal l'affiche et le serveur vide le tampon.
+  let live = $state(null);   // { state, busy, activity, text, thinking, tool } | null
+  $effect(() => {
+    const sid = id;                       // dep suivie lue AVANT toute garde (piège Svelte 5)
+    const driven = !!(s && s.live);       // idem : on veut se réabonner quand la session devient pilotée
+    if (!sid || !driven) { if (live !== null) untrack(() => { live = null; }); return; }
+    const close = connectSessionStream(sid, (snap) => {
+      live = snap && snap.live ? snap : null;
+    });
+    return close;                         // changement de session / session non pilotée → on ferme
+  });
+  // Texte en cours d'écriture, seulement quand il y a de quoi montrer. On n'affiche rien si le
+  // transcript a déjà rattrapé (le serveur remet le tampon à zéro à la fin du tour).
+  const liveText = $derived(live && typeof live.text === 'string' ? live.text : '');
+  const liveThinking = $derived(live && typeof live.thinking === 'string' ? live.thinking : '');
+  const liveTool = $derived(live ? live.tool : null);
+
+  // ── Terminaux shell ───────────────────────────────────────────────────────────────────────────
+  // Panneau bas redimensionnable, un onglet par terminal. Ce sont de vrais shells (PTY) ouverts sur
+  // le dossier du projet — ils ne parlent PAS à la session Claude et lui survivent : fermer l'onglet
+  // du navigateur ou recharger la page ne les tue pas, ils vivent dans le processus hooked. C'est ce
+  // qui remplace le mirroir de pane tmux, réduit à ce qu'on lui demandait : lancer des commandes.
+  let terms = $state([]);
+  let termId = $state(null);
+  let termOpen = $state(false);
+  let termBusy = $state(false);
+  async function refreshTerms() {
+    // jget renvoie le corps BRUT (`{ok, terminals}`), pas la forme `{ok, data}` de jpost. Chercher
+    // la liste sous `data` levait donc une TypeError à chaque appel, et `terms` restait vide.
+    const res = await listTerminals(id).catch(() => null);
+    if (!res || !res.ok) return;
+    terms = res.terminals || [];
+    if (!terms.some((t) => t.id === termId)) termId = terms.length ? terms[terms.length - 1].id : null;
+    // Seul endroit où `terms` est réassigné, donc seul endroit où poser l'invariant : plus de
+    // terminal ⇒ on replie. Sans ça, changer de session vidait la liste en laissant le panneau
+    // « ouvert » sur rien — ni panneau ni tiroir affiché, et aucun moyen de revenir.
+    if (!terms.length) termOpen = false;
+  }
+  // Au changement de session : on récupère SES terminaux (ceux d'une autre session restent ouverts
+  // côté serveur, simplement pas listés ici).
+  $effect(() => { const sid = id; if (sid) untrack(() => { refreshTerms(); }); });
+  async function newTerm() {
+    if (termBusy || !s || !s.project) return;
+    termBusy = true;
+    const res = await openTerminal(s.project, id).catch((e) => ({ ok: false, data: { error: e.message } }));
+    termBusy = false;
+    if (res.ok) { termOpen = true; termId = res.data.id; await refreshTerms(); }
+    else alert('✗ ' + (res.data.error || 'failed to open a terminal'));
+  }
+  async function closeTerm(tid) {
+    if (termBusy) return;
+    termBusy = true;
+    await killTerminal(tid).catch(() => {});
+    termBusy = false;
+    await refreshTerms();
+  }
+  // le composant signale la fin du flux (shell sorti, ou terminal tué ailleurs) → on resynchronise.
+  function onTermClosed() { refreshTerms(); }
+
+  function startTermResize(e) {
+    e.preventDefault();
+    const startY = e.clientY;
+    const startH = ui.termHeight || Math.round(window.innerHeight / 3);
+    const move = (ev) => { ui.termHeight = Math.max(120, Math.min(Math.round(window.innerHeight * 0.8), startH + (startY - ev.clientY))); };
+    const up = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+  }
+
   // écoulé compact : « 12s » puis « 2m7s ». Vide tant qu'on n'a pas d'ancre.
   const workElapsed = $derived.by(() => {
     if (!workingSince) return '';
@@ -187,39 +220,6 @@
     tab = 'chat';
     await tick();
     composer.sendText(followup); // envoi direct (remplit + envoie), comme la revue de fichiers
-  }
-
-  let wantPane = $state(null); // pane à sélectionner dès qu'il apparaît (après « + Pane »)
-  // pane Terminal sélectionné : le pane qu'on vient d'ouvrir dès qu'il arrive, sinon le pane « show »
-  // le plus récent (un agent a voulu montrer qqch), sinon le pane Claude. Rebascule si le courant part.
-  $effect(() => {
-    const list = terminals;
-    if (!list.length) { if (termPane !== null) untrack(() => (termPane = null)); return; }
-    if (wantPane && list.some((t) => t.pane === wantPane)) { untrack(() => { termPane = wantPane; wantPane = null; }); return; }
-    if (!list.some((t) => t.pane === termPane)) {
-      const def = shownPanes.length ? shownPanes[shownPanes.length - 1].pane : list[0].pane;
-      untrack(() => (termPane = def));
-    }
-  });
-
-  // ouvre un nouveau pane shell dans le tmux de la session, puis bascule dessus.
-  let paneBusy = $state(false);
-  async function newPane() {
-    if (!s || paneBusy) return;
-    paneBusy = true;
-    const res = await showInPane(s.id, '', 'window').catch((e) => ({ ok: false, data: { error: e.message } }));
-    paneBusy = false;
-    if (res.ok && res.data.pane) { wantPane = res.data.pane; shellOpen = true; setTimeout(() => { loadSessions(); ui.tick++; }, 250); }
-    else if (!res.ok) alert('✗ ' + (res.data.error || 'failed'));
-  }
-  // ferme un pane « show » (✕).
-  async function closePane(pane) {
-    if (paneBusy) return;
-    paneBusy = true;
-    const res = await killPane(pane).catch((e) => ({ ok: false, data: { error: e.message } }));
-    paneBusy = false;
-    if (res.ok) setTimeout(() => { loadSessions(); ui.tick++; }, 250);
-    else alert('✗ ' + (res.data.error || 'failed'));
   }
 
   // indicateur 5 h compact pour la ligne de stats : uniquement la valeur réelle (statusline).
@@ -302,7 +302,12 @@
     // liveQuestionForSession) confirms it. No-op when nothing is pending.
     // réaffectation (pas mutation en place) : `s` est en $state.raw → seule la réaffectation est réactive.
     if (s && s.pendingQuestion) s = { ...s, pendingQuestion: null };
-    queued = [...queued, { text: t, ts: new Date().toISOString() }];
+    // Une commande (`!` / `!!`) n'est PAS un message en attente : elle est déjà exécutée, et son
+    // résultat arrive comme bloc `console` ou terminal `pty`. L'afficher « queued » laissait croire à
+    // un envoi bloqué — et le dédoublonnage ne pouvait jamais l'effacer, puisque le transcript
+    // contient le bloc, pas le texte tapé. On la marque donc comme commande.
+    const bang = parseBang(t);
+    queued = [...queued, { text: t, ts: new Date().toISOString(), kind: bang && bang.kind, cmd: bang ? bang.command : '' }];
     forceBottom = true;
     stickToBottom = true;            // après un envoi, on re-suit la conversation
     await tick();
@@ -320,7 +325,7 @@
   onMount(() => load(false));
 
   // Retour sur l'onglet Conversation : re-scroll en bas. Les sous-onglets partagent le même
-  // conteneur scrollable (.pane-body) → en revenant du Terminal/Fichiers, il gardait la position
+  // conteneur scrollable (.pane-body) → en revenant de Ship/Branch, il gardait la position
   // de l'onglet précédent et on ne voyait pas le dernier message. On ne scrolle qu'à la TRANSITION
   // vers « chat » (pas au montage initial, déjà géré par load()).
   let prevTab = 'chat';
@@ -334,22 +339,13 @@
   });
 
   // Raccourcis fenêtre du workspace :
-  //  • 1-4 (hors saisie) : bascule de lentille (Converse / Build / Shell / Ship) ;
+  //  • 1, 3, 4, 5 (hors saisie) : bascule de lentille (Converse / Ship / Branch / MCP) ;
   //  • Échap dans la vue chat (hors textarea — le composer gère lui-même quand il a le focus) :
   //    interrompt Claude et recharge le dernier prompt pour l'éditer, comme dans le CLI.
-  const LENS_KEYS = { 1: 'chat', 2: 'shell', 3: 'ship', 4: 'branch' };
+  const LENS_KEYS = { 1: 'chat', 3: 'ship', 4: 'branch', 5: 'mcp' };
   function onWindowKey(e) {
     if (ui.modal) return;
     if (inSplit && !focused) return; // in split, only the focused pane reacts to keys
-    if (matchesEvent(getBinding('open-terminal'), e)) {
-      if (terminals.length) { e.preventDefault(); shellOpen = !shellOpen; }
-      return;
-    }
-    if (matchesEvent(getBinding('new-terminal'), e)) {
-      e.preventDefault();
-      newPane();
-      return;
-    }
     if (matchesEvent(getBinding('toggle-dock'), e)) {
       if (dockHasContent) { e.preventDefault(); ui.dockHidden = !ui.dockHidden; }
       return;
@@ -357,9 +353,16 @@
     const t = e.target;
     const isInput = t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable);
     if (!isInput && !e.metaKey && !e.ctrlKey && !e.altKey && LENS_KEYS[e.key]) {
-      const k = LENS_KEYS[e.key];
-      if (k === 'shell') { if (terminals.length) { e.preventDefault(); shellOpen = !shellOpen; } }
-      else { e.preventDefault(); tab = k; }
+      e.preventDefault();
+      tab = LENS_KEYS[e.key];
+      return;
+    }
+    // 2 = bascule du panneau terminal (il n'est pas une lentille : il reste visible par-dessus
+    // n'importe laquelle). Ouvre un premier shell s'il n'y en a aucun.
+    if (!isInput && !e.metaKey && !e.ctrlKey && !e.altKey && e.key === '2') {
+      e.preventDefault();
+      if (!terms.length) newTerm();
+      else termOpen = !termOpen;
       return;
     }
     if (e.key !== 'Escape' || tab !== 'chat') return;
@@ -388,8 +391,8 @@
       // Refetch UNIQUEMENT quand quelque chose a vraiment changé — plus de refetch aveugle à chaque
       // tick pour toute session live (c'était 1,8 MB de transcript rechargés/sec pour une session
       // juste ouverte). On recharge sur : question (dis)parue, nouvelle activité (lastActivity a
-      // avancé), follow-up (dis)paru, chat d'une session qui travaille, ou onglet Terminal actif.
-      if (qChanged || activityChanged || followupChanged || (tab === 'chat' && sess.state === 'working') || (shellOpen && s.tmuxAlive)) load(true);
+      // avancé), follow-up (dis)paru, ou chat d'une session qui travaille.
+      if (qChanged || activityChanged || followupChanged || (tab === 'chat' && sess.state === 'working')) load(true);
     });
   });
 
@@ -437,7 +440,7 @@
   }
 
   // Fork express en 1 clic : forke SANS aucune saisie ni modale (modèle/effort de la session
-  // courante, message vide) et reprend la branche en tmux détaché — elle attend. Retour inline
+  // courante, message vide) et reprend la branche dans une nouvelle session — elle attend. Retour inline
   // sur la bulle ; la nouvelle session apparaît ensuite toute seule dans la sidebar.
   let forkState = $state(null); // { uuid, phase: 'busy'|'done'|'err', text }
   async function quickFork(m) {
@@ -446,7 +449,7 @@
     const payload = { id: s.id, forkUuid: m.forkUuid, prompt: '', model: s.launchModel || modelAlias(s.model), effort: s.effort };
     const res = await fork(payload).catch((e) => ({ ok: false, data: { error: e?.message || 'failed' } }));
     if (res.ok) {
-      forkState = { uuid: m.forkUuid, phase: 'done', text: '✓ branch created → ' + (res.data?.tmux || 'tmux') };
+      forkState = { uuid: m.forkUuid, phase: 'done', text: '✓ branch created' + (res.data?.sessionId ? ' → ' + res.data.sessionId.slice(0, 8) : '') };
       setTimeout(() => { loadSessions(); ui.tick++; }, 1000);
       setTimeout(() => { if (forkState?.uuid === m.forkUuid && forkState.phase === 'done') forkState = null; }, 5000);
     } else {
@@ -483,22 +486,15 @@
     }
     meBusy = false;
   }
-  // Archive replaces the old Stop: it stops the tmux session AND moves the session to Archived
+  // Archive replaces the old Stop: it stops the running session AND moves it to Archived
   // (the two are no longer distinct). `toggleArchive` performs the kill; we just leave the view.
   const archived = $derived(!!s && isArchived(s.id));
   function archive() {
     if (archived) { toggleArchive(s.id); setTimeout(() => { loadSessions(); ui.tick++; }, 400); return; }
-    openModal('confirm', {
-      title: 'Archive this session?',
-      message: 'The tmux session running Claude will be stopped and the session moves to Archived (reversible).',
-      confirmLabel: 'Archive', confirmIcon: 'archive', danger: true,
-      onConfirm: () => {
-        archiving = true;
-        toggleArchive(s.id);
-        setTimeout(() => { loadSessions(); ui.tick++; }, 800);
-        if (inSplit) onClose?.();
-      },
-    });
+    archiving = true;
+    toggleArchive(s.id);
+    setTimeout(() => { loadSessions(); ui.tick++; }, 800);
+    if (inSplit) onClose?.();
   }
   let deleting = $state(false);
   function del() {
@@ -513,6 +509,27 @@
     const res = await deleteSession(s.id).catch((e) => ({ ok: false, data: { error: e.message } }));
     if (res.ok) { loadSessions(); ui.tick++; }
     else { deleting = false; alert('✗ ' + (res.data.error || 'failed')); }
+  }
+  // Auto-approbation des permissions d'outil. `autoView` est optimiste tant que le refetch n'a pas
+  // confirmé, comme pour le mode de permission.
+  let autoBusy = $state(false);
+  let autoOverride = $state(null);
+  const autoView = $derived(autoOverride ?? (s ? !!s.autoApprove : false));
+  async function toggleAuto() {
+    if (autoBusy || !s) return;
+    autoBusy = true;
+    const target = !autoView;
+    const res = await setAutoApprove(s.id, target).catch((e) => ({ ok: false, data: { error: e.message } }));
+    if (res.ok) {
+      autoOverride = res.data.autoApprove;
+      modeStatus = target ? '✓ auto-approve on' : '✓ auto-approve off';
+      setTimeout(() => { modeStatus = ''; }, 2000);
+      setTimeout(() => { loadSessions(); ui.tick++; }, 400);
+    } else {
+      modeStatus = '✗ ' + (res.data.error || 'failed');
+      setTimeout(() => { modeStatus = ''; }, 3000);
+    }
+    autoBusy = false;
   }
   async function switchMode(target) {
     if (modeBusy || modeView === target) return;
@@ -530,9 +547,31 @@
     }
     modeBusy = false;
   }
-  async function copyAttach() {
-    try { await navigator.clipboard.writeText(s.tmuxAttach); attachCopied = true; setTimeout(() => (attachCopied = false), 1500); } catch (_) {}
-  }
+  // Rattachement de l'écho d'une commande au bloc qu'elle a produit, pour l'afficher JUSTE AVANT son
+  // terminal. Sans ça l'écho tombait après toute la boucle des messages, donc sous le bloc — on lisait
+  // le résultat avant la commande. Une entrée ne s'attache qu'à UN message (le premier qui matche),
+  // sinon deux `!!id` identiques colleraient leur écho au même bloc.
+  const cmdEchoes = $derived.by(() => {
+    const map = new Map();
+    const cmds = queued.filter((q) => q.kind && q.cmd);
+    if (!cmds.length) return map;
+    const msgs = (s && s.messages) || [];
+    const used = new Set();
+    for (let i = 0; i < msgs.length; i++) {
+      if (msgs[i].role !== 'user') continue;
+      const hit = cmds.find((q) => !used.has(q.ts) && isBlockForCommand(msgs[i].text, q.cmd));
+      if (!hit) continue;
+      used.add(hit.ts);
+      map.set(i, [...(map.get(i) || []), hit]);
+    }
+    return map;
+  });
+  // Celles dont le bloc n'est pas encore arrivé : rendues en bas, elles remonteront d'elles-mêmes.
+  const pendingQueued = $derived.by(() => {
+    const attached = new Set([...cmdEchoes.values()].flat().map((q) => q.ts));
+    return queued.filter((q) => !attached.has(q.ts));
+  });
+
   // Copie le deep-link ABSOLU vers cette session (partageable / ouverture à froid). L'origine réelle
   // du navigateur est utilisée → correct quel que soit l'accès (localhost / IP LAN / MagicDNS).
   let linkCopied = $state(false);
@@ -542,6 +581,15 @@
   let exportCopied = $state(false);
   async function copyExport() {
     try { await navigator.clipboard.writeText(conversationToMarkdown(s)); exportCopied = true; setTimeout(() => (exportCopied = false), 1500); } catch (_) {}
+  }
+  // Commande de reprise manuelle. Utile quand on veut la session dans son propre terminal plutôt
+  // que dans hooked (un TUI, un pager, du copier-coller lourd) — c'est la MÊME session, l'Agent SDK
+  // spawne exactement cette ligne.
+  let cmdCopied = $state(false);
+  async function copyResumeCmd() {
+    const cmd = resumeCommand(s);
+    if (!cmd) return;
+    try { await navigator.clipboard.writeText(cmd); cmdCopied = true; setTimeout(() => (cmdCopied = false), 1500); } catch (_) {}
   }
   // Éditeur préféré (réglage partagé) : sert au libellé du bouton et à l'icône.
   const prefEditor = $derived(editorFor(settings.editor));
@@ -594,16 +642,16 @@
       <span class="badge s-badge"><span class="bdot"></span>{s.state === 'working' && s.activity ? s.activity + '…' : (STATE_LABEL[s.state] || s.state)}</span>
 
       <div class="head-actions">
-        {#if s.tmuxAlive}
+        {#if s.live}
           <!-- modèle/effort + mode de permission vivent dans le menu ⋯ ; seul le retour
                éphémère d'un changement (✓ Auto, ✗ failed…) s'affiche ici. -->
           {#if modeStatus || meStatus}<span class="strip-status">{modeStatus || meStatus}</span>{/if}
           <button class="stop-btn" disabled={archiving} onclick={archive}
-                  title="Stop the tmux session and move it to Archived">{#if archiving}<Icon name="queued" size={14} />{:else}<Icon name="archive" size={14} /> Archive{/if}</button>
+                  title="Stop the running session and move it to Archived">{#if archiving}<Icon name="queued" size={14} />{:else}<Icon name="archive" size={14} /> Archive{/if}</button>
         {:else}
           {#if resumeStatus}<span class="strip-status err">{resumeStatus}</span>{/if}
           <button class="resume-btn" disabled={resuming} onclick={resume}
-                  title="Re-run claude --resume in a detached tmux session">{#if resuming}<Icon name="queued" size={14} />{:else}<Icon name="in-progress" size={14} tint={false} />{/if} Resume</button>
+                  title="Re-run claude --resume, driven by hooked">{#if resuming}<Icon name="queued" size={14} />{:else}<Icon name="in-progress" size={14} tint={false} />{/if} Resume</button>
         {/if}
         {#if !inSplit}
           <button class="hdr-icon-btn" title="Split with the most recent session (⌘/Ctrl+⇧+S)"
@@ -614,7 +662,7 @@
           <div class="hdr-menu">
             <!-- Réglages fréquents (modèle/effort + mode de permission) : rangés ici en
                  permanence pour garder l'en-tête compact — le titre reste l'info principale. -->
-            {#if s.tmuxAlive}
+            {#if s.live}
               {@const cur = modeMeta(modeView)}
               <div class="hdr-menu-cmds">
                 {#if sb.modelEffort !== false}
@@ -629,6 +677,14 @@
                       <button class="mode-chip" class:active={modeView === m.key} disabled={modeBusy}
                               onclick={() => switchMode(m.key)} title={m.title}><span class="mode-ico">{m.icon}</span>{m.label}</button>
                     {/each}
+                    <!-- Orthogonal au mode : le mode décide QUI escalade (règles, classifieur du
+                         mode auto), ceci décide si hooked te pose la question quand ça escalade. -->
+                    <button class="mode-chip auto-chip" class:active={autoView} disabled={autoBusy}
+                            onclick={toggleAuto}
+                            title={autoView
+                              ? 'Auto-approve is ON: tool permission requests are allowed without asking. Questions and plans still come to you.'
+                              : 'Auto-approve tool permissions: stop asking for each escalated tool call. Questions and plans still come to you.'}>
+                      <span class="mode-ico">⚡</span>Auto-approve · {autoView ? 'on' : 'off'}</button>
                   </div>
                 {/if}
               </div>
@@ -637,17 +693,18 @@
             <button class="vscode-btn" onclick={() => openModal('cost')} title="Estimated cost breakdown"><Icon name="cost" size={14} /> Cost · {fmtCost(s.cost)}{#if s.subagentCost > 0} (+{fmtCost(s.subagentCost)} agents){/if}</button>
             <div class="hdr-div"></div>
             <button class="vscode-btn" title="Copy a shareable link that opens this session in hooked" onclick={copyLink}>{#if linkCopied}<Icon name="check" size={14} /> copied{:else}<Icon name="link" size={14} /> Copy link{/if}</button>
-            {#if s.tmuxAlive && s.tmuxAttach}
-              <button class="vscode-btn" title={s.tmuxAttach} onclick={copyAttach}>{#if attachCopied}<Icon name="check" size={14} /> copied{:else}<Icon name="copy" size={14} /> Copy attach{/if}</button>
-            {/if}
             <button class="vscode-btn" disabled={editorBusy} onclick={openEditor} title="Open the entire project in {prefEditor.label} (change it in Settings → Editor)">{#if editorBusy}<Icon name="queued" size={14} />{:else}<Icon name={prefEditor.icon} size={14} />{/if} Open in {prefEditor.label}</button>
-            <button class="vscode-btn" disabled={ghosttyBusy} onclick={openGhostty} title="Open the session in Ghostty (attaches tmux if alive)">{#if ghosttyBusy}<Icon name="queued" size={14} />{:else}<Icon name="ghostty" size={14} />{/if} Open in Ghostty</button>
+            <button class="vscode-btn" disabled={ghosttyBusy} onclick={openGhostty} title="Open the project folder in Ghostty">{#if ghosttyBusy}<Icon name="queued" size={14} />{:else}<Icon name="ghostty" size={14} />{/if} Open in Ghostty</button>
+            <button class="vscode-btn" onclick={copyResumeCmd}
+                    title={s.live
+                      ? 'Copy `claude --resume` for this session — WARNING: hooked is driving it right now, running the command too would fight over the session lock'
+                      : 'Copy `claude --resume` for this session, to reopen it in your own terminal'}>{#if cmdCopied}<Icon name="check" size={14} /> copied{:else}<Icon name="shell" size={14} /> Copy resume command{/if}</button>
             <button class="vscode-btn" onclick={copyExport} title="Copy the conversation as Markdown to the clipboard">{#if exportCopied}<Icon name="check" size={14} /> copied{:else}<Icon name="copy" size={14} /> Copy as Markdown{/if}</button>
             <button class="vscode-btn" onclick={() => openModal('editTags', { sessionId: id })} title="Add or remove tags on this session (PR review tags are automatic)"><Icon name="tag" size={14} /> Edit tags</button>
             {#if sb.focusBtn !== false}<button class="vscode-btn" class:on={ui.focus} onclick={toggleFocus} title="Focus mode: full-screen conversation"><Icon name="maximize" size={14} /> {ui.focus ? 'Exit focus' : 'Focus'}</button>{/if}
             <button class="vscode-btn" class:on={ui.toolsOpen} onclick={() => (ui.toolsOpen = !ui.toolsOpen)} title="Expand every tool call's input/result inline (this session only, off on reload)"><Icon name="tool" size={14} /> {ui.toolsOpen ? 'Collapse tool details' : 'Expand tool details'}</button>
             <div class="hdr-div"></div>
-            <button class="vscode-btn" onclick={archive} title={archived ? 'Restore this session to the live fleet' : 'Stop the tmux session and move it to Archived'}>{#if archived}<Icon name="unarchive" size={14} /> Unarchive{:else}<Icon name="archive" size={14} /> Archive{/if}</button>
+            <button class="vscode-btn" onclick={archive} title={archived ? 'Restore this session to the live fleet' : 'Stop the running session and move it to Archived'}>{#if archived}<Icon name="unarchive" size={14} /> Unarchive{:else}<Icon name="archive" size={14} /> Archive{/if}</button>
             <button class="vscode-btn del-btn" disabled={deleting} onclick={del} title="Move to trash: removes from dashboard; transcript kept in bin/ (recoverable)">{#if deleting}<Icon name="queued" size={14} tint={false} />{:else}<Icon name="trash" size={14} tint={false} />{/if} Delete</button>
           </div>
         </details>
@@ -671,6 +728,20 @@
     <!-- la conversation reste montée en lentille Build (colonne copilote à côté de l'IDE) -->
     <div class="pane" class:active={tab === 'chat'}>
       <div class="chat">
+        <!-- Une seule définition : la même bulle est rendue soit au-dessus de son bloc (écho rattaché),
+             soit en bas du fil tant que le bloc n'est pas arrivé. -->
+        {#snippet commandBubble(q)}
+          <div class="bubble user" class:queued={!q.kind} class:command={q.kind}>
+            <div class="who"><Icon name="user" size={14} /> You
+              {#if q.kind}
+                <span class="t"><Icon name="shell" size={13} /> {q.kind === 'interactive' ? 'interactive command' : 'command'}</span>
+              {:else}
+                <span class="t"><Icon name="queued" size={13} /> queued</span>
+              {/if}
+            </div>
+            <div class="md">{q.text}</div>
+          </div>
+        {/snippet}
         {#if startIdx > 0}
           <button class="show-earlier" onclick={showEarlier}><Icon name="arrow-up" size={14} /> Show earlier messages · {startIdx} hidden</button>
         {/if}
@@ -679,16 +750,14 @@
                block (conversation.js rewrites prev.ts), so a ts-based key destroys+recreates the whole live bubble
                each tick → the "jumps". Transcript is append/merge-only, so a message's absolute index never moves,
                even as the render window slides → the key stays stable across MSG_STEP expansions and new ticks. -->
-          {#each (s.messages || []).slice(startIdx) as m, j (startIdx + j)}<ChatBubble {m} onfork={quickFork} onforkadvanced={openFork} {forkState} session={id} />{/each}
+          {#each (s.messages || []).slice(startIdx) as m, j (startIdx + j)}
+            {#each cmdEchoes.get(startIdx + j) || [] as q (q.ts)}{@render commandBubble(q)}{/each}
+            <ChatBubble {m} onfork={quickFork} onforkadvanced={openFork} {forkState} session={id} />
+          {/each}
         {:else if !queued.length}
           <div class="pane-empty">Empty conversation.</div>
         {/if}
-        {#each queued as q (q.ts)}
-          <div class="bubble user queued">
-            <div class="who"><Icon name="user" size={14} /> You <span class="t"><Icon name="queued" size={13} /> queued</span></div>
-            <div class="md">{q.text}</div>
-          </div>
-        {/each}
+        {#each pendingQueued as q (q.ts)}{@render commandBubble(q)}{/each}
         <!-- Introduction de la question / du plan en attente, LUE DANS LA PANE (server: pendingLeadIn).
              Tant qu'on n'a pas répondu, Claude Code n'a rien écrit du tour dans le transcript → sans
              ça la carte question arrivait SANS le texte qui l'explique (et il fallait répondre pour
@@ -704,10 +773,21 @@
             <pre class="leadin-txt">{s.pendingLeadIn}</pre>
           </div>
         {/if}
+        <!-- Tour en cours, en direct : le texte tel qu'il s'écrit, avant que le message ne soit
+             flushé dans le transcript. Remplacé par la vraie bulle au refetch suivant. -->
+        {#if tab === 'chat' && (liveText || liveThinking)}
+          <div class="bubble assistant streaming">
+            <div class="who"><Icon name="bot" size={14} /> Claude
+              <span class="t"><span class="sd-dot" aria-hidden="true"></span> en direct</span>
+            </div>
+            {#if liveThinking}<pre class="sd-thinking">{liveThinking}</pre>{/if}
+            {#if liveText}<div class="md sd-text">{liveText}</div>{/if}
+          </div>
+        {/if}
         {#if s.state === 'working' && tab === 'chat'}
           <div class="working-live" title="Claude is working — new messages appear once flushed">
             <span class="wl-dots" aria-hidden="true"><span></span><span></span><span></span></span>
-            <span class="wl-verb">{s.activity || 'Working'}…</span>
+            <span class="wl-verb">{liveTool || s.activity || 'Working'}…</span>
             {#if workElapsed}<span class="wl-sep">·</span><span class="wl-time">{workElapsed}</span>{/if}
           </div>
         {/if}
@@ -724,8 +804,8 @@
           <button class="fu-take" onclick={takeFollowup}><Icon name="send" size={14} /> Envoyer</button>
         </div>
       {/if}
-      {#if s.tmuxPane}
-        <Composer bind:this={composer} {id} alive={s.tmuxAlive} project={s.project}
+      {#if s.live}
+        <Composer bind:this={composer} {id} alive={s.live} project={s.project}
                   resumeModel={s.launchModel} resumeEffort={s.effort} lastPrompt={s.lastPrompt || ''} {onSent} />
       {/if}
     </div>
@@ -733,7 +813,7 @@
     <!-- Lentille Ship : relecture des changements de Claude + expédition (composant dédié). -->
     <div class="pane pane-flush" class:active={tab === 'ship'}>
       {#if seen.ship}
-        <Ship {s} {id} onReview={reviewChanges} canReview={!!(s.tmuxPane)} active={tab === 'ship'} />
+        <Ship {s} {id} onReview={reviewChanges} canReview={!!(s.live)} active={tab === 'ship'} />
       {/if}
     </div>
 
@@ -741,7 +821,14 @@
          façon « Files changed » d'une PR, avec sélecteur de branche. -->
     <div class="pane pane-flush" class:active={tab === 'branch'}>
       {#if seen.branch}
-        <Branch {s} {id} onReview={reviewChanges} canReview={!!(s.tmuxPane)} active={tab === 'branch'} />
+        <Branch {s} {id} onReview={reviewChanges} canReview={!!(s.live)} active={tab === 'branch'} />
+      {/if}
+    </div>
+
+    <!-- Lentille MCP : santé des serveurs MCP du projet de la session + ré-authentification. -->
+    <div class="pane" class:active={tab === 'mcp'}>
+      {#if seen.mcp}
+        <Mcp project={s.project || ''} />
       {/if}
     </div>
 
@@ -759,58 +846,48 @@
   {/if}
   </div>
 
-  <!-- Shell : panneau bas redimensionnable façon VS Code (1/3 de fenêtre par défaut), visible
-       quelle que soit la lentille active. Le tiroir dessous le toggle (touche 2). -->
-  {#if shellOpen && terminals.length}
-    <div class="shell-panel" style="height:{ui.shellHeight ? ui.shellHeight + 'px' : '33vh'}">
+  <!-- Terminaux shell : panneau bas redimensionnable, visible quelle que soit la lentille active.
+       Le tiroir dessous le bascule (touche 2). Ces shells sont indépendants de la session Claude et
+       lui survivent — recharger la page ne les tue pas, ils vivent dans le processus hooked. -->
+  {#if termOpen}
+    <div class="term-panel" style="height:{ui.termHeight ? ui.termHeight + 'px' : '33vh'}">
       <!-- svelte-ignore a11y_no_static_element_interactions -->
-      <div class="shell-resize" onpointerdown={startShellResize} title="Drag to resize"></div>
+      <div class="term-resize" onpointerdown={startTermResize} title="Drag to resize"></div>
       <div class="term-bar">
         <div class="term-tabs">
-          {#each terminals as t (t.pane)}
-            <div class="term-chip" class:active={termPane === t.pane} class:claude={t.kind === 'claude'}>
-              <button class="term-tab" onclick={() => (termPane = t.pane)} title={t.label}>
-                {#if t.kind === 'claude'}<Icon name="bot" size={14} />{:else if t.target === 'window'}<Icon name="window" size={14} />{:else}<Icon name="pane" size={14} />{/if} {t.label.slice(0, 32)}
+          {#each terms as t (t.id)}
+            <div class="term-chip" class:active={termId === t.id} class:dead={t.exited}>
+              <button class="term-tab" onclick={() => (termId = t.id)} title={t.cwd}>
+                <Icon name="shell" size={13} /> {t.id.slice(-4)}{#if t.exited} · exited{/if}
               </button>
-              {#if t.kind === 'show'}
-                <button class="term-x" title="Close this pane" disabled={paneBusy} onclick={() => closePane(t.pane)}><Icon name="close" size={14} /></button>
-              {/if}
+              <button class="term-x" title="Close this terminal" disabled={termBusy}
+                      onclick={() => closeTerm(t.id)}><Icon name="close" size={13} /></button>
             </div>
           {/each}
-          <button class="term-new" title="New shell pane" disabled={paneBusy || !(s && s.tmuxAlive)} onclick={newPane}><Icon name="plus" size={14} /></button>
+          <button class="term-new" title="New shell in this project" disabled={termBusy || !s.project}
+                  onclick={newTerm}><Icon name="plus" size={13} /></button>
         </div>
-        <select class="term-theme" bind:value={termFont} title="Terminal font" aria-label="Terminal font">
-          {#each Object.entries(TERM_FONTS) as [key, f] (key)}
-            <option value={key}>🔤 {f.name}</option>
-          {/each}
-        </select>
-        <select class="term-theme" bind:value={termTheme} title="Terminal color theme" aria-label="Terminal theme">
-          {#each Object.entries(TERM_THEMES) as [key, t] (key)}
-            <option value={key}>🎨 {t.name}</option>
-          {/each}
-        </select>
-        <button class="term-mode" class:on={termFit} onclick={() => (termFit = !termFit)}
-                title={termFit ? 'Fit: the tmux pane fills the panel' : 'Fixed tmux pane size'}>
-          {#if termFit}<Icon name="maximize" size={13} /> Fit{:else}<Icon name="window" size={13} /> Fixed{/if}
+        <button class="term-close" onclick={() => (termOpen = false)} title="Hide the terminal panel (key 2)">
+          <Icon name="chevron-down" size={14} />
         </button>
-        <button class="term-mode" class:on={termInteractive} onclick={() => (termInteractive = !termInteractive)}
-                title={termInteractive ? 'Interactive: your keystrokes go to the tmux pane' : 'Read-only: observation'}>
-          {#if termInteractive}<Icon name="keyboard" size={13} /> Interactive{:else}<Icon name="eye" size={13} /> Read-only{/if}
-        </button>
-        <button class="term-mode" onclick={() => (shellOpen = false)} title="Close the shell panel (key 2)"><Icon name="close" size={14} /></button>
       </div>
-      {#if termPane}
-        {#key termPane + ':' + termInteractive + ':' + termFit}<Terminal pane={termPane} interactive={termInteractive} theme={termThemeObj} fontFamily={termFontFamily} fit={termFit} fitContainer />{/key}
-      {/if}
+      <!-- key : remonter le composant au changement d'onglet, chaque terminal a son propre flux -->
+      {#key termId}
+        {#if termId}
+          <Terminal id={termId} onclosed={onTermClosed} />
+        {:else}
+          <div class="term-void">{termBusy ? 'opening a shell…' : 'no shell here yet — hit + to open one'}</div>
+        {/if}
+      {/key}
     </div>
   {/if}
-  <!-- tiroir terminal : toggle du panneau shell (ou touche 2) -->
-  {#if terminals.length}
-    <button class="term-drawer" onclick={() => (shellOpen = !shellOpen)} title="Toggle the shell panel (key 2)">
-      <span class="td-name"><Icon name="shell" size={13} /> Shell</span>
-      <span class="td-prompt"><Icon name="chevron-right" size={13} /></span>
-      <span class="td-info">{s.tmuxAlive ? (s.state === 'working' && s.activity ? s.activity + '…' : 'tmux alive') : 'tmux closed'}{#if shownPanes.length} · {shownPanes.length + 1} panes{/if}</span>
-      <span class="td-open">{shellOpen ? 'close' : 'open'} <kbd>2</kbd> {#if shellOpen}<Icon name="chevron-down" size={13} />{:else}<Icon name="arrow-up" size={13} />{/if}</span>
+  <!-- tiroir : ouvre le panneau, ou crée le premier shell s'il n'y en a aucun -->
+  {#if !termOpen}
+    <button class="term-drawer" onclick={() => (terms.length ? (termOpen = true) : newTerm())}
+            title="Shell in this project (key 2)">
+      <span class="td-name"><Icon name="shell" size={13} /> Terminal</span>
+      <span class="td-info">{terms.length ? terms.length + ' open' : 'open a shell in ' + (s.projectName || 'this project')}</span>
+      <span class="td-open">open <kbd>2</kbd> <Icon name="arrow-up" size={13} /></span>
     </button>
   {/if}
   </div>
@@ -907,6 +984,87 @@
   }
   .head-line + :global(.subtabs) { margin-top: 9px; }
   .strip-modes { display: flex; gap: 4px; }
+  /* chip auto-approve : visuellement distinct des modes (c'est un interrupteur, pas un choix
+     exclusif dans le cycle) → liseré en pointillés quand inactif. */
+  /* Bulle du tour en cours : même forme qu'une bulle assistant, mais signalée comme provisoire
+     (liseré d'accent + texte préformaté pour ne pas reflower du markdown incomplet). */
+  .bubble.streaming { border-left: 2px solid var(--accent); opacity: .92; }
+  /* Commande envoyée depuis le composer : rose, pour la distinguer d'un vrai message ET d'un envoi
+     en attente (ambre). Couleur en dur plutôt qu'une variable de thème : il n'y a pas de rose dans
+     la palette, et en inventer une pour un seul usage serait une variable de plus à maintenir. */
+  .bubble.user.command {
+    background: #b8377f; box-shadow: none;
+    border: 1px dashed rgba(255, 255, 255, .5);
+  }
+  .bubble.user.command .who .t { font-weight: 600; opacity: .95; display: inline-flex; align-items: center; gap: 4px; }
+  .bubble.user.command .md { font-family: var(--mono); font-size: 12px; }
+  .sd-text { white-space: pre-wrap; }
+  .sd-thinking {
+    margin: 0 0 8px; padding: 6px 8px; border-radius: 6px;
+    background: var(--bg3); color: var(--muted);
+    font: 11.5px/1.5 var(--mono); white-space: pre-wrap; max-height: 160px; overflow-y: auto;
+  }
+  .sd-dot {
+    display: inline-block; width: 6px; height: 6px; border-radius: 50%;
+    background: var(--accent); animation: sd-pulse 1s ease-in-out infinite;
+  }
+  @keyframes sd-pulse { 0%, 100% { opacity: .3; } 50% { opacity: 1; } }
+
+  /* Panneau terminal bas : hauteur pilotée par l'utilisateur (drag), xterm remplit le reste.
+     Styles gardés DANS le composant plutôt que dans app.css — scoping Svelte, et app.css est
+     retravaillé en parallèle pour le thème Datadog. */
+  .term-panel {
+    flex: 0 0 auto; position: relative; display: flex; flex-direction: column; min-height: 0;
+    border-top: 1px solid var(--border); background: var(--bg2);
+  }
+  .term-resize { position: absolute; top: -3px; left: 0; right: 0; height: 6px; cursor: row-resize; z-index: 6; }
+  .term-resize:hover { background: var(--accent); opacity: .5; }
+  .term-bar {
+    flex: 0 0 auto; display: flex; align-items: center; gap: 8px;
+    padding: 4px 8px; border-bottom: 1px solid var(--border); background: var(--bg3);
+  }
+  .term-tabs { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; min-width: 0; }
+  .term-chip { display: inline-flex; align-items: center; background: var(--bg2); border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+  .term-chip.active { border-color: var(--accent); }
+  .term-chip.active .term-tab { color: var(--accent-d); }
+  .term-chip.dead .term-tab { opacity: .55; }
+  .term-tab {
+    background: none; border: none; color: var(--muted); padding: 3px 8px; cursor: pointer;
+    font-family: var(--mono); font-size: 11px; display: inline-flex; align-items: center; gap: 5px;
+  }
+  .term-tab:hover { color: var(--text); }
+  .term-x { background: none; border: none; border-left: 1px solid var(--border); color: var(--muted); cursor: pointer; padding: 3px 5px; line-height: 1; }
+  .term-x:hover:not(:disabled) { color: var(--danger); background: rgba(var(--danger-rgb), .12); }
+  .term-new {
+    background: var(--bg2); border: 1px dashed var(--border2); color: var(--muted);
+    border-radius: 6px; padding: 3px 9px; cursor: pointer; line-height: 1;
+  }
+  .term-new:hover:not(:disabled) { color: var(--accent-d); border-color: var(--accent); }
+  .term-new:disabled { opacity: .4; cursor: default; }
+  .term-close { margin-left: auto; flex: 0 0 auto; background: none; border: none; color: var(--muted); cursor: pointer; padding: 2px 4px; }
+  .term-close:hover { color: var(--text); }
+  /* panneau ouvert sans terminal actif (le temps d'en créer un, ou après avoir fermé le dernier) */
+  .term-void {
+    flex: 1 1 auto; display: flex; align-items: center; justify-content: center;
+    font-family: var(--mono); font-size: 11px; color: var(--muted); background: var(--code-bg);
+  }
+
+  /* tiroir sous la conversation : un clic ouvre le panneau (ou crée le premier shell) */
+  .term-drawer {
+    flex: 0 0 auto; display: flex; align-items: center; gap: 9px;
+    margin: 0; padding: 6px 16px; width: 100%;
+    background: var(--bg3); border: none; border-top: 1px solid var(--border);
+    color: var(--muted); font-family: var(--mono); font-size: 11px; cursor: pointer; text-align: left;
+  }
+  .term-drawer:hover { background: var(--hover); color: var(--text); }
+  .term-drawer:hover .td-open { color: var(--accent); }
+  .td-name { color: var(--text); font-weight: 600; }
+  .td-info { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+  .td-open { margin-left: auto; flex: 0 0 auto; display: inline-flex; align-items: center; gap: 4px; }
+  .td-open kbd { font: 9px/1 var(--mono); border: 1px solid var(--border2); border-radius: 4px; padding: 1px 4px; }
+
+  .auto-chip { border-style: dashed; }
+  .auto-chip.active { border-style: solid; }
   .strip-status { font-family: var(--mono); font-size: 10.5px; color: var(--muted); }
   .strip-status.err { color: var(--danger); }
 
@@ -928,33 +1086,6 @@
     margin-left: 2px;
   }
   .subtab.active .lens-kbd { color: inherit; background: transparent; border-color: currentColor; opacity: .7; }
-
-  /* Panneau shell bas (façon VS Code) : hauteur pilotée par l'utilisateur (drag), le terminal
-     remplit le reste (Terminal en mode fitContainer). */
-  .shell-panel {
-    flex: 0 0 auto; position: relative; display: flex; flex-direction: column; min-height: 0;
-    border-top: 1px solid var(--border); background: var(--bg2);
-  }
-  .shell-panel > :global(.term-wrap) { flex: 1 1 auto; min-height: 0; }
-  .shell-panel :global(.term-bar) { margin: 0; padding: 5px 10px; border-bottom: 1px solid var(--border); }
-  .shell-resize { position: absolute; top: -3px; left: 0; right: 0; height: 6px; cursor: row-resize; z-index: 6; }
-  .shell-resize:hover { background: var(--accent); opacity: .5; }
-
-  /* tiroir terminal sous la conversation : statut du shell, un clic ouvre la lentille Shell */
-  .term-drawer {
-    flex: 0 0 auto; display: flex; align-items: center; gap: 9px;
-    margin: 0; padding: 7px 16px; width: 100%;
-    background: var(--code-bg); border: none; border-top: 1px solid var(--border);
-    color: #8f96a3; font-family: var(--mono); font-size: 11px; cursor: pointer; text-align: left;
-  }
-  .term-drawer:hover .td-open { color: var(--accent); }
-  .td-name { color: #c9cedb; font-weight: 600; }
-  .td-prompt { color: var(--success); }
-  .td-info { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
-  .td-open { margin-left: auto; flex: 0 0 auto; color: #6a7180; }
-  .td-open kbd {
-    font: 9px/1 var(--mono); border: 1px solid #3a3f4a; border-radius: 4px; padding: 1px 4px;
-  }
 
   /* lentille Ship : le composant Ship gère ses 3 colonnes → on retire le padding/scroll du
      pane-body pour qu'il occupe toute la hauteur (Ship a ses propres zones scrollables). */

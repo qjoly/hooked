@@ -612,7 +612,7 @@
 
       {#if pending}
         <button class="sp-send" onclick={sendReview} disabled={sending || !canReview}
-                title={canReview ? 'Send your inline comments to the session' : 'No live tmux session to send to'}>
+                title={canReview ? 'Send your inline comments to the session' : 'No live session to send to'}>
           {#if sending}Sending…{:else}<Icon name="send" size={14} /> Send {pending} comment{pending > 1 ? 's' : ''} to Claude{/if}
         </button>
       {/if}
@@ -627,7 +627,7 @@
           <p class="sp-hint">No PR yet. Let the session push the branch and draft the description.</p>
         {/if}
         <button class="sp-pr-btn" onclick={askPR} disabled={prBusy || !canReview}
-                title={canReview ? 'Ask the session to open a PR' : 'No live tmux session to send to'}>
+                title={canReview ? 'Ask the session to open a PR' : 'No live session to send to'}>
           {#if prBusy}Asking…{:else}<Icon name="pr" size={13} /> Ask Claude to open the PR{/if}
         </button>
       </div>

@@ -1,7 +1,7 @@
 /*
  * Review-thread instructions shared by Ship.svelte and Branch.svelte (batch review prompt and
  * per-thread follow-ups). The receiving session is NOT guaranteed to have the hooked MCP server:
- * it is only certain for sessions launched by hooked itself (cf. server/tmux.js, --mcp-config).
+ * it is only certain for sessions launched by hooked itself (cf. server/agent.js, hookedMcpServer).
  * Hence three precautions, each learned from a session that fixed the code but couldn't answer
  * the threads:
  *   - tools are named by their FULL MCP name (mcp__hooked__…) so ToolSearch `select:` finds them;

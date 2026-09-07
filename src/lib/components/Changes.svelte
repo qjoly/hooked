@@ -5,7 +5,7 @@
   import { settings } from '$lib/state.svelte.js';
   import { editorFor } from '$lib/editors.js';
   // `onReview(prompt)` : envoie le prompt de revue généré (branché sur le Composer par le parent).
-  // `canReview` : faux si aucun pane tmux → on ne peut rien envoyer, on désactive le bouton.
+  // `canReview` : faux si la session n'est pas pilotée → rien à envoyer, on désactive le bouton.
   // `id` : session id, requis pour charger le diff VCS (git/jj) du working tree à la demande.
   let { changes, id = null, onReview = null, canReview = true } = $props();
   let openSet = $state({}); // clé `${view}:${index}` -> bool
@@ -160,7 +160,7 @@
         <span class="review-count">{activeCount} {activeCount > 1 ? 'comments' : 'comment'}</span>
         <button class="review-clear" onclick={clearReview} disabled={sending}>Clear</button>
         <button class="review-send" onclick={sendReview} disabled={sending || !canReview}
-                title={canReview ? 'Generate a prompt from your comments and send it to the session' : 'No live tmux session to send to'}>
+                title={canReview ? 'Generate a prompt from your comments and send it to the session' : 'No live session to send to'}>
           {#if sending}Sending…{:else}Send review <Icon name="send" size={13} />{/if}
         </button>
       </div>

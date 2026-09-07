@@ -66,6 +66,58 @@ export const STATE_LABEL = {
   background: 'Running in background', idle: 'Paused', ended: 'Ended', past: 'Past',
 };
 
+// Le composer a-t-il envoyé une COMMANDE plutôt qu'un message ? Sert à l'affichage (libellé, couleur
+// de la bulle) et au rattachement de l'écho à son bloc. Le parsing qui décide vraiment reste côté
+// serveur (parseBangCommand) ; même forme de retour exprès, pour qu'un test puisse comparer les deux
+// champ par champ sur une même table — ce doublon ne peut donc pas dériver en silence.
+export function parseBang(text) {
+  if (typeof text !== 'string') return null;
+  const m = text.match(/^(!!?)\s*(\S[\s\S]*)$/);
+  if (!m) return null;
+  const command = m[2].trim();
+  if (!command || command.startsWith('!')) return null;
+  return { command, kind: m[1] === '!!' ? 'interactive' : 'shell' };
+}
+
+// Ce message du transcript est-il le bloc produit par `command` ? Le serveur écrit le fence avec
+// `$ <commande>` en première ligne du corps (formatLocalCommand / formatInteractiveCommand), c'est
+// donc l'ancre de correspondance. Sert à remonter l'écho de la commande JUSTE AVANT son terminal, au
+// lieu de le laisser tomber tout en bas du fil.
+const BLOCK_CMD_RE = /^```(?:console|pty)\b[^\n]*\n\$ ([^\n]*)/m;
+export function isBlockForCommand(text, command) {
+  if (!text || !command) return false;
+  const m = String(text).match(BLOCK_CMD_RE);
+  return !!m && m[1].trim() === String(command).trim();
+}
+
+// Commande à coller dans un terminal pour reprendre une session À LA MAIN. L'Agent SDK spawne
+// exactement ça (`claude --resume=<id>`, vérifiable dans un `ps`), donc c'est bien la MÊME session
+// qui repart, pas une copie. Corollaire à garder en tête : ne pas la lancer pendant que hooked pilote
+// déjà cette session — deux process sur un même transcript se disputent le verrou, et le perdant
+// devient un fantôme qui avale les messages.
+export function resumeCommand(s) {
+  if (!s || !s.id) return '';
+  const dir = s.project || s.cwd || '';
+  const cmd = `claude --resume=${s.id}`;
+  return dir ? `cd ${shellQuote(dir)} && ${cmd}` : cmd;
+}
+// Quoting POSIX : un chemin de projet peut contenir une espace, et rien n'interdit une apostrophe.
+function shellQuote(v) {
+  return "'" + String(v).replace(/'/g, "'\\''") + "'";
+}
+
+// Une session terminée ET froide, c'est-à-dire sans activité depuis 24 h. C'est le seul cas où
+// « terminée » vaut « rangée » : une session qui vient de finir a le plus souvent été tuée par un
+// redémarrage de hooked, et la sortir de la liste active sur le champ obligeait à aller la
+// rechercher dans l'onglet Archived. Partie PURE de isSessionArchived (state.svelte.js), sortie ici
+// pour être testable — state.svelte.js utilise des runes, que Vitest ne compile pas.
+export const COLD_MS = 86400000;
+export function isFinishedAndCold(s, now = Date.now()) {
+  if (!s || (s.state !== 'ended' && s.state !== 'past')) return false;
+  const t = s.lastActivity ? Date.parse(s.lastActivity) : 0;
+  return !t || Number.isNaN(t) || now - t > COLD_MS;
+}
+
 // Couleur stable d'un tag (palette du redesign). Noms connus → couleur fixe ; sinon hash du nom →
 // index dans la palette. Le fond de pilule = couleur + '22' (13% alpha). Partagé entre l'inbox et
 // la modale d'édition des tags.
@@ -271,6 +323,18 @@ function splitSessionLinks(html) {
 // langage d'un bloc de code fence : premier mot de l'info-string, en minuscule ('' si absent).
 const fenceLang = (info) => (info || '').trim().split(/\s+/)[0].toLowerCase();
 
+// Métadonnées d'une info-string, après le langage : `console exit=0 cwd=/tmp` → { exit:'0', cwd:'/tmp' }.
+// Sert aux blocs qui portent un contexte structuré plutôt qu'un simple langage — un compte rendu de
+// commande locale, par exemple, a besoin de son code de sortie pour être rendu correctement.
+export function fenceMeta(info) {
+  const out = {};
+  for (const part of String(info || '').trim().split(/\s+/).slice(1)) {
+    const eq = part.indexOf('=');
+    if (eq > 0) out[part.slice(0, eq)] = part.slice(eq + 1);
+  }
+  return out;
+}
+
 // découpe un texte markdown en segments : { type:'text', parts } ou { type:'code', lang, code }.
 // Les blocs de code de PREMIER NIVEAU (fence ``` ou indenté) sont extraits pour être rendus par
 // <CodeBlock> (coloration + copie) ou <Mermaid> (lang === 'mermaid') ; tout le reste est rendu en
@@ -291,7 +355,8 @@ export function mdSegments(t) {
     if (tok.level === 0 && (tok.type === 'fence' || tok.type === 'code_block')) {
       flushRun();
       const lang = tok.type === 'fence' ? fenceLang(tok.info) : '';
-      segs.push({ type: 'code', lang, code: tok.content.replace(/\n$/, '') });
+      const meta = tok.type === 'fence' ? fenceMeta(tok.info) : {};
+      segs.push({ type: 'code', lang, meta, code: tok.content.replace(/\n$/, '') });
     } else {
       run.push(tok);
     }

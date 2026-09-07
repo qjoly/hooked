@@ -2,6 +2,8 @@
   import { mdSegments } from '$lib/format.js';
   import CodeBlock from './CodeBlock.svelte';
   import Mermaid from './Mermaid.svelte';
+  import TerminalBlock from './TerminalBlock.svelte';
+  import PtyBlock from './PtyBlock.svelte';
   import SessionCard from './SessionCard.svelte';
 
   let { text = '' } = $props();
@@ -12,6 +14,13 @@
   {#if s.type === 'code'}
     {#if s.lang === 'mermaid'}
       <Mermaid code={s.code} />
+    {:else if s.lang === 'pty'}
+      <!-- `!!commande` : terminal VIVANT dans le fil, pas un compte rendu figé (cf. PtyBlock). -->
+      <PtyBlock code={s.code} meta={s.meta || {}} />
+    {:else if s.lang === 'console'}
+      <!-- transcription de terminal : compte rendu d'un `!commande` du composer, rendu comme un
+           terminal plutôt que comme une citation de code (cf. TerminalBlock). -->
+      <TerminalBlock code={s.code} meta={s.meta || {}} />
     {:else}
       <CodeBlock code={s.code} lang={s.lang} />
     {/if}

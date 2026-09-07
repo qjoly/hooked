@@ -65,9 +65,10 @@ function handle(input) {
     // prompt utilisateur (UserPromptSubmit) : sert de titre à la session tant que le
     // transcript n'est pas encore écrit (sinon la session s'affiche sans nom au lancement).
     prompt: typeof j.prompt === 'string' ? j.prompt.slice(0, 200) : null,
-    // pane tmux de la session (hérité de l'env du process Claude) → permet de
-    // renvoyer une réponse dans la session interactive via `tmux send-keys`.
-    tmux_pane: process.env.TMUX_PANE || null,
+    // Démon remote-control : hooked pose HOOKED_RC=1 dans l'environnement du process qu'il
+    // supervise. On le recopie ici pour que le dashboard puisse masquer ces sessions (infra, pas
+    // des sessions qu'on pilote) — avant, elles se reconnaissaient au nom de leur session tmux.
+    rc: process.env.HOOKED_RC ? true : undefined,
   };
   try { fs.mkdirSync(DIR, { recursive: true }); } catch (_) {}
   try { fs.appendFileSync(FILE, JSON.stringify(rec) + '\n'); } catch (_) {}

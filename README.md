@@ -21,7 +21,7 @@ Quand tu jongles entre plusieurs sessions Claude Code, tu perds vite le fil : la
 
 - **[mise](https://mise.jdx.dev)** — gestionnaire d'outils + task runner : il installe **la bonne version de Node tout seul** (Node ≥ 24, requis pour `node:sqlite`) et pilote toutes les tâches du projet
 - **Claude Code** installé et utilisé sur ta machine
-- **tmux** — hooked pilote les sessions Claude Code à travers lui (répondre, lancer, reprendre, terminal live)
+- Rien d'autre : le pilotage des sessions passe par l'**Agent SDK d'Anthropic** (`@anthropic-ai/claude-agent-sdk`), installé avec les dépendances du projet
 
 ### 1. Installer mise
 
@@ -46,30 +46,16 @@ echo 'eval "$(mise activate bash)"' >> ~/.bashrc && exec bash
 > [!TIP]
 > Autres méthodes d'installation (apt, dnf, Windows…) : [docs mise](https://mise.jdx.dev/getting-started.html).
 
-### 2. Installer tmux
-
-tmux est le moteur de tout l'interactif de hooked : répondre à Claude depuis le navigateur,
-lancer / reprendre / stopper des sessions, le terminal live et la sidebar tmux.
-
-```bash
-# macOS
-brew install tmux
-
-# Debian / Ubuntu
-sudo apt install tmux
-```
-
 ### 🪟 Et sous Windows ?
 
-Pas de Windows natif : **tmux n'existe pas sur Windows**, et hooked pilote les sessions
-à travers lui. La voie supportée est **WSL2** :
+hooked lit `~/.claude` et pilote des process `claude` : la voie testée est **WSL2**.
 
 ```powershell
 wsl --install -d Ubuntu
 ```
 
-Puis **tout se passe dans WSL** — installe **Claude Code**, **mise** et **tmux** dans Ubuntu
-et suis les étapes ci-dessus telles quelles. Deux points d'attention :
+Puis **tout se passe dans WSL** — installe **Claude Code** et **mise** dans Ubuntu et suis les
+étapes ci-dessus telles quelles. Deux points d'attention :
 
 - **Claude Code doit tourner dans WSL** (pas côté Windows) : les hooks écrivent dans le
   `~/.claude` Linux, c'est là que hooked lit tout.
@@ -143,28 +129,29 @@ Plus :
 - **Tâche en cours dans la sidebar** : si Claude utilise `TodoWrite`, l'item *in progress* et l'avancement (`done/total`) s'affichent directement sur la carte de session.
 - **Réponse en 1 clic depuis la sidebar** : quand Claude pose une question à choix unique (`AskUserQuestion`), les options apparaissent en boutons sur la carte — un clic envoie la réponse sans ouvrir le détail.
 - **Détail d'une session**, en sous-onglets :
-  - **💬 Conversation** : le chat reconstruit, avec le composer pour répondre (sessions tmux).
+  - **💬 Conversation** : le chat reconstruit, avec le composer pour répondre (sessions pilotées par hooked).
   - **📝 Fichiers** : les fichiers modifiés par Claude (`Write` / `Edit` / `MultiEdit` / `NotebookEdit`) avec un **diff dépliable** (rouge/vert).
   - **✅ Tâches** : la TodoList de la session (`TodoWrite`) avec barre d'avancement.
   - **🤖 Sous-agents** : les appels `Agent` / `Task` lancés pendant la session.
   - **🪝 Activité** : la timeline brute des hooks.
 - **Liens de PR GitHub** : les URLs de pull requests mentionnées dans la session sont détectées et affichées en chips cliquables.
 
-### 💬 Répondre à Claude depuis l'UI *(sessions tmux)*
+### 💬 Répondre à Claude depuis l'UI *(sessions pilotées par hooked)*
 
-Pour les sessions lancées dans **tmux**, un composer apparaît en bas de la conversation :
+Pour les sessions que hooked pilote, un composer apparaît en bas de la conversation :
 
-- Envoie un message directement dans la session interactive (`tmux send-keys`).
+- Envoie un message directement dans la session, via la **file d'entrée en streaming** de l'Agent SDK.
 - C'est **ta session / ton abonnement** qui continue → **aucune conso token supplémentaire**, pas de `claude -p`.
 - `Entrée` envoie, `Maj+Entrée` insère un saut de ligne.
 - `Échap` **interrompt Claude** et recharge le dernier prompt pour l'éditer (comme dans le CLI).
 - Tape `@` pour **auto-compléter** un fichier du projet (↑/↓ pour naviguer, Entrée/Tab pour insérer).
 - **Colle une image** (Cmd/Ctrl+V) : elle est enregistrée localement et son chemin est joint au message — Claude Code la lit comme un drag-drop dans le TUI. Une miniature s'affiche dans le composer (× pour la retirer).
 - **File d'attente** : comme dans le CLI, les messages envoyés pendant que Claude travaille sont mis en attente et marqués `⏳ en file d'attente` jusqu'à ce qu'ils apparaissent dans le transcript.
-- **Pane tmux fermé** : si la session n'est plus vivante, envoyer un message **relance `claude --resume`** automatiquement dans son dossier d'origine.
+- **Session arrêtée** : si elle n'est plus vivante, envoyer un message **relance `claude --resume`** automatiquement dans son dossier d'origine.
 - **Questions interactives** (`AskUserQuestion`) : l'intitulé et les réponses proposées s'affichent dans une carte, et tu peux sélectionner une ou plusieurs réponses.
+- **Demandes de permission d'outil** : quand Claude veut lancer un outil qui requiert ton accord, la demande arrive dans la **même carte** avec *Allow once* / *Allow always* / *Deny* — approuvable depuis le navigateur, sans terminal.
 
-### 🔀 Changer le mode de Claude *(sessions tmux)*
+### 🔀 Changer le mode de Claude *(sessions pilotées par hooked)*
 
 Pour une session **live**, l'en-tête du chat affiche le **mode de permission courant** et un sélecteur pour le changer :
 
@@ -172,39 +159,17 @@ Pour une session **live**, l'en-tête du chat affiche le **mode de permission co
 - **⚡ Auto** : Claude approuve automatiquement les actions sans confirmation (full auto).
 - **⏸ Plan** : mode plan, Claude réfléchit et propose sans rien modifier.
 
-Le **mode actuel** est lu **en direct dans le footer du TUI** (`tmux capture-pane`) — source fiable et temps-réel, contrairement aux hooks (différés) ou à la statusline (qui ne porte pas le mode). Les autres modes (**⏵⏵ Auto-edits**, **⛔ Bypass**…) sont reconnus et affichés même s'ils ne sont pas proposés au sélecteur.
+Le **mode actuel** est publié par la session elle-même (Agent SDK) — source fiable et temps-réel, contrairement aux hooks (différés) ou à la statusline (qui ne porte pas le mode). Les autres modes (**⏵⏵ Auto-edits**, **⛔ Bypass**…) sont reconnus et affichés même s'ils ne sont pas proposés au sélecteur.
 
-Le changement se fait en **boucle fermée** : hooked envoie un `Maj+Tab` (`tmux send-keys BTab`), relit le footer, et recommence jusqu'à atteindre le mode visé — robuste quel que soit l'ordre du cycle, et auto-vérifié.
+Le changement est **une requête de contrôle** (`setPermissionMode`) : un appel, une confirmation.
 
 ### ▶️ Lancer / reprendre / stopper
 
 - **＋ Nouvelle session** : choisis un projet, le **modèle** (Opus / Sonnet / Haiku / Fable), l'**effort** (low → max) et un 1ᵉʳ message optionnel.
-- **▶ Reprendre dans tmux** : relance une session passée (`--resume`) dans son dossier d'origine.
-- **⏹ Stopper** : ferme le pane tmux où tourne Claude.
+- **▶ Reprendre** : relance une session passée (`--resume`) dans son dossier d'origine.
+- **⏹ Stopper** : termine le process Claude Code de la session.
 
-> Les sessions sont lancées en **tmux détaché** avec `claude` interactif sous ton abonnement (**zéro conso token**, pas de `claude -p`). Tu t'attaches avec la commande affichée (`tmux attach -t hooked-…`).
-
-### 🖥 Terminal partagé par un agent *(sessions tmux)*
-
-L'onglet **🖥 Terminal** de la vue session **streame en temps réel** (xterm.js) le **pane Claude Code lui-même** (`🤖 Claude Code`) — tu vois le TUI de Claude bosser en direct dans le navigateur. Le bouton **＋** ouvre un nouveau pane shell dans le tmux de la session, et chaque pane secondaire a une croix **✕** pour le fermer (le pane Claude, lui, n'est pas fermable). Via le serveur MCP (outil **`show_in_pane`**), un agent peut en plus ouvrir un **nouveau pane** (split) ou une **nouvelle fenêtre** dans le tmux de la session et y lancer une commande (serveur de dev, `htop`, démo, `tail` de logs…) — pour te **montrer** quelque chose ; chaque pane apparaît comme une entrée de l'onglet.
-
-Le flux est **un vrai stream d'octets**, pas un rafraîchissement d'image : `tmux pipe-pane` écrit la sortie brute du pane (avec ses séquences VT) dans un fichier, que le serveur tail et pousse en **SSE** (`/api/pane/stream`) ; xterm applique les octets tels quels → rendu incrémental, sans flicker, curseur exact, `vim`/`htop` fluides. Un `capture-pane` ne sert qu'à **amorcer** l'écran initial. C'est **tmux qui sert de PTY** : aucune dépendance native (pas de `node-pty`).
-
-Bascule **⤢ Adapter / ▭ Fixe** (adapter **par défaut**, mémorisé) : en mode *Adapter*, le terminal mesure la place dispo dans la fenêtre web et redimensionne la **fenêtre tmux** du pane (`tmux resize-window`) pour la remplir — le TUI (claude, nvim…) reflue à cette taille. À la fermeture de la vue web, l'auto-dimensionnement tmux (`window-size latest`) est restauré pour qu'un rattachement dans un vrai terminal (Ghostty) reflue normalement.
-
-Bascule **👁 Lecture seule / ⌨ Interactif** (interactif **par défaut**, choix mémorisé) :
-- **Lecture seule** — observation.
-- **Interactif** — tes frappes (texte, flèches, `Ctrl-C`, `Échap`…) repartent vers le pane via `tmux send-keys` ; l'écho revient par le flux (latence d'un aller simple). Le pane partage son entrée avec un éventuel client tmux attaché.
-
-Un **sélecteur de thème** (🎨 Hooked, Dracula, Nord, Solarized, Gruvbox, Light…) et un **sélecteur de police** (🔤 Nerd Font / System Mono) ajustent le rendu du terminal (mémorisés en `localStorage`). « Nerd Font » utilise **JetBrains Mono + les glyphes Symbols Nerd Font empaquetés** (`static/fonts/`, servis localement) : les icônes Nerd Font s'affichent **sans rien installer**. Si une Nerd Font (ex. `JetBrainsMono Nerd Font`) est installée sur la machine, elle est préférée. Les sessions lancées par hooked sont créées en **120×64** par défaut (TUI claude plus aéré) — ajustable via `HOOKED_TMUX_COLS` / `HOOKED_TMUX_ROWS` ; tmux rétrécit de toute façon à la taille du client réel s'il s'y attache.
-
-Les **TUI plein écran** (`nvim`, `htop`, `less`, le TUI claude…) rejoints en cours de route sont gérés : à l'amorçage on rejoue les **modes du terminal** lus dans tmux (écran alterné, touches curseur applicatives, auto-wrap, visibilité du curseur) pour resynchroniser xterm — sans quoi les flèches et les redraws partaient en vrille en mode interactif.
-
-### 🧭 Sidebar tmux — naviguer entre sessions
-
-Une **sidebar dans tmux** (à la [opensessions](https://github.com/Ataraxy-Labs/opensessions)) qui liste les sessions **actives** de l'inbox et **switch la session tmux courante** au fil de la navigation (`j`/`k`) ; `/` filtre, `d` stoppe, `n` crée une session via un popup. TUI Node **zéro dépendance** (ANSI brut) qui suit le client en re-`join-pane`-ant son propre pane — sans jamais toucher aux panes Claude gérés par hooked.
-
-👉 **Installation et détails : [`tmux/README.md`](tmux/README.md).**
+> Les sessions tournent **dans le processus hooked**, via l'Agent SDK, sous ton abonnement (**zéro conso token**, pas de `claude -p`). Corollaire : **redémarrer hooked termine les sessions en cours** — leur transcript reste sur disque, `▶ Reprendre` repart où on en était.
 
 ### 📊 Vue Stats & usage
 
@@ -237,20 +202,18 @@ src/lib/
   ├─ components/       composants Svelte 5
   ├─ server/           pont vers le back (core.js) + singleton SSE (live.js)
   └─ {api,format,state.svelte}.js  accès API, helpers, état partagé
-server/                logique back, zéro dépendance (ESM), en modules testables
+server/                logique back (ESM), stdlib + l'Agent SDK, en modules testables
   ├─ pricing.js        tarifs + calcul de coût
   ├─ transcript.js     parsing des transcripts (+ cache mtime, scan, sous-agents)
   ├─ conversation.js   reconstruction du chat
   ├─ changes.js        diffs de fichiers
   ├─ subagents.js      appels Agent/Task
   ├─ files.js          listing + matching flou (@-complétion)
-  ├─ events.js         évènements live (hook) + config de lancement
+  ├─ events.js         évènements live (hook)
   ├─ live.js           état live d'une session
-  ├─ tmux.js           lancer / reprendre / stopper / répondre
+  ├─ agent.js          pilotage Agent SDK : registre, lancer / répondre / interrompre / mode
   └─ stats.js          sessions, stats, détail
 hook.cjs               capteur d'évènements (branché sur les hooks)
-scripts/hooked-whoami.sh  identité hooked de la session courante (pane → session_id)
-tmux/                  plugin sidebar tmux (cf. tmux/README.md) : TUI + toggle + popup
 test/                  fixtures synthétiques + tests différentiels (ancien vs nouveau)
 ```
 
@@ -293,4 +256,4 @@ Retire les lignes `node .../hook.js` de `~/.claude/settings.json` (un backup `se
 
 ## Confidentialité
 
-Rien ne sort de ta machine. `events.jsonl` ne stocke que des **métadonnées** (évènement, session, cwd, nom d'outil, pane tmux) — **pas le contenu** de tes messages.
+Rien ne sort de ta machine. `events.jsonl` ne stocke que des **métadonnées** (évènement, session, cwd, nom d'outil) — **pas le contenu** de tes messages.

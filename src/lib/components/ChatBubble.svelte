@@ -190,6 +190,12 @@
 {/if}
 
 <style>
+  /* Une bulle rétrécit à son contenu, et un terminal n'a pas de largeur intrinsèque : xterm se
+     dimensionne sur son conteneur, qui se dimensionne sur son contenu → la boucle s'effondrait sur
+     une fenêtre minuscule. On force donc la bulle qui contient un terminal `!!` à occuper la largeur
+     maximale d'une bulle, et PtyBlock la remplit. `:has()` parce que la contrainte est sur l'ANCÊTRE
+     de l'élément concerné, et que le bloc est rendu deux composants plus bas (Markdown → PtyBlock). */
+  .bubble:has(:global(.pb)) { width: 85%; max-width: 85%; padding: 7px 8px; }
   /* message long : replié sur ses 10 premières lignes, dégradé de sortie + bouton « Show more ».
      C'est une hauteur max, pas une coupe dans le texte — le markdown reste entier. */
   .md.clamped {

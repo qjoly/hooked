@@ -1,5 +1,5 @@
 /*
- * Keeping claude-code up to date across the tmux sessions hooked tracks.
+ * Keeping claude-code up to date across the sessions hooked drives.
  *
  * A `claude` process keeps running the exact code it started with: upgrading the installed binary
  * does NOT touch already-running sessions — they keep the old version until restarted. This module
@@ -10,7 +10,7 @@
  *   3. the live sessions RUNNING an older version than installed (exact, from each transcript's
  *      newest `version` field — cf. server/transcript.js) → candidates for restart + resume.
  *
- * Node stdlib only. Restart/reconnect itself lives in server/tmux.js (restartSession).
+ * Node stdlib only. Restart/reconnect itself lives in server/agent.js (restartSession).
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -100,21 +100,20 @@ function detectInstall() {
 }
 
 // ---------- outdated live sessions ----------
-// Live sessions (tmuxAlive) whose running claude version (transcript's newest `version`) is older
-// than the installed binary. These are the ones a restart + resume would move onto the new version.
+// Live sessions (driven by this hooked) whose running claude version (transcript's newest `version`)
+// is older than the installed binary. These are the ones a restart + resume moves onto the new one.
 function outdatedSessions() {
   const installed = installedVersion();
   if (!installed) return [];
   const rows = [];
   for (const s of buildSessions()) {
-    if (!s.tmuxAlive || !s.version) continue;
+    if (!s.live || !s.version) continue;
     if (cmpSemver(s.version, installed) < 0) {
       rows.push({
         id: s.id,
         projectName: s.projectName,
         version: s.version,
         installed,
-        tmuxPane: s.tmuxPane,
         state: s.state,
         model: s.model || null,
         effort: s.effort || null,
