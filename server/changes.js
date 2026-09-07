@@ -6,7 +6,12 @@
  * sur disque afin de retrouver son état pré-session : deux edits qui se chevauchent (la même zone
  * retouchée deux fois) fusionnent alors en UN seul diff réel, au lieu d'empiler des états
  * intermédiaires trompeurs. Si la reconstruction n'est pas fiable (fichier disparu/modifié depuis,
- * Write en milieu d'historique, notebook, trop gros), on retombe sur les ops brutes.
+ * Write sans état antérieur connu ailleurs qu'en tête d'historique, notebook, trop gros), on
+ * retombe sur les ops brutes.
+ *
+ * Un Write ne porte QUE le nouveau contenu : l'état qu'il écrase est lu sur la ligne de résultat
+ * (`toolUseResult.originalFile`) et attaché à l'op (`old`). Sans lui, une réécriture intégrale
+ * s'affichait comme une création de fichier (tout en ajout) au lieu d'un vrai diff.
  *
  * Les contenus sont bornés par défaut (payload du détail de session). Un fichier dont un op dépasse
  * ces bornes (ou trop gros pour la reconstruction) est marqué `truncated:true` ; la lentille Ship
@@ -56,6 +61,10 @@ function reconstructOriginal(file, ops, mergeMax) {
     const o = ops[i];
     if (o.kind === 'notebook') return null;
     if (o.kind === 'write') {
+      // Full rewrite: its inverse is simply "put the previous content back". That content is only
+      // known when the result line carried it (o.old, cf. writeOriginals) — otherwise all we can
+      // safely assume is that the file didn't exist, and only at the very start of the history.
+      if (o.old != null) { text = o.old; applied++; continue; }
       if (i !== 0) return null;
       text = '';
       applied++;
@@ -76,14 +85,14 @@ function reconstructOriginal(file, ops, mergeMax) {
 }
 
 function truncateOp(o, editMax, writeMax) {
-  if (o.kind === 'write') return { kind: 'write', content: o.content.slice(0, writeMax), ts: o.ts, ...(o.agent ? { agent: o.agent } : {}) };
+  if (o.kind === 'write') return { kind: 'write', content: o.content.slice(0, writeMax), ...(o.old != null ? { old: o.old.slice(0, writeMax) } : {}), ts: o.ts, ...(o.agent ? { agent: o.agent } : {}) };
   if (o.kind === 'notebook') return { kind: 'notebook', new: o.new.slice(0, editMax), ts: o.ts, ...(o.agent ? { agent: o.agent } : {}) };
   return { kind: 'edit', old: o.old.slice(0, editMax), new: o.new.slice(0, editMax), all: o.all, ts: o.ts, ...(o.bash ? { bash: true } : {}), ...(o.agent ? { agent: o.agent } : {}) };
 }
 
 // A raw op is "too big" for the given caps → its content would be sliced (→ missing lines).
 function opTooBig(o, editMax, writeMax) {
-  if (o.kind === 'write') return (o.content || '').length > writeMax;
+  if (o.kind === 'write') return (o.content || '').length > writeMax || (o.old || '').length > writeMax;
   if (o.kind === 'notebook') return (o.new || '').length > editMax;
   return (o.old || '').length > editMax || (o.new || '').length > editMax;
 }
@@ -91,13 +100,36 @@ function diskTooBig(file, mergeMax) {
   try { return fs.statSync(file).size > mergeMax; } catch (_) { return false; }
 }
 
+// Pre-write file contents, by tool_use_id. A Write's `tool_use` carries only the NEW content: the
+// state it overwrote lives on the RESULT line (`toolUseResult.originalFile`, non-empty only when
+// the file already existed). Without it, a full rewrite reconstructs as "file created" and the
+// whole file reads as added instead of showing the real diff.
+function writeOriginals(lines) {
+  const out = new Map();
+  for (const line of lines) {
+    if (!line || !line.includes('originalFile')) continue; // pré-filtre : évite N parses inutiles
+    let j;
+    try { j = JSON.parse(line); } catch (_) { continue; }
+    const r = j && j.toolUseResult;
+    if (!r || typeof r !== 'object' || typeof r.originalFile !== 'string' || !r.originalFile) continue;
+    const content = j.message && j.message.content;
+    if (!Array.isArray(content)) continue;
+    for (const b of content) {
+      if (b && b.type === 'tool_result' && b.tool_use_id) out.set(b.tool_use_id, r.originalFile);
+    }
+  }
+  return out;
+}
+
 // Scan a transcript into per-file ops (full, untruncated). One place both the capped list and the
 // on-demand full builder go through.
 function scanOps(fp) {
   let data;
   try { data = fs.readFileSync(fp, 'utf8'); } catch (_) { return new Map(); }
+  const lines = data.split('\n');
+  const originals = writeOriginals(lines);
   const byFile = new Map(); // path -> { file, name, tool, ops: [...], count, lastTs }
-  for (const line of data.split('\n')) {
+  for (const line of lines) {
     if (!line) continue;
     let j;
     try { j = JSON.parse(line); } catch (_) { continue; }
@@ -110,7 +142,8 @@ function scanOps(fp) {
       if (!file) continue;
       const ops = [];
       if (b.name === 'Write') {
-        ops.push({ kind: 'write', content: String(inp.content || '') });
+        const prev = b.id ? originals.get(b.id) : null;
+        ops.push({ kind: 'write', content: String(inp.content || ''), ...(prev ? { old: prev } : {}) });
       } else if (b.name === 'Edit') {
         ops.push({ kind: 'edit', old: String(inp.old_string || ''), new: String(inp.new_string || ''), all: !!inp.replace_all });
       } else if (b.name === 'MultiEdit' && Array.isArray(inp.edits)) {
