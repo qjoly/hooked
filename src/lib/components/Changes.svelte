@@ -56,7 +56,7 @@
   }
   function clearReview() { lineComments = []; note = ''; }
 
-  const kindLabel = (o) => (o.kind === 'write' ? 'new file' : o.kind === 'notebook' ? 'notebook cell' : 'edit');
+  const kindLabel = (o) => (o.kind === 'write' ? (o.old ? 'full rewrite' : 'new file') : o.kind === 'notebook' ? 'notebook cell' : 'edit');
   const rangeLabel = (side, start, end) => {
     const w = side === 'deletions' ? 'old' : 'new';
     return start === end ? `${w} L${start}` : `${w} L${start}–${end}`;

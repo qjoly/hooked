@@ -168,7 +168,7 @@
     if (!filtering) {
       const ops = c.ops || [];
       return ops.map((o, j) => {
-        if (o.kind === 'write') return { oldStr: '', newStr: o.content || '', opIndex: 'full:' + j, label: 'new file' };
+        if (o.kind === 'write') return { oldStr: o.old || '', newStr: o.content || '', opIndex: 'full:' + j, label: o.old ? 'full rewrite' : 'new file' };
         if (o.kind === 'notebook') return { oldStr: '', newStr: o.new || '', opIndex: 'full:' + j, label: 'notebook cell' };
         return { oldStr: o.old || '', newStr: o.new || '', opIndex: 'full:' + j, label: ops.length > 1 ? 'edit ' + (j + 1) : null };
       });
@@ -188,7 +188,7 @@
     // no original → best-effort: each selected op as a section
     return selIdx.map((j) => {
       const o = raw[j];
-      if (o.kind === 'write') return { oldStr: '', newStr: o.content || '', opIndex: key + ':' + j, label: 'new file' };
+      if (o.kind === 'write') return { oldStr: o.old || '', newStr: o.content || '', opIndex: key + ':' + j, label: o.old ? 'full rewrite' : 'new file' };
       return { oldStr: o.old || '', newStr: o.new || '', opIndex: key + ':' + j, label: 'edit ' + (j + 1) };
     });
   }
