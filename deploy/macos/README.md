@@ -6,7 +6,7 @@ Fait tourner hooked en **dev (auto-reload Vite/HMR)** comme **service utilisateu
 ## Installation (sur le Mac)
 
 ```bash
-git clone git@github.com:briangtn/hooked.git ~/dev/hooked
+git clone git@github.com:LuccaSA/hooked.git ~/dev/hooked
 cd ~/dev/hooked
 mise install 2>/dev/null || true   # si tu utilises mise (node est pinné dans mise.toml)
 npm install
