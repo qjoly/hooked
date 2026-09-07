@@ -1,0 +1,8 @@
+{"ts":"2026-06-11T09:00:00.000Z","event":"SessionStart","session_id":"sess-alpha","cwd":"/Users/test/proj-alpha","tmux_pane":"%1"}
+{"ts":"2026-06-11T09:00:10.000Z","event":"UserPromptSubmit","session_id":"sess-alpha","cwd":"/Users/test/proj-alpha","tmux_pane":"%1"}
+{"ts":"2026-06-11T09:00:20.000Z","event":"PreToolUse","session_id":"sess-alpha","tool":"Bash","tmux_pane":"%1"}
+{"ts":"2026-06-11T09:00:30.000Z","event":"Notification","session_id":"sess-alpha","message":"Claude needs your permission to use Bash"}
+{"ts":"2026-06-11T09:01:00.000Z","event":"PreToolUse","session_id":"sess-alpha","tool":"AskUserQuestion","ask":[{"question":"Live ?","header":"L","multiSelect":false,"options":[{"label":"Oui"},{"label":"Non"}]}]}
+{"ts":"2026-06-09T14:00:00.000Z","event":"Stop","session_id":"sess-beta"}
+{"ts":"2026-06-11T10:00:00.000Z","event":"SessionStart","session_id":"sess-fresh","cwd":"/Users/test/proj-fresh","transcript":null}
+{"ts":"2026-06-11T10:00:05.000Z","event":"UserPromptSubmit","session_id":"sess-fresh","cwd":"/Users/test/proj-fresh","transcript":null,"prompt":"Corrige le bug d'affichage de la sidebar quand on lance une nouvelle session please"}

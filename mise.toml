@@ -1,0 +1,159 @@
+[tools]
+node = "24"
+
+[env]
+PORT = "4123"
+# HOST is intentionally NOT set here: mise's [env] templating can't reference
+# its own key from the invoking shell (`env.HOST` resolves against mise's own
+# config context, not the process env), so `HOST=0.0.0.0 mise run ...` would
+# silently be ignored. Each task instead defaults HOST via plain shell
+# expansion (`${HOST:-127.0.0.1}`), which does see the real process env.
+# Bind local-only by default. adapter-node listens on 0.0.0.0 out of the box,
+# which would expose the dashboard (and session piloting) to the whole LAN.
+# Override to expose it: `HOST=0.0.0.0 mise run start`.
+
+[tasks.install]
+description = "Installe les dépendances de build (devDeps front Svelte)"
+run = "npm install"
+
+[tasks.build]
+description = "Build le front Svelte dans dist/"
+depends = ["install"]
+run = "npm run build"
+
+[tasks.setup-hooks]
+description = "Branche hooked sur les hooks Claude Code (~/.claude/settings.json)"
+run = "node install.cjs"
+
+[tasks.setup]
+description = "Installation complète : deps + build + hooks Claude Code"
+depends = ["build", "setup-hooks"]
+run = '''
+echo ""
+echo "✅ hooked est prêt."
+echo "▶  Démarre le dashboard avec : mise run start"
+echo "   puis ouvre http://localhost:4123"
+echo "↻  Pense à redémarrer tes sessions Claude Code pour activer les hooks."
+'''
+
+[tasks.start]
+description = "Démarre le dashboard (http://localhost:4123)"
+run = "HOST=${HOST:-127.0.0.1} node build"
+
+[tasks.dev]
+description = "Lance Vite en mode dev (front uniquement)"
+run = "npm run dev"
+
+[tasks.dev-server]
+description = "Lance le serveur Node en mode dev"
+run = "node build"
+
+[tasks.test]
+description = "Lance la suite Vitest"
+run = "npm test"
+
+[tasks.deploy]
+description = "Rebuild le front puis redémarre le service launchd (build && service-restart)"
+run = "mise run build && mise run service-restart"
+
+[tasks.service-install]
+description = "Installe hooked comme service launchd (démarre au login, auto-restart)"
+run = '''
+set -e
+LABEL="com.hooked.dashboard"
+PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
+PROJECT_DIR="$(pwd)"
+MISE_BIN="$(command -v mise || echo /opt/homebrew/bin/mise)"
+LOG_DIR="$HOME/Library/Logs/hooked"
+# PATH du shell de l'utilisateur au moment de l'install : permet de retrouver
+# claude/git/gh/etc. même hors PATH par défaut (Nix → /run/current-system/sw/bin,
+# Homebrew, etc.). Le service launchd n'hérite sinon que d'un PATH minimal.
+SERVICE_PATH="${PATH:-/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin}"
+# Local-only by default; expose with `HOST=0.0.0.0 mise run service-install`.
+SERVICE_HOST="${HOST:-127.0.0.1}"
+mkdir -p "$LOG_DIR"
+mkdir -p "$HOME/Library/LaunchAgents"
+
+# Décharge d'abord si déjà chargé (idempotent)
+launchctl unload "$PLIST" 2>/dev/null || true
+
+cat > "$PLIST" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>$LABEL</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>$MISE_BIN</string>
+        <string>x</string>
+        <string>--</string>
+        <string>node</string>
+        <string>build</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>$PROJECT_DIR</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>$SERVICE_PATH</string>
+        <key>PORT</key>
+        <string>4123</string>
+        <key>HOST</key>
+        <string>$SERVICE_HOST</string>
+    </dict>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>$LOG_DIR/out.log</string>
+    <key>StandardErrorPath</key>
+    <string>$LOG_DIR/err.log</string>
+</dict>
+</plist>
+EOF
+
+launchctl load "$PLIST"
+echo "✅ Service $LABEL installé et démarré."
+echo "   Plist : $PLIST"
+echo "   Logs  : $LOG_DIR/{out,err}.log"
+echo "   URL   : http://localhost:4123"
+'''
+
+[tasks.service-uninstall]
+description = "Désinstalle le service launchd hooked"
+run = '''
+set -e
+LABEL="com.hooked.dashboard"
+PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
+launchctl unload "$PLIST" 2>/dev/null || true
+rm -f "$PLIST"
+echo "✅ Service $LABEL désinstallé."
+'''
+
+[tasks.service-status]
+description = "Affiche l'état du service launchd hooked"
+run = '''
+LABEL="com.hooked.dashboard"
+if launchctl list | grep -q "$LABEL"; then
+    launchctl list | grep "$LABEL"
+    echo "(PID  Status  Label)"
+else
+    echo "Service $LABEL non chargé."
+fi
+'''
+
+[tasks.service-logs]
+description = "Tail les logs du service launchd hooked"
+run = "tail -f $HOME/Library/Logs/hooked/out.log $HOME/Library/Logs/hooked/err.log"
+
+[tasks.service-restart]
+description = "Redémarre le service launchd hooked"
+run = '''
+set -e
+LABEL="com.hooked.dashboard"
+launchctl kickstart -k "gui/$(id -u)/$LABEL"
+echo "✅ Service $LABEL redémarré."
+'''

@@ -1,0 +1,4 @@
+Visit this URL to authorize:
+  ]8;;https://auth.example.com/oauth/authorize?client_id=x[94mhttps://auth.example.com/oauth/authorize?client_id=x[39m]8;;
+
+Paste the redirect URL here: 

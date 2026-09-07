@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>🪝 hooked — Claude sessions</title>
+  <!-- Thème : applique les choix persistants AVANT le premier rendu pour éviter le flash de
+       thème (FOUC). Deux axes ORTHOGONAUX, tous deux relus ici :
+       • clair/sombre — 'system' (défaut) → aucun attribut, prefers-color-scheme décide ;
+         'light'/'dark' → data-theme forcé sur <html>.
+       • palette (color-scheme) — 'default' (défaut) → aucun attribut ; 'legacy' (crème/terracotta)
+         et 'datadog' (violet Datadog) → data-scheme forcé.
+       • coins — 'round' (défaut) → aucun attribut ; 'sharp' → data-corners, tout à angle vif.
+       Doit rester synchro avec state.svelte.js. -->
+  <script>
+    (function () {
+      try {
+        var t = localStorage.getItem('hooked.theme');
+        if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t);
+        var s = localStorage.getItem('hooked.scheme');
+        if (s === 'legacy' || s === 'datadog') document.documentElement.setAttribute('data-scheme', s);
+        var c = localStorage.getItem('hooked.corners');
+        if (c === 'sharp') document.documentElement.setAttribute('data-corners', c);
+      } catch (e) {}
+    })();
+  </script>
+  %sveltekit.head%
+</head>
+<body>
+  <div style="display: contents">%sveltekit.body%</div>
+</body>
+</html>
