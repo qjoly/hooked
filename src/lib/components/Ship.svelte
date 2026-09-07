@@ -19,6 +19,7 @@
   import { fingerprint, isReviewed as hasReview, toggleReviewed as tickReview,
            toMap as reviewedToMap, toEntries as reviewedToEntries } from '$lib/reviewState.js';
   import { loadDraft, saveDraft } from '$lib/reviewDraft.js';
+  import { threadInstructions } from '$lib/reviewPrompt.js';
   import { getBinding, matchesEvent, formatKeys } from '$lib/shortcuts.js';
 
   let { s, id, onReview = null, canReview = true, active = false } = $props();
@@ -167,7 +168,7 @@
     if (!filtering) {
       const ops = c.ops || [];
       return ops.map((o, j) => {
-        if (o.kind === 'write') return { oldStr: '', newStr: o.content || '', opIndex: 'full:' + j, label: 'new file' };
+        if (o.kind === 'write') return { oldStr: o.old || '', newStr: o.content || '', opIndex: 'full:' + j, label: o.old ? 'full rewrite' : 'new file' };
         if (o.kind === 'notebook') return { oldStr: '', newStr: o.new || '', opIndex: 'full:' + j, label: 'notebook cell' };
         return { oldStr: o.old || '', newStr: o.new || '', opIndex: 'full:' + j, label: ops.length > 1 ? 'edit ' + (j + 1) : null };
       });
@@ -187,7 +188,7 @@
     // no original → best-effort: each selected op as a section
     return selIdx.map((j) => {
       const o = raw[j];
-      if (o.kind === 'write') return { oldStr: '', newStr: o.content || '', opIndex: key + ':' + j, label: 'new file' };
+      if (o.kind === 'write') return { oldStr: o.old || '', newStr: o.content || '', opIndex: key + ':' + j, label: o.old ? 'full rewrite' : 'new file' };
       return { oldStr: o.old || '', newStr: o.new || '', opIndex: key + ':' + j, label: 'edit ' + (j + 1) };
     });
   }
@@ -342,7 +343,7 @@
     if (!canReview) return;
     const prompt =
       `Follow-up on review thread ${tid} — ${t.file} (${anchorLabel(t)}):\n> ${text.replace(/\n/g, '\n> ')}\n` +
-      THREAD_INSTR;
+      threadInstructions(id);
     try { await sendToSession(id, prompt); } catch (_) {}
   }
   const commentsFor = (file, opIndex) =>
@@ -353,10 +354,6 @@
     const p = c.side === 'old' ? '−L' : '+L';
     return c.start === c.end ? p + c.end : p + c.start + '–' + c.end;
   };
-  const THREAD_INSTR =
-    'Reply in the thread with the hooked MCP tool reply_review_comment (id = this session, thread_id above), ' +
-    'and call resolve_review_comment once the code is fixed. Keep your chat answer to a one-line summary — ' +
-    'the details belong in the thread.';
   function buildReviewPrompt() {
     const items = [];
     for (const c of changes) {
@@ -369,7 +366,7 @@
     }
     if (!items.length) return '';
     return 'I reviewed your changes and left the following inline comments. Address each one, then, for each: ' +
-      THREAD_INSTR + '\n\n' + items.join('\n\n');
+      threadInstructions(id) + '\n\n' + items.join('\n\n');
   }
 
   let sending = $state(false);

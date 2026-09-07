@@ -21,10 +21,11 @@
  * survivre aux ré-exécutions de module de Vite en dev.
  */
 import fs from 'node:fs';
+import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { execFile } from 'node:child_process';
 import { query } from '@anthropic-ai/claude-agent-sdk';
-import { LAUNCHES_FILE, SESSION_LAUNCH_FILE, DRIVEN_FILE, PERMISSION_MODES, LAUNCH_PERMISSION_MODES, isValidModelArg } from './config.js';
+import { PORT, LAUNCHES_FILE, SESSION_LAUNCH_FILE, DRIVEN_FILE, PERMISSION_MODES, LAUNCH_PERMISSION_MODES, isValidModelArg } from './config.js';
 import { isValidEffort } from './capabilities.js';
 import { statSafe } from './util.js';
 import { scanSessions } from './transcript.js';
@@ -359,6 +360,33 @@ function permissionQuestion(toolName, opts) {
 
 // ── Lancement / cycle de vie ─────────────────────────────────────────────────────────────────────
 
+// hooked's own MCP server (mcp/server.cjs) is what gives a session the reply_review_comment /
+// resolve_review_comment tools that the review prompts (Ship/Branch) rely on. It is only
+// registered project-scope (this repo's .mcp.json): a session launched in ANY OTHER repo has no
+// hooked tools at all unless we pass them explicitly. So every launch carries an `mcpServers`
+// entry pointing at mcp/server.cjs by ABSOLUTE path (a relative one resolves against the session's
+// cwd). The repo root can't be derived from import.meta.dirname alone: in dev these modules run
+// from <repo>/server, but the prod bundle (adapter-node) runs them from build/server/chunks —
+// hence the candidate list. process.cwd() first: both `npm run live` and `node build` run at repo
+// root.
+const MCP_SERVER_CANDIDATES = [
+  path.join(process.cwd(), 'mcp', 'server.cjs'),
+  path.join(import.meta.dirname, '..', 'mcp', 'server.cjs'),
+  path.join(import.meta.dirname, '..', '..', 'mcp', 'server.cjs'),
+  path.join(import.meta.dirname, '..', '..', '..', 'mcp', 'server.cjs'),
+];
+
+// The `hooked` MCP server entry injected into every launch, or null when mcp/server.cjs can't be
+// located (launch proceeds without hooked tools, as before). Resolved on every launch: the
+// checkout may move. HOOKED_PORT is pinned so the proxy dials the hooked instance that launched
+// the session, not the default port. Additive (no strictMcpConfig): the session's own user/project
+// MCP servers stay loaded.
+function hookedMcpServer() {
+  const server = MCP_SERVER_CANDIDATES.find((p) => { const st = statSafe(p); return st && st.isFile(); });
+  if (!server) return null;
+  return { command: 'node', args: [server], env: { HOOKED_PORT: String(PORT) } };
+}
+
 // Options SDK communes. `settingSources` est laissé par défaut (tous) : c'est ce qui fait que les
 // hooks globaux de ~/.claude/settings.json — donc hook.cjs, donc events.jsonl — continuent de
 // s'exécuter pour les sessions lancées par hooked, exactement comme pour le CLI interactif. Sans ça
@@ -387,6 +415,9 @@ function sdkOptions({ cwd, model, effort, permissionMode, resumeId, worktree, in
     canUseTool: (toolName, toolInput, ctx) => handleToolPermission(st, toolName, toolInput, ctx),
     stderr: (data) => { st.stderr = String(data).slice(-4000); },
   };
+  // Outils hooked (reply/resolve review comment…) même hors de ce repo — cf. hookedMcpServer().
+  const hookedMcp = hookedMcpServer();
+  if (hookedMcp) opts.mcpServers = { hooked: hookedMcp };
   if (worktree) opts.extraArgs = { worktree: null }; // `--worktree` : git worktree dédié
   return opts;
 }
@@ -1251,7 +1282,7 @@ function clearAgentState() {
 export {
   agentAlive, agentSession, liveSessionIds,
   agentBusy, agentActivity, agentFollowup, agentLastProse, agentMode, agentAutoApprove, agentPendingAsk,
-  applyMessage, permissionQuestion, handleToolPermission, makeInputQueue, userMessage, parseEnvBlock, loginEnv,
+  applyMessage, permissionQuestion, handleToolPermission, makeInputQueue, userMessage, parseEnvBlock, loginEnv, hookedMcpServer,
   subscribeAgent, streamSnapshot,
   resolveLaunchForSession, sessionLaunchMap,
   launchSession, killSession, restartSession,

@@ -4,6 +4,7 @@
   // a live card, expandable in place (the full legacy component mounts on expand).
   import Todos from './Todos.svelte';
   import Subagents from './Subagents.svelte';
+  import Workflows from './Workflows.svelte';
   import SubSessions from './SubSessions.svelte';
   import Background from './Background.svelte';
   import PrLinks from './PrLinks.svelte';
@@ -29,6 +30,8 @@
   const todoCurrent = $derived(todos.find((t) => t.status === 'in_progress'));
   const changes = $derived(s?.changes || []);
   const subagents = $derived(s?.subagents || []);
+  const workflows = $derived(s?.workflows || []);
+  const wfRunning = $derived(workflows.filter((w) => w.status === 'running'));
   const agentCost = $derived(subagents.reduce((a, x) => a + (x.cost || 0), 0));
   const subSessions = $derived(s?.subSessions || []);
   const jobs = $derived(s?.bgJobs || []);
@@ -43,6 +46,16 @@
   const toggle = (k) => { expanded = { ...expanded, [k]: !expanded[k] }; };
 
   const JOB_ICON = { bash: 'bash', monitor: 'eye', wakeup: 'wakeup' };
+  // issue d'un run de workflow : un run tué ou en échec ne doit pas porter la coche verte.
+  const WF_ICON = {
+    running:   { icon: 'working',      tint: 'working' },
+    completed: { icon: 'circle-check', tint: 'ended' },
+    killed:    { icon: 'ban',          tint: 'waiting' },
+    cancelled: { icon: 'ban',          tint: 'waiting' },
+    timeout:   { icon: 'clock',        tint: 'waiting' },
+    failed:    { icon: 'attention',    tint: 'attention' },
+    error:     { icon: 'attention',    tint: 'attention' },
+  };
 </script>
 
 <aside class="dock" aria-label="Session context" style="width:{ui.dockWidth}px;min-width:{ui.dockWidth}px">
@@ -90,6 +103,29 @@
           <button class="dmore" onclick={() => onship && onship()}>＋ {changes.length - fileList.length} more · open Ship →</button>
         {/if}
       </div>
+    </div>
+  {/if}
+
+  {#if workflows.length}
+    <div class="dcard">
+      <button class="dh" onclick={() => toggle('workflows')}>
+        <span class="dh-ico"><Icon name="workflow" size={13} color="var(--background)" /></span> Workflows
+        <span class="dh-n">{wfRunning.length ? `${wfRunning.length} running` : workflows.length}</span>
+        <span class="dh-chev" class:open={expanded.workflows}>▾</span>
+      </button>
+      {#if expanded.workflows}
+        <div class="dfull"><Workflows {workflows} session={id} /></div>
+      {:else}
+        <div class="db">
+          {#each workflows.slice(0, 3) as w}
+            <div class="ditem" class:cur={w.status === 'running'}>
+              <span class="dst"><Icon name={WF_ICON[w.status]?.icon || 'circle'} size={13} color="var(--{WF_ICON[w.status]?.tint || 'muted'})" title={w.status} /></span>
+              <span class="dtxt mono">{w.name}</span>
+              <span class="dnum">{w.doneCount}/{w.agentCount}</span>
+            </div>
+          {/each}
+        </div>
+      {/if}
     </div>
   {/if}
 
@@ -168,6 +204,8 @@
 
 <style>
   /* Side panels sans gap (anti-bulle) : sections affleurantes separees par des filets. */
+  /* compteur d'agents d'un run, collé à droite de la ligne (le nom, lui, s'ellipse) */
+  .dnum { margin-left: auto; flex: 0 0 auto; font-family: var(--mono); font-size: 10px; color: var(--muted); }
   .dock {
     position: relative; border-left: 1px solid var(--border); background: var(--bg2);
     overflow-y: auto; display: flex; flex-direction: column; gap: 0; padding: 0;

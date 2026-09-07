@@ -232,6 +232,14 @@ function scanSessions(projectsDir = PROJECTS_DIR) {
   return out;
 }
 
+// Candidats `agent-*.jsonl` rangés sous les dossiers d'exécution de WORKFLOW d'une session
+// (`<session>/subagents/workflows/<runId>/`) : les agents d'un workflow n'habitent pas le
+// `subagents/` plat, mais le drill-in doit les trouver comme les autres. Cf. server/workflows.js.
+function workflowRunDirs(sessionDir, fname) {
+  const root = path.join(sessionDir, 'subagents', 'workflows');
+  return readdirSafe(root).map((d) => path.join(root, d, fname));
+}
+
 // localise le transcript d'un sous-agent à partir de l'agentId (issu de toolUseResult.agentId).
 function agentTranscriptPath(sessionId, agentId, projectsDir = PROJECTS_DIR) {
   if (!/^[A-Za-z0-9_-]+$/.test(agentId || '') || !/^[A-Za-z0-9._-]+$/.test(sessionId || '')) return null;
@@ -242,6 +250,9 @@ function agentTranscriptPath(sessionId, agentId, projectsDir = PROJECTS_DIR) {
       path.join(pdir, sessionId, 'subagents', fname), // format récent (niché sous la session)
       path.join(pdir, 'subagents', fname),
       path.join(pdir, fname),                          // legacy à plat
+      // agents d'un run de WORKFLOW : rangés sous le dossier du run, un niveau plus bas
+      // (`<session>/subagents/workflows/<runId>/agent-*.jsonl`) — même drill-in pour eux.
+      ...workflowRunDirs(path.join(pdir, sessionId), fname),
     ];
     for (const cand of cands) {
       const st = statSafe(cand);
