@@ -69,10 +69,11 @@
   // scrolle vers le haut (lire l'historique / composer), on NE le ramène plus en bas aux ticks SSE.
   let stickToBottom = true;
 
-  // Le dock droit n'apparaît que s'il a quelque chose à montrer (tasks / changes / agents /
-  // sub-sessions / jobs / liens) — sinon ni panneau ni rail de réouverture.
+  // Le dock droit n'apparaît que s'il a quelque chose à montrer (tasks / changes / workflows /
+  // agents / sub-sessions / jobs / liens) — sinon ni panneau ni rail de réouverture.
   const dockHasContent = $derived(!!s && !!(
     (s.todos || []).length || (s.changes || []).length || (s.subagents || []).length ||
+    (s.workflows || []).length ||
     (s.subSessions || []).length || (s.bgJobs || []).length ||
     (s.prLinks || []).length || (s.issueLinks || []).length
   ));

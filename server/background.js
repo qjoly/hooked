@@ -245,4 +245,8 @@ function activeBackgroundJobs(fp) {
   return buildBackgroundJobs(fp).active;
 }
 
-export { buildBackgroundJobs, activeBackgroundJobs, jobStatus };
+// TERMINAL et taskNotification sont réexportés sous des noms qualifiés : server/workflows.js en a
+// besoin à l'identique (un workflow est un job de fond comme un autre du point de vue de la
+// <task-notification>), et une copie privée finit par diverger — c'est exactement ce qui a fait
+// qu'un workflow arrêté depuis l'UI restait « en cours » pour toujours.
+export { buildBackgroundJobs, activeBackgroundJobs, jobStatus, TERMINAL as TERMINAL_TASK_STATUS, taskNotification as taskNotificationText };

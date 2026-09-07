@@ -28,6 +28,10 @@ function buildConversation(fp, includeSidechain) {
   // passe 1 : indexe les résultats d'outils par tool_use_id
   // + collecte les textes des vrais tours user (pour dédup des queue-operations traitées)
   const results = new Map();
+  // Contenu écrasé par un Write, par tool_use_id : le tool_use ne porte que le NOUVEAU contenu,
+  // l'ancien est sur la ligne de résultat (`toolUseResult.originalFile`, non vide seulement si le
+  // fichier existait déjà). Sans lui, le chip d'un Write affiche tout le fichier en ajout.
+  const writeOriginals = new Map();
   const processedUserTexts = new Set();
   // clé de dédup queue-op ↔ tour user : on collapse TOUT le whitespace (pas seulement `[ \t]+`
   // comme chatText) pour qu'un collage multi-espaces (table alignée) ou multi-lignes matche.
@@ -40,7 +44,11 @@ function buildConversation(fp, includeSidechain) {
       const c = j.message.content;
       if (Array.isArray(c)) {
         for (const b of c) {
-          if (b && b.type === 'tool_result' && b.tool_use_id) results.set(b.tool_use_id, toolResultText(b.content));
+          if (b && b.type === 'tool_result' && b.tool_use_id) {
+            results.set(b.tool_use_id, toolResultText(b.content));
+            const orig = j.toolUseResult && typeof j.toolUseResult === 'object' ? j.toolUseResult.originalFile : null;
+            if (typeof orig === 'string' && orig) writeOriginals.set(b.tool_use_id, orig);
+          }
         }
       }
       const isToolResult = Array.isArray(c) && c.some((b) => b && b.type === 'tool_result');
@@ -125,7 +133,7 @@ function buildConversation(fp, includeSidechain) {
           const ask = b.name === 'AskUserQuestion' && Array.isArray(b.input?.questions) ? b.input.questions : null;
           // `send` carries the files delivered by SendUserFile (like `diff`/`ask`, on the part) so
           // the chip renders image thumbnails / open-file links instead of raw JSON.
-          parts.push({ type: 'tool', tool, diff: toolDiffOps(b.name, b.input), ask, send: toolSendFiles(b.name, b.input, j.cwd) });
+          parts.push({ type: 'tool', tool, diff: toolDiffOps(b.name, b.input, b.id ? writeOriginals.get(b.id) : null), ask, send: toolSendFiles(b.name, b.input, j.cwd) });
         }
       }
       text = text.trim();
