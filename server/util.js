@@ -72,13 +72,16 @@ function toolInputText(input) {
 // collapsible Pierre diff in the conversation. Returns null for any other tool.
 // Same op shape as server/changes.js (kind + content/old/new/all), but carried on `parts`
 // (invisible to the characterization baseline, cf. test/characterization.test.mjs).
-function toolDiffOps(toolName, input) {
+// `prevContent` : état écrasé par un Write, lu sur la ligne de résultat par l'appelant
+// (`toolUseResult.originalFile`) — sans lui une réécriture intégrale se rend en fichier créé.
+function toolDiffOps(toolName, input, prevContent) {
   if (!input || typeof input !== 'object') return null;
   const file = input.file_path || input.path || input.notebook_path;
   if (!file) return null;
   const ops = [];
   if (toolName === 'Write') {
-    ops.push({ kind: 'write', content: String(input.content || '').slice(0, 6000) });
+    const prev = typeof prevContent === 'string' && prevContent ? prevContent.slice(0, 6000) : null;
+    ops.push({ kind: 'write', content: String(input.content || '').slice(0, 6000), ...(prev ? { old: prev } : {}) });
   } else if (toolName === 'Edit') {
     ops.push({ kind: 'edit', old: String(input.old_string || '').slice(0, 3000), new: String(input.new_string || '').slice(0, 3000), all: !!input.replace_all });
   } else if (toolName === 'MultiEdit' && Array.isArray(input.edits)) {
