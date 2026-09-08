@@ -13,6 +13,11 @@ export const SHORTCUT_DEFS = [
   { id: 'go-digest', label: 'Archive → Digest', section: 'Navigation', defaultKeys: { alt: true, key: '5' } },
   { id: 'go-memory', label: 'Archive → Memory', section: 'Navigation', defaultKeys: { alt: true, key: '6' } },
   { id: 'toggle-sidebar', label: 'Toggle session sidebar', section: 'Actions', defaultKeys: { mod: true, key: 'b' } },
+  // Session-scoped: SessionDetail's own window listener handles these two (the global layout
+  // handler skips them). They came back with the PTY terminal panel — `2` toggles it too, but as a
+  // bare key it is dead while the composer or the terminal itself has focus.
+  { id: 'open-terminal', label: 'Toggle terminal panel', section: 'Actions', defaultKeys: { mod: true, key: 'j' } },
+  { id: 'new-terminal', label: 'New terminal', section: 'Actions', defaultKeys: { mod: true, shift: true, key: 'j' } },
   { id: 'toggle-dock', label: 'Toggle context panel (tasks / changes / agents)', section: 'Actions', defaultKeys: { mod: true, shift: true, key: 'd' } },
   { id: 'split-session', label: 'Split with the most recent session', section: 'Actions', defaultKeys: { mod: true, shift: true, key: 's' } },
   { id: 'focus-mode', label: 'Toggle focus mode', section: 'Actions', defaultKeys: { mod: true, shift: true, key: 'f' } },
