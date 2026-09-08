@@ -19,7 +19,9 @@ run = "npm install"
 [tasks.build]
 description = "Build le front Svelte dans dist/"
 depends = ["install"]
-run = "npm run build"
+# The commit stamp lets deploy/service-run.sh skip its own rebuild when the
+# service restarts right after an explicit build (mise run deploy).
+run = "npm run build && (git rev-parse HEAD > build/.hooked-src-commit 2>/dev/null || true)"
 
 [tasks.setup-hooks]
 description = "Branche hooked sur les hooks Claude Code (~/.claude/settings.json)"
@@ -59,10 +61,17 @@ run = "mise run build && mise run service-restart"
 # The service-* tasks dispatch on `uname -s`: launchd (LaunchAgent
 # com.hooked.dashboard) on macOS, systemd --user (unit hooked-dashboard) on
 # Linux. The unit is named hooked-dashboard — NOT hooked-dev, which is the
-# separate dev-mode (Vite) service installed by deploy/linux/install.sh.
+# separate dev-mode service installed by deploy/linux/install.sh.
+# Both platforms run deploy/service-run.sh, which re-runs `npm ci` when the
+# lockfile changed and (prod mode) rebuilds when HEAD moved — so the service
+# survives a branch switch. `service-install --dev` bakes HOOKED_MODE=dev in
+# and the same service runs Vite (HMR) instead of `node build`.
 
 [tasks.service-install]
-description = "Installe hooked comme service utilisateur (launchd sur macOS, systemd --user sur Linux)"
+description = "Installe hooked comme service utilisateur (launchd sur macOS, systemd --user sur Linux) ; --dev = variante Vite HMR"
+usage = '''
+flag "--dev" help="Installe la variante dev (serveur Vite, HMR) au lieu du build prod"
+'''
 run = '''
 set -e
 PROJECT_DIR="$(pwd)"
@@ -73,6 +82,11 @@ PROJECT_DIR="$(pwd)"
 SERVICE_PATH="${PATH:-/usr/local/bin:/usr/bin:/bin}"
 # Local-only by default; expose with `HOST=0.0.0.0 mise run service-install`.
 SERVICE_HOST="${HOST:-127.0.0.1}"
+# --dev (usage flag, surfaced as $usage_dev) → Vite dev server instead of
+# `node build`. Baked into the service env: the mode sticks across restarts.
+if [ "${usage_dev:-}" = "true" ]; then SERVICE_MODE="dev"; else SERVICE_MODE="prod"; fi
+RUNNER="$PROJECT_DIR/deploy/service-run.sh"
+chmod +x "$RUNNER"
 
 case "$(uname -s)" in
 Darwin)
@@ -97,8 +111,8 @@ Darwin)
         <string>$MISE_BIN</string>
         <string>x</string>
         <string>--</string>
-        <string>node</string>
-        <string>build</string>
+        <string>bash</string>
+        <string>$RUNNER</string>
     </array>
     <key>WorkingDirectory</key>
     <string>$PROJECT_DIR</string>
@@ -110,6 +124,8 @@ Darwin)
         <string>4123</string>
         <key>HOST</key>
         <string>$SERVICE_HOST</string>
+        <key>HOOKED_MODE</key>
+        <string>$SERVICE_MODE</string>
     </dict>
     <key>RunAtLoad</key>
     <true/>
@@ -124,7 +140,7 @@ Darwin)
 EOF
 
   launchctl load "$PLIST"
-  echo "✅ Service $LABEL installé et démarré."
+  echo "✅ Service $LABEL installé et démarré (mode $SERVICE_MODE)."
   echo "   Plist : $PLIST"
   echo "   Logs  : $LOG_DIR/{out,err}.log"
   ;;
@@ -137,17 +153,18 @@ Linux)
 
   cat > "$UNIT_FILE" <<EOF
 [Unit]
-Description=hooked dashboard
+Description=hooked dashboard ($SERVICE_MODE)
 After=network.target
 
 [Service]
 WorkingDirectory=$PROJECT_DIR
-ExecStart=$MISE_BIN x -- node build
+ExecStart=$MISE_BIN x -- bash $RUNNER
 # Quoted: an unquoted Environment= is split on whitespace, and PATH entries
 # can contain spaces.
 Environment="PATH=$SERVICE_PATH"
 Environment="PORT=4123"
 Environment="HOST=$SERVICE_HOST"
+Environment="HOOKED_MODE=$SERVICE_MODE"
 Restart=always
 RestartSec=10
 StandardOutput=append:$LOG_DIR/out.log
@@ -163,7 +180,7 @@ EOF
   # Start at boot, not only once a session is opened
   loginctl enable-linger "$USER" >/dev/null 2>&1 || true
 
-  echo "✅ Service $UNIT installé et démarré."
+  echo "✅ Service $UNIT installé et démarré (mode $SERVICE_MODE)."
   echo "   Unit : $UNIT_FILE"
   echo "   Logs : $LOG_DIR/{out,err}.log (ou journalctl --user -u $UNIT -f)"
   ;;
