@@ -18,7 +18,7 @@
   import Icon from '$lib/components/Icon.svelte';
   import { editorFor } from '$lib/editors.js';
   import { conversationToMarkdown } from '$lib/exportConversation.js';
-  import { getBinding, matchesEvent } from '$lib/shortcuts.js';
+  import { getBinding, matchesEvent, formatKeys } from '$lib/shortcuts.js';
 
   // `inSplit`/`focused`/`onClose` : rendu en pane de la vue split (plusieurs sessions côte à côte
   // dans la vue normale). En split, seul le pane focalisé réagit au clavier (lentilles 1-4, Échap),
@@ -188,6 +188,15 @@
   }
   // le composant signale la fin du flux (shell sorti, ou terminal tué ailleurs) → on resynchronise.
   function onTermClosed() { refreshTerms(); }
+  // Bascule du panneau, partagée par la touche 2, le raccourci `open-terminal` et le tiroir : replier
+  // un panneau vide n'a aucun sens, donc quand il n'y a aucun shell la bascule en OUVRE un.
+  function toggleTerm() {
+    if (!terms.length) newTerm();
+    else termOpen = !termOpen;
+  }
+  // libellés des raccourcis, relus depuis les bindings (donc justes après un remappage en Settings).
+  const termToggleKeys = formatKeys(getBinding('open-terminal'));
+  const termNewKeys = formatKeys(getBinding('new-terminal'));
 
   function startTermResize(e) {
     e.preventDefault();
@@ -346,6 +355,19 @@
   function onWindowKey(e) {
     if (ui.modal) return;
     if (inSplit && !focused) return; // in split, only the focused pane reacts to keys
+    // Terminal : testé AVANT la garde `isInput`, donc utilisable depuis le composer et depuis le
+    // terminal lui-même (xterm laisse passer ces deux combos, cf. Terminal.svelte) — c'est tout
+    // l'intérêt d'avoir un raccourci modifié en plus de la touche 2 nue.
+    if (matchesEvent(getBinding('open-terminal'), e)) {
+      e.preventDefault();
+      toggleTerm();
+      return;
+    }
+    if (matchesEvent(getBinding('new-terminal'), e)) {
+      e.preventDefault();
+      newTerm();
+      return;
+    }
     if (matchesEvent(getBinding('toggle-dock'), e)) {
       if (dockHasContent) { e.preventDefault(); ui.dockHidden = !ui.dockHidden; }
       return;
@@ -361,8 +383,7 @@
     // n'importe laquelle). Ouvre un premier shell s'il n'y en a aucun.
     if (!isInput && !e.metaKey && !e.ctrlKey && !e.altKey && e.key === '2') {
       e.preventDefault();
-      if (!terms.length) newTerm();
-      else termOpen = !termOpen;
+      toggleTerm();
       return;
     }
     if (e.key !== 'Escape' || tab !== 'chat') return;
@@ -864,10 +885,10 @@
                       onclick={() => closeTerm(t.id)}><Icon name="close" size={13} /></button>
             </div>
           {/each}
-          <button class="term-new" title="New shell in this project" disabled={termBusy || !s.project}
+          <button class="term-new" title={`New shell in this project (${termNewKeys})`} disabled={termBusy || !s.project}
                   onclick={newTerm}><Icon name="plus" size={13} /></button>
         </div>
-        <button class="term-close" onclick={() => (termOpen = false)} title="Hide the terminal panel (key 2)">
+        <button class="term-close" onclick={() => (termOpen = false)} title={`Hide the terminal panel (key 2 or ${termToggleKeys})`}>
           <Icon name="chevron-down" size={14} />
         </button>
       </div>
@@ -883,11 +904,11 @@
   {/if}
   <!-- tiroir : ouvre le panneau, ou crée le premier shell s'il n'y en a aucun -->
   {#if !termOpen}
-    <button class="term-drawer" onclick={() => (terms.length ? (termOpen = true) : newTerm())}
-            title="Shell in this project (key 2)">
+    <button class="term-drawer" onclick={toggleTerm}
+            title={`Shell in this project (key 2 or ${termToggleKeys})`}>
       <span class="td-name"><Icon name="shell" size={13} /> Terminal</span>
       <span class="td-info">{terms.length ? terms.length + ' open' : 'open a shell in ' + (s.projectName || 'this project')}</span>
-      <span class="td-open">open <kbd>2</kbd> <Icon name="arrow-up" size={13} /></span>
+      <span class="td-open">open <kbd>2</kbd> <kbd>{termToggleKeys}</kbd> <Icon name="arrow-up" size={13} /></span>
     </button>
   {/if}
   </div>

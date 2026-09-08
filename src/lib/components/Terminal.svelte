@@ -11,6 +11,7 @@
   // palette de terminal sombre fixe (cf. readTheme).
   import { onMount, onDestroy } from 'svelte';
   import { sendTerminalInput, resizeTerminal } from '$lib/api.js';
+  import { getBinding, matchesEvent } from '$lib/shortcuts.js';
 
   let { id, onclosed = null } = $props();
 
@@ -124,6 +125,16 @@
       fitAddon = new FitAddon();
       term.loadAddon(fitAddon);
       term.open(host);
+      // Les raccourcis terminal de hooked doivent rester utilisables DEPUIS le terminal. Renvoyer
+      // false = xterm ne traite pas la touche (et ne la transmet donc pas au PTY), l'évènement
+      // continue de remonter jusqu'au listener de SessionDetail. Sans ça, `Ctrl+J` (le `mod` des
+      // machines non-Apple) partait AUSSI dans le shell comme un ^J, donc une ligne vide à chaque
+      // fois qu'on replie le panneau. On ne filtre que ces deux bindings : passer tout
+      // `matchShortcut` mangerait le `v` nu de « mark reviewed » à chaque frappe.
+      term.attachCustomKeyEventHandler((e) => {
+        if (e.type !== 'keydown') return true;
+        return !(matchesEvent(getBinding('open-terminal'), e) || matchesEvent(getBinding('new-terminal'), e));
+      });
       term.onData(queueInput);
       term.focus();
       window.addEventListener('keydown', onKeydownCapture, true);
