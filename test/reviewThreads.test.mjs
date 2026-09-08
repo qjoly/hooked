@@ -39,9 +39,14 @@ describe('reviewThreads — cycle de vie', () => {
     expect(store.markThreadsSent(SID, [tid])).toBe(0); // déjà envoyé : idempotent
   });
 
-  it('refuse de supprimer un thread déjà envoyé', () => {
-    expect(store.deleteThread(SID, tid)).toBe(false);
-    expect(store.listThreads(SID)).toHaveLength(1);
+  it('supprime aussi un thread déjà envoyé', () => {
+    // La liste de commentaires du panneau Ship / Branch propose une corbeille sur TOUS les
+    // threads : le store ne doit pas refuser les envoyés (l'UI confirme avant d'appeler).
+    const gone = store.addThread(SID, { ...anchor, text: 'sent then deleted' });
+    store.markThreadsSent(SID, [gone.id]);
+    expect(store.deleteThread(SID, gone.id)).toBe(true);
+    expect(store.listThreads(SID).some((x) => x.id === gone.id)).toBe(false);
+    expect(store.listThreads(SID)).toHaveLength(1); // le thread du cas nominal est intact
   });
 
   it('Claude répond dans le thread', () => {

@@ -5,7 +5,7 @@ import { fail, readJson } from '$lib/server/respond.js';
 // Threads de revue ancrés dans la diff (lentilles Ship / Branch) — la conversation GitHub-style.
 // GET ?id= → { threads } ; POST { id, action, … } :
 //   comment { thread }        → crée un thread « pending » (batché côté front)
-//   delete  { threadId }      → retire un thread pas encore envoyé
+//   delete  { threadId }      → retire un thread (envoyé ou non ; la confirmation est côté UI)
 //   reply   { threadId, text, author? } → répond ('user' par défaut ; 'claude' via l'outil MCP)
 //   resolve { threadId, resolved }      → clôt / rouvre
 //   sent    { ids }           → marque le lot parti vers Claude
@@ -25,7 +25,7 @@ export async function POST({ request }) {
       return thread ? json({ ok: true, thread }) : fail(400, 'invalid comment');
     }
     if (action === 'delete') {
-      return deleteThread(id, body.threadId) ? json({ ok: true }) : fail(404, 'thread not found or already sent');
+      return deleteThread(id, body.threadId) ? json({ ok: true }) : fail(404, 'thread not found');
     }
     if (action === 'reply') {
       const author = body.author === 'claude' ? 'claude' : 'user';
