@@ -8,6 +8,7 @@
   import { untrack } from 'svelte';
   import DiffView from './DiffView.svelte';
   import Grip from './Grip.svelte';
+  import ReviewComments from './ReviewComments.svelte';
   import Icon from '$lib/components/Icon.svelte';
   import { toSegments, countStats, applyOp } from '$lib/difflines.js';
   import { fmtCost } from '$lib/format.js';
@@ -326,8 +327,14 @@
     if (r && r.thread) threads = [...threads, r.thread];
   }
   async function delComment(tid) {
+    const before = threads;
     threads = threads.filter((t) => t.id !== tid);
-    try { await deleteReviewThread(id, tid); } catch (_) {}
+    // Optimiste, mais un refus ne doit PAS passer inaperçu : `jpost` ne lève pas sur un non-2xx
+    // (il renvoie { ok:false }), donc un try/catch seul avalait l'échec — le thread revenait au
+    // rafraîchissement suivant sans explication. On le remet en place tout de suite.
+    let r = null;
+    try { r = await deleteReviewThread(id, tid); } catch (_) {}
+    if (!r || !r.ok) threads = before;
   }
   async function resolveComment(tid, resolved) {
     threads = threads.map((t) => (t.id === tid ? { ...t, status: resolved ? 'resolved' : 'open' } : t));
@@ -349,6 +356,14 @@
   const commentsFor = (file, opIndex) =>
     threads.filter((c) => c.file === file && c.opIndex === opIndex)
       .map((c) => ({ id: c.id, side: c.side, start: c.start, end: c.end, snippet: c.snippet, status: c.status, sent: c.sent, messages: c.messages }));
+
+  // Clicking a row of the comment list opens the file it is anchored to. The list shows the
+  // whole review, so a thread can point at a file the rail is not showing right now (another
+  // diff source, or filtered out) — then there is nothing to open and the click is a no-op.
+  function jumpToComment(t) {
+    const i = changes.findIndex((c) => c.file === t.file);
+    if (i >= 0) activeIdx = i;
+  }
 
   const anchorLabel = (c) => {
     const p = c.side === 'old' ? '−L' : '+L';
@@ -616,6 +631,8 @@
           {#if sending}Sending…{:else}<Icon name="send" size={14} /> Send {pending} comment{pending > 1 ? 's' : ''} to Claude{/if}
         </button>
       {/if}
+
+      <ReviewComments {threads} onDelete={delComment} onJump={jumpToComment} />
 
       <div class="sp-card">
         <h4>Pull request</h4>

@@ -78,12 +78,16 @@ function addThread(sessionId, input) {
   return thread;
 }
 
-// Suppression : uniquement un thread encore « pending » (pas envoyé) — après envoi, c'est une
-// conversation, on la résout, on ne l'efface pas.
+// Suppression : n'importe quel thread, envoyé ou non. La règle précédente (« après envoi c'est
+// une conversation, on la résout, on ne l'efface pas ») rendait la liste de commentaires du
+// panneau Ship / Branch trompeuse : elle montre TOUS les threads, la corbeille échouait
+// silencieusement sur les envoyés et le rafraîchissement les faisait réapparaître. Effacer une
+// conversation reste destructeur — c'est l'UI qui garde le garde-fou (confirmation en deux
+// temps), le store, lui, obéit.
 function deleteThread(sessionId, threadId) {
   const threads = readThreads(sessionId);
   const t = threads.find((x) => x.id === threadId);
-  if (!t || t.sent) return false;
+  if (!t) return false;
   writeThreads(sessionId, threads.filter((x) => x.id !== threadId));
   return true;
 }
