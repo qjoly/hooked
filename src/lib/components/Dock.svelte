@@ -9,6 +9,7 @@
   import Background from './Background.svelte';
   import PrLinks from './PrLinks.svelte';
   import IssueLinks from './IssueLinks.svelte';
+  import Screenshots from './Screenshots.svelte';
   import Icon from '$lib/components/Icon.svelte';
   import { fmtCost, prLabel, issueLabel } from '$lib/format.js';
   import { ui } from '$lib/state.svelte.js';
@@ -38,6 +39,7 @@
   const runningJobs = $derived(jobs.filter((j) => (j.status || 'running') === 'running'));
   const prLinks = $derived(s?.prLinks || []);
   const issueLinks = $derived(s?.issueLinks || []);
+  const shots = $derived(s?.screenshots || []);
 
   // per-file add/del totals when available on change entries; tolerate absent fields.
   const fileList = $derived(changes.slice(0, 4));
@@ -198,6 +200,17 @@
           {#each issueLinks as l}<a class="dpill" href={l} target="_blank" rel="noopener"><Icon name="issue" size={13} /> {issueLabel(l)}</a>{/each}
         </div>
       {/if}
+    </div>
+  {/if}
+
+  {#if shots.length}
+    <div class="dcard">
+      <button class="dh" onclick={() => toggle('shots')}>
+        <span class="dh-ico"><Icon name="image" size={13} /></span> Screenshots
+        <span class="dh-n">{shots.length}</span>
+        <span class="dh-chev" class:open={expanded.shots}>▾</span>
+      </button>
+      <Screenshots {shots} session={id} limit={expanded.shots ? 0 : 4} />
     </div>
   {/if}
 </aside>
