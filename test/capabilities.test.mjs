@@ -42,14 +42,18 @@ describe('buildModelGroups', () => {
     const ids = [
       'opus', 'sonnet', 'haiku', 'fable',
       'claude-opus-4-8', 'claude-opus-4-5', 'claude-opus-4-7',
-      'claude-sonnet-4-6', 'claude-haiku-4-5', 'claude-fable-5',
+      'claude-sonnet-4-6', 'claude-haiku-4-5', 'claude-fable-5', 'claude-fable-5-1',
     ];
     expect(buildModelGroups(ids)).toEqual([
       { label: 'Opus', opts: [['opus', 'Opus (default)'], ['claude-opus-4-8', '4.8'], ['claude-opus-4-7', '4.7'], ['claude-opus-4-5', '4.5']] },
       { label: 'Sonnet', opts: [['sonnet', 'Sonnet (default)'], ['claude-sonnet-4-6', '4.6']] },
       { label: 'Haiku', opts: [['haiku', 'Haiku (default)'], ['claude-haiku-4-5', '4.5']] },
-      { label: 'Fable', opts: [['fable', 'Fable (default)'], ['claude-fable-5', '5']] },
+      { label: 'Fable', opts: [['fable', 'Fable (default)'], ['claude-fable-5-1', '5.1'], ['claude-fable-5', '5']] },
     ]);
+  });
+  it('keeps fable bare majors AND minors (its rolling ids), but still excludes dated snapshots', () => {
+    const fable = buildModelGroups(['fable', 'claude-fable-5', 'claude-fable-5-1', 'claude-fable-5-20260901'])[0];
+    expect(fable.opts).toEqual([['fable', 'Fable (default)'], ['claude-fable-5-1', '5.1'], ['claude-fable-5', '5']]);
   });
   it('excludes bare-major ids and dated snapshots', () => {
     const ids = ['opus', 'claude-opus-4', 'claude-opus-4-8', 'claude-opus-4-20250514', 'claude-opus-4-1-20250805'];
