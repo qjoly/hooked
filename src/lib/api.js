@@ -147,6 +147,10 @@ export const userFileUrl = (session, agent, p) =>
   '/api/user-file?session=' + encodeURIComponent(session || '') +
   (agent ? '&agent=' + encodeURIComponent(agent) : '') +
   '&path=' + encodeURIComponent(p || '');
+// URL to display a screenshot produced during a session. Served only if it appears as an image
+// read or written by that session or one of its sub-agents — see /api/screenshot.
+export const screenshotUrl = (session, p) =>
+  '/api/screenshot?session=' + encodeURIComponent(session || '') + '&path=' + encodeURIComponent(p || '');
 export const interrupt = (id) => jpost('/api/interrupt', { id });
 export const setMode = (id, mode) => jpost('/api/mode', { id, mode });
 export const setModelEffort = (id, model, effort) => jpost('/api/model', { id, model, effort });
