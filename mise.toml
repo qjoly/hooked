@@ -158,7 +158,7 @@ After=network.target
 
 [Service]
 WorkingDirectory=$PROJECT_DIR
-ExecStart=$MISE_BIN x -- bash $RUNNER
+ExecStart="$MISE_BIN" x -- bash "$RUNNER"
 # Quoted: an unquoted Environment= is split on whitespace, and PATH entries
 # can contain spaces.
 Environment="PATH=$SERVICE_PATH"
