@@ -357,13 +357,82 @@
     threads.filter((c) => c.file === file && c.opIndex === opIndex)
       .map((c) => ({ id: c.id, side: c.side, start: c.start, end: c.end, snippet: c.snippet, status: c.status, sent: c.sent, messages: c.messages }));
 
-  // Clicking a row of the comment list opens the file it is anchored to. The list shows the
-  // whole review, so a thread can point at a file the rail is not showing right now (another
-  // diff source, or filtered out) — then there is nothing to open and the click is a no-op.
-  function jumpToComment(t) {
-    const i = changes.findIndex((c) => c.file === t.file);
-    if (i >= 0) activeIdx = i;
+  // ── jumping from the comment list ───────────────────────────────────────────────────────
+  // Clicking a row opens the file the thread is anchored to AND scrolls to the thread itself:
+  // `jumpTarget` goes down to every DiffView of that file and the one holding the thread reveals
+  // + flashes it (see its `focus` prop).
+  //
+  // But the VIEW has to be restored first. A thread's `opIndex` (minted by fileDiffs above) is
+  // the key of the diff section it was written on, so it also records which view produced it —
+  // and `commentsFor` hands a thread ONLY to the section whose key matches exactly. A comment
+  // left in another view is therefore rendered nowhere here, and clicking it used to open the
+  // file and stop there. Measured on a working-tree review: 14 comments out of 14 dead from the
+  // Claude view, plus the 2 comments of a prompt-filtered section in another session.
+  //   full:<j>              — the Claude diff, no prompt filter
+  //   sel:<turns>[:<j>]     — the Claude diff restricted to those prompts
+  //   vcs:wt:<j>            — the working tree
+  //   vcs:<repo>:<rev>:<j>  — one commit of that repo
+  //   br:…                  — the Branch lens: no view of Ship can show it (cf. `jumpable`)
+  function threadContext(opIndex) {
+    const key = String(opIndex || '');
+    let m;
+    if (key === 'vcs:wt' || key.startsWith('vcs:wt:')) return { view: 'vcs', repo: null, rev: null };
+    // greedy repo root: a path may hold a colon, a revision may not
+    if ((m = /^vcs:(.+):([^:]+):\d+$/.exec(key))) return { view: 'vcs', repo: m[1], rev: m[2] };
+    if (key.startsWith('full:')) return { view: 'claude', turns: [] };
+    if ((m = /^sel:([\d,]*)/.exec(key))) return { view: 'claude', turns: m[1] ? m[1].split(',').map(Number).filter(Number.isFinite) : [] };
+    return null;
   }
+  const jumpable = (t) => !!threadContext(t.opIndex);
+  const sameTurns = (want, cur) => want.length === cur.size && want.every((t) => cur.has(t));
+
+  // Fetch FIRST, flip `view` LAST. The `vcs.loading` / `commitLoading` branches of the markup
+  // replace the whole `.ship` subtree, which destroys ReviewComments — its open/closed state is
+  // local, so the list slammed shut in the middle of the jump and you could not click the next
+  // row. Loading while still on the previous view keeps the subtree alive throughout.
+  async function restoreContext(ctx) {
+    if (ctx.view === 'vcs') {
+      await loadVcs(false);
+      if (ctx.repo && ctx.repo !== selectedRepo) { selectedRepo = ctx.repo; loadLog(ctx.repo); }
+      // unconditional: selectCommit is a no-op past its cache, and it is the only path that
+      // fills commitCache — which `vcsChanges` reads straight after this returns.
+      await selectCommit(ctx.rev || null);
+      if (view !== 'vcs') setView('vcs');
+      return;
+    }
+    if (!sameTurns(ctx.turns, selected)) selected = new Set(ctx.turns);
+    if (view !== 'claude') setView('claude');
+  }
+
+  let jumpTarget = $state(null); // { id, idx } — thread to reveal, and the file it was found in
+  // Returns false when the comment cannot be reached — the list says so rather than looking broken.
+  async function jumpToComment(t) {
+    const ctx = threadContext(t.opIndex);
+    if (!ctx) return false;
+    await restoreContext(ctx);
+    // `changes` is derived, so it already reflects the restored view here
+    let i = changes.findIndex((c) => c.file === t.file);
+    if (i < 0) return false;   // not in that view after all: committed since, deleted, filtered out
+    // Section keys are minted from the diff we currently HOLD, and a CAPPED file yields different
+    // ones: without a reconstructed `original` the file comes back as one section per raw op
+    // instead of the merged span (server/changes.js, buildEntry). A thread anchored on the full
+    // diff then matches no section and renders nowhere — so load the full file and look again.
+    // Not a cure-all: when the reconstruction fails even uncapped (`original` null on the full
+    // entry too), the section the thread was written on cannot be minted again at all, and the
+    // list reports the miss instead.
+    if (!fileDiffs(changes[i]).some((d) => d.opIndex === t.opIndex)) {
+      await loadFull(t.file);
+      i = changes.findIndex((c) => c.file === t.file);
+      if (i < 0) return false;
+    }
+    activeIdx = i;
+    jumpTarget = { id: t.id, idx: i };
+    return true;
+  }
+  // A jump is spent as soon as you navigate away. Without this the target would still be around
+  // when J/K walks back to that file later, and re-mounting its DiffView would re-scroll and
+  // re-flash a thread nobody asked for.
+  $effect(() => { activeIdx; untrack(() => { if (jumpTarget && jumpTarget.idx !== activeIdx) jumpTarget = null; }); });
 
   const anchorLabel = (c) => {
     const p = c.side === 'old' ? '−L' : '+L';
@@ -603,6 +672,7 @@
                         blame={blameFor}
                         commentable={!!onReview}
                         comments={commentsFor(activeFile.file, d.opIndex)}
+                        focus={jumpTarget}
                         onComment={(p) => addComment(activeFile.file, d.opIndex, activeFile.name, p)}
                         onDelete={delComment} onReply={replyComment} onResolve={resolveComment} />
             {/each}
@@ -632,7 +702,7 @@
         </button>
       {/if}
 
-      <ReviewComments {threads} onDelete={delComment} onJump={jumpToComment} />
+      <ReviewComments {threads} onDelete={delComment} onJump={jumpToComment} canJump={jumpable} />
 
       <div class="sp-card">
         <h4>Pull request</h4>
