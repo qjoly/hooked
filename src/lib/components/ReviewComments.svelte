@@ -6,17 +6,22 @@
   // screen: a comment left on a file scrolled past three files ago cannot be re-read, and the
   // only delete button (DiffView's ×) is anchored to it. This lists every thread of the review
   // at once — what it says, where it is anchored, whether it went out — with a delete per row
-  // and a click to jump to the file it belongs to.
+  // and a click that jumps straight to the thread in the diff (opens its file, scrolls the card
+  // into view, flashes it; a folded resolved thread is unfolded on the way).
   //
   // Deleting is two-step (× arms the row, "Delete?" confirms): unlike the inline × this list
   // also drops SENT threads, which may carry Claude's replies — a stray click there loses a
   // conversation, not a draft.
   import Icon from '$lib/components/Icon.svelte';
 
-  let { threads = [], onDelete = null, onJump = null } = $props();
+  // canJump: (thread) => bool — a thread carries the diff SECTION it was written on, and the
+  // lens can only reveal the ones its own views produce (a Branch comment is unreachable from
+  // Ship, and the reverse). Those rows say so instead of being a click that does nothing.
+  let { threads = [], onDelete = null, onJump = null, canJump = null } = $props();
 
   let open = $state(false);
-  let armed = $state(null); // thread id whose delete is armed
+  let armed = $state(null);  // thread id whose delete is armed
+  let picked = $state(null); // last row jumped to — the list stays open, so it marks where you went
 
   // Grouped per file (files in the order their first comment was left), pending first inside a
   // file — the pending ones are the batch the Send button ships.
@@ -42,9 +47,23 @@
     armed = null;
     onDelete?.(t.id);
   }
-  function jump(t) {
+  const reachable = (t) => !canJump || canJump(t);
+  // A jump can also fail on data: the file the thread points at may have left the diff it was
+  // written on (committed since, branch rewritten). The lens answers false, and the row says so
+  // for a few seconds — a click that visibly does nothing reads as a bug.
+  let missed = $state(null);
+  let missTimer = 0;
+  async function jump(t) {
     armed = null;
-    onJump?.(t);
+    if (!reachable(t)) return;
+    picked = t.id;
+    clearTimeout(missTimer);
+    missed = null;
+    const landed = await onJump?.(t);
+    if (landed === false) {
+      missed = t.id;
+      missTimer = setTimeout(() => { missed = null; }, 5000);
+    }
   }
 </script>
 
@@ -62,12 +81,19 @@
         {#each groups as g (g.file)}
           <div class="rc-file" title={g.file}>{g.name}</div>
           {#each g.list as t (t.id)}
-            <div class="rc-row" class:resolved={t.status === 'resolved'}>
-              <button class="rc-main" onclick={() => jump(t)} title={onJump ? 'Open ' + g.file : g.file}>
+            {@const here = reachable(t)}
+            <div class="rc-row" class:resolved={t.status === 'resolved'} class:picked={picked === t.id}>
+              <!-- not `disabled`: a disabled button gets no mouse events, so its title — the only
+                   place that explains WHY the row is inert — would never show. -->
+              <button class="rc-main" class:dead={!here} aria-disabled={!here} onclick={() => jump(t)}
+                      title={!here ? 'Left in the other diff lens — open it there to read it in context'
+                             : onJump ? 'Jump to this comment in ' + g.file : g.file}>
                 <span class="rc-meta">
                   <span class="rc-anchor">{anchorLabel(t)}</span>
                   {#if !t.sent}<span class="rc-tag pending">pending</span>
                   {:else if t.status === 'resolved'}<span class="rc-tag done"><Icon name="check" size={10} /> resolved</span>{/if}
+                  {#if !here}<span class="rc-tag other">other lens</span>
+                  {:else if missed === t.id}<span class="rc-tag gone">not in this diff</span>{/if}
                   {#if t.messages && t.messages.length > 1}<span class="rc-n">{t.messages.length} msg</span>{/if}
                 </span>
                 <span class="rc-text">{firstText(t)}</span>
@@ -109,11 +135,14 @@
   .rc-row { display: flex; align-items: flex-start; gap: 4px; padding: 0 8px 0 14px; }
   .rc-row:hover { background: var(--hover); }
   .rc-row.resolved { opacity: .55; }
+  /* the row you last jumped from, so a list of near-identical comments stays navigable */
+  .rc-row.picked { background: rgba(var(--accent-rgb), .09); box-shadow: inset 2px 0 0 var(--accent); }
   .rc-main {
     flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 2px;
     background: none; border: none; color: var(--text); font: inherit; text-align: left;
     padding: 4px 0; cursor: pointer;
   }
+  .rc-main.dead { cursor: default; }
   .rc-meta { display: flex; align-items: center; gap: 6px; }
   .rc-anchor { font-family: var(--mono); font-size: 10px; color: var(--muted); }
   .rc-tag {
@@ -122,6 +151,8 @@
   }
   .rc-tag.pending { background: rgba(var(--waiting-rgb), .16); color: var(--waiting); }
   .rc-tag.done { background: color-mix(in srgb, var(--success) 16%, transparent); color: var(--success); }
+  .rc-tag.other { background: var(--input); color: var(--muted); }
+  .rc-tag.gone { background: color-mix(in srgb, var(--warning, #c98a1b) 18%, transparent); color: var(--warning, #c98a1b); }
   .rc-n { font-family: var(--mono); font-size: 9.5px; color: var(--muted); }
   .rc-text {
     font-size: 12px; line-height: 1.4; color: var(--text);

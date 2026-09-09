@@ -9,6 +9,7 @@
   import { reanchor } from '$lib/reviewAnchor.js';
   import Icon from '$lib/components/Icon.svelte';
   import { ui } from '$lib/state.svelte.js';
+  import { untrack } from 'svelte';
 
   let {
     oldStr = '', newStr = '', name = 'file.txt', mode = 'split',
@@ -22,6 +23,9 @@
     onDelete = null,          // (id) => void — pending threads only
     onReply = null,           // (id, text) => void — follow-up inside a thread (sent instantly)
     onResolve = null,         // (id, resolved) => void
+    // A thread to reveal, as { id } — set by the review's comment list when a row is clicked.
+    // Only the view that owns that thread reacts, so the caller may fire it blindly.
+    focus = null,
     // git blame of the hovered line: { file, old, new, load } — `old`/`new` are the revisions
     // each side of this diff comes from ('' = working tree, null = don't blame that side), and
     // `load(rev)` fetches the blame of `file` at `rev`. Null disables the feature entirely.
@@ -130,6 +134,47 @@
     if (d && d.text.trim() && onReply) onReply(d.id, d.text.trim());
     replyDraft = null;
   }
+
+  // ── reveal a thread from the outside ─────────────────────────────────────────────────────
+  // The review's comment list jumps to a thread by id: the lens switches to the right file and
+  // hands the id down as `focus`. A file's diff is rendered as ONE DiffView per edit section, so
+  // every section receives the same target and only the one actually holding the thread lights
+  // up — no coordination needed upstream.
+  // The card may be off-DOM: `compact` (and a plain collapsed gap) hides unchanged lines, and a
+  // thread anchored to one of them renders nowhere. So: look, then open every gap of this view
+  // and look again. Failing that the click stays a no-op — better than scrolling to a wrong line.
+  const FLASH_MS = 2000;       // keep in step with the dv-flash keyframes
+  let focused = $state(null);  // id of the thread flashing right now
+  let focusTimer = 0;
+
+  function revealThread(tid, retry) {
+    const node = root && root.querySelector(`[data-thread="${CSS.escape(tid)}"]`);
+    if (node) {
+      const still = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      node.scrollIntoView({ block: 'center', behavior: still ? 'auto' : 'smooth' });
+      focused = tid;
+      focusTimer = setTimeout(() => { focused = null; }, FLASH_MS);
+      return;
+    }
+    if (!retry) return;
+    const gaps = rows.filter((r) => r.kind === 'gap').map((r) => r.seg);
+    if (!gaps.length) return;
+    expand = { ...expand, ...Object.fromEntries(gaps.map((seg) => [seg, { all: true }])) };
+    requestAnimationFrame(() => revealThread(tid, false));
+  }
+
+  // Tracks `focus` ONLY: the reads below are untracked because they are also written here
+  // (`openResolved`) or would re-run the jump on every edit of the thread list.
+  $effect(() => {
+    const tid = focus?.id;
+    clearTimeout(focusTimer);
+    focused = null;
+    if (!tid || !untrack(() => threadView).some((c) => c.id === tid)) return;
+    // a resolved thread shows as a one-line fold — jumping to it is a request to READ it
+    untrack(() => { if (!openResolved[tid]) openResolved = { ...openResolved, [tid]: true }; });
+    const raf = requestAnimationFrame(() => revealThread(tid, true));
+    return () => { cancelAnimationFrame(raf); clearTimeout(focusTimer); };
+  });
 
   // A comment "slot" belongs after a row when a draft or committed comment anchors its END here.
   function slotFor(side, endLine) {
@@ -402,13 +447,14 @@
 
 {#snippet threadCard(c, side)}
       {#if c.status === 'resolved' && !openResolved[c.id]}
-        <button class="dv-thread-folded" onclick={() => (openResolved = { ...openResolved, [c.id]: true })}>
+        <button class="dv-thread-folded" data-thread={c.id} class:flash={focused === c.id}
+                onclick={() => (openResolved = { ...openResolved, [c.id]: true })}>
           <Icon name="check" size={12} /> Resolved · {rangeLabel(side, c.start, c.end)} ·
           {c.messages.length} message{c.messages.length > 1 ? 's' : ''}
           <span class="dv-thread-peek">{c.messages[0]?.text}</span>
         </button>
       {:else}
-        <div class="dv-thread" class:resolved={c.status === 'resolved'}>
+        <div class="dv-thread" data-thread={c.id} class:flash={focused === c.id} class:resolved={c.status === 'resolved'}>
           <div class="dv-thread-head">
             <span class="dv-bubble-anchor">{c.outdated ? 'was ' : ''}{rangeLabel(side, c.start, c.end)}</span>
             {#if c.outdated}<span class="dv-thread-badge outdated">outdated</span>{/if}
@@ -576,6 +622,14 @@
     border-radius: 10px; display: flex; flex-direction: column; gap: 6px;
   }
   .dv-thread.resolved { border-left-color: var(--success); opacity: .92; }
+  /* landing mark of a jump from the comment list — the scroll alone leaves you hunting for
+     which card you were sent to. Only background/shadow animate: touching border-color would
+     grey out the accent/success left bar for the length of the animation. */
+  .dv-thread.flash, .dv-thread-folded.flash { animation: dv-flash 2s ease-out; }
+  @keyframes dv-flash {
+    0%, 55% { background: rgba(var(--accent-rgb), .13); box-shadow: 0 0 0 3px rgba(var(--accent-rgb), .25); }
+    100% { background: var(--surface); box-shadow: 0 0 0 3px rgba(var(--accent-rgb), 0); }
+  }
   .dv-thread-head { display: flex; align-items: center; gap: 8px; }
   .dv-bubble-anchor { font-family: var(--mono); font-size: 10.5px; font-weight: 700; color: var(--accent-d); }
   .dv-thread-badge {
