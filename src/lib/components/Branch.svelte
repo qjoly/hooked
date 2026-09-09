@@ -14,7 +14,7 @@
   import { toSegments, countStats } from '$lib/difflines.js';
   import { getVcsBranches, getVcsBranchDiff, getVcsBlame,
            getReviewThreads, postReviewComment, deleteReviewThread, replyReviewThread,
-           resolveReviewThread, markReviewSent, reply as sendToSession } from '$lib/api.js';
+           archiveReviewThread, markReviewSent, reply as sendToSession } from '$lib/api.js';
   import { settings, ui } from '$lib/state.svelte.js';
   import { editorFor } from '$lib/editors.js';
   import { fingerprint, isReviewed as hasReview, toggleReviewed as tickReview,
@@ -185,7 +185,9 @@
   $effect(() => { id; loadThreads(); });
   $effect(() => { ui.tick; if (active) loadThreads(); });
 
-  const pendingThreads = $derived(threads.filter((t) => !t.sent));
+  // Archived comments are out of the batch: archiving a pending one is "keep the note, don't
+  // send it".
+  const pendingThreads = $derived(threads.filter((t) => !t.sent && t.status !== 'archived'));
   const pending = $derived(pendingThreads.length);
   async function addComment(file, opIndex, name, payload) {
     const r = await postReviewComment(id, { file, opIndex, name, ...payload });
@@ -201,9 +203,12 @@
     try { r = await deleteReviewThread(id, tid); } catch (_) {}
     if (!r || !r.ok) threads = before;
   }
-  async function resolveComment(tid, resolved) {
-    threads = threads.map((t) => (t.id === tid ? { ...t, status: resolved ? 'resolved' : 'open' } : t));
-    try { await resolveReviewThread(id, tid, resolved); } catch (_) {}
+  // Archiving is the reviewer's "done": the thread leaves the diff (commentsFor drops it) and
+  // shows up in the archives list of this panel, restorable. Claude has no tool for it — its
+  // replies used to close the thread they answered, so the diff emptied itself.
+  async function archiveComment(tid, archived) {
+    threads = threads.map((t) => (t.id === tid ? { ...t, status: archived ? 'archived' : 'open' } : t));
+    try { await archiveReviewThread(id, tid, archived); } catch (_) {}
   }
   async function replyComment(tid, text) {
     const t = threads.find((x) => x.id === tid);
@@ -217,8 +222,8 @@
     try { await sendToSession(id, prompt); } catch (_) {}
   }
   const commentsFor = (file, opIndex) =>
-    threads.filter((c) => c.file === file && c.opIndex === opIndex)
-      .map((c) => ({ id: c.id, side: c.side, start: c.start, end: c.end, snippet: c.snippet, status: c.status, sent: c.sent, messages: c.messages }));
+    threads.filter((c) => c.file === file && c.opIndex === opIndex && c.status !== 'archived')
+      .map((c) => ({ id: c.id, side: c.side, start: c.start, end: c.end, snippet: c.snippet, sent: c.sent, messages: c.messages }));
 
   // ── jumping from the comment list ───────────────────────────────────────────────────────
   // Clicking a row opens the file the thread is anchored to AND scrolls to the thread itself:
@@ -456,7 +461,7 @@
                         comments={commentsFor(activeFile.file, d.opIndex)}
                         focus={jumpTarget}
                         onComment={(p) => addComment(activeFile.file, d.opIndex, activeFile.name, p)}
-                        onDelete={delComment} onReply={replyComment} onResolve={resolveComment} />
+                        onDelete={delComment} onReply={replyComment} onArchive={archiveComment} />
             {/each}
           {/if}
         </div>
@@ -484,7 +489,8 @@
         </button>
       {/if}
 
-      <ReviewComments {threads} onDelete={delComment} onJump={jumpToComment} canJump={jumpable} />
+      <ReviewComments {threads} onDelete={delComment} onJump={jumpToComment} canJump={jumpable}
+                      onArchive={archiveComment} />
 
       {#if (s?.prLinks || []).length}
         <div class="sp-card">

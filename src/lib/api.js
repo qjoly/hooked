@@ -46,7 +46,7 @@ export const getReviewThreads = (id) => jget('/api/review?id=' + encodeURICompon
 export const postReviewComment = (id, thread) => jpost('/api/review', { id, action: 'comment', thread });
 export const deleteReviewThread = (id, threadId) => jpost('/api/review', { id, action: 'delete', threadId });
 export const replyReviewThread = (id, threadId, text) => jpost('/api/review', { id, action: 'reply', threadId, text });
-export const resolveReviewThread = (id, threadId, resolved = true) => jpost('/api/review', { id, action: 'resolve', threadId, resolved });
+export const archiveReviewThread = (id, threadId, archived = true) => jpost('/api/review', { id, action: 'archive', threadId, archived });
 export const markReviewSent = (id, ids) => jpost('/api/review', { id, action: 'sent', ids });
 // Texte COMPLET d'un message user coupé dans la conversation (bulle marquée `truncated`),
 // chargé quand on déplie la bulle. `uuid` = le forkUuid du message. { text }.

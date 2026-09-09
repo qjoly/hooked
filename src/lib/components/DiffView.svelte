@@ -15,14 +15,16 @@
     oldStr = '', newStr = '', name = 'file.txt', mode = 'split',
     compact = false,          // drop the context lines around each change
     commentable = false,
-    // threads: [{ id, side, start, end, status, sent, messages: [{ author, text, ts }] }] —
+    // threads: [{ id, side, start, end, sent, messages: [{ author, text, ts }] }] —
     // GitHub-style conversations anchored to a line range. A thread with a single user message
-    // and sent:false is a pending (batched, not yet sent) comment.
+    // and sent:false is a pending (batched, not yet sent) comment. ARCHIVED threads never reach
+    // here: the lens keeps them out of `comments` (they live in the archives list of the panel),
+    // so this component knows nothing about that state.
     comments = [],
     onComment = null,         // ({ side, start, end, text, snippet }) => void — new thread
     onDelete = null,          // (id) => void — pending threads only
     onReply = null,           // (id, text) => void — follow-up inside a thread (sent instantly)
-    onResolve = null,         // (id, resolved) => void
+    onArchive = null,         // (id, archived) => void — archived threads leave the diff entirely
     // A thread to reveal, as { id } — set by the review's comment list when a row is clicked.
     // Only the view that owns that thread reacts, so the caller may fire it blindly.
     focus = null,
@@ -125,9 +127,16 @@
   const anchoredThreads = $derived(threadView.filter((c) => !c.outdated));
   const outdatedThreads = $derived(threadView.filter((c) => c.outdated));
 
-  // Per-thread UI state: the open reply editor and which resolved threads are unfolded.
+  // Per-thread UI state: the open reply editor and the folded threads.
+  //
+  // Folding is manual and local: clicking the HEAD of a thread collapses it to a one-liner, and
+  // clicking that one-liner opens it again. It replaces the fold that used to come for free with
+  // the `resolved` state — nothing folds itself any more, a long thread you are done reading is
+  // yours to put away, and it comes back on the next reload (a diff is not a filing cabinet;
+  // archiving is, cf. the panel).
   let replyDraft = $state(null);      // { id, text } — one reply editor open at a time
-  let openResolved = $state({});      // thread id → unfolded?
+  let folded = $state({});            // thread id → collapsed?
+  const toggleFold = (id) => (folded = { ...folded, [id]: !folded[id] });
   function startReply(id) { replyDraft = { id, text: '' }; }
   function commitReply() {
     const d = replyDraft;
@@ -170,8 +179,8 @@
     clearTimeout(focusTimer);
     focused = null;
     if (!tid || !untrack(() => threadView).some((c) => c.id === tid)) return;
-    // a resolved thread shows as a one-line fold — jumping to it is a request to READ it
-    untrack(() => { if (!openResolved[tid]) openResolved = { ...openResolved, [tid]: true }; });
+    // a folded thread is a one-liner — jumping to it is a request to READ it
+    untrack(() => { if (folded[tid]) folded = { ...folded, [tid]: false }; });
     const raf = requestAnimationFrame(() => revealThread(tid, true));
     return () => { cancelAnimationFrame(raf); clearTimeout(focusTimer); };
   });
@@ -446,28 +455,28 @@
 {/snippet}
 
 {#snippet threadCard(c, side)}
-      {#if c.status === 'resolved' && !openResolved[c.id]}
+      {#if folded[c.id]}
         <button class="dv-thread-folded" data-thread={c.id} class:flash={focused === c.id}
-                onclick={() => (openResolved = { ...openResolved, [c.id]: true })}>
-          <Icon name="check" size={12} /> Resolved · {rangeLabel(side, c.start, c.end)} ·
+                title="Open this comment again" onclick={() => toggleFold(c.id)}>
+          <Icon name="chevron-right" size={12} /> {rangeLabel(side, c.start, c.end)} ·
           {c.messages.length} message{c.messages.length > 1 ? 's' : ''}
           <span class="dv-thread-peek">{c.messages[0]?.text}</span>
         </button>
       {:else}
-        <div class="dv-thread" data-thread={c.id} class:flash={focused === c.id} class:resolved={c.status === 'resolved'}>
+        <div class="dv-thread" data-thread={c.id} class:flash={focused === c.id}>
+          <!-- The head folds the thread; the actions sit OUTSIDE that button, so archiving or
+               deleting never doubles as a fold (and the nesting stays legal HTML). -->
           <div class="dv-thread-head">
-            <span class="dv-bubble-anchor">{c.outdated ? 'was ' : ''}{rangeLabel(side, c.start, c.end)}</span>
-            {#if c.outdated}<span class="dv-thread-badge outdated">outdated</span>{/if}
-            {#if !c.sent}<span class="dv-thread-badge pending">pending</span>
-            {:else if c.status === 'resolved'}<span class="dv-thread-badge done"><Icon name="check" size={11} /> resolved</span>{/if}
+            <button class="dv-thread-fold" title="Collapse this comment" onclick={() => toggleFold(c.id)}>
+              <Icon name="chevron-down" size={12} />
+              <span class="dv-bubble-anchor">{c.outdated ? 'was ' : ''}{rangeLabel(side, c.start, c.end)}</span>
+              {#if c.outdated}<span class="dv-thread-badge outdated">outdated</span>{/if}
+              {#if !c.sent}<span class="dv-thread-badge pending">pending</span>{/if}
+            </button>
             <span class="dv-thread-actions">
-              {#if c.status === 'resolved'}
-                <button class="dv-tbtn" onclick={() => (openResolved = { ...openResolved, [c.id]: false })}>collapse</button>
-              {/if}
-              {#if c.sent && onResolve}
-                <button class="dv-tbtn" onclick={() => onResolve(c.id, c.status !== 'resolved')}>
-                  {c.status === 'resolved' ? 'reopen' : 'resolve'}
-                </button>
+              {#if c.sent && onArchive}
+                <button class="dv-tbtn" title="Archive — it leaves the diff for the archives list"
+                        onclick={() => onArchive(c.id, true)}>archive</button>
               {/if}
               {#if !c.sent && onDelete}
                 <button class="dv-tbtn" title="Remove comment" onclick={() => onDelete(c.id)}><Icon name="close" size={12} /></button>
@@ -621,7 +630,6 @@
     background: var(--surface); border: 1px solid var(--border2); border-left: 3px solid var(--accent);
     border-radius: 10px; display: flex; flex-direction: column; gap: 6px;
   }
-  .dv-thread.resolved { border-left-color: var(--success); opacity: .92; }
   /* landing mark of a jump from the comment list — the scroll alone leaves you hunting for
      which card you were sent to. Only background/shadow animate: touching border-color would
      grey out the accent/success left bar for the length of the animation. */
@@ -631,6 +639,12 @@
     100% { background: var(--surface); box-shadow: 0 0 0 3px rgba(var(--accent-rgb), 0); }
   }
   .dv-thread-head { display: flex; align-items: center; gap: 8px; }
+  .dv-thread-fold {
+    flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: 8px;
+    background: none; border: none; padding: 0; margin: 0; cursor: pointer; color: var(--muted);
+    font: inherit; text-align: left;
+  }
+  .dv-thread-fold:hover { color: var(--text); }
   .dv-bubble-anchor { font-family: var(--mono); font-size: 10.5px; font-weight: 700; color: var(--accent-d); }
   .dv-thread-badge {
     font-family: var(--mono); font-size: 9.5px; font-weight: 700; text-transform: uppercase;
@@ -638,7 +652,6 @@
   }
   .dv-thread-badge.pending { background: rgba(var(--accent-rgb), .14); color: var(--accent-d); }
   .dv-thread-badge.outdated { background: color-mix(in srgb, var(--warning, #c98a1b) 16%, transparent); color: var(--warning, #c98a1b); }
-  .dv-thread-badge.done { background: color-mix(in srgb, var(--success) 16%, transparent); color: var(--success); }
   .dv-thread-actions { margin-left: auto; display: flex; gap: 6px; }
   .dv-tbtn {
     background: none; border: none; padding: 0 2px; cursor: pointer;
@@ -666,7 +679,7 @@
   }
   .dv-thread-folded {
     display: flex; align-items: center; gap: 6px; width: 100%; margin: 4px 0; padding: 5px 10px;
-    background: var(--surface); border: 1px solid var(--border2); border-left: 3px solid var(--success);
+    background: var(--surface); border: 1px solid var(--border2); border-left: 3px solid var(--accent);
     border-radius: 10px; cursor: pointer; text-align: left;
     font-family: var(--mono); font-size: 10.5px; color: var(--muted);
   }

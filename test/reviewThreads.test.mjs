@@ -1,8 +1,13 @@
 /*
  * Threads de revue (server/reviewThreads.js) — le store serveur de la conversation GitHub-style
  * ancrée dans la diff. Cycle complet : commentaire pending → envoi du lot → réponse de Claude →
- * réponse user (rouvre un thread résolu) → resolve. Plus les gardes : suppression réservée aux
- * pending, auteurs bornés, id de session sans traversal.
+ * archivage → restauration. Plus les gardes : auteurs bornés, id de session sans traversal.
+ *
+ * Le point de contrat qui compte ici : ARCHIVER EST LA DÉCISION DU RELECTEUR. Une réponse de
+ * Claude ne sort JAMAIS un thread des archives (avant ce changement, Claude était même invité à
+ * clore lui-même chaque thread traité) ; une réponse de l'utilisateur, elle, le désarchive.
+ * Et 'resolved', l'ancien nom de l'état, doit être relu comme 'archived' — sinon une revue déjà
+ * traitée reviendrait tout entière dans la diff.
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import fs from 'node:fs';
@@ -55,11 +60,16 @@ describe('reviewThreads — cycle de vie', () => {
     expect(t.messages[1]).toMatchObject({ author: 'claude', text: 'switched to const' });
   });
 
-  it('resolve puis une réponse user ROUVRE le thread', () => {
-    expect(store.resolveThread(SID, tid).status).toBe('resolved');
+  it('archive, et une réponse user DÉSARCHIVE le thread', () => {
+    expect(store.archiveThread(SID, tid).status).toBe('archived');
     const t = store.replyThread(SID, tid, 'user', 'actually, one more thing');
     expect(t.status).toBe('open');
-    expect(store.resolveThread(SID, tid, false).status).toBe('open');
+  });
+
+  it("une réponse de Claude ne désarchive PAS : ranger est la décision du relecteur", () => {
+    expect(store.archiveThread(SID, tid).status).toBe('archived');
+    expect(store.replyThread(SID, tid, 'claude', 'done').status).toBe('archived');
+    expect(store.archiveThread(SID, tid, false).status).toBe('open'); // restauration explicite
   });
 
   it('supprime un thread encore pending', () => {
@@ -88,7 +98,18 @@ describe('reviewThreads — gardes', () => {
 
   it('un thread inconnu répond null/false partout', () => {
     expect(store.replyThread(SID, 'nope', 'user', 'x')).toBe(null);
-    expect(store.resolveThread(SID, 'nope')).toBe(null);
+    expect(store.archiveThread(SID, 'nope')).toBe(null);
     expect(store.deleteThread(SID, 'nope')).toBe(false);
+  });
+
+  it("relit l'ancien état 'resolved' comme 'archived'", () => {
+    // Fichier écrit par la version d'avant : sans normalisation à la lecture, ces threads
+    // reviendraient « open » dans la diff — une revue entière à re-ranger à la main.
+    const legacy = 'session-legacy';
+    fs.writeFileSync(
+      path.join(TMP, 'reviews', legacy + '.json'),
+      JSON.stringify({ threads: [{ id: 'old-1', file: '/repo/a.js', side: 'new', start: 1, end: 1, status: 'resolved', sent: true, messages: [{ author: 'user', text: 'x' }] }] }),
+    );
+    expect(store.listThreads(legacy)[0].status).toBe('archived');
   });
 });
