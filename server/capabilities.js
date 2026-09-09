@@ -54,10 +54,11 @@ export function buildModelGroups(ids) {
   for (const fam of FAMILIES) {
     const opts = [];
     if (set.has(fam)) opts.push([fam, `${cap(fam)} (default)`]);
-    // Concrete versions: "claude-<fam>-<major>-<minor>" (opus/sonnet/haiku) or "claude-fable-<n>".
-    // Exclude bare majors ("claude-opus-4" → a meaningless "4" label) and dated snapshots (a run of
-    // >=5 digits = YYYYMMDD), which the coarse bundle grep can still let through.
-    const verRe = fam === 'fable' ? /^claude-fable-\d+$/ : new RegExp(`^claude-${fam}-\\d+-\\d+$`);
+    // Concrete versions: "claude-<fam>-<major>-<minor>" (opus/sonnet/haiku) or "claude-fable-<n>"
+    // with an optional minor ("claude-fable-5", "claude-fable-5-1" → "5.1"). Fable keeps bare majors
+    // because that IS its rolling id, unlike "claude-opus-4" (meaningless "4" label). Exclude dated
+    // snapshots (a run of >=5 digits = YYYYMMDD), which the coarse bundle grep can still let through.
+    const verRe = fam === 'fable' ? /^claude-fable-\d+(-\d+)?$/ : new RegExp(`^claude-${fam}-\\d+-\\d+$`);
     const versions = [...set].filter((id) => verRe.test(id) && !/\d{5,}/.test(id)).sort(cmpDesc);
     for (const id of versions) opts.push([id, id.slice(`claude-${fam}-`.length).replace(/-/g, '.')]);
     if (opts.length) groups.push({ label: cap(fam), opts });
