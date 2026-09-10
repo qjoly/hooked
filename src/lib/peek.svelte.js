@@ -1,6 +1,7 @@
-// État partagé du « go to definition » : la touche modificatrice enfoncée, et le panneau de
-// définition. Un seul exemplaire pour toute l'application — le geste part de la review, de la
-// vue fichier ou de la conversation, et le panneau est monté une seule fois.
+// La touche modificatrice du « go to definition », suivie une seule fois pour toute
+// l'application. Rien d'autre : la carte de définition (DefPeek) est ancrée dans le diff et
+// tient elle-même son contenu et sa pile de navigation — il n'y a pas d'état global à
+// partager, et un panneau unique aurait dû être coordonné entre les lentilles pour rien.
 
 import { isMac } from './shortcuts.js';
 
@@ -8,36 +9,10 @@ import { isMac } from './shortcuts.js';
 // ⌃ partout ailleurs. Jamais les deux, sinon le geste vole le menu contextuel des Mac.
 export const modHeld = (e) => (isMac ? !!e.metaKey : !!e.ctrlKey);
 
-export const peek = $state({
-  mod: false,        // la touche est enfoncée maintenant
-  open: false,
-  loading: false,
-  stack: [],         // pile de navigation : [{ file, rel, line, symbol, rev }]
-  result: null,      // dernière réponse de /api/session/symbol
-  error: null,
-});
+export const peek = $state({ mod: false });
 
-export const peekTop = () => peek.stack[peek.stack.length - 1] || null;
-
-export function pushPeek(entry) {
-  if (peek.stack.length >= 8) peek.stack.shift(); // profondeur bornée : une pile est une aide, pas un historique
-  peek.stack.push(entry);
-  peek.open = true;
-}
-export function popPeek() {
-  peek.stack.pop();
-  if (!peek.stack.length) closePeek();
-}
-export function closePeek() {
-  peek.open = false;
-  peek.stack = [];
-  peek.result = null;
-  peek.error = null;
-  peek.loading = false;
-}
-
-// Suivi de la touche. `blur` et `visibilitychange` sont OBLIGATOIRES : un ⌘-Tab quitte la
-// fenêtre sans jamais livrer le keyup, et le mode resterait collé au retour.
+// `blur` et `visibilitychange` sont OBLIGATOIRES : un ⌘-Tab quitte la fenêtre sans jamais
+// livrer le keyup, et le mode resterait collé au retour — tout le code se croirait cliquable.
 export function trackModifier() {
   if (typeof window === 'undefined') return () => {};
   const down = (e) => { if (modHeld(e)) peek.mod = true; };

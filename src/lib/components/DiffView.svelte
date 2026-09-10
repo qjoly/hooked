@@ -37,6 +37,12 @@
     // declaration already found in THIS file, if any, so the caller can jump with no request.
     // Null disables the gesture entirely (conversation diffs, read-only previews).
     onSymbol = null,
+    // Où insérer la carte de définition, et quoi y rendre. `definitionAt` = { side, line } :
+    // la carte s'ouvre EN LIGNE, juste sous cette ligne, comme un « peek » d'IDE. Le contenu
+    // arrive en snippet pour que ce composant n'ait à connaître ni la session, ni l'API, ni
+    // DefPeek — il ne sait que la POSITION.
+    definitionAt = null,
+    definition = null,
     // Do the line numbers of this section match the FILE's? True for a whole-file diff (VCS,
     // Branch, a `write` op), false for a Claude `edit`, whose oldStr/newStr are fragments.
     // Gates both the local resolution and the jump: a fragment-relative number would send you
@@ -452,6 +458,7 @@
   }
 
   const isHit = (side, lineNo) => !!hitLine && hitLine.side === side && hitLine.line === lineNo;
+  const isDefAt = (side, lineNo) => !!definitionAt && !!definition && definitionAt.side === side && definitionAt.line === lineNo;
 
   // the inline annotation belongs to the hovered line only
   const blameOn = (side, lineNo) =>
@@ -532,6 +539,7 @@
       {#if slot.list.length || slot.draft}
         {@render commentSlot(slot, side, lineNo)}
       {/if}
+      {#if isDefAt(side, lineNo)}<div class="dv-def">{@render definition()}</div>{/if}
     {:else}
       <div class="dv-row s">
         <span class="dv-no">{r.left ? r.left.no : ''}</span>
@@ -555,6 +563,9 @@
       {@const rs = r.right ? slotFor('new', r.right.no) : { list: [], draft: false }}
       {#if ls.list.length || ls.draft}{@render commentSlot(ls, 'old', r.left.no)}{/if}
       {#if rs.list.length || rs.draft}{@render commentSlot(rs, 'new', r.right.no)}{/if}
+      {#if (r.left && isDefAt('old', r.left.no)) || (r.right && isDefAt('new', r.right.no))}
+        <div class="dv-def">{@render definition()}</div>
+      {/if}
     {/if}
   {/each}
 </div>
@@ -743,6 +754,10 @@
     color: #6a7180; font-family: inherit; font-size: 10.5px; cursor: pointer;
   }
   .dv-gap-txt:hover { color: var(--accent); background: rgba(var(--accent-rgb), .12); }
+
+  /* carte de définition « peek », insérée sous la ligne cliquée — même gouttière que les
+     commentaires, pour qu'un bloc inséré dans le flux du diff se lise toujours pareil */
+  .dv-def { background: rgba(255,255,255,.02); padding: 4px 12px 4px 52px; font-family: var(--font); }
 
   /* comments */
   .dv-comments { background: rgba(255,255,255,.02); padding: 4px 12px 4px 52px; font-family: var(--font); }

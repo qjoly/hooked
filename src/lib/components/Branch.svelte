@@ -10,6 +10,7 @@
   import DiffView from './DiffView.svelte';
   import Grip from './Grip.svelte';
   import ReviewComments from './ReviewComments.svelte';
+  import DefPeek from './DefPeek.svelte';
   import Icon from '$lib/components/Icon.svelte';
   import { toSegments, countStats } from '$lib/difflines.js';
   import { getVcsBranches, getVcsBranchDiff, getVcsBlame,
@@ -300,16 +301,17 @@
     jumpTarget = { kind: 'line', side, line, idx: i };
     return true;
   }
-  function openInEditorAt(file, line) {
-    const url = editorFor(settings.editor).fileUrl(file, line);
-    if (url) window.location.href = url;
-  }
-  async function gotoDefinition({ word, side, local }) {
+  // Carte de définition ouverte EN LIGNE sous la ligne cliquée (cf. Ship, même modèle).
+  let def = $state(null);
+  $effect(() => { activeIdx; untrack(() => { def = null; }); });
+
+  async function gotoDefinition(file, opIndex, { word, side, line, local }) {
     if (!activeFile) return;
-    if (local && jumpToLine(activeFile.file, local.line, side)) return;
+    const rev = revForSide(side);
+    if (local && jumpToLine(file, local.line, side)) return;
     saySym('Looking up ' + word + '…');
     let r;
-    try { r = await getSymbolDefs(id, word, activeFile.file, revForSide(side)); } catch (_) { r = null; }
+    try { r = await getSymbolDefs(id, word, file, rev); } catch (_) { r = null; }
     if (!r || !r.supported) return saySym(r && r.timedOut ? 'Lookup timed out.' : 'No repository to search.');
     if (r.origin) return saySym(word + ' comes from ' + r.origin.specifier + ' — not in this repo.');
     const target = r.jump || (r.declarations.length === 1 ? r.declarations[0] : null);
@@ -317,10 +319,9 @@
       return saySym(r.declarations.length ? r.declarations.length + ' possible declarations.'
         : r.referenceCount ? 'No declaration found (' + r.referenceCount + ' references).' : 'No declaration found.');
     }
+    if (target.file !== file && jumpToLine(target.file, target.line, 'new')) return;
     symMsg = null;
-    if (jumpToLine(target.file, target.line, 'new')) return;
-    openInEditorAt(target.file, target.line);
-    saySym(target.rel + ':' + target.line + ' — opened in your editor (not in this diff).');
+    def = { opIndex, atSide: side, atLine: line, file: target.file, rel: target.rel, line: target.line, rev, symbol: word, kind: target.kind };
   }
 
   const anchorLabel = (c) => {
@@ -505,11 +506,16 @@
           {#if activeFile.binary}
             <div class="sd-empty">Binary file — no diff.</div>
           {:else}
+            {#snippet defCard()}
+              <DefPeek {id} target={def} onClose={() => (def = null)} />
+            {/snippet}
             {#each fileDiffs(activeFile) as d (d.opIndex)}
               <DiffView oldStr={d.oldStr} newStr={d.newStr} name={activeFile.name} mode={effMode} {compact}
                         blame={blameFor}
                         wholeFile={!!d.wholeFile}
-                        onSymbol={gotoDefinition}
+                        onSymbol={(p) => gotoDefinition(activeFile.file, d.opIndex, p)}
+                        definitionAt={def && def.opIndex === d.opIndex ? { side: def.atSide, line: def.atLine } : null}
+                        definition={defCard}
                         commentable={!!onReview}
                         comments={commentsFor(activeFile.file, d.opIndex)}
                         focus={jumpTarget}
