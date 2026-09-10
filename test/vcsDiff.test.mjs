@@ -15,7 +15,7 @@ const execFileP = promisify(execFile);
 // `git rev-parse --show-toplevel` returns resolved paths — keep both worlds aligned.
 const TMP = () => fs.realpathSync(path.join(os.tmpdir(), 'hooked-vcsdiff-test-' + process.pid));
 
-let buildVcsChanges, scanSubRepos, listVcsCommits, buildVcsCommitChanges, listVcsBranches, buildVcsBranchChanges;
+let buildVcsChanges, scanSubRepos, listVcsCommits, buildVcsCommitChanges, listVcsBranches, buildVcsBranchChanges, detectRepos;
 let T;
 
 const GIT_ID = ['-c', 'user.email=t@test', '-c', 'user.name=t', '-c', 'commit.gpgsign=false'];
@@ -41,7 +41,7 @@ beforeAll(async () => {
   fs.rmSync(raw, { recursive: true, force: true });
   fs.mkdirSync(raw, { recursive: true });
   T = TMP();
-  ({ buildVcsChanges, scanSubRepos, listVcsCommits, buildVcsCommitChanges, listVcsBranches, buildVcsBranchChanges } = await import('../server/vcsDiff.js'));
+  ({ buildVcsChanges, scanSubRepos, listVcsCommits, buildVcsCommitChanges, listVcsBranches, buildVcsBranchChanges, detectRepos } = await import('../server/vcsDiff.js'));
 });
 afterAll(() => {
   fs.rmSync(T, { recursive: true, force: true });
@@ -297,5 +297,43 @@ describe('buildVcsBranchChanges', () => {
     // An unknown base falls back to the default instead of being passed through.
     const r = await buildVcsBranchChanges(dir, 'feature', '--exec=evil');
     expect(r.base).toBe('main');
+  });
+});
+
+// ── cache de detectRepos ──────────────────────────────────────────────────────────────────
+// La détection coûte deux spawns plus un parcours readdirSync SYNCHRONE de l'arbre de travail,
+// et elle est rejouée à chaque survol de ligne (via /api/session/vcs-blame). Ce qui est
+// vérifié ici : deux appels rapprochés ne rescannent pas, et deux appels CONCURRENTS ne
+// lancent qu'un seul scan.
+describe('detectRepos — cache TTL', () => {
+  it('rend la même valeur (même référence) dans la fenêtre du TTL', async () => {
+    const root = path.join(T, 'cache-repo');
+    await makeRepo(root);
+
+    const a = await detectRepos(root);
+    const b = await detectRepos(root);
+    expect(b).toBe(a);                       // servi depuis le cache, pas recalculé
+    expect(a.list[0].root).toBe(fs.realpathSync(root));
+  });
+
+  it('dédoublonne les appels concurrents en un seul scan', async () => {
+    const root = path.join(T, 'cache-repo');
+    const [a, b, c] = await Promise.all([detectRepos(root), detectRepos(root), detectRepos(root)]);
+    expect(b).toBe(a);
+    expect(c).toBe(a);
+  });
+
+  it('ne cache rien pour un cwd vide', async () => {
+    const r = await detectRepos('');
+    expect(r).toEqual({ base: null, list: [] });
+  });
+
+  it('garde des cwd distincts séparés', async () => {
+    const other = path.join(T, 'cache-repo-2');
+    await makeRepo(other);
+    const a = await detectRepos(path.join(T, 'cache-repo'));
+    const b = await detectRepos(other);
+    expect(b).not.toBe(a);
+    expect(b.list[0].root).toBe(fs.realpathSync(other));
   });
 });

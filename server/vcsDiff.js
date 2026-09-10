@@ -283,7 +283,7 @@ async function jjCommitChanges(root, rev, limit = MAX_FILES) {
 // so a cwd inside a sub-repo won't pull in a versioned $HOME or sibling repos).
 // { base, list:[{ kind, mechanism, root, primary }] }. Shared by buildVcsChanges and by the
 // commit endpoints, which validate a client-supplied repo root against this list.
-async function detectRepos(cwd) {
+async function computeRepos(cwd) {
   if (!cwd) return { base: null, list: [] };
   const primary = await detectVcs(cwd);
   const base = primary ? primary.root : cwd;
@@ -304,6 +304,39 @@ async function detectRepos(cwd) {
     .map((s) => ({ ...s, primary: false }));
 
   return { base, list: primary ? [{ ...primary, primary: true }, ...subs] : subs };
+}
+
+// Cache TTL de la détection de dépôts. Elle coûte deux spawns (`git rev-parse`, `.gitmodules`)
+// PLUS un parcours `readdirSync` SYNCHRONE de l'arbre de travail (jusqu'à SCAN_MAX_DIRS
+// répertoires) — donc elle bloque l'event loop. Or elle est rejouée à chaque appel : une fois
+// par diff, mais surtout une fois par SURVOL DE LIGNE via /api/session/vcs-blame. Mesuré sur ce
+// dépôt : `git rev-parse` seul ≈ 19 ms, là où le `git grep` d'un symbole en coûte 32.
+//
+// TTL simple, et pas une invalidation au mtime de `<root>/.git` : créer `pkg/x/.git` ne touche
+// pas le `.git` de la racine, c'est-à-dire précisément l'axe qu'explore scanSubRepos. Même
+// arbitrage que le cache de listing de files.js, pour la même raison — un parcours complet est
+// trop cher pour être refait à chaque frappe. Un dépôt apparu ou disparu est donc vu avec au
+// plus REPOS_TTL de retard, ce qui est sans conséquence : les diffs sont déjà rechargés à la
+// demande, et le bouton Refresh de la lentille Ship force le rechargement.
+//
+// Le résultat est PARTAGÉ entre appelants : aucun ne mute `list` (les quatre sites de vcsDiff /
+// vcsBlame ne font que le lire, le `.sort()` de vcsBlame:98 portant sur le tableau frais rendu
+// par `.filter()`). Ne pas muter la valeur rendue.
+const REPOS_TTL = 10000;
+const reposCache = new Map();   // cwd -> { at, value }
+const reposInFlight = new Map(); // cwd -> promise — deux survols dans le même tick = un seul scan
+
+async function detectRepos(cwd) {
+  if (!cwd) return { base: null, list: [] };
+  const hit = reposCache.get(cwd);
+  if (hit && Date.now() - hit.at < REPOS_TTL) return hit.value;
+  const flying = reposInFlight.get(cwd);
+  if (flying) return flying;
+  const p = computeRepos(cwd)
+    .then((value) => { reposCache.set(cwd, { at: Date.now(), value }); return value; })
+    .finally(() => reposInFlight.delete(cwd)); // un échec ne doit pas rester collé en cache
+  reposInFlight.set(cwd, p);
+  return p;
 }
 
 // Repo whose commits are requested: the client-supplied root must be one of the DETECTED
