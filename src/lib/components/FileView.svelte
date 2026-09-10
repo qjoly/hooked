@@ -20,6 +20,9 @@
   } = $props();
 
   const lang = $derived(langFromName(rel));
+  // extension brute pour le filtrage des mots-clés de symbolAt (cf. DiffView : .svelte → 'html'
+  // n'a aucun mot-clé, l'extension retombe sur SYMBOL_KW.svelte)
+  const symLang = $derived(((rel || '').split('.').pop() || '').toLowerCase());
   let hlCache = new Map();
   $effect(() => { rel; hlCache = new Map(); });
   function hl(text) {
@@ -41,7 +44,7 @@
   function track(e) {
     symRaf = 0;
     if (!onSymbol || !mod.mod) return clearSym();
-    const hit = symbolUnderPointer(e, { lineSelector: '.fv-code', lang });
+    const hit = symbolUnderPointer(e, { lineSelector: '.fv-code', lang: symLang });
     if (!hit) return clearSym();
     const row = hit.lineEl.closest('[data-fv-line]');
     symHit = { word: hit.word, line: Number(row?.dataset.fvLine) || null };
