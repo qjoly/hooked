@@ -210,7 +210,19 @@
   // boîte de saisie), lue côté serveur dans la pane (cf. paneFollowupSync). C'est un vrai prompt
   // actionnable — pas la dernière phrase de Claude. On la surface au-dessus du composer pour la
   // reprendre en 1 clic. Masquée si une question/plan est déjà en attente.
-  let dismissedFollowup = $state(null); // suggestion masquée localement (revient si le texte change)
+  let dismissedFollowup = $state(null); // suggestion masquée (revient si le texte de la suggestion change)
+  // Le masquage est PERSISTÉ, comme le brouillon du composer : sinon un rechargement ramène la
+  // carte alors que son texte est déjà dans la zone de saisie, et son « Envoyer » écraserait la
+  // version retouchée. Même idiome de clé que le brouillon, indexé par session.
+  const fuKey = (sid) => 'hooked:fu-dismissed:' + (sid || '');
+  $effect(() => {
+    const sid = id; // dépendance suivie AVANT toute garde (règle réactivité Svelte 5)
+    try { dismissedFollowup = localStorage.getItem(fuKey(sid)); } catch (_) { dismissedFollowup = null; }
+  });
+  function dismissFollowup(text) {
+    dismissedFollowup = text;
+    try { if (text) localStorage.setItem(fuKey(id), text); } catch (_) {}
+  }
   const followup = $derived(
     (s && s.followupSuggestion && !s.pendingQuestion && !s.pendingPlan) ? s.followupSuggestion : null,
   );
@@ -220,6 +232,17 @@
     tab = 'chat';
     await tick();
     composer.sendText(followup); // envoi direct (remplit + envoie), comme la revue de fichiers
+  }
+
+  // Même suggestion, mais à retoucher : on la pose dans le composer sans envoyer, et la carte
+  // s'efface — le texte est désormais dans la zone de saisie, l'y laisser en double n'apporte rien.
+  async function editFollowup() {
+    if (!composer || !followup) return;
+    tab = 'chat';
+    const suggestion = followup;
+    dismissFollowup(suggestion);
+    await tick();
+    composer.fillText(suggestion);
   }
 
   // indicateur 5 h compact pour la ligne de stats : uniquement la valeur réelle (statusline).
@@ -798,10 +821,14 @@
         <div class="followup">
           <div class="fu-head">
             <span class="fu-ico"><Icon name="lightbulb" size={14} /></span> Prompt de follow-up suggéré
-            <button class="fu-x" title="Dismiss" aria-label="Dismiss" onclick={() => (dismissedFollowup = followup)}><Icon name="close" size={14} /></button>
+            <button class="fu-x" title="Dismiss" aria-label="Dismiss" onclick={() => dismissFollowup(followup)}><Icon name="close" size={14} /></button>
           </div>
           <div class="fu-text">{followup}</div>
-          <button class="fu-take" onclick={takeFollowup}><Icon name="send" size={14} /> Envoyer</button>
+          <div class="fu-actions">
+            <button class="fu-take" onclick={takeFollowup}><Icon name="send" size={14} /> Envoyer</button>
+            <button class="fu-edit" title="Pré-remplir la zone de saisie sans envoyer"
+                    onclick={editFollowup}><Icon name="pencil" size={14} /> Modifier avant d'envoyer</button>
+          </div>
         </div>
       {/if}
       {#if s.live}
@@ -1134,6 +1161,13 @@
     padding: 5px 12px; cursor: pointer;
   }
   .fu-take:hover { background: var(--bg3); }
+  .fu-actions { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  .fu-edit {
+    font-size: 12.5px; font-weight: 600; color: var(--muted);
+    background: transparent; border: 1px solid var(--border); border-radius: 8px;
+    padding: 5px 12px; cursor: pointer;
+  }
+  .fu-edit:hover { color: var(--text); background: var(--bg3); border-color: var(--border2); }
   /* indicateur « working » sous la dernière bulle : slim, discret, respire (couleur de statut) */
   .working-live {
     display: flex; align-items: center; gap: 6px;
