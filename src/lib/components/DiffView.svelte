@@ -10,6 +10,9 @@
   import Icon from '$lib/components/Icon.svelte';
   import { ui } from '$lib/state.svelte.js';
   import { untrack } from 'svelte';
+  import { symbolUnderPointer, paintSymbol, clearSymbols, highlightsSupported } from '$lib/codeHit.js';
+  import { localDeclaration, langOfPath } from '$lib/localDefs.js';
+  import { peek, modHeld } from '$lib/peek.svelte.js';
 
   let {
     oldStr = '', newStr = '', name = 'file.txt', mode = 'split',
@@ -25,9 +28,20 @@
     onDelete = null,          // (id) => void — pending threads only
     onReply = null,           // (id, text) => void — follow-up inside a thread (sent instantly)
     onArchive = null,         // (id, archived) => void — archived threads leave the diff entirely
-    // A thread to reveal, as { id } — set by the review's comment list when a row is clicked.
-    // Only the view that owns that thread reacts, so the caller may fire it blindly.
+    // A target to reveal, fired blindly at every DiffView of the file — only the one actually
+    // holding it reacts. Two shapes:
+    //   { kind: 'thread', id }      — a comment, from the review's comment list;
+    //   { kind: 'line', side, line } — a line, from a "go to definition" landing in this diff.
     focus = null,
+    // ({ word, side, line, local }) => void — the modifier-click on a symbol. `local` is the
+    // declaration already found in THIS file, if any, so the caller can jump with no request.
+    // Null disables the gesture entirely (conversation diffs, read-only previews).
+    onSymbol = null,
+    // Do the line numbers of this section match the FILE's? True for a whole-file diff (VCS,
+    // Branch, a `write` op), false for a Claude `edit`, whose oldStr/newStr are fragments.
+    // Gates both the local resolution and the jump: a fragment-relative number would send you
+    // to a confidently wrong line.
+    wholeFile = false,
     // git blame of the hovered line: { file, old, new, load } — `old`/`new` are the revisions
     // each side of this diff comes from ('' = working tree, null = don't blame that side), and
     // `load(rev)` fetches the blame of `file` at `rev`. Null disables the feature entirely.
@@ -79,6 +93,10 @@
   let drag = $state(null);  // active drag: { side, anchor, focus }
   function startDrag(side, lineNo, e) {
     if (!commentable || lineNo == null) return;
+    // With the modifier held the click means "go to definition", not "comment". Bail BEFORE
+    // arming `drag`: the window-level pointerup below would otherwise open a comment editor
+    // on release, and the preventDefault would eat the click.
+    if (e && modHeld(e)) return;
     if (e) e.preventDefault(); // no text selection while dragging
     drag = { side, anchor: lineNo, focus: lineNo };
   }
@@ -152,36 +170,55 @@
   // The card may be off-DOM: `compact` (and a plain collapsed gap) hides unchanged lines, and a
   // thread anchored to one of them renders nowhere. So: look, then open every gap of this view
   // and look again. Failing that the click stays a no-op — better than scrolling to a wrong line.
-  const FLASH_MS = 2000;       // keep in step with the dv-flash keyframes
+  const FLASH_MS = 2000;       // keep in step with the dv-flash / dv-line-flash keyframes
   let focused = $state(null);  // id of the thread flashing right now
+  let hitLine = $state(null);  // { side, line } of the line flashing right now
   let focusTimer = 0;
 
-  function revealThread(tid, retry) {
-    const node = root && root.querySelector(`[data-thread="${CSS.escape(tid)}"]`);
+  // One reveal for both kinds of target: find it, scroll, flash. The retry is the whole point
+  // and it matters MORE for a line than for a comment — a definition is almost always a
+  // CONTEXT line, so it sits in a collapsed gap, and in `compact` mode context is not rendered
+  // at all. Open every gap and look once more; failing that, stay put rather than scroll to a
+  // wrong line.
+  function revealTarget(sel, mark, retry) {
+    const node = root && root.querySelector(sel);
     if (node) {
       const still = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
       node.scrollIntoView({ block: 'center', behavior: still ? 'auto' : 'smooth' });
-      focused = tid;
-      focusTimer = setTimeout(() => { focused = null; }, FLASH_MS);
+      mark();
+      focusTimer = setTimeout(() => { focused = null; hitLine = null; }, FLASH_MS);
       return;
     }
     if (!retry) return;
     const gaps = rows.filter((r) => r.kind === 'gap').map((r) => r.seg);
     if (!gaps.length) return;
     expand = { ...expand, ...Object.fromEntries(gaps.map((seg) => [seg, { all: true }])) };
-    requestAnimationFrame(() => revealThread(tid, false));
+    requestAnimationFrame(() => revealTarget(sel, mark, false));
   }
 
   // Tracks `focus` ONLY: the reads below are untracked because they are also written here
-  // (`openResolved`) or would re-run the jump on every edit of the thread list.
+  // or would re-run the jump on every edit of the thread list.
   $effect(() => {
-    const tid = focus?.id;
+    const f = focus;
     clearTimeout(focusTimer);
     focused = null;
+    hitLine = null;
+    if (!f) return;
+
+    if (f.kind === 'line') {
+      // Only the section whose numbers ARE the file's can honour a line target.
+      if (!untrack(() => wholeFile) || f.line == null) return;
+      const sel = `[data-side="${f.side}"][data-line="${f.line}"]`;
+      const raf = requestAnimationFrame(() => revealTarget(sel, () => { hitLine = { side: f.side, line: f.line }; }, true));
+      return () => { cancelAnimationFrame(raf); clearTimeout(focusTimer); };
+    }
+
+    const tid = f.id;
     if (!tid || !untrack(() => threadView).some((c) => c.id === tid)) return;
     // a folded thread is a one-liner — jumping to it is a request to READ it
     untrack(() => { if (folded[tid]) folded = { ...folded, [tid]: false }; });
-    const raf = requestAnimationFrame(() => revealThread(tid, true));
+    const sel = `[data-thread="${CSS.escape(tid)}"]`;
+    const raf = requestAnimationFrame(() => revealTarget(sel, () => { focused = tid; }, true));
     return () => { cancelAnimationFrame(raf); clearTimeout(focusTimer); };
   });
 
@@ -346,6 +383,76 @@
     };
   });
 
+  // ── go to definition ────────────────────────────────────────────────────────────────────
+  // Holding the modifier turns the code into links. The hover is entirely LOCAL — it never
+  // touches the server — and it says two different things (see app.css): a solid underline
+  // means the declaration is in this very file, so the jump is certain and free; a dotted one
+  // means it will have to be asked of the server, and may come back empty. Underlining
+  // everything alike would promise a definition for every local variable and parameter.
+  const SYM_ON = 'hooked-symbol', SYM_MAYBE = 'hooked-symbol-maybe';
+  let symRaf = 0;
+  let symHit = null;   // { word, side, line, local } — what a click would resolve
+
+  // localDeclaration re-scans the whole side; memoise per (side, word) and drop it when the
+  // content changes, exactly like hlCache.
+  let localCache = new Map();
+  $effect(() => { oldStr; newStr; name; localCache = new Map(); });
+  function localFor(side, word) {
+    if (!wholeFile) return null;   // fragment-relative numbers: a "line" here is not a file line
+    const key = side + '\0' + word;
+    if (!localCache.has(key)) localCache.set(key, localDeclaration(side === 'old' ? oldStr : newStr, langOfPath(name), word));
+    return localCache.get(key);
+  }
+
+  function clearSym() {
+    if (symHit) symHit = null;
+    clearSymbols([SYM_ON, SYM_MAYBE]);
+  }
+
+  function trackSymbol(e) {
+    symRaf = 0;
+    if (!onSymbol || !peek.mod) return clearSym();
+    const hit = symbolUnderPointer(e, { lineSelector: '.dv-code', lang });
+    if (!hit) return clearSym();
+    const cell = hit.lineEl.closest('[data-side]');
+    const side = cell?.dataset.side, line = Number(cell?.dataset.line);
+    if (!side) return clearSym();
+    const local = localFor(side, hit.word);
+    symHit = { word: hit.word, side, line: Number.isFinite(line) ? line : null, local };
+    if (highlightsSupported()) {
+      clearSymbols([SYM_ON, SYM_MAYBE]);
+      paintSymbol(local ? SYM_ON : SYM_MAYBE, hit.range);
+    }
+  }
+
+  // The caret hit-test is recomputed on every move rather than cached: when the blame lands
+  // (async) `.dv-code` switches to `flex: 0 1 auto` and the box shrinks under the cursor.
+  function onSymMove(e) {
+    if (!onSymbol) return;
+    if (!peek.mod) { if (symHit) clearSym(); return; }
+    if (symRaf) return;
+    symRaf = requestAnimationFrame(() => trackSymbol(e));
+  }
+  // Releasing the key must put the code back to normal without waiting for a mouse move.
+  $effect(() => { if (!peek.mod) clearSym(); });
+  $effect(() => () => { if (symRaf) cancelAnimationFrame(symRaf); clearSymbols([SYM_ON, SYM_MAYBE]); });
+
+  function onSymDown(e) {
+    // Keep the click from collapsing the selection (which would repaint the occurrence echo)
+    // and from starting a text selection under the pointer.
+    if (onSymbol && modHeld(e) && symHit) e.preventDefault();
+  }
+  function onSymClick(e) {
+    if (!onSymbol || !modHeld(e)) return;
+    if (!symHit) trackSymbol(e);      // clic sans survol préalable (clavier, tablette)
+    if (!symHit) return;
+    e.preventDefault();
+    e.stopPropagation();
+    onSymbol({ ...symHit });
+  }
+
+  const isHit = (side, lineNo) => !!hitLine && hitLine.side === side && hitLine.line === lineNo;
+
   // the inline annotation belongs to the hovered line only
   const blameOn = (side, lineNo) =>
     (hoverBlame && hover && hover.side === side && hover.line === lineNo) ? hoverBlame : null;
@@ -358,8 +465,15 @@
 
 <svelte:window onpointerup={endDrag} />
 
+<!-- svelte-ignore a11y_no_static_element_interactions, a11y_click_events_have_key_events -->
+<!-- The modifier-click on a symbol lives on the container, not on the lines: an identifier is
+     usually a bare text node (highlight.js wraps only keywords, literals and calls), so there
+     is nothing per-symbol to bind to. The keyboard path is the `goto-definition` binding on
+     the current selection, handled by the lens. -->
 <div class="dv {mode}" bind:this={root} class:commentable class:dv-dragging={!!drag}
-     onpointerleave={() => (hover = null)}
+     class:dv-mod={peek.mod && !!onSymbol}
+     onpointerleave={() => { hover = null; clearSym(); }}
+     onpointermove={onSymMove} onpointerdown={onSymDown} onclick={onSymClick}
      style={mode === 'split' ? `--dv-l:${ratio}fr;--dv-r:${1 - ratio}fr;--dv-k:${ratio}` : null}>
   {#if mode === 'split'}
     <!-- svelte-ignore a11y_no_noninteractive_element_interactions, a11y_no_noninteractive_tabindex -->
@@ -400,7 +514,8 @@
       {@const side = r.kind === 'del' ? 'old' : 'new'}
       {@const lineNo = r.kind === 'del' ? r.oldNo : r.newNo}
       {@const slot = slotFor(side, lineNo)}
-      <div class="dv-row u {r.kind}" class:dv-inrange={inDraft(side, lineNo)}
+      <div class="dv-row u {r.kind}" class:dv-inrange={inDraft(side, lineNo)} class:dv-hit={isHit(side, lineNo)}
+           data-side={side} data-line={lineNo}
            onpointerenter={() => { overLine(side, lineNo); setHover(side, lineNo); }}>
         <span class="dv-no">{r.oldNo ?? ''}</span>
         <span class="dv-no">{r.newNo ?? ''}</span>
@@ -421,6 +536,7 @@
       <div class="dv-row s">
         <span class="dv-no">{r.left ? r.left.no : ''}</span>
         <span class="dv-cell {r.left ? (r.kind === 'change' ? 'del' : 'ctx') : 'empty'}" class:dv-inrange={r.left && inDraft('old', r.left.no)}
+              class:dv-hit={r.left && isHit('old', r.left.no)} data-side={r.left ? 'old' : null} data-line={r.left ? r.left.no : null}
               onpointerenter={() => { if (r.left) { overLine('old', r.left.no); setHover('old', r.left.no); } }}>
           {#if commentable && r.left}<button class="dv-plus" title="Comment — click a line or drag over several" onpointerdown={(e) => startDrag('old', r.left.no, e)}>+</button>{/if}
           <code class="dv-code">{@html r.left ? hl(r.left.text) : ''}</code>
@@ -428,6 +544,7 @@
         </span>
         <span class="dv-no">{r.right ? r.right.no : ''}</span>
         <span class="dv-cell {r.right ? (r.kind === 'change' ? 'add' : 'ctx') : 'empty'}" class:dv-inrange={r.right && inDraft('new', r.right.no)}
+              class:dv-hit={r.right && isHit('new', r.right.no)} data-side={r.right ? 'new' : null} data-line={r.right ? r.right.no : null}
               onpointerenter={() => { if (r.right) { overLine('new', r.right.no); setHover('new', r.right.no); } }}>
           {#if commentable && r.right}<button class="dv-plus" title="Comment — click a line or drag over several" onpointerdown={(e) => startDrag('new', r.right.no, e)}>+</button>{/if}
           <code class="dv-code">{@html r.right ? hl(r.right.text) : ''}</code>
@@ -546,6 +663,10 @@
     left: calc(46px + (100% - 92px) * var(--dv-k, .5)); cursor: col-resize; background: none;
   }
   .dv-split-grip:hover, .dv-split-grip:focus-visible { background: var(--accent); opacity: .5; outline: none; }
+  /* Modifier held: the grip is a 9px-wide overlay sitting ON the code at z-index 4, so a
+     cmd+click within ~4px of the column boundary would never reach .dv-code. */
+  .dv.dv-mod .dv-split-grip { pointer-events: none; }
+  .dv.dv-mod .dv-code { cursor: pointer; }
 
   .dv-no {
     text-align: right; padding: 0 8px; color: #5a6072; user-select: none;
