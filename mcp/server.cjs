@@ -173,7 +173,9 @@ const TOOLS = [
     description:
       'Répond dans un thread de revue de code (commentaire inline d\'une diff hooked). À utiliser ' +
       'quand un prompt de revue liste des commentaires avec leur thread_id : une réponse courte par ' +
-      'commentaire — ce qui a été fait, ou pourquoi non. La réponse apparaît dans la diff, sous la ligne commentée.',
+      'commentaire — ce qui a été fait, ou pourquoi non. La réponse apparaît dans la diff, sous la ' +
+      'ligne commentée. Le thread RESTE ouvert : le ranger est la décision du relecteur, il n\'y a ' +
+      'pas d\'outil pour ça.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -185,23 +187,6 @@ const TOOLS = [
       additionalProperties: false,
     },
     run: (a) => httpRequest('POST', '/api/review', { id: a.id, action: 'reply', threadId: a.thread_id, text: a.text, author: 'claude' }),
-  },
-  {
-    name: 'resolve_review_comment',
-    description:
-      'Marque un thread de revue résolu (ou le rouvre avec resolved=false) une fois le commentaire ' +
-      'traité dans le code. À appeler après reply_review_comment quand la correction est faite.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        id: { type: 'string', description: 'id de la session' },
-        thread_id: { type: 'string', description: 'id du thread' },
-        resolved: { type: 'boolean', description: 'true (défaut) = résolu, false = rouvert' },
-      },
-      required: ['id', 'thread_id'],
-      additionalProperties: false,
-    },
-    run: (a) => httpRequest('POST', '/api/review', { id: a.id, action: 'resolve', threadId: a.thread_id, resolved: a.resolved !== false }),
   },
   {
     name: 'interrupt_session',

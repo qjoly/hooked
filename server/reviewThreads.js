@@ -5,7 +5,17 @@
  * { author: 'user'|'claude', text, ts }. Il naît d'un commentaire utilisateur (état « pending »,
  * batché), part vers Claude en lot (`sent`), puis la conversation continue dans le thread :
  * l'utilisateur répond depuis la diff (envoi immédiat), Claude répond via l'outil MCP
- * `reply_review_comment` et clôt via `resolve_review_comment`.
+ * `reply_review_comment`.
+ *
+ * CLORE EST LA DÉCISION DU RELECTEUR, JAMAIS CELLE DE CLAUDE. Les instructions envoyées avec le
+ * lot demandaient à Claude d'appeler `resolve_review_comment` « once the code is fixed » : chaque
+ * réponse fermait donc le thread aussitôt, et la diff se vidait des commentaires avant même
+ * qu'on ait lu les réponses. L'outil MCP a été retiré et l'état s'appelle maintenant `archived` :
+ * un thread archivé quitte la diff et rejoint la liste dépliante des archives.
+ *
+ * `status` vaut 'open' | 'archived'. Les fichiers écrits avant ce changement portent 'resolved',
+ * relu comme 'archived' au chargement (readThreads) — une revue déjà traitée arrive donc rangée,
+ * sans script de migration.
  *
  * Persistance : un JSON par session sous HOOKED_DIR/reviews/ — côté serveur (et plus
  * localStorage) parce que Claude doit pouvoir y écrire et que tous les navigateurs doivent
@@ -29,11 +39,15 @@ const MAX_SNIPPET = 4000;
 const SID_RE = /^[A-Za-z0-9._-]+$/;
 const fileFor = (sessionId) => path.join(REVIEWS_DIR, sessionId + '.json');
 
+// 'resolved' est l'ancien nom d'`archived` : normalisé ici, à l'entrée, pour que le reste du
+// code (et le front) n'ait qu'un seul vocabulaire à connaître.
+const normalize = (t) => (t && t.status === 'resolved' ? { ...t, status: 'archived' } : t);
+
 function readThreads(sessionId) {
   if (!sessionId || !SID_RE.test(sessionId)) return [];
   try {
     const raw = JSON.parse(fs.readFileSync(fileFor(sessionId), 'utf8'));
-    return Array.isArray(raw?.threads) ? raw.threads : [];
+    return Array.isArray(raw?.threads) ? raw.threads.map(normalize) : [];
   } catch (_) {
     return [];
   }
@@ -92,8 +106,9 @@ function deleteThread(sessionId, threadId) {
   return true;
 }
 
-// Réponse dans un thread. `author` est borné à user/claude ; répondre rouvre un thread résolu
-// (comme GitHub : une réponse sur un thread clos le remet en discussion).
+// Réponse dans un thread. `author` est borné à user/claude. Une réponse de l'UTILISATEUR
+// désarchive (comme GitHub : relancer la discussion la remet à l'écran) ; une réponse de Claude
+// ne ressort JAMAIS un thread rangé — c'est tout l'objet du changement.
 function replyThread(sessionId, threadId, author, text) {
   const clean = cleanText(text);
   if (!clean || (author !== 'user' && author !== 'claude')) return null;
@@ -101,16 +116,18 @@ function replyThread(sessionId, threadId, author, text) {
   const t = threads.find((x) => x.id === threadId);
   if (!t || t.messages.length >= MAX_MESSAGES) return null;
   t.messages.push({ author, text: clean, ts: new Date().toISOString() });
-  if (author === 'user' && t.status === 'resolved') t.status = 'open';
+  if (author === 'user' && t.status === 'archived') t.status = 'open';
   writeThreads(sessionId, threads);
   return t;
 }
 
-function resolveThread(sessionId, threadId, resolved = true) {
+// Archivage / restauration. Un thread archivé n'est plus rendu dans la diff (le front ne le
+// passe plus à DiffView) : il vit dans la liste des archives, restaurable.
+function archiveThread(sessionId, threadId, archived = true) {
   const threads = readThreads(sessionId);
   const t = threads.find((x) => x.id === threadId);
   if (!t) return null;
-  t.status = resolved ? 'resolved' : 'open';
+  t.status = archived ? 'archived' : 'open';
   writeThreads(sessionId, threads);
   return t;
 }
@@ -125,4 +142,4 @@ function markThreadsSent(sessionId, ids) {
   return n;
 }
 
-export { listThreads, addThread, deleteThread, replyThread, resolveThread, markThreadsSent };
+export { listThreads, addThread, deleteThread, replyThread, archiveThread, markThreadsSent };
