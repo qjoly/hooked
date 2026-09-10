@@ -14,7 +14,7 @@
   import { toSegments, countStats } from '$lib/difflines.js';
   import { getVcsBranches, getVcsBranchDiff, getVcsBlame,
            getReviewThreads, postReviewComment, deleteReviewThread, replyReviewThread,
-           resolveReviewThread, markReviewSent, reply as sendToSession } from '$lib/api.js';
+           archiveReviewThread, markReviewSent, reply as sendToSession } from '$lib/api.js';
   import { settings, ui } from '$lib/state.svelte.js';
   import { editorFor } from '$lib/editors.js';
   import { fingerprint, isReviewed as hasReview, toggleReviewed as tickReview,
@@ -64,15 +64,25 @@
   let diffLoading = $state(false);
   const diffKey = $derived(selectedRepo && branch && base ? selectedRepo + ':' + base + ':' + branch : null);
 
-  async function loadDiff(key) {
-    try {
-      const r = await getVcsBranchDiff(id, branch, base, selectedRepo);
-      diffCache = { ...diffCache, [key]: { changes: r.changes || [], mergeBase: r.mergeBase, merged: !!r.merged } };
-    } catch (_) {
-      diffCache = { ...diffCache, [key]: { changes: [], mergeBase: null, merged: false } };
-    } finally {
-      diffLoading = false;
-    }
+  // Keyed by repo:base:branch and DEDUPED by key: the effect below and a jump from the comment
+  // list can both ask for the same diff in the same tick, and the jump has to await the very
+  // fetch the effect started — two `git diff` for one key would be pure waste.
+  const diffInFlight = new Map(); // key -> promise
+  function loadDiff(key) {
+    if (diffInFlight.has(key)) return diffInFlight.get(key);
+    const p = (async () => {
+      try {
+        const r = await getVcsBranchDiff(id, branch, base, selectedRepo);
+        diffCache = { ...diffCache, [key]: { changes: r.changes || [], mergeBase: r.mergeBase, merged: !!r.merged } };
+      } catch (_) {
+        diffCache = { ...diffCache, [key]: { changes: [], mergeBase: null, merged: false } };
+      } finally {
+        diffInFlight.delete(key);
+        diffLoading = false;
+      }
+    })();
+    diffInFlight.set(key, p);
+    return p;
   }
   $effect(() => {
     const key = diffKey;
@@ -175,7 +185,9 @@
   $effect(() => { id; loadThreads(); });
   $effect(() => { ui.tick; if (active) loadThreads(); });
 
-  const pendingThreads = $derived(threads.filter((t) => !t.sent));
+  // Archived comments are out of the batch: archiving a pending one is "keep the note, don't
+  // send it".
+  const pendingThreads = $derived(threads.filter((t) => !t.sent && t.status !== 'archived'));
   const pending = $derived(pendingThreads.length);
   async function addComment(file, opIndex, name, payload) {
     const r = await postReviewComment(id, { file, opIndex, name, ...payload });
@@ -191,9 +203,12 @@
     try { r = await deleteReviewThread(id, tid); } catch (_) {}
     if (!r || !r.ok) threads = before;
   }
-  async function resolveComment(tid, resolved) {
-    threads = threads.map((t) => (t.id === tid ? { ...t, status: resolved ? 'resolved' : 'open' } : t));
-    try { await resolveReviewThread(id, tid, resolved); } catch (_) {}
+  // Archiving is the reviewer's "done": the thread leaves the diff (commentsFor drops it) and
+  // shows up in the archives list of this panel, restorable. Claude has no tool for it — its
+  // replies used to close the thread they answered, so the diff emptied itself.
+  async function archiveComment(tid, archived) {
+    threads = threads.map((t) => (t.id === tid ? { ...t, status: archived ? 'archived' : 'open' } : t));
+    try { await archiveReviewThread(id, tid, archived); } catch (_) {}
   }
   async function replyComment(tid, text) {
     const t = threads.find((x) => x.id === tid);
@@ -207,16 +222,56 @@
     try { await sendToSession(id, prompt); } catch (_) {}
   }
   const commentsFor = (file, opIndex) =>
-    threads.filter((c) => c.file === file && c.opIndex === opIndex)
-      .map((c) => ({ id: c.id, side: c.side, start: c.start, end: c.end, snippet: c.snippet, status: c.status, sent: c.sent, messages: c.messages }));
+    threads.filter((c) => c.file === file && c.opIndex === opIndex && c.status !== 'archived')
+      .map((c) => ({ id: c.id, side: c.side, start: c.start, end: c.end, snippet: c.snippet, sent: c.sent, messages: c.messages }));
 
-  // Clicking a row of the comment list opens the file it is anchored to. The list shows the
-  // whole review, so a thread can point at a file the rail is not showing right now (another
-  // diff source, or filtered out) — then there is nothing to open and the click is a no-op.
-  function jumpToComment(t) {
-    const i = changes.findIndex((c) => c.file === t.file);
-    if (i >= 0) activeIdx = i;
+  // ── jumping from the comment list ───────────────────────────────────────────────────────
+  // Clicking a row opens the file the thread is anchored to AND scrolls to the thread itself:
+  // `jumpTarget` goes down to every DiffView of that file and the one holding the thread reveals
+  // + flashes it (see its `focus` prop).
+  //
+  // The BRANCH PAIR has to be restored first: `opIndex` is `br:<repo>:<base>:<branch>:<j>` (see
+  // fileDiffs) and `commentsFor` hands a thread only to the section whose key matches exactly.
+  // A comment left while comparing another pair is rendered nowhere on the current one, so the
+  // click would open the file and stop there. Anything that is not a `br:` key belongs to the
+  // Ship lens and cannot be shown here at all (cf. `jumpable`).
+  function threadContext(opIndex) {
+    // greedy repo root: a path may hold a colon, a git ref may not
+    const m = /^br:(.+):([^:]+):([^:]+):\d+$/.exec(String(opIndex || ''));
+    return m ? { root: m[1], base: m[2], branch: m[3] } : null;
   }
+  const jumpable = (t) => !!threadContext(t.opIndex);
+
+  async function restoreContext(ctx) {
+    // the branch LIST is per-repo, and loadBranches resets base/branch to that repo's default →
+    // switch repo first, pick the pair after.
+    if (ctx.root && ctx.root !== selectedRepo) {
+      selectedRepo = ctx.root;
+      await loadBranches(ctx.root, true);
+    }
+    base = ctx.base;
+    branch = ctx.branch;
+    const key = ctx.root + ':' + ctx.base + ':' + ctx.branch;
+    if (!diffCache[key]) { diffLoading = true; await loadDiff(key); }
+  }
+
+  let jumpTarget = $state(null); // { id, idx } — thread to reveal, and the file it was found in
+  // Returns false when the comment cannot be reached — the list says so rather than looking broken.
+  async function jumpToComment(t) {
+    const ctx = threadContext(t.opIndex);
+    if (!ctx) return false;
+    await restoreContext(ctx);
+    // `changes` is derived, so it already reflects the restored branch pair here
+    const i = changes.findIndex((c) => c.file === t.file);
+    if (i < 0) return false;   // not in that diff after all (branch rewritten, file dropped)
+    activeIdx = i;
+    jumpTarget = { id: t.id, idx: i };
+    return true;
+  }
+  // A jump is spent as soon as you navigate away. Without this the target would still be around
+  // when J/K walks back to that file later, and re-mounting its DiffView would re-scroll and
+  // re-flash a thread nobody asked for.
+  $effect(() => { activeIdx; untrack(() => { if (jumpTarget && jumpTarget.idx !== activeIdx) jumpTarget = null; }); });
 
   const anchorLabel = (c) => {
     const p = c.side === 'old' ? '−L' : '+L';
@@ -404,8 +459,9 @@
                         blame={blameFor}
                         commentable={!!onReview}
                         comments={commentsFor(activeFile.file, d.opIndex)}
+                        focus={jumpTarget}
                         onComment={(p) => addComment(activeFile.file, d.opIndex, activeFile.name, p)}
-                        onDelete={delComment} onReply={replyComment} onResolve={resolveComment} />
+                        onDelete={delComment} onReply={replyComment} onArchive={archiveComment} />
             {/each}
           {/if}
         </div>
@@ -433,7 +489,8 @@
         </button>
       {/if}
 
-      <ReviewComments {threads} onDelete={delComment} onJump={jumpToComment} />
+      <ReviewComments {threads} onDelete={delComment} onJump={jumpToComment} canJump={jumpable}
+                      onArchive={archiveComment} />
 
       {#if (s?.prLinks || []).length}
         <div class="sp-card">
