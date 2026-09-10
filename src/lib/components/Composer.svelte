@@ -240,6 +240,17 @@
     send();
   }
 
+  // Pré-remplissage sans envoi (prompt de follow-up qu'on veut retoucher avant d'envoyer) :
+  // on pose le texte dans la zone de saisie, curseur en fin, et on rend la main au clavier.
+  // Un brouillon en cours n'est jamais écrasé — la suggestion est ajoutée à la suite.
+  export function fillText(t) {
+    const v = typeof t === 'string' ? t.trim() : '';
+    if (!v) return;
+    const draft = text.trim();
+    text = draft ? draft + '\n\n' + v : v;
+    queueMicrotask(() => { if (ta) { ta.focus(); autosize(); ta.selectionStart = ta.selectionEnd = ta.value.length; } });
+  }
+
   async function send() {
     const t = text.trim();
     if ((!t && !images.length) || busy || uploading) return;
