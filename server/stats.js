@@ -15,6 +15,7 @@ import { buildConversation } from './conversation.js';
 import { buildSubSessions } from './subSessions.js';
 import { buildFileChanges } from './changes.js';
 import { buildSubagents } from './subagents.js';
+import { buildScreenshots } from './screenshots.js';
 import { buildWorkflows } from './workflows.js';
 import { latestTodos, todoSummary } from './todos.js';
 import { buildBackgroundJobs, jobStatus } from './background.js';
@@ -311,6 +312,8 @@ function sessionDetail(id) {
     .filter((m) => m.role === 'user' && !m.auto && m.ts)
     .map((m, i) => ({ turn: i, ts: m.ts, prompt: (m.text || '').replace(/\s+/g, ' ').trim().slice(0, 100) }));
   const subagents = buildSubagents(s.file);
+  // screenshots vus/produits par la session et ses sous-agents (cf. server/screenshots.js).
+  const screenshots = buildScreenshots(s.file, id);
   // runs de workflow (outil `Workflow`) : phases + agents, live pendant le run puis figés depuis
   // l'enregistrement final. Cf. server/workflows.js pour les deux sources de vérité.
   const workflows = buildWorkflows(s.file);
@@ -392,7 +395,7 @@ function sessionDetail(id) {
     rateLimit: status ? status.rateLimit : null,   // vrais % 5 h / 7 j du compte (via statusline)
     context: status ? status.context : null,        // remplissage de la fenêtre de contexte
     fastMode: status ? status.fastMode : false,
-    events: ev, messages, subSessions, changes, subagents, workflows,
+    events: ev, messages, subSessions, changes, subagents, workflows, screenshots,
     todos: todos ? todos.todos : [], todoTs: todos ? todos.ts : null,
   };
 }
