@@ -146,18 +146,38 @@ export function parseImports(text) {
   return { bySymbol, specifiers };
 }
 
-// Un candidat vit-il dans un fichier importé par le fichier cliqué ? On compare des chemins
-// SANS résoudre l'extension : `./x` doit couvrir `x.js`, `x.ts`, `x.svelte`, `x/index.js`.
+// Un specifier est-il INTERNE au dépôt ? Relatif, évidemment — mais aussi `$lib/…`, l'alias
+// SvelteKit de `src/lib` : le traiter comme un paquet répondait « vient d'une dépendance »
+// pour à peu près tout ce qu'importe un fichier .svelte de ce dépôt. `$app/…` reste externe
+// (runtime SvelteKit), comme les bare specifiers.
+const isInternalSpec = (spec) => spec.startsWith('.') || spec.startsWith('$lib/') || spec === '$lib';
+
+// Specifier interne → chemin RELATIF AU DÉPÔT, sans extension résolue.
+function specToRel(clickRel, spec) {
+  if (spec.startsWith('$lib')) return path.posix.normalize('src/lib' + spec.slice(4));
+  return path.posix.normalize(path.posix.join(path.posix.dirname(clickRel), spec));
+}
+
 function importedRels(clickRel, specifiers) {
-  const dir = path.posix.dirname(clickRel);
-  const out = [];
-  for (const spec of specifiers) {
-    if (!spec.startsWith('.')) continue;
-    out.push(path.posix.normalize(path.posix.join(dir, spec)));
-  }
-  return out;
+  return specifiers.filter(isInternalSpec).map((spec) => specToRel(clickRel, spec));
 }
 const coversRel = (bases, rel) => bases.some((b) => rel === b || rel.startsWith(b + '.') || rel.startsWith(b + '/index.'));
+
+// Résout un specifier interne en fichier EXISTANT du dépôt : tel quel, puis avec les
+// extensions usuelles, puis en index de dossier. C'est la déclaration d'un composant Svelte —
+// aucune LIGNE ne déclare `DiffView`, sa déclaration est le fichier DiffView.svelte.
+const RESOLVE_EXTS = ['', '.js', '.mjs', '.cjs', '.ts', '.tsx', '.jsx', '.svelte', '.vue'];
+function resolveImportedFile(root, base) {
+  for (const ext of RESOLVE_EXTS) {
+    const rel = base + ext;
+    try { if (fs.statSync(path.join(root, rel)).isFile()) return rel; } catch (_) { /* absent */ }
+  }
+  for (const ext of RESOLVE_EXTS.slice(1)) {
+    const rel = base + '/index' + ext;
+    try { if (fs.statSync(path.join(root, rel)).isFile()) return rel; } catch (_) { /* absent */ }
+  }
+  return null;
+}
 
 // ── partition ────────────────────────────────────────────────────────────────────────────
 // Pas de somme de poids arbitraires : une partition, puis des comparateurs ORDONNÉS. Chaque
@@ -252,9 +272,18 @@ export async function lookup(cwd, { symbol, file, rev = '' } = {}) {
   // importé de @anthropic-ai/claude-agent-sdk — renvoyait trois `let query = $state('')`
   // sans rapport, tous parfaitement classés et tous faux.
   const importedFrom = bySymbol.get(symbol);
-  if (importedFrom && !importedFrom.startsWith('.')) {
+  if (importedFrom && !isInternalSpec(importedFrom)) {
     return { ...empty, supported: true, root: here ? here.repo.root : list[0].root, symbol,
              origin: { kind: 'dependency', specifier: importedFrom } };
+  }
+
+  // Importé d'un fichier INTERNE : la cible est connue avant tout grep. On la résout tout de
+  // suite — pour un composant Svelte c'est même la seule déclaration possible (aucune ligne ne
+  // déclare `DiffView` ; son fichier, si). Le grep complète ensuite avec la ligne exacte quand
+  // elle existe.
+  let importTargetRel = null;
+  if (importedFrom && here) {
+    importTargetRel = resolveImportedFile(here.repo.root, specToRel(clickRel, importedFrom));
   }
 
   // Le dépôt le PLUS SPÉCIFIQUE contenant le fichier cliqué d'abord, les autres seulement si
@@ -278,6 +307,15 @@ export async function lookup(cwd, { symbol, file, rev = '' } = {}) {
       importedBases: inThisRepo ? importedBases : [],
       isTestClick: isTestPath(clickRel),
     });
+    // La cible d'import résolue prime tout : si le fichier importé contient une déclaration
+    // textuelle, on ne garde QUE celle(s)-là ; sinon le fichier lui-même est la déclaration
+    // (kind 'module', ligne 1) — le cas des composants Svelte.
+    if (inThisRepo && importTargetRel) {
+      const inTarget = part.declarations.filter((d) => d.rel === importTargetRel);
+      if (inTarget.length) part.declarations = inTarget;
+      else part.declarations = [{ rel: importTargetRel, line: 1, text: '', kind: 'module',
+                                  rank: -10, demoted: false, reason: 'imported from ' + importedFrom }];
+    }
     const abs = (h) => ({ ...h, file: path.join(repo.root, h.rel), root: repo.root });
     refCount += part.references.length;
     if (part.declarations.length) {
@@ -289,12 +327,18 @@ export async function lookup(cwd, { symbol, file, rev = '' } = {}) {
     if (!references.length) { root = repo.root; references = part.references.slice(0, MAX_OUT).map(abs); }
   }
 
-  // Ouverture DIRECTE si et seulement s'il reste une unique déclaration non rétrogradée.
-  // Règle catégorielle, sans seuil à régler : `buildVcsChanges` a bien deux déclarations,
-  // mais la seconde est un `let x, y, z` de fichier de test — elle ne doit pas empêcher le
-  // saut. La décision vit ICI, pas dans l'UI, pour être testable sans navigateur.
+  // Ouverture DIRECTE — catégorielle, sans seuil à régler, et décidée ICI pour être testable
+  // sans navigateur. Deux cas :
+  //   • une unique déclaration non rétrogradée (`buildVcsChanges` : la seconde est un
+  //     `let x, y, z` de test, elle ne doit pas empêcher le saut) ;
+  //   • plusieurs, mais LE CONTEXTE tranche : la première est dans le fichier cliqué ou dans
+  //     un fichier qu'il importe, pas la deuxième. `saySym` existe dans Ship ET Branch — si on
+  //     clique dans Ship, c'est celle de Ship, il n'y a rien à demander à l'utilisateur.
   const primary = declarations.filter((d) => !d.demoted);
-  const jump = primary.length === 1 ? primary[0] : null;
+  const contextual = (d) => d && /same file|imported/.test(d.reason || '');
+  const jump = primary.length === 1 ? primary[0]
+    : primary.length > 1 && contextual(primary[0]) && !contextual(primary[1]) ? primary[0]
+    : null;
 
   return {
     jump,

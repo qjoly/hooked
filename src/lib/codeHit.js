@@ -70,7 +70,10 @@ export function symbolUnderPointer(ev, { lineSelector = '.dv-code', lang = '' } 
   const range = document.createRange();
   range.setStart(sn, so);
   range.setEnd(en, eo + 1);
-  return { word: hit.word, kind: hit.kind, lineEl, range };
+  // start/end sont les offsets dans le TEXTE de la ligne, pas dans le DOM : ils survivent à un
+  // re-rendu, là où une Range devient caduque. C'est ce qui permet de garder le symbole cliqué
+  // marqué tant que sa carte est ouverte.
+  return { word: hit.word, kind: hit.kind, start: hit.start, end: hit.end, lineEl, range };
 }
 
 // Peinture d'un mot via la CSS Custom Highlight API : aucun nœud ajouté ni scindé, donc aucune
@@ -83,6 +86,20 @@ export function paintSymbol(name, range) {
   if (range) CSS.highlights.set(name, new Highlight(range));
   else CSS.highlights.delete(name);
 }
+// Repeint un mot d'une ligne déjà rendue, à partir de ses offsets TEXTE. Sert au marquage
+// persistant : après chaque re-rendu du diff, la Range est reconstruite depuis les offsets.
+export function paintRangeIn(name, lineEl, start, end) {
+  if (!highlightsSupported() || !lineEl) return false;
+  const flat = flattenLine(lineEl);
+  if (end > flat.text.length || start >= end) return false;
+  const [sn, so] = flat.at(start), [en, eo] = flat.at(end - 1);
+  const r = document.createRange();
+  r.setStart(sn, so);
+  r.setEnd(en, eo + 1);
+  CSS.highlights.set(name, new Highlight(r));
+  return true;
+}
+
 export function clearSymbols(names) {
   if (!highlightsSupported()) return;
   for (const n of names) CSS.highlights.delete(n);

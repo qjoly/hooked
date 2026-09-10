@@ -221,6 +221,49 @@ describe('lookup — bout en bout sur un dépôt git', () => {
     expect((await lookup(repo, { symbol: 'refine', file: path.join(repo, 'src/app.js'), rev: '--upload-pack=x' })).supported).toBe(false);
   });
 
+  it('résout un composant Svelte vers son FICHIER — aucune ligne ne déclare un composant', async () => {
+    fs.mkdirSync(path.join(repo, 'src/components'), { recursive: true });
+    fs.writeFileSync(path.join(repo, 'src/components/Widget.svelte'), '<h1>hi</h1>\n');
+    fs.writeFileSync(path.join(repo, 'src/page.svelte'),
+      "<script>\n  import Widget from './components/Widget.svelte';\n</script>\n<Widget />\n");
+    await git(repo, 'add', 'src');
+    await git(repo, 'commit', '-q', '-m', 'widget');
+    const r = await lookup(repo, { symbol: 'Widget', file: path.join(repo, 'src/page.svelte') });
+    expect(r.jump).toBeTruthy();
+    expect(r.jump.rel).toBe('src/components/Widget.svelte');
+    expect(r.jump.line).toBe(1);
+    expect(r.jump.kind).toBe('module');
+  });
+
+  it("résout `$lib/…` comme src/lib — l'alias SvelteKit n'est PAS une dépendance", async () => {
+    fs.mkdirSync(path.join(repo, 'src/lib'), { recursive: true });
+    fs.writeFileSync(path.join(repo, 'src/lib/tools.js'), 'export function sharpen(x) {\n  return x;\n}\n');
+    fs.writeFileSync(path.join(repo, 'src/deep.svelte'),
+      "<script>\n  import { sharpen } from '$lib/tools.js';\n  sharpen(1);\n</script>\n");
+    await git(repo, 'add', 'src');
+    await git(repo, 'commit', '-q', '-m', 'lib');
+    const r = await lookup(repo, { symbol: 'sharpen', file: path.join(repo, 'src/deep.svelte') });
+    expect(r.origin).toBe(null);            // surtout pas « vient d'une dépendance »
+    expect(r.jump).toBeTruthy();
+    expect(r.jump.rel).toBe('src/lib/tools.js');
+    expect(r.jump.kind).toBe('function');
+  });
+
+  it('tranche un nom déclaré dans DEUX fichiers par le contexte du clic', async () => {
+    fs.writeFileSync(path.join(repo, 'src/a.js'), 'export function dupe() { return 1; }\ndupe();\n');
+    fs.writeFileSync(path.join(repo, 'src/b.js'), 'export function dupe() { return 2; }\n');
+    await git(repo, 'add', 'src');
+    await git(repo, 'commit', '-q', '-m', 'dupe');
+    // cliqué depuis a.js → c'est le dupe de a.js, il n'y a rien à demander à l'utilisateur
+    const r = await lookup(repo, { symbol: 'dupe', file: path.join(repo, 'src/a.js') });
+    expect(r.jump).toBeTruthy();
+    expect(r.jump.rel).toBe('src/a.js');
+    // cliqué depuis un fichier NEUTRE → ambigu, pas de saut direct, deux candidats
+    const n = await lookup(repo, { symbol: 'dupe', file: path.join(repo, 'src/app.js') });
+    expect(n.jump).toBe(null);
+    expect(n.declarations.length).toBe(2);
+  });
+
   it('rend supported:false hors de tout dépôt', async () => {
     const bare = path.join(T, 'nowhere');
     fs.mkdirSync(bare, { recursive: true });
