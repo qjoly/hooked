@@ -9,6 +9,7 @@
   import DiffView from './DiffView.svelte';
   import Grip from './Grip.svelte';
   import ReviewComments from './ReviewComments.svelte';
+  import DefPeek from './DefPeek.svelte';
   import Icon from '$lib/components/Icon.svelte';
   import { toSegments, countStats, applyOp } from '$lib/difflines.js';
   import { fmtCost } from '$lib/format.js';
@@ -482,30 +483,39 @@
     return true;
   }
 
-  function openInEditorAt(file, line) {
-    const url = editorFor(settings.editor).fileUrl(file, line);
-    if (url) window.location.href = url;
-  }
+  // La carte de définition ouverte EN LIGNE dans le diff, sous la ligne cliquée.
+  // { opIndex, atSide, atLine, file, rel, line, rev, symbol, kind }
+  let def = $state(null);
+  // Elle est ancrée à une ligne d'un fichier : changer de fichier la périme, comme jumpTarget.
+  $effect(() => { activeIdx; untrack(() => { def = null; }); });
 
-  async function gotoDefinition({ word, side, line, local }) {
+  async function gotoDefinition(file, opIndex, { word, side, line, local }) {
     if (!activeFile) return;
-    // 1. déjà dans le fichier affiché : zéro requête, réponse dans la frame.
-    if (local && await jumpToLine(activeFile.file, local.line, side)) return;
+    const rev = revForSide(side);
+    const openHere = (t) => {
+      symMsg = null;
+      def = { opIndex, atSide: side, atLine: line, file: t.file, rel: t.rel, line: t.line, rev, symbol: word, kind: t.kind };
+    };
+
+    // 1. déjà dans le fichier affiché : zéro requête, on révèle la ligne sur place — la carte
+    //    n'apporterait rien puisque le code est déjà sous les yeux, dans son vrai diff.
+    if (local && await jumpToLine(file, local.line, side)) return;
+
     // 2. le dépôt.
     saySym('Looking up ' + word + '…');
     let r;
-    try { r = await getSymbolDefs(id, word, activeFile.file, revForSide(side)); } catch (_) { r = null; }
+    try { r = await getSymbolDefs(id, word, file, rev); } catch (_) { r = null; }
     if (!r || !r.supported) return saySym(r && r.timedOut ? 'Lookup timed out.' : 'No repository to search.');
     if (r.origin) return saySym(word + ' comes from ' + r.origin.specifier + ' — not in this repo.');
     const target = r.jump || (r.declarations.length === 1 ? r.declarations[0] : null);
     if (!target) {
-      if (r.declarations.length) return saySym(r.declarations.length + ' possible declarations — opening the closest.');
-      return saySym(r.referenceCount ? 'No declaration found (' + r.referenceCount + ' references).' : 'No declaration found.');
+      return saySym(r.declarations.length ? r.declarations.length + ' possible declarations.'
+        : r.referenceCount ? 'No declaration found (' + r.referenceCount + ' references).' : 'No declaration found.');
     }
-    symMsg = null;
-    if (await jumpToLine(target.file, target.line, 'new')) return;
-    openInEditorAt(target.file, target.line);
-    saySym(target.rel + ':' + target.line + ' — opened in your editor (not in this review).');
+    // 3. dans un AUTRE fichier de la review → on y va, le diff est plus informatif que la
+    //    carte (il porte les commentaires et le blame). Sinon la carte, ici même.
+    if (target.file !== file && await jumpToLine(target.file, target.line, 'new')) return;
+    openHere(target);
   }
 
   const anchorLabel = (c) => {
@@ -741,12 +751,17 @@
           {#if activeFile.binary}
             <div class="sd-empty">Binary file — no diff.</div>
           {:else}
+            {#snippet defCard()}
+              <DefPeek {id} target={def} onClose={() => (def = null)} />
+            {/snippet}
             {#each fileDiffs(activeFile) as d (d.opIndex)}
               {#if d.label}<div class="sd-oplabel">{d.label}</div>{/if}
               <DiffView oldStr={d.oldStr} newStr={d.newStr} name={activeFile.name} mode={effMode} {compact}
                         blame={blameFor}
                         wholeFile={!!d.wholeFile}
-                        onSymbol={gotoDefinition}
+                        onSymbol={(p) => gotoDefinition(activeFile.file, d.opIndex, p)}
+                        definitionAt={def && def.opIndex === d.opIndex ? { side: def.atSide, line: def.atLine } : null}
+                        definition={defCard}
                         commentable={!!onReview}
                         comments={commentsFor(activeFile.file, d.opIndex)}
                         focus={jumpTarget}
