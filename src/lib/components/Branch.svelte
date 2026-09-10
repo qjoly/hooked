@@ -17,6 +17,7 @@
            archiveReviewThread, markReviewSent, reply as sendToSession } from '$lib/api.js';
   import { settings, ui } from '$lib/state.svelte.js';
   import { editorFor } from '$lib/editors.js';
+  import { getSymbolDefs } from '$lib/api.js';
   import { fingerprint, isReviewed as hasReview, toggleReviewed as tickReview,
            toMap as reviewedToMap, toEntries as reviewedToEntries } from '$lib/reviewState.js';
   import { loadDraft, saveDraft } from '$lib/reviewDraft.js';
@@ -100,7 +101,9 @@
 
   // VCS entries are single old→new edits; key sections per branch pair so inline comments
   // never collide across branches (or with the Ship lens) on the same file.
-  const fileDiffs = (c) => (c.ops || []).map((o, j) => ({ oldStr: o.old || '', newStr: o.new || '', opIndex: 'br:' + diffKey + ':' + j }));
+  // wholeFile : une entrée de diff de branche est un old→new du fichier ENTIER (makeEntry,
+  // vcsDiff.js), donc ses numéros de ligne SONT ceux du fichier — un saut à la ligne est sûr.
+  const fileDiffs = (c) => (c.ops || []).map((o, j) => ({ oldStr: o.old || '', newStr: o.new || '', opIndex: 'br:' + diffKey + ':' + j, wholeFile: true }));
 
   // +N/−M per file, and totals across the branch.
   const fileStats = $derived.by(() => {
@@ -255,7 +258,7 @@
     if (!diffCache[key]) { diffLoading = true; await loadDiff(key); }
   }
 
-  let jumpTarget = $state(null); // { id, idx } — thread to reveal, and the file it was found in
+  let jumpTarget = $state(null); // { kind, …, idx } — cible à révéler, et le fichier où elle est
   // Returns false when the comment cannot be reached — the list says so rather than looking broken.
   async function jumpToComment(t) {
     const ctx = threadContext(t.opIndex);
@@ -265,13 +268,60 @@
     const i = changes.findIndex((c) => c.file === t.file);
     if (i < 0) return false;   // not in that diff after all (branch rewritten, file dropped)
     activeIdx = i;
-    jumpTarget = { id: t.id, idx: i };
+    jumpTarget = { kind: 'thread', id: t.id, idx: i };
     return true;
   }
   // A jump is spent as soon as you navigate away. Without this the target would still be around
   // when J/K walks back to that file later, and re-mounting its DiffView would re-scroll and
   // re-flash a thread nobody asked for.
   $effect(() => { activeIdx; untrack(() => { if (jumpTarget && jumpTarget.idx !== activeIdx) jumpTarget = null; }); });
+
+  // ── go to definition ────────────────────────────────────────────────────────────────────
+  // Même modèle que Ship : la définition dans un fichier du diff de branche se révèle sur
+  // place (rail + focus, avec le retry d'ouverture des gaps), sinon repli sur l'éditeur, à la
+  // bonne LIGNE. Ici les révisions sont des noms de branche, pas des SHA (cf. blameFor).
+  let symMsg = $state(null);
+  let symTimer = 0;
+  function saySym(text) {
+    clearTimeout(symTimer);
+    symMsg = text;
+    symTimer = setTimeout(() => (symMsg = null), 4000);
+  }
+  const revForSide = (side) => {
+    const b = blameFor;
+    if (!b) return '';
+    const r = side === 'old' ? b.old : b.new;
+    return typeof r === 'string' ? r : '';
+  };
+  function jumpToLine(file, line, side = 'new') {
+    const i = changes.findIndex((c) => c.file === file);
+    if (i < 0) return false;
+    activeIdx = i;
+    jumpTarget = { kind: 'line', side, line, idx: i };
+    return true;
+  }
+  function openInEditorAt(file, line) {
+    const url = editorFor(settings.editor).fileUrl(file, line);
+    if (url) window.location.href = url;
+  }
+  async function gotoDefinition({ word, side, local }) {
+    if (!activeFile) return;
+    if (local && jumpToLine(activeFile.file, local.line, side)) return;
+    saySym('Looking up ' + word + '…');
+    let r;
+    try { r = await getSymbolDefs(id, word, activeFile.file, revForSide(side)); } catch (_) { r = null; }
+    if (!r || !r.supported) return saySym(r && r.timedOut ? 'Lookup timed out.' : 'No repository to search.');
+    if (r.origin) return saySym(word + ' comes from ' + r.origin.specifier + ' — not in this repo.');
+    const target = r.jump || (r.declarations.length === 1 ? r.declarations[0] : null);
+    if (!target) {
+      return saySym(r.declarations.length ? r.declarations.length + ' possible declarations.'
+        : r.referenceCount ? 'No declaration found (' + r.referenceCount + ' references).' : 'No declaration found.');
+    }
+    symMsg = null;
+    if (jumpToLine(target.file, target.line, 'new')) return;
+    openInEditorAt(target.file, target.line);
+    saySym(target.rel + ':' + target.line + ' — opened in your editor (not in this diff).');
+  }
 
   const anchorLabel = (c) => {
     const p = c.side === 'old' ? '−L' : '+L';
@@ -451,12 +501,15 @@
           </button>
         </div>
         <div class="sd-body">
+          {#if symMsg}<div class="sd-sym">{symMsg}</div>{/if}
           {#if activeFile.binary}
             <div class="sd-empty">Binary file — no diff.</div>
           {:else}
             {#each fileDiffs(activeFile) as d (d.opIndex)}
               <DiffView oldStr={d.oldStr} newStr={d.newStr} name={activeFile.name} mode={effMode} {compact}
                         blame={blameFor}
+                        wholeFile={!!d.wholeFile}
+                        onSymbol={gotoDefinition}
                         commentable={!!onReview}
                         comments={commentsFor(activeFile.file, d.opIndex)}
                         focus={jumpTarget}
@@ -593,6 +646,11 @@
   }
   .sd-review.done { background: color-mix(in srgb, var(--success) 16%, transparent); border-color: var(--success); color: var(--success); }
   .sd-body { flex: 1 1 auto; min-height: 0; min-width: 0; overflow-y: auto; overflow-x: hidden; }
+  /* retour bref du « go to definition » : rien à ouvrir, ou ouvert ailleurs */
+  .sd-sym {
+    padding: 5px 12px; font-family: var(--mono); font-size: 11px; color: var(--accent-d);
+    background: rgba(var(--accent-rgb), .08); border-bottom: 1px solid var(--border);
+  }
   .sd-empty { padding: 24px; color: var(--muted); font-size: 12.5px; }
 
   /* side panel */

@@ -5,6 +5,7 @@
   import { page } from '$app/state';
   import { pageHref } from '$lib/nav.js';
   import { matchShortcut } from '$lib/shortcuts.js';
+  import { trackModifier } from '$lib/peek.svelte.js';
   import Modal from '$lib/components/Modal.svelte';
   import CommandPalette from '$lib/components/CommandPalette.svelte';
   import TopBar from '$lib/components/TopBar.svelte';
@@ -14,6 +15,10 @@
   let { children } = $props();
   let palette;
   onMount(startLive);
+  // Suivi global de la touche « go to definition » (⌘ sur Mac, ⌃ ailleurs) : un seul écouteur
+  // pour toute l'application, et il rend la touche à `blur`/`visibilitychange` — un ⌘-Tab ne
+  // livre jamais le keyup, et le mode resterait collé au retour dans la fenêtre.
+  onMount(trackModifier);
 
   // Page d'accueil par défaut (réglable) : à froid (une fois par onglet), si on atterrit sur le
   // Deck `/` et que la préférence pointe ailleurs, on redirige. sessionStorage → ne se déclenche
