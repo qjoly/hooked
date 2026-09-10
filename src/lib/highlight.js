@@ -1,11 +1,15 @@
 // Coloration syntaxique légère et sans dépendance.
 //
-// Un seul moteur (tokenize) piloté par des tables de règles par langage. Chaque
+// Un seul moteur (scanTokens) piloté par des tables de règles par langage. Chaque
 // règle = [classe, regex collante (flag `y`)]. À chaque position on essaie les
 // règles dans l'ordre ; la première qui matche au curseur gagne. Tout ce qui
 // n'est reconnu par aucune règle est échappé caractère par caractère.
 //
 // Les classes produites (`hl-com`, `hl-str`, …) sont stylées dans app.css.
+//
+// Le découpage sert DEUX consommateurs : `highlight()` (rendu HTML) et `symbolAt()` (le
+// symbole sous le curseur, pour le « go to definition »). Toute modification de scanTokens
+// est couverte au caractère près par test/highlightBaseline.test.mjs.
 
 import { esc } from './format.js';
 
@@ -146,9 +150,25 @@ export function langLabel(lang) {
   return RAW_LABELS[l] || LABELS[ALIAS[l]] || l.toUpperCase();
 }
 
-function tokenize(code, rules, kw, lit) {
+// Découpe `code` en tokens. Passage UNIQUE qui alimente à la fois le rendu (`renderTokens`) et
+// le repérage du symbole sous le curseur (`symbolAt`). Chaque entrée porte :
+//   cls    — la classe brute du scanner ('ident', 'str', 'com', 'num', 'tag'…), ou null pour
+//            les caractères qu'aucune règle ne reconnaît ;
+//   klass  — la classe CSS réellement émise, qui peut être null (un identifiant ordinaire
+//            n'est pas enveloppé, cf. la note de `symbolAt`).
+// Les caractères non reconnus sont REGROUPÉS en un seul token : `esc` échappe caractère par
+// caractère, donc grouper ne change pas d'un octet la sortie de `renderTokens`.
+export function scanTokens(code, lang) {
+  const cfg = LANGS[ALIAS[(lang || '').toLowerCase()] || 'generic'] || LANGS.generic;
+  const { rules, kw, lit } = cfg;
   const n = code.length;
-  let out = '', i = 0;
+  const out = [];
+  let i = 0, plain = -1; // `plain` = début du run non reconnu en cours
+  const flushPlain = (end) => {
+    if (plain < 0) return;
+    out.push({ cls: null, klass: null, start: plain, end, text: code.slice(plain, end) });
+    plain = -1;
+  };
   while (i < n) {
     let matched = false;
     for (const [cls, re] of rules) {
@@ -166,13 +186,21 @@ function tokenize(code, rules, kw, lit) {
           klass = code[j] === '(' ? 'fn' : null;
         }
       }
-      out += klass ? `<span class="hl-${klass}">${esc(tok)}</span>` : esc(tok);
+      flushPlain(i);
+      out.push({ cls, klass, start: i, end: i + tok.length, text: tok });
       i += tok.length;
       matched = true;
       break;
     }
-    if (!matched) { out += esc(code[i]); i++; }
+    if (!matched) { if (plain < 0) plain = i; i++; }
   }
+  flushPlain(n);
+  return out;
+}
+
+function renderTokens(tokens) {
+  let out = '';
+  for (const t of tokens) out += t.klass ? `<span class="hl-${t.klass}">${esc(t.text)}</span>` : esc(t.text);
   return out;
 }
 
@@ -192,6 +220,124 @@ function highlightDiff(code) {
 export function highlight(code, lang) {
   const key = ALIAS[(lang || '').toLowerCase()] || 'generic';
   if (key === 'diff') return highlightDiff(code);
-  const cfg = LANGS[key] || LANGS.generic;
-  return tokenize(code, cfg.rules, cfg.kw, cfg.lit);
+  return renderTokens(scanTokens(code, lang));
+}
+
+// ── symbole sous le curseur (« go to definition ») ────────────────────────────────────────
+//
+// Mots-clés par langage pour le FILTRAGE des symboles cliquables. Volontairement DISSOCIÉ de
+// `LANGS` : Go, Rust, Java, C#, PHP, Ruby et SQL n'ont pas de table de coloration (ils
+// retombent sur `generic`, qui n'a aucun mot-clé), et `func` en Go doit malgré tout être
+// rejeté. Ajouter une entrée ici ne change RIEN au rendu.
+const GO_KW = set(
+  'break case chan const continue default defer else fallthrough for func go goto if import ' +
+  'interface map package range return select struct switch type var nil true false iota'
+);
+const RUST_KW = set(
+  'as async await break const continue crate dyn else enum extern false fn for if impl in let ' +
+  'loop match mod move mut pub ref return self Self static struct super trait true type unsafe use where while'
+);
+const JAVA_KW = set(
+  'abstract assert boolean break byte case catch char class const continue default do double ' +
+  'else enum extends final finally float for goto if implements import instanceof int interface ' +
+  'long native new package private protected public return short static strictfp super switch ' +
+  'synchronized this throw throws transient try void volatile while var record sealed true false null'
+);
+const CSHARP_KW = set(
+  'abstract as base bool break byte case catch char checked class const continue decimal default ' +
+  'delegate do double else enum event explicit extern false finally fixed float for foreach goto ' +
+  'if implicit in int interface internal is lock long namespace new null object operator out ' +
+  'override params private protected public readonly ref return sbyte sealed short sizeof stackalloc ' +
+  'static string struct switch this throw true try typeof uint ulong unchecked unsafe ushort using ' +
+  'var virtual void volatile while async await record'
+);
+const PHP_KW = set(
+  'abstract and array as break callable case catch class clone const continue declare default do ' +
+  'echo else elseif empty enddeclare endfor endforeach endif endswitch endwhile enum extends final ' +
+  'finally fn for foreach function global goto if implements include include_once instanceof ' +
+  'insteadof interface isset list match namespace new or print private protected public readonly ' +
+  'require require_once return static switch throw trait try unset use var while xor yield true false null'
+);
+const RUBY_KW = set(
+  'alias and begin break case class def defined do else elsif end ensure false for if in module ' +
+  'next nil not or redo rescue retry return self super then true undef unless until when while yield'
+);
+const SQL_KW = set(
+  'select from where insert into values update set delete create table view index drop alter add ' +
+  'column primary key foreign references join inner left right outer full on group by order having ' +
+  'limit offset union all distinct as and or not null is in exists between like case when then else ' +
+  'end begin commit rollback with returning'
+);
+// Svelte/Vue : mots-clés JS PLUS ceux des blocs de template — sans eux, `each` dans
+// `{#each items as item}` serait proposé comme symbole.
+const SVELTE_KW = set([...JS_KW, ...JS_LIT, 'each', 'then', 'catch', 'await', 'key', 'snippet', 'render', 'html', 'const', 'debug'].join(' '));
+
+const SYMBOL_KW = {
+  go: GO_KW, rust: RUST_KW, rs: RUST_KW,
+  java: JAVA_KW, kotlin: JAVA_KW, kt: JAVA_KW,
+  csharp: CSHARP_KW, cs: CSHARP_KW,
+  php: PHP_KW, ruby: RUBY_KW, rb: RUBY_KW,
+  sql: SQL_KW,
+  svelte: SVELTE_KW, vue: SVELTE_KW,
+};
+
+// Mots à ne jamais proposer, quel que soit le langage : sans table de coloration ni entrée
+// SYMBOL_KW, ils resteraient cliquables et ne mèneraient nulle part.
+const UNIVERSAL_NOISE = set('true false null nil none undefined this self super');
+
+const kwCache = new Map();
+function symbolKeywords(lang) {
+  const raw = (lang || '').toLowerCase();
+  let s = kwCache.get(raw);
+  if (s) return s;
+  const own = SYMBOL_KW[raw];
+  const cfg = LANGS[ALIAS[raw]];
+  s = new Set(UNIVERSAL_NOISE);
+  if (own) for (const w of own) s.add(w);
+  if (cfg) { for (const w of cfg.kw) s.add(w); for (const w of cfg.lit) s.add(w); }
+  kwCache.set(raw, s);
+  return s;
+}
+
+const WORD_CHAR = /[A-Za-z0-9_$]/;
+const WORD_HEAD = /[A-Za-z_$]/;
+const MIN_LEN = 2, MAX_LEN = 128;
+
+// Le symbole cliquable qui contient `offset`, ou null.
+//
+// IMPORTANT : on ne s'appuie PAS sur le fait que la table du langage produise un token
+// `ident`. La table `html` — donc `.svelte` et `.vue`, le gros de ce dépôt — n'a aucune règle
+// d'identifiant, et `generic` (Go, Rust, Java…) n'en produit que sans classe. Un `symbolAt`
+// piloté par les tokens ne trouverait donc jamais rien dans un fichier Svelte.
+// On délimite le mot nous-mêmes, et les tokens ne servent qu'à EXCLURE : chaînes et
+// commentaires, que toutes les tables savent reconnaître.
+export function symbolAt(code, lang, offset) {
+  if (typeof code !== 'string' || !code || !Number.isFinite(offset)) return null;
+  const n = code.length;
+  let i = Math.max(0, Math.min(offset, n - 1));
+  if (!WORD_CHAR.test(code[i])) {
+    // le curseur est posé JUSTE APRÈS un mot (fin de ligne, clic au bord) → on recule d'un cran
+    if (i === 0 || !WORD_CHAR.test(code[i - 1])) return null;
+    i -= 1;
+  }
+  let start = i;
+  while (start > 0 && WORD_CHAR.test(code[start - 1])) start--;
+  let end = i + 1;
+  while (end < n && WORD_CHAR.test(code[end])) end++;
+  if (!WORD_HEAD.test(code[start])) return null;   // 42, 0xFF… : pas un identifiant
+
+  const word = code.slice(start, end);
+  if (word.length < MIN_LEN || word.length > MAX_LEN) return null;
+  if (symbolKeywords(lang).has(word)) return null;
+
+  // dans une chaîne ou un commentaire → ce n'est pas un symbole du programme
+  for (const t of scanTokens(code, lang)) {
+    if (t.end <= start) continue;
+    if (t.start >= end) break;
+    if (t.cls === 'str' || t.cls === 'com') return null;
+  }
+
+  let j = end;
+  while (j < n && (code[j] === ' ' || code[j] === '\t')) j++;
+  return { word, start, end, kind: code[j] === '(' ? 'call' : 'ident' };
 }
