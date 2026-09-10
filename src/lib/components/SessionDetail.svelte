@@ -75,7 +75,7 @@
     (s.todos || []).length || (s.changes || []).length || (s.subagents || []).length ||
     (s.workflows || []).length ||
     (s.subSessions || []).length || (s.bgJobs || []).length ||
-    (s.prLinks || []).length || (s.issueLinks || []).length
+    (s.prLinks || []).length || (s.issueLinks || []).length || (s.screenshots || []).length
   ));
 
   // Lentilles du workspace : Converse, Ship, Branch et MCP. Le panneau Shell (mirroir xterm d'un
