@@ -10,7 +10,7 @@
   import Icon from '$lib/components/Icon.svelte';
   import { ui } from '$lib/state.svelte.js';
   import { untrack } from 'svelte';
-  import { symbolUnderPointer, paintSymbol, clearSymbols, highlightsSupported } from '$lib/codeHit.js';
+  import { symbolUnderPointer, paintSymbol, paintRangeIn, clearSymbols, highlightsSupported } from '$lib/codeHit.js';
   import { localDeclaration, langOfPath } from '$lib/localDefs.js';
   import { peek, modHeld } from '$lib/peek.svelte.js';
 
@@ -28,15 +28,20 @@
     onDelete = null,          // (id) => void — pending threads only
     onReply = null,           // (id, text) => void — follow-up inside a thread (sent instantly)
     onArchive = null,         // (id, archived) => void — archived threads leave the diff entirely
-    // A target to reveal, fired blindly at every DiffView of the file — only the one actually
-    // holding it reacts. Two shapes:
-    //   { kind: 'thread', id }      — a comment, from the review's comment list;
-    //   { kind: 'line', side, line } — a line, from a "go to definition" landing in this diff.
+    // A thread to reveal, as { kind: 'thread', id } — fired blindly at every DiffView of the
+    // file, only the one actually holding it reacts. A definition never lands here: it opens
+    // a card in place (see `definitionAt`) rather than moving you somewhere else.
     focus = null,
-    // ({ word, side, line, local }) => void — the modifier-click on a symbol. `local` is the
-    // declaration already found in THIS file, if any, so the caller can jump with no request.
+    // ({ word, side, line, start, end, local }) => void — the modifier-click on a symbol.
+    // `local` is the declaration already found in THIS file, if any, so the caller can answer
+    // with no request at all. `start`/`end` locate the word in the line's text, so the caller
+    // can hand them back as `markAt` and keep it underlined.
     // Null disables the gesture entirely (conversation diffs, read-only previews).
     onSymbol = null,
+    // Le symbole cliqué, gardé marqué tant que sa carte est ouverte :
+    // { side, line, start, end } — offsets dans le TEXTE de la ligne, donc ils survivent à un
+    // re-rendu (ouverture d'un gap, arrivée d'un blame) là où une Range serait caduque.
+    markAt = null,
     // Où insérer la carte de définition, et quoi y rendre. `definitionAt` = { side, line } :
     // la carte s'ouvre EN LIGNE, juste sous cette ligne, comme un « peek » d'IDE. Le contenu
     // arrive en snippet pour que ce composant n'ait à connaître ni la session, ni l'API, ni
@@ -55,6 +60,10 @@
   } = $props();
 
   const lang = $derived(langFromName(name));
+  // Pour symbolAt, on passe l'EXTENSION brute et pas `lang` : langFromName vise la COLORATION
+  // et mappe .svelte sur 'html', une table sans aucun mot-clé — `function`, `return`, `import`
+  // devenaient cliquables dans tout fichier Svelte. L'extension retombe sur SYMBOL_KW.svelte.
+  const symLang = $derived(((name || '').split('.').pop() || '').toLowerCase());
   const segs = $derived(toSegments(oldStr, newStr));
 
   // GitHub-style gap expansion: per equal-segment { head, tail, all } — how many hidden unchanged
@@ -176,55 +185,40 @@
   // The card may be off-DOM: `compact` (and a plain collapsed gap) hides unchanged lines, and a
   // thread anchored to one of them renders nowhere. So: look, then open every gap of this view
   // and look again. Failing that the click stays a no-op — better than scrolling to a wrong line.
-  const FLASH_MS = 2000;       // keep in step with the dv-flash / dv-line-flash keyframes
+  const FLASH_MS = 2000;       // keep in step with the dv-flash keyframes
   let focused = $state(null);  // id of the thread flashing right now
-  let hitLine = $state(null);  // { side, line } of the line flashing right now
   let focusTimer = 0;
 
-  // One reveal for both kinds of target: find it, scroll, flash. The retry is the whole point
-  // and it matters MORE for a line than for a comment — a definition is almost always a
-  // CONTEXT line, so it sits in a collapsed gap, and in `compact` mode context is not rendered
-  // at all. Open every gap and look once more; failing that, stay put rather than scroll to a
+  // The card may be off-DOM: `compact` (and a plain collapsed gap) hides unchanged lines, and
+  // a thread anchored to one of them renders nowhere. So: look, then open every gap of this
+  // view and look again. Failing that the click stays a no-op — better than scrolling to a
   // wrong line.
-  function revealTarget(sel, mark, retry) {
-    const node = root && root.querySelector(sel);
+  function revealThread(tid, retry) {
+    const node = root && root.querySelector(`[data-thread="${CSS.escape(tid)}"]`);
     if (node) {
       const still = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
       node.scrollIntoView({ block: 'center', behavior: still ? 'auto' : 'smooth' });
-      mark();
-      focusTimer = setTimeout(() => { focused = null; hitLine = null; }, FLASH_MS);
+      focused = tid;
+      focusTimer = setTimeout(() => { focused = null; }, FLASH_MS);
       return;
     }
     if (!retry) return;
     const gaps = rows.filter((r) => r.kind === 'gap').map((r) => r.seg);
     if (!gaps.length) return;
     expand = { ...expand, ...Object.fromEntries(gaps.map((seg) => [seg, { all: true }])) };
-    requestAnimationFrame(() => revealTarget(sel, mark, false));
+    requestAnimationFrame(() => revealThread(tid, false));
   }
 
   // Tracks `focus` ONLY: the reads below are untracked because they are also written here
   // or would re-run the jump on every edit of the thread list.
   $effect(() => {
-    const f = focus;
+    const tid = focus?.id;
     clearTimeout(focusTimer);
     focused = null;
-    hitLine = null;
-    if (!f) return;
-
-    if (f.kind === 'line') {
-      // Only the section whose numbers ARE the file's can honour a line target.
-      if (!untrack(() => wholeFile) || f.line == null) return;
-      const sel = `[data-side="${f.side}"][data-line="${f.line}"]`;
-      const raf = requestAnimationFrame(() => revealTarget(sel, () => { hitLine = { side: f.side, line: f.line }; }, true));
-      return () => { cancelAnimationFrame(raf); clearTimeout(focusTimer); };
-    }
-
-    const tid = f.id;
     if (!tid || !untrack(() => threadView).some((c) => c.id === tid)) return;
     // a folded thread is a one-liner — jumping to it is a request to READ it
     untrack(() => { if (folded[tid]) folded = { ...folded, [tid]: false }; });
-    const sel = `[data-thread="${CSS.escape(tid)}"]`;
-    const raf = requestAnimationFrame(() => revealTarget(sel, () => { focused = tid; }, true));
+    const raf = requestAnimationFrame(() => revealThread(tid, true));
     return () => { cancelAnimationFrame(raf); clearTimeout(focusTimer); };
   });
 
@@ -418,13 +412,13 @@
   function trackSymbol(e) {
     symRaf = 0;
     if (!onSymbol || !peek.mod) return clearSym();
-    const hit = symbolUnderPointer(e, { lineSelector: '.dv-code', lang });
+    const hit = symbolUnderPointer(e, { lineSelector: '.dv-code', lang: symLang });
     if (!hit) return clearSym();
     const cell = hit.lineEl.closest('[data-side]');
     const side = cell?.dataset.side, line = Number(cell?.dataset.line);
     if (!side) return clearSym();
     const local = localFor(side, hit.word);
-    symHit = { word: hit.word, side, line: Number.isFinite(line) ? line : null, local };
+    symHit = { word: hit.word, side, line: Number.isFinite(line) ? line : null, start: hit.start, end: hit.end, local };
     if (highlightsSupported()) {
       clearSymbols([SYM_ON, SYM_MAYBE]);
       paintSymbol(local ? SYM_ON : SYM_MAYBE, hit.range);
@@ -457,7 +451,23 @@
     onSymbol({ ...symHit });
   }
 
-  const isHit = (side, lineNo) => !!hitLine && hitLine.side === side && hitLine.line === lineNo;
+  // Marquage PERSISTANT du symbole cliqué : il reste souligné tant que sa carte est ouverte,
+  // même après avoir relâché la touche, même après un scroll. Repeint à chaque re-rendu des
+  // lignes (ouverture d'un gap, bascule unified/split) car la Range précédente est alors
+  // caduque — d'où les offsets texte plutôt qu'une Range mémorisée.
+  const SYM_PIN = 'hooked-symbol-pinned';
+  $effect(() => {
+    const m = markAt;
+    rows; expand; mode;            // dépendances suivies : tout ce qui re-rend les lignes
+    if (!m) { clearSymbols([SYM_PIN]); return; }
+    const raf = requestAnimationFrame(() => {
+      const cell = root && root.querySelector(`[data-side="${m.side}"][data-line="${m.line}"]`);
+      const code = cell && cell.querySelector('.dv-code');
+      if (!code || !paintRangeIn(SYM_PIN, code, m.start, m.end)) clearSymbols([SYM_PIN]);
+    });
+    return () => cancelAnimationFrame(raf);
+  });
+  $effect(() => () => clearSymbols([SYM_PIN]));
   const isDefAt = (side, lineNo) => !!definitionAt && !!definition && definitionAt.side === side && definitionAt.line === lineNo;
 
   // the inline annotation belongs to the hovered line only
@@ -521,7 +531,7 @@
       {@const side = r.kind === 'del' ? 'old' : 'new'}
       {@const lineNo = r.kind === 'del' ? r.oldNo : r.newNo}
       {@const slot = slotFor(side, lineNo)}
-      <div class="dv-row u {r.kind}" class:dv-inrange={inDraft(side, lineNo)} class:dv-hit={isHit(side, lineNo)}
+      <div class="dv-row u {r.kind}" class:dv-inrange={inDraft(side, lineNo)}
            data-side={side} data-line={lineNo}
            onpointerenter={() => { overLine(side, lineNo); setHover(side, lineNo); }}>
         <span class="dv-no">{r.oldNo ?? ''}</span>
@@ -544,7 +554,7 @@
       <div class="dv-row s">
         <span class="dv-no">{r.left ? r.left.no : ''}</span>
         <span class="dv-cell {r.left ? (r.kind === 'change' ? 'del' : 'ctx') : 'empty'}" class:dv-inrange={r.left && inDraft('old', r.left.no)}
-              class:dv-hit={r.left && isHit('old', r.left.no)} data-side={r.left ? 'old' : null} data-line={r.left ? r.left.no : null}
+              data-side={r.left ? 'old' : null} data-line={r.left ? r.left.no : null}
               onpointerenter={() => { if (r.left) { overLine('old', r.left.no); setHover('old', r.left.no); } }}>
           {#if commentable && r.left}<button class="dv-plus" title="Comment — click a line or drag over several" onpointerdown={(e) => startDrag('old', r.left.no, e)}>+</button>{/if}
           <code class="dv-code">{@html r.left ? hl(r.left.text) : ''}</code>
@@ -552,7 +562,7 @@
         </span>
         <span class="dv-no">{r.right ? r.right.no : ''}</span>
         <span class="dv-cell {r.right ? (r.kind === 'change' ? 'add' : 'ctx') : 'empty'}" class:dv-inrange={r.right && inDraft('new', r.right.no)}
-              class:dv-hit={r.right && isHit('new', r.right.no)} data-side={r.right ? 'new' : null} data-line={r.right ? r.right.no : null}
+              data-side={r.right ? 'new' : null} data-line={r.right ? r.right.no : null}
               onpointerenter={() => { if (r.right) { overLine('new', r.right.no); setHover('new', r.right.no); } }}>
           {#if commentable && r.right}<button class="dv-plus" title="Comment — click a line or drag over several" onpointerdown={(e) => startDrag('new', r.right.no, e)}>+</button>{/if}
           <code class="dv-code">{@html r.right ? hl(r.right.text) : ''}</code>

@@ -1799,10 +1799,13 @@ textarea.lf-input { font-family: inherit; resize: vertical; }
   text-decoration-color: rgba(var(--accent-rgb), .6);
   text-underline-offset: 3px;
 }
-/* Landing mark of a jump to a LINE (a definition), the sibling of .dv-thread.flash which
-   marks a jump to a comment. Same duration as FLASH_MS in DiffView. */
-.dv-row.dv-hit, .dv-cell.dv-hit { animation: dv-line-flash 2s ease-out; }
-@keyframes dv-line-flash {
-  0%, 55% { background: rgba(var(--accent-rgb), .22); box-shadow: inset 3px 0 0 var(--accent); }
-  100% { background: transparent; box-shadow: inset 3px 0 0 rgba(var(--accent-rgb), 0); }
+/* The symbol whose definition card is open, kept marked for as long as the card is: releasing
+   the key or scrolling must not lose track of what you clicked. Stronger than the hover
+   underline on purpose — this one is a state, not a hint. */
+::highlight(hooked-symbol-pinned) {
+  background-color: rgba(var(--accent-rgb), .28);
+  text-decoration: underline;
+  text-decoration-color: var(--accent);
+  text-decoration-thickness: 2px;
+  text-underline-offset: 3px;
 }

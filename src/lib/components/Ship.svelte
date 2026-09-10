@@ -470,18 +470,6 @@
     return typeof r === 'string' ? r : '';
   };
 
-  // Révéler (file, line) si le fichier est dans la review ET que sa section porte de vrais
-  // numéros de fichier. Renvoie false sinon — l'appelant se rabat sur l'éditeur, plutôt que
-  // de faire un no-op silencieux (même contrat que jumpToComment).
-  async function jumpToLine(file, line, side = 'new') {
-    let i = changes.findIndex((c) => c.file === file);
-    if (i < 0) return false;
-    if (changes[i].truncated) { await loadFull(file); i = changes.findIndex((c) => c.file === file); }
-    if (i < 0 || !fileDiffs(changes[i]).some((d) => d.wholeFile)) return false;
-    activeIdx = i;
-    jumpTarget = { kind: 'line', side, line, idx: i };
-    return true;
-  }
 
   // La carte de définition ouverte EN LIGNE dans le diff, sous la ligne cliquée.
   // { opIndex, atSide, atLine, file, rel, line, rev, symbol, kind }
@@ -489,33 +477,38 @@
   // Elle est ancrée à une ligne d'un fichier : changer de fichier la périme, comme jumpTarget.
   $effect(() => { activeIdx; untrack(() => { def = null; }); });
 
-  async function gotoDefinition(file, opIndex, { word, side, line, local }) {
+  async function gotoDefinition(file, opIndex, { word, side, line, start, end, local }) {
     if (!activeFile) return;
     const rev = revForSide(side);
     const openHere = (t) => {
       symMsg = null;
-      def = { opIndex, atSide: side, atLine: line, file: t.file, rel: t.rel, line: t.line, rev, symbol: word, kind: t.kind };
+      def = { opIndex, atSide: side, atLine: line, atStart: start, atEnd: end,
+              file: t.file, rel: t.rel, line: t.line, rev, symbol: word, kind: t.kind };
     };
 
-    // 1. déjà dans le fichier affiché : zéro requête, on révèle la ligne sur place — la carte
-    //    n'apporterait rien puisque le code est déjà sous les yeux, dans son vrai diff.
-    if (local && await jumpToLine(file, local.line, side)) return;
+    // Une définition n'emmène JAMAIS ailleurs : elle s'ouvre en carte, sous la ligne cliquée.
+    // Déplacer le rail et faire défiler jusqu'à un autre fichier, c'est faire perdre sa place
+    // à quelqu'un qui voulait juste jeter un œil.
+    // 1. déjà déclarée dans le fichier affiché → la carte s'ouvre sans la moindre requête.
+    if (local) return openHere({ file, rel: activeFile.name, line: local.line, kind: local.kind });
 
-    // 2. le dépôt.
+    // 2. sinon on demande au dépôt.
     saySym('Looking up ' + word + '…');
     let r;
     try { r = await getSymbolDefs(id, word, file, rev); } catch (_) { r = null; }
     if (!r || !r.supported) return saySym(r && r.timedOut ? 'Lookup timed out.' : 'No repository to search.');
     if (r.origin) return saySym(word + ' comes from ' + r.origin.specifier + ' — not in this repo.');
-    const target = r.jump || (r.declarations.length === 1 ? r.declarations[0] : null);
-    if (!target) {
-      return saySym(r.declarations.length ? r.declarations.length + ' possible declarations.'
-        : r.referenceCount ? 'No declaration found (' + r.referenceCount + ' references).' : 'No declaration found.');
-    }
-    // 3. dans un AUTRE fichier de la review → on y va, le diff est plus informatif que la
-    //    carte (il porte les commentaires et le blame). Sinon la carte, ici même.
-    if (target.file !== file && await jumpToLine(target.file, target.line, 'new')) return;
-    openHere(target);
+    if (r.jump) return openHere(r.jump);
+    // Ambigu ? La carte s'ouvre quand même, sur une LISTE — un toast qui dit « 2 déclarations
+    // possibles » et disparaît est un échec du geste, pas une réponse. Les références seules
+    // s'affichent aussi, titrées comme telles : on ne présente jamais une référence comme une
+    // définition.
+    const candidates = r.declarations.length ? r.declarations : r.references;
+    if (!candidates.length) return saySym('No declaration found.');
+    symMsg = null;
+    def = { opIndex, atSide: side, atLine: line, atStart: start, atEnd: end,
+            rev, symbol: word, candidates,
+            refsOnly: !r.declarations.length, referenceCount: r.referenceCount };
   }
 
   const anchorLabel = (c) => {
@@ -760,6 +753,7 @@
                         blame={blameFor}
                         wholeFile={!!d.wholeFile}
                         onSymbol={(p) => gotoDefinition(activeFile.file, d.opIndex, p)}
+                        markAt={def && def.opIndex === d.opIndex ? { side: def.atSide, line: def.atLine, start: def.atStart, end: def.atEnd } : null}
                         definitionAt={def && def.opIndex === d.opIndex ? { side: def.atSide, line: def.atLine } : null}
                         definition={defCard}
                         commentable={!!onReview}

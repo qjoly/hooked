@@ -9,12 +9,18 @@
   import { getSource, getSymbolDefs } from '$lib/api.js';
   import { editorFor } from '$lib/editors.js';
   import { settings } from '$lib/state.svelte.js';
+  import { highlight } from '$lib/highlight.js';
+  import { langFromName } from '$lib/difflines.js';
   import FileView from '$lib/components/FileView.svelte';
   import Icon from '$lib/components/Icon.svelte';
 
   let {
     id,                      // session
-    target,                  // { file, rel, line, rev, symbol, kind } — l'entrée de la pile
+    // Soit une cible nette { file, rel, line, rev, symbol, kind }, soit une AMBIGUÏTÉ à
+    // trancher : { candidates: [{ file, rel, line, kind, reason, text }], refsOnly,
+    // referenceCount, rev, symbol }. Dans ce second cas la carte ouvre sur la liste, et
+    // choisir une entrée descend dans le fichier — `←` revient à la liste.
+    target,
     onClose = null,
   } = $props();
 
@@ -30,14 +36,20 @@
 
   const top = $derived(stack[stack.length - 1] || null);
 
-  // `target` change → on repart d'une pile neuve. Le composant est monté/démonté par le diff,
-  // mais un second ⌘-clic sur une autre ligne réutilise l'instance.
+  // `target` change → on repart d'une pile neuve. Une ambiguïté ouvre sur la LISTE (pile
+  // vide) ; une cible nette ouvre directement le fichier.
   $effect(() => {
     const t = target;
     if (!t) return;
+    if (t.candidates) { stack = []; win = null; data = null; error = null; return; }
     stack = [t];
     win = { from: Math.max(1, t.line - PAD), to: t.line + PAD };
   });
+
+  function pick(c) {
+    stack = [{ file: c.file, rel: c.rel, line: c.line, rev: target?.rev || '', symbol: target?.symbol || '', kind: c.kind }];
+    win = { from: Math.max(1, c.line - PAD), to: c.line + PAD };
+  }
 
   $effect(() => {
     const t = top, w = win;
@@ -81,6 +93,7 @@
   }
 
   function back() {
+    if (stack.length === 1 && target?.candidates) { stack = []; win = null; data = null; error = null; return; }
     if (stack.length <= 1) return onClose?.();
     const prev = stack[stack.length - 2];
     stack = stack.slice(0, -1);
@@ -97,10 +110,14 @@
 <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 <div class="dp" role="region" aria-label="Definition" tabindex="-1" onkeydown={onKey}>
   <div class="dp-head">
-    <button class="dp-btn" title={stack.length > 1 ? 'Back' : 'Close'} onclick={back}>
-      <Icon name={stack.length > 1 ? 'arrow-up' : 'close'} size={12} />
+    <button class="dp-btn" title={stack.length > 1 || (stack.length === 1 && target?.candidates) ? 'Back' : 'Close'} onclick={back}>
+      <Icon name={stack.length > 1 || (stack.length === 1 && target?.candidates) ? 'arrow-up' : 'close'} size={12} />
     </button>
     <span class="dp-where">
+      {#if !top && target?.candidates}
+        <span class="dp-crumb on">{target.symbol}</span>
+        <span class="dp-title">— {target.refsOnly ? 'references' : target.candidates.length + ' declarations'}</span>
+      {/if}
       {#each stack as s, i (i)}{#if i}<span class="dp-sep">›</span>{/if}<span class="dp-crumb" class:on={i === stack.length - 1}>{s.symbol}</span>{/each}
     </span>
     {#if top}
@@ -113,7 +130,23 @@
     {/if}
     <button class="dp-btn" title="Close (Esc)" onclick={() => onClose?.()}><Icon name="close" size={12} /></button>
   </div>
-  {#if error}
+  {#if !top && target?.candidates}
+    <!-- Désambiguïsation : le titre dit franchement s'il s'agit de déclarations ou de simples
+         références — présenter une référence comme une définition serait un mensonge. -->
+    <div class="dp-list">
+      {#if target.refsOnly}
+        <div class="dp-list-note">No declaration found — {target.referenceCount} reference{target.referenceCount > 1 ? 's' : ''}:</div>
+      {/if}
+      {#each target.candidates as c (c.rel + ':' + c.line)}
+        <button class="dp-cand" onclick={() => pick(c)}>
+          <span class="dp-cand-where">{c.rel}:{c.line}</span>
+          {#if c.kind}<span class="dp-kind">{c.kind}</span>{/if}
+          {#if c.reason}<span class="dp-cand-why">{c.reason}</span>{/if}
+          {#if c.text}<code class="dp-cand-code">{@html highlight(c.text.trim(), langFromName(c.rel))}</code>{/if}
+        </button>
+      {/each}
+    </div>
+  {:else if error}
     <div class="dp-msg">{error}</div>
   {:else if data}
     <div class="dp-body">
@@ -158,4 +191,19 @@
   /* Plafonné : une définition de 400 lignes ne doit pas repousser le diff hors de l'écran. */
   .dp-body { max-height: min(46vh, 420px); overflow-y: auto; }
   .dp-msg { padding: 8px 12px; font-family: var(--mono); font-size: 11px; color: var(--muted); }
+  .dp-title { color: var(--muted); }
+  .dp-list { max-height: min(46vh, 420px); overflow-y: auto; padding: 4px; }
+  .dp-list-note { padding: 4px 8px; font-family: var(--mono); font-size: 10.5px; color: var(--warning, #c98a1b); }
+  .dp-cand {
+    display: flex; align-items: baseline; gap: 8px; width: 100%; padding: 4px 8px;
+    background: none; border: none; border-radius: 7px; cursor: pointer; text-align: left;
+    font-family: var(--mono); font-size: 11px; color: var(--text);
+  }
+  .dp-cand:hover { background: rgba(var(--accent-rgb), .10); }
+  .dp-cand-where { flex: 0 0 auto; color: var(--accent-d); font-weight: 700; }
+  .dp-cand-why { flex: 0 0 auto; color: var(--muted); font-size: 10px; }
+  .dp-cand-code {
+    flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    color: #c9cedb; font-size: 11px;
+  }
 </style>
