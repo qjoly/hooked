@@ -19,7 +19,9 @@ run = "npm install"
 [tasks.build]
 description = "Build le front Svelte dans dist/"
 depends = ["install"]
-run = "npm run build"
+# The commit stamp lets deploy/service-run.sh skip its own rebuild when the
+# service restarts right after an explicit build (mise run deploy).
+run = "npm run build && (git rev-parse HEAD > build/.hooked-src-commit 2>/dev/null || true)"
 
 [tasks.setup-hooks]
 description = "Branche hooked sur les hooks Claude Code (~/.claude/settings.json)"
@@ -53,31 +55,51 @@ description = "Lance la suite Vitest"
 run = "npm test"
 
 [tasks.deploy]
-description = "Rebuild le front puis redémarre le service launchd (build && service-restart)"
+description = "Rebuild le front puis redémarre le service (build && service-restart)"
 run = "mise run build && mise run service-restart"
 
+# The service-* tasks dispatch on `uname -s`: launchd (LaunchAgent
+# com.hooked.dashboard) on macOS, systemd --user (unit hooked-dashboard) on
+# Linux. The unit is named hooked-dashboard — NOT hooked-dev, which is the
+# separate dev-mode service installed by deploy/linux/install.sh.
+# Both platforms run deploy/service-run.sh, which re-runs `npm ci` when the
+# lockfile changed and (prod mode) rebuilds when HEAD moved — so the service
+# survives a branch switch. `service-install --dev` bakes HOOKED_MODE=dev in
+# and the same service runs Vite (HMR) instead of `node build`.
+
 [tasks.service-install]
-description = "Installe hooked comme service launchd (démarre au login, auto-restart)"
+description = "Installe hooked comme service utilisateur (launchd sur macOS, systemd --user sur Linux) ; --dev = variante Vite HMR"
+usage = '''
+flag "--dev" help="Installe la variante dev (serveur Vite, HMR) au lieu du build prod"
+'''
 run = '''
 set -e
-LABEL="com.hooked.dashboard"
-PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
 PROJECT_DIR="$(pwd)"
-MISE_BIN="$(command -v mise || echo /opt/homebrew/bin/mise)"
-LOG_DIR="$HOME/Library/Logs/hooked"
-# PATH du shell de l'utilisateur au moment de l'install : permet de retrouver
-# claude/git/gh/etc. même hors PATH par défaut (Nix → /run/current-system/sw/bin,
-# Homebrew, etc.). Le service launchd n'hérite sinon que d'un PATH minimal.
-SERVICE_PATH="${PATH:-/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin}"
+# PATH of the user's shell at install time: lets the service find
+# claude/git/gh/etc. even outside the default PATH (Nix →
+# /run/current-system/sw/bin, Homebrew, mise shims…). launchd and systemd
+# otherwise start services with a minimal PATH.
+SERVICE_PATH="${PATH:-/usr/local/bin:/usr/bin:/bin}"
 # Local-only by default; expose with `HOST=0.0.0.0 mise run service-install`.
 SERVICE_HOST="${HOST:-127.0.0.1}"
-mkdir -p "$LOG_DIR"
-mkdir -p "$HOME/Library/LaunchAgents"
+# --dev (usage flag, surfaced as $usage_dev) → Vite dev server instead of
+# `node build`. Baked into the service env: the mode sticks across restarts.
+if [ "${usage_dev:-}" = "true" ]; then SERVICE_MODE="dev"; else SERVICE_MODE="prod"; fi
+RUNNER="$PROJECT_DIR/deploy/service-run.sh"
+chmod +x "$RUNNER"
 
-# Décharge d'abord si déjà chargé (idempotent)
-launchctl unload "$PLIST" 2>/dev/null || true
+case "$(uname -s)" in
+Darwin)
+  LABEL="com.hooked.dashboard"
+  PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
+  MISE_BIN="$(command -v mise || echo /opt/homebrew/bin/mise)"
+  LOG_DIR="$HOME/Library/Logs/hooked"
+  mkdir -p "$LOG_DIR" "$HOME/Library/LaunchAgents"
 
-cat > "$PLIST" <<EOF
+  # Unload first if already loaded (idempotent)
+  launchctl unload "$PLIST" 2>/dev/null || true
+
+  cat > "$PLIST" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -89,8 +111,8 @@ cat > "$PLIST" <<EOF
         <string>$MISE_BIN</string>
         <string>x</string>
         <string>--</string>
-        <string>node</string>
-        <string>build</string>
+        <string>bash</string>
+        <string>$RUNNER</string>
     </array>
     <key>WorkingDirectory</key>
     <string>$PROJECT_DIR</string>
@@ -102,6 +124,8 @@ cat > "$PLIST" <<EOF
         <string>4123</string>
         <key>HOST</key>
         <string>$SERVICE_HOST</string>
+        <key>HOOKED_MODE</key>
+        <string>$SERVICE_MODE</string>
     </dict>
     <key>RunAtLoad</key>
     <true/>
@@ -115,45 +139,137 @@ cat > "$PLIST" <<EOF
 </plist>
 EOF
 
-launchctl load "$PLIST"
-echo "✅ Service $LABEL installé et démarré."
-echo "   Plist : $PLIST"
-echo "   Logs  : $LOG_DIR/{out,err}.log"
+  launchctl load "$PLIST"
+  echo "✅ Service $LABEL installé et démarré (mode $SERVICE_MODE)."
+  echo "   Plist : $PLIST"
+  echo "   Logs  : $LOG_DIR/{out,err}.log"
+  ;;
+Linux)
+  UNIT="hooked-dashboard"
+  UNIT_FILE="$HOME/.config/systemd/user/$UNIT.service"
+  MISE_BIN="$(command -v mise || echo "$HOME/.local/bin/mise")"
+  LOG_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/hooked"
+  mkdir -p "$LOG_DIR" "$HOME/.config/systemd/user"
+
+  cat > "$UNIT_FILE" <<EOF
+[Unit]
+Description=hooked dashboard ($SERVICE_MODE)
+After=network.target
+
+[Service]
+WorkingDirectory=$PROJECT_DIR
+ExecStart="$MISE_BIN" x -- bash "$RUNNER"
+# Quoted: an unquoted Environment= is split on whitespace, and PATH entries
+# can contain spaces.
+Environment="PATH=$SERVICE_PATH"
+Environment="PORT=4123"
+Environment="HOST=$SERVICE_HOST"
+Environment="HOOKED_MODE=$SERVICE_MODE"
+Restart=always
+RestartSec=10
+StandardOutput=append:$LOG_DIR/out.log
+StandardError=append:$LOG_DIR/err.log
+
+[Install]
+WantedBy=default.target
+EOF
+
+  systemctl --user daemon-reload
+  systemctl --user enable "$UNIT"
+  systemctl --user restart "$UNIT"
+  # Start at boot, not only once a session is opened
+  loginctl enable-linger "$USER" >/dev/null 2>&1 || true
+
+  echo "✅ Service $UNIT installé et démarré (mode $SERVICE_MODE)."
+  echo "   Unit : $UNIT_FILE"
+  echo "   Logs : $LOG_DIR/{out,err}.log (ou journalctl --user -u $UNIT -f)"
+  ;;
+*)
+  echo "✗ OS non supporté : $(uname -s)" >&2
+  exit 1
+  ;;
+esac
 echo "   URL   : http://localhost:4123"
 '''
 
 [tasks.service-uninstall]
-description = "Désinstalle le service launchd hooked"
+description = "Désinstalle le service hooked (launchd ou systemd --user)"
 run = '''
 set -e
-LABEL="com.hooked.dashboard"
-PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
-launchctl unload "$PLIST" 2>/dev/null || true
-rm -f "$PLIST"
-echo "✅ Service $LABEL désinstallé."
+case "$(uname -s)" in
+Darwin)
+  LABEL="com.hooked.dashboard"
+  PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
+  launchctl unload "$PLIST" 2>/dev/null || true
+  rm -f "$PLIST"
+  echo "✅ Service $LABEL désinstallé."
+  ;;
+Linux)
+  UNIT="hooked-dashboard"
+  systemctl --user disable --now "$UNIT" 2>/dev/null || true
+  rm -f "$HOME/.config/systemd/user/$UNIT.service"
+  systemctl --user daemon-reload
+  echo "✅ Service $UNIT désinstallé."
+  ;;
+*)
+  echo "✗ OS non supporté : $(uname -s)" >&2
+  exit 1
+  ;;
+esac
 '''
 
 [tasks.service-status]
-description = "Affiche l'état du service launchd hooked"
+description = "Affiche l'état du service hooked (launchd ou systemd --user)"
 run = '''
-LABEL="com.hooked.dashboard"
-if launchctl list | grep -q "$LABEL"; then
-    launchctl list | grep "$LABEL"
-    echo "(PID  Status  Label)"
-else
-    echo "Service $LABEL non chargé."
-fi
+case "$(uname -s)" in
+Darwin)
+  LABEL="com.hooked.dashboard"
+  if launchctl list | grep -q "$LABEL"; then
+      launchctl list | grep "$LABEL"
+      echo "(PID  Status  Label)"
+  else
+      echo "Service $LABEL non chargé."
+  fi
+  ;;
+Linux)
+  systemctl --user status hooked-dashboard --no-pager || true
+  ;;
+*)
+  echo "✗ OS non supporté : $(uname -s)" >&2
+  exit 1
+  ;;
+esac
 '''
 
 [tasks.service-logs]
-description = "Tail les logs du service launchd hooked"
-run = "tail -f $HOME/Library/Logs/hooked/out.log $HOME/Library/Logs/hooked/err.log"
+description = "Tail les logs du service hooked"
+run = '''
+case "$(uname -s)" in
+Darwin) LOG_DIR="$HOME/Library/Logs/hooked" ;;
+Linux)  LOG_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/hooked" ;;
+*) echo "✗ OS non supporté : $(uname -s)" >&2; exit 1 ;;
+esac
+tail -f "$LOG_DIR/out.log" "$LOG_DIR/err.log"
+'''
 
 [tasks.service-restart]
-description = "Redémarre le service launchd hooked"
+description = "Redémarre le service hooked (launchd ou systemd --user)"
 run = '''
 set -e
-LABEL="com.hooked.dashboard"
-launchctl kickstart -k "gui/$(id -u)/$LABEL"
-echo "✅ Service $LABEL redémarré."
+case "$(uname -s)" in
+Darwin)
+  LABEL="com.hooked.dashboard"
+  launchctl kickstart -k "gui/$(id -u)/$LABEL"
+  echo "✅ Service $LABEL redémarré."
+  ;;
+Linux)
+  UNIT="hooked-dashboard"
+  systemctl --user restart "$UNIT"
+  echo "✅ Service $UNIT redémarré."
+  ;;
+*)
+  echo "✗ OS non supporté : $(uname -s)" >&2
+  exit 1
+  ;;
+esac
 '''
