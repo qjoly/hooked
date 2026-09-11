@@ -309,6 +309,14 @@ export function sendLoginInput(id, text) {
   return snapshot(entry);
 }
 
+// Cancels every login in flight (process shutdown): each one holds a PTY, and a PTY keeps the
+// event loop alive. Returns how many were closed.
+export function cancelAllLogins() {
+  let n = 0;
+  for (const id of [...logins.keys()]) { if (cancelLogin(id)) n++; }
+  return n;
+}
+
 export function cancelLogin(id) {
   const entry = logins.get(String(id));
   if (!entry) return null;

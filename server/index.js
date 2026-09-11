@@ -40,6 +40,7 @@ export * from './mcp.js';
 export * from './images.js';
 export * from './userFiles.js';
 export * from './screenshots.js';
+export * from './shutdown.js';
 export * from './status.js';
 export * from './stats.js';
 export * from './claudeUpdate.js';
