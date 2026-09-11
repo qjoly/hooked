@@ -35,6 +35,17 @@ Les sessions Claude Code tournent **dans le processus hooked**, via `query()` de
 - **L'environnement du profil utilisateur doit être réinjecté à la main.** L'ancien pilotage lançait `claude` via `$SHELL -l -i -c …`, donc `~/.zprofile` / `~/.zshrc` étaient sourcés. Le SDK spawne le CLI avec l'env de hooked — sous launchd, un PATH figé à l'installation du service. Mesuré : **26 entrées de PATH perdues** (`~/.krew/bin`, `~/.nix-profile/bin`, `~/go/bin`, `~/.local/bin`, `/sbin`, `/usr/sbin`…) et des variables réelles avec (`GITHUB_TOKEN`, `NIX_SSL_CERT_FILE`, `K9S_CONFIG_DIR`…) → `kubectl` sans son plugin d'auth OIDC, `gh` sans token. `loginEnv()` résout donc l'env du shell de login **une fois** (~1,8 s, async, caché sur `globalThis`, pré-chauffé à l'import) et le passe en `env` au SDK. Ordre de fusion `{...process.env, ...profil}` — le profil gagne, comme avant. Les variables du shell *résolveur* (`PWD`, `SHLVL`, `TMUX*`, `__MISE_*`) sont filtrées : les injecter serait faux.
   > Corollaire à garder en tête : si un profil exportait `ANTHROPIC_API_KEY`, toutes les sessions basculeraient sur la facturation API au lieu de l'abonnement. C'était déjà vrai du temps de tmux, mais ça reste un piège.
 - **`bypassPermissions` court-circuite `canUseTool` pour les outils ordinaires**, pas pour `AskUserQuestion` / `ExitPlanMode` (vérifié en live sur `auto` ET `bypassPermissions` : les deux livrent bien la question au callback). Donc en mode bypass on perd la carte de permission — c'est l'effet voulu du mode — sans perdre les questions ni les plans. Le SDK émet un avertissement à chaque lancement dans ce mode : c'est du bruit, pas un bug.
+- **Aucune statusline ne tourne pour une session pilotée** — c'est un rendu du TUI. Le tap
+  `statusline-tap.sh` ne peut donc rien déposer pour elles, et tout ce qui n'existe que là
+  (remplissage du contexte, rate limits 5 h / 7 j fraîchement rendus) restait figé sur le dernier
+  terminal ouvert à la main. `server/agent-status.js` interroge la `Query` à la place
+  (`getContextUsage()` + `usage_EXPERIMENTAL_…()`, cette dernière cherchée **par préfixe** : le nom
+  changera à la stabilisation) et écrit dans `STATUS_DIR` **au format de la statusline** — un seul
+  format, deux producteurs, `status.js` / `stats.js` / l'UI inchangés. Rafraîchi à la fin de chaque
+  tour, throttlé (15 s) en cours de tour, best-effort. Corollaire côté lecture : entre un snapshot
+  et le poll `/api/oauth/usage`, c'est **le plus frais qui gagne** — un fichier vieux de trois jours
+  ne doit pas geler les jauges.
+
 - Le **premier prompt part immédiatement** : le SDK bufferise l'entrée jusqu'à ce que le CLI soit prêt. Rien à attendre, rien à détecter.
 
 ## Ce que la migration hors tmux a supprimé
