@@ -6,7 +6,7 @@
 // Tarifs estimatifs (USD / million de tokens). Éditables.
 const PRICING = {
   fable: { in: 10, out: 50 },          // Fable 5 / Mythos 5
-  opus: { in: 5, out: 25 },            // Opus 4.5 / 4.6 / 4.7 / 4.8
+  opus: { in: 5, out: 25 },            // Opus 4.5 / 4.6 / 4.7 / 4.8 / 5
   opusLegacy: { in: 15, out: 75 },     // Opus 4 / 4.1 (deprecated)
   sonnet: { in: 3, out: 15 },          // Sonnet 4 / 4.5 / 4.6
   haiku: { in: 1, out: 5 },            // Haiku 4.5

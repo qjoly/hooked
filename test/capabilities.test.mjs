@@ -55,9 +55,15 @@ describe('buildModelGroups', () => {
     const fable = buildModelGroups(['fable', 'claude-fable-5', 'claude-fable-5-1', 'claude-fable-5-20260901'])[0];
     expect(fable.opts).toEqual([['fable', 'Fable (default)'], ['claude-fable-5-1', '5.1'], ['claude-fable-5', '5']]);
   });
-  it('excludes bare-major ids and dated snapshots', () => {
+  it('excludes bare-major ids <5 and dated snapshots', () => {
     const ids = ['opus', 'claude-opus-4', 'claude-opus-4-8', 'claude-opus-4-20250514', 'claude-opus-4-1-20250805'];
     expect(buildModelGroups(ids)[0].opts).toEqual([['opus', 'Opus (default)'], ['claude-opus-4-8', '4.8']]);
+  });
+  it('keeps the 5+ generation bare-major rolling id (claude-opus-5 dropped the minor, like fable)', () => {
+    const ids = ['opus', 'claude-opus-5', 'claude-opus-4-8', 'claude-opus-5-20260101'];
+    expect(buildModelGroups(ids)[0].opts).toEqual([
+      ['opus', 'Opus (default)'], ['claude-opus-5', '5'], ['claude-opus-4-8', '4.8'],
+    ]);
   });
   it('sorts versions numerically, not lexically (4.10 before 4.9)', () => {
     const opus = buildModelGroups(['opus', 'claude-opus-4-9', 'claude-opus-4-10'])[0];
