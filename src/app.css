@@ -1197,7 +1197,9 @@ code.path { color: var(--muted); font-size: 11px; word-break: break-all; font-fa
    it dissolves into the gradient above the dock and stops there. */
 .composer-dock {
   position: sticky; bottom: calc(-1 * var(--pane-pad-b, 0px)); z-index: 2; margin-top: 20px;
-  background: var(--panel); padding-bottom: env(safe-area-inset-bottom);
+  /* Le socle est à ras du bord visible du scroller : ce padding est ce qui empêche la ligne de
+     raccourcis d'être collée au bas de la page (il se peint en fond de conversation). */
+  background: var(--panel); padding-bottom: calc(12px + env(safe-area-inset-bottom));
 }
 /* Fade-out strip above the dock: the last line of the transcript melts into the
    conversation background just before reaching the input. */
