@@ -9,6 +9,7 @@
   import DiffView from './DiffView.svelte';
   import Grip from './Grip.svelte';
   import ReviewComments from './ReviewComments.svelte';
+  import DefPeek from './DefPeek.svelte';
   import Icon from '$lib/components/Icon.svelte';
   import { toSegments, countStats, applyOp } from '$lib/difflines.js';
   import { fmtCost } from '$lib/format.js';
@@ -17,6 +18,7 @@
            archiveReviewThread, markReviewSent, reply as sendToSession } from '$lib/api.js';
   import { settings, ui } from '$lib/state.svelte.js';
   import { editorFor } from '$lib/editors.js';
+  import { getSymbolDefs } from '$lib/api.js';
   import { fingerprint, isReviewed as hasReview, toggleReviewed as tickReview,
            toMap as reviewedToMap, toEntries as reviewedToEntries } from '$lib/reviewState.js';
   import { loadDraft, saveDraft } from '$lib/reviewDraft.js';
@@ -164,14 +166,18 @@
       // VCS entries are single old→new edits; key the sections per commit so inline comments
       // never collide with the Claude view (or another commit) on the same file.
       const key = 'vcs:' + (selectedRev ? selectedRepo + ':' + selectedRev : 'wt');
-      return (c.ops || []).map((o, j) => ({ oldStr: o.old || '', newStr: o.new || '', opIndex: key + ':' + j, label: null }));
+      // wholeFile: une entrée VCS est un old→new du fichier ENTIER (cf. makeEntry, vcsDiff.js).
+      return (c.ops || []).map((o, j) => ({ oldStr: o.old || '', newStr: o.new || '', opIndex: key + ':' + j, label: null, wholeFile: true }));
     }
     if (!filtering) {
       const ops = c.ops || [];
       return ops.map((o, j) => {
-        if (o.kind === 'write') return { oldStr: o.old || '', newStr: o.content || '', opIndex: 'full:' + j, label: o.old ? 'full rewrite' : 'new file' };
-        if (o.kind === 'notebook') return { oldStr: '', newStr: o.new || '', opIndex: 'full:' + j, label: 'notebook cell' };
-        return { oldStr: o.old || '', newStr: o.new || '', opIndex: 'full:' + j, label: ops.length > 1 ? 'edit ' + (j + 1) : null };
+        // wholeFile : seul un `write` porte le contenu complet. Un `edit` ne montre que
+        // old_string/new_string, donc ses numéros de ligne ne sont PAS ceux du fichier — y
+        // sauter enverrait avec assurance sur la mauvaise ligne.
+        if (o.kind === 'write') return { oldStr: o.old || '', newStr: o.content || '', opIndex: 'full:' + j, label: o.old ? 'full rewrite' : 'new file', wholeFile: true };
+        if (o.kind === 'notebook') return { oldStr: '', newStr: o.new || '', opIndex: 'full:' + j, label: 'notebook cell', wholeFile: false };
+        return { oldStr: o.old || '', newStr: o.new || '', opIndex: 'full:' + j, label: ops.length > 1 ? 'edit ' + (j + 1) : null, wholeFile: false };
       });
     }
     const raw = c.rawOps || [];
@@ -184,13 +190,14 @@
       const before = [], after = [];
       for (let j = 0; j < raw.length; j++) { before[j] = text; text = applyOp(text, raw[j]); after[j] = text; }
       const first = selIdx[0], lastS = selIdx[selIdx.length - 1];
-      return [{ oldStr: before[first], newStr: after[lastS], opIndex: key, label: null }];
+      // le replay repart de `c.original` : la section EST le fichier entier.
+      return [{ oldStr: before[first], newStr: after[lastS], opIndex: key, label: null, wholeFile: true }];
     }
     // no original → best-effort: each selected op as a section
     return selIdx.map((j) => {
       const o = raw[j];
-      if (o.kind === 'write') return { oldStr: o.old || '', newStr: o.content || '', opIndex: key + ':' + j, label: o.old ? 'full rewrite' : 'new file' };
-      return { oldStr: o.old || '', newStr: o.new || '', opIndex: key + ':' + j, label: 'edit ' + (j + 1) };
+      if (o.kind === 'write') return { oldStr: o.old || '', newStr: o.content || '', opIndex: key + ':' + j, label: o.old ? 'full rewrite' : 'new file', wholeFile: true };
+      return { oldStr: o.old || '', newStr: o.new || '', opIndex: key + ':' + j, label: 'edit ' + (j + 1), wholeFile: false };
     });
   }
 
@@ -409,7 +416,7 @@
     if (view !== 'claude') setView('claude');
   }
 
-  let jumpTarget = $state(null); // { id, idx } — thread to reveal, and the file it was found in
+  let jumpTarget = $state(null); // { kind, …, idx } — cible à révéler, et le fichier où elle est
   // Returns false when the comment cannot be reached — the list says so rather than looking broken.
   async function jumpToComment(t) {
     const ctx = threadContext(t.opIndex);
@@ -431,13 +438,78 @@
       if (i < 0) return false;
     }
     activeIdx = i;
-    jumpTarget = { id: t.id, idx: i };
+    jumpTarget = { kind: 'thread', id: t.id, idx: i };
     return true;
   }
   // A jump is spent as soon as you navigate away. Without this the target would still be around
   // when J/K walks back to that file later, and re-mounting its DiffView would re-scroll and
   // re-flash a thread nobody asked for.
   $effect(() => { activeIdx; untrack(() => { if (jumpTarget && jumpTarget.idx !== activeIdx) jumpTarget = null; }); });
+
+  // ── go to definition ────────────────────────────────────────────────────────────────────
+  // Deux destinations, et la première ne coûte rien : quand la définition est dans un fichier
+  // de la review, on fait exactement ce que fait la liste de commentaires — basculer le rail
+  // et révéler la ligne (même retry d'ouverture des gaps, même flash). Sinon, repli sur
+  // l'éditeur local, qui sait déjà ouvrir un fichier À UNE LIGNE (editors.js) — aucun appelant
+  // ne lui passait cette ligne jusqu'ici.
+  let symMsg = $state(null);   // retour bref quand il n'y a rien à ouvrir
+  let symTimer = 0;
+  function saySym(text) {
+    clearTimeout(symTimer);
+    symMsg = text;
+    symTimer = setTimeout(() => (symMsg = null), 4000);
+  }
+
+  // La révision du côté cliqué. blameFor la modélise déjà : côté Claude l'ancien côté ne
+  // correspond à aucune révision (`old: null`) → arbre de travail, et la réponse est marquée
+  // `approximate` par le serveur.
+  const revForSide = (side) => {
+    const b = blameFor;
+    if (!b) return '';
+    const r = side === 'old' ? b.old : b.new;
+    return typeof r === 'string' ? r : '';
+  };
+
+
+  // La carte de définition ouverte EN LIGNE dans le diff, sous la ligne cliquée.
+  // { opIndex, atSide, atLine, file, rel, line, rev, symbol, kind }
+  let def = $state(null);
+  // Elle est ancrée à une ligne d'un fichier : changer de fichier la périme, comme jumpTarget.
+  $effect(() => { activeIdx; untrack(() => { def = null; }); });
+
+  async function gotoDefinition(file, opIndex, { word, side, line, start, end, local }) {
+    if (!activeFile) return;
+    const rev = revForSide(side);
+    const openHere = (t) => {
+      symMsg = null;
+      def = { opIndex, atSide: side, atLine: line, atStart: start, atEnd: end,
+              file: t.file, rel: t.rel, line: t.line, rev, symbol: word, kind: t.kind };
+    };
+
+    // Une définition n'emmène JAMAIS ailleurs : elle s'ouvre en carte, sous la ligne cliquée.
+    // Déplacer le rail et faire défiler jusqu'à un autre fichier, c'est faire perdre sa place
+    // à quelqu'un qui voulait juste jeter un œil.
+    // 1. déjà déclarée dans le fichier affiché → la carte s'ouvre sans la moindre requête.
+    if (local) return openHere({ file, rel: activeFile.name, line: local.line, kind: local.kind });
+
+    // 2. sinon on demande au dépôt.
+    saySym('Looking up ' + word + '…');
+    let r;
+    try { r = await getSymbolDefs(id, word, file, rev); } catch (_) { r = null; }
+    if (!r || !r.supported) return saySym(r && r.timedOut ? 'Lookup timed out.' : 'No repository to search.');
+    if (r.origin) return saySym(word + ' comes from ' + r.origin.specifier + ' — not in this repo.');
+    if (r.jump) return openHere(r.jump);
+    // Ambigu ? La carte s'ouvre quand même, sur une LISTE — un toast qui dit « 2 déclarations
+    // possibles » et disparaît est un échec du geste, pas une réponse. Les références seules
+    // s'affichent aussi, titrées comme telles : on ne présente jamais une référence comme une
+    // définition.
+    const candidates = r.declarations.length ? r.declarations : r.references;
+    if (!candidates.length) return saySym('No declaration found.');
+    symMsg = null;
+    def = { opIndex, atSide: side, atLine: line, atStart: start, atEnd: end,
+            rev, symbol: word, candidates,
+            refsOnly: !r.declarations.length, referenceCount: r.referenceCount };
+  }
 
   const anchorLabel = (c) => {
     const p = c.side === 'old' ? '−L' : '+L';
@@ -660,6 +732,7 @@
           </button>
         </div>
         <div class="sd-body">
+          {#if symMsg}<div class="sd-sym">{symMsg}</div>{/if}
           {#if activeFile.truncated}
             <div class="sd-trunc">
               <span><Icon name="warning" size={14} /> Large file — this diff is capped and may be missing lines.</span>
@@ -671,10 +744,18 @@
           {#if activeFile.binary}
             <div class="sd-empty">Binary file — no diff.</div>
           {:else}
+            {#snippet defCard()}
+              <DefPeek {id} target={def} onClose={() => (def = null)} />
+            {/snippet}
             {#each fileDiffs(activeFile) as d (d.opIndex)}
               {#if d.label}<div class="sd-oplabel">{d.label}</div>{/if}
               <DiffView oldStr={d.oldStr} newStr={d.newStr} name={activeFile.name} mode={effMode} {compact}
                         blame={blameFor}
+                        wholeFile={!!d.wholeFile}
+                        onSymbol={(p) => gotoDefinition(activeFile.file, d.opIndex, p)}
+                        markAt={def && def.opIndex === d.opIndex ? { side: def.atSide, line: def.atLine, start: def.atStart, end: def.atEnd } : null}
+                        definitionAt={def && def.opIndex === d.opIndex ? { side: def.atSide, line: def.atLine } : null}
+                        definition={defCard}
                         commentable={!!onReview}
                         comments={commentsFor(activeFile.file, d.opIndex)}
                         focus={jumpTarget}
@@ -828,6 +909,11 @@
   }
   .sd-review.done { background: color-mix(in srgb, var(--success) 16%, transparent); border-color: var(--success); color: var(--success); }
   .sd-body { flex: 1 1 auto; min-height: 0; min-width: 0; overflow-y: auto; overflow-x: hidden; }
+  /* retour bref du « go to definition » : rien à ouvrir, ou ouvert ailleurs */
+  .sd-sym {
+    padding: 5px 12px; font-family: var(--mono); font-size: 11px; color: var(--accent-d);
+    background: rgba(var(--accent-rgb), .08); border-bottom: 1px solid var(--border);
+  }
   .sd-oplabel { font-family: var(--mono); font-size: 10px; color: var(--muted); padding: 8px 14px 2px; text-transform: uppercase; letter-spacing: .06em; }
   .sd-trunc {
     display: flex; align-items: center; gap: 12px; margin: 10px 14px; padding: 9px 12px;
