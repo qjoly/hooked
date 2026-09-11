@@ -17,6 +17,16 @@
   let status = $state({ text: '', cls: '' });
   let busy = $state(false);
 
+  // Raccourcis affichés en permanence sous la zone de saisie (paires [touche, effet]) :
+  // ils dépendent du mode d'envoi (lancement / réponse / relance d'une session morte).
+  const hints = $derived(
+    newSession
+      ? [['Enter', 'launch'], ['⇧Enter', 'new line'], ['@', 'file'], ['/', 'command'], ['⌘V', 'image']]
+      : alive
+        ? [['Enter', 'send'], ['⇧Enter', 'new line'], ['@', 'file'], ['/', 'command'], ['!', 'shell'], ['!!', 'interactive shell'], ['⌘V', 'image'], ['Esc×2', 'interrupt']]
+        : [['Enter', 'restart the session'], ['@', 'file'], ['/', 'command'], ['⌘V', 'image']],
+  );
+
   // ----- brouillon persistant -----
   // Le composer est recréé à chaque changement de session (route `{#key id}`), donc `text`
   // serait perdu en quittant/revenant. On le sauvegarde dans localStorage, indexé par session
@@ -295,13 +305,17 @@
   }
 </script>
 
+<!-- `.composer-dock` : socle opaque collé en bas du conteneur scrollable. Il porte le fondu
+     (::before) et le fond plein — la conversation se dissout donc AU-DESSUS de la zone de saisie
+     au lieu de glisser derrière elle. Le cadre `.composer` n'est plus sticky lui-même. -->
+<div class="composer-dock">
 <div class="composer" class:relaunch={!alive && !newSession}>
   <textarea bind:this={ta} bind:value={text} id="reply-text" rows="1" disabled={busy}
             placeholder={newSession
-              ? 'Describe your task to start the session…  (Enter to launch · @ file · / command · paste an image)'
+              ? 'Describe your task to start the session…'
               : alive
-                ? 'Reply to Claude…  (Enter to send · Shift+Enter = new line · @ file · / command · ! shell · !! interactive shell · paste an image · Esc×2 interrupts)'
-                : 'session not running — sending will re-run claude --resume…  (@ file · / command · paste an image)'}
+                ? 'Reply to Claude…'
+                : 'session not running — sending will re-run claude --resume…'}
             oninput={onInput} onkeydown={onKeydown} onpaste={onPaste} onblur={() => setTimeout(closeAc, 150)}></textarea>
   <button class="reply-send" disabled={busy || uploading > 0} onclick={send}>{#if newSession}Launch <Icon name="external" size={14} />{:else if alive}Send <Icon name="send" size={14} />{:else}Restart <Icon name="external" size={14} />{/if}</button>
   {#if images.length || uploading}
@@ -324,5 +338,17 @@
       </div>
     {/each}
   </div>
-  <div class="reply-status {status.cls}">{status.text}</div>
+</div>
+  <!-- Aide-mémoire SOUS le cadre, toujours visible (avant, ces raccourcis vivaient dans le
+       placeholder → ils disparaissaient dès la première frappe). Le message de statut prend
+       sa place quand il y en a un : une seule ligne, donc pas de saut de hauteur. -->
+  <div class="composer-foot">
+    {#if status.text}
+      <span class="reply-status {status.cls}">{status.text}</span>
+    {:else}
+      {#each hints as h, i (h[0] + i)}
+        <span class="hint"><kbd>{h[0]}</kbd> {h[1]}</span>
+      {/each}
+    {/if}
+  </div>
 </div>

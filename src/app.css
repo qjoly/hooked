@@ -1188,18 +1188,25 @@ code.path { color: var(--muted); font-size: 11px; word-break: break-all; font-fa
 
 /* ---------- composer (répondre à Claude) ---------- */
 .ro-tag.live { color: var(--success); border-color: transparent; background: var(--success-soft); }
+/* Dock: the sticky bottom slab that carries the composer. It is opaque (conversation
+   background), so the transcript NEVER slides visibly behind or beside the text box —
+   it dissolves into the gradient above the dock and stops there. */
+.composer-dock {
+  position: sticky; bottom: 0; z-index: 2; margin-top: 20px;
+  background: var(--panel); padding-bottom: env(safe-area-inset-bottom);
+}
+/* Fade-out strip above the dock: the last line of the transcript melts into the
+   conversation background just before reaching the input. */
+.composer-dock::before {
+  content: ""; position: absolute; left: 0; right: 0; bottom: 100%; height: 32px;
+  background: linear-gradient(to top, var(--panel), transparent); pointer-events: none;
+}
 .composer {
-  position: sticky; bottom: 0; margin-top: 20px;
+  position: relative;
   display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px 12px;
-  padding: 14px; padding-bottom: calc(14px + env(safe-area-inset-bottom));
+  padding: 14px;
   background: var(--bg2); border: 1px solid var(--border2); border-radius: 18px;
   box-shadow: var(--shadow); transition: border-color .15s, box-shadow .15s;
-}
-/* Scrim above the sticky composer: messages scrolling behind fade into the
-   conversation background instead of visually touching the text box. */
-.composer::before {
-  content: ""; position: absolute; left: 0; right: 0; bottom: calc(100% + 5px); height: 24px;
-  background: linear-gradient(to top, var(--panel), transparent); pointer-events: none;
 }
 .composer.relaunch { border-color: rgba(var(--warn-rgb),.5); border-style: dashed; }
 .composer.relaunch .reply-send { background: var(--waiting); box-shadow: none; }
@@ -1222,7 +1229,18 @@ code.path { color: var(--muted); font-size: 11px; word-break: break-all; font-fa
 .reply-send:hover { background: var(--accent-d); }
 .reply-send:active { transform: translateY(1px); }
 .reply-send:disabled { opacity: .55; cursor: default; box-shadow: none; }
-.reply-status { grid-column: 1 / -1; font-size: 12px; color: var(--muted); min-height: 14px; font-family: var(--mono); }
+/* Pied du composer : aide-mémoire des raccourcis, toujours visible sous le cadre (hors bordure).
+   Le statut occupe la même ligne quand il y en a un → hauteur stable, rien ne saute. */
+.composer-foot {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 3px 9px;
+  margin: 7px 6px 0; min-height: 15px; font-size: 11.5px; line-height: 1.3; color: var(--muted);
+}
+.composer-foot .hint { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
+.composer-foot kbd {
+  font: 10px/1 var(--mono); color: var(--muted);
+  background: var(--bg3); border: 1px solid var(--border); border-radius: 4px; padding: 2px 4px;
+}
+.reply-status { font-size: 12px; color: var(--muted); font-family: var(--mono); }
 .reply-status.ok { color: var(--ended); }
 .reply-status.err { color: var(--attention); }
 .reply-status.warn { color: var(--waiting); font-weight: 600; }
@@ -1275,8 +1293,9 @@ code.path { color: var(--muted); font-size: 11px; word-break: break-all; font-fa
 .ns-inner { width: 100%; max-width: 760px; margin: auto; }
 .ns-title { font-size: 26px; font-weight: 800; text-align: center; margin: 0 0 6px; color: var(--text); }
 .ns-sub { color: var(--muted); font-size: 13px; line-height: 1.6; text-align: center; margin: 0 0 22px; }
-.newsession .composer { position: relative; bottom: auto; margin-top: 0; }
-.newsession .composer::before { display: none; }
+/* Écran « nouvelle session » : pas de transcript derrière → ni dock collé, ni fondu. */
+.newsession .composer-dock { position: relative; bottom: auto; margin-top: 0; background: none; }
+.newsession .composer-dock::before { display: none; }
 .ns-controls { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 12px 4px 0; }
 .ns-custom-row { display: flex; gap: 8px; margin-top: 10px; }
 .ns-custom-row .ns-custom { margin-top: 0; flex: 1 1 auto; }
@@ -1726,6 +1745,7 @@ textarea.lf-input { font-family: inherit; resize: vertical; }
   .composer { padding: 10px; border-radius: 14px; gap: 8px; }
   .reply-send { padding: 0 14px; height: 38px; font-size: 13px; }
   .composer textarea { font-size: 13.5px; min-height: 36px; }
+  .composer-foot { margin: 6px 2px 0; gap: 3px 7px; font-size: 11px; }
 
   /* modale plein écran utile */
   .modal-card { width: 96vw; padding: 20px 14px; border-radius: 14px; max-height: 92vh; }
