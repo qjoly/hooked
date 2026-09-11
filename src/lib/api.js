@@ -40,6 +40,19 @@ export const getVcsBranchDiff = (id, branch, base = null, root = null) =>
 export const getVcsBlame = (id, file, rev = '') =>
   jget(`/api/session/vcs-blame?id=${encodeURIComponent(id)}&file=${encodeURIComponent(file)}`
     + (rev ? '&rev=' + encodeURIComponent(rev) : ''));
+// Déclaration(s) probables d'un symbole, cherchées dans le dépôt du projet (git grep +
+// partition heuristique) — le « go to definition » de la review. `file` = le fichier d'où part
+// le clic (localité + imports), `rev` = '' pour l'arbre de travail.
+// { supported, root, symbol, approximate, timedOut, origin, jump, declarations, references,
+//   referenceCount } ; `jump` non nul = une unique déclaration nette, on peut y aller direct.
+export const getSymbolDefs = (id, symbol, file, rev = '') =>
+  jget(`/api/session/symbol?id=${encodeURIComponent(id)}&symbol=${encodeURIComponent(symbol)}`
+    + `&file=${encodeURIComponent(file)}` + (rev ? '&rev=' + encodeURIComponent(rev) : ''));
+// Tranche de lignes d'un fichier du projet à une révision, pour afficher une définition qui
+// n'est pas dans la review. { supported, root, rel, lang, from, to, total, truncated, lines }.
+export const getSource = (id, file, rev = '', from = 0, to = 0) =>
+  jget(`/api/session/source?id=${encodeURIComponent(id)}&file=${encodeURIComponent(file)}`
+    + (rev ? '&rev=' + encodeURIComponent(rev) : '') + (from ? `&from=${from}&to=${to}` : ''));
 // Threads de revue ancrés dans la diff (Ship / Branch) : conversation par commentaire, partagée
 // entre navigateurs et avec Claude (qui y répond via l'outil MCP reply_review_comment).
 export const getReviewThreads = (id) => jget('/api/review?id=' + encodeURIComponent(id));

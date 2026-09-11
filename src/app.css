@@ -1780,3 +1780,32 @@ textarea.lf-input { font-family: inherit; resize: vertical; }
 @media (max-width: 900px) { .ship-grip:first-of-type { display: none; } }
 @container (max-width: 760px) { .ship-grip:last-of-type { display: none; } }
 @container (max-width: 560px) { .ship-grip:first-of-type { display: none; } }
+
+/* "Go to definition": the symbol under the pointer while the modifier is held. Painted with
+   the CSS Custom Highlight API like the occurrence echo — no node is added or split, so the
+   diff's rendered HTML (and its per-line cache) is never touched.
+   Two levels, and the difference is a promise: SOLID means a declaration was found in the
+   file on screen, so the jump is certain and costs no request; DOTTED means it will have to
+   be asked of the server, and may come back with nothing. Underlining everything the same
+   would promise a definition for every local variable and parameter. */
+::highlight(hooked-symbol) {
+  text-decoration: underline;
+  text-decoration-color: var(--accent);
+  text-decoration-thickness: 1.5px;
+  text-underline-offset: 3px;
+}
+::highlight(hooked-symbol-maybe) {
+  text-decoration: underline dotted;
+  text-decoration-color: rgba(var(--accent-rgb), .6);
+  text-underline-offset: 3px;
+}
+/* The symbol whose definition card is open, kept marked for as long as the card is: releasing
+   the key or scrolling must not lose track of what you clicked. Stronger than the hover
+   underline on purpose — this one is a state, not a hint. */
+::highlight(hooked-symbol-pinned) {
+  background-color: rgba(var(--accent-rgb), .28);
+  text-decoration: underline;
+  text-decoration-color: var(--accent);
+  text-decoration-thickness: 2px;
+  text-underline-offset: 3px;
+}
