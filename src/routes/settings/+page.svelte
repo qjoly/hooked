@@ -9,6 +9,8 @@
   import ModelEffort from '$lib/components/ModelEffort.svelte';
   import Icon from '$lib/components/Icon.svelte';
   import { EDITORS } from '$lib/editors.js';
+  import { fold, findTermRanges } from '$lib/textMatch.js';
+  import { highlightsSupported } from '$lib/codeHit.js';
 
   // Navigation de section (rail gauche collant). Chaque entrée pointe l'id d'une carte ;
   // les cartes secondaires appartiennent à la section la plus proche au-dessus.
@@ -67,16 +69,15 @@
   // would keep that card hidden for good. All terms must match (AND), accents/case are ignored.
   let query = $state('');
   let cardsEl = $state(null);
+  let navEl = $state(null);
   let matchSecs = $state.raw(null);   // null = no filter ; Set<section id> with ≥1 visible card
   let matchCount = $state(0);
-  let cardCount = $state(0);
-  const fold = (s) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+  const termsOf = (q) => fold(q).split(/\s+/).filter(Boolean);
   const NAV_LABEL = Object.fromEntries(NAV.map((n) => [n.id, fold(n.label)]));
   function applyFilter() {
     if (!cardsEl) return;
     const cards = [...cardsEl.querySelectorAll('.card')];
-    const terms = fold(query).split(/\s+/).filter(Boolean);
-    cardCount = cards.length;
+    const terms = termsOf(query);
     if (!terms.length) {
       for (const c of cards) c.hidden = false;
       matchSecs = null; matchCount = cards.length;
@@ -102,6 +103,33 @@
     const mo = new MutationObserver(() => { if (query) applyFilter(); });
     mo.observe(cardsEl, { childList: true, characterData: true, subtree: true });
     return () => mo.disconnect();
+  });
+  // Paint every copy of the typed terms — visible cards and rail labels — with the CSS Custom
+  // Highlight API, as DiffView does for its occurrence echo: no node is added or split, so Svelte's
+  // text-node references stay valid and the MutationObserver above is never tripped. It keys on
+  // `matchSecs` rather than running inside applyFilter so it sees the rail AFTER Svelte re-rendered
+  // it (a section that comes back gets its label painted too); applyFilter builds a fresh Set per
+  // pass, so an observer-triggered re-filter over new content repaints as well. No API → no paint.
+  const HL = 'settings-search';
+  $effect(() => {
+    query; matchSecs; cardsEl; navEl;
+    if (!highlightsSupported()) return;
+    const terms = termsOf(query);
+    if (!terms.length || !cardsEl) { CSS.highlights.delete(HL); return; }
+    const ranges = [];
+    const roots = [...(navEl?.querySelectorAll('a') ?? []), ...cardsEl.querySelectorAll('.card:not([hidden])')];
+    for (const root of roots) {
+      const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+      for (let node; (node = walker.nextNode()); ) {
+        for (const [s, e] of findTermRanges(node.nodeValue, terms)) {
+          const r = new Range();
+          r.setStart(node, s); r.setEnd(node, e);
+          ranges.push(r);
+        }
+      }
+    }
+    CSS.highlights.set(HL, new Highlight(...ranges));
+    return () => CSS.highlights.delete(HL);
   });
 
   // Métadonnées d'affichage des sous-onglets (miroir de SessionDetail / server/settings.js).
@@ -462,7 +490,7 @@
 
 <section id="view-settings" class="view active">
   <div class="set-wrap">
-    <nav class="set-nav">
+    <nav class="set-nav" bind:this={navEl}>
       <div class="set-nav-title">Settings</div>
       {#each NAV.filter((n) => !matchSecs || matchSecs.has(n.id)) as n (n.id)}
         <a href="#{n.id}" class:active={activeSec === n.id} onclick={(e) => { e.preventDefault(); goTo(n.id); }}>{n.label}</a>
@@ -480,10 +508,7 @@
                autocomplete="off" spellcheck="false" bind:value={query}
                onkeydown={(e) => { if (e.key !== 'Escape') return; e.stopPropagation(); if (query) query = ''; else e.currentTarget.blur(); }} />
         {#if query}
-          <span class="set-search-end">
-            <span class="set-search-count" aria-live="polite">{matchCount} / {cardCount}</span>
-            <button class="set-search-clear" onclick={() => (query = '')} title="Clear search" aria-label="Clear search"><Icon name="close" size={13} /></button>
-          </span>
+          <button class="set-search-clear" onclick={() => (query = '')} title="Clear search" aria-label="Clear search"><Icon name="close" size={13} /></button>
         {/if}
       </div>
     </div>
@@ -1098,11 +1123,9 @@
   .set-search { position: sticky; top: 0; z-index: 2; background: var(--bg); padding: 6px 0 14px; margin-bottom: 6px; }
   .set-search-box { position: relative; display: flex; align-items: center; }
   .set-search-icon { position: absolute; left: 12px; display: flex; color: var(--muted); pointer-events: none; }
-  .set-search input { width: 100%; box-sizing: border-box; padding: 9px 96px 9px 36px; border-radius: 10px; font-size: 13.5px; }
+  .set-search input { width: 100%; box-sizing: border-box; padding: 9px 40px 9px 36px; border-radius: 10px; font-size: 13.5px; }
   .set-search input::-webkit-search-cancel-button { -webkit-appearance: none; display: none; }
-  .set-search-end { position: absolute; right: 8px; display: flex; align-items: center; gap: 6px; }
-  .set-search-count { font-size: 11.5px; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
-  .set-search-clear { display: flex; align-items: center; justify-content: center; width: 24px; height: 24px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface); color: var(--muted); cursor: pointer; }
+  .set-search-clear { position: absolute; right: 8px; display: flex; align-items: center; justify-content: center; width: 24px; height: 24px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface); color: var(--muted); cursor: pointer; }
   .set-search-clear:hover { border-color: var(--accent); color: var(--accent-d); }
   .no-match { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 36px 24px; border: 1px dashed var(--border2); border-radius: 14px; color: var(--muted); text-align: center; }
   .no-match p { margin: 0; font-size: 13.5px; }

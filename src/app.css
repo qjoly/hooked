@@ -1842,3 +1842,10 @@ textarea.lf-input { font-family: inherit; resize: vertical; }
   text-decoration-thickness: 2px;
   text-underline-offset: 3px;
 }
+
+/* Settings search: every copy of the typed terms inside the visible cards and the rail labels.
+   Same API as the rules above — nodes are neither added nor split, so Svelte's text-node
+   references stay valid and the page's MutationObserver is never tripped. */
+::highlight(settings-search) {
+  background-color: rgba(var(--accent-rgb), .28);
+}
