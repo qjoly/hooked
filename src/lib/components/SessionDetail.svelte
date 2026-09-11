@@ -674,8 +674,12 @@
                onblur={commitRename} />
       {:else}
         <button class="sess-name" onclick={startRename} title="Rename this session (local)">{sessionTitle(s)}</button>
-        {#if ui.names[s.id]}<button class="sess-restore" title="Restore auto title" aria-label="Auto title" onclick={() => renameSession(s.id, '')}><Icon name="restore" size={14} /></button>{/if}
       {/if}
+      <!-- rendu dans les DEUX états : le retirer pendant l'édition décalerait la suite de la ligne. -->
+      {#if ui.names[s.id]}<button class="sess-restore"
+              title={`Drop the custom name and restore the automatic title${s.title ? ` (“${s.title}”)` : ''}`}
+              aria-label="Restore automatic title"
+              onclick={() => renameSession(s.id, '')}><Icon name="restore" size={14} /></button>{/if}
       <span class="head-meta" title={s.project || ''}>{s.repo || s.projectName || '?'}{#if s.gitBranch} · <Icon name="git-branch" size={13} /> {s.gitBranch}{/if}</span>
       {#if sessionTags(id).length}
         <!-- tags de session (manuels + auto-tag PR) : cliquer ouvre l'éditeur -->
@@ -973,19 +977,25 @@
   .hdr-menu-cmds { display: flex; flex-direction: column; gap: 8px; padding: 4px 6px 2px; }
   .hdr-menu-cmds .strip-modes.wrap { flex-wrap: wrap; }
   .cmds-div { display: block; }
-  .sess-name {
-    /* Le TITRE est l'info prioritaire : il PREND l'espace libre (flex-grow) et garde un plancher
-       lisible (min-width), au lieu d'être le premier écrasé. Ce sont la branche/le statut puis les
-       boutons (repliés par les container queries plus bas) qui cèdent la place avant lui. */
-    flex: 1 1 auto; min-width: 96px; max-width: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-    background: none; border: none; padding: 0; font: inherit; font-size: 15px; font-weight: 800;
-    letter-spacing: -.01em; color: var(--text); cursor: text; text-align: left;
+  /* Le titre et son champ d'édition partagent EXACTEMENT la même boîte (flex, min-width, padding,
+     bordure, marges de compensation). Toute différence — l'input ne grandissait pas, était plus
+     haut de 6px à cause du padding + bordure — décale la branche, le badge et les actions dès
+     qu'on bascule en édition.
+     Le TITRE est l'info prioritaire : il PREND l'espace libre (flex-grow) et garde un plancher
+     lisible (min-width), au lieu d'être le premier écrasé. Ce sont la branche/le statut puis les
+     boutons (repliés par les container queries plus bas) qui cèdent la place avant lui.
+     Les marges négatives annulent padding + bordure : la ligne garde la hauteur et la position
+     du texte qu'elle avait sans champ. */
+  .sess-name, .sess-rename-inline {
+    flex: 1 1 auto; width: 0; min-width: 96px; max-width: none;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    font: inherit; font-size: 15px; font-weight: 800; letter-spacing: -.01em;
+    padding: 2px 6px; margin: -3px -6px; border: 1px solid transparent; border-radius: 7px;
+    color: var(--text); text-align: left;
   }
+  .sess-name { background: none; cursor: text; }
   .sess-name:hover { color: var(--accent-d); }
-  .sess-rename-inline {
-    flex: 0 1 auto; min-width: 120px; max-width: 40vw; font: inherit; font-size: 15px; font-weight: 800;
-    background: var(--input); border: 1px solid var(--accent); border-radius: 7px; padding: 2px 8px; color: var(--text);
-  }
+  .sess-rename-inline { background: var(--input); border-color: var(--accent); }
   .sess-rename-inline:focus { outline: none; box-shadow: 0 0 0 3px var(--accent-soft); }
   .sess-restore { background: none; border: none; color: var(--muted); cursor: pointer; font-size: 12px; padding: 0 2px; flex: 0 0 auto; }
   .sess-restore:hover { color: var(--text); }

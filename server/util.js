@@ -22,6 +22,14 @@ function cleanPrompt(t) {
   return t;
 }
 
+// Titre auto dérivé d'un prompt : coupe à `max` et signale la coupe par une ellipse, pour ne pas
+// laisser croire que le titre s'arrête là. L'ellipse REMPLACE les derniers caractères (elle ne
+// s'ajoute pas), donc le résultat ne dépasse jamais `max`.
+function truncTitle(t, max) {
+  t = String(t || '');
+  return t.length > max ? t.slice(0, max - 1).trimEnd() + '…' : t;
+}
+
 // extrait un texte lisible d'un contenu de message (chat)
 function chatText(content) {
   if (typeof content === 'string') {
@@ -117,4 +125,4 @@ function toolSendFiles(toolName, input, cwd) {
   return { caption: typeof input.caption === 'string' ? input.caption.slice(0, 300) : '', files: out };
 }
 
-export { readdirSafe, statSafe, textOf, cleanPrompt, chatText, toolDetail, toolResultText, toolInputText, toolDiffOps, toolSendFiles };
+export { readdirSafe, statSafe, textOf, cleanPrompt, truncTitle, chatText, toolDetail, toolResultText, toolInputText, toolDiffOps, toolSendFiles };
