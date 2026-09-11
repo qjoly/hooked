@@ -23,8 +23,9 @@ const SESSION_LAUNCH_FILE = path.join(HOOKED_DIR, 'session-launch.jsonl');
 // processus hooked : un redémarrage les tue toutes. Ce fichier est ce qui permet de les reprendre au
 // démarrage suivant. Écrasé, pas append : c'est un état courant, pas un journal.
 const DRIVEN_FILE = path.join(HOOKED_DIR, 'driven-sessions.json');
-// snapshots de la statusline Claude Code (déposés par statusline-command.sh) : un fichier
-// JSON par session, contenant les *vraies* infos du compte (effort, rate limits, contexte).
+// status snapshots: one JSON file per session carrying the *real* account info (effort, rate
+// limits, context). Two producers, one format — `statusline-tap.sh` for a session opened in a
+// terminal, `server/agent-status.js` for an SDK-driven one (no TUI, hence no statusline render).
 const STATUS_DIR = path.join(HOOKED_DIR, 'status');
 // Claude Code's global config (~/.claude.json). Carries `cachedUsageUtilization`, the account
 // quota cache the CLI refreshes: the only local source for *model-scoped* buckets (e.g. the
