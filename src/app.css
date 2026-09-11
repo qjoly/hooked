@@ -858,7 +858,11 @@ body.focus.sidebar-peek .inbox { width: 326px; min-width: 326px; border-right: 1
 .pane-head { flex: 0 0 auto; padding: 15px 24px 0; border-bottom: 1px solid var(--border); background: var(--bg2); z-index: 3; }
 /* titre de session dans l'en-tête du cockpit */
 .pane-head .sess-title { font-size: 19px; font-weight: 800; letter-spacing: -.01em; margin: 6px 0 0 !important; }
-.pane-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden; padding: 20px 24px 28px; background: var(--panel); }
+/* `--pane-pad-b` : le padding bas est exposé en variable parce que le composer collé en bas
+   (.composer-dock) doit l'annuler — les décalages d'un `position: sticky` sont résolus contre la
+   BOÎTE DE CONTENU du scroller, donc un `bottom: 0` le garerait ce padding au-dessus du bord
+   visible, et la fin du transcript réapparaîtrait dans cette bande. */
+.pane-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden; --pane-pad-b: 28px; padding: 20px 24px var(--pane-pad-b); background: var(--panel); }
 .overview { flex: 1 1 auto; overflow-y: auto; padding: 28px; }
 .ro-tag { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); border: 1px solid var(--border2); border-radius: 7px; padding: 3px 8px; font-family: var(--mono); }
 .ov-hint, .pane-empty { color: var(--muted); padding: 60px 20px; text-align: center; }
@@ -1192,7 +1196,7 @@ code.path { color: var(--muted); font-size: 11px; word-break: break-all; font-fa
    background), so the transcript NEVER slides visibly behind or beside the text box —
    it dissolves into the gradient above the dock and stops there. */
 .composer-dock {
-  position: sticky; bottom: 0; z-index: 2; margin-top: 20px;
+  position: sticky; bottom: calc(-1 * var(--pane-pad-b, 0px)); z-index: 2; margin-top: 20px;
   background: var(--panel); padding-bottom: env(safe-area-inset-bottom);
 }
 /* Fade-out strip above the dock: the last line of the transcript melts into the
@@ -1698,7 +1702,7 @@ textarea.lf-input { font-family: inherit; resize: vertical; }
 
   /* paddings réduits */
   .pane-head { padding: 14px 16px; }
-  .pane-body { padding: 16px 14px 32px; }
+  .pane-body { --pane-pad-b: 32px; padding: 16px 14px var(--pane-pad-b); }
   .overview { padding: 18px 14px; }
   #view-stats { padding: 18px 14px; }
   .side-list { padding: 4px 8px 20px; }
