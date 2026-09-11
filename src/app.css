@@ -1382,6 +1382,7 @@ code.path { color: var(--muted); font-size: 11px; word-break: break-all; font-fa
 .resume-btn:hover { background: var(--accent-d); }
 .resume-btn:disabled { opacity: .6; cursor: default; }
 .stop-btn {
+  display: inline-flex; align-items: center; gap: 4px;
   background: transparent; color: var(--attention); border: 1px solid var(--attention);
   border-radius: 8px; padding: 4px 10px; font-size: 12px; font-weight: 600; cursor: pointer; margin-left: 8px;
 }
