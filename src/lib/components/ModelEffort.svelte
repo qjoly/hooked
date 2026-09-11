@@ -1,6 +1,8 @@
 <script>
   import { MODE_OPTS, shortModel } from '$lib/format.js';
   import { getCapabilities } from '$lib/api.js';
+  import { settings } from '$lib/state.svelte.js';
+  import { filterModelGroups } from '$lib/models.js';
   import Icon from '$lib/components/Icon.svelte';
   // `compact` : pilules en ligne (sous une chatbox) plutôt que le formulaire des modales.
   // `onchange` : callback appelé à chaque changement (sert au changement à chaud d'une session).
@@ -25,10 +27,15 @@
   // ou ne la contiennent pas (ex. session sur une version épinglée hors bundle, ou 'ultracode' sur un
   // claude trop ancien) — sinon le <select> lié perdrait sa valeur.
   const effortOpts = $derived(effort && !efforts.includes(effort) ? [effort, ...efforts] : efforts);
+  // Filtre d'affichage des Réglages (liste noire, cf. src/lib/models.js) appliqué ICI et pas côté
+  // serveur : /api/capabilities est mémoïsé pour tout le chargement de page, alors que `settings`
+  // est réactif → (dé)cocher une version se répercute immédiatement sur les sélecteurs ouverts.
+  // `model` est passé en `keep` : le modèle courant d'une session survit toujours au filtre.
+  const visibleGroups = $derived(filterModelGroups(modelGroups, settings.hiddenModels, model));
   const modelView = $derived.by(() => {
-    const has = modelGroups.some((g) => g.opts.some(([v]) => v === model));
-    if (model && !has) return [{ label: '', opts: [[model, shortModel(model)]] }, ...modelGroups];
-    return modelGroups;
+    const has = visibleGroups.some((g) => g.opts.some(([v]) => v === model));
+    if (model && !has) return [{ label: '', opts: [[model, shortModel(model)]] }, ...visibleGroups];
+    return visibleGroups;
   });
 </script>
 
