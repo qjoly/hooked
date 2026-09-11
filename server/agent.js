@@ -30,6 +30,7 @@ import { isValidEffort } from './capabilities.js';
 import { statSafe } from './util.js';
 import { scanSessions } from './transcript.js';
 import { readSettings } from './settings.js';
+import { refreshAgentStatus } from './agent-status.js';
 
 function err400(msg) { const e = new Error(msg); e.code = 400; return e; }
 
@@ -563,6 +564,11 @@ async function readLoop(st) {
           || (msg.type === 'system' && msg.subtype === 'session_state_changed');
         emitAgent(st.id, () => streamSnapshot(st), immediate);
       }
+      // Status snapshot (context + rate limits): no statusline runs for an SDK session, so we ask
+      // the Query ourselves. End of turn = immediately (that is when context moved most); mid-turn,
+      // throttled. Fire-and-forget, cf. server/agent-status.js.
+      if (msg.type === 'result') refreshAgentStatus(st, true);
+      else if (msg.type === 'assistant' || (msg.type === 'system' && msg.subtype === 'init')) refreshAgentStatus(st);
     }
   } catch (e) {
     st.error = e && e.name === 'AbortError' ? null : String((e && e.message) || e);
