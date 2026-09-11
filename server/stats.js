@@ -3,7 +3,7 @@
  * statistiques d'usage (buildStats) et détail complet d'une session (sessionDetail).
  */
 import path from 'node:path';
-import { statSafe } from './util.js';
+import { statSafe, truncTitle } from './util.js';
 import { scanSessions, blankSummary } from './transcript.js';
 import { repoSlug } from './git.js';
 import { readEvents, lastEventBySession, modeForSession, liveQuestionForSession, liveQuestionBySession, livePlanForSession, livePlanBySession, eventSessionMeta, rcSessionIdsFromEvents } from './events.js';
@@ -44,7 +44,7 @@ function eventOnlySessions(knownIds, now = Date.now()) {
     s.startTs = m.firstTs;
     s.lastTs = m.lastTs;
     // titre : 50 premiers caractères du prompt utilisateur (capté par le hook), sinon placeholder.
-    if (m.firstPrompt) { s.firstPrompt = m.firstPrompt; s.title = m.firstPrompt.slice(0, 50); }
+    if (m.firstPrompt) { s.firstPrompt = m.firstPrompt; s.title = truncTitle(m.firstPrompt, 50); }
     else s.title = '(nouvelle session)';
     out.push(s);
   }

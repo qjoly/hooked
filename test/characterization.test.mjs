@@ -304,14 +304,16 @@ describe('buildSessions — sessions live-only (avant transcript)', () => {
     expect(ids).toEqual(['sess-alpha', 'sess-beta']);
     expect(lib.buildSessions().some((s) => s.title === '(nouvelle session)')).toBe(false);
   });
-  it('synthétise une session récente sans transcript, titrée par le prompt (50 car.)', () => {
+  it('synthétise une session récente sans transcript, titrée par le prompt (50 car., coupe signalée)', () => {
     // sess-fresh : SessionStart + UserPromptSubmit, sans transcript → session live-only.
     const PROMPT = "Corrige le bug d'affichage de la sidebar quand on lance une nouvelle session please";
     const now = Date.parse('2026-06-11T10:05:00.000Z'); // < 30 min après le dernier évènement
     const fresh = lib.eventOnlySessions(new Set(['sess-alpha', 'sess-beta']), now)
       .find((s) => s.id === 'sess-fresh');
     expect(fresh).toBeTruthy();
-    expect(fresh.title).toBe(PROMPT.slice(0, 50));
+    // le prompt dépasse 50 car. → coupé à 49 + ellipse (longueur totale 50, jamais plus).
+    expect(fresh.title).toBe(PROMPT.slice(0, 49).trimEnd() + '…');
+    expect(fresh.title.length).toBeLessThanOrEqual(50);
     expect(fresh.firstPrompt).toBe(PROMPT);
     expect(fresh.projectName).toBe('proj-fresh');
   });
