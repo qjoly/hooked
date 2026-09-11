@@ -5,7 +5,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { PROJECTS_DIR } from './config.js';
-import { readdirSafe, statSafe, textOf, cleanPrompt } from './util.js';
+import { readdirSafe, statSafe, textOf, cleanPrompt, truncTitle } from './util.js';
 import { costForUsage } from './pricing.js';
 import { incrementalReader } from './incremental.js';
 
@@ -182,7 +182,9 @@ function finalize(acc) {
   s.issueLinks = [...new Set(acc.issueRaw.slice().reverse())].slice(0, 12);
   // modèle dominant (tri stable → départage identique au parse en une passe)
   s.model = Object.keys(acc.modelCount).sort((a, b) => acc.modelCount[b] - acc.modelCount[a])[0] || null;
-  s.title = acc.aiTitle != null ? acc.aiTitle : ((s.firstPrompt || '').slice(0, 80) || '(sans titre)');
+  // Le titre de Claude Code (`ai-title`) est déjà une phrase complète : jamais tronqué. Le repli sur
+  // le premier prompt, lui, est une COUPE → ellipse pour que ça ne s'arrête pas en plein mot.
+  s.title = acc.aiTitle != null ? acc.aiTitle : (truncTitle(s.firstPrompt, 80) || '(sans titre)');
   // dernière question AskUserQuestion ni répondue (tool_result) ni résolue (prompt postérieur) =
   // question en attente. Sans `resolved`, une question à laquelle on répond en TAPANT resterait
   // « en attente » à vie (l'outil abandonné n'émet aucun tool_result).
