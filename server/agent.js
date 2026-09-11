@@ -148,6 +148,17 @@ function parseEnvBlock(out) {
 function loginEnv() {
   if (globalThis[LOGIN_ENV]) return globalThis[LOGIN_ENV];
   const shell = process.env.SHELL || '/bin/zsh';
+  /*
+   * The probe below needs a POSIX shell that understands `-l -i -c` and `env -0`. Windows has
+   * none unless SHELL points at one (Git Bash does), and hooked started from PowerShell has no
+   * SHELL at all — so the probe spawned /bin/zsh, failed with ENOENT, and printed a warning
+   * about a missing login environment on every boot. There is nothing to read there: the
+   * process environment already IS the user's environment.
+   */
+  if (process.platform === 'win32' && !process.env.SHELL) {
+    globalThis[LOGIN_ENV] = Promise.resolve({ ...process.env });
+    return globalThis[LOGIN_ENV];
+  }
   globalThis[LOGIN_ENV] = new Promise((resolve) => {
     execFile(shell, ['-l', '-i', '-c', `printf '${ENV_SENTINEL}\\0'; env -0`],
       { encoding: 'utf8', timeout: LOGIN_ENV_TIMEOUT, maxBuffer: 4 << 20 },

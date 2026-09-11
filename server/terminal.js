@@ -19,6 +19,7 @@
  * tout faire sur la machine.
  */
 import fs from 'node:fs';
+import path from 'node:path';
 import crypto from 'node:crypto';
 import { loginEnv, err400 } from './agent.js';
 
@@ -101,6 +102,60 @@ function terminalScrollback(id) {
   return t ? t.buffer : '';
 }
 
+// ── Choix du shell ───────────────────────────────────────────────────────────────────────────────
+
+/*
+ * Which shell to open, per platform.
+ *
+ * `$SHELL || '/bin/zsh'` is right on macOS and Linux and wrong on Windows, where the variable is
+ * usually unset: the POSIX fallback reached node-pty and came back as a bare `File not found:`,
+ * with nothing pointing at the path as the cause. And when Windows DOES set it, it comes from Git
+ * Bash and may be an MSYS path (`/usr/bin/bash`) that CreateProcess cannot resolve.
+ *
+ * So on Windows the variable is honoured only when it names a file that actually exists — someone
+ * who set it to Git Bash gets Git Bash — and otherwise a real Windows shell is looked up.
+ */
+const WINDOWS_SHELLS = ['pwsh.exe', 'powershell.exe'];
+
+function findOnPath(exe, env = process.env) {
+  for (const dir of (env.PATH || '').split(path.delimiter).filter(Boolean)) {
+    const p = path.join(dir, exe);
+    try {
+      if (fs.statSync(p).isFile()) return p;
+    } catch (_) { /* next entry */ }
+  }
+  return null;
+}
+
+function isFile(p) {
+  try { return fs.statSync(p).isFile(); } catch (_) { return false; }
+}
+
+// Platform and env are parameters so the choice can be exercised from any OS in tests.
+function defaultShell(platform = process.platform, env = process.env) {
+  const fromEnv = env.SHELL;
+  if (platform !== 'win32') return fromEnv || '/bin/zsh';
+  if (fromEnv && isFile(fromEnv)) return fromEnv;
+  for (const exe of WINDOWS_SHELLS) {
+    const found = findOnPath(exe, env);
+    if (found) return found;
+  }
+  return env.COMSPEC || 'cmd.exe';
+}
+
+/*
+ * `-l -i` sources the user's profile, which is what the old `tmux new-session` gave us for free.
+ * Keyed on the shell rather than the platform: Git Bash on Windows still wants them, while cmd
+ * would treat them as a command to run and PowerShell as a malformed argument. PowerShell loads
+ * the user's profile by itself, so only its banner is worth suppressing.
+ */
+function shellArgs(shell) {
+  const name = path.basename(String(shell)).toLowerCase();
+  if (/^(bash|zsh|sh|fish|ksh)(\.exe)?$/.test(name)) return ['-l', '-i'];
+  if (/^(pwsh|powershell)(\.exe)?$/.test(name)) return ['-NoLogo'];
+  return [];
+}
+
 // ── Cycle de vie ─────────────────────────────────────────────────────────────────────────────────
 
 // Ouvre un shell de LOGIN interactif dans `cwd`. `-l -i` pour que le profil de l'utilisateur soit
@@ -116,13 +171,13 @@ function openTerminal({ cwd, sessionId, cols, rows } = {}, cb) {
 
   const c = Number.isInteger(cols) && cols > 0 && cols <= 500 ? cols : DEFAULT_COLS;
   const r = Number.isInteger(rows) && rows > 0 && rows <= 300 ? rows : DEFAULT_ROWS;
-  const shell = process.env.SHELL || '/bin/zsh';
+  const shell = defaultShell();
 
   loadPty().then((pty) => loginEnv().then((env) => {
     const id = 'term_' + crypto.randomBytes(6).toString('hex');
     let child;
     try {
-      child = pty.spawn(shell, ['-l', '-i'], {
+      child = pty.spawn(shell, shellArgs(shell), {
         name: 'xterm-256color',   // ce que xterm.js sait rendre côté navigateur
         cols: c, rows: r, cwd: dir,
         env: { ...process.env, ...env, TERM: 'xterm-256color' },
@@ -204,5 +259,6 @@ function closeTerminalsFor(sessionId) {
 export {
   openTerminal, writeTerminal, resizeTerminal, killTerminal, closeTerminalsFor,
   subscribeTerminal, listTerminals, getTerminal, terminalScrollback,
+  defaultShell, shellArgs,
   MAX_TERMINALS,
 };

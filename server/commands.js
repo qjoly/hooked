@@ -63,39 +63,71 @@ let _binCache = null;       // { path, mtime } résolution du binaire
 let _extractCache = null;   // { path, mtime, list } commandes extraites
 
 // Locate the claude binary. We cache the stable PATH entry / symlink (`_binCache`) — which survives
-// version upgrades — but re-derive the REAL target (`readlink -f`) FRESH on every call, so an
-// out-of-band upgrade (the symlink now points at a new versioned path, e.g. a brew-cask bump) is
-// reflected immediately instead of pinning a now-deleted versioned path. Re-resolve if the cached
-// entry has vanished (uninstall / relocation).
+// version upgrades — but re-derive the REAL target FRESH on every call, so an out-of-band upgrade
+// (the symlink now points at a new versioned path, e.g. a brew-cask bump) is reflected immediately
+// instead of pinning a now-deleted versioned path. Re-resolve if the cached entry has vanished
+// (uninstall / relocation).
+/*
+ * PATH lookup done in JS rather than by asking a shell.
+ *
+ * `command -v` is a POSIX shell builtin: on Windows execSync runs through cmd, which has no
+ * equivalent, so the lookup always failed. Doing it here removes the shell entirely and lets the
+ * Windows side honour PATHEXT — the binary is `claude.exe` there, and probing for an
+ * extensionless `claude` finds nothing.
+ */
+function whichBin(name) {
+  const exts = process.platform === 'win32'
+    ? (process.env.PATHEXT || '.EXE;.CMD;.BAT').split(';').map((e) => e.trim()).filter(Boolean)
+    : [''];
+  for (const dir of (process.env.PATH || '').split(path.delimiter).filter(Boolean)) {
+    for (const ext of exts) {
+      const p = path.join(dir, name + ext);
+      try {
+        fs.accessSync(p, fs.constants.X_OK);
+        return p;
+      } catch (_) { /* next candidate */ }
+    }
+  }
+  return null;
+}
+
+// Usual install locations, probed when PATH does not carry claude — under systemd or launchd the
+// service PATH is minimal (no Homebrew, no npm-global) and a real install would be missed.
+// Platform is a parameter so the Windows list can be asserted from any OS.
+function claudeCandidates(platform = process.platform) {
+  if (platform === 'win32') {
+    const local = process.env.LOCALAPPDATA || path.join(HOME, 'AppData', 'Local');
+    const roaming = process.env.APPDATA || path.join(HOME, 'AppData', 'Roaming');
+    return [
+      path.join(HOME, '.local', 'bin', 'claude.exe'),
+      path.join(local, 'Programs', 'claude', 'claude.exe'),
+      path.join(roaming, 'npm', 'claude.cmd'),
+      path.join(HOME, '.claude', 'local', 'claude.exe'),
+    ];
+  }
+  return [
+    '/home/linuxbrew/.linuxbrew/bin/claude', '/opt/homebrew/bin/claude', '/usr/local/bin/claude',
+    path.join(HOME, '.local/bin/claude'), path.join(HOME, '.claude/local/claude'),
+    path.join(HOME, '.npm-global/bin/claude'), '/usr/bin/claude',
+  ];
+}
+
 function resolveClaudeBin() {
   if (_binCache && !fs.existsSync(_binCache)) _binCache = null;   // cached entry gone → re-resolve
   if (_binCache === null) {
-    let found = null;
-    // 1) PATH lookup — works when hooked runs from an interactive shell.
-    try {
-      const which = cp.execSync('command -v claude', { encoding: 'utf8' }).trim();
-      if (which) found = which;
-    } catch (_) { /* not on PATH */ }
-    // 2) Fallback: under systemd the service PATH is minimal (no Homebrew / npm-global), so `command -v`
-    //    misses a real install. Probe the usual locations directly — same fix as server/ghMeta.js for gh.
+    let found = whichBin('claude');
     if (!found) {
-      for (const c of [
-        '/home/linuxbrew/.linuxbrew/bin/claude', '/opt/homebrew/bin/claude', '/usr/local/bin/claude',
-        path.join(HOME, '.local/bin/claude'), path.join(HOME, '.claude/local/claude'),
-        path.join(HOME, '.npm-global/bin/claude'), '/usr/bin/claude',
-      ]) {
+      for (const c of claudeCandidates()) {
         try { fs.accessSync(c, fs.constants.X_OK); found = c; break; } catch (_) { /* next candidate */ }
       }
     }
     _binCache = found;   // the stable symlink / PATH entry (NOT the versioned real path)
   }
   if (!_binCache) return null;
-  // follow symlinks to the real binary FRESH (native .exe bundle or cli.js) so a version bump behind
-  // the symlink is reflected on the very next call.
-  try {
-    const real = cp.execSync('readlink -f ' + JSON.stringify(_binCache), { encoding: 'utf8' }).trim();
-    return real || _binCache;
-  } catch (_) { return _binCache; }
+  // Follow symlinks to the real binary FRESH (native .exe bundle or cli.js) so a version bump behind
+  // the symlink is reflected on the very next call. realpathSync replaces `readlink -f`, which is
+  // another POSIX-only tool.
+  try { return fs.realpathSync(_binCache) || _binCache; } catch (_) { return _binCache; }
 }
 
 // Scanne le bundle pour les déclarations `type:"local|local-jsx|prompt",name:"…"[,description:"…"]`.
@@ -247,4 +279,4 @@ function matchCommands(list, q, limit = 30) {
   return scored.slice(0, limit).map((x) => x[0]);
 }
 
-export { CURATED, resolveClaudeBin, extractBuiltins, builtinCommands, customCommands, slashCommands, matchCommands };
+export { CURATED, resolveClaudeBin, claudeCandidates, extractBuiltins, builtinCommands, customCommands, slashCommands, matchCommands };
