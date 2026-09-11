@@ -1094,10 +1094,12 @@ code.path { color: var(--muted); font-size: 11px; word-break: break-all; font-fa
 /* blocs de code IMBRIQUÉS (dans liste/citation) — rendus <pre> par markdown-it, pas par <CodeBlock> */
 .md pre { margin: 8px 0; padding: 10px 12px; overflow-x: auto; background: #12151b; border-radius: 8px; }
 .md pre code { color: #e6e6e6; background: none; padding: 0; }
-/* cases à cocher GFM (markdown-it-task-lists) : pas de puce, alignement propre */
-.md ul.contains-task-list { list-style: none; padding-left: 4px; }
-.md li.task-list-item { display: flex; align-items: flex-start; gap: 7px; }
-.md li.task-list-item .task-list-item-checkbox { margin: 3px 0 0; flex: none; accent-color: var(--accent); }
+/* GFM checkboxes (markdown-it-task-lists): no bullet, hanging indent via the 22px gutter
+   inherited from `.md ul`. NEVER `display: flex` on the <li>: a tight list holds bare inline
+   content (no <p>), so every <code>/<strong>/<a> becomes its own flex item and the line
+   collapses into one-letter-wide columns. */
+.md ul.contains-task-list { list-style: none; }
+.md li.task-list-item .task-list-item-checkbox { width: 13px; height: 13px; margin: 0 5px 0 -18px; vertical-align: -2px; accent-color: var(--accent); }
 /* alertes GitHub (callouts) — transformées depuis un blockquote `[!TYPE]` par githubAlerts() */
 .md-alert { margin: 8px 0; padding: 8px 12px 8px 13px; border-left: 3px solid var(--al-c); background: var(--al-bg); border-radius: 0 7px 7px 0; }
 .md-alert > *:last-child { margin-bottom: 0; }
