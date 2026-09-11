@@ -10,6 +10,7 @@
   import DiffView from './DiffView.svelte';
   import Grip from './Grip.svelte';
   import ReviewComments from './ReviewComments.svelte';
+  import DefPeek from './DefPeek.svelte';
   import Icon from '$lib/components/Icon.svelte';
   import { toSegments, countStats } from '$lib/difflines.js';
   import { getVcsBranches, getVcsBranchDiff, getVcsBlame,
@@ -17,6 +18,7 @@
            archiveReviewThread, markReviewSent, reply as sendToSession } from '$lib/api.js';
   import { settings, ui } from '$lib/state.svelte.js';
   import { editorFor } from '$lib/editors.js';
+  import { getSymbolDefs } from '$lib/api.js';
   import { fingerprint, isReviewed as hasReview, toggleReviewed as tickReview,
            toMap as reviewedToMap, toEntries as reviewedToEntries } from '$lib/reviewState.js';
   import { loadDraft, saveDraft } from '$lib/reviewDraft.js';
@@ -100,7 +102,9 @@
 
   // VCS entries are single old→new edits; key sections per branch pair so inline comments
   // never collide across branches (or with the Ship lens) on the same file.
-  const fileDiffs = (c) => (c.ops || []).map((o, j) => ({ oldStr: o.old || '', newStr: o.new || '', opIndex: 'br:' + diffKey + ':' + j }));
+  // wholeFile : une entrée de diff de branche est un old→new du fichier ENTIER (makeEntry,
+  // vcsDiff.js), donc ses numéros de ligne SONT ceux du fichier — un saut à la ligne est sûr.
+  const fileDiffs = (c) => (c.ops || []).map((o, j) => ({ oldStr: o.old || '', newStr: o.new || '', opIndex: 'br:' + diffKey + ':' + j, wholeFile: true }));
 
   // +N/−M per file, and totals across the branch.
   const fileStats = $derived.by(() => {
@@ -255,7 +259,7 @@
     if (!diffCache[key]) { diffLoading = true; await loadDiff(key); }
   }
 
-  let jumpTarget = $state(null); // { id, idx } — thread to reveal, and the file it was found in
+  let jumpTarget = $state(null); // { kind, …, idx } — cible à révéler, et le fichier où elle est
   // Returns false when the comment cannot be reached — the list says so rather than looking broken.
   async function jumpToComment(t) {
     const ctx = threadContext(t.opIndex);
@@ -265,13 +269,68 @@
     const i = changes.findIndex((c) => c.file === t.file);
     if (i < 0) return false;   // not in that diff after all (branch rewritten, file dropped)
     activeIdx = i;
-    jumpTarget = { id: t.id, idx: i };
+    jumpTarget = { kind: 'thread', id: t.id, idx: i };
     return true;
   }
   // A jump is spent as soon as you navigate away. Without this the target would still be around
   // when J/K walks back to that file later, and re-mounting its DiffView would re-scroll and
   // re-flash a thread nobody asked for.
   $effect(() => { activeIdx; untrack(() => { if (jumpTarget && jumpTarget.idx !== activeIdx) jumpTarget = null; }); });
+
+  // ── go to definition ────────────────────────────────────────────────────────────────────
+  // Même modèle que Ship : la définition dans un fichier du diff de branche se révèle sur
+  // place (rail + focus, avec le retry d'ouverture des gaps), sinon repli sur l'éditeur, à la
+  // bonne LIGNE. Ici les révisions sont des noms de branche, pas des SHA (cf. blameFor).
+  let symMsg = $state(null);
+  let symTimer = 0;
+  function saySym(text) {
+    clearTimeout(symTimer);
+    symMsg = text;
+    symTimer = setTimeout(() => (symMsg = null), 4000);
+  }
+  const revForSide = (side) => {
+    const b = blameFor;
+    if (!b) return '';
+    const r = side === 'old' ? b.old : b.new;
+    return typeof r === 'string' ? r : '';
+  };
+  // Carte de définition ouverte EN LIGNE sous la ligne cliquée (cf. Ship, même modèle).
+  let def = $state(null);
+  $effect(() => { activeIdx; untrack(() => { def = null; }); });
+
+  async function gotoDefinition(file, opIndex, { word, side, line, start, end, local }) {
+    if (!activeFile) return;
+    const rev = revForSide(side);
+    const openHere = (t) => {
+      symMsg = null;
+      def = { opIndex, atSide: side, atLine: line, atStart: start, atEnd: end,
+              file: t.file, rel: t.rel, line: t.line, rev, symbol: word, kind: t.kind };
+    };
+
+    // Une définition n'emmène JAMAIS ailleurs : elle s'ouvre en carte, sous la ligne cliquée.
+    // Déplacer le rail et faire défiler jusqu'à un autre fichier, c'est faire perdre sa place
+    // à quelqu'un qui voulait juste jeter un œil.
+    // 1. déjà déclarée dans le fichier affiché → la carte s'ouvre sans la moindre requête.
+    if (local) return openHere({ file, rel: activeFile.name, line: local.line, kind: local.kind });
+
+    // 2. sinon on demande au dépôt.
+    saySym('Looking up ' + word + '…');
+    let r;
+    try { r = await getSymbolDefs(id, word, file, rev); } catch (_) { r = null; }
+    if (!r || !r.supported) return saySym(r && r.timedOut ? 'Lookup timed out.' : 'No repository to search.');
+    if (r.origin) return saySym(word + ' comes from ' + r.origin.specifier + ' — not in this repo.');
+    if (r.jump) return openHere(r.jump);
+    // Ambigu ? La carte s'ouvre quand même, sur une LISTE — un toast qui dit « 2 déclarations
+    // possibles » et disparaît est un échec du geste, pas une réponse. Les références seules
+    // s'affichent aussi, titrées comme telles : on ne présente jamais une référence comme une
+    // définition.
+    const candidates = r.declarations.length ? r.declarations : r.references;
+    if (!candidates.length) return saySym('No declaration found.');
+    symMsg = null;
+    def = { opIndex, atSide: side, atLine: line, atStart: start, atEnd: end,
+            rev, symbol: word, candidates,
+            refsOnly: !r.declarations.length, referenceCount: r.referenceCount };
+  }
 
   const anchorLabel = (c) => {
     const p = c.side === 'old' ? '−L' : '+L';
@@ -451,12 +510,21 @@
           </button>
         </div>
         <div class="sd-body">
+          {#if symMsg}<div class="sd-sym">{symMsg}</div>{/if}
           {#if activeFile.binary}
             <div class="sd-empty">Binary file — no diff.</div>
           {:else}
+            {#snippet defCard()}
+              <DefPeek {id} target={def} onClose={() => (def = null)} />
+            {/snippet}
             {#each fileDiffs(activeFile) as d (d.opIndex)}
               <DiffView oldStr={d.oldStr} newStr={d.newStr} name={activeFile.name} mode={effMode} {compact}
                         blame={blameFor}
+                        wholeFile={!!d.wholeFile}
+                        onSymbol={(p) => gotoDefinition(activeFile.file, d.opIndex, p)}
+                        markAt={def && def.opIndex === d.opIndex ? { side: def.atSide, line: def.atLine, start: def.atStart, end: def.atEnd } : null}
+                        definitionAt={def && def.opIndex === d.opIndex ? { side: def.atSide, line: def.atLine } : null}
+                        definition={defCard}
                         commentable={!!onReview}
                         comments={commentsFor(activeFile.file, d.opIndex)}
                         focus={jumpTarget}
@@ -593,6 +661,11 @@
   }
   .sd-review.done { background: color-mix(in srgb, var(--success) 16%, transparent); border-color: var(--success); color: var(--success); }
   .sd-body { flex: 1 1 auto; min-height: 0; min-width: 0; overflow-y: auto; overflow-x: hidden; }
+  /* retour bref du « go to definition » : rien à ouvrir, ou ouvert ailleurs */
+  .sd-sym {
+    padding: 5px 12px; font-family: var(--mono); font-size: 11px; color: var(--accent-d);
+    background: rgba(var(--accent-rgb), .08); border-bottom: 1px solid var(--border);
+  }
   .sd-empty { padding: 24px; color: var(--muted); font-size: 12.5px; }
 
   /* side panel */

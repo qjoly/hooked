@@ -86,7 +86,9 @@ export function matchShortcut(e) {
   return null;
 }
 
-const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.userAgent);
+// Exporté : le « go to definition » en a besoin pour choisir SA touche modificatrice — ⌃-clic
+// sous macOS est un clic droit, donc c'est ⌘ là-bas et ⌃ ailleurs (cf. src/lib/peek.svelte.js).
+export const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.userAgent);
 
 export function formatKeys(keys) {
   if (!keys) return '';
