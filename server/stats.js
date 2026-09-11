@@ -233,8 +233,9 @@ function buildStats(rangeDays) {
 // The Fable weekly bucket is model-scoped: absent from the statusline payload, so it comes from
 // the account usage endpoint / Claude Code's usage cache (cf. server/utilization.js) and is merged
 // into `account`, along with `usage` (which source answered, how old) for the staleness hint.
-// The 5h / 7d buckets stay statusline-driven (refreshed on every render) and only fall back to the
-// usage payload when NO snapshot carries rate limits — e.g. no session open since the last restart.
+// The 5h / 7d buckets come from whichever source answered most recently: the freshest status
+// snapshot (statusline tap for a TUI session, server/agent-status.js for an SDK-driven one) or the
+// account usage payload. Freshness decides — an old snapshot must never outrank a live poll.
 function buildUsage() {
   const id = freshestStatusId();
   const session = id ? sessionStatus(id) : null;   // contexte/effort/modèle/fastMode + rateLimit
@@ -242,12 +243,18 @@ function buildUsage() {
   const util = currentUtilization();
   const fable = scopedLimit('Fable', util);
   const fresh = usageFreshness();
-  const fallback = rl ? null : {
+  const fromUsage = {
     fiveHour: accountLimit('session', util),
     sevenDay: accountLimit('weekly_all', util),
     at: fresh.at,
   };
-  const merged = rl || (fallback && (fallback.fiveHour || fallback.sevenDay) ? fallback : null);
+  // The FRESHEST of the two wins, not the snapshot by default: a statusline file written three
+  // days ago (last TUI opened) used to outrank a 60s-old poll, so the gauges looked frozen — all
+  // the more since driven sessions stopped rendering a statusline at all.
+  const usableUsage = fromUsage.fiveHour || fromUsage.sevenDay ? fromUsage : null;
+  const rlAt = rl && rl.at ? Date.parse(rl.at) : 0;
+  const usageAt = usableUsage && usableUsage.at ? Date.parse(usableUsage.at) : 0;
+  const merged = (rl && (!usableUsage || rlAt >= usageAt)) ? rl : usableUsage;
   const account = (merged || fable)
     ? { fiveHour: null, sevenDay: null, at: null, ...merged, fable, usage: fresh }
     : null;
