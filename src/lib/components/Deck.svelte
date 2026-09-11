@@ -452,6 +452,7 @@
   .tfollow-sent { font-size: 12px; font-weight: 700; color: var(--success); }
   .tfoot { display: flex; gap: 7px; align-items: center; padding: 10px 14px; border-top: 1px solid var(--border); }
   .tbtn {
+    display: inline-flex; align-items: center; gap: 4px;
     background: var(--bg3); border: 1px solid var(--border2); color: var(--text);
     border-radius: 8px; padding: 5px 11px; font: inherit; font-size: 12px; font-weight: 600; cursor: pointer;
     transition: background .12s;
