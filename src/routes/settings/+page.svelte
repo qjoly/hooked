@@ -2,7 +2,8 @@
   import { untrack, onMount } from 'svelte';
   import { data, ui, settings, updateSettings, setTheme, setScheme, setCorners, loadSessions, allTags, tagUsage, deleteTag } from '$lib/state.svelte.js';
   import { tagColor } from '$lib/format.js';
-  import { resync, getGit, checkoutBranch, dismissRestartNotice, getClaudeVersion, upgradeClaude, restartClaudeSession, pickFolder, getRemoteControl } from '$lib/api.js';
+  import { resync, getGit, checkoutBranch, dismissRestartNotice, getClaudeVersion, upgradeClaude, restartClaudeSession, pickFolder, getRemoteControl, getCapabilities } from '$lib/api.js';
+  import { isHideableModel } from '$lib/models.js';
   import { getAllBindings, setBinding, resetBinding, resetAll as resetAllShortcuts, formatKeys, keysFromEvent } from '$lib/shortcuts.js';
   import { NAV_TABS } from '$lib/nav.js';
   import ModelEffort from '$lib/components/ModelEffort.svelte';
@@ -17,6 +18,7 @@
     { id: 'pset-ship', label: 'Ship' },
     { id: 'pset-editor', label: 'Editor' },
     { id: 'pset-new', label: 'New session defaults' },
+    { id: 'pset-models', label: 'Models' },
     { id: 'pset-project', label: 'Default project' },
     { id: 'pset-remote-control', label: 'Remote control' },
     { id: 'pset-digest', label: 'Daily digest' },
@@ -106,6 +108,21 @@
   $effect(() => { defModel = settings.defaultModel || ''; defEffort = settings.defaultEffort || ''; defMode = settings.defaultMode || ''; });
   function saveDefaults() {
     updateSettings({ defaultModel: defModel, defaultEffort: defEffort, defaultMode: defMode });
+  }
+
+  // Filtre des modèles affichés dans les sélecteurs. La liste complète vient du binaire claude
+  // (/api/capabilities, mémoïsé) ; le réglage est une LISTE NOIRE (cf. src/lib/models.js) → une
+  // version fraîchement livrée par une mise à jour de Claude Code apparaît sans rien cocher ici.
+  let allModelGroups = $state([]);
+  $effect(() => {
+    let alive = true;
+    getCapabilities().then((c) => { if (alive) allModelGroups = c.models || []; }).catch(() => {});
+    return () => { alive = false; };
+  });
+  const hiddenModels = $derived(new Set(settings.hiddenModels || []));
+  function toggleModel(id) {
+    const cur = (settings.hiddenModels || []).filter(isHideableModel);
+    updateSettings({ hiddenModels: cur.includes(id) ? cur.filter((m) => m !== id) : [...cur, id] });
   }
 
   // Projet de démarrage rapide : cwd utilisé quand une session est lancée sans dossier (p.ex. un
@@ -495,6 +512,32 @@
       <h2>New session defaults</h2>
       <p class="hint">Model, reasoning effort and permission mode pre-selected when you start a new session or resume one. <strong>Inherit</strong> falls back to your Claude Code config (<code>~/.claude</code>).</p>
       <ModelEffort showMode allowInherit bind:model={defModel} bind:effort={defEffort} bind:mode={defMode} onchange={saveDefaults} />
+    </div>
+
+    <div class="card" id="pset-models" data-sec>
+      <h2>Visible models</h2>
+      <p class="hint">Which model versions appear in the model selectors (new session, resume, and the live switch in a session header). The list itself comes from your installed <code>claude</code> binary — this only <strong>hides</strong> versions, so a version shipped by a future Claude Code update shows up on its own. Hiding is cosmetic: a hidden model stays valid, and a session already running on one keeps showing it. Family defaults (<em>Opus</em>, <em>Sonnet</em>…) are never hidden. (Shared setting.)</p>
+      {#each allModelGroups as g (g.label)}
+        <div class="mf-row">
+          <span class="mf-fam">{g.label}</span>
+          <div class="chips">
+            {#each g.opts as [id, label] (id)}
+              {#if isHideableModel(id)}
+                {@const off = hiddenModels.has(id)}
+                <button class="chip" class:active={!off} onclick={() => toggleModel(id)}
+                        title={off ? `${id} — hidden, click to show` : `${id} — shown, click to hide`}>
+                  <Icon name={off ? 'eye-off' : 'eye'} size={13} /> {label}
+                </button>
+              {:else}
+                <span class="chip mf-locked" title="Family default — always shown">{label}</span>
+              {/if}
+            {/each}
+          </div>
+        </div>
+      {/each}
+      {#if !allModelGroups.length}
+        <p class="hint">No model list available — hooked could not resolve a <code>claude</code> binary.</p>
+      {/if}
     </div>
 
     <div class="card" id="pset-project" data-sec>
@@ -901,6 +944,13 @@
   .badge.dirty { color: var(--accent-d); border-color: var(--accent); background: var(--accent-soft); }
   .chip.danger { color: #b42318; border-color: #f0a99f; background: #fef3f2; }
   .chip.danger:hover { border-color: #d92d20; }
+  /* Filtre des modèles : une ligne par famille (libellé à gauche, pilules de versions à droite). */
+  .mf-row { display: flex; align-items: center; gap: 12px; padding: 6px 0; flex-wrap: wrap; }
+  .mf-fam { flex: 0 0 70px; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
+  /* La famille reste sur la même ligne que ses pilules, qui débordent en interne (Opus en a 8). */
+  .mf-row .chips { flex: 1 1 0; min-width: 0; }
+  .mf-row .chip { display: inline-flex; align-items: center; gap: 5px; padding: 5px 12px; }
+  .mf-locked { cursor: default; color: var(--muted); opacity: .75; }
   .check { display: flex; align-items: flex-start; gap: 10px; font-size: 13px; margin-bottom: 10px; cursor: pointer; }
   .check:last-child { margin-bottom: 0; }
   .check input { margin-top: 2px; }
