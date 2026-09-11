@@ -39,7 +39,10 @@
   }
   function goTo(id) {
     activeSec = id;
-    document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    let el = document.getElementById(id);
+    // While searching, the section's own card may be filtered out → land on its first visible card.
+    while (el?.hidden && el.nextElementSibling && !el.nextElementSibling.hasAttribute('data-sec')) el = el.nextElementSibling;
+    el?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
   // scroll-spy : la section dont le haut franchit la bande supérieure devient active.
   onMount(() => {
@@ -51,6 +54,54 @@
     }, { root, rootMargin: '-8% 0px -80% 0px', threshold: 0 });
     secs.forEach((s) => io.observe(s));
     return () => io.disconnect();
+  });
+
+  // ── Search ────────────────────────────────────────────────────────────────────────────────────
+  // Filters the cards on their RENDERED text (title, hints, checkbox / chip / option labels,
+  // shortcut names, tags, model versions…) prefixed with the label of the section they belong
+  // to, so both a category ("Appearance") and one buried setting ("stash", "haiku") are found.
+  // Reading the DOM instead of a hand-kept keyword index keeps every new control searchable for
+  // free. Cards are hidden with the `hidden` attribute — Svelte never touches it here, so the two
+  // don't fight. A MutationObserver re-applies the filter when a card's content shows up
+  // asynchronously (model list, claude version, tags…), otherwise a query typed before the load
+  // would keep that card hidden for good. All terms must match (AND), accents/case are ignored.
+  let query = $state('');
+  let cardsEl = $state(null);
+  let matchSecs = $state.raw(null);   // null = no filter ; Set<section id> with ≥1 visible card
+  let matchCount = $state(0);
+  let cardCount = $state(0);
+  const fold = (s) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+  const NAV_LABEL = Object.fromEntries(NAV.map((n) => [n.id, fold(n.label)]));
+  function applyFilter() {
+    if (!cardsEl) return;
+    const cards = [...cardsEl.querySelectorAll('.card')];
+    const terms = fold(query).split(/\s+/).filter(Boolean);
+    cardCount = cards.length;
+    if (!terms.length) {
+      for (const c of cards) c.hidden = false;
+      matchSecs = null; matchCount = cards.length;
+      return;
+    }
+    const secs = new Set();
+    let sec = '', n = 0;
+    for (const c of cards) {
+      if (c.hasAttribute('data-sec')) sec = c.id;
+      const hay = (NAV_LABEL[sec] || '') + ' ' + fold(c.textContent || '');
+      const ok = terms.every((t) => hay.includes(t));
+      c.hidden = !ok;
+      if (ok) { n++; if (sec) secs.add(sec); }
+    }
+    matchSecs = secs; matchCount = n;
+    if (n && !secs.has(activeSec)) activeSec = secs.values().next().value;
+  }
+  // Only `query` / `cardsEl` are tracked: applyFilter also reads `activeSec` (scroll-spy), which
+  // must not re-run the filter on every scroll.
+  $effect(() => { query; cardsEl; untrack(applyFilter); });
+  onMount(() => {
+    // Attributes are deliberately not observed: applyFilter sets `hidden` itself.
+    const mo = new MutationObserver(() => { if (query) applyFilter(); });
+    mo.observe(cardsEl, { childList: true, characterData: true, subtree: true });
+    return () => mo.disconnect();
   });
 
   // Métadonnées d'affichage des sous-onglets (miroir de SessionDetail / server/settings.js).
@@ -413,7 +464,7 @@
   <div class="set-wrap">
     <nav class="set-nav">
       <div class="set-nav-title">Settings</div>
-      {#each NAV as n (n.id)}
+      {#each NAV.filter((n) => !matchSecs || matchSecs.has(n.id)) as n (n.id)}
         <a href="#{n.id}" class:active={activeSec === n.id} onclick={(e) => { e.preventDefault(); goTo(n.id); }}>{n.label}</a>
       {/each}
     </nav>
@@ -422,6 +473,22 @@
     <h1>Settings</h1>
     <p class="lead">Persisted server-side (shared across browsers). More will be added as needed.</p>
 
+    <div class="set-search">
+      <div class="set-search-box">
+        <span class="set-search-icon"><Icon name="search" size={15} /></span>
+        <input type="search" placeholder="Search settings…" aria-label="Search settings"
+               autocomplete="off" spellcheck="false" bind:value={query}
+               onkeydown={(e) => { if (e.key !== 'Escape') return; e.stopPropagation(); if (query) query = ''; else e.currentTarget.blur(); }} />
+        {#if query}
+          <span class="set-search-end">
+            <span class="set-search-count" aria-live="polite">{matchCount} / {cardCount}</span>
+            <button class="set-search-clear" onclick={() => (query = '')} title="Clear search" aria-label="Clear search"><Icon name="close" size={13} /></button>
+          </span>
+        {/if}
+      </div>
+    </div>
+
+    <div class="cards" bind:this={cardsEl}>
     <div class="card" id="pset-appearance" data-sec>
       <h2>Theme</h2>
       <p class="hint">Interface appearance. (Per-browser preference.)</p>
@@ -889,6 +956,15 @@
         </div>
       </div>
     </div>
+    </div>
+
+    {#if query && !matchCount}
+      <div class="no-match">
+        <Icon name="search" size={18} />
+        <p>No setting matches <strong>“{query}”</strong>.</p>
+        <button class="chip" onclick={() => (query = '')}>Clear search</button>
+      </div>
+    {/if}
 
     </div>
   </div>
@@ -903,7 +979,7 @@
   .set-nav a:hover { color: var(--text); background: var(--hover); }
   .set-nav a.active { color: var(--accent); background: var(--accent-soft); }
   .settings { flex: 1; min-width: 0; max-width: 720px; }
-  [data-sec] { scroll-margin-top: 16px; }
+  .card { scroll-margin-top: 64px; }   /* clears the sticky search bar */
   h1 { font-size: 24px; font-weight: 800; letter-spacing: -.01em; margin: 0 0 4px; }
   .lead { color: var(--muted); margin: 0 0 22px; font-size: 13px; }
   .card { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 22px 24px; margin-bottom: 20px; }
@@ -1017,4 +1093,17 @@
     animation: sc-pulse 1s ease-in-out infinite;
   }
   @keyframes sc-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .6; } }
+
+  /* Search: sticky so it stays reachable while scrolling; cards slide under its opaque background. */
+  .set-search { position: sticky; top: 0; z-index: 2; background: var(--bg); padding: 6px 0 14px; margin-bottom: 6px; }
+  .set-search-box { position: relative; display: flex; align-items: center; }
+  .set-search-icon { position: absolute; left: 12px; display: flex; color: var(--muted); pointer-events: none; }
+  .set-search input { width: 100%; box-sizing: border-box; padding: 9px 96px 9px 36px; border-radius: 10px; font-size: 13.5px; }
+  .set-search input::-webkit-search-cancel-button { -webkit-appearance: none; display: none; }
+  .set-search-end { position: absolute; right: 8px; display: flex; align-items: center; gap: 6px; }
+  .set-search-count { font-size: 11.5px; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .set-search-clear { display: flex; align-items: center; justify-content: center; width: 24px; height: 24px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface); color: var(--muted); cursor: pointer; }
+  .set-search-clear:hover { border-color: var(--accent); color: var(--accent-d); }
+  .no-match { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 36px 24px; border: 1px dashed var(--border2); border-radius: 14px; color: var(--muted); text-align: center; }
+  .no-match p { margin: 0; font-size: 13.5px; }
 </style>
