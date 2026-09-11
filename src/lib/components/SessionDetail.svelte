@@ -668,7 +668,7 @@
                éphémère d'un changement (✓ Auto, ✗ failed…) s'affiche ici. -->
           {#if modeStatus || meStatus}<span class="strip-status">{modeStatus || meStatus}</span>{/if}
           <button class="stop-btn" disabled={archiving} onclick={archive}
-                  title="Stop the running session and move it to Archived">{#if archiving}<Icon name="queued" size={14} />{:else}<Icon name="archive" size={14} /> Archive{/if}</button>
+                  title="Stop the running session and move it to Archived">{#if archiving}<Icon name="queued" size={14} tint={false} />{:else}<Icon name="archive" size={14} tint={false} /> Archive{/if}</button>
         {:else}
           {#if resumeStatus}<span class="strip-status err">{resumeStatus}</span>{/if}
           <button class="resume-btn" disabled={resuming} onclick={resume}
