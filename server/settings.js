@@ -11,6 +11,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { HOOKED_DIR, LAUNCH_PERMISSION_MODES, isValidModelArg } from './config.js';
 import { EDITOR_KEYS, DEFAULT_EDITOR } from '../src/lib/editors.js';
+import { DEFAULT_HIDDEN_MODELS, isHideableModel } from '../src/lib/models.js';
 
 const SETTINGS_FILE = path.join(HOOKED_DIR, 'settings.json');
 
@@ -100,6 +101,10 @@ const DEFAULTS = {
   defaultPage: 'deck',
   // Onglets de navigation visibles à côté du Deck (paramétrable). Sous-ensemble de NAV_PAGES.
   navTabs: ['sessions', 'search', 'stats', 'digest', 'memory'],
+  // Versions de modèle masquées des sélecteurs (liste noire, cf. src/lib/models.js). Défaut : les
+  // vieilles générations. [] = tout afficher. Purement cosmétique : un modèle masqué reste valide
+  // au lancement, et le modèle courant d'une session reste toujours affiché.
+  hiddenModels: [...DEFAULT_HIDDEN_MODELS],
 };
 
 const NAV_PAGES = ['sessions', 'search', 'stats', 'digest', 'memory'];
@@ -159,6 +164,13 @@ function sanitize(raw) {
     hour: Number.isInteger(rawDg.hour) && rawDg.hour >= 0 && rawDg.hour <= 23 ? rawDg.hour : 7,
     model: typeof rawDg.model === 'string' && isValidModelArg(rawDg.model) ? rawDg.model : '',
   };
+  // hiddenModels : liste de versions concrètes (jamais un alias de famille), dédupée et bornée.
+  // ABSENT ≠ VIDE : un settings.json antérieur à cette clé doit hériter du défaut (sinon la
+  // fonctionnalité ne s'appliquerait à personne), tandis qu'un `[]` explicite signifie bien
+  // « tout afficher » et doit être respecté.
+  const hiddenModels = o.hiddenModels === undefined
+    ? [...DEFAULT_HIDDEN_MODELS]
+    : (Array.isArray(o.hiddenModels) ? [...new Set(o.hiddenModels.filter(isHideableModel))].slice(0, 64) : []);
   return {
     subtabOrder: order,
     statusBarOrder: sbOrder,
@@ -180,6 +192,7 @@ function sanitize(raw) {
     shipDefaultView: o.shipDefaultView === 'vcs' ? 'vcs' : 'claude',
     editor: EDITOR_KEYS.includes(o.editor) ? o.editor : DEFAULT_EDITOR,
     defaultPage: DEFAULT_PAGES.includes(o.defaultPage) ? o.defaultPage : 'deck',
+    hiddenModels,
     navTabs: Array.isArray(o.navTabs)
       ? NAV_PAGES.filter((k) => o.navTabs.includes(k)) // keep known keys, canonical order
       : [...NAV_PAGES],
