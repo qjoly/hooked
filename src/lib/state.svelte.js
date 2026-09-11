@@ -5,6 +5,7 @@
 import { getSessions, connectSSE, getSettings, saveSettings as apiSaveSettings, getTags, saveTags, replaceTags, getSessionMeta, saveSessionMeta, replaceSessionMeta, kill } from './api.js';
 import { NOTIFY_KINDS, notifyKeyFor, countsForBadge } from './notify.js';
 import { isFinishedAndCold } from './format.js';
+import { DEFAULT_HIDDEN_MODELS } from './models.js';
 
 const LS_KEY = 'hooked.ui';
 const persisted = (() => {
@@ -470,6 +471,7 @@ export const settings = $state({
   shipDefaultView: 'claude', // source de diff à l'ouverture de la lentille Ship ('claude' | 'vcs')
   defaultPage: 'deck',
   navTabs: ['sessions', 'search', 'stats', 'digest', 'memory'], // onglets de nav visibles (paramétrable)
+  hiddenModels: [...DEFAULT_HIDDEN_MODELS], // versions de modèle masquées des sélecteurs (liste noire)
 });
 export async function loadSettings() {
   try { Object.assign(settings, await getSettings()); } catch (_) {}

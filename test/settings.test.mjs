@@ -113,3 +113,27 @@ describe('digest', () => {
     expect(s.digest.model).toBe('');
   });
 });
+
+describe('hiddenModels', () => {
+  it('defaults to the old generations (a config predating the key inherits the default)', async () => {
+    const { DEFAULT_HIDDEN_MODELS } = await import('../src/lib/models.js');
+    expect(readSettings().hiddenModels).toEqual(DEFAULT_HIDDEN_MODELS);
+  });
+
+  it('persists an explicit list and keeps only concrete versions', () => {
+    const s = writeSettings({ hiddenModels: ['claude-opus-4-0', 'opus', 'bogus', 42] });
+    expect(s.hiddenModels).toEqual(['claude-opus-4-0']);
+    expect(readSettings().hiddenModels).toEqual(['claude-opus-4-0']);
+  });
+
+  it('respects an explicit empty list (show everything) — absent !== empty', () => {
+    expect(writeSettings({ hiddenModels: [] }).hiddenModels).toEqual([]);
+    expect(readSettings().hiddenModels).toEqual([]);
+  });
+
+  it('dedupes and caps the list', () => {
+    expect(writeSettings({ hiddenModels: ['claude-opus-4-0', 'claude-opus-4-0'] }).hiddenModels)
+      .toEqual(['claude-opus-4-0']);
+    expect(writeSettings({ hiddenModels: 'not-an-array' }).hiddenModels).toEqual([]);
+  });
+});
