@@ -89,6 +89,8 @@
   "pencil": "<path d=\"M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z\" /><path d=\"m15 5 4 4\" />",
   "comment": "<path d=\"M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z\" /><path d=\"m15 5 4 4\" />",
   "pr": "<circle cx=\"18\" cy=\"18\" r=\"3\" /><circle cx=\"6\" cy=\"6\" r=\"3\" /><path d=\"M13 6h3a2 2 0 0 1 2 2v7\" /><line x1=\"6\" x2=\"6\" y1=\"9\" y2=\"21\" />",
+  "pr-merged": "<circle cx=\"18\" cy=\"18\" r=\"3\" /><circle cx=\"6\" cy=\"6\" r=\"3\" /><path d=\"M6 21V9a9 9 0 0 0 9 9\" />",
+  "pr-closed": "<circle cx=\"6\" cy=\"6\" r=\"3\" /><path d=\"M6 9v12\" /><path d=\"m21 3-6 6\" /><path d=\"m21 9-6-6\" /><circle cx=\"18\" cy=\"18\" r=\"3\" /><path d=\"M18 11.5V15\" />",
   "git": "<path d=\"M15 6a9 9 0 0 0-9 9V3\" /><circle cx=\"18\" cy=\"6\" r=\"3\" /><circle cx=\"6\" cy=\"18\" r=\"3\" />",
   "jujutsu": "<circle cx=\"12\" cy=\"18\" r=\"3\" /><circle cx=\"6\" cy=\"6\" r=\"3\" /><circle cx=\"18\" cy=\"6\" r=\"3\" /><path d=\"M18 9v2c0 .6-.4 1-1 1H7c-.6 0-1-.4-1-1V9\" /><path d=\"M12 12v3\" />",
   "issue": "<path d=\"M12 20v-9\" /><path d=\"M14 7a4 4 0 0 1 4 4v3a6 6 0 0 1-12 0v-3a4 4 0 0 1 4-4z\" /><path d=\"M14.12 3.88 16 2\" /><path d=\"M21 21a4 4 0 0 0-3.81-4\" /><path d=\"M21 5a4 4 0 0 1-3.55 3.97\" /><path d=\"M22 13h-4\" /><path d=\"M3 21a4 4 0 0 1 3.81-4\" /><path d=\"M3 5a4 4 0 0 0 3.55 3.97\" /><path d=\"M6 13H2\" /><path d=\"m8 2 1.88 1.88\" /><path d=\"M9 7.13V6a3 3 0 1 1 6 0v1.13\" />",
@@ -145,7 +147,7 @@
     "effort": "var(--warn)", "zap": "var(--warn)", "fast": "var(--warn)",
     "lock": "var(--warn)", "package": "var(--warn)", "tag": "var(--warn)", "archive": "var(--warn)",
     // identity / VCS / primary objects
-    "git": "var(--accent)", "pr": "var(--accent)", "jujutsu": "var(--accent)", "worktree": "var(--accent)",
+    "git": "var(--accent)", "pr": "var(--accent)", "pr-merged": "var(--background)", "pr-closed": "var(--danger)", "jujutsu": "var(--accent)", "worktree": "var(--accent)",
     "git-branch": "var(--accent)", "link": "var(--accent)",
     "hook": "var(--accent)", "user": "var(--accent)", "model": "var(--accent)", "tasks": "var(--accent)",
     "palette": "var(--accent)",
