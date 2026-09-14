@@ -70,3 +70,12 @@ export function toMap(entries) {
 
 /** Map → storage (plain JSON). */
 export const toEntries = (map) => [...map].map(([f, hs]) => [f, hs]);
+
+/**
+ * Where "mark reviewed" should land next: the first item after `from` that `isReviewed` rejects.
+ * Already-ticked files are skipped; -1 when everything ahead is signed off (the caller stays put).
+ */
+export function nextUnreviewed(items, from, isReviewed) {
+  for (let i = from + 1; i < items.length; i++) if (!isReviewed(items[i])) return i;
+  return -1;
+}
