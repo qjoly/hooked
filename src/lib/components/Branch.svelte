@@ -36,9 +36,13 @@
   let base = $state(null);   // base branch the diff is computed against
   const vcsMeta = $derived(VCS_META[meta.vcs] || { icon: 'git', label: 'VCS' });
 
-  async function loadBranches(root = null, force = false) {
-    if (meta.loading || (meta.loaded && !force && root === selectedRepo)) return;
-    meta = { ...meta, loading: true, error: null };
+  let branchesRefreshing = false; // quiet reload in flight — plain var, nothing renders it
+  async function loadBranches(root = null, force = false, quiet = false) {
+    if (meta.loading || branchesRefreshing || (meta.loaded && !force && !quiet && root === selectedRepo)) return;
+    // A QUIET reload keeps the current list on screen (no loading flash) and, on failure, keeps
+    // the last good one: nobody asked for it, an error card would be worse than staleness.
+    if (quiet) branchesRefreshing = true;
+    else meta = { ...meta, loading: true, error: null };
     try {
       const r = await getVcsBranches(id, root);
       meta = { loaded: true, loading: false, error: null, vcs: r.vcs, branches: r.branches || [], def: r.default, repos: r.repos || [] };
@@ -48,10 +52,17 @@
       if (!base || !names.includes(base)) base = r.default || null;
       if (force) diffCache = {};
     } catch (_) {
-      meta = { ...meta, loading: false, loaded: true, error: 'Failed to list the branches.' };
+      if (!quiet) meta = { ...meta, loading: false, loaded: true, error: 'Failed to list the branches.' };
+    } finally {
+      branchesRefreshing = false;
     }
   }
-  $effect(() => { if (active) loadBranches(untrack(() => selectedRepo)); });
+  $effect(() => {
+    const a = active, stale = diffStale; // deps read BEFORE guards (Svelte 5 trap)
+    if (!a) return;
+    if (stale) untrack(() => { diffStale = false; lastQuietAt = Date.now(); refreshQuiet(); });
+    else loadBranches(untrack(() => selectedRepo));
+  });
 
   function selectRepo(root) {
     if (selectedRepo === root) return;
@@ -99,6 +110,39 @@
   function pick(name) { branch = name; activeIdx = 0; }
   function pickBase(name) { base = name; activeIdx = 0; }
   function refresh() { loadBranches(selectedRepo, true); }
+
+  // ── auto-refresh after Claude acts ── same contract as Ship's VCS view (see Ship.svelte).
+  // A branch diff is NOT immutable (its head moves with every commit), so unlike Ship's
+  // commitCache every cached pair goes stale with the turn: keep only the one on screen (still
+  // readable while its replacement is fetched in place) and drop the rest — the loading effect
+  // refetches them lazily if revisited. The branches list is reloaded too: ahead/behind counts,
+  // a branch Claude created, the current-branch marker.
+  function refreshQuiet() {
+    loadBranches(selectedRepo, false, true);
+    const key = diffKey;
+    diffCache = key && diffCache[key] ? { [key]: diffCache[key] } : {};
+    if (key) loadDiff(key);
+  }
+  const opCount = $derived((s?.changes || []).reduce((n, c) => n + (c.rawOps || c.ops || []).length, 0));
+  let diffStale = $state(false);
+  let lastOps = null, wasWorking = false, lastQuietAt = 0;
+  const QUIET_EVERY_MS = 5000;
+  $effect(() => {
+    const ops = opCount;                    // tracked deps read BEFORE any guard (Svelte 5 trap)
+    const working = s?.state === 'working';
+    untrack(() => {
+      const turnEnded = wasWorking && !working;
+      const opsMoved = lastOps !== null && ops !== lastOps;
+      lastOps = ops; wasWorking = working;
+      if (!turnEnded && !opsMoved) return;
+      if (!meta.loaded) return;             // never opened → the first loadBranches will be fresh
+      if (!active) { diffStale = true; return; }
+      if (!turnEnded && working && Date.now() - lastQuietAt < QUIET_EVERY_MS) return;
+      lastQuietAt = Date.now();
+      diffStale = false;
+      refreshQuiet();
+    });
+  });
 
   // VCS entries are single old→new edits; key sections per branch pair so inline comments
   // never collide across branches (or with the Ship lens) on the same file.
