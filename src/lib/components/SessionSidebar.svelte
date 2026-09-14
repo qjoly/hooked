@@ -35,6 +35,26 @@
   }
   const matchesTagFilter = (s) => !ui.tagFilters.length || ui.tagFilters.every((t) => sessionTags(s.id).includes(t));
 
+  // Ordre de la liste. Les PALIERS (épinglées → en attente de décision → actives) sont les mêmes
+  // dans les trois modes : c'est eux qui portent la garantie de la fenêtre de LIST_WINDOW lignes —
+  // ce qui demande une action reste visible sans déplier. Seul le DÉPARTAGE final change, et
+  // l'ordre des en-têtes de projet (cf. `groups`).
+  const SORT_MODES = [
+    { key: 'dynamic', label: 'Dynamic', hint: 'Awaiting you first, then most recent' },
+    { key: 'alpha', label: 'Alphabetical', hint: 'Projects and sessions A→Z' },
+    { key: 'alpha-project', label: 'Alphabetical (projects only)', hint: 'Project headers A→Z, sessions by activity' },
+  ];
+  // « projets uniquement » n'a de sens qu'avec le regroupement : sans en-tête, il n'y a rien à
+  // ordonner. On le retire alors du menu et on retombe sur DYNAMIC. Chaque mode est un couple
+  // (ordre des en-têtes, ordre des sessions) ; l'en-tête disparu, il ne reste que la seconde
+  // composante, qui pour ce mode est justement l'activité. Retomber sur l'alphabétique global
+  // garderait la composante qui vient de disparaître et réordonnerait les sessions sans qu'on l'ait
+  // demandé. `ui.sortMode` n'est pas touché : réactiver le regroupement restitue le choix mémorisé.
+  const storedSort = $derived(SORT_MODES.some((m) => m.key === ui.sortMode) ? ui.sortMode : 'dynamic');
+  const sortModes = $derived(SORT_MODES.filter((m) => m.key !== 'alpha-project' || ui.groupByProject));
+  const sortMode = $derived(storedSort === 'alpha-project' && !ui.groupByProject ? 'dynamic' : storedSort);
+  const byName = (a, b) => String(a || '').localeCompare(String(b || ''), undefined, { numeric: true, sensitivity: 'base' });
+
   // NOTE: the current session is NOT hoisted to the top — selecting a session must not reshuffle
   // the list under the cursor (it stays where it was, highlighted via `.cur`). Pinned sessions DO
   // rise to the top (that's the point of a pin), as they did before the rework.
@@ -45,6 +65,7 @@
     if (da !== db) return da ? -1 : 1;
     const aa = isActive(a), ab = isActive(b);
     if (aa !== ab) return aa ? -1 : 1;
+    if (sortMode === 'alpha') return byName(sessionTitle(a), sessionTitle(b));
     return String(b.lastActivity || '').localeCompare(String(a.lastActivity || ''));
   };
 
@@ -122,10 +143,29 @@
     const g = new Map();
     for (const s of windowed) { const k = projectKey(s); if (!g.has(k)) g.set(k, []); g.get(k).push(s); }
     const lastOf = (arr) => arr.reduce((m, s) => Math.max(m, Date.parse(s.lastActivity || 0) || 0), 0);
-    return [...g.keys()].sort((a, b) => lastOf(g.get(b)) - lastOf(g.get(a)))
+    // en-têtes : A→Z dans les deux modes alphabétiques, sinon projet le plus récemment actif d'abord.
+    const byGroup = sortMode === 'dynamic' ? (a, b) => lastOf(g.get(b)) - lastOf(g.get(a)) : byName;
+    return [...g.keys()].sort(byGroup)
       .map((proj) => ({ key: proj, label: proj, items: g.get(proj) }));
   });
 
+
+  // Menu de tri : popover ancré sous son icône. Le `capture` sur pointerdown ferme AVANT que le
+  // clic n'atteigne une ligne de session (sinon choisir « fermer » naviguerait vers une session).
+  let sortOpen = $state(false);
+  // Un clic sur l'entrée DÉJÀ active ne réécrit rien. Il ne changerait rien à l'écran, mais il
+  // effacerait en silence un `alpha-project` mémorisé pendant que le regroupement est désactivé —
+  // le menu y montre « Dynamic » coché, et rien ne signalerait la perte du réglage. Un clic qui
+  // réordonne vraiment la liste, lui, prime et s'enregistre.
+  function pickSort(k) { if (k !== sortMode) ui.sortMode = k; sortOpen = false; }
+  $effect(() => {
+    if (!sortOpen) return;
+    const away = (e) => { if (!(e.target instanceof Element) || !e.target.closest('.ssb-sort')) sortOpen = false; };
+    const esc = (e) => { if (e.key === 'Escape') sortOpen = false; };
+    window.addEventListener('pointerdown', away, true);
+    window.addEventListener('keydown', esc);
+    return () => { window.removeEventListener('pointerdown', away, true); window.removeEventListener('keydown', esc); };
+  });
 
   function toggleGroup(k) { ui.collapsed = { ...ui.collapsed, [k]: !ui.collapsed[k] }; }
   const open = (s) => goto('/session/' + encodeURIComponent(s.id));
@@ -151,6 +191,23 @@
       <button class="ssb-icon" class:on={ui.hideOld} aria-label="Hide sessions idle for more than 24h"
               title={ui.hideOld ? 'Showing only the last 24h — click to show everything' : 'Show only sessions active in the last 24h (pinned, awaiting-decision and current sessions always stay)'}
               onclick={() => (ui.hideOld = !ui.hideOld)}><Icon name="clock" size={14} /></button>
+      <div class="ssb-sort">
+        <button class="ssb-icon" class:on={sortMode !== 'dynamic'} aria-label="Sort order"
+                aria-haspopup="menu" aria-expanded={sortOpen}
+                title="Sort: {(SORT_MODES.find((m) => m.key === sortMode) || SORT_MODES[0]).label}"
+                onclick={() => (sortOpen = !sortOpen)}><Icon name="sort" size={14} /></button>
+        {#if sortOpen}
+          <div class="ssb-menu" role="menu" aria-label="Sort order">
+            {#each sortModes as m (m.key)}
+              <button class="ssb-mi" class:on={sortMode === m.key} role="menuitemradio"
+                      aria-checked={sortMode === m.key} onclick={() => pickSort(m.key)}>
+                <span class="ssb-mi-check">{#if sortMode === m.key}<Icon name="check" size={12} tint={false} />{/if}</span>
+                <span class="ssb-mi-txt"><span>{m.label}</span><span class="ssb-mi-hint">{m.hint}</span></span>
+              </button>
+            {/each}
+          </div>
+        {/if}
+      </div>
       <button class="ssb-icon" title="Group by project on/off" aria-label="Toggle grouping"
               onclick={() => (ui.groupByProject = !ui.groupByProject)}>{#if ui.groupByProject}<Icon name="folder-open" size={14} />{:else}<Icon name="menu" size={14} />{/if}</button>
       <button class="ssb-icon" title="Collapse sidebar (⌘/Ctrl+B)" aria-label="Collapse sidebar"
@@ -267,6 +324,25 @@
   /* état actif d'une bascule d'en-tête (« hide > 24h ») : sans marqueur visible, un filtre actif est
      invisible et on croit avoir perdu des sessions. */
   .ssb-icon.on { background: var(--accent-soft); color: var(--accent-d); }
+
+  /* menu de tri : popover ancré à droite de son icône (la sidebar descend à 180px, il déborde
+     donc vers la gauche plutôt que d'être tronqué). */
+  .ssb-sort { position: relative; display: inline-flex; flex: 0 0 auto; }
+  .ssb-menu {
+    position: absolute; top: calc(100% + 4px); right: 0; z-index: 40;
+    min-width: 220px; padding: 4px; display: flex; flex-direction: column; gap: 2px;
+    background: var(--card); border: 1px solid var(--border); border-radius: 10px; box-shadow: var(--shadow);
+  }
+  .ssb-mi {
+    display: flex; align-items: flex-start; gap: 6px; width: 100%; padding: 6px 8px;
+    border: none; background: transparent; border-radius: 7px; cursor: pointer;
+    text-align: left; color: var(--text); font: inherit; font-size: 12px;
+  }
+  .ssb-mi:hover { background: var(--hover); }
+  .ssb-mi.on { color: var(--accent-d); font-weight: 600; }
+  .ssb-mi-check { flex: 0 0 12px; display: inline-flex; justify-content: center; padding-top: 2px; }
+  .ssb-mi-txt { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+  .ssb-mi-hint { color: var(--muted); font-size: 11px; font-weight: 400; }
 
   /* « +N older sessions » / « show less » : même bandeau discret que les en-têtes de groupe, pour
      que l'extension de la fenêtre se lise comme une ligne de structure et pas comme une session. */
