@@ -1,3 +1,11 @@
+<script module>
+  // The active lens, remembered PER SESSION across remounts. SessionDetail is keyed by session id,
+  // and the single↔split markup swap re-keys it too: adding a split used to destroy the component
+  // and its `tab` state, so the pane came back on Converse whatever lens was open. Module scope
+  // survives remounts; it is display memory, not data — deliberately not persisted.
+  const lastLens = new Map(); // session id → lens key
+</script>
+
 <script>
   import { onMount, onDestroy, tick, untrack } from 'svelte';
   import { goto } from '$app/navigation';
@@ -31,8 +39,9 @@
   // proxy profond. Coût de `s = d` : O(1) au lieu de O(nombre de nœuds du transcript).
   let s = $state.raw(null);      // détail de session
   // Lentille active : 'chat' (Converse + dock) / 'ship' (relecture des diffs + liens) /
-  // 'branch' / 'mcp'. Touches 1, 3, 4, 5.
-  let tab = $state('chat');
+  // 'branch' / 'mcp'. Touches 1, 3, 4, 5. Réouverte là où la session a été laissée (cf. lastLens).
+  let tab = $state(lastLens.get(id) || 'chat');
+  $effect(() => { const t = tab; untrack(() => lastLens.set(id, t)); });
   let body;                      // ref .pane-body (conteneur scrollable)
   let composer;                  // ref Composer (pour déclencher interruption + édition via Échap)
   let lastActivity = null;
