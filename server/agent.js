@@ -991,8 +991,32 @@ function pushReply(st, id, text, cb) {
   cb(null, { sessionId: id, sent: parts.length });
 }
 
-// Résout la réponse à un AskUserQuestion. `selections` = [{ multi, indices }] dans l'ordre des
-// questions ; `note` = commentaire libre optionnel, envoyé en message de suivi.
+// The pure part of answering an AskUserQuestion: the `answers` map (question text → answer
+// string) built from the per-question selections `[{ multi, indices, other? }]`. Multi-select
+// answers are comma-joined labels (the format the tool expects). `other` is the TUI's write-in
+// choice — free text: on a single-choice question it IS the answer (it beats a stale tick, the
+// user explicitly typed over it); on a multi-select it joins the ticked labels. Exported for
+// tests.
+function questionAnswers(questions, selections) {
+  const answers = {};
+  selections.forEach((sel, i) => {
+    const q = questions[i];
+    if (!q) return;
+    const idx = (Array.isArray(sel && sel.indices) ? sel.indices : [])
+      .filter((n) => Number.isInteger(n) && n >= 0 && n < (q.options || []).length)
+      .sort((a, b) => a - b);
+    const labels = idx.map((n) => q.options[n].label);
+    const other = typeof (sel && sel.other) === 'string' ? sel.other.trim() : '';
+    if (!labels.length && !other) return;
+    answers[q.question] = sel && sel.multi
+      ? [...labels, ...(other ? [other] : [])].join(', ')
+      : (other || labels[0]);
+  });
+  return answers;
+}
+
+// Résout la réponse à un AskUserQuestion. `selections` = [{ multi, indices, other? }] dans l'ordre
+// des questions ; `note` = commentaire libre optionnel, envoyé en message de suivi.
 //
 // Plus de navigation clavier (↓/Entrée/→) ni de délais anti-coalescence d'ink : on remet l'input du
 // tool_use à Claude avec le champ `answers` que la couche permission remplit normalement.
@@ -1004,19 +1028,7 @@ function answerQuestion(id, selections, note, cb) {
   if (!ask || ask.kind !== 'question') return cb(err400('no question awaiting an answer for this session'));
   if (!Array.isArray(selections) || !selections.length) return cb(err400('selections required'));
 
-  const questions = ask.questions || [];
-  const answers = {};
-  selections.forEach((sel, i) => {
-    const q = questions[i];
-    if (!q) return;
-    const idx = (Array.isArray(sel && sel.indices) ? sel.indices : [])
-      .filter((n) => Number.isInteger(n) && n >= 0 && n < (q.options || []).length)
-      .sort((a, b) => a - b);
-    const labels = idx.map((n) => q.options[n].label);
-    if (!labels.length) return;
-    // multi-select : réponses séparées par des virgules (format attendu par le tool).
-    answers[q.question] = sel && sel.multi ? labels.join(', ') : labels[0];
-  });
+  const answers = questionAnswers(ask.questions || [], selections);
   if (!Object.keys(answers).length) return cb(err400('empty selections'));
 
   const n = typeof note === 'string' ? note.trim() : '';
@@ -1312,7 +1324,7 @@ export {
   subscribeAgent, streamSnapshot,
   resolveLaunchForSession, sessionLaunchMap,
   launchSession, killSession, restartSession,
-  deliverReply, answerQuestion, answerQuestionFreeText, answerPlan, answerPermission, answerPendingSelection,
+  deliverReply, answerQuestion, questionAnswers, answerQuestionFreeText, answerPlan, answerPermission, answerPendingSelection,
   interruptSession, setMode, setModelEffort, setAutoApprove, alwaysAllowRules, clearAgentState,
   resumeDrivenSessions, startDrivenSnapshot, pickResumable, saveDriven, failStartup,
   runInteractiveCommand, formatInteractiveCommand, whenReady, settleReady,

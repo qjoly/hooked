@@ -5,9 +5,17 @@
 
   let { id, pq } = $props();
   const questions = $derived(pq.questions || []);
+  // The TUI's automatic "Other" choice: every REAL question also accepts a typed answer. Not on a
+  // permission request (it is rendered through this component too): its Allow/Always/Deny options
+  // are a positional contract with answerPendingSelection — free text has no meaning there.
+  const allowOther = $derived(pq.kind !== 'permission');
 
   // sélection courante par question : index unique (mono) ou tableau d'index (multi)
   let pick = $state([]);
+  // « Other » par question : null = pas choisi, chaîne = texte tapé. Sur une question à choix
+  // unique il remplace l'option cochée ; en multi-select il s'ajoute aux cases cochées (le
+  // serveur assemble la réponse finale).
+  let others = $state([]);
   // notes d'annotation, clé `${qi}:${oi}` → texte. Plusieurs options peuvent être annotées
   // (utile sur une question à choix multiple : une note par option cochée).
   let notes = $state({});
@@ -20,8 +28,18 @@
     if (pq.id === lastId) return;
     lastId = pq.id;
     pick = questions.map((q) => (q.multiSelect ? [] : null));
+    others = questions.map(() => null);
     notes = {};
   });
+
+  const otherOn = (qi) => others[qi] != null;
+  function toggleOther(qi) {
+    if (sent || sending) return;
+    if (others[qi] != null) others[qi] = null;
+    else { others[qi] = ''; if (!questions[qi].multiSelect) pick[qi] = null; }
+    others = [...others];
+    pick = [...pick];
+  }
 
   let sent = $state(false);
   let recap = $state({ text: '', cls: '' });
@@ -68,13 +86,23 @@
       ? (sel || []).map((oi) => q.options[oi] && q.options[oi].label).filter(Boolean)
       : (sel != null && q.options[sel] ? [q.options[sel].label] : []);
   });
-  const allAnswered = $derived.by(() => selectedLabels().every((l) => l.length));
+  // What the question ANSWERS with: the ticked labels, plus the "Other" text when typed (which
+  // replaces them on a single choice — same rule as the server).
+  const labelsFor = (qi) => {
+    const base = selectedLabels()[qi];
+    const o = (others[qi] || '').trim();
+    if (!o) return base;
+    return questions[qi].multiSelect ? [...base, o] : [o];
+  };
+  const allAnswered = $derived.by(() => questions.every((_, qi) => labelsFor(qi).length));
 
   const recapDefault = $derived(`Select ${questions.length > 1 ? 'your answers' : 'your answer'}…`);
   const recapText = $derived.by(() => {
     if (recap.text) return recap.text;
-    const labels = selectedLabels();
-    const parts = labels.map((l, qi) => l.length ? `${questions[qi].header ? questions[qi].header + ': ' : ''}${l.join(', ')}` : '').filter(Boolean);
+    const parts = questions.map((q, qi) => {
+      const l = labelsFor(qi);
+      return l.length ? `${q.header ? q.header + ': ' : ''}${l.join(', ')}` : '';
+    }).filter(Boolean);
     return parts.length ? '→ ' + parts.join('  ·  ') : recapDefault;
   });
 
@@ -92,6 +120,8 @@
       pick[qi] = arr;
     } else {
       pick[qi] = oi;
+      // single choice: picking a listed option deselects the "Other" write-in
+      if (others[qi] != null) { others[qi] = null; others = [...others]; }
     }
     pick = [...pick];
   }
@@ -105,8 +135,9 @@
     const selections = questions.map((q, qi) => ({
       multi: !!q.multiSelect,
       indices: q.multiSelect ? [...(pick[qi] || [])].sort((a, b) => a - b) : (pick[qi] != null ? [pick[qi]] : []),
+      other: (others[qi] || '').trim(),
     }));
-    const labels = selectedLabels().map((l) => l.join(', ')).filter(Boolean);
+    const labels = questions.map((_, qi) => labelsFor(qi).join(', ')).filter(Boolean);
     if (!labels.length) return;
     sending = true;
     recap = { text: '', cls: '' };
@@ -160,6 +191,30 @@
             {/if}
           </div>
         {/each}
+        {#if allowOther}
+          <!-- The TUI's automatic write-in choice. Same row/tick look as a listed option; picking
+               it opens its own text field (reuses the q-note styling). -->
+          <div class="q-opt-wrap">
+            <div class="q-opt-row">
+              <label class="q-opt" class:sel={otherOn(qi)} onclick={(e) => { e.preventDefault(); toggleOther(qi); }}>
+                <input type={q.multiSelect ? 'checkbox' : 'radio'} name="q-{qi}" disabled={sent}
+                       checked={otherOn(qi)} tabindex="-1" />
+                <span class="q-opt-body">
+                  <span class="q-opt-label">Other</span>
+                  <span class="q-opt-desc">Type your own answer{q.multiSelect ? ' — it joins the boxes you tick' : ''}</span>
+                </span>
+              </label>
+            </div>
+            {#if otherOn(qi)}
+              <div class="q-note">
+                <!-- svelte-ignore a11y_autofocus -->
+                <textarea bind:value={others[qi]} rows="2" autofocus
+                          placeholder="Your answer — sent as the reply to this question…"
+                          onkeydown={(e) => { if (e.key === 'Escape') toggleOther(qi); }}></textarea>
+              </div>
+            {/if}
+          </div>
+        {/if}
       </div>
     </div>
   {/each}
