@@ -6,12 +6,24 @@ Dashboard local des sessions Claude Code. **Front SvelteKit / Svelte 5** ; **bac
 
 - **Never push to `main`.** All code lands via a pull request — this keeps a real changelog.
 - **Write all code in English** (identifiers, comments, commit messages).
+- **PR bodies are a plain list of the features added — nothing else.** One line per user-visible
+  change. No implementation details (helper names, files touched, state shapes, test counts):
+  reviews happen feature by feature, and the diff already tells the how.
 
 ## Workflow dev — IMPORTANT (source de confusion récurrente)
 
+- **Redémarrer hooked = `mise run deploy`, jamais un kill à la main.** Les sessions pilotées
+  vivent DANS le processus hooked : toute forme de redémarrage tue aussi la session Claude qui
+  exécute la commande — c'est inévitable, et c'est prévu. `mise run deploy` est le seul chemin
+  propre : rebuild, puis relance du service (`launchctl kickstart -k` / systemd `restart`), et au
+  boot `resumeDrivenSessions()` reprend les sessions du dernier instantané — celle qui était en
+  plein tour reçoit un « Continue » automatique et reprend son travail là où le redémarrage l'a
+  coupée. Tuer le process autrement (`pkill node`, kill du port 4123, `launchctl unload`…) tue la
+  session sans garantir ni rebuild ni relance ni reprise : Claude se tue lui-même pour rien.
+
 - **`npm run live`** (Vite, `:4123`, `--strictPort`) = **le workflow live à privilégier** : HMR front **et** rechargement serveur. Les endpoints `/api/*` (`+server.js`) sont exécutés in-process par le dev server SvelteKit, et Vite ré-exécute les modules `server/*` / `$lib/server/*` modifiés à la requête suivante → une modif back est prise en compte sans rebuild ni redémarrage. Même port que la prod (4123) ; `strictPort` échoue franchement si `node build` squatte encore le port au lieu de dériver sur 4124.
 - **`npm run dev`** (Vite, `:5173`) = identique à `live` mais sur le port Vite par défaut.
-- **`npm start`** (`node build`, prod, souvent `:4123` via `PORT`) **ne se recharge PAS**. Après toute modif : **`npm run build` PUIS redémarrer `node build`**, car :
+- **`npm start`** (`node build`, prod, souvent `:4123` via `PORT`) **ne se recharge PAS**. Après toute modif : **`mise run deploy`** (build + redémarrage du service, cf. première puce). **Jamais `npm run build` seul, même « juste pour tester que ça compile »** : il réécrit `build/` sous les pieds du service qui tourne et kill hooked — pour vérifier sans déployer, `npm test`. Le redémarrage est nécessaire car :
   - le bundle serveur est chargé en mémoire au démarrage ;
   - le HTML servi pointe des hashes d'assets **figés au build** ;
   - `static/` est servi par **sirv**, qui liste le dossier **au démarrage** → un fichier ajouté après (ex. une police) renvoie 404 tant qu'on n'a pas redémarré.
@@ -23,7 +35,7 @@ Dashboard local des sessions Claude Code. **Front SvelteKit / Svelte 5** ; **bac
 Les sessions Claude Code tournent **dans le processus hooked**, via `query()` de l'Agent SDK en mode **streaming input/output**. `server/agent.js` tient un registre `session_id → entrée vivante` et expose tout le pilotage (lancement, réponse, interruption, mode, modèle/effort, kill/restart, réponses aux questions/plans/permissions).
 
 - **Le registre est épinglé sur `globalThis`** (`Symbol.for('hooked.agent.registry')`). Sans ça, la ré-exécution de module de Vite après une modif back en `npm run live` repartirait d'un registre vide et **perdrait les sessions en cours** — elles vivent dans ce processus, pas dans un tmux détaché.
-- **Un tour en cours ne survit pas à un redémarrage de hooked, la session si.** Le process meurt avec hooked (c'est le compromis assumé du modèle « hooked possède le process »), mais un **instantané du jeu piloté** est tenu à jour dans `driven-sessions.json` et **rejoué au démarrage** : `resumeDrivenSessions()` relance chaque entrée en `--resume`, séquentiellement, sans pousser de prompt (donc sans consommer de tour). Garde-fous : **6 sessions max** par boot, et rien n'est réveillé si l'instantané a **plus de 12 h** — hooked éteint depuis une semaine ne doit pas spawner six CLI au login. `HOOKED_NO_RESUME=1` coupe le mécanisme. L'instantané est écrit **par sondage (10 s)** et non à chaque mutation de `live` : le registre est muté depuis six endroits, en oublier un donnerait un fichier faux. Le bouton **Resume** reste là pour tout le reste.
+- **Un tour en cours ne survit pas à un redémarrage de hooked, la session si.** Le process meurt avec hooked (c'est le compromis assumé du modèle « hooked possède le process »), mais un **instantané du jeu piloté** est tenu à jour dans `driven-sessions.json` et **rejoué au démarrage** : `resumeDrivenSessions()` relance chaque entrée en `--resume`, séquentiellement. Une session qui **attendait** repart sans prompt (donc sans consommer de tour) ; une session tuée **en plein tour** (`busy` au dernier instantané) reçoit un **« Continue » automatique** — le redémarrage lui a volé son tour, on le relance (`HOOKED_NO_CONTINUE=1` coupe ce prompt sans couper la reprise). Garde-fous : **6 sessions max** par boot, et rien n'est réveillé si l'instantané a **plus de 12 h** — hooked éteint depuis une semaine ne doit pas spawner six CLI au login. `HOOKED_NO_RESUME=1` coupe le mécanisme. L'instantané est écrit **par sondage (10 s)** et non à chaque mutation de `live` : le registre est muté depuis six endroits, en oublier un donnerait un fichier faux. Le bouton **Resume** reste là pour tout le reste.
 - **« Terminée » n'est pas « archivée ».** Un redémarrage tue les sous-process → `SessionEnd` → `ended`. `isSessionArchived()` assimilait ça à un archivage, donc la session quittait la liste active et il fallait la repêcher dans l'onglet Archived. Une session terminée ne compte comme archivée qu'une fois **froide** (24 h sans activité, cf. `isFinishedAndCold` dans `format.js`) ; un archivage **explicite** déplace toujours immédiatement.
 - **Les hooks globaux continuent de tourner.** `settingSources` est laissé au défaut (toutes les sources), donc `~/.claude/settings.json` — donc `hook.cjs`, donc `events.jsonl` — s'exécute pour les sessions du SDK comme pour une session ouverte à la main. **Ne pas passer `settingSources: []`** : ça couperait d'un coup les questions/plans en attente, les todos, les jobs de fond et la statusline. Vérifié de bout en bout : une session lancée par le SDK écrit bien `SessionStart` / `UserPromptSubmit` / `Stop` dans `events.jsonl`.
 - **Deux couches se recouvrent volontairement pour l'état.** Le **registre** est autoritaire pour une session pilotée (la promesse `canUseTool` *est* l'attente, aucun décalage possible) ; les **évènements de hooks** restent le repli, et la seule source pour une session ouverte hors hooked — elle reste visible et à jour, simplement pas pilotable.

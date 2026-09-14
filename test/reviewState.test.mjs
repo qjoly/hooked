@@ -10,7 +10,8 @@
  * C'est ce qui garantit qu'un fichier retouché repasse dans la file de relecture.
  */
 import { describe, it, expect } from 'vitest';
-import { fingerprint, isReviewed, toggleReviewed, toMap, toEntries } from '../src/lib/reviewState.js';
+import { fingerprint, isReviewed, toggleReviewed, toMap, toEntries, nextUnreviewed }
+  from '../src/lib/reviewState.js';
 
 const T = fingerprint(['old', 'new at T']);
 const T1 = fingerprint(['old', 'new at T+1']);
@@ -62,5 +63,26 @@ describe('reviewState', () => {
   it('distingue deux contenus et pas seulement leur longueur', () => {
     expect(fingerprint(['abc'])).not.toBe(fingerprint(['abd']));
     expect(fingerprint(['a', 'bc'])).not.toBe(fingerprint(['ab', 'c'])); // séparateur entre pièces
+  });
+});
+
+// Auto-advance after "Mark reviewed": it must land on the next UN-reviewed file, not on the
+// immediate neighbour when that one is already ticked.
+describe('nextUnreviewed', () => {
+  const files = ['a.js', 'b.js', 'c.js', 'd.js'];
+
+  it('skips files already reviewed', () => {
+    const done = new Set(['b.js', 'c.js']);
+    expect(nextUnreviewed(files, 0, (f) => done.has(f))).toBe(3); // a → d, skipping b and c
+  });
+
+  it('takes the immediate neighbour when it is not reviewed', () => {
+    expect(nextUnreviewed(files, 1, () => false)).toBe(2);
+  });
+
+  it('stays put when everything ahead is reviewed', () => {
+    const done = new Set(['c.js', 'd.js']);
+    expect(nextUnreviewed(files, 1, (f) => done.has(f))).toBe(-1);
+    expect(nextUnreviewed(files, 3, () => false)).toBe(-1); // last file: nothing after
   });
 });
