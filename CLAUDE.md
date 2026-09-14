@@ -20,7 +20,7 @@ Dashboard local des sessions Claude Code. **Front SvelteKit / Svelte 5** ; **bac
 
 - **`npm run live`** (Vite, `:4123`, `--strictPort`) = **le workflow live à privilégier** : HMR front **et** rechargement serveur. Les endpoints `/api/*` (`+server.js`) sont exécutés in-process par le dev server SvelteKit, et Vite ré-exécute les modules `server/*` / `$lib/server/*` modifiés à la requête suivante → une modif back est prise en compte sans rebuild ni redémarrage. Même port que la prod (4123) ; `strictPort` échoue franchement si `node build` squatte encore le port au lieu de dériver sur 4124.
 - **`npm run dev`** (Vite, `:5173`) = identique à `live` mais sur le port Vite par défaut.
-- **`npm start`** (`node build`, prod, souvent `:4123` via `PORT`) **ne se recharge PAS**. Après toute modif : **`npm run build` PUIS redémarrer `node build`**, car :
+- **`npm start`** (`node build`, prod, souvent `:4123` via `PORT`) **ne se recharge PAS**. Après toute modif : **`mise run deploy`** (build + redémarrage du service, cf. première puce). **Jamais `npm run build` seul, même « juste pour tester que ça compile »** : il réécrit `build/` sous les pieds du service qui tourne et kill hooked — pour vérifier sans déployer, `npm test`. Le redémarrage est nécessaire car :
   - le bundle serveur est chargé en mémoire au démarrage ;
   - le HTML servi pointe des hashes d'assets **figés au build** ;
   - `static/` est servi par **sirv**, qui liste le dossier **au démarrage** → un fichier ajouté après (ex. une police) renvoie 404 tant qu'on n'a pas redémarré.
