@@ -342,8 +342,27 @@
     queued = [...queued, { text: t, ts: new Date().toISOString(), kind: bang && bang.kind, cmd: bang ? bang.command : '' }];
     forceBottom = true;
     stickToBottom = true;            // après un envoi, on re-suit la conversation
+    scheduleQueuedDrain();
     await tick();
     if (body) body.scrollTop = body.scrollHeight;
+  }
+
+  // La bulle optimiste ne s'efface que dans load(), déclenché par un tick SSE — donc par un hook.
+  // Un tour qui n'appelle AUCUN outil n'en produit presque pas : la bulle restait jaune plusieurs
+  // minutes à côté de son propre message déjà affiché dans le fil. On relance donc quelques load()
+  // espacés, tant qu'il reste une bulle à résoudre. Les bulles de commande (`!`) sont exclues :
+  // elles ne se résolvent pas par texte mais en s'attachant à leur bloc d'écho, et resteraient là.
+  const QUEUED_RETRY_MS = [1000, 3000, 8000];
+  let queuedRetry = null;
+  const hasPendingQueued = () => queued.some((q) => !q.kind);
+  function scheduleQueuedDrain(i = 0) {
+    clearTimeout(queuedRetry);
+    if (i >= QUEUED_RETRY_MS.length) return;
+    queuedRetry = setTimeout(async () => {
+      if (!hasPendingQueued()) return;
+      await load(true);
+      if (hasPendingQueued()) scheduleQueuedDrain(i + 1);
+    }, QUEUED_RETRY_MS[i]);
   }
 
   // Revue de fichiers → on bascule sur la Conversation (pour voir la file d'attente + le statut)
@@ -416,7 +435,7 @@
     composer.interruptEdit();
   }
   onMount(() => { window.addEventListener('keydown', onWindowKey); });
-  onDestroy(() => { window.removeEventListener('keydown', onWindowKey); });
+  onDestroy(() => { window.removeEventListener('keydown', onWindowKey); clearTimeout(queuedRetry); });
 
   // live : sur chaque tick, refetch ciblé (question (dis)paraît, ou chat actif qui bouge)
   $effect(() => {
