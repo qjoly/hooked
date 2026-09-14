@@ -6,6 +6,9 @@ Dashboard local des sessions Claude Code. **Front SvelteKit / Svelte 5** ; **bac
 
 - **Never push to `main`.** All code lands via a pull request — this keeps a real changelog.
 - **Write all code in English** (identifiers, comments, commit messages).
+- **PR bodies are a plain list of the features added — nothing else.** One line per user-visible
+  change. No implementation details (helper names, files touched, state shapes, test counts):
+  reviews happen feature by feature, and the diff already tells the how.
 
 ## Workflow dev — IMPORTANT (source de confusion récurrente)
 
