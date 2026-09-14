@@ -991,8 +991,32 @@ function pushReply(st, id, text, cb) {
   cb(null, { sessionId: id, sent: parts.length });
 }
 
-// Résout la réponse à un AskUserQuestion. `selections` = [{ multi, indices }] dans l'ordre des
-// questions ; `note` = commentaire libre optionnel, envoyé en message de suivi.
+// The pure part of answering an AskUserQuestion: the `answers` map (question text → answer
+// string) built from the per-question selections `[{ multi, indices, other? }]`. Multi-select
+// answers are comma-joined labels (the format the tool expects). `other` is the TUI's write-in
+// choice — free text: on a single-choice question it IS the answer (it beats a stale tick, the
+// user explicitly typed over it); on a multi-select it joins the ticked labels. Exported for
+// tests.
+function questionAnswers(questions, selections) {
+  const answers = {};
+  selections.forEach((sel, i) => {
+    const q = questions[i];
+    if (!q) return;
+    const idx = (Array.isArray(sel && sel.indices) ? sel.indices : [])
+      .filter((n) => Number.isInteger(n) && n >= 0 && n < (q.options || []).length)
+      .sort((a, b) => a - b);
+    const labels = idx.map((n) => q.options[n].label);
+    const other = typeof (sel && sel.other) === 'string' ? sel.other.trim() : '';
+    if (!labels.length && !other) return;
+    answers[q.question] = sel && sel.multi
+      ? [...labels, ...(other ? [other] : [])].join(', ')
+      : (other || labels[0]);
+  });
+  return answers;
+}
+
+// Résout la réponse à un AskUserQuestion. `selections` = [{ multi, indices, other? }] dans l'ordre
+// des questions ; `note` = commentaire libre optionnel, envoyé en message de suivi.
 //
 // Plus de navigation clavier (↓/Entrée/→) ni de délais anti-coalescence d'ink : on remet l'input du
 // tool_use à Claude avec le champ `answers` que la couche permission remplit normalement.
@@ -1004,19 +1028,7 @@ function answerQuestion(id, selections, note, cb) {
   if (!ask || ask.kind !== 'question') return cb(err400('no question awaiting an answer for this session'));
   if (!Array.isArray(selections) || !selections.length) return cb(err400('selections required'));
 
-  const questions = ask.questions || [];
-  const answers = {};
-  selections.forEach((sel, i) => {
-    const q = questions[i];
-    if (!q) return;
-    const idx = (Array.isArray(sel && sel.indices) ? sel.indices : [])
-      .filter((n) => Number.isInteger(n) && n >= 0 && n < (q.options || []).length)
-      .sort((a, b) => a - b);
-    const labels = idx.map((n) => q.options[n].label);
-    if (!labels.length) return;
-    // multi-select : réponses séparées par des virgules (format attendu par le tool).
-    answers[q.question] = sel && sel.multi ? labels.join(', ') : labels[0];
-  });
+  const answers = questionAnswers(ask.questions || [], selections);
   if (!Object.keys(answers).length) return cb(err400('empty selections'));
 
   const n = typeof note === 'string' ? note.trim() : '';
@@ -1238,6 +1250,9 @@ function drivenSnapshot() {
     out.push({
       id, cwd: st.cwd, model: st.launchModel || null, effort: st.launchEffort || null,
       permissionMode: st.permissionMode || null, autoApprove: !!st.autoApprove,
+      // busy = a turn was in flight (including blocked on a question/permission): those sessions
+      // get an automatic "Continue" on resume — the restart stole their turn.
+      busy: !!st.busy,
     });
   }
   return out;
@@ -1265,8 +1280,11 @@ function startDrivenSnapshot() {
 }
 
 // Relance les sessions pilotées au moment du dernier arrêt. Séquentiel et espacé : chaque reprise
-// spawne un CLI qui relit son transcript, les lancer d'un bloc ferait un pic pour rien. Aucun prompt
-// n'est poussé, donc aucun tour n'est consommé — la session repart et attend.
+// spawne un CLI qui relit son transcript, les lancer d'un bloc ferait un pic pour rien. Une session
+// qui ATTENDAIT reprend sans prompt, donc sans consommer de tour. Une session tuée EN PLEIN TOUR
+// (`busy` au dernier instantané, y compris bloquée sur une question/permission — l'attente
+// re-surgira) reçoit un « Continue » automatique : le redémarrage lui a volé son tour, on le
+// relance. HOOKED_NO_CONTINUE=1 coupe ce prompt sans couper la reprise.
 function resumeDrivenSessions(cb) {
   const done = typeof cb === 'function' ? cb : () => {};
   if (process.env.HOOKED_NO_RESUME) return done(null, { resumed: 0, skipped: 'HOOKED_NO_RESUME' });
@@ -1284,6 +1302,9 @@ function resumeDrivenSessions(cb) {
       permissionMode: s.permissionMode || undefined, autoApprove: s.autoApprove,
     }, (err) => {
       if (err) failed.push({ id: s.id, error: (err && err.message) || String(err) });
+      // Best-effort: deliverReply waits for the session's readiness on its own, and a failure
+      // here must not block the rest of the boot line.
+      else if (s.busy && !process.env.HOOKED_NO_CONTINUE) deliverReply(s.id, 'Continue', () => {});
       setTimeout(next, 1500);
     });
   };
@@ -1303,7 +1324,7 @@ export {
   subscribeAgent, streamSnapshot,
   resolveLaunchForSession, sessionLaunchMap,
   launchSession, killSession, restartSession,
-  deliverReply, answerQuestion, answerQuestionFreeText, answerPlan, answerPermission, answerPendingSelection,
+  deliverReply, answerQuestion, questionAnswers, answerQuestionFreeText, answerPlan, answerPermission, answerPendingSelection,
   interruptSession, setMode, setModelEffort, setAutoApprove, alwaysAllowRules, clearAgentState,
   resumeDrivenSessions, startDrivenSnapshot, pickResumable, saveDriven, failStartup,
   runInteractiveCommand, formatInteractiveCommand, whenReady, settleReady,

@@ -57,6 +57,7 @@ export const getSource = (id, file, rev = '', from = 0, to = 0) =>
 // entre navigateurs et avec Claude (qui y répond via l'outil MCP reply_review_comment).
 export const getReviewThreads = (id) => jget('/api/review?id=' + encodeURIComponent(id));
 export const postReviewComment = (id, thread) => jpost('/api/review', { id, action: 'comment', thread });
+export const editReviewThread = (id, threadId, text) => jpost('/api/review', { id, action: 'edit', threadId, text });
 export const deleteReviewThread = (id, threadId) => jpost('/api/review', { id, action: 'delete', threadId });
 export const replyReviewThread = (id, threadId, text) => jpost('/api/review', { id, action: 'reply', threadId, text });
 export const archiveReviewThread = (id, threadId, archived = true) => jpost('/api/review', { id, action: 'archive', threadId, archived });

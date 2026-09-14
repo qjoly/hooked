@@ -14,12 +14,12 @@
   import { toSegments, countStats, applyOp } from '$lib/difflines.js';
   import { fmtCost } from '$lib/format.js';
   import { getFileChangeFull, getVcsDiff, getVcsLog, getVcsCommit, getVcsBlame,
-           getReviewThreads, postReviewComment, deleteReviewThread, replyReviewThread,
-           archiveReviewThread, markReviewSent, reply as sendToSession } from '$lib/api.js';
+           getReviewThreads, postReviewComment, editReviewThread, deleteReviewThread,
+           replyReviewThread, archiveReviewThread, markReviewSent, reply as sendToSession } from '$lib/api.js';
   import { settings, ui } from '$lib/state.svelte.js';
   import { editorFor } from '$lib/editors.js';
   import { getSymbolDefs } from '$lib/api.js';
-  import { fingerprint, isReviewed as hasReview, toggleReviewed as tickReview,
+  import { fingerprint, isReviewed as hasReview, toggleReviewed as tickReview, nextUnreviewed,
            toMap as reviewedToMap, toEntries as reviewedToEntries } from '$lib/reviewState.js';
   import { loadDraft, saveDraft } from '$lib/reviewDraft.js';
   import { threadInstructions } from '$lib/reviewPrompt.js';
@@ -81,9 +81,13 @@
     }
   }
 
-  async function loadVcs(force = false) {
-    if (!id || vcs.loading || (vcs.loaded && !force)) return;
-    vcs = { ...vcs, loading: true, error: null };
+  let vcsRefreshing = false; // quiet reload in flight — plain var, nothing renders it
+  async function loadVcs(force = false, quiet = false) {
+    if (!id || vcs.loading || vcsRefreshing || (vcs.loaded && !force && !quiet)) return;
+    // A QUIET reload keeps the current diff on screen (no loading flash) and keeps commitCache —
+    // a commit's diff is immutable for a given rev; only the working tree and the logs move.
+    if (quiet) vcsRefreshing = true;
+    else vcs = { ...vcs, loading: true, error: null };
     try {
       const [diff, log] = await Promise.all([getVcsDiff(id), getVcsLog(id)]);
       // Ship's rail stays a flat list (activeIdx / J-K navigation), but with several detected
@@ -98,13 +102,53 @@
       vcs = { loaded: true, loading: false, error: null, kind: diff.vcs || log.vcs, workChanges, repos: repoMeta, truncated: !!diff.truncated };
       if (log.root) logCache = { ...logCache, [log.root]: log.commits || [] };
       if (!selectedRepo || !repoMeta.some((r) => r.root === selectedRepo)) selectedRepo = log.root || repoMeta[0]?.root || null;
-      if (force) { commitCache = {}; if (selectedRepo && selectedRepo !== log.root) loadLog(selectedRepo, true); }
+      if (force) commitCache = {};
+      if (force || quiet) { if (selectedRepo && selectedRepo !== log.root) loadLog(selectedRepo, true); }
       else if (selectedRepo && !logCache[selectedRepo]) loadLog(selectedRepo);
     } catch (_) {
-      vcs = { ...vcs, loading: false, loaded: true, error: 'Failed to load the VCS diff.' };
+      // A failed QUIET reload keeps the last good diff: nobody asked for it, an error card
+      // replacing a readable diff would be worse than one more minute of staleness.
+      if (!quiet) vcs = { ...vcs, loading: false, loaded: true, error: 'Failed to load the VCS diff.' };
+    } finally {
+      vcsRefreshing = false;
     }
   }
-  $effect(() => { if (view === 'vcs') loadVcs(false); });
+
+  // ── auto-refresh after Claude acts ── the Claude view is live (hooks feed s.changes as the
+  // session works) but the VCS view was a one-shot snapshot: it silently went stale the moment a
+  // turn edited or committed anything. Two signals cover every case:
+  //   • the op count moves — an edit/write/bash capture landed (throttled mid-turn; the turn-end
+  //     pass catches whatever the throttle skipped);
+  //   • the turn ends — covers actions that change no tracked file content, e.g. `git commit`.
+  // Movements seen while the VCS view is off screen only mark it stale — coming back reloads once.
+  const opCount = $derived(allChanges.reduce((n, c) => n + (c.rawOps || c.ops || []).length, 0));
+  let vcsStale = $state(false);
+  let lastOps = null, wasWorking = false, lastQuietAt = 0;
+  const QUIET_EVERY_MS = 5000;
+  $effect(() => {
+    const ops = opCount;                    // tracked deps read BEFORE any guard (Svelte 5 trap)
+    const working = s?.state === 'working';
+    untrack(() => {
+      const turnEnded = wasWorking && !working;
+      const opsMoved = lastOps !== null && ops !== lastOps;
+      lastOps = ops; wasWorking = working;
+      if (!turnEnded && !opsMoved) return;
+      if (!vcs.loaded) return;              // never opened → the first loadVcs will be fresh
+      if (view !== 'vcs' || !active) { vcsStale = true; return; }
+      if (!turnEnded && working && Date.now() - lastQuietAt < QUIET_EVERY_MS) return;
+      lastQuietAt = Date.now();
+      vcsStale = false;
+      loadVcs(false, true);
+    });
+  });
+  $effect(() => {
+    const v = view, a = active, stale = vcsStale; // deps BEFORE guards (Svelte 5 trap)
+    if (v !== 'vcs') return;
+    if (a && stale) {
+      untrack(() => { vcsStale = false; lastQuietAt = Date.now(); });
+      loadVcs(false, true);
+    } else loadVcs(false);
+  });
 
   // Repo picker: changes which repo's commit HISTORY is listed. The "Uncommitted" diff is
   // untouched (it always flattens every repo's working tree).
@@ -256,12 +300,15 @@
   const isReviewed = (f) => hasReview(reviewed, f, fps.get(f));
   function toggleReviewed(f) { reviewed = tickReview(reviewed, f, fps.get(f)); }
   // "Mark reviewed" on the active file: marking it (not un-marking) auto-advances to the next
-  // file — so you can review a diff, hit V / the button, and land on the next one.
+  // un-reviewed file — already-ticked neighbours are skipped, and with nothing left ahead you
+  // stay put. J/K still walk every file.
   function reviewCurrent() {
     if (!activeFile) return;
     const wasReviewed = isReviewed(activeFile.file);
     toggleReviewed(activeFile.file);
-    if (!wasReviewed && activeIdx < changes.length - 1) activeIdx += 1;
+    if (wasReviewed) return;
+    const next = nextUnreviewed(changes, activeIdx, (c) => isReviewed(c.file));
+    if (next !== -1) activeIdx = next;
   }
   const reviewedCount = $derived(changes.filter((c) => isReviewed(c.file)).length);
 
@@ -345,6 +392,15 @@
     try { r = await deleteReviewThread(id, tid); } catch (_) {}
     if (!r || !r.ok) threads = before;
   }
+  // Rewrite a comment that is still pending — the server refuses once it went to Claude. Same
+  // optimistic-with-rollback shape as delComment.
+  async function editComment(tid, text) {
+    const before = threads;
+    threads = threads.map((t) => (t.id === tid ? { ...t, messages: [{ ...t.messages[0], text }, ...t.messages.slice(1)] } : t));
+    let r = null;
+    try { r = await editReviewThread(id, tid, text); } catch (_) {}
+    if (!r || !r.ok) threads = before;
+  }
   // Archiving is the reviewer's "done": the thread leaves the diff (commentsFor drops it) and
   // shows up in the archives list of this panel, restorable. Claude has no tool for it — its
   // replies used to close the thread they answered, so the diff emptied itself.
@@ -368,6 +424,30 @@
   const commentsFor = (file, opIndex) =>
     threads.filter((c) => c.file === file && c.opIndex === opIndex && c.status !== 'archived')
       .map((c) => ({ id: c.id, side: c.side, start: c.start, end: c.end, snippet: c.snippet, sent: c.sent, messages: c.messages }));
+
+  // ── lost threads ── their FILE left the diff they were written on (typically: Claude committed
+  // and the working-tree diff emptied under the comment). They render nowhere in the rail, so they
+  // are handed to the FIRST file's first section flagged `lost`: DiffView shows them in its
+  // outdated block — findable, archivable, deletable. Only threads of the CURRENT view qualify;
+  // one from another view is not lost, its jump restores the view it belongs to. `keyBase` mirrors
+  // the section keys fileDiffs mints for this view.
+  const keyBase = $derived(
+    view === 'vcs' ? 'vcs:' + (selectedRev ? selectedRepo + ':' + selectedRev : 'wt')
+    : filtering ? 'sel:' + [...selected].sort().join(',')
+    : 'full'
+  );
+  const inKey = (op) => op === keyBase || String(op || '').startsWith(keyBase + ':');
+  const lostThreads = $derived.by(() => {
+    const here = new Set(changes.map((c) => c.file));
+    return threads.filter((t) => t.status !== 'archived' && inKey(t.opIndex) && !here.has(t.file))
+      .map((t) => ({ id: t.id, side: t.side, start: t.start, end: t.end, snippet: t.snippet,
+                     sent: t.sent, messages: t.messages, lost: true, file: t.file,
+                     name: t.name || (t.file || '').split('/').pop() }));
+  });
+  const commentsForSection = (di, opIndex) => {
+    const own = commentsFor(activeFile.file, opIndex);
+    return activeIdx === 0 && di === 0 && lostThreads.length ? [...lostThreads, ...own] : own;
+  };
 
   // ── jumping from the comment list ───────────────────────────────────────────────────────
   // Clicking a row opens the file the thread is anchored to AND scrolls to the thread itself:
@@ -424,7 +504,14 @@
     await restoreContext(ctx);
     // `changes` is derived, so it already reflects the restored view here
     let i = changes.findIndex((c) => c.file === t.file);
-    if (i < 0) return false;   // not in that view after all: committed since, deleted, filtered out
+    if (i < 0) {
+      // The file left this diff (committed since, deleted, filtered out): the thread is surfaced
+      // as `lost` at the head of the FIRST file — land there instead of reporting a miss.
+      if (!changes.length || !lostThreads.some((x) => x.id === t.id)) return false;
+      activeIdx = 0;
+      jumpTarget = { kind: 'thread', id: t.id, idx: 0 };
+      return true;
+    }
     // Section keys are minted from the diff we currently HOLD, and a CAPPED file yields different
     // ones: without a reconstructed `original` the file comes back as one section per raw op
     // instead of the merged span (server/changes.js, buildEntry). A thread anchored on the full
@@ -747,7 +834,7 @@
             {#snippet defCard()}
               <DefPeek {id} target={def} onClose={() => (def = null)} />
             {/snippet}
-            {#each fileDiffs(activeFile) as d (d.opIndex)}
+            {#each fileDiffs(activeFile) as d, di (d.opIndex)}
               {#if d.label}<div class="sd-oplabel">{d.label}</div>{/if}
               <DiffView oldStr={d.oldStr} newStr={d.newStr} name={activeFile.name} mode={effMode} {compact}
                         blame={blameFor}
@@ -757,10 +844,10 @@
                         definitionAt={def && def.opIndex === d.opIndex ? { side: def.atSide, line: def.atLine } : null}
                         definition={defCard}
                         commentable={!!onReview}
-                        comments={commentsFor(activeFile.file, d.opIndex)}
+                        comments={commentsForSection(di, d.opIndex)}
                         focus={jumpTarget}
                         onComment={(p) => addComment(activeFile.file, d.opIndex, activeFile.name, p)}
-                        onDelete={delComment} onReply={replyComment} onArchive={archiveComment} />
+                        onDelete={delComment} onEdit={editComment} onReply={replyComment} onArchive={archiveComment} />
             {/each}
           {/if}
         </div>

@@ -14,12 +14,12 @@
   import Icon from '$lib/components/Icon.svelte';
   import { toSegments, countStats } from '$lib/difflines.js';
   import { getVcsBranches, getVcsBranchDiff, getVcsBlame,
-           getReviewThreads, postReviewComment, deleteReviewThread, replyReviewThread,
-           archiveReviewThread, markReviewSent, reply as sendToSession } from '$lib/api.js';
+           getReviewThreads, postReviewComment, editReviewThread, deleteReviewThread,
+           replyReviewThread, archiveReviewThread, markReviewSent, reply as sendToSession } from '$lib/api.js';
   import { settings, ui } from '$lib/state.svelte.js';
   import { editorFor } from '$lib/editors.js';
   import { getSymbolDefs } from '$lib/api.js';
-  import { fingerprint, isReviewed as hasReview, toggleReviewed as tickReview,
+  import { fingerprint, isReviewed as hasReview, toggleReviewed as tickReview, nextUnreviewed,
            toMap as reviewedToMap, toEntries as reviewedToEntries } from '$lib/reviewState.js';
   import { loadDraft, saveDraft } from '$lib/reviewDraft.js';
   import { threadInstructions } from '$lib/reviewPrompt.js';
@@ -36,9 +36,13 @@
   let base = $state(null);   // base branch the diff is computed against
   const vcsMeta = $derived(VCS_META[meta.vcs] || { icon: 'git', label: 'VCS' });
 
-  async function loadBranches(root = null, force = false) {
-    if (meta.loading || (meta.loaded && !force && root === selectedRepo)) return;
-    meta = { ...meta, loading: true, error: null };
+  let branchesRefreshing = false; // quiet reload in flight — plain var, nothing renders it
+  async function loadBranches(root = null, force = false, quiet = false) {
+    if (meta.loading || branchesRefreshing || (meta.loaded && !force && !quiet && root === selectedRepo)) return;
+    // A QUIET reload keeps the current list on screen (no loading flash) and, on failure, keeps
+    // the last good one: nobody asked for it, an error card would be worse than staleness.
+    if (quiet) branchesRefreshing = true;
+    else meta = { ...meta, loading: true, error: null };
     try {
       const r = await getVcsBranches(id, root);
       meta = { loaded: true, loading: false, error: null, vcs: r.vcs, branches: r.branches || [], def: r.default, repos: r.repos || [] };
@@ -48,10 +52,17 @@
       if (!base || !names.includes(base)) base = r.default || null;
       if (force) diffCache = {};
     } catch (_) {
-      meta = { ...meta, loading: false, loaded: true, error: 'Failed to list the branches.' };
+      if (!quiet) meta = { ...meta, loading: false, loaded: true, error: 'Failed to list the branches.' };
+    } finally {
+      branchesRefreshing = false;
     }
   }
-  $effect(() => { if (active) loadBranches(untrack(() => selectedRepo)); });
+  $effect(() => {
+    const a = active, stale = diffStale; // deps read BEFORE guards (Svelte 5 trap)
+    if (!a) return;
+    if (stale) untrack(() => { diffStale = false; lastQuietAt = Date.now(); refreshQuiet(); });
+    else loadBranches(untrack(() => selectedRepo));
+  });
 
   function selectRepo(root) {
     if (selectedRepo === root) return;
@@ -99,6 +110,39 @@
   function pick(name) { branch = name; activeIdx = 0; }
   function pickBase(name) { base = name; activeIdx = 0; }
   function refresh() { loadBranches(selectedRepo, true); }
+
+  // ── auto-refresh after Claude acts ── same contract as Ship's VCS view (see Ship.svelte).
+  // A branch diff is NOT immutable (its head moves with every commit), so unlike Ship's
+  // commitCache every cached pair goes stale with the turn: keep only the one on screen (still
+  // readable while its replacement is fetched in place) and drop the rest — the loading effect
+  // refetches them lazily if revisited. The branches list is reloaded too: ahead/behind counts,
+  // a branch Claude created, the current-branch marker.
+  function refreshQuiet() {
+    loadBranches(selectedRepo, false, true);
+    const key = diffKey;
+    diffCache = key && diffCache[key] ? { [key]: diffCache[key] } : {};
+    if (key) loadDiff(key);
+  }
+  const opCount = $derived((s?.changes || []).reduce((n, c) => n + (c.rawOps || c.ops || []).length, 0));
+  let diffStale = $state(false);
+  let lastOps = null, wasWorking = false, lastQuietAt = 0;
+  const QUIET_EVERY_MS = 5000;
+  $effect(() => {
+    const ops = opCount;                    // tracked deps read BEFORE any guard (Svelte 5 trap)
+    const working = s?.state === 'working';
+    untrack(() => {
+      const turnEnded = wasWorking && !working;
+      const opsMoved = lastOps !== null && ops !== lastOps;
+      lastOps = ops; wasWorking = working;
+      if (!turnEnded && !opsMoved) return;
+      if (!meta.loaded) return;             // never opened → the first loadBranches will be fresh
+      if (!active) { diffStale = true; return; }
+      if (!turnEnded && working && Date.now() - lastQuietAt < QUIET_EVERY_MS) return;
+      lastQuietAt = Date.now();
+      diffStale = false;
+      refreshQuiet();
+    });
+  });
 
   // VCS entries are single old→new edits; key sections per branch pair so inline comments
   // never collide across branches (or with the Ship lens) on the same file.
@@ -149,11 +193,15 @@
   const fps = $derived(new Map(changes.map((c) => [c.file, fileFp(c)])));
   const isReviewed = (f) => hasReview(reviewed, f, fps.get(f));
   function toggleReviewed(f) { reviewed = tickReview(reviewed, f, fps.get(f)); }
+  // Marking (not un-marking) auto-advances to the next un-reviewed file; already-ticked
+  // neighbours are skipped, and with nothing left ahead you stay put. J/K still walk every file.
   function reviewCurrent() {
     if (!activeFile) return;
     const wasReviewed = isReviewed(activeFile.file);
     toggleReviewed(activeFile.file);
-    if (!wasReviewed && activeIdx < changes.length - 1) activeIdx += 1;
+    if (wasReviewed) return;
+    const next = nextUnreviewed(changes, activeIdx, (c) => isReviewed(c.file));
+    if (next !== -1) activeIdx = next;
   }
   const reviewedCount = $derived(changes.filter((c) => isReviewed(c.file)).length);
 
@@ -207,6 +255,15 @@
     try { r = await deleteReviewThread(id, tid); } catch (_) {}
     if (!r || !r.ok) threads = before;
   }
+  // Rewrite a comment that is still pending — the server refuses once it went to Claude. Same
+  // optimistic-with-rollback shape as delComment.
+  async function editComment(tid, text) {
+    const before = threads;
+    threads = threads.map((t) => (t.id === tid ? { ...t, messages: [{ ...t.messages[0], text }, ...t.messages.slice(1)] } : t));
+    let r = null;
+    try { r = await editReviewThread(id, tid, text); } catch (_) {}
+    if (!r || !r.ok) threads = before;
+  }
   // Archiving is the reviewer's "done": the thread leaves the diff (commentsFor drops it) and
   // shows up in the archives list of this panel, restorable. Claude has no tool for it — its
   // replies used to close the thread they answered, so the diff emptied itself.
@@ -228,6 +285,23 @@
   const commentsFor = (file, opIndex) =>
     threads.filter((c) => c.file === file && c.opIndex === opIndex && c.status !== 'archived')
       .map((c) => ({ id: c.id, side: c.side, start: c.start, end: c.end, snippet: c.snippet, sent: c.sent, messages: c.messages }));
+
+  // ── lost threads ── same contract as Ship: a thread of the CURRENT branch pair whose file left
+  // the diff (branch rewritten, file dropped) is handed to the FIRST file's section flagged
+  // `lost`, so DiffView surfaces it in its outdated block instead of it being unreachable.
+  const keyBase = $derived('br:' + diffKey);
+  const inKey = (op) => String(op || '').startsWith(keyBase + ':');
+  const lostThreads = $derived.by(() => {
+    const here = new Set(changes.map((c) => c.file));
+    return threads.filter((t) => t.status !== 'archived' && inKey(t.opIndex) && !here.has(t.file))
+      .map((t) => ({ id: t.id, side: t.side, start: t.start, end: t.end, snippet: t.snippet,
+                     sent: t.sent, messages: t.messages, lost: true, file: t.file,
+                     name: t.name || (t.file || '').split('/').pop() }));
+  });
+  const commentsForSection = (di, opIndex) => {
+    const own = commentsFor(activeFile.file, opIndex);
+    return activeIdx === 0 && di === 0 && lostThreads.length ? [...lostThreads, ...own] : own;
+  };
 
   // ── jumping from the comment list ───────────────────────────────────────────────────────
   // Clicking a row opens the file the thread is anchored to AND scrolls to the thread itself:
@@ -267,7 +341,14 @@
     await restoreContext(ctx);
     // `changes` is derived, so it already reflects the restored branch pair here
     const i = changes.findIndex((c) => c.file === t.file);
-    if (i < 0) return false;   // not in that diff after all (branch rewritten, file dropped)
+    if (i < 0) {
+      // The file left this diff (branch rewritten, file dropped): the thread is surfaced as
+      // `lost` at the head of the FIRST file — land there instead of reporting a miss.
+      if (!changes.length || !lostThreads.some((x) => x.id === t.id)) return false;
+      activeIdx = 0;
+      jumpTarget = { kind: 'thread', id: t.id, idx: 0 };
+      return true;
+    }
     activeIdx = i;
     jumpTarget = { kind: 'thread', id: t.id, idx: i };
     return true;
@@ -517,7 +598,7 @@
             {#snippet defCard()}
               <DefPeek {id} target={def} onClose={() => (def = null)} />
             {/snippet}
-            {#each fileDiffs(activeFile) as d (d.opIndex)}
+            {#each fileDiffs(activeFile) as d, di (d.opIndex)}
               <DiffView oldStr={d.oldStr} newStr={d.newStr} name={activeFile.name} mode={effMode} {compact}
                         blame={blameFor}
                         wholeFile={!!d.wholeFile}
@@ -526,10 +607,10 @@
                         definitionAt={def && def.opIndex === d.opIndex ? { side: def.atSide, line: def.atLine } : null}
                         definition={defCard}
                         commentable={!!onReview}
-                        comments={commentsFor(activeFile.file, d.opIndex)}
+                        comments={commentsForSection(di, d.opIndex)}
                         focus={jumpTarget}
                         onComment={(p) => addComment(activeFile.file, d.opIndex, activeFile.name, p)}
-                        onDelete={delComment} onReply={replyComment} onArchive={archiveComment} />
+                        onDelete={delComment} onEdit={editComment} onReply={replyComment} onArchive={archiveComment} />
             {/each}
           {/if}
         </div>

@@ -30,6 +30,11 @@ describe('pickResumable', () => {
     expect(pickResumable(snap(1000, many), NOW)).toHaveLength(6);
   });
 
+  it('keeps the mid-turn flag — those sessions get the automatic Continue', () => {
+    const out = pickResumable(snap(1000, [{ ...s('a'), busy: true }, s('b')]), NOW);
+    expect(out.map((x) => !!x.busy)).toEqual([true, false]);
+  });
+
   it('drops entries without a usable id or cwd', () => {
     const out = pickResumable(snap(1000, [s('ok'), { id: 'no-cwd' }, { cwd: '/tmp' }, null, { id: '', cwd: '/tmp' }]), NOW);
     expect(out.map((x) => x.id)).toEqual(['ok']);

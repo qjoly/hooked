@@ -8,6 +8,7 @@
   import { ago } from '$lib/format.js';
   import { reanchor } from '$lib/reviewAnchor.js';
   import Icon from '$lib/components/Icon.svelte';
+  import Markdown from '$lib/components/Markdown.svelte';
   import { ui } from '$lib/state.svelte.js';
   import { untrack } from 'svelte';
   import { symbolUnderPointer, paintSymbol, paintRangeIn, clearSymbols, highlightsSupported } from '$lib/codeHit.js';
@@ -23,9 +24,14 @@
     // and sent:false is a pending (batched, not yet sent) comment. ARCHIVED threads never reach
     // here: the lens keeps them out of `comments` (they live in the archives list of the panel),
     // so this component knows nothing about that state.
+    // An entry may carry `lost: true` (+ `name`/`file`): its file is no longer in the diff at
+    // all — the lens hands those to the FIRST file so they stay findable. They render in the
+    // outdated block and are never re-anchored (their snippet belongs to ANOTHER file: a match
+    // here would be a coincidence pinning the thread to a confidently wrong line).
     comments = [],
     onComment = null,         // ({ side, start, end, text, snippet }) => void — new thread
     onDelete = null,          // (id) => void — pending threads only
+    onEdit = null,            // (id, text) => void — rewrite a pending thread's text
     onReply = null,           // (id, text) => void — follow-up inside a thread (sent instantly)
     onArchive = null,         // (id, archived) => void — archived threads leave the diff entirely
     // A thread to reveal, as { kind: 'thread', id } — fired blindly at every DiffView of the
@@ -156,9 +162,17 @@
   // verified against its stored snippet; a moved snippet drags its thread along, a vanished or
   // ambiguous one turns the thread `outdated` — shown at the head of the diff, never pinned to
   // a wrong line. Display-only: the stored anchor remains the historical truth.
-  const threadView = $derived(comments.map((c) => ({ ...c, ...reanchor(c, src(c.side)) })));
+  const threadView = $derived(comments.map((c) => (c.lost
+    ? { ...c, outdated: true } // another file's thread: straight to the outdated block, no reanchor
+    : { ...c, ...reanchor(c, src(c.side)) })));
   const anchoredThreads = $derived(threadView.filter((c) => !c.outdated));
   const outdatedThreads = $derived(threadView.filter((c) => c.outdated));
+  const outdatedNote = $derived.by(() => {
+    const lost = outdatedThreads.filter((c) => c.lost).length;
+    if (!lost) return 'the code they were anchored to has changed';
+    if (lost === outdatedThreads.length) return 'their file is no longer in this diff';
+    return 'the code they were anchored to has changed or left this diff';
+  });
 
   // Per-thread UI state: the open reply editor and the folded threads.
   //
@@ -175,6 +189,15 @@
     const d = replyDraft;
     if (d && d.text.trim() && onReply) onReply(d.id, d.text.trim());
     replyDraft = null;
+  }
+  // Editing a PENDING thread: its text has not gone to Claude yet, so it is still a draft. The
+  // editor replaces the message in place, pre-filled; sent threads only get replies.
+  let editDraft = $state(null);       // { id, text } — one edit open at a time
+  function startEdit(c) { editDraft = { id: c.id, text: c.messages[0]?.text || '' }; }
+  function commitEdit() {
+    const d = editDraft;
+    if (d && d.text.trim() && onEdit) onEdit(d.id, d.text.trim());
+    editDraft = null;
   }
 
   // ── reveal a thread from the outside ─────────────────────────────────────────────────────
@@ -503,7 +526,7 @@
     <div class="dv-outdated">
       <div class="dv-outdated-head">
         <Icon name="warning" size={12} />
-        {outdatedThreads.length} outdated comment{outdatedThreads.length > 1 ? 's' : ''} — the code they were anchored to has changed
+        {outdatedThreads.length} outdated comment{outdatedThreads.length > 1 ? 's' : ''} — {outdatedNote}
       </div>
       <div class="dv-comments">
         {#each outdatedThreads as c (c.id)}
@@ -596,7 +619,7 @@
       {#if folded[c.id]}
         <button class="dv-thread-folded" data-thread={c.id} class:flash={focused === c.id}
                 title="Open this comment again" onclick={() => toggleFold(c.id)}>
-          <Icon name="chevron-right" size={12} /> {rangeLabel(side, c.start, c.end)} ·
+          <Icon name="chevron-right" size={12} /> {c.lost && c.name ? c.name + ' ' : ''}{rangeLabel(side, c.start, c.end)} ·
           {c.messages.length} message{c.messages.length > 1 ? 's' : ''}
           <span class="dv-thread-peek">{c.messages[0]?.text}</span>
         </button>
@@ -607,8 +630,9 @@
           <div class="dv-thread-head">
             <button class="dv-thread-fold" title="Collapse this comment" onclick={() => toggleFold(c.id)}>
               <Icon name="chevron-down" size={12} />
-              <span class="dv-bubble-anchor">{c.outdated ? 'was ' : ''}{rangeLabel(side, c.start, c.end)}</span>
-              {#if c.outdated}<span class="dv-thread-badge outdated">outdated</span>{/if}
+              <span class="dv-bubble-anchor" title={c.lost ? c.file : null}>{c.outdated ? 'was ' : ''}{c.lost && c.name ? c.name + ' ' : ''}{rangeLabel(side, c.start, c.end)}</span>
+              {#if c.lost}<span class="dv-thread-badge outdated">left the diff</span>
+              {:else if c.outdated}<span class="dv-thread-badge outdated">outdated</span>{/if}
               {#if !c.sent}<span class="dv-thread-badge pending">pending</span>{/if}
             </button>
             <span class="dv-thread-actions">
@@ -616,18 +640,35 @@
                 <button class="dv-tbtn" title="Archive — it leaves the diff for the archives list"
                         onclick={() => onArchive(c.id, true)}>archive</button>
               {/if}
+              {#if !c.sent && onEdit}
+                <button class="dv-tbtn" title="Edit comment — it has not been sent yet" onclick={() => startEdit(c)}><Icon name="pencil" size={12} /></button>
+              {/if}
               {#if !c.sent && onDelete}
                 <button class="dv-tbtn" title="Remove comment" onclick={() => onDelete(c.id)}><Icon name="close" size={12} /></button>
               {/if}
             </span>
           </div>
           {#if c.outdated && c.snippet}<pre class="dv-thread-snip">{c.snippet}</pre>{/if}
-          {#each c.messages as msg, mi (mi)}
-            <div class="dv-msg {msg.author}">
-              <span class="dv-msg-who">{msg.author === 'claude' ? 'Claude' : 'You'}</span>
-              <span class="dv-msg-text">{msg.text}</span>
+          {#if editDraft && editDraft.id === c.id}
+            <div class="dv-editor">
+              <textarea use:focusOnOpen rows="2" bind:value={editDraft.text}
+                        placeholder="Edit the comment…  (⌘/Ctrl+Enter to save · Esc to cancel)"
+                        onkeydown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); commitEdit(); } else if (e.key === 'Escape') { e.preventDefault(); editDraft = null; } }}></textarea>
+              <div class="dv-editor-bar">
+                <button class="dv-btn" onclick={() => (editDraft = null)}>Cancel</button>
+                <button class="dv-btn primary" onclick={commitEdit}>Save</button>
+              </div>
             </div>
-          {/each}
+          {:else}
+            {#each c.messages as msg, mi (mi)}
+              <div class="dv-msg {msg.author}">
+                <span class="dv-msg-who">{msg.author === 'claude' ? 'Claude' : 'You'}</span>
+                <!-- `md` is the global markdown skin (app.css); a <div>, not a <span>: the
+                     rendered markdown carries block elements. -->
+                <div class="dv-msg-text md"><Markdown text={msg.text} /></div>
+              </div>
+            {/each}
+          {/if}
           {#if c.sent && onReply}
             {#if replyDraft && replyDraft.id === c.id}
               <div class="dv-editor">
@@ -807,7 +848,18 @@
   .dv-msg { display: flex; gap: 8px; align-items: baseline; }
   .dv-msg-who { flex: 0 0 52px; font-family: var(--mono); font-size: 10px; font-weight: 700; color: var(--muted); text-align: right; }
   .dv-msg.claude .dv-msg-who { color: var(--accent-d); }
-  .dv-msg-text { flex: 1 1 auto; min-width: 0; font-size: 12.5px; color: var(--text); white-space: pre-wrap; word-break: break-word; }
+  /* No `white-space: pre-wrap` here: the text is rendered markdown (breaks:true already turns
+     newlines into <br>), pre-wrap would re-render the whitespace BETWEEN the emitted tags. */
+  .dv-msg-text { flex: 1 1 auto; min-width: 0; font-size: 12.5px; color: var(--text); word-break: break-word; overflow-wrap: anywhere; }
+  /* markdown injected via {@html} → :global, same values as .bubble .md (see Plan.svelte). */
+  .dv-msg-text :global(a) { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; word-break: break-all; }
+  .dv-msg-text :global(a:hover) { color: var(--accent-d); }
+  .dv-msg-text :global(code) { font-family: var(--mono); font-size: 11.5px; }
+  .dv-msg-text :global(:not(pre) > code) { background: var(--code-inline); padding: 1px 5px; border-radius: 5px; }
+  .dv-msg-text :global(blockquote) { margin: 6px 0; padding: 2px 0 2px 12px; border-left: 3px solid rgba(var(--ink-rgb),.38); color: var(--muted); }
+  .dv-msg-text :global(table) { border-collapse: collapse; margin: 8px 0; font-size: 12px; max-width: 100%; }
+  .dv-msg-text :global(th), .dv-msg-text :global(td) { border: 1px solid rgba(var(--ink-rgb),.28); padding: 4px 9px; text-align: left; vertical-align: top; }
+  .dv-msg-text :global(th) { background: rgba(var(--ink-rgb),.12); font-weight: 700; }
   .dv-reply-open {
     align-self: flex-start; margin-left: 60px; background: none; border: none; padding: 0;
     color: var(--muted); font-size: 11.5px; cursor: pointer; font-family: var(--font);
