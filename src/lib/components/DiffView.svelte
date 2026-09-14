@@ -8,6 +8,7 @@
   import { ago } from '$lib/format.js';
   import { reanchor } from '$lib/reviewAnchor.js';
   import Icon from '$lib/components/Icon.svelte';
+  import Markdown from '$lib/components/Markdown.svelte';
   import { ui } from '$lib/state.svelte.js';
   import { untrack } from 'svelte';
   import { symbolUnderPointer, paintSymbol, paintRangeIn, clearSymbols, highlightsSupported } from '$lib/codeHit.js';
@@ -649,7 +650,9 @@
             {#each c.messages as msg, mi (mi)}
               <div class="dv-msg {msg.author}">
                 <span class="dv-msg-who">{msg.author === 'claude' ? 'Claude' : 'You'}</span>
-                <span class="dv-msg-text">{msg.text}</span>
+                <!-- `md` is the global markdown skin (app.css); a <div>, not a <span>: the
+                     rendered markdown carries block elements. -->
+                <div class="dv-msg-text md"><Markdown text={msg.text} /></div>
               </div>
             {/each}
           {/if}
@@ -832,7 +835,18 @@
   .dv-msg { display: flex; gap: 8px; align-items: baseline; }
   .dv-msg-who { flex: 0 0 52px; font-family: var(--mono); font-size: 10px; font-weight: 700; color: var(--muted); text-align: right; }
   .dv-msg.claude .dv-msg-who { color: var(--accent-d); }
-  .dv-msg-text { flex: 1 1 auto; min-width: 0; font-size: 12.5px; color: var(--text); white-space: pre-wrap; word-break: break-word; }
+  /* No `white-space: pre-wrap` here: the text is rendered markdown (breaks:true already turns
+     newlines into <br>), pre-wrap would re-render the whitespace BETWEEN the emitted tags. */
+  .dv-msg-text { flex: 1 1 auto; min-width: 0; font-size: 12.5px; color: var(--text); word-break: break-word; overflow-wrap: anywhere; }
+  /* markdown injected via {@html} → :global, same values as .bubble .md (see Plan.svelte). */
+  .dv-msg-text :global(a) { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; word-break: break-all; }
+  .dv-msg-text :global(a:hover) { color: var(--accent-d); }
+  .dv-msg-text :global(code) { font-family: var(--mono); font-size: 11.5px; }
+  .dv-msg-text :global(:not(pre) > code) { background: var(--code-inline); padding: 1px 5px; border-radius: 5px; }
+  .dv-msg-text :global(blockquote) { margin: 6px 0; padding: 2px 0 2px 12px; border-left: 3px solid rgba(var(--ink-rgb),.38); color: var(--muted); }
+  .dv-msg-text :global(table) { border-collapse: collapse; margin: 8px 0; font-size: 12px; max-width: 100%; }
+  .dv-msg-text :global(th), .dv-msg-text :global(td) { border: 1px solid rgba(var(--ink-rgb),.28); padding: 4px 9px; text-align: left; vertical-align: top; }
+  .dv-msg-text :global(th) { background: rgba(var(--ink-rgb),.12); font-weight: 700; }
   .dv-reply-open {
     align-self: flex-start; margin-left: 60px; background: none; border: none; padding: 0;
     color: var(--muted); font-size: 11.5px; cursor: pointer; font-family: var(--font);
