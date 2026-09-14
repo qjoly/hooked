@@ -667,19 +667,27 @@
         <button class="pane-back" onclick={() => goto('/')} title="Back to list"><Icon name="arrow-left" /></button>
       {/if}
       {#if renaming}
-        <!-- svelte-ignore a11y_autofocus -->
-        <input class="sess-rename-inline" autofocus bind:value={renameVal}
-               placeholder={s.title || 'Session title'}
-               onkeydown={(e) => { if (e.key === 'Enter') commitRename(); else if (e.key === 'Escape') renaming = false; }}
-               onblur={commitRename} />
+        <span class="sess-rename-wrap" class:has-restore={!!ui.names[s.id]}>
+          <!-- svelte-ignore a11y_autofocus -->
+          <input class="sess-rename-inline" autofocus bind:value={renameVal}
+                 placeholder={s.title || 'Session title'}
+                 onkeydown={(e) => { if (e.key === 'Enter') commitRename(); else if (e.key === 'Escape') renaming = false; }}
+                 onblur={commitRename} />
+          <!-- Restaurer le titre auto : DANS le champ, et seulement en édition — hors édition il
+               n'avait rien à proposer d'actionnable et occupait la ligne en permanence.
+               `mousedown` annulé : sans ça le blur du champ commit le renommage et démonte le
+               bouton avant que son clic n'arrive. -->
+          {#if ui.names[s.id]}
+            <button class="sess-restore"
+                    title={`Drop the custom name and restore the automatic title${s.title ? ` (“${s.title}”)` : ''}`}
+                    aria-label="Restore automatic title"
+                    onmousedown={(e) => e.preventDefault()}
+                    onclick={() => { renaming = false; renameSession(s.id, ''); }}><Icon name="restore" size={14} /></button>
+          {/if}
+        </span>
       {:else}
         <button class="sess-name" onclick={startRename} title="Rename this session (local)">{sessionTitle(s)}</button>
       {/if}
-      <!-- rendu dans les DEUX états : le retirer pendant l'édition décalerait la suite de la ligne. -->
-      {#if ui.names[s.id]}<button class="sess-restore"
-              title={`Drop the custom name and restore the automatic title${s.title ? ` (“${s.title}”)` : ''}`}
-              aria-label="Restore automatic title"
-              onclick={() => renameSession(s.id, '')}><Icon name="restore" size={14} /></button>{/if}
       <span class="head-meta" title={s.project || ''}>{s.repo || s.projectName || '?'}{#if s.gitBranch} · <Icon name="git-branch" size={13} /> {s.gitBranch}{/if}</span>
       {#if sessionTags(id).length}
         <!-- tags de session (manuels + auto-tag PR) : cliquer ouvre l'éditeur -->
@@ -997,7 +1005,15 @@
   .sess-name:hover { color: var(--accent-d); }
   .sess-rename-inline { background: var(--input); border-color: var(--accent); }
   .sess-rename-inline:focus { outline: none; box-shadow: 0 0 0 3px var(--accent-soft); }
-  .sess-restore { background: none; border: none; color: var(--muted); cursor: pointer; font-size: 12px; padding: 0 2px; flex: 0 0 auto; }
+  /* Le champ d'édition devient l'enfant flex : c'est l'enveloppe qui porte la largeur, pour que le
+     bouton de restauration puisse se poser DANS le champ sans sortir du flux de la ligne. */
+  .sess-rename-wrap { position: relative; display: flex; align-items: center; flex: 1 1 auto; width: 0; min-width: 96px; }
+  .sess-rename-wrap .sess-rename-inline { flex: 1 1 auto; width: 100%; min-width: 0; }
+  .sess-rename-wrap.has-restore .sess-rename-inline { padding-right: 26px; }
+  .sess-restore {
+    position: absolute; right: 0; display: inline-flex; align-items: center;
+    background: none; border: none; color: var(--muted); cursor: pointer; font-size: 12px; padding: 0 2px;
+  }
   .sess-restore:hover { color: var(--text); }
   .head-meta {
     flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
