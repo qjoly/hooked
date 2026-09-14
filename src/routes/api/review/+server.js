@@ -1,10 +1,11 @@
 import { json } from '@sveltejs/kit';
-import { listThreads, addThread, deleteThread, replyThread, archiveThread, markThreadsSent } from '$lib/server/core.js';
+import { listThreads, addThread, deleteThread, editThread, replyThread, archiveThread, markThreadsSent } from '$lib/server/core.js';
 import { fail, readJson } from '$lib/server/respond.js';
 
 // Threads de revue ancrés dans la diff (lentilles Ship / Branch) — la conversation GitHub-style.
 // GET ?id= → { threads } ; POST { id, action, … } :
 //   comment { thread }        → crée un thread « pending » (batché côté front)
+//   edit    { threadId, text } → réécrit le message d'ouverture — thread pending uniquement
 //   delete  { threadId }      → retire un thread (envoyé ou non ; la confirmation est côté UI)
 //   reply   { threadId, text, author? } → répond ('user' par défaut ; 'claude' via l'outil MCP)
 //   archive { threadId, archived }      → range / restaure (décision du relecteur : Claude n'a
@@ -24,6 +25,10 @@ export async function POST({ request }) {
     if (action === 'comment') {
       const thread = addThread(id, body.thread);
       return thread ? json({ ok: true, thread }) : fail(400, 'invalid comment');
+    }
+    if (action === 'edit') {
+      const thread = editThread(id, body.threadId, body.text);
+      return thread ? json({ ok: true, thread }) : fail(400, 'thread not editable');
     }
     if (action === 'delete') {
       return deleteThread(id, body.threadId) ? json({ ok: true }) : fail(404, 'thread not found');

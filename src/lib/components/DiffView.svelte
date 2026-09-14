@@ -26,6 +26,7 @@
     comments = [],
     onComment = null,         // ({ side, start, end, text, snippet }) => void — new thread
     onDelete = null,          // (id) => void — pending threads only
+    onEdit = null,            // (id, text) => void — rewrite a pending thread's text
     onReply = null,           // (id, text) => void — follow-up inside a thread (sent instantly)
     onArchive = null,         // (id, archived) => void — archived threads leave the diff entirely
     // A thread to reveal, as { kind: 'thread', id } — fired blindly at every DiffView of the
@@ -175,6 +176,15 @@
     const d = replyDraft;
     if (d && d.text.trim() && onReply) onReply(d.id, d.text.trim());
     replyDraft = null;
+  }
+  // Editing a PENDING thread: its text has not gone to Claude yet, so it is still a draft. The
+  // editor replaces the message in place, pre-filled; sent threads only get replies.
+  let editDraft = $state(null);       // { id, text } — one edit open at a time
+  function startEdit(c) { editDraft = { id: c.id, text: c.messages[0]?.text || '' }; }
+  function commitEdit() {
+    const d = editDraft;
+    if (d && d.text.trim() && onEdit) onEdit(d.id, d.text.trim());
+    editDraft = null;
   }
 
   // ── reveal a thread from the outside ─────────────────────────────────────────────────────
@@ -616,18 +626,33 @@
                 <button class="dv-tbtn" title="Archive — it leaves the diff for the archives list"
                         onclick={() => onArchive(c.id, true)}>archive</button>
               {/if}
+              {#if !c.sent && onEdit}
+                <button class="dv-tbtn" title="Edit comment — it has not been sent yet" onclick={() => startEdit(c)}><Icon name="pencil" size={12} /></button>
+              {/if}
               {#if !c.sent && onDelete}
                 <button class="dv-tbtn" title="Remove comment" onclick={() => onDelete(c.id)}><Icon name="close" size={12} /></button>
               {/if}
             </span>
           </div>
           {#if c.outdated && c.snippet}<pre class="dv-thread-snip">{c.snippet}</pre>{/if}
-          {#each c.messages as msg, mi (mi)}
-            <div class="dv-msg {msg.author}">
-              <span class="dv-msg-who">{msg.author === 'claude' ? 'Claude' : 'You'}</span>
-              <span class="dv-msg-text">{msg.text}</span>
+          {#if editDraft && editDraft.id === c.id}
+            <div class="dv-editor">
+              <textarea use:focusOnOpen rows="2" bind:value={editDraft.text}
+                        placeholder="Edit the comment…  (⌘/Ctrl+Enter to save · Esc to cancel)"
+                        onkeydown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); commitEdit(); } else if (e.key === 'Escape') { e.preventDefault(); editDraft = null; } }}></textarea>
+              <div class="dv-editor-bar">
+                <button class="dv-btn" onclick={() => (editDraft = null)}>Cancel</button>
+                <button class="dv-btn primary" onclick={commitEdit}>Save</button>
+              </div>
             </div>
-          {/each}
+          {:else}
+            {#each c.messages as msg, mi (mi)}
+              <div class="dv-msg {msg.author}">
+                <span class="dv-msg-who">{msg.author === 'claude' ? 'Claude' : 'You'}</span>
+                <span class="dv-msg-text">{msg.text}</span>
+              </div>
+            {/each}
+          {/if}
           {#if c.sent && onReply}
             {#if replyDraft && replyDraft.id === c.id}
               <div class="dv-editor">
