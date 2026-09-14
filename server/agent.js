@@ -1238,6 +1238,9 @@ function drivenSnapshot() {
     out.push({
       id, cwd: st.cwd, model: st.launchModel || null, effort: st.launchEffort || null,
       permissionMode: st.permissionMode || null, autoApprove: !!st.autoApprove,
+      // busy = a turn was in flight (including blocked on a question/permission): those sessions
+      // get an automatic "Continue" on resume — the restart stole their turn.
+      busy: !!st.busy,
     });
   }
   return out;
@@ -1265,8 +1268,11 @@ function startDrivenSnapshot() {
 }
 
 // Relance les sessions pilotées au moment du dernier arrêt. Séquentiel et espacé : chaque reprise
-// spawne un CLI qui relit son transcript, les lancer d'un bloc ferait un pic pour rien. Aucun prompt
-// n'est poussé, donc aucun tour n'est consommé — la session repart et attend.
+// spawne un CLI qui relit son transcript, les lancer d'un bloc ferait un pic pour rien. Une session
+// qui ATTENDAIT reprend sans prompt, donc sans consommer de tour. Une session tuée EN PLEIN TOUR
+// (`busy` au dernier instantané, y compris bloquée sur une question/permission — l'attente
+// re-surgira) reçoit un « Continue » automatique : le redémarrage lui a volé son tour, on le
+// relance. HOOKED_NO_CONTINUE=1 coupe ce prompt sans couper la reprise.
 function resumeDrivenSessions(cb) {
   const done = typeof cb === 'function' ? cb : () => {};
   if (process.env.HOOKED_NO_RESUME) return done(null, { resumed: 0, skipped: 'HOOKED_NO_RESUME' });
@@ -1284,6 +1290,9 @@ function resumeDrivenSessions(cb) {
       permissionMode: s.permissionMode || undefined, autoApprove: s.autoApprove,
     }, (err) => {
       if (err) failed.push({ id: s.id, error: (err && err.message) || String(err) });
+      // Best-effort: deliverReply waits for the session's readiness on its own, and a failure
+      // here must not block the rest of the boot line.
+      else if (s.busy && !process.env.HOOKED_NO_CONTINUE) deliverReply(s.id, 'Continue', () => {});
       setTimeout(next, 1500);
     });
   };
