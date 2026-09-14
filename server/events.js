@@ -37,6 +37,22 @@ function lastEventBySession(eventsFile = EVENTS_FILE) {
   return map;
 }
 
+// Idem, mais horloge d'ACTIVITÉ : on saute le cycle de vie. Tuer hooked émet une salve de
+// SessionEnd horodatés à MAINTENANT (et le boot suivant une salve de SessionStart), ce qui affichait
+// « il y a 2 min » sur une session dont le dernier message datait de trois jours. L'ÉTAT, lui,
+// continue de venir de lastEventBySession : un SessionEnd doit toujours produire 'ended'.
+const LIFECYCLE_EVENTS = new Set(['SessionStart', 'SessionEnd']);
+
+function lastActivityEventBySession(eventsFile = EVENTS_FILE) {
+  const ev = readEvents(eventsFile);
+  const map = new Map();
+  for (const e of ev) {
+    if (!e.session_id || LIFECYCLE_EVENTS.has(e.event)) continue;
+    map.set(e.session_id, e);
+  }
+  return map;
+}
+
 // dernier mode de permission connu pour une session (default / acceptEdits / plan / bypassPermissions).
 // Les payloads de hooks portent `permission_mode` (capté par hook.js) → on lit le plus récent.
 function modeForSession(id, eventsFile = EVENTS_FILE) {
@@ -141,4 +157,4 @@ function rcSessionIdsFromEvents(eventsFile = EVENTS_FILE) {
   return set;
 }
 
-export { readEvents, lastEventBySession, modeForSession, liveQuestionForSession, liveQuestionBySession, livePlanForSession, livePlanBySession, eventSessionMeta, rcSessionIdsFromEvents };
+export { readEvents, lastEventBySession, lastActivityEventBySession, modeForSession, liveQuestionForSession, liveQuestionBySession, livePlanForSession, livePlanBySession, eventSessionMeta, rcSessionIdsFromEvents };
