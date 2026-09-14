@@ -425,6 +425,30 @@
     threads.filter((c) => c.file === file && c.opIndex === opIndex && c.status !== 'archived')
       .map((c) => ({ id: c.id, side: c.side, start: c.start, end: c.end, snippet: c.snippet, sent: c.sent, messages: c.messages }));
 
+  // ── lost threads ── their FILE left the diff they were written on (typically: Claude committed
+  // and the working-tree diff emptied under the comment). They render nowhere in the rail, so they
+  // are handed to the FIRST file's first section flagged `lost`: DiffView shows them in its
+  // outdated block — findable, archivable, deletable. Only threads of the CURRENT view qualify;
+  // one from another view is not lost, its jump restores the view it belongs to. `keyBase` mirrors
+  // the section keys fileDiffs mints for this view.
+  const keyBase = $derived(
+    view === 'vcs' ? 'vcs:' + (selectedRev ? selectedRepo + ':' + selectedRev : 'wt')
+    : filtering ? 'sel:' + [...selected].sort().join(',')
+    : 'full'
+  );
+  const inKey = (op) => op === keyBase || String(op || '').startsWith(keyBase + ':');
+  const lostThreads = $derived.by(() => {
+    const here = new Set(changes.map((c) => c.file));
+    return threads.filter((t) => t.status !== 'archived' && inKey(t.opIndex) && !here.has(t.file))
+      .map((t) => ({ id: t.id, side: t.side, start: t.start, end: t.end, snippet: t.snippet,
+                     sent: t.sent, messages: t.messages, lost: true, file: t.file,
+                     name: t.name || (t.file || '').split('/').pop() }));
+  });
+  const commentsForSection = (di, opIndex) => {
+    const own = commentsFor(activeFile.file, opIndex);
+    return activeIdx === 0 && di === 0 && lostThreads.length ? [...lostThreads, ...own] : own;
+  };
+
   // ── jumping from the comment list ───────────────────────────────────────────────────────
   // Clicking a row opens the file the thread is anchored to AND scrolls to the thread itself:
   // `jumpTarget` goes down to every DiffView of that file and the one holding the thread reveals
@@ -480,7 +504,14 @@
     await restoreContext(ctx);
     // `changes` is derived, so it already reflects the restored view here
     let i = changes.findIndex((c) => c.file === t.file);
-    if (i < 0) return false;   // not in that view after all: committed since, deleted, filtered out
+    if (i < 0) {
+      // The file left this diff (committed since, deleted, filtered out): the thread is surfaced
+      // as `lost` at the head of the FIRST file — land there instead of reporting a miss.
+      if (!changes.length || !lostThreads.some((x) => x.id === t.id)) return false;
+      activeIdx = 0;
+      jumpTarget = { kind: 'thread', id: t.id, idx: 0 };
+      return true;
+    }
     // Section keys are minted from the diff we currently HOLD, and a CAPPED file yields different
     // ones: without a reconstructed `original` the file comes back as one section per raw op
     // instead of the merged span (server/changes.js, buildEntry). A thread anchored on the full
@@ -803,7 +834,7 @@
             {#snippet defCard()}
               <DefPeek {id} target={def} onClose={() => (def = null)} />
             {/snippet}
-            {#each fileDiffs(activeFile) as d (d.opIndex)}
+            {#each fileDiffs(activeFile) as d, di (d.opIndex)}
               {#if d.label}<div class="sd-oplabel">{d.label}</div>{/if}
               <DiffView oldStr={d.oldStr} newStr={d.newStr} name={activeFile.name} mode={effMode} {compact}
                         blame={blameFor}
@@ -813,7 +844,7 @@
                         definitionAt={def && def.opIndex === d.opIndex ? { side: def.atSide, line: def.atLine } : null}
                         definition={defCard}
                         commentable={!!onReview}
-                        comments={commentsFor(activeFile.file, d.opIndex)}
+                        comments={commentsForSection(di, d.opIndex)}
                         focus={jumpTarget}
                         onComment={(p) => addComment(activeFile.file, d.opIndex, activeFile.name, p)}
                         onDelete={delComment} onEdit={editComment} onReply={replyComment} onArchive={archiveComment} />

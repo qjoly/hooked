@@ -286,6 +286,23 @@
     threads.filter((c) => c.file === file && c.opIndex === opIndex && c.status !== 'archived')
       .map((c) => ({ id: c.id, side: c.side, start: c.start, end: c.end, snippet: c.snippet, sent: c.sent, messages: c.messages }));
 
+  // ── lost threads ── same contract as Ship: a thread of the CURRENT branch pair whose file left
+  // the diff (branch rewritten, file dropped) is handed to the FIRST file's section flagged
+  // `lost`, so DiffView surfaces it in its outdated block instead of it being unreachable.
+  const keyBase = $derived('br:' + diffKey);
+  const inKey = (op) => String(op || '').startsWith(keyBase + ':');
+  const lostThreads = $derived.by(() => {
+    const here = new Set(changes.map((c) => c.file));
+    return threads.filter((t) => t.status !== 'archived' && inKey(t.opIndex) && !here.has(t.file))
+      .map((t) => ({ id: t.id, side: t.side, start: t.start, end: t.end, snippet: t.snippet,
+                     sent: t.sent, messages: t.messages, lost: true, file: t.file,
+                     name: t.name || (t.file || '').split('/').pop() }));
+  });
+  const commentsForSection = (di, opIndex) => {
+    const own = commentsFor(activeFile.file, opIndex);
+    return activeIdx === 0 && di === 0 && lostThreads.length ? [...lostThreads, ...own] : own;
+  };
+
   // ── jumping from the comment list ───────────────────────────────────────────────────────
   // Clicking a row opens the file the thread is anchored to AND scrolls to the thread itself:
   // `jumpTarget` goes down to every DiffView of that file and the one holding the thread reveals
@@ -324,7 +341,14 @@
     await restoreContext(ctx);
     // `changes` is derived, so it already reflects the restored branch pair here
     const i = changes.findIndex((c) => c.file === t.file);
-    if (i < 0) return false;   // not in that diff after all (branch rewritten, file dropped)
+    if (i < 0) {
+      // The file left this diff (branch rewritten, file dropped): the thread is surfaced as
+      // `lost` at the head of the FIRST file — land there instead of reporting a miss.
+      if (!changes.length || !lostThreads.some((x) => x.id === t.id)) return false;
+      activeIdx = 0;
+      jumpTarget = { kind: 'thread', id: t.id, idx: 0 };
+      return true;
+    }
     activeIdx = i;
     jumpTarget = { kind: 'thread', id: t.id, idx: i };
     return true;
@@ -574,7 +598,7 @@
             {#snippet defCard()}
               <DefPeek {id} target={def} onClose={() => (def = null)} />
             {/snippet}
-            {#each fileDiffs(activeFile) as d (d.opIndex)}
+            {#each fileDiffs(activeFile) as d, di (d.opIndex)}
               <DiffView oldStr={d.oldStr} newStr={d.newStr} name={activeFile.name} mode={effMode} {compact}
                         blame={blameFor}
                         wholeFile={!!d.wholeFile}
@@ -583,7 +607,7 @@
                         definitionAt={def && def.opIndex === d.opIndex ? { side: def.atSide, line: def.atLine } : null}
                         definition={defCard}
                         commentable={!!onReview}
-                        comments={commentsFor(activeFile.file, d.opIndex)}
+                        comments={commentsForSection(di, d.opIndex)}
                         focus={jumpTarget}
                         onComment={(p) => addComment(activeFile.file, d.opIndex, activeFile.name, p)}
                         onDelete={delComment} onEdit={editComment} onReply={replyComment} onArchive={archiveComment} />
