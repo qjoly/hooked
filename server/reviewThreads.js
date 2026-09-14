@@ -121,6 +121,21 @@ function replyThread(sessionId, threadId, author, text) {
   return t;
 }
 
+// Editing is for PENDING threads only: once the batch went out, the text is in Claude's context —
+// rewriting it here would make the stored thread lie about what was actually sent. A pending
+// thread has exactly one message (replies only exist on sent threads), so the edit rewrites the
+// opening message and leaves the anchor untouched.
+function editThread(sessionId, threadId, text) {
+  const clean = cleanText(text);
+  if (!clean) return null;
+  const threads = readThreads(sessionId);
+  const t = threads.find((x) => x.id === threadId);
+  if (!t || t.sent) return null;
+  t.messages[0] = { ...t.messages[0], text: clean };
+  writeThreads(sessionId, threads);
+  return t;
+}
+
 // Archivage / restauration. Un thread archivé n'est plus rendu dans la diff (le front ne le
 // passe plus à DiffView) : il vit dans la liste des archives, restaurable.
 function archiveThread(sessionId, threadId, archived = true) {
@@ -142,4 +157,4 @@ function markThreadsSent(sessionId, ids) {
   return n;
 }
 
-export { listThreads, addThread, deleteThread, replyThread, archiveThread, markThreadsSent };
+export { listThreads, addThread, deleteThread, editThread, replyThread, archiveThread, markThreadsSent };
