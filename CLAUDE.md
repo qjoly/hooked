@@ -9,6 +9,15 @@ Dashboard local des sessions Claude Code. **Front SvelteKit / Svelte 5** ; **bac
 
 ## Workflow dev — IMPORTANT (source de confusion récurrente)
 
+- **Redémarrer hooked = `mise run deploy`, jamais un kill à la main.** Les sessions pilotées
+  vivent DANS le processus hooked : toute forme de redémarrage tue aussi la session Claude qui
+  exécute la commande — c'est inévitable, et c'est prévu. `mise run deploy` est le seul chemin
+  propre : rebuild, puis relance du service (`launchctl kickstart -k` / systemd `restart`), et au
+  boot `resumeDrivenSessions()` reprend les sessions du dernier instantané — celle qui était en
+  plein tour reçoit un « Continue » automatique et reprend son travail là où le redémarrage l'a
+  coupée. Tuer le process autrement (`pkill node`, kill du port 4123, `launchctl unload`…) tue la
+  session sans garantir ni rebuild ni relance ni reprise : Claude se tue lui-même pour rien.
+
 - **`npm run live`** (Vite, `:4123`, `--strictPort`) = **le workflow live à privilégier** : HMR front **et** rechargement serveur. Les endpoints `/api/*` (`+server.js`) sont exécutés in-process par le dev server SvelteKit, et Vite ré-exécute les modules `server/*` / `$lib/server/*` modifiés à la requête suivante → une modif back est prise en compte sans rebuild ni redémarrage. Même port que la prod (4123) ; `strictPort` échoue franchement si `node build` squatte encore le port au lieu de dériver sur 4124.
 - **`npm run dev`** (Vite, `:5173`) = identique à `live` mais sur le port Vite par défaut.
 - **`npm start`** (`node build`, prod, souvent `:4123` via `PORT`) **ne se recharge PAS**. Après toute modif : **`npm run build` PUIS redémarrer `node build`**, car :
