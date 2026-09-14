@@ -6,7 +6,7 @@ import path from 'node:path';
 import { statSafe, truncTitle } from './util.js';
 import { scanSessions, blankSummary } from './transcript.js';
 import { repoSlug } from './git.js';
-import { readEvents, lastEventBySession, modeForSession, liveQuestionForSession, liveQuestionBySession, livePlanForSession, livePlanBySession, eventSessionMeta, rcSessionIdsFromEvents } from './events.js';
+import { readEvents, lastEventBySession, lastActivityEventBySession, modeForSession, liveQuestionForSession, liveQuestionBySession, livePlanForSession, livePlanBySession, eventSessionMeta, rcSessionIdsFromEvents } from './events.js';
 import { liveStateFor } from './live.js';
 import { resolveLaunchForSession, agentAlive, agentSession, agentMode, agentAutoApprove, agentBusy, agentActivity, agentFollowup, agentLastProse, agentPendingAsk, liveSessionIds } from './agent.js';
 import { sessionStatus, sessionStatusRaw, accountRateLimits, freshestStatusId } from './status.js';
@@ -93,11 +93,15 @@ function withBackgroundState(state, alive, activeCount, busy) {
   return state;
 }
 
+// max de deux horodatages ISO, null-safe (comparaison lexicographique : tout est en UTC « …Z »).
+const maxTs = (a, b) => (a && b ? (a > b ? a : b) : (a || b || null));
+
 function buildSessions() {
   const sessions = scanSessions();
   const known = new Set(sessions.map((s) => s.id));
   sessions.push(...eventOnlySessions(known));
   const last = lastEventBySession();
+  const acts = lastActivityEventBySession(); // même lecture (cache mtime/size), une passe de plus
   const questions = liveQuestionBySession(); // une passe (vs liveQuestionForSession par session)
   const plans = livePlanBySession();         // idem pour les plans ExitPlanMode
   // Démons remote-control : masqués de la liste — c'est de l'infra, pas des sessions qu'on pilote.
@@ -126,7 +130,13 @@ function buildSessions() {
       s.currentTool = null;
       s.liveTs = null;
     }
-    s.lastActivity = s.liveTs && (!s.lastTs || s.liveTs > s.lastTs) ? s.liveTs : s.lastTs;
+    // Deux horloges. `lastActivity` = activité réelle (âge affiché, clé de tri) ; un kill de hooked
+    // ne doit pas rajeunir une session de trois jours. Repli sur `liveTs` pour une session tout
+    // juste lancée, qui n'a qu'un SessionStart et pas encore de transcript.
+    const actEv = acts.get(s.id);
+    s.lastActivity = maxTs(actEv ? actEv.ts : null, s.lastTs) || s.liveTs || null;
+    // `lastSeenTs` = l'ancien calcul, cycle de vie compris. Seul isFinishedAndCold le lit.
+    s.lastSeenTs = maxTs(s.liveTs, s.lastTs);
     // La session tourne-t-elle dans ce hooked ? (remplace « son pane tmux existe-t-il encore ? »)
     // Faux pour une session terminée ET pour une session ouverte à la main dans un terminal : elle
     // reste visible et à jour via les hooks, mais n'est pas pilotable depuis le dashboard.
