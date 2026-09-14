@@ -81,9 +81,13 @@
     }
   }
 
-  async function loadVcs(force = false) {
-    if (!id || vcs.loading || (vcs.loaded && !force)) return;
-    vcs = { ...vcs, loading: true, error: null };
+  let vcsRefreshing = false; // quiet reload in flight — plain var, nothing renders it
+  async function loadVcs(force = false, quiet = false) {
+    if (!id || vcs.loading || vcsRefreshing || (vcs.loaded && !force && !quiet)) return;
+    // A QUIET reload keeps the current diff on screen (no loading flash) and keeps commitCache —
+    // a commit's diff is immutable for a given rev; only the working tree and the logs move.
+    if (quiet) vcsRefreshing = true;
+    else vcs = { ...vcs, loading: true, error: null };
     try {
       const [diff, log] = await Promise.all([getVcsDiff(id), getVcsLog(id)]);
       // Ship's rail stays a flat list (activeIdx / J-K navigation), but with several detected
@@ -98,13 +102,53 @@
       vcs = { loaded: true, loading: false, error: null, kind: diff.vcs || log.vcs, workChanges, repos: repoMeta, truncated: !!diff.truncated };
       if (log.root) logCache = { ...logCache, [log.root]: log.commits || [] };
       if (!selectedRepo || !repoMeta.some((r) => r.root === selectedRepo)) selectedRepo = log.root || repoMeta[0]?.root || null;
-      if (force) { commitCache = {}; if (selectedRepo && selectedRepo !== log.root) loadLog(selectedRepo, true); }
+      if (force) commitCache = {};
+      if (force || quiet) { if (selectedRepo && selectedRepo !== log.root) loadLog(selectedRepo, true); }
       else if (selectedRepo && !logCache[selectedRepo]) loadLog(selectedRepo);
     } catch (_) {
-      vcs = { ...vcs, loading: false, loaded: true, error: 'Failed to load the VCS diff.' };
+      // A failed QUIET reload keeps the last good diff: nobody asked for it, an error card
+      // replacing a readable diff would be worse than one more minute of staleness.
+      if (!quiet) vcs = { ...vcs, loading: false, loaded: true, error: 'Failed to load the VCS diff.' };
+    } finally {
+      vcsRefreshing = false;
     }
   }
-  $effect(() => { if (view === 'vcs') loadVcs(false); });
+
+  // ── auto-refresh after Claude acts ── the Claude view is live (hooks feed s.changes as the
+  // session works) but the VCS view was a one-shot snapshot: it silently went stale the moment a
+  // turn edited or committed anything. Two signals cover every case:
+  //   • the op count moves — an edit/write/bash capture landed (throttled mid-turn; the turn-end
+  //     pass catches whatever the throttle skipped);
+  //   • the turn ends — covers actions that change no tracked file content, e.g. `git commit`.
+  // Movements seen while the VCS view is off screen only mark it stale — coming back reloads once.
+  const opCount = $derived(allChanges.reduce((n, c) => n + (c.rawOps || c.ops || []).length, 0));
+  let vcsStale = $state(false);
+  let lastOps = null, wasWorking = false, lastQuietAt = 0;
+  const QUIET_EVERY_MS = 5000;
+  $effect(() => {
+    const ops = opCount;                    // tracked deps read BEFORE any guard (Svelte 5 trap)
+    const working = s?.state === 'working';
+    untrack(() => {
+      const turnEnded = wasWorking && !working;
+      const opsMoved = lastOps !== null && ops !== lastOps;
+      lastOps = ops; wasWorking = working;
+      if (!turnEnded && !opsMoved) return;
+      if (!vcs.loaded) return;              // never opened → the first loadVcs will be fresh
+      if (view !== 'vcs' || !active) { vcsStale = true; return; }
+      if (!turnEnded && working && Date.now() - lastQuietAt < QUIET_EVERY_MS) return;
+      lastQuietAt = Date.now();
+      vcsStale = false;
+      loadVcs(false, true);
+    });
+  });
+  $effect(() => {
+    const v = view, a = active, stale = vcsStale; // deps BEFORE guards (Svelte 5 trap)
+    if (v !== 'vcs') return;
+    if (a && stale) {
+      untrack(() => { vcsStale = false; lastQuietAt = Date.now(); });
+      loadVcs(false, true);
+    } else loadVcs(false);
+  });
 
   // Repo picker: changes which repo's commit HISTORY is listed. The "Uncommitted" diff is
   // untouched (it always flattens every repo's working tree).
