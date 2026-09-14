@@ -190,7 +190,7 @@
       </div>
       <button class="ssb-icon" class:on={ui.hideOld} aria-label="Hide sessions idle for more than 24h"
               title={ui.hideOld ? 'Showing only the last 24h — click to show everything' : 'Show only sessions active in the last 24h (pinned, awaiting-decision and current sessions always stay)'}
-              onclick={() => (ui.hideOld = !ui.hideOld)}><Icon name="clock" size={14} /></button>
+              onclick={() => (ui.hideOld = !ui.hideOld)}><Icon name="clock" size={14} tint={false} /></button>
       <div class="ssb-sort">
         <button class="ssb-icon" class:on={sortMode !== 'dynamic'} aria-label="Sort order"
                 aria-haspopup="menu" aria-expanded={sortOpen}
