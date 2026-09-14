@@ -19,6 +19,9 @@ export async function POST({ request }) {
     const selections = sel.map((q) => ({
       multi: !!(q && q.multi),
       indices: Array.isArray(q && q.indices) ? q.indices.filter((n) => Number.isInteger(n) && n >= 0) : [],
+      // « Other » du composant Question : réponse libre par question (questions uniquement — les
+      // attentes plan/permission n'en tiennent pas compte, leur contrat est l'indice).
+      other: typeof (q && q.other) === 'string' ? q.other.trim() : '',
     }));
     // Note libre optionnelle : envoyée comme message de suivi après la réponse structurée.
     const note = typeof body.note === 'string' ? body.note.trim() : '';
