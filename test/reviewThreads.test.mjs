@@ -79,6 +79,31 @@ describe('reviewThreads — cycle de vie', () => {
   });
 });
 
+describe('reviewThreads — editing a pending comment', () => {
+  it('rewrites the opening message and keeps the anchor', () => {
+    const t = store.addThread(SID, { ...anchor, text: 'first draft' });
+    const e = store.editThread(SID, t.id, 'second draft');
+    expect(e.messages).toEqual([expect.objectContaining({ author: 'user', text: 'second draft' })]);
+    expect(e).toMatchObject({ side: 'new', start: 3, end: 5, snippet: anchor.snippet, sent: false });
+    // persisted, not just returned
+    expect(store.listThreads(SID).find((x) => x.id === t.id).messages[0].text).toBe('second draft');
+  });
+
+  it('refuses once the thread is sent — the text is already in Claude context', () => {
+    const t = store.addThread(SID, { ...anchor, text: 'shipped' });
+    store.markThreadsSent(SID, [t.id]);
+    expect(store.editThread(SID, t.id, 'too late')).toBe(null);
+    expect(store.listThreads(SID).find((x) => x.id === t.id).messages[0].text).toBe('shipped');
+  });
+
+  it('refuses empty text and unknown threads', () => {
+    const t = store.addThread(SID, { ...anchor, text: 'keep me' });
+    expect(store.editThread(SID, t.id, '   ')).toBe(null);
+    expect(store.editThread(SID, 'nope', 'x')).toBe(null);
+    expect(store.listThreads(SID).find((x) => x.id === t.id).messages[0].text).toBe('keep me');
+  });
+});
+
 describe('reviewThreads — gardes', () => {
   it('borne les auteurs à user/claude et exige un texte', () => {
     const t = store.addThread(SID, { ...anchor, text: 'guard' });

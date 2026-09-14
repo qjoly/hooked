@@ -14,8 +14,8 @@
   import { toSegments, countStats, applyOp } from '$lib/difflines.js';
   import { fmtCost } from '$lib/format.js';
   import { getFileChangeFull, getVcsDiff, getVcsLog, getVcsCommit, getVcsBlame,
-           getReviewThreads, postReviewComment, deleteReviewThread, replyReviewThread,
-           archiveReviewThread, markReviewSent, reply as sendToSession } from '$lib/api.js';
+           getReviewThreads, postReviewComment, editReviewThread, deleteReviewThread,
+           replyReviewThread, archiveReviewThread, markReviewSent, reply as sendToSession } from '$lib/api.js';
   import { settings, ui } from '$lib/state.svelte.js';
   import { editorFor } from '$lib/editors.js';
   import { getSymbolDefs } from '$lib/api.js';
@@ -346,6 +346,15 @@
     // rafraîchissement suivant sans explication. On le remet en place tout de suite.
     let r = null;
     try { r = await deleteReviewThread(id, tid); } catch (_) {}
+    if (!r || !r.ok) threads = before;
+  }
+  // Rewrite a comment that is still pending — the server refuses once it went to Claude. Same
+  // optimistic-with-rollback shape as delComment.
+  async function editComment(tid, text) {
+    const before = threads;
+    threads = threads.map((t) => (t.id === tid ? { ...t, messages: [{ ...t.messages[0], text }, ...t.messages.slice(1)] } : t));
+    let r = null;
+    try { r = await editReviewThread(id, tid, text); } catch (_) {}
     if (!r || !r.ok) threads = before;
   }
   // Archiving is the reviewer's "done": the thread leaves the diff (commentsFor drops it) and
@@ -763,7 +772,7 @@
                         comments={commentsFor(activeFile.file, d.opIndex)}
                         focus={jumpTarget}
                         onComment={(p) => addComment(activeFile.file, d.opIndex, activeFile.name, p)}
-                        onDelete={delComment} onReply={replyComment} onArchive={archiveComment} />
+                        onDelete={delComment} onEdit={editComment} onReply={replyComment} onArchive={archiveComment} />
             {/each}
           {/if}
         </div>
