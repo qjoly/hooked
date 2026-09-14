@@ -24,6 +24,10 @@
     // and sent:false is a pending (batched, not yet sent) comment. ARCHIVED threads never reach
     // here: the lens keeps them out of `comments` (they live in the archives list of the panel),
     // so this component knows nothing about that state.
+    // An entry may carry `lost: true` (+ `name`/`file`): its file is no longer in the diff at
+    // all — the lens hands those to the FIRST file so they stay findable. They render in the
+    // outdated block and are never re-anchored (their snippet belongs to ANOTHER file: a match
+    // here would be a coincidence pinning the thread to a confidently wrong line).
     comments = [],
     onComment = null,         // ({ side, start, end, text, snippet }) => void — new thread
     onDelete = null,          // (id) => void — pending threads only
@@ -158,9 +162,17 @@
   // verified against its stored snippet; a moved snippet drags its thread along, a vanished or
   // ambiguous one turns the thread `outdated` — shown at the head of the diff, never pinned to
   // a wrong line. Display-only: the stored anchor remains the historical truth.
-  const threadView = $derived(comments.map((c) => ({ ...c, ...reanchor(c, src(c.side)) })));
+  const threadView = $derived(comments.map((c) => (c.lost
+    ? { ...c, outdated: true } // another file's thread: straight to the outdated block, no reanchor
+    : { ...c, ...reanchor(c, src(c.side)) })));
   const anchoredThreads = $derived(threadView.filter((c) => !c.outdated));
   const outdatedThreads = $derived(threadView.filter((c) => c.outdated));
+  const outdatedNote = $derived.by(() => {
+    const lost = outdatedThreads.filter((c) => c.lost).length;
+    if (!lost) return 'the code they were anchored to has changed';
+    if (lost === outdatedThreads.length) return 'their file is no longer in this diff';
+    return 'the code they were anchored to has changed or left this diff';
+  });
 
   // Per-thread UI state: the open reply editor and the folded threads.
   //
@@ -514,7 +526,7 @@
     <div class="dv-outdated">
       <div class="dv-outdated-head">
         <Icon name="warning" size={12} />
-        {outdatedThreads.length} outdated comment{outdatedThreads.length > 1 ? 's' : ''} — the code they were anchored to has changed
+        {outdatedThreads.length} outdated comment{outdatedThreads.length > 1 ? 's' : ''} — {outdatedNote}
       </div>
       <div class="dv-comments">
         {#each outdatedThreads as c (c.id)}
@@ -607,7 +619,7 @@
       {#if folded[c.id]}
         <button class="dv-thread-folded" data-thread={c.id} class:flash={focused === c.id}
                 title="Open this comment again" onclick={() => toggleFold(c.id)}>
-          <Icon name="chevron-right" size={12} /> {rangeLabel(side, c.start, c.end)} ·
+          <Icon name="chevron-right" size={12} /> {c.lost && c.name ? c.name + ' ' : ''}{rangeLabel(side, c.start, c.end)} ·
           {c.messages.length} message{c.messages.length > 1 ? 's' : ''}
           <span class="dv-thread-peek">{c.messages[0]?.text}</span>
         </button>
@@ -618,8 +630,9 @@
           <div class="dv-thread-head">
             <button class="dv-thread-fold" title="Collapse this comment" onclick={() => toggleFold(c.id)}>
               <Icon name="chevron-down" size={12} />
-              <span class="dv-bubble-anchor">{c.outdated ? 'was ' : ''}{rangeLabel(side, c.start, c.end)}</span>
-              {#if c.outdated}<span class="dv-thread-badge outdated">outdated</span>{/if}
+              <span class="dv-bubble-anchor" title={c.lost ? c.file : null}>{c.outdated ? 'was ' : ''}{c.lost && c.name ? c.name + ' ' : ''}{rangeLabel(side, c.start, c.end)}</span>
+              {#if c.lost}<span class="dv-thread-badge outdated">left the diff</span>
+              {:else if c.outdated}<span class="dv-thread-badge outdated">outdated</span>{/if}
               {#if !c.sent}<span class="dv-thread-badge pending">pending</span>{/if}
             </button>
             <span class="dv-thread-actions">
