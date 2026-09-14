@@ -19,7 +19,7 @@
   import { settings, ui } from '$lib/state.svelte.js';
   import { editorFor } from '$lib/editors.js';
   import { getSymbolDefs } from '$lib/api.js';
-  import { fingerprint, isReviewed as hasReview, toggleReviewed as tickReview,
+  import { fingerprint, isReviewed as hasReview, toggleReviewed as tickReview, nextUnreviewed,
            toMap as reviewedToMap, toEntries as reviewedToEntries } from '$lib/reviewState.js';
   import { loadDraft, saveDraft } from '$lib/reviewDraft.js';
   import { threadInstructions } from '$lib/reviewPrompt.js';
@@ -149,11 +149,15 @@
   const fps = $derived(new Map(changes.map((c) => [c.file, fileFp(c)])));
   const isReviewed = (f) => hasReview(reviewed, f, fps.get(f));
   function toggleReviewed(f) { reviewed = tickReview(reviewed, f, fps.get(f)); }
+  // Marking (not un-marking) auto-advances to the next un-reviewed file; already-ticked
+  // neighbours are skipped, and with nothing left ahead you stay put. J/K still walk every file.
   function reviewCurrent() {
     if (!activeFile) return;
     const wasReviewed = isReviewed(activeFile.file);
     toggleReviewed(activeFile.file);
-    if (!wasReviewed && activeIdx < changes.length - 1) activeIdx += 1;
+    if (wasReviewed) return;
+    const next = nextUnreviewed(changes, activeIdx, (c) => isReviewed(c.file));
+    if (next !== -1) activeIdx = next;
   }
   const reviewedCount = $derived(changes.filter((c) => isReviewed(c.file)).length);
 
