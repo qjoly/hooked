@@ -9,18 +9,22 @@
  *   - models  : scraped from the claude bundle (same technique as commands.extractBuiltins), grouped
  *     by family, family alias first (the account default), concrete non-dated versions newest-first.
  *
+ * The scraped binary is resolveDrivenClaudeBin() — the CLI the Agent SDK vendors and actually spawns
+ * for driven sessions — NOT the PATH install. The two drift (brew cask lagging behind the SDK), and
+ * capabilities must answer "what can a driven session do", not "what is installed".
+ *
  * NO hardcoded fallback: no resolvable claude → empty lists. hooked exists only to drive claude, so
  * "no claude" legitimately means "nothing to offer". The strict per-token charset checks below are
  * the anti-injection guard (values are interpolated into `claude --model/--effort` and typed into
  * the Agent SDK), NOT a fallback list.
  *
- * Node stdlib only. Depends solely on commands.resolveClaudeBin() — must NOT import claudeUpdate.js
+ * Node stdlib only. Depends solely on commands.resolveDrivenClaudeBin() — must NOT import claudeUpdate.js
  * (claudeUpdate → stats → agent, and agent imports THIS module → import cycle). Hence the small inline
  * version read rather than reusing claudeUpdate.installedVersion.
  */
 import fs from 'node:fs';
 import cp from 'node:child_process';
-import { resolveClaudeBin } from './commands.js';
+import { resolveDrivenClaudeBin } from './commands.js';
 
 const FAMILIES = ['opus', 'sonnet', 'haiku', 'fable'];
 const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
@@ -74,7 +78,7 @@ export function buildModelGroups(ids) {
 // ---------- binary readers (cached by binary mtime → re-run only on a claude upgrade) ----------
 
 function binStat() {
-  const bin = resolveClaudeBin();
+  const bin = resolveDrivenClaudeBin();
   if (!bin) return null;
   try { return { bin, mtime: fs.statSync(bin).mtimeMs }; } catch (_) { return null; }
 }

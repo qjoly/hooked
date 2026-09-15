@@ -10,6 +10,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import cp from 'node:child_process';
+import { createRequire } from 'node:module';
 import { HOME } from './config.js';
 import { fuzzyScore } from './files.js';
 
@@ -130,10 +131,39 @@ function resolveClaudeBin() {
   try { return fs.realpathSync(_binCache) || _binCache; } catch (_) { return _binCache; }
 }
 
+/*
+ * The CLI that DRIVEN sessions actually execute — distinct from resolveClaudeBin(), the INSTALLED
+ * one. The Agent SDK spawns its own vendored binary (@anthropic-ai/claude-agent-sdk-<platform>-
+ * <arch>), not the PATH install, and the two drift: a brew cask several releases behind the SDK
+ * left claude-fable-5-1 out of the model selector while every session could already run it.
+ * Anything answering "what can a driven session do" (capabilities' models/efforts, extracted
+ * builtins) must scrape THIS binary; installation concerns (claudeUpdate.js upgrade command,
+ * mcp.js subprocesses) stay on resolveClaudeBin().
+ *
+ * Resolution mirrors the SDK's own order: HOOKED_CLAUDE_BIN (agent.js passes it verbatim as
+ * pathToClaudeCodeExecutable) → vendored platform package → PATH install as a last resort (platform
+ * package absent, e.g. an unsupported musl variant). No caching needed: callers already cache by
+ * the returned path's mtime, and require.resolve is cheap next to the greps that follow.
+ */
+function resolveDrivenClaudeBin() {
+  const override = process.env.HOOKED_CLAUDE_BIN;
+  if (override) {
+    try { fs.accessSync(override, fs.constants.X_OK); return override; } catch (_) { /* unusable override → ignore */ }
+  }
+  try {
+    const exe = process.platform === 'win32' ? 'claude.exe' : 'claude';
+    const bin = createRequire(import.meta.url)
+      .resolve(`@anthropic-ai/claude-agent-sdk-${process.platform}-${process.arch}/${exe}`);
+    fs.accessSync(bin, fs.constants.X_OK);
+    return bin;
+  } catch (_) { /* platform package absent → fall back to the installed CLI */ }
+  return resolveClaudeBin();
+}
+
 // Scanne le bundle pour les déclarations `type:"local|local-jsx|prompt",name:"…"[,description:"…"]`.
 // grep -a traite le binaire comme du texte ; sortie minuscule → parse en JS. Mise en cache (mtime).
 function extractBuiltins() {
-  const bin = resolveClaudeBin();
+  const bin = resolveDrivenClaudeBin();   // builtins offered to DRIVEN sessions → their binary
   if (!bin) return [];
   let st;
   try { st = fs.statSync(bin); } catch (_) { return []; }
@@ -279,4 +309,4 @@ function matchCommands(list, q, limit = 30) {
   return scored.slice(0, limit).map((x) => x[0]);
 }
 
-export { CURATED, resolveClaudeBin, claudeCandidates, extractBuiltins, builtinCommands, customCommands, slashCommands, matchCommands };
+export { CURATED, resolveClaudeBin, resolveDrivenClaudeBin, claudeCandidates, extractBuiltins, builtinCommands, customCommands, slashCommands, matchCommands };
