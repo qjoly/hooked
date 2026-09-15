@@ -1,0 +1,21 @@
+# Triggers the org's self-hosted Renovate against this repository — the Lucca model: the runner
+# lives in LuccaSA/renovate-config and has no schedule of its own; each repo calls it.
+name: Renovate
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Every 4 hours, in UTC (GitHub Actions schedules do not support a timezone)
+    - cron: '0 */4 * * *'
+
+jobs:
+  renovate:
+    name: renovate
+    permissions:
+      contents: read
+      packages: read
+    uses: LuccaSA/renovate-config/.github/workflows/renovate-run.yml@581807300b1b6f5a3e42f749b0eb6be1939c9e67 # main, 2026-09-14
+    with:
+      caller_repository: ${{ github.repository }}
+      dry_run: false
+    secrets: inherit
