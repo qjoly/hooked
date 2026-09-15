@@ -111,10 +111,12 @@ function shellQuote(v) {
 // redémarrage de hooked, et la sortir de la liste active sur le champ obligeait à aller la
 // rechercher dans l'onglet Archived. Partie PURE de isSessionArchived (state.svelte.js), sortie ici
 // pour être testable — state.svelte.js utilise des runes, que Vitest ne compile pas.
+// D'où `lastSeenTs` et non `lastActivity` : c'est l'horloge qui redémarre au kill (cf. stats.js).
 export const COLD_MS = 86400000;
 export function isFinishedAndCold(s, now = Date.now()) {
   if (!s || (s.state !== 'ended' && s.state !== 'past')) return false;
-  const t = s.lastActivity ? Date.parse(s.lastActivity) : 0;
+  const seen = s.lastSeenTs || s.lastActivity;
+  const t = seen ? Date.parse(seen) : 0;
   return !t || Number.isNaN(t) || now - t > COLD_MS;
 }
 
