@@ -30,4 +30,4 @@ fi
 
 # vite lancé DIRECTEMENT (pas via npm) → systemd surveille le vrai process node,
 # donc arrêt/relance propres (pas de vite orphelin au stop/restart).
-exec node node_modules/vite/bin/vite.js dev --host 0.0.0.0 --port "${HOOKED_PORT:-4123}"
+exec node node_modules/vite/bin/vite.js dev --port "${HOOKED_PORT:-4123}"
