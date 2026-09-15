@@ -12,7 +12,8 @@
  */
 import { describe, it, expect } from 'vitest';
 import path from 'node:path';
-import { claudeCandidates } from '../server/commands.js';
+import { createRequire } from 'node:module';
+import { claudeCandidates, resolveDrivenClaudeBin } from '../server/commands.js';
 import { parseEffortsFromHelp } from '../server/capabilities.js';
 
 describe('claudeCandidates — Windows', () => {
@@ -58,5 +59,55 @@ describe('parseEffortsFromHelp — what the empty list cost', () => {
   it('returns nothing it cannot parse, rather than guessing', () => {
     expect(parseEffortsFromHelp('')).toEqual([]);
     expect(parseEffortsFromHelp('no effort option here')).toEqual([]);
+  });
+});
+
+/*
+ * resolveDrivenClaudeBin — the CLI that DRIVEN sessions actually execute.
+ *
+ * Regression: capabilities (models/efforts) and extracted builtins were scraped from the PATH
+ * install, but the Agent SDK spawns its own vendored binary — the two drift (a brew cask several
+ * releases behind the SDK), so a model the sessions fully supported (claude-fable-5-1) never
+ * appeared in the selector. Resolution order is the SDK's own: HOOKED_CLAUDE_BIN (what agent.js
+ * passes as pathToClaudeCodeExecutable) → vendored platform package → PATH install.
+ */
+describe('resolveDrivenClaudeBin — the CLI driven sessions execute', () => {
+  // Same resolution the implementation performs; lets the vendored-preference assertion run only
+  // where the platform package is actually installed (optional dependency).
+  const exe = process.platform === 'win32' ? 'claude.exe' : 'claude';
+  const vendored = (() => {
+    try {
+      return createRequire(import.meta.url)
+        .resolve(`@anthropic-ai/claude-agent-sdk-${process.platform}-${process.arch}/${exe}`);
+    } catch (_) { return null; }
+  })();
+
+  const withOverride = (value, fn) => {
+    const saved = process.env.HOOKED_CLAUDE_BIN;
+    if (value === undefined) delete process.env.HOOKED_CLAUDE_BIN;
+    else process.env.HOOKED_CLAUDE_BIN = value;
+    try { return fn(); } finally {
+      if (saved === undefined) delete process.env.HOOKED_CLAUDE_BIN;
+      else process.env.HOOKED_CLAUDE_BIN = saved;
+    }
+  };
+
+  it('honours HOOKED_CLAUDE_BIN when it points at an executable', () => {
+    // process.execPath (the node binary) is guaranteed executable on every platform.
+    withOverride(process.execPath, () => {
+      expect(resolveDrivenClaudeBin()).toBe(process.execPath);
+    });
+  });
+
+  it('ignores a non-executable override instead of returning a dead path', () => {
+    withOverride('/nonexistent/claude', () => {
+      expect(resolveDrivenClaudeBin()).not.toBe('/nonexistent/claude');
+    });
+  });
+
+  it.runIf(vendored)('prefers the SDK vendored binary over the PATH install', () => {
+    withOverride(undefined, () => {
+      expect(resolveDrivenClaudeBin()).toBe(vendored);
+    });
   });
 });
