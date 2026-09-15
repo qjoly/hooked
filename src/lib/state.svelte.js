@@ -37,6 +37,7 @@ export const ui = $state({
   notifyPinnedOnly: persisted.notifyPinnedOnly ?? false, // if true: only notify for pinned sessions
   diffSplit: persisted.diffSplit ?? false, // render conversation diffs side-by-side (split) instead of unified
   groupByProject: persisted.groupByProject ?? true, // sidebar: regroupe les sessions par projet (dépôt/dossier) au lieu des sections de statut
+  sortMode: persisted.sortMode ?? 'dynamic',        // sidebar: 'dynamic' | 'alpha' | 'alpha-project' (cf. SORT_MODES)
   sideMenuOpen: persisted.sideMenuOpen ?? true,     // side menu gauche (liste sessions) déplié ? persisté
   sidebarWidth: persisted.sidebarWidth ?? 232,      // largeur (px) du side panel gauche déplié, persistée
   dockWidth: persisted.dockWidth ?? 292,            // largeur (px) du dock droit (lentille Converse), persistée
@@ -52,7 +53,7 @@ export const ui = $state({
 if (typeof localStorage !== 'undefined') {
   $effect.root(() => {
     $effect(() => {
-      const snapshot = { hideOld: ui.hideOld, collapsed: ui.collapsed, pinned: ui.pinned, names: ui.names, focus: ui.focus, notify: ui.notify, notifyPinnedOnly: ui.notifyPinnedOnly, diffSplit: ui.diffSplit, groupByProject: ui.groupByProject, sideMenuOpen: ui.sideMenuOpen, sidebarWidth: ui.sidebarWidth, dockWidth: ui.dockWidth, dockHidden: ui.dockHidden, lastSessionId: ui.lastSessionId, termHeight: ui.termHeight, collapseWorktrees: ui.collapseWorktrees, shipFilesWidth: ui.shipFilesWidth, shipPanelWidth: ui.shipPanelWidth, diffRatio: ui.diffRatio };
+      const snapshot = { hideOld: ui.hideOld, collapsed: ui.collapsed, pinned: ui.pinned, names: ui.names, focus: ui.focus, notify: ui.notify, notifyPinnedOnly: ui.notifyPinnedOnly, diffSplit: ui.diffSplit, groupByProject: ui.groupByProject, sortMode: ui.sortMode, sideMenuOpen: ui.sideMenuOpen, sidebarWidth: ui.sidebarWidth, dockWidth: ui.dockWidth, dockHidden: ui.dockHidden, lastSessionId: ui.lastSessionId, termHeight: ui.termHeight, collapseWorktrees: ui.collapseWorktrees, shipFilesWidth: ui.shipFilesWidth, shipPanelWidth: ui.shipPanelWidth, diffRatio: ui.diffRatio };
       try { localStorage.setItem(LS_KEY, JSON.stringify(snapshot)); } catch {}
     });
   });
