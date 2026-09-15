@@ -150,7 +150,9 @@ function defaultShell(platform = process.platform, env = process.env) {
  * the user's profile by itself, so only its banner is worth suppressing.
  */
 function shellArgs(shell) {
-  const name = path.basename(String(shell)).toLowerCase();
+  // win32.basename splits on both / and \ — the host-flavored path.basename would leave a
+  // backslash path whole on POSIX, so the Windows behaviour could not be asserted from macOS.
+  const name = path.win32.basename(String(shell)).toLowerCase();
   if (/^(bash|zsh|sh|fish|ksh)(\.exe)?$/.test(name)) return ['-l', '-i'];
   if (/^(pwsh|powershell)(\.exe)?$/.test(name)) return ['-NoLogo'];
   return [];
