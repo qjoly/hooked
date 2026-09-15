@@ -1,0 +1,9 @@
+{"type":"user","uuid":"u1","timestamp":"2026-09-14T10:00:00Z","message":{"role":"user","content":"Start the migration"}}
+{"type":"queue-operation","operation":"enqueue","timestamp":"2026-09-14T10:00:05Z"}
+{"type":"attachment","uuid":"at1","timestamp":"2026-09-14T10:00:05Z","attachment":{"type":"queued_command","commandMode":"prompt","prompt":[{"type":"text","text":"tu lis bien ?"}]}}
+{"type":"queue-operation","operation":"remove","reason":"absorbed_mid_turn","timestamp":"2026-09-14T10:00:06Z"}
+{"type":"attachment","uuid":"at2","timestamp":"2026-09-14T10:00:07Z","attachment":{"type":"queued_command","prompt":[{"type":"text","text":"<task-notification><task-id>bg-7</task-id><summary>Tests done</summary></task-notification>"}]}}
+{"type":"attachment","uuid":"at3","timestamp":"2026-09-14T10:00:08Z","attachment":{"type":"queued_command","prompt":"ancien format chaine"}}
+{"type":"attachment","uuid":"at4","timestamp":"2026-09-14T10:00:09Z","attachment":{"type":"queued_command","prompt":[{"type":"text","text":"deja traite"}]}}
+{"type":"user","uuid":"u2","timestamp":"2026-09-14T10:00:10Z","message":{"role":"user","content":"deja traite"}}
+{"type":"assistant","uuid":"a1","timestamp":"2026-09-14T10:00:20Z","message":{"role":"assistant","content":[{"type":"text","text":"Recu."}]}}

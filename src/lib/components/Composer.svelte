@@ -9,8 +9,22 @@
   // `newSession` : pas d'id encore — l'envoi LANCE une session neuve dans `project` (cwd) avec
   // le `model`/`effort` choisis ; `onLaunched(cwd)` est notifié pour ouvrir la session créée.
   // `worktree` : ne vaut que pour une session neuve — lance `claude --worktree` (dossier isolé).
+  // `followup` : suggestion de prompt suivant (déjà filtrée par l'appelant — texte à montrer, ou
+  // null). La carte vit ICI, dans le socle, et non dans la conversation : elle propose ce qu'on
+  // pourrait envoyer, donc elle est solidaire de la saisie et ne défile pas avec le transcript.
+  // Seul le masquage remonte (`onFollowupDismiss`), parce qu'il est persisté par session.
   let { id, alive = true, project = null, resumeModel = null, resumeEffort = null, lastPrompt = '',
-        onSent = null, newSession = false, model = '', effort = '', mode = 'default', worktree = false, onLaunched = null } = $props();
+        onSent = null, newSession = false, model = '', effort = '', mode = 'default', worktree = false, onLaunched = null,
+        followup = null, onFollowupDismiss = null } = $props();
+
+  // Reprendre la suggestion pour la retoucher : on la pose dans la saisie sans envoyer, et la carte
+  // s'efface — le texte est désormais dans la zone de saisie, l'y laisser en double n'apporte rien.
+  function editFollowup() {
+    const t = followup;
+    if (!t) return;
+    onFollowupDismiss?.(t);
+    fillText(t);
+  }
 
   let ta;                       // ref textarea
   let text = $state('');
@@ -309,6 +323,20 @@
      (::before) et le fond plein — la conversation se dissout donc AU-DESSUS de la zone de saisie
      au lieu de glisser derrière elle. Le cadre `.composer` n'est plus sticky lui-même. -->
 <div class="composer-dock">
+{#if followup}
+  <div class="followup">
+    <div class="fu-head">
+      <span class="fu-ico"><Icon name="lightbulb" size={14} /></span> Prompt de follow-up suggéré
+      <button class="fu-x" title="Dismiss" aria-label="Dismiss" onclick={() => onFollowupDismiss?.(followup)}><Icon name="close" size={14} /></button>
+    </div>
+    <div class="fu-text">{followup}</div>
+    <div class="fu-actions">
+      <button class="fu-take" onclick={() => sendText(followup)}><Icon name="send" size={14} /> Envoyer</button>
+      <button class="fu-edit" title="Pré-remplir la zone de saisie sans envoyer"
+              onclick={editFollowup}><Icon name="pencil" size={14} /> Modifier avant d'envoyer</button>
+    </div>
+  </div>
+{/if}
 <div class="composer" class:relaunch={!alive && !newSession}>
   <textarea bind:this={ta} bind:value={text} id="reply-text" rows="1" disabled={busy}
             placeholder={newSession

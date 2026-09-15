@@ -71,9 +71,16 @@ function buildConversation(fp, includeSidechain) {
     // « ré-invoque » l'agent sans cause visible, et la variante user/system s'afficherait comme un faux
     // message « 🧑 You » (XML brut). On la rend en ligne système sobre, DÉDUPLIQUÉE par task-id+résumé
     // (une même notif peut arriver en double sur plusieurs porteurs).
+    // `attachment.queued_command` porte DEUX choses : une notification de tâche de fond, et le
+    // message tapé pendant que l'agent travaille. Son `prompt` était une chaîne, c'est devenu un
+    // TABLEAU de blocs → on aplatit. On garde la chaîne brute telle quelle : chatText y retire les
+    // balises, ce qui effacerait le marqueur <task-notification> juste en dessous.
+    const qc = (j.type === 'attachment' && j.attachment && j.attachment.type === 'queued_command')
+      ? (typeof j.attachment.prompt === 'string' ? j.attachment.prompt : chatText(j.attachment.prompt))
+      : null;
     const note =
       (j.type === 'queue-operation' && typeof j.content === 'string' && j.content.includes('<task-notification>')) ? j.content :
-      (j.type === 'attachment' && j.attachment && j.attachment.type === 'queued_command' && typeof j.attachment.prompt === 'string') ? j.attachment.prompt :
+      (qc && qc.includes('<task-notification>')) ? qc :
       (j.type === 'user' && j.message && typeof j.message.content === 'string' && j.message.content.includes('<task-notification>')) ? j.message.content :
       null;
     if (note) {
@@ -87,13 +94,19 @@ function buildConversation(fp, includeSidechain) {
       }
       continue;
     }
-    // Message tapé dans hooked PENDANT que l'agent travaille : Claude le met en FILE d'attente et
-    // le journalise comme queue-operation dont le `content` est le texte brut (SANS
-    // <task-notification>, déjà capté ci-dessus). Sans ça il tombe entre user/assistant et n'est
-    // jamais rendu → la bulle « ⏳ queued » optimiste ne se résout jamais et le message disparaît
-    // au refresh. On le rend comme une vraie bulle user (miroir du push type:"user" ci-dessous).
-    // `operation:"remove"` = la MÊME entrée sortant de la file (dequeue au traitement, ou annulation
-    // par l'utilisateur) : la rendre en plus de son `enqueue` affichait chaque message en file DEUX fois.
+    // Message tapé pendant que l'agent travaille, absorbé dans le tour en cours
+    // (`reason:"absorbed_mid_turn"`) : il n'ouvre PAS de tour user et n'existe QUE dans cet
+    // attachment. Non rendu, il disparaissait du fil — et la bulle « ⏳ queued » du front, qui
+    // s'efface en matchant une bulle user de même texte, ne se résolvait jamais.
+    if (qc && qc.trim()) {
+      if (processedUserTexts.has(dedupKey(qc))) continue; // aussi journalisé en tour user → une seule bulle
+      msgs.push({ role: 'user', ts: j.timestamp, ...capped(qc), tools: [], forkUuid: j.uuid });
+      continue;
+    }
+    // Même cas, ANCIENNE forme : le texte était porté par la queue-operation elle-même, avant de
+    // migrer vers l'attachment ci-dessus. Gardé pour les transcripts déjà écrits.
+    // `operation:"remove"` = la MÊME entrée sortant de la file : la rendre en plus de son `enqueue`
+    // affichait chaque message en file DEUX fois.
     if (j.type === 'queue-operation' && j.operation !== 'remove' && typeof j.content === 'string' && j.content.trim()) {
       // Skip if already processed into a real user turn (dedup: queue-op + matching user turn → show only user turn)
       if (processedUserTexts.has(dedupKey(j.content))) continue;
