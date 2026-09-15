@@ -102,6 +102,10 @@ export const getCapabilities = () => (_capsPromise ||= jget('/api/capabilities')
 // Réglages persistants de hooked (settings.json côté serveur, partagés entre navigateurs).
 export const getSettings = () => jget('/api/settings');
 export const saveSettings = (patch) => jpost('/api/settings', patch);
+// Gestion de la fenêtre 5 h (Settings → 5-hour window) : plan du jour + décision courante du
+// planificateur ; le POST déclenche le ping tout de suite (bouton « Ping now »).
+export const getWarmup = () => jget('/api/warmup');
+export const runWarmup = () => jpost('/api/warmup', {});
 
 // Per-project status of the remote-control daemons (Settings → Remote control).
 export const getRemoteControl = () => jget('/api/remote-control');

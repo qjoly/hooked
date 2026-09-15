@@ -107,6 +107,20 @@ const DEFAULTS = {
   // vieilles générations. [] = tout afficher. Purement cosmétique : un modèle masqué reste valide
   // au lancement, et le modèle courant d'une session reste toujours affiché.
   hiddenModels: [...DEFAULT_HIDDEN_MODELS],
+  // 5-hour window management (cf. server/warmup.js). Claude's usage window is anchored to your
+  // first message and lasts 5h, so the day's first prompt decides where every later boundary
+  // falls. `workHours` is the only thing worth setting: in 'auto' mode the anchor is derived from
+  // it (the split that maximises the smallest window's share of work). 'fixed' pins `at` instead.
+  // Off by default — it spawns a `claude -p` ping on a timer.
+  warmup: {
+    enabled: false,
+    mode: 'auto',
+    at: '06:00',
+    days: [1, 2, 3, 4, 5], // getDay(): 0 = Sunday
+    workHours: [['09:00', '12:00'], ['14:00', '18:00']],
+    model: 'haiku',
+    skipIfWeeklyOver: 90, // % of the 7-day budget above which opening more 5h windows is a trap
+  },
 };
 
 const NAV_PAGES = ['sessions', 'stats', 'digest', 'memory'];
@@ -178,6 +192,28 @@ function sanitize(raw) {
   const hiddenModels = o.hiddenModels === undefined
     ? [...DEFAULT_HIDDEN_MODELS]
     : (Array.isArray(o.hiddenModels) ? [...new Set(o.hiddenModels.filter(isHideableModel))].slice(0, 64) : []);
+  // warmup : cf. server/warmup.js. workHours = paires ["HH:MM","HH:MM"] (comparaison de chaînes
+  // valide car zero-paddées). `model` est interpolé dans une commande shell → même filtre que
+  // digest.model, jamais de valeur brute.
+  const rawWu = o.warmup && typeof o.warmup === 'object' ? o.warmup : {};
+  const isHm = (v) => typeof v === 'string' && /^([01]\d|2[0-3]):[0-5]\d$/.test(v);
+  const slots = (Array.isArray(rawWu.workHours) ? rawWu.workHours : [])
+    .filter((s) => Array.isArray(s) && isHm(s[0]) && isHm(s[1]) && s[0] < s[1])
+    .map((s) => [s[0], s[1]])
+    .slice(0, 6);
+  const warmup = {
+    enabled: !!rawWu.enabled,
+    mode: rawWu.mode === 'fixed' ? 'fixed' : 'auto',
+    at: isHm(rawWu.at) ? rawWu.at : DEFAULTS.warmup.at,
+    days: Array.isArray(rawWu.days)
+      ? [...new Set(rawWu.days.filter((d) => Number.isInteger(d) && d >= 0 && d <= 6))].sort()
+      : [...DEFAULTS.warmup.days],
+    workHours: slots.length ? slots : DEFAULTS.warmup.workHours.map((s) => [...s]),
+    model: typeof rawWu.model === 'string' && isValidModelArg(rawWu.model) ? rawWu.model : DEFAULTS.warmup.model,
+    skipIfWeeklyOver: Number.isInteger(rawWu.skipIfWeeklyOver) && rawWu.skipIfWeeklyOver >= 0 && rawWu.skipIfWeeklyOver <= 100
+      ? rawWu.skipIfWeeklyOver
+      : DEFAULTS.warmup.skipIfWeeklyOver,
+  };
   return {
     subtabOrder: order,
     statusBarOrder: sbOrder,
@@ -196,6 +232,7 @@ function sanitize(raw) {
     remoteControlProjects: rcProjects,
     favoriteProjects: favProjects,
     digest,
+    warmup,
     shipDefaultView: o.shipDefaultView === 'vcs' ? 'vcs' : 'claude',
     speechLang,
     editor: EDITOR_KEYS.includes(o.editor) ? o.editor : DEFAULT_EDITOR,
