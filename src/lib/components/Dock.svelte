@@ -12,6 +12,7 @@
   import Screenshots from './Screenshots.svelte';
   import Icon from '$lib/components/Icon.svelte';
   import { fmtCost, prLabel, issueLabel } from '$lib/format.js';
+  import { prState, prStateIcon } from '$lib/prState.svelte.js';
   import { ui } from '$lib/state.svelte.js';
 
   let { s, id, onship } = $props();
@@ -196,7 +197,7 @@
         </div>
       {:else}
         <div class="db dpills">
-          {#each prLinks as l}<a class="dpill pr" href={l} target="_blank" rel="noopener"><Icon name="pr" size={13} tint={false} /> {prLabel(l)}</a>{/each}
+          {#each prLinks as l}{@const st = prState(l)}<a class="dpill pr" class:merged={st === 'MERGED'} class:closed={st === 'CLOSED'} href={l} target="_blank" rel="noopener" title={st ? st.toLowerCase() : null}><Icon name={prStateIcon(st)} size={13} tint={false} /> {prLabel(l)}</a>{/each}
           {#each issueLinks as l}<a class="dpill" href={l} target="_blank" rel="noopener"><Icon name="issue" size={13} /> {issueLabel(l)}</a>{/each}
         </div>
       {/if}
@@ -271,6 +272,8 @@
     background: transparent; border: 1px solid var(--border2); border-radius: 0; padding: 2px 7px;
   }
   .dpill.pr { color: var(--success); background: color-mix(in srgb, var(--success) 12%, transparent); }
+  .dpill.pr.merged { color: var(--background); background: color-mix(in srgb, var(--background) 12%, transparent); }
+  .dpill.pr.closed { color: var(--danger); background: color-mix(in srgb, var(--danger) 12%, transparent); }
   .dpill:hover { filter: brightness(1.1); }
   /* the legacy components mounted on expand get a bounded, scrollable area */
   .dfull { max-height: 46vh; overflow-y: auto; padding: 0 8px 8px; }
