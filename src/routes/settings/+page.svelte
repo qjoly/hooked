@@ -2,7 +2,7 @@
   import { untrack, onMount } from 'svelte';
   import { data, ui, settings, updateSettings, setTheme, setScheme, setCorners, loadSessions, allTags, tagUsage, deleteTag } from '$lib/state.svelte.js';
   import { tagColor } from '$lib/format.js';
-  import { resync, getGit, checkoutBranch, dismissRestartNotice, getClaudeVersion, upgradeClaude, restartClaudeSession, pickFolder, getRemoteControl, getCapabilities } from '$lib/api.js';
+  import { resync, getGit, checkoutBranch, dismissRestartNotice, getClaudeVersion, upgradeClaude, restartClaudeSession, pickFolder, getRemoteControl, getCapabilities, getWarmup, runWarmup } from '$lib/api.js';
   import { isHideableModel } from '$lib/models.js';
   import { getAllBindings, setBinding, resetBinding, resetAll as resetAllShortcuts, formatKeys, keysFromEvent } from '$lib/shortcuts.js';
   import { NAV_TABS } from '$lib/nav.js';
@@ -25,6 +25,7 @@
     { id: 'pset-project', label: 'Default project' },
     { id: 'pset-remote-control', label: 'Remote control' },
     { id: 'pset-digest', label: 'Daily digest' },
+    { id: 'pset-warmup', label: '5-hour window' },
     { id: 'pset-live', label: 'Live state' },
     { id: 'pset-claude', label: 'Claude Code' },
     { id: 'pset-git', label: 'Git' },
@@ -46,6 +47,52 @@
     { key: 'nl-NL', label: 'Nederlands' },
   ];
   let activeSec = $state(NAV[0].id);
+
+  // ─── 5-hour window ───────────────────────────────────────────────────────────────────────
+  // The plan (anchor + the day's windows) is computed server-side and refetched after every edit:
+  // the anchor is derived from the working hours, so it must never be guessed twice.
+  const DAY_LABELS = [['Mon', 1], ['Tue', 2], ['Wed', 3], ['Thu', 4], ['Fri', 5], ['Sat', 6], ['Sun', 0]];
+  let warmupPlan = $state(null);
+  let warmupPinging = $state(false);
+  let warmupStatusMsg = $state('');
+  const wu = $derived(settings.warmup || {});
+  async function loadWarmupPlan() {
+    try { warmupPlan = await getWarmup(); } catch (_) {}
+  }
+  async function saveWarmup(patch) {
+    await updateSettings({ warmup: { ...settings.warmup, ...patch } });
+    loadWarmupPlan();
+  }
+  function setSlot(i, edge, value) {
+    const slots = (wu.workHours || []).map((s) => [...s]);
+    if (!slots[i]) return;
+    slots[i][edge] = value;
+    if (slots[i][0] >= slots[i][1]) return; // rejected by the server anyway — don't round-trip it
+    saveWarmup({ workHours: slots });
+  }
+  function addSlot() {
+    saveWarmup({ workHours: [...(wu.workHours || []), ['14:00', '18:00']] });
+  }
+  function removeSlot(i) {
+    saveWarmup({ workHours: (wu.workHours || []).filter((_, j) => j !== i) });
+  }
+  function toggleDay(d) {
+    const days = new Set(wu.days || []);
+    if (days.has(d)) days.delete(d); else days.add(d);
+    saveWarmup({ days: [...days].sort() });
+  }
+  async function pingNow() {
+    warmupPinging = true;
+    warmupStatusMsg = '';
+    const res = await runWarmup();
+    warmupPinging = false;
+    const r = res.data?.result;
+    warmupStatusMsg = r?.ok
+      ? 'Ping sent — the 5h gauge picks up the new window within a minute.'
+      : 'Failed: ' + (r?.error || res.data?.error || 'unknown error');
+    loadWarmupPlan();
+  }
+  const fmtWork = (min) => (min % 60 === 0 ? `${min / 60} h` : `${Math.floor(min / 60)} h ${min % 60}`);
   // Tag deletion is two-click (arm → confirm) to avoid removing a tag from every session by mistake.
   let confirmTag = $state(null);
   function removeTag(tag) {
@@ -69,6 +116,7 @@
       for (const e of entries) if (e.isIntersecting) activeSec = e.target.id;
     }, { root, rootMargin: '-8% 0px -80% 0px', threshold: 0 });
     secs.forEach((s) => io.observe(s));
+    loadWarmupPlan();
     return () => io.disconnect();
   });
 
@@ -735,6 +783,77 @@
       <p class="hint" style="margin:12px 0 0">A cheaper model (e.g. <code>haiku</code>/<code>sonnet</code>) keeps daily cost low on busy days.</p>
     </div>
 
+    <div class="card" id="pset-warmup" data-sec>
+      <h2>5-hour window</h2>
+      <p class="hint">Claude's usage window is anchored to your <strong>first message</strong> and lasts 5 hours — it is not aligned on round hours, so the first prompt of the day decides where every later boundary, and every fresh budget, falls. hooked opens one with a throwaway <code>claude -p</code> ping before you start, then reopens one whenever a boundary passes while you are away from the keyboard.</p>
+      <label class="check">
+        <input type="checkbox" checked={!!wu.enabled}
+               onchange={(e) => saveWarmup({ enabled: e.currentTarget.checked })} />
+        <span>Keep a 5-hour window open across my working hours</span>
+      </label>
+
+      <p class="hint" style="margin:14px 0 6px">Working hours — the anchor is derived from them, so this is the only thing worth tuning.</p>
+      {#each wu.workHours || [] as slot, i}
+        <div class="cmd-row" style="margin-bottom:6px">
+          <input type="time" class="dg-sel" value={slot[0]} aria-label="Start of working slot"
+                 onchange={(e) => setSlot(i, 0, e.currentTarget.value)} />
+          <span class="status">to</span>
+          <input type="time" class="dg-sel" value={slot[1]} aria-label="End of working slot"
+                 onchange={(e) => setSlot(i, 1, e.currentTarget.value)} />
+          {#if (wu.workHours || []).length > 1}
+            <button class="rc-rm" onclick={() => removeSlot(i)} title="Remove this slot" aria-label="Remove this slot"><Icon name="close" size={13} /></button>
+          {/if}
+        </div>
+      {/each}
+      <div class="cmd-row">
+        <button class="save" onclick={addSlot}>Add a slot</button>
+        <div class="wu-days">
+          {#each DAY_LABELS as [label, d] (d)}
+            <button class="wu-day" class:on={(wu.days || []).includes(d)} onclick={() => toggleDay(d)}>{label}</button>
+          {/each}
+        </div>
+      </div>
+
+      {#if warmupPlan?.windows?.length}
+        <div class="wu-plan">
+          <div class="wu-head">First prompt at <strong>{warmupPlan.anchor}</strong> — {warmupPlan.windows.length} window{warmupPlan.windows.length > 1 ? 's' : ''} covering your day</div>
+          {#each warmupPlan.windows as w (w.start)}
+            <div class="wu-row">
+              <span class="wu-span">{w.start} → {w.end}</span>
+              <span class="wu-bar"><span class="wu-fill" style="width:{Math.round((w.workMin / 300) * 100)}%"></span></span>
+              <span class="wu-work">{fmtWork(w.workMin)}</span>
+            </div>
+          {/each}
+        </div>
+      {/if}
+
+      <div class="cmd-row" style="margin-top:12px">
+        <label class="dg-field">Ping model
+          <select class="dg-sel" value={wu.model ?? 'haiku'}
+                  onchange={(e) => saveWarmup({ model: e.currentTarget.value })}>
+            <option value="haiku">haiku</option>
+            <option value="sonnet">sonnet</option>
+            <option value="opus">opus</option>
+          </select>
+        </label>
+        <label class="dg-field">Skip above
+          <select class="dg-sel" value={String(wu.skipIfWeeklyOver ?? 90)}
+                  onchange={(e) => saveWarmup({ skipIfWeeklyOver: parseInt(e.currentTarget.value, 10) })}>
+            {#each [0, 70, 80, 85, 90, 95] as p}<option value={String(p)}>{p === 0 ? 'never skip' : p + '% weekly'}</option>{/each}
+          </select>
+        </label>
+      </div>
+      <p class="hint" style="margin:8px 0 0">The ping has to stay tiny — it spends the very budget it just unlocked. The weekly guard matters more than it looks: once the 7-day budget is the binding limit, opening extra 5-hour windows only helps you exhaust it sooner.</p>
+
+      <div class="cmd-row" style="margin-top:12px">
+        <button class="save" onclick={pingNow} disabled={warmupPinging}>{#if warmupPinging}<Icon name="queued" size={14} /> Pinging…{:else}<Icon name="refresh" size={14} /> Ping now{/if}</button>
+        {#if warmupStatusMsg}<span class="status">{warmupStatusMsg}</span>{/if}
+      </div>
+      {#if warmupPlan?.decision}
+        <p class="hint" style="margin:8px 0 0">Scheduler right now: <strong>{warmupPlan.decision.act ? 'ping due' : warmupPlan.decision.reason}</strong>{#if warmupPlan.fiveHour} · window open until {warmupPlan.fiveHour.at} ({warmupPlan.fiveHour.pct}% used){/if}</p>
+      {/if}
+    </div>
+
     <div class="card" id="pset-live" data-sec>
       <h2>Live state</h2>
       <p class="hint">Recomputes every session's live state now to fix a stale status — e.g. a session stuck on “working” after it finished.</p>
@@ -1116,6 +1235,16 @@
     color: var(--c); background: color-mix(in srgb, var(--c) 13%, transparent);
     border-radius: 6px; padding: 1px 8px;
   }
+  .wu-days { display: flex; gap: 4px; margin-left: auto; }
+  .wu-day { background: var(--surface); border: 1px solid var(--border); color: var(--muted); border-radius: 6px; padding: 5px 8px; font-size: 11.5px; font-family: inherit; cursor: pointer; }
+  .wu-day.on { border-color: var(--accent); color: var(--text); }
+  .wu-plan { margin-top: 14px; background: var(--bg2); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; }
+  .wu-head { font-size: 12.5px; color: var(--muted); margin-bottom: 8px; }
+  .wu-row { display: flex; align-items: center; gap: 10px; padding: 3px 0; }
+  .wu-span { flex: 0 0 auto; width: 110px; font-size: 12.5px; font-family: var(--mono, ui-monospace, monospace); }
+  .wu-bar { flex: 1; min-width: 0; height: 6px; background: var(--surface); border-radius: 3px; overflow: hidden; }
+  .wu-fill { display: block; height: 100%; background: var(--accent); }
+  .wu-work { flex: 0 0 auto; width: 56px; text-align: right; color: var(--muted); font-size: 11.5px; }
   .dg-field { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); }
   .dg-sel { background: var(--surface); border: 1px solid var(--border2); border-radius: 8px; padding: 7px 10px; color: var(--text); font-size: 13px; font-family: inherit; }
   .dg-sel:focus { outline: none; border-color: var(--accent); }
