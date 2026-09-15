@@ -245,23 +245,6 @@
     (s && s.followupSuggestion && !s.pendingQuestion && !s.pendingPlan) ? s.followupSuggestion : null,
   );
   const showFollowup = $derived(followup && followup !== dismissedFollowup && !queued.length);
-  async function takeFollowup() {
-    if (!composer || !followup) return;
-    tab = 'chat';
-    await tick();
-    composer.sendText(followup); // envoi direct (remplit + envoie), comme la revue de fichiers
-  }
-
-  // Même suggestion, mais à retoucher : on la pose dans le composer sans envoyer, et la carte
-  // s'efface — le texte est désormais dans la zone de saisie, l'y laisser en double n'apporte rien.
-  async function editFollowup() {
-    if (!composer || !followup) return;
-    tab = 'chat';
-    const suggestion = followup;
-    dismissFollowup(suggestion);
-    await tick();
-    composer.fillText(suggestion);
-  }
 
   // indicateur 5 h compact pour la ligne de stats : uniquement la valeur réelle (statusline).
   // Pas d'estimation de repli → masqué tant que le vrai % n'est pas connu.
@@ -351,8 +334,27 @@
     queued = [...queued, { text: t, ts: new Date().toISOString(), kind: bang && bang.kind, cmd: bang ? bang.command : '' }];
     forceBottom = true;
     stickToBottom = true;            // après un envoi, on re-suit la conversation
+    scheduleQueuedDrain();
     await tick();
     if (body) body.scrollTop = body.scrollHeight;
+  }
+
+  // La bulle optimiste ne s'efface que dans load(), déclenché par un tick SSE — donc par un hook.
+  // Un tour qui n'appelle AUCUN outil n'en produit presque pas : la bulle restait jaune plusieurs
+  // minutes à côté de son propre message déjà affiché dans le fil. On relance donc quelques load()
+  // espacés, tant qu'il reste une bulle à résoudre. Les bulles de commande (`!`) sont exclues :
+  // elles ne se résolvent pas par texte mais en s'attachant à leur bloc d'écho, et resteraient là.
+  const QUEUED_RETRY_MS = [1000, 3000, 8000];
+  let queuedRetry = null;
+  const hasPendingQueued = () => queued.some((q) => !q.kind);
+  function scheduleQueuedDrain(i = 0) {
+    clearTimeout(queuedRetry);
+    if (i >= QUEUED_RETRY_MS.length) return;
+    queuedRetry = setTimeout(async () => {
+      if (!hasPendingQueued()) return;
+      await load(true);
+      if (hasPendingQueued()) scheduleQueuedDrain(i + 1);
+    }, QUEUED_RETRY_MS[i]);
   }
 
   // Revue de fichiers → on bascule sur la Conversation (pour voir la file d'attente + le statut)
@@ -425,7 +427,7 @@
     composer.interruptEdit();
   }
   onMount(() => { window.addEventListener('keydown', onWindowKey); });
-  onDestroy(() => { window.removeEventListener('keydown', onWindowKey); });
+  onDestroy(() => { window.removeEventListener('keydown', onWindowKey); clearTimeout(queuedRetry); });
 
   // live : sur chaque tick, refetch ciblé (question (dis)paraît, ou chat actif qui bouge)
   $effect(() => {
@@ -859,23 +861,14 @@
       </div>
       {#if s.pendingQuestion}<Question {id} pq={s.pendingQuestion} />{/if}
       {#if s.pendingPlan}<Plan {id} pp={s.pendingPlan} />{/if}
-      {#if showFollowup}
-        <div class="followup">
-          <div class="fu-head">
-            <span class="fu-ico"><Icon name="lightbulb" size={14} /></span> Prompt de follow-up suggéré
-            <button class="fu-x" title="Dismiss" aria-label="Dismiss" onclick={() => dismissFollowup(followup)}><Icon name="close" size={14} /></button>
-          </div>
-          <div class="fu-text">{followup}</div>
-          <div class="fu-actions">
-            <button class="fu-take" onclick={takeFollowup}><Icon name="send" size={14} /> Envoyer</button>
-            <button class="fu-edit" title="Pré-remplir la zone de saisie sans envoyer"
-                    onclick={editFollowup}><Icon name="pencil" size={14} /> Modifier avant d'envoyer</button>
-          </div>
-        </div>
-      {/if}
       {#if s.live}
+        <!-- La carte de follow-up est rendue PAR le composer, dans son socle : elle ne défile plus
+             avec le transcript. Elle n'existait de toute façon que pour une session pilotée
+             (`followupSuggestion` vient du registre de l'Agent SDK), donc rien n'est perdu à la
+             faire dépendre de ce `{#if}`. Seul le masquage remonte ici, car il est persisté. -->
         <Composer bind:this={composer} {id} alive={s.live} project={s.project}
-                  resumeModel={s.launchModel} resumeEffort={s.effort} lastPrompt={s.lastPrompt || ''} {onSent} />
+                  resumeModel={s.launchModel} resumeEffort={s.effort} lastPrompt={s.lastPrompt || ''} {onSent}
+                  followup={showFollowup ? followup : null} onFollowupDismiss={dismissFollowup} />
       {/if}
     </div>
 
@@ -1197,33 +1190,6 @@
     cursor: pointer;
   }
   .show-earlier:hover { color: var(--text); background: var(--bg3); border-color: var(--accent); }
-  /* carte « proposition de suivi » : entre la conversation et le composer, filet accent à gauche. */
-  .followup {
-    margin: 4px 2px 8px; padding: 10px 12px;
-    background: var(--bg2); border: 1px solid var(--border2);
-    border-left: 3px solid var(--accent); border-radius: 10px;
-  }
-  .fu-head { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; color: var(--muted); }
-  .fu-ico { font-size: 14px; }
-  .fu-x { margin-left: auto; border: none; background: transparent; color: var(--muted); cursor: pointer; font-size: 13px; padding: 0 4px; line-height: 1; }
-  .fu-x:hover { color: var(--text); }
-  .fu-text {
-    margin: 6px 0 8px; font-size: 13px; color: var(--text); line-height: 1.4; white-space: pre-wrap;
-    display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden;
-  }
-  .fu-take {
-    font-size: 12.5px; font-weight: 600; color: var(--accent);
-    background: transparent; border: 1px solid var(--accent-soft, var(--border)); border-radius: 8px;
-    padding: 5px 12px; cursor: pointer;
-  }
-  .fu-take:hover { background: var(--bg3); }
-  .fu-actions { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-  .fu-edit {
-    font-size: 12.5px; font-weight: 600; color: var(--muted);
-    background: transparent; border: 1px solid var(--border); border-radius: 8px;
-    padding: 5px 12px; cursor: pointer;
-  }
-  .fu-edit:hover { color: var(--text); background: var(--bg3); border-color: var(--border2); }
   /* indicateur « working » sous la dernière bulle : slim, discret, respire (couleur de statut) */
   .working-live {
     display: flex; align-items: center; gap: 6px;
