@@ -469,6 +469,11 @@ export const settings = $state({
   remoteControlProjects: [],
   favoriteProjects: [],
   digest: { auto: true, hour: 7, model: '' },
+  // Gestion de la fenêtre 5 h (cf. server/warmup.js) — défauts alignés sur server/settings.js.
+  warmup: {
+    enabled: false, mode: 'auto', at: '06:00', days: [1, 2, 3, 4, 5],
+    workHours: [['09:00', '12:00'], ['14:00', '18:00']], model: 'haiku', skipIfWeeklyOver: 90,
+  },
   editor: 'vscode', // éditeur préféré (clé de src/lib/editors.js) pour les liens « open in editor »
   shipDefaultView: 'claude', // source de diff à l'ouverture de la lentille Ship ('claude' | 'vcs')
   defaultPage: 'deck',

@@ -10,6 +10,7 @@ export * from './sessionMeta.js';
 export * from './digests.js';
 export * from './memory.js';
 export * from './digestScheduler.js';
+export * from './warmup.js';
 export * from './remoteControl.js';
 export * from './util.js';
 export * from './git.js';
