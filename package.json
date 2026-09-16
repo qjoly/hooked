@@ -35,7 +35,7 @@
     "diff": "^7.0.0",
     "markdown-it": "^14.3.0",
     "markdown-it-task-lists": "^2.1.1",
-    "mermaid": "^11.16.0",
+    "mermaid": "^11.16.1",
     "node-pty": "^1.1.0"
   }
 }
