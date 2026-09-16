@@ -142,6 +142,20 @@ function parseEnvBlock(out) {
   return env;
 }
 
+// PORT / HOST appartiennent au serveur HTTP de hooked (adapter-node les lit), pas aux sessions.
+// Tant qu'ils traînent dans l'environnement, tout serveur de dev lancé depuis une session les
+// ramasse : un `ng serve --port 4201` annonce « Environment variable "PORT" detected. Using port
+// 4123 » et repart sur le port du dashboard. Le service les porte forcément — adapter-node ne
+// sait lire ces deux noms que dans process.env — donc c'est ici, à la frontière avec les
+// process enfants, qu'on les retire.
+const SERVER_ONLY_ENV = ['PORT', 'HOST'];
+
+function withoutServerEnv(env) {
+  const out = { ...env };
+  for (const k of SERVER_ONLY_ENV) delete out[k];
+  return out;
+}
+
 // Environnement effectif d'une session : celui de hooked, PUIS le profil par-dessus — même ordre
 // qu'avant (tmux passait l'env de hooked au pane, le shell de login le complétait). Ne rejette
 // jamais : si le shell de login échoue ou traîne, on retombe sur l'env de hooked (comportement
@@ -157,7 +171,7 @@ function loginEnv() {
    * process environment already IS the user's environment.
    */
   if (process.platform === 'win32' && !process.env.SHELL) {
-    globalThis[LOGIN_ENV] = Promise.resolve({ ...process.env });
+    globalThis[LOGIN_ENV] = Promise.resolve(withoutServerEnv(process.env));
     return globalThis[LOGIN_ENV];
   }
   globalThis[LOGIN_ENV] = new Promise((resolve) => {
@@ -168,9 +182,9 @@ function loginEnv() {
         if (!env.PATH) {
           console.log(`[hooked] could not read the login shell environment (${shell}): sessions will `
             + 'inherit the hooked process PATH only' + (err ? ` — ${err.message || err}` : ''));
-          return resolve({ ...process.env });
+          return resolve(withoutServerEnv(process.env));
         }
-        resolve({ ...process.env, ...env });
+        resolve(withoutServerEnv({ ...process.env, ...env }));
       });
   });
   return globalThis[LOGIN_ENV];
@@ -923,7 +937,7 @@ function runLocalCommand(id, command, cb) {
     let done = false;
     const child = spawn(process.env.SHELL || '/bin/sh', ['-c', command], {
       cwd: st.cwd,
-      env: { ...process.env, ...env },
+      env: { ...withoutServerEnv(process.env), ...env },
     });
     const timer = setTimeout(() => { if (!done) { try { child.kill('SIGKILL'); } catch (_) {} } }, LOCAL_CMD_TIMEOUT);
     const grab = (chunk) => { if (out.length < LOCAL_CMD_MAX_OUTPUT) out += String(chunk); };
@@ -1320,7 +1334,7 @@ function clearAgentState() {
 export {
   agentAlive, agentSession, liveSessionIds,
   agentBusy, agentActivity, agentFollowup, agentLastProse, agentMode, agentAutoApprove, agentPendingAsk,
-  applyMessage, permissionQuestion, handleToolPermission, makeInputQueue, userMessage, parseEnvBlock, loginEnv, hookedMcpServer,
+  applyMessage, permissionQuestion, handleToolPermission, makeInputQueue, userMessage, parseEnvBlock, loginEnv, withoutServerEnv, hookedMcpServer,
   subscribeAgent, streamSnapshot,
   resolveLaunchForSession, sessionLaunchMap,
   launchSession, killSession, restartSession,
