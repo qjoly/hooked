@@ -5,7 +5,9 @@
  *   • isolation entre deux reviews (deux sessions) ;
  *   • une review vide efface l'entrée (envoyer la review ne laisse pas de brouillon) ;
  *   • plafond : au-delà de 20 brouillons, les plus anciens tombent ;
- *   • robustesse : localStorage illisible/corrompu → listes vides, pas d'exception.
+ *   • robustesse : localStorage illisible/corrompu → listes vides, pas d'exception ;
+ *   • l'état de la vue (branche, sélection, fichier, scroll) voyage avec le brouillon, et suffit
+ *     à lui seul à le garder — revenir sur la lentille, c'est revenir au même endroit.
  * C'est ce qui garantit qu'un changement d'onglet ou un reload ne perd pas des commentaires.
  */
 import { describe, it, expect, beforeEach } from 'vitest';
@@ -42,7 +44,7 @@ describe('reviewDraft', () => {
   it('efface le brouillon quand la review est vide', () => {
     saveDraft('ship:s1', draft(1));
     saveDraft('ship:s1', { comments: [], reviewed: [] });
-    expect(loadDraft('ship:s1')).toEqual({ comments: [], reviewed: [] });
+    expect(loadDraft('ship:s1')).toEqual({ comments: [], reviewed: [], view: null });
   });
 
   it('plafonne le nombre de brouillons gardés', () => {
@@ -54,7 +56,22 @@ describe('reviewDraft', () => {
 
   it('encaisse un stockage corrompu et une clé absente', () => {
     globalThis.localStorage.setItem('hooked.reviewDrafts', '{oops');
-    expect(loadDraft('ship:s1')).toEqual({ comments: [], reviewed: [] });
-    expect(loadDraft(null)).toEqual({ comments: [], reviewed: [] });
+    expect(loadDraft('ship:s1')).toEqual({ comments: [], reviewed: [], view: null });
+    expect(loadDraft(null)).toEqual({ comments: [], reviewed: [], view: null });
+  });
+
+  it('garde l’état de la vue, même sans commentaire ni fichier coché', () => {
+    const view = { repo: '/r', branch: 'feat', base: 'main', range: { from: 'a1', to: 'b2' }, file: '/r/x.js', scroll: 420 };
+    saveDraft('branch:s1', { view });
+    expect(loadDraft('branch:s1')).toEqual({ comments: [], reviewed: [], view });
+    // la vue seule tient l'entrée ; la retirer avec une review vide efface tout
+    saveDraft('branch:s1', { comments: [], reviewed: [], view: null });
+    expect(loadDraft('branch:s1')).toEqual({ comments: [], reviewed: [], view: null });
+  });
+
+  it('ignore une vue qui n’est pas un objet', () => {
+    saveDraft('branch:s1', { reviewed: ['a.js'], view: 'garbage' });
+    expect(loadDraft('branch:s1').view).toBe(null);
+    expect(loadDraft('branch:s1').reviewed).toEqual(['a.js']);
   });
 });
