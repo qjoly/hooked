@@ -29,11 +29,14 @@ export const getVcsCommit = (id, rev, root = null) =>
 // { vcs, root, branches:[{ name, current }], default, repos:[{ kind, root, label, primary }] }.
 export const getVcsBranches = (id, root = null) =>
   jget('/api/session/vcs-branches?id=' + encodeURIComponent(id) + (root ? '&root=' + encodeURIComponent(root) : ''));
-// Diff COMPLET d'une branche vs une base (merge-base → tête, façon « Files changed » d'une PR).
-// { vcs, root, branch, base, mergeBase, changes }.
-export const getVcsBranchDiff = (id, branch, base = null, root = null) =>
+// Diff d'une branche vs une base (merge-base → tête, façon « Files changed » d'une PR), ou des
+// seuls commits `range` ({ from, to }, deux commits de la branche, bornes comprises).
+// { vcs, root, branch, base, mergeBase, merged, commits, range, changes } — `commits` liste
+// toujours la branche entière, `range` la sélection retenue par le serveur (null = tout).
+export const getVcsBranchDiff = (id, branch, base = null, root = null, range = null) =>
   jget(`/api/session/vcs-branch?id=${encodeURIComponent(id)}&branch=${encodeURIComponent(branch)}`
-    + (base ? '&base=' + encodeURIComponent(base) : '') + (root ? '&root=' + encodeURIComponent(root) : ''));
+    + (base ? '&base=' + encodeURIComponent(base) : '') + (root ? '&root=' + encodeURIComponent(root) : '')
+    + (range ? `&from=${encodeURIComponent(range.from)}&to=${encodeURIComponent(range.to)}` : ''));
 // Blame d'un fichier à une révision (vide = arbre de travail) — l'auteur de la ligne survolée
 // dans un diff. { supported, root, rev, commits:[{ rev, author, mail, time, summary,
 // uncommitted }], lines:[{ c, t } | null] } (`c` = index dans `commits`, `t` = texte de la ligne).
