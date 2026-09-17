@@ -182,7 +182,9 @@ function openTerminal({ cwd, sessionId, cols, rows } = {}, cb) {
       child = pty.spawn(shell, shellArgs(shell), {
         name: 'xterm-256color',   // ce que xterm.js sait rendre côté navigateur
         cols: c, rows: r, cwd: dir,
-        env: { ...process.env, ...env, TERM: 'xterm-256color' },
+        // loginEnv() contient déjà process.env, filtré de PORT / HOST (cf. agent.js) : le
+        // réétaler ici les réintroduirait dans chaque terminal.
+        env: { ...env, TERM: 'xterm-256color' },
       });
     } catch (e) {
       return cb(new Error('failed to open a terminal: ' + ((e && e.message) || e)));
