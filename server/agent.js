@@ -47,7 +47,11 @@ const PENDING = Symbol.for('hooked.agent.pending');
 /** @type {Map<string, any>} */
 const pending = globalThis[PENDING] || (globalThis[PENDING] = new Map());
 
-const INIT_TIMEOUT = 30000; // attente max du `system/init` (id de session) au lancement
+const INIT_TIMEOUT = 30000; // attente max de l'id de session au lancement
+// Le `system/init` d'une session worktree peut arriver bien plus tard : quand le prompt est une
+// commande slash, le CLI ne l'émet qu'une fois la commande traitée (minutes pour un /code-review
+// sur une PR). Abandonner à 30 s laissait un CLI qui travaillait et un lancement en erreur.
+const WORKTREE_INIT_TIMEOUT = 300000;
 
 // ── Abonnés au flux d'une session (streaming temps réel vers l'UI) ───────────────────────────────
 // Le SSE global (`/api/stream`) ne pousse qu'un « tick » : le client refetch alors tout le détail de
@@ -536,6 +540,14 @@ function whenReady(st) {
   });
 }
 
+// Un lancement attend soit l'id (cas courant), soit l'init (worktree : le CLI seul connaît le
+// répertoire final). Les deux doivent être relâchés quand la session meurt, sinon l'appelant HTTP
+// reste pendu jusqu'à son propre délai.
+function releaseLaunchWaiters(st) {
+  if (st.onId) { const f = st.onId; st.onId = null; f(st); }
+  if (st.onInit) { const f = st.onInit; st.onInit = null; f(st); }
+}
+
 // Démolit une entrée qui n'a jamais réussi à démarrer. Même nettoyage que le `finally` de readLoop,
 // mais applicable quand readLoop n'a rien à finir : sans ça l'entrée reste dans `live` avec
 // ended:false et devient un trou noir — deliverReply y pousse des messages et répond OK.
@@ -554,20 +566,32 @@ function failStartup(st) {
     live.delete(st.id);
   }
   pending.delete(st.launchKey);
-  if (st.onInit) { const f = st.onInit; st.onInit = null; f(st); }
+  releaseLaunchWaiters(st);
 }
 
 async function readLoop(st) {
   try {
     for await (const msg of st.q) {
-      if (msg.type === 'system' && msg.subtype === 'init' && msg.session_id && !st.id) {
+      // The id comes from the FIRST message that carries one, not from `system/init`. A prompt
+      // starting with a slash command delays that init until the command has been handled —
+      // measured at 20s for `/code-review low` on an empty repo, past 6 minutes for
+      // `/code-review <pr url>`. Until then the session had no id, so it was not in `live`: not
+      // drivable, absent from the snapshot, and the launch request timed out while the CLI happily
+      // worked on. The hook messages the SDK relays within a second of the spawn carry the same
+      // session_id, so there is nothing to wait for.
+      if (msg.session_id && !st.id) {
         st.id = msg.session_id;
         live.set(st.id, st);
         pending.delete(st.launchKey);
-        if (st.onInit) { const f = st.onInit; st.onInit = null; f(st); }
+        if (st.onId) { const f = st.onId; st.onId = null; f(st); }
       }
       if (!st.sawMsg) { st.sawMsg = true; clearTimeout(st.watchdog); settleReady(st, true); }
       const changed = applyMessage(st, msg);
+      // Après applyMessage : ce que l'init apporte (le cwd réel d'un worktree) doit être posé
+      // avant que le lancement ne rende la main.
+      if (msg.type === 'system' && msg.subtype === 'init' && st.onInit) {
+        const f = st.onInit; st.onInit = null; f(st);
+      }
       st.lastMsgAt = Date.now();
       // On ne pousse aux abonnés que quand l'état visible a bougé. Les deltas de texte passent par
       // la fenêtre de coalescence (FLUSH_MS) ; les transitions qui comptent pour l'UI — fin de tour,
@@ -596,7 +620,7 @@ async function readLoop(st) {
     // Une attente non résolue (question/plan/permission) doit être libérée, sinon la promesse
     // `canUseTool` fuite et le sous-processus resterait bloqué à la sortie.
     if (st.pendingAsk) { const r = st.pendingAsk.resolve; st.pendingAsk = null; try { r(null); } catch (_) {} }
-    if (st.onInit) { const f = st.onInit; st.onInit = null; f(st); }
+    releaseLaunchWaiters(st);
     if (st.id) {
       emitAgent(st.id, () => streamSnapshot(st), true);
       live.delete(st.id);
@@ -767,22 +791,26 @@ function launchSession({ resumeId, cwd, prompt, model, effort, worktree, permiss
     persistLaunch(st.id, model, effort);
     return done(st);
   }
-  // Session neuve : on attend le `system/init` pour connaître le session_id (et le vrai cwd quand
-  // `--worktree` a déplacé la session). L'ancien code ne pouvait pas le faire et renvoyait un nom
-  // de session tmux à la place — le deep-link vers la session est un gain de la migration.
+  // Session neuve : on attend de connaître le session_id pour rendre le deep-link. `--worktree` est
+  // le seul cas qui attend le `system/init` : le répertoire final est choisi par le CLI, et le
+  // renvoyer faux serait pire que le renvoyer tard.
   let settled = false;
+  const wait = useWorktree ? WORKTREE_INIT_TIMEOUT : INIT_TIMEOUT;
   const timer = setTimeout(() => {
     if (settled) return;
     settled = true;
+    st.onId = null;
     st.onInit = null;
-    cb(new Error(`agent sdk session did not start within ${INIT_TIMEOUT / 1000}s`));
-  }, INIT_TIMEOUT);
-  st.onInit = (finalSt) => {
+    cb(new Error(`agent sdk session did not start within ${wait / 1000}s`));
+  }, wait);
+  const settle = (finalSt) => {
     if (settled) return;
     settled = true;
     clearTimeout(timer);
     done(finalSt);
   };
+  if (useWorktree) st.onInit = settle;
+  else st.onId = settle;
 }
 
 // La session est-elle vivante dans CE processus ? (remplace tmuxAlive)
@@ -811,6 +839,37 @@ function liveSessionIds() {
   const out = [];
   for (const [id, st] of live) if (!st.ended) out.push(id);
   return out;
+}
+
+// The « / » commands as the CLI sees them — the only exhaustive source. The skills BUNDLED in the
+// binary (/code-review, /simplify, /loop…) are neither on disk nor declared in a greppable form, so
+// without this control request hooked's palette never offers them (see server/commands.js).
+// Any driven session answers when `id` names none: the composer of a session opened outside hooked,
+// and above all the « New session » screen, have no session of their own to ask, and the bundled
+// skills come from the binary — the same for every session. `cwd` is returned with the list so the
+// caller can tell those bundled commands apart from what that particular directory contributes.
+// Null when nothing is driven or the request fails — the palette then falls back to the disk scan.
+// The promise is cached: the palette asks on every keystroke, the control channel must not.
+const SUPPORTED_COMMANDS_TTL = 30_000;
+function commandsSource(id) {
+  const st = drivableSession(id);
+  if (st) return st;
+  for (const sid of liveSessionIds()) {
+    const alt = drivableSession(sid);
+    if (alt) return alt;
+  }
+  return null;
+}
+function agentSupportedCommands(id) {
+  const st = commandsSource(id);
+  if (!st || typeof st.q.supportedCommands !== 'function') return Promise.resolve(null);
+  const cwd = st.cwd || null;
+  const cached = st.commands;
+  if (!cached || Date.now() - cached.at >= SUPPORTED_COMMANDS_TTL) {
+    const p = st.q.supportedCommands().catch(() => { st.commands = null; return null; });
+    st.commands = { at: Date.now(), p };
+  }
+  return st.commands.p.then((commands) => (commands ? { commands, cwd } : null));
 }
 
 // ── Lectures d'état (ex-lectures de pane) ────────────────────────────────────────────────────────
@@ -1334,7 +1393,8 @@ function clearAgentState() {
 export {
   agentAlive, agentSession, liveSessionIds,
   agentBusy, agentActivity, agentFollowup, agentLastProse, agentMode, agentAutoApprove, agentPendingAsk,
-  applyMessage, permissionQuestion, handleToolPermission, makeInputQueue, userMessage, parseEnvBlock, loginEnv, withoutServerEnv, hookedMcpServer,
+  agentSupportedCommands,
+  applyMessage, readLoop, permissionQuestion, handleToolPermission, makeInputQueue, userMessage, parseEnvBlock, loginEnv, withoutServerEnv, hookedMcpServer,
   subscribeAgent, streamSnapshot,
   resolveLaunchForSession, sessionLaunchMap,
   launchSession, killSession, restartSession,
