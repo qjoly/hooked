@@ -27,6 +27,10 @@ const DRIVEN_FILE = path.join(HOOKED_DIR, 'driven-sessions.json');
 // limits, context). Two producers, one format — `statusline-tap.sh` for a session opened in a
 // terminal, `server/agent-status.js` for an SDK-driven one (no TUI, hence no statusline render).
 const STATUS_DIR = path.join(HOOKED_DIR, 'status');
+// Dernière liste de commandes « / » qu'une session pilotée a déclarée (Query.supportedCommands).
+// Seule source pour les skills embarqués dans le binaire (/code-review…) : sans ce cache, l'écran
+// « New session » — qui n'a par définition aucune session à interroger — ne les proposerait jamais.
+const SDK_COMMANDS_FILE = path.join(HOOKED_DIR, 'sdk-commands.json');
 // Claude Code's global config (~/.claude.json). Carries `cachedUsageUtilization`, the account
 // quota cache the CLI refreshes: the only local source for *model-scoped* buckets (e.g. the
 // weekly Fable limit), which the statusline payload does not expose (5h / 7d only).
@@ -81,4 +85,4 @@ function readClaudeDefaults() {
   };
 }
 
-export { HOME, PROJECTS_DIR, HOOKED_DIR, EVENTS_FILE, LAUNCHES_FILE, SESSION_LAUNCH_FILE, DRIVEN_FILE, STATUS_DIR, CLAUDE_JSON, ROOT, PUBLIC_DIR, PORT, PERMISSION_MODES, LAUNCH_PERMISSION_MODES, isValidModelArg, readClaudeDefaults };
+export { HOME, PROJECTS_DIR, HOOKED_DIR, EVENTS_FILE, LAUNCHES_FILE, SESSION_LAUNCH_FILE, DRIVEN_FILE, STATUS_DIR, SDK_COMMANDS_FILE, CLAUDE_JSON, ROOT, PUBLIC_DIR, PORT, PERMISSION_MODES, LAUNCH_PERMISSION_MODES, isValidModelArg, readClaudeDefaults };

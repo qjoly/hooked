@@ -30,6 +30,19 @@ const EVENT_SESSION_MAX_AGE_MIN = 30;
 // Outils qui rendent la main à l'utilisateur : leur tour n'est écrit dans le transcript qu'une fois
 // la réponse donnée (cf. pendingLeadIn dans sessionDetail).
 const HANDOFF_TOOLS = new Set(['AskUserQuestion', 'ExitPlanMode']);
+// Ce que les hooks savent et que le transcript ne dit pas ENCORE. Le CLI n'écrit le transcript
+// principal qu'une fois le tour rendu : tant qu'un subagent foreground travaille (un skill lancé en
+// commande slash), le fichier ne contient que deux lignes de file d'attente. La session avait donc
+// « (sans titre) », aucun projet et une conversation vide alors qu'elle tournait depuis dix minutes.
+// Les évènements de hooks, eux, portent le cwd et le prompt dès la première seconde.
+function fillFromEvents(s, meta) {
+  if (!meta) return s;
+  if (!s.project && meta.cwd) { s.project = meta.cwd; s.projectName = path.basename(meta.cwd); }
+  if (!s.firstPrompt && meta.firstPrompt) s.firstPrompt = meta.firstPrompt;
+  if (meta.firstPrompt && (!s.title || s.title === '(sans titre)')) s.title = truncTitle(meta.firstPrompt, 50);
+  return s;
+}
+
 function eventOnlySessions(knownIds, now = Date.now()) {
   const out = [];
   for (const [id, m] of eventSessionMeta()) {
@@ -67,7 +80,14 @@ function eventOnlySessions(knownIds, now = Date.now()) {
 // `alive` = la session tourne dans CE processus hooked. Morte (ou jamais pilotée par hooked : une
 // session ouverte à la main dans un terminal), on ne peut rien affirmer de plus que les hooks : on
 // se contente de rétrograder un 'working' périmé en 'waiting'. On ne touche jamais 'ended'.
-function refineWithAgent(state, alive, sdkState) {
+//
+// Une réserve sur 'idle' : le CLI se tait pendant qu'un subagent FOREGROUND travaille (un skill
+// comme /code-review) — aucun `status`, aucun message assistant ne remonte au parent, donc le SDK
+// reste sur le 'idle' de la fin du tour précédent. Les hooks du subagent, eux, continuent d'arriver.
+// Rétrograder sur un 'idle' PLUS ANCIEN que le dernier hook affichait « Waiting for you » sur une
+// session qui travaillait depuis dix minutes. Entre les deux sources, c'est la plus fraîche qui
+// gagne — même règle que pour les jauges de contexte.
+function refineWithAgent(state, alive, sdkState, { hookTs = null, sdkTs = null } = {}) {
   // 'ended' vient du hook SessionEnd du process PRÉCÉDENT. Une session reprise est vivante et
   // pilotable : garder 'ended' faisait afficher ENDED sur une session à laquelle on peut parler,
   // et inversement laissait croire qu'un envoi partirait alors qu'il n'y avait personne.
@@ -75,8 +95,19 @@ function refineWithAgent(state, alive, sdkState) {
   if (!alive) return state === 'working' ? 'waiting' : state;
   if (sdkState === 'requires_action') return 'attention';
   if (sdkState === 'running') return 'working';
-  if (sdkState === 'idle' && state !== 'attention') return 'waiting';
+  if (sdkState === 'idle' && state !== 'attention') {
+    if (state === 'working' && hookIsFresher(hookTs, sdkTs)) return 'working';
+    return 'waiting';
+  }
   return state;
+}
+
+// Le hook est-il postérieur au dernier message du SDK ? Sans les deux horodatages on ne peut rien
+// affirmer, et on garde le comportement d'avant (le SDK tranche).
+function hookIsFresher(hookTs, sdkTs) {
+  const h = typeof hookTs === 'number' ? hookTs : Date.parse(hookTs || '');
+  const s = typeof sdkTs === 'number' ? sdkTs : Date.parse(sdkTs || '');
+  return Number.isFinite(h) && Number.isFinite(s) && h > s;
 }
 
 // Re-badge une session « tour terminé » en 'background' quand elle a un job/veilleur de fond ENCORE
@@ -115,7 +146,9 @@ function buildSessions() {
     return true;
   });
   const now = Date.now();
+  const evMeta = eventSessionMeta();
   for (const s of visible) {
+    fillFromEvents(s, evMeta.get(s.id));
     // dépôt GitHub (owner/repo) pour le regroupement sidebar ; null hors dépôt git.
     s.repo = repoSlug(s.project);
     const ev = last.get(s.id);
@@ -143,7 +176,8 @@ function buildSessions() {
     const agent = agentSession(s.id);
     s.live = !!agent;
     const busy = agent ? !!agent.busy : null;
-    s.state = refineWithAgent(s.state, s.live, agent ? agent.sdkState : null);
+    s.state = refineWithAgent(s.state, s.live, agent ? agent.sdkState : null,
+      { hookTs: s.liveTs, sdkTs: agent ? agent.lastMsgAt : null });
     // jobs de fond de la session, chacun classé par jobStatus (croise notif terminale, timeout
     // Monitor, vivacité de la session). SEUL 'running' compte comme actif → forme légère sidebar.
     const bgRunning = buildBackgroundJobs(s.file).jobs
@@ -152,7 +186,10 @@ function buildSessions() {
     // 'working' prime sur 'background' quand la session a un job de fond ET mouline vraiment.
     s.state = withBackgroundState(s.state, s.live, bgRunning.length, busy);
     // outil en cours, publié par le flux SDK (remplace le gérondif animé du spinner du TUI).
-    s.activity = (s.state === 'working' && agent) ? agent.activity : null;
+    // Le verbe d'activité vient du flux SDK ; il se tait pendant qu'un subagent foreground
+    // travaille, alors que les hooks, eux, nomment l'outil en cours. Sans ce repli la session
+    // n'affiche qu'un « Working… » nu pendant toute une revue.
+    s.activity = s.state === 'working' ? ((agent && agent.activity) || s.currentTool || null) : null;
     // suggestion de prompt suivant (message `prompt_suggestion` du SDK — c'était le ghost text DIM
     // de la boîte de saisie). Exposée dans la liste pour la proposer en quick action au Deck.
     s.followup = (agent && s.state !== 'working') ? agent.followup : null;
@@ -317,9 +354,16 @@ function sessionDetail(id) {
   // session tout juste lancée : pas encore de transcript → on la sert depuis les hooks.
   if (!s) s = eventOnlySessions(new Set(sessions.map((x) => x.id))).find((x) => x.id === id);
   if (!s) return null;
+  fillFromEvents(s, eventSessionMeta().get(id));
   const ev = readEvents().filter((e) => e.session_id === id).slice(-60);
   const last = ev.length ? liveStateFor(ev[ev.length - 1]) : null;
   const messages = buildConversation(s.file);
+  // Le transcript ne porte pas encore le prompt (subagent foreground en cours, cf. fillFromEvents) :
+  // les hooks, eux, l'ont capté. Sans ça la conversation reste « Empty conversation » pendant tout
+  // le travail de la session.
+  if (!messages.length && s.firstPrompt) {
+    messages.push({ role: 'user', ts: s.startTs || null, text: s.firstPrompt, tools: [], fromHooks: true });
+  }
   // sessions sœurs créées / référencées par cette conversation (cartes vivantes du sous-onglet).
   const subSessions = buildSubSessions(s.file, id);
   const changes = buildFileChanges(s.file, id);
@@ -372,7 +416,9 @@ function sessionDetail(id) {
   const pendingLeadIn = ((pendingQuestion || pendingPlan) && alive && !flushedHandoff)
     ? agentLastProse(id) : null;
   const busy = agent ? !!agent.busy : null;
-  const refined = refineWithAgent(last ? last.state : (s.state || 'past'), alive, agent ? agent.sdkState : null);
+  const lastEv = ev.length ? ev[ev.length - 1] : null;
+  const refined = refineWithAgent(last ? last.state : (s.state || 'past'), alive, agent ? agent.sdkState : null,
+    { hookTs: lastEv ? lastEv.ts : null, sdkTs: agent ? agent.lastMsgAt : null });
   // jobs de fond de la session : TOUS (actifs + historique) avec leur statut, pour l'onglet Background.
   const bg = buildBackgroundJobs(s.file);
   const now = Date.now();
@@ -392,7 +438,7 @@ function sessionDetail(id) {
     state, currentTool: last ? last.tool : null,
     bgJobs,
     // outil en cours, publié par le flux SDK (remplace le gérondif animé du spinner du TUI).
-    activity: (state === 'working' && agent) ? agent.activity : null,
+    activity: state === 'working' ? ((agent && agent.activity) || (last && last.tool) || null) : null,
     // suggestion de prompt suivant (message `prompt_suggestion` du SDK) quand le tour est fini.
     followupSuggestion: (agent && state !== 'working') ? agent.followup : null,
     // la session est-elle pilotable depuis le dashboard ? (elle tourne dans ce processus hooked)
@@ -417,4 +463,4 @@ function sessionDetail(id) {
   };
 }
 
-export { buildSessions, buildSessionsWarm, buildStats, buildUsage, sessionDetail, sessionDetailWarm, eventOnlySessions, refineWithAgent, withBackgroundState, buildBackgroundView, resolveBackgroundOutput };
+export { buildSessions, buildSessionsWarm, buildStats, buildUsage, sessionDetail, sessionDetailWarm, eventOnlySessions, fillFromEvents, refineWithAgent, withBackgroundState, buildBackgroundView, resolveBackgroundOutput };

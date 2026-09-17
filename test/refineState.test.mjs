@@ -81,3 +81,32 @@ describe('refineWithAgent — affinage de l\'état par le registre de sessions',
     }
   });
 });
+
+/*
+ * Le CLI se tait pendant qu'un subagent FOREGROUND travaille (un skill lancé en commande slash) :
+ * pas de `status`, pas de message assistant au parent, donc le SDK reste sur le 'idle' du tour
+ * précédent pendant que les hooks du subagent, eux, continuent d'arriver. La session affichait
+ * « Waiting for you » alors qu'elle travaillait depuis dix minutes.
+ */
+describe('refineWithAgent — un idle plus ancien que le dernier hook', () => {
+  const T = Date.parse('2026-09-17T10:00:00.000Z');
+
+  it('garde working quand le hook est postérieur au dernier message du SDK', () => {
+    expect(refineWithAgent('working', true, 'idle', { hookTs: T + 60000, sdkTs: T })).toBe('working');
+  });
+
+  it('rétrograde quand le SDK a parlé en dernier : le tour est bien fini', () => {
+    expect(refineWithAgent('working', true, 'idle', { hookTs: T, sdkTs: T + 60000 })).toBe('waiting');
+  });
+
+  it('ne promeut que working : les autres états ne sont pas concernés', () => {
+    for (const st of ['waiting', 'background', 'past']) {
+      expect(refineWithAgent(st, true, 'idle', { hookTs: T + 60000, sdkTs: T })).toBe('waiting');
+    }
+  });
+
+  it('sans les deux horodatages, le SDK tranche comme avant', () => {
+    expect(refineWithAgent('working', true, 'idle')).toBe('waiting');
+    expect(refineWithAgent('working', true, 'idle', { hookTs: T + 60000, sdkTs: null })).toBe('waiting');
+  });
+});

@@ -1,17 +1,19 @@
 /*
- * Auto-complétion des commandes « / » du composer. Trois sources fusionnées :
+ * Auto-complétion des commandes « / » du composer. Quatre sources fusionnées :
  *   1. custom   — fichiers .claude/commands/**.md (projet + global ~/.claude/commands),
  *                 namespacés par sous-dossier (frontend/x.md → /frontend:x).
  *   2. built-in — liste curée codée en dur ici (descriptions EN fiables, toujours dispo).
  *   3. built-in extraites du binaire claude-code (JS embarqué) : on lit les déclarations
  *      `type:"local",name:"…"` du bundle pour récupérer les commandes même non curées.
- * La liste curée prime pour la description ; l'extraction complète la couverture.
+ *   4. built-in — the driven session's own list (`Query.supportedCommands()`), the only source
+ *                 that names the skills BUNDLED in the binary.
+ * La liste curée prime pour la description ; les deux dernières complètent la couverture.
  */
 import fs from 'node:fs';
 import path from 'node:path';
 import cp from 'node:child_process';
 import { createRequire } from 'node:module';
-import { HOME } from './config.js';
+import { HOME, HOOKED_DIR, SDK_COMMANDS_FILE } from './config.js';
 import { fuzzyScore } from './files.js';
 
 // ---------- 2. liste curée (built-in) ----------
@@ -52,6 +54,16 @@ const CURATED = [
   ['privacy-settings', 'Privacy settings'],
   ['help', 'Show help and available commands'],
   ['exit', 'Exit Claude Code'],
+  // Skills bundled in the binary. They are neither on disk nor greppable in a structured form, so
+  // a running session is the only source that names them — and the palette is asked long before
+  // one exists (the « New session » screen). Curated here so they are offered from the first
+  // keystroke; a live session still refreshes the set.
+  ['code-review', 'Review the current diff for bugs and cleanups'],
+  ['simplify', 'Clean up the changed code (reuse, simplification, efficiency)'],
+  ['security-review', 'Security review of the pending changes'],
+  ['loop', 'Run a prompt or slash command on a recurring interval'],
+  ['schedule', 'Create and manage scheduled cloud agents'],
+  ['run', 'Launch the project app to see a change working'],
 ];
 
 // noms clairement internes/cachés à exclure de l'extraction
@@ -287,9 +299,73 @@ function customCommands(cwd) {
   return list;
 }
 
+// ---------- 4. commands the driven session declares (Agent SDK) ----------
+/*
+ * The skills BUNDLED in the binary (/code-review, /simplify, /security-review, /loop…) escape the
+ * three sources above: they exist nowhere on disk, and the bundle registers them under a minified
+ * identifier (`go({name:tM,…})`) — no `type:"local"`, no literal name, so the grep of (3) cannot
+ * see them either. Only a running session can name them, through `Query.supportedCommands()` (see
+ * agentSupportedCommands in agent.js).
+ *
+ * Merged as built-ins and only as a COMPLEMENT: the SDK list leaves out the purely TUI commands
+ * (/vim, /theme…), which must stay in the palette.
+ */
+function sdkCommands(sdk) {
+  const out = [];
+  for (const c of sdk || []) {
+    const name = c && c.name;
+    if (typeof name !== 'string' || !name || name.includes('__') || INTERNAL.has(name)) continue;
+    out.push({ name, description: String(c.description || '').slice(0, 160), group: 'builtin' });
+  }
+  return out;
+}
+
+/*
+ * Persisted so the palette keeps offering the bundled skills when NO session is driven — the
+ * « New session » screen, and the first keystrokes after a restart, would otherwise lose them until
+ * a session happens to be running.
+ *
+ * What the session's own directory contributes is stripped before writing: `supportedCommands()`
+ * also names that project's .claude/commands and skills, and replaying those in another project
+ * would offer commands that do not exist there. What remains comes from the binary, hence holds
+ * everywhere.
+ */
+function rememberSdkCommands(sdk, sdkCwd) {
+  const list = sdkCommands(sdk);
+  if (!list.length) return [];
+  const local = new Set(customCommands(sdkCwd).map((c) => c.name));
+  const portable = list.filter((c) => !local.has(c.name));
+  try {
+    fs.mkdirSync(HOOKED_DIR, { recursive: true });
+    fs.writeFileSync(SDK_COMMANDS_FILE, JSON.stringify({ ts: new Date().toISOString(), commands: portable }));
+  } catch (_) { /* cache best-effort : la palette marche sans, en moins complet */ }
+  _sdkFileCache = { mtime: null, list: portable };
+  return portable;
+}
+
+let _sdkFileCache = null;   // { mtime, list }
+function persistedSdkCommands() {
+  let mtime;
+  try { mtime = fs.statSync(SDK_COMMANDS_FILE).mtimeMs; } catch (_) { return []; }
+  if (_sdkFileCache && _sdkFileCache.mtime === mtime) return _sdkFileCache.list;
+  let list = [];
+  try {
+    const raw = JSON.parse(fs.readFileSync(SDK_COMMANDS_FILE, 'utf8'));
+    list = sdkCommands(raw && raw.commands);
+  } catch (_) { list = []; }
+  _sdkFileCache = { mtime, list };
+  return list;
+}
+
 // ---------- API ----------
-function slashCommands(cwd) {
-  return [...customCommands(cwd), ...builtinCommands()];
+// First occurrence wins: custom > curated/extracted > SDK. PURE (tested without the binary).
+function mergeCommands(custom, builtin) {
+  const byName = new Map();
+  for (const c of [...custom, ...builtin]) if (!byName.has(c.name)) byName.set(c.name, c);
+  return [...byName.values()];
+}
+function slashCommands(cwd, sdk) {
+  return mergeCommands(customCommands(cwd), [...builtinCommands(), ...sdkCommands(sdk)]);
 }
 // filtre + classement flou sur le nom. q sans le « / ». Custom avant built-in à égalité.
 function matchCommands(list, q, limit = 30) {
@@ -309,4 +385,4 @@ function matchCommands(list, q, limit = 30) {
   return scored.slice(0, limit).map((x) => x[0]);
 }
 
-export { CURATED, resolveClaudeBin, resolveDrivenClaudeBin, claudeCandidates, extractBuiltins, builtinCommands, customCommands, slashCommands, matchCommands };
+export { CURATED, rememberSdkCommands, persistedSdkCommands, resolveClaudeBin, resolveDrivenClaudeBin, claudeCandidates, extractBuiltins, builtinCommands, customCommands, sdkCommands, mergeCommands, slashCommands, matchCommands };

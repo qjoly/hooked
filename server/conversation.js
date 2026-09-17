@@ -94,6 +94,22 @@ function buildConversation(fp, includeSidechain) {
       }
       continue;
     }
+    // Sortie d'une commande locale (`type:"system", subtype:"local_command"`). C'est là qu'atterrit
+    // le rendu d'un skill lancé en commande slash : /code-review écrit sa revue entière ici, et
+    // NULLE PART ailleurs dans le transcript principal — aucun tour assistant n'est journalisé. Sans
+    // ce cas, la conversation s'arrêtait sur le prompt et la revue n'était visible nulle part.
+    if (j.type === 'system' && j.subtype === 'local_command' && typeof j.content === 'string') {
+      const out = (j.content.match(/<local-command-stdout>([\s\S]*)<\/local-command-stdout>/) || [])[1];
+      const raw = (out || '').trim();
+      if (raw) {
+        const c = capped(raw);
+        msgs.push({
+          role: 'assistant', ts: j.timestamp, ...c,
+          parts: [{ type: 'text', text: c.text }], tools: [], localCommand: true, forkUuid: j.uuid,
+        });
+      }
+      continue;
+    }
     // Message tapé pendant que l'agent travaille, absorbé dans le tour en cours
     // (`reason:"absorbed_mid_turn"`) : il n'ouvre PAS de tour user et n'existe QUE dans cet
     // attachment. Non rendu, il disparaissait du fil — et la bulle « ⏳ queued » du front, qui
