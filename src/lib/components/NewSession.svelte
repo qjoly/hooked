@@ -3,10 +3,11 @@
   import { goto } from '$app/navigation';
   import { page } from '$app/state';
   import { data, ui, settings, updateSettings } from '$lib/state.svelte.js';
-  import { getDefaults, pickFolder } from '$lib/api.js';
+  import { getDefaults, pickFolder, getUsage } from '$lib/api.js';
   import Composer from './Composer.svelte';
   import ModelEffort from './ModelEffort.svelte';
   import Icon from '$lib/components/Icon.svelte';
+  import { defaultModelForQuota, isFableModel, isQuotaExhausted } from '$lib/models.js';
 
   // projets uniques triés favoris d'abord, puis par activité la plus récente (puis nb de sessions).
   // [[cwd, name, fav], …]. Quand `collapseWorktrees` est actif, un worktree
@@ -76,15 +77,34 @@
   // les surchargent quand ils sont définis (non vides).
   let claudeDefaults = $state(null);
   onMount(async () => { try { claudeDefaults = await getDefaults(); } catch (_) {} });
+
+  // Quota hebdomadaire propre à Fable (même source que les jauges de la TopBar). Il ne dit rien des
+  // buckets 5 h / 7 j : c'est une limite SCOPÉE au modèle, et une fois pleine, lancer sur Fable
+  // n'échoue pas gentiment — la session part en erreur au premier tour. On s'en sert donc pour
+  // rabattre le DÉFAUT sur « Opus (default) » (cf. defaultModelForQuota).
+  let fableQuota = $state(null);
+  $effect(() => {
+    ui.tick; // dépendance : re-fetch à chaque tick live, le quota peut se libérer (reset hebdo)
+    getUsage().then((u) => { fableQuota = u?.account?.fable ?? null; }).catch(() => {});
+  });
+  // Le défaut configuré (réglages hooked, sinon ~/.claude) AVANT rabattement — c'est lui qu'on
+  // nomme dans l'avertissement, et sa présence conditionne l'affichage de celui-ci.
+  const wantedModel = $derived(settings.defaultModel || claudeDefaults?.model || 'opus');
+  const fableFallback = $derived(isFableModel(wantedModel) && isQuotaExhausted(fableQuota));
+
   // Tant que l'utilisateur n'a pas touché aux sélecteurs, on (re)dérive les valeurs depuis
   // settings + claudeDefaults (deps lues AVANT la garde, cf. règle réactivité Svelte 5).
   let picked = false;
   $effect(() => {
     const sm = settings.defaultModel, se = settings.defaultEffort, smo = settings.defaultMode;
     const d = claudeDefaults;
+    const q = fableQuota;
     if (picked) return;
     untrack(() => {
-      model = sm || d?.model || 'opus';
+      // Rabattement UNIQUEMENT sur le défaut : choisir Fable à la main reste possible (le quota lu
+      // peut avoir plusieurs minutes — repli sur le cache de Claude Code — et l'utilisateur peut
+      // en savoir plus que nous).
+      model = defaultModelForQuota(sm || d?.model || 'opus', q);
       effort = se || d?.effort || 'high';
       mode = smo || d?.mode || 'default';
     });
@@ -147,6 +167,15 @@
     <p class="ns-sub">Launches <code>claude</code> through the <b>Agent SDK</b>, driven by hooked — your subscription, <b>zero token cost</b>.</p>
 
     <Composer newSession project={cwd} {model} {effort} {mode} {worktree} {onLaunched} />
+
+    {#if fableFallback}
+      <div class="ns-quota" role="status">
+        <Icon name="warning" size={14} />
+        <span><b>{fableQuota?.label || 'Fable'}</b> weekly limit reached{fableQuota?.resetInMin != null
+          ? ` — resets in ${fableQuota.resetInMin >= 60 ? Math.round(fableQuota.resetInMin / 60) + 'h' : fableQuota.resetInMin + 'm'}`
+          : ''}. Defaulting to <b>Opus</b> so the session doesn't fail on its first turn.</span>
+      </div>
+    {/if}
 
     <div class="ns-controls">
       <ModelEffort compact showMode bind:model bind:effort bind:mode onchange={() => (picked = true)} />
