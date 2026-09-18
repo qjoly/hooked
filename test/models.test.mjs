@@ -72,9 +72,9 @@ describe('filterModelGroups', () => {
 });
 
 /*
- * Rabattement du modèle par défaut quand le quota hebdomadaire de Fable est épuisé (page New
- * Session). Fonction pure : le composant ne fait que lui passer le défaut configuré et le bucket
- * renvoyé par /api/usage (forme de server/utilization.js → scopedLimit).
+ * Default-model fallback when Fable's weekly quota is spent (New Session page). Pure function: the
+ * component only hands it the configured default and the bucket returned by /api/usage (shape of
+ * server/utilization.js → scopedLimit).
  */
 describe('isFableModel', () => {
   it('matches the rolling alias and concrete versions, nothing else', () => {
@@ -83,7 +83,7 @@ describe('isFableModel', () => {
     expect(isFableModel('claude-fable-5-1')).toBe(true);
     expect(isFableModel('opus')).toBe(false);
     expect(isFableModel('claude-opus-5')).toBe(false);
-    expect(isFableModel('fabled')).toBe(false); // pas un préfixe libre
+    expect(isFableModel('fabled')).toBe(false); // not a free-form prefix
     expect(isFableModel(null)).toBe(false);
   });
 });

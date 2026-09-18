@@ -78,17 +78,17 @@
   let claudeDefaults = $state(null);
   onMount(async () => { try { claudeDefaults = await getDefaults(); } catch (_) {} });
 
-  // Quota hebdomadaire propre à Fable (même source que les jauges de la TopBar). Il ne dit rien des
-  // buckets 5 h / 7 j : c'est une limite SCOPÉE au modèle, et une fois pleine, lancer sur Fable
-  // n'échoue pas gentiment — la session part en erreur au premier tour. On s'en sert donc pour
-  // rabattre le DÉFAUT sur « Opus (default) » (cf. defaultModelForQuota).
+  // Fable's own weekly quota (same source as the TopBar gauges). It says nothing about the 5h / 7d
+  // buckets: it is a limit SCOPED to the model, and once it is full, launching on Fable does not
+  // degrade gracefully — the session errors out on its first turn. Hence the fallback of the
+  // DEFAULT model to "Opus (default)" (cf. defaultModelForQuota).
   let fableQuota = $state(null);
   $effect(() => {
-    ui.tick; // dépendance : re-fetch à chaque tick live, le quota peut se libérer (reset hebdo)
+    ui.tick; // dependency: re-fetch on every live tick — the quota can free up (weekly reset)
     getUsage().then((u) => { fableQuota = u?.account?.fable ?? null; }).catch(() => {});
   });
-  // Le défaut configuré (réglages hooked, sinon ~/.claude) AVANT rabattement — c'est lui qu'on
-  // nomme dans l'avertissement, et sa présence conditionne l'affichage de celui-ci.
+  // The configured default (hooked settings, else ~/.claude) BEFORE the fallback — it is the one
+  // the warning names, and whether it is a Fable model decides if that warning shows at all.
   const wantedModel = $derived(settings.defaultModel || claudeDefaults?.model || 'opus');
   const fableFallback = $derived(isFableModel(wantedModel) && isQuotaExhausted(fableQuota));
 
@@ -101,9 +101,9 @@
     const q = fableQuota;
     if (picked) return;
     untrack(() => {
-      // Rabattement UNIQUEMENT sur le défaut : choisir Fable à la main reste possible (le quota lu
-      // peut avoir plusieurs minutes — repli sur le cache de Claude Code — et l'utilisateur peut
-      // en savoir plus que nous).
+      // The fallback applies to the DEFAULT only: picking Fable by hand stays possible (the quota
+      // we read can be minutes old — Claude Code's cache is the fallback source — and the user may
+      // know better than we do).
       model = defaultModelForQuota(sm || d?.model || 'opus', q);
       effort = se || d?.effort || 'high';
       mode = smo || d?.mode || 'default';
