@@ -13,6 +13,10 @@ async function jpost(url, body) {
 
 export const getSessions = async () => (await jget('/api/sessions')).sessions;
 export const getSession = (id) => jget('/api/session?id=' + encodeURIComponent(id));
+// Full-text hits across every transcript (SQLite FTS, server-side). Results carry a snippet with
+// <mark> tags around the match, ranked by bm25.
+export const searchTranscripts = (q, limit = 50) =>
+  jget(`/api/search?q=${encodeURIComponent(q)}&limit=${limit}`);
 export const getStats = (range) => jget('/api/stats?range=' + encodeURIComponent(range));
 // Diff du working tree (git/jj) du projet de la session, dépôts imbriqués compris.
 // { vcs:'git'|'jj'|null, root, changes, truncated, repos:[{ kind, root, label, primary, changes }] }.

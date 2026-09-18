@@ -285,12 +285,12 @@
       const userTexts = new Set((d.messages || []).filter((m) => m.role === 'user').map((m) => norm(m.text)));
       queued = queued.filter((q) => !userTexts.has(norm(q.text)));
     }
-    // deep-link #msg-<ts> (page Recherche) : la cible peut être hors fenêtre → tout rendre une fois
-    // pour que scrollToHashMsg la trouve.
+    // deep-link #msg-<ts> (omnibar « Citations ») : la cible peut être hors fenêtre → tout rendre
+    // une fois pour que scrollToHashMsg la trouve.
     if (!isRefresh && typeof window !== 'undefined' && (window.location.hash || '').startsWith('#msg-'))
       visibleCount = (d.messages || []).length;
     await tick();
-    // ancre #msg-<ts> (depuis la page Recherche) : scroll vers la bulle ciblée au 1er load.
+    // ancre #msg-<ts> (depuis l'omnibar) : scroll vers la bulle ciblée au 1er load.
     if (!isRefresh && scrollToHashMsg()) return;
     // On force le bas UNIQUEMENT si : envoi (forceBottom), 1er chargement, ou l'utilisateur suivait
     // déjà (collé en bas). Sinon on NE touche PAS à scrollTop → un lecteur scrollé vers le haut (ou en

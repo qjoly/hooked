@@ -64,8 +64,8 @@
 
     const tag = e.target?.tagName;
     const isInput = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || e.target?.isContentEditable;
-    const alwaysActive = ['command-palette', 'commands-only', 'new-session', 'search', 'settings',
-      'go-sessions', 'go-board', 'go-search', 'go-stats', 'go-digest', 'go-memory',
+    const alwaysActive = ['command-palette', 'commands-only', 'new-session', 'settings',
+      'go-sessions', 'go-board', 'go-stats', 'go-digest', 'go-memory',
       'toggle-sidebar', 'split-session', 'focus-mode', 'theme-cycle'];
     if (isInput && !alwaysActive.includes(id)) return;
 
@@ -74,12 +74,9 @@
       case 'command-palette': palette?.toggle(); break;
       case 'commands-only': palette?.openCommands(); break;
       case 'new-session': goto('/new'); break;
-      // The redesign folds full-text search into the omnibar: ⌘K opens the palette.
-      case 'search': palette?.toggle(); break;
       case 'settings': goto('/settings'); break;
       case 'go-sessions': goto('/'); break;
       case 'go-board': goto('/sessions'); break;
-      case 'go-search': goto('/search'); break;
       case 'go-stats': goto('/stats'); break;
       case 'go-digest': goto('/digest'); break;
       case 'go-memory': goto('/memory'); break;
