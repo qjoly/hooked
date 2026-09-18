@@ -38,6 +38,7 @@ beforeAll(async () => {
           { type: 'tool_use', id: 'tu1', name: 'Edit', input: { file_path: '/repo/projA/x.js' } },
         ],
         usage: { input_tokens: 100, output_tokens: 50 } } },
+    { type: 'pr-link', timestamp: '2026-07-22T09:01:30.000', prNumber: 42, prUrl: 'https://github.com/LuccaSA/hooked/pull/42', prRepository: 'LuccaSA/hooked' },
     { type: 'assistant', timestamp: '2026-07-22T09:02:00.000',
       message: { role: 'assistant', model: 'claude-opus-4-8',
         content: [{ type: 'tool_use', id: 'tuq', name: 'AskUserQuestion', input: { questions: [{ question: 'Which model?', header: 'Model' }] } }],
