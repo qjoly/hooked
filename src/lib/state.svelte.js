@@ -460,6 +460,7 @@ export const settings = $state({
   statusBarOrder: ['branch', 'stateBadge', 'permissionMode', 'modelEffort', 'cost', 'prompts', 'tokens', 'model', 'usage5h', 'prLinks', 'issueLinks', 'focusBtn'],
   subtabHidden: [],
   initialShellCommand: '',
+  speechLang: 'fr-FR',
   statusBar: {
     branch: true, stateBadge: true, permissionMode: true, modelEffort: true,
     cost: true, prompts: true, tokens: true, model: true, usage5h: true, prLinks: false, issueLinks: false, focusBtn: true,
