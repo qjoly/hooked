@@ -665,11 +665,11 @@
     ghosttyBusy = false;
   }
 
-  // ---- Remplissage de la fenêtre de contexte (en-tête) ----
-  // `s.context` = { pct, size } dérivé du dernier instantané de statut de la session. Un
-  // instantané n'est écrit qu'à partir du premier tour ; avant ça il n'y a rien à montrer, et une
-  // jauge à 0 % mentirait. Sur une session éteinte la valeur est la DERNIÈRE connue : on la garde
-  // (elle reste vraie au moment d'un Resume) mais on l'affiche en sourdine (`cold`).
+  // ---- Context-window fill (header) ----
+  // `s.context` = { pct, size }, derived from the session's latest status snapshot. A snapshot is
+  // only written from the first turn onwards; before that there is nothing to show, and a gauge at
+  // 0% would lie. On a stopped session the value is the LAST known one: we keep it (it is still
+  // true as of a Resume) but render it muted (`cold`).
   const ctx = $derived(s && s.context && s.context.pct != null ? s.context : null);
   const ctxTitle = $derived(!ctx ? '' :
     `Context window: ${ctx.pct}% used`
@@ -718,11 +718,10 @@
         </button>
       {/if}
       <span class="badge s-badge"><span class="bdot"></span>{s.state === 'working' && s.activity ? s.activity + '…' : (STATE_LABEL[s.state] || s.state)}</span>
-      <!-- Remplissage de la fenêtre de contexte (s.context, cf. server/status.js) : la seule
-           info du TUI qu'on ne pouvait pas lire depuis le dashboard, alors qu'elle décide s'il
-           faut compacter ou forker. Deux producteurs, un format : statusline-tap.sh pour une
-           session ouverte à la main, server/agent-status.js pour une session pilotée. Absente
-           tant qu'aucun instantané n'existe (session très jeune) → on n'affiche rien. -->
+      <!-- Context-window fill (s.context, cf. server/status.js): the one TUI reading the dashboard
+           could not surface, though it decides whether to compact or fork. Two producers, one
+           format: statusline-tap.sh for a session opened by hand, server/agent-status.js for a
+           driven one. Missing as long as no snapshot exists (very young session) → render nothing. -->
       {#if ctx}
         <span class="ctx-gauge" class:warn={ctx.pct >= 75} class:crit={ctx.pct >= 90} class:cold={!s.live}
               title={ctxTitle}>
@@ -1055,9 +1054,9 @@
     color: var(--c); background: color-mix(in srgb, var(--c) 14%, transparent); white-space: nowrap;
   }
   .head-tags:hover .head-tag { filter: brightness(1.15); }
-  /* Jauge de contexte de l'en-tête : même vocabulaire visuel que les jauges de compte de la
-     TopBar (libellé + piste + %), en version d'une seule ligne. `warn` (>=75%) et `crit` (>=90%)
-     reprennent les mêmes seuils, pour qu'un coup d'œil suffise à savoir s'il faut compacter. */
+  /* Header context gauge: same visual vocabulary as the account gauges of the TopBar (label +
+     track + %), in a single-line version. `warn` (>=75%) and `crit` (>=90%) reuse the same
+     thresholds, so one glance is enough to know whether it is time to compact. */
   .ctx-gauge {
     flex: 0 0 auto; display: inline-flex; align-items: center; gap: 5px;
     font: 600 9.5px var(--mono); letter-spacing: .04em; color: var(--muted);
@@ -1071,7 +1070,7 @@
   .ctx-gauge.warn { border-color: rgba(var(--warn-rgb), .45); }
   .ctx-gauge.crit .ctx-fill { background: var(--danger); }
   .ctx-gauge.crit { border-color: rgba(var(--warn-rgb), .7); }
-  /* session éteinte : dernière valeur connue, donc en sourdine (cf. ctxTitle). */
+  /* stopped session: last known value, hence muted (cf. ctxTitle). */
   .ctx-gauge.cold { opacity: .55; }
   .head-actions { margin-left: auto; display: flex; align-items: center; gap: 8px; flex: 0 0 auto; }
   .hdr-icon-btn {
