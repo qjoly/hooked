@@ -362,7 +362,7 @@
       {@const downloading = speechState === 'downloading'}
       <button class="reply-mic" class:listening class:downloading type="button" disabled={busy}
               title={listening ? 'Stop dictation' : downloading ? 'Downloading speech model…' : speechState === 'need-download' ? 'Download speech model' : 'Dictate (speech to text)'}
-              aria-label="Dictate" onclick={toggleSpeech}><Icon name={listening ? 'stop' : downloading ? 'working' : 'mic'} size={16} tint={false} /></button>
+              aria-label="Dictate" onclick={toggleSpeech}><Icon name={listening ? 'square-filled' : downloading ? 'working' : 'mic'} size={16} tint={false} /></button>
     {/if}
     <button class="reply-send" disabled={busy || uploading > 0} onclick={send}>{#if newSession}Launch <Icon name="external" size={14} />{:else if alive}Send <Icon name="send" size={14} />{:else}Restart <Icon name="external" size={14} />{/if}</button>
   </div>
