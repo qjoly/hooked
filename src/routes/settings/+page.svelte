@@ -19,6 +19,7 @@
     { id: 'pset-sidebar', label: 'Sidebar' },
     { id: 'pset-ship', label: 'Ship' },
     { id: 'pset-editor', label: 'Editor' },
+    { id: 'pset-speech', label: 'Voice dictation' },
     { id: 'pset-new', label: 'New session defaults' },
     { id: 'pset-models', label: 'Models' },
     { id: 'pset-project', label: 'Default project' },
@@ -30,6 +31,19 @@
     { id: 'pset-tags', label: 'Tags' },
     { id: 'pset-shortcuts', label: 'Keyboard shortcuts' },
     { id: 'pset-interface', label: 'Interface' },
+  ];
+  // Locales offered for voice dictation (Web Speech API). Recognition quality depends on the
+  // browser's own support for the chosen language.
+  const SPEECH_LOCALES = [
+    { key: 'fr-FR', label: 'Français (France)' },
+    { key: 'fr-CA', label: 'Français (Canada)' },
+    { key: 'en-US', label: 'English (US)' },
+    { key: 'en-GB', label: 'English (UK)' },
+    { key: 'es-ES', label: 'Español (España)' },
+    { key: 'de-DE', label: 'Deutsch' },
+    { key: 'it-IT', label: 'Italiano' },
+    { key: 'pt-PT', label: 'Português' },
+    { key: 'nl-NL', label: 'Nederlands' },
   ];
   let activeSec = $state(NAV[0].id);
   // Tag deletion is two-click (arm → confirm) to avoid removing a tag from every session by mistake.
@@ -597,6 +611,18 @@
             <Icon name={ed.icon} size={14} /> {ed.label}
           </button>
         {/each}
+      </div>
+    </div>
+
+    <div class="card" id="pset-speech" data-sec>
+      <h2>Voice dictation</h2>
+      <p class="hint">Locale used by the composer's microphone (speech to text, Web Speech API). The mic button only shows up on a browser that supports recognition. (Shared setting.)</p>
+      <div class="cmd-row">
+        <select class="cmd-input" value={settings.speechLang} onchange={(e) => updateSettings({ speechLang: e.currentTarget.value })}>
+          {#each SPEECH_LOCALES as l (l.key)}
+            <option value={l.key}>{l.label} — {l.key}</option>
+          {/each}
+        </select>
       </div>
     </div>
 

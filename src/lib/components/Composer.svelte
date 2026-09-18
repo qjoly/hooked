@@ -1,8 +1,9 @@
 <script>
-  import { onMount } from 'svelte';
+  import { onMount, onDestroy } from 'svelte';
   import Icon from '$lib/components/Icon.svelte';
   import { reply, interrupt, launch, getFiles, getCommands, uploadImage } from '$lib/api.js';
-  import { loadSessions, ui, unarchive } from '$lib/state.svelte.js';
+  import { loadSessions, ui, unarchive, settings } from '$lib/state.svelte.js';
+  import { createSpeechToText } from '$lib/speech.svelte.js';
 
   // `alive` : session pilotée par hooked → on répond direct. Sinon, l'envoi relance
   // `claude --resume` dans une nouvelle session (en conservant modèle/effort d'origine si connus).
@@ -31,6 +32,15 @@
   let status = $state({ text: '', cls: '' });
   let busy = $state(false);
 
+  // ----- voice dictation (Web Speech API) -----
+  // Mic button: the live transcript is appended to the text already typed. The
+  // controller only exists in the browser (created on mount); on an unsupported
+  // engine or with the mic denied its state is 'disabled' → no button at all.
+  let speech = $state(null);
+  const speechState = $derived(speech ? speech.state : 'disabled');
+  onDestroy(() => speech?.destroy());
+  function toggleSpeech() { speech?.toggle(text); }
+
   // Raccourcis affichés en permanence sous la zone de saisie (paires [touche, effet]) :
   // ils dépendent du mode d'envoi (lancement / réponse / relance d'une session morte).
   const hints = $derived(
@@ -53,6 +63,7 @@
       if (saved) { text = saved; queueMicrotask(autosize); }
     } catch (_) {}
     restored = true;
+    speech = createSpeechToText({ lang: settings.speechLang, onText: (t) => { text = t; queueMicrotask(autosize); } });
     if (newSession) queueMicrotask(() => ta?.focus());
   });
   $effect(() => {
@@ -166,7 +177,7 @@
     queueMicrotask(() => { if (ta) { ta.focus(); ta.selectionStart = ta.selectionEnd = pos; autosize(); } });
   }
 
-  function onInput() { autosize(); queryAc(); }
+  function onInput() { autosize(); queryAc(); speech?.dismissFailure(); }
   function onKeydown(e) {
     // macOS : les touches Début/Fin sont des commandes de scroll système → elles scrollent la
     // conversation (.pane-body) au lieu de déplacer le curseur, même textarea focalisée. On rétablit
@@ -345,7 +356,16 @@
                 ? 'Reply to Claude…'
                 : 'session not running — sending will re-run claude --resume…'}
             oninput={onInput} onkeydown={onKeydown} onpaste={onPaste} onblur={() => setTimeout(closeAc, 150)}></textarea>
-  <button class="reply-send" disabled={busy || uploading > 0} onclick={send}>{#if newSession}Launch <Icon name="external" size={14} />{:else if alive}Send <Icon name="send" size={14} />{:else}Restart <Icon name="external" size={14} />{/if}</button>
+  <div class="composer-actions">
+    {#if speechState !== 'disabled' && speechState !== 'failed'}
+      {@const listening = speechState === 'listening'}
+      {@const downloading = speechState === 'downloading'}
+      <button class="reply-mic" class:listening class:downloading type="button" disabled={busy}
+              title={listening ? 'Stop dictation' : downloading ? 'Downloading speech model…' : speechState === 'need-download' ? 'Download speech model' : 'Dictate (speech to text)'}
+              aria-label="Dictate" onclick={toggleSpeech}><Icon name={listening ? 'square-filled' : downloading ? 'working' : 'mic'} size={16} tint={false} /></button>
+    {/if}
+    <button class="reply-send" disabled={busy || uploading > 0} onclick={send}>{#if newSession}Launch <Icon name="external" size={14} />{:else if alive}Send <Icon name="send" size={14} />{:else}Restart <Icon name="external" size={14} />{/if}</button>
+  </div>
   {#if images.length || uploading}
     <div class="img-tray">
       {#each images as im, i}
@@ -371,7 +391,9 @@
        placeholder → ils disparaissaient dès la première frappe). Le message de statut prend
        sa place quand il y en a un : une seule ligne, donc pas de saut de hauteur. -->
   <div class="composer-foot">
-    {#if status.text}
+    {#if speechState === 'failed'}
+      <span class="reply-status warn">speech recognition unavailable on this browser</span>
+    {:else if status.text}
       <span class="reply-status {status.cls}">{status.text}</span>
     {:else}
       {#each hints as h, i (h[0] + i)}
