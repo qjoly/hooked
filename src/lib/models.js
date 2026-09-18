@@ -48,3 +48,42 @@ export function filterModelGroups(groups, hidden, keep = '') {
     .map((g) => ({ ...g, opts: (g.opts || []).filter(([id]) => !hide.has(id) || id === keep) }))
     .filter((g) => g.opts.length);
 }
+
+/*
+ * ---- Quota-aware default (New Session) ----
+ *
+ * Fable carries its OWN weekly quota, scoped to the model (cf. server/utilization.js → scopedLimit);
+ * the 5h / 7d account buckets say nothing about it. Once it is spent, launching on Fable does not
+ * degrade gracefully — the session errors out on its first turn. So when the *default* model of the
+ * New Session page resolves to Fable and that bucket is full, we fall back to the family alias
+ * `opus` ("Opus (default)"). Only the default is overridden: picking Fable by hand stays possible,
+ * because the quota we read can be minutes old (cache fallback) and the user may know better.
+ */
+
+// Does this model id belong to the Fable family? Covers both the rolling alias ('fable') and a
+// concrete version ('claude-fable-5-1').
+export const isFableModel = (id) => /^(claude-)?fable\b/.test(String(id || ''));
+
+// Model the quota fallback lands on — the family alias, never a pinned version.
+export const QUOTA_FALLBACK_MODEL = 'opus';
+
+/*
+ * Is a model-scoped bucket (shape of scopedLimit: { pct, severity, … }) spent? `pct` is the
+ * authority — it is what the gauge shows — and we only treat a *full* bucket as blocking: at 99%
+ * a session still starts. `severity` is a server-side label whose vocabulary is not ours to pin,
+ * so only its unambiguous value is honoured, as a second witness when the percentage is missing.
+ */
+export function isQuotaExhausted(bucket) {
+  if (!bucket) return false;
+  if (bucket.pct != null) return bucket.pct >= 100;
+  return String(bucket.severity || '').toLowerCase() === 'exhausted';
+}
+
+/*
+ * The model a fresh session should DEFAULT to, given the configured default and the Fable bucket.
+ * Pure — the whole point of the feature lives here, the component only wires data in.
+ * Returns the input unchanged whenever nothing is wrong.
+ */
+export function defaultModelForQuota(model, fableBucket) {
+  return isFableModel(model) && isQuotaExhausted(fableBucket) ? QUOTA_FALLBACK_MODEL : model;
+}
