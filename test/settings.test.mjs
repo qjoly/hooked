@@ -153,3 +153,10 @@ describe('speechLang', () => {
     expect(writeSettings({ speechLang: 42 }).speechLang).toBe('fr-FR');
   });
 });
+
+describe('navTabs', () => {
+  it('drops the former Search tab: an old settings file must not keep pointing at it', () => {
+    expect(writeSettings({ navTabs: ['sessions', 'search', 'stats'] }).navTabs).toEqual(['sessions', 'stats']);
+    expect(writeSettings({ defaultPage: 'search' }).defaultPage).toBe('deck');
+  });
+});
