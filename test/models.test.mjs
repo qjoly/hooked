@@ -5,7 +5,7 @@
  * le modèle courant survivent toujours au filtre.
  */
 import { describe, it, expect } from 'vitest';
-import { filterModelGroups, isHideableModel, DEFAULT_HIDDEN_MODELS } from '../src/lib/models.js';
+import { filterModelGroups, isHideableModel, DEFAULT_HIDDEN_MODELS, isFableModel, isQuotaExhausted, defaultModelForQuota } from '../src/lib/models.js';
 
 const GROUPS = [
   { label: 'Opus', opts: [['opus', 'Opus (default)'], ['claude-opus-5', '5'], ['claude-opus-4-8', '4.8'], ['claude-opus-4-5', '4.5']] },
@@ -68,5 +68,55 @@ describe('filterModelGroups', () => {
       'haiku', 'claude-haiku-4-5',
       'fable', 'claude-fable-5-1', 'claude-fable-5',
     ]);
+  });
+});
+
+/*
+ * Default-model fallback when Fable's weekly quota is spent (New Session page). Pure function: the
+ * component only hands it the configured default and the bucket returned by /api/usage (shape of
+ * server/utilization.js → scopedLimit).
+ */
+describe('isFableModel', () => {
+  it('matches the rolling alias and concrete versions, nothing else', () => {
+    expect(isFableModel('fable')).toBe(true);
+    expect(isFableModel('claude-fable-5')).toBe(true);
+    expect(isFableModel('claude-fable-5-1')).toBe(true);
+    expect(isFableModel('opus')).toBe(false);
+    expect(isFableModel('claude-opus-5')).toBe(false);
+    expect(isFableModel('fabled')).toBe(false); // not a free-form prefix
+    expect(isFableModel(null)).toBe(false);
+  });
+});
+
+describe('isQuotaExhausted', () => {
+  it('only a FULL bucket blocks — 99% still launches', () => {
+    expect(isQuotaExhausted({ pct: 100 })).toBe(true);
+    expect(isQuotaExhausted({ pct: 142 })).toBe(true);
+    expect(isQuotaExhausted({ pct: 99 })).toBe(false);
+    expect(isQuotaExhausted({ pct: 0 })).toBe(false);
+  });
+  it('falls back to severity only when the percentage is missing', () => {
+    expect(isQuotaExhausted({ pct: null, severity: 'exhausted' })).toBe(true);
+    expect(isQuotaExhausted({ pct: null, severity: 'warning' })).toBe(false);
+    expect(isQuotaExhausted({ pct: 12, severity: 'exhausted' })).toBe(false);
+  });
+  it('no bucket at all = no limit to hit (accounts without a Fable quota)', () => {
+    expect(isQuotaExhausted(null)).toBe(false);
+    expect(isQuotaExhausted(undefined)).toBe(false);
+  });
+});
+
+describe('defaultModelForQuota', () => {
+  const spent = { pct: 100, label: 'Fable' };
+  const free = { pct: 20, label: 'Fable' };
+  it('falls back to the Opus alias when the default is Fable and the bucket is full', () => {
+    expect(defaultModelForQuota('fable', spent)).toBe('opus');
+    expect(defaultModelForQuota('claude-fable-5-1', spent)).toBe('opus');
+  });
+  it('leaves everything else untouched', () => {
+    expect(defaultModelForQuota('fable', free)).toBe('fable');
+    expect(defaultModelForQuota('fable', null)).toBe('fable');
+    expect(defaultModelForQuota('claude-opus-5', spent)).toBe('claude-opus-5');
+    expect(defaultModelForQuota('sonnet', spent)).toBe('sonnet');
   });
 });
