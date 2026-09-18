@@ -1330,6 +1330,14 @@ code.path { color: var(--muted); font-size: 11px; word-break: break-all; font-fa
 .newsession .composer-dock { position: relative; bottom: auto; margin-top: 0; background: none; }
 .newsession .composer-dock::before { display: none; }
 .ns-controls { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 12px 4px 0; }
+/* "Fable quota spent" banner: the default model was rolled back to Opus (cf.
+   defaultModelForQuota) — say so, otherwise the selector would look like it ignores the settings. */
+.ns-quota {
+  display: flex; align-items: flex-start; gap: 8px; margin: 12px 4px 0;
+  padding: 8px 11px; border-radius: 10px; font-size: 12.5px; line-height: 1.45;
+  border: 1px solid rgba(var(--warn-rgb), .35); background: rgba(var(--warn-rgb), .1); color: var(--text);
+}
+.ns-quota b { font-weight: 650; }
 .ns-custom-row { display: flex; gap: 8px; margin-top: 10px; }
 .ns-custom-row .ns-custom { margin-top: 0; flex: 1 1 auto; }
 .ns-browse {

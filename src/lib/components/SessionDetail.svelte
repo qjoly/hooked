@@ -664,6 +664,17 @@
     if (!res.ok) alert('✗ ' + (res.data.error || 'failed'));
     ghosttyBusy = false;
   }
+
+  // ---- Context-window fill (header) ----
+  // `s.context` = { pct, size }, derived from the session's latest status snapshot. A snapshot is
+  // only written from the first turn onwards; before that there is nothing to show, and a gauge at
+  // 0% would lie. On a stopped session the value is the LAST known one: we keep it (it is still
+  // true as of a Resume) but render it muted (`cold`).
+  const ctx = $derived(s && s.context && s.context.pct != null ? s.context : null);
+  const ctxTitle = $derived(!ctx ? '' :
+    `Context window: ${ctx.pct}% used`
+    + (ctx.size ? ` of ${fmtTokens(ctx.size)} tokens` : '')
+    + (s.live ? '' : ' — last known value, session is not running'));
 </script>
 
 {#if s}
@@ -707,6 +718,18 @@
         </button>
       {/if}
       <span class="badge s-badge"><span class="bdot"></span>{s.state === 'working' && s.activity ? s.activity + '…' : (STATE_LABEL[s.state] || s.state)}</span>
+      <!-- Context-window fill (s.context, cf. server/status.js): the one TUI reading the dashboard
+           could not surface, though it decides whether to compact or fork. Two producers, one
+           format: statusline-tap.sh for a session opened by hand, server/agent-status.js for a
+           driven one. Missing as long as no snapshot exists (very young session) → render nothing. -->
+      {#if ctx}
+        <span class="ctx-gauge" class:warn={ctx.pct >= 75} class:crit={ctx.pct >= 90} class:cold={!s.live}
+              title={ctxTitle}>
+          <span class="ctx-lbl">CTX</span>
+          <span class="ctx-track"><span class="ctx-fill" style="width:{Math.min(100, ctx.pct)}%"></span></span>
+          <span class="ctx-pct">{ctx.pct}%</span>
+        </span>
+      {/if}
 
       <div class="head-actions">
         {#if s.live}
@@ -1031,6 +1054,24 @@
     color: var(--c); background: color-mix(in srgb, var(--c) 14%, transparent); white-space: nowrap;
   }
   .head-tags:hover .head-tag { filter: brightness(1.15); }
+  /* Header context gauge: same visual vocabulary as the account gauges of the TopBar (label +
+     track + %), in a single-line version. `warn` (>=75%) and `crit` (>=90%) reuse the same
+     thresholds, so one glance is enough to know whether it is time to compact. */
+  .ctx-gauge {
+    flex: 0 0 auto; display: inline-flex; align-items: center; gap: 5px;
+    font: 600 9.5px var(--mono); letter-spacing: .04em; color: var(--muted);
+    padding: 2px 7px; border: 1px solid var(--border2); border-radius: 999px;
+  }
+  .ctx-lbl { opacity: .8; }
+  .ctx-track { width: 42px; height: 4px; border-radius: 999px; background: var(--bg3); overflow: hidden; }
+  .ctx-fill { display: block; height: 100%; background: var(--accent); border-radius: inherit; }
+  .ctx-pct { color: var(--text); font-variant-numeric: tabular-nums; }
+  .ctx-gauge.warn .ctx-fill { background: var(--warn); }
+  .ctx-gauge.warn { border-color: rgba(var(--warn-rgb), .45); }
+  .ctx-gauge.crit .ctx-fill { background: var(--danger); }
+  .ctx-gauge.crit { border-color: rgba(var(--warn-rgb), .7); }
+  /* stopped session: last known value, hence muted (cf. ctxTitle). */
+  .ctx-gauge.cold { opacity: .55; }
   .head-actions { margin-left: auto; display: flex; align-items: center; gap: 8px; flex: 0 0 auto; }
   .hdr-icon-btn {
     width: 30px; height: 28px; border: 1px solid var(--border2); border-radius: 8px;
@@ -1056,7 +1097,7 @@
   }
   @container (max-width: 440px) {
     /* 3) enfin le statut et la branche disparaissent ; le TITRE, lui, reste toujours lisible. */
-    .head-meta, .s-badge, .head-tags { display: none; }
+    .head-meta, .s-badge, .head-tags, .ctx-gauge { display: none; }
   }
   .head-line + :global(.subtabs) { margin-top: 9px; }
   .strip-modes { display: flex; gap: 4px; }
