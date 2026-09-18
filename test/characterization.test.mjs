@@ -80,6 +80,10 @@ describe('parseTranscript', () => {
       // `lastReply` (dernier texte assistant, ajout récent pour l'aperçu du Deck) est absent de la
       // baseline figée → on le retire des deux côtés.
       delete cur.lastReply; delete old.lastReply;
+      // `prLinks` diverge VOLONTAIREMENT : legacy regexait toute URL de PR du fichier (donc aussi
+      // celles citées dans un contenu injecté ou une sortie d'outil) ; on lit désormais les lignes
+      // `pr-link` journalisées par Claude Code. Couvert par prLinks.test.mjs.
+      delete cur.prLinks; delete old.prLinks;
       expect(cur).toEqual(old);
     });
   }
