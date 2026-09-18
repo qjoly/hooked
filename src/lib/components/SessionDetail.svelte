@@ -664,6 +664,17 @@
     if (!res.ok) alert('✗ ' + (res.data.error || 'failed'));
     ghosttyBusy = false;
   }
+
+  // ---- Remplissage de la fenêtre de contexte (en-tête) ----
+  // `s.context` = { pct, size } dérivé du dernier instantané de statut de la session. Un
+  // instantané n'est écrit qu'à partir du premier tour ; avant ça il n'y a rien à montrer, et une
+  // jauge à 0 % mentirait. Sur une session éteinte la valeur est la DERNIÈRE connue : on la garde
+  // (elle reste vraie au moment d'un Resume) mais on l'affiche en sourdine (`cold`).
+  const ctx = $derived(s && s.context && s.context.pct != null ? s.context : null);
+  const ctxTitle = $derived(!ctx ? '' :
+    `Context window: ${ctx.pct}% used`
+    + (ctx.size ? ` of ${fmtTokens(ctx.size)} tokens` : '')
+    + (s.live ? '' : ' — last known value, session is not running'));
 </script>
 
 {#if s}
@@ -707,6 +718,19 @@
         </button>
       {/if}
       <span class="badge s-badge"><span class="bdot"></span>{s.state === 'working' && s.activity ? s.activity + '…' : (STATE_LABEL[s.state] || s.state)}</span>
+      <!-- Remplissage de la fenêtre de contexte (s.context, cf. server/status.js) : la seule
+           info du TUI qu'on ne pouvait pas lire depuis le dashboard, alors qu'elle décide s'il
+           faut compacter ou forker. Deux producteurs, un format : statusline-tap.sh pour une
+           session ouverte à la main, server/agent-status.js pour une session pilotée. Absente
+           tant qu'aucun instantané n'existe (session très jeune) → on n'affiche rien. -->
+      {#if ctx}
+        <span class="ctx-gauge" class:warn={ctx.pct >= 75} class:crit={ctx.pct >= 90} class:cold={!s.live}
+              title={ctxTitle}>
+          <span class="ctx-lbl">CTX</span>
+          <span class="ctx-track"><span class="ctx-fill" style="width:{Math.min(100, ctx.pct)}%"></span></span>
+          <span class="ctx-pct">{ctx.pct}%</span>
+        </span>
+      {/if}
 
       <div class="head-actions">
         {#if s.live}
@@ -1031,6 +1055,24 @@
     color: var(--c); background: color-mix(in srgb, var(--c) 14%, transparent); white-space: nowrap;
   }
   .head-tags:hover .head-tag { filter: brightness(1.15); }
+  /* Jauge de contexte de l'en-tête : même vocabulaire visuel que les jauges de compte de la
+     TopBar (libellé + piste + %), en version d'une seule ligne. `warn` (>=75%) et `crit` (>=90%)
+     reprennent les mêmes seuils, pour qu'un coup d'œil suffise à savoir s'il faut compacter. */
+  .ctx-gauge {
+    flex: 0 0 auto; display: inline-flex; align-items: center; gap: 5px;
+    font: 600 9.5px var(--mono); letter-spacing: .04em; color: var(--muted);
+    padding: 2px 7px; border: 1px solid var(--border2); border-radius: 999px;
+  }
+  .ctx-lbl { opacity: .8; }
+  .ctx-track { width: 42px; height: 4px; border-radius: 999px; background: var(--bg3); overflow: hidden; }
+  .ctx-fill { display: block; height: 100%; background: var(--accent); border-radius: inherit; }
+  .ctx-pct { color: var(--text); font-variant-numeric: tabular-nums; }
+  .ctx-gauge.warn .ctx-fill { background: var(--warn); }
+  .ctx-gauge.warn { border-color: rgba(var(--warn-rgb), .45); }
+  .ctx-gauge.crit .ctx-fill { background: var(--danger); }
+  .ctx-gauge.crit { border-color: rgba(var(--warn-rgb), .7); }
+  /* session éteinte : dernière valeur connue, donc en sourdine (cf. ctxTitle). */
+  .ctx-gauge.cold { opacity: .55; }
   .head-actions { margin-left: auto; display: flex; align-items: center; gap: 8px; flex: 0 0 auto; }
   .hdr-icon-btn {
     width: 30px; height: 28px; border: 1px solid var(--border2); border-radius: 8px;
@@ -1056,7 +1098,7 @@
   }
   @container (max-width: 440px) {
     /* 3) enfin le statut et la branche disparaissent ; le TITRE, lui, reste toujours lisible. */
-    .head-meta, .s-badge, .head-tags { display: none; }
+    .head-meta, .s-badge, .head-tags, .ctx-gauge { display: none; }
   }
   .head-line + :global(.subtabs) { margin-top: 9px; }
   .strip-modes { display: flex; gap: 4px; }
