@@ -137,3 +137,19 @@ describe('hiddenModels', () => {
     expect(writeSettings({ hiddenModels: 'not-an-array' }).hiddenModels).toEqual([]);
   });
 });
+
+describe('speechLang', () => {
+  it("defaults to 'fr-FR'", () => {
+    expect(readSettings().speechLang).toBe('fr-FR');
+  });
+
+  it('accepts a BCP-47 locale and round-trips it', () => {
+    expect(writeSettings({ speechLang: 'en-GB' }).speechLang).toBe('en-GB');
+    expect(readSettings().speechLang).toBe('en-GB');
+  });
+
+  it('falls back to the default on a malformed value', () => {
+    expect(writeSettings({ speechLang: 'not a locale' }).speechLang).toBe('fr-FR');
+    expect(writeSettings({ speechLang: 42 }).speechLang).toBe('fr-FR');
+  });
+});
