@@ -472,7 +472,7 @@ export const settings = $state({
   editor: 'vscode', // éditeur préféré (clé de src/lib/editors.js) pour les liens « open in editor »
   shipDefaultView: 'claude', // source de diff à l'ouverture de la lentille Ship ('claude' | 'vcs')
   defaultPage: 'deck',
-  navTabs: ['sessions', 'search', 'stats', 'digest', 'memory'], // onglets de nav visibles (paramétrable)
+  navTabs: ['sessions', 'stats', 'digest', 'memory'], // onglets de nav visibles (paramétrable)
   hiddenModels: [...DEFAULT_HIDDEN_MODELS], // versions de modèle masquées des sélecteurs (liste noire)
 });
 export async function loadSettings() {

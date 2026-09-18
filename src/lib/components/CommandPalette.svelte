@@ -3,8 +3,9 @@
   import { page } from '$app/state';
   import { ui, data, settings, sessionTitle, cycleScheme, setTheme, toggleFocus, toggleNotify, openModal } from '$lib/state.svelte.js';
   import { editorFor } from '$lib/editors.js';
-  import { kill, interrupt, openInEditor, openInGhostty, resync } from '$lib/api.js';
+  import { kill, interrupt, openInEditor, openInGhostty, resync, searchTranscripts } from '$lib/api.js';
   import { shortcutForCommand, formatKeys } from '$lib/shortcuts.js';
+  import { ago } from '$lib/format.js';
   import Icon from '$lib/components/Icon.svelte';
 
   let open = $state(false);
@@ -27,7 +28,6 @@
     { id: 'nav:deck', label: 'Go to Deck', section: 'Navigation', icon: 'deck', action: () => goto('/') },
     { id: 'nav:sessions', label: 'Go to Sessions', section: 'Navigation', icon: 'sessions', action: () => goto('/sessions') },
     { id: 'nav:new', label: 'New session', section: 'Navigation', icon: 'plus', action: () => goto('/new') },
-    { id: 'nav:search', label: 'Go to Search', section: 'Navigation', icon: 'search', action: () => goto('/search') },
     { id: 'nav:stats', label: 'Go to Stats', section: 'Navigation', icon: 'stats', action: () => goto('/stats') },
     { id: 'nav:digest', label: 'Go to Digest', section: 'Navigation', icon: 'digest', action: () => goto('/digest') },
     { id: 'nav:memory', label: 'Go to Memory', section: 'Navigation', icon: 'memory', action: () => goto('/memory') },
@@ -92,6 +92,67 @@
       }));
   });
 
+  // Full-text hits in the transcripts (prompts + Claude's prose, server-side FTS). They lead the list
+  // but need a round trip, so they land after the instant sections are already on screen and push
+  // them down. The selection follows the ITEM, not the index, so an arrowed-to session stays selected.
+  const CITATIONS_SHOWN = 5;
+  const CITATIONS_LIMIT = 50;
+  let hits = $state([]);
+  let hitsFor = $state('');
+  let searching = $state(false);
+  let allCitations = $state(false);
+
+  $effect(() => {
+    const q = query.trim();
+    const wanted = open && q && !q.startsWith('>');
+    allCitations = false;
+    if (!wanted) { hits = []; hitsFor = ''; searching = false; return; }
+    searching = true;
+    const t = setTimeout(async () => {
+      let results = [];
+      try { results = (await searchTranscripts(q, CITATIONS_LIMIT)).results || []; } catch { /* no hits */ }
+      // A newer keystroke owns the list by now: dropping this answer is what keeps it consistent.
+      if (q !== query.trim()) return;
+      const picked = sel > 0 ? filtered[sel]?.id : null;
+      hits = results;
+      hitsFor = q;
+      searching = false;
+      if (picked) { const i = filtered.findIndex((x) => x.id === picked); if (i >= 0) sel = i; }
+    }, 250);
+    return () => clearTimeout(t);
+  });
+
+  const basename = (p) => String(p || '').split('/').pop() || '';
+  const citationItems = $derived.by(() => {
+    if (!hitsFor) return [];
+    const byId = new Map(data.sessions.map((s) => [s.id, s]));
+    const shown = allCitations ? hits : hits.slice(0, CITATIONS_SHOWN);
+    const items = shown.map((h) => {
+      const s = byId.get(h.sessionId);
+      return {
+        id: 'hit:' + h.sessionId + ':' + h.ts,
+        section: 'Citations',
+        hit: h,
+        // Sessions purged from the list still have transcripts on disk — fall back to where it lives.
+        label: s ? sessionTitle(s) : (basename(h.project) || h.sessionId.slice(0, 8)),
+        action: () => goto('/session/' + encodeURIComponent(h.sessionId) + (h.ts ? '#msg-' + encodeURIComponent(h.ts) : '')),
+      };
+    });
+    const rest = hits.length - shown.length;
+    if (rest > 0) {
+      items.push({ id: 'hit:more', section: 'Citations', icon: 'chevron-down', label: `Show ${rest} more`, keepOpen: true, action: () => { allCitations = true; } });
+    }
+    return items;
+  });
+
+  // The snippet arrives from SQLite with <mark> around the match; everything else is transcript
+  // content and must not become markup.
+  function safeSnippet(s) {
+    return String(s || '')
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/&lt;mark&gt;/g, '<mark>').replace(/&lt;\/mark&gt;/g, '</mark>');
+  }
+
   function fuzzy(text, q) {
     const lower = text.toLowerCase();
     const ql = q.toLowerCase();
@@ -126,7 +187,8 @@
       if (!!a.item.active !== !!b.item.active) return a.item.active ? -1 : 1;
       return b.score - a.score;
     });
-    return scored.map(s => s.item);
+    const items = scored.map(s => s.item);
+    return isCmd ? items : [...citationItems, ...items];
   });
 
   $effect(() => {
@@ -152,7 +214,7 @@
 
   function execute(item) {
     if (!item) return;
-    open = false;
+    if (!item.keepOpen) open = false;
     item.action();
   }
 
@@ -188,14 +250,14 @@
 
 {#if open}
   <div class="palette-overlay" onclick={() => { open = false; }} role="presentation">
-    <div class="palette" role="dialog" aria-modal="true" aria-label="Command palette" onclick={(e) => e.stopPropagation()}>
+    <div class="palette" class:tall={citationItems.length > 0} role="dialog" aria-modal="true" aria-label="Command palette" onclick={(e) => e.stopPropagation()}>
       <div class="palette-input-row">
         <svg class="palette-search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
         <input
           bind:this={input}
           bind:value={query}
           class="palette-input"
-          placeholder="Search sessions and commands… (type > for commands)"
+          placeholder="Search sessions, commands and transcripts… (type > for commands)"
           spellcheck="false"
           autocomplete="off"
           role="combobox"
@@ -206,7 +268,11 @@
         <kbd class="palette-kbd">esc</kbd>
       </div>
       <div class="palette-list" bind:this={listEl} id="palette-listbox" role="listbox" aria-label="Results">
-        {#if filtered.length === 0}
+        {#if searching && !citationItems.length}
+          <div class="palette-section" role="presentation">Citations</div>
+          <div class="palette-searching">Searching transcripts…</div>
+        {/if}
+        {#if filtered.length === 0 && !searching}
           <div class="palette-empty">No results</div>
         {/if}
         {#each filtered as item, i}
@@ -219,18 +285,27 @@
             id="palette-item-{i}"
             class="palette-item"
             class:selected={i === sel}
+            class:citation={!!item.hit}
             role="option"
             aria-selected={i === sel}
             onmouseenter={() => { sel = i; }}
             onclick={() => execute(item)}
           >
-            <span class="palette-icon"><Icon name={item.icon} color={item.color} /></span>
-            <span class="palette-label">{item.label}</span>
-            {#if item.detail}
-              <span class="palette-detail">{item.detail}</span>
-            {/if}
-            {#if hint}
-              <kbd class="palette-shortcut">{hint}</kbd>
+            {#if item.hit}
+              <span class="palette-icon"><Icon name={item.hit.role === 'user' ? 'user' : 'bot'} /></span>
+              <span class="citation-body">
+                <span class="citation-snippet">{@html safeSnippet(item.hit.snippet)}</span>
+                <span class="citation-meta">{item.label}{#if item.hit.ts} · {ago(item.hit.ts)}{/if}</span>
+              </span>
+            {:else}
+              <span class="palette-icon"><Icon name={item.icon} color={item.color} /></span>
+              <span class="palette-label">{item.label}</span>
+              {#if item.detail}
+                <span class="palette-detail">{item.detail}</span>
+              {/if}
+              {#if hint}
+                <kbd class="palette-shortcut">{hint}</kbd>
+              {/if}
             {/if}
           </div>
         {/each}
@@ -262,6 +337,7 @@
     overflow: hidden;
     align-self: flex-start;
   }
+  .palette.tall { max-height: min(720px, 85vh); }
   .palette-input-row {
     display: flex; align-items: center; gap: 8px;
     padding: 12px 16px;
@@ -316,6 +392,20 @@
     background: var(--bg3); border: 1px solid var(--border);
     border-radius: 4px; padding: 2px 6px; white-space: nowrap;
   }
+  .palette-item.citation { align-items: flex-start; }
+  .palette-item.citation .palette-icon { margin-top: 2px; }
+  .citation-body { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+  .citation-snippet {
+    font-size: 13px; line-height: 1.4; color: var(--text);
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+    word-break: break-word;
+  }
+  .citation-snippet :global(mark) {
+    background: var(--waiting); color: #2f2b23;
+    padding: 0 3px; border-radius: 3px; font-weight: 600;
+  }
+  .citation-meta { font-size: 11px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .palette-searching { padding: 6px 16px 10px; color: var(--muted); font: 13px/1.4 var(--font); }
   .palette-footer {
     display: flex; gap: 16px; padding: 8px 16px;
     border-top: 1px solid var(--border);
