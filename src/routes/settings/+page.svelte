@@ -562,7 +562,7 @@
 
     <div class="card" id="pset-sidebar" data-sec>
       <h2>Navigation</h2>
-      <p class="hint">Which spaces show as tabs next to the Deck in the top bar. Hidden ones stay reachable from the omnibar (⌘K). (Shared setting.)</p>
+      <p class="hint">Which spaces show as tabs next to the Deck in the top bar. Hidden ones stay reachable from the omnibar (⌘P). (Shared setting.)</p>
       <div class="navtabs-edit">
         {#each NAV_TABS as t (t.key)}
           {@const on = (settings.navTabs || []).includes(t.key)}
