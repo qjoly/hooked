@@ -50,6 +50,8 @@ const DEFAULTS = {
   // 'chat' n'est jamais masquable (vue principale). Défaut : aucun masqué. Distinct de l'auto-masquage
   // d'un onglet vide (géré côté client selon le contenu de la session).
   subtabHidden: [],
+  // Locale (BCP-47) used by the composer's voice dictation (Web Speech API). E.g. fr-FR, en-US.
+  speechLang: 'fr-FR',
   // Synchro git du dépôt du serveur (cf. server/gitOps.js) : boucle de fond fetch + pull --ff-only.
   autoGitSync: false,
   // Boucle de fond (cf. server/prReviewTags.js) : tague une session `pr-approved` /
@@ -164,6 +166,11 @@ function sanitize(raw) {
     hour: Number.isInteger(rawDg.hour) && rawDg.hour >= 0 && rawDg.hour <= 23 ? rawDg.hour : 7,
     model: typeof rawDg.model === 'string' && isValidModelArg(rawDg.model) ? rawDg.model : '',
   };
+  // speechLang: BCP-47 locale (lang or lang-REGION…). Anything else falls back to the default.
+  const speechLang =
+    typeof o.speechLang === 'string' && /^[a-z]{2,3}(-[A-Za-z0-9]{2,8})*$/.test(o.speechLang)
+      ? o.speechLang
+      : 'fr-FR';
   // hiddenModels : liste de versions concrètes (jamais un alias de famille), dédupée et bornée.
   // ABSENT ≠ VIDE : un settings.json antérieur à cette clé doit hériter du défaut (sinon la
   // fonctionnalité ne s'appliquerait à personne), tandis qu'un `[]` explicite signifie bien
@@ -190,6 +197,7 @@ function sanitize(raw) {
     favoriteProjects: favProjects,
     digest,
     shipDefaultView: o.shipDefaultView === 'vcs' ? 'vcs' : 'claude',
+    speechLang,
     editor: EDITOR_KEYS.includes(o.editor) ? o.editor : DEFAULT_EDITOR,
     defaultPage: DEFAULT_PAGES.includes(o.defaultPage) ? o.defaultPage : 'deck',
     hiddenModels,
