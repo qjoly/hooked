@@ -44,7 +44,6 @@ function blankSummary(sessionId, fp) {
   };
 }
 
-const PR_RE = /https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/pull\/\d+/g;
 const ISSUE_RE = /https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/issues\/\d+/g;
 
 // Accumulateur d'un parse : le résumé en cours + l'état transitoire nécessaire pour
@@ -76,12 +75,16 @@ function newAcc(sessionId, fp) {
 function foldLine(acc, line) {
   if (!line) return;
   const s = acc.s;
-  // liens GitHub : regex sur la ligne brute (comme l'ancien regex sur tout le fichier — une URL
-  // ne peut pas enjamber un \n, donc l'union par ligne = même liste, même ordre).
-  const prm = line.match(PR_RE); if (prm) for (const x of prm) acc.prRaw.push(x);
-  const ism = line.match(ISSUE_RE); if (ism) for (const x of ism) acc.issueRaw.push(x);
   let j;
   try { j = JSON.parse(line); } catch (_) { return; }
+  // PR de la session : lignes `pr-link` écrites par Claude Code quand il crée ou manipule une PR.
+  // Source autoritaire — la regex sur la ligne brute qu'elle remplace ramassait TOUTE URL de PR
+  // citée dans le transcript (contenu de skill injecté, résultat de recherche web, corps de PR
+  // rédigé par Claude), d'où des `cli/cli#…` épinglés dans la sidebar.
+  if (j.type === 'pr-link' && j.prUrl) acc.prRaw.push(j.prUrl);
+  // Issues : pas d'équivalent journalisé → regex, mais jamais sur une ligne `isMeta` (skills,
+  // CLAUDE.md et system-reminders injectés dans le contexte : du contenu cité, pas la session).
+  if (!j.isMeta) { const ism = line.match(ISSUE_RE); if (ism) for (const x of ism) acc.issueRaw.push(x); }
   if (j.cwd && !s.project) { s.project = j.cwd; s.projectName = path.basename(j.cwd); }
   if (j.gitBranch) s.gitBranch = j.gitBranch;
   if (j.sessionId && !s.sessionIdInternal) s.sessionIdInternal = j.sessionId;
