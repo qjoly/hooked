@@ -2,7 +2,7 @@
 // La navigation (vue courante, session ouverte, écran « nouvelle session ») n'est PLUS
 // ici : elle est portée par l'URL (routing SvelteKit). Ne restent que les filtres de la
 // sidebar, l'état live (SSE), le tick de rafraîchissement et la modale.
-import { getSessions, connectSSE, getSettings, saveSettings as apiSaveSettings, getTags, saveTags, replaceTags, getSessionMeta, saveSessionMeta, replaceSessionMeta, kill } from './api.js';
+import { getSessions, connectSSE, getSettings, saveSettings as apiSaveSettings, getTags, saveTags, replaceTags, getSessionMeta, saveSessionMeta, replaceSessionMeta, kill, getAccount } from './api.js';
 import { NOTIFY_KINDS, notifyKeyFor, countsForBadge } from './notify.js';
 import { isFinishedAndCold } from './format.js';
 import { DEFAULT_HIDDEN_MODELS } from './models.js';
@@ -484,6 +484,17 @@ export async function updateSettings(patch) {
   return res;
 }
 
+// ─── Compte Claude signé (top bar avatar/menu) ────────────────────────────────────────────────
+// Miroir de `claude auth status` + ~/.claude.json (server/account.js). Rechargé au démarrage et
+// après un login/logout réussi (AccountModal appelle loadAccount() une fois le flow terminé) —
+// pas de polling : l'identité ne bouge que via une action explicite de l'utilisateur.
+export const account = $state({
+  loggedIn: null, email: null, displayName: null, organizationName: null, subscriptionType: null,
+});
+export async function loadAccount() {
+  try { Object.assign(account, await getAccount()); } catch (_) {}
+}
+
 // ─── Étiquettes de session (tags.json côté serveur, partagées entre navigateurs) ──────────────
 // Chargé au démarrage (startLive). Les tags vivaient autrefois dans localStorage ('hooked.ui') ;
 // au 1er chargement où le store serveur est vide, on migre une fois les tags locaux historiques.
@@ -548,6 +559,7 @@ export function startLive() {
   loadSettings();
   loadTags();
   loadSessionMeta();
+  loadAccount();
   appVersion().then((v) => { loadedVersion = v; }); // version de référence (au chargement)
   connectSSE({
     onOpen: async () => {
