@@ -22,15 +22,27 @@ export function ago(ts) {
   if (s < 86400) return `${Math.floor(s / 3600)} h ago`;
   return `${Math.floor(s / 86400)} d ago`;
 }
-// 1-2 letter initials for the top bar avatar: two names → first letter of each; one word → its
-// first two letters; nothing usable (name/email both absent) → '?'. Falls back to the email's
-// local-part when there is no display name at all.
+// 1-2 letter initials for the top bar avatar, matching what claude.ai's own avatar shows.
+// `name` here is only ever the FIRST name (`oauthAccount.displayName` in ~/.claude.json never
+// carries a surname — confirmed against a real account) — a single word can't yield first+last
+// initials the way claude.ai's avatar does, e.g. "LA" for "Lilian" (Arago). We recover the
+// surname's initial from the email's local-part instead: Lucca addresses are
+// <first-initial><surname>@…, so "larago" for "Lilian" → strip the matching leading "l", the
+// first letter of what remains ("arago") is the surname's. Falls through to plain first-two-letters
+// when that convention doesn't match (name has no email, or the email doesn't fit the pattern).
 export function initials(name, email) {
-  const src = (name && name.trim()) || (email && String(email).split('@')[0]) || '';
-  const words = src.trim().split(/[\s._-]+/).filter(Boolean);
-  if (!words.length) return '?';
-  if (words.length === 1) return words[0].slice(0, 2).toUpperCase();
-  return (words[0][0] + words[1][0]).toUpperCase();
+  const first = (name && name.trim().split(/\s+/)[0]) || '';
+  const words = (name && name.trim()) ? name.trim().split(/[\s._-]+/).filter(Boolean) : [];
+  if (words.length >= 2) return (words[0][0] + words[1][0]).toUpperCase();
+  const local = (email && String(email).split('@')[0]) || '';
+  if (first && local.length > 1 && local[0].toLowerCase() === first[0].toLowerCase()) {
+    return (first[0] + local[1]).toUpperCase();
+  }
+  if (first) return first.slice(0, 2).toUpperCase();
+  const localWords = local.split(/[\s._-]+/).filter(Boolean);
+  if (localWords.length >= 2) return (localWords[0][0] + localWords[1][0]).toUpperCase();
+  if (local) return local.slice(0, 2).toUpperCase();
+  return '?';
 }
 
 export const shortModel = (m) => (m || '').replace(/^claude-/, '');
