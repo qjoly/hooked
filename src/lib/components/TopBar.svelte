@@ -3,8 +3,9 @@
   // gauges (5h / 7d / model-scoped), quick actions (notifications, theme, settings) and the primary
   // "+ Session" button. Replaces the old 14-icon left rail.
   import { page } from '$app/state';
-  import { ui, data, settings, cycleTheme, toggleNotify, openModal, isArchived, snoozeUntil } from '$lib/state.svelte.js';
+  import { ui, data, settings, account, cycleTheme, toggleNotify, openModal, isArchived, snoozeUntil } from '$lib/state.svelte.js';
   import { getUsage } from '$lib/api.js';
+  import { initials } from '$lib/format.js';
   import { NAV_TABS, NAV_KEYS, pageHref } from '$lib/nav.js';
   import Icon from '$lib/components/Icon.svelte';
 
@@ -58,6 +59,12 @@
 
   const themeLabel = $derived({ system: 'System', light: 'Light', dark: 'Dark' }[ui.theme] ?? 'System');
   const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.userAgent);
+  const avatarInitials = $derived(initials(account.displayName, account.email));
+  const avatarTitle = $derived(
+    (account.displayName || account.email || 'Account')
+    + (account.organizationName ? ` — ${account.organizationName}` : '')
+    + '\n' + (ui.live ? 'Live — connected' : 'Reconnecting…'),
+  );
 </script>
 
 <header class="topbar">
@@ -128,7 +135,9 @@
   </div>
 
   <a class="tb-new" href="/new"><Icon name="plus" size={14} /> Session</a>
-  <div class="tb-avatar" class:live={ui.live} title={ui.live ? 'Live — connected' : 'Reconnecting…'}>BT</div>
+  <button class="tb-avatar" class:live={ui.live} title={avatarTitle} aria-label="Account" onclick={() => openModal('account')}>
+    {avatarInitials}
+  </button>
 </header>
 
 <style>
@@ -219,10 +228,12 @@
   .tb-avatar {
     align-self: center;
     position: relative; width: 30px; height: 30px; border-radius: 50%; flex: 0 0 auto;
-    background: var(--chip); color: var(--muted);
+    background: var(--chip); color: var(--muted); border: none; font: inherit; padding: 0; cursor: pointer;
     display: flex; align-items: center; justify-content: center;
     font-size: 10.5px; font-weight: 700; letter-spacing: .02em;
+    transition: background .12s, color .12s;
   }
+  .tb-avatar:hover { background: var(--hover); color: var(--text); }
   .tb-avatar::after {
     content: ""; position: absolute; bottom: -1px; right: -1px; width: 9px; height: 9px; border-radius: 50%;
     background: var(--idle); border: 2px solid var(--bg2);

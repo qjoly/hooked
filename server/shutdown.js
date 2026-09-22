@@ -14,6 +14,7 @@
 import { liveSessionIds, killSession, saveDriven } from './agent.js';
 import { closeTerminalsFor } from './terminal.js';
 import { cancelAllLogins } from './mcp.js';
+import { cancelAllAccountLogins } from './account.js';
 
 // Registries pinned on globalThis, same reason as the session and terminal ones: Vite's module
 // re-execution in `npm run live` would reinstall the handler and lose already-registered callbacks.
@@ -54,6 +55,7 @@ export function shutdownNow({ exitGraceMs = EXIT_GRACE_MS } = {}) {
 
   try { freed.terminals = closeTerminalsFor() || 0; } catch (_) {}
   try { freed.logins = cancelAllLogins() || 0; } catch (_) {}
+  try { freed.logins += cancelAllAccountLogins() || 0; } catch (_) {}
 
   for (const fn of [...hooks]) {
     try { fn(); freed.hooks++; } catch (_) {}

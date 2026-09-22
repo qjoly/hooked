@@ -22,6 +22,17 @@ export function ago(ts) {
   if (s < 86400) return `${Math.floor(s / 3600)} h ago`;
   return `${Math.floor(s / 86400)} d ago`;
 }
+// 1-2 letter initials for the top bar avatar: two names → first letter of each; one word → its
+// first two letters; nothing usable (name/email both absent) → '?'. Falls back to the email's
+// local-part when there is no display name at all.
+export function initials(name, email) {
+  const src = (name && name.trim()) || (email && String(email).split('@')[0]) || '';
+  const words = src.trim().split(/[\s._-]+/).filter(Boolean);
+  if (!words.length) return '?';
+  if (words.length === 1) return words[0].slice(0, 2).toUpperCase();
+  return (words[0][0] + words[1][0]).toUpperCase();
+}
+
 export const shortModel = (m) => (m || '').replace(/^claude-/, '');
 
 // Identifiant de modèle complet (ex. « claude-opus-4-8 », voire daté « …-4-8-20251101 ») → clé du
