@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { warmupSlots, warmupPlan, warmupAnchor, warmupDecision } from '../server/warmup.js';
+import { warmupSlots, warmupPlan, warmupAnchor, warmupDecision, parsePingOutput } from '../server/warmup.js';
 
 const DAY = [['09:00', '12:00'], ['14:00', '18:00']];
 const SLOTS = warmupSlots(DAY);
@@ -125,5 +125,23 @@ describe('warmupDecision', () => {
     const fixed = { ...CFG, mode: 'fixed', at: '07:30' };
     expect(warmupDecision(fixed, at(6, 0), util('session', 0, closed), {}).act).toBe(false);
     expect(warmupDecision(fixed, at(7, 30), util('session', 0, closed), {}).act).toBe(true);
+  });
+});
+
+describe('parsePingOutput', () => {
+  it('reads cost and session_id off the SDKResultMessage envelope', () => {
+    const stdout = JSON.stringify({ type: 'result', subtype: 'success', total_cost_usd: 0.0012, session_id: 'abc-123', result: 'ok' });
+    expect(parsePingOutput(stdout)).toEqual({ cost: 0.0012, sessionId: 'abc-123' });
+  });
+
+  it('is tolerant of a login-shell preamble before the JSON (zoxide/p10k/nvm under launchd)', () => {
+    const stdout = 'zoxide: some noise\n' + JSON.stringify({ total_cost_usd: 0.002, session_id: 'xyz' });
+    expect(parsePingOutput(stdout)).toEqual({ cost: 0.002, sessionId: 'xyz' });
+  });
+
+  it('falls back to nulls on malformed or empty output', () => {
+    expect(parsePingOutput('')).toEqual({ cost: null, sessionId: null });
+    expect(parsePingOutput('not json')).toEqual({ cost: null, sessionId: null });
+    expect(parsePingOutput(JSON.stringify({ total_cost_usd: 'nope' }))).toEqual({ cost: null, sessionId: null });
   });
 });
