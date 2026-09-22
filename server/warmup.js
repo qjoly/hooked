@@ -25,6 +25,7 @@ import path from 'node:path';
 import { HOOKED_DIR, isValidModelArg } from './config.js';
 import { readSettings } from './settings.js';
 import { currentUtilization, accountLimit } from './utilization.js';
+import { setSessionMeta } from './sessionMeta.js';
 
 const WINDOW_MIN = 300;            // the 5h window, in minutes
 const TICK_MS = 60_000;
@@ -194,6 +195,26 @@ function warmupDecision(c, now, util, state) {
 
 // ---------- the ping ----------
 
+// `claude -p --output-format json` emits an SDKResultMessage envelope: `session_id` sits right
+// next to `total_cost_usd`, so the id of the throwaway ping session comes for free from the same
+// parse — no need to correlate by prompt text or timestamp. Extract by braces rather than a bare
+// JSON.parse — same reason as digests.js's objFromBraces: a login-shell preamble (zoxide/p10k/nvm)
+// can prepend noise to stdout under launchd/systemd. Pure so it's unit-testable without spawning
+// a process.
+function parsePingOutput(stdout) {
+  const start = stdout.indexOf('{');
+  const end = stdout.lastIndexOf('}');
+  if (start === -1 || end === -1 || end < start) return { cost: null, sessionId: null };
+  try {
+    const j = JSON.parse(stdout.slice(start, end + 1));
+    const cost = typeof j?.total_cost_usd === 'number' ? j.total_cost_usd : null;
+    const sessionId = typeof j?.session_id === 'string' && j.session_id ? j.session_id : null;
+    return { cost, sessionId };
+  } catch (_) {
+    return { cost: null, sessionId: null };
+  }
+}
+
 // One throwaway `claude -p`, wrapped in a login+interactive shell for PATH parity with
 // server/digests.js — a hooked started from launchd/systemd otherwise does not find `claude`.
 function runPing(model) {
@@ -218,9 +239,8 @@ function runPing(model) {
     });
     child.on('close', (code) => {
       clearTimeout(timer);
-      let cost = null;
-      try { const j = JSON.parse(out); cost = typeof j?.total_cost_usd === 'number' ? j.total_cost_usd : null; } catch (_) {}
-      if (code === 0) return finish({ ok: true, cost });
+      const { cost, sessionId } = parsePingOutput(out);
+      if (code === 0) return finish({ ok: true, cost, sessionId });
       finish({ ok: false, error: `claude -p exited ${code}${err ? ': ' + err.trim().slice(0, 200) : ''}` });
     });
     try { child.stdin.write(PING_PROMPT); child.stdin.end(); } catch (_) {}
@@ -244,6 +264,12 @@ async function tick(now = new Date(), { force = false } = {}) {
   } finally {
     inflight = false;
   }
+  // The ping is a throwaway to unlock budget, not a conversation to review — archive it on sight
+  // so it doesn't clutter the active list. Best-effort: a write failure here must not lose the
+  // ping's own outcome below.
+  if (res.ok && res.sessionId) {
+    try { setSessionMeta(res.sessionId, { archived: true }); } catch (_) {}
+  }
   writeState({
     lastPingAt: now.getTime(),
     lastPingDay: localDay(now),
@@ -251,6 +277,7 @@ async function tick(now = new Date(), { force = false } = {}) {
     lastResult: res.ok ? 'ok' : 'error',
     lastError: res.ok ? null : res.error,
     lastCost: res.cost ?? null,
+    lastSessionId: res.sessionId ?? null,
   });
   return { ...decision, result: res };
 }
@@ -308,4 +335,5 @@ export {
   warmupPlan,
   warmupAnchor,
   warmupDecision,
+  parsePingOutput,
 };
