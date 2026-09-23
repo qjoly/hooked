@@ -98,6 +98,16 @@ function buildConversation(fp, includeSidechain) {
     // le rendu d'un skill lancé en commande slash : /code-review écrit sa revue entière ici, et
     // NULLE PART ailleurs dans le transcript principal — aucun tour assistant n'est journalisé. Sans
     // ce cas, la conversation s'arrêtait sur le prompt et la revue n'était visible nulle part.
+    // Compaction boundary: from here on the model sees a summary instead of what came before. One
+    // system line, with the CLI's own before/after sizes (`postTokens` leaves out system + tools).
+    if (j.type === 'system' && j.subtype === 'compact_boundary') {
+      const meta = j.compactMetadata || {};
+      msgs.push({
+        role: 'system', kind: 'compact', ts: j.timestamp, text: 'Conversation compacted',
+        preTokens: meta.preTokens || null, postTokens: meta.postTokens || null,
+      });
+      continue;
+    }
     if (j.type === 'system' && j.subtype === 'local_command' && typeof j.content === 'string') {
       const out = (j.content.match(/<local-command-stdout>([\s\S]*)<\/local-command-stdout>/) || [])[1];
       const raw = (out || '').trim();
@@ -133,6 +143,9 @@ function buildConversation(fp, includeSidechain) {
       const c = j.message.content;
       if (Array.isArray(c) && c.some((b) => b && b.type === 'tool_result')) continue;
       const text = chatText(c);
+      // Compaction: the summary turn and the echo of a bare `/compact` would read as messages the
+      // user typed — the `compact_boundary` line above stands for the whole operation.
+      if (j.isCompactSummary || text === '/compact') continue;
       // Invocation d'un skill (outil Skill / slash command) : Claude Code injecte tout le SKILL.md
       // comme un tour user isMeta commençant par « Base directory for this skill: … ». Sans ça il
       // s'afficherait comme une énorme fausse bulle « 🧑 You ». On le drop ; le chip 🔧 Skill suffit
