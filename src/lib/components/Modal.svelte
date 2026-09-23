@@ -8,6 +8,7 @@
   import EditTagsModal from './EditTagsModal.svelte';
   import ConfirmModal from './ConfirmModal.svelte';
   import AccountModal from './AccountModal.svelte';
+  import GroupPickerModal from './GroupPickerModal.svelte';
 
   let card;
   let prevFocus = null;
@@ -44,7 +45,7 @@
 {#if ui.modal}
   <div class="modal" role="dialog" aria-modal="true" aria-label={ui.modal.type}>
     <div class="modal-bg" onclick={closeModal}></div>
-    <div class="modal-card" class:narrow={ui.modal.type === 'editTags' || ui.modal.type === 'confirm' || ui.modal.type === 'account'} bind:this={card}>
+    <div class="modal-card" class:narrow={ui.modal.type === 'editTags' || ui.modal.type === 'groupPicker' || ui.modal.type === 'confirm' || ui.modal.type === 'account'} bind:this={card}>
       <button class="modal-close" onclick={closeModal} aria-label="Close"><Icon name="close" /></button>
       <div>
         {#if ui.modal.type === 'cost'}
@@ -59,6 +60,8 @@
           <ConfirmModal r={ui.modal.data} />
         {:else if ui.modal.type === 'account'}
           <AccountModal />
+        {:else if ui.modal.type === 'groupPicker'}
+          <GroupPickerModal r={ui.modal.data} />
         {/if}
       </div>
     </div>

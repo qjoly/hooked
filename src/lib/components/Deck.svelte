@@ -4,7 +4,8 @@
   // Replaces the old empty-cockpit Overview and the /board kanban.
   import { untrack } from 'svelte';
   import { goto } from '$app/navigation';
-  import { ui, data, sessionTitle, sessionTags, loadSessions, toggleArchive, isArchived, isSessionArchived, snoozeSession, snoozeUntil } from '$lib/state.svelte.js';
+  import { ui, data, sessionTitle, sessionTags, loadSessions, toggleArchive, isArchived, isSessionArchived, snoozeSession, snoozeUntil, groupUnits, isGroupArchived, isGrouped, groupName } from '$lib/state.svelte.js';
+  import { dragSession, dropSession, dropDetach } from '$lib/groupDnd.js';
   import { getSession, reply } from '$lib/api.js';
   import { ago, tagColor, STATE_LABEL } from '$lib/format.js';
   import Question from './Question.svelte';
@@ -102,10 +103,10 @@
     const hay = `${s.repo} ${s.projectName} ${sessionTitle(s)} ${s.lastPrompt} ${s.gitBranch} ${sessionTags(s.id).join(' ')}`.toLowerCase();
     return hay.includes(q);
   }
-  // fleet rows shown per group: every live session + up to 8 rows; the rest behind an expander.
+  // fleet rows shown per repo: every live session group + up to 8; the rest behind an expander.
   function visibleItems(g) {
     if (expandedGroups[g.proj]) return g.items;
-    return g.items.slice(0, Math.max(8, g.items.filter(isLive).length));
+    return g.items.slice(0, Math.max(8, g.items.filter(unitLive).length));
   }
   let view = $state((typeof localStorage !== 'undefined' && localStorage.getItem('hooked.deckView')) || 'grid');
   $effect(() => { try { localStorage.setItem('hooked.deckView', view); } catch {} });
@@ -113,6 +114,7 @@
 
   const projectKey = (s) => s.repo || s.projectName || '—';
   const isLive = (s) => ['working', 'background', 'waiting', 'attention'].includes(s.state);
+  const unitLive = (u) => u.all.some(isLive);
   const dotClass = (s) =>
     s.hasQuestion || s.hasPlan || s.state === 'attention' ? 'attention'
     : s.state === 'working' ? 'working'
@@ -128,28 +130,31 @@
     return null;
   }
 
-  // Archived sessions are NEVER shown in the repo-grouped fleet; they live in their own collapsed
-  // section at the bottom (below).
-  const archivedList = $derived(S.filter((s) => isSessionArchived(s) && matchesQ(s))
-    .sort((a, b) => String(b.lastActivity || '').localeCompare(String(a.lastActivity || ''))));
+  const byRecent = (a, b) => String(b.lastActivity || '').localeCompare(String(a.lastActivity || ''));
+  // The fleet shows session GROUPS (cf. groupUnits): one card per group, headed by its mother,
+  // children listed inside the card. Archived groups (every member archived) are NEVER shown in
+  // the repo-grouped fleet; they live in their own collapsed section at the bottom (below).
+  const archivedList = $derived(groupUnits(S.filter((s) => isSessionArchived(s) && matchesQ(s)).sort(byRecent))
+    .filter((u) => isGroupArchived(u.key)));
 
   const fleetGroups = $derived.by(() => {
-    const list = S.filter((s) => !isSessionArchived(s) && matchesQ(s));
+    const units = groupUnits(S.filter((s) => !isSessionArchived(s) && matchesQ(s)).sort(byRecent));
     const g = new Map();
-    for (const s of list) {
-      const k = projectKey(s);
+    for (const u of units) {
+      const k = projectKey(u.mother); // a group sits under its mother's repo
       if (!g.has(k)) g.set(k, []);
-      g.get(k).push(s);
+      g.get(k).push(u);
     }
-    const lastOf = (arr) => arr.reduce((m, s) => Math.max(m, Date.parse(s.lastActivity || 0) || 0), 0);
+    const lastOfUnit = (u) => u.all.reduce((m, s) => Math.max(m, Date.parse(s.lastActivity || 0) || 0), 0);
+    const lastOf = (arr) => arr.reduce((m, u) => Math.max(m, lastOfUnit(u)), 0);
     return [...g.keys()]
       .sort((a, b) => lastOf(g.get(b)) - lastOf(g.get(a)))
       .map((proj) => {
         const items = g.get(proj).slice().sort((a, b) => {
-          if (isLive(a) !== isLive(b)) return isLive(a) ? -1 : 1;
-          return String(b.lastActivity || '').localeCompare(String(a.lastActivity || ''));
+          if (unitLive(a) !== unitLive(b)) return unitLive(a) ? -1 : 1;
+          return lastOfUnit(b) - lastOfUnit(a);
         });
-        return { proj, items, newProject: items[0]?.project || '' };
+        return { proj, items, newProject: items[0]?.mother.project || '' };
       });
   });
   const fleetTotal = $derived(fleetGroups.reduce((a, g) => a + g.items.length, 0));
@@ -190,6 +195,7 @@
             <span class="tdot t-{meta.cls}"></span>
             <span class="tkind tk-{meta.cls}">{meta.label}</span>
             <button class="ttitle" onclick={() => open(s)} title="Open the session">{sessionTitle(s)}</button>
+            {#if isGrouped(s.id)}<span class="tgroup" title="Session group"><Icon name="sessions" size={11} /> {groupName(s.id)}</span>{/if}
             <span class="tmeta">{s.repo || s.projectName || ''}{#if s.gitBranch} · <Icon name="git-branch" size={12} /> {s.gitBranch}{/if}</span>
             <span class="tago">{ago(s.lastActivity)}</span>
           </header>
@@ -256,7 +262,7 @@
     <section class="fleet-col">
       <div class="colhead">
         <h2>The fleet</h2>
-        <span class="colcount">{fleetTotal} session{fleetTotal === 1 ? '' : 's'} · {active} active</span>
+        <span class="colcount">{fleetTotal} group{fleetTotal === 1 ? '' : 's'} · {active} active</span>
         <input class="fleet-q" type="search" placeholder="Filter…" bind:value={fq} />
         <div class="viewseg">
           <button class:on={view === 'list'} onclick={() => (view = 'list')} title="List"><Icon name="list" size={15} /></button>
@@ -266,19 +272,20 @@
 
       {#each fleetGroups as g (g.proj)}
         <div class="repo-group">
-          <div class="repo-head">
+          <!-- drop a grouped session on a repo header to take it out of its group -->
+          <div class="repo-head" use:dropDetach>
             <span class="repo-name">{g.proj}</span>
             <span class="repo-n">{g.items.length}</span>
             <a class="repo-plus" href={'/new?project=' + encodeURIComponent(g.newProject)} title="New session in this project"><Icon name="plus" size={15} /></a>
           </div>
           <div class="fleet" class:grid={view === 'grid'}>
             {@render fhead()}
-            {#each visibleItems(g) as s (s.id)}
-              {@render fcard(s)}
+            {#each visibleItems(g) as u (u.key)}
+              {@render fcard(u)}
             {/each}
             {#if !expandedGroups[g.proj] && g.items.length > visibleItems(g).length}
               <button class="fmore" onclick={() => (expandedGroups = { ...expandedGroups, [g.proj]: true })}>
-                <Icon name="plus" size={13} /> {g.items.length - visibleItems(g).length} older session{g.items.length - visibleItems(g).length > 1 ? 's' : ''}
+                <Icon name="plus" size={13} /> {g.items.length - visibleItems(g).length} older group{g.items.length - visibleItems(g).length > 1 ? 's' : ''}
               </button>
             {/if}
           </div>
@@ -296,8 +303,8 @@
           {#if archivedOpen}
             <div class="fleet" class:grid={view === 'grid'}>
               {@render fhead()}
-              {#each archivedList as s (s.id)}
-                {@render fcard(s)}
+              {#each archivedList as u (u.key)}
+                {@render fcard(u)}
               {/each}
             </div>
           {/if}
@@ -323,14 +330,17 @@
   </div>
 {/snippet}
 
-{#snippet fcard(s)}
+{#snippet fcard(u)}
+  {@const s = u.mother}
   {@const ended = s.state === 'ended' || s.state === 'past'}
-  <div class="fcard" class:dim={!isLive(s) || isSessionArchived(s)} class:archived={isSessionArchived(s)}
+  <div class="fcard" class:dim={!unitLive(u) || isGroupArchived(s.id)} class:archived={isGroupArchived(s.id)}
        role="button" tabindex="0" onclick={() => open(s)}
+       use:dragSession={s.id} use:dropSession={s.id}
        onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(s); } }}>
     <span class="frow1">
       <span class="fdot f-{dotClass(s)}"></span>
-      <span class="ft">{sessionTitle(s)}</span>
+      <span class="ft" title={u.children.length ? 'Group · mother session: ' + sessionTitle(s) : undefined}>{u.children.length ? groupName(s.id) : sessionTitle(s)}</span>
+      {#if u.children.length}<span class="fgn" title="{u.all.length} sessions in this group"><Icon name="sessions" size={11} /> {u.all.length}</span>{/if}
       <!-- Table cells for the datadog scheme. Markup cannot be conditioned on a palette, so they
            ship for every scheme and are hidden by default (see .fbranch/.fstate in <style>);
            only :root[data-scheme="datadog"] reveals them, in app.css. -->
@@ -343,6 +353,21 @@
       <span class="fact" class:working={s.state === 'working'}><Icon name={snip.name} color={snip.color} size={13} /> {snip.text}</span>
     {/if}
     {@render convo(s)}
+    {#if u.children.length}
+      <!-- the group's other sessions, each openable (and draggable) from the card -->
+      <span class="fkids">
+        {#each u.children as c (c.id)}
+          <span class="fkid" role="button" tabindex="0" use:dragSession={c.id}
+                onclick={(e) => { e.stopPropagation(); open(c); }}
+                onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); open(c); } }}>
+            <span class="fdot f-{dotClass(c)}"></span>
+            <span class="fkid-t">{sessionTitle(c)}</span>
+            {#if liveSnippet(c)}<span class="fkid-a">{liveSnippet(c).text}</span>{/if}
+            <span class="fkid-ago">{ago(c.lastActivity)}</span>
+          </span>
+        {/each}
+      </span>
+    {/if}
     {#if sessionTags(s.id).length}
       <span class="fpills">
         {#each sessionTags(s.id) as t}<span class="fpill" style="--c:{tagColor(t)}"># {t}</span>{/each}
@@ -524,6 +549,26 @@
   .f-idle { background: var(--idle); }
   .ft { font-size: 12.5px; font-weight: 600; color: var(--text); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
   .fago { margin-left: auto; font-family: var(--mono); font-size: 9.5px; color: var(--muted); flex: 0 0 auto; }
+  /* session groups: member count on the head, the other members listed inside the card */
+  .fgn { display: inline-flex; align-items: center; gap: 3px; font-family: var(--mono); font-size: 9.5px; color: var(--muted); flex: 0 0 auto; }
+  .fkids { display: flex; flex-direction: column; gap: 2px; min-width: 0; padding-left: 6px; border-left: 1px solid var(--border2); }
+  .fkid {
+    display: flex; align-items: center; gap: 6px; min-width: 0; padding: 2px 6px; border-radius: 7px;
+    font-size: 11.5px; color: var(--text); cursor: pointer;
+  }
+  .fkid:hover { background: var(--hover); }
+  .fkid .fdot { width: 6px; height: 6px; }
+  .fkid-t { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+  .fkid-a { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: 10.5px; }
+  .fkid-ago { margin-left: auto; font-family: var(--mono); font-size: 9px; color: var(--muted); flex: 0 0 auto; }
+  .fcard:global(.drop-over) { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
+  .repo-head:global(.drop-over) { box-shadow: inset 0 0 0 2px var(--accent); border-radius: 8px; }
+  .fcard:global(.dragging), .fkid:global(.dragging) { opacity: .4; }
+  .tgroup {
+    display: inline-flex; align-items: center; gap: 3px; flex: 0 1 auto; min-width: 0; max-width: 30%;
+    font-size: 10.5px; font-weight: 600; color: var(--muted); padding: 1px 6px; border-radius: 6px;
+    background: var(--chip); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
   .fact { font-size: 11px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .fact.working { color: var(--working); font-style: italic; }
   /* last exchange preview: the user's message aligned right, Claude's reply left, both clamped. */

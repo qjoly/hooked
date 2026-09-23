@@ -126,7 +126,8 @@ const TOOLS = [
       'Démarre une nouvelle session Claude Code pilotée par hooked (ou reprend une session ' +
       'existante via resumeId), dans le dossier indiqué. La réponse inclut `sessionId` et `link` ' +
       "(deep-link relatif `/session/<id>`) : pour pointer l'utilisateur vers la nouvelle session " +
-      'dans hooked, émets un lien markdown `[label](<link>)`.',
+      'dans hooked, émets un lien markdown `[label](<link>)`. Une session lancée depuis une session ' +
+      'pilotée par hooked rejoint automatiquement le groupe de la session appelante.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -139,7 +140,9 @@ const TOOLS = [
       },
       additionalProperties: false,
     },
-    run: (a) => httpRequest('POST', '/api/launch', a),
+    // HOOKED_LAUNCH_KEY est injecté par hooked dans l'env de ce proxy (cf. hookedMcpServer) : il
+    // désigne la session appelante, que la nouvelle session rejoint dans son groupe.
+    run: (a) => httpRequest('POST', '/api/launch', process.env.HOOKED_LAUNCH_KEY ? { ...a, parentKey: process.env.HOOKED_LAUNCH_KEY } : a),
   },
   {
     name: 'stop_session',
