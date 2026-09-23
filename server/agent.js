@@ -32,6 +32,7 @@ import { scanSessions } from './transcript.js';
 import { readSettings } from './settings.js';
 import { refreshAgentStatus } from './agent-status.js';
 import { contextFromUsage, compactDue } from '../src/lib/promptCache.js';
+import { joinGroup } from './sessionMeta.js';
 
 function err400(msg) { const e = new Error(msg); e.code = 400; return e; }
 
@@ -437,11 +438,22 @@ const MCP_SERVER_CANDIDATES = [
 // located (launch proceeds without hooked tools, as before). Resolved on every launch: the
 // checkout may move. HOOKED_PORT is pinned so the proxy dials the hooked instance that launched
 // the session, not the default port. Additive (no strictMcpConfig): the session's own user/project
-// MCP servers stay loaded.
-function hookedMcpServer() {
+// MCP servers stay loaded. HOOKED_LAUNCH_KEY identifies the launching session to the proxy: the CLI
+// exposes no session id to its MCP servers, and a `start_session` issued from that session hands
+// the key back so the new session joins the caller's group (cf. launchSession `parentKey`).
+function hookedMcpServer(launchKey) {
   const server = MCP_SERVER_CANDIDATES.find((p) => { const st = statSafe(p); return st && st.isFile(); });
   if (!server) return null;
-  return { command: 'node', args: [server], env: { HOOKED_PORT: String(PORT) } };
+  const env = { HOOKED_PORT: String(PORT) };
+  if (launchKey) env.HOOKED_LAUNCH_KEY = launchKey;
+  return { command: 'node', args: [server], env };
+}
+
+// Session id of the driven session launched under `launchKey` (null when unknown / not started).
+function sessionIdForLaunchKey(launchKey) {
+  if (!launchKey) return null;
+  for (const st of live.values()) if (st.launchKey === launchKey && st.id) return st.id;
+  return null;
 }
 
 // Options SDK communes. `settingSources` est laissé par défaut (tous) : c'est ce qui fait que les
@@ -474,7 +486,7 @@ function sdkOptions({ cwd, model, effort, permissionMode, resumeId, worktree, in
     stderr: (data) => { st.stderr = String(data).slice(-4000); },
   };
   // Outils hooked (reply/resolve review comment…) même hors de ce repo — cf. hookedMcpServer().
-  const hookedMcp = hookedMcpServer();
+  const hookedMcp = hookedMcpServer(st.launchKey);
   if (hookedMcp) opts.mcpServers = { hooked: hookedMcp };
   if (worktree) opts.extraArgs = { worktree: null }; // `--worktree` : git worktree dédié
   return opts;
@@ -698,7 +710,7 @@ function resolveLaunchForSession(id) {
 
 // Lance `claude` via l'Agent SDK. `resumeId` reprend une session existante ; `worktree` ne vaut que
 // pour une session neuve (une reprise rouvre la session dans son dossier d'origine).
-function launchSession({ resumeId, cwd, prompt, model, effort, worktree, permissionMode, autoApprove }, cb) {
+function launchSession({ resumeId, cwd, prompt, model, effort, worktree, permissionMode, autoApprove, parentKey, groupWith }, cb) {
   let dir = cwd && typeof cwd === 'string' ? cwd : null;
   let id = null;
   if (resumeId) {
@@ -809,6 +821,10 @@ function launchSession({ resumeId, cwd, prompt, model, effort, worktree, permiss
     if (finalSt.error) return cb(new Error('agent sdk session failed: ' + finalSt.error));
     if (!finalSt.id) return cb(new Error('agent sdk session ended before reporting its id'));
     persistLaunch(finalSt.id, model, effort);
+    // Launched from another driven session (MCP start_session), or from a group's « + » (groupWith):
+    // the new session joins that group.
+    const parentId = !id && (sessionIdForLaunchKey(parentKey) || (typeof groupWith === 'string' && groupWith));
+    if (parentId && parentId !== finalSt.id) { try { joinGroup(finalSt.id, parentId); } catch (_) {} }
     try {
       fs.appendFileSync(LAUNCHES_FILE, JSON.stringify({
         ts: new Date().toISOString(), session_id: finalSt.id, cwd: finalSt.cwd,
@@ -1571,7 +1587,7 @@ export {
   agentAlive, agentSession, liveSessionIds,
   agentBusy, agentActivity, agentFollowup, agentLastProse, agentMode, agentAutoApprove, agentPendingAsk,
   agentSupportedCommands,
-  applyMessage, readLoop, permissionQuestion, handleToolPermission, makeInputQueue, userMessage, parseEnvBlock, loginEnv, withoutServerEnv, hookedMcpServer,
+  applyMessage, readLoop, permissionQuestion, handleToolPermission, makeInputQueue, userMessage, parseEnvBlock, loginEnv, withoutServerEnv, hookedMcpServer, sessionIdForLaunchKey,
   subscribeAgent, streamSnapshot,
   resolveLaunchForSession, sessionLaunchMap,
   launchSession, killSession, restartSession,

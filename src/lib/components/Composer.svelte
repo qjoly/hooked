@@ -15,7 +15,7 @@
   // pourrait envoyer, donc elle est solidaire de la saisie et ne défile pas avec le transcript.
   // Seul le masquage remonte (`onFollowupDismiss`), parce qu'il est persisté par session.
   let { id, alive = true, project = null, resumeModel = null, resumeEffort = null, lastPrompt = '',
-        onSent = null, newSession = false, model = '', effort = '', mode = 'default', worktree = false, onLaunched = null,
+        onSent = null, newSession = false, model = '', effort = '', mode = 'default', worktree = false, onLaunched = null, groupWith = null,
         onResumed = null, followup = null, onFollowupDismiss = null } = $props();
 
   // Reprendre la suggestion pour la retoucher : on la pose dans la saisie sans envoyer, et la carte
@@ -295,7 +295,7 @@
     busy = true;
     status = { text: newSession ? 'launching…' : (alive ? 'sending…' : 'restarting the session…'), cls: '' };
     const res = newSession
-      ? await launch({ cwd: project, prompt: full, model, effort, worktree, permissionMode: mode }).catch((e) => ({ ok: false, data: { error: e.message } }))
+      ? await launch({ cwd: project, prompt: full, model, effort, worktree, permissionMode: mode, groupWith: groupWith || undefined }).catch((e) => ({ ok: false, data: { error: e.message } }))
       : alive
         ? await reply(id, full).catch((e) => ({ ok: false, data: { error: e.message } }))
         : await launch({ resumeId: id, prompt: full, cwd: project, model: resumeModel || '', effort: resumeEffort || '' }).catch((e) => ({ ok: false, data: { error: e.message } }));
