@@ -33,6 +33,12 @@ describe('hookedMcpServer', () => {
     expect(hooked.env.HOOKED_PORT).toMatch(/^\d+$/);
   });
 
+  it('hands the launch key to the proxy so start_session can name its caller', () => {
+    expect(agent.hookedMcpServer('launch:abc').env.HOOKED_LAUNCH_KEY).toBe('launch:abc');
+    expect(agent.hookedMcpServer().env.HOOKED_LAUNCH_KEY).toBeUndefined();
+    expect(agent.sessionIdForLaunchKey('launch:unknown')).toBeNull();
+  });
+
   it('is stable: a relaunch resolves the same server', () => {
     const first = agent.hookedMcpServer();
     const second = agent.hookedMcpServer();

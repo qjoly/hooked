@@ -2,7 +2,7 @@
   import { onMount, untrack } from 'svelte';
   import { goto } from '$app/navigation';
   import { page } from '$app/state';
-  import { data, ui, settings, updateSettings } from '$lib/state.svelte.js';
+  import { data, ui, settings, updateSettings, groupName } from '$lib/state.svelte.js';
   import { getDefaults, pickFolder, getUsage } from '$lib/api.js';
   import Composer from './Composer.svelte';
   import ModelEffort from './ModelEffort.svelte';
@@ -125,6 +125,8 @@
   });
 
   const cwd = $derived(selected === '__custom' ? customCwd.trim() : selected);
+  // `?group=<id>` (a group's « + ») : the new session joins that group.
+  const groupWith = $derived(page.url.searchParams.get('group') || null);
 
   // « Other folder… » : ouvre le sélecteur de dossier natif de l'OS (macOS). En cas
   // d'échec/annulation, on retombe sur la saisie manuelle du champ texte.
@@ -166,7 +168,10 @@
     <h1 class="ns-title"><Icon name="hook" size={28} /> New session</h1>
     <p class="ns-sub">Launches <code>claude</code> through the <b>Agent SDK</b>, driven by hooked — your subscription, <b>zero token cost</b>.</p>
 
-    <Composer newSession project={cwd} {model} {effort} {mode} {worktree} {onLaunched} />
+    {#if groupWith}
+      <div class="ns-group"><Icon name="sessions" size={14} /> Joins the group <b>{groupName(groupWith)}</b></div>
+    {/if}
+    <Composer newSession project={cwd} {model} {effort} {mode} {worktree} {onLaunched} {groupWith} />
 
     {#if fableFallback}
       <div class="ns-quota" role="status">
