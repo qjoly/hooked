@@ -1,5 +1,5 @@
 import { dev } from '$app/environment';
-import { startDigestScheduler, startRemoteControl, readSettings, resumeDrivenSessions, startDrivenSnapshot, installShutdownHook, startWarmupScheduler } from '$lib/server/core.js';
+import { startDigestScheduler, startRemoteControl, readSettings, resumeDrivenSessions, startDrivenSnapshot, installShutdownHook, startWarmupScheduler, startAutoCompactScheduler } from '$lib/server/core.js';
 
 // Ctrl+C has to actually stop the process. adapter-node closes the HTTP listener on SIGINT but
 // never exits, so any handle left behind (fs watchers, driven subprocesses, PTYs) keeps hooked
@@ -29,3 +29,5 @@ if (!dev || process.env.HOOKED_MODE) {
 // /api/settings (like the git-sync loop), so this call is the one that covers a prod server nobody
 // has opened a browser on yet. Idempotent, and a no-op until the feature is switched on.
 startWarmupScheduler();
+// Same reasons for auto-compact (settings → autoCompact): every tick reads the setting.
+startAutoCompactScheduler();

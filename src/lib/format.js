@@ -13,14 +13,25 @@ export function fmtTokens(n) {
   return String(n);
 }
 export function fmtCost(n) { return '$' + (n || 0).toFixed(n >= 100 ? 0 : 2); }
-export function ago(ts) {
+// A duration in its coarsest unit: '12s', '5 min', '3 h', '2 d'. `sep: ''` gives the compact
+// form ('5min', '3h') for tight rows.
+export function fmtSpan(ms, sep = ' ') {
+  const s = Math.max(0, ms / 1000);
+  if (s < 60) return `${Math.floor(s)}s`;
+  if (s < 3600) return `${Math.floor(s / 60)}${sep}min`;
+  if (s < 86400) return `${Math.floor(s / 3600)}${sep}h`;
+  return `${Math.floor(s / 86400)}${sep}d`;
+}
+export function ago(ts, now = Date.now()) {
   if (!ts) return '—';
-  const s = Math.max(0, (Date.now() - Date.parse(ts)) / 1000);
-  if (s < 10) return 'just now';
-  if (s < 60) return `${Math.floor(s)}s ago`;
-  if (s < 3600) return `${Math.floor(s / 60)} min ago`;
-  if (s < 86400) return `${Math.floor(s / 3600)} h ago`;
-  return `${Math.floor(s / 86400)} d ago`;
+  const ms = now - Date.parse(ts);
+  return ms < 10_000 ? 'just now' : fmtSpan(ms) + ' ago';
+}
+// Compact `ago` for the session sidebar: '5min', '3h', 'now'.
+export function agoShort(ts, now = Date.now()) {
+  if (!ts) return '—';
+  const ms = now - Date.parse(ts);
+  return ms < 10_000 ? 'now' : fmtSpan(ms, '');
 }
 // 1-2 letter initials for the top bar avatar, matching what claude.ai's own avatar shows.
 // `name` here is only ever the FIRST name (`oauthAccount.displayName` in ~/.claude.json never

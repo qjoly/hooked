@@ -182,7 +182,8 @@ export const screenshotUrl = (session, p) =>
   '/api/screenshot?session=' + encodeURIComponent(session || '') + '&path=' + encodeURIComponent(p || '');
 export const interrupt = (id) => jpost('/api/interrupt', { id });
 export const setMode = (id, mode) => jpost('/api/mode', { id, mode });
-export const setModelEffort = (id, model, effort) => jpost('/api/model', { id, model, effort });
+// `force` confirms a model switch the server held because the prompt cache was still warm.
+export const setModelEffort = (id, model, effort, force = false) => jpost('/api/model', { id, model, effort, force });
 export const launch = (payload) => jpost('/api/launch', payload);
 // Ouvre le sélecteur de dossier natif de l'OS (macOS) ; renvoie { dir } ou { canceled }.
 export const pickFolder = (start) => jpost('/api/pick-folder', start ? { start } : {});

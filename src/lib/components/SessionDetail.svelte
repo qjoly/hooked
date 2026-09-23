@@ -11,6 +11,7 @@
   import { goto } from '$app/navigation';
   import { ui, data, settings, loadSessions, openModal, sessionTitle, sessionTags, renameSession, toggleFocus, splitWithMostRecent, canSplit, toggleArchive, isArchived, unarchive } from '$lib/state.svelte.js';
   import { getSession, setMode, setModelEffort, setAutoApprove, openInEditor, openInGhostty, fork, launch, deleteSession, connectSessionStream, listTerminals, openTerminal, killTerminal } from '$lib/api.js';
+  import { promptCacheState } from '$lib/promptCache.js';
   import { STATE_LABEL, fmtCost, fmtTokens, fmtDuration, shortModel, prLabel, issueLabel, PERMISSION_MODES, modeLabel, modeMeta, modelAlias, tagColor, resumeCommand, parseBang, isBlockForCommand } from '$lib/format.js';
   import { page } from '$app/state';
   import ModelEffort from './ModelEffort.svelte';
@@ -460,10 +461,11 @@
     if (resuming) return;
     resuming = true;
     resumeStatus = '';
+    // No model on a resume: the CLI restores the session's own, and forcing another one empties its
+    // prompt cache (caches are per model). The effort is repeated as-is for the same reason.
     const res = await launch({
       resumeId: s.id, prompt: '',
-      model: settings.defaultModel || s.launchModel || modelAlias(s.model) || 'opus',
-      effort: settings.defaultEffort || s.effort || 'high',
+      effort: s.effort || undefined,
       permissionMode: settings.defaultMode || 'default',
     }).catch((e) => ({ ok: false, data: { error: e?.message || 'failed' } }));
     if (res.ok) {
@@ -530,11 +532,31 @@
     const e = s.effort || 'high';
     untrack(() => { editModel = m; editEffort = e; });
   });
-  async function applyModelEffort() {
+  async function applyModelEffort(force = false) {
     if (meBusy) return;
     meBusy = true;
     meStatus = '…';
-    const res = await setModelEffort(s.id, editModel, editEffort).catch((e) => ({ ok: false, data: { error: e.message } }));
+    const model = editModel, effort = editEffort;
+    const res = await setModelEffort(s.id, model, effort, force).catch((e) => ({ ok: false, data: { error: e.message } }));
+    if (res.ok && res.data.held) {
+      // The prompt cache is warm and a model switch would drop it (server/agent.js →
+      // decideModelSwitch): show the CLI's own figures, put the picker back, and only re-apply with
+      // `force` once the user confirms.
+      const ci = res.data.cacheImpact || {};
+      meStatus = '';
+      meBusy = false;
+      editModel = s.launchModel || modelAlias(s.model) || editModel;
+      openModal('confirm', {
+        title: 'Switch model and drop a warm cache?',
+        message: 'This conversation (' + fmtTokens(ci.contextTokens || 0) + ' tokens) is cached for ' + shortModel(ci.fromModel || s.model || 'the current model')
+          + '. Caches are per model: switching to ' + shortModel(ci.toModel || model) + ' re-caches all of it'
+          + (ci.estimatedCacheWriteUsd ? ' (≈ ' + fmtCost(ci.estimatedCacheWriteUsd) + ' at the cache-write rate)' : '')
+          + '.\n\nWait for the cache to expire, or switch now.',
+        confirmLabel: 'Switch anyway',
+        onConfirm: () => { editModel = model; editEffort = effort; applyModelEffort(true); },
+      });
+      return;
+    }
     if (res.ok) {
       meStatus = '✓ ' + editModel + ' · ' + editEffort;
       setTimeout(() => { meStatus = ''; }, 2500);
@@ -679,6 +701,18 @@
     `Context window: ${ctx.pct}% used`
     + (ctx.size ? ` of ${fmtTokens(ctx.size)} tokens` : '')
     + (s.live ? '' : ' — last known value, session is not running'));
+
+  // ── Prompt cache ──────────────────────────────────────────────────────────────────────────────
+  // s.cache = the session's cache clock (server/stats.js → sessionCache). Warm/cold is derived here
+  // against the local clock (nowMs) so the badge counts down without a refetch.
+  const cache = $derived(s && s.cache ? promptCacheState(s.cache, nowMs) : null);
+  const cacheKnown = $derived(!!cache && cache.known);
+  const fmtMins = (ms) => Math.max(1, Math.ceil(ms / 60000)) + ' min';
+  const cacheLabel = $derived(!cacheKnown ? '' : cache.warm ? 'Cache · ' + fmtMins(cache.remainingMs) : 'Cache cold');
+  const cacheTitle = $derived(!cacheKnown ? '' : cache.warm
+    ? 'Prompt cache warm for ' + fmtMins(cache.remainingMs) + ' more (' + cache.ttl + ' TTL): the next message re-reads the conversation at the cached rate.'
+    : 'Prompt cache expired (' + cache.ttl + ' TTL): the next message' + (s.live ? '' : ' or a resume') + ' re-caches the whole conversation'
+      + (cache.contextTokens ? ' — about ' + fmtTokens(cache.contextTokens) + ' tokens at the cache-write rate' : '') + '.');
 </script>
 
 {#if s}
@@ -736,6 +770,14 @@
       {/if}
 
       <div class="head-actions">
+        <!-- Prompt-cache clock (s.cache): warm = the next message re-reads the conversation at the
+             cached rate, cold = it re-caches all of it. For an ended session this is what a Resume
+             costs right now. Counts down locally. -->
+        {#if cacheKnown}
+          <span class="cache-badge" class:warm={cache.warm} title={cacheTitle}>
+            <Icon name={cache.warm ? 'zap' : 'clock'} size={12} tint={false} /> {cacheLabel}
+          </span>
+        {/if}
         {#if s.live}
           <!-- modèle/effort + mode de permission vivent dans le menu ⋯ ; seul le retour
                éphémère d'un changement (✓ Auto, ✗ failed…) s'affiche ici. -->
@@ -894,7 +936,7 @@
              (`followupSuggestion` vient du registre de l'Agent SDK), donc rien n'est perdu à la
              faire dépendre de ce `{#if}`. Seul le masquage remonte ici, car il est persisté. -->
         <Composer bind:this={composer} {id} alive={s.live} project={s.project}
-                  resumeModel={s.launchModel} resumeEffort={s.effort} lastPrompt={s.lastPrompt || ''} {onSent}
+                  resumeEffort={s.effort} lastPrompt={s.lastPrompt || ''} {onSent}
                   onResumed={() => load(true)}
                   followup={showFollowup ? followup : null} onFollowupDismiss={dismissFollowup} />
       {/if}
@@ -1077,6 +1119,13 @@
   .ctx-gauge.crit { border-color: rgba(var(--warn-rgb), .7); }
   /* stopped session: last known value, hence muted (cf. ctxTitle). */
   .ctx-gauge.cold { opacity: .55; }
+  /* Prompt-cache clock: same pill as the context gauge; warm = readable, cold = muted. */
+  .cache-badge {
+    flex: 0 0 auto; display: inline-flex; align-items: center; gap: 4px;
+    font: 600 9.5px var(--mono); letter-spacing: .04em; color: var(--muted); font-variant-numeric: tabular-nums;
+    padding: 2px 7px; border: 1px solid var(--border2); border-radius: 999px;
+  }
+  .cache-badge.warm { color: var(--text); border-color: rgba(var(--warn-rgb), .45); }
   .head-actions { margin-left: auto; display: flex; align-items: center; gap: 8px; flex: 0 0 auto; }
   .hdr-icon-btn {
     width: 30px; height: 28px; border: 1px solid var(--border2); border-radius: 8px;
@@ -1102,7 +1151,7 @@
   }
   @container (max-width: 440px) {
     /* 3) enfin le statut et la branche disparaissent ; le TITRE, lui, reste toujours lisible. */
-    .head-meta, .s-badge, .head-tags, .ctx-gauge { display: none; }
+    .head-meta, .s-badge, .head-tags, .ctx-gauge, .cache-badge { display: none; }
   }
   .head-line + :global(.subtabs) { margin-top: 9px; }
   .strip-modes { display: flex; gap: 4px; }

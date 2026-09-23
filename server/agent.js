@@ -31,6 +31,7 @@ import { statSafe } from './util.js';
 import { scanSessions } from './transcript.js';
 import { readSettings } from './settings.js';
 import { refreshAgentStatus } from './agent-status.js';
+import { contextFromUsage, compactDue } from '../src/lib/promptCache.js';
 
 function err400(msg) { const e = new Error(msg); e.code = 400; return e; }
 
@@ -249,6 +250,15 @@ function markIdle(st) { if (st.pendingAsk) return; st.sdkState = 'idle'; st.busy
 //   assistant tool_use                        → verbe d'activité (ex-gérondif du spinner)
 //   assistant text                            → dernière prose (ex-lastPaneProse)
 //   prompt_suggestion                         → follow-up suggéré (ex-ghost text DIM)
+// The prompt-cache clock runs from the START of each API request. Two signals mark one on the
+// stream: the CLI's `status: requesting` (once per request) and the first stream event of the
+// response (`message_start`), for CLIs that skip the status message.
+function isRequestStart(msg) {
+  if (!msg) return false;
+  if (msg.type === 'system' && msg.subtype === 'status' && msg.status === 'requesting') return true;
+  return msg.type === 'stream_event' && !!msg.event && msg.event.type === 'message_start';
+}
+
 function applyMessage(st, msg) {
   if (!msg || typeof msg !== 'object') return false;
   switch (msg.type) {
@@ -265,7 +275,16 @@ function applyMessage(st, msg) {
         // 'requesting' = requête modèle en vol, 'compacting' = compaction : les deux « moulinent ».
         if (msg.status === 'requesting' || msg.status === 'compacting') markRunning(st);
         else markIdle(st);
+        if (msg.status === 'compacting') st.activity = 'Compacting';
         if (msg.permissionMode) st.permissionMode = msg.permissionMode;
+        return true;
+      }
+      if (msg.subtype === 'compact_boundary') {
+        // The conversation was replaced by a summary: the cached prefix matches nothing the next
+        // request sends — that request writes a fresh, much smaller one. Until it lands, the cache
+        // clock and the context size are unknown.
+        st.lastRequestAt = null;
+        st.lastUsage = null;
         return true;
       }
       if (msg.subtype === 'session_state_changed') {
@@ -298,6 +317,13 @@ function applyMessage(st, msg) {
       st.sdkState = 'idle';
       st.stream = null;   // le transcript porte désormais le tour : le tampon d'affichage n'a plus lieu d'être
       st.lastResult = { costUsd: msg.total_cost_usd || 0, turns: msg.num_turns || 0, isError: !!msg.is_error };
+      st.lastUsage = contextFromUsage(msg.usage) || st.lastUsage;
+      // End of hooked's own /compact (cf. startAutoCompact): the suggestion on screen stays the one
+      // of the last real turn.
+      if (st.autoCompacting) {
+        st.autoCompacting = false;
+        st.dropNextSuggestion = true;
+      }
       // Une nouvelle réponse rend la suggestion précédente périmée : elle sera republiée si besoin.
       return true;
     case 'stream_event': {
@@ -336,6 +362,7 @@ function applyMessage(st, msg) {
       return true;
     }
     case 'prompt_suggestion':
+      if (st.dropNextSuggestion) { st.dropNextSuggestion = false; return false; }
       st.followup = typeof msg.suggestion === 'string' && msg.suggestion.trim() ? msg.suggestion.trim() : null;
       return true;
     case 'tool_use_summary':
@@ -443,6 +470,7 @@ function sdkOptions({ cwd, model, effort, permissionMode, resumeId, worktree, in
     // maintenant en message `prompt_suggestion`.
     promptSuggestions: true,
     canUseTool: (toolName, toolInput, ctx) => handleToolPermission(st, toolName, toolInput, ctx),
+    hooks: { PreModelSwitch: [{ hooks: [(input) => preModelSwitchHook(st, input)] }] },
     stderr: (data) => { st.stderr = String(data).slice(-4000); },
   };
   // Outils hooked (reply/resolve review comment…) même hors de ce repo — cf. hookedMcpServer().
@@ -593,6 +621,7 @@ async function readLoop(st) {
         const f = st.onInit; st.onInit = null; f(st);
       }
       st.lastMsgAt = Date.now();
+      if (isRequestStart(msg)) st.lastRequestAt = Date.now();
       // On ne pousse aux abonnés que quand l'état visible a bougé. Les deltas de texte passent par
       // la fenêtre de coalescence (FLUSH_MS) ; les transitions qui comptent pour l'UI — fin de tour,
       // attente d'une action — partent tout de suite, sinon la carte question s'afficherait avec
@@ -729,11 +758,20 @@ function launchSession({ resumeId, cwd, prompt, model, effort, worktree, permiss
     readyWaiters: [],   // appelants qui attendent ce premier message (cf. whenReady)
     startedAt: new Date().toISOString(),
     lastMsgAt: Date.now(),
+    lastRequestAt: null,        // start of the last API request seen on the stream: the prompt-cache clock
+    lastUsage: null,            // { contextTokens, ttl } of the last turn (cf. src/lib/promptCache.js)
+    autoCompacting: false,      // the turn in flight is hooked's own /compact (cf. startAutoCompact)
+    dropNextSuggestion: false,  // a suggestion computed after our /compact must not replace the real one
+    modelSwitch: null,          // { force, held } around a setModel() we initiated (PreModelSwitch hook)
   };
   // Enregistrés SYNCHRONEMENT (avant l'attente de l'env) : une reprise concurrente de la même
   // session doit être rejetée tout de suite, et la session doit être annulable pendant son démarrage.
   pending.set(st.launchKey, st);
   if (id) live.set(id, st); // reprise : l'id est connu d'avance, la session est pilotable tout de suite
+  // A resumed session's cache clock starts from its transcript: the last response stands for the
+  // last request until this process sees one. Without it, auto-compact (registry only) would sit
+  // blind after every hooked restart, exactly when the sessions were just resumed.
+  if (id) seedCacheClock(st, id);
 
   // Le prompt initial est mis en file TOUT DE SUITE : le SDK bufferise l'entrée jusqu'à ce que le CLI
   // soit prêt. Plus d'attente de composer, plus de dialogue de confiance à accepter, plus de fenêtre
@@ -1061,6 +1099,7 @@ function pushReply(st, id, text, cb) {
   }
   st.busy = true;
   st.followup = null; // la suggestion précédente n'a plus de sens
+  st.dropNextSuggestion = false; // a real turn: its suggestion is wanted again
   cb(null, { sessionId: id, sent: parts.length });
 }
 
@@ -1249,22 +1288,39 @@ function setMode(id, target, cb) {
   }).catch((e) => cb(new Error('setPermissionMode failed: ' + ((e && e.message) || e))));
 }
 
-// Change modèle et/ou effort. Plus de `/model` tapé au clavier ni de dialogue de confirmation
-// « la conversation va être relue » à piloter : deux requêtes de contrôle.
-function setModelEffort(id, { model, effort } = {}, cb) {
+// Change modèle et/ou effort : deux requêtes de contrôle, plus de `/model` tapé au clavier.
+// The confirm dialog the TUI shows for a model switch while the prompt cache is warm comes back
+// here as a HOLD: the PreModelSwitch hook (cf. decideModelSwitch) denies the switch and keeps the
+// CLI's own figures, the caller gets `{ held: true, cacheImpact }` instead of a result, and the
+// user confirms by calling again with `force`.
+function setModelEffort(id, { model, effort, force = false } = {}, cb) {
   const st = drivableSession(id);
   if (!st) return cb(err400('no live agent session for this id'));
   if (model && !isValidModelArg(model)) return cb(err400('unknown model: ' + model));
   if (effort && !isValidEffort(effort)) return cb(err400('unknown effort: ' + effort));
   if (!model && !effort) return cb(err400('model or effort required'));
-  const steps = [];
-  if (model) steps.push(st.q.setModel(model).then(() => { st.model = model; st.launchModel = model; }));
-  if (effort) steps.push(st.q.applyFlagSettings({ effortLevel: effort }).then(() => { st.effort = effort; st.launchEffort = effort; }));
-  Promise.all(steps).then(() => {
-    const prev = sessionLaunchMap().get(id) || {};
-    persistLaunch(id, model || prev.model || null, effort || prev.effort || null);
-    cb(null, { sessionId: id, model: model || null, effort: effort || null });
-  }).catch((e) => cb(new Error('model/effort change failed: ' + ((e && e.message) || e))));
+  st.modelSwitch = { force: !!force, held: null };
+  const held = () => (st.modelSwitch && st.modelSwitch.held) || null;
+  const finish = (fn) => { const h = held(); st.modelSwitch = null; fn(h); };
+  const heldReply = (h) => cb(null, { sessionId: id, held: true, cacheImpact: h });
+  const switchModel = model
+    ? st.q.setModel(model).then(() => { if (!held()) { st.model = model; st.launchModel = model; } })
+    : Promise.resolve();
+  switchModel.then(() => {
+    if (held()) return finish(heldReply);
+    const applyEffort = effort
+      ? st.q.applyFlagSettings({ effortLevel: effort }).then(() => { st.effort = effort; st.launchEffort = effort; })
+      : Promise.resolve();
+    return applyEffort.then(() => finish(() => {
+      const prev = sessionLaunchMap().get(id) || {};
+      persistLaunch(id, model || prev.model || null, effort || prev.effort || null);
+      cb(null, { sessionId: id, model: model || null, effort: effort || null });
+    }));
+  }).catch((e) => {
+    // A denied switch may surface as a rejected control request: still a hold, not a failure.
+    if (held()) return finish(heldReply);
+    finish(() => cb(new Error('model/effort change failed: ' + ((e && e.message) || e))));
+  });
 }
 
 // Stoppe la session : on ferme la file d'entrée puis on avorte. La boucle de lecture nettoie.
@@ -1283,7 +1339,9 @@ function killSession(id, cb) {
 // recharge le transcript (philosophie « reconnect » du projet).
 function restartSession(id, { model, effort } = {}, cb) {
   const st = agentSession(id);
-  const relaunch = () => launchSession({ resumeId: id, model, effort }, cb);
+  // Same rule as resumeLaunchArgs: the session's own effort unless one is asked for, and no model
+  // unless one is asked for — the CLI restores it, forcing one would empty the prompt cache.
+  const relaunch = () => launchSession({ resumeId: id, model: model || undefined, effort: effort || (st && st.effort) || undefined }, cb);
   if (!st) return relaunch();
   st.input.close();
   st.abort.abort();
@@ -1321,7 +1379,8 @@ function drivenSnapshot() {
   for (const [id, st] of live) {
     if (!id || st.ended) continue;
     out.push({
-      id, cwd: st.cwd, model: st.launchModel || null, effort: st.launchEffort || null,
+      // effort = the EFFECTIVE one (hot changes included), the value a resume has to repeat exactly.
+      id, cwd: st.cwd, model: st.launchModel || null, effort: st.effort || st.launchEffort || null,
       permissionMode: st.permissionMode || null, autoApprove: !!st.autoApprove,
       // busy = a turn was in flight (including blocked on a question/permission): those sessions
       // get an automatic "Continue" on resume — the restart stole their turn.
@@ -1352,6 +1411,21 @@ function startDrivenSnapshot() {
   globalThis[SNAPSHOT_TIMER] = t;
 }
 
+// Launch arguments for one snapshot entry. The MODEL is deliberately not passed: at resume the CLI
+// restores the model the session was running, and a `--model` overrides it — measured on real
+// restarts, sessions flipped opus ↔ fable at every deploy, and caches are per model, so each flip
+// re-cached 300k+ tokens. The EFFORT has to be passed, identical: the CLI does not restore it, and a
+// different effective effort empties the messages cache just the same (claude-code#66005). Pure,
+// exported for the tests.
+function resumeLaunchArgs(s) {
+  return {
+    resumeId: s.id, cwd: s.cwd,
+    effort: s.effort || undefined,
+    permissionMode: s.permissionMode || undefined,
+    autoApprove: s.autoApprove,
+  };
+}
+
 // Relance les sessions pilotées au moment du dernier arrêt. Séquentiel et espacé : chaque reprise
 // spawne un CLI qui relit son transcript, les lancer d'un bloc ferait un pic pour rien. Une session
 // qui ATTENDAIT reprend sans prompt, donc sans consommer de tour. Une session tuée EN PLEIN TOUR
@@ -1370,10 +1444,7 @@ function resumeDrivenSessions(cb) {
   const next = () => {
     const s = take[i++];
     if (!s) return done(null, { resumed: take.length - failed.length, failed });
-    launchSession({
-      resumeId: s.id, cwd: s.cwd, model: s.model, effort: s.effort,
-      permissionMode: s.permissionMode || undefined, autoApprove: s.autoApprove,
-    }, (err) => {
+    launchSession(resumeLaunchArgs(s), (err) => {
       if (err) failed.push({ id: s.id, error: (err && err.message) || String(err) });
       // Best-effort: deliverReply waits for the session's readiness on its own, and a failure
       // here must not block the rest of the boot line.
@@ -1382,6 +1453,112 @@ function resumeDrivenSessions(cb) {
     });
   };
   next();
+}
+
+// ── Auto-compact ─────────────────────────────────────────────────────────────────────────────────
+//
+// For a session left waiting on the user (cache model in src/lib/promptCache.js). Once the cache is
+// cold, the next message re-writes the whole conversation at the cache-write rate. A `/compact`
+// started while the cache is still warm re-reads it at the read rate and leaves a summary in its
+// place, so coming back — an hour or a day later — re-caches the summary, not the thread.
+// One scheduler tick per minute over the registry: a session idle with nothing pending, large
+// enough to be worth it, whose cache enters its last minutes gets `/compact` — measured through
+// the SDK input: a turn of its own, closed by a `result`, no assistant message. Opt-in in hooked's
+// settings (`autoCompact`): a compaction is lossy, trading the exact thread for a cheap resume. It
+// never repeats on its own — the compaction resets the cache clock, so the session is only
+// eligible again once a real turn has grown its context past the threshold.
+
+const AUTO_COMPACT_TICK_MS = 60_000;
+const AUTO_COMPACT_TIMER = Symbol.for('hooked.agent.autoCompactTimer');
+
+function seedCacheClock(st, id) {
+  let prev = null;
+  try { prev = scanSessions().find((x) => x.id === id) || null; } catch (_) {}
+  const u = prev && prev.lastUsage;
+  if (!u) return;
+  const ts = Date.parse(u.ts || '');
+  if (Number.isFinite(ts)) st.lastRequestAt = ts;
+  st.lastUsage = { contextTokens: u.contextTokens, ttl: u.ttl };
+}
+
+// What the registry knows of a session's cache clock: { lastRequestAt, ttl, contextTokens }.
+function agentCache(st) {
+  return {
+    lastRequestAt: st.lastRequestAt || null,
+    ttl: st.lastUsage ? st.lastUsage.ttl : null,
+    contextTokens: st.lastUsage ? st.lastUsage.contextTokens : null,
+  };
+}
+
+// Idle, turn closed, nothing pending: the only state in which an automatic compaction makes sense.
+// A question or a permission blocks the turn (canUseTool), and a busy session refreshes its own cache.
+function isIdleWaiting(st) {
+  return !!st && !st.ended && !!st.sawMsg && !st.busy && !st.pendingAsk;
+}
+
+// Whether the tick should compact this entry now — pure over (st, settings, now), exported for the
+// tests. Never on a cold cache (compactDue): it would pay the re-write it is meant to avoid.
+function shouldAutoCompact(st, { enabled = false, minContextK = 0 } = {}, now = Date.now()) {
+  if (!enabled || !st || st.autoCompacting || !isIdleWaiting(st)) return false;
+  const cache = agentCache(st);
+  if (!cache.contextTokens || cache.contextTokens < minContextK * 1000) return false;
+  return compactDue(cache, now);
+}
+
+function startAutoCompact(st) {
+  if (!st.input.push(userMessage('/compact'))) return false;
+  st.autoCompacting = true;
+  st.busy = true;
+  return true;
+}
+
+function autoCompactTick(now = Date.now()) {
+  const opts = readSettings().autoCompact;
+  if (!opts || !opts.enabled) return;
+  for (const st of live.values()) if (shouldAutoCompact(st, opts, now)) startAutoCompact(st);
+}
+
+// Started at boot (src/hooks.server.js) whatever the setting — the tick reads it, so switching it
+// on takes effect without a restart. Pinned on globalThis like the snapshot timer.
+function startAutoCompactScheduler() {
+  if (globalThis[AUTO_COMPACT_TIMER]) return;
+  const t = setInterval(autoCompactTick, AUTO_COMPACT_TICK_MS);
+  t.unref?.();
+  globalThis[AUTO_COMPACT_TIMER] = t;
+}
+
+function agentCacheInfo(id) { const st = agentSession(id); return st ? agentCache(st) : null; }
+
+// ── Model switch vs. warm cache (PreModelSwitch hook) ────────────────────────────────────────────
+//
+// Caches are per model: a switch throws the whole cached conversation away, and the CLI knows how
+// much that is (`context_tokens`, `estimated_cache_write_usd`). Headless, its own confirm dialog
+// has nowhere to show, so for a switch WE asked (source 'sdk') the hook denies while the cache is
+// warm and keeps the figures for the UI, which asks the user and calls again with `force`.
+// Switches we did not initiate (a /model typed into the session) are left to the CLI's own rules.
+// Pure over (st, input), exported for the tests: null = no opinion, else { allow, held? }.
+function decideModelSwitch(st, input) {
+  if (!input || input.source !== 'sdk' || !st || !st.modelSwitch) return null;
+  if (st.modelSwitch.force || !input.prompt_cache_warm) return { allow: true };
+  return {
+    allow: false,
+    held: {
+      fromModel: input.from_model || null,
+      toModel: input.to_model || null,
+      contextTokens: input.context_tokens || 0,
+      estimatedCacheWriteUsd: input.estimated_cache_write_usd || 0,
+      cacheTtl: input.cache_ttl || null,
+    },
+  };
+}
+
+async function preModelSwitchHook(st, input) {
+  const d = decideModelSwitch(st, input);
+  if (!d) return {};
+  if (d.held) st.modelSwitch.held = d.held;
+  const out = { hookEventName: 'PreModelSwitch', permissionDecision: d.allow ? 'allow' : 'deny' };
+  if (!d.allow) out.permissionDecisionReason = 'hooked: the prompt cache is warm — confirm the switch from the dashboard';
+  return { hookSpecificOutput: out };
 }
 
 // Purge l'état volatil dérivé du flux (activité / suggestion) pour toutes les sessions vivantes :
@@ -1400,7 +1577,8 @@ export {
   launchSession, killSession, restartSession,
   deliverReply, answerQuestion, questionAnswers, answerQuestionFreeText, answerPlan, answerPermission, answerPendingSelection,
   interruptSession, setMode, setModelEffort, setAutoApprove, alwaysAllowRules, clearAgentState,
-  resumeDrivenSessions, startDrivenSnapshot, pickResumable, saveDriven, failStartup,
+  resumeDrivenSessions, startDrivenSnapshot, pickResumable, saveDriven, failStartup, resumeLaunchArgs,
+  isRequestStart, shouldAutoCompact, autoCompactTick, startAutoCompactScheduler, agentCacheInfo, decideModelSwitch,
   runInteractiveCommand, formatInteractiveCommand, whenReady, settleReady,
   parseBangCommand, formatLocalCommand, stripAnsi, runLocalCommand,
   PLAN_ACTIONS, err400,

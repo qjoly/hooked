@@ -3,6 +3,7 @@
   import { data, ui, settings, updateSettings, setTheme, setScheme, setCorners, loadSessions, allTags, tagUsage, deleteTag } from '$lib/state.svelte.js';
   import { tagColor } from '$lib/format.js';
   import { resync, getGit, checkoutBranch, dismissRestartNotice, getClaudeVersion, upgradeClaude, restartClaudeSession, pickFolder, getRemoteControl, getCapabilities, getWarmup, runWarmup } from '$lib/api.js';
+  import { COMPACT_LEAD_MS, CACHED_READ_SHARE } from '$lib/promptCache.js';
   import { isHideableModel } from '$lib/models.js';
   import { getAllBindings, setBinding, resetBinding, resetAll as resetAllShortcuts, formatKeys, keysFromEvent } from '$lib/shortcuts.js';
   import { NAV_TABS } from '$lib/nav.js';
@@ -26,6 +27,7 @@
     { id: 'pset-remote-control', label: 'Remote control' },
     { id: 'pset-digest', label: 'Daily digest' },
     { id: 'pset-warmup', label: '5-hour window' },
+    { id: 'pset-autocompact', label: 'Auto-compact' },
     { id: 'pset-live', label: 'Live state' },
     { id: 'pset-claude', label: 'Claude Code' },
     { id: 'pset-git', label: 'Git' },
@@ -56,6 +58,11 @@
   let warmupPinging = $state(false);
   let warmupStatusMsg = $state('');
   const wu = $derived(settings.warmup || {});
+  // Auto-compact (cf. server/agent.js → shouldAutoCompact); the figures come from the cache model.
+  const ac = $derived(settings.autoCompact || {});
+  const saveAutoCompact = (patch) => updateSettings({ autoCompact: { ...settings.autoCompact, ...patch } });
+  const AC_LEAD_MIN = Math.round(COMPACT_LEAD_MS / 60000);
+  const AC_READ_PCT = Math.round(CACHED_READ_SHARE * 100);
   async function loadWarmupPlan() {
     try { warmupPlan = await getWarmup(); } catch (_) {}
   }
@@ -852,6 +859,27 @@
       {#if warmupPlan?.decision}
         <p class="hint" style="margin:8px 0 0">Scheduler right now: <strong>{warmupPlan.decision.act ? 'ping due' : warmupPlan.decision.reason}</strong>{#if warmupPlan.fiveHour} · window open until {warmupPlan.fiveHour.at} ({warmupPlan.fiveHour.pct}% used){/if}</p>
       {/if}
+    </div>
+
+    <div class="card" id="pset-autocompact" data-sec>
+      <h2>Auto-compact</h2>
+      <p class="hint">Anthropic caches a session's conversation for <strong>1 hour</strong> after each request. Past that, the next message re-writes all of it at the cache-write rate (2× input) — whether the session stayed open or is resumed. On a subscription, one cold prompt on a large session has been measured at ~20 % of a 5-hour window.</p>
+      <label class="check">
+        <input type="checkbox" checked={!!ac.enabled}
+               onchange={(e) => saveAutoCompact({ enabled: e.currentTarget.checked })} />
+        <span>Compact sessions left waiting for me, just before their cache expires</span>
+      </label>
+      <p class="hint" style="margin:10px 0 0">hooked runs <code>/compact</code> about {AC_LEAD_MIN} min before expiry on a driven session waiting for your reply — never while it works or while a question is pending, never once the cache is already cold. The conversation is re-read at the cached rate (≈ {AC_READ_PCT} % of a cold re-write) and replaced by a summary: coming back two hours or a day later re-caches the summary, not the thread, and every later turn is lighter too.</p>
+      <div class="cmd-row" style="margin-top:10px">
+        <label class="dg-field">Only above
+          <select class="dg-sel" value={String(ac.minContextK ?? 100)} disabled={!ac.enabled}
+                  onchange={(e) => saveAutoCompact({ minContextK: parseInt(e.currentTarget.value, 10) })}>
+            {#each [0, 50, 100, 200, 400] as k}<option value={String(k)}>{k === 0 ? 'any size' : k + 'k tokens'}</option>{/each}
+          </select>
+          of context
+        </label>
+      </div>
+      <p class="hint" style="margin:8px 0 0"><strong>It is lossy</strong>: exact outputs, file contents and reasoning of earlier turns give way to a summary, and Claude may re-read files to pick the thread back up. Worth it if you often leave sessions for more than an hour; skip it if you usually come back within the hour — the cache is still warm then. Below the size threshold a cold resume is cheap anyway, so nothing is compacted.</p>
     </div>
 
     <div class="card" id="pset-live" data-sec>

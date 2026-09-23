@@ -6,8 +6,22 @@
   import { goto } from '$app/navigation';
   import { page } from '$app/state';
   import { ui, data, sessionTitle, sessionTags, togglePin, allTags, tagUsage, openModal, isSessionArchived, isArchived, toggleArchive, addSplit, isInSplit, canSplit } from '$lib/state.svelte.js';
-  import { ago, tagColor } from '$lib/format.js';
+  import { onMount } from 'svelte';
+  import { agoShort, fmtSpan, tagColor } from '$lib/format.js';
+  import { promptCacheState } from '$lib/promptCache.js';
   import Icon from '$lib/components/Icon.svelte';
+
+  // Local clock: the elapsed time and the cache countdown move between two data refreshes.
+  let nowMs = $state(Date.now());
+  onMount(() => {
+    const iv = setInterval(() => { nowMs = Date.now(); }, 15_000);
+    return () => clearInterval(iv);
+  });
+  // Time left before the session's prompt cache expires, or null once it is cold / unknown.
+  const cacheLeft = (s) => {
+    const c = s.cache ? promptCacheState(s.cache, nowMs) : null;
+    return c && c.warm ? c.remainingMs : null;
+  };
 
   let tab = $state('active'); // 'active' | 'archived'
   const currentId = $derived(page.params.id || null);
@@ -243,7 +257,12 @@
                 <span class="ssb-dot ssb-{dotClass(s)}"></span>
                 {#if isPinned(s.id)}<span class="ssb-pin-mark" title="Pinned"><Icon name="pin" size={11} /></span>{/if}
                 <span class="ssb-name">{sessionTitle(s)}</span>
-                <span class="ssb-ago">{ago(s.lastActivity)}</span>
+                {#if cacheLeft(s) != null}
+                  <span class="ssb-cache" title="Prompt cache warm for {fmtSpan(cacheLeft(s))} more — replying before then re-reads the conversation at the cached rate">
+                    <Icon name="clock" size={10} />{fmtSpan(cacheLeft(s), '')}
+                  </span>
+                {/if}
+                <span class="ssb-ago">{agoShort(s.lastActivity, nowMs)}</span>
                 <!-- actions au survol : tag · pin · (split / unarchive) -->
                 <span class="ssb-acts">
                   <button class="ssb-act" title="Edit tags" aria-label="Edit tags"
@@ -410,7 +429,8 @@
   /* actions au survol : groupe ancré à droite, masqué au repos, révélé au hover de la ligne */
   .ssb-acts { position: absolute; right: 4px; display: none; gap: 2px; background: transparent; padding-left: 4px; }
   .ssb-row:hover .ssb-acts { display: inline-flex; }
-  .ssb-row:hover .ssb-ago { visibility: hidden; }
+  .ssb-cache { flex: 0 0 auto; display: inline-flex; align-items: center; gap: 2px; font-family: var(--mono); font-size: 9.5px; color: var(--muted); }
+  .ssb-row:hover .ssb-ago, .ssb-row:hover .ssb-cache { visibility: hidden; }
   .ssb-act {
     width: 22px; height: 22px; border: none;
     background: transparent; color: var(--muted); border-radius: 6px; cursor: pointer; padding: 0;

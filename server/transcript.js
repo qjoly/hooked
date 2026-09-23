@@ -7,6 +7,7 @@ import path from 'node:path';
 import { PROJECTS_DIR } from './config.js';
 import { readdirSafe, statSafe, textOf, cleanPrompt, truncTitle } from './util.js';
 import { costForUsage } from './pricing.js';
+import { contextFromUsage } from '../src/lib/promptCache.js';
 import { incrementalReader } from './incremental.js';
 
 // Squelette d'un résumé de session, avec toutes les valeurs par défaut. Factorisé pour
@@ -27,6 +28,7 @@ function blankSummary(sessionId, fp) {
     firstPrompt: null,
     lastPrompt: null,
     lastReply: null,   // dernier message TEXTE de l'assistant (pour l'aperçu conversation du Deck)
+    lastUsage: null,   // { ts, contextTokens, ttl } of the last response: what a resume re-sends, and its cache TTL
     startTs: null,
     lastTs: null,
     userPrompts: 0,
@@ -126,6 +128,10 @@ function foldLine(acc, line) {
     }
   }
 
+  // After a compaction a resume re-sends the summary, not the thread: the last response no longer
+  // says what that costs, until the next response does.
+  if (j.type === 'system' && j.subtype === 'compact_boundary') s.lastUsage = null;
+
   if (j.type === 'assistant' && j.message) {
     const msg = j.message;
     const mid = msg.id || (j.timestamp + ':' + (msg.usage ? msg.usage.output_tokens : ''));
@@ -151,6 +157,8 @@ function foldLine(acc, line) {
       s.assistantTurns++;
       const u = msg.usage;
       const k = costForUsage(u, msg.model);
+      const ctx = contextFromUsage(u);
+      if (ctx) s.lastUsage = { ts: j.timestamp || null, ...ctx };
       s.usage.input += k.inp; s.usage.output += k.out; s.usage.cacheCreate += k.cc; s.usage.cacheRead += k.cr;
       s.cost += k.total;
       s.costBreak.input += k.cIn; s.costBreak.output += k.cOut; s.costBreak.cacheCreate += k.cCc; s.costBreak.cacheRead += k.cCr;
