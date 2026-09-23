@@ -8,6 +8,7 @@
   import { trackModifier } from '$lib/peek.svelte.js';
   import Modal from '$lib/components/Modal.svelte';
   import CommandPalette from '$lib/components/CommandPalette.svelte';
+  import Companion from '$lib/components/Companion.svelte';
   import TopBar from '$lib/components/TopBar.svelte';
   import Icon from '$lib/components/Icon.svelte';
   import '../app.css';
@@ -113,6 +114,7 @@
 
 <Modal />
 <CommandPalette bind:this={palette} />
+{#if ui.companion}<Companion />{/if}
 
 <style>
   .skip-link {
