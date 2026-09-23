@@ -620,6 +620,9 @@
 :root[data-scheme="datadog"] .fleet:not(.grid) .fact,
 :root[data-scheme="datadog"] .fleet:not(.grid) .fconv,
 :root[data-scheme="datadog"] .fleet:not(.grid) .fpills { display: none; }
+/* Session groups in the table: the count cell would shift the columns; members span a full row. */
+:root[data-scheme="datadog"] .fleet:not(.grid) .fgn { display: none; }
+:root[data-scheme="datadog"] .fleet:not(.grid) .fkids { grid-column: 2 / -1; border-left: 0; padding: 0 0 4px; }
 :root[data-scheme="datadog"] .fleet:not(.grid) .fcard-act { top: 0; bottom: 0; height: auto; border: 0; background: transparent; }
 /* Column header: the quiet uppercase caption row every console table carries. Sticky, so the
    columns stay named once a long repo group scrolls under it — needs its own opaque background,
@@ -1363,6 +1366,8 @@ code.path { color: var(--muted); font-size: 11px; word-break: break-all; font-fa
 .ns-browse:hover:not(:disabled) { background: var(--bg2); border-color: var(--accent-d); }
 .ns-browse:disabled { opacity: 0.6; cursor: default; }
 .ns-watch { margin: 14px 4px 0; font-size: 12.5px; color: var(--accent-d); font-family: var(--mono); }
+.ns-group { display: flex; align-items: center; gap: 6px; margin: 0 4px 10px; font-size: 12.5px; color: var(--muted); }
+.ns-group b { color: var(--text); }
 .ns-worktree { cursor: pointer; user-select: none; }
 .ns-worktree input { margin: 0 2px 0 0; cursor: pointer; accent-color: var(--accent-d); }
 .ns-worktree:has(input:checked) { color: var(--text); border-color: var(--accent-d); }

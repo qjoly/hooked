@@ -60,6 +60,22 @@ Les sessions Claude Code tournent **dans le processus hooked**, via `query()` de
 
 - Le **premier prompt part immédiatement** : le SDK bufferise l'entrée jusqu'à ce que le CLI soit prêt. Rien à attendre, rien à détecter.
 
+## Groupes de sessions (`server/sessionMeta.js`, `GroupTabs.svelte`)
+
+Toute session appartient à **un** groupe ; une session seule est un groupe implicite à un membre
+(rien de stocké, rendu strictement identique à avant). Les panneaux (sidebar, flotte du Deck)
+listent des **groupes**, via `groupUnits()` de `state.svelte.js`.
+
+- **Un groupe est identifié par sa session mère.** Stockage dans `session-meta.json` : chaque fille
+  porte `groupOf: <mère>` (+ `groupAt`, qui ordonne les filles), la mère porte l'éventuel
+  `groupName`. **Un seul niveau** : les chaînes sont aplaties et les cycles écartés à la lecture.
+- **Lien MCP automatique.** Le CLI n'expose aucun id de session à ses serveurs MCP. hooked injecte
+  donc `HOOKED_LAUNCH_KEY` (la `launchKey` de l'entrée du registre) dans l'env du proxy
+  `mcp/server.cjs` ; `start_session` la renvoie en `parentKey` et `launchSession` range la
+  nouvelle session dans le groupe de l'appelante. Ne marche que pour une appelante **pilotée par
+  hooked** — une session ouverte à la main n'a pas de clé.
+- **Archiver la mère archive tout le groupe** ; une fille s'archive seule et reste dans son groupe.
+
 ## Ce que la migration hors tmux a supprimé
 
 Retiré parce que **spécifique à tmux**, sans équivalent : l'onglet **Terminal** (mirroir xterm d'un pane), le MCP `show_in_pane`, `Copy attach` / `tmux attach`, la **sidebar tmux** (`tmux/`), et le pilotage d'une session **lancée hors hooked** (il venait de `send-keys`). Les démons **remote-control** sont conservés : ce sont maintenant des **process détachés** supervisés par un fichier de PID (`rc-daemons.json`), reconnus dans le dashboard via `HOOKED_RC=1` → drapeau `rc` recopié par `hook.cjs`.
