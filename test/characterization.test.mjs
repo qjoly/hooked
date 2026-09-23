@@ -80,6 +80,7 @@ describe('parseTranscript', () => {
       // `lastReply` (dernier texte assistant, ajout récent pour l'aperçu du Deck) est absent de la
       // baseline figée → on le retire des deux côtés.
       delete cur.lastReply; delete old.lastReply;
+      delete cur.lastUsage; delete old.lastUsage;
       // `prLinks` diverge VOLONTAIREMENT : legacy regexait toute URL de PR du fichier (donc aussi
       // celles citées dans un contenu injecté ou une sortie d'outil) ; on lit désormais les lignes
       // `pr-link` journalisées par Claude Code. Couvert par prLinks.test.mjs.
@@ -274,7 +275,7 @@ describe('scanSessions', () => {
     // `pendingQuestion` diverge volontairement du legacy figé (cf. parseTranscript ci-dessus :
     // un prompt humain postérieur résout une AskUserQuestion sans tool_result). On le retire des
     // deux côtés ; sa nouvelle sémantique est couverte par test/pendingQuestion.test.mjs.
-    const strip = (arr) => arr.map(({ pendingQuestion, lastReply, ...rest }) => rest);
+    const strip = (arr) => arr.map(({ pendingQuestion, lastReply, lastUsage, ...rest }) => rest);
     expect(strip(lib.scanSessions())).toEqual(strip(legacy.scanSessions()));
   });
   it('exclut les sous-agents (agent-*.jsonl) et les non-.jsonl', () => {

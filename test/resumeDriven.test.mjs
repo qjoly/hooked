@@ -7,7 +7,7 @@
  * (lancer, espacer) est de la plomberie qui consomme de vrais tours.
  */
 import { describe, it, expect } from 'vitest';
-import { pickResumable } from '../server/agent.js';
+import { pickResumable, resumeLaunchArgs } from '../server/agent.js';
 
 const NOW = Date.parse('2026-08-31T12:00:00Z');
 const snap = (msAgo, sessions) => ({ ts: new Date(NOW - msAgo).toISOString(), sessions });
@@ -53,5 +53,18 @@ describe('pickResumable', () => {
     for (const junk of [null, undefined, {}, { sessions: null }, { sessions: [] }, 'nope', 42]) {
       expect(pickResumable(junk, NOW)).toEqual([]);
     }
+  });
+});
+
+describe('resumeLaunchArgs', () => {
+  it('never forces the model — the CLI restores it, a --model would flip it and empty the prompt cache', () => {
+    const args = resumeLaunchArgs({ id: 'a', cwd: '/tmp/a', model: 'opus', effort: 'xhigh', permissionMode: 'plan', autoApprove: false, busy: true });
+    expect(args).toEqual({ resumeId: 'a', cwd: '/tmp/a', effort: 'xhigh', permissionMode: 'plan', autoApprove: false });
+    expect('model' in args).toBe(false);
+  });
+
+  it('leaves effort and mode to the CLI when the snapshot has none', () => {
+    expect(resumeLaunchArgs({ id: 'a', cwd: '/tmp/a', model: null, effort: null, permissionMode: null, autoApprove: true }))
+      .toEqual({ resumeId: 'a', cwd: '/tmp/a', effort: undefined, permissionMode: undefined, autoApprove: true });
   });
 });

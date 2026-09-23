@@ -121,6 +121,11 @@ const DEFAULTS = {
     model: 'haiku',
     skipIfWeeklyOver: 90, // % of the 7-day budget above which opening more 5h windows is a trap
   },
+  // Auto-compact (cf. server/agent.js → shouldAutoCompact): /compact a driven session left waiting
+  // for the user just before its prompt cache expires. Off by default — a compaction is lossy.
+  // `minContextK`: only sessions whose context is at least this many thousand tokens; below it a
+  // cold resume is cheap anyway, and compacting would lose the thread for nothing.
+  autoCompact: { enabled: false, minContextK: 100 },
 };
 
 const NAV_PAGES = ['sessions', 'stats', 'digest', 'memory'];
@@ -214,6 +219,13 @@ function sanitize(raw) {
       ? rawWu.skipIfWeeklyOver
       : DEFAULTS.warmup.skipIfWeeklyOver,
   };
+  const rawAc = o.autoCompact && typeof o.autoCompact === 'object' ? o.autoCompact : {};
+  const autoCompact = {
+    enabled: !!rawAc.enabled,
+    minContextK: Number.isInteger(rawAc.minContextK) && rawAc.minContextK >= 0 && rawAc.minContextK <= 1000
+      ? rawAc.minContextK
+      : DEFAULTS.autoCompact.minContextK,
+  };
   return {
     subtabOrder: order,
     statusBarOrder: sbOrder,
@@ -233,6 +245,7 @@ function sanitize(raw) {
     favoriteProjects: favProjects,
     digest,
     warmup,
+    autoCompact,
     shipDefaultView: o.shipDefaultView === 'vcs' ? 'vcs' : 'claude',
     speechLang,
     editor: EDITOR_KEYS.includes(o.editor) ? o.editor : DEFAULT_EDITOR,
