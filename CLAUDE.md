@@ -60,6 +60,36 @@ Les sessions Claude Code tournent **dans le processus hooked**, via `query()` de
 
 - Le **premier prompt part immédiatement** : le SDK bufferise l'entrée jusqu'à ce que le CLI soit prêt. Rien à attendre, rien à détecter.
 
+- **Le cache de prompt est côté serveur, pas dans le process.** Il est indexé sur les octets exacts du
+  préfixe (outils → system → messages) et vit **1 h après le début de la dernière requête** (TTL
+  automatique du CLI sur abonnement dans les limites du plan ; 5 min en overage / clé API), chaque
+  lecture le rafraîchissant gratuitement. Un CLI vivant mais idle ne garde donc rien au chaud, et un
+  `--resume` retrouve le cache si le préfixe rebâti est identique. Mesuré sur 45 jours de transcripts :
+  93 % de hits jusqu'à 55 min de pause, 2 % au-delà d'1 h ; et **un tiers des misses étaient évitables**
+  — dont hooked qui repassait le `model` du snapshot à chaque reprise, écrasant le choix fait en
+  cours de session (opus ↔ fable à chaque deploy, 300k+ tokens recachés à chaque fois). D'où :
+  - **à la reprise, jamais de `model`** (le CLI restaure celui du transcript ; `--model` l'écrase) et
+    **le même `effort`, explicitement** (le CLI ne le restaure pas — claude-code#66005) :
+    `resumeLaunchArgs()`, pur, testé ; le snapshot porte l'effort *effectif* ;
+  - le modèle de cache vit dans `src/lib/promptCache.js` (pur, partagé serveur/UI) ; le registre
+    date chaque requête (`isRequestStart`) et garde `lastUsage` du `result` (= le `context_tokens`
+    du CLI, vérifié égal en live) ; à la reprise l'horloge est amorcée depuis le transcript ;
+  - **Auto-compact** (réglage hooked `autoCompact`, désactivé par défaut, seuil `minContextK` = 100k) :
+    `/compact` ~5 min avant l'expiration (55 min en TTL 1 h) sur toute session pilotée qui attend une
+    réponse. Compacter tant que le cache est chaud relit la conversation au tarif lecture et laisse un
+    résumé : revenir 2 h ou un jour plus tard recache le résumé, pas le fil. Vérifié en live : `/compact`
+    poussé dans l'entrée du SDK = un tour à part, clos par un `result` (`turns: 0`), sans message
+    assistant, qui lit bien le préfixe en cache. Jamais sur un cache froid, jamais pendant une question
+    (`canUseTool` bloque le tour), jamais sous le seuil (un recache froid y est bon marché, compacter
+    perdrait le fil pour rien). Pas de répétition : le `compact_boundary` remet l'horloge et la taille à
+    inconnues, la session ne redevient éligible qu'après un vrai tour. **Avec perte** — d'où l'opt-in.
+    Dans la conversation, la compaction devient **une** ligne système, et le résumé (`isCompactSummary`)
+    comme l'écho d'un `/compact` nu ne sont plus des bulles « You » ;
+  - **changement de modèle à chaud = cache jeté** (caches par modèle) : le hook SDK `PreModelSwitch`
+    refuse un `setModel` que hooked a demandé tant que `prompt_cache_warm`, et `/api/model` répond
+    `{ held, cacheImpact }` avec les chiffres du CLI ; l'UI confirme et renvoie avec `force`. Vérifié
+    en live : le hook tranche bien AVANT la résolution de `setModel()`.
+
 ## Groupes de sessions (`server/sessionMeta.js`, `GroupTabs.svelte`)
 
 Toute session appartient à **un** groupe ; une session seule est un groupe implicite à un membre

@@ -8,7 +8,7 @@ import { scanSessions, blankSummary } from './transcript.js';
 import { repoSlug } from './git.js';
 import { readEvents, lastEventBySession, lastActivityEventBySession, modeForSession, liveQuestionForSession, liveQuestionBySession, livePlanForSession, livePlanBySession, eventSessionMeta, rcSessionIdsFromEvents } from './events.js';
 import { liveStateFor } from './live.js';
-import { resolveLaunchForSession, agentAlive, agentSession, agentMode, agentAutoApprove, agentBusy, agentActivity, agentFollowup, agentLastProse, agentPendingAsk, liveSessionIds } from './agent.js';
+import { resolveLaunchForSession, agentAlive, agentSession, agentMode, agentAutoApprove, agentBusy, agentActivity, agentFollowup, agentLastProse, agentPendingAsk, liveSessionIds, agentCacheInfo } from './agent.js';
 import { sessionStatus, sessionStatusRaw, accountRateLimits, freshestStatusId } from './status.js';
 import { scopedLimit, accountLimit, currentUtilization, usageFreshness } from './utilization.js';
 import { buildConversation } from './conversation.js';
@@ -193,6 +193,8 @@ function buildSessions() {
     // suggestion de prompt suivant (message `prompt_suggestion` du SDK — c'était le ghost text DIM
     // de la boîte de saisie). Exposée dans la liste pour la proposer en quick action au Deck.
     s.followup = (agent && s.state !== 'working') ? agent.followup : null;
+    // prompt-cache clock: the sidebar counts down how long the cache stays warm (cf. sessionCache)
+    s.cache = sessionCache(s, agent ? agentCacheInfo(s.id) : null);
     // effort : vrai effort de la statusline (toutes sessions) en priorité, sinon résolution
     // persistée du lancement (survit à la fin de la session). modèle explicite idem.
     const li = resolveLaunchForSession(s.id);
@@ -348,6 +350,20 @@ function resolveBackgroundOutput(sessionId, taskId) {
   return job && job.outputPath ? job.outputPath : null;
 }
 
+// Prompt-cache clock of a session (cf. src/lib/promptCache.js), for the UI to derive warm/cold and
+// the size of a cold resume. The registry knows a driven session's last request; the transcript's
+// last response stands in otherwise — ended session, or resumed with no request yet in this process.
+function sessionCache(s, live) {
+  const t = s.lastUsage || null;
+  const fromTranscript = t ? { lastRequestAt: t.ts, ttl: t.ttl, contextTokens: t.contextTokens } : null;
+  if (!live) return fromTranscript;
+  return {
+    lastRequestAt: live.lastRequestAt ? new Date(live.lastRequestAt).toISOString() : (fromTranscript && fromTranscript.lastRequestAt) || null,
+    ttl: live.ttl || (fromTranscript && fromTranscript.ttl) || null,
+    contextTokens: live.contextTokens || (fromTranscript && fromTranscript.contextTokens) || null,
+  };
+}
+
 function sessionDetail(id) {
   const sessions = scanSessions();
   let s = sessions.find((x) => x.id === id);
@@ -457,6 +473,7 @@ function sessionDetail(id) {
     launchModel: li ? li.model : null,   // forme courte (opus/sonnet…) pour relancer en conservant la config
     rateLimit: status ? status.rateLimit : null,   // vrais % 5 h / 7 j du compte (via statusline)
     context: status ? status.context : null,        // remplissage de la fenêtre de contexte
+    cache: sessionCache(s, alive ? agentCacheInfo(id) : null),   // prompt-cache clock (warm/cold, cold-resume size)
     fastMode: status ? status.fastMode : false,
     events: ev, messages, subSessions, changes, subagents, workflows, screenshots,
     todos: todos ? todos.todos : [], todoTs: todos ? todos.ts : null,
