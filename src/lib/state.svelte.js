@@ -2,7 +2,7 @@
 // La navigation (vue courante, session ouverte, écran « nouvelle session ») n'est PLUS
 // ici : elle est portée par l'URL (routing SvelteKit). Ne restent que les filtres de la
 // sidebar, l'état live (SSE), le tick de rafraîchissement et la modale.
-import { getSessions, connectSSE, getSettings, saveSettings as apiSaveSettings, getTags, saveTags, replaceTags, getSessionMeta, saveSessionMeta, replaceSessionMeta, kill, getAccount } from './api.js';
+import { getSessions, connectSSE, getSettings, saveSettings as apiSaveSettings, getTags, saveTags, replaceTags, getSessionMeta, saveSessionMeta, replaceSessionMeta, groupOp, kill, getAccount } from './api.js';
 import { NOTIFY_KINDS, notifyKeyFor, countsForBadge } from './notify.js';
 import { isFinishedAndCold } from './format.js';
 import { DEFAULT_HIDDEN_MODELS } from './models.js';
@@ -23,7 +23,7 @@ export const ui = $state({
   pinned: persisted.pinned ?? [],       // [sessionId] → sessions épinglées, remontées en tête de sidebar
   names: persisted.names ?? {},         // { [sessionId]: titre custom } → renommage local (comme les pins)
   tags: {},                             // { [sessionId]: [tag] } → miroir réactif du store serveur (tags.json), chargé au démarrage
-  meta: {},                             // { [sessionId]: { archived?, snoozeUntil? } } → miroir réactif du store serveur (session-meta.json)
+  meta: {},                             // { [sessionId]: { archived?, snoozeUntil?, groupOf?, groupAt?, groupName? } } → miroir réactif du store serveur (session-meta.json)
   focus: persisted.focus ?? false,      // mode focus : discussion plein écran (header global + sidebar repliés)
   sidebarPeek: false,                   // (transitoire) ré-ouverture ponctuelle de la sidebar pendant le focus
   splitCompact: false,                  // (transitoire) split trop étroit → masque les menus latéraux
@@ -82,10 +82,16 @@ function patchMeta(id, patch) {
 // (decision queue + fleet) by default; reversible. Archiving ALSO stops the underlying
 // session — the old stop/archive distinction is gone: archiving IS the "done, shut it down"
 // action. Unarchiving only flips the flag (a stopped session is restarted via Resume, not here).
+// Archiving a group's MOTHER archives (and stops) the whole group; unarchiving it brings every
+// member back. A child is archived on its own and stays in its group.
 export function toggleArchive(id) {
   const willArchive = !isArchived(id);
-  patchMeta(id, { archived: willArchive });
-  if (willArchive) kill(id).catch(() => {});
+  const ids = groupMotherOf(id) === id ? groupMemberIds(id) : [id];
+  for (const m of ids) {
+    if (isArchived(m) === willArchive) continue;
+    patchMeta(m, { archived: willArchive });
+    if (willArchive) kill(m).catch(() => {});
+  }
 }
 export function isArchived(id) { return !!(ui.meta[id] && ui.meta[id].archived); }
 // remove the archived flag WITHOUT stopping anything — used when RELAUNCHING an archived session
@@ -103,6 +109,60 @@ export function unarchive(id) { if (isArchived(id)) patchMeta(id, { archived: fa
 export function isSessionArchived(s) {
   return !!s && (isArchived(s.id) || isFinishedAndCold(s));
 }
+// ─── Session groups (stored in session-meta, cf. server/sessionMeta.js) ──────────────────────
+// Every session belongs to one group; a lone session is an implicit one-member group. A group is
+// identified by its MOTHER: children carry `groupOf: motherId`, ordered by `groupAt`.
+export function groupMotherOf(id) { return (ui.meta[id] && ui.meta[id].groupOf) || id; }
+// Mother first, then the children in join order (ids — members may be missing from data.sessions).
+export function groupMemberIds(motherId) {
+  const kids = Object.keys(ui.meta)
+    .filter((k) => ui.meta[k].groupOf === motherId)
+    .sort((a, b) => (ui.meta[a].groupAt || 0) - (ui.meta[b].groupAt || 0));
+  return [motherId, ...kids];
+}
+// Session objects of `id`'s group (mother first), limited to known sessions.
+export function groupSessions(id) {
+  const byId = new Map(data.sessions.map((s) => [s.id, s]));
+  return groupMemberIds(groupMotherOf(id)).map((k) => byId.get(k)).filter(Boolean);
+}
+export function isGrouped(id) { return groupSessions(id).length > 1; }
+// Folds a session list into groups — the unit every list panel renders. Order is preserved: a
+// group ranks where its first member in `list` ranked (so a pre-sorted list yields groups sorted
+// by their most pressing member). The mother always heads her group, even when she's not in
+// `list` herself (filtered out, archived…) while a child is. → [{ key, mother, children, all }]
+export function groupUnits(list) {
+  const byId = new Map(data.sessions.map((x) => [x.id, x]));
+  const buckets = new Map();
+  for (const x of list) {
+    const m = groupMotherOf(x.id);
+    if (!buckets.has(m)) buckets.set(m, []);
+    buckets.get(m).push(x);
+  }
+  return [...buckets].map(([m, members]) => {
+    const mother = byId.get(m) || members[0];
+    const inList = new Set(members.map((x) => x.id));
+    const children = groupMemberIds(m).filter((k) => k !== mother.id && inList.has(k)).map((k) => byId.get(k));
+    return { key: m, mother, children, all: [mother, ...children] };
+  });
+}
+// True when every known member of `id`'s group is (effectively) archived.
+export function isGroupArchived(id) {
+  return groupSessions(id).every(isSessionArchived);
+}
+// Custom group name, or the mother's title.
+export function groupName(id) {
+  const mother = groupMotherOf(id);
+  const custom = ui.meta[mother] && ui.meta[mother].groupName;
+  return custom || sessionTitle(data.sessions.find((s) => s.id === mother) || { id: mother });
+}
+function applyGroupOp(op, id, extra) {
+  return groupOp(op, id, extra).then((res) => { if (res.ok && res.data.meta) ui.meta = res.data.meta; }).catch(() => {});
+}
+export const joinGroup = (id, targetId) => (id && targetId && id !== targetId ? applyGroupOp('join', id, { target: targetId }) : Promise.resolve());
+export const leaveGroup = (id) => applyGroupOp('leave', id);
+export const setGroupMother = (id) => applyGroupOp('mother', id);
+export const renameGroup = (id, name) => applyGroupOp('rename', id, { name });
+
 // snooze a session's decision card for N hours (Deck). Cleared by passing 0/negative hours.
 export function snoozeSession(id, hours = 1) {
   patchMeta(id, { snoozeUntil: hours > 0 ? Date.now() + hours * 3600_000 : null });
@@ -447,7 +507,13 @@ export async function toggleNotify() {
 export async function loadSessions() {
   try {
     const sessions = await getSessions();
+    // A new session may have been grouped server-side (MCP start_session) → resync the meta.
+    const known = new Set(data.sessions.map((s) => s.id));
+    const fresh = data.sessions.length && sessions.some((s) => !known.has(s.id));
     data.sessions = sessions;
+    // (and once more a bit later: the join lands when the launch reports its id, which can trail
+    // the session's first appearance in the list).
+    if (fresh) { loadSessionMeta(); setTimeout(loadSessionMeta, 3000); }
     checkNotifications(sessions);
   } catch (_) {}
 }

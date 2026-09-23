@@ -11,10 +11,10 @@ import path from 'node:path';
 const TMP = path.join(os.tmpdir(), 'hooked-session-meta-test-' + process.pid);
 process.env.HOOKED_DATA_DIR = TMP;
 
-let readSessionMeta, writeSessionMeta, setSessionMeta;
+let readSessionMeta, writeSessionMeta, setSessionMeta, joinGroup, leaveGroup, setGroupMother, renameGroup, groupMotherOf;
 beforeAll(async () => {
   fs.rmSync(TMP, { recursive: true, force: true });
-  ({ readSessionMeta, writeSessionMeta, setSessionMeta } = await import('../server/sessionMeta.js'));
+  ({ readSessionMeta, writeSessionMeta, setSessionMeta, joinGroup, leaveGroup, setGroupMother, renameGroup, groupMotherOf } = await import('../server/sessionMeta.js'));
 });
 
 const inOneHour = () => Date.now() + 3600_000;
@@ -96,5 +96,81 @@ describe('readSessionMeta (expiry)', () => {
     const file = path.join(TMP, 'session-meta.json');
     fs.writeFileSync(file, JSON.stringify({ z: { snoozeUntil: Date.now() - 5000 } }));
     expect(readSessionMeta().z).toBeUndefined();
+  });
+});
+
+describe('session groups', () => {
+  const kids = (map, mother) => Object.keys(map).filter((k) => map[k].groupOf === mother)
+    .sort((a, b) => map[a].groupAt - map[b].groupAt);
+
+  it('a lone session is its own mother', () => {
+    expect(groupMotherOf('g-lone')).toBe('g-lone');
+  });
+
+  it('join puts a session under the target mother, in join order', () => {
+    joinGroup('g-b', 'g-a');
+    const map = joinGroup('g-c', 'g-a');
+    expect(kids(map, 'g-a')).toEqual(['g-b', 'g-c']);
+    expect(groupMotherOf('g-c')).toBe('g-a');
+  });
+
+  it('joining a child resolves to its mother (one level only)', () => {
+    const map = joinGroup('g-d', 'g-b');
+    expect(map['g-d'].groupOf).toBe('g-a');
+  });
+
+  it('joining a mother merges its whole group', () => {
+    joinGroup('g-y', 'g-x');
+    const map = joinGroup('g-x', 'g-a');
+    expect(map['g-x'].groupOf).toBe('g-a');
+    expect(map['g-y'].groupOf).toBe('g-a');
+  });
+
+  it('keeps other facts on a session that joins a group', () => {
+    setSessionMeta('g-arch', { archived: true });
+    const map = joinGroup('g-arch', 'g-a');
+    expect(map['g-arch']).toMatchObject({ archived: true, groupOf: 'g-a' });
+    expect(setSessionMeta('g-arch', { archived: false })['g-arch'].groupOf).toBe('g-a');
+    leaveGroup('g-arch');
+  });
+
+  it('rename stores the name on the mother, even when addressed through a child', () => {
+    const map = renameGroup('g-b', '  Auth refactor  ');
+    expect(map['g-a'].groupName).toBe('Auth refactor');
+    expect(renameGroup('g-a', '')['g-a']?.groupName).toBeUndefined();
+    renameGroup('g-a', 'Auth refactor');
+  });
+
+  it('setGroupMother swaps roles and moves the name', () => {
+    const map = setGroupMother('g-c');
+    expect(map['g-c'].groupOf).toBeUndefined();
+    expect(map['g-c'].groupName).toBe('Auth refactor');
+    expect(map['g-a'].groupOf).toBe('g-c');
+    expect(kids(map, 'g-c')[0]).toBe('g-a'); // the former mother becomes the first child
+    expect(map['g-b'].groupOf).toBe('g-c');
+  });
+
+  it('a child leaving becomes a lone session', () => {
+    const map = leaveGroup('g-d');
+    expect(map['g-d']).toBeUndefined();
+  });
+
+  it('the mother leaving promotes the oldest child', () => {
+    const map = leaveGroup('g-c');
+    expect(map['g-c']).toBeUndefined();
+    expect(map['g-a'].groupOf).toBeUndefined();
+    expect(map['g-a'].groupName).toBe('Auth refactor');
+    expect(map['g-b'].groupOf).toBe('g-a');
+  });
+
+  it('flattens chains and drops cycles on read', () => {
+    const map = writeSessionMeta({
+      c1: { groupOf: 'c2', groupAt: 1 }, c2: { groupOf: 'c3', groupAt: 2 },
+      l1: { groupOf: 'l2' }, l2: { groupOf: 'l1' }, self: { groupOf: 'self' },
+    });
+    expect(map.c1.groupOf).toBe('c3');
+    expect(map.l1).toBeUndefined();
+    expect(map.l2).toBeUndefined();
+    expect(map.self).toBeUndefined();
   });
 });

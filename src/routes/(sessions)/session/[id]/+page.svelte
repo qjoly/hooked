@@ -7,6 +7,7 @@
     splitPanes, anchorSplit, setPaneSession, closePane, splitRight, splitDown, canSplit,
   } from '$lib/state.svelte.js';
   import SessionDetail from '$lib/components/SessionDetail.svelte';
+  import GroupTabs from '$lib/components/GroupTabs.svelte';
   import Icon from '$lib/components/Icon.svelte';
 
   const primary = $derived(page.params.id);
@@ -88,6 +89,9 @@
   }
 </script>
 
+<div class="group-shell">
+<GroupTabs id={primary} />
+<div class="group-body">
 {#if isSplit}
   <div class="split-grid" bind:this={gridEl}>
     {#each cols as c, ci (ci)}
@@ -147,8 +151,13 @@
     <SessionDetail id={primary} />
   {/key}
 {/if}
+</div>
+</div>
 
 <style>
+  .group-shell { display: flex; flex-direction: column; height: 100%; min-height: 0; min-width: 0; }
+  .group-body { flex: 1 1 auto; min-height: 0; min-width: 0; display: flex; flex-direction: column; }
+  .group-body > :global(*) { flex: 1 1 auto; min-height: 0; }
   .split-grid { display: flex; height: 100%; min-height: 0; min-width: 0; }
   .split-col { display: flex; min-width: 0; flex: 1 1 0; }
   .split-col-inner { display: flex; flex-direction: column; min-height: 0; min-width: 0; flex: 1 1 auto; }
