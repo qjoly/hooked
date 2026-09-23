@@ -5,8 +5,9 @@
   // and width all live in ui (localStorage). Toggle via the ◀/▶ buttons or ⌘/Ctrl+B.
   import { goto } from '$app/navigation';
   import { page } from '$app/state';
-  import { ui, data, sessionTitle, sessionTags, togglePin, allTags, tagUsage, openModal, isSessionArchived, isArchived, toggleArchive, addSplit, isInSplit, canSplit } from '$lib/state.svelte.js';
+  import { ui, data, sessionTitle, sessionTags, togglePin, allTags, tagUsage, openModal, isSessionArchived, isArchived, toggleArchive, addSplit, isInSplit, canSplit, groupUnits, isGroupArchived, groupName } from '$lib/state.svelte.js';
   import { ago, tagColor } from '$lib/format.js';
+  import { dragSession, dropSession } from '$lib/groupDnd.js';
   import Icon from '$lib/components/Icon.svelte';
 
   let tab = $state('active'); // 'active' | 'archived'
@@ -104,8 +105,22 @@
       .filter((s) => isSessionArchived(s) && matchesTagFilter(s) && passesAge(s, now))
       .sort(byActivity);
   });
-  const shown = $derived(tab === 'archived' ? archived : active);
   const projectKey = (s) => s.repo || s.projectName || '—';
+
+  // Session GROUPS are the list's unit: a group is one entry headed by its mother session, its
+  // children indented below (a lone session is a one-member group and renders exactly as before).
+  // Folded from the sorted session list, so a group ranks where its most pressing member would.
+  const activeUnits = $derived(groupUnits(active));
+  // Archived tab: only groups whose members are ALL archived — an archived child of a live group
+  // stays reachable from its group (dimmed in the group's tabs).
+  const archivedUnits = $derived(groupUnits(archived).filter((u) => isGroupArchived(u.key)));
+  const shown = $derived(tab === 'archived' ? archivedUnits : activeUnits);
+  const unitHas = (u, pred) => u.all.some(pred);
+  // Collapsed group → its header dot summarizes the members (most pressing state wins).
+  const DOT_RANK = ['attention', 'working', 'waiting', 'bgjob', 'idle', 'ended'];
+  const unitDot = (u) => u.all.map(dotClass).sort((a, b) => DOT_RANK.indexOf(a) - DOT_RANK.indexOf(b))[0];
+  const groupCollapsed = (u) => !!ui.collapsed['g:' + u.key];
+  function toggleUnit(u) { ui.collapsed = { ...ui.collapsed, ['g:' + u.key]: !ui.collapsed['g:' + u.key] }; }
 
   // Fenêtrage de la liste. Sans ça, la sidebar montait UNE LIGNE PAR SESSION — 157 sur cette
   // instance, chacune avec ses trois boutons d'action au survol et sa rangée de tags.
@@ -127,10 +142,10 @@
     // sélectionner une session ne doit pas réordonner la liste sous le curseur). Elle peut donc se
     // trouver au-delà de la fenêtre — on étend jusqu'à elle, sinon ouvrir une vieille session la
     // ferait disparaître de la liste au moment même où on la consulte.
-    const cur = shown.findIndex((x) => x.id === currentId);
+    const cur = shown.findIndex((u) => unitHas(u, (x) => x.id === currentId));
     return Math.max(
       LIST_WINDOW,
-      shown.filter((x) => isPinned(x.id) || needsDecision(x) || isActive(x)).length,
+      shown.filter((u) => unitHas(u, (x) => isPinned(x.id) || needsDecision(x) || isActive(x))).length,
       cur >= 0 ? cur + 1 : 0,
     );
   });
@@ -141,8 +156,9 @@
   const groups = $derived.by(() => {
     if (!ui.groupByProject) return [{ key: '', label: null, items: windowed }];
     const g = new Map();
-    for (const s of windowed) { const k = projectKey(s); if (!g.has(k)) g.set(k, []); g.get(k).push(s); }
-    const lastOf = (arr) => arr.reduce((m, s) => Math.max(m, Date.parse(s.lastActivity || 0) || 0), 0);
+    // a group sits under its mother's project, even when its children work in other repos.
+    for (const u of windowed) { const k = projectKey(u.mother); if (!g.has(k)) g.set(k, []); g.get(k).push(u); }
+    const lastOf = (arr) => arr.reduce((m, u) => Math.max(m, ...u.all.map((s) => Date.parse(s.lastActivity || 0) || 0)), 0);
     // en-têtes : A→Z dans les deux modes alphabétiques, sinon projet le plus récemment actif d'abord.
     const byGroup = sortMode === 'dynamic' ? (a, b) => lastOf(g.get(b)) - lastOf(g.get(a)) : byName;
     return [...g.keys()].sort(byGroup)
@@ -185,8 +201,8 @@
   <aside class="ssb" style="width:{ui.sidebarWidth}px;min-width:{ui.sidebarWidth}px">
     <div class="ssb-head">
       <div class="ssb-tabs">
-        <button class="ssb-tab" class:on={tab === 'active'} onclick={() => (tab = 'active')}>Sessions <span class="ssb-count">{active.length}</span></button>
-        <button class="ssb-tab" class:on={tab === 'archived'} onclick={() => (tab = 'archived')}>Archived <span class="ssb-count">{archived.length}</span></button>
+        <button class="ssb-tab" class:on={tab === 'active'} onclick={() => (tab = 'active')}>Sessions <span class="ssb-count">{activeUnits.length}</span></button>
+        <button class="ssb-tab" class:on={tab === 'archived'} onclick={() => (tab = 'archived')}>Archived <span class="ssb-count">{archivedUnits.length}</span></button>
       </div>
       <button class="ssb-icon" class:on={ui.hideOld} aria-label="Hide sessions idle for more than 24h"
               title={ui.hideOld ? 'Showing only the last 24h — click to show everything' : 'Show only sessions active in the last 24h (pinned, awaiting-decision and current sessions always stay)'}
@@ -235,35 +251,12 @@
           </button>
         {/if}
         {#if !g.label || !ui.collapsed[g.key]}
-          {#each g.items as s (s.id)}
-            <div class="ssb-row" class:cur={s.id === currentId} class:dim={!isActive(s)}
-                 role="button" tabindex="0" onclick={() => open(s)}
-                 onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(s); } }}>
-              <div class="ssb-line">
-                <span class="ssb-dot ssb-{dotClass(s)}"></span>
-                {#if isPinned(s.id)}<span class="ssb-pin-mark" title="Pinned"><Icon name="pin" size={11} /></span>{/if}
-                <span class="ssb-name">{sessionTitle(s)}</span>
-                <span class="ssb-ago">{ago(s.lastActivity)}</span>
-                <!-- actions au survol : tag · pin · (split / unarchive) -->
-                <span class="ssb-acts">
-                  <button class="ssb-act" title="Edit tags" aria-label="Edit tags"
-                          onclick={(e) => { e.stopPropagation(); openModal('editTags', { sessionId: s.id }); }}><Icon name="tag" size={13} /></button>
-                  <button class="ssb-act" class:on={isPinned(s.id)} title={isPinned(s.id) ? 'Unpin' : 'Pin'} aria-label="Pin"
-                          onclick={(e) => { e.stopPropagation(); togglePin(s.id); }}><Icon name="pin" size={13} /></button>
-                  {#if tab === 'archived' && isArchived(s.id)}
-                    <button class="ssb-act" title="Unarchive" onclick={(e) => { e.stopPropagation(); toggleArchive(s.id); }}><Icon name="unarchive" size={13} /></button>
-                  {:else if tab === 'active' && s.id !== currentId && !isInSplit(s.id) && canSplit()}
-                    <button class="ssb-act" title="Split beside the current session" onclick={(e) => { e.stopPropagation(); addSplit(s.id); }}><Icon name="pane" size={13} /></button>
-                  {/if}
-                </span>
-              </div>
-              {#if sessionTags(s.id).length}
-                <!-- tags (manuels + auto pr-approved / pr-changes-requested) : mini-pills compactes -->
-                <div class="ssb-tags">
-                  {#each sessionTags(s.id) as t (t)}<span class="ssb-tag" style="--c:{tagColor(t)}">#{t}</span>{/each}
-                </div>
-              {/if}
-            </div>
+          {#each g.items as u (u.key)}
+            {@const collapsedU = groupCollapsed(u)}
+            {@render row(u.mother, u.children.length ? u : null, collapsedU)}
+            {#if u.children.length && !collapsedU}
+              {#each u.children as c (c.id)}{@render row(c, null, false, true)}{/each}
+            {/if}
           {/each}
         {/if}
       {/each}
@@ -285,21 +278,65 @@
     <div class="ssb-resize" onpointerdown={startResize} title="Drag to resize"></div>
   </aside>
 {:else}
-  <!-- collapsed: a thin rail of clickable status tiles so you can still switch sessions -->
+  <!-- collapsed: a thin rail of clickable status tiles (one per group) so you can still switch -->
   <div class="ssb-collapsed">
     <button class="ssb-icon expand" title="Expand session sidebar (⌘/Ctrl+B)" aria-label="Expand sidebar"
             onclick={() => (ui.sideMenuOpen = true)}><Icon name="arrow-right" size={14} /></button>
     <div class="ssb-tiles">
-      {#each active as s (s.id)}
-        <a class="ssb-tile" class:cur={s.id === currentId} class:dim={!isActive(s)}
-           href={'/session/' + encodeURIComponent(s.id)} title={sessionTitle(s)}>
+      {#each activeUnits as u (u.key)}
+        {@const s = u.mother}
+        <a class="ssb-tile" class:cur={unitHas(u, (x) => x.id === currentId)} class:dim={!unitHas(u, isActive)}
+           href={'/session/' + encodeURIComponent(s.id)} title={u.children.length ? groupName(s.id) : sessionTitle(s)}>
           <span class="ssb-ab">{abbrev(s)}</span>
-          <span class="ssb-dot ssb-{dotClass(s)}"></span>
+          <span class="ssb-dot ssb-{unitDot(u)}"></span>
         </a>
       {/each}
     </div>
   </div>
 {/if}
+
+<!-- One session row. `unit` is set on the head of a multi-session group (chevron + member count,
+     group name, summarized dot when collapsed); `child` indents a group member. Every row is
+     draggable, and a drop target: dropping a session on it joins that row's group. -->
+{#snippet row(s, unit, collapsedU, child = false)}
+  <div class="ssb-row" class:cur={s.id === currentId} class:dim={unit ? !unitHas(unit, isActive) : !isActive(s)}
+       class:child class:ghead={!!unit}
+       role="button" tabindex="0" onclick={() => open(s)}
+       use:dragSession={s.id} use:dropSession={s.id}
+       onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(s); } }}>
+    <div class="ssb-line">
+      {#if unit}
+        <button class="ssb-gchev" class:open={!collapsedU} aria-label={collapsedU ? 'Expand group' : 'Collapse group'}
+                onclick={(e) => { e.stopPropagation(); toggleUnit(unit); }}><Icon name="chevron-right" size={11} /></button>
+      {/if}
+      <span class="ssb-dot ssb-{unit && collapsedU ? unitDot(unit) : dotClass(s)}"></span>
+      {#if isPinned(s.id)}<span class="ssb-pin-mark" title="Pinned"><Icon name="pin" size={11} /></span>{/if}
+      <span class="ssb-name" title={unit ? 'Group · mother session: ' + sessionTitle(s) : undefined}>{unit ? groupName(s.id) : sessionTitle(s)}</span>
+      {#if unit}<span class="ssb-gcount" title="{unit.all.length} sessions in this group">{unit.all.length}</span>{/if}
+      <span class="ssb-ago">{ago(s.lastActivity)}</span>
+      <!-- actions au survol : groupe · tag · pin · (split / unarchive) -->
+      <span class="ssb-acts">
+        <button class="ssb-act" title="Move to group…" aria-label="Move to group"
+                onclick={(e) => { e.stopPropagation(); openModal('groupPicker', { mode: 'move', sessionId: s.id }); }}><Icon name="sessions" size={13} /></button>
+        <button class="ssb-act" title="Edit tags" aria-label="Edit tags"
+                onclick={(e) => { e.stopPropagation(); openModal('editTags', { sessionId: s.id }); }}><Icon name="tag" size={13} /></button>
+        <button class="ssb-act" class:on={isPinned(s.id)} title={isPinned(s.id) ? 'Unpin' : 'Pin'} aria-label="Pin"
+                onclick={(e) => { e.stopPropagation(); togglePin(s.id); }}><Icon name="pin" size={13} /></button>
+        {#if tab === 'archived' && isArchived(s.id)}
+          <button class="ssb-act" title="Unarchive" onclick={(e) => { e.stopPropagation(); toggleArchive(s.id); }}><Icon name="unarchive" size={13} /></button>
+        {:else if tab === 'active' && s.id !== currentId && !isInSplit(s.id) && canSplit()}
+          <button class="ssb-act" title="Split beside the current session" onclick={(e) => { e.stopPropagation(); addSplit(s.id); }}><Icon name="pane" size={13} /></button>
+        {/if}
+      </span>
+    </div>
+    {#if sessionTags(s.id).length}
+      <!-- tags (manuels + auto pr-approved / pr-changes-requested) : mini-pills compactes -->
+      <div class="ssb-tags">
+        {#each sessionTags(s.id) as t (t)}<span class="ssb-tag" style="--c:{tagColor(t)}">#{t}</span>{/each}
+      </div>
+    {/if}
+  </div>
+{/snippet}
 
 <style>
   .ssb {
@@ -395,6 +432,17 @@
   .ssb-row.cur { background: var(--panel); box-shadow: inset 2px 0 0 var(--accent); }
   .ssb-row.dim { opacity: .6; }
   .ssb-row.dim:hover { opacity: 1; }
+  /* groups: indented children hang off a guide line; drag/drop feedback */
+  .ssb-row.child { padding-left: 26px; }
+  .ssb-row.child::before { content: ''; position: absolute; left: 14px; top: 0; bottom: 0; border-left: 1px solid var(--border2); }
+  .ssb-row:global(.drop-over) { box-shadow: inset 0 0 0 2px var(--accent); background: var(--accent-soft); }
+  .ssb-row:global(.dragging) { opacity: .4; }
+  .ssb-gchev {
+    width: 14px; height: 14px; margin-left: -4px; padding: 0; border: none; background: none; color: var(--muted);
+    cursor: pointer; display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; transition: transform .12s;
+  }
+  .ssb-gchev.open { transform: rotate(90deg); }
+  .ssb-gcount { font-family: var(--mono); font-size: 9.5px; color: var(--muted); flex: 0 0 auto; }
   .ssb-dot { width: 8px; height: 8px; border-radius: 50%; flex: 0 0 auto; }
   .ssb-working { background: var(--working); animation: ssb-pulse 1.6s ease-in-out infinite; }
   .ssb-waiting { background: var(--waiting); animation: ssb-pulse 1.6s ease-in-out infinite; }
@@ -410,7 +458,7 @@
   /* actions au survol : groupe ancré à droite, masqué au repos, révélé au hover de la ligne */
   .ssb-acts { position: absolute; right: 4px; display: none; gap: 2px; background: transparent; padding-left: 4px; }
   .ssb-row:hover .ssb-acts { display: inline-flex; }
-  .ssb-row:hover .ssb-ago { visibility: hidden; }
+  .ssb-row:hover .ssb-ago, .ssb-row:hover .ssb-gcount { visibility: hidden; }
   .ssb-act {
     width: 22px; height: 22px; border: none;
     background: transparent; color: var(--muted); border-radius: 6px; cursor: pointer; padding: 0;
