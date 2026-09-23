@@ -16,7 +16,7 @@
   // Seul le masquage remonte (`onFollowupDismiss`), parce qu'il est persisté par session.
   let { id, alive = true, project = null, resumeModel = null, resumeEffort = null, lastPrompt = '',
         onSent = null, newSession = false, model = '', effort = '', mode = 'default', worktree = false, onLaunched = null,
-        followup = null, onFollowupDismiss = null } = $props();
+        onResumed = null, followup = null, onFollowupDismiss = null } = $props();
 
   // Reprendre la suggestion pour la retoucher : on la pose dans la saisie sans envoyer, et la carte
   // s'efface — le texte est désormais dans la zone de saisie, l'y laisser en double n'apporte rien.
@@ -321,7 +321,14 @@
       const short = (res.data.sessionId || '').slice(0, 8);
       status = { text: newSession ? ('✓ session launched' + (short ? ' (' + short + ')' : '') + (res.data.worktree ? ' · worktree' : '')) : (alive ? '✓ sent' : ('✓ session restarted' + (short ? ' (' + short + ')' : ''))), cls: 'ok' };
       setTimeout(() => { status = { text: '', cls: '' }; }, 3000);
-      setTimeout(() => { loadSessions(); ui.tick++; }, 600);
+      setTimeout(() => {
+        loadSessions(); ui.tick++;
+        // Restarting an ended session: `alive` was false, so no `onSent` fires above, and the
+        // sidebar's own tick-diffing effect (SessionDetail's ui.tick $effect) isn't guaranteed to
+        // catch the change right away — same staleness the one-click Resume button had. Tell the
+        // parent to refetch THIS session's detail directly instead of waiting on that diff.
+        if (!newSession && !alive && onResumed) onResumed();
+      }, 600);
     } else {
       status = { text: '✗ ' + (res.data.error || 'failed'), cls: 'err' };
     }

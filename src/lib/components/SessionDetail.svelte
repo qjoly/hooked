@@ -468,7 +468,11 @@
     }).catch((e) => ({ ok: false, data: { error: e?.message || 'failed' } }));
     if (res.ok) {
       unarchive(s.id);
-      setTimeout(() => { loadSessions(); ui.tick++; resuming = false; }, 1200);
+      // Explicit refetch of THIS session's detail (alive, permissionMode…): the tick effect above
+      // only reloads on specific diffs against the sidebar list (question/activity/followup change),
+      // which a just-resumed session doesn't necessarily trip right away — without this, the pane
+      // kept showing the stale "ended" detail (composer disabled) until a manual page refresh.
+      setTimeout(() => { loadSessions(); load(true); ui.tick++; resuming = false; }, 1200);
     } else {
       resuming = false;
       resumeStatus = '✗ ' + (res.data?.error || 'failed');
@@ -891,6 +895,7 @@
              faire dépendre de ce `{#if}`. Seul le masquage remonte ici, car il est persisté. -->
         <Composer bind:this={composer} {id} alive={s.live} project={s.project}
                   resumeModel={s.launchModel} resumeEffort={s.effort} lastPrompt={s.lastPrompt || ''} {onSent}
+                  onResumed={() => load(true)}
                   followup={showFollowup ? followup : null} onFollowupDismiss={dismissFollowup} />
       {/if}
     </div>
