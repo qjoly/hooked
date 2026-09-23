@@ -160,3 +160,20 @@ describe('navTabs', () => {
     expect(writeSettings({ defaultPage: 'search' }).defaultPage).toBe('deck');
   });
 });
+
+describe('autoCompact', () => {
+  it('is off by default, 100k-token threshold', () => {
+    expect(readSettings().autoCompact).toEqual({ enabled: false, minContextK: 100 });
+  });
+
+  it('persists enabled and the threshold', () => {
+    expect(writeSettings({ autoCompact: { enabled: true, minContextK: 200 } }).autoCompact).toEqual({ enabled: true, minContextK: 200 });
+    expect(readSettings().autoCompact).toEqual({ enabled: true, minContextK: 200 });
+  });
+
+  it('falls back on the default threshold when it is not a sane integer', () => {
+    expect(writeSettings({ autoCompact: { enabled: true, minContextK: -5 } }).autoCompact.minContextK).toBe(100);
+    expect(writeSettings({ autoCompact: { enabled: true, minContextK: '50' } }).autoCompact.minContextK).toBe(100);
+    expect(writeSettings({ autoCompact: 'on' }).autoCompact).toEqual({ enabled: false, minContextK: 100 });
+  });
+});
