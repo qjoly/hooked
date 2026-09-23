@@ -7,7 +7,7 @@
   import { page } from '$app/state';
   import { ui, data, sessionTitle, sessionTags, togglePin, allTags, tagUsage, openModal, isSessionArchived, isArchived, toggleArchive, addSplit, isInSplit, canSplit } from '$lib/state.svelte.js';
   import { onMount } from 'svelte';
-  import { agoShort, fmtSpan, tagColor } from '$lib/format.js';
+  import { ago, agoShort, fmtSpan, tagColor } from '$lib/format.js';
   import { promptCacheState } from '$lib/promptCache.js';
   import Icon from '$lib/components/Icon.svelte';
 
@@ -250,6 +250,7 @@
         {/if}
         {#if !g.label || !ui.collapsed[g.key]}
           {#each g.items as s (s.id)}
+            {@const left = cacheLeft(s)}
             <div class="ssb-row" class:cur={s.id === currentId} class:dim={!isActive(s)}
                  role="button" tabindex="0" onclick={() => open(s)}
                  onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(s); } }}>
@@ -257,12 +258,14 @@
                 <span class="ssb-dot ssb-{dotClass(s)}"></span>
                 {#if isPinned(s.id)}<span class="ssb-pin-mark" title="Pinned"><Icon name="pin" size={11} /></span>{/if}
                 <span class="ssb-name">{sessionTitle(s)}</span>
-                {#if cacheLeft(s) != null}
-                  <span class="ssb-cache" title="Prompt cache warm for {fmtSpan(cacheLeft(s))} more — replying before then re-reads the conversation at the cached rate">
-                    <Icon name="clock" size={10} />{fmtSpan(cacheLeft(s), '')}
+                <!-- A hot session shows only its cache countdown: the elapsed time moves to the tooltip. -->
+                {#if left != null}
+                  <span class="ssb-cache" title="Prompt cache warm for {fmtSpan(left)} more — replying before then re-reads the conversation at the cached rate · last activity {ago(s.lastActivity, nowMs)}">
+                    <Icon name="clock" size={10} />{fmtSpan(left, '')}
                   </span>
+                {:else}
+                  <span class="ssb-ago">{agoShort(s.lastActivity, nowMs)}</span>
                 {/if}
-                <span class="ssb-ago">{agoShort(s.lastActivity, nowMs)}</span>
                 <!-- actions au survol : tag · pin · (split / unarchive) -->
                 <span class="ssb-acts">
                   <button class="ssb-act" title="Edit tags" aria-label="Edit tags"
