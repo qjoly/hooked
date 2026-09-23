@@ -6,6 +6,11 @@
 // sent to Claude. This mirrors that state into localStorage under a key identifying the review
 // (lens + session), and hands it back on the way in.
 //
+// `view` is WHERE the review was — the lens' own shape (branch pair, commit selection, open file,
+// scroll…), opaque to this module. It rides with the draft because coming back to a review means
+// coming back to the same place, and it is enough on its own to keep the entry: a review that has
+// not started yet still has a place.
+//
 // The store is a plain object keyed by review. Each entry carries a write sequence `seq` (and an
 // `at` timestamp, for the curious) so the least recently written fall off once there are more
 // than MAX_DRAFTS — a browser profile should not accumulate every review ever started. Eviction
@@ -15,7 +20,7 @@
 const LS_KEY = 'hooked.reviewDrafts';
 const MAX_DRAFTS = 20;
 
-const EMPTY = { comments: [], reviewed: [] };
+const EMPTY = { comments: [], reviewed: [], view: null };
 const hasLS = () => typeof localStorage !== 'undefined';
 
 function readStore() {
@@ -54,19 +59,20 @@ export function loadDraft(key) {
   return {
     comments: Array.isArray(d.comments) ? d.comments : [],
     reviewed: Array.isArray(d.reviewed) ? d.reviewed : [],
+    view: d.view && typeof d.view === 'object' && !Array.isArray(d.view) ? d.view : null,
   };
 }
 
-/** Mirror a review under `key`. An empty review (nothing pending, nothing ticked) drops it. */
-export function saveDraft(key, { comments = [], reviewed = [] } = {}) {
+/** Mirror a review under `key`. An empty review (nothing pending, nothing ticked, no place) drops it. */
+export function saveDraft(key, { comments = [], reviewed = [], view = null } = {}) {
   if (!key || !hasLS()) return;
   const store = readStore();
-  if (!comments.length && !reviewed.length) {
+  if (!comments.length && !reviewed.length && !view) {
     if (!(key in store)) return;
     delete store[key];
   } else {
     const seq = Object.values(store).reduce((m, d) => Math.max(m, d.seq || 0), 0) + 1;
-    store[key] = { at: Date.now(), seq, comments, reviewed };
+    store[key] = { at: Date.now(), seq, comments, reviewed, view };
   }
   writeStore(store);
 }
