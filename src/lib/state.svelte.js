@@ -158,6 +158,8 @@ export function groupName(id) {
 function applyGroupOp(op, id, extra) {
   return groupOp(op, id, extra).then((res) => { if (res.ok && res.data.meta) ui.meta = res.data.meta; }).catch(() => {});
 }
+// Session being dragged (cf. groupDnd.js) — lets panels reveal a « detach » drop zone.
+export const dnd = $state({ id: null });
 export const joinGroup = (id, targetId) => (id && targetId && id !== targetId ? applyGroupOp('join', id, { target: targetId }) : Promise.resolve());
 export const leaveGroup = (id) => applyGroupOp('leave', id);
 export const setGroupMother = (id) => applyGroupOp('mother', id);
