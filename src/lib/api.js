@@ -130,6 +130,10 @@ export const getMemory = () => jget('/api/memory');
 export const getMcpServers = (cwd) => jget('/api/mcp?cwd=' + encodeURIComponent(cwd || ''));
 export const mcpAction = (body) => jpost('/api/mcp', body);
 
+// Signed-in Claude account (top bar avatar/menu) + the `claude auth login`/`logout` actions.
+export const getAccount = () => jget('/api/account');
+export const accountAction = (body) => jpost('/api/account', body);
+
 export const getDigests = () => jget('/api/digest');
 export const getDigest = (date) => jget('/api/digest?date=' + encodeURIComponent(date));
 export const generateDigest = (date, force) => jpost('/api/digest', { date, force: !!force });
