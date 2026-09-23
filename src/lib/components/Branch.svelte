@@ -5,8 +5,9 @@
   //   • center     — ONE file's diff at a time, rendered by DiffView, with inline comments;
   //   • right panel — totals, the branch → base pair, and the batched-comments send button.
   // The branch picker defaults to the repo's current branch; the base defaults to the repo's
-  // default branch (origin/HEAD, else main/master).
-  import { untrack } from 'svelte';
+  // default branch (origin/HEAD, else main/master), and the commit picker narrows the review
+  // to a slice of the branch's history (default: all of it).
+  import { untrack, tick, onDestroy } from 'svelte';
   import DiffView from './DiffView.svelte';
   import Grip from './Grip.svelte';
   import ReviewComments from './ReviewComments.svelte';
@@ -27,13 +28,23 @@
 
   let { s, id, onReview = null, canReview = true, active = false } = $props();
 
+  // ── where the review was ── the lens comes back exactly as it was left: same repo, branch
+  // pair and commit selection, same file open, same scroll. It is read HERE, before the state
+  // below is declared, so that the very first branch fetch already targets the saved repo — an
+  // effect would fire after that fetch has left, and its answer would put the default repo back.
+  // SessionDetail is keyed by session id: another session is another Branch, `id` never swaps —
+  // hence a plain constant, read once.
+  // svelte-ignore state_referenced_locally
+  const draftKey = id ? 'branch:' + id : null;
+  const saved = loadDraft(draftKey).view || {};
+
   const VCS_META = { git: { icon: 'git', label: 'Git' }, jj: { icon: 'jujutsu', label: 'Jujutsu' } };
 
   // ── branches (per repo) ─────────────────────────────────────────────────────────────────────
   let meta = $state({ loaded: false, loading: false, error: null, vcs: null, branches: [], def: null, repos: [] });
-  let selectedRepo = $state(null);
-  let branch = $state(null); // branch under review
-  let base = $state(null);   // base branch the diff is computed against
+  let selectedRepo = $state(saved.repo || null);
+  let branch = $state(saved.branch || null); // branch under review
+  let base = $state(saved.base || null);     // base branch the diff is computed against
   const vcsMeta = $derived(VCS_META[meta.vcs] || { icon: 'git', label: 'VCS' });
 
   let branchesRefreshing = false; // quiet reload in flight — plain var, nothing renders it
@@ -46,7 +57,9 @@
     try {
       const r = await getVcsBranches(id, root);
       meta = { loaded: true, loading: false, error: null, vcs: r.vcs, branches: r.branches || [], def: r.default, repos: r.repos || [] };
-      selectedRepo = root || r.root || null;
+      // The server's root, not the requested one: a repo that is gone (saved place, nested
+      // clone removed) falls back to the primary, and the picker must say so.
+      selectedRepo = r.root || root || null;
       const names = (r.branches || []).map((b) => b.name);
       if (!branch || !names.includes(branch)) branch = (r.branches || []).find((b) => b.current)?.name || r.default || names[0] || null;
       if (!base || !names.includes(base)) base = r.default || null;
@@ -68,27 +81,69 @@
     if (selectedRepo === root) return;
     branch = null;
     base = null;
+    picked = [];
     activeIdx = 0;
     loadBranches(root, true);
   }
 
-  // ── the branch diff itself (cached per repo:base:branch) ───────────────────────────────────
-  let diffCache = $state({}); // `${root}:${base}:${branch}` -> { changes, mergeBase }
+  // ── commit selection ── which commits of the branch the review covers ─────────────────────
+  // Commits are TOGGLED: a click adds one to the review, a second click takes it out; none picked
+  // means the whole branch. The diff itself is always a CONTIGUOUS slice of the branch's history
+  // — from the parent of the oldest picked commit to the newest — because non-contiguous picks
+  // do not add up to one old→new per file, and a diff shown for them would be a fiction. So the
+  // commits sitting between two picks are pulled in, and the picker shows them as such.
+  // Picks are held as REVISIONS, oldest first, not as indexes: the commit list is refetched with
+  // every diff, and a rewritten branch must drop a pick rather than shift it silently.
+  let picked = $state(Array.isArray(saved.picked) ? saved.picked : []);
+  let commitsCache = $state({}); // pairKeyOf(…) -> commits of the branch, newest first
+  const pairKeyOf = (root, base, branch) => root + ':' + base + ':' + branch;
+  const pairKey = $derived(selectedRepo && branch && base ? pairKeyOf(selectedRepo, base, branch) : null);
+  const commits = $derived(pairKey ? (commitsCache[pairKey] || []) : []);
+  const commitIndex = (rev) => commits.findIndex((c) => c.rev === rev);
+  const selSpan = $derived.by(() => {
+    const at = picked.map(commitIndex).filter((i) => i >= 0);
+    return at.length ? { lo: Math.min(...at), hi: Math.max(...at) } : null; // newest first
+  });
+  // Until the commit list is in (a saved place, a comment's context), the picks are trusted as
+  // given, so the first fetch is already the narrowed one, under the very key the resolved
+  // selection produces afterwards. The server normalises and re-checks.
+  const selRange = $derived(selSpan ? { from: commits[selSpan.hi].rev, to: commits[selSpan.lo].rev }
+                                    : (picked.length && !commits.length ? { from: picked[0], to: picked[picked.length - 1] } : null));
+  const isPicked = (rev) => picked.includes(rev);
+  const inSelection = (i) => !!selSpan && i >= selSpan.lo && i <= selSpan.hi;
+  function toggleCommit(rev) {
+    const next = isPicked(rev) ? picked.filter((r) => r !== rev) : [...picked, rev];
+    // stale picks (commits gone) drop out; kept oldest first, as the fallback above expects
+    picked = next.filter((r) => commitIndex(r) >= 0).sort((x, y) => commitIndex(y) - commitIndex(x));
+    activeIdx = 0;
+  }
+  function pickAllCommits() { picked = []; activeIdx = 0; }
+
+  // ── the branch diff itself (cached per repo:base:branch, and per selection) ────────────────
+  let diffCache = $state({}); // `${pairKey}[:@from..to]` -> { changes, mergeBase, merged, range }
   let diffLoading = $state(false);
-  const diffKey = $derived(selectedRepo && branch && base ? selectedRepo + ':' + base + ':' + branch : null);
+  const diffKeyOf = (pair, range) => pair + (range ? ':@' + range.from + '..' + range.to : '');
+  const diffKey = $derived(pairKey ? diffKeyOf(pairKey, selRange) : null);
+  const diffReq = $derived({ root: selectedRepo, base, branch, range: selRange });
 
   // Keyed by repo:base:branch and DEDUPED by key: the effect below and a jump from the comment
   // list can both ask for the same diff in the same tick, and the jump has to await the very
   // fetch the effect started — two `git diff` for one key would be pure waste.
+  //
+  // `req` is passed in rather than read from the component state: restoring the context of a
+  // comment fetches a pair (and a selection) that is not the one on screen yet.
   const diffInFlight = new Map(); // key -> promise
-  function loadDiff(key) {
+  function loadDiff(key, req) {
     if (diffInFlight.has(key)) return diffInFlight.get(key);
     const p = (async () => {
       try {
-        const r = await getVcsBranchDiff(id, branch, base, selectedRepo);
-        diffCache = { ...diffCache, [key]: { changes: r.changes || [], mergeBase: r.mergeBase, merged: !!r.merged } };
+        const r = await getVcsBranchDiff(id, req.branch, req.base, req.root, req.range);
+        // The commit list belongs to the branch PAIR, not to the selection: cached apart so the
+        // picker keeps standing (selection included) while a narrowed diff is being fetched.
+        commitsCache = { ...commitsCache, [pairKeyOf(req.root, req.base, req.branch)]: r.commits || [] };
+        diffCache = { ...diffCache, [key]: { changes: r.changes || [], mergeBase: r.mergeBase, merged: !!r.merged, range: r.range || null } };
       } catch (_) {
-        diffCache = { ...diffCache, [key]: { changes: [], mergeBase: null, merged: false } };
+        diffCache = { ...diffCache, [key]: { changes: [], mergeBase: null, merged: false, range: null } };
       } finally {
         diffInFlight.delete(key);
         diffLoading = false;
@@ -98,17 +153,17 @@
     return p;
   }
   $effect(() => {
-    const key = diffKey;
+    const key = diffKey, req = diffReq; // deps read BEFORE the guard (Svelte 5 trap)
     if (!key || diffCache[key]) return;
-    untrack(() => { diffLoading = true; loadDiff(key); });
+    untrack(() => { diffLoading = true; loadDiff(key, req); });
   });
   const changes = $derived(diffKey ? (diffCache[diffKey]?.changes || []) : []);
   // Branch already merged into the base: the server recovered the HISTORICAL diff via the
   // merge commit (or nothing, for a squash/fast-forward merge) — worth a banner either way.
   const merged = $derived(diffKey ? !!diffCache[diffKey]?.merged : false);
 
-  function pick(name) { branch = name; activeIdx = 0; }
-  function pickBase(name) { base = name; activeIdx = 0; }
+  function pick(name) { branch = name; picked = []; activeIdx = 0; }
+  function pickBase(name) { base = name; picked = []; activeIdx = 0; }
   function refresh() { loadBranches(selectedRepo, true); }
 
   // ── auto-refresh after Claude acts ── same contract as Ship's VCS view (see Ship.svelte).
@@ -121,7 +176,7 @@
     loadBranches(selectedRepo, false, true);
     const key = diffKey;
     diffCache = key && diffCache[key] ? { [key]: diffCache[key] } : {};
-    if (key) loadDiff(key);
+    if (key) loadDiff(key, diffReq);
   }
   const opCount = $derived((s?.changes || []).reduce((n, c) => n + (c.rawOps || c.ops || []).length, 0));
   let diffStale = $state(false);
@@ -171,16 +226,18 @@
   $effect(() => { changes.length; untrack(() => { if (activeIdx >= changes.length) activeIdx = Math.max(0, changes.length - 1); }); });
   const activeFile = $derived(changes[activeIdx] || null);
 
-  // Blame under the cursor: this diff runs from the fork point (merge-base, or the base branch
-  // when there is none) to the branch head, so each side is blamed at that revision. DiffView
-  // ignores the answer when the blamed line's text no longer matches the line on screen.
+  // Blame under the cursor: each side is blamed at the revision it is shown at — fork point
+  // (merge-base, or the base branch when there is none) → branch head, or the ends of the
+  // selected commits when the review is narrowed to some. DiffView ignores the answer when the
+  // blamed line's text no longer matches the line on screen.
   const mergeBase = $derived(diffKey ? (diffCache[diffKey]?.mergeBase || null) : null);
+  const diffRange = $derived(diffKey ? (diffCache[diffKey]?.range || null) : null);
   const blameFor = $derived.by(() => {
     if (!activeFile || activeFile.binary || meta.vcs === 'jj') return null;
     return {
       file: activeFile.file,
-      old: mergeBase || base || null,
-      new: branch || null,
+      old: diffRange ? diffRange.parent : (mergeBase || base || null),
+      new: diffRange ? diffRange.to : (branch || null),
       load: (rev) => getVcsBlame(id, activeFile.file, rev),
     };
   });
@@ -308,15 +365,27 @@
   // `jumpTarget` goes down to every DiffView of that file and the one holding the thread reveals
   // + flashes it (see its `focus` prop).
   //
-  // The BRANCH PAIR has to be restored first: `opIndex` is `br:<repo>:<base>:<branch>:<j>` (see
-  // fileDiffs) and `commentsFor` hands a thread only to the section whose key matches exactly.
-  // A comment left while comparing another pair is rendered nowhere on the current one, so the
-  // click would open the file and stop there. Anything that is not a `br:` key belongs to the
-  // Ship lens and cannot be shown here at all (cf. `jumpable`).
+  // The BRANCH PAIR — and the commit selection — have to be restored first: `opIndex` is
+  // `br:<repo>:<base>:<branch>[:@<from>..<to>]:<j>` (see fileDiffs) and `commentsFor` hands a
+  // thread only to the section whose key matches exactly. A comment left on another pair, or on
+  // another slice of the branch (where the same line number is another line), is rendered
+  // nowhere on the current diff, so the click would open the file and stop there. Anything that
+  // is not a `br:` key belongs to the Ship lens and cannot be shown here at all (cf. `jumpable`).
+  //
+  // Parsed from the RIGHT: a repo path may hold a colon, a branch name may not, and the optional
+  // selection segment is recognised by the '@' no branch name can carry. Keys written before
+  // selections existed have no such segment and still parse.
   function threadContext(opIndex) {
-    // greedy repo root: a path may hold a colon, a git ref may not
-    const m = /^br:(.+):([^:]+):([^:]+):\d+$/.exec(String(opIndex || ''));
-    return m ? { root: m[1], base: m[2], branch: m[3] } : null;
+    const parts = String(opIndex || '').split(':');
+    if (parts.shift() !== 'br' || !/^\d+$/.test(parts.pop() || '')) return null;
+    let range = null;
+    if (parts.length && parts[parts.length - 1].startsWith('@')) {
+      const [from, to] = parts.pop().slice(1).split('..');
+      if (!from || !to) return null;
+      range = { from, to };
+    }
+    const branch = parts.pop(), base = parts.pop(), root = parts.join(':');
+    return root && base && branch ? { root, base, branch, range } : null;
   }
   const jumpable = (t) => !!threadContext(t.opIndex);
 
@@ -329,8 +398,9 @@
     }
     base = ctx.base;
     branch = ctx.branch;
-    const key = ctx.root + ':' + ctx.base + ':' + ctx.branch;
-    if (!diffCache[key]) { diffLoading = true; await loadDiff(key); }
+    picked = ctx.range ? [...new Set([ctx.range.from, ctx.range.to])] : [];
+    const key = diffKeyOf(pairKeyOf(ctx.root, ctx.base, ctx.branch), ctx.range);
+    if (!diffCache[key]) { diffLoading = true; await loadDiff(key, { root: ctx.root, base: ctx.base, branch: ctx.branch, range: ctx.range }); }
   }
 
   let jumpTarget = $state(null); // { kind, …, idx } — cible à révéler, et le fichier où elle est
@@ -413,6 +483,11 @@
             refsOnly: !r.declarations.length, referenceCount: r.referenceCount };
   }
 
+  const shortRev = (rev) => String(rev || '').slice(0, 8);
+  const reviewScope = $derived(selRange
+    ? `commits \`${shortRev(selRange.from)}\`…\`${shortRev(selRange.to)}\` of branch \`${branch}\` (based on \`${base}\`)`
+    : `the full diff of branch \`${branch}\` against \`${base}\``);
+
   const anchorLabel = (c) => {
     const p = c.side === 'old' ? '−L' : '+L';
     return c.start === c.end ? p + c.end : p + c.start + '–' + c.end;
@@ -428,25 +503,61 @@
       }
     }
     if (!items.length) return '';
-    return `I reviewed the full diff of branch \`${branch}\` against \`${base}\` and left the following inline comments. Address each one, then, for each: ` +
+    return `I reviewed ${reviewScope} and left the following inline comments. Address each one, then, for each: ` +
       threadInstructions(id) + '\n\n' + items.join('\n\n');
   }
 
   let sending = $state(false);
 
-  // ── draft persistence ── only the "reviewed" ticks still live client-side (comments are
-  // server threads now). Same key/shape as before, comments left empty.
-  const draftKey = $derived(id ? 'branch:' + id : null);
+  // ── draft persistence ── the "reviewed" ticks (comments are server threads now) and the
+  // place (see `saved` at the top). Comments left empty: same key/shape as before.
+  reviewed = reviewedToMap(loadDraft(draftKey).reviewed);
+  // Saved only once there IS a place: before the branches are in, nulls would erase the last one.
+  const view = $derived(selectedRepo && branch && base
+    ? { repo: selectedRepo, branch, base, picked, file: activeFile ? activeFile.file : pendingFile, scroll: bodyScroll }
+    : null);
+  const snapshot = () => ({ comments: [], reviewed: reviewedToEntries(reviewed), view });
+  // Debounced: the scroll position is part of the snapshot and a wheel notch is many events.
+  // Leaving (another session, a reload) flushes, so the last notch is not the one that is lost.
+  let saveTimer = 0;
   $effect(() => {
-    const k = draftKey;
+    const snap = snapshot();
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(() => saveDraft(draftKey, snap), 200);
+  });
+  function flushDraft() { clearTimeout(saveTimer); saveDraft(draftKey, snapshot()); }
+  onDestroy(flushDraft);
+
+  // ── landing back ── the file that was open and the scroll inside it.
+  // The file is found again by PATH once the diff of the restored key is in (its index may have
+  // moved) — one shot, then the user's own moves take over. The scroll goes back in two cases:
+  // right after that landing, and every time the lens becomes active again — a hidden pane is
+  // `display: none` (`.pane`, app.css), which has no scroll position: coming back to the lens
+  // would otherwise start from the top of the file.
+  let pendingFile = $state(saved.file || null);
+  let pendingScroll = saved.scroll || 0;
+  let bodyEl = $state(null);
+  let bodyScroll = $state(saved.scroll || 0);
+  function onBodyScroll() { if (active && bodyEl) bodyScroll = bodyEl.scrollTop; }
+  function restoreScroll() { tick().then(() => { if (bodyEl && active) bodyEl.scrollTop = pendingScroll; }); }
+  $effect(() => {
+    const here = diffKey && diffCache[diffKey], file = pendingFile;
+    if (!here || !file) return;
     untrack(() => {
-      const d = loadDraft(k);
-      reviewed = reviewedToMap(d.reviewed);
+      pendingFile = null;
+      const i = here.changes.findIndex((c) => c.file === file);
+      if (i >= 0) activeIdx = i;
+      restoreScroll();
     });
   });
+  let wasActive = false;
   $effect(() => {
-    const snap = { comments: [], reviewed: reviewedToEntries(reviewed) };
-    untrack(() => saveDraft(draftKey, snap));
+    const a = active;
+    untrack(() => {
+      if (!a && wasActive) pendingScroll = bodyScroll;
+      if (a && !wasActive) restoreScroll();
+      wasActive = a;
+    });
   });
 
   async function sendReview() {
@@ -484,7 +595,7 @@
 
 </script>
 
-<svelte:window onkeydown={onKey} />
+<svelte:window onkeydown={onKey} onpagehide={flushDraft} />
 
 <div class="branch-wrap" bind:this={wrapEl}>
   <!-- ── branch picker + base select ── chips = the branch under review (default: the current
@@ -522,6 +633,28 @@
       </div>
     </div>
   {/if}
+  <!-- ── commit picker ── which commits of the branch the review covers: click a commit to add
+       it, click it again to take it out; none picked = the whole branch. The reviewed slice is
+       contiguous, so the commits between two picks are pulled in (dashed). Narrowing changes the
+       diff, it is not a filter over the files. -->
+  {#if commits.length > 1}
+    <div class="ship-commits">
+      <span class="st-label">Commits</span>
+      <button class="st-chip" class:on={!selSpan} onclick={pickAllCommits}>All {commits.length}</button>
+      <div class="st-scroll">
+        {#each commits as c, i (c.rev)}
+          <button class="st-chip st-commit" class:on={isPicked(c.rev)} class:in={!isPicked(c.rev) && inSelection(i)}
+                  title={(c.subject || '(no message)') + (c.author ? ' — ' + c.author : '') + (c.ts ? ' · ' + c.ts : '')
+                         + (isPicked(c.rev) ? '\nClick to take it out of the review'
+                            : inSelection(i) ? '\nPulled in: the reviewed slice runs from the oldest to the newest picked commit'
+                            : '\nClick to add it to the review')}
+                  onclick={() => toggleCommit(c.rev)}>
+            <span class="st-n">{shortRev(c.rev)}</span>{c.subject || '(no message)'}
+          </button>
+        {/each}
+      </div>
+    </div>
+  {/if}
   {#if meta.loading && !meta.loaded}
     <div class="ship-empty">Loading the branches…</div>
   {:else if meta.error}
@@ -534,6 +667,8 @@
     <div class="ship-empty">Loading the branch diff…</div>
   {:else if branch && branch === base}
     <div class="ship-empty">The branch and the base are the same — pick another base to compare against.</div>
+  {:else if !changes.length && selSpan}
+    <div class="ship-empty">The selected commit{selSpan.lo === selSpan.hi ? '' : 's'} change no file — pick another slice of <b>{branch}</b>.</div>
   {:else if !changes.length && merged}
     <div class="ship-empty">Branch <b>{branch}</b> is already merged into <b>{base}</b> (squash or fast-forward — no historical diff to recover).</div>
   {:else if !changes.length}
@@ -590,7 +725,7 @@
             {#if isReviewed(activeFile.file)}<Icon name="check" size={14} /> Reviewed{:else}Mark reviewed{/if}
           </button>
         </div>
-        <div class="sd-body">
+        <div class="sd-body" bind:this={bodyEl} onscroll={onBodyScroll}>
           {#if symMsg}<div class="sd-sym">{symMsg}</div>{/if}
           {#if activeFile.binary}
             <div class="sd-empty">Binary file — no diff.</div>
@@ -626,6 +761,9 @@
         <h4>Branch diff</h4>
         <div class="sp-check"><span class="sp-ico"><Icon name="git-branch" size={14} /></span> <span class="sp-mono">{branch}</span></div>
         <div class="sp-check"><span class="sp-ico"><Icon name="arrow-left" size={14} /></span> vs <span class="sp-mono">{base}</span></div>
+        {#if commits.length}
+          <div class="sp-check"><span class="sp-ico"><Icon name="git" size={14} /></span> {selSpan ? `${selSpan.hi - selSpan.lo + 1} of ${commits.length}` : `all ${commits.length}`} commit{commits.length > 1 ? 's' : ''}</div>
+        {/if}
         <div class="sp-check"><span class="sp-ico"><Icon name="diff" size={14} /></span> {totals.files} file{totals.files > 1 ? 's' : ''} · <span class="sf-add">+{totals.adds}</span> <span class="sf-del">−{totals.dels}</span></div>
         <div class="sp-check"><span class="sp-ico" class:ok={reviewedCount === changes.length}><Icon name={reviewedCount === changes.length ? 'checkbox-done' : 'circle'} size={14} /></span> reviewed {reviewedCount}/{changes.length} files</div>
         {#if pending}<div class="sp-check"><span class="sp-ico"><Icon name="pencil" size={14} /></span> {pending} comment{pending > 1 ? 's' : ''} pending</div>{/if}
@@ -671,7 +809,7 @@
 
   /* branch picker bar */
   .ship-turns { flex: 0 0 auto; display: flex; align-items: center; gap: 8px; padding: 8px 14px; border-bottom: 1px solid var(--border); background: var(--bg2); min-width: 0; }
-  .ship-repos { flex: 0 0 auto; display: flex; align-items: center; gap: 8px; padding: 6px 14px; border-bottom: 1px solid var(--border); background: var(--bg2); min-width: 0; }
+  .ship-repos, .ship-commits { flex: 0 0 auto; display: flex; align-items: center; gap: 8px; padding: 6px 14px; border-bottom: 1px solid var(--border); background: var(--bg2); min-width: 0; }
   .st-label { font-family: var(--mono); font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); flex: 0 0 auto; }
   .st-scroll { display: flex; gap: 6px; overflow-x: auto; min-width: 0; padding-bottom: 2px; flex: 1 1 auto; }
   .st-one { font-size: 11.5px; color: var(--muted); }
@@ -684,6 +822,9 @@
   .st-chip:hover { color: var(--text); }
   .st-chip.on { background: var(--accent-soft); border-color: rgba(var(--accent-rgb), .4); color: var(--accent-d); }
   .st-branch { font-family: var(--mono); }
+  .st-commit { max-width: 220px; }
+  .st-commit.in { border-style: dashed; border-color: rgba(var(--accent-rgb), .45); color: var(--accent-d); }
+  .st-n { font-family: var(--mono); font-size: 9.5px; font-weight: 800; opacity: .8; flex: 0 0 auto; }
   .st-cur { font-size: 9px; font-weight: 800; letter-spacing: .05em; text-transform: uppercase; opacity: .7; }
   .st-base { flex: 0 0 auto; display: inline-flex; align-items: center; gap: 6px; font-family: var(--mono); font-size: 10.5px; color: var(--muted); }
   .st-base select {
