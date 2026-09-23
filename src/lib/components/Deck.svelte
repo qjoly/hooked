@@ -5,7 +5,7 @@
   import { untrack } from 'svelte';
   import { goto } from '$app/navigation';
   import { ui, data, sessionTitle, sessionTags, loadSessions, toggleArchive, isArchived, isSessionArchived, snoozeSession, snoozeUntil, groupUnits, isGroupArchived, isGrouped, groupName } from '$lib/state.svelte.js';
-  import { dragSession, dropSession } from '$lib/groupDnd.js';
+  import { dragSession, dropSession, dropDetach } from '$lib/groupDnd.js';
   import { getSession, reply } from '$lib/api.js';
   import { ago, tagColor, STATE_LABEL } from '$lib/format.js';
   import Question from './Question.svelte';
@@ -272,7 +272,8 @@
 
       {#each fleetGroups as g (g.proj)}
         <div class="repo-group">
-          <div class="repo-head">
+          <!-- drop a grouped session on a repo header to take it out of its group -->
+          <div class="repo-head" use:dropDetach>
             <span class="repo-name">{g.proj}</span>
             <span class="repo-n">{g.items.length}</span>
             <a class="repo-plus" href={'/new?project=' + encodeURIComponent(g.newProject)} title="New session in this project"><Icon name="plus" size={15} /></a>
@@ -561,6 +562,7 @@
   .fkid-a { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: 10.5px; }
   .fkid-ago { margin-left: auto; font-family: var(--mono); font-size: 9px; color: var(--muted); flex: 0 0 auto; }
   .fcard:global(.drop-over) { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
+  .repo-head:global(.drop-over) { box-shadow: inset 0 0 0 2px var(--accent); border-radius: 8px; }
   .fcard:global(.dragging), .fkid:global(.dragging) { opacity: .4; }
   .tgroup {
     display: inline-flex; align-items: center; gap: 3px; flex: 0 1 auto; min-width: 0; max-width: 30%;

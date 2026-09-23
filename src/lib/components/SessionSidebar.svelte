@@ -5,9 +5,9 @@
   // and width all live in ui (localStorage). Toggle via the ◀/▶ buttons or ⌘/Ctrl+B.
   import { goto } from '$app/navigation';
   import { page } from '$app/state';
-  import { ui, data, sessionTitle, sessionTags, togglePin, allTags, tagUsage, openModal, isSessionArchived, isArchived, toggleArchive, addSplit, isInSplit, canSplit, groupUnits, isGroupArchived, groupName } from '$lib/state.svelte.js';
+  import { ui, data, sessionTitle, sessionTags, togglePin, allTags, tagUsage, openModal, isSessionArchived, isArchived, toggleArchive, addSplit, isInSplit, canSplit, groupUnits, isGroupArchived, groupName, isGrouped, dnd } from '$lib/state.svelte.js';
   import { ago, tagColor } from '$lib/format.js';
-  import { dragSession, dropSession } from '$lib/groupDnd.js';
+  import { dragSession, dropSession, dropDetach } from '$lib/groupDnd.js';
   import Icon from '$lib/components/Icon.svelte';
 
   let tab = $state('active'); // 'active' | 'archived'
@@ -246,7 +246,8 @@
     <div class="ssb-list">
       {#each groups as g (g.key)}
         {#if g.label}
-          <button class="ssb-group" class:collapsed={ui.collapsed[g.key]} onclick={() => toggleGroup(g.key)}>
+          <!-- a project header is a drop target too: dropping a grouped session on it detaches it -->
+          <button class="ssb-group" class:collapsed={ui.collapsed[g.key]} onclick={() => toggleGroup(g.key)} use:dropDetach>
             <span class="ssb-chev"><Icon name="chevron-right" size={12} /></span><span class="ssb-gname">{g.label}</span><span class="ssb-gn">{g.items.length}</span>
           </button>
         {/if}
@@ -272,6 +273,10 @@
       {/if}
       {#if !shown.length}
         <div class="ssb-empty">{tab === 'archived' ? 'No archived sessions.' : 'No sessions.'}</div>
+      {/if}
+      {#if dnd.id && isGrouped(dnd.id)}
+        <!-- shown only while a grouped session is being dragged: drop here to take it out -->
+        <div class="ssb-detach" use:dropDetach><Icon name="unarchive" size={14} /> Drop here to detach from its group</div>
       {/if}
     </div>
     <!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -443,6 +448,12 @@
   }
   .ssb-gchev.open { transform: rotate(90deg); }
   .ssb-gcount { font-family: var(--mono); font-size: 9.5px; color: var(--muted); flex: 0 0 auto; }
+  .ssb-group:global(.drop-over) { box-shadow: inset 0 0 0 2px var(--accent); }
+  .ssb-detach {
+    position: sticky; bottom: 0; margin: 8px; padding: 12px 10px; display: flex; align-items: center; justify-content: center; gap: 7px;
+    border: 1px dashed var(--border2); border-radius: 10px; background: var(--bg2); color: var(--muted); font-size: 12px; font-weight: 600;
+  }
+  .ssb-detach:global(.drop-over) { border-color: var(--accent); background: var(--accent-soft); color: var(--accent-d); }
   .ssb-dot { width: 8px; height: 8px; border-radius: 50%; flex: 0 0 auto; }
   .ssb-working { background: var(--working); animation: ssb-pulse 1.6s ease-in-out infinite; }
   .ssb-waiting { background: var(--waiting); animation: ssb-pulse 1.6s ease-in-out infinite; }
