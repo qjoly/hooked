@@ -1,0 +1,99 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="160" height="14" viewBox="0 0 160 14" shape-rendering="crispEdges">
+  <!-- Companion dance loop: 8 frames of 20x14, left to right (played by Companion.svelte). -->
+  <!-- 0: stand -->
+  <g transform="translate(0 0)">
+    <rect x="4" y="6" width="12" height="6" fill="#d97757"/>
+    <rect x="2" y="8" width="2" height="2" fill="#d97757"/>
+    <rect x="16" y="8" width="2" height="2" fill="#d97757"/>
+    <rect x="5" y="12" width="1" height="2" fill="#d97757"/>
+    <rect x="7" y="12" width="1" height="2" fill="#d97757"/>
+    <rect x="12" y="12" width="1" height="2" fill="#d97757"/>
+    <rect x="14" y="12" width="1" height="2" fill="#d97757"/>
+    <rect x="6" y="8" width="1" height="2" fill="#141413"/>
+    <rect x="13" y="8" width="1" height="2" fill="#141413"/>
+  </g>
+  <!-- 1: crouch -->
+  <g transform="translate(20 0)">
+    <rect x="3" y="7" width="14" height="5" fill="#d97757"/>
+    <rect x="1" y="10" width="2" height="2" fill="#d97757"/>
+    <rect x="17" y="10" width="2" height="2" fill="#d97757"/>
+    <rect x="5" y="12" width="1" height="2" fill="#d97757"/>
+    <rect x="7" y="12" width="1" height="2" fill="#d97757"/>
+    <rect x="12" y="12" width="1" height="2" fill="#d97757"/>
+    <rect x="14" y="12" width="1" height="2" fill="#d97757"/>
+    <rect x="5" y="9" width="1" height="2" fill="#141413"/>
+    <rect x="14" y="9" width="1" height="2" fill="#141413"/>
+  </g>
+  <!-- 2: jump -->
+  <g transform="translate(40 0)">
+    <rect x="4" y="4" width="12" height="6" fill="#d97757"/>
+    <rect x="2" y="3" width="2" height="3" fill="#d97757"/>
+    <rect x="16" y="3" width="2" height="3" fill="#d97757"/>
+    <rect x="5" y="10" width="1" height="2" fill="#d97757"/>
+    <rect x="7" y="10" width="1" height="2" fill="#d97757"/>
+    <rect x="12" y="10" width="1" height="2" fill="#d97757"/>
+    <rect x="14" y="10" width="1" height="2" fill="#d97757"/>
+    <rect x="6" y="6" width="1" height="2" fill="#141413"/>
+    <rect x="13" y="6" width="1" height="2" fill="#141413"/>
+  </g>
+  <!-- 3: land -->
+  <g transform="translate(60 0)">
+    <rect x="3" y="7" width="14" height="5" fill="#d97757"/>
+    <rect x="1" y="9" width="2" height="2" fill="#d97757"/>
+    <rect x="17" y="9" width="2" height="2" fill="#d97757"/>
+    <rect x="5" y="12" width="1" height="2" fill="#d97757"/>
+    <rect x="7" y="12" width="1" height="2" fill="#d97757"/>
+    <rect x="12" y="12" width="1" height="2" fill="#d97757"/>
+    <rect x="14" y="12" width="1" height="2" fill="#d97757"/>
+    <rect x="5" y="9" width="1" height="2" fill="#141413"/>
+    <rect x="14" y="9" width="1" height="2" fill="#141413"/>
+  </g>
+  <!-- 4: sway left -->
+  <g transform="translate(80 0)">
+    <rect x="3" y="6" width="12" height="6" fill="#d97757"/>
+    <rect x="1" y="5" width="2" height="3" fill="#d97757"/>
+    <rect x="15" y="10" width="2" height="2" fill="#d97757"/>
+    <rect x="5" y="12" width="1" height="2" fill="#d97757"/>
+    <rect x="7" y="12" width="1" height="2" fill="#d97757"/>
+    <rect x="12" y="12" width="1" height="2" fill="#d97757"/>
+    <rect x="14" y="12" width="1" height="2" fill="#d97757"/>
+    <rect x="5" y="8" width="1" height="2" fill="#141413"/>
+    <rect x="12" y="8" width="1" height="2" fill="#141413"/>
+  </g>
+  <!-- 5: stand -->
+  <g transform="translate(100 0)">
+    <rect x="4" y="6" width="12" height="6" fill="#d97757"/>
+    <rect x="2" y="8" width="2" height="2" fill="#d97757"/>
+    <rect x="16" y="8" width="2" height="2" fill="#d97757"/>
+    <rect x="5" y="12" width="1" height="2" fill="#d97757"/>
+    <rect x="7" y="12" width="1" height="2" fill="#d97757"/>
+    <rect x="12" y="12" width="1" height="2" fill="#d97757"/>
+    <rect x="14" y="12" width="1" height="2" fill="#d97757"/>
+    <rect x="6" y="8" width="1" height="2" fill="#141413"/>
+    <rect x="13" y="8" width="1" height="2" fill="#141413"/>
+  </g>
+  <!-- 6: sway right -->
+  <g transform="translate(120 0)">
+    <rect x="5" y="6" width="12" height="6" fill="#d97757"/>
+    <rect x="3" y="10" width="2" height="2" fill="#d97757"/>
+    <rect x="17" y="5" width="2" height="3" fill="#d97757"/>
+    <rect x="5" y="12" width="1" height="2" fill="#d97757"/>
+    <rect x="7" y="12" width="1" height="2" fill="#d97757"/>
+    <rect x="12" y="12" width="1" height="2" fill="#d97757"/>
+    <rect x="14" y="12" width="1" height="2" fill="#d97757"/>
+    <rect x="7" y="8" width="1" height="2" fill="#141413"/>
+    <rect x="14" y="8" width="1" height="2" fill="#141413"/>
+  </g>
+  <!-- 7: bob -->
+  <g transform="translate(140 0)">
+    <rect x="3" y="7" width="14" height="5" fill="#d97757"/>
+    <rect x="1" y="9" width="2" height="2" fill="#d97757"/>
+    <rect x="17" y="9" width="2" height="2" fill="#d97757"/>
+    <rect x="5" y="12" width="1" height="2" fill="#d97757"/>
+    <rect x="7" y="12" width="1" height="2" fill="#d97757"/>
+    <rect x="12" y="12" width="1" height="2" fill="#d97757"/>
+    <rect x="14" y="12" width="1" height="2" fill="#d97757"/>
+    <rect x="5" y="9" width="1" height="2" fill="#141413"/>
+    <rect x="14" y="9" width="1" height="2" fill="#141413"/>
+  </g>
+</svg>
