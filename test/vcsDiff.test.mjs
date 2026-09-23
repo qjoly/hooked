@@ -290,13 +290,85 @@ describe('buildVcsBranchChanges', () => {
 
   it('rejects unknown or malformed branch names', async () => {
     const dir = await makeBranched(path.join(T, 'branchdiff-bad'));
-    const empty = { vcs: null, root: null, branch: null, base: null, mergeBase: null, merged: false, changes: [] };
+    const empty = { vcs: null, root: null, branch: null, base: null, mergeBase: null, merged: false, commits: [], range: null, changes: [] };
     expect(await buildVcsBranchChanges(dir, 'nope')).toEqual(empty);
     expect(await buildVcsBranchChanges(dir, '--help')).toEqual(empty);
     expect(await buildVcsBranchChanges(dir, 'feature; rm -rf /')).toEqual(empty);
     // An unknown base falls back to the default instead of being passed through.
     const r = await buildVcsBranchChanges(dir, 'feature', '--exec=evil');
     expect(r.base).toBe('main');
+  });
+});
+
+// A feature branch carrying three commits of its own — the fixture of the commit picker: a
+// selection must diff the commits it covers, not the whole branch.
+async function makeSeries(dir) {
+  fs.mkdirSync(dir, { recursive: true });
+  await git(dir, 'init', '-q', '-b', 'main');
+  fs.writeFileSync(path.join(dir, 'a.txt'), 'one\n');
+  await git(dir, 'add', '.');
+  await git(dir, 'commit', '-q', '-m', 'init');
+  await git(dir, 'checkout', '-q', '-b', 'feature');
+  fs.writeFileSync(path.join(dir, 'f1.txt'), 'f1\n');
+  await git(dir, 'add', '.');
+  await git(dir, 'commit', '-q', '-m', 'first');
+  fs.writeFileSync(path.join(dir, 'f2.txt'), 'f2\n');
+  await git(dir, 'add', '.');
+  await git(dir, 'commit', '-q', '-m', 'second');
+  fs.writeFileSync(path.join(dir, 'f1.txt'), 'f1\nmore\n');
+  await git(dir, 'add', '.');
+  await git(dir, 'commit', '-q', '-m', 'third');
+  return dir;
+}
+
+describe('buildVcsBranchChanges — commit selection', () => {
+  it("lists the branch's own commits, newest first", async () => {
+    const dir = await makeSeries(path.join(T, 'branch-commits'));
+    const r = await buildVcsBranchChanges(dir, 'feature', 'main');
+    expect(r.commits.map((c) => c.subject)).toEqual(['third', 'second', 'first']);
+    expect(r.commits[0].rev).toMatch(/^[0-9a-f]{40}$/);
+    expect(r.range).toBe(null);
+  });
+
+  it('diffs the selected commits only — from the parent of the oldest to the newest', async () => {
+    const dir = await makeSeries(path.join(T, 'branch-range'));
+    const { commits } = await buildVcsBranchChanges(dir, 'feature', 'main');
+    const [third, second] = commits;
+    const r = await buildVcsBranchChanges(dir, 'feature', 'main', null, { from: second.rev, to: third.rev });
+    expect(r.range).toMatchObject({ from: second.rev, to: third.rev });
+    const byName = Object.fromEntries(r.changes.map((c) => [c.name, c]));
+    expect(Object.keys(byName).sort()).toEqual(['f1.txt', 'f2.txt']);
+    expect(byName['f2.txt'].badge).toBe('added');
+    // f1.txt was created by the first commit, left out of the selection: only its later edit shows.
+    expect(byName['f1.txt'].badge).toBe('modified');
+    expect(byName['f1.txt'].ops[0].old).toBe('f1\n');
+    expect(byName['f1.txt'].ops[0].new).toBe('f1\nmore\n');
+    // the whole branch still lists every commit, so the picker never collapses on a selection
+    expect(r.commits).toHaveLength(3);
+  });
+
+  it('accepts a single commit, and normalises a selection given the other way round', async () => {
+    const dir = await makeSeries(path.join(T, 'branch-range-one'));
+    const { commits } = await buildVcsBranchChanges(dir, 'feature', 'main');
+    const first = commits[2];
+    const one = await buildVcsBranchChanges(dir, 'feature', 'main', null, { from: first.rev, to: first.rev });
+    expect(one.changes.map((c) => c.name)).toEqual(['f1.txt']);
+    expect(one.changes[0].ops[0].new).toBe('f1\n');
+    const swapped = await buildVcsBranchChanges(dir, 'feature', 'main', null, { from: commits[0].rev, to: first.rev });
+    expect(swapped.range).toMatchObject({ from: first.rev, to: commits[0].rev });
+    expect(swapped.changes.map((c) => c.name).sort()).toEqual(['f1.txt', 'f2.txt']);
+  });
+
+  it('falls back to the whole branch when the selection is not made of its commits', async () => {
+    const dir = await makeSeries(path.join(T, 'branch-range-bad'));
+    const { commits } = await buildVcsBranchChanges(dir, 'feature', 'main');
+    const { stdout } = await execFileP('git', ['rev-parse', 'main'], { cwd: dir });
+    const offBranch = stdout.trim();
+    for (const range of [{ from: offBranch, to: commits[0].rev }, { from: 'HEAD~1', to: 'HEAD' }, { from: commits[0].rev, to: '' }]) {
+      const r = await buildVcsBranchChanges(dir, 'feature', 'main', null, range);
+      expect(r.range).toBe(null);
+      expect(r.changes.map((c) => c.name).sort()).toEqual(['f1.txt', 'f2.txt']);
+    }
   });
 });
 
