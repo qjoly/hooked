@@ -6,3 +6,4 @@ dist/
 .svelte-kit/
 build/
 .claude
+.worktrees
