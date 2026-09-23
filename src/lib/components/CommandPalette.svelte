@@ -52,6 +52,7 @@
       { id: 'act:trash', label: 'Open trash', section: 'Actions', icon: 'trash', action: () => openModal('trash') },
       { id: 'act:tools', label: `Tool details: ${ui.toolsOpen ? 'collapse all' : 'expand all'}`, section: 'Actions', icon: 'tool', action: () => { ui.toolsOpen = !ui.toolsOpen; } },
       { id: 'act:diffmode', label: `Diff: switch to ${ui.diffSplit ? 'unified' : 'split'}`, section: 'Actions', icon: 'diff', action: () => { ui.diffSplit = !ui.diffSplit; } },
+      { id: 'act:companion', label: ui.companion ? 'Hide companion' : 'Show companion', section: 'Actions', icon: 'bot', action: () => { ui.companion = !ui.companion; } },
       { id: 'act:grouping', label: `Sidebar: group by ${ui.groupByProject ? 'status' : 'project'}`, section: 'Actions', icon: 'folder-open', action: () => { ui.groupByProject = !ui.groupByProject; } },
       { id: 'act:resync', label: 'Force resync all sessions', section: 'Actions', icon: 'resync', action: () => resync() },
     ];

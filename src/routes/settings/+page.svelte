@@ -615,6 +615,15 @@
       </div>
     </div>
 
+    <div class="card">
+      <h2>Companion</h2>
+      <p class="hint">A little pixel buddy dancing above the interface. Drag it anywhere — it stays where you drop it. (Per-browser preference.)</p>
+      <label class="check">
+        <input type="checkbox" checked={ui.companion} onchange={(e) => (ui.companion = e.currentTarget.checked)} />
+        <span>Show the companion</span>
+      </label>
+    </div>
+
     <div class="card" id="pset-sidebar" data-sec>
       <h2>Navigation</h2>
       <p class="hint">Which spaces show as tabs next to the Deck in the top bar. Hidden ones stay reachable from the omnibar (⌘P). (Shared setting.)</p>
