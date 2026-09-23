@@ -1,5 +1,5 @@
 <script>
-  import { ago, splitMessageImages } from '$lib/format.js';
+  import { ago, splitMessageImages, fmtTokens } from '$lib/format.js';
   import { getMessageText } from '$lib/api.js';
   import ToolChip from './ToolChip.svelte';
   import Markdown from './Markdown.svelte';
@@ -112,7 +112,7 @@
 
 {#if m.role === 'system'}
   <div class="sysline" class:bg={m.kind === 'bg'} data-msg-ts={m.ts || ''}>
-    <span class="sys-txt">{#if m.kind === 'bg'}<Icon name="background" size={13} color="var(--background)" /> {/if}{m.text}</span>
+    <span class="sys-txt">{#if m.kind === 'bg'}<Icon name="background" size={13} color="var(--background)" /> {:else if m.kind === 'compact'}<Icon name="archive" size={13} /> {/if}{m.text}{#if m.kind === 'compact' && m.preTokens} · {fmtTokens(m.preTokens)}{#if m.postTokens} → {fmtTokens(m.postTokens)}{/if} tokens{/if}</span>
     <span class="t">{ago(m.ts)}</span>
   </div>
 {:else}

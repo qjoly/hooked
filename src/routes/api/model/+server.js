@@ -8,10 +8,11 @@ import { ok, fail, toPromise, readJson } from '$lib/server/respond.js';
 export async function POST({ request }) {
   const body = await readJson(request);
   if (!body) return fail(400, 'invalid request');
-  const { id, model, effort } = body;
+  const { id, model, effort, force } = body;
   if (!id || (!model && !effort)) return fail(400, 'id and (model or effort) required');
   if (!agentAlive(id)) return fail(409, 'this session is not driven by hooked (ended, or started outside hooked)');
-  const { err, info } = await toPromise((cb) => setModelEffort(id, { model, effort }, cb));
+  // `info.held` = the switch was refused because the prompt cache is warm; the UI confirms with `force`.
+  const { err, info } = await toPromise((cb) => setModelEffort(id, { model, effort, force: !!force }, cb));
   if (err) return fail(err.code === 400 ? 400 : 502, err.message || String(err));
   return ok(info);
 }
