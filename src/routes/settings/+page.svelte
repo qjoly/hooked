@@ -61,6 +61,7 @@
   // Auto-compact (cf. server/agent.js → shouldAutoCompact); the figures come from the cache model.
   const ac = $derived(settings.autoCompact || {});
   const saveAutoCompact = (patch) => updateSettings({ autoCompact: { ...settings.autoCompact, ...patch } });
+  const saveSidebarCache = (patch) => updateSettings({ sidebarCache: { ...settings.sidebarCache, ...patch } });
   const AC_LEAD_MIN = Math.round(COMPACT_LEAD_MS / 60000);
   const AC_READ_PCT = Math.round(CACHED_READ_SHARE * 100);
   async function loadWarmupPlan() {
@@ -651,6 +652,24 @@
         <input type="checkbox" checked={ui.groupByProject} onchange={(e) => (ui.groupByProject = e.currentTarget.checked)} />
         <span>Group sessions by project</span>
       </label>
+      <h2 style="margin-top:16px">Prompt cache countdown</h2>
+      <p class="hint">Time left before a session's prompt cache expires, on its sidebar row. Replying before then re-reads the conversation at the cached rate.</p>
+      <div style="display:flex; gap:10px; flex-wrap:wrap">
+        <label class="filter">
+          <select value={settings.sidebarCache.display} onchange={(e) => saveSidebarCache({ display: e.currentTarget.value })}>
+            <option value="badge">Badge beside the elapsed time</option>
+            <option value="replace">In place of the elapsed time</option>
+          </select>
+        </label>
+        <label class="filter">
+          <select value={settings.sidebarCache.windowMin} onchange={(e) => saveSidebarCache({ windowMin: parseInt(e.currentTarget.value, 10) })}>
+            <option value={5}>Last 5 min</option>
+            <option value={15}>Last 15 min</option>
+            <option value={30}>Last 30 min</option>
+            <option value={0}>Always</option>
+          </select>
+        </label>
+      </div>
     </div>
 
     <div class="card" id="pset-ship" data-sec>

@@ -193,3 +193,20 @@ describe('autoCompact', () => {
     expect(writeSettings({ autoCompact: 'on' }).autoCompact).toEqual({ enabled: false, minContextK: 100 });
   });
 });
+
+describe('sidebarCache', () => {
+  it('defaults to a badge beside the elapsed time, shown for the last 15 minutes', () => {
+    expect(readSettings().sidebarCache).toEqual({ display: 'badge', windowMin: 15 });
+  });
+
+  it("round-trips 'replace' and 'always' (0)", () => {
+    expect(writeSettings({ sidebarCache: { display: 'replace', windowMin: 0 } }).sidebarCache).toEqual({ display: 'replace', windowMin: 0 });
+    expect(readSettings().sidebarCache).toEqual({ display: 'replace', windowMin: 0 });
+  });
+
+  it('falls back to the defaults on invalid values', () => {
+    expect(writeSettings({ sidebarCache: { display: 'both', windowMin: 90 } }).sidebarCache).toEqual({ display: 'badge', windowMin: 15 });
+    expect(writeSettings({ sidebarCache: { display: 'badge', windowMin: '5' } }).sidebarCache.windowMin).toBe(15);
+    expect(writeSettings({ sidebarCache: 'badge' }).sidebarCache).toEqual({ display: 'badge', windowMin: 15 });
+  });
+});
