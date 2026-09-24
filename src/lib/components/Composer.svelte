@@ -63,7 +63,9 @@
       if (saved) { text = saved; queueMicrotask(autosize); }
     } catch (_) {}
     restored = true;
-    speech = createSpeechToText({ lang: settings.speechLang, onText: (t) => { text = t; queueMicrotask(autosize); } });
+    if (settings.speechEnabled !== false) {
+      speech = createSpeechToText({ lang: settings.speechLang, onText: (t) => { text = t; queueMicrotask(autosize); } });
+    }
     if (newSession) queueMicrotask(() => ta?.focus());
   });
   $effect(() => {

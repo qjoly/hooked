@@ -531,6 +531,7 @@ export const settings = $state({
   subtabHidden: [],
   initialShellCommand: '',
   speechLang: 'fr-FR',
+  speechEnabled: true,
   statusBar: {
     branch: true, stateBadge: true, permissionMode: true, modelEffort: true,
     cost: true, prompts: true, tokens: true, model: true, usage5h: true, prLinks: false, issueLinks: false, focusBtn: true,
