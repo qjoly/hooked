@@ -154,6 +154,22 @@ describe('speechLang', () => {
   });
 });
 
+describe('speechEnabled', () => {
+  it('defaults to true (a config predating this key keeps dictation on)', () => {
+    expect(readSettings().speechEnabled).toBe(true);
+  });
+
+  it('round-trips false', () => {
+    expect(writeSettings({ speechEnabled: false }).speechEnabled).toBe(false);
+    expect(readSettings().speechEnabled).toBe(false);
+  });
+
+  it('coerces a truthy/falsy value to a strict boolean', () => {
+    expect(writeSettings({ speechEnabled: 0 }).speechEnabled).toBe(false);
+    expect(writeSettings({ speechEnabled: 'yes' }).speechEnabled).toBe(true);
+  });
+});
+
 describe('navTabs', () => {
   it('drops the former Search tab: an old settings file must not keep pointing at it', () => {
     expect(writeSettings({ navTabs: ['sessions', 'search', 'stats'] }).navTabs).toEqual(['sessions', 'stats']);
