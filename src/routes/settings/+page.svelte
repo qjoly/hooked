@@ -681,8 +681,13 @@
     <div class="card" id="pset-speech" data-sec>
       <h2>Voice dictation</h2>
       <p class="hint">Locale used by the composer's microphone (speech to text, Web Speech API). The mic button only shows up on a browser that supports recognition. (Shared setting.)</p>
+      <label class="check">
+        <input type="checkbox" checked={settings.speechEnabled !== false}
+               onchange={(e) => updateSettings({ speechEnabled: e.currentTarget.checked })} />
+        <span>Show the mic button in the composer</span>
+      </label>
       <div class="cmd-row">
-        <select class="cmd-input" value={settings.speechLang} onchange={(e) => updateSettings({ speechLang: e.currentTarget.value })}>
+        <select class="cmd-input" disabled={settings.speechEnabled === false} value={settings.speechLang} onchange={(e) => updateSettings({ speechLang: e.currentTarget.value })}>
           {#each SPEECH_LOCALES as l (l.key)}
             <option value={l.key}>{l.label} — {l.key}</option>
           {/each}
