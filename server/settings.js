@@ -52,6 +52,9 @@ const DEFAULTS = {
   subtabHidden: [],
   // Locale (BCP-47) used by the composer's voice dictation (Web Speech API). E.g. fr-FR, en-US.
   speechLang: 'fr-FR',
+  // Voice dictation on/off (composer mic button, Web Speech API). Default true: a settings.json
+  // predating this key must not silently disable it for everyone.
+  speechEnabled: true,
   // Synchro git du dépôt du serveur (cf. server/gitOps.js) : boucle de fond fetch + pull --ff-only.
   autoGitSync: false,
   // Boucle de fond (cf. server/prReviewTags.js) : tague une session `pr-approved` /
@@ -248,6 +251,7 @@ function sanitize(raw) {
     autoCompact,
     shipDefaultView: o.shipDefaultView === 'vcs' ? 'vcs' : 'claude',
     speechLang,
+    speechEnabled: o.speechEnabled === undefined ? true : !!o.speechEnabled,
     editor: EDITOR_KEYS.includes(o.editor) ? o.editor : DEFAULT_EDITOR,
     defaultPage: DEFAULT_PAGES.includes(o.defaultPage) ? o.defaultPage : 'deck',
     hiddenModels,
