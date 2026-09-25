@@ -167,31 +167,6 @@ export function tagColor(name) {
   return TAG_PALETTE[h % TAG_PALETTE.length];
 }
 
-export const LIVE_STATES = ['working', 'background', 'waiting', 'attention', 'idle'];
-
-// filtres par statut (single-select). `states` = états couverts par le filtre.
-// La vue par défaut (« Actives ») n'inclut PAS les sessions terminées (ended/past, p. ex.
-// quand on a tué le pane) : elles restent accessibles via le filtre « Terminées ».
-export const STATUS_FILTERS = [
-  { key: 'all', label: 'Active', states: LIVE_STATES },
-  { key: 'attention', label: '🔴 Action', states: ['attention'] },
-  { key: 'waiting', label: '🟡 Waiting', states: ['waiting'] },
-  { key: 'background', label: '🌀 Background', states: ['background'] },
-  { key: 'working', label: '🔵 Working', states: ['working'] },
-  { key: 'idle', label: '🕘 Paused', states: ['idle'] },
-  { key: 'done', label: '✓ Ended', states: ['ended', 'past'] },
-];
-export function filterMatches(f, state) { return !f.states || f.states.includes(state); }
-// Multi-sélection : un état matche si AU MOINS un des filtres sélectionnés le couvre (union).
-// Aucune sélection → tout passe (garde-fou).
-export function filterMatchesAny(keys, state) {
-  if (!keys || !keys.length) return true;
-  return keys.some((k) => {
-    const f = STATUS_FILTERS.find((x) => x.key === k);
-    return f && filterMatches(f, state);
-  });
-}
-
 // Métadonnées d'affichage de TOUS les modes de permission Claude Code (label + icône).
 // La source du mode courant est le champ `permission_mode` des hooks (cf. server/events.js) —
 // la statusline ne le porte pas. Les valeurs possibles : default / plan / acceptEdits / auto /

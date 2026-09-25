@@ -509,14 +509,14 @@
 
   let sending = $state(false);
 
-  // ── draft persistence ── the "reviewed" ticks (comments are server threads now) and the
-  // place (see `saved` at the top). Comments left empty: same key/shape as before.
+  // ── draft persistence ── the "reviewed" ticks (comments are server threads) and the place
+  // (see `saved` at the top).
   reviewed = reviewedToMap(loadDraft(draftKey).reviewed);
   // Saved only once there IS a place: before the branches are in, nulls would erase the last one.
   const view = $derived(selectedRepo && branch && base
     ? { repo: selectedRepo, branch, base, picked, file: activeFile ? activeFile.file : pendingFile, scroll: bodyScroll }
     : null);
-  const snapshot = () => ({ comments: [], reviewed: reviewedToEntries(reviewed), view });
+  const snapshot = () => ({ reviewed: reviewedToEntries(reviewed), view });
   // Debounced: the scroll position is part of the snapshot and a wheel notch is many events.
   // Leaving (another session, a reload) flushes, so the last notch is not the one that is lost.
   let saveTimer = 0;

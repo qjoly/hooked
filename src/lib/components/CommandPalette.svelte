@@ -1,7 +1,7 @@
 <script>
   import { goto } from '$app/navigation';
   import { page } from '$app/state';
-  import { ui, data, settings, sessionTitle, cycleScheme, setTheme, toggleFocus, toggleNotify, openModal } from '$lib/state.svelte.js';
+  import { ui, data, settings, sessionTitle, setTheme, toggleFocus, toggleNotify, openModal } from '$lib/state.svelte.js';
   import { editorFor } from '$lib/editors.js';
   import { kill, interrupt, openInEditor, openInGhostty, resync, searchTranscripts } from '$lib/api.js';
   import { shortcutForCommand, formatKeys } from '$lib/shortcuts.js';
@@ -41,12 +41,6 @@
       { id: 'act:theme-light', label: 'Theme: Light', section: 'Appearance', icon: 'theme-light', action: () => setTheme('light') },
       { id: 'act:theme-dark', label: 'Theme: Dark', section: 'Appearance', icon: 'theme-dark', action: () => setTheme('dark') },
       { id: 'act:theme-system', label: 'Theme: System', section: 'Appearance', icon: 'theme-system', action: () => setTheme('system') },
-      { id: 'act:scheme-default', label: 'Color scheme: Default', section: 'Appearance', icon: 'dot', color: '#7d74f5', action: () => setScheme('default') },
-      { id: 'act:scheme-legacy', label: 'Color scheme: Legacy', section: 'Appearance', icon: 'dot', color: '#a07a55', action: () => setScheme('legacy') },
-      { id: 'act:scheme-ocean', label: 'Color scheme: Ocean', section: 'Appearance', icon: 'dot', color: '#2b8fb3', action: () => setScheme('ocean') },
-      { id: 'act:scheme-forest', label: 'Color scheme: Forest', section: 'Appearance', icon: 'dot', color: '#3f9d5a', action: () => setScheme('forest') },
-      { id: 'act:scheme-rose', label: 'Color scheme: Rosé', section: 'Appearance', icon: 'dot', color: '#d16a9a', action: () => setScheme('rose') },
-      { id: 'act:scheme-dracula', label: 'Color scheme: Dracula', section: 'Appearance', icon: 'dot', color: '#bd93f9', action: () => setScheme('dracula') },
       { id: 'act:focus', label: ui.focus ? 'Exit focus mode' : 'Enter focus mode', section: 'Actions', icon: 'focus', action: toggleFocus },
       { id: 'act:notify', label: ui.notify ? 'Disable notifications' : 'Enable notifications', section: 'Actions', icon: ui.notify ? 'bell' : 'bell-off', action: toggleNotify },
       { id: 'act:trash', label: 'Open trash', section: 'Actions', icon: 'trash', action: () => openModal('trash') },
@@ -59,7 +53,6 @@
     if (cs) {
       cmds.push(
         { id: 'ctx:lens-chat', label: 'Lens: Converse', section: 'Current session', icon: 'converse', action: () => goto('/session/' + encodeURIComponent(cs.id) + '?lens=chat') },
-        { id: 'ctx:lens-terminal', label: 'Lens: Shell', section: 'Current session', icon: 'shell', action: () => goto('/session/' + encodeURIComponent(cs.id) + '?lens=terminal') },
         { id: 'ctx:lens-ship', label: 'Lens: Ship (review)', section: 'Current session', icon: 'ship', action: () => goto('/session/' + encodeURIComponent(cs.id) + '?lens=ship') },
         { id: 'ctx:copy-path', label: `Copy project path: ${cs.projectName || cs.cwd}`, section: 'Current session', icon: 'clipboard', action: () => navigator.clipboard.writeText(cs.cwd) },
         { id: 'ctx:editor', label: `Open project in ${editorFor(settings.editor).label}`, section: 'Current session', icon: editorFor(settings.editor).icon, action: () => openInEditor(cs.id) },

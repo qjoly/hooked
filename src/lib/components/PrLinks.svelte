@@ -96,8 +96,6 @@
     background: var(--card); border: 1px solid var(--border); min-width: 0;
   }
   .pr-head { display: flex; align-items: flex-start; gap: 12px; }
-  /* NB: classe .pr-lnk (pas .pr-link) — un .pr-link GLOBAL existe dans app.css (chips PR du
-     header de conversation) et fuirait ici (align-items:center → texte centré). */
   .pr-lnk { display: flex; flex-direction: column; gap: 3px; text-decoration: none; min-width: 0; flex: 1; }
   .pr-label { font-weight: 700; font-size: 13.5px; color: var(--accent); }
   .pr-lnk:hover .pr-label { text-decoration: underline; }

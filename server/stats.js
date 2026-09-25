@@ -8,7 +8,7 @@ import { scanSessions, blankSummary } from './transcript.js';
 import { repoSlug } from './git.js';
 import { readEvents, lastEventBySession, lastActivityEventBySession, modeForSession, liveQuestionForSession, liveQuestionBySession, livePlanForSession, livePlanBySession, eventSessionMeta, rcSessionIdsFromEvents } from './events.js';
 import { liveStateFor } from './live.js';
-import { resolveLaunchForSession, agentAlive, agentSession, agentMode, agentAutoApprove, agentBusy, agentActivity, agentFollowup, agentLastProse, agentPendingAsk, liveSessionIds, agentCacheInfo } from './agent.js';
+import { resolveLaunchForSession, agentAlive, agentSession, agentMode, agentAutoApprove, agentBusy, agentActivity, agentFollowup, agentLastProse, agentPendingAsk, agentCacheInfo } from './agent.js';
 import { sessionStatus, sessionStatusRaw, accountRateLimits, freshestStatusId } from './status.js';
 import { scopedLimit, accountLimit, currentUtilization, usageFreshness } from './utilization.js';
 import { buildConversation } from './conversation.js';
@@ -310,35 +310,6 @@ function buildUsage() {
   return { sessionId: id, session, account };
 }
 
-// Vue GLOBALE des jobs de fond encore actifs, toutes sessions confondues (pour /api/background +
-// la carte Overview). Cleanly-separable : ne dépend que de scanSessions + background.js. Ne retient
-// que les sessions VIVANTES (session terminée = process de fond mort avec elle). Trié du plus
-// récent d'abord.
-function buildBackgroundView() {
-  const rows = [];
-  const alive = new Set(liveSessionIds());
-  for (const s of scanSessions()) {
-    if (!alive.has(s.id)) continue;
-    for (const j of buildBackgroundJobs(s.file).active) {
-      rows.push({
-        sessionId: s.id,
-        title: s.title,
-        projectName: s.projectName,
-        repo: repoSlug(s.project),
-        kind: j.kind,
-        description: j.description || null,
-        command: j.command || j.prompt || null,
-        taskId: j.taskId || null,
-        startedAt: j.startTs || null,
-        // session vivante ici (gate au-dessus) → alive=true ; distingue running d'un Monitor expiré.
-        status: jobStatus(j, true, Date.now()),
-      });
-    }
-  }
-  rows.sort((a, b) => String(b.startedAt || '').localeCompare(String(a.startedAt || '')));
-  return { jobs: rows, count: rows.length };
-}
-
 // Résout le chemin du fichier .output d'un job de fond À PARTIR de (session, taskId) — côté serveur.
 // Le client ne fournit JAMAIS un chemin brut (anti path-traversal) : on relit les jobs détectés de
 // la session et on ne renvoie que le outputPath qu'on a nous-mêmes extrait du transcript. null sinon.
@@ -480,4 +451,4 @@ function sessionDetail(id) {
   };
 }
 
-export { buildSessions, buildSessionsWarm, buildStats, buildUsage, sessionDetail, sessionDetailWarm, eventOnlySessions, fillFromEvents, refineWithAgent, withBackgroundState, buildBackgroundView, resolveBackgroundOutput };
+export { buildSessions, buildSessionsWarm, buildStats, buildUsage, sessionDetail, sessionDetailWarm, eventOnlySessions, fillFromEvents, refineWithAgent, withBackgroundState, resolveBackgroundOutput };

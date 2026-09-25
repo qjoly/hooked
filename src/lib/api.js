@@ -80,8 +80,6 @@ export const getFileChangeFull = (id, path) =>
   jget(`/api/session/file-changes?id=${encodeURIComponent(id)}&path=${encodeURIComponent(path)}`);
 // Usage « /usage » : rate limits du compte (5 h / 7 j) + contexte/effort de la session courante + budget 5 h.
 export const getUsage = () => jget('/api/usage');
-// Jobs de fond encore actifs, toutes sessions confondues (carte Overview). { jobs, count }.
-export const getBackground = () => jget('/api/background');
 // Flux SSE du log (.output) d'un job de fond, résolu côté serveur depuis (session, taskId).
 // `onSeed(b64)` = queue initiale, `onData(b64)` = octets ajoutés, `onUnavailable()` = pas de log.
 // Renvoie l'EventSource (appeler .close() pour arrêter).
@@ -120,7 +118,6 @@ export const replaceTags = (map) => jpost('/api/tags', { replace: map });
 // archived flag + snooze deadline. saveSessionMeta merge-patches one session.
 export const getSessionMeta = () => jget('/api/session-meta');
 export const saveSessionMeta = (id, patch) => jpost('/api/session-meta', { id, ...patch });
-export const replaceSessionMeta = (map) => jpost('/api/session-meta', { replace: map });
 // Session groups: op = 'join' ({ target }) | 'leave' | 'mother' | 'rename' ({ name }).
 export const groupOp = (op, id, extra = {}) => jpost('/api/session-meta', { op, id, ...extra });
 // Daily digests: an AI-written recap of a day's sessions. GET (no date) → history index + latest

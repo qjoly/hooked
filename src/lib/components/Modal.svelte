@@ -1,5 +1,4 @@
 <script>
-  import { onMount } from 'svelte';
   import { ui, closeModal } from '$lib/state.svelte.js';
   import Icon from '$lib/components/Icon.svelte';
   import CostModal from './CostModal.svelte';

@@ -201,33 +201,11 @@
     return () => CSS.highlights.delete(HL);
   });
 
-  // Métadonnées d'affichage des sous-onglets (miroir de SessionDetail / server/settings.js).
-  const SUBTAB_META = {
-    chat:        { icon: 'converse', label: 'Conversation' },
-    changes:     { icon: 'diff', label: 'Files' },
-    todos:       { icon: 'tasks', label: 'Tasks' },
-    subagents:   { icon: 'bot', label: 'Subagents' },
-    subsessions: { icon: 'link', label: 'Sub-sessions' },
-    background:  { icon: 'background', label: 'Background' },
-    pr:          { icon: 'pr', label: 'PRs' },
-    issues:      { icon: 'issue', label: 'Issues' },
-  };
-
-  // Elements of the session status bar (header) that can be toggled on/off and reordered.
-  // Keyed map (label per key) ; l'ordre d'affichage vient de settings.statusBarOrder.
+  // Optional controls of the session header's ⋯ menu that can be hidden (mirror of server/settings.js).
   const STATUS_BAR_META = {
-    branch:         { label: 'Git branch' },
-    stateBadge:     { label: 'State badge (working / waiting / ended…)' },
-    permissionMode: { label: 'Permission-mode control (Normal / Auto-edits / Plan)' },
+    permissionMode: { label: 'Permission-mode control (Normal / Auto / Plan) and auto-approve' },
     modelEffort:    { label: 'Model / effort control' },
-    cost:           { label: 'Cost (session + subagent cost)' },
-    prompts:        { label: 'Prompt count' },
-    tokens:         { label: 'Token counts (output + cache)' },
-    model:          { label: 'Model name (shown when session is not live)' },
-    usage5h:        { label: '5-hour usage indicator' },
-    prLinks:        { label: 'Show linked PRs in the status bar' },
-    issueLinks:     { label: 'Show linked issues in the status bar' },
-    focusBtn:       { label: 'Focus button (in ⋯ menu)' },
+    focusBtn:       { label: 'Focus button' },
   };
 
   const THEMES = [
@@ -339,53 +317,11 @@
     return () => clearInterval(t);
   });
 
-  // Ordre local des sous-onglets, resynchronisé depuis le store (sauf pendant une réorganisation).
-  let order = $state([...settings.subtabOrder]);
-  $effect(() => { order = [...settings.subtabOrder]; });
-
-  async function move(i, dir) {
-    const j = i + dir;
-    if (j < 0 || j >= order.length) return;
-    const next = [...order];
-    [next[i], next[j]] = [next[j], next[i]];
-    order = next;              // optimiste
-    await updateSettings({ subtabOrder: next });
-  }
-
-  // Masquage manuel d'un sous-onglet (bouton œil). 'chat' (Conversation) n'est jamais masquable.
-  const hidden = $derived(new Set(settings.subtabHidden || []));
-  async function toggleSubtab(key) {
-    if (key === 'chat') return;
-    const next = new Set(settings.subtabHidden || []);
-    next.has(key) ? next.delete(key) : next.add(key);
-    await updateSettings({ subtabHidden: [...next] });
-  }
-  // Aperçu de la barre de sous-onglets : ordre configuré moins les masqués (l'auto-masquage d'un
-  // onglet vide dépend d'une session → non simulé ici ; c'est un aperçu de la configuration).
-  const previewSubtabs = $derived(order.filter((k) => SUBTAB_META[k] && !hidden.has(k)));
-
-  // Barre de statut : lecture/bascule d'un élément + échantillons représentatifs pour l'aperçu.
+  // ⋯ menu controls: read / toggle one entry.
   const sbOn = (k) => settings.statusBar?.[k] !== false;
   function toggleStatusBar(key) {
     updateSettings({ statusBar: { ...settings.statusBar, [key]: !sbOn(key) } });
   }
-  // Ordre local des éléments de la barre de statut, resynchronisé depuis le store (comme les subtabs).
-  let sbOrder = $state([...settings.statusBarOrder]);
-  $effect(() => { sbOrder = [...settings.statusBarOrder]; });
-  async function moveSb(i, dir) {
-    const j = i + dir;
-    if (j < 0 || j >= sbOrder.length) return;
-    const next = [...sbOrder];
-    [next[i], next[j]] = [next[j], next[i]];
-    sbOrder = next;            // optimiste
-    await updateSettings({ statusBarOrder: next });
-  }
-  const SB_SAMPLE = {
-    branch: 'main', stateBadge: '● waiting', permissionMode: 'Auto', modelEffort: 'opus · max',
-    cost: '$1.20', prompts: '42 prompts', tokens: '128k out · 1.2M cache', model: 'opus',
-    usage5h: '43%', prLinks: '🔗 hooked #18', issueLinks: '🐛 hooked #21', focusBtn: '⛶ Focus',
-  };
-
   // Resync live states: recomputes every session's state now instead of waiting for the poll.
   let resyncing = $state(false);
   let resyncStatus = $state('');
@@ -1101,16 +1037,13 @@
     </div>
 
     <div class="card" id="pset-interface" data-sec>
-      <h2>Session status bar</h2>
-      <p class="hint">Reorder the elements with ▲/▼ and toggle which ones appear in the session header. Click the eye to hide or show each one.</p>
+      <h2>Session menu</h2>
+      <p class="hint">Optional controls of the session header's ⋯ menu. Click the eye to hide or show each one.</p>
       <ul class="reorder">
-        {#each sbOrder as key, i (key)}
+        {#each Object.keys(STATUS_BAR_META) as key (key)}
           <li class:row-off={!sbOn(key)}>
-            <span class="ro-pos">{i + 1}</span>
-            <span class="ro-name">{STATUS_BAR_META[key]?.label ?? key}</span>
+            <span class="ro-name">{STATUS_BAR_META[key].label}</span>
             <span class="ro-actions">
-              <button class="mini" disabled={i === 0} onclick={() => moveSb(i, -1)} title="Move up" aria-label="Move up"><Icon name="arrow-up" size={13} /></button>
-              <button class="mini" disabled={i === sbOrder.length - 1} onclick={() => moveSb(i, 1)} title="Move down" aria-label="Move down"><Icon name="arrow-down" size={13} /></button>
               <button class="mini vis" class:off={!sbOn(key)} onclick={() => toggleStatusBar(key)}
                       title={sbOn(key) ? 'Shown — click to hide' : 'Hidden — click to show'}
                       aria-label="Toggle visibility">{#if sbOn(key)}<Icon name="eye" size={13} />{:else}<Icon name="eye-off" size={13} />{/if}</button>
@@ -1118,55 +1051,6 @@
           </li>
         {/each}
       </ul>
-      <div class="cmd-row" style="margin-top:6px">
-        <label class="dg-field">Show at most
-          <select class="dg-sel" value={String(settings.statusBarLinkLimit ?? 0)}
-                  onchange={(e) => updateSettings({ statusBarLinkLimit: parseInt(e.currentTarget.value, 10) })}>
-            <option value="0">all</option>
-            {#each [1, 2, 3, 5, 10] as n}<option value={String(n)}>{n}</option>{/each}
-          </select>
-          linked PRs / issues in the header — the rest becomes a “+N” link to the tab.
-        </label>
-      </div>
-      <div class="preview">
-        <span class="preview-label">Preview</span>
-        <div class="pv-statusbar">
-          {#each sbOrder as key (key)}
-            {#if sbOn(key)}<span class="pv-sb-item pv-sb-{key}">{SB_SAMPLE[key]}</span>{/if}
-          {/each}
-          {#if !sbOrder.some((k) => sbOn(k))}<span class="pv-empty">(all hidden)</span>{/if}
-        </div>
-      </div>
-    </div>
-
-    <div class="card">
-      <h2>Session subtabs</h2>
-      <p class="hint">Reorder the subtabs (the first available one opens on arrival) and hide the ones you don't use. Conversation is always shown; tabs also auto-hide when empty.</p>
-      <ul class="reorder">
-        {#each order as key, i (key)}
-          <li class:row-off={hidden.has(key)}>
-            <span class="ro-pos">{i + 1}</span>
-            <span class="ro-name"><Icon name={SUBTAB_META[key]?.icon ?? 'circle'} size={14} /> {SUBTAB_META[key]?.label ?? key}</span>
-            <span class="ro-actions">
-              <button class="mini" disabled={i === 0} onclick={() => move(i, -1)} title="Move up" aria-label="Move up"><Icon name="arrow-up" size={13} /></button>
-              <button class="mini" disabled={i === order.length - 1} onclick={() => move(i, 1)} title="Move down" aria-label="Move down"><Icon name="arrow-down" size={13} /></button>
-              <button class="mini vis" class:off={hidden.has(key)} disabled={key === 'chat'}
-                      onclick={() => toggleSubtab(key)}
-                      title={key === 'chat' ? 'Always shown' : (hidden.has(key) ? 'Hidden — click to show' : 'Shown — click to hide')}
-                      aria-label="Toggle visibility">{#if hidden.has(key)}<Icon name="eye-off" size={13} />{:else}<Icon name="eye" size={13} />{/if}</button>
-            </span>
-          </li>
-        {/each}
-      </ul>
-      <div class="preview">
-        <span class="preview-label">Preview</span>
-        <div class="pv-subtabs">
-          {#each previewSubtabs as key, i (key)}
-            <span class="pv-subtab" class:active={i === 0}><Icon name={SUBTAB_META[key]?.icon} size={14} /> {SUBTAB_META[key]?.label ?? key}</span>
-          {/each}
-          {#if !previewSubtabs.length}<span class="pv-empty">(all hidden)</span>{/if}
-        </div>
-      </div>
     </div>
     </div>
 
@@ -1207,7 +1091,6 @@
   .chip.active { background: var(--accent-soft); border-color: var(--accent); color: var(--accent-d); }
   .reorder { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
   .reorder li { display: flex; align-items: center; gap: 12px; background: var(--bg2); border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px; }
-  .ro-pos { color: var(--muted); font-variant-numeric: tabular-nums; font-size: 12px; width: 16px; }
   .ro-name { flex: 1; font-weight: 600; font-size: 13.5px; }
   .ro-actions { display: flex; gap: 4px; }
   .mini { background: var(--surface); border: 1px solid var(--border); color: var(--text); border-radius: 6px; width: 28px; height: 26px; cursor: pointer; font-size: 11px; }
@@ -1250,18 +1133,6 @@
   .mini.vis:disabled { opacity: .3; }
   .row-off { opacity: .55; }
   .row-off .ro-name { text-decoration: line-through; }
-  .preview { margin-top: 14px; padding: 12px; background: var(--bg2); border: 1px dashed var(--border2); border-radius: 8px; }
-  .preview-label { display: block; font-size: 10.5px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin-bottom: 8px; }
-  .pv-subtabs { display: flex; gap: 4px; flex-wrap: wrap; }
-  .pv-subtab { font-size: 12.5px; font-weight: 600; color: var(--muted); padding: 5px 10px; border-radius: 7px; white-space: nowrap; }
-  .pv-subtab.active { color: var(--accent-d); background: var(--accent-soft); }
-  .pv-statusbar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; font-size: 12px; color: var(--muted); }
-  .pv-sb-item { white-space: nowrap; }
-  .pv-sb-branch { background: var(--bg3); border: 1px solid var(--border); border-radius: 5px; padding: 1px 7px; font-size: 11px; }
-  .pv-sb-stateBadge { background: var(--bg3); border: 1px solid var(--border); border-radius: 20px; padding: 1px 8px; font-weight: 600; }
-  .pv-sb-permissionMode, .pv-sb-modelEffort { background: var(--bg3); border: 1px solid var(--border); border-radius: 6px; padding: 1px 8px; }
-  .pv-sb-cost { font-weight: 700; color: var(--text); }
-  .pv-empty { font-size: 12px; color: var(--muted); font-style: italic; }
   /* Claude Code card: resolved binary path + running→installed version + wide restart button. */
   .path { display: inline-block; margin-left: 8px; font-size: 11px; color: var(--muted); max-width: 340px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: middle; }
   .ver { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
