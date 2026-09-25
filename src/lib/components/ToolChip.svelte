@@ -22,10 +22,14 @@
   // non-diff tools: collapsible JSON input / result. AskUserQuestion (`ask` = the questions
   // payload) renders read-only — header, question, options — instead of raw JSON, and marks the
   // option(s) you picked, parsed from the tool result (`…="label"` pairs, comma-joined if multi).
-  let open = $state(false);
+  // "Expand all" (ui.toolsOpen, transient) shows every chip; a click still collapses one. The two
+  // states are kept apart: switching the global on never hides a chip opened by hand, and switching
+  // it off brings back exactly the chips opened by hand — the old XOR did the opposite.
+  let open = $state(false);        // opened by hand while "expand all" is off
+  let collapsed = $state(false);   // collapsed by hand while "expand all" is on
   const hasDetail = $derived(!!(t.inputText || t.result || ask));
-  // ui.toolsOpen (transitoire) déplie tout : le clic individuel reste possible pour replier
-  const shown = $derived(hasDetail && open !== ui.toolsOpen);
+  const shown = $derived(hasDetail && (ui.toolsOpen ? !collapsed : open));
+  function toggleDetail() { if (ui.toolsOpen) collapsed = !collapsed; else open = !open; }
   const answers = $derived.by(() => (ask && t.result)
     ? [...t.result.matchAll(/="([^"]*)"/g)].map((m) => m[1]) : []);
   const isPicked = (label) => answers.some((a) => a === label || a.split(',').map((s) => s.trim()).includes(label));
@@ -107,7 +111,7 @@
   {/if}
 {:else}
   <div class="tool" class:has-detail={hasDetail} class:open={shown}>
-    <span class="chip" onclick={() => { if (hasDetail) open = !open; }}>
+    <span class="chip" onclick={() => { if (hasDetail) toggleDetail(); }}>
       <Icon name="tool" size={13} /> {t.name}{#if t.detail}<span class="chip-d" title={t.detail}>{t.detail}</span>{/if}{#if hasDetail}<span class="chip-x"><Icon name="chevron-right" size={13} /></span>{/if}
     </span>
     {#if shown}

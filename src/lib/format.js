@@ -346,6 +346,13 @@ export function fenceMeta(info) {
   return out;
 }
 
+// A `console` fence is a terminal transcript only when hooked produced it: formatLocalCommand
+// (server/agent.js) always stamps the exit code in the info-string. A ```console block Claude
+// writes carries no such marker and is plain code — its first line is not a command to promote.
+export function isCommandTranscript(seg) {
+  return !!seg && seg.type === 'code' && seg.lang === 'console' && !!seg.meta && seg.meta.exit !== undefined;
+}
+
 // découpe un texte markdown en segments : { type:'text', parts } ou { type:'code', lang, code }.
 // Les blocs de code de PREMIER NIVEAU (fence ``` ou indenté) sont extraits pour être rendus par
 // <CodeBlock> (coloration + copie) ou <Mermaid> (lang === 'mermaid') ; tout le reste est rendu en

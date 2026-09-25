@@ -245,7 +245,7 @@
             {/if}
             <button class="tbtn" onclick={() => open(s)}>Open the session</button>
             <button class="tbtn ghost" onclick={() => snoozeOne(s.id)}><Icon name="snooze" size={14} /> 1h</button>
-            <button class="tbtn ghost" onclick={() => archiveOne(s.id)} title="Archive this session (hide it from the Deck)"><Icon name="archive" size={14} /> Archive</button>
+            <button class="tbtn ghost" onclick={() => archiveOne(s.id)} title="Archive this session: stops it and hides it from the Deck"><Icon name="archive" size={14} /> Archive</button>
           </footer>
         </article>
       {/each}

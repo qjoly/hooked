@@ -146,7 +146,7 @@ const RAW_LABELS = {
 
 export function langLabel(lang) {
   const l = (lang || '').toLowerCase();
-  if (!l) return 'Texte';
+  if (!l) return 'Text';
   return RAW_LABELS[l] || LABELS[ALIAS[l]] || l.toUpperCase();
 }
 

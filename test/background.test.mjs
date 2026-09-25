@@ -10,7 +10,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { buildBackgroundJobs, activeBackgroundJobs, withBackgroundState, jobStatus } from '../server/index.js';
+import { buildBackgroundJobs, activeBackgroundJobs, withBackgroundState, jobStatus, jobLabel } from '../server/index.js';
 
 const DIR = path.dirname(fileURLToPath(import.meta.url));
 const FP = path.join(DIR, 'fixtures', 'background.jsonl');
@@ -212,5 +212,16 @@ describe('jobStatus — statut pur d\'un job (croise notif terminale, timeout Mo
     expect(running.length).toBe(1);
     // pane mort → tout devient orphaned/terminé, aucun running.
     expect(jobs.filter((j) => jobStatus(j, false, NOW) === 'running').length).toBe(0);
+  });
+});
+
+// Le libellé d'un job est le même dans la liste des sessions et dans le détail : le dock affichait
+// le `kind` (« bash ») parce que seul le payload de liste calculait `label`.
+describe('jobLabel', () => {
+  it('prend la description, sinon la commande, sinon le prompt, sinon le kind', () => {
+    expect(jobLabel({ kind: 'bash', description: 'run the tests', command: 'npm test' })).toBe('run the tests');
+    expect(jobLabel({ kind: 'bash', command: 'npm test' })).toBe('npm test');
+    expect(jobLabel({ kind: 'wakeup', prompt: 'check CI' })).toBe('check CI');
+    expect(jobLabel({ kind: 'monitor' })).toBe('monitor');
   });
 });
