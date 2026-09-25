@@ -7,6 +7,7 @@
 </script>
 
 <script>
+  import { copyText } from '$lib/clipboard.js';
   import { onMount, onDestroy, tick, untrack } from 'svelte';
   import { goto } from '$app/navigation';
   import { ui, data, settings, loadSessions, openModal, sessionTitle, sessionTags, renameSession, toggleFocus, splitWithMostRecent, canSplit, toggleArchive, isArchived, unarchive } from '$lib/state.svelte.js';
@@ -552,10 +553,10 @@
   // (the two are no longer distinct). `toggleArchive` performs the kill; we just leave the view.
   const archived = $derived(!!s && isArchived(s.id));
   function archive() {
-    if (archived) { toggleArchive(s.id); setTimeout(() => { loadSessions(); ui.tick++; }, 400); return; }
+    const delay = archived ? 400 : 800; // stopping a live session takes a moment to settle
     archiving = true;
     toggleArchive(s.id);
-    setTimeout(() => { loadSessions(); ui.tick++; }, 800);
+    setTimeout(() => { loadSessions(); ui.tick++; archiving = false; }, delay);
   }
   let deleting = $state(false);
   function del() {
@@ -637,11 +638,11 @@
   // du navigateur est utilisée → correct quel que soit l'accès (localhost / IP LAN / MagicDNS).
   let linkCopied = $state(false);
   async function copyLink() {
-    try { await navigator.clipboard.writeText(location.origin + '/session/' + s.id); linkCopied = true; setTimeout(() => (linkCopied = false), 1500); } catch (_) {}
+    if (await copyText(location.origin + '/session/' + s.id)) { linkCopied = true; setTimeout(() => (linkCopied = false), 1500); }
   }
   let exportCopied = $state(false);
   async function copyExport() {
-    try { await navigator.clipboard.writeText(conversationToMarkdown(s)); exportCopied = true; setTimeout(() => (exportCopied = false), 1500); } catch (_) {}
+    if (await copyText(conversationToMarkdown(s))) { exportCopied = true; setTimeout(() => (exportCopied = false), 1500); }
   }
   // Commande de reprise manuelle. Utile quand on veut la session dans son propre terminal plutôt
   // que dans hooked (un TUI, un pager, du copier-coller lourd) — c'est la MÊME session, l'Agent SDK
@@ -650,7 +651,7 @@
   async function copyResumeCmd() {
     const cmd = resumeCommand(s);
     if (!cmd) return;
-    try { await navigator.clipboard.writeText(cmd); cmdCopied = true; setTimeout(() => (cmdCopied = false), 1500); } catch (_) {}
+    if (await copyText(cmd)) { cmdCopied = true; setTimeout(() => (cmdCopied = false), 1500); }
   }
   // Éditeur préféré (réglage partagé) : sert au libellé du bouton et à l'icône.
   const prefEditor = $derived(editorFor(settings.editor));
@@ -762,13 +763,14 @@
           <!-- modèle/effort + mode de permission vivent dans le menu ⋯ ; seul le retour
                éphémère d'un changement (✓ Auto, ✗ failed…) s'affiche ici. -->
           {#if modeStatus || meStatus}<span class="strip-status">{modeStatus || meStatus}</span>{/if}
-          <button class="stop-btn" disabled={archiving} onclick={archive}
-                  title="Stop the running session and move it to Archived">{#if archiving}<Icon name="queued" size={14} tint={false} />{:else}<Icon name="archive" size={14} tint={false} /> Archive{/if}</button>
         {:else}
           {#if resumeStatus}<span class="strip-status err">{resumeStatus}</span>{/if}
           <button class="resume-btn" disabled={resuming} onclick={resume}
                   title="Re-run claude --resume, driven by hooked">{#if resuming}<Icon name="queued" size={14} />{:else}<Icon name="in-progress" size={14} tint={false} />{/if} Resume</button>
         {/if}
+        <!-- The one Archive control: stops the session when it runs, hides it, reversible. -->
+        <button class="archive-btn" disabled={archiving} onclick={archive}
+                title={archived ? 'Restore this session to the live fleet' : s.live ? 'Stop the running session and move it to Archived' : 'Move this session to Archived'}>{#if archiving}<Icon name="queued" size={14} tint={false} />{:else if archived}<Icon name="unarchive" size={14} tint={false} /> Unarchive{:else}<Icon name="archive" size={14} tint={false} /> Archive{/if}</button>
         {#if !inSplit}
           <button class="hdr-icon-btn" title="Split with the most recent session (⌘/Ctrl+⇧+S)"
                   aria-label="Split view" disabled={!canSplit()} onclick={() => splitWithMostRecent(id)}><Icon name="pane" size={16} /></button>
@@ -820,7 +822,6 @@
             {#if sb.focusBtn !== false}<button class="vscode-btn" class:on={ui.focus} onclick={toggleFocus} title="Focus mode: full-screen conversation"><Icon name="maximize" size={14} /> {ui.focus ? 'Exit focus' : 'Focus'}</button>{/if}
             <button class="vscode-btn" class:on={ui.toolsOpen} onclick={() => (ui.toolsOpen = !ui.toolsOpen)} title="Expand every tool call's input/result inline (this session only, off on reload)"><Icon name="tool" size={14} /> {ui.toolsOpen ? 'Collapse tool details' : 'Expand tool details'}</button>
             <div class="hdr-div"></div>
-            <button class="vscode-btn" onclick={archive} title={archived ? 'Restore this session to the live fleet' : 'Stop the running session and move it to Archived'}>{#if archived}<Icon name="unarchive" size={14} /> Unarchive{:else}<Icon name="archive" size={14} /> Archive{/if}</button>
             <button class="vscode-btn del-btn" disabled={deleting} onclick={del} title="Move to trash: removes from dashboard; transcript kept in bin/ (recoverable)">{#if deleting}<Icon name="queued" size={14} tint={false} />{:else}<Icon name="trash" size={14} tint={false} />{/if} Delete</button>
           </div>
         </details>
@@ -1124,7 +1125,6 @@
   }
   @container (max-width: 520px) {
     /* 2) l'Archive inline se replie (il reste dans le menu ⋯) — seuls ⋯ (et Resume) subsistent. */
-    .stop-btn { display: none; }
   }
   @container (max-width: 440px) {
     /* 3) enfin le statut et la branche disparaissent ; le TITRE, lui, reste toujours lisible. */

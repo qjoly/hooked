@@ -11,7 +11,6 @@
     bash:     { icon: 'bash', label: 'Background command' },
     monitor:  { icon: 'eye', label: 'Monitor (watcher)' },
     wakeup:   { icon: 'wakeup', label: 'Scheduled wakeup' },
-    subagent: { icon: 'subagent', label: 'Sub-agent' },
   };
   const meta = (k) => KIND[k] || { icon: 'background', label: k };
 

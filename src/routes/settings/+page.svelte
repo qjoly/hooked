@@ -581,12 +581,6 @@
           {#each NAV_TABS as t (t.key)}<option value={t.key}>{t.label}</option>{/each}
         </select>
       </label>
-      <h2 style="margin-top:6px">Session grouping</h2>
-      <p class="hint">Group the left session sidebar by project (repository / folder) with collapsible headers, instead of a flat list. (Per-browser preference.)</p>
-      <label class="check">
-        <input type="checkbox" checked={ui.groupByProject} onchange={(e) => (ui.groupByProject = e.currentTarget.checked)} />
-        <span>Group sessions by project</span>
-      </label>
     </div>
 
     <div class="card" id="pset-ship" data-sec>

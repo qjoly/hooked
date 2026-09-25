@@ -804,6 +804,16 @@ body.focus .pane-head { display: none; }
 .srow:hover { background: var(--bg3); }
 .srow.active { background: var(--accent-soft); }
 .srow.active .srow-title { color: var(--accent-d); }
+/* Session-state dot shared by the list panels (sidebar rows and tiles, group tabs, Deck cards):
+   `state-dot d-<sessionDot()>`. Sizes are the caller's; colours and pulse live here once. */
+.state-dot { width: 8px; height: 8px; border-radius: 50%; flex: 0 0 auto; }
+.state-dot.d-working { background: var(--working); animation: dot-pulse 1.6s ease-in-out infinite; }
+.state-dot.d-waiting { background: var(--waiting); animation: dot-pulse 1.6s ease-in-out infinite; }
+.state-dot.d-attention { background: var(--attention); animation: dot-pulse 1s ease-in-out infinite; }
+.state-dot.d-bgjob { background: var(--background); animation: dot-pulse 1.6s ease-in-out infinite; }
+.state-dot.d-ended { background: var(--ended); }
+.state-dot.d-idle { background: var(--idle); }
+@keyframes dot-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
 .sdot { width: 8px; height: 8px; border-radius: 50%; margin-top: 6px; flex-shrink: 0; background: var(--past); }
 .s-working .sdot { background: var(--working); animation: pulse 1s infinite; }
 .s-waiting .sdot { background: var(--waiting); }
@@ -1085,13 +1095,6 @@ code.path { color: var(--muted); font-size: 11px; word-break: break-all; font-fa
 .td-h { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); padding: 6px 10px 0; }
 .td-sec pre { margin: 4px 0 0; padding: 6px 10px 10px; font-family: var(--mono); font-size: 11.5px; line-height: 1.5; white-space: pre-wrap; word-break: break-word; max-height: 320px; overflow: auto; color: var(--text); }
 
-/* drill-in : déroulé interne d'un sous-agent */
-.sa-drill { background: var(--accent-soft); color: var(--accent-d); border: 1px solid rgba(var(--accent-rgb),.22); border-radius: 9px; padding: 6px 12px; font-size: 12px; font-weight: 600; cursor: pointer; }
-.sa-drill:hover:not(:disabled) { background: rgba(var(--accent-rgb),.2); }
-.sa-drill:disabled { opacity: .6; cursor: default; }
-.sa-trace { margin-top: 10px; }
-.sa-trace.hidden { display: none; }
-.sa-chat { display: flex; flex-direction: column; gap: 12px; background: var(--bg3); border-radius: 12px; padding: 12px; }
 
 /* ---------- composer (répondre à Claude) ---------- */
 /* Dock: the sticky bottom slab that carries the composer. It is opaque (conversation
@@ -1211,7 +1214,6 @@ code.path { color: var(--muted); font-size: 11px; word-break: break-all; font-fa
 
 /* éditeur modèle/effort sur une session live (à la suite du sélecteur de mode) */
 
-/* barre d'outils du header (mode + modèle/effort fusionnés sur une ligne) */
 
 /* ---------- écran « nouvelle session » (chat plein écran) ---------- */
 .newsession { flex: 1 1 auto; overflow-y: auto; display: flex; justify-content: center; padding: 28px; }
@@ -1320,13 +1322,13 @@ code.path { color: var(--muted); font-size: 11px; word-break: break-all; font-fa
 }
 .resume-btn:hover { background: var(--accent-d); }
 .resume-btn:disabled { opacity: .6; cursor: default; }
-.stop-btn {
+.archive-btn {
   display: inline-flex; align-items: center; gap: 4px;
   background: transparent; color: var(--attention); border: 1px solid var(--attention);
   border-radius: 8px; padding: 4px 10px; font-size: 12px; font-weight: 600; cursor: pointer;
 }
-.stop-btn:hover { background: var(--attention); color: #fff; }
-.stop-btn:disabled { opacity: .6; cursor: default; }
+.archive-btn:hover { background: var(--attention); color: #fff; }
+.archive-btn:disabled { opacity: .6; cursor: default; }
 /* boutons d’action secondaires de l’en-tête (éditeur / Ghostty / Focus / Supprimer) :
    style « fantôme » uniforme et discret — pas de couleur au repos, révélée au survol. */
 .vscode-btn {
@@ -1395,24 +1397,6 @@ code.path { color: var(--muted); font-size: 11px; word-break: break-all; font-fa
 /* jobs de fond actifs (Bash bg / Monitor / ScheduleWakeup) sur une ligne de session */
 
 /* onglet « Tâches » du détail de session */
-.todos { display: flex; flex-direction: column; gap: 14px; }
-.todos-head { display: flex; align-items: center; gap: 12px; }
-.todos-frac { font-size: 12px; font-weight: 700; color: var(--muted); font-family: var(--mono); white-space: nowrap; }
-.todos-track { flex: 1; height: 7px; background: var(--bg3); border-radius: 20px; overflow: hidden; }
-.todos-fill { height: 100%; background: var(--ended); border-radius: 20px; transition: width .3s; }
-.todo-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
-.todo { display: flex; align-items: flex-start; gap: 9px; padding: 7px 9px; border-radius: 9px; font-size: 14px; line-height: 1.4; }
-.todo-ico { flex: none; font-size: 14px; line-height: 1.4; }
-.todo-body { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.todo-desc { font-size: 12px; font-weight: 400; color: var(--muted); line-height: 1.4; }
-.todo-completed .todo-desc { text-decoration: none; }
-.todo-completed { color: var(--muted); }
-.todo-completed .todo-text { text-decoration: line-through; }
-.todo-completed .todo-ico { color: var(--ended); }
-.todo-in_progress { background: var(--accent-soft); color: var(--text); font-weight: 600; }
-.todo-in_progress .todo-ico { color: var(--accent); }
-.todo-pending { color: var(--text); }
-.todo-pending .todo-ico { color: var(--border2); }
 
 /* filtre par statut (chips) */
 .lf-label { display: block; font-size: 12px; font-weight: 700; color: var(--muted); margin: 16px 0 6px; text-transform: uppercase; letter-spacing: .05em; }
@@ -1588,7 +1572,7 @@ textarea.lf-input { font-family: inherit; resize: vertical; }
 
   /* pane-head cockpit : trop d'éléments pour une seule ligne sur mobile */
   .pane-head .badge { margin-left: 0; }
-  .pane-head .stop-btn, .pane-head .resume-btn { order: 1; }
+  .pane-head .archive-btn, .pane-head .resume-btn { order: 1; }
   .pane-head .hdr-more { margin-left: auto; order: 2; }
 
   /* liste de tags PR/issue : laisse respirer plutôt que déborder */

@@ -1,4 +1,5 @@
 <script>
+  import Lightbox from './Lightbox.svelte';
   import { screenshotUrl } from '$lib/api.js';
 
   // `shots`: [{ path, name, ts, size }] — images read or written by the session (cf.
@@ -15,10 +16,10 @@
     if (zoom < 0) return;
     zoom = (zoom + d + shots.length) % shots.length;
   }
+  // ← / → walk the list while the lightbox is open (Esc is the Lightbox's own).
   function onkey(e) {
     if (zoom < 0) return;
-    if (e.key === 'Escape') zoom = -1;
-    else if (e.key === 'ArrowRight') step(1);
+    if (e.key === 'ArrowRight') step(1);
     else if (e.key === 'ArrowLeft') step(-1);
     else return;
     e.preventDefault();
@@ -36,13 +37,12 @@
 </div>
 
 {#if zoom >= 0 && shots[zoom]}
-  <div class="lightbox" role="presentation" onclick={() => (zoom = -1)}>
-    <img class="lightbox-img" src={url(shots[zoom])} alt={shots[zoom].name} />
+  <Lightbox src={url(shots[zoom])} alt={shots[zoom].name} onclose={() => (zoom = -1)}>
     <div class="lightbox-bar">
       {shots[zoom].name} · {zoom + 1}/{shots.length}
       <a href={url(shots[zoom])} target="_blank" rel="noopener" onclick={(e) => e.stopPropagation()}>open</a>
     </div>
-  </div>
+  </Lightbox>
 {/if}
 
 <svelte:window onkeydown={onkey} />
@@ -63,11 +63,6 @@
     direction: rtl;
   }
 
-  .lightbox {
-    position: fixed; inset: 0; z-index: 200; display: flex; flex-direction: column; align-items: center;
-    justify-content: center; gap: 10px; background: rgba(0, 0, 0, 0.85); cursor: zoom-out; padding: 24px;
-  }
-  .lightbox-img { max-width: 94vw; max-height: 86vh; object-fit: contain; border-radius: 6px; box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5); }
   .lightbox-bar { font: 11px var(--mono); color: #ddd; display: flex; gap: 10px; align-items: center; }
   .lightbox-bar a { color: #9cf; }
 </style>
