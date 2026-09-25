@@ -169,7 +169,9 @@
     // la liste sous `data` levait donc une TypeError à chaque appel, et `terms` restait vide.
     const res = await listTerminals(id).catch(() => null);
     if (!res || !res.ok) return;
-    terms = res.terminals || [];
+    // Inline PTYs (a `!!command` rendered in the conversation) are tagged with the session so they
+    // close with it, but they are not tabs here: two xterms on one PTY would fight over its size.
+    terms = (res.terminals || []).filter((t) => !t.inline);
     if (!terms.some((t) => t.id === termId)) termId = terms.length ? terms[terms.length - 1].id : null;
     // Seul endroit où `terms` est réassigné, donc seul endroit où poser l'invariant : plus de
     // terminal ⇒ on replie. Sans ça, changer de session vidait la liste en laissant le panneau
@@ -431,9 +433,9 @@
     });
   });
 
-  // One-click resume: re-runs `claude --resume` directly (hooked defaults from Settings if set,
-  // otherwise the session's own model/effort), no modal and no message — the Composer takes over
-  // once the session is back up.
+  // One-click resume: re-runs `claude --resume` directly — same effort, the permission mode from
+  // Settings' default (Normal when unset), no model (see below) — no modal and no message; the
+  // Composer takes over once the session is back up.
   let resuming = $state(false);
   let resumeStatus = $state('');
   async function resume() {
@@ -804,7 +806,7 @@
               </div>
               <div class="hdr-div cmds-div"></div>
             {/if}
-            <button class="vscode-btn" onclick={() => openModal('cost')} title="Estimated cost breakdown"><Icon name="cost" size={14} /> Cost · {fmtCost(s.cost)}{#if s.subagentCost > 0} (+{fmtCost(s.subagentCost)} agents){/if}</button>
+            <button class="vscode-btn" onclick={() => openModal('cost', { sessionId: id })} title="Estimated cost breakdown for this session"><Icon name="cost" size={14} /> Cost · {fmtCost(s.cost)}{#if s.subagentCost > 0} (+{fmtCost(s.subagentCost)} agents){/if}</button>
             <div class="hdr-div"></div>
             <button class="vscode-btn" title="Copy a shareable link that opens this session in hooked" onclick={copyLink}>{#if linkCopied}<Icon name="check" size={14} /> copied{:else}<Icon name="link" size={14} /> Copy link{/if}</button>
             <button class="vscode-btn" disabled={editorBusy} onclick={openEditor} title="Open the entire project in {prefEditor.label} (change it in Settings → Editor)">{#if editorBusy}<Icon name="queued" size={14} />{:else}<Icon name={prefEditor.icon} size={14} />{/if} Open in {prefEditor.label}</button>
@@ -872,24 +874,24 @@
           <div class="pane-empty">Empty conversation.</div>
         {/if}
         {#each pendingQueued as q (q.ts)}{@render commandBubble(q)}{/each}
-        <!-- Introduction de la question / du plan en attente, LUE DANS LA PANE (server: pendingLeadIn).
-             Tant qu'on n'a pas répondu, Claude Code n'a rien écrit du tour dans le transcript → sans
-             ça la carte question arrivait SANS le texte qui l'explique (et il fallait répondre pour
-             enfin le lire). Rendu en monospace tel que peint par le TUI : les lignes sont déjà
-             coupées à la largeur de la pane (tableaux, code) — les reflower en markdown les casse. -->
+        <!-- Lead-in of the pending question / plan (server: pendingLeadIn — the prose Claude streamed
+             before handing over). Until you answer, Claude Code writes nothing of this turn to the
+             transcript → without it the question card arrived without the text explaining it. -->
         {#if s.pendingLeadIn && tab === 'chat'}
           <div class="bubble assistant leadin">
             <div class="who"><Icon name="bot" size={14} /> Claude
-              <span class="t" title="Claude Code n'écrit ce tour dans le transcript qu'après votre réponse — texte relu dans le terminal">
-                <Icon name="terminal" size={13} /> lu dans le terminal
+              <span class="t" title="Claude Code only writes this turn to the transcript once you have answered — this text comes from the live stream">
+                <Icon name="activity" size={13} /> live stream
               </span>
             </div>
             <pre class="leadin-txt">{s.pendingLeadIn}</pre>
           </div>
         {/if}
         <!-- Tour en cours, en direct : le texte tel qu'il s'écrit, avant que le message ne soit
-             flushé dans le transcript. Remplacé par la vraie bulle au refetch suivant. -->
-        {#if tab === 'chat' && (liveText || liveThinking)}
+             flushé dans le transcript. Remplacé par la vraie bulle au refetch suivant. Masqué tant
+             qu'une question / un plan attend : le lead-in ci-dessus porte déjà cette prose (le tampon
+             de flux n'est vidé qu'au `result`), l'afficher aussi la doublait. -->
+        {#if tab === 'chat' && (liveText || liveThinking) && !s.pendingLeadIn}
           <div class="bubble assistant streaming">
             <div class="who"><Icon name="bot" size={14} /> Claude
               <span class="t"><span class="sd-dot" aria-hidden="true"></span> en direct</span>

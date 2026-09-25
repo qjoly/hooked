@@ -30,6 +30,7 @@
   // Actifs (en tête) vs terminés (repliés). Un job sans statut (payload legacy) est traité 'running'.
   const isActive = (j) => ['running', 'expired', 'orphaned'].includes(j.status || 'running');
   const active = $derived(jobs.filter(isActive));
+  const running = $derived(jobs.filter((j) => (j.status || 'running') === 'running'));
   const finished = $derived(jobs.filter((j) => !isActive(j)));
 
   // Accordéon : un seul log ouvert à la fois (un seul EventSource vivant).
@@ -105,7 +106,7 @@
 
 <div class="bg-list">
   {#if active.length}
-    <p class="bg-hint"><Icon name="background" size={14} color="var(--background)" /> This session's turn ended, but these background jobs are still running — they'll re-invoke Claude when they finish.</p>
+    {#if running.length}<p class="bg-hint"><Icon name="background" size={14} color="var(--background)" /> Background jobs still running — they'll re-invoke Claude when they finish.</p>{/if}
     {#each active as j, i (j.taskId || j.command || i)}
       {@render jobItem(j, i)}
     {/each}

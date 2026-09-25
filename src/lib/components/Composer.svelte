@@ -329,14 +329,14 @@
 {#if followup}
   <div class="followup">
     <div class="fu-head">
-      <span class="fu-ico"><Icon name="lightbulb" size={14} /></span> Prompt de follow-up suggéré
+      <span class="fu-ico"><Icon name="lightbulb" size={14} /></span> Suggested follow-up prompt
       <button class="fu-x" title="Dismiss" aria-label="Dismiss" onclick={() => onFollowupDismiss?.(followup)}><Icon name="close" size={14} /></button>
     </div>
     <div class="fu-text">{followup}</div>
     <div class="fu-actions">
-      <button class="fu-take" onclick={() => sendText(followup)}><Icon name="send" size={14} /> Envoyer</button>
-      <button class="fu-edit" title="Pré-remplir la zone de saisie sans envoyer"
-              onclick={editFollowup}><Icon name="pencil" size={14} /> Modifier avant d'envoyer</button>
+      <button class="fu-take" onclick={() => sendText(followup)}><Icon name="send" size={14} /> Send</button>
+      <button class="fu-edit" title="Prefill the composer without sending"
+              onclick={editFollowup}><Icon name="pencil" size={14} /> Edit before sending</button>
     </div>
   </div>
 {/if}

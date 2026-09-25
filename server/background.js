@@ -71,6 +71,10 @@ const DONE_STOPPED = new Set(['stopped', 'cancelled', 'canceled']);
 // transcript (job.done + doneReason), timeout propre du Monitor (borne dure → 'expired'), et vivacité
 // de la SESSION (morte → 'orphaned'). SEUL 'running' compte comme actif (badge 🌀, liste sidebar,
 // état 'background'). `alive` = la session tourne encore ; `now` = Date.now() (injecté pour les tests).
+// Human label of a job, best first: the agent's own description, then the command or prompt it
+// was given, then just its kind. One rule for the session list and the session detail.
+function jobLabel(j) { return j.description || j.command || j.prompt || j.kind; }
+
 function jobStatus(job, alive, now) {
   if (job.done) {
     const r = String(job.doneReason || '').toLowerCase();
@@ -249,4 +253,4 @@ function activeBackgroundJobs(fp) {
 // besoin à l'identique (un workflow est un job de fond comme un autre du point de vue de la
 // <task-notification>), et une copie privée finit par diverger — c'est exactement ce qui a fait
 // qu'un workflow arrêté depuis l'UI restait « en cours » pour toujours.
-export { buildBackgroundJobs, activeBackgroundJobs, jobStatus, TERMINAL as TERMINAL_TASK_STATUS, taskNotification as taskNotificationText };
+export { buildBackgroundJobs, activeBackgroundJobs, jobStatus, jobLabel, TERMINAL as TERMINAL_TASK_STATUS, taskNotification as taskNotificationText };

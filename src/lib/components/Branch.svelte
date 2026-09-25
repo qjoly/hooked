@@ -268,11 +268,20 @@
     return fingerprint((c.ops || []).flatMap((o) => [o.old || '', o.new || '']));
   }
 
-  // diff style — shared with Ship (same localStorage keys: one preference for both lenses).
-  let mode = $state((typeof localStorage !== 'undefined' && localStorage.getItem('hooked.shipDiff')) || 'split');
-  $effect(() => { try { localStorage.setItem('hooked.shipDiff', mode); } catch {} });
-  let compact = $state(typeof localStorage !== 'undefined' && localStorage.getItem('hooked.shipCompact') === '1');
-  $effect(() => { try { localStorage.setItem('hooked.shipCompact', compact ? '1' : '0'); } catch {} });
+  // Diff style and compact live in `ui` (persisted): one preference shared with Ship. Like Ship, a
+  // new file (every section pure additions) defaults to unified — side-by-side would show the same
+  // text twice — and the toggle still wins per file via `modeOverride`.
+  let modeOverride = $state({});
+  const isNewFile = $derived.by(() => {
+    if (!activeFile) return false;
+    const ds = fileDiffs(activeFile);
+    return ds.length > 0 && ds.every((d) => !d.oldStr);
+  });
+  const defaultMode = $derived(isNewFile ? 'unified' : ui.shipDiff);
+  function chooseMode(m) {
+    if (isNewFile && activeFile) modeOverride = { ...modeOverride, [activeFile.file]: m };
+    else ui.shipDiff = m;
+  }
 
   // Narrow mode: same rule as Ship — side columns collapse, diff forced unified.
   let wrapEl = $state(null);
@@ -283,7 +292,11 @@
     ro.observe(wrapEl);
     return () => ro.disconnect();
   });
-  const effMode = $derived(narrow ? 'unified' : mode);
+  const effMode = $derived(
+    narrow ? 'unified'
+    : (activeFile && activeFile.file in modeOverride) ? modeOverride[activeFile.file]
+    : defaultMode
+  );
 
   // ── review threads — same protocol as Ship (server-side store, see Ship.svelte) ────────────
   let threads = $state([]);
@@ -714,11 +727,11 @@
           <span class="sd-path" title={activeFile.file}>{activeFile.file}</span>
           <a class="sd-editor" href={editorFor(settings.editor).fileUrl(activeFile.file)} title={'Open in ' + editorFor(settings.editor).label}><Icon name="external" size={12} /> editor</a>
           <div class="sd-modes">
-            <button class:on={effMode === 'unified'} onclick={() => (mode = 'unified')} title="Unified"><Icon name="menu" size={14} /></button>
-            <button class:on={effMode === 'split'} onclick={() => (mode = 'split')} title="Side-by-side"><Icon name="pane" size={14} /></button>
+            <button class:on={effMode === 'unified'} onclick={() => chooseMode('unified')} title="Unified"><Icon name="menu" size={14} /></button>
+            <button class:on={effMode === 'split'} onclick={() => chooseMode('split')} title="Side-by-side"><Icon name="pane" size={14} /></button>
           </div>
           <label class="sd-compact" title="Hide the unchanged context lines">
-            <input type="checkbox" bind:checked={compact} /> compact
+            <input type="checkbox" bind:checked={ui.shipCompact} /> compact
           </label>
           <button class="sd-review" class:done={isReviewed(activeFile.file)} onclick={reviewCurrent}
                   title="Mark this file reviewed ({reviewKey})">
@@ -734,7 +747,7 @@
               <DefPeek {id} target={def} onClose={() => (def = null)} />
             {/snippet}
             {#each fileDiffs(activeFile) as d, di (d.opIndex)}
-              <DiffView oldStr={d.oldStr} newStr={d.newStr} name={activeFile.name} mode={effMode} {compact}
+              <DiffView oldStr={d.oldStr} newStr={d.newStr} name={activeFile.name} mode={effMode} compact={ui.shipCompact}
                         blame={blameFor}
                         wholeFile={!!d.wholeFile}
                         onSymbol={(p) => gotoDefinition(activeFile.file, d.opIndex, p)}

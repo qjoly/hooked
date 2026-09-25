@@ -242,6 +242,6 @@ describe('highlight — coloration', () => {
   it('langLabel : alias → libellé lisible', () => {
     expect(langLabel('ts')).toBe('TypeScript');
     expect(langLabel('sh')).toBe('Shell');
-    expect(langLabel('')).toBe('Texte');
+    expect(langLabel('')).toBe('Text');
   });
 });
