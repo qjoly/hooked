@@ -1,9 +1,9 @@
 <script>
   import { goto } from '$app/navigation';
   import { page } from '$app/state';
-  import { ui, data, settings, sessionTitle, setTheme, toggleFocus, toggleNotify, openModal } from '$lib/state.svelte.js';
+  import { ui, data, settings, sessionTitle, setTheme, toggleFocus, toggleNotify, openModal, toggleArchive, isArchived } from '$lib/state.svelte.js';
   import { editorFor } from '$lib/editors.js';
-  import { kill, interrupt, openInEditor, openInGhostty, resync, searchTranscripts } from '$lib/api.js';
+  import { interrupt, openInEditor, openInGhostty, resync, searchTranscripts } from '$lib/api.js';
   import { shortcutForCommand, formatKeys } from '$lib/shortcuts.js';
   import { ago } from '$lib/format.js';
   import Icon from '$lib/components/Icon.svelte';
@@ -58,7 +58,8 @@
         { id: 'ctx:editor', label: `Open project in ${editorFor(settings.editor).label}`, section: 'Current session', icon: editorFor(settings.editor).icon, action: () => openInEditor(cs.id) },
         { id: 'ctx:ghostty', label: 'Open in Ghostty', section: 'Current session', icon: 'ghostty', action: () => openInGhostty(cs.id) },
         { id: 'ctx:interrupt', label: 'Interrupt session', section: 'Current session', icon: 'interrupt', action: () => interrupt(cs.id), hidden: cs.state !== 'working' },
-        { id: 'ctx:stop', label: 'Stop session', section: 'Current session', icon: 'stop', action: () => kill(cs.id), hidden: cs.state === 'ended' },
+        // Archive = stop + hide, the header's own action; a bare kill left the session in the live list.
+        { id: 'ctx:archive', label: isArchived(cs.id) ? 'Unarchive session' : 'Archive session', section: 'Current session', icon: isArchived(cs.id) ? 'unarchive' : 'archive', action: () => toggleArchive(cs.id) },
       );
     }
     return cmds.filter(c => !c.hidden);

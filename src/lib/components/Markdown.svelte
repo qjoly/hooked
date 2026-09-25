@@ -1,5 +1,5 @@
 <script>
-  import { mdSegments } from '$lib/format.js';
+  import { mdSegments, isCommandTranscript } from '$lib/format.js';
   import CodeBlock from './CodeBlock.svelte';
   import Mermaid from './Mermaid.svelte';
   import TerminalBlock from './TerminalBlock.svelte';
@@ -17,9 +17,10 @@
     {:else if s.lang === 'pty'}
       <!-- `!!commande` : terminal VIVANT dans le fil, pas un compte rendu figé (cf. PtyBlock). -->
       <PtyBlock code={s.code} meta={s.meta || {}} />
-    {:else if s.lang === 'console'}
-      <!-- transcription de terminal : compte rendu d'un `!commande` du composer, rendu comme un
-           terminal plutôt que comme une citation de code (cf. TerminalBlock). -->
+    {:else if isCommandTranscript(s)}
+      <!-- terminal transcript: the report of a composer `!command` (stamped `exit=` by hooked), rendered
+           as a terminal rather than a code quote (cf. TerminalBlock). A plain ```console block written
+           by Claude has no such marker and falls through to CodeBlock. -->
       <TerminalBlock code={s.code} meta={s.meta || {}} />
     {:else}
       <CodeBlock code={s.code} lang={s.lang} />

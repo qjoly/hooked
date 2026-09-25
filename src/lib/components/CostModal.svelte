@@ -3,7 +3,11 @@
   import Icon from '$lib/components/Icon.svelte';
   import { fmtCost, fmtTokens, shortModel } from '$lib/format.js';
 
-  const S = $derived(data.sessions);
+  // `r.sessionId` scopes the breakdown to ONE session (the session header's Cost button); without
+  // it the modal aggregates every listed session.
+  let { r = null } = $props();
+  const one = $derived(r?.sessionId ? data.sessions.find((s) => s.id === r.sessionId) || null : null);
+  const S = $derived(one ? [one] : data.sessions);
   const sum = (f) => S.reduce((a, s) => a + f(s), 0);
 
   const cb = $derived({
@@ -31,7 +35,7 @@
   const projRows = $derived(listRows(byProj));
 </script>
 
-<h2 style="margin:0 0 4px"><Icon name="cost" size={18} /> Estimated API cost — {fmtCost(tot)}</h2>
+<h2 style="margin:0 0 4px"><Icon name="cost" size={18} /> Estimated API cost — {one ? 'this session' : 'all sessions'} · {fmtCost(tot)}</h2>
 <p style="color:var(--muted);font-size:12.5px;line-height:1.5;margin:0 0 18px">
   Pay-as-you-go API estimate. On a subscription (Max/Pro), this is <b>not</b> your actual bill.
   Rates: Fable 10/50, Opus 5/25, Sonnet 3/15, Haiku 1/5 $/Mtok; cache write ×1.25, read ×0.1.</p>
@@ -45,6 +49,7 @@
     <span class="val" style="width:58px;color:var(--muted)">{fmtTokens(tk[key])}</span>
   </div>
 {/each}
+{#if !one}
 <div class="cost-cols">
   <div>
     <h3 style="margin:18px 0 12px">By model</h3>
@@ -63,3 +68,4 @@
     {:else}<div class="empty">—</div>{/if}
   </div>
 </div>
+{/if}

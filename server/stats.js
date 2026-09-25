@@ -18,7 +18,7 @@ import { buildSubagents } from './subagents.js';
 import { buildScreenshots } from './screenshots.js';
 import { buildWorkflows } from './workflows.js';
 import { latestTodos, todoSummary } from './todos.js';
-import { buildBackgroundJobs, jobStatus } from './background.js';
+import { buildBackgroundJobs, jobStatus, jobLabel } from './background.js';
 import { DIGEST_PROMPT_PREFIX } from './digests.js';
 
 // Sessions « live-only » : présentes dans les évènements de hooks mais pas encore
@@ -182,7 +182,7 @@ function buildSessions() {
     // Monitor, vivacité de la session). SEUL 'running' compte comme actif → forme légère sidebar.
     const bgRunning = buildBackgroundJobs(s.file).jobs
       .filter((j) => jobStatus(j, s.live, now) === 'running');
-    s.bgJobs = bgRunning.map((j) => ({ kind: j.kind, label: j.description || j.command || j.prompt || j.kind, startedAt: j.startTs, status: 'running' }));
+    s.bgJobs = bgRunning.map((j) => ({ kind: j.kind, label: jobLabel(j), startedAt: j.startTs, status: 'running' }));
     // 'working' prime sur 'background' quand la session a un job de fond ET mouline vraiment.
     s.state = withBackgroundState(s.state, s.live, bgRunning.length, busy);
     // outil en cours, publié par le flux SDK (remplace le gérondif animé du spinner du TUI).
@@ -410,7 +410,7 @@ function sessionDetail(id) {
   const bg = buildBackgroundJobs(s.file);
   const now = Date.now();
   const bgJobs = bg.jobs
-    .map((j) => ({ ...j, status: jobStatus(j, alive, now) }))
+    .map((j) => ({ ...j, label: jobLabel(j), status: jobStatus(j, alive, now) }))
     // running d'abord, puis les plus récents (doneAt sinon startTs) en tête ; borné à ~30 (payload).
     .sort((a, b) => {
       const ar = a.status === 'running' ? 1 : 0, br = b.status === 'running' ? 1 : 0;

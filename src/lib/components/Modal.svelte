@@ -48,7 +48,7 @@
       <button class="modal-close" onclick={closeModal} aria-label="Close"><Icon name="close" /></button>
       <div>
         {#if ui.modal.type === 'cost'}
-          <CostModal />
+          <CostModal r={ui.modal.data} />
         {:else if ui.modal.type === 'fork'}
           <ForkModal r={ui.modal.data} />
         {:else if ui.modal.type === 'trash'}

@@ -320,13 +320,8 @@
     return fingerprint([c.original || '', ...ops((c.rawOps || []).filter(opSelected))]);
   }
 
-  // diff style (persisted). `mode` is the sticky global preference, used for existing-file edits.
-  let mode = $state((typeof localStorage !== 'undefined' && localStorage.getItem('hooked.shipDiff')) || 'split');
-  $effect(() => { try { localStorage.setItem('hooked.shipDiff', mode); } catch {} });
-
-  // Compact: hide the unchanged context around each change (the gaps stay expandable).
-  let compact = $state(typeof localStorage !== 'undefined' && localStorage.getItem('hooked.shipCompact') === '1');
-  $effect(() => { try { localStorage.setItem('hooked.shipCompact', compact ? '1' : '0'); } catch {} });
+  // Diff style and compact (hide the unchanged context around each change) live in `ui`, persisted:
+  // ONE preference shared with the Branch lens, so a switch here is a switch there too.
 
   // A new file (no prior version — every section is pure additions) defaults to unified: a
   // side-by-side view of an all-green file is the same text twice. The toggle still wins per
@@ -337,10 +332,10 @@
     const ds = fileDiffs(activeFile);
     return ds.length > 0 && ds.every((d) => !d.oldStr);
   });
-  const defaultMode = $derived(isNewFile ? 'unified' : mode);
+  const defaultMode = $derived(isNewFile ? 'unified' : ui.shipDiff);
   function chooseMode(m) {
     if (isNewFile && activeFile) modeOverride = { ...modeOverride, [activeFile.file]: m };
-    else mode = m;
+    else ui.shipDiff = m;
   }
 
   // Narrow mode (split pane / small window): Ship's 3 columns don't fit — the side columns
@@ -811,7 +806,7 @@
             <button class:on={effMode === 'split'} onclick={() => chooseMode('split')} title="Side-by-side"><Icon name="pane" size={14} /></button>
           </div>
           <label class="sd-compact" title="Hide the unchanged context lines">
-            <input type="checkbox" bind:checked={compact} /> compact
+            <input type="checkbox" bind:checked={ui.shipCompact} /> compact
           </label>
           <button class="sd-review" class:done={isReviewed(activeFile.file)} onclick={reviewCurrent}
                   title="Mark this file reviewed ({reviewKey})">
@@ -836,7 +831,7 @@
             {/snippet}
             {#each fileDiffs(activeFile) as d, di (d.opIndex)}
               {#if d.label}<div class="sd-oplabel">{d.label}</div>{/if}
-              <DiffView oldStr={d.oldStr} newStr={d.newStr} name={activeFile.name} mode={effMode} {compact}
+              <DiffView oldStr={d.oldStr} newStr={d.newStr} name={activeFile.name} mode={effMode} compact={ui.shipCompact}
                         blame={blameFor}
                         wholeFile={!!d.wholeFile}
                         onSymbol={(p) => gotoDefinition(activeFile.file, d.opIndex, p)}
