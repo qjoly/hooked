@@ -8,6 +8,7 @@
   import ConfirmModal from './ConfirmModal.svelte';
   import AccountModal from './AccountModal.svelte';
   import GroupPickerModal from './GroupPickerModal.svelte';
+  import ReviewScopeModal from './ReviewScopeModal.svelte';
 
   let card;
   let prevFocus = null;
@@ -61,6 +62,8 @@
           <AccountModal />
         {:else if ui.modal.type === 'groupPicker'}
           <GroupPickerModal r={ui.modal.data} />
+        {:else if ui.modal.type === 'reviewScope'}
+          <ReviewScopeModal r={ui.modal.data} />
         {/if}
       </div>
     </div>

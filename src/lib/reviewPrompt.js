@@ -1,6 +1,5 @@
 /*
- * Review-thread instructions shared by Ship.svelte and Branch.svelte (batch review prompt and
- * per-thread follow-ups).
+ * Review-thread instructions of the Review lens (batch review prompt and per-thread follow-ups).
  *
  * Claude REPLIES, and that is all. It used to be told to call `resolve_review_comment` "once the
  * code is fixed", so every answer closed its own thread: the diff emptied itself of comments
