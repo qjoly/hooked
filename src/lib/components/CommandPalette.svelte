@@ -1,11 +1,12 @@
 <script>
+  import { copyText } from '$lib/clipboard.js';
   import { goto } from '$app/navigation';
   import { page } from '$app/state';
   import { ui, data, settings, sessionTitle, setTheme, toggleFocus, toggleNotify, openModal, toggleArchive, isArchived } from '$lib/state.svelte.js';
   import { editorFor } from '$lib/editors.js';
   import { interrupt, openInEditor, openInGhostty, resync, searchTranscripts } from '$lib/api.js';
   import { shortcutForCommand, formatKeys } from '$lib/shortcuts.js';
-  import { ago } from '$lib/format.js';
+  import { ago, isActiveSession } from '$lib/format.js';
   import Icon from '$lib/components/Icon.svelte';
 
   let open = $state(false);
@@ -47,14 +48,13 @@
       { id: 'act:tools', label: `Tool details: ${ui.toolsOpen ? 'collapse all' : 'expand all'}`, section: 'Actions', icon: 'tool', action: () => { ui.toolsOpen = !ui.toolsOpen; } },
       { id: 'act:diffmode', label: `Diff: switch to ${ui.diffSplit ? 'unified' : 'split'}`, section: 'Actions', icon: 'diff', action: () => { ui.diffSplit = !ui.diffSplit; } },
       { id: 'act:companion', label: ui.companion ? 'Hide companion' : 'Show companion', section: 'Actions', icon: 'bot', action: () => { ui.companion = !ui.companion; } },
-      { id: 'act:grouping', label: `Sidebar: group by ${ui.groupByProject ? 'status' : 'project'}`, section: 'Actions', icon: 'folder-open', action: () => { ui.groupByProject = !ui.groupByProject; } },
       { id: 'act:resync', label: 'Force resync all sessions', section: 'Actions', icon: 'resync', action: () => resync() },
     ];
     if (cs) {
       cmds.push(
         { id: 'ctx:lens-chat', label: 'Lens: Converse', section: 'Current session', icon: 'converse', action: () => goto('/session/' + encodeURIComponent(cs.id) + '?lens=chat') },
         { id: 'ctx:lens-ship', label: 'Lens: Ship (review)', section: 'Current session', icon: 'ship', action: () => goto('/session/' + encodeURIComponent(cs.id) + '?lens=ship') },
-        { id: 'ctx:copy-path', label: `Copy project path: ${cs.projectName || cs.cwd}`, section: 'Current session', icon: 'clipboard', action: () => navigator.clipboard.writeText(cs.cwd) },
+        { id: 'ctx:copy-path', label: `Copy project path: ${cs.projectName || cs.cwd}`, section: 'Current session', icon: 'clipboard', action: () => copyText(cs.cwd) },
         { id: 'ctx:editor', label: `Open project in ${editorFor(settings.editor).label}`, section: 'Current session', icon: editorFor(settings.editor).icon, action: () => openInEditor(cs.id) },
         { id: 'ctx:ghostty', label: 'Open in Ghostty', section: 'Current session', icon: 'ghostty', action: () => openInGhostty(cs.id) },
         { id: 'ctx:interrupt', label: 'Interrupt session', section: 'Current session', icon: 'interrupt', action: () => interrupt(cs.id), hidden: cs.state !== 'working' },
@@ -65,12 +65,11 @@
     return cmds.filter(c => !c.hidden);
   });
 
-  const ACTIVE_STATES = new Set(['attention', 'waiting', 'working', 'background']);
   const sessionItems = $derived.by(() => {
     return data.sessions
       .slice()
       .sort((a, b) => {
-        const aa = ACTIVE_STATES.has(a.state), ab = ACTIVE_STATES.has(b.state);
+        const aa = isActiveSession(a), ab = isActiveSession(b);
         if (aa !== ab) return aa ? -1 : 1;
         return String(b.lastActivity || '').localeCompare(String(a.lastActivity || ''));
       })
@@ -82,7 +81,7 @@
         color: `var(--${STATUS_ICONS[s.state] || 'idle'})`,
         section: 'Sessions',
         sessionId: s.id,
-        active: ACTIVE_STATES.has(s.state),
+        active: isActiveSession(s),
         action: () => goto('/session/' + encodeURIComponent(s.id)),
       }));
   });

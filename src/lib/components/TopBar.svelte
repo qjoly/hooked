@@ -5,7 +5,7 @@
   import { page } from '$app/state';
   import { ui, data, settings, account, cycleTheme, toggleNotify, openModal, isArchived, snoozeUntil } from '$lib/state.svelte.js';
   import { getUsage } from '$lib/api.js';
-  import { initials } from '$lib/format.js';
+  import { initials, needsDecision } from '$lib/format.js';
   import { NAV_TABS, NAV_KEYS, pageHref } from '$lib/nav.js';
   import Icon from '$lib/components/Icon.svelte';
 
@@ -29,8 +29,7 @@
   $effect(() => { const iv = setInterval(() => (nowMin = Date.now()), 30_000); return () => clearInterval(iv); });
   const decisions = $derived(
     data.sessions.filter((s) =>
-      (s.hasQuestion || s.hasPlan || s.state === 'waiting' || s.state === 'attention')
-      && !isArchived(s.id) && !(snoozeUntil(s.id) > nowMin)).length,
+      needsDecision(s) && !isArchived(s.id) && !(snoozeUntil(s.id) > nowMin)).length,
   );
 
   // Account rate-limit gauges (statusline snapshots + Claude Code usage cache). Refreshed on

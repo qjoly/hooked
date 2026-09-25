@@ -1,4 +1,5 @@
 <script>
+  import { copyText } from '$lib/clipboard.js';
   import Icon from '$lib/components/Icon.svelte';
 
   let { d } = $props();
@@ -8,7 +9,7 @@
   // processus par l'Agent SDK), et le SDK nous donne enfin le session_id dès le lancement — donc on
   // propose le lien vers la session, ce que l'ancien flux ne pouvait pas faire.
   async function copy() {
-    try { await navigator.clipboard.writeText(location.origin + d.link); copied = true; } catch (_) { copied = 'manual'; }
+    copied = (await copyText(location.origin + d.link)) ? true : 'manual';
   }
 </script>
 

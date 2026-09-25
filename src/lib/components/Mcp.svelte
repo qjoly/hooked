@@ -1,4 +1,5 @@
 <script>
+  import { copyText } from '$lib/clipboard.js';
   import { onDestroy, untrack } from 'svelte';
   import { getMcpServers, mcpAction } from '$lib/api.js';
   import Icon from './Icon.svelte';
@@ -137,7 +138,7 @@
         <p class="sub">Approve the connection on claude.ai, then hit Refresh:</p>
         <div class="urlrow">
           <a class="url" href={login.url} target="_blank" rel="noreferrer noopener">{login.url}</a>
-          <button class="btn" onclick={() => navigator.clipboard?.writeText(login.url)}>
+          <button class="btn" onclick={() => copyText(login.url)}>
             <Icon name="copy" size={14} /> Copy
           </button>
         </div>
@@ -150,7 +151,7 @@
         <p class="sub">Open this URL in your browser and approve the connection:</p>
         <div class="urlrow">
           <a class="url" href={login.url} target="_blank" rel="noreferrer noopener">{login.url}</a>
-          <button class="btn" onclick={() => navigator.clipboard?.writeText(login.url)}>
+          <button class="btn" onclick={() => copyText(login.url)}>
             <Icon name="copy" size={14} /> Copy
           </button>
         </div>

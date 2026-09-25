@@ -7,7 +7,7 @@
   import { page } from '$app/state';
   import { ui, data, sessionTitle, sessionTags, togglePin, allTags, tagUsage, openModal, isSessionArchived, isArchived, toggleArchive, addSplit, isInSplit, canSplit, groupUnits, isGroupArchived, groupName, isGrouped, dnd } from '$lib/state.svelte.js';
   import { onMount } from 'svelte';
-  import { ago, agoShort, fmtSpan, tagColor } from '$lib/format.js';
+  import { ago, agoShort, fmtSpan, tagColor, isActiveSession as isActive, needsDecision, sessionDot as dotClass } from '$lib/format.js';
   import { promptCacheState } from '$lib/promptCache.js';
   import { dragSession, dropSession, dropDetach } from '$lib/groupDnd.js';
   import Icon from '$lib/components/Icon.svelte';
@@ -26,14 +26,6 @@
 
   let tab = $state('active'); // 'active' | 'archived'
   const currentId = $derived(page.params.id || null);
-  const isActive = (s) => ['working', 'background', 'waiting', 'attention'].includes(s.state);
-  const needsDecision = (s) => s.hasQuestion || s.hasPlan || s.state === 'attention' || s.state === 'waiting';
-  const dotClass = (s) =>
-    s.hasQuestion || s.hasPlan || s.state === 'attention' ? 'attention'
-    : s.state === 'working' ? 'working'
-    : s.state === 'background' ? 'bgjob'
-    : s.state === 'waiting' ? 'waiting'
-    : s.state === 'ended' ? 'ended' : 'idle';
 
   const pinnedSet = $derived(new Set(ui.pinned));
   const isPinned = (id) => pinnedSet.has(id);
@@ -307,7 +299,7 @@
         <a class="ssb-tile" class:cur={unitHas(u, (x) => x.id === currentId)} class:dim={!unitHas(u, isActive)}
            href={'/session/' + encodeURIComponent(s.id)} title={u.children.length ? groupName(s.id) : sessionTitle(s)}>
           <span class="ssb-ab">{abbrev(s)}</span>
-          <span class="ssb-dot ssb-{unitDot(u)}"></span>
+          <span class="state-dot ssb-dot d-{unitDot(u)}"></span>
         </a>
       {/each}
     </div>
@@ -329,7 +321,7 @@
         <button class="ssb-gchev" class:open={!collapsedU} aria-label={collapsedU ? 'Expand group' : 'Collapse group'}
                 onclick={(e) => { e.stopPropagation(); toggleUnit(unit); }}><Icon name="chevron-right" size={11} /></button>
       {/if}
-      <span class="ssb-dot ssb-{unit && collapsedU ? unitDot(unit) : dotClass(s)}"></span>
+      <span class="state-dot ssb-dot d-{unit && collapsedU ? unitDot(unit) : dotClass(s)}"></span>
       {#if isPinned(s.id)}<span class="ssb-pin-mark" title="Pinned"><Icon name="pin" size={11} /></span>{/if}
       <span class="ssb-name" title={unit ? 'Group · mother session: ' + sessionTitle(s) : undefined}>{unit ? groupName(s.id) : sessionTitle(s)}</span>
       {#if unit}<span class="ssb-gcount" title="{unit.all.length} sessions in this group">{unit.all.length}</span>{/if}
@@ -476,14 +468,6 @@
     border: 1px dashed var(--border2); border-radius: 10px; background: var(--bg2); color: var(--muted); font-size: 12px; font-weight: 600;
   }
   .ssb-detach:global(.drop-over) { border-color: var(--accent); background: var(--accent-soft); color: var(--accent-d); }
-  .ssb-dot { width: 8px; height: 8px; border-radius: 50%; flex: 0 0 auto; }
-  .ssb-working { background: var(--working); animation: ssb-pulse 1.6s ease-in-out infinite; }
-  .ssb-waiting { background: var(--waiting); animation: ssb-pulse 1.6s ease-in-out infinite; }
-  .ssb-attention { background: var(--attention); animation: ssb-pulse 1s ease-in-out infinite; }
-  .ssb-bgjob { background: var(--background); animation: ssb-pulse 1.6s ease-in-out infinite; }
-  .ssb-ended { background: var(--ended); }
-  .ssb-idle { background: var(--idle); }
-  @keyframes ssb-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
   .ssb-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12.5px; }
   .ssb-row.cur .ssb-name { font-weight: 700; color: var(--accent-d); }
   .ssb-ago { flex: 0 0 auto; font-family: var(--mono); font-size: 9.5px; color: var(--muted); }
