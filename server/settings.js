@@ -15,41 +15,15 @@ import { DEFAULT_HIDDEN_MODELS, isHideableModel } from '../src/lib/models.js';
 
 const SETTINGS_FILE = path.join(HOOKED_DIR, 'settings.json');
 
-// Sous-onglets du détail de session, dans l'ordre d'affichage par défaut. Le 1er onglet
-// *disponible* de cette liste est celui ouvert à l'arrivée sur une session. Sert de source
-// de vérité pour valider `subtabOrder` (toute clé inconnue est ignorée, toute clé manquante
-// est ré-ajoutée à la fin → l'ordre reste toujours complet).
-const SUBTAB_KEYS = ['chat', 'changes', 'todos', 'subagents', 'subsessions', 'background', 'terminal', 'pr', 'issues'];
-
-// Éléments de la barre de statut de session (en-tête du détail). Chaque clé est un booléen
-// (true = affiché). Toute clé absente du fichier de config est traitée comme true (forward-compatible).
+// Optional controls of the session header's ⋯ menu. Each key is a boolean (true = shown); a key
+// missing from the file is treated as true (forward-compatible).
 const STATUS_BAR_KEYS = [
-  'branch',         // branche git
-  'stateBadge',     // badge d'état (working / waiting / ended…)
-  'permissionMode', // contrôle du mode de permission (Normal / Auto-edits / Plan)
-  'modelEffort',    // contrôle modèle + effort
-  'cost',           // coût (session + sous-agents)
-  'prompts',        // nombre de prompts
-  'tokens',         // compteurs de tokens (output + cache)
-  'model',          // nom du modèle (affiché quand la session est terminée)
-  'usage5h',        // indicateur d'utilisation 5 h
-  'prLinks',        // liens PR
-  'issueLinks',     // liens d'issue GitHub
-  'focusBtn',       // bouton Focus (menu ⋯)
+  'permissionMode', // permission-mode chips + auto-approve
+  'modelEffort',    // model + effort control
+  'focusBtn',       // Focus button
 ];
 
-// Éléments de la barre de statut masqués par défaut (leur onglet dédié est le lieu principal).
-const STATUS_BAR_HIDDEN_DEFAULT = new Set(['prLinks', 'issueLinks']);
-
 const DEFAULTS = {
-  subtabOrder: [...SUBTAB_KEYS],
-  // Ordre d'affichage des éléments de la barre de statut (analogue à subtabOrder ; réorganisable
-  // via les flèches ▲/▼ des réglages). Défaut : l'ordre de déclaration de STATUS_BAR_KEYS.
-  statusBarOrder: [...STATUS_BAR_KEYS],
-  // Sous-onglets masqués manuellement (bouton œil dans les réglages). Sous-ensemble de SUBTAB_KEYS ;
-  // 'chat' n'est jamais masquable (vue principale). Défaut : aucun masqué. Distinct de l'auto-masquage
-  // d'un onglet vide (géré côté client selon le contenu de la session).
-  subtabHidden: [],
   // Locale (BCP-47) used by the composer's voice dictation (Web Speech API). E.g. fr-FR, en-US.
   speechLang: 'fr-FR',
   // Voice dictation on/off (composer mic button, Web Speech API). Default true: a settings.json
@@ -87,13 +61,8 @@ const DEFAULTS = {
   // chaque jour à `hour` (heure locale) ; model : modèle passé à `claude -p` ('' = hérite du défaut
   // Claude Code). Remplace les anciennes variables d'env HOOKED_DIGEST_*.
   digest: { auto: true, hour: 7, model: '' },
-  // Visibilité des éléments de la barre de statut (en-tête du détail de session). Tout à true par
-  // défaut sauf prLinks / issueLinks (false : les onglets dédiés PR/Issues sont le lieu principal ;
-  // chips masqués par défaut).
-  statusBar: Object.fromEntries(STATUS_BAR_KEYS.map((k) => [k, !STATUS_BAR_HIDDEN_DEFAULT.has(k)])),
-  // Nombre max de chips PR / issue affichés dans la barre de statut (0 = tous). Le surplus est
-  // résumé par un « +N » ; les onglets dédiés restent exhaustifs.
-  statusBarLinkLimit: 0,
+  // Visibility of the session header's optional ⋯ menu controls (all shown by default).
+  statusBar: Object.fromEntries(STATUS_BAR_KEYS.map((k) => [k, true])),
   // Source de diff sur laquelle s'ouvre la lentille Ship : 'claude' (diff reconstruit du
   // transcript, filtrable par prompt) ou 'vcs' (git/jj : working tree + commits). Le bouton
   // de bascule dans l'onglet permet toujours de changer ponctuellement.
@@ -137,28 +106,9 @@ const DEFAULT_PAGES = ['deck', ...NAV_PAGES];
 // Ramène un objet arbitraire (fichier ou payload client) à des valeurs sûres et complètes.
 function sanitize(raw) {
   const o = raw && typeof raw === 'object' ? raw : {};
-  // subtabOrder : garder les clés connues dans l'ordre fourni (sans doublon), puis compléter.
-  let order = Array.isArray(o.subtabOrder) ? o.subtabOrder.filter((k) => SUBTAB_KEYS.includes(k)) : [];
-  order = [...new Set(order)];
-  for (const k of SUBTAB_KEYS) if (!order.includes(k)) order.push(k);
-  // statusBarOrder : même traitement que subtabOrder (garder connues dans l'ordre, dédupe, compléter).
-  let sbOrder = Array.isArray(o.statusBarOrder) ? o.statusBarOrder.filter((k) => STATUS_BAR_KEYS.includes(k)) : [];
-  sbOrder = [...new Set(sbOrder)];
-  for (const k of STATUS_BAR_KEYS) if (!sbOrder.includes(k)) sbOrder.push(k);
-  // subtabHidden : sous-ensemble des clés connues, jamais 'chat' (vue principale, toujours visible).
-  let hidden = Array.isArray(o.subtabHidden) ? o.subtabHidden.filter((k) => SUBTAB_KEYS.includes(k) && k !== 'chat') : [];
-  hidden = [...new Set(hidden)];
-  // statusBar : objet key→boolean. Toute clé absente = true par défaut, sauf prLinks / issueLinks
-  // (false : les onglets dédiés sont le lieu principal ; chips masqués pour éviter le double affichage).
+  // statusBar : objet key→boolean ; toute clé absente vaut true (forward-compatible).
   const rawSb = o.statusBar && typeof o.statusBar === 'object' ? o.statusBar : {};
-  const statusBar = Object.fromEntries(STATUS_BAR_KEYS.map((k) => {
-    if (rawSb[k] !== undefined) return [k, rawSb[k] !== false];
-    return [k, !STATUS_BAR_HIDDEN_DEFAULT.has(k)]; // absent → défaut (prLinks/issueLinks → false)
-  }));
-  // statusBarLinkLimit : entier 0-50 (0 = pas de limite). Toute valeur hors bornes retombe sur 0.
-  const linkLimit = Number.isInteger(o.statusBarLinkLimit) && o.statusBarLinkLimit >= 0 && o.statusBarLinkLimit <= 50
-    ? o.statusBarLinkLimit
-    : 0;
+  const statusBar = Object.fromEntries(STATUS_BAR_KEYS.map((k) => [k, rawSb[k] !== false]));
   // Défauts de session : '' (hériter) autorisé. Modèle → charset de --model ; effort → alpha ;
   // mode → liste blanche du lancement. Tout inconnu retombe sur '' (hériter).
   const defaultModel = typeof o.defaultModel === 'string' && /^[a-z0-9-]{1,60}$/i.test(o.defaultModel) ? o.defaultModel : '';
@@ -230,16 +180,12 @@ function sanitize(raw) {
       : DEFAULTS.autoCompact.minContextK,
   };
   return {
-    subtabOrder: order,
-    statusBarOrder: sbOrder,
-    subtabHidden: hidden,
     autoGitSync: !!o.autoGitSync,
     autoPrReviewTag: o.autoPrReviewTag === undefined ? true : !!o.autoPrReviewTag,
     gitAutoRestartOnLock: !!o.gitAutoRestartOnLock,
     // Défaut à true : une config antérieure à cette clé ne doit pas la forcer à false.
     gitRestartNotice: o.gitRestartNotice === undefined ? true : !!o.gitRestartNotice,
     statusBar,
-    statusBarLinkLimit: linkLimit,
     defaultModel,
     defaultEffort,
     defaultMode,
@@ -283,4 +229,4 @@ function writeSettings(patch) {
   return merged;
 }
 
-export { SETTINGS_FILE, SUBTAB_KEYS, STATUS_BAR_KEYS, DEFAULTS as SETTINGS_DEFAULTS, readSettings, writeSettings };
+export { SETTINGS_FILE, DEFAULTS as SETTINGS_DEFAULTS, readSettings, writeSettings };

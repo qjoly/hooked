@@ -619,8 +619,8 @@
 
   let sending = $state(false);
 
-  // ── draft persistence ── only the per-file "reviewed" ticks still live client-side (the
-  // comments themselves are server threads now). Same key/shape as before, comments left empty.
+  // ── draft persistence ── only the per-file "reviewed" ticks live client-side (the comments
+  // themselves are server threads).
   const draftKey = $derived(id ? 'ship:' + id : null);
   $effect(() => {
     const k = draftKey;
@@ -630,7 +630,7 @@
     });
   });
   $effect(() => {
-    const snap = { comments: [], reviewed: reviewedToEntries(reviewed) };
+    const snap = { reviewed: reviewedToEntries(reviewed) };
     untrack(() => saveDraft(draftKey, snap));
   });
 

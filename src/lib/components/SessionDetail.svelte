@@ -12,7 +12,7 @@
   import { ui, data, settings, loadSessions, openModal, sessionTitle, sessionTags, renameSession, toggleFocus, splitWithMostRecent, canSplit, toggleArchive, isArchived, unarchive } from '$lib/state.svelte.js';
   import { getSession, setMode, setModelEffort, setAutoApprove, openInEditor, openInGhostty, fork, launch, deleteSession, connectSessionStream, listTerminals, openTerminal, killTerminal } from '$lib/api.js';
   import { promptCacheState } from '$lib/promptCache.js';
-  import { STATE_LABEL, fmtCost, fmtTokens, fmtDuration, shortModel, prLabel, issueLabel, PERMISSION_MODES, modeLabel, modeMeta, modelAlias, tagColor, resumeCommand, parseBang, isBlockForCommand } from '$lib/format.js';
+  import { STATE_LABEL, fmtCost, fmtTokens, shortModel, PERMISSION_MODES, modeLabel, modeMeta, modelAlias, tagColor, resumeCommand, parseBang, isBlockForCommand } from '$lib/format.js';
   import { page } from '$app/state';
   import ModelEffort from './ModelEffort.svelte';
   import ChatBubble from './ChatBubble.svelte';
@@ -29,10 +29,9 @@
   import { conversationToMarkdown } from '$lib/exportConversation.js';
   import { getBinding, matchesEvent, formatKeys } from '$lib/shortcuts.js';
 
-  // `inSplit`/`focused`/`onClose` : rendu en pane de la vue split (plusieurs sessions côte à côte
-  // dans la vue normale). En split, seul le pane focalisé réagit au clavier (lentilles 1-4, Échap),
-  // et `onClose` affiche une croix pour retirer le pane.
-  let { id, inSplit = false, focused = true, onClose = null } = $props();
+  // `inSplit`/`focused`: rendered as one pane of the split view (several sessions side by side).
+  // In split, only the focused pane reacts to the keyboard (lenses, Escape).
+  let { id, inSplit = false, focused = true } = $props();
   // $state.raw (pas $state) : le détail contient un tableau `messages` de 1000+ objets profonds.
   // $state proxifie récursivement à l'affectation `s = d` → tâche synchrone de plusieurs centaines
   // de ms qui GÈLE l'UI au changement de session. On ne mute jamais un message en place (on
@@ -103,7 +102,6 @@
     chat: (s?.messages || []).length,
     ship: (s?.changes || []).length,
   });
-  const shownLenses = $derived(LENSES);
   // Deep-link ?lens=<key> (dock « open Ship », palette…). Réactif à l'URL : naviguer vers la même
   // session avec un autre ?lens= bascule la lentille sans remount. Les anciens liens `?lens=shell`
   // et `?lens=terminal` retombent sur Converse (le panneau Shell n'existe plus).
@@ -247,28 +245,9 @@
   );
   const showFollowup = $derived(followup && followup !== dismissedFollowup && !queued.length);
 
-  // indicateur 5 h compact pour la ligne de stats : uniquement la valeur réelle (statusline).
-  // Pas d'estimation de repli → masqué tant que le vrai % n'est pas connu.
-  const stat5h = $derived.by(() => {
-    if (!s) return null;
-    const rl = s.rateLimit && s.rateLimit.fiveHour;
-    if (rl && rl.pct != null) {
-      return { pct: rl.pct, title: '5 h session rate limit (actual)' + (rl.resetInMin != null ? ` — resets in ${fmtDuration(rl.resetInMin)}` : '') };
-    }
-    return null;
-  });
-
-  // Visibilité des éléments de la barre de statut. Lire settings.statusBar AVANT tout guard
-  // (règle réactivité Svelte 5 : une dépendance derrière un court-circuit n'est pas suivie).
+  // Visibility of the ⋯ menu's optional controls (settings.statusBar). Read BEFORE any guard
+  // (Svelte 5 reactivity rule: a dependency behind a short-circuit is not tracked).
   const sb = $derived(settings.statusBar || {});
-  // Ordre d'affichage des éléments de la barre de statut (réorganisable dans les réglages, comme
-  // les sous-onglets). Le conteneur .head-stats est flex → on pose `order:` sur chaque élément.
-  // Lu AVANT toute garde (règle réactivité Svelte 5). Clé inconnue → ordre élevé (rejetée en fin).
-  const sbOrder = $derived(settings.statusBarOrder || []);
-  const sbOrd = (k) => { const i = sbOrder.indexOf(k); return i === -1 ? 90 : i; };
-  // Chips PR / issue de la barre de statut : bornés par le réglage (0 = tous), surplus résumé en « +N ».
-  const linkLimit = $derived(settings.statusBarLinkLimit || 0);
-  const shownLinks = (links) => (linkLimit ? links.slice(0, linkLimit) : links);
 
   async function load(isRefresh) {
     let d;
@@ -575,7 +554,6 @@
     archiving = true;
     toggleArchive(s.id);
     setTimeout(() => { loadSessions(); ui.tick++; }, 800);
-    if (inSplit) onClose?.();
   }
   let deleting = $state(false);
   function del() {
@@ -847,7 +825,7 @@
       </div>
     </div>
     <div class="subtabs lenses">
-      {#each shownLenses as l (l.key)}
+      {#each LENSES as l (l.key)}
         <button class="subtab" class:active={tab === l.key} onclick={() => { tab = l.key; }}
                 title="{l.label} — key {l.kbd}">
           <Icon name={l.icon} size={14} /> {l.label}
@@ -935,9 +913,7 @@
              avec le transcript. Elle n'existait de toute façon que pour une session pilotée
              (`followupSuggestion` vient du registre de l'Agent SDK), donc rien n'est perdu à la
              faire dépendre de ce `{#if}`. Seul le masquage remonte ici, car il est persisté. -->
-        <Composer bind:this={composer} {id} alive={s.live} project={s.project}
-                  resumeEffort={s.effort} lastPrompt={s.lastPrompt || ''} {onSent}
-                  onResumed={() => load(true)}
+        <Composer bind:this={composer} {id} project={s.project} lastPrompt={s.lastPrompt || ''} {onSent}
                   followup={showFollowup ? followup : null} onFollowupDismiss={dismissFollowup} />
       {/if}
     </div>
@@ -1028,8 +1004,7 @@
 
 <style>
   .detail-shell { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
-  /* split pane: the ✕ close is always shown, and the focused pane gets an accent rail. */
-  .detail-shell.in-split :global(.pane-back) { display: inline-flex; }
+  /* split pane: the focused pane gets an accent rail. */
   .detail-shell.in-split.focused { box-shadow: inset 3px 0 0 var(--accent); }
   .detail-shell.in-split:not(.focused) { opacity: .92; }
   .detail-main { flex: 1 1 auto; min-height: 0; min-width: 0; display: flex; flex-direction: column; }

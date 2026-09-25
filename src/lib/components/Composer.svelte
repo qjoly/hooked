@@ -2,11 +2,9 @@
   import { onMount, onDestroy } from 'svelte';
   import Icon from '$lib/components/Icon.svelte';
   import { reply, interrupt, launch, getFiles, getCommands, uploadImage } from '$lib/api.js';
-  import { loadSessions, ui, unarchive, settings } from '$lib/state.svelte.js';
+  import { loadSessions, ui, settings } from '$lib/state.svelte.js';
   import { createSpeechToText } from '$lib/speech.svelte.js';
 
-  // `alive` : session pilotée par hooked → on répond direct. Sinon, l'envoi relance
-  // `claude --resume` dans une nouvelle session (en conservant modèle/effort d'origine si connus).
   // `newSession` : pas d'id encore — l'envoi LANCE une session neuve dans `project` (cwd) avec
   // le `model`/`effort` choisis ; `onLaunched(cwd)` est notifié pour ouvrir la session créée.
   // `worktree` : ne vaut que pour une session neuve — lance `claude --worktree` (dossier isolé).
@@ -14,9 +12,9 @@
   // null). La carte vit ICI, dans le socle, et non dans la conversation : elle propose ce qu'on
   // pourrait envoyer, donc elle est solidaire de la saisie et ne défile pas avec le transcript.
   // Seul le masquage remonte (`onFollowupDismiss`), parce qu'il est persisté par session.
-  let { id, alive = true, project = null, resumeModel = null, resumeEffort = null, lastPrompt = '',
+  let { id, project = null, lastPrompt = '',
         onSent = null, newSession = false, model = '', effort = '', mode = 'default', worktree = false, onLaunched = null, groupWith = null,
-        onResumed = null, followup = null, onFollowupDismiss = null } = $props();
+        followup = null, onFollowupDismiss = null } = $props();
 
   // Reprendre la suggestion pour la retoucher : on la pose dans la saisie sans envoyer, et la carte
   // s'efface — le texte est désormais dans la zone de saisie, l'y laisser en double n'apporte rien.
@@ -42,13 +40,11 @@
   function toggleSpeech() { speech?.toggle(text); }
 
   // Raccourcis affichés en permanence sous la zone de saisie (paires [touche, effet]) :
-  // ils dépendent du mode d'envoi (lancement / réponse / relance d'une session morte).
+  // ils dépendent du mode d'envoi (lancement / réponse).
   const hints = $derived(
     newSession
       ? [['Enter', 'launch'], ['⇧Enter', 'new line'], ['@', 'file'], ['/', 'command'], ['⌘V', 'image']]
-      : alive
-        ? [['Enter', 'send'], ['⇧Enter', 'new line'], ['@', 'file'], ['/', 'command'], ['!', 'shell'], ['!!', 'interactive shell'], ['⌘V', 'image'], ['Esc×2', 'interrupt']]
-        : [['Enter', 'restart the session'], ['@', 'file'], ['/', 'command'], ['⌘V', 'image']],
+      : [['Enter', 'send'], ['⇧Enter', 'new line'], ['@', 'file'], ['/', 'command'], ['!', 'shell'], ['!!', 'interactive shell'], ['⌘V', 'image'], ['Esc×2', 'interrupt']],
   );
 
   // ----- brouillon persistant -----
@@ -226,8 +222,6 @@
   // dans le composer pour le corriger. Exposé au parent (écoute aussi Echap hors textarea).
   export function interruptEdit() {
     if (newSession) { closeAc(); return; }
-    // Session morte : aucune requête en cours, recharger le prompt n'a rien de destructif.
-    if (!alive) { reloadPrompt(false); return; }
     // 1er Échap : on arme et on demande confirmation pour éviter les annulations accidentelles.
     if (!armed) {
       armed = true;
@@ -250,16 +244,16 @@
       setTimeout(() => { status = { text: '', cls: '' }; }, 2500);
       queueMicrotask(() => { if (ta) ta.focus(); });
     } else {
-      reloadPrompt(true);
+      reloadPrompt();
     }
   }
 
-  function reloadPrompt(interrupted) {
+  function reloadPrompt() {
     if (lastPrompt && !text.trim()) {
       text = lastPrompt;
-      status = { text: interrupted ? '⎋ interrupted — prompt reloaded, edit then resend' : '⎋ prompt reloaded', cls: '' };
+      status = { text: '⎋ interrupted — prompt reloaded, edit then resend', cls: '' };
       setTimeout(() => { status = { text: '', cls: '' }; }, 3500);
-    } else if (interrupted) {
+    } else {
       status = { text: '⎋ interrupted', cls: '' };
       setTimeout(() => { status = { text: '', cls: '' }; }, 2000);
     }
@@ -267,7 +261,7 @@
   }
 
   // Envoi programmatique (revue de fichiers) : on remplit le composer avec le prompt généré
-  // puis on réutilise `send()` tel quel — même chemin alive/relance/nouvelle session, même
+  // puis on réutilise `send()` tel quel — même chemin réponse/nouvelle session, même
   // file d'attente + scroll. La revue apparaît donc comme un message normal dans le chat.
   export function sendText(t) {
     const v = typeof t === 'string' ? t.trim() : '';
@@ -295,16 +289,12 @@
     const paths = images.map((im) => im.path).join(' ');
     const full = paths ? (t ? paths + ' ' + t : paths) : t;
     busy = true;
-    status = { text: newSession ? 'launching…' : (alive ? 'sending…' : 'restarting the session…'), cls: '' };
+    status = { text: newSession ? 'launching…' : 'sending…', cls: '' };
     const res = newSession
       ? await launch({ cwd: project, prompt: full, model, effort, worktree, permissionMode: mode, groupWith: groupWith || undefined }).catch((e) => ({ ok: false, data: { error: e.message } }))
-      : alive
-        ? await reply(id, full).catch((e) => ({ ok: false, data: { error: e.message } }))
-        : await launch({ resumeId: id, prompt: full, cwd: project, model: resumeModel || '', effort: resumeEffort || '' }).catch((e) => ({ ok: false, data: { error: e.message } }));
+      : await reply(id, full).catch((e) => ({ ok: false, data: { error: e.message } }));
     if (res.ok) {
       text = ''; images = []; autosize();
-      // relancer une session archivée la désarchive (retour dans la flotte live).
-      if (!newSession && !alive) unarchive(id);
       // Mode bash (`!commande`, cf. server/agent.js → runLocalCommand) : rien n'est parti au
       // modèle, donc pas de bulle « en file d'attente » — le compte rendu de la commande arrive
       // directement dans le transcript au prochain refetch. On affiche juste le code de sortie.
@@ -318,19 +308,12 @@
         return;
       }
       // file d'attente + scroll auto : on signale au parent le message tout juste envoyé.
-      if (alive && !newSession && onSent) onSent(full);
+      if (!newSession && onSent) onSent(full);
       if (newSession && onLaunched) onLaunched(project);
       const short = (res.data.sessionId || '').slice(0, 8);
-      status = { text: newSession ? ('✓ session launched' + (short ? ' (' + short + ')' : '') + (res.data.worktree ? ' · worktree' : '')) : (alive ? '✓ sent' : ('✓ session restarted' + (short ? ' (' + short + ')' : ''))), cls: 'ok' };
+      status = { text: newSession ? ('✓ session launched' + (short ? ' (' + short + ')' : '') + (res.data.worktree ? ' · worktree' : '')) : '✓ sent', cls: 'ok' };
       setTimeout(() => { status = { text: '', cls: '' }; }, 3000);
-      setTimeout(() => {
-        loadSessions(); ui.tick++;
-        // Restarting an ended session: `alive` was false, so no `onSent` fires above, and the
-        // sidebar's own tick-diffing effect (SessionDetail's ui.tick $effect) isn't guaranteed to
-        // catch the change right away — same staleness the one-click Resume button had. Tell the
-        // parent to refetch THIS session's detail directly instead of waiting on that diff.
-        if (!newSession && !alive && onResumed) onResumed();
-      }, 600);
+      setTimeout(() => { loadSessions(); ui.tick++; }, 600);
     } else {
       status = { text: '✗ ' + (res.data.error || 'failed'), cls: 'err' };
     }
@@ -357,13 +340,9 @@
     </div>
   </div>
 {/if}
-<div class="composer" class:relaunch={!alive && !newSession}>
+<div class="composer">
   <textarea bind:this={ta} bind:value={text} id="reply-text" rows="1" disabled={busy}
-            placeholder={newSession
-              ? 'Describe your task to start the session…'
-              : alive
-                ? 'Reply to Claude…'
-                : 'session not running — sending will re-run claude --resume…'}
+            placeholder={newSession ? 'Describe your task to start the session…' : 'Reply to Claude…'}
             oninput={onInput} onkeydown={onKeydown} onpaste={onPaste} onblur={() => setTimeout(closeAc, 150)}></textarea>
   <div class="composer-actions">
     {#if speechState !== 'disabled' && speechState !== 'failed'}
@@ -373,7 +352,7 @@
               title={listening ? 'Stop dictation' : downloading ? 'Downloading speech model…' : speechState === 'need-download' ? 'Download speech model' : 'Dictate (speech to text)'}
               aria-label="Dictate" onclick={toggleSpeech}><Icon name={listening ? 'square-filled' : downloading ? 'working' : 'mic'} size={16} tint={false} /></button>
     {/if}
-    <button class="reply-send" disabled={busy || uploading > 0} onclick={send}>{#if newSession}Launch <Icon name="external" size={14} />{:else if alive}Send <Icon name="send" size={14} />{:else}Restart <Icon name="external" size={14} />{/if}</button>
+    <button class="reply-send" disabled={busy || uploading > 0} onclick={send}>{#if newSession}Launch <Icon name="external" size={14} />{:else}Send <Icon name="send" size={14} />{/if}</button>
   </div>
   {#if images.length || uploading}
     <div class="img-tray">

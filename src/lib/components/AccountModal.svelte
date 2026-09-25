@@ -1,6 +1,6 @@
 <script>
   import { onDestroy } from 'svelte';
-  import { account, loadAccount, closeModal } from '$lib/state.svelte.js';
+  import { account, loadAccount } from '$lib/state.svelte.js';
   import { accountAction } from '$lib/api.js';
   import { initials } from '$lib/format.js';
   import Icon from './Icon.svelte';
