@@ -63,10 +63,6 @@ const DEFAULTS = {
   digest: { auto: true, hour: 7, model: '' },
   // Visibility of the session header's optional ⋯ menu controls (all shown by default).
   statusBar: Object.fromEntries(STATUS_BAR_KEYS.map((k) => [k, true])),
-  // Source de diff sur laquelle s'ouvre la lentille Ship : 'claude' (diff reconstruit du
-  // transcript, filtrable par prompt) ou 'vcs' (git/jj : working tree + commits). Le bouton
-  // de bascule dans l'onglet permet toujours de changer ponctuellement.
-  shipDefaultView: 'claude',
   // Éditeur de code préféré : clé du registre src/lib/editors.js ('vscode', 'zed'…). Sert aux
   // liens « open in editor » de la lentille Ship (côté client) et à l'ouverture du dossier projet
   // par le serveur (CLI de l'éditeur).
@@ -195,7 +191,6 @@ function sanitize(raw) {
     digest,
     warmup,
     autoCompact,
-    shipDefaultView: o.shipDefaultView === 'vcs' ? 'vcs' : 'claude',
     speechLang,
     speechEnabled: o.speechEnabled === undefined ? true : !!o.speechEnabled,
     editor: EDITOR_KEYS.includes(o.editor) ? o.editor : DEFAULT_EDITOR,
