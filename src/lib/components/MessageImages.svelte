@@ -1,4 +1,5 @@
 <script>
+  import Lightbox from './Lightbox.svelte';
   import { imageUrl } from '$lib/api.js';
 
   // `images` : absolute paths of images attached to the message (extracted by splitMessageImages).
@@ -20,13 +21,7 @@
   </div>
 {/if}
 
-{#if zoom}
-  <div class="lightbox" role="presentation" onclick={() => (zoom = null)}>
-    <img class="lightbox-img" src={zoom} alt="" />
-  </div>
-{/if}
-
-<svelte:window onkeydown={(e) => { if (e.key === 'Escape' && zoom) zoom = null; }} />
+<Lightbox src={zoom} onclose={() => (zoom = null)} />
 
 <style>
   .msg-imgs { display: flex; flex-wrap: wrap; gap: 8px; margin: 2px 0 6px; }
@@ -37,9 +32,4 @@
   .msg-img:hover { border-color: var(--accent); }
   .msg-img img { display: block; max-width: 220px; max-height: 160px; object-fit: contain; }
 
-  .lightbox {
-    position: fixed; inset: 0; z-index: 200; display: flex; align-items: center; justify-content: center;
-    background: rgba(0, 0, 0, 0.8); cursor: zoom-out; padding: 24px;
-  }
-  .lightbox-img { max-width: 96vw; max-height: 92vh; object-fit: contain; border-radius: 6px; box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5); }
 </style>

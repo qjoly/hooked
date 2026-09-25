@@ -5,6 +5,7 @@
   // of lines) are visible at a glance; a "Show more" toggle appears only when the diff
   // overflows the clamp. Other tools keep a compact chip that expands to JSON input/result.
   // State is local; since the list is keyed by tool_use id it survives live re-renders.
+  import Lightbox from './Lightbox.svelte';
   import PierreDiff from './PierreDiff.svelte';
   import Icon from '$lib/components/Icon.svelte';
   import { ui } from '$lib/state.svelte.js';
@@ -104,11 +105,7 @@
       {/each}
     </div>
   </div>
-  {#if zoom}
-    <div class="lightbox" role="presentation" onclick={() => (zoom = null)}>
-      <img class="lightbox-img" src={zoom} alt="" />
-    </div>
-  {/if}
+  <Lightbox src={zoom} onclose={() => (zoom = null)} />
 {:else}
   <div class="tool" class:has-detail={hasDetail} class:open={shown}>
     <span class="chip" onclick={() => { if (hasDetail) toggleDetail(); }}>
@@ -149,8 +146,6 @@
   </div>
 {/if}
 
-<svelte:window onkeydown={(e) => { if (e.key === 'Escape' && zoom) zoom = null; }} />
-
 <style>
   /* taille d'un gros diff replié (indice avant ouverture) */
   .diff-size { font-family: var(--mono); font-size: 10px; color: var(--muted); margin-left: 6px; }
@@ -174,9 +169,4 @@
   .sf-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .sf-open { color: var(--muted); margin-left: 2px; }
 
-  .lightbox {
-    position: fixed; inset: 0; z-index: 200; display: flex; align-items: center; justify-content: center;
-    background: rgba(0, 0, 0, 0.8); cursor: zoom-out; padding: 24px;
-  }
-  .lightbox-img { max-width: 96vw; max-height: 92vh; object-fit: contain; border-radius: 6px; box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5); }
 </style>

@@ -7,7 +7,7 @@
   import { ui, data, sessionTitle, sessionTags, loadSessions, toggleArchive, isArchived, isSessionArchived, snoozeSession, snoozeUntil, groupUnits, isGroupArchived, isGrouped, groupName } from '$lib/state.svelte.js';
   import { dragSession, dropSession, dropDetach } from '$lib/groupDnd.js';
   import { getSession, reply } from '$lib/api.js';
-  import { ago, tagColor, STATE_LABEL } from '$lib/format.js';
+  import { ago, tagColor, STATE_LABEL, needsDecision, isActiveSession as isLive, sessionDot as dotClass } from '$lib/format.js';
   import Question from './Question.svelte';
   import Plan from './Plan.svelte';
   import Icon from '$lib/components/Icon.svelte';
@@ -27,7 +27,6 @@
   const snoozed = (id) => snoozeUntil(id) > nowMin;
 
   // ── decision queue ───────────────────────────────────────────────────────────────────────
-  const needsDecision = (s) => s.hasQuestion || s.hasPlan || s.state === 'attention' || s.state === 'waiting';
   const kindOf = (s) =>
     s.hasQuestion ? 'question' : s.hasPlan ? 'plan' : s.state === 'attention' ? 'permission' : 'waiting';
   const KIND_META = {
@@ -113,14 +112,7 @@
   let fq = $state(''); // fleet quick filter
 
   const projectKey = (s) => s.repo || s.projectName || '—';
-  const isLive = (s) => ['working', 'background', 'waiting', 'attention'].includes(s.state);
   const unitLive = (u) => u.all.some(isLive);
-  const dotClass = (s) =>
-    s.hasQuestion || s.hasPlan || s.state === 'attention' ? 'attention'
-    : s.state === 'working' ? 'working'
-    : s.state === 'background' ? 'bgjob'
-    : s.state === 'waiting' ? 'waiting'
-    : s.state === 'ended' ? 'ended' : 'idle';
   // live activity only (no lastPrompt fallback) — the cards show the last exchange separately,
   // so the fallback would just duplicate the user message.
   function liveSnippet(s) {
@@ -331,7 +323,7 @@
        use:dragSession={s.id} use:dropSession={s.id}
        onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(s); } }}>
     <span class="frow1">
-      <span class="fdot f-{dotClass(s)}"></span>
+      <span class="state-dot fdot d-{dotClass(s)}"></span>
       <span class="ft" title={u.children.length ? 'Group · mother session: ' + sessionTitle(s) : undefined}>{u.children.length ? groupName(s.id) : sessionTitle(s)}</span>
       {#if u.children.length}<span class="fgn" title="{u.all.length} sessions in this group"><Icon name="sessions" size={11} /> {u.all.length}</span>{/if}
       <!-- Table cells for the datadog scheme. Markup cannot be conditioned on a palette, so they
@@ -353,7 +345,7 @@
           <span class="fkid" role="button" tabindex="0" use:dragSession={c.id}
                 onclick={(e) => { e.stopPropagation(); open(c); }}
                 onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); open(c); } }}>
-            <span class="fdot f-{dotClass(c)}"></span>
+            <span class="state-dot fdot d-{dotClass(c)}"></span>
             <span class="fkid-t">{sessionTitle(c)}</span>
             {#if liveSnippet(c)}<span class="fkid-a">{liveSnippet(c).text}</span>{/if}
             <span class="fkid-ago">{ago(c.lastActivity)}</span>
@@ -532,13 +524,6 @@
   .fcard:hover .fcard-act { opacity: 1; }
   .fcard-act:hover { background: var(--accent-soft); color: var(--accent-d); }
   .frow1 { display: flex; align-items: center; gap: 8px; min-width: 0; }
-  .fdot { width: 8px; height: 8px; border-radius: 50%; flex: 0 0 auto; }
-  .f-working { background: var(--working); animation: tpulse 1.6s ease-in-out infinite; }
-  .f-waiting { background: var(--waiting); animation: tpulse 1.6s ease-in-out infinite; }
-  .f-attention { background: var(--attention); animation: tpulse 1s ease-in-out infinite; }
-  .f-bgjob { background: var(--background); animation: tpulse 1.6s ease-in-out infinite; }
-  .f-ended { background: var(--ended); }
-  .f-idle { background: var(--idle); }
   .ft { font-size: 12.5px; font-weight: 600; color: var(--text); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
   .fago { margin-left: auto; font-family: var(--mono); font-size: 9.5px; color: var(--muted); flex: 0 0 auto; }
   /* session groups: member count on the head, the other members listed inside the card */

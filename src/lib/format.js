@@ -394,3 +394,18 @@ export function issueLabel(l) {
   const m = l.match(/github\.com\/([^/]+)\/([^/]+)\/issues\/(\d+)/);
   return m ? `${m[2]} #${m[3]}` : l;
 }
+
+// Session-state predicates shared by every list panel (sidebar, Deck, TopBar badge, palette) — each
+// used to carry its own copy. "Active": the session is doing or awaiting something. "Needs a
+// decision": it waits on you (question, plan, permission, or simply its turn is over). The dot
+// colour ranks the decision states above the live ones.
+export const ACTIVE_STATES = ['working', 'background', 'waiting', 'attention'];
+export const isActiveSession = (s) => ACTIVE_STATES.includes(s.state);
+export const needsDecision = (s) => !!(s.hasQuestion || s.hasPlan || s.state === 'attention' || s.state === 'waiting');
+export function sessionDot(s) {
+  if (s.hasQuestion || s.hasPlan || s.state === 'attention') return 'attention';
+  if (s.state === 'working') return 'working';
+  if (s.state === 'background') return 'bgjob';
+  if (s.state === 'waiting') return 'waiting';
+  return s.state === 'ended' ? 'ended' : 'idle';
+}
