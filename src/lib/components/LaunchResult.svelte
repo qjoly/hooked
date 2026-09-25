@@ -12,10 +12,9 @@
   }
 </script>
 
-<h2 style="margin:0 0 10px"><Icon name="check" size={18} /> Session {d.forkedFrom ? 'forked' : d.resume ? 'resumed' : 'launched'}</h2>
+<h2 style="margin:0 0 10px"><Icon name="check" size={18} /> Session {d.forkedFrom ? 'forked' : 'launched'}</h2>
 <p style="color:var(--muted);font-size:12.5px;line-height:1.6;margin:0 0 14px">
-  <code>claude{d.resume ? ' --resume ' + d.resume.slice(0, 8) + '…' : ''}{d.worktree ? ' --worktree' : ''}</code>
-  is running in folder <code>{d.cwd}</code>{d.worktree ? ' (dedicated git worktree)' : ''}.<br>
+  <code>claude</code> is running in folder <code>{d.cwd}</code>.<br>
   Session <b>{(d.sessionId || '').slice(0, 8)}…</b></p>
 {#if d.link}
   <div class="attach-row">

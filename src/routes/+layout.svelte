@@ -1,7 +1,7 @@
 <script>
   import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
-  import { ui, settings, loadSettings, startLive, toggleFocus, toggleSidebarPeek, cycleTheme, splitWithMostRecent } from '$lib/state.svelte.js';
+  import { ui, settings, loadSettings, startLive, toggleFocus, cycleTheme, splitWithMostRecent } from '$lib/state.svelte.js';
   import { page } from '$app/state';
   import { pageHref } from '$lib/nav.js';
   import { matchShortcut } from '$lib/shortcuts.js';
@@ -52,7 +52,6 @@
 
   $effect(() => {
     document.body.classList.toggle('focus', ui.focus);
-    document.body.classList.toggle('sidebar-peek', ui.focus && ui.sidebarPeek);
   });
 
   function onGlobalKeydown(e) {
@@ -104,10 +103,8 @@
     {@render children()}
   </main>
 
-  <!-- Contrôles du mode focus (flottants) : ré-ouvrir la flotte (☰) et quitter le focus (✕). -->
+  <!-- Floating focus-mode control: leave focus (✕). -->
   <div class="focus-ctl">
-    <button class="focus-fab-btn" onclick={toggleSidebarPeek}
-            title={ui.sidebarPeek ? 'Collapse fleet' : 'Re-open fleet'} aria-label="Toggle fleet"><Icon name="menu" /></button>
     <button class="focus-fab-btn" onclick={toggleFocus} title="Exit focus mode" aria-label="Exit focus"><Icon name="close" /></button>
   </div>
 </div>

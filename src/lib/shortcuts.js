@@ -116,7 +116,7 @@ export function keysFromEvent(e) {
 export function shortcutForCommand(commandId) {
   const map = {
     'nav:deck': 'go-sessions',
-    'nav:archive': 'go-board',
+    'nav:sessions': 'go-board',
     'nav:new': 'new-session',
     'nav:stats': 'go-stats',
     'nav:digest': 'go-digest',

@@ -160,15 +160,11 @@
   const fleetTotal = $derived(fleetGroups.reduce((a, g) => a + g.items.length, 0));
 
   const open = (s) => goto('/session/' + encodeURIComponent(s.id));
-  const openLens = (s, lens) => goto('/session/' + encodeURIComponent(s.id) + '?lens=' + lens);
 
-  // 'deck' = triage + fleet (home) ; 'sessions' = the fleet browser only, full width.
-  let { mode = 'deck' } = $props();
 </script>
 
 <div class="deck">
-  <div class="deck-cols" class:sessions-only={mode === 'sessions'}>
-    {#if mode === 'deck'}
+  <div class="deck-cols">
     <!-- ── decision queue ── -->
     <section class="triage-col">
       <div class="colhead">
@@ -244,9 +240,7 @@
           </div>
 
           <footer class="tfoot">
-            {#if kind === 'permission'}
-              <button class="tbtn primary" onclick={() => openLens(s, 'terminal')}><Icon name="shell" size={14} tint={false} /> Open the shell</button>
-            {:else if kind === 'waiting'}
+            {#if kind === 'waiting'}
               <button class="tbtn primary" onclick={() => open(s)}><Icon name="send" size={14} /> Reply</button>
             {/if}
             <button class="tbtn" onclick={() => open(s)}>Open the session</button>
@@ -256,7 +250,6 @@
         </article>
       {/each}
     </section>
-    {/if}
 
     <!-- ── fleet ── -->
     <section class="fleet-col">
@@ -386,7 +379,6 @@
   .deck { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 18px 22px 40px; }
 
   .deck-cols { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, .9fr); gap: 22px; }
-  .deck-cols.sessions-only { grid-template-columns: 1fr; }
   @media (max-width: 1080px) { .deck-cols { grid-template-columns: 1fr; } }
 
   .colhead { display: flex; align-items: center; gap: 10px; margin: 2px 0 12px; }
