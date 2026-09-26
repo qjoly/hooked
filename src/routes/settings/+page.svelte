@@ -240,6 +240,7 @@
     { key: 'default', icon: 'dot', color: '#7d74f5', label: 'Default' },
     { key: 'legacy',  icon: 'dot', color: '#a07a55', label: 'Legacy' },
     { key: 'datadog', icon: 'dot', color: '#632ca6', label: 'Datadog' },
+    { key: 'gruvbox', icon: 'dot', color: '#d65d0e', label: 'Gruvbox' },
   ];
   // Forme des angles (3e axe orthogonal : se combine avec n'importe quel clair/sombre et palette).
   const CORNERS = [
@@ -605,7 +606,7 @@
       </div>
 
       <h2 style="margin-top:22px">Color scheme</h2>
-      <p class="hint">Palette used for both light and dark. <strong>Legacy</strong> restores the previous warm cream / terracotta look; <strong>Datadog</strong> is a cool purple, tighter corners and flatter surfaces, closer to a monitoring console. (Per-browser preference.)</p>
+      <p class="hint">Palette used for both light and dark. <strong>Legacy</strong> restores the previous warm cream / terracotta look; <strong>Datadog</strong> is a cool purple, tighter corners and flatter surfaces, closer to a monitoring console; <strong>Gruvbox</strong> is the retro warm palette of the editor theme of the same name. (Per-browser preference.)</p>
       <div class="chips">
         {#each SCHEMES as s (s.key)}
           <button class="chip" class:active={ui.scheme === s.key} onclick={() => setScheme(s.key)}>
