@@ -596,4 +596,36 @@
      Markup is not scopable per palette, so they are emitted for everyone and hidden here;
      `display: none` costs nothing and keeps every other scheme pixel-identical. */
   .fbranch, .fstate, .fhead { display: none; }
+
+  /* Phone: the Deck is the home screen, so it has to survive a 360px viewport.
+     Everything here is layout only — one column, headers allowed to wrap, hover-only
+     affordances made permanent (there is no hover on a touch screen). */
+  @media (max-width: 640px) {
+    .deck { padding: 12px 12px 28px; }
+    .deck-cols { gap: 16px; }
+
+    .colhead { flex-wrap: wrap; row-gap: 6px; gap: 8px; }
+    .colhead h2 { font-size: 14px; }
+    .ghost-btn { margin-left: auto; }
+    .fleet-q { order: 3; flex: 1 1 100%; width: auto; margin-left: 0; }
+    .viewseg { margin-left: auto; }
+
+    /* decision cards */
+    .tcard-head { flex-wrap: wrap; row-gap: 3px; padding: 9px 11px; }
+    .ttitle { flex: 1 1 auto; }
+    .tago { margin-left: auto; }
+    .tmeta { order: 5; flex: 1 1 100%; }
+    .tgroup { max-width: 100%; }
+    .tbody { padding: 4px 11px; }
+    .tbody-clamp.is-clamped { max-height: 260px; }
+    .tfoot { flex-wrap: wrap; row-gap: 6px; padding: 10px 11px; }
+    .tbtn { padding: 8px 12px; }
+
+    /* fleet: single column, and the archive / new-session buttons stay reachable */
+    .fleet.grid { grid-template-columns: 1fr; }
+    .fcard { padding: 11px 12px; }
+    .fcard-act, .repo-plus { opacity: .5; }
+    .fmsg { max-width: 100%; }
+    .triage-empty { padding: 26px 12px; }
+  }
 </style>
