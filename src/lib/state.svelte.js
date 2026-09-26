@@ -356,9 +356,10 @@ export function cycleTheme() {
 // Persisté sous 'hooked.scheme', relu par le script anti-FOUC de app.html.
 // 'default' (défaut) = aucun data-scheme → palette indigo de la refonte ;
 // 'legacy' = data-scheme="legacy" → ancien thème crème/terracotta ;
-// 'datadog' = data-scheme="datadog" → violet Datadog, surfaces froides, densité d'outil.
+// 'datadog' = data-scheme="datadog" → violet Datadog, surfaces froides, densité d'outil ;
+// 'gruvbox' = data-scheme="gruvbox" → palette gruvbox (crème / brun chaud, accent orange).
 const SCHEME_KEY = 'hooked.scheme';
-const SCHEME_ORDER = ['default', 'legacy', 'datadog'];
+const SCHEME_ORDER = ['default', 'legacy', 'datadog', 'gruvbox'];
 function readScheme() {
   if (typeof localStorage === 'undefined') return 'default';
   try { const s = localStorage.getItem(SCHEME_KEY); return SCHEME_ORDER.includes(s) ? s : 'default'; }
