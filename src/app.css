@@ -311,6 +311,136 @@
   --diff-add-bg: rgba(var(--success-rgb),.18); --diff-add-fg: #a9c089;
   --diff-del-bg: rgba(var(--danger-rgb),.2);   --diff-del-fg: #e6998a;
 }
+/* ─── Color scheme « gruvbox » — morhetz/gruvbox, retro warm contrast ─────────────────────────
+   Same orthogonal axis as legacy / datadog. Hex values are taken verbatim from the upstream
+   palette so the UI matches a gruvbox editor or terminal side by side: the light variant uses
+   the "faded" accents (built for the cream background), the dark one the "bright" accents.
+   Only the *-soft tints are derived (≈12 % of the accent over the card colour).
+
+   Accent is gruvbox orange; the status colours keep their gruvbox meaning (blue = working,
+   yellow = waiting, red = attention, purple = background, green = done). The bright orange of
+   the dark variant is too light for white text, hence the dark --accent-fg there. */
+:root[data-scheme="gruvbox"] {
+  color-scheme: light;
+  --fg: #3c3836;
+  --card: #fbf1c7;
+  --hover: #f2e5bc;
+  --input: #f2e5bc;
+  --chip: #ebdbb2;
+  --accent-fg: #fbf1c7;
+  --code-bg: #282828;
+  --warn: #b57614;  --warn-soft: #f3e2b2;
+  --info: #076678;  --info-soft: #dee0be;
+  --success: #79740e; --success-soft: #ebe2b1;
+  --danger: #9d0006; --danger-soft: #f0d4b0;
+  --bg: #ebdbb2;
+  --bg2: #fbf1c7;
+  --bg3: #ebdbb2;
+  --panel: #ebdbb2;
+  --border: #d5c4a1;
+  --border2: #bdae93;
+  --muted: #7c6f64;
+  --accent: #af3a03;
+  --accent-d: #8f2f02;
+  --accent-soft: #f2dbaf;
+  --background: #8f3f71;
+  --idle: #a89984;
+  --past: #bdae93;
+  --accent-rgb: 175,58,3;
+  --info-rgb: 7,102,120;
+  --warn-rgb: 181,118,20;
+  --danger-rgb: 157,0,6;
+  --bgjob-rgb: 143,63,113;
+  --success-rgb: 121,116,14;
+  --ink-rgb: 146,131,116;
+  --shadow-rgb: 60,56,54;
+  --overlay: rgba(40,40,40,.42);
+  --track-dark: rgba(60,56,54,.08);
+
+}
+/* gruvbox — dark variant (two paths, identical values), see the default dark block above. */
+@media (prefers-color-scheme: dark) {
+  :root[data-scheme="gruvbox"]:not([data-theme="light"]) {
+    color-scheme: dark;
+    --fg: #ebdbb2;
+    --card: #282828;
+    --hover: #32302f;
+    --input: #32302f;
+    --chip: #3c3836;
+    --accent-fg: #282828;
+    --code-bg: #1d2021;
+    --warn: #fabd2f;  --warn-soft: #413a29;
+    --info: #83a598;  --info-soft: #333735;
+    --success: #b8bb26; --success-soft: #393a28;
+    --danger: #fb4934; --danger-soft: #412c29;
+    --bg: #1d2021;
+    --bg2: #282828;
+    --bg3: #3c3836;
+    --panel: #1d2021;
+    --border: #3c3836;
+    --border2: #504945;
+    --muted: #a89984;
+    --accent: #fe8019;
+    --accent-d: #ff9a45;
+    --accent-soft: #423326;
+    --background: #d3869b;
+    --idle: #7c6f64;
+    --past: #504945;
+    --accent-rgb: 254,128,25;
+    --info-rgb: 131,165,152;
+    --warn-rgb: 250,189,47;
+    --danger-rgb: 251,73,52;
+    --bgjob-rgb: 211,134,155;
+    --success-rgb: 184,187,38;
+    --ink-rgb: 146,131,116;
+    --shadow-rgb: 0,0,0;
+    --shadow: 0 6px 18px -12px rgba(0,0,0,.5);
+    --shadow-sm: 0 1px 3px rgba(0,0,0,.35);
+    --overlay: rgba(0,0,0,.6);
+    --track-dark: rgba(235,219,178,.1);
+
+  }
+}
+:root[data-scheme="gruvbox"][data-theme="dark"] {
+  color-scheme: dark;
+  --fg: #ebdbb2;
+  --card: #282828;
+  --hover: #32302f;
+  --input: #32302f;
+  --chip: #3c3836;
+  --accent-fg: #282828;
+  --code-bg: #1d2021;
+  --warn: #fabd2f;  --warn-soft: #413a29;
+  --info: #83a598;  --info-soft: #333735;
+  --success: #b8bb26; --success-soft: #393a28;
+  --danger: #fb4934; --danger-soft: #412c29;
+  --bg: #1d2021;
+  --bg2: #282828;
+  --bg3: #3c3836;
+  --panel: #1d2021;
+  --border: #3c3836;
+  --border2: #504945;
+  --muted: #a89984;
+  --accent: #fe8019;
+  --accent-d: #ff9a45;
+  --accent-soft: #423326;
+  --background: #d3869b;
+  --idle: #7c6f64;
+  --past: #504945;
+  --accent-rgb: 254,128,25;
+  --info-rgb: 131,165,152;
+  --warn-rgb: 250,189,47;
+  --danger-rgb: 251,73,52;
+  --bgjob-rgb: 211,134,155;
+  --success-rgb: 184,187,38;
+  --ink-rgb: 146,131,116;
+  --shadow-rgb: 0,0,0;
+  --shadow: 0 6px 18px -12px rgba(0,0,0,.5);
+  --shadow-sm: 0 1px 3px rgba(0,0,0,.35);
+  --overlay: rgba(0,0,0,.6);
+  --track-dark: rgba(235,219,178,.1);
+
+}
 /* ─── Color scheme « datadog » — violet Datadog, surfaces froides, densité d'outil ───────────
    Troisième palette sur le MÊME axe orthogonal que « legacy » (`data-scheme="datadog"`), donc
    combinable avec clair/sombre et avec l'axe des angles. On ré-override tous les jetons, triplets
