@@ -2,20 +2,18 @@
   // Context dock (redesign): the always-visible right column of the Converse lens. Replaces
   // the Tasks / Subagents / Sub-sessions / Background / PRs / Issues subtabs: everything is
   // a live card, expandable in place (the full legacy component mounts on expand).
-  import Todos from './Todos.svelte';
   import Subagents from './Subagents.svelte';
   import Workflows from './Workflows.svelte';
   import SubSessions from './SubSessions.svelte';
   import Background from './Background.svelte';
-  import PrLinks from './PrLinks.svelte';
-  import IssueLinks from './IssueLinks.svelte';
+  import GhLinks from './GhLinks.svelte';
   import Screenshots from './Screenshots.svelte';
   import Icon from '$lib/components/Icon.svelte';
   import { fmtCost, prLabel, issueLabel } from '$lib/format.js';
   import { prState, prStateIcon } from '$lib/prState.svelte.js';
   import { ui } from '$lib/state.svelte.js';
 
-  let { s, id, onship } = $props();
+  let { s, id, onreview } = $props();
 
   // drag-resize the dock width (persisted). It's a right panel, so dragging left widens it.
   function startResize(e) {
@@ -36,7 +34,8 @@
   const wfRunning = $derived(workflows.filter((w) => w.status === 'running'));
   const agentCost = $derived(subagents.reduce((a, x) => a + (x.cost || 0), 0));
   const subSessions = $derived(s?.subSessions || []);
-  const jobs = $derived(s?.bgJobs || []);
+  // Background subagents are listed in the Agents card; here only the plain jobs (bash, monitor, wakeup).
+  const jobs = $derived((s?.bgJobs || []).filter((j) => j.kind !== 'subagent'));
   const runningJobs = $derived(jobs.filter((j) => (j.status || 'running') === 'running'));
   const prLinks = $derived(s?.prLinks || []);
   const issueLinks = $derived(s?.issueLinks || []);
@@ -49,6 +48,7 @@
   const toggle = (k) => { expanded = { ...expanded, [k]: !expanded[k] }; };
 
   const JOB_ICON = { bash: 'bash', monitor: 'eye', wakeup: 'wakeup' };
+  const TODO_ICON = { completed: 'checkbox-done', in_progress: 'in-progress', pending: 'checkbox' };
   // issue d'un run de workflow : un run tué ou en échec ne doit pas porter la coche verte.
   const WF_ICON = {
     running:   { icon: 'working',      tint: 'working' },
@@ -74,7 +74,11 @@
       </button>
       <div class="dprog"><i style="width:{todos.length ? Math.round((todosDone / todos.length) * 100) : 0}%"></i></div>
       {#if expanded.todos}
-        <div class="dfull"><Todos {todos} /></div>
+        <div class="db">
+          {#each todos as t, i (i)}
+            <div class="ditem" class:cur={t.status === 'in_progress'} class:done={t.status === 'completed'}><span class="dst"><Icon name={TODO_ICON[t.status] || 'checkbox'} size={13} /></span><span class="dtxt">{t.status === 'in_progress' && t.activeForm ? t.activeForm : t.content}</span></div>
+          {/each}
+        </div>
       {:else}
         <div class="db">
           {#if todoCurrent}
@@ -90,7 +94,7 @@
 
   {#if changes.length}
     <div class="dcard">
-      <button class="dh" onclick={() => onship && onship()} title="Open the Ship lens">
+      <button class="dh" onclick={() => onreview && onreview()} title="Open the Review lens">
         <span class="dh-ico"><Icon name="diff" size={13} /></span> Changes
         <span class="dh-n">{changes.length} file{changes.length > 1 ? 's' : ''}</span>
         <span class="dh-chev">→</span>
@@ -103,7 +107,7 @@
           </div>
         {/each}
         {#if changes.length > fileList.length}
-          <button class="dmore" onclick={() => onship && onship()}>＋ {changes.length - fileList.length} more · open Ship →</button>
+          <button class="dmore" onclick={() => onreview && onreview()}>＋ {changes.length - fileList.length} more · open Review →</button>
         {/if}
       </div>
     </div>
@@ -192,8 +196,8 @@
       </button>
       {#if expanded.links}
         <div class="dfull">
-          {#if prLinks.length}<PrLinks {prLinks} />{/if}
-          {#if issueLinks.length}<IssueLinks {issueLinks} />{/if}
+          {#if prLinks.length}<GhLinks links={prLinks} kind="pr" />{/if}
+          {#if issueLinks.length}<GhLinks links={issueLinks} kind="issue" />{/if}
         </div>
       {:else}
         <div class="db dpills">
@@ -254,6 +258,8 @@
   .ditem { display: flex; gap: 7px; padding: 2px 0; color: var(--muted); min-width: 0; }
   .ditem.cur { color: var(--text); }
   .ditem.cur .dst { color: var(--working); }
+  .ditem.done .dtxt { text-decoration: line-through; }
+  .ditem.done .dst { color: var(--success); }
   .dst { flex: 0 0 auto; }
   .dtxt { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .dtxt.mono { font-family: var(--mono); font-size: 10.5px; }

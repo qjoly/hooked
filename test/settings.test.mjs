@@ -34,22 +34,6 @@ describe('quickLaunchProject', () => {
   });
 });
 
-describe('shipDefaultView', () => {
-  it("defaults to 'claude'", () => {
-    expect(readSettings().shipDefaultView).toBe('claude');
-  });
-
-  it("accepts 'vcs' and round-trips it", () => {
-    expect(writeSettings({ shipDefaultView: 'vcs' }).shipDefaultView).toBe('vcs');
-    expect(readSettings().shipDefaultView).toBe('vcs');
-  });
-
-  it("falls back to 'claude' on any unknown value", () => {
-    expect(writeSettings({ shipDefaultView: 'git' }).shipDefaultView).toBe('claude');
-    expect(writeSettings({ shipDefaultView: 42 }).shipDefaultView).toBe('claude');
-  });
-});
-
 describe('remoteControlProjects', () => {
   it('defaults to an empty list', () => {
     expect(readSettings().remoteControlProjects).toEqual([]);

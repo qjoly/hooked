@@ -29,7 +29,6 @@ import { FILE_IGNORE } from './files.js';
 
 const FILE_MAX = 200000; // cap par côté (old/new) d'un fichier
 const MAX_FILES = 60;    // budget global de fichiers rendus, tous dépôts confondus
-const LOG_MAX = 30;      // commits listés pour le sélecteur Ship (dépôt principal seulement)
 const TIMEOUT = 20000;
 const SUBREPO_MAX = 10;    // max nested repos reported
 const SCAN_DEPTH = 3;      // levels scanned below the base for nested repos
@@ -224,11 +223,6 @@ async function gitParentRev(root, rev) {
   return pr.failed ? EMPTY_TREE : pr.stdout.toString('utf8').trim();
 }
 
-// Diff d'UN commit (vs son parent, ou l'arbre vide pour un commit racine).
-async function gitCommitChanges(root, rev, limit = MAX_FILES) {
-  return gitRangeChanges(root, await gitParentRev(root, rev), rev, limit);
-}
-
 const JJ_STATUS = { M: 'modified', A: 'added', D: 'deleted', R: 'renamed', C: 'copied' };
 
 // Contenu d'un fichier à un revset jj donné (@- = parent de la copie de travail). Vide si absent.
@@ -267,18 +261,6 @@ async function jjRangeChanges(root, from, to, limit = MAX_FILES) {
   return Promise.all(capped.map(async ({ code, p }) => {
     const oldBuf = code === 'A' ? Buffer.alloc(0) : await jjShowAt(root, from, p);
     const newBuf = code === 'D' ? Buffer.alloc(0) : await jjShowAt(root, to, p);
-    return makeEntry(root, p, JJ_STATUS[code] || 'changed', textOrNull(oldBuf), textOrNull(newBuf));
-  }));
-}
-
-// Diff d'UN commit jj (vs son parent, revset `<rev>-`).
-async function jjCommitChanges(root, rev, limit = MAX_FILES) {
-  const sum = await run('jj', ['diff', '--summary', '-r', rev], root);
-  if (sum.failed) return [];
-  const capped = parseJjSummary(sum.stdout).slice(0, limit);
-  return Promise.all(capped.map(async ({ code, p }) => {
-    const oldBuf = code === 'A' ? Buffer.alloc(0) : await jjShowAt(root, rev + '-', p);
-    const newBuf = code === 'D' ? Buffer.alloc(0) : await jjShowAt(root, rev, p);
     return makeEntry(root, p, JJ_STATUS[code] || 'changed', textOrNull(oldBuf), textOrNull(newBuf));
   }));
 }
@@ -381,7 +363,7 @@ async function buildVcsChanges(cwd) {
   return { vcs, root: base, changes: repos[0].primary ? repos[0].changes : [], truncated, repos };
 }
 
-// Révision hexadécimale telle qu'émise par listVcsCommits. Valider AVANT de la passer en argv :
+// Révision hexadécimale telle qu'émise par parseLogLines. Valider AVANT de la passer en argv :
 // exclut aussi toute chaîne commençant par '-' (injection de flag) ou un revset arbitraire.
 const REV_RE = /^[0-9a-f]{4,64}$/i;
 
@@ -398,37 +380,6 @@ function parseLogLines(buf) {
     if (rev && REV_RE.test(rev)) commits.push({ rev, author: author || '', ts: ts || '', subject: rest.join('\t') });
   }
   return commits;
-}
-
-// Commits d'UN dépôt de la session (le principal par défaut, ou `repoRoot` s'il désigne un
-// des dépôts détectés — jamais un chemin arbitraire), du plus récent au plus ancien — alimente
-// le sélecteur de commit de la lentille Ship (mode VCS). { vcs, root, commits:[{ rev, author,
-// ts, subject }] }. `rev` est l'id complet (sha git / commit_id jj), réutilisable tel quel
-// par buildVcsCommitChanges.
-async function listVcsCommits(cwd, repoRoot = null, limit = LOG_MAX) {
-  const empty = { vcs: null, root: null, commits: [] };
-  if (!cwd) return empty;
-  const repo = await resolveRepo(cwd, repoRoot);
-  if (!repo) return empty;
-  const { root, kind, mechanism } = repo;
-  const r = mechanism === 'git'
-    ? await run('git', ['-C', root, 'log', '-n', String(limit), '--format=' + GIT_LOG_FMT], root)
-    : await run('jj', ['log', '-n', String(limit), '--no-graph', '-r', '::@', '-T', JJ_LOG_TPL], root);
-  return { vcs: kind, root, commits: r.failed ? [] : parseLogLines(r.stdout) };
-}
-
-// Diff d'UN commit (vs son parent) d'un dépôt de la session (principal par défaut, ou
-// `repoRoot` parmi les dépôts détectés). Même forme d'entrées que buildVcsChanges → le rendu
-// Ship/Diff est réutilisé tel quel. { vcs, root, changes }.
-async function buildVcsCommitChanges(cwd, rev, repoRoot = null) {
-  const empty = { vcs: null, root: null, changes: [] };
-  if (!cwd || typeof rev !== 'string' || !REV_RE.test(rev)) return empty;
-  const repo = await resolveRepo(cwd, repoRoot);
-  if (!repo) return empty;
-  const changes = repo.mechanism === 'jj'
-    ? await jjCommitChanges(repo.root, rev)
-    : await gitCommitChanges(repo.root, rev);
-  return { vcs: repo.kind, root: repo.root, changes };
 }
 
 // ── diff de branche (lentille Branch) ───────────────────────────────────────────────────────
@@ -585,4 +536,4 @@ async function buildVcsBranchChanges(cwd, branch, baseBranch = null, repoRoot = 
   return { vcs, root, branch, base, mergeBase, merged, commits, range: picked, changes };
 }
 
-export { detectVcs, detectRepos, scanSubRepos, buildVcsChanges, listVcsCommits, buildVcsCommitChanges, listVcsBranches, buildVcsBranchChanges };
+export { detectVcs, detectRepos, scanSubRepos, buildVcsChanges, listVcsBranches, buildVcsBranchChanges };

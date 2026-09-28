@@ -7,6 +7,7 @@
   // sombre dans les deux thèmes (c'est une citation de source, comme dans un éditeur), alors qu'ici
   // tout vient des variables CSS — donc le bloc suit clair/sombre, et les palettes Legacy et Datadog
   // sans une ligne de plus.
+  import { copyText } from '$lib/clipboard.js';
   import Icon from '$lib/components/Icon.svelte';
 
   let { code = '', meta = {} } = $props();
@@ -38,11 +39,9 @@
 
   let copied = $state(false);
   async function copy() {
-    try {
-      await navigator.clipboard.writeText(parsed.output || parsed.command);
-      copied = true;
-      setTimeout(() => (copied = false), 1500);
-    } catch (_) {}
+    if (!(await copyText(parsed.output || parsed.command))) return;
+    copied = true;
+    setTimeout(() => (copied = false), 1500);
   }
 </script>
 

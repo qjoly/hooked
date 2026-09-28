@@ -1,4 +1,5 @@
 <script>
+  import { copyText } from '$lib/clipboard.js';
   import Icon from '$lib/components/Icon.svelte';
   import { highlight, langLabel } from '$lib/highlight.js';
 
@@ -11,23 +12,10 @@
   const label = $derived(langLabel(lang));
 
   async function copy() {
-    try {
-      // navigator.clipboard est dispo sur localhost (contexte sécurisé) ; sinon fallback.
-      if (navigator.clipboard?.writeText) await navigator.clipboard.writeText(code);
-      else {
-        const ta = document.createElement('textarea');
-        ta.value = code;
-        ta.style.position = 'fixed';
-        ta.style.opacity = '0';
-        document.body.appendChild(ta);
-        ta.select();
-        document.execCommand('copy');
-        ta.remove();
-      }
-      copied = true;
-      clearTimeout(timer);
-      timer = setTimeout(() => (copied = false), 1500);
-    } catch (_) { /* clipboard indisponible : on ignore */ }
+    if (!(await copyText(code))) return;
+    copied = true;
+    clearTimeout(timer);
+    timer = setTimeout(() => (copied = false), 1500);
   }
 </script>
 

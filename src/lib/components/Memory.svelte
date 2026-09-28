@@ -15,10 +15,10 @@
   });
 
   const TYPE_META = {
-    user: { label: 'User', hint: 'Qui tu es — rôle, préférences, expertise' },
-    feedback: { label: 'Feedback', hint: 'Comment je dois travailler avec toi' },
-    project: { label: 'Project', hint: 'Travail en cours, objectifs, contraintes' },
-    reference: { label: 'Reference', hint: 'Pointeurs externes — URLs, dashboards, tickets' },
+    user: { label: 'User', hint: 'Who you are — role, preferences, expertise' },
+    feedback: { label: 'Feedback', hint: 'How Claude should work with you' },
+    project: { label: 'Project', hint: 'Ongoing work, goals, constraints' },
+    reference: { label: 'Reference', hint: 'External pointers — URLs, dashboards, tickets' },
   };
   const TYPE_ORDER = ['user', 'feedback', 'project', 'reference'];
 
@@ -60,23 +60,23 @@
   <header class="mem-head">
     <div>
       <h1>Memory</h1>
-      <p class="sub">Ce que Claude a retenu de tes projets — un fait par fiche, persisté sous <code>~/.claude/projects/&lt;projet&gt;/memory/</code>.</p>
+      <p class="sub">What Claude remembered about your projects — one fact per card, persisted under <code>~/.claude/projects/&lt;projet&gt;/memory/</code>.</p>
     </div>
     {#if data}
-      <div class="count" title="{data.total} mémoires au total">{data.total}</div>
+      <div class="count" title="{data.total} memories in total">{data.total}</div>
     {/if}
   </header>
 
   {#if loading}
-    <p class="empty">Chargement…</p>
+    <p class="empty">Loading…</p>
   {:else if !data || data.total === 0}
-    <p class="empty">Aucune mémoire pour l'instant. Claude en écrira au fil des sessions.</p>
+    <p class="empty">No memories yet. Claude writes them as sessions go.</p>
   {:else}
     <div class="controls">
-      <input class="search" type="search" placeholder="Rechercher dans les mémoires…" bind:value={query} />
+      <input class="search" type="search" placeholder="Search memories…" bind:value={query} />
       <div class="types">
         <button class="chip" class:on={activeType === 'all'} onclick={() => (activeType = 'all')}>
-          Tout <span class="n">{data.total}</span>
+          All <span class="n">{data.total}</span>
         </button>
         {#each TYPE_ORDER as t (t)}
           {#if data.byType[t]}
@@ -89,9 +89,9 @@
     </div>
 
     {#if !projects.length}
-      <p class="empty">Aucune mémoire ne correspond.</p>
+      <p class="empty">No memory matches.</p>
     {:else}
-      {#if q || activeType !== 'all'}<p class="hits">{shownTotal} résultat{shownTotal > 1 ? 's' : ''}</p>{/if}
+      {#if q || activeType !== 'all'}<p class="hits">{shownTotal} result{shownTotal > 1 ? 's' : ''}</p>{/if}
       <div class="projects">
         {#each projects as p (p.slug)}
           {@const isCollapsed = collapsed.has(p.slug) && !q && activeType === 'all'}
@@ -122,7 +122,7 @@
                       {#if m.originSessionId}
                         <a class="origin" href="/session/{encodeURIComponent(m.originSessionId)}" data-session-link>
                           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></svg>
-                          Voir la session d'origine
+                          Open the originating session
                         </a>
                       {/if}
                     </div>

@@ -167,31 +167,6 @@ export function tagColor(name) {
   return TAG_PALETTE[h % TAG_PALETTE.length];
 }
 
-export const LIVE_STATES = ['working', 'background', 'waiting', 'attention', 'idle'];
-
-// filtres par statut (single-select). `states` = états couverts par le filtre.
-// La vue par défaut (« Actives ») n'inclut PAS les sessions terminées (ended/past, p. ex.
-// quand on a tué le pane) : elles restent accessibles via le filtre « Terminées ».
-export const STATUS_FILTERS = [
-  { key: 'all', label: 'Active', states: LIVE_STATES },
-  { key: 'attention', label: '🔴 Action', states: ['attention'] },
-  { key: 'waiting', label: '🟡 Waiting', states: ['waiting'] },
-  { key: 'background', label: '🌀 Background', states: ['background'] },
-  { key: 'working', label: '🔵 Working', states: ['working'] },
-  { key: 'idle', label: '🕘 Paused', states: ['idle'] },
-  { key: 'done', label: '✓ Ended', states: ['ended', 'past'] },
-];
-export function filterMatches(f, state) { return !f.states || f.states.includes(state); }
-// Multi-sélection : un état matche si AU MOINS un des filtres sélectionnés le couvre (union).
-// Aucune sélection → tout passe (garde-fou).
-export function filterMatchesAny(keys, state) {
-  if (!keys || !keys.length) return true;
-  return keys.some((k) => {
-    const f = STATUS_FILTERS.find((x) => x.key === k);
-    return f && filterMatches(f, state);
-  });
-}
-
 // Métadonnées d'affichage de TOUS les modes de permission Claude Code (label + icône).
 // La source du mode courant est le champ `permission_mode` des hooks (cf. server/events.js) —
 // la statusline ne le porte pas. Les valeurs possibles : default / plan / acceptEdits / auto /
@@ -371,6 +346,13 @@ export function fenceMeta(info) {
   return out;
 }
 
+// A `console` fence is a terminal transcript only when hooked produced it: formatLocalCommand
+// (server/agent.js) always stamps the exit code in the info-string. A ```console block Claude
+// writes carries no such marker and is plain code — its first line is not a command to promote.
+export function isCommandTranscript(seg) {
+  return !!seg && seg.type === 'code' && seg.lang === 'console' && !!seg.meta && seg.meta.exit !== undefined;
+}
+
 // découpe un texte markdown en segments : { type:'text', parts } ou { type:'code', lang, code }.
 // Les blocs de code de PREMIER NIVEAU (fence ``` ou indenté) sont extraits pour être rendus par
 // <CodeBlock> (coloration + copie) ou <Mermaid> (lang === 'mermaid') ; tout le reste est rendu en
@@ -411,4 +393,19 @@ export function prLabel(l) {
 export function issueLabel(l) {
   const m = l.match(/github\.com\/([^/]+)\/([^/]+)\/issues\/(\d+)/);
   return m ? `${m[2]} #${m[3]}` : l;
+}
+
+// Session-state predicates shared by every list panel (sidebar, Deck, TopBar badge, palette) — each
+// used to carry its own copy. "Active": the session is doing or awaiting something. "Needs a
+// decision": it waits on you (question, plan, permission, or simply its turn is over). The dot
+// colour ranks the decision states above the live ones.
+export const ACTIVE_STATES = ['working', 'background', 'waiting', 'attention'];
+export const isActiveSession = (s) => ACTIVE_STATES.includes(s.state);
+export const needsDecision = (s) => !!(s.hasQuestion || s.hasPlan || s.state === 'attention' || s.state === 'waiting');
+export function sessionDot(s) {
+  if (s.hasQuestion || s.hasPlan || s.state === 'attention') return 'attention';
+  if (s.state === 'working') return 'working';
+  if (s.state === 'background') return 'bgjob';
+  if (s.state === 'waiting') return 'waiting';
+  return s.state === 'ended' ? 'ended' : 'idle';
 }
