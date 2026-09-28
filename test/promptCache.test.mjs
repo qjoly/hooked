@@ -4,7 +4,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import {
-  promptCacheState, compactDue, contextFromUsage, COMPACT_LEAD_MS, CACHE_TTL_MS,
+  promptCacheState, compactDue, contextFromUsage, cacheCountdown, COMPACT_LEAD_MS, CACHE_TTL_MS,
 } from '../src/lib/promptCache.js';
 
 const NOW = Date.parse('2026-09-23T10:00:00Z');
@@ -71,3 +71,30 @@ describe('contextFromUsage', () => {
   });
 });
 
+
+describe('cacheCountdown', () => {
+  const cache = (agoMin, ttl = '1h') => ({ lastRequestAt: NOW - min(agoMin), ttl });
+
+  it('shows the time left once it falls inside the window', () => {
+    expect(cacheCountdown(cache(50), 15, NOW)).toBe(min(10));
+    expect(cacheCountdown(cache(45), 15, NOW)).toBe(min(15));
+  });
+
+  it('hides a cache that has more time left than the window', () => {
+    expect(cacheCountdown(cache(1), 15, NOW)).toBe(null);
+  });
+
+  it('shows every warm cache when the window is 0 (always)', () => {
+    expect(cacheCountdown(cache(1), 0, NOW)).toBe(min(59));
+  });
+
+  it('shows a 5-minute TTL from the start: it never exceeds the window', () => {
+    expect(cacheCountdown(cache(1, '5m'), 15, NOW)).toBe(min(4));
+  });
+
+  it('hides a cold or unknown cache', () => {
+    expect(cacheCountdown(cache(61), 0, NOW)).toBe(null);
+    expect(cacheCountdown(null, 0, NOW)).toBe(null);
+    expect(cacheCountdown({}, 15, NOW)).toBe(null);
+  });
+});

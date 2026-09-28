@@ -51,6 +51,14 @@ export function promptCacheState(cache, now = Date.now()) {
   return { known: true, warm: remainingMs > 0, ttl, contextTokens, expiresAt, remainingMs };
 }
 
+// Time left on a warm cache, for a countdown shown only in its last `windowMin` minutes (0 = for
+// its whole life): an hour away from expiry, the countdown just mirrors the elapsed time.
+export function cacheCountdown(cache, windowMin, now = Date.now()) {
+  const c = promptCacheState(cache, now);
+  if (!c.warm) return null;
+  return !windowMin || c.remainingMs <= windowMin * 60_000 ? c.remainingMs : null;
+}
+
 // A compaction is due in the last COMPACT_LEAD_MS of a still-warm cache. Never on a cold one: it
 // would pay the full re-write it is meant to avoid, on top of the summary.
 export function compactDue(cache, now = Date.now()) {
