@@ -39,6 +39,19 @@
     S.filter((s) => needsDecision(s) && !snoozed(s.id) && !isSessionArchived(s))
      .sort((a, b) => String(b.lastActivity || '').localeCompare(String(a.lastActivity || ''))),
   );
+  // The queue folds into session groups too: a child's decision sits under its mother (whose own
+  // card only shows if she needs a decision herself). Children that merely finished are usually
+  // waiting for the orchestrating mother, not for you — they shrink to tree rows, as in the fleet.
+  const triageUnits = $derived.by(() => {
+    const pending = new Set(triage.map((s) => s.id));
+    return groupUnits(triage).map((u) => ({
+      ...u,
+      motherPending: pending.has(u.mother.id),
+      kidDecisions: u.children.filter((c) => kindOf(c) !== 'waiting'),
+      kidsWaiting: u.children.filter((c) => kindOf(c) === 'waiting'),
+    }));
+  });
+  let kidOpen = $state({}); // child session id → decision card unfolded
   const snoozedCount = $derived(S.filter((s) => needsDecision(s) && snoozed(s.id) && !isSessionArchived(s)).length);
   function archiveOne(id) { toggleArchive(id); }
 
@@ -113,6 +126,16 @@
 
   const projectKey = (s) => s.repo || s.projectName || '—';
   const unitLive = (u) => u.all.some(isLive);
+  // A group card lists at most KIDS_CAP children (live ones first) so a big orchestration doesn't
+  // turn its card into a column; the rest fold into one « +N » row. Folding a single child would
+  // save nothing, hence the +1.
+  const KIDS_CAP = 3;
+  let kidsExpanded = $state({}); // unit key → true once its « +N » row was clicked
+  function fleetKids(u) {
+    const kids = u.children.filter(isLive).concat(u.children.filter((c) => !isLive(c)));
+    if (kidsExpanded[u.key] || kids.length <= KIDS_CAP + 1) return { shown: kids, hidden: [] };
+    return { shown: kids.slice(0, KIDS_CAP), hidden: kids.slice(KIDS_CAP) };
+  }
   // live activity only (no lastPrompt fallback) — the cards show the last exchange separately,
   // so the fallback would just duplicate the user message.
   function liveSnippet(s) {
@@ -175,71 +198,28 @@
         </div>
       {/if}
 
-      {#each triage as s (s.id)}
-        {@const kind = kindOf(s)}
-        {@const meta = KIND_META[kind]}
-        <article class="tcard tk-{meta.cls}">
-          <header class="tcard-head">
-            <span class="tdot t-{meta.cls}"></span>
-            <span class="tkind tk-{meta.cls}">{meta.label}</span>
-            <button class="ttitle" onclick={() => open(s)} title="Open the session">{sessionTitle(s)}</button>
-            {#if isGrouped(s.id)}<span class="tgroup" title="Session group"><Icon name="sessions" size={11} /> {groupName(s.id)}</span>{/if}
-            <span class="tmeta">{s.repo || s.projectName || ''}{#if s.gitBranch} · <Icon name="git-branch" size={12} /> {s.gitBranch}{/if}</span>
-            <span class="tago">{ago(s.lastActivity)}</span>
-          </header>
-
-          <div class="tbody-wrap" class:is-clamped={clamped[s.id]}>
-            <div class="tbody tbody-clamp" class:is-clamped={clamped[s.id]} use:measureClamp={s.id}>
-              {#if kind === 'question' && s.question}
-                <Question id={s.id} pq={s.question} />
-              {:else if kind === 'plan'}
-                {#if planCache[s.id]?.pp}
-                  <Plan id={s.id} pp={planCache[s.id].pp} />
-                {:else if planCache[s.id]?.loading !== false}
-                  <div class="tload">Loading the plan…</div>
-                {:else}
-                  <div class="tload">Plan unavailable — open the session.</div>
-                {/if}
-              {:else if kind === 'permission'}
-                <div class="tperm">Claude is waiting for a permission in the terminal.</div>
-                {@render convo(s)}
-              {:else}
-                <div class="twait">{STATE_LABEL[s.state] || 'Finished — waiting for you'}</div>
-                {#if liveSnippet(s)}{@const snip = liveSnippet(s)}<div class="tsnip"><Icon name={snip.name} color={snip.color} size={13} /> {snip.text}</div>{/if}
-                {@render convo(s)}
-                {#if s.followup}
-                  <!-- suggestion de follow-up (ghost text du TUI) : la carte porte SON propre bouton
-                       d'envoi (lien clair texte ↔ action). -->
-                  <div class="tfollow">
-                    <span class="tfollow-head"><Icon name="lightbulb" size={12} /> Suggested follow-up</span>
-                    <span class="tfollow-text">{s.followup}</span>
-                    {#if sentFollowup === s.id}
-                      <span class="tfollow-sent"><Icon name="check" size={13} /> sent</span>
-                    {:else}
-                      <button class="tfollow-send" disabled={sendingFollowup === s.id} onclick={() => sendFollowup(s)}>
-                        {#if sendingFollowup === s.id}Sending…{:else}<Icon name="send" size={13} /> Send this{/if}
-                      </button>
-                    {/if}
-                  </div>
-                {/if}
-              {/if}
-            </div>
-            {#if clamped[s.id]}
-              <button class="tsee-more" onclick={() => open(s)} title="Open the session to see and act on the full content">
-                <Icon name="maximize" size={13} /> See more in the session
+      {#each triageUnits as u (u.key)}
+        {@const waitingTree = { key: u.key, children: u.kidsWaiting }}
+        <div class="tunit" class:has-kids={u.kidDecisions.length}>
+          {#if u.motherPending}
+            {@render tcard(u.mother, false, waitingTree)}
+          {:else}
+            <div class="tunit-head">
+              <button class="tunit-open" onclick={() => open(u.mother)} title="Open the mother session">
+                <span class="state-dot fdot d-{dotClass(u.mother)}"></span>
+                <Icon name="sessions" size={12} /> <span class="tunit-name">{groupName(u.key)}</span>
+                <span class="tmeta">{u.mother.repo || u.mother.projectName || ''}</span>
+                <span class="tago">{ago(u.mother.lastActivity)}</span>
               </button>
-            {/if}
-          </div>
-
-          <footer class="tfoot">
-            {#if kind === 'waiting'}
-              <button class="tbtn primary" onclick={() => open(s)}><Icon name="send" size={14} /> Reply</button>
-            {/if}
-            <button class="tbtn" onclick={() => open(s)}>Open the session</button>
-            <button class="tbtn ghost" onclick={() => snoozeOne(s.id)}><Icon name="snooze" size={14} /> 1h</button>
-            <button class="tbtn ghost" onclick={() => archiveOne(s.id)} title="Archive this session: stops it and hides it from the Deck"><Icon name="archive" size={14} /> Archive</button>
-          </footer>
-        </article>
+              {#if u.kidsWaiting.length}{@render kidTree(waitingTree)}{/if}
+            </div>
+          {/if}
+          {#if u.kidDecisions.length}
+            <div class="tkids">
+              {#each u.kidDecisions as c (c.id)}{@render tcard(c, true)}{/each}
+            </div>
+          {/if}
+        </div>
       {/each}
     </section>
 
@@ -299,6 +279,90 @@
   </div>
 </div>
 
+{#snippet tcard(s, child, waitingTree = null)}
+  {@const kind = kindOf(s)}
+  {@const meta = KIND_META[kind]}
+  {@const folded = child && !kidOpen[s.id]}
+  <article class="tcard tk-{meta.cls}" class:child>
+    <header class="tcard-head">
+      <span class="tdot t-{meta.cls}"></span>
+      <span class="tkind tk-{meta.cls}">{meta.label}</span>
+      <button class="ttitle" onclick={() => open(s)} title="Open the session">{sessionTitle(s)}</button>
+      {#if child}
+        <!-- repo and group are the mother's, already shown right above -->
+        <span class="tmeta"></span>
+        <span class="tago">{ago(s.lastActivity)}</span>
+        <button class="tfold" onclick={() => (kidOpen = { ...kidOpen, [s.id]: !kidOpen[s.id] })} title={folded ? 'Show the decision' : 'Fold'}>
+          <span class="arch-chev" class:open={!folded}><Icon name="chevron-right" size={13} /></span>
+        </button>
+      {:else}
+        {#if isGrouped(s.id)}<span class="tgroup" title="Session group"><Icon name="sessions" size={11} /> {groupName(s.id)}</span>{/if}
+        <span class="tmeta">{s.repo || s.projectName || ''}{#if s.gitBranch} · <Icon name="git-branch" size={12} /> {s.gitBranch}{/if}</span>
+        <span class="tago">{ago(s.lastActivity)}</span>
+      {/if}
+    </header>
+
+    {#if !folded}
+      <div class="tbody-wrap" class:is-clamped={clamped[s.id]}>
+        <div class="tbody tbody-clamp" class:is-clamped={clamped[s.id]} use:measureClamp={s.id}>
+          {#if kind === 'question' && s.question}
+            <Question id={s.id} pq={s.question} />
+          {:else if kind === 'plan'}
+            {#if planCache[s.id]?.pp}
+              <Plan id={s.id} pp={planCache[s.id].pp} />
+            {:else if planCache[s.id]?.loading !== false}
+              <div class="tload">Loading the plan…</div>
+            {:else}
+              <div class="tload">Plan unavailable — open the session.</div>
+            {/if}
+          {:else if kind === 'permission'}
+            <div class="tperm">Claude is waiting for a permission in the terminal.</div>
+            {@render convo(s)}
+          {:else}
+            <div class="twait">{STATE_LABEL[s.state] || 'Finished — waiting for you'}</div>
+            {#if liveSnippet(s)}{@const snip = liveSnippet(s)}<div class="tsnip"><Icon name={snip.name} color={snip.color} size={13} /> {snip.text}</div>{/if}
+            {@render convo(s)}
+            {#if s.followup}
+              <!-- suggestion de follow-up (ghost text du TUI) : la carte porte SON propre bouton
+                   d'envoi (lien clair texte ↔ action). -->
+              <div class="tfollow">
+                <span class="tfollow-head"><Icon name="lightbulb" size={12} /> Suggested follow-up</span>
+                <span class="tfollow-text">{s.followup}</span>
+                {#if sentFollowup === s.id}
+                  <span class="tfollow-sent"><Icon name="check" size={13} /> sent</span>
+                {:else}
+                  <button class="tfollow-send" disabled={sendingFollowup === s.id} onclick={() => sendFollowup(s)}>
+                    {#if sendingFollowup === s.id}Sending…{:else}<Icon name="send" size={13} /> Send this{/if}
+                  </button>
+                {/if}
+              </div>
+            {/if}
+          {/if}
+        </div>
+        {#if clamped[s.id]}
+          <button class="tsee-more" onclick={() => open(s)} title="Open the session to see and act on the full content">
+            <Icon name="maximize" size={13} /> See more in the session
+          </button>
+        {/if}
+      </div>
+
+      {#if waitingTree?.children.length}
+        <!-- the group's finished children, inside the mother's card -->
+        <div class="ttree">{@render kidTree(waitingTree)}</div>
+      {/if}
+
+      <footer class="tfoot">
+        {#if kind === 'waiting'}
+          <button class="tbtn primary" onclick={() => open(s)}><Icon name="send" size={14} /> Reply</button>
+        {/if}
+        <button class="tbtn" onclick={() => open(s)}>Open the session</button>
+        <button class="tbtn ghost" onclick={() => snoozeOne(s.id)}><Icon name="snooze" size={14} /> 1h</button>
+        <button class="tbtn ghost" onclick={() => archiveOne(s.id)} title="Archive this session: stops it and hides it from the Deck"><Icon name="archive" size={14} /> Archive</button>
+      </footer>
+    {/if}
+  </article>
+{/snippet}
+
 {#snippet convo(s)}
   {#if s.lastPrompt || s.lastReply}
     <span class="fconv">
@@ -313,6 +377,30 @@
   <div class="fhead">
     <span class="fh-st"></span><span>Session</span><span>Branch</span><span>Status</span><span class="fh-age">Age</span>
   </div>
+{/snippet}
+
+{#snippet kidTree(u)}
+  {@const kids = fleetKids(u)}
+  <!-- the group's other sessions, each openable (and draggable) from the card -->
+  <span class="fkids">
+    {#each kids.shown as c (c.id)}
+      <span class="fkid" role="button" tabindex="0" use:dragSession={c.id}
+            onclick={(e) => { e.stopPropagation(); open(c); }}
+            onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); open(c); } }}>
+        <span class="state-dot fdot d-{dotClass(c)}"></span>
+        <span class="fkid-t">{sessionTitle(c)}</span>
+        {#if liveSnippet(c)}<span class="fkid-a">{liveSnippet(c).text}</span>{/if}
+        <span class="fkid-ago">{ago(c.lastActivity)}</span>
+      </span>
+    {/each}
+    {#if kids.hidden.length}
+      <button class="fkid fkid-more" title="Show the {kids.hidden.length} other sessions of this group"
+              onclick={(e) => { e.stopPropagation(); kidsExpanded = { ...kidsExpanded, [u.key]: true }; }}>
+        <span class="fkid-t">+{kids.hidden.length}</span>
+        <span class="fkid-dots">{#each kids.hidden as c (c.id)}<span class="state-dot fdot d-{dotClass(c)}"></span>{/each}</span>
+      </button>
+    {/if}
+  </span>
 {/snippet}
 
 {#snippet fcard(u)}
@@ -338,21 +426,7 @@
       <span class="fact" class:working={s.state === 'working'}><Icon name={snip.name} color={snip.color} size={13} /> {snip.text}</span>
     {/if}
     {@render convo(s)}
-    {#if u.children.length}
-      <!-- the group's other sessions, each openable (and draggable) from the card -->
-      <span class="fkids">
-        {#each u.children as c (c.id)}
-          <span class="fkid" role="button" tabindex="0" use:dragSession={c.id}
-                onclick={(e) => { e.stopPropagation(); open(c); }}
-                onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); open(c); } }}>
-            <span class="state-dot fdot d-{dotClass(c)}"></span>
-            <span class="fkid-t">{sessionTitle(c)}</span>
-            {#if liveSnippet(c)}<span class="fkid-a">{liveSnippet(c).text}</span>{/if}
-            <span class="fkid-ago">{ago(c.lastActivity)}</span>
-          </span>
-        {/each}
-      </span>
-    {/if}
+    {#if u.children.length}{@render kidTree(u)}{/if}
     {#if sessionTags(s.id).length}
       <span class="fpills">
         {#each sessionTags(s.id) as t}<span class="fpill" style="--c:{tagColor(t)}"># {t}</span>{/each}
@@ -472,6 +546,31 @@
   .tbtn.ghost { background: transparent; border-color: transparent; color: var(--muted); }
   .tbtn.ghost:hover { color: var(--text); background: var(--hover); }
 
+  /* triage folded by session group: finished children sit inside the mother card as tree rows,
+     children with a decision hang under it through a left rail */
+  .tunit { margin-bottom: 14px; }
+  .tunit > .tcard { margin-bottom: 0; }
+  .tunit.has-kids > .tcard { margin-bottom: 6px; }
+  .tunit-head { display: flex; flex-direction: column; gap: 2px; padding: 4px 6px 6px; border: 1px dashed var(--border2); border-radius: 10px; }
+  .tunit.has-kids > .tunit-head { margin-bottom: 6px; }
+  .tunit-open {
+    display: flex; align-items: center; gap: 7px; width: 100%; min-width: 0; padding: 4px 6px;
+    border: none; border-radius: 7px; background: none; cursor: pointer;
+    font: inherit; font-size: 12.5px; font-weight: 700; color: var(--text); text-align: left;
+  }
+  .tunit-open:hover { background: var(--hover); }
+  .ttree { padding: 0 14px 10px; }
+  .tunit-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tkids { display: flex; flex-direction: column; gap: 6px; margin-left: 12px; padding-left: 10px; border-left: 1px solid var(--border2); }
+  .tcard.child { margin-bottom: 0; border-radius: 10px; box-shadow: none; }
+  .tcard.child .tcard-head { padding: 6px 10px; border-bottom: 0; }
+  .tcard.child .ttitle { font-size: 12px; }
+  .tfold {
+    display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; flex: 0 0 auto;
+    background: none; border: none; border-radius: 6px; color: var(--muted); cursor: pointer; padding: 0;
+  }
+  .tfold:hover { background: var(--hover); color: var(--text); }
+
   /* fleet */
   .fleet-q {
     margin-left: auto; width: 130px; background: var(--input); border: 1px solid var(--border);
@@ -505,7 +604,8 @@
   .repo-head:hover .repo-plus { opacity: 1; }
   .repo-plus:hover { background: var(--accent-soft); color: var(--accent); }
   .fleet { display: flex; flex-direction: column; gap: 8px; }
-  .fleet.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); }
+  /* align-items: start — a tall group card must not stretch its whole grid row */
+  .fleet.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); align-items: start; }
   .fcard {
     position: relative; display: flex; flex-direction: column; gap: 5px; padding: 10px 13px; text-align: left;
     border-radius: 12px; border: 1px solid var(--border); background: var(--bg2);
@@ -528,13 +628,22 @@
   .fago { margin-left: auto; font-family: var(--mono); font-size: 9.5px; color: var(--muted); flex: 0 0 auto; }
   /* session groups: member count on the head, the other members listed inside the card */
   .fgn { display: inline-flex; align-items: center; gap: 3px; font-family: var(--mono); font-size: 9.5px; color: var(--muted); flex: 0 0 auto; }
-  .fkids { display: flex; flex-direction: column; gap: 2px; min-width: 0; padding-left: 6px; border-left: 1px solid var(--border2); }
+  .fkids { display: flex; flex-direction: column; gap: 2px; min-width: 0; padding-left: 3px; }
   .fkid {
-    display: flex; align-items: center; gap: 6px; min-width: 0; padding: 2px 6px; border-radius: 7px;
-    font-size: 11.5px; color: var(--text); cursor: pointer;
+    position: relative; display: flex; align-items: center; gap: 6px; min-width: 0; margin-left: 11px;
+    padding: 2px 6px; border-radius: 7px; font-size: 11.5px; color: var(--text); cursor: pointer;
   }
   .fkid:hover { background: var(--hover); }
-  .fkid .fdot { width: 6px; height: 6px; }
+  /* tree connectors (├ / └) tying each child to the mother above */
+  .fkid::before, .fkid::after { content: ''; position: absolute; left: -9px; border-color: var(--border2); pointer-events: none; }
+  .fkid::before { top: -2px; bottom: -2px; border-left: 1px solid; }
+  .fkid:last-child::before { bottom: 50%; }
+  .fkid::after { top: 50%; width: 8px; border-top: 1px solid; }
+  button.fkid { background: none; border: none; font: inherit; text-align: left; }
+  .fkid-more { color: var(--muted); }
+  .fkid-more .fkid-t { font-family: var(--mono); font-size: 10.5px; }
+  .fkid-dots { display: flex; flex-wrap: wrap; gap: 3px; min-width: 0; }
+  .fkid .fdot, .fkid-dots .fdot { width: 6px; height: 6px; }
   .fkid-t { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
   .fkid-a { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: 10.5px; }
   .fkid-ago { margin-left: auto; font-family: var(--mono); font-size: 9px; color: var(--muted); flex: 0 0 auto; }
