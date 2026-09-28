@@ -9,7 +9,7 @@
        • clair/sombre — 'system' (défaut) → aucun attribut, prefers-color-scheme décide ;
          'light'/'dark' → data-theme forcé sur <html>.
        • palette (color-scheme) — 'default' (défaut) → aucun attribut ; 'legacy' (crème/terracotta)
-         et 'datadog' (violet Datadog) → data-scheme forcé.
+         'datadog' (violet Datadog) et 'gruvbox' → data-scheme forcé.
        • coins — 'round' (défaut) → aucun attribut ; 'sharp' → data-corners, tout à angle vif.
        Doit rester synchro avec state.svelte.js. -->
   <script>
@@ -18,7 +18,7 @@
         var t = localStorage.getItem('hooked.theme');
         if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t);
         var s = localStorage.getItem('hooked.scheme');
-        if (s === 'legacy' || s === 'datadog') document.documentElement.setAttribute('data-scheme', s);
+        if (s === 'legacy' || s === 'datadog' || s === 'gruvbox') document.documentElement.setAttribute('data-scheme', s);
         var c = localStorage.getItem('hooked.corners');
         if (c === 'sharp') document.documentElement.setAttribute('data-corners', c);
       } catch (e) {}
