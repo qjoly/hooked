@@ -1,6 +1,6 @@
 // Draft reviews, so an in-progress review is not lost when focus moves elsewhere.
 //
-// The Ship and Branch lenses hold the per-file "reviewed" ticks in component state (the comments
+// The Review lens holds the per-file "reviewed" ticks in component state (the comments
 // themselves are server-side threads). Those ticks die the moment the component unmounts —
 // opening another session or reloading the page threw them away. This mirrors them into
 // localStorage under a key identifying the review (lens + session), and hands them back on the way in.

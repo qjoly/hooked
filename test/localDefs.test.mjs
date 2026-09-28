@@ -91,7 +91,7 @@ describe('declarationKind — les autres langages', () => {
 describe('langOfPath', () => {
   it('rattache .svelte et .vue aux motifs JS, pas à ceux du HTML', () => {
     // distinct de langFromName (difflines.js), qui vise la COLORATION et renvoie 'html'
-    expect(langOfPath('src/lib/components/Ship.svelte')).toBe('js');
+    expect(langOfPath('src/lib/components/Review.svelte')).toBe('js');
     expect(langOfPath('a/b.vue')).toBe('js');
     expect(langOfPath('a/b.tsx')).toBe('js');
   });

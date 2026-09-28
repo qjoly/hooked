@@ -13,7 +13,7 @@
   import { prState, prStateIcon } from '$lib/prState.svelte.js';
   import { ui } from '$lib/state.svelte.js';
 
-  let { s, id, onship } = $props();
+  let { s, id, onreview } = $props();
 
   // drag-resize the dock width (persisted). It's a right panel, so dragging left widens it.
   function startResize(e) {
@@ -94,7 +94,7 @@
 
   {#if changes.length}
     <div class="dcard">
-      <button class="dh" onclick={() => onship && onship()} title="Open the Ship lens">
+      <button class="dh" onclick={() => onreview && onreview()} title="Open the Review lens">
         <span class="dh-ico"><Icon name="diff" size={13} /></span> Changes
         <span class="dh-n">{changes.length} file{changes.length > 1 ? 's' : ''}</span>
         <span class="dh-chev">→</span>
@@ -107,7 +107,7 @@
           </div>
         {/each}
         {#if changes.length > fileList.length}
-          <button class="dmore" onclick={() => onship && onship()}>＋ {changes.length - fileList.length} more · open Ship →</button>
+          <button class="dmore" onclick={() => onreview && onreview()}>＋ {changes.length - fileList.length} more · open Review →</button>
         {/if}
       </div>
     </div>

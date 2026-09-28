@@ -1,5 +1,5 @@
 <script>
-  // Shared drag handle for the lens layouts (Ship, Branch): drag to resize the neighbouring
+  // Drag handle for the Review lens layout: drag to resize the neighbouring
   // rail, double-click to restore the default, ←/→ to nudge by `step` when focused. The width
   // itself lives in the caller (usually a persisted `ui` field) — the grip only reads `value`
   // and hands back a clamped one through `set`. `invert` is for a RIGHT-hand rail, which grows
