@@ -1,10 +1,9 @@
 // Draft reviews, so an in-progress review is not lost when focus moves elsewhere.
 //
-// The Ship and Branch lenses hold a review in component state: the batched inline comments and
-// the per-file "reviewed" ticks. Both die the moment the component unmounts — switching to the
-// Terminal tab, opening another session, or reloading the page threw away everything not yet
-// sent to Claude. This mirrors that state into localStorage under a key identifying the review
-// (lens + session), and hands it back on the way in.
+// The Review lens holds the per-file "reviewed" ticks in component state (the comments
+// themselves are server-side threads). Those ticks die the moment the component unmounts —
+// opening another session or reloading the page threw them away. This mirrors them into
+// localStorage under a key identifying the review (lens + session), and hands them back on the way in.
 //
 // `view` is WHERE the review was — the lens' own shape (branch pair, commit selection, open file,
 // scroll…), opaque to this module. It rides with the draft because coming back to a review means
@@ -20,7 +19,7 @@
 const LS_KEY = 'hooked.reviewDrafts';
 const MAX_DRAFTS = 20;
 
-const EMPTY = { comments: [], reviewed: [], view: null };
+const EMPTY = { reviewed: [], view: null };
 const hasLS = () => typeof localStorage !== 'undefined';
 
 function readStore() {
@@ -57,22 +56,21 @@ export function loadDraft(key) {
   const d = readStore()[key];
   if (!d) return { ...EMPTY };
   return {
-    comments: Array.isArray(d.comments) ? d.comments : [],
     reviewed: Array.isArray(d.reviewed) ? d.reviewed : [],
     view: d.view && typeof d.view === 'object' && !Array.isArray(d.view) ? d.view : null,
   };
 }
 
-/** Mirror a review under `key`. An empty review (nothing pending, nothing ticked, no place) drops it. */
-export function saveDraft(key, { comments = [], reviewed = [], view = null } = {}) {
+/** Mirror a review under `key`. An empty review (nothing ticked, no place) drops it. */
+export function saveDraft(key, { reviewed = [], view = null } = {}) {
   if (!key || !hasLS()) return;
   const store = readStore();
-  if (!comments.length && !reviewed.length && !view) {
+  if (!reviewed.length && !view) {
     if (!(key in store)) return;
     delete store[key];
   } else {
     const seq = Object.values(store).reduce((m, d) => Math.max(m, d.seq || 0), 0) + 1;
-    store[key] = { at: Date.now(), seq, comments, reviewed, view };
+    store[key] = { at: Date.now(), seq, reviewed, view };
   }
   writeStore(store);
 }

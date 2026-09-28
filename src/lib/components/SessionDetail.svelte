@@ -7,20 +7,20 @@
 </script>
 
 <script>
+  import { copyText } from '$lib/clipboard.js';
   import { onMount, onDestroy, tick, untrack } from 'svelte';
   import { goto } from '$app/navigation';
   import { ui, data, settings, loadSessions, openModal, sessionTitle, sessionTags, renameSession, toggleFocus, splitWithMostRecent, canSplit, toggleArchive, isArchived, unarchive } from '$lib/state.svelte.js';
   import { getSession, setMode, setModelEffort, setAutoApprove, openInEditor, openInGhostty, fork, launch, deleteSession, connectSessionStream, listTerminals, openTerminal, killTerminal } from '$lib/api.js';
   import { promptCacheState } from '$lib/promptCache.js';
-  import { STATE_LABEL, fmtCost, fmtTokens, fmtDuration, shortModel, prLabel, issueLabel, PERMISSION_MODES, modeLabel, modeMeta, modelAlias, tagColor, resumeCommand, parseBang, isBlockForCommand } from '$lib/format.js';
+  import { STATE_LABEL, fmtCost, fmtTokens, shortModel, PERMISSION_MODES, modeLabel, modeMeta, modelAlias, tagColor, resumeCommand, parseBang, isBlockForCommand } from '$lib/format.js';
   import { page } from '$app/state';
   import ModelEffort from './ModelEffort.svelte';
   import ChatBubble from './ChatBubble.svelte';
   import Question from './Question.svelte';
   import Plan from './Plan.svelte';
   import Composer from './Composer.svelte';
-  import Ship from './Ship.svelte';
-  import Branch from './Branch.svelte';
+  import Review from './Review.svelte';
   import Dock from './Dock.svelte';
   import Terminal from './Terminal.svelte';
   import Mcp from './Mcp.svelte';
@@ -29,18 +29,17 @@
   import { conversationToMarkdown } from '$lib/exportConversation.js';
   import { getBinding, matchesEvent, formatKeys } from '$lib/shortcuts.js';
 
-  // `inSplit`/`focused`/`onClose` : rendu en pane de la vue split (plusieurs sessions côte à côte
-  // dans la vue normale). En split, seul le pane focalisé réagit au clavier (lentilles 1-4, Échap),
-  // et `onClose` affiche une croix pour retirer le pane.
-  let { id, inSplit = false, focused = true, onClose = null } = $props();
+  // `inSplit`/`focused`: rendered as one pane of the split view (several sessions side by side).
+  // In split, only the focused pane reacts to the keyboard (lenses, Escape).
+  let { id, inSplit = false, focused = true } = $props();
   // $state.raw (pas $state) : le détail contient un tableau `messages` de 1000+ objets profonds.
   // $state proxifie récursivement à l'affectation `s = d` → tâche synchrone de plusieurs centaines
   // de ms qui GÈLE l'UI au changement de session. On ne mute jamais un message en place (on
   // remplace `s` en entier au refetch), donc raw est correct : réactif à la réaffectation, sans
   // proxy profond. Coût de `s = d` : O(1) au lieu de O(nombre de nœuds du transcript).
   let s = $state.raw(null);      // détail de session
-  // Lentille active : 'chat' (Converse + dock) / 'ship' (relecture des diffs + liens) /
-  // 'branch' / 'mcp'. Touches 1, 3, 4, 5. Réouverte là où la session a été laissée (cf. lastLens).
+  // Active lens: 'chat' (Converse + dock) / 'review' (diffs + comment threads) / 'mcp'. Keys 1, 3, 4
+  // (2 toggles the terminal panel). Reopened where the session was left (cf. lastLens).
   let tab = $state(lastLens.get(id) || 'chat');
   $effect(() => { const t = tab; untrack(() => lastLens.set(id, t)); });
   let body;                      // ref .pane-body (conteneur scrollable)
@@ -95,20 +94,20 @@
   // par-répertoire, la lentille prend le projet de la session et le sélecteur disparaît.
   const LENSES = [
     { key: 'chat', icon: 'converse', label: 'Converse', kbd: '1' },
-    { key: 'ship', icon: 'ship', label: 'Ship', kbd: '3' },
-    { key: 'branch', icon: 'git-branch', label: 'Branch', kbd: '4' },
-    { key: 'mcp', icon: 'mcp', label: 'MCP', kbd: '5' },
+    { key: 'review', icon: 'ship', label: 'Review', kbd: '3' },
+    { key: 'mcp', icon: 'mcp', label: 'MCP', kbd: '4' },
   ];
   const lensCount = $derived({
     chat: (s?.messages || []).length,
-    ship: (s?.changes || []).length,
+    review: (s?.changes || []).length,
   });
-  const shownLenses = $derived(LENSES);
-  // Deep-link ?lens=<key> (dock « open Ship », palette…). Réactif à l'URL : naviguer vers la même
-  // session avec un autre ?lens= bascule la lentille sans remount. Les anciens liens `?lens=shell`
-  // et `?lens=terminal` retombent sur Converse (le panneau Shell n'existe plus).
+  // Deep-link ?lens=<key> (dock « open Review », palette…). Réactif à l'URL : naviguer vers la même
+  // session avec un autre ?lens= bascule la lentille sans remount. `?lens=ship` / `?lens=branch`
+  // (the two lenses Review replaced) still land on Review; an unknown key leaves the lens alone.
+  const LENS_ALIAS = { ship: 'review', branch: 'review' };
   $effect(() => {
-    const lens = page.url.searchParams.get('lens');
+    const raw = page.url.searchParams.get('lens');
+    const lens = LENS_ALIAS[raw] || raw;
     if (inSplit) return;
     if (LENSES.some((l) => l.key === lens)) untrack(() => { tab = lens; });
   });
@@ -171,7 +170,9 @@
     // la liste sous `data` levait donc une TypeError à chaque appel, et `terms` restait vide.
     const res = await listTerminals(id).catch(() => null);
     if (!res || !res.ok) return;
-    terms = res.terminals || [];
+    // Inline PTYs (a `!!command` rendered in the conversation) are tagged with the session so they
+    // close with it, but they are not tabs here: two xterms on one PTY would fight over its size.
+    terms = (res.terminals || []).filter((t) => !t.inline);
     if (!terms.some((t) => t.id === termId)) termId = terms.length ? terms[terms.length - 1].id : null;
     // Seul endroit où `terms` est réassigné, donc seul endroit où poser l'invariant : plus de
     // terminal ⇒ on replie. Sans ça, changer de session vidait la liste en laissant le panneau
@@ -247,28 +248,9 @@
   );
   const showFollowup = $derived(followup && followup !== dismissedFollowup && !queued.length);
 
-  // indicateur 5 h compact pour la ligne de stats : uniquement la valeur réelle (statusline).
-  // Pas d'estimation de repli → masqué tant que le vrai % n'est pas connu.
-  const stat5h = $derived.by(() => {
-    if (!s) return null;
-    const rl = s.rateLimit && s.rateLimit.fiveHour;
-    if (rl && rl.pct != null) {
-      return { pct: rl.pct, title: '5 h session rate limit (actual)' + (rl.resetInMin != null ? ` — resets in ${fmtDuration(rl.resetInMin)}` : '') };
-    }
-    return null;
-  });
-
-  // Visibilité des éléments de la barre de statut. Lire settings.statusBar AVANT tout guard
-  // (règle réactivité Svelte 5 : une dépendance derrière un court-circuit n'est pas suivie).
+  // Visibility of the ⋯ menu's optional controls (settings.statusBar). Read BEFORE any guard
+  // (Svelte 5 reactivity rule: a dependency behind a short-circuit is not tracked).
   const sb = $derived(settings.statusBar || {});
-  // Ordre d'affichage des éléments de la barre de statut (réorganisable dans les réglages, comme
-  // les sous-onglets). Le conteneur .head-stats est flex → on pose `order:` sur chaque élément.
-  // Lu AVANT toute garde (règle réactivité Svelte 5). Clé inconnue → ordre élevé (rejetée en fin).
-  const sbOrder = $derived(settings.statusBarOrder || []);
-  const sbOrd = (k) => { const i = sbOrder.indexOf(k); return i === -1 ? 90 : i; };
-  // Chips PR / issue de la barre de statut : bornés par le réglage (0 = tous), surplus résumé en « +N ».
-  const linkLimit = $derived(settings.statusBarLinkLimit || 0);
-  const shownLinks = (links) => (linkLimit ? links.slice(0, linkLimit) : links);
 
   async function load(isRefresh) {
     let d;
@@ -383,10 +365,10 @@
   });
 
   // Raccourcis fenêtre du workspace :
-  //  • 1, 3, 4, 5 (hors saisie) : bascule de lentille (Converse / Ship / Branch / MCP) ;
+  //  • 1, 3, 4 (hors saisie) : bascule de lentille (Converse / Review / MCP) ;
   //  • Échap dans la vue chat (hors textarea — le composer gère lui-même quand il a le focus) :
   //    interrompt Claude et recharge le dernier prompt pour l'éditer, comme dans le CLI.
-  const LENS_KEYS = { 1: 'chat', 3: 'ship', 4: 'branch', 5: 'mcp' };
+  const LENS_KEYS = { 1: 'chat', 3: 'review', 4: 'mcp' };
   function onWindowKey(e) {
     if (ui.modal) return;
     if (inSplit && !focused) return; // in split, only the focused pane reacts to keys
@@ -452,9 +434,9 @@
     });
   });
 
-  // One-click resume: re-runs `claude --resume` directly (hooked defaults from Settings if set,
-  // otherwise the session's own model/effort), no modal and no message — the Composer takes over
-  // once the session is back up.
+  // One-click resume: re-runs `claude --resume` directly — same effort, the permission mode from
+  // Settings' default (Normal when unset), no model (see below) — no modal and no message; the
+  // Composer takes over once the session is back up.
   let resuming = $state(false);
   let resumeStatus = $state('');
   async function resume() {
@@ -571,11 +553,10 @@
   // (the two are no longer distinct). `toggleArchive` performs the kill; we just leave the view.
   const archived = $derived(!!s && isArchived(s.id));
   function archive() {
-    if (archived) { toggleArchive(s.id); setTimeout(() => { loadSessions(); ui.tick++; }, 400); return; }
+    const delay = archived ? 400 : 800; // stopping a live session takes a moment to settle
     archiving = true;
     toggleArchive(s.id);
-    setTimeout(() => { loadSessions(); ui.tick++; }, 800);
-    if (inSplit) onClose?.();
+    setTimeout(() => { loadSessions(); ui.tick++; archiving = false; }, delay);
   }
   let deleting = $state(false);
   function del() {
@@ -657,11 +638,11 @@
   // du navigateur est utilisée → correct quel que soit l'accès (localhost / IP LAN / MagicDNS).
   let linkCopied = $state(false);
   async function copyLink() {
-    try { await navigator.clipboard.writeText(location.origin + '/session/' + s.id); linkCopied = true; setTimeout(() => (linkCopied = false), 1500); } catch (_) {}
+    if (await copyText(location.origin + '/session/' + s.id)) { linkCopied = true; setTimeout(() => (linkCopied = false), 1500); }
   }
   let exportCopied = $state(false);
   async function copyExport() {
-    try { await navigator.clipboard.writeText(conversationToMarkdown(s)); exportCopied = true; setTimeout(() => (exportCopied = false), 1500); } catch (_) {}
+    if (await copyText(conversationToMarkdown(s))) { exportCopied = true; setTimeout(() => (exportCopied = false), 1500); }
   }
   // Commande de reprise manuelle. Utile quand on veut la session dans son propre terminal plutôt
   // que dans hooked (un TUI, un pager, du copier-coller lourd) — c'est la MÊME session, l'Agent SDK
@@ -670,7 +651,7 @@
   async function copyResumeCmd() {
     const cmd = resumeCommand(s);
     if (!cmd) return;
-    try { await navigator.clipboard.writeText(cmd); cmdCopied = true; setTimeout(() => (cmdCopied = false), 1500); } catch (_) {}
+    if (await copyText(cmd)) { cmdCopied = true; setTimeout(() => (cmdCopied = false), 1500); }
   }
   // Éditeur préféré (réglage partagé) : sert au libellé du bouton et à l'icône.
   const prefEditor = $derived(editorFor(settings.editor));
@@ -782,13 +763,14 @@
           <!-- modèle/effort + mode de permission vivent dans le menu ⋯ ; seul le retour
                éphémère d'un changement (✓ Auto, ✗ failed…) s'affiche ici. -->
           {#if modeStatus || meStatus}<span class="strip-status">{modeStatus || meStatus}</span>{/if}
-          <button class="stop-btn" disabled={archiving} onclick={archive}
-                  title="Stop the running session and move it to Archived">{#if archiving}<Icon name="queued" size={14} tint={false} />{:else}<Icon name="archive" size={14} tint={false} /> Archive{/if}</button>
         {:else}
           {#if resumeStatus}<span class="strip-status err">{resumeStatus}</span>{/if}
           <button class="resume-btn" disabled={resuming} onclick={resume}
                   title="Re-run claude --resume, driven by hooked">{#if resuming}<Icon name="queued" size={14} />{:else}<Icon name="in-progress" size={14} tint={false} />{/if} Resume</button>
         {/if}
+        <!-- The one Archive control: stops the session when it runs, hides it, reversible. -->
+        <button class="archive-btn" disabled={archiving} onclick={archive}
+                title={archived ? 'Restore this session to the live fleet' : s.live ? 'Stop the running session and move it to Archived' : 'Move this session to Archived'}>{#if archiving}<Icon name="queued" size={14} tint={false} />{:else if archived}<Icon name="unarchive" size={14} tint={false} /> Unarchive{:else}<Icon name="archive" size={14} tint={false} /> Archive{/if}</button>
         {#if !inSplit}
           <button class="hdr-icon-btn" title="Split with the most recent session (⌘/Ctrl+⇧+S)"
                   aria-label="Split view" disabled={!canSplit()} onclick={() => splitWithMostRecent(id)}><Icon name="pane" size={16} /></button>
@@ -826,7 +808,7 @@
               </div>
               <div class="hdr-div cmds-div"></div>
             {/if}
-            <button class="vscode-btn" onclick={() => openModal('cost')} title="Estimated cost breakdown"><Icon name="cost" size={14} /> Cost · {fmtCost(s.cost)}{#if s.subagentCost > 0} (+{fmtCost(s.subagentCost)} agents){/if}</button>
+            <button class="vscode-btn" onclick={() => openModal('cost', { sessionId: id })} title="Estimated cost breakdown for this session"><Icon name="cost" size={14} /> Cost · {fmtCost(s.cost)}{#if s.subagentCost > 0} (+{fmtCost(s.subagentCost)} agents){/if}</button>
             <div class="hdr-div"></div>
             <button class="vscode-btn" title="Copy a shareable link that opens this session in hooked" onclick={copyLink}>{#if linkCopied}<Icon name="check" size={14} /> copied{:else}<Icon name="link" size={14} /> Copy link{/if}</button>
             <button class="vscode-btn" disabled={editorBusy} onclick={openEditor} title="Open the entire project in {prefEditor.label} (change it in Settings → Editor)">{#if editorBusy}<Icon name="queued" size={14} />{:else}<Icon name={prefEditor.icon} size={14} />{/if} Open in {prefEditor.label}</button>
@@ -840,14 +822,13 @@
             {#if sb.focusBtn !== false}<button class="vscode-btn" class:on={ui.focus} onclick={toggleFocus} title="Focus mode: full-screen conversation"><Icon name="maximize" size={14} /> {ui.focus ? 'Exit focus' : 'Focus'}</button>{/if}
             <button class="vscode-btn" class:on={ui.toolsOpen} onclick={() => (ui.toolsOpen = !ui.toolsOpen)} title="Expand every tool call's input/result inline (this session only, off on reload)"><Icon name="tool" size={14} /> {ui.toolsOpen ? 'Collapse tool details' : 'Expand tool details'}</button>
             <div class="hdr-div"></div>
-            <button class="vscode-btn" onclick={archive} title={archived ? 'Restore this session to the live fleet' : 'Stop the running session and move it to Archived'}>{#if archived}<Icon name="unarchive" size={14} /> Unarchive{:else}<Icon name="archive" size={14} /> Archive{/if}</button>
             <button class="vscode-btn del-btn" disabled={deleting} onclick={del} title="Move to trash: removes from dashboard; transcript kept in bin/ (recoverable)">{#if deleting}<Icon name="queued" size={14} tint={false} />{:else}<Icon name="trash" size={14} tint={false} />{/if} Delete</button>
           </div>
         </details>
       </div>
     </div>
     <div class="subtabs lenses">
-      {#each shownLenses as l (l.key)}
+      {#each LENSES as l (l.key)}
         <button class="subtab" class:active={tab === l.key} onclick={() => { tab = l.key; }}
                 title="{l.label} — key {l.kbd}">
           <Icon name={l.icon} size={14} /> {l.label}
@@ -859,7 +840,7 @@
   </div>
 
   <div class="body-row">
-  <div class="pane-body" class:flush={tab === 'ship' || tab === 'branch'} bind:this={body}
+  <div class="pane-body" class:flush={tab === 'review'} bind:this={body}
        onscroll={() => { if (body) stickToBottom = (body.scrollHeight - body.scrollTop - body.clientHeight) < 60; }}>
     <!-- la conversation reste montée en lentille Build (colonne copilote à côté de l'IDE) -->
     <div class="pane" class:active={tab === 'chat'}>
@@ -894,24 +875,24 @@
           <div class="pane-empty">Empty conversation.</div>
         {/if}
         {#each pendingQueued as q (q.ts)}{@render commandBubble(q)}{/each}
-        <!-- Introduction de la question / du plan en attente, LUE DANS LA PANE (server: pendingLeadIn).
-             Tant qu'on n'a pas répondu, Claude Code n'a rien écrit du tour dans le transcript → sans
-             ça la carte question arrivait SANS le texte qui l'explique (et il fallait répondre pour
-             enfin le lire). Rendu en monospace tel que peint par le TUI : les lignes sont déjà
-             coupées à la largeur de la pane (tableaux, code) — les reflower en markdown les casse. -->
+        <!-- Lead-in of the pending question / plan (server: pendingLeadIn — the prose Claude streamed
+             before handing over). Until you answer, Claude Code writes nothing of this turn to the
+             transcript → without it the question card arrived without the text explaining it. -->
         {#if s.pendingLeadIn && tab === 'chat'}
           <div class="bubble assistant leadin">
             <div class="who"><Icon name="bot" size={14} /> Claude
-              <span class="t" title="Claude Code n'écrit ce tour dans le transcript qu'après votre réponse — texte relu dans le terminal">
-                <Icon name="terminal" size={13} /> lu dans le terminal
+              <span class="t" title="Claude Code only writes this turn to the transcript once you have answered — this text comes from the live stream">
+                <Icon name="activity" size={13} /> live stream
               </span>
             </div>
             <pre class="leadin-txt">{s.pendingLeadIn}</pre>
           </div>
         {/if}
         <!-- Tour en cours, en direct : le texte tel qu'il s'écrit, avant que le message ne soit
-             flushé dans le transcript. Remplacé par la vraie bulle au refetch suivant. -->
-        {#if tab === 'chat' && (liveText || liveThinking)}
+             flushé dans le transcript. Remplacé par la vraie bulle au refetch suivant. Masqué tant
+             qu'une question / un plan attend : le lead-in ci-dessus porte déjà cette prose (le tampon
+             de flux n'est vidé qu'au `result`), l'afficher aussi la doublait. -->
+        {#if tab === 'chat' && (liveText || liveThinking) && !s.pendingLeadIn}
           <div class="bubble assistant streaming">
             <div class="who"><Icon name="bot" size={14} /> Claude
               <span class="t"><span class="sd-dot" aria-hidden="true"></span> en direct</span>
@@ -935,25 +916,15 @@
              avec le transcript. Elle n'existait de toute façon que pour une session pilotée
              (`followupSuggestion` vient du registre de l'Agent SDK), donc rien n'est perdu à la
              faire dépendre de ce `{#if}`. Seul le masquage remonte ici, car il est persisté. -->
-        <Composer bind:this={composer} {id} alive={s.live} project={s.project}
-                  resumeEffort={s.effort} lastPrompt={s.lastPrompt || ''} {onSent}
-                  onResumed={() => load(true)}
+        <Composer bind:this={composer} {id} project={s.project} lastPrompt={s.lastPrompt || ''} {onSent}
                   followup={showFollowup ? followup : null} onFollowupDismiss={dismissFollowup} />
       {/if}
     </div>
 
-    <!-- Lentille Ship : relecture des changements de Claude + expédition (composant dédié). -->
-    <div class="pane pane-flush" class:active={tab === 'ship'}>
-      {#if seen.ship}
-        <Ship {s} {id} onReview={reviewChanges} canReview={!!(s.live)} active={tab === 'ship'} />
-      {/if}
-    </div>
-
-    <!-- Lentille Branch : le diff COMPLET d'une branche vs une base (merge-base → tête),
-         façon « Files changed » d'une PR, avec sélecteur de branche. -->
-    <div class="pane pane-flush" class:active={tab === 'branch'}>
-      {#if seen.branch}
-        <Branch {s} {id} onReview={reviewChanges} canReview={!!(s.live)} active={tab === 'branch'} />
+    <!-- Review lens: Claude's edits, the working tree or a branch diff, with inline comment threads. -->
+    <div class="pane pane-flush" class:active={tab === 'review'}>
+      {#if seen.review}
+        <Review {s} {id} onReview={reviewChanges} canReview={!!(s.live)} active={tab === 'review'} />
       {/if}
     </div>
 
@@ -973,7 +944,7 @@
     {#if ui.dockHidden}
       <button class="dock-reopen" onclick={() => (ui.dockHidden = false)} title="Show the context panel" aria-label="Show the context panel"><Icon name="arrow-left" size={14} /></button>
     {:else}
-      <Dock {s} {id} onship={() => (tab = 'ship')} />
+      <Dock {s} {id} onreview={() => (tab = 'review')} />
     {/if}
   {/if}
   </div>
@@ -1028,8 +999,7 @@
 
 <style>
   .detail-shell { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
-  /* split pane: the ✕ close is always shown, and the focused pane gets an accent rail. */
-  .detail-shell.in-split :global(.pane-back) { display: inline-flex; }
+  /* split pane: the focused pane gets an accent rail. */
   .detail-shell.in-split.focused { box-shadow: inset 3px 0 0 var(--accent); }
   .detail-shell.in-split:not(.focused) { opacity: .92; }
   .detail-main { flex: 1 1 auto; min-height: 0; min-width: 0; display: flex; flex-direction: column; }
@@ -1147,7 +1117,6 @@
   }
   @container (max-width: 520px) {
     /* 2) l'Archive inline se replie (il reste dans le menu ⋯) — seuls ⋯ (et Resume) subsistent. */
-    .stop-btn { display: none; }
   }
   @container (max-width: 440px) {
     /* 3) enfin le statut et la branche disparaissent ; le TITRE, lui, reste toujours lisible. */

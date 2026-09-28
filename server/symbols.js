@@ -19,7 +19,7 @@ import { declarationKind, langOfPath } from '../src/lib/localDefs.js';
 
 const SYMBOL_RE = /^[A-Za-z_$][\w$]{0,127}$/;
 // Même grammaire que vcsBlame : SHA, `HEAD`, `SHA^`, ou un NOM DE BRANCHE — la lentille Branch
-// blâme et résout à `mergeBase → branch`, pas à des SHA (cf. Branch.svelte:130-138).
+// blâme et résout à `mergeBase → branch`, pas à des SHA (cf. Review.svelte, blameFor).
 const REV_OK = /^(?:[0-9a-f]{4,64}|[A-Za-z0-9_][A-Za-z0-9._/-]*)\^?$/;
 
 const DEADLINE_MS = 5000;      // budget de la REQUÊTE, tous dépôts confondus (cf. lookup)

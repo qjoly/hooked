@@ -1,7 +1,7 @@
 <script>
   import { onMount } from 'svelte';
   import { getDigests, getDigest, generateDigest } from '$lib/api.js';
-  import { ui } from '$lib/state.svelte.js';
+  import { ui, data } from '$lib/state.svelte.js';
   import { fmtCost, prLabel, issueLabel } from '$lib/format.js';
   import Markdown from './Markdown.svelte';
 
@@ -41,7 +41,14 @@
 
   const ready = $derived(digest && (digest.status === 'done' || digest.status === 'partial'));
   const sessions = $derived(ready ? (digest.sessions || []) : []);
-  const pending = $derived(ready ? (digest.pending || []) : []);
+  // Open questions are live state, not history: the stored list is what was pending when the digest
+  // was generated. Keep only the ones the session still has open, so an answered question stops
+  // asking for attention.
+  const pending = $derived.by(() => {
+    if (!ready) return [];
+    const stillOpen = new Set(data.sessions.filter((s) => s.hasQuestion).map((s) => s.id));
+    return (digest.pending || []).filter((p) => stillOpen.has(p.id));
+  });
   const blockers = $derived(ready ? (digest.blockers || []) : []);
   const highlights = $derived(ready ? (digest.highlights || []) : []);
   const totals = $derived(digest?.totals || null);

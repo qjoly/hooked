@@ -3,6 +3,7 @@
   // rendered for a multi-session group — a lone session looks exactly as before. The group name
   // (double-click to rename), promote-to-mother / detach per tab, and « + » to add an existing
   // session or start a new one inside the group. Tabs are drop targets too.
+  import { sessionDot as dotClass } from '$lib/format.js';
   import { goto } from '$app/navigation';
   import {
     groupSessions, groupMotherOf, groupName, renameGroup, setGroupMother, leaveGroup,
@@ -15,12 +16,6 @@
 
   const members = $derived(groupSessions(id));
   const mother = $derived(groupMotherOf(id));
-  const dotClass = (s) =>
-    s.hasQuestion || s.hasPlan || s.state === 'attention' ? 'attention'
-    : s.state === 'working' ? 'working'
-    : s.state === 'background' ? 'bgjob'
-    : s.state === 'waiting' ? 'waiting'
-    : s.state === 'ended' ? 'ended' : 'idle';
 
   let editing = $state(false);
   let draft = $state('');
@@ -71,7 +66,7 @@
              use:dragSession={s.id}
              onclick={() => open(s)}
              onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(s); } }}>
-          <span class="gt-dot gt-{dotClass(s)}"></span>
+          <span class="state-dot gt-dot d-{dotClass(s)}"></span>
           {#if isMother}<span class="gt-mother" title="Mother session"><Icon name="star" size={11} /></span>{/if}
           <span class="gt-title">{sessionTitle(s)}</span>
           <span class="gt-acts">
@@ -127,13 +122,7 @@
   .gt-tab:global(.dragging) { opacity: .4; }
   .gt-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
   .gt-mother { color: var(--waiting); display: inline-flex; flex: 0 0 auto; }
-  .gt-dot { width: 7px; height: 7px; border-radius: 50%; flex: 0 0 auto; }
-  .gt-working { background: var(--working); }
-  .gt-bgjob { background: var(--background); }
-  .gt-waiting { background: var(--waiting); }
-  .gt-attention { background: var(--attention); }
-  .gt-ended { background: var(--ended); }
-  .gt-idle { background: var(--idle); }
+  .gt-dot { width: 7px; height: 7px; }
   .gt-acts { display: none; gap: 1px; flex: 0 0 auto; }
   .gt-tab:hover .gt-acts { display: inline-flex; }
   .gt-act {

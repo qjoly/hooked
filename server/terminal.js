@@ -76,7 +76,7 @@ function subscribeTerminal(id, cb) {
 // Forme sérialisable d'un terminal (jamais l'objet pty ni les abonnés).
 function describe(t) {
   return {
-    id: t.id, cwd: t.cwd, sessionId: t.sessionId || null, shell: t.shell,
+    id: t.id, cwd: t.cwd, sessionId: t.sessionId || null, inline: !!t.inline, shell: t.shell,
     cols: t.cols, rows: t.rows, startedAt: t.startedAt,
     exited: !!t.exited, exitCode: t.exitCode ?? null,
   };
@@ -165,7 +165,10 @@ function shellArgs(shell) {
 // lancé par launchd n'aurait ni les alias ni le PATH de l'utilisateur. On passe en plus l'env résolu
 // par loginEnv() (partagé avec les sessions) : le shell le re-calculerait, mais les variables sont
 // alors disponibles dès le premier prompt, avant même que le profil ait fini de se charger.
-function openTerminal({ cwd, sessionId, cols, rows } = {}, cb) {
+// `inline`: opened by a composer `!!command` and rendered inside the conversation (PtyBlock). Still
+// tagged with its session (closed with it), but the terminal panel leaves it out — two xterms on
+// one PTY would fight over its size.
+function openTerminal({ cwd, sessionId, cols, rows, inline } = {}, cb) {
   const dir = typeof cwd === 'string' ? cwd : null;
   if (!dir) return cb(err400('cwd required'));
   if (!statDir(dir)) return cb(err400('invalid cwd: ' + dir));
@@ -190,7 +193,7 @@ function openTerminal({ cwd, sessionId, cols, rows } = {}, cb) {
       return cb(new Error('failed to open a terminal: ' + ((e && e.message) || e)));
     }
     const t = {
-      id, cwd: dir, sessionId: sessionId || null, shell,
+      id, cwd: dir, sessionId: sessionId || null, inline: !!inline, shell,
       cols: c, rows: r, startedAt: new Date().toISOString(),
       pty: child, subs: new Set(), buffer: '', exited: false, exitCode: null,
     };

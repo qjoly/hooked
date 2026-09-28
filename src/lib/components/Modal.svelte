@@ -1,5 +1,4 @@
 <script>
-  import { onMount } from 'svelte';
   import { ui, closeModal } from '$lib/state.svelte.js';
   import Icon from '$lib/components/Icon.svelte';
   import CostModal from './CostModal.svelte';
@@ -9,6 +8,7 @@
   import ConfirmModal from './ConfirmModal.svelte';
   import AccountModal from './AccountModal.svelte';
   import GroupPickerModal from './GroupPickerModal.svelte';
+  import ReviewScopeModal from './ReviewScopeModal.svelte';
 
   let card;
   let prevFocus = null;
@@ -49,7 +49,7 @@
       <button class="modal-close" onclick={closeModal} aria-label="Close"><Icon name="close" /></button>
       <div>
         {#if ui.modal.type === 'cost'}
-          <CostModal />
+          <CostModal r={ui.modal.data} />
         {:else if ui.modal.type === 'fork'}
           <ForkModal r={ui.modal.data} />
         {:else if ui.modal.type === 'trash'}
@@ -62,6 +62,8 @@
           <AccountModal />
         {:else if ui.modal.type === 'groupPicker'}
           <GroupPickerModal r={ui.modal.data} />
+        {:else if ui.modal.type === 'reviewScope'}
+          <ReviewScopeModal r={ui.modal.data} />
         {/if}
       </div>
     </div>

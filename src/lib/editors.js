@@ -77,9 +77,4 @@ function editorFor(key) {
   return EDITORS.find((e) => e.key === key) || EDITORS.find((e) => e.key === DEFAULT_EDITOR);
 }
 
-// URL d'ouverture d'un fichier dans l'éditeur préféré (`line` optionnel, 1-based).
-function editorFileUrl(key, file, line) {
-  return editorFor(key).fileUrl(file, line);
-}
-
-export { EDITORS, EDITOR_KEYS, DEFAULT_EDITOR, editorFor, editorFileUrl };
+export { EDITORS, EDITOR_KEYS, DEFAULT_EDITOR, editorFor };

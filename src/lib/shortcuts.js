@@ -6,10 +6,10 @@ export const SHORTCUT_DEFS = [
   { id: 'new-session', label: 'New session', section: 'Navigation', defaultKeys: { mod: true, key: 'n' } },
   { id: 'settings', label: 'Settings', section: 'Navigation', defaultKeys: { mod: true, key: ',' } },
   { id: 'go-sessions', label: 'Go to Deck', section: 'Navigation', defaultKeys: { alt: true, key: '1' } },
-  { id: 'go-board', label: 'Go to Archive', section: 'Navigation', defaultKeys: { alt: true, key: '2' } },
-  { id: 'go-stats', label: 'Archive → Stats', section: 'Navigation', defaultKeys: { alt: true, key: '4' } },
-  { id: 'go-digest', label: 'Archive → Digest', section: 'Navigation', defaultKeys: { alt: true, key: '5' } },
-  { id: 'go-memory', label: 'Archive → Memory', section: 'Navigation', defaultKeys: { alt: true, key: '6' } },
+  { id: 'go-board', label: 'Go to Sessions', section: 'Navigation', defaultKeys: { alt: true, key: '2' } },
+  { id: 'go-stats', label: 'Go to Stats', section: 'Navigation', defaultKeys: { alt: true, key: '4' } },
+  { id: 'go-digest', label: 'Go to Digest', section: 'Navigation', defaultKeys: { alt: true, key: '5' } },
+  { id: 'go-memory', label: 'Go to Memory', section: 'Navigation', defaultKeys: { alt: true, key: '6' } },
   { id: 'toggle-sidebar', label: 'Toggle session sidebar', section: 'Actions', defaultKeys: { mod: true, key: 'b' } },
   // Session-scoped: SessionDetail's own window listener handles these two (the global layout
   // handler skips them). They came back with the PTY terminal panel — `2` toggles it too, but as a
@@ -67,13 +67,24 @@ export function resetAll() {
   saveOverrides({});
 }
 
+// The key an event names. `e.key` is the typed character — on Mac, ⌥+digit yields a composed one
+// (`¡`, `™`…), so a binding on '1' never matched. Only then fall back to the physical key from
+// `e.code` (`Digit1` → '1', `KeyA` → 'a'): when `e.key` already is a letter or digit it wins, or a
+// non-QWERTY layout would match the physical key instead of the character actually typed.
+export function eventKey(e) {
+  const k = String(e.key || '');
+  if (/^[a-z0-9]$/i.test(k)) return k.toLowerCase();
+  const m = /^(?:Digit|Key)([A-Z0-9])$/.exec(e.code || '');
+  return m ? m[1].toLowerCase() : k;
+}
+
 export function matchesEvent(keys, e) {
   if (!keys) return false;
   const mod = e.metaKey || e.ctrlKey;
   if (!!keys.mod !== mod) return false;
   if (!!keys.shift !== e.shiftKey) return false;
   if (!!keys.alt !== e.altKey) return false;
-  return e.key.toLowerCase() === keys.key.toLowerCase();
+  return eventKey(e).toLowerCase() === keys.key.toLowerCase();
 }
 
 export function matchShortcut(e) {
@@ -106,7 +117,8 @@ export function formatKeys(keys) {
 
 export function keysFromEvent(e) {
   if (['Control', 'Meta', 'Shift', 'Alt'].includes(e.key)) return null;
-  const keys = { key: e.key.length === 1 ? e.key.toLowerCase() : e.key };
+  const k = eventKey(e);
+  const keys = { key: k.length === 1 ? k.toLowerCase() : k };
   if (e.metaKey || e.ctrlKey) keys.mod = true;
   if (e.shiftKey) keys.shift = true;
   if (e.altKey) keys.alt = true;
@@ -116,7 +128,7 @@ export function keysFromEvent(e) {
 export function shortcutForCommand(commandId) {
   const map = {
     'nav:deck': 'go-sessions',
-    'nav:archive': 'go-board',
+    'nav:sessions': 'go-board',
     'nav:new': 'new-session',
     'nav:stats': 'go-stats',
     'nav:digest': 'go-digest',

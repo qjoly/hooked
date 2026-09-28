@@ -1,4 +1,5 @@
 <script>
+  import { copyText } from '$lib/clipboard.js';
   import Icon from '$lib/components/Icon.svelte';
 
   let { d } = $props();
@@ -8,14 +9,13 @@
   // processus par l'Agent SDK), et le SDK nous donne enfin le session_id dès le lancement — donc on
   // propose le lien vers la session, ce que l'ancien flux ne pouvait pas faire.
   async function copy() {
-    try { await navigator.clipboard.writeText(location.origin + d.link); copied = true; } catch (_) { copied = 'manual'; }
+    copied = (await copyText(location.origin + d.link)) ? true : 'manual';
   }
 </script>
 
-<h2 style="margin:0 0 10px"><Icon name="check" size={18} /> Session {d.forkedFrom ? 'forked' : d.resume ? 'resumed' : 'launched'}</h2>
+<h2 style="margin:0 0 10px"><Icon name="check" size={18} /> Session {d.forkedFrom ? 'forked' : 'launched'}</h2>
 <p style="color:var(--muted);font-size:12.5px;line-height:1.6;margin:0 0 14px">
-  <code>claude{d.resume ? ' --resume ' + d.resume.slice(0, 8) + '…' : ''}{d.worktree ? ' --worktree' : ''}</code>
-  is running in folder <code>{d.cwd}</code>{d.worktree ? ' (dedicated git worktree)' : ''}.<br>
+  <code>claude</code> is running in folder <code>{d.cwd}</code>.<br>
   Session <b>{(d.sessionId || '').slice(0, 8)}…</b></p>
 {#if d.link}
   <div class="attach-row">

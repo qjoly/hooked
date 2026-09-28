@@ -21,14 +21,6 @@ export const getStats = (range) => jget('/api/stats?range=' + encodeURIComponent
 // Diff du working tree (git/jj) du projet de la session, dépôts imbriqués compris.
 // { vcs:'git'|'jj'|null, root, changes, truncated, repos:[{ kind, root, label, primary, changes }] }.
 export const getVcsDiff = (id) => jget('/api/session/vcs-diff?id=' + encodeURIComponent(id));
-// Commits d'un dépôt (git/jj) du projet de la session — le principal par défaut, ou `root`
-// (un des dépôts détectés). Sélecteur de commit de la lentille Ship.
-// { vcs, root, commits:[{ rev, author, ts, subject }] }.
-export const getVcsLog = (id, root = null) =>
-  jget('/api/session/vcs-log?id=' + encodeURIComponent(id) + (root ? '&root=' + encodeURIComponent(root) : ''));
-// Diff d'UN commit (vs son parent) — dépôt principal par défaut, ou `root`. { vcs, root, changes }.
-export const getVcsCommit = (id, rev, root = null) =>
-  jget(`/api/session/vcs-commit?id=${encodeURIComponent(id)}&rev=${encodeURIComponent(rev)}` + (root ? '&root=' + encodeURIComponent(root) : ''));
 // Branches locales (git) / bookmarks (jj) d'un dépôt du projet — sélecteur de la lentille Branch.
 // { vcs, root, branches:[{ name, current }], default, repos:[{ kind, root, label, primary }] }.
 export const getVcsBranches = (id, root = null) =>
@@ -80,8 +72,6 @@ export const getFileChangeFull = (id, path) =>
   jget(`/api/session/file-changes?id=${encodeURIComponent(id)}&path=${encodeURIComponent(path)}`);
 // Usage « /usage » : rate limits du compte (5 h / 7 j) + contexte/effort de la session courante + budget 5 h.
 export const getUsage = () => jget('/api/usage');
-// Jobs de fond encore actifs, toutes sessions confondues (carte Overview). { jobs, count }.
-export const getBackground = () => jget('/api/background');
 // Flux SSE du log (.output) d'un job de fond, résolu côté serveur depuis (session, taskId).
 // `onSeed(b64)` = queue initiale, `onData(b64)` = octets ajoutés, `onUnavailable()` = pas de log.
 // Renvoie l'EventSource (appeler .close() pour arrêter).
@@ -120,7 +110,6 @@ export const replaceTags = (map) => jpost('/api/tags', { replace: map });
 // archived flag + snooze deadline. saveSessionMeta merge-patches one session.
 export const getSessionMeta = () => jget('/api/session-meta');
 export const saveSessionMeta = (id, patch) => jpost('/api/session-meta', { id, ...patch });
-export const replaceSessionMeta = (map) => jpost('/api/session-meta', { replace: map });
 // Session groups: op = 'join' ({ target }) | 'leave' | 'mother' | 'rename' ({ name }).
 export const groupOp = (op, id, extra = {}) => jpost('/api/session-meta', { op, id, ...extra });
 // Daily digests: an AI-written recap of a day's sessions. GET (no date) → history index + latest

@@ -17,7 +17,6 @@
   ],
   "shortcuts": [
     { "name": "Board", "url": "/board" },
-    { "name": "Digest", "url": "/digest" },
-    { "name": "Search", "url": "/search" }
+    { "name": "Digest", "url": "/digest" }
   ]
 }

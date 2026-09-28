@@ -1028,7 +1028,7 @@ function runInteractiveCommand(id, command, cb) {
   // Import PARESSEUX : terminal.js importe loginEnv/err400 d'ici, un import statique ferait un cycle.
   // Effet de bord utile : node-pty reste hors du chemin de démarrage tant qu'on n'ouvre aucun PTY.
   import('./terminal.js').then(({ openTerminal, writeTerminal }) => {
-    openTerminal({ cwd: st.cwd, sessionId: id }, (err, info) => {
+    openTerminal({ cwd: st.cwd, sessionId: id, inline: true }, (err, info) => {
       if (err) return cb(err);
       // Écrite DANS le PTY, pas passée en argv : c'est ce qui laisse la main à l'utilisateur ensuite.
       // Vérifié : pas besoin d'attendre le prompt, le tampon du tty met la frappe en file et zsh la
