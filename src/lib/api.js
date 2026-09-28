@@ -21,14 +21,6 @@ export const getStats = (range) => jget('/api/stats?range=' + encodeURIComponent
 // Diff du working tree (git/jj) du projet de la session, dépôts imbriqués compris.
 // { vcs:'git'|'jj'|null, root, changes, truncated, repos:[{ kind, root, label, primary, changes }] }.
 export const getVcsDiff = (id) => jget('/api/session/vcs-diff?id=' + encodeURIComponent(id));
-// Commits d'un dépôt (git/jj) du projet de la session — le principal par défaut, ou `root`
-// (un des dépôts détectés). Sélecteur de commit de la lentille Ship.
-// { vcs, root, commits:[{ rev, author, ts, subject }] }.
-export const getVcsLog = (id, root = null) =>
-  jget('/api/session/vcs-log?id=' + encodeURIComponent(id) + (root ? '&root=' + encodeURIComponent(root) : ''));
-// Diff d'UN commit (vs son parent) — dépôt principal par défaut, ou `root`. { vcs, root, changes }.
-export const getVcsCommit = (id, rev, root = null) =>
-  jget(`/api/session/vcs-commit?id=${encodeURIComponent(id)}&rev=${encodeURIComponent(rev)}` + (root ? '&root=' + encodeURIComponent(root) : ''));
 // Branches locales (git) / bookmarks (jj) d'un dépôt du projet — sélecteur de la lentille Branch.
 // { vcs, root, branches:[{ name, current }], default, repos:[{ kind, root, label, primary }] }.
 export const getVcsBranches = (id, root = null) =>

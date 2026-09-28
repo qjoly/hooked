@@ -53,7 +53,7 @@
     if (cs) {
       cmds.push(
         { id: 'ctx:lens-chat', label: 'Lens: Converse', section: 'Current session', icon: 'converse', action: () => goto('/session/' + encodeURIComponent(cs.id) + '?lens=chat') },
-        { id: 'ctx:lens-ship', label: 'Lens: Ship (review)', section: 'Current session', icon: 'ship', action: () => goto('/session/' + encodeURIComponent(cs.id) + '?lens=ship') },
+        { id: 'ctx:lens-review', label: 'Lens: Review', section: 'Current session', icon: 'ship', action: () => goto('/session/' + encodeURIComponent(cs.id) + '?lens=review') },
         { id: 'ctx:copy-path', label: `Copy project path: ${cs.projectName || cs.cwd}`, section: 'Current session', icon: 'clipboard', action: () => copyText(cs.cwd) },
         { id: 'ctx:editor', label: `Open project in ${editorFor(settings.editor).label}`, section: 'Current session', icon: editorFor(settings.editor).icon, action: () => openInEditor(cs.id) },
         { id: 'ctx:ghostty', label: 'Open in Ghostty', section: 'Current session', icon: 'ghostty', action: () => openInGhostty(cs.id) },

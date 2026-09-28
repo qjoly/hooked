@@ -1,6 +1,6 @@
 <script>
-  // The review's comment lists, folded under the "Send N comments" button of the Ship / Branch
-  // panels: the live comments first, the archived ones under them.
+  // The review's comment lists, folded under the "Send N comments" button of the Review panel:
+  // the live comments first, the archived ones under them.
   //
   // Inline threads live IN the diff, so they are only visible while their file is the one on
   // screen: a comment left on a file scrolled past three files ago cannot be re-read, and the
@@ -18,9 +18,9 @@
   // conversation, not a draft.
   import Icon from '$lib/components/Icon.svelte';
 
-  // canJump: (thread) => bool — a thread carries the diff SECTION it was written on, and the
-  // lens can only reveal the ones its own views produce (a Branch comment is unreachable from
-  // Ship, and the reverse). Those rows say so instead of being a click that does nothing.
+  // canJump: (thread) => bool — a thread carries the diff SECTION it was written on, and the lens
+  // restores that scope to reveal it; a key no scope can produce any more (the retired per-commit
+  // view) leaves a dead row that says so instead of being a click that does nothing.
   let {
     threads = [],
     onDelete = null,
@@ -96,12 +96,12 @@
                place that explains WHY the row is inert — would never show. -->
           <button class="rc-main" class:dead={!here} aria-disabled={!here} onclick={() => jump(t)}
                   title={arch ? 'Archived — restore it to see it in the diff again'
-                         : !here ? 'Left in the other diff lens — open it there to read it in context'
+                         : !here ? 'Written on a diff no scope can show any more — archive or delete it'
                          : onJump ? 'Jump to this comment in ' + g.file : g.file}>
             <span class="rc-meta">
               <span class="rc-anchor">{anchorLabel(t)}</span>
               {#if !t.sent}<span class="rc-tag pending">{arch ? 'never sent' : 'pending'}</span>{/if}
-              {#if !arch && !here}<span class="rc-tag other">other lens</span>
+              {#if !arch && !here}<span class="rc-tag other">unreachable</span>
               {:else if missed === t.id}<span class="rc-tag gone">not in this diff</span>{/if}
               {#if t.messages && t.messages.length > 1}<span class="rc-n">{t.messages.length} msg</span>{/if}
             </span>
