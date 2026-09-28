@@ -179,3 +179,22 @@ describe('isValidDate / yesterdayLocal', () => {
     expect(mod.yesterdayLocal()).toMatch(/^\d{4}-\d{2}-\d{2}$/);
   });
 });
+
+describe('parseModelJson — event-array output', () => {
+  // The CLI now emits an array of events ending with the `result` envelope; the old brace-bounded
+  // parse spanned the whole array and produced nothing.
+  const events = [
+    { type: 'rate_limit_event', rate_limit_info: { status: 'allowed' } },
+    { type: 'system', subtype: 'init', cwd: '/tmp' },
+    { type: 'assistant', message: { content: [{ type: 'text', text: '{"summary":"x"}' }] } },
+    { type: 'result', subtype: 'success', result: '{"summary":"real","highlights":["h"]}' },
+  ];
+  it('unwraps the result event of an event array', () => {
+    expect(mod.parseModelJson(JSON.stringify(events))).toEqual({ summary: 'real', highlights: ['h'] });
+  });
+  it('unwraps it through a login-shell preamble and a fenced model text', () => {
+    const fenced = [...events.slice(0, 3), { type: 'result', result: '```json\n{"summary":"fenced"}\n```' }];
+    const polluted = 'zoxide: detected a possible configuration issue.\n\n' + JSON.stringify(fenced);
+    expect(mod.parseModelJson(polluted)).toEqual({ summary: 'fenced' });
+  });
+});

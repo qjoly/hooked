@@ -17,6 +17,7 @@ import { scanSessions } from './transcript.js';
 import { buildConversation } from './conversation.js';
 import { readTags } from './tags.js';
 import { readSettings } from './settings.js';
+import { modelJson } from './claudeJson.js';
 
 const DIGESTS_DIR = path.join(HOOKED_DIR, 'digests');
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -230,21 +231,7 @@ statusKind guide: "shipped" = merged/deployed, nothing left; "in-review" = PR op
 Keep it factual and grounded in the briefs above. Prefer specifics (file/feature/PR names) over generic phrasing. Include a perSession entry for every session id, always with both a status and a statusKind.`;
 }
 
-// Extract a JSON object from `claude -p --output-format json` output. The envelope wraps the model
-// text in `.result`; the model text may itself be fenced. A login-shell preamble (zoxide/p10k/nvm)
-// can prepend noise to stdout, so extract the object by braces rather than JSON.parse-ing the whole
-// stream — then unwrap `.result` if we landed on the envelope. Robust to leading/trailing noise.
-function objFromBraces(text) {
-  const start = text.indexOf('{');
-  const end = text.lastIndexOf('}');
-  if (start === -1 || end === -1 || end < start) return null;
-  try { return JSON.parse(text.slice(start, end + 1)); } catch (_) { return null; }
-}
-function parseModelJson(stdout) {
-  let obj = objFromBraces(stdout);
-  if (obj && typeof obj.result === 'string') obj = objFromBraces(obj.result); // unwrap envelope → model text
-  return obj;
-}
+const parseModelJson = modelJson;
 
 // Run `claude -p` headless, feeding the prompt on stdin. Wrapped in a login+interactive shell for
 // PATH parity with launchSession (brew/asdf/nvm publish PATH in login files) so a hooked started

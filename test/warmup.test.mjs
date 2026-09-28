@@ -145,3 +145,13 @@ describe('parsePingOutput', () => {
     expect(parsePingOutput(JSON.stringify({ total_cost_usd: 'nope' }))).toEqual({ cost: null, sessionId: null });
   });
 });
+
+describe('parsePingOutput — event-array output', () => {
+  it('reads cost and session id from the result event of an event array', () => {
+    const out = JSON.stringify([
+      { type: 'rate_limit_event' },
+      { type: 'result', subtype: 'success', total_cost_usd: 0.42, session_id: 'sess-9' },
+    ]);
+    expect(parsePingOutput(out)).toEqual({ cost: 0.42, sessionId: 'sess-9' });
+  });
+});
