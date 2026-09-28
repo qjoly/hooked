@@ -41,7 +41,7 @@
   );
   // The queue folds into session groups too: a child's decision sits under its mother (whose own
   // card only shows if she needs a decision herself). Children that merely finished are usually
-  // waiting for the orchestrating mother, not for you — they collapse into a single line.
+  // waiting for the orchestrating mother, not for you — they shrink to tree rows, as in the fleet.
   const triageUnits = $derived.by(() => {
     const pending = new Set(triage.map((s) => s.id));
     return groupUnits(triage).map((u) => ({
@@ -52,7 +52,6 @@
     }));
   });
   let kidOpen = $state({}); // child session id → decision card unfolded
-  let waitingOpen = $state({}); // unit key → finished children listed
   const snoozedCount = $derived(S.filter((s) => needsDecision(s) && snoozed(s.id) && !isSessionArchived(s)).length);
   function archiveOne(id) { toggleArchive(id); }
 
@@ -200,42 +199,24 @@
       {/if}
 
       {#each triageUnits as u (u.key)}
-        <div class="tunit" class:has-kids={u.children.length}>
+        {@const waitingTree = { key: u.key, children: u.kidsWaiting }}
+        <div class="tunit" class:has-kids={u.kidDecisions.length}>
           {#if u.motherPending}
-            {@render tcard(u.mother, false)}
+            {@render tcard(u.mother, false, waitingTree)}
           {:else}
-            <button class="tunit-head" onclick={() => open(u.mother)} title="Open the mother session">
-              <span class="state-dot fdot d-{dotClass(u.mother)}"></span>
-              <Icon name="sessions" size={12} /> <span class="tunit-name">{groupName(u.key)}</span>
-              <span class="tmeta">{u.mother.repo || u.mother.projectName || ''}</span>
-              <span class="tago">{ago(u.mother.lastActivity)}</span>
-            </button>
+            <div class="tunit-head">
+              <button class="tunit-open" onclick={() => open(u.mother)} title="Open the mother session">
+                <span class="state-dot fdot d-{dotClass(u.mother)}"></span>
+                <Icon name="sessions" size={12} /> <span class="tunit-name">{groupName(u.key)}</span>
+                <span class="tmeta">{u.mother.repo || u.mother.projectName || ''}</span>
+                <span class="tago">{ago(u.mother.lastActivity)}</span>
+              </button>
+              {#if u.kidsWaiting.length}{@render kidTree(waitingTree)}{/if}
+            </div>
           {/if}
-          {#if u.children.length}
+          {#if u.kidDecisions.length}
             <div class="tkids">
               {#each u.kidDecisions as c (c.id)}{@render tcard(c, true)}{/each}
-              {#if u.kidsWaiting.length}
-                <div class="tkid-wait">
-                  <button class="tkid-wait-head" onclick={() => (waitingOpen = { ...waitingOpen, [u.key]: !waitingOpen[u.key] })}>
-                    <span class="arch-chev" class:open={waitingOpen[u.key]}><Icon name="chevron-right" size={12} /></span>
-                    {u.kidsWaiting.length} finished child session{u.kidsWaiting.length > 1 ? 's' : ''}
-                    <span class="fkid-dots">{#each u.kidsWaiting as c (c.id)}<span class="state-dot fdot d-{dotClass(c)}"></span>{/each}</span>
-                  </button>
-                  <button class="tbtn ghost" onclick={() => u.kidsWaiting.forEach((c) => snoozeOne(c.id))} title="Snooze these finished children for 1h"><Icon name="snooze" size={13} /> 1h</button>
-                </div>
-                {#if waitingOpen[u.key]}
-                  <div class="fkids">
-                    {#each u.kidsWaiting as c (c.id)}
-                      <button class="fkid" onclick={() => open(c)}>
-                        <span class="state-dot fdot d-{dotClass(c)}"></span>
-                        <span class="fkid-t">{sessionTitle(c)}</span>
-                        {#if c.lastReply}<span class="fkid-a">{c.lastReply}</span>{/if}
-                        <span class="fkid-ago">{ago(c.lastActivity)}</span>
-                      </button>
-                    {/each}
-                  </div>
-                {/if}
-              {/if}
             </div>
           {/if}
         </div>
@@ -298,7 +279,7 @@
   </div>
 </div>
 
-{#snippet tcard(s, child)}
+{#snippet tcard(s, child, waitingTree = null)}
   {@const kind = kindOf(s)}
   {@const meta = KIND_META[kind]}
   {@const folded = child && !kidOpen[s.id]}
@@ -365,6 +346,11 @@
         {/if}
       </div>
 
+      {#if waitingTree?.children.length}
+        <!-- the group's finished children, inside the mother's card -->
+        <div class="ttree">{@render kidTree(waitingTree)}</div>
+      {/if}
+
       <footer class="tfoot">
         {#if kind === 'waiting'}
           <button class="tbtn primary" onclick={() => open(s)}><Icon name="send" size={14} /> Reply</button>
@@ -393,6 +379,30 @@
   </div>
 {/snippet}
 
+{#snippet kidTree(u)}
+  {@const kids = fleetKids(u)}
+  <!-- the group's other sessions, each openable (and draggable) from the card -->
+  <span class="fkids">
+    {#each kids.shown as c (c.id)}
+      <span class="fkid" role="button" tabindex="0" use:dragSession={c.id}
+            onclick={(e) => { e.stopPropagation(); open(c); }}
+            onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); open(c); } }}>
+        <span class="state-dot fdot d-{dotClass(c)}"></span>
+        <span class="fkid-t">{sessionTitle(c)}</span>
+        {#if liveSnippet(c)}<span class="fkid-a">{liveSnippet(c).text}</span>{/if}
+        <span class="fkid-ago">{ago(c.lastActivity)}</span>
+      </span>
+    {/each}
+    {#if kids.hidden.length}
+      <button class="fkid fkid-more" title="Show the {kids.hidden.length} other sessions of this group"
+              onclick={(e) => { e.stopPropagation(); kidsExpanded = { ...kidsExpanded, [u.key]: true }; }}>
+        <span class="fkid-t">+{kids.hidden.length}</span>
+        <span class="fkid-dots">{#each kids.hidden as c (c.id)}<span class="state-dot fdot d-{dotClass(c)}"></span>{/each}</span>
+      </button>
+    {/if}
+  </span>
+{/snippet}
+
 {#snippet fcard(u)}
   {@const s = u.mother}
   {@const ended = s.state === 'ended' || s.state === 'past'}
@@ -416,29 +426,7 @@
       <span class="fact" class:working={s.state === 'working'}><Icon name={snip.name} color={snip.color} size={13} /> {snip.text}</span>
     {/if}
     {@render convo(s)}
-    {#if u.children.length}
-      {@const kids = fleetKids(u)}
-      <!-- the group's other sessions, each openable (and draggable) from the card -->
-      <span class="fkids">
-        {#each kids.shown as c (c.id)}
-          <span class="fkid" role="button" tabindex="0" use:dragSession={c.id}
-                onclick={(e) => { e.stopPropagation(); open(c); }}
-                onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); open(c); } }}>
-            <span class="state-dot fdot d-{dotClass(c)}"></span>
-            <span class="fkid-t">{sessionTitle(c)}</span>
-            {#if liveSnippet(c)}<span class="fkid-a">{liveSnippet(c).text}</span>{/if}
-            <span class="fkid-ago">{ago(c.lastActivity)}</span>
-          </span>
-        {/each}
-        {#if kids.hidden.length}
-          <button class="fkid fkid-more" title="Show the {kids.hidden.length} other sessions of this group"
-                  onclick={(e) => { e.stopPropagation(); kidsExpanded = { ...kidsExpanded, [u.key]: true }; }}>
-            <span class="fkid-t">+{kids.hidden.length}</span>
-            <span class="fkid-dots">{#each kids.hidden as c (c.id)}<span class="state-dot fdot d-{dotClass(c)}"></span>{/each}</span>
-          </button>
-        {/if}
-      </span>
-    {/if}
+    {#if u.children.length}{@render kidTree(u)}{/if}
     {#if sessionTags(s.id).length}
       <span class="fpills">
         {#each sessionTags(s.id) as t}<span class="fpill" style="--c:{tagColor(t)}"># {t}</span>{/each}
@@ -558,16 +546,20 @@
   .tbtn.ghost { background: transparent; border-color: transparent; color: var(--muted); }
   .tbtn.ghost:hover { color: var(--text); background: var(--hover); }
 
-  /* triage folded by session group: children hang under their mother through a left rail */
+  /* triage folded by session group: finished children sit inside the mother card as tree rows,
+     children with a decision hang under it through a left rail */
   .tunit { margin-bottom: 14px; }
   .tunit > .tcard { margin-bottom: 0; }
   .tunit.has-kids > .tcard { margin-bottom: 6px; }
-  .tunit-head {
-    display: flex; align-items: center; gap: 7px; width: 100%; min-width: 0; margin-bottom: 6px; padding: 6px 12px;
-    border: 1px dashed var(--border2); border-radius: 10px; background: none; cursor: pointer;
+  .tunit-head { display: flex; flex-direction: column; gap: 2px; padding: 4px 6px 6px; border: 1px dashed var(--border2); border-radius: 10px; }
+  .tunit.has-kids > .tunit-head { margin-bottom: 6px; }
+  .tunit-open {
+    display: flex; align-items: center; gap: 7px; width: 100%; min-width: 0; padding: 4px 6px;
+    border: none; border-radius: 7px; background: none; cursor: pointer;
     font: inherit; font-size: 12.5px; font-weight: 700; color: var(--text); text-align: left;
   }
-  .tunit-head:hover { background: var(--hover); }
+  .tunit-open:hover { background: var(--hover); }
+  .ttree { padding: 0 14px 10px; }
   .tunit-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .tkids { display: flex; flex-direction: column; gap: 6px; margin-left: 12px; padding-left: 10px; border-left: 1px solid var(--border2); }
   .tcard.child { margin-bottom: 0; border-radius: 10px; box-shadow: none; }
@@ -578,13 +570,6 @@
     background: none; border: none; border-radius: 6px; color: var(--muted); cursor: pointer; padding: 0;
   }
   .tfold:hover { background: var(--hover); color: var(--text); }
-  .tkid-wait { display: flex; align-items: center; gap: 6px; }
-  .tkid-wait-head {
-    display: flex; align-items: center; gap: 7px; flex: 1 1 auto; min-width: 0; padding: 4px 6px;
-    background: none; border: none; border-radius: 7px; cursor: pointer;
-    font: inherit; font-size: 11.5px; font-weight: 600; color: var(--muted); text-align: left;
-  }
-  .tkid-wait-head:hover { background: var(--hover); color: var(--text); }
 
   /* fleet */
   .fleet-q {
