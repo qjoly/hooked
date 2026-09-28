@@ -2,7 +2,7 @@
 // La navigation (vue courante, session ouverte, écran « nouvelle session ») n'est PLUS
 // ici : elle est portée par l'URL (routing SvelteKit). Ne restent que les filtres de la
 // sidebar, l'état live (SSE), le tick de rafraîchissement et la modale.
-import { getSessions, connectSSE, getSettings, saveSettings as apiSaveSettings, getTags, saveTags, replaceTags, getSessionMeta, saveSessionMeta, replaceSessionMeta, groupOp, kill, getAccount } from './api.js';
+import { getSessions, connectSSE, getSettings, saveSettings as apiSaveSettings, getTags, saveTags, replaceTags, getSessionMeta, saveSessionMeta, groupOp, kill, getAccount } from './api.js';
 import { NOTIFY_KINDS, notifyKeyFor, countsForBadge } from './notify.js';
 import { isFinishedAndCold } from './format.js';
 import { DEFAULT_HIDDEN_MODELS } from './models.js';
@@ -15,9 +15,7 @@ const persisted = (() => {
 
 export const ui = $state({
   live: false,               // connexion SSE active ?
-  statusFilters: ['all'],    // filtres de statut actifs — Ctrl/⌘+clic sur les chips = multi-sélection
   tagFilters: [],            // tags actifs (transitoire, non persisté) — une session doit porter TOUS ces tags
-  search: '',
   hideOld: persisted.hideOld ?? false,
   collapsed: persisted.collapsed ?? {}, // { [projet]: true } → groupes repliés dans la sidebar
   pinned: persisted.pinned ?? [],       // [sessionId] → sessions épinglées, remontées en tête de sidebar
@@ -25,7 +23,6 @@ export const ui = $state({
   tags: {},                             // { [sessionId]: [tag] } → miroir réactif du store serveur (tags.json), chargé au démarrage
   meta: {},                             // { [sessionId]: { archived?, snoozeUntil?, groupOf?, groupAt?, groupName? } } → miroir réactif du store serveur (session-meta.json)
   focus: persisted.focus ?? false,      // mode focus : discussion plein écran (header global + sidebar repliés)
-  sidebarPeek: false,                   // (transitoire) ré-ouverture ponctuelle de la sidebar pendant le focus
   splitCompact: false,                  // (transitoire) split trop étroit → masque les menus latéraux
   toolsOpen: false,                     // (transitoire, off au chargement) déplie l'input/result de tous les outils
   modal: null,               // { type, data } | null
@@ -34,7 +31,6 @@ export const ui = $state({
   scheme: readScheme(),      // 'default' | 'legacy' — palette (color-scheme), axe orthogonal au clair/sombre
   corners: readCorners(),    // 'round' | 'sharp' — forme des angles, 3e axe orthogonal
   notify: persisted.notify ?? false,    // notifications navigateur (session finie / en attente de toi)
-  notifyPinnedOnly: persisted.notifyPinnedOnly ?? false, // if true: only notify for pinned sessions
   diffSplit: persisted.diffSplit ?? false, // render conversation diffs side-by-side (split) instead of unified
   groupByProject: persisted.groupByProject ?? true, // sidebar: regroupe les sessions par projet (dépôt/dossier) au lieu des sections de statut
   sortMode: persisted.sortMode ?? 'dynamic',        // sidebar: 'dynamic' | 'alpha' | 'alpha-project' (cf. SORT_MODES)
@@ -48,6 +44,8 @@ export const ui = $state({
   shipFilesWidth: persisted.shipFilesWidth ?? 232,  // largeur (px) du rail « Files » de la lentille Ship, persistée
   shipPanelWidth: persisted.shipPanelWidth ?? 288,  // largeur (px) du panneau « Ready to ship » de la lentille Ship, persistée
   diffRatio: persisted.diffRatio ?? 0.5,            // part (0..1) de la colonne « old » dans un diff side-by-side (barre déplaçable), persistée
+  shipDiff: persisted.shipDiff ?? 'split',          // review lenses (Ship / Branch): 'split' | 'unified' — one preference for both
+  shipCompact: persisted.shipCompact ?? false,      // review lenses: hide the unchanged context lines
   companion: persisted.companion ?? false,          // dancing companion floating above the UI (Companion.svelte)
   companionPos: persisted.companionPos ?? null,     // { x, y } px of its top-left corner; null = bottom-right corner (never dragged)
 });
@@ -55,7 +53,7 @@ export const ui = $state({
 if (typeof localStorage !== 'undefined') {
   $effect.root(() => {
     $effect(() => {
-      const snapshot = { hideOld: ui.hideOld, collapsed: ui.collapsed, pinned: ui.pinned, names: ui.names, focus: ui.focus, notify: ui.notify, notifyPinnedOnly: ui.notifyPinnedOnly, diffSplit: ui.diffSplit, groupByProject: ui.groupByProject, sortMode: ui.sortMode, sideMenuOpen: ui.sideMenuOpen, sidebarWidth: ui.sidebarWidth, dockWidth: ui.dockWidth, dockHidden: ui.dockHidden, lastSessionId: ui.lastSessionId, termHeight: ui.termHeight, collapseWorktrees: ui.collapseWorktrees, shipFilesWidth: ui.shipFilesWidth, shipPanelWidth: ui.shipPanelWidth, diffRatio: ui.diffRatio, companion: ui.companion, companionPos: ui.companionPos };
+      const snapshot = { hideOld: ui.hideOld, collapsed: ui.collapsed, pinned: ui.pinned, names: ui.names, focus: ui.focus, notify: ui.notify, diffSplit: ui.diffSplit, groupByProject: ui.groupByProject, sortMode: ui.sortMode, sideMenuOpen: ui.sideMenuOpen, sidebarWidth: ui.sidebarWidth, dockWidth: ui.dockWidth, dockHidden: ui.dockHidden, lastSessionId: ui.lastSessionId, termHeight: ui.termHeight, collapseWorktrees: ui.collapseWorktrees, shipFilesWidth: ui.shipFilesWidth, shipPanelWidth: ui.shipPanelWidth, diffRatio: ui.diffRatio, shipDiff: ui.shipDiff, shipCompact: ui.shipCompact, companion: ui.companion, companionPos: ui.companionPos };
       try { localStorage.setItem(LS_KEY, JSON.stringify(snapshot)); } catch {}
     });
   });
@@ -255,8 +253,6 @@ export function closePane(col, row) {
   if (rows.length) split.cols = split.cols.map((x, i) => (i === col ? { ...x, rows } : x));
   else split.cols = split.cols.filter((_, i) => i !== col);
 }
-// collapse the whole split back to just the anchor.
-export function clearSplit() { split.cols = [{ w: 1, rows: [{ id: split.cols[0]?.rows[0]?.id ?? null, h: 1 }] }]; }
 export function isSplit() { return paneCount() > 1; }
 export function isInSplit(id) { return splitPanes().some((p) => p.id === id); }
 // Split the current session with the most-recently-active OTHER session (header button + shortcut):
@@ -317,12 +313,7 @@ export function sessionTitle(s) {
 }
 
 // mode focus : masque le header global + replie la sidebar → la discussion prend tout l'espace.
-export function toggleFocus() {
-  ui.focus = !ui.focus;
-  if (!ui.focus) ui.sidebarPeek = false; // on repart « sidebar repliée » au prochain focus
-}
-// ré-ouvre / referme ponctuellement la sidebar pendant le focus (sans quitter le focus).
-export function toggleSidebarPeek() { ui.sidebarPeek = !ui.sidebarPeek; }
+export function toggleFocus() { ui.focus = !ui.focus; }
 
 // ─── Thème (clair / sombre / système) ──────────────────────────────────────────────────────
 // Persisté sous une clé dédiée ('hooked.theme'), lue aussi par le script anti-FOUC de app.html.
@@ -377,10 +368,6 @@ export function setScheme(s) {
   try { localStorage.setItem(SCHEME_KEY, ui.scheme); } catch {}
   applyScheme();
 }
-// cycle default → legacy → datadog → default…
-export function cycleScheme() {
-  setScheme(SCHEME_ORDER[(SCHEME_ORDER.indexOf(ui.scheme) + 1) % SCHEME_ORDER.length]);
-}
 
 // ─── Corners (arrondis : round / sharp) ──────────────────────────────────────────────────────
 // TROISIÈME axe orthogonal, indépendant du clair/sombre ET de la palette : la forme des angles.
@@ -404,10 +391,6 @@ export function setCorners(c) {
   ui.corners = CORNERS_ORDER.includes(c) ? c : 'round';
   try { localStorage.setItem(CORNERS_KEY, ui.corners); } catch {}
   applyCorners();
-}
-// cycle round → sharp → round…
-export function cycleCorners() {
-  setCorners(CORNERS_ORDER[(CORNERS_ORDER.indexOf(ui.corners) + 1) % CORNERS_ORDER.length]);
 }
 
 export const data = $state({ sessions: [] });
@@ -439,7 +422,6 @@ function checkNotifications(sessions) {
   if (notifySeeded && ui.notify) {
     let pinged = false;
     for (const s of sessions) {
-      if (ui.notifyPinnedOnly && !ui.pinned.includes(s.id)) continue;
       const key = next.get(s.id);
       if (key && key !== (prevNotifyKey.get(s.id) || '')) {
         if (notifyEnabled()) fireNotification(s, NOTIFY_KINDS[key]); // popup bureau natif (contexte sécurisé)
@@ -462,7 +444,6 @@ function applyTitleBadge(sessions = data.sessions) {
   const base = '🪝 hooked';
   if (!ui.notify) { document.title = base; return; }
   const n = sessions.reduce((a, s) => {
-    if (ui.notifyPinnedOnly && !ui.pinned.includes(s.id)) return a;
     if (snoozeUntil(s.id) > Date.now()) return a; // session snoozée depuis le Deck → pas de badge
     return a + (countsForBadge(notifyKeyFor(s)) ? 1 : 0);
   }, 0);
@@ -491,11 +472,6 @@ function playPing() {
 
 // Active/désactive les notifications. Natif (popup bureau) si contexte sécurisé + permission ;
 // sinon repli universel (badge d'onglet + son) qui marche partout, y compris en HTTP sur IP/LAN.
-export function toggleNotifyPinnedOnly() {
-  ui.notifyPinnedOnly = !ui.notifyPinnedOnly;
-  applyTitleBadge();
-}
-
 export async function toggleNotify() {
   if (ui.notify) { ui.notify = false; applyTitleBadge(); return; }
   ui.notify = true;
@@ -527,16 +503,9 @@ export async function loadSessions() {
 // Miroir réactif du store serveur. Chargé au démarrage (startLive) ; la page Réglages édite via
 // updateSettings (patch partiel → persiste → resync). Défauts alignés sur server/settings.js.
 export const settings = $state({
-  subtabOrder: ['chat', 'changes', 'todos', 'subagents', 'subsessions', 'background', 'terminal', 'pr', 'issues'],
-  statusBarOrder: ['branch', 'stateBadge', 'permissionMode', 'modelEffort', 'cost', 'prompts', 'tokens', 'model', 'usage5h', 'prLinks', 'issueLinks', 'focusBtn'],
-  subtabHidden: [],
-  initialShellCommand: '',
   speechLang: 'fr-FR',
   speechEnabled: true,
-  statusBar: {
-    branch: true, stateBadge: true, permissionMode: true, modelEffort: true,
-    cost: true, prompts: true, tokens: true, model: true, usage5h: true, prLinks: false, issueLinks: false, focusBtn: true,
-  },
+  statusBar: { permissionMode: true, modelEffort: true, focusBtn: true },
   defaultModel: '', defaultEffort: '', defaultMode: '',
   remoteControlProjects: [],
   favoriteProjects: [],
@@ -549,7 +518,6 @@ export const settings = $state({
   autoCompact: { enabled: false, minContextK: 100 }, // cf. server/settings.js
   sidebarCache: { display: 'badge', windowMin: 15 }, // cf. server/settings.js
   editor: 'vscode', // éditeur préféré (clé de src/lib/editors.js) pour les liens « open in editor »
-  shipDefaultView: 'claude', // source de diff à l'ouverture de la lentille Ship ('claude' | 'vcs')
   defaultPage: 'deck',
   navTabs: ['sessions', 'stats', 'digest', 'memory'], // onglets de nav visibles (paramétrable)
   hiddenModels: [...DEFAULT_HIDDEN_MODELS], // versions de modèle masquées des sélecteurs (liste noire)
@@ -575,45 +543,20 @@ export async function loadAccount() {
 }
 
 // ─── Étiquettes de session (tags.json côté serveur, partagées entre navigateurs) ──────────────
-// Chargé au démarrage (startLive). Les tags vivaient autrefois dans localStorage ('hooked.ui') ;
-// au 1er chargement où le store serveur est vide, on migre une fois les tags locaux historiques.
+// Chargé au démarrage (startLive).
 export async function loadTags() {
   try {
     const res = await getTags();
-    let server = res.tags || {};
-    if (!Object.keys(server).length && persisted.tags && Object.keys(persisted.tags).length) {
-      const r = await replaceTags(persisted.tags);
-      if (r.ok && r.data.tags) server = r.data.tags;
-    }
-    ui.tags = server;
+    ui.tags = res.tags || {};
   } catch (_) {}
 }
 
 // ─── Per-session Deck metadata (session-meta.json server-side) ────────────────────────────────
-// Loaded at startup (startLive). Archived ids used to live in localStorage ('hooked.ui'.archived)
-// and snoozes in 'hooked.snooze'; on the first load where the server store is empty, the
-// historical local state is migrated once (same scheme as tags).
+// Loaded at startup (startLive).
 export async function loadSessionMeta() {
   try {
     const res = await getSessionMeta();
-    let server = res.meta || {};
-    if (!Object.keys(server).length) {
-      const legacy = {};
-      for (const id of Array.isArray(persisted.archived) ? persisted.archived : []) {
-        if (typeof id === 'string' && id) legacy[id] = { archived: true };
-      }
-      try {
-        const snooze = JSON.parse(localStorage.getItem('hooked.snooze') || '{}') || {};
-        for (const [id, until] of Object.entries(snooze)) {
-          if (until > Date.now()) legacy[id] = { ...legacy[id], snoozeUntil: until };
-        }
-      } catch {}
-      if (Object.keys(legacy).length) {
-        const r = await replaceSessionMeta(legacy);
-        if (r.ok && r.data.meta) server = r.data.meta;
-      }
-    }
-    ui.meta = server;
+    ui.meta = res.meta || {};
   } catch (_) {}
 }
 

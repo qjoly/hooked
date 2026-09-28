@@ -4,16 +4,10 @@ import { fail, readJson } from '$lib/server/respond.js';
 
 // Réglages persistants de hooked (settings.json côté serveur). GET renvoie l'objet complet
 // (défauts inclus) ; POST fusionne un patch partiel, valide, persiste et renvoie le résultat.
+// GET is a plain read: the settings-driven background loops start with the server
+// (src/hooks.server.js) and are re-applied by POST when a setting changes.
 export function GET() {
-  const settings = readSettings();
-  // Amorçage des boucles de fond (synchro git, tag auto de review PR) : le front appelle GET
-  // /api/settings une fois au démarrage (state.svelte.js:startLive → loadSettings) → les boucles
-  // démarrent au 1er chargement de page sans nécessiter src/hooks.server.js. Idempotent + gardé
-  // sur globalThis.
-  applyGitSyncSetting(settings);
-  applyPrReviewTagSetting(settings);
-  applyWarmupSetting(settings); // idem pour la gestion de fenêtre 5 h (no-op tant qu'elle est off)
-  return json(settings);
+  return json(readSettings());
 }
 
 export async function POST({ request }) {

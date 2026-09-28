@@ -8,8 +8,7 @@
   //     puis les agents démarrés (rang + consigne qui les distingue + outil en cours). La note
   //     l'explique une fois, plutôt que de laisser croire à un affichage incomplet.
   import { ago, fmtTokens, fmtCost } from '$lib/format.js';
-  import { getAgent } from '$lib/api.js';
-  import ChatBubble from './ChatBubble.svelte';
+  import AgentTrace from './AgentTrace.svelte';
   import Markdown from './Markdown.svelte';
   import Icon from '$lib/components/Icon.svelte';
 
@@ -53,24 +52,6 @@
   };
 
   let open = $state(false);
-
-  // Déroulés internes chargés à la demande, indexés par agentId (plusieurs drill-ins peuvent
-  // être ouverts en même temps, un par agent).
-  let traces = $state({});
-  const BLANK = { loading: false, visible: false, failed: false, messages: null };
-  const traceOf = (id) => traces[id] || BLANK;
-
-  async function loadTrace(id) {
-    const cur = traceOf(id);
-    if (cur.messages) { traces = { ...traces, [id]: { ...cur, visible: !cur.visible } }; return; }
-    traces = { ...traces, [id]: { ...BLANK, loading: true } };
-    try {
-      const d = await getAgent(session, id);
-      traces = { ...traces, [id]: { loading: false, visible: true, failed: false, messages: d.messages || [] } };
-    } catch (_) {
-      traces = { ...traces, [id]: { ...BLANK, failed: true } };
-    }
-  }
 
   // La phase COURANTE d'un run terminé : la dernière qui a des agents. En live on n'en sait rien
   // (l'attribution agent→phase n'existe pas sur disque) → aucun marqueur plutôt qu'un faux.
@@ -178,28 +159,7 @@
   {#if a.resultPreview}
     <div class="wa-block"><div class="wa-lab"><Icon name="file-out" size={13} /> Result</div><div class="md"><Markdown text={a.resultPreview} /></div></div>
   {/if}
-  {#if a.agentId}{@render drill(a)}{/if}
-{/snippet}
-
-{#snippet drill(a)}
-  {@const st = traceOf(a.agentId)}
-  <div class="wa-block">
-    <button class="wa-drill" disabled={st.loading} onclick={() => loadTrace(a.agentId)}>
-      {#if !st.loading}<Icon name={st.visible ? 'chevron-down' : 'chevron-right'} size={13} />{/if}
-      {st.loading ? 'loading…' : st.visible ? 'Hide trace' : 'View internal trace'}
-    </button>
-    {#if st.failed}
-      <div class="pane-empty">Trace unavailable.</div>
-    {:else if st.visible && st.messages}
-      <div class="chat wa-chat">
-        {#if st.messages.length}
-          {#each st.messages as m, i (m.ts + ':' + i)}<ChatBubble {m} {session} agent={a.agentId} />{/each}
-        {:else}
-          <div class="pane-empty">No internal steps.</div>
-        {/if}
-      </div>
-    {/if}
-  </div>
+  {#if a.agentId}<div class="wa-block"><AgentTrace {session} agentId={a.agentId} /></div>{/if}
 {/snippet}
 
 <style>
@@ -300,13 +260,6 @@
     display: flex; align-items: center; gap: 5px; font-size: 10px; font-weight: 700;
     letter-spacing: .05em; text-transform: uppercase; color: var(--muted); margin-bottom: 4px;
   }
-  .wa-drill {
-    background: none; border: none; padding: 0; cursor: pointer; font: inherit;
-    font-size: 12px; font-weight: 600; color: var(--background);
-    display: inline-flex; align-items: center; gap: 4px;
-  }
-  .wa-drill:hover:not(:disabled) { text-decoration: underline; }
-  .wa-chat { margin-top: 8px; }
 
   .wf-logs {
     margin: 0; padding-left: 18px; font-size: 11.5px; color: var(--muted); font-family: var(--mono);

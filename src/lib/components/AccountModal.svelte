@@ -1,6 +1,7 @@
 <script>
+  import { copyText } from '$lib/clipboard.js';
   import { onDestroy } from 'svelte';
-  import { account, loadAccount, closeModal } from '$lib/state.svelte.js';
+  import { account, loadAccount } from '$lib/state.svelte.js';
   import { accountAction } from '$lib/api.js';
   import { initials } from '$lib/format.js';
   import Icon from './Icon.svelte';
@@ -88,7 +89,7 @@
         <p class="sub">A browser tab may already be open. If not, open this URL and approve the sign-in:</p>
         <div class="urlrow">
           <a class="url" href={login.url} target="_blank" rel="noreferrer noopener">{login.url}</a>
-          <button class="btn" onclick={() => navigator.clipboard?.writeText(login.url)}>
+          <button class="btn" onclick={() => copyText(login.url)}>
             <Icon name="copy" size={14} /> Copy
           </button>
         </div>

@@ -31,7 +31,7 @@ describe('terminal panel', () => {
   // TypeError silencieuse dans refreshTerms, donc la liste des onglets restait vide en permanence
   // alors que les PTY existaient bien côté serveur.
   it('reads the terminal list at the shape jget actually returns', () => {
-    expect(SRC).toContain('terms = res.terminals');
+    expect(SRC).toContain('terms = (res.terminals || [])');
     expect(SRC).not.toContain('res.data.terminals');
   });
 

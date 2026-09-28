@@ -117,7 +117,7 @@ Ce qui n'a **plus besoin d'exister** (et ne doit pas revenir) : parsing du spinn
 `/mcp` était un écran **TUI du CLI**. Les sessions vivant maintenant dans le processus hooked via
 l'Agent SDK, il n'y a plus de terminal interactif où l'ouvrir : un serveur qui retombe en *Needs
 authentication* devenait impossible à réparer depuis hooked. La **lentille MCP** du workspace
-(touche `5`, à côté de Converse / Ship / Branch) le remplace, bâtie sur les sous-commandes **non
+(touche `4`, à côté de Converse / Review) le remplace, bâtie sur les sous-commandes **non
 interactives** `claude mcp list|get|login|logout`.
 
 - **C'est une lentille de session, pas une page de nav.** Les scopes MCP sont **par-répertoire** :
