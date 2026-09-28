@@ -94,6 +94,9 @@ const DEFAULTS = {
   // `minContextK`: only sessions whose context is at least this many thousand tokens; below it a
   // cold resume is cheap anyway, and compacting would lose the thread for nothing.
   autoCompact: { enabled: false, minContextK: 100 },
+  // Prompt-cache countdown on the session sidebar rows. `display`: 'badge' = beside the elapsed
+  // time, 'replace' = in its place. `windowMin`: shown only in the cache's last N minutes, 0 = always.
+  sidebarCache: { display: 'badge', windowMin: 15 },
 };
 
 const NAV_PAGES = ['sessions', 'stats', 'digest', 'memory'];
@@ -175,6 +178,13 @@ function sanitize(raw) {
       ? rawAc.minContextK
       : DEFAULTS.autoCompact.minContextK,
   };
+  const rawSc = o.sidebarCache && typeof o.sidebarCache === 'object' ? o.sidebarCache : {};
+  const sidebarCache = {
+    display: rawSc.display === 'replace' ? 'replace' : 'badge',
+    windowMin: Number.isInteger(rawSc.windowMin) && rawSc.windowMin >= 0 && rawSc.windowMin <= 60
+      ? rawSc.windowMin
+      : DEFAULTS.sidebarCache.windowMin,
+  };
   return {
     autoGitSync: !!o.autoGitSync,
     autoPrReviewTag: o.autoPrReviewTag === undefined ? true : !!o.autoPrReviewTag,
@@ -191,6 +201,7 @@ function sanitize(raw) {
     digest,
     warmup,
     autoCompact,
+    sidebarCache,
     speechLang,
     speechEnabled: o.speechEnabled === undefined ? true : !!o.speechEnabled,
     editor: EDITOR_KEYS.includes(o.editor) ? o.editor : DEFAULT_EDITOR,
