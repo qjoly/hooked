@@ -347,9 +347,10 @@ export function cycleTheme() {
 // Persisté sous 'hooked.scheme', relu par le script anti-FOUC de app.html.
 // 'default' (défaut) = aucun data-scheme → palette indigo de la refonte ;
 // 'legacy' = data-scheme="legacy" → ancien thème crème/terracotta ;
-// 'datadog' = data-scheme="datadog" → violet Datadog, surfaces froides, densité d'outil.
+// 'datadog' = data-scheme="datadog" → violet Datadog, surfaces froides, densité d'outil ;
+// 'gruvbox' = data-scheme="gruvbox" → palette gruvbox (crème / brun chaud, accent orange).
 const SCHEME_KEY = 'hooked.scheme';
-const SCHEME_ORDER = ['default', 'legacy', 'datadog'];
+const SCHEME_ORDER = ['default', 'legacy', 'datadog', 'gruvbox'];
 function readScheme() {
   if (typeof localStorage === 'undefined') return 'default';
   try { const s = localStorage.getItem(SCHEME_KEY); return SCHEME_ORDER.includes(s) ? s : 'default'; }
@@ -515,6 +516,7 @@ export const settings = $state({
     workHours: [['09:00', '12:00'], ['14:00', '18:00']], model: 'haiku', skipIfWeeklyOver: 90,
   },
   autoCompact: { enabled: false, minContextK: 100 }, // cf. server/settings.js
+  sidebarCache: { display: 'badge', windowMin: 15 }, // cf. server/settings.js
   editor: 'vscode', // éditeur préféré (clé de src/lib/editors.js) pour les liens « open in editor »
   defaultPage: 'deck',
   navTabs: ['sessions', 'stats', 'digest', 'memory'], // onglets de nav visibles (paramétrable)

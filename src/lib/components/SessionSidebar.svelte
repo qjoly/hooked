@@ -5,10 +5,10 @@
   // and width all live in ui (localStorage). Toggle via the ◀/▶ buttons or ⌘/Ctrl+B.
   import { goto } from '$app/navigation';
   import { page } from '$app/state';
-  import { ui, data, sessionTitle, sessionTags, togglePin, allTags, tagUsage, openModal, isSessionArchived, isArchived, toggleArchive, addSplit, isInSplit, canSplit, groupUnits, isGroupArchived, groupName, isGrouped, dnd } from '$lib/state.svelte.js';
+  import { ui, data, settings, sessionTitle, sessionTags, togglePin, allTags, tagUsage, openModal, isSessionArchived, isArchived, toggleArchive, addSplit, isInSplit, canSplit, groupUnits, isGroupArchived, groupName, isGrouped, dnd } from '$lib/state.svelte.js';
   import { onMount } from 'svelte';
   import { ago, agoShort, fmtSpan, tagColor, isActiveSession as isActive, needsDecision, sessionDot as dotClass } from '$lib/format.js';
-  import { promptCacheState } from '$lib/promptCache.js';
+  import { cacheCountdown } from '$lib/promptCache.js';
   import { dragSession, dropSession, dropDetach } from '$lib/groupDnd.js';
   import Icon from '$lib/components/Icon.svelte';
 
@@ -18,11 +18,8 @@
     const iv = setInterval(() => { nowMs = Date.now(); }, 15_000);
     return () => clearInterval(iv);
   });
-  // Time left before the session's prompt cache expires, or null once it is cold / unknown.
-  const cacheLeft = (s) => {
-    const c = s.cache ? promptCacheState(s.cache, nowMs) : null;
-    return c && c.warm ? c.remainingMs : null;
-  };
+  const cacheLeft = (s) => cacheCountdown(s.cache, settings.sidebarCache.windowMin, nowMs);
+  const cacheReplacesAgo = $derived(settings.sidebarCache.display === 'replace');
 
   let tab = $state('active'); // 'active' | 'archived'
   const currentId = $derived(page.params.id || null);
@@ -325,12 +322,14 @@
       {#if isPinned(s.id)}<span class="ssb-pin-mark" title="Pinned"><Icon name="pin" size={11} /></span>{/if}
       <span class="ssb-name" title={unit ? 'Group · mother session: ' + sessionTitle(s) : undefined}>{unit ? groupName(s.id) : sessionTitle(s)}</span>
       {#if unit}<span class="ssb-gcount" title="{unit.all.length} sessions in this group">{unit.all.length}</span>{/if}
-      <!-- A hot session shows only its cache countdown: the elapsed time moves to the tooltip. -->
+      <!-- settings.sidebarCache: the countdown sits in a pill beside the elapsed time, or takes its
+           place (the elapsed time then moves to the tooltip). -->
       {#if left != null}
-        <span class="ssb-cache" title="Prompt cache warm for {fmtSpan(left)} more — replying before then re-reads the conversation at the cached rate · last activity {ago(s.lastActivity, nowMs)}">
+        <span class="ssb-cache" class:pill={!cacheReplacesAgo} title="Prompt cache warm for {fmtSpan(left)} more — replying before then re-reads the conversation at the cached rate · last activity {ago(s.lastActivity, nowMs)}">
           <Icon name="clock" size={10} />{fmtSpan(left, '')}
         </span>
-      {:else}
+      {/if}
+      {#if left == null || !cacheReplacesAgo}
         <span class="ssb-ago">{agoShort(s.lastActivity, nowMs)}</span>
       {/if}
       <!-- actions au survol : groupe · tag · pin · (split / unarchive) -->
@@ -476,6 +475,8 @@
   .ssb-acts { position: absolute; right: 4px; display: none; gap: 2px; background: transparent; padding-left: 4px; }
   .ssb-row:hover .ssb-acts { display: inline-flex; }
   .ssb-cache { flex: 0 0 auto; display: inline-flex; align-items: center; gap: 2px; font-family: var(--mono); font-size: 9.5px; color: var(--muted); }
+  /* Beside the elapsed time: a pill, so the countdown never reads as one more "time ago". */
+  .ssb-cache.pill { padding: 0 5px; border: 1px solid rgba(var(--warn-rgb), .45); border-radius: 999px; color: var(--text); font-variant-numeric: tabular-nums; }
   .ssb-row:hover .ssb-ago, .ssb-row:hover .ssb-cache, .ssb-row:hover .ssb-gcount { visibility: hidden; }
   .ssb-act {
     width: 22px; height: 22px; border: none;

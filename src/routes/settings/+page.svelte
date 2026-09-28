@@ -60,6 +60,7 @@
   // Auto-compact (cf. server/agent.js → shouldAutoCompact); the figures come from the cache model.
   const ac = $derived(settings.autoCompact || {});
   const saveAutoCompact = (patch) => updateSettings({ autoCompact: { ...settings.autoCompact, ...patch } });
+  const saveSidebarCache = (patch) => updateSettings({ sidebarCache: { ...settings.sidebarCache, ...patch } });
   const AC_LEAD_MIN = Math.round(COMPACT_LEAD_MS / 60000);
   const AC_READ_PCT = Math.round(CACHED_READ_SHARE * 100);
   async function loadWarmupPlan() {
@@ -217,6 +218,7 @@
     { key: 'default', icon: 'dot', color: '#7d74f5', label: 'Default' },
     { key: 'legacy',  icon: 'dot', color: '#a07a55', label: 'Legacy' },
     { key: 'datadog', icon: 'dot', color: '#632ca6', label: 'Datadog' },
+    { key: 'gruvbox', icon: 'dot', color: '#d65d0e', label: 'Gruvbox' },
   ];
   // Forme des angles (3e axe orthogonal : se combine avec n'importe quel clair/sombre et palette).
   const CORNERS = [
@@ -540,7 +542,7 @@
       </div>
 
       <h2 style="margin-top:22px">Color scheme</h2>
-      <p class="hint">Palette used for both light and dark. <strong>Legacy</strong> restores the previous warm cream / terracotta look; <strong>Datadog</strong> is a cool purple, tighter corners and flatter surfaces, closer to a monitoring console. (Per-browser preference.)</p>
+      <p class="hint">Palette used for both light and dark. <strong>Legacy</strong> restores the previous warm cream / terracotta look; <strong>Datadog</strong> is a cool purple, tighter corners and flatter surfaces, closer to a monitoring console; <strong>Gruvbox</strong> is the retro warm palette of the editor theme of the same name. (Per-browser preference.)</p>
       <div class="chips">
         {#each SCHEMES as s (s.key)}
           <button class="chip" class:active={ui.scheme === s.key} onclick={() => setScheme(s.key)}>
@@ -580,6 +582,24 @@
           {#each NAV_TABS as t (t.key)}<option value={t.key}>{t.label}</option>{/each}
         </select>
       </label>
+      <h2 style="margin-top:6px">Prompt cache countdown</h2>
+      <p class="hint">Time left before a session's prompt cache expires, on its sidebar row. Replying before then re-reads the conversation at the cached rate.</p>
+      <div style="display:flex; gap:10px; flex-wrap:wrap">
+        <label class="filter">
+          <select value={settings.sidebarCache.display} onchange={(e) => saveSidebarCache({ display: e.currentTarget.value })}>
+            <option value="badge">Badge beside the elapsed time</option>
+            <option value="replace">In place of the elapsed time</option>
+          </select>
+        </label>
+        <label class="filter">
+          <select value={settings.sidebarCache.windowMin} onchange={(e) => saveSidebarCache({ windowMin: parseInt(e.currentTarget.value, 10) })}>
+            <option value={5}>Last 5 min</option>
+            <option value={15}>Last 15 min</option>
+            <option value={30}>Last 30 min</option>
+            <option value={0}>Always</option>
+          </select>
+        </label>
+      </div>
     </div>
 
     <div class="card" id="pset-editor" data-sec>
