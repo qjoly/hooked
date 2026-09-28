@@ -23,6 +23,7 @@ import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { HOOKED_DIR, isValidModelArg } from './config.js';
+import { resultEnvelope } from './claudeJson.js';
 import { readSettings } from './settings.js';
 import { currentUtilization, accountLimit } from './utilization.js';
 import { setSessionMeta } from './sessionMeta.js';
@@ -195,24 +196,15 @@ function warmupDecision(c, now, util, state) {
 
 // ---------- the ping ----------
 
-// `claude -p --output-format json` emits an SDKResultMessage envelope: `session_id` sits right
-// next to `total_cost_usd`, so the id of the throwaway ping session comes for free from the same
-// parse — no need to correlate by prompt text or timestamp. Extract by braces rather than a bare
-// JSON.parse — same reason as digests.js's objFromBraces: a login-shell preamble (zoxide/p10k/nvm)
-// can prepend noise to stdout under launchd/systemd. Pure so it's unit-testable without spawning
-// a process.
+// `session_id` sits right next to `total_cost_usd` in the result envelope, so the id of the
+// throwaway ping session comes for free from the same parse — no need to correlate by prompt text
+// or timestamp. Pure so it's unit-testable without spawning a process.
 function parsePingOutput(stdout) {
-  const start = stdout.indexOf('{');
-  const end = stdout.lastIndexOf('}');
-  if (start === -1 || end === -1 || end < start) return { cost: null, sessionId: null };
-  try {
-    const j = JSON.parse(stdout.slice(start, end + 1));
-    const cost = typeof j?.total_cost_usd === 'number' ? j.total_cost_usd : null;
-    const sessionId = typeof j?.session_id === 'string' && j.session_id ? j.session_id : null;
-    return { cost, sessionId };
-  } catch (_) {
-    return { cost: null, sessionId: null };
-  }
+  const j = resultEnvelope(stdout);
+  return {
+    cost: typeof j?.total_cost_usd === 'number' ? j.total_cost_usd : null,
+    sessionId: typeof j?.session_id === 'string' && j.session_id ? j.session_id : null,
+  };
 }
 
 // One throwaway `claude -p`, wrapped in a login+interactive shell for PATH parity with
