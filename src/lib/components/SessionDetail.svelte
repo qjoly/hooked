@@ -20,8 +20,7 @@
   import Question from './Question.svelte';
   import Plan from './Plan.svelte';
   import Composer from './Composer.svelte';
-  import Ship from './Ship.svelte';
-  import Branch from './Branch.svelte';
+  import Review from './Review.svelte';
   import Dock from './Dock.svelte';
   import Terminal from './Terminal.svelte';
   import Mcp from './Mcp.svelte';
@@ -39,8 +38,8 @@
   // remplace `s` en entier au refetch), donc raw est correct : réactif à la réaffectation, sans
   // proxy profond. Coût de `s = d` : O(1) au lieu de O(nombre de nœuds du transcript).
   let s = $state.raw(null);      // détail de session
-  // Lentille active : 'chat' (Converse + dock) / 'ship' (relecture des diffs + liens) /
-  // 'branch' / 'mcp'. Touches 1, 3, 4, 5. Réouverte là où la session a été laissée (cf. lastLens).
+  // Active lens: 'chat' (Converse + dock) / 'review' (diffs + comment threads) / 'mcp'. Keys 1, 3, 4
+  // (2 toggles the terminal panel). Reopened where the session was left (cf. lastLens).
   let tab = $state(lastLens.get(id) || 'chat');
   $effect(() => { const t = tab; untrack(() => lastLens.set(id, t)); });
   let body;                      // ref .pane-body (conteneur scrollable)
@@ -95,19 +94,20 @@
   // par-répertoire, la lentille prend le projet de la session et le sélecteur disparaît.
   const LENSES = [
     { key: 'chat', icon: 'converse', label: 'Converse', kbd: '1' },
-    { key: 'ship', icon: 'ship', label: 'Ship', kbd: '3' },
-    { key: 'branch', icon: 'git-branch', label: 'Branch', kbd: '4' },
-    { key: 'mcp', icon: 'mcp', label: 'MCP', kbd: '5' },
+    { key: 'review', icon: 'ship', label: 'Review', kbd: '3' },
+    { key: 'mcp', icon: 'mcp', label: 'MCP', kbd: '4' },
   ];
   const lensCount = $derived({
     chat: (s?.messages || []).length,
-    ship: (s?.changes || []).length,
+    review: (s?.changes || []).length,
   });
-  // Deep-link ?lens=<key> (dock « open Ship », palette…). Réactif à l'URL : naviguer vers la même
-  // session avec un autre ?lens= bascule la lentille sans remount. Les anciens liens `?lens=shell`
-  // et `?lens=terminal` retombent sur Converse (le panneau Shell n'existe plus).
+  // Deep-link ?lens=<key> (dock « open Review », palette…). Réactif à l'URL : naviguer vers la même
+  // session avec un autre ?lens= bascule la lentille sans remount. `?lens=ship` / `?lens=branch`
+  // (the two lenses Review replaced) still land on Review; an unknown key leaves the lens alone.
+  const LENS_ALIAS = { ship: 'review', branch: 'review' };
   $effect(() => {
-    const lens = page.url.searchParams.get('lens');
+    const raw = page.url.searchParams.get('lens');
+    const lens = LENS_ALIAS[raw] || raw;
     if (inSplit) return;
     if (LENSES.some((l) => l.key === lens)) untrack(() => { tab = lens; });
   });
@@ -365,10 +365,10 @@
   });
 
   // Raccourcis fenêtre du workspace :
-  //  • 1, 3, 4, 5 (hors saisie) : bascule de lentille (Converse / Ship / Branch / MCP) ;
+  //  • 1, 3, 4 (hors saisie) : bascule de lentille (Converse / Review / MCP) ;
   //  • Échap dans la vue chat (hors textarea — le composer gère lui-même quand il a le focus) :
   //    interrompt Claude et recharge le dernier prompt pour l'éditer, comme dans le CLI.
-  const LENS_KEYS = { 1: 'chat', 3: 'ship', 4: 'branch', 5: 'mcp' };
+  const LENS_KEYS = { 1: 'chat', 3: 'review', 4: 'mcp' };
   function onWindowKey(e) {
     if (ui.modal) return;
     if (inSplit && !focused) return; // in split, only the focused pane reacts to keys
@@ -840,7 +840,7 @@
   </div>
 
   <div class="body-row">
-  <div class="pane-body" class:flush={tab === 'ship' || tab === 'branch'} bind:this={body}
+  <div class="pane-body" class:flush={tab === 'review'} bind:this={body}
        onscroll={() => { if (body) stickToBottom = (body.scrollHeight - body.scrollTop - body.clientHeight) < 60; }}>
     <!-- la conversation reste montée en lentille Build (colonne copilote à côté de l'IDE) -->
     <div class="pane" class:active={tab === 'chat'}>
@@ -921,18 +921,10 @@
       {/if}
     </div>
 
-    <!-- Lentille Ship : relecture des changements de Claude + expédition (composant dédié). -->
-    <div class="pane pane-flush" class:active={tab === 'ship'}>
-      {#if seen.ship}
-        <Ship {s} {id} onReview={reviewChanges} canReview={!!(s.live)} active={tab === 'ship'} />
-      {/if}
-    </div>
-
-    <!-- Lentille Branch : le diff COMPLET d'une branche vs une base (merge-base → tête),
-         façon « Files changed » d'une PR, avec sélecteur de branche. -->
-    <div class="pane pane-flush" class:active={tab === 'branch'}>
-      {#if seen.branch}
-        <Branch {s} {id} onReview={reviewChanges} canReview={!!(s.live)} active={tab === 'branch'} />
+    <!-- Review lens: Claude's edits, the working tree or a branch diff, with inline comment threads. -->
+    <div class="pane pane-flush" class:active={tab === 'review'}>
+      {#if seen.review}
+        <Review {s} {id} onReview={reviewChanges} canReview={!!(s.live)} active={tab === 'review'} />
       {/if}
     </div>
 
@@ -952,7 +944,7 @@
     {#if ui.dockHidden}
       <button class="dock-reopen" onclick={() => (ui.dockHidden = false)} title="Show the context panel" aria-label="Show the context panel"><Icon name="arrow-left" size={14} /></button>
     {:else}
-      <Dock {s} {id} onship={() => (tab = 'ship')} />
+      <Dock {s} {id} onreview={() => (tab = 'review')} />
     {/if}
   {/if}
   </div>

@@ -516,7 +516,6 @@ export const settings = $state({
   },
   autoCompact: { enabled: false, minContextK: 100 }, // cf. server/settings.js
   editor: 'vscode', // éditeur préféré (clé de src/lib/editors.js) pour les liens « open in editor »
-  shipDefaultView: 'claude', // source de diff à l'ouverture de la lentille Ship ('claude' | 'vcs')
   defaultPage: 'deck',
   navTabs: ['sessions', 'stats', 'digest', 'memory'], // onglets de nav visibles (paramétrable)
   hiddenModels: [...DEFAULT_HIDDEN_MODELS], // versions de modèle masquées des sélecteurs (liste noire)
