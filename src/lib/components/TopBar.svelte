@@ -245,6 +245,15 @@
   }
   @media (max-width: 640px) {
     .tb-actions { display: none; }
-    .topbar { gap: 8px; padding: 8px 10px; }
+    .topbar { gap: 6px; padding: 0 8px 0 0; }
+    .tb-logo { width: 38px; }
+    /* Spaces scroll sideways instead of pushing the omnibar and "+ Session" off-screen. */
+    .tb-spaces { flex: 1 1 auto; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+    .tb-spaces::-webkit-scrollbar { display: none; }
+    .tb-space { padding: 0 10px; }
+    /* Omnibar collapses to its magnifier — the placeholder alone eats the whole width. */
+    .tb-omni { flex: 0 0 auto; padding: 7px 9px; }
+    .tb-omni-ph { display: none; }
+    .tb-new { padding: 7px 10px; font-size: 0; gap: 0; }
   }
 </style>
