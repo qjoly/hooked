@@ -594,9 +594,21 @@ export async function updateSettings(patch) {
 // pas de polling : l'identité ne bouge que via une action explicite de l'utilisateur.
 export const account = $state({
   loggedIn: null, email: null, displayName: null, organizationName: null, subscriptionType: null,
+  busySessions: 0,
 });
-export async function loadAccount() {
-  try { Object.assign(account, await getAccount()); } catch (_) {}
+export async function loadAccount(force) {
+  try { Object.assign(account, await getAccount(force)); } catch (_) {}
+}
+
+// The identity can go stale if the account changed OUTSIDE hooked (someone ran `claude auth
+// login` by hand, or switched from another hooked tab) — the server-side cache only self-clears
+// on this module's own login/logout, so nothing here notices that on its own. Refetching with
+// `force` when the tab regains focus is cheap (one `auth status` spawn, ~150ms) and keeps the top
+// bar from showing an identity that might be minutes-to-hours stale.
+if (typeof document !== 'undefined') {
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && started) loadAccount(true);
+  });
 }
 
 // ─── Étiquettes de session (tags.json côté serveur, partagées entre navigateurs) ──────────────

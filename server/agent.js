@@ -928,6 +928,15 @@ function liveSessionIds() {
   return out;
 }
 
+// Nombre de sessions pilotées EN PLEIN TOUR en ce moment (registre en mémoire, aucune I/O) — sert
+// à avertir avant un changement de compte : basculer réécrit LES credentials partagés par tout
+// process `claude`, donc chaque tour en cours sur une autre session sera affecté.
+function liveBusyCount() {
+  let n = 0;
+  for (const [, st] of live) if (!st.ended && st.busy) n++;
+  return n;
+}
+
 // The « / » commands as the CLI sees them — the only exhaustive source. The skills BUNDLED in the
 // binary (/code-review, /simplify, /loop…) are neither on disk nor declared in a greppable form, so
 // without this control request hooked's palette never offers them (see server/commands.js).
@@ -1617,7 +1626,7 @@ function clearAgentState() {
 }
 
 export {
-  agentAlive, agentSession, liveSessionIds,
+  agentAlive, agentSession, liveSessionIds, liveBusyCount,
   agentBusy, agentActivity, agentFollowup, agentLastProse, agentMode, agentAutoApprove, agentPendingAsk,
   agentSupportedCommands,
   applyMessage, readLoop, permissionQuestion, handleToolPermission, makeInputQueue, userMessage, parseEnvBlock, loginEnv, withoutServerEnv, hookedMcpServer, sessionIdForLaunchKey,

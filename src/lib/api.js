@@ -129,8 +129,11 @@ export const getTrace = (id) => jget('/api/session/trace?id=' + encodeURICompone
 export const getTraceTool = (id, tool) => jget('/api/session/trace?id=' + encodeURIComponent(id) + '&tool=' + encodeURIComponent(tool));
 export const mcpAction = (body) => jpost('/api/mcp', body);
 
-// Signed-in Claude account (top bar avatar/menu) + the `claude auth login`/`logout` actions.
-export const getAccount = () => jget('/api/account');
+// Signed-in Claude account (top bar avatar/menu) + the `claude auth login`/`logout` actions, plus
+// the roster (save/switch/remove/rename saved accounts) via the same action dispatcher.
+// `force` bypasses the server's 5-minute `auth status` cache — pass it at moments where a stale
+// identity would actually mislead (modal opening, tab regaining focus).
+export const getAccount = (force) => jget('/api/account' + (force ? '?force=1' : ''));
 export const accountAction = (body) => jpost('/api/account', body);
 
 export const getDigests = () => jget('/api/digest');
