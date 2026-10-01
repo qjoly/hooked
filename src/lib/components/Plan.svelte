@@ -61,20 +61,26 @@
   // count including a pending (typed but not yet "Add"-ed) draft, so the button reflects reality.
   const fbCount = $derived(comments.length + ((drafting && sel && draftText.trim()) ? 1 : 0));
 
-  function composeFeedback() {
+  function composeFeedback(intro) {
     const blocks = comments.map(({ quote, comment }) => {
       const q = quote.split('\n').map((l) => '> ' + l).join('\n');
       return q + '\n' + comment;
     });
-    return 'Feedback on the plan — please keep planning and revise:\n\n' + blocks.join('\n\n');
+    return intro + '\n\n' + blocks.join('\n\n');
   }
+
+  const FEEDBACK_ACTIONS = {
+    'keep-feedback': 'Feedback on the plan — please keep planning and revise:',
+    // small, non-structural remarks: no extra planning round, just keep these in mind while implementing.
+    'approve-auto-feedback': 'Feedback on the plan — keep in mind while implementing:',
+  };
 
   async function act(action) {
     if (busy) return;
     // flush a pending draft so a typed-but-not-added comment is included, not lost.
-    if (action === 'keep-feedback') commitDraft();
+    if (FEEDBACK_ACTIONS[action]) commitDraft();
     busy = true; status = '';
-    const feedback = action === 'keep-feedback' ? composeFeedback() : '';
+    const feedback = FEEDBACK_ACTIONS[action] ? composeFeedback(FEEDBACK_ACTIONS[action]) : '';
     const res = await planAction(id, action, feedback);
     busy = false;
     if (res.ok) {
@@ -126,6 +132,9 @@
     <button class="btn" disabled={busy} onclick={() => act('approve-auto')}>Approve + auto-accept</button>
     <button class="btn" disabled={busy} onclick={() => act('keep')}>Keep planning</button>
     {#if fbCount}
+      <button class="btn feedback" disabled={busy} onclick={() => act('approve-auto-feedback')}>
+        Provide feedback &amp; auto-accept ({fbCount})
+      </button>
       <button class="btn feedback" disabled={busy} onclick={() => act('keep-feedback')}>
         Keep planning &amp; provide feedback ({fbCount})
       </button>

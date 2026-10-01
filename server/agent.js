@@ -1222,23 +1222,34 @@ function answerQuestionFreeText(id, text, cb) {
 // Actions possibles sur un plan ExitPlanMode en attente (mêmes noms qu'avant, pour ne rien casser
 // côté UI). `approve*` autorise la sortie du mode plan et pousse le mode de permission cible ;
 // `keep*` refuse : Claude reste en mode plan et reçoit le feedback comme raison du refus.
-const PLAN_ACTIONS = ['approve', 'approve-auto', 'keep', 'keep-feedback'];
+// `approve-auto-feedback` : pour des remarques mineures, non structurelles — on approuve quand même
+// (pas de nouveau tour de planification pour un détail), on passe en auto-accept, et le feedback part
+// comme message de suivi normal (Claude l'applique en implémentant, pas en replanifiant).
+const PLAN_ACTIONS = ['approve', 'approve-auto', 'keep', 'keep-feedback', 'approve-auto-feedback'];
 function answerPlan(id, action, feedback, cb) {
   if (typeof feedback === 'function') { cb = feedback; feedback = ''; }
   const st = drivableSession(id);
   if (!st) return cb(err400('session not driving yet (still starting?) or not live'));
   if (!PLAN_ACTIONS.includes(action)) return cb(err400('unknown action: ' + action));
   const fb = typeof feedback === 'string' ? feedback.trim() : '';
-  if (action === 'keep-feedback' && !fb) return cb(err400('feedback required'));
+  if ((action === 'keep-feedback' || action === 'approve-auto-feedback') && !fb) return cb(err400('feedback required'));
   const ask = st.pendingAsk;
   if (!ask || ask.kind !== 'plan') return cb(err400('no plan awaiting approval for this session'));
 
-  if (action === 'approve' || action === 'approve-auto') {
-    const target = action === 'approve-auto' ? 'auto' : 'acceptEdits';
+  if (action === 'approve' || action === 'approve-auto' || action === 'approve-auto-feedback') {
+    const target = action === 'approve' ? 'acceptEdits' : 'auto';
     ask.resolve({ behavior: 'allow' });
     // Après l'approbation, on épingle le mode d'exécution demandé (l'équivalent des options
     // « Yes, auto-accept edits » / « Yes, and use auto mode » du menu du TUI).
     st.q.setPermissionMode(target).then(() => { st.permissionMode = target; }).catch(() => {});
+    if (action === 'approve-auto-feedback') {
+      // Suit l'approbation comme un message normal (cf. pushReply) : la session reste busy jusqu'à
+      // la réponse de Claude, qui lit le feedback en implémentant plutôt qu'en replanifiant.
+      st.input.push(userMessage(fb));
+      st.busy = true;
+      st.followup = null;
+      st.dropNextSuggestion = false;
+    }
     return cb(null, { sessionId: id, action, mode: target });
   }
   // keep / keep-feedback : refus. Le message de refus est ce que Claude lit → c'est là que va le
