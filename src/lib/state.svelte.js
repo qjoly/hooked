@@ -17,6 +17,7 @@ export const ui = $state({
   live: false,               // connexion SSE active ?
   tagFilters: [],            // tags actifs (transitoire, non persisté) — une session doit porter TOUS ces tags
   hideOld: persisted.hideOld ?? false,
+  incognito: persisted.incognito ?? false,  // mode incognito : n'affiche QUE les sessions marquées incognito (screenshare)
   collapsed: persisted.collapsed ?? {}, // { [projet]: true } → groupes repliés dans la sidebar
   pinned: persisted.pinned ?? [],       // [sessionId] → sessions épinglées, remontées en tête de sidebar
   names: persisted.names ?? {},         // { [sessionId]: titre custom } → renommage local (comme les pins)
@@ -53,7 +54,7 @@ export const ui = $state({
 if (typeof localStorage !== 'undefined') {
   $effect.root(() => {
     $effect(() => {
-      const snapshot = { hideOld: ui.hideOld, collapsed: ui.collapsed, pinned: ui.pinned, names: ui.names, focus: ui.focus, notify: ui.notify, diffSplit: ui.diffSplit, groupByProject: ui.groupByProject, sortMode: ui.sortMode, sideMenuOpen: ui.sideMenuOpen, sidebarWidth: ui.sidebarWidth, dockWidth: ui.dockWidth, dockHidden: ui.dockHidden, lastSessionId: ui.lastSessionId, termHeight: ui.termHeight, collapseWorktrees: ui.collapseWorktrees, shipFilesWidth: ui.shipFilesWidth, shipPanelWidth: ui.shipPanelWidth, diffRatio: ui.diffRatio, shipDiff: ui.shipDiff, shipCompact: ui.shipCompact, companion: ui.companion, companionPos: ui.companionPos };
+      const snapshot = { hideOld: ui.hideOld, incognito: ui.incognito, collapsed: ui.collapsed, pinned: ui.pinned, names: ui.names, focus: ui.focus, notify: ui.notify, diffSplit: ui.diffSplit, groupByProject: ui.groupByProject, sortMode: ui.sortMode, sideMenuOpen: ui.sideMenuOpen, sidebarWidth: ui.sidebarWidth, dockWidth: ui.dockWidth, dockHidden: ui.dockHidden, lastSessionId: ui.lastSessionId, termHeight: ui.termHeight, collapseWorktrees: ui.collapseWorktrees, shipFilesWidth: ui.shipFilesWidth, shipPanelWidth: ui.shipPanelWidth, diffRatio: ui.diffRatio, shipDiff: ui.shipDiff, shipCompact: ui.shipCompact, companion: ui.companion, companionPos: ui.companionPos };
       try { localStorage.setItem(LS_KEY, JSON.stringify(snapshot)); } catch {}
     });
   });
@@ -71,6 +72,7 @@ export function togglePin(id) {
 function patchMeta(id, patch) {
   const merged = { ...(ui.meta[id] || {}), ...patch };
   if (merged.archived !== true) delete merged.archived;
+  if (merged.incognito !== true) delete merged.incognito;
   if (!(merged.snoozeUntil > Date.now())) delete merged.snoozeUntil;
   const next = { ...ui.meta };
   if (Object.keys(merged).length) next[id] = merged;
@@ -109,6 +111,26 @@ export function unarchive(id) { if (isArchived(id)) patchMeta(id, { archived: fa
 export function isSessionArchived(s) {
   return !!s && (isArchived(s.id) || isFinishedAndCold(s));
 }
+// ─── Mode incognito (drapeau par session dans session-meta, cf. server/sessionMeta.js) ───────
+// Pour les screenshares : quand le mode est actif, le dashboard n'affiche QUE les sessions
+// marquées incognito. Le drapeau est posé par le serveur au lancement (une session lancée
+// pendant le mode, et toute sous-session qu'elle crée), ou à la main ici. Le mode lui-même est
+// local au navigateur (localStorage) — c'est un état d'affichage, pas un fait sur la session.
+export function isIncognito(id) { return !!(ui.meta[id] && ui.meta[id].incognito); }
+// Marquer la mère marque tout le groupe : une moitié de groupe visible et l'autre masquée n'a
+// aucun sens (même raison que toggleArchive). Une fille se marque seule.
+export function toggleIncognito(id) {
+  const next = !isIncognito(id);
+  const ids = groupMotherOf(id) === id ? groupMemberIds(id) : [id];
+  for (const m of ids) if (isIncognito(m) !== next) patchMeta(m, { incognito: next });
+}
+export function toggleIncognitoMode() {
+  ui.incognito = !ui.incognito;
+  // Un filtre de tag actif sur un tag qui vient de disparaître de la barre viderait la sidebar
+  // sans rien pour l'expliquer. Les filtres sont transitoires : on repart propre.
+  ui.tagFilters = [];
+}
+
 // ─── Session groups (stored in session-meta, cf. server/sessionMeta.js) ──────────────────────
 // Every session belongs to one group; a lone session is an implicit one-member group. A group is
 // identified by its MOTHER: children carry `groupOf: motherId`, ordered by `groupAt`.
@@ -285,13 +307,20 @@ export function setSessionTags(id, list) {
   ui.tags = next;
   saveTags(id, clean).then((res) => { if (res.ok && res.data.tags) ui.tags = res.data.tags; }).catch(() => {});
 }
+// Listes de tags des sessions VISIBLES. En incognito, la barre de filtres, les suggestions de la
+// modale et le gestionnaire de tags des réglages nommeraient sinon les sessions qu'on vient
+// justement de masquer — un tag est aussi bavard qu'un titre.
+function visibleTagLists() {
+  const e = Object.entries(ui.tags);
+  return (ui.incognito ? e.filter(([id]) => isIncognito(id)) : e).map(([, list]) => list);
+}
 // tous les tags en usage (triés, uniques) — alimente la barre de filtres.
 export function allTags() {
-  return [...new Set(Object.values(ui.tags).flat())].sort((a, b) => a.localeCompare(b));
+  return [...new Set(visibleTagLists().flat())].sort((a, b) => a.localeCompare(b));
 }
 // nombre de sessions portant un tag donné.
 export function tagUsage(tag) {
-  return Object.values(ui.tags).filter((list) => list.includes(tag)).length;
+  return visibleTagLists().filter((list) => list.includes(tag)).length;
 }
 // supprime un tag globalement (retiré de toutes les sessions) — les tags n'ont pas
 // d'existence propre, ils vivent via les sessions. Retire aussi le tag des filtres actifs.
@@ -345,12 +374,14 @@ export function cycleTheme() {
 // ─── Color scheme (palette : default / legacy) ──────────────────────────────────────────────
 // Axe ORTHOGONAL au clair/sombre : on choisit la palette, le clair/sombre reste géré par `theme`.
 // Persisté sous 'hooked.scheme', relu par le script anti-FOUC de app.html.
-// 'default' (défaut) = aucun data-scheme → palette indigo de la refonte ;
+// 'default' (défaut) = aucun data-scheme → le monde café (« La Roue des arômes ») ;
+// 'indigo' = data-scheme="indigo" → l'ancienne palette indigo par défaut, inchangée ;
 // 'legacy' = data-scheme="legacy" → ancien thème crème/terracotta ;
 // 'datadog' = data-scheme="datadog" → violet Datadog, surfaces froides, densité d'outil ;
-// 'gruvbox' = data-scheme="gruvbox" → palette gruvbox (crème / brun chaud, accent orange).
+// 'gruvbox' = data-scheme="gruvbox" → palette gruvbox (crème / brun chaud, accent orange) ;
+// 'claude'  = data-scheme="claude"  → la webui de Claude Desktop (ivoire chaud, argile, rayons larges).
 const SCHEME_KEY = 'hooked.scheme';
-const SCHEME_ORDER = ['default', 'legacy', 'datadog', 'gruvbox'];
+const SCHEME_ORDER = ['default', 'indigo', 'legacy', 'datadog', 'gruvbox', 'claude'];
 function readScheme() {
   if (typeof localStorage === 'undefined') return 'default';
   try { const s = localStorage.getItem(SCHEME_KEY); return SCHEME_ORDER.includes(s) ? s : 'default'; }
@@ -393,7 +424,14 @@ export function setCorners(c) {
   applyCorners();
 }
 
-export const data = $state({ sessions: [] });
+// Liste des sessions. `raw` porte ce que renvoie le serveur ; `data.sessions` est la vue que
+// lisent TOUS les panneaux — d'où le filtre incognito ici, en un seul point, plutôt que répété
+// dans la sidebar, le Deck, les splits, le sélecteur de groupe…
+const raw = $state({ sessions: [] });
+export const data = {
+  get sessions() { return ui.incognito ? raw.sessions.filter((s) => isIncognito(s.id)) : raw.sessions; },
+  set sessions(v) { raw.sessions = v; },
+};
 
 // ─── Notifications navigateur ────────────────────────────────────────────────────────────────
 // Notifie quand une session « a fini / attend ta réponse » : question en attente (hasQuestion),
@@ -488,14 +526,18 @@ export async function toggleNotify() {
 export async function loadSessions() {
   try {
     const sessions = await getSessions();
-    // A new session may have been grouped server-side (MCP start_session) → resync the meta.
-    const known = new Set(data.sessions.map((s) => s.id));
-    const fresh = data.sessions.length && sessions.some((s) => !known.has(s.id));
+    // A new session may have been grouped — or flagged incognito — server-side (MCP start_session,
+    // launch) → resync the meta. Compared against the RAW list: in incognito mode the visible one
+    // is empty until the meta resync lands, which would stop it from ever happening.
+    const known = new Set(raw.sessions.map((s) => s.id));
+    const fresh = raw.sessions.length && sessions.some((s) => !known.has(s.id));
     data.sessions = sessions;
     // (and once more a bit later: the join lands when the launch reports its id, which can trail
     // the session's first appearance in the list).
     if (fresh) { loadSessionMeta(); setTimeout(loadSessionMeta, 3000); }
-    checkNotifications(sessions);
+    // Deliberately the VISIBLE list: in incognito mode a desktop popup carrying the title of a
+    // hidden session is exactly what the mode exists to prevent.
+    checkNotifications(data.sessions);
   } catch (_) {}
 }
 

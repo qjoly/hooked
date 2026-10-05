@@ -70,29 +70,29 @@
   }
   .gh-head { display: flex; align-items: flex-start; gap: 12px; }
   .gh-lnk { display: flex; flex-direction: column; gap: 3px; text-decoration: none; min-width: 0; flex: 1; }
-  .gh-label { font-weight: 700; font-size: 13.5px; color: var(--accent); }
+  .gh-label { font-weight: 700; font-size: var(--t-body); color: var(--accent); }
   .gh-lnk:hover .gh-label { text-decoration: underline; }
-  .gh-title { font-size: 13.5px; color: var(--text); }
-  .gh-url { font-family: var(--mono); font-size: 11.5px; color: var(--accent); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .gh-title { font-size: var(--t-body); color: var(--text); }
+  .gh-url { font-family: var(--mono); font-size: var(--t-meta); color: var(--accent); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .gh-right { display: flex; flex-direction: column; align-items: flex-end; gap: 5px; flex: 0 0 auto; }
   .gh-state {
-    font-family: var(--mono); font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .03em;
+    font-family: var(--mono); font-size: var(--t-micro); font-weight: 700; text-transform: uppercase; letter-spacing: .03em;
     padding: 2px 9px; border-radius: 20px; color: #fff; background: #6b7280;
   }
   .gh-state.s-open, .gh-state.r-approved { background: #2a9d63; }
   .gh-state.s-merged { background: #8250df; }
   .gh-state.s-closed, .gh-state.r-changes { background: #cf222e; }
   .gh-state.r-pending { background: #9a6700; }
-  .gh-author { font-family: var(--mono); font-size: 11.5px; color: var(--muted); }
-  .gh-muted { font-size: 11.5px; color: var(--muted); }
+  .gh-author { font-family: var(--mono); font-size: var(--t-meta); color: var(--muted); }
+  .gh-muted { font-size: var(--t-meta); color: var(--muted); }
   .gh-toggle {
     align-self: flex-start; background: none; border: none; color: var(--accent);
-    font: inherit; font-size: 12px; font-weight: 600; cursor: pointer; padding: 0;
+    font: inherit; font-size: var(--t-meta); font-weight: 600; cursor: pointer; padding: 0;
   }
   .gh-toggle:hover { text-decoration: underline; }
   .gh-body {
     margin: 0; padding: 12px 14px; background: var(--bg); border: 1px solid var(--border); border-radius: 9px;
-    font-size: 12.5px; line-height: 1.65; color: var(--text); word-break: break-word;
+    font-size: var(--t-ui); line-height: 1.65; color: var(--text); word-break: break-word;
     max-height: 320px; overflow: auto; white-space: pre-wrap;
   }
 </style>

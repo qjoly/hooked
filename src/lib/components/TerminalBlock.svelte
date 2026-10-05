@@ -85,18 +85,18 @@
   }
   .tb-ico { color: var(--muted); display: inline-flex; flex: 0 0 auto; }
   .tb-cmd {
-    font-family: var(--mono); font-size: 11.5px; font-weight: 600; color: var(--text);
+    font-family: var(--mono); font-size: var(--t-meta); font-weight: 600; color: var(--text);
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 1 1 auto;
   }
   /* `$` en tête de commande, dessiné plutôt qu'écrit : il ne part pas à la copie. */
   .tb-cmd::before { content: '$ '; color: var(--accent); font-weight: 700; }
   .tb-cwd {
-    flex: 0 0 auto; font-family: var(--mono); font-size: 10px; color: var(--muted);
+    flex: 0 0 auto; font-family: var(--mono); font-size: var(--t-micro); color: var(--muted);
     max-width: 34%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
   .tb-exit {
     flex: 0 0 auto; display: inline-flex; align-items: center; gap: 3px;
-    font-family: var(--mono); font-size: 10px; font-weight: 700;
+    font-family: var(--mono); font-size: var(--t-micro); font-weight: 700;
     color: var(--success); padding: 1px 5px; border-radius: 4px;
     background: var(--success-soft);
   }
@@ -110,17 +110,17 @@
 
   .tb-out {
     margin: 0; padding: 8px 10px; max-height: 320px; overflow: auto;
-    font-family: var(--mono); font-size: 11.5px; line-height: 1.5;
+    font-family: var(--mono); font-size: var(--t-meta); line-height: 1.5;
     color: var(--text); background: var(--bg3);
     white-space: pre-wrap; word-break: break-word;
   }
   .tb-empty {
-    padding: 6px 10px; font-family: var(--mono); font-size: 11px;
+    padding: 6px 10px; font-family: var(--mono); font-size: var(--t-micro);
     color: var(--muted); font-style: italic;
   }
   .tb-trunc {
     display: flex; align-items: center; gap: 5px;
     padding: 4px 10px; border-top: 1px solid var(--border);
-    font-family: var(--mono); font-size: 10px; color: var(--warn); background: var(--warn-soft);
+    font-family: var(--mono); font-size: var(--t-micro); color: var(--warn); background: var(--warn-soft);
   }
 </style>

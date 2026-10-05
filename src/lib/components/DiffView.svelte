@@ -710,8 +710,8 @@
 
 <style>
   .dv {
-    font-family: var(--mono); font-size: 12px; line-height: 1.55;
-    background: var(--code-bg); color: #c9cedb; overflow-x: hidden; position: relative;
+    font-family: var(--mono); font-size: var(--t-meta); line-height: 1.55;
+    background: var(--code-bg); color: var(--code-fg); overflow-x: hidden; position: relative;
   }
   .dv-row { display: grid; align-items: stretch; }
   .dv.unified .dv-row { grid-template-columns: 46px 46px 16px 1fr; }
@@ -731,10 +731,10 @@
   .dv.dv-mod .dv-code { cursor: pointer; }
 
   .dv-no {
-    text-align: right; padding: 0 8px; color: #5a6072; user-select: none;
-    font-size: 10.5px; background: rgba(255,255,255,.02); white-space: nowrap;
+    text-align: right; padding: 0 8px; color: var(--code-dim); user-select: none;
+    font-size: var(--t-micro); background: rgba(255,255,255,.02); white-space: nowrap;
   }
-  .dv-sign { text-align: center; user-select: none; color: #5a6072; }
+  .dv-sign { text-align: center; user-select: none; color: var(--code-dim); }
   /* long lines wrap (no horizontal scroll); in split, left/right share the grid row so their
      heights stay aligned even when wrapped. min-width:0 lets the 1fr tracks actually shrink. */
   .dv-code { padding: 0 10px 0 4px; white-space: pre-wrap; overflow-wrap: anywhere; tab-size: 2; min-width: 0; }
@@ -761,7 +761,7 @@
   .dv-plus {
     flex: 0 0 auto; width: 16px; height: 16px; margin: 1px 2px 0 2px; align-self: flex-start;
     border: none; border-radius: 4px; background: var(--accent); color: #fff;
-    font-size: 12px; line-height: 1; cursor: pointer; padding: 0; opacity: 0; transition: opacity .1s;
+    font-size: var(--t-meta); line-height: 1; cursor: pointer; padding: 0; opacity: 0; transition: opacity .1s;
   }
   .dv.unified .dv-plus { align-self: center; margin: 0; }
   .dv-row:hover .dv-plus, .dv-cell:hover .dv-plus { opacity: 1; }
@@ -782,11 +782,11 @@
   .dv-line .dv-code, .dv-cell:has(.dv-blame) .dv-code { flex: 0 1 auto; }
   .dv-blame {
     flex: 0 0 auto; width: 0; pointer-events: none; user-select: none;
-    color: #6a7180; font-size: 10.5px; font-style: italic; white-space: nowrap;
+    color: var(--code-mute); font-size: var(--t-micro); font-style: italic; white-space: nowrap;
   }
   .dv-blame::before { content: ''; display: inline-block; width: 10px; } /* gap, outside the box */
   .dv-blame.loading { opacity: .55; }
-  .dv-blame-who { color: #8b93a7; font-weight: 700; font-style: normal; }
+  .dv-blame-who { color: var(--code-soft); font-weight: 700; font-style: normal; }
   .dv-blame-who.wip { color: var(--accent); }
   .dv-blame-sep { opacity: .55; }
   .dv-blame-rev { opacity: .7; }
@@ -802,7 +802,7 @@
   .dv-gap-btn:hover { background: var(--accent); color: #fff; }
   .dv-gap-txt {
     background: none; border: none; padding: 1px 6px; border-radius: 4px;
-    color: #6a7180; font-family: inherit; font-size: 10.5px; cursor: pointer;
+    color: var(--code-mute); font-family: inherit; font-size: var(--t-micro); cursor: pointer;
   }
   .dv-gap-txt:hover { color: var(--accent); background: rgba(var(--accent-rgb), .12); }
 
@@ -814,7 +814,7 @@
   .dv-comments { background: rgba(255,255,255,.02); padding: 4px 12px 4px 52px; font-family: var(--font); }
   .dv-thread {
     margin: 4px 0; padding: 8px 10px;
-    background: var(--surface); border: 1px solid var(--border2); border-left: 3px solid var(--accent);
+    background: var(--surface); border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--border2));
     border-radius: 10px; display: flex; flex-direction: column; gap: 6px;
   }
   /* landing mark of a jump from the comment list — the scroll alone leaves you hunting for
@@ -832,9 +832,9 @@
     font: inherit; text-align: left;
   }
   .dv-thread-fold:hover { color: var(--text); }
-  .dv-bubble-anchor { font-family: var(--mono); font-size: 10.5px; font-weight: 700; color: var(--accent-d); }
+  .dv-bubble-anchor { font-family: var(--mono); font-size: var(--t-micro); font-weight: 700; color: var(--accent-d); }
   .dv-thread-badge {
-    font-family: var(--mono); font-size: 9.5px; font-weight: 700; text-transform: uppercase;
+    font-family: var(--mono); font-size: var(--t-micro); font-weight: 700; text-transform: uppercase;
     padding: 1px 7px; border-radius: 999px; display: inline-flex; align-items: center; gap: 3px;
   }
   .dv-thread-badge.pending { background: rgba(var(--accent-rgb), .14); color: var(--accent-d); }
@@ -842,62 +842,62 @@
   .dv-thread-actions { margin-left: auto; display: flex; gap: 6px; }
   .dv-tbtn {
     background: none; border: none; padding: 0 2px; cursor: pointer;
-    font-family: var(--mono); font-size: 10.5px; color: var(--muted);
+    font-family: var(--mono); font-size: var(--t-micro); color: var(--muted);
   }
   .dv-tbtn:hover { color: var(--text); }
   .dv-msg { display: flex; gap: 8px; align-items: baseline; }
-  .dv-msg-who { flex: 0 0 52px; font-family: var(--mono); font-size: 10px; font-weight: 700; color: var(--muted); text-align: right; }
+  .dv-msg-who { flex: 0 0 52px; font-family: var(--mono); font-size: var(--t-micro); font-weight: 700; color: var(--muted); text-align: right; }
   .dv-msg.claude .dv-msg-who { color: var(--accent-d); }
   /* No `white-space: pre-wrap` here: the text is rendered markdown (breaks:true already turns
      newlines into <br>), pre-wrap would re-render the whitespace BETWEEN the emitted tags. */
-  .dv-msg-text { flex: 1 1 auto; min-width: 0; font-size: 12.5px; color: var(--text); word-break: break-word; overflow-wrap: anywhere; }
+  .dv-msg-text { flex: 1 1 auto; min-width: 0; font-size: var(--t-ui); color: var(--text); word-break: break-word; overflow-wrap: anywhere; }
   /* markdown injected via {@html} → :global, same values as .bubble .md (see Plan.svelte). */
   .dv-msg-text :global(a) { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; word-break: break-all; }
   .dv-msg-text :global(a:hover) { color: var(--accent-d); }
-  .dv-msg-text :global(code) { font-family: var(--mono); font-size: 11.5px; }
+  .dv-msg-text :global(code) { font-family: var(--mono); font-size: var(--t-meta); }
   .dv-msg-text :global(:not(pre) > code) { background: var(--code-inline); padding: 1px 5px; border-radius: 5px; }
   .dv-msg-text :global(blockquote) { margin: 6px 0; padding: 2px 0 2px 12px; border-left: 3px solid rgba(var(--ink-rgb),.38); color: var(--muted); }
-  .dv-msg-text :global(table) { border-collapse: collapse; margin: 8px 0; font-size: 12px; max-width: 100%; }
+  .dv-msg-text :global(table) { border-collapse: collapse; margin: 8px 0; font-size: var(--t-meta); max-width: 100%; }
   .dv-msg-text :global(th), .dv-msg-text :global(td) { border: 1px solid rgba(var(--ink-rgb),.28); padding: 4px 9px; text-align: left; vertical-align: top; }
   .dv-msg-text :global(th) { background: rgba(var(--ink-rgb),.12); font-weight: 700; }
   .dv-reply-open {
     align-self: flex-start; margin-left: 60px; background: none; border: none; padding: 0;
-    color: var(--muted); font-size: 11.5px; cursor: pointer; font-family: var(--font);
+    color: var(--muted); font-size: var(--t-meta); cursor: pointer; font-family: var(--font);
   }
   .dv-reply-open:hover { color: var(--accent-d); }
   .dv-thread-snip {
     margin: 0 0 0 60px; padding: 6px 9px; border-radius: 8px; overflow-x: auto;
     background: var(--code-bg); border: 1px solid var(--border2);
-    font-family: var(--mono); font-size: 11px; line-height: 1.5; color: #8b93a7;
+    font-family: var(--mono); font-size: var(--t-micro); line-height: 1.5; color: var(--code-soft);
   }
   .dv-outdated { border-bottom: 1px solid var(--border); background: rgba(255,255,255,.015); padding-bottom: 2px; }
   .dv-outdated-head {
     display: flex; align-items: center; gap: 6px; padding: 6px 12px 2px;
-    font-family: var(--mono); font-size: 10.5px; font-weight: 700; color: var(--warning, #c98a1b);
+    font-family: var(--mono); font-size: var(--t-micro); font-weight: 700; color: var(--warning, #c98a1b);
   }
   .dv-thread-folded {
     display: flex; align-items: center; gap: 6px; width: 100%; margin: 4px 0; padding: 5px 10px;
-    background: var(--surface); border: 1px solid var(--border2); border-left: 3px solid var(--accent);
+    background: var(--surface); border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--border2));
     border-radius: 10px; cursor: pointer; text-align: left;
-    font-family: var(--mono); font-size: 10.5px; color: var(--muted);
+    font-family: var(--mono); font-size: var(--t-micro); color: var(--muted);
   }
   .dv-thread-folded:hover { border-color: var(--border); color: var(--text); }
-  .dv-thread-peek { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--font); font-size: 11.5px; opacity: .8; }
+  .dv-thread-peek { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--font); font-size: var(--t-meta); opacity: .8; }
   .dv-editor {
     margin: 4px 0; padding: 8px; background: var(--surface); border: 1px solid var(--accent); border-radius: 10px;
     display: flex; flex-direction: column; gap: 6px;
   }
-  .dv-editor-lbl { font-family: var(--mono); font-size: 10.5px; font-weight: 700; color: var(--muted); }
+  .dv-editor-lbl { font-family: var(--mono); font-size: var(--t-micro); font-weight: 700; color: var(--muted); }
   .dv-editor textarea {
     width: 100%; box-sizing: border-box; resize: vertical; min-height: 46px;
     background: var(--bg2, var(--surface)); color: var(--text); border: 1px solid var(--border2);
-    border-radius: 8px; font-family: var(--mono); font-size: 12px; line-height: 1.5; padding: 7px 9px;
+    border-radius: 8px; font-family: var(--mono); font-size: var(--t-meta); line-height: 1.5; padding: 7px 9px;
   }
   .dv-editor textarea:focus { outline: none; border-color: var(--accent); }
   .dv-editor-bar { display: flex; gap: 6px; justify-content: flex-end; }
   .dv-btn {
     border: 1px solid var(--border2); background: transparent; color: var(--muted);
-    border-radius: 8px; padding: 4px 12px; font-size: 12px; font-weight: 700; cursor: pointer; font-family: var(--mono);
+    border-radius: 8px; padding: 4px 12px; font-size: var(--t-meta); font-weight: 700; cursor: pointer; font-family: var(--mono);
   }
   .dv-btn.primary { border-color: var(--accent); background: var(--accent); color: #fff; }
   .dv-btn:hover { filter: brightness(1.08); }

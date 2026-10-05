@@ -3,7 +3,7 @@
   import { untrack } from 'svelte';
   import { goto } from '$app/navigation';
   import {
-    split, ui, data, sessionTitle, isSessionArchived,
+    split, ui, data, sessionTitle, isSessionArchived, isIncognito, toggleIncognitoMode,
     splitPanes, anchorSplit, setPaneSession, closePane, splitRight, splitDown, canSplit,
   } from '$lib/state.svelte.js';
   import SessionDetail from '$lib/components/SessionDetail.svelte';
@@ -15,6 +15,11 @@
   $effect(() => { const p = primary; untrack(() => anchorSplit(p)); });
   // remember the last visited session — the Sessions tab reopens it (persisted).
   $effect(() => { const p = primary; untrack(() => { if (p) ui.lastSessionId = p; }); });
+
+  // Incognito : filtrer les LISTES ne suffit pas, un pane rend sa session par id — sans ce garde
+  // la conversation privée reste affichée au moment même où on active le mode. Déclaratif à
+  // dessein (pas de redirection) : rien à défaire, et ça se corrige tout seul quand ui.meta arrive.
+  const hidden = (id) => !!(ui.incognito && id && !isIncognito(id));
 
   const cols = $derived(split.cols);
   const paneList = $derived(splitPanes());              // [{ id, col, row }]
@@ -124,7 +129,9 @@
                 {/if}
               </div>
               <div class="pane-body-wrap">
-                {#if r.id}
+                {#if hidden(r.id)}
+                  <div class="pane-empty">Hidden by incognito mode.</div>
+                {:else if r.id}
                   {#key r.id}
                     <SessionDetail id={r.id} inSplit focused={focusedId === r.id} />
                   {/key}
@@ -146,6 +153,11 @@
       {/if}
     {/each}
   </div>
+{:else if hidden(primary)}
+  <div class="incog-hidden">
+    <p>This session wasn't started in incognito mode, so it stays hidden.</p>
+    <button onclick={toggleIncognitoMode}>Leave incognito mode</button>
+  </div>
 {:else}
   {#key primary}
     <SessionDetail id={primary} />
@@ -158,6 +170,14 @@
   .group-shell { display: flex; flex-direction: column; height: 100%; min-height: 0; min-width: 0; }
   .group-body { flex: 1 1 auto; min-height: 0; min-width: 0; display: flex; flex-direction: column; }
   .group-body > :global(*) { flex: 1 1 auto; min-height: 0; }
+  .incog-hidden {
+    flex: 1 1 auto; display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 10px; color: var(--muted); font-size: var(--t-body); background: var(--panel);
+  }
+  .incog-hidden button {
+    border: 1px solid var(--border); background: var(--bg2); color: var(--text);
+    border-radius: 8px; padding: 6px 12px; font-size: var(--t-ui); cursor: pointer;
+  }
   .split-grid { display: flex; height: 100%; min-height: 0; min-width: 0; }
   .split-col { display: flex; min-width: 0; flex: 1 1 0; }
   .split-col-inner { display: flex; flex-direction: column; min-height: 0; min-width: 0; flex: 1 1 auto; }
@@ -173,7 +193,7 @@
     background: var(--bg2); border-bottom: 1px solid var(--border); min-width: 0;
   }
   .pane-pick {
-    flex: 0 1 auto; min-width: 0; max-width: 60%; font: inherit; font-size: 11.5px; font-weight: 600;
+    flex: 0 1 auto; min-width: 0; max-width: 60%; font: inherit; font-size: var(--t-meta); font-weight: 600;
     background: var(--input); border: 1px solid var(--border); border-radius: 7px; padding: 3px 7px; color: var(--text);
   }
   .pane-pick:focus { outline: none; border-color: var(--accent); }
@@ -181,7 +201,7 @@
   .pane-btn {
     flex: 0 0 auto; width: 24px; height: 24px; padding: 0; display: inline-flex; align-items: center; justify-content: center;
     border: 1px solid var(--border2); background: transparent; color: var(--muted);
-    border-radius: 6px; cursor: pointer; font-size: 12px; line-height: 1;
+    border-radius: 6px; cursor: pointer; font-size: var(--t-meta); line-height: 1;
   }
   .pane-btn:hover:not(:disabled) { background: var(--hover); color: var(--text); border-color: var(--accent); }
   .pane-btn:disabled { opacity: .35; cursor: default; }
@@ -189,7 +209,7 @@
 
   .pane-body-wrap { flex: 1 1 auto; min-height: 0; min-width: 0; display: flex; overflow: hidden; }
   .pane-body-wrap > :global(*) { flex: 1 1 auto; min-width: 0; }
-  .pane-empty { flex: 1 1 auto; display: flex; align-items: center; justify-content: center; color: var(--muted); font-size: 13px; }
+  .pane-empty { flex: 1 1 auto; display: flex; align-items: center; justify-content: center; color: var(--muted); font-size: var(--t-ui); }
 
   /* resize handles */
   .col-handle { flex: 0 0 6px; cursor: col-resize; background: var(--border); transition: background .12s; }

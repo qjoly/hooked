@@ -8,8 +8,8 @@
        thème (FOUC). Deux axes ORTHOGONAUX, tous deux relus ici :
        • clair/sombre — 'system' (défaut) → aucun attribut, prefers-color-scheme décide ;
          'light'/'dark' → data-theme forcé sur <html>.
-       • palette (color-scheme) — 'default' (défaut) → aucun attribut ; 'legacy' (crème/terracotta)
-         'datadog' (violet Datadog) et 'gruvbox' → data-scheme forcé.
+       • palette (color-scheme) — 'default' (défaut, café) → aucun attribut ; 'indigo' (ancien défaut), 'legacy' (crème/terracotta)
+         'datadog' (violet Datadog), 'gruvbox' et 'claude' (webui Claude) → data-scheme forcé.
        • coins — 'round' (défaut) → aucun attribut ; 'sharp' → data-corners, tout à angle vif.
        Doit rester synchro avec state.svelte.js. -->
   <script>
@@ -18,7 +18,7 @@
         var t = localStorage.getItem('hooked.theme');
         if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t);
         var s = localStorage.getItem('hooked.scheme');
-        if (s === 'legacy' || s === 'datadog' || s === 'gruvbox') document.documentElement.setAttribute('data-scheme', s);
+        if (s === 'indigo' || s === 'legacy' || s === 'datadog' || s === 'gruvbox' || s === 'claude') document.documentElement.setAttribute('data-scheme', s);
         var c = localStorage.getItem('hooked.corners');
         if (c === 'sharp') document.documentElement.setAttribute('data-corners', c);
       } catch (e) {}
@@ -30,8 +30,8 @@
   <link rel="apple-touch-icon" href="/icon-192.png" />
   <meta name="apple-mobile-web-app-title" content="hooked" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
-  <meta name="theme-color" media="(prefers-color-scheme: light)" content="#e7eaef" />
-  <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#101013" />
+  <meta name="theme-color" media="(prefers-color-scheme: light)" content="#1e1512" />
+  <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#110a09" />
   %sveltekit.head%
 </head>
 <body>

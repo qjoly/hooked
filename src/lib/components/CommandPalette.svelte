@@ -2,7 +2,7 @@
   import { copyText } from '$lib/clipboard.js';
   import { goto } from '$app/navigation';
   import { page } from '$app/state';
-  import { ui, data, settings, sessionTitle, setTheme, toggleFocus, toggleNotify, openModal, toggleArchive, isArchived } from '$lib/state.svelte.js';
+  import { ui, data, settings, sessionTitle, setTheme, toggleFocus, toggleNotify, toggleIncognitoMode, openModal, toggleArchive, isArchived } from '$lib/state.svelte.js';
   import { editorFor } from '$lib/editors.js';
   import { interrupt, openInEditor, openInGhostty, resync, searchTranscripts } from '$lib/api.js';
   import { shortcutForCommand, formatKeys } from '$lib/shortcuts.js';
@@ -43,6 +43,7 @@
       { id: 'act:theme-dark', label: 'Theme: Dark', section: 'Appearance', icon: 'theme-dark', action: () => setTheme('dark') },
       { id: 'act:theme-system', label: 'Theme: System', section: 'Appearance', icon: 'theme-system', action: () => setTheme('system') },
       { id: 'act:focus', label: ui.focus ? 'Exit focus mode' : 'Enter focus mode', section: 'Actions', icon: 'focus', action: toggleFocus },
+      { id: 'act:incognito', label: ui.incognito ? 'Leave incognito mode' : 'Enter incognito mode (hide every other session)', section: 'Actions', icon: ui.incognito ? 'eye' : 'eye-off', action: toggleIncognitoMode },
       { id: 'act:notify', label: ui.notify ? 'Disable notifications' : 'Enable notifications', section: 'Actions', icon: ui.notify ? 'bell' : 'bell-off', action: toggleNotify },
       { id: 'act:trash', label: 'Open trash', section: 'Actions', icon: 'trash', action: () => openModal('trash') },
       { id: 'act:tools', label: `Tool details: ${ui.toolsOpen ? 'collapse all' : 'expand all'}`, section: 'Actions', icon: 'tool', action: () => { ui.toolsOpen = !ui.toolsOpen; } },
@@ -120,7 +121,10 @@
   const citationItems = $derived.by(() => {
     if (!hitsFor) return [];
     const byId = new Map(data.sessions.map((s) => [s.id, s]));
-    const shown = allCitations ? hits : hits.slice(0, CITATIONS_SHOWN);
+    // La recherche plein texte est serveur : elle ignore le mode incognito. On écarte donc ici les
+    // hits des sessions masquées — sinon un extrait de conversation privée s'affiche en pleine démo.
+    const pool = ui.incognito ? hits.filter((h) => byId.has(h.sessionId)) : hits;
+    const shown = allCitations ? pool : pool.slice(0, CITATIONS_SHOWN);
     const items = shown.map((h) => {
       const s = byId.get(h.sessionId);
       return {
@@ -132,7 +136,7 @@
         action: () => goto('/session/' + encodeURIComponent(h.sessionId) + (h.ts ? '#msg-' + encodeURIComponent(h.ts) : '')),
       };
     });
-    const rest = hits.length - shown.length;
+    const rest = pool.length - shown.length;
     if (rest > 0) {
       items.push({ id: 'hit:more', section: 'Citations', icon: 'chevron-down', label: `Show ${rest} more`, keepOpen: true, action: () => { allCitations = true; } });
     }
@@ -378,7 +382,7 @@
   .palette-label { flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .palette-detail {
     flex: 0 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-    color: var(--muted); font-size: 12px; max-width: 200px;
+    color: var(--muted); font-size: var(--t-meta); max-width: 200px;
   }
   .palette-shortcut {
     flex: 0 0 auto;
@@ -390,15 +394,15 @@
   .palette-item.citation .palette-icon { margin-top: 2px; }
   .citation-body { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
   .citation-snippet {
-    font-size: 13px; line-height: 1.4; color: var(--text);
+    font-size: var(--t-ui); line-height: 1.4; color: var(--text);
     display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
     word-break: break-word;
   }
   .citation-snippet :global(mark) {
-    background: var(--waiting); color: #2f2b23;
+    background: var(--waiting); color: var(--on-state);
     padding: 0 3px; border-radius: 3px; font-weight: 600;
   }
-  .citation-meta { font-size: 11px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .citation-meta { font-size: var(--t-micro); color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .palette-searching { padding: 6px 16px 10px; color: var(--muted); font: 13px/1.4 var(--font); }
   .palette-footer {
     display: flex; gap: 16px; padding: 8px 16px;

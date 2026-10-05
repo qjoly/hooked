@@ -26,17 +26,12 @@
   // ANSI restent celles d'un terminal sombre standard : les accents de l'UI en thème clair sont
   // calculés pour un fond clair et passent mal ici, et un `ls` ou un prompt doit ressembler à ce
   // qu'il donne dans n'importe quel autre terminal.
-  const TERM_FG = '#d6dae2';
   function readTheme() {
     if (typeof getComputedStyle === 'undefined' || !host) return null;
-    const bg = (getComputedStyle(document.documentElement).getPropertyValue('--code-bg') || '').trim();
-    return {
-      background: bg || '#0b0e14',
-      foreground: TERM_FG,
-      cursor: TERM_FG,
-      cursorAccent: bg || '#0b0e14',
-      selectionBackground: 'rgba(125,116,245,.35)',
-    };
+    const css = getComputedStyle(document.documentElement);
+    const v = (n, fallback) => (css.getPropertyValue(n) || '').trim() || fallback;
+    const bg = v('--code-bg', '#0b0e14'), fg = v('--code-fg', '#d6dae2');
+    return { background: bg, foreground: fg, cursor: fg, cursorAccent: bg, selectionBackground: v('--code-selection', 'rgba(125,116,245,.35)') };
   }
   function applyTheme() {
     if (!term) return;
@@ -193,7 +188,7 @@
   .term-host { width: 100%; height: 100%; }
   .term-closed {
     position: absolute; inset: auto 8px 6px auto;
-    font-family: var(--mono); font-size: 10px; color: var(--muted);
+    font-family: var(--mono); font-size: var(--t-micro); color: var(--muted);
     background: var(--bg3); border: 1px solid var(--border); border-radius: 4px; padding: 2px 6px;
   }
 </style>

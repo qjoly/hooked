@@ -102,18 +102,18 @@
   .gt:global(.drop-over) { box-shadow: inset 0 0 0 2px var(--accent); }
   .gt-name { display: flex; align-items: center; gap: 5px; flex: 0 1 auto; min-width: 0; max-width: 28%; color: var(--muted); }
   .gt-label {
-    background: none; border: none; padding: 2px 4px; font: inherit; font-size: 12px; font-weight: 800;
+    background: none; border: none; padding: 2px 4px; font: inherit; font-size: var(--t-meta); font-weight: 800;
     color: var(--text); cursor: text; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0;
   }
   .gt-input {
-    font: inherit; font-size: 12px; font-weight: 700; min-width: 0; width: 160px;
+    font: inherit; font-size: var(--t-meta); font-weight: 700; min-width: 0; width: 160px;
     background: var(--input); border: 1px solid var(--accent); border-radius: 6px; padding: 2px 6px; color: var(--text);
   }
   .gt-input:focus { outline: none; }
   .gt-tabs { display: flex; gap: 3px; flex: 1 1 auto; min-width: 0; overflow-x: auto; scrollbar-width: none; }
   .gt-tab {
     display: inline-flex; align-items: center; gap: 5px; flex: 0 1 auto; min-width: 0; max-width: 220px;
-    padding: 3px 6px 3px 8px; border-radius: 7px; cursor: pointer; font-size: 12px; font-weight: 600;
+    padding: 3px 6px 3px 8px; border-radius: 7px; cursor: pointer; font-size: var(--t-meta); font-weight: 600;
     color: var(--muted); border: 1px solid transparent;
   }
   .gt-tab:hover { background: var(--hover); color: var(--text); }
@@ -142,7 +142,7 @@
   }
   .gt-mi {
     display: flex; align-items: center; gap: 8px; width: 100%; text-align: left; background: none; border: none;
-    font: inherit; font-size: 12.5px; padding: 6px 8px; border-radius: 7px; color: var(--text); cursor: pointer;
+    font: inherit; font-size: var(--t-ui); padding: 6px 8px; border-radius: 7px; color: var(--text); cursor: pointer;
   }
   .gt-mi:hover { background: var(--hover); }
 </style>

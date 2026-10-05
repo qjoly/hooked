@@ -223,7 +223,7 @@
 <style>
   /* Side panels sans gap (anti-bulle) : sections affleurantes separees par des filets. */
   /* compteur d'agents d'un run, collé à droite de la ligne (le nom, lui, s'ellipse) */
-  .dnum { margin-left: auto; flex: 0 0 auto; font-family: var(--mono); font-size: 10px; color: var(--muted); }
+  .dnum { margin-left: auto; flex: 0 0 auto; font-family: var(--mono); font-size: var(--t-micro); color: var(--muted); }
   .dock {
     position: relative; border-left: 1px solid var(--border); background: var(--bg2);
     overflow-y: auto; display: flex; flex-direction: column; gap: 0; padding: 0;
@@ -234,7 +234,7 @@
   .dock-hide {
     position: absolute; top: 8px; right: 8px; z-index: 4; width: 22px; height: 22px; padding: 0;
     display: flex; align-items: center; justify-content: center; border: 1px solid var(--border2);
-    background: var(--bg2); color: var(--muted); border-radius: 7px; cursor: pointer; font-size: 12px; line-height: 1;
+    background: var(--bg2); color: var(--muted); border-radius: 7px; cursor: pointer; font-size: var(--t-meta); line-height: 1;
     opacity: 0; transition: opacity .12s, background .12s, color .12s;
   }
   .dock:hover .dock-hide { opacity: 1; }
@@ -244,17 +244,17 @@
   .dcard { border: none; border-radius: 0; background: transparent; border-bottom: 1px solid var(--border); overflow: hidden; flex: 0 0 auto; }
   .dh {
     display: flex; align-items: center; gap: 7px; width: 100%; padding: 10px 14px 7px;
-    background: none; border: none; font: 600 10px var(--mono); letter-spacing: .09em;
+    background: none; border: none; font: 750 var(--t-micro) var(--font); letter-spacing: .07em;
     text-transform: uppercase; color: var(--muted); cursor: pointer; text-align: left;
   }
   .dh:hover { color: var(--text); }
   .dh-ico { display: none; }
-  .dh-n { margin-left: auto; font-family: var(--mono); font-size: 10px; color: var(--muted); font-weight: 600; letter-spacing: 0; text-transform: none; }
-  .dh-chev { flex: 0 0 auto; color: var(--muted); font-size: 11px; transition: transform .12s; }
+  .dh-n { margin-left: auto; font-size: var(--t-micro); color: var(--muted); font-weight: 600; letter-spacing: 0; text-transform: none; font-variant-numeric: tabular-nums; }
+  .dh-chev { flex: 0 0 auto; color: var(--muted); font-size: var(--t-micro); transition: transform .12s; }
   .dh-chev.open { transform: rotate(180deg); }
   .dprog { height: 2px; background: var(--bg3); margin: 0 14px 6px; border-radius: 0; overflow: hidden; }
   .dprog i { display: block; height: 100%; background: var(--success); border-radius: 0; transition: width .3s; }
-  .db { padding: 2px 14px 11px; font-size: 11.5px; }
+  .db { padding: 2px 14px 11px; font-size: var(--t-meta); }
   .ditem { display: flex; gap: 7px; padding: 2px 0; color: var(--muted); min-width: 0; }
   .ditem.cur { color: var(--text); }
   .ditem.cur .dst { color: var(--working); }
@@ -262,19 +262,19 @@
   .ditem.done .dst { color: var(--success); }
   .dst { flex: 0 0 auto; }
   .dtxt { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .dtxt.mono { font-family: var(--mono); font-size: 10.5px; }
-  .dfile { display: flex; align-items: center; gap: 7px; padding: 2px 0; font-family: var(--mono); font-size: 10.5px; min-width: 0; }
+  .dtxt.mono { font-family: var(--mono); font-size: var(--t-micro); }
+  .dfile { display: flex; align-items: center; gap: 7px; padding: 2px 0; font-family: var(--mono); font-size: var(--t-micro); min-width: 0; }
   .dpath { color: var(--muted); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left; }
-  .dpm { margin-left: auto; flex: 0 0 auto; font-size: 9.5px; color: var(--muted); }
+  .dpm { margin-left: auto; flex: 0 0 auto; font-size: var(--t-micro); color: var(--muted); }
   .dmore {
     display: block; margin-top: 5px; background: none; border: none; padding: 0;
-    font: inherit; font-family: var(--mono); font-size: 10px; color: var(--accent-d); cursor: pointer;
+    font: inherit; font-family: var(--mono); font-size: var(--t-micro); color: var(--accent-d); cursor: pointer;
   }
   .dmore:hover { text-decoration: underline; }
   .dpills { display: flex; flex-wrap: wrap; gap: 5px; }
   .dpill {
     display: inline-flex; align-items: center; gap: 4px; text-decoration: none;
-    font-family: var(--mono); font-size: 10.5px; font-weight: 600; color: var(--muted);
+    font-family: var(--mono); font-size: var(--t-micro); font-weight: 600; color: var(--muted);
     background: transparent; border: 1px solid var(--border2); border-radius: 0; padding: 2px 7px;
   }
   .dpill.pr { color: var(--success); background: color-mix(in srgb, var(--success) 12%, transparent); }
