@@ -3,8 +3,9 @@
  * across browsers — the data model behind the redesign's decision queue (PR #74). Previously
  * this state lived per-browser in localStorage ('hooked.ui'.archived + 'hooked.snooze').
  * Shape: { [sessionId]: { archived?: true, snoozeUntil?: epochMs, groupOf?: id, groupAt?: epochMs,
- * groupName?: string } }. The server always re-normalizes: expired snoozes are pruned, empty
- * entries dropped — the file only keeps meaningful facts, and this layer is the source of truth.
+ * groupName?: string, incognito?: true } }. The server always re-normalizes: expired snoozes are
+ * pruned, empty entries dropped — the file only keeps meaningful facts, and this layer is the
+ * source of truth.
  *
  * Session groups: every session belongs to exactly one group. A lone session is an IMPLICIT
  * one-member group (nothing stored). A group is identified by its MOTHER session: each child
@@ -27,6 +28,10 @@ function cleanEntry(raw, now) {
   const o = raw && typeof raw === 'object' ? raw : {};
   const out = {};
   if (o.archived === true) out.archived = true;
+  // Incognito: the session was created while the dashboard was in incognito mode. The UI hides
+  // everything else when that mode is on (screen sharing) — the flag lives here, not in the
+  // browser, so the set survives a reload and follows the session across browsers.
+  if (o.incognito === true) out.incognito = true;
   const until = Number(o.snoozeUntil);
   if (Number.isFinite(until) && until > now) out.snoozeUntil = Math.min(until, now + MAX_SNOOZE_MS);
   if (typeof o.groupOf === 'string' && o.groupOf) {
@@ -110,6 +115,10 @@ function setSessionMeta(id, patch) {
     if (p.archived === true) merged.archived = true;
     else delete merged.archived;
   }
+  if ('incognito' in p) {
+    if (p.incognito === true) merged.incognito = true;
+    else delete merged.incognito;
+  }
   if ('snoozeUntil' in p) {
     if (p.snoozeUntil == null) delete merged.snoozeUntil;
     else merged.snoozeUntil = p.snoozeUntil;
@@ -129,6 +138,8 @@ const childrenOf = (map, motherId) => Object.keys(map)
   .filter((k) => map[k].groupOf === motherId)
   .sort((a, b) => (map[a].groupAt || 0) - (map[b].groupAt || 0));
 const checkId = (id) => { if (typeof id !== 'string' || !id) throw new Error('invalid session id'); };
+
+const isIncognitoSession = (id, map = readSessionMeta()) => !!(map[id] && map[id].incognito);
 
 // Mother of `id`'s group (`id` itself for a mother or a lone session).
 function groupMotherOf(id, map = readSessionMeta()) {
@@ -204,6 +215,6 @@ function renameGroup(id, name) {
 }
 
 export {
-  SESSION_META_FILE, readSessionMeta, writeSessionMeta, setSessionMeta,
+  SESSION_META_FILE, readSessionMeta, writeSessionMeta, setSessionMeta, isIncognitoSession,
   groupMotherOf, joinGroup, leaveGroup, setGroupMother, renameGroup,
 };
