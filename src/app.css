@@ -13,13 +13,284 @@
   src: url('/fonts/PublicSans-Variable.woff2') format('woff2');
   font-weight: 100 900; font-style: normal; font-display: swap;
 }
+/* Schibsted Grotesk — the coffee world's UI face: a workhorse grotesk with a warm, inked cut and
+   real tabular figures. Bricolage Grotesque carries titles and big figures only. Both bundled
+   (latin, variable), served from static/ like the faces above — nothing is fetched at runtime. */
+@font-face {
+  font-family: 'Schibsted Grotesk';
+  src: url('/fonts/SchibstedGrotesk-Variable.woff2') format('woff2');
+  font-weight: 400 900; font-style: normal; font-display: swap;
+}
+@font-face {
+  font-family: 'Schibsted Grotesk';
+  src: url('/fonts/SchibstedGrotesk-Italic-Variable.woff2') format('woff2');
+  font-weight: 400 900; font-style: italic; font-display: swap;
+}
+@font-face {
+  font-family: 'Bricolage Grotesque';
+  src: url('/fonts/BricolageGrotesque-Variable.woff2') format('woff2');
+  font-weight: 200 800; font-stretch: 75% 100%; font-style: normal; font-display: swap;
+}
 
-/* ─── Design tokens — "inbox + cockpit" redesign (indigo / cool-gray) ────────────────────────
+
+/* ─── Design tokens — « La Roue des arômes » (coffee, the default world) ──────────────────────
+   Two neutral families taken from the bean's own transformation: RAW green coffee paints the
+   space (sage ground, porcelain cards), ROASTED espresso paints the ink and the chrome (text, top
+   bar, primary actions). The dark theme swaps them: espresso grounds, raw-sage ink.
+   Colour is reserved for meaning. Each live state is one family of the coffee taster's flavour
+   wheel and nothing else wears its hue: fruity cherry = attention, caramel = waiting, vegetal
+   green = working, floral lilac = background, roasted brown = ended, papery grey-blue = idle.
+   Interaction is espresso in light, latte in dark, never a hue that could be mistaken for a state.
+   Every text pairing below was measured (AA, both themes); the `-ink` variants are the readable
+   form of a state hue, the bare hue is for dots, rings and fills. */
+:root {
+  color-scheme: light;
+  /* The roast scale: ONE neutral family, raw green coffee (r0) to espresso (r14). Every neutral
+     token of both themes below is a step of it — no grey exists outside this ladder. */
+  --r0: #fbfbf8; --r1: #f2f3ec; --r2: #e9ebdf; --r3: #e3e4d7; --r4: #dadacd;
+  --r5: #c7c4b7; --r6: #aaa497; --r7: #6e6056; --r8: #4d3f37; --r9: #3a2d27;
+  --r10: #2f231f; --r11: #261b18; --r12: #1e1512; --r13: #18110e; --r14: #110a09;
+  --fg: var(--r13);
+  --card: #ffffff;
+  --hover: var(--r1);
+  --input: var(--r1);
+  --chip: var(--r3);
+  --accent-fg: var(--r0);
+  --code-bg: var(--r12);
+  --warn: #e1901f;  --warn-soft: #fbefe0;      /* sweet: caramel */
+  --info: #418d50;  --info-soft: #e8f1ea;      /* vegetal: leaf */
+  --success: #418d50; --success-soft: #e8f1ea;
+  --danger: #c43d4d; --danger-soft: #f9eaeb;   /* fruity: cherry */
+  --bg: var(--r2);      /* raw green coffee: the page */
+  --bg2: #ffffff;       /* porcelain: panels, headers */
+  --bg3: var(--r3);
+  --panel: var(--r2);
+  --surface: var(--card);
+  --border: var(--r4);
+  --border2: var(--r5);
+  --text: var(--fg);
+  --muted: var(--r7);   /* 6.05:1 on white · 5.02:1 on --bg · 4.71:1 on --bg3 */
+  --accent: var(--r11); /* espresso */
+  --accent-d: var(--r9);
+  --accent-soft: #f3e5d9;
+  --waiting-ink: #8b5500;
+  --attention-ink: #a12437;
+  --success-ink: #256b35;
+  --working-ink: #256b35;
+  --bgjob-ink: #804293;
+  --ended-ink: #724a34;
+  --working: var(--info);
+  --waiting: var(--warn);
+  --attention: var(--danger);
+  --background: #9e59b3;  /* floral: lilac */
+  --idle: #92a1a9;        /* papery */
+  --ended: #96684f;       /* roasted */
+  --past: var(--r5);
+  --link: #76482d;
+  --on-state: var(--r13);  /* ink set ON a bright state fill (caramel badge, waiting chip) */
+  --mono: "JetBrains Mono Web", ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  /* Barème typographique — sept registres, chacun avec un métier, là où vingt-deux tailles se
+     disputaient la même bande de 8,5 à 15px. Les écarts d'un pixel entre micro / meta / ui sont
+     délibérés : ces trois-là cohabitent sur une même ligne de console et doivent se distinguer
+     sans élever la voix, la hiérarchie venant autant de la graisse et de la couleur. */
+  --t-micro: 11px;    /* ce qui se compte : compteurs, jauges, badges, codes courts */
+  --t-meta: 12px;     /* ce qui accompagne : horodatages, chemins, légendes */
+  --t-ui: 13px;       /* ce qu'on actionne : onglets, boutons, cellules, champs */
+  --t-body: 14px;     /* ce qu'on lit : conversation, markdown, descriptions */
+  --t-title: 16px;    /* titres de carte, de section, de modale */
+  --t-head: 21px;     /* titre de page */
+  --t-display: 27px;  /* les grands nombres des Stats */
+  /* Interlignages appariés. Le corps hérite de 1.5 ; ces trois-là reserrent, parce qu'un titre sur
+     deux lignes à 1.5 se lit comme deux titres, et qu'un nombre de 27px n'a aucune ligne suivante. */
+  --lh-body: 1.62;
+  --lh-title: 1.3;
+  --lh-head: 1.2;
+  --lh-display: 1.1;
+  --font: "Schibsted Grotesk", -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  /* Titles and big figures only: its optical sizes are drawn for display, never for running text. */
+  --font-display: "Bricolage Grotesque", var(--font);
+  --shadow: 0 1px 2px rgba(var(--shadow-rgb),.06), 0 10px 26px -16px rgba(var(--shadow-rgb),.32);
+  --shadow-sm: 0 1px 2px rgba(var(--shadow-rgb),.08);
+  --accent-rgb: 38,27,24;
+  --info-rgb: 65,141,80;
+  --warn-rgb: 225,144,31;
+  --danger-rgb: 196,61,77;
+  --bgjob-rgb: 158,89,179;
+  --success-rgb: 65,141,80;
+  --ink-rgb: 110,96,86;
+  --shadow-rgb: 24,17,14;
+  --overlay: rgba(24,17,14,.42);
+  --code-inline: rgba(var(--ink-rgb),.14);
+  --track-dark: rgba(24,17,14,.07);
+  --code-surface: var(--r12);
+  --code-head: var(--r11);
+  /* inks on the espresso code surface (diff, file view, terminal, logs) */
+  --code-fg: #e8e1d6;
+  --code-dim: #8f8276;
+  --code-mute: #a3978b;
+  --code-soft: #c2b7aa;
+  --code-selection: rgba(228,205,177,.3);
+  /* Roast grain: the matte of raw green coffee on the ground (the bar stays a flat espresso).
+     Local SVG noise, nothing fetched. */
+  --grain: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='220' height='220'><filter id='g'><feTurbulence type='fractalNoise' baseFrequency='.95' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 .28  0 0 0 0 .22  0 0 0 0 .14  0 0 0 .5 -.21'/></filter><rect width='100%25' height='100%25' filter='url(%23g)'/></svg>");
+  /* The espresso bar: the one committed surface of the shell, identical in both themes. */
+  --shell-bg: var(--r12);
+  --shell-fg: var(--r1);
+  --shell-muted: var(--r6);
+  --shell-line: rgba(242,243,236,.09);
+  --shell-hover: rgba(242,243,236,.08);
+  --shell-input: rgba(242,243,236,.07);
+  --shell-accent: #e4cdb1;    /* latte */
+  --shell-accent-d: #efdfc8;
+  --shell-accent-fg: var(--r12);
+  --shell-tab: #e4cdb1;
+  /* Icons keep a hue only when it means something (danger, warning, done); see Icon.svelte. */
+  --icon-tint: currentColor;
+  --bubble-user-bg: var(--r11);
+  --bubble-user-fg: var(--r0);
+  /* Single-series charts ink in espresso (latte in dark); a multi-series chart sets --series per row. */
+  --bar-fill: var(--accent);
+  --bar-fill-v: var(--accent);
+  /* Project lots and tags live in the hue bands NO state owns (olive, teal, blue, raspberry), so a
+     project or a tag can never read as a state. Lots are drawn as a 2:1 tab, a shape no state uses;
+     four bands × two lightness steps, so two lots sharing a band still part at a glance (≥3.2:1 on
+     the ground, ≥3.9:1 on porcelain).
+     Tags are inks readable on their 13% tint (≥5:1). */
+  --lot-0: #918112; --lot-1: #524806; --lot-2: #0d8d82; --lot-3: #004e4e;
+  --lot-4: #2b519c; --lot-5: #b3487e; --lot-6: #4b7bc0; --lot-7: #75254e;
+  --tag-0: #665d00; --tag-1: #006f5d; --tag-2: #006c7b; --tag-3: #005f99; --tag-4: #41559e; --tag-5: #8a3a64;
+}
+
+/* coffee — dark theme. Two activation paths, identical values (system preference unless the user
+   forced light; or an explicit data-theme="dark"). */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --fg: var(--r1);
+    --card: var(--r11);
+    --hover: var(--r10);
+    --input: var(--r10);
+    --chip: var(--r10);
+    --accent-fg: var(--r13);
+    --code-bg: var(--r14);
+    --warn: #f5ad5a;  --warn-soft: #473223;
+    --info: #70c47e;  --info-soft: #323628;
+    --success: #70c47e; --success-soft: #323628;
+    --danger: #ed737b; --danger-soft: #462928;
+    --bg: var(--r13);
+    --bg2: var(--r12);
+    --bg3: var(--r10);
+    --panel: var(--r13);
+    --border: var(--r9);
+    --border2: var(--r8);
+    --muted: var(--r6);
+    --accent: #e4cdb1;
+    --accent-d: #efdfc8;
+    --accent-soft: #3a2a1f;
+    --waiting-ink: var(--waiting);
+    --attention-ink: var(--attention);
+    --success-ink: var(--success);
+    --working-ink: var(--working);
+    --bgjob-ink: var(--background);
+    --ended-ink: var(--ended);
+    --background: #ca92dc;
+    --idle: #6f7d84;
+    --ended: #be947d;
+    --past: var(--r8);
+    --link: #d9ad8a;
+    --accent-rgb: 228,205,177;
+    --info-rgb: 112,196,126;
+    --warn-rgb: 245,173,90;
+    --danger-rgb: 237,115,123;
+    --bgjob-rgb: 202,146,220;
+    --success-rgb: 112,196,126;
+    --ink-rgb: 170,164,151;
+    --shadow-rgb: 0,0,0;
+    --shadow: 0 1px 2px rgba(0,0,0,.4), 0 12px 28px -14px rgba(0,0,0,.7);
+    --shadow-sm: 0 1px 2px rgba(0,0,0,.45);
+    --overlay: rgba(8,5,4,.62);
+    --code-inline: rgba(255,255,255,.08);
+    --track-dark: rgba(242,243,236,.1);
+    --code-surface: var(--r14);
+    --code-head: var(--r13);
+    --shell-bg: var(--r14);
+    --grain: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='220' height='220'><filter id='g'><feTurbulence type='fractalNoise' baseFrequency='.95' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 .95  0 0 0 0 .9  0 0 0 0 .82  0 0 0 .38 -.16'/></filter><rect width='100%25' height='100%25' filter='url(%23g)'/></svg>");
+    --shell-line: rgba(242,243,236,.08);
+    --bubble-user-bg: var(--r9);
+    --bubble-user-fg: #f2f3ec;
+    --lot-0: #c8b962; --lot-1: #8d813d; --lot-2: #68c4b8; --lot-3: #428787; --lot-4: #7398dc; --lot-5: #e88db6; --lot-6: #9ec0f2; --lot-7: #b26387;
+    --tag-0: #c6c17c; --tag-1: #78d1c0; --tag-2: #71cfd9; --tag-3: #8cc4f4; --tag-4: #a7bbf9; --tag-5: #eba6c6;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --fg: var(--r1);
+  --card: var(--r11);
+  --hover: var(--r10);
+  --input: var(--r10);
+  --chip: var(--r10);
+  --accent-fg: var(--r13);
+  --code-bg: var(--r14);
+  --warn: #f5ad5a;  --warn-soft: #473223;
+  --info: #70c47e;  --info-soft: #323628;
+  --success: #70c47e; --success-soft: #323628;
+  --danger: #ed737b; --danger-soft: #462928;
+  --bg: var(--r13);
+  --bg2: var(--r12);
+  --bg3: var(--r10);
+  --panel: var(--r13);
+  --border: var(--r9);
+  --border2: var(--r8);
+  --muted: var(--r6);
+  --accent: #e4cdb1;
+  --accent-d: #efdfc8;
+  --accent-soft: #3a2a1f;
+  --waiting-ink: var(--waiting);
+  --attention-ink: var(--attention);
+  --success-ink: var(--success);
+  --working-ink: var(--working);
+  --bgjob-ink: var(--background);
+  --ended-ink: var(--ended);
+  --background: #ca92dc;
+  --idle: #6f7d84;
+  --ended: #be947d;
+  --past: var(--r8);
+  --link: #d9ad8a;
+  --accent-rgb: 228,205,177;
+  --info-rgb: 112,196,126;
+  --warn-rgb: 245,173,90;
+  --danger-rgb: 237,115,123;
+  --bgjob-rgb: 202,146,220;
+  --success-rgb: 112,196,126;
+  --ink-rgb: 170,164,151;
+  --shadow-rgb: 0,0,0;
+  --shadow: 0 1px 2px rgba(0,0,0,.4), 0 12px 28px -14px rgba(0,0,0,.7);
+  --shadow-sm: 0 1px 2px rgba(0,0,0,.45);
+  --overlay: rgba(8,5,4,.62);
+  --code-inline: rgba(255,255,255,.08);
+  --track-dark: rgba(242,243,236,.1);
+  --code-surface: var(--r14);
+  --code-head: var(--r13);
+  --shell-bg: var(--r14);
+  --grain: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='220' height='220'><filter id='g'><feTurbulence type='fractalNoise' baseFrequency='.95' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 .95  0 0 0 0 .9  0 0 0 0 .82  0 0 0 .38 -.16'/></filter><rect width='100%25' height='100%25' filter='url(%23g)'/></svg>");
+  --shell-line: rgba(242,243,236,.08);
+  --bubble-user-bg: var(--r9);
+  --bubble-user-fg: #f2f3ec;
+  --lot-0: #c8b962; --lot-1: #8d813d; --lot-2: #68c4b8; --lot-3: #428787; --lot-4: #7398dc; --lot-5: #e88db6; --lot-6: #9ec0f2; --lot-7: #b26387;
+  --tag-0: #c6c17c; --tag-1: #78d1c0; --tag-2: #71cfd9; --tag-3: #8cc4f4; --tag-4: #a7bbf9; --tag-5: #eba6c6;
+}
+
+/* ─── Base of every color scheme — the former indigo default ─────────────────────────────────
+   Until the coffee world, these values were `:root`. They now match `:root[data-scheme]`: any
+   scheme attribute (indigo, legacy, datadog, gruvbox, claude) restores them first, so each scheme
+   keeps sitting on exactly the layer it was written against. `indigo` adds nothing on top: it IS
+   this block. Specificity (0,2,0) light / (0,3,0) dark, equal to the scheme blocks below — this
+   block must therefore stay ABOVE them in the file.
    Canonical hex live on the redesign's semantic names (--fg, --card, --hover, --chip, --warn…);
    the app's legacy names (--text, --bg2, --bg3, --surface, --working…) alias onto them so every
    existing component recolors for free. RGB-triplet tokens (--accent-rgb…) let the many
    `rgba(<triplet>, <alpha>)` call sites keep their alpha while switching hue. */
-:root {
+:root[data-scheme] {
   color-scheme: light;
   /* redesign semantic surfaces */
   --fg: #181b20;
@@ -42,10 +313,22 @@
   --border: #d3d8e0;
   --border2: #bcc3cd;
   --text: var(--fg);
-  --muted: #656d79;   /* ~5:1 on white — AA legible (was #8b929e, ~3.1:1) */
+  /* Mesuré sur les quatre surfaces où ce gris sert réellement, pas seulement sur blanc : l'ancien
+     #656d79 tombait à 4,18:1 sur --bg3 et 4,34:1 sur --panel. Plancher retenu 4,85:1, pour garder
+     une marge que l'antialiasing ne mange pas. */
+  --muted: #5c636e;   /* 6,06:1 sur blanc · 5,03:1 sur --panel · 4,85:1 sur --bg3 */
   --accent: #4f46e5;    /* indigo */
   --accent-d: #4338ca;  /* darker indigo (hover) */
   --accent-soft: #eceafe;
+  /* Une couleur d'état a deux métiers que rien n'obligeait à confondre : peindre une pastille,
+     et écrire le mot qui nomme l'état. Le premier veut de l'éclat, le second de la lisibilité —
+     et sur fond clair les deux s'excluent. Les `-ink` sont la variante écrite, mesurée ≥4,8:1 sur
+     blanc, sur --panel et sur --accent-soft. En sombre, les teintes vives passent déjà : les deux
+     métiers s'y réconcilient, donc l'encre y est la teinte elle-même. */
+  --waiting-ink: #845f12;
+  --attention-ink: #b23d32;
+  --success-ink: #1f7348;
+  --working-ink: #2f689d;
   /* status colors → alias onto redesign semantics */
   --working: var(--info);
   --waiting: var(--warn);
@@ -72,6 +355,37 @@
   --code-inline: rgba(var(--ink-rgb),.16);
   --track-dark: rgba(0,0,0,.06);
 
+  /* Tokens born with the coffee world, neutralised: a scheme keeps the look it was designed with. */
+  --font-display: var(--font);
+  --link: var(--accent);
+  --bgjob-ink: var(--background);
+  --ended-ink: var(--ended);
+  --code-surface: #12151b;
+  --code-head: #161a21;
+  --shell-bg: var(--bg2);
+  --shell-fg: var(--text);
+  --shell-muted: var(--muted);
+  --shell-line: var(--border);
+  --shell-hover: var(--hover);
+  --shell-input: var(--input);
+  --shell-accent: var(--accent);
+  --shell-accent-d: var(--accent-d);
+  --shell-accent-fg: var(--accent-fg);
+  --shell-tab: initial;
+  --icon-tint: initial;
+  --bubble-user-bg: var(--accent);
+  --bubble-user-fg: #fff;
+  --bar-fill: linear-gradient(90deg, var(--accent), #7d74f5);
+  --bar-fill-v: linear-gradient(180deg, #7d74f5, var(--accent));
+  --tag-0: #c27a12; --tag-1: #0f8a7e; --tag-2: #2a9d63; --tag-3: #c62a9e; --tag-4: #7c4bd0; --tag-5: #d1493a;
+  --code-fg: #c9cedb; --code-dim: #5a6072; --code-mute: #6a7180; --code-soft: #8b93a7;
+  --code-selection: rgba(125,116,245,.35);
+  --grain: none;
+  /* Project lots are a coffee-world device: hidden elsewhere, and charts fall back to the bar fill. */
+  --lot-display: none;
+  --lot-0: var(--bar-fill); --lot-1: var(--bar-fill); --lot-2: var(--bar-fill);
+  --lot-3: var(--bar-fill); --lot-4: var(--bar-fill); --lot-5: var(--bar-fill);
+  --lot-6: var(--bar-fill); --lot-7: var(--bar-fill);
 }
 
 /* ─── Dark theme ────────────────────────────────────────────────────────────────────────────
@@ -79,7 +393,7 @@
    1. system `prefers-color-scheme: dark`, unless the user forced light (`data-theme="light"`).
    2. explicit `data-theme="dark"` on <html> (theme control + anti-FOUC script in app.html). */
 @media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
+  :root[data-scheme]:not([data-theme="light"]) {
     color-scheme: dark;
     --fg: #ececee;
     --card: #1a1a1e;
@@ -100,6 +414,13 @@
     --muted: #a7a7b2;
     --accent: #7d74f5;
     --accent-d: #918af7;
+    /* Blanc sur cet indigo-là ne fait que 3,69:1 — le bouton primaire était le texte le moins
+       lisible de la carte. L'encre passe au sombre : 5,05:1 sur --accent, 6,38:1 au survol. */
+    --accent-fg: #13111d;
+    --waiting-ink: var(--waiting);
+    --attention-ink: var(--attention);
+    --success-ink: var(--success);
+    --working-ink: var(--working);
     --accent-soft: #26243a;
     --background: #a992e0;
     --idle: #6a6a74;
@@ -119,7 +440,7 @@
 
   }
 }
-:root[data-theme="dark"] {
+:root[data-scheme][data-theme="dark"] {
   color-scheme: dark;
   --fg: #ececee;
   --card: #1a1a1e;
@@ -140,6 +461,13 @@
   --muted: #a7a7b2;
   --accent: #7d74f5;
   --accent-d: #918af7;
+  /* Blanc sur cet indigo-là ne fait que 3,69:1 — le bouton primaire était le texte le moins
+     lisible de la carte. L'encre passe au sombre : 5,05:1 sur --accent, 6,38:1 au survol. */
+  --accent-fg: #13111d;
+  --waiting-ink: var(--waiting);
+  --attention-ink: var(--attention);
+  --success-ink: var(--success);
+  --working-ink: var(--working);
   --accent-soft: #26243a;
   --background: #a992e0;
   --idle: #6a6a74;
@@ -435,6 +763,190 @@
   --track-dark: rgba(235,219,178,.1);
 
 }
+/* ─── Color scheme « claude » — la webui de Claude Desktop ────────────────────────────────────
+   Même axe orthogonal que legacy / datadog / gruvbox. Ce que cette interface fait et que les
+   autres schemes du projet ne font pas : elle recule. L'ivoire chaud (#faf9f5) n'est pas un fond
+   décoratif, c'est ce qui permet aux bordures de descendre si bas sans que la structure se
+   perde — un gris froid à ce niveau de contraste donnerait une page délavée, un ivoire donne du
+   papier. L'argile (#b14f32) est le seul accent, et il est rare.
+
+   Deux écarts assumés par rapport à claude.ai :
+   • l'argile y est plus claire (#c96442) ; à cette valeur elle tombe à 3,9:1 sur blanc, donc
+     sous AA pour du texte. On garde la teinte, on descend la luminosité jusqu'à 5,21:1.
+   • en sombre, --accent reste le #d97757 de claude.ai pour les REMPLISSAGES (l'encre sombre
+     dessus donne 5,33:1), mais --accent-d est éclairci pour le texte sur fond de carte. */
+:root[data-scheme="claude"] {
+  color-scheme: light;
+  --fg: #141413;
+  --card: #ffffff;
+  --hover: #f0eee6;
+  --input: #f5f3ec;
+  --chip: #eae7dc;
+  --accent-fg: #ffffff;
+  --code-bg: #262624;
+  --warn: #c08a1a;  --warn-soft: #f6efdc;
+  --info: #3d7fa6;  --info-soft: #e4eef3;
+  --success: #3a8c5f; --success-soft: #e4f0e8;
+  --danger: #c05c45; --danger-soft: #f8e9e4;
+  --bg: #f0eee6;
+  --bg2: #ffffff;
+  --bg3: #eae7dc;
+  --panel: #faf9f5;
+  --border: #e8e5db;
+  --border2: #d6d2c4;
+  --muted: #6b6760;
+  --accent: #b14f32;
+  --accent-d: #97402a;
+  --accent-soft: #f6e8e1;
+  --waiting-ink: #8a5a16;
+  --attention-ink: #a8402f;
+  --success-ink: #2c6b47;
+  --working-ink: #2d6382;
+  --background: #7a5ea8;
+  --idle: #b5b0a4;
+  --past: #cbc6b8;
+  --accent-rgb: 177,79,50;
+  --info-rgb: 61,127,166;
+  --warn-rgb: 192,138,26;
+  --danger-rgb: 192,92,69;
+  --bgjob-rgb: 122,94,168;
+  --success-rgb: 58,140,95;
+  --ink-rgb: 122,116,104;
+  --shadow-rgb: 40,38,34;
+  --overlay: rgba(31,30,29,.38);
+  --track-dark: rgba(40,38,34,.07);
+}
+
+/* claude — variante sombre (deux voies, mêmes valeurs), cf. les blocs default/legacy ci-dessus. */
+@media (prefers-color-scheme: dark) {
+  :root[data-scheme="claude"]:not([data-theme="light"]) {
+    color-scheme: dark;
+    --fg: #f5f4ef;
+    --card: #30302e;
+    --hover: #3a3a37;
+    --input: #353532;
+    --chip: #3a3a37;
+    --accent-fg: #1f1e1d;
+    --code-bg: #171716;
+    --warn: #d9a441;  --warn-soft: #332a17;
+    --info: #6fa8d4;  --info-soft: #1b2833;
+    --success: #6cc08a; --success-soft: #1a2a20;
+    --danger: #e8705c; --danger-soft: #331f1b;
+    --bg: #1f1e1d;
+    --bg2: #30302e;
+    --bg3: #3a3a37;
+    --panel: #262624;
+    --border: #3d3d3a;
+    --border2: #4e4e4a;
+    --muted: #a8a39a;
+    --accent: #d97757;
+    --accent-d: #e99477;
+    --accent-soft: #3a2a24;
+    --waiting-ink: #d9a441;
+    --attention-ink: #ff866e;
+    --success-ink: #6cc08a;
+    --working-ink: #6fa8d4;
+    --background: #a98fd4;
+    --idle: #6b6862;
+    --past: #4e4e4a;
+    --accent-rgb: 217,119,87;
+    --info-rgb: 111,168,212;
+    --warn-rgb: 217,164,65;
+    --danger-rgb: 232,112,92;
+    --bgjob-rgb: 169,143,212;
+    --success-rgb: 108,192,138;
+    --ink-rgb: 150,145,136;
+    --shadow-rgb: 0,0,0;
+    --overlay: rgba(15,14,13,.55);
+    --track-dark: rgba(0,0,0,.22);
+  }
+}
+:root[data-scheme="claude"][data-theme="dark"] {
+  color-scheme: dark;
+  --fg: #f5f4ef;
+  --card: #30302e;
+  --hover: #3a3a37;
+  --input: #353532;
+  --chip: #3a3a37;
+  --accent-fg: #1f1e1d;
+  --code-bg: #171716;
+  --warn: #d9a441;  --warn-soft: #332a17;
+  --info: #6fa8d4;  --info-soft: #1b2833;
+  --success: #6cc08a; --success-soft: #1a2a20;
+  --danger: #e8705c; --danger-soft: #331f1b;
+  --bg: #1f1e1d;
+  --bg2: #30302e;
+  --bg3: #3a3a37;
+  --panel: #262624;
+  --border: #3d3d3a;
+  --border2: #4e4e4a;
+  --muted: #a8a39a;
+  --accent: #d97757;
+  --accent-d: #e99477;
+  --accent-soft: #3a2a24;
+  --waiting-ink: #d9a441;
+  --attention-ink: #ff866e;
+  --success-ink: #6cc08a;
+  --working-ink: #6fa8d4;
+  --background: #a98fd4;
+  --idle: #6b6862;
+  --past: #4e4e4a;
+  --accent-rgb: 217,119,87;
+  --info-rgb: 111,168,212;
+  --warn-rgb: 217,164,65;
+  --danger-rgb: 232,112,92;
+  --bgjob-rgb: 169,143,212;
+  --success-rgb: 108,192,138;
+  --ink-rgb: 150,145,136;
+  --shadow-rgb: 0,0,0;
+  --overlay: rgba(15,14,13,.55);
+  --track-dark: rgba(0,0,0,.22);
+}
+
+/* claude — le « style » : ce scheme ne change pas que la palette. L'interface de Claude tient
+   par le vide et le rayon, pas par le trait : les cartes y sont plus rondes, les ombres quasi
+   absentes, et les séparateurs se devinent plutôt qu'ils ne se lisent. */
+:root[data-scheme="claude"] {
+  --shadow: 0 2px 10px -8px rgba(var(--shadow-rgb),.22);
+  --shadow-sm: 0 1px 2px rgba(var(--shadow-rgb),.05);
+}
+:root[data-scheme="claude"] .tcard,
+:root[data-scheme="claude"] .fcard,
+:root[data-scheme="claude"] .change,
+:root[data-scheme="claude"] .question,
+:root[data-scheme="claude"] .plan-card { border-radius: 16px; }
+:root[data-scheme="claude"] .tbtn,
+:root[data-scheme="claude"] .tfollow-send,
+:root[data-scheme="claude"] .tb-new,
+:root[data-scheme="claude"] .reply-send { border-radius: 10px; }
+/* La pastille d'état redevient un lavis : un bloc plein d'argile dans cette palette crie. */
+:root[data-scheme="claude"] .tkind {
+  background: color-mix(in srgb, currentColor 13%, transparent) !important;
+  letter-spacing: .08em;
+}
+:root[data-scheme="claude"] .tkind.tk-q { color: var(--accent); }
+:root[data-scheme="claude"] .tkind.tk-plan,
+:root[data-scheme="claude"] .tkind.tk-wait { color: var(--waiting-ink); }
+:root[data-scheme="claude"] .tkind.tk-perm { color: var(--attention-ink); }
+/* Sur claude.ai, l'argile ne porte que le bouton d'envoi et les liens : les messages de
+   l'utilisateur sont une surface neutre chaude. Un fil entier en saumon est le contresens le
+   plus visible de l'imitation — et le seul endroit où hooked colorait par défaut. */
+:root[data-scheme="claude"] .bubble.user,
+:root[data-scheme="claude"] .fmsg.me {
+  background: var(--bg3); color: var(--fg);
+}
+:root[data-scheme="claude"] .bubble.user .md :not(pre) > code { background: rgba(var(--ink-rgb), .18); }
+:root[data-scheme="claude"] .bubble.user .md blockquote { border-left-color: var(--border2); color: var(--muted); }
+
+/* Le fil de conversation prend une serif, comme les réponses de Claude. Police système : le
+   projet ne charge aucune fonte distante (PRODUCT.md), et aucune serif n'est empaquetée ici —
+   c'est donc une approximation, pas la lettre de claude.ai. */
+:root[data-scheme="claude"] .bubble.assistant .md,
+:root[data-scheme="claude"] .bubble.assistant {
+  font-family: "Iowan Old Style", "Charter", Georgia, "Times New Roman", serif;
+  font-size: 15px;
+}
+
 /* ─── Color scheme « datadog » — violet Datadog, surfaces froides, densité d'outil ───────────
    Troisième palette sur le MÊME axe orthogonal que « legacy » (`data-scheme="datadog"`), donc
    combinable avec clair/sombre et avec l'axe des angles. On ré-override tous les jetons, triplets
@@ -677,14 +1189,14 @@
   grid-column: 1; width: 3px; height: 13px; border-radius: 0 !important;
 }
 :root[data-scheme="datadog"] .ssb-pin-mark { grid-column: 2; }
-:root[data-scheme="datadog"] .ssb-name { grid-column: 3; font-size: 12px; }
+:root[data-scheme="datadog"] .ssb-name { grid-column: 3; font-size: var(--t-meta); }
 /* Ages go tabular so digits line up column-under-column. */
 :root[data-scheme="datadog"] .ssb-ago {
   grid-column: 4; font-variant-numeric: tabular-nums; text-align: right;
 }
 :root[data-scheme="datadog"] .ssb-tags { grid-column: 3 / -1; padding-left: 0; }
 /* Section headers: quiet, uppercase, widely tracked — a rule, not a title. */
-:root[data-scheme="datadog"] .ssb-group { padding: 3px 8px; font-size: 9px; letter-spacing: .12em; }
+:root[data-scheme="datadog"] .ssb-group { padding: 3px 8px; font-size: var(--t-micro); letter-spacing: .12em; }
 
 /* ── Zone 2 — Deck fleet: status | session | branch | status | age ──────────────────────────────
    Applies to the LIST view only (`.fleet:not(.grid)`). The grid/list toggle stays meaningful:
@@ -724,15 +1236,15 @@
 :root[data-scheme="datadog"] .fleet:not(.grid) .fdot {
   grid-column: 1; width: 3px; height: 100%; border-radius: 0 !important;
 }
-:root[data-scheme="datadog"] .fleet:not(.grid) .ft { grid-column: 2; font-size: 12px; font-weight: 500; }
+:root[data-scheme="datadog"] .fleet:not(.grid) .ft { grid-column: 2; font-size: var(--t-meta); font-weight: 500; }
 :root[data-scheme="datadog"] .fleet:not(.grid) .fbranch {
   display: block; grid-column: 3; min-width: 0;
-  font-family: var(--mono); font-size: 10px; color: var(--muted);
+  font-family: var(--mono); font-size: var(--t-micro); color: var(--muted);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 :root[data-scheme="datadog"] .fleet:not(.grid) .fstate {
   display: block; grid-column: 4; width: 15ch;
-  font-family: var(--mono); font-size: 10px; color: var(--muted);
+  font-family: var(--mono); font-size: var(--t-micro); color: var(--muted);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 :root[data-scheme="datadog"] .fleet:not(.grid) .fago {
@@ -752,22 +1264,24 @@
 :root[data-scheme="datadog"] .fleet:not(.grid) .fhead {
   position: sticky; top: 0; z-index: 2; background: var(--bg2);
   border-bottom: 1px solid var(--border2);
-  font-family: var(--mono); font-size: 9px; font-weight: 700;
+  font-family: var(--mono); font-size: var(--t-micro); font-weight: 700;
   letter-spacing: .12em; text-transform: uppercase; color: var(--muted);
   min-height: 18px;
 }
 :root[data-scheme="datadog"] .fleet:not(.grid) .fhead .fh-age { text-align: right; }
 /* The "N older sessions" expander is a full-width footer band, not a cell. */
 :root[data-scheme="datadog"] .fleet:not(.grid) .fmore {
-  grid-column: 1 / -1; border: 0; border-bottom: var(--dd-rule); padding: 4px; font-size: 10px;
+  grid-column: 1 / -1; border: 0; border-bottom: var(--dd-rule); padding: 4px; font-size: var(--t-micro);
 }
 
 /* ── Zone 2b — Deck chrome: column captions and flattened decision cards ────────────────────── */
-/* Column titles ("Your move", "The fleet") become section captions, not headlines. */
+/* Column titles ("Your move", "The fleet") take the console's voice — mono, capitales, lettrage
+   ouvert — mais gardent leur rang. Les rabaisser à 11px gris, c'était supprimer la seule ancre
+   typographique de l'accueil : une console dense a besoin d'un point d'entrée pour l'œil. */
 :root[data-scheme="datadog"] .colhead { gap: 8px; margin: 0 0 6px; }
 :root[data-scheme="datadog"] .colhead h2 {
-  font-family: var(--mono); font-size: 10px; font-weight: 700;
-  letter-spacing: .12em; text-transform: uppercase; color: var(--muted);
+  font-family: var(--mono); font-size: var(--t-ui); font-weight: 700;
+  letter-spacing: .1em; text-transform: uppercase; color: var(--text);
 }
 :root[data-scheme="datadog"] .repo-head { gap: 6px; margin-bottom: 2px; }
 :root[data-scheme="datadog"] .repo-group { margin-bottom: 10px; }
@@ -777,30 +1291,30 @@
 :root[data-scheme="datadog"] .tcard-head { padding: 5px 10px; gap: 7px; }
 :root[data-scheme="datadog"] .tfoot { padding: 6px 10px; gap: 5px; }
 :root[data-scheme="datadog"] .tbody { padding: 2px 10px; }
-:root[data-scheme="datadog"] .tbtn { padding: 3px 9px; font-size: 11px; }
+:root[data-scheme="datadog"] .tbtn { padding: 3px 9px; font-size: var(--t-micro); }
 :root[data-scheme="datadog"] .tdot { width: 3px; height: 12px; border-radius: 0 !important; animation: none; }
 
 /* ── Zone 3 — session cockpit header: one compact toolbar ───────────────────────────────────── */
 :root[data-scheme="datadog"] .pane-head { padding: 5px 12px 0; }
-:root[data-scheme="datadog"] .sess-name { font-size: 13px; font-weight: 700; }
-:root[data-scheme="datadog"] .head-meta { font-size: 10px; }
+:root[data-scheme="datadog"] .sess-name { font-size: var(--t-ui); font-weight: 700; }
+:root[data-scheme="datadog"] .head-meta { font-size: var(--t-micro); }
 :root[data-scheme="datadog"] .subtabs { gap: 10px; margin-top: 5px; }
 :root[data-scheme="datadog"] .subtab {
-  padding: 4px 2px 7px; font-family: var(--mono); font-size: 10px;
+  padding: 4px 2px 7px; font-family: var(--mono); font-size: var(--t-micro);
   font-weight: 700; letter-spacing: .08em; text-transform: uppercase;
 }
 /* Status stops being a filled pill: an uppercase mono token behind a colour bar. Scoring (0,3,0)
    this beats the `.s-working .s-badge` family (0,2,0) without reaching for !important. */
 :root[data-scheme="datadog"] .s-badge {
   background: transparent; padding: 0; gap: 5px;
-  font-family: var(--mono); font-size: 9.5px; font-weight: 700;
+  font-family: var(--mono); font-size: var(--t-micro); font-weight: 700;
   letter-spacing: .1em; text-transform: uppercase;
 }
 :root[data-scheme="datadog"] .s-badge .bdot,
 :root[data-scheme="datadog"] .badge .bdot { width: 3px; height: 11px; border-radius: 0 !important; }
 :root[data-scheme="datadog"] .badge {
   background: transparent; padding: 0 0 0 1px; gap: 5px;
-  font-family: var(--mono); font-size: 9.5px; letter-spacing: .1em; text-transform: uppercase;
+  font-family: var(--mono); font-size: var(--t-micro); letter-spacing: .1em; text-transform: uppercase;
 }
 :root[data-scheme="datadog"] .hdr-icon-btn, :root[data-scheme="datadog"] .hdr-more > summary { height: 24px; width: 26px; }
 
@@ -809,7 +1323,7 @@
    track is a hairline. Two steps: warn >=75%, crit >=90% (the `crit` class comes from TopBar and
    is inert in every other scheme). */
 :root[data-scheme="datadog"] .tb-gauge { width: 74px; gap: 2px; }
-:root[data-scheme="datadog"] .tb-g-lbl { font-size: 9px; letter-spacing: .1em; font-weight: 700; }
+:root[data-scheme="datadog"] .tb-g-lbl { font-size: var(--t-micro); letter-spacing: .1em; font-weight: 700; }
 :root[data-scheme="datadog"] .tb-g-track { height: 3px; background: var(--track-dark); }
 :root[data-scheme="datadog"] .tb-g-fill { background: var(--success); }
 :root[data-scheme="datadog"] .tb-gauge.warn .tb-g-fill { background: var(--warn); }
@@ -819,8 +1333,8 @@
 :root[data-scheme="datadog"] .tb-gauge.crit .tb-g-lbl span:last-child { color: var(--danger); }
 
 /* ── Zone 4 — context dock: shorter sections, quieter captions ──────────────────────────────── */
-:root[data-scheme="datadog"] .dh { padding: 6px 10px 4px; font-size: 9px; letter-spacing: .12em; }
-:root[data-scheme="datadog"] .db { padding: 0 10px 7px; font-size: 11px; }
+:root[data-scheme="datadog"] .dh { padding: 6px 10px 4px; font-size: var(--t-micro); letter-spacing: .12em; }
+:root[data-scheme="datadog"] .db { padding: 0 10px 7px; font-size: var(--t-micro); }
 :root[data-scheme="datadog"] .ditem, :root[data-scheme="datadog"] .dfile { padding: 1px 0; }
 :root[data-scheme="datadog"] .dprog { margin: 0 10px 5px; }
 
@@ -839,10 +1353,10 @@
 }
 :root[data-scheme="datadog"] .kpi:first-child { border-left: 0; }
 :root[data-scheme="datadog"] .kpi .v {
-  font-family: var(--mono); font-size: 18px; letter-spacing: -.02em; font-variant-numeric: tabular-nums;
+  font-family: var(--mono); font-size: var(--t-title); line-height: var(--lh-title); letter-spacing: -.02em; font-variant-numeric: tabular-nums;
 }
 :root[data-scheme="datadog"] .kpi .l {
-  margin-top: 2px; font-family: var(--mono); font-size: 9px;
+  margin-top: 2px; font-family: var(--mono); font-size: var(--t-micro);
   letter-spacing: .1em; text-transform: uppercase;
 }
 /* Panels: flat, tight, separated by their 1px frame alone. */
@@ -852,19 +1366,19 @@
 :root[data-scheme="datadog"] .usage-card h3,
 :root[data-scheme="datadog"] .usage-title,
 :root[data-scheme="datadog"] .group h2 {
-  margin-bottom: 8px; font-family: var(--mono); font-size: 10px; font-weight: 700;
+  margin-bottom: 8px; font-family: var(--mono); font-size: var(--t-micro); font-weight: 700;
   letter-spacing: .12em; text-transform: uppercase; color: var(--muted);
 }
 /* Flat fills instead of gradients — a gauge reports a value, it doesn't need a sheen. */
 :root[data-scheme="datadog"] .bar-row .fill,
 :root[data-scheme="datadog"] .daybars .b,
 :root[data-scheme="datadog"] .ubar-fill { background: var(--accent); }
-:root[data-scheme="datadog"] .bar-row { margin-bottom: 3px; font-size: 11px; }
+:root[data-scheme="datadog"] .bar-row { margin-bottom: 3px; font-size: var(--t-micro); }
 :root[data-scheme="datadog"] .bar-row .track { height: 11px; }
 :root[data-scheme="datadog"] .bar-row .val,
 :root[data-scheme="datadog"] .ubar-head .pct { font-family: var(--mono); font-variant-numeric: tabular-nums; }
 :root[data-scheme="datadog"] .range { padding: 2px; gap: 2px; }
-:root[data-scheme="datadog"] .range button { padding: 4px 10px; font-size: 11px; }
+:root[data-scheme="datadog"] .range button { padding: 4px 10px; font-size: var(--t-micro); }
 
 /* ─── Angles vifs (data-corners="sharp") ───────────────────────────────────────────────────────
    Troisième axe de thème, orthogonal au clair/sombre et à la palette : tout passe à angle vif.
@@ -884,18 +1398,26 @@
 
 * { box-sizing: border-box; }
 html, body { height: 100%; }
+/* Safari iOS regrossit le texte en paysage sans cette ligne — sur une scène d'usage mobile,
+   la mise en page dense partirait en vrille à la rotation. */
+html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
 body {
   margin: 0;
   font-family: var(--font);
+  font-optical-sizing: auto;
   background: var(--bg);
   color: var(--text);
-  font-size: 14px;
+  font-size: var(--t-body);
+  /* Sans unité, donc recalculé par chaque élément depuis SON corps : une seule déclaration donne
+     un interligne proportionné aux sept registres, là où `normal` les serrait tous à ~1,2. */
+  line-height: 1.5;
   display: flex;
   flex-direction: column;
-  /* Zoom global léger (comme un zoom navigateur). `zoom` scale AUSSI les unités viewport → on
-     compense la largeur/hauteur par le même facteur pour que le rendu zoomé remplisse exactement
-     la fenêtre (sinon débordement/rognage). Tout le reste (px) grossit d'autant. */
-  --app-zoom: 1.1;
+  /* Zoom global (comme un zoom navigateur), le seul bouton de taille de toute l'interface. Il valait
+     1.1 : jugé trop gros, il revient à 1 — les sept registres de --t-* sont alors leur taille réelle.
+     `zoom` scale AUSSI les unités viewport → on compense la largeur/hauteur par le même facteur pour
+     que le rendu zoomé remplisse exactement la fenêtre (sinon débordement/rognage). */
+  --app-zoom: 1;
   zoom: var(--app-zoom);
   width: calc(100vw / var(--app-zoom));
   height: calc(100vh / var(--app-zoom));
@@ -903,12 +1425,16 @@ body {
   overflow: hidden;
   -webkit-font-smoothing: antialiased;
 }
+/* Sur téléphone le zoom confort devient une amputation : il retire 10% de la largeur utile et
+   décale les breakpoints (les media queries lisent le viewport réel, la mise en page vit dans un
+   espace 10% plus étroit). Le navigateur mobile fait déjà ce travail. */
+@media (max-width: 640px) { body { --app-zoom: 1; } }
 /* Le SPA Svelte monte dans #app : il doit relayer la colonne flex pleine hauteur
    du body, sinon main n'est plus contraint et le scroll interne (chat) disparaît. */
 #app { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
 /* The global top header/tab nav was replaced by the left icon rail (src/routes/+layout.svelte,
    scoped styles). Only the main content area + view containers remain global. */
-main { flex: 1 1 auto; min-width: 0; min-height: 0; overflow: hidden; background: var(--panel); }
+main { flex: 1 1 auto; min-width: 0; min-height: 0; overflow: hidden; background-color: var(--panel); background-image: var(--grain); }
 .view { display: none; height: 100%; }
 .view.active { display: block; }
 #view-stats { overflow-y: auto; padding: 26px; max-width: 1120px; margin: 0 auto; }
@@ -924,10 +1450,10 @@ body.focus .pane-head { display: none; }
 .vscode-btn.on { background: var(--accent-soft); border-color: var(--accent); color: var(--accent-d); }
 
 /* groupes projet */
-.phead { display: flex; align-items: center; gap: 7px; padding: 7px 8px; border-radius: 9px; cursor: pointer; user-select: none; color: var(--muted); font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; font-family: var(--mono); }
+.phead { display: flex; align-items: center; gap: 7px; padding: 7px 8px; border-radius: 9px; cursor: pointer; user-select: none; color: var(--muted); font-size: var(--t-micro); font-weight: 700; text-transform: uppercase; letter-spacing: .06em; font-family: var(--mono); }
 .phead:hover { background: var(--bg3); color: var(--text); }
 .pname { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.pcount { background: var(--bg3); border-radius: 20px; padding: 0 7px; font-size: 11px; font-weight: 600; color: var(--muted); }
+.pcount { background: var(--bg3); border-radius: 20px; padding: 0 7px; font-size: var(--t-micro); font-weight: 600; color: var(--muted); }
 
 /* lignes session */
 .srow { display: flex; align-items: flex-start; gap: 10px; padding: 10px 10px; border-radius: 11px; cursor: pointer; margin-bottom: 2px; transition: background .12s; }
@@ -943,6 +1469,13 @@ body.focus .pane-head { display: none; }
 .state-dot.d-bgjob { background: var(--background); animation: dot-pulse 1.6s ease-in-out infinite; }
 .state-dot.d-ended { background: var(--ended); }
 .state-dot.d-idle { background: var(--idle); }
+/* Shape is the second carrier of state (colour is never the only one, PRODUCT.md): attention is a
+   diamond, ended a square, background a thick ring, idle a hairline ring; working and waiting stay
+   discs, told apart by hue and by the working pulse. Datadog draws its states as bars instead. */
+:root:not([data-scheme="datadog"]) .state-dot.d-attention { border-radius: 1px; transform: rotate(45deg) scale(.88); }
+:root:not([data-scheme="datadog"]) .state-dot.d-ended { border-radius: 2px; }
+:root:not([data-scheme="datadog"]) .state-dot.d-bgjob { background: transparent; box-shadow: inset 0 0 0 2.5px var(--background); }
+:root:not([data-scheme="datadog"]) .state-dot.d-idle { background: transparent; box-shadow: inset 0 0 0 1.5px var(--idle); }
 @keyframes dot-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
 .sdot { width: 8px; height: 8px; border-radius: 50%; margin-top: 6px; flex-shrink: 0; background: var(--past); }
 .s-working .sdot { background: var(--working); animation: pulse 1s infinite; }
@@ -952,8 +1485,8 @@ body.focus .pane-head { display: none; }
 .s-idle .sdot { background: var(--idle); }
 .s-ended .sdot { background: var(--ended); }
 .srow-main { min-width: 0; flex: 1; }
-.srow-title { font-size: 14px; font-weight: 600; line-height: 1.3; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
-.srow-sub { font-size: 11.5px; color: var(--muted); margin-top: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--mono); }
+.srow-title { font-size: var(--t-body); font-weight: 600; line-height: 1.3; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
+.srow-sub { font-size: var(--t-meta); color: var(--muted); margin-top: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--mono); }
 
 /* zone principale */
 .pane-head { flex: 0 0 auto; padding: 15px 24px 0; border-bottom: 1px solid var(--border); background: var(--bg2); z-index: 3; }
@@ -962,7 +1495,7 @@ body.focus .pane-head { display: none; }
    (.composer-dock) doit l'annuler — les décalages d'un `position: sticky` sont résolus contre la
    BOÎTE DE CONTENU du scroller, donc un `bottom: 0` le garerait ce padding au-dessus du bord
    visible, et la fin du transcript réapparaîtrait dans cette bande. */
-.pane-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden; --pane-pad-b: 16px; padding: 20px 24px var(--pane-pad-b); background: var(--panel); }
+.pane-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden; --pane-pad-b: 16px; padding: 20px 24px var(--pane-pad-b); background-color: var(--panel); background-image: var(--grain); }
 .pane-empty { color: var(--muted); padding: 60px 20px; text-align: center; }
 
 .cost-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
@@ -971,12 +1504,32 @@ body.focus .pane-head { display: none; }
 #search { flex: 1; min-width: 220px; }
 input[type=search], select, input.lf-input, textarea.lf-input {
   background: var(--surface); color: var(--text); border: 1px solid var(--border2);
-  border-radius: 10px; padding: 10px 13px; font-size: 14px; font-family: inherit;
+  border-radius: 10px; padding: 10px 13px; font-size: var(--t-body); font-family: inherit;
   transition: border-color .15s, box-shadow .15s;
 }
 input[type=search]::placeholder, .lf-input::placeholder { color: var(--muted); }
 input[type=search]:focus, select:focus, .lf-input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+input[type=range], progress { accent-color: var(--accent); }
+/* Checkboxes and radios are drawn from the palette in both states (accent-color only reached the
+   ticked one, the empty box stayed the browser's). Components may still size or place them. */
+input[type=checkbox], input[type=radio] {
+  -webkit-appearance: none; appearance: none; flex: 0 0 auto;
+  width: 16px; height: 16px; margin: 0; border: 1.5px solid var(--border2); border-radius: 5px;
+  background: var(--bg2); display: inline-grid; place-content: center; vertical-align: -3px; cursor: pointer;
+  transition: background .12s, border-color .12s;
+}
+input[type=radio] { border-radius: 50%; }
+input[type=checkbox]::before {
+  content: ""; width: 4px; height: 8px; margin-top: -2px; border: solid var(--accent-fg); border-width: 0 2px 2px 0;
+  transform: rotate(45deg) scale(0); transition: transform .12s ease-out;
+}
+input[type=radio]::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--accent-fg); transform: scale(0); transition: transform .12s ease-out; }
+input[type=checkbox]:checked, input[type=radio]:checked { background: var(--accent); border-color: var(--accent); }
+input[type=checkbox]:checked::before { transform: rotate(45deg) scale(1); }
+input[type=radio]:checked::before { transform: scale(1); }
+input[type=checkbox]:hover:not(:disabled), input[type=radio]:hover:not(:disabled) { border-color: var(--accent); }
+input[type=checkbox]:disabled, input[type=radio]:disabled { opacity: .55; cursor: default; }
 input:focus-visible, textarea:focus-visible, select:focus-visible { outline: none; }
 
 /* groupes de sessions */
@@ -991,7 +1544,7 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { outline: non
 .card:active { transform: scale(.997); }
 
 .branch::before { content: "⎇ "; }
-.badge { margin-left: auto; font-size: 11px; font-weight: 700; padding: 4px 10px; border-radius: 20px; display: flex; align-items: center; gap: 5px; white-space: nowrap; }
+.badge { margin-left: auto; font-size: var(--t-micro); font-weight: 700; padding: 4px 10px; border-radius: 20px; display: flex; align-items: center; gap: 5px; white-space: nowrap; }
 .badge .bdot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
 .s-working .badge { background: rgba(var(--info-rgb),.16); color: var(--working); }
 .s-working .badge .bdot { animation: pulse 1s infinite; }
@@ -1005,7 +1558,7 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { outline: non
 
 /* pastille d'état dans l'en-tête du cockpit : variante douce (texte coloré sur fond doux),
    cohérente avec les pastilles de l'inbox (cf. redesign : « Waiting for you »). */
-.s-badge { font-size: 12px; padding: 5px 12px; gap: 6px; border-radius: 20px; letter-spacing: 0; }
+.s-badge { font-size: var(--t-meta); padding: 5px 12px; gap: 6px; border-radius: 20px; letter-spacing: 0; }
 .s-badge .bdot { width: 7px; height: 7px; }
 .s-working .s-badge { background: var(--info-soft); color: var(--info); }
 .s-working .s-badge .bdot { animation: pulse 1s infinite; }
@@ -1014,35 +1567,36 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { outline: non
 .s-attention .s-badge .bdot { animation: pulse .7s infinite; }
 .s-background .s-badge { background: color-mix(in srgb, var(--background) 15%, transparent); color: var(--background); }
 
-.title { font-size: 14px; font-weight: 600; margin: 2px 0 6px; line-height: 1.35; }
-.prompt { color: var(--muted); font-size: 12.5px; line-height: 1.4; max-height: 36px; overflow: hidden; }
+.title { font-size: var(--t-body); font-weight: 600; margin: 2px 0 6px; line-height: 1.35; }
+.prompt { color: var(--muted); font-size: var(--t-ui); line-height: 1.4; max-height: 36px; overflow: hidden; }
 
 /* KPIs */
 .kpis { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px,1fr)); gap: 14px; margin-bottom: 24px; }
 .kpi { background: var(--bg2); border: 1px solid var(--border); border-radius: 12px; padding: 18px; }
-.kpi .v { font-size: 27px; font-weight: 700; letter-spacing: -.01em; }
-.kpi .l { color: var(--muted); font-size: 12px; margin-top: 4px; }
-.kpi .v small { font-size: 14px; color: var(--muted); font-weight: 500; }
+.kpi .v { font-family: var(--font-display); font-size: var(--t-display); line-height: var(--lh-display); font-weight: 700; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+.kpi .l { color: var(--muted); font-size: var(--t-meta); margin-top: 4px; }
+.kpi .v small { font-size: var(--t-body); color: var(--muted); font-weight: 500; }
 
 /* range */
 .range { display: flex; gap: 4px; background: var(--bg3); border: 1px solid var(--border); border-radius: 12px; padding: 4px; }
-.range button { background: transparent; color: var(--muted); border: none; padding: 8px 15px; border-radius: 9px; cursor: pointer; font-size: 13px; font-weight: 600; transition: background .15s, color .15s, box-shadow .15s; }
+.range button { background: transparent; color: var(--muted); border: none; padding: 8px 15px; border-radius: 9px; cursor: pointer; font-size: var(--t-ui); font-weight: 600; transition: background .15s, color .15s, box-shadow .15s; }
 .range button:hover { color: var(--text); }
-.range button.active { background: var(--accent); color: #fff; box-shadow: 0 4px 12px -6px rgba(var(--accent-rgb),.7); }
+.range button.active { background: var(--accent); color: var(--accent-fg); box-shadow: 0 4px 12px -6px rgba(var(--accent-rgb),.7); }
 
 /* charts */
 .charts { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px,1fr)); gap: 16px; }
-.chart-card h3 { margin: 0 0 14px; font-size: 14px; }
-.chart-card h3 .sub { color: var(--muted); font-weight: 400; font-size: 12px; }
-.bar-row { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; font-size: 12.5px; }
+.chart-card h3 { margin: 0 0 14px; font-size: var(--t-body); }
+.chart-card h3 .sub { color: var(--muted); font-weight: 400; font-size: var(--t-meta); }
+.bar-row { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; font-size: var(--t-ui); }
 .bar-row .label { width: 110px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .bar-row .track { flex: 1; background: var(--bg3); border-radius: 6px; height: 16px; overflow: hidden; }
-.bar-row .fill { height: 100%; background: linear-gradient(90deg, var(--accent), #7d74f5); border-radius: 6px; }
+/* display: block — the fill is a <span>: inline, its width was ignored and every bar rendered empty. */
+.bar-row .fill { display: block; height: 100%; background: var(--series, var(--bar-fill)); border-radius: 6px; }
 .bar-row .val { width: 78px; text-align: right; color: var(--text); font-variant-numeric: tabular-nums; }
 .daybars { display: flex; align-items: flex-end; gap: 4px; height: 150px; padding-top: 10px; }
 .daybars .col { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; height: 100%; gap: 4px; }
-.daybars .b { width: 100%; max-width: 34px; background: linear-gradient(180deg, #7d74f5, var(--accent)); border-radius: 5px 5px 0 0; min-height: 2px; }
-.daybars .cap { font-size: 10px; color: var(--muted); font-family: var(--mono); }
+.daybars .b { width: 100%; max-width: 34px; background: var(--bar-fill-v); border-radius: 5px 5px 0 0; min-height: 2px; }
+.daybars .cap { font-size: var(--t-micro); color: var(--muted); font-family: var(--mono); }
 .empty { color: var(--muted); padding: 20px 0; text-align: center; }
 
 /* modal */
@@ -1051,12 +1605,12 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { outline: non
 .modal-bg { position: absolute; inset: 0; background: var(--overlay); backdrop-filter: blur(2px); }
 .modal-card { position: relative; background: var(--bg2); border: 1px solid var(--border); border-radius: 16px; width: min(720px, 92vw); max-height: 86vh; overflow: auto; padding: 24px; box-shadow: var(--shadow); }
 .modal-card.narrow { width: min(440px, 92vw); }
-.modal-close { position: absolute; top: 16px; right: 16px; background: var(--chip); border: none; color: var(--text); width: 30px; height: 30px; border-radius: 9px; cursor: pointer; font-size: 14px; }
+.modal-close { position: absolute; top: 16px; right: 16px; background: var(--chip); border: none; color: var(--text); width: 30px; height: 30px; border-radius: 9px; cursor: pointer; font-size: var(--t-body); }
 .modal-close:hover { background: var(--border2); }
 
 /* barre de progression du rate limit de session (5 h) */
 
-code.path { color: var(--muted); font-size: 11px; word-break: break-all; font-family: var(--mono); }
+code.path { color: var(--muted); font-size: var(--t-micro); word-break: break-all; font-family: var(--mono); }
 
 /* sous-onglets dans le détail */
 /* Onglets du cockpit, même langage que la TopBar : texte + compteur, actif = soulignement
@@ -1065,28 +1619,28 @@ code.path { color: var(--muted); font-size: 11px; word-break: break-all; font-fa
 .subtab {
   display: inline-flex; align-items: center; gap: 7px; background: transparent; border: none;
   color: var(--muted); border-radius: 0; padding: 6px 2px 10px; cursor: pointer;
-  font: inherit; font-size: 13px; font-weight: 600;
+  font: inherit; font-size: var(--t-ui); font-weight: 600;
   box-shadow: inset 0 -2px 0 transparent; transition: color .12s, box-shadow .12s;
 }
 .subtab:hover { color: var(--text); }
 .subtab.active { background: transparent; color: var(--text); box-shadow: inset 0 -2px 0 var(--accent); }
-.subtab .count { background: transparent; color: inherit; opacity: .65; border-radius: 0; padding: 0; font-size: 11.5px; font-weight: 700; min-width: 0; text-align: left; }
+.subtab .count { background: transparent; color: inherit; opacity: .65; border-radius: 0; padding: 0; font-size: var(--t-meta); font-weight: 700; min-width: 0; text-align: left; }
 .subtab.active .count { background: transparent; color: var(--accent-d); opacity: 1; }
 .pane { display: none; padding-top: 14px; }
 .pane.active { display: block; }
 
 /* chat */
 .chat { display: flex; flex-direction: column; gap: 12px; padding-right: 4px; }
-.bubble { max-width: 85%; padding: 11px 14px; border-radius: 16px; font-size: 13.5px; line-height: 1.5; box-shadow: var(--shadow-sm); }
-.bubble.user { align-self: flex-end; background: var(--accent); color: #fff; border-bottom-right-radius: 5px; }
+.bubble { max-width: 85%; padding: 11px 14px; border-radius: 16px; font-size: var(--t-body); line-height: var(--lh-body); box-shadow: var(--shadow-sm); }
+.bubble.user { align-self: flex-end; background: var(--bubble-user-bg); color: var(--bubble-user-fg); border-bottom-right-radius: 5px; }
 .bubble.assistant { align-self: flex-start; background: var(--surface); border: 1px solid var(--border); border-bottom-left-radius: 5px; }
-.bubble .who { font-size: 11px; font-weight: 700; opacity: .85; margin-bottom: 5px; display: flex; align-items: center; gap: 8px; }
+.bubble .who { font-size: var(--t-micro); font-weight: 700; opacity: .85; margin-bottom: 5px; display: flex; align-items: center; gap: 8px; }
 .bubble.user .who { justify-content: flex-end; }
 .bubble .who .t { font-weight: 400; opacity: .7; }
 /* contrôle de fork révélé au survol de la bulle (point de coupe = ce message) :
    « ⑂ Forker » = fork express sans saisie · « ▾ » = modale avancée (segmentés) */
 .bubble .fork-ctl { margin-left: auto; display: inline-flex; align-items: stretch; }
-.bubble .fork-btn { font: inherit; font-size: 10.5px; font-weight: 600; line-height: 1.4;
+.bubble .fork-btn { font: inherit; font-size: var(--t-micro); font-weight: 600; line-height: 1.4;
   border: 1px solid var(--border2); background: transparent; color: inherit;
   padding: 1px 7px; cursor: pointer; opacity: 0; transition: opacity .12s, background .12s, border-color .12s; }
 .bubble .fork-main { border-radius: 6px 0 0 6px; }
@@ -1097,24 +1651,24 @@ code.path { color: var(--muted); font-size: 11px; word-break: break-all; font-fa
 .bubble.user .fork-btn { border-color: rgba(255,255,255,.45); }
 .bubble.user .fork-btn:hover { background: rgba(255,255,255,.2); border-color: #fff; color: #fff; }
 /* retour inline du fork express (pas de modale) */
-.bubble .fork-state { font-size: 10.5px; font-weight: 600; white-space: nowrap; }
+.bubble .fork-state { font-size: var(--t-micro); font-weight: 600; white-space: nowrap; }
 .bubble .fork-state.busy { color: var(--muted); }
 .bubble .fork-state.done { color: var(--accent-d); }
 .bubble .fork-state.err { color: var(--danger, #c0392b); }
 .bubble.user .fork-state { color: #fff; opacity: .95; }
 .bubble .md { word-wrap: break-word; overflow-wrap: anywhere; }
-.bubble .md code { font-family: var(--mono); font-size: 12px; }
+.bubble .md code { font-family: var(--mono); font-size: var(--t-meta); }
 .bubble .md :not(pre) > code { background: var(--code-inline); padding: 1px 5px; border-radius: 5px; }
 .bubble.user .md :not(pre) > code { background: rgba(255,255,255,.22); }
-.bubble .md a { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; word-break: break-all; }
-.bubble .md a:hover { color: var(--accent-d); }
+.bubble .md a { color: var(--link); text-decoration: underline; text-decoration-color: color-mix(in srgb, currentColor 45%, transparent); text-underline-offset: 3px; word-break: break-all; }
+.bubble .md a:hover { color: var(--accent-d); text-decoration-color: currentColor; }
 .bubble.user .md a { color: #fff; text-decoration-color: rgba(255,255,255,.6); }
-.bubble .md table { border-collapse: collapse; margin: 8px 0; font-size: 12px; max-width: 100%; }
+.bubble .md table { border-collapse: collapse; margin: 8px 0; font-size: var(--t-meta); max-width: 100%; }
 .bubble .md th, .bubble .md td { border: 1px solid rgba(var(--ink-rgb),.28); padding: 4px 9px; text-align: left; vertical-align: top; }
 .bubble .md th { background: rgba(var(--ink-rgb),.12); font-weight: 700; }
 .bubble.user .md th, .bubble.user .md td { border-color: rgba(255,255,255,.28); }
 .bubble.user .md th { background: rgba(255,255,255,.14); }
-.bubble .md blockquote { margin: 6px 0; padding: 2px 0 2px 12px; border-left: 3px solid rgba(var(--ink-rgb),.38); color: var(--muted); }
+.bubble .md blockquote { margin: 6px 0; padding: 2px 0 2px 12px; border-left: 2px solid rgba(var(--ink-rgb),.38); color: var(--muted); }
 .bubble .md blockquote blockquote { margin: 4px 0; }
 .bubble.user .md blockquote { border-left-color: rgba(255,255,255,.45); color: rgba(255,255,255,.82); }
 
@@ -1133,7 +1687,7 @@ code.path { color: var(--muted); font-size: 11px; word-break: break-all; font-fa
 .md strong, .md b { font-weight: 700; }
 .md em, .md i { font-style: italic; }
 /* blocs de code IMBRIQUÉS (dans liste/citation) — rendus <pre> par markdown-it, pas par <CodeBlock> */
-.md pre { margin: 8px 0; padding: 10px 12px; overflow-x: auto; background: #12151b; border-radius: 8px; }
+.md pre { margin: 8px 0; padding: 10px 12px; overflow-x: auto; background: var(--code-surface); border-radius: 8px; }
 .md pre code { color: #e6e6e6; background: none; padding: 0; }
 /* GFM checkboxes (markdown-it-task-lists): no bullet, hanging indent via the 22px gutter
    inherited from `.md ul`. NEVER `display: flex` on the <li>: a tight list holds bare inline
@@ -1142,9 +1696,10 @@ code.path { color: var(--muted); font-size: 11px; word-break: break-all; font-fa
 .md ul.contains-task-list { list-style: none; }
 .md li.task-list-item .task-list-item-checkbox { width: 13px; height: 13px; margin: 0 5px 0 -18px; vertical-align: -2px; accent-color: var(--accent); }
 /* alertes GitHub (callouts) — transformées depuis un blockquote `[!TYPE]` par githubAlerts() */
-.md-alert { margin: 8px 0; padding: 8px 12px 8px 13px; border-left: 3px solid var(--al-c); background: var(--al-bg); border-radius: 0 7px 7px 0; }
+/* A callout is a tinted, fully framed block led by its icon and title, not a side tab. */
+.md-alert { margin: 8px 0; padding: 9px 13px; border: 1px solid color-mix(in srgb, var(--al-c) 32%, transparent); background: var(--al-bg); border-radius: 10px; }
 .md-alert > *:last-child { margin-bottom: 0; }
-.md-alert-title { display: flex; align-items: center; gap: 6px; margin: 0 0 4px; font-weight: 700; font-size: 12.5px; color: var(--al-c); }
+.md-alert-title { display: flex; align-items: center; gap: 6px; margin: 0 0 4px; font-weight: 700; font-size: var(--t-ui); color: var(--al-c); }
 .md-alert-icon { font-size: 13px; line-height: 1; }
 .md-alert-note      { --al-c: #4a9eda; --al-bg: rgba(74,158,218,.10); }
 .md-alert-tip       { --al-c: #3aa657; --al-bg: rgba(58,166,87,.10); }
@@ -1162,13 +1717,13 @@ code.path { color: var(--muted); font-size: 11px; word-break: break-all; font-fa
    Indépendant de la bulle (toujours sombre), aussi bien chez l'utilisateur que Claude. */
 /* background + isolation : évitent le « corner bleed » (liseré blanc de la page visible au coin
    arrondi à cause de overflow:hidden + bordure) → l'interstice montre le fond sombre du bloc. */
-.code-block { margin: 8px 0; border-radius: 10px; overflow: hidden; border: 1px solid rgba(0,0,0,.25); box-shadow: var(--shadow-sm); background: #161a21; isolation: isolate; }
-.cb-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 4px 6px 4px 12px; background: #161a21; border-bottom: 1px solid rgba(255,255,255,.07); }
-.cb-lang { font-size: 10px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: #9a9081; font-family: var(--mono); }
-.cb-copy { font: inherit; font-size: 11px; font-weight: 600; color: #cfc6b4; background: transparent; border: 1px solid rgba(255,255,255,.14); border-radius: 7px; padding: 3px 9px; cursor: pointer; transition: background .15s, color .15s, border-color .15s; }
+.code-block { margin: 8px 0; border-radius: 10px; overflow: hidden; border: 1px solid rgba(0,0,0,.25); box-shadow: var(--shadow-sm); background: var(--code-head); isolation: isolate; }
+.cb-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 4px 6px 4px 12px; background: var(--code-head); border-bottom: 1px solid rgba(255,255,255,.07); }
+.cb-lang { font-size: var(--t-micro); font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: #9a9081; font-family: var(--mono); }
+.cb-copy { font: inherit; font-size: var(--t-micro); font-weight: 600; color: #cfc6b4; background: transparent; border: 1px solid rgba(255,255,255,.14); border-radius: 7px; padding: 3px 9px; cursor: pointer; transition: background .15s, color .15s, border-color .15s; }
 .cb-copy:hover { background: rgba(255,255,255,.1); color: #fff; }
 .cb-copy.done { color: #a9c089; border-color: rgba(169,192,137,.5); }
-.code-block pre { margin: 0; padding: 11px 13px; overflow-x: auto; background: #12151b; font-size: 12px; line-height: 1.55; }
+.code-block pre { margin: 0; padding: 11px 13px; overflow-x: auto; background: var(--code-surface); font-size: var(--t-meta); line-height: 1.55; }
 .code-block code { font-family: var(--mono); color: #e6e6e6; }
 
 /* diagramme Mermaid : en-tête façon bloc de code (cf. .cb-*), canvas au thème de la page */
@@ -1176,9 +1731,9 @@ code.path { color: var(--muted); font-size: 11px; word-break: break-all; font-fa
 .mmd-actions { display: flex; gap: 6px; }
 .mmd-canvas { display: flex; justify-content: center; padding: 16px 14px; background: var(--bg2); overflow-x: auto; }
 .mmd-canvas svg { max-width: 100%; height: auto; }
-.mmd-loading { padding: 16px 14px; background: var(--bg2); color: var(--muted); font-family: var(--mono); font-size: 12px; }
-.mmd-error { padding: 8px 13px; background: rgba(var(--danger-rgb),.14); color: var(--accent-d); font-family: var(--mono); font-size: 11.5px; font-weight: 600; border-bottom: 1px solid var(--border); }
-.mmd-src { margin: 0; padding: 11px 13px; overflow-x: auto; background: #12151b; font-size: 12px; line-height: 1.55; }
+.mmd-loading { padding: 16px 14px; background: var(--bg2); color: var(--muted); font-family: var(--mono); font-size: var(--t-meta); }
+.mmd-error { padding: 8px 13px; background: rgba(var(--danger-rgb),.14); color: var(--accent-d); font-family: var(--mono); font-size: var(--t-meta); font-weight: 600; border-bottom: 1px solid var(--border); }
+.mmd-src { margin: 0; padding: 11px 13px; overflow-x: auto; background: var(--code-surface); font-size: var(--t-meta); line-height: 1.55; }
 .mmd-src code { font-family: var(--mono); color: #e6e6e6; }
 
 /* jetons de coloration syntaxique (cf. src/lib/highlight.js) */
@@ -1196,16 +1751,19 @@ code.path { color: var(--muted); font-size: 11px; word-break: break-all; font-fa
 .hl-diff-hunk { display: block; color: #82b6c7; }
 .hl-diff-meta { display: block; color: #8f8675; }
 /* message en file d'attente (envoyé, pas encore repris dans le transcript) */
-.bubble.user.queued { background: var(--waiting); opacity: .9; box-shadow: none; border: 1px dashed rgba(255,255,255,.5); }
+/* A queued turn is not yet the user's line in the transcript: it waits, so it wears the waiting
+   family, as a tint with readable ink (white on caramel never reached 3:1). */
+.bubble.user.queued { background: var(--warn-soft); color: var(--text); box-shadow: none; border: 1px dashed var(--waiting); }
+.bubble.user.queued .md :not(pre) > code { background: var(--code-inline); }
 .bubble.user.queued .who .t { font-weight: 600; opacity: .9; }
 /* rendu inline style claude-cli : texte de raisonnement / final + tool calls dans l'ordre */
 .bubble.assistant .parts { display: flex; flex-direction: column; gap: 8px; }
 .bubble.assistant .parts > .part-tool { display: flex; flex-wrap: wrap; gap: 6px; }
-.bubble.assistant .md.reasoning { color: var(--muted); font-size: 12.5px; font-style: italic; opacity: .85; padding-left: 10px; border-left: 2px solid var(--border); }
+.bubble.assistant .md.reasoning { color: var(--muted); font-size: var(--t-ui); font-style: italic; opacity: .85; padding-left: 10px; border-left: 2px solid var(--border); }
 .bubble.assistant .md.reasoning .code-block { font-style: normal; }
 .bubble.assistant .md.final { color: var(--text); }
 .chips { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 6px; margin-top: 8px; }
-.chip { background: var(--accent-soft); color: var(--accent-d); border: 1px solid rgba(var(--accent-rgb),.22); border-radius: 0; padding: 3px 9px; font-size: 11px; display: inline-flex; align-items: center; gap: 6px; max-width: 100%; }
+.chip { background: var(--accent-soft); color: var(--accent-d); border: 1px solid rgba(var(--accent-rgb),.16); border-radius: 7px; padding: 3px 9px; font-size: var(--t-micro); display: inline-flex; align-items: center; gap: 6px; max-width: 100%; }
 .chip-d { color: var(--muted); font-family: var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 280px; }
 /* pastille dépliée : chemin complet sur plusieurs lignes plutôt que tronqué */
 .tool.open > .chip .chip-d,
@@ -1216,14 +1774,14 @@ code.path { color: var(--muted); font-size: 11px; word-break: break-all; font-fa
 .tool.open { flex-basis: 100%; } /* déplié → pleine largeur de la rangée de pastilles */
 .tool.has-detail .chip { cursor: pointer; }
 .tool.has-detail .chip:hover { background: rgba(var(--accent-rgb),.2); }
-.chip-x { color: var(--muted); font-size: 9px; transition: transform .15s; margin-left: 2px; }
+.chip-x { color: var(--muted); font-size: var(--t-micro); transition: transform .15s; margin-left: 2px; }
 .tool.open .chip-x { transform: rotate(90deg); }
-.tool-detail { display: none; margin-top: 6px; border: 1px solid var(--border); border-radius: 0; overflow: hidden; background: var(--bg2); }
+.tool-detail { display: none; margin-top: 6px; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; background: var(--bg2); }
 .tool.open .tool-detail { display: block; }
 .td-sec { border-bottom: 1px dashed var(--border); }
 .td-sec:last-child { border-bottom: none; }
-.td-h { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); padding: 6px 10px 0; }
-.td-sec pre { margin: 4px 0 0; padding: 6px 10px 10px; font-family: var(--mono); font-size: 11.5px; line-height: 1.5; white-space: pre-wrap; word-break: break-word; max-height: 320px; overflow: auto; color: var(--text); }
+.td-h { font-size: var(--t-micro); font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); padding: 6px 10px 0; }
+.td-sec pre { margin: 4px 0 0; padding: 6px 10px 10px; font-family: var(--mono); font-size: var(--t-meta); line-height: 1.5; white-space: pre-wrap; word-break: break-word; max-height: 320px; overflow: auto; color: var(--text); }
 
 
 /* ---------- composer (répondre à Claude) ---------- */
@@ -1246,26 +1804,26 @@ code.path { color: var(--muted); font-size: 11px; word-break: break-all; font-fa
    qu'on pourrait envoyer, elle est donc solidaire du prompt et ne défile pas avec le transcript. */
 .followup {
   margin: 0 0 8px; padding: 10px 12px;
-  background: var(--bg2); border: 1px solid var(--border2);
-  border-left: 3px solid var(--accent); border-radius: 10px;
+  background: var(--bg2); border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--border2));
+  border-radius: 10px;
 }
-.fu-head { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; color: var(--muted); }
+.fu-head { display: flex; align-items: center; gap: 6px; font-size: var(--t-meta); font-weight: 600; color: var(--muted); }
 .fu-ico { font-size: 14px; }
-.fu-x { margin-left: auto; border: none; background: transparent; color: var(--muted); cursor: pointer; font-size: 13px; padding: 0 4px; line-height: 1; }
+.fu-x { margin-left: auto; border: none; background: transparent; color: var(--muted); cursor: pointer; font-size: var(--t-ui); padding: 0 4px; line-height: 1; }
 .fu-x:hover { color: var(--text); }
 .fu-text {
-  margin: 6px 0 8px; font-size: 13px; color: var(--text); line-height: 1.4; white-space: pre-wrap;
+  margin: 6px 0 8px; font-size: var(--t-ui); color: var(--text); line-height: 1.4; white-space: pre-wrap;
   display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden;
 }
 .fu-actions { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .fu-take {
-  font-size: 12.5px; font-weight: 600; color: var(--accent);
+  font-size: var(--t-ui); font-weight: 600; color: var(--accent);
   background: transparent; border: 1px solid var(--accent-soft, var(--border)); border-radius: 8px;
   padding: 5px 12px; cursor: pointer;
 }
 .fu-take:hover { background: var(--bg3); }
 .fu-edit {
-  font-size: 12.5px; font-weight: 600; color: var(--muted);
+  font-size: var(--t-ui); font-weight: 600; color: var(--muted);
   background: transparent; border: 1px solid var(--border); border-radius: 8px;
   padding: 5px 12px; cursor: pointer;
 }
@@ -1282,15 +1840,15 @@ code.path { color: var(--muted); font-size: 11px; word-break: break-all; font-fa
 .composer textarea {
   resize: none; width: 100%; box-sizing: border-box;
   background: transparent; color: var(--text); caret-color: var(--accent); border: none;
-  border-radius: 0; padding: 4px 6px; font: inherit; font-size: 14px; line-height: 1.5;
+  border-radius: 0; padding: 4px 6px; font: inherit; font-size: var(--t-body); line-height: 1.5;
   min-height: 40px; max-height: 160px; overflow-y: auto;
 }
 .composer textarea::placeholder { color: var(--muted); }
 .composer textarea:focus { outline: none; }
 .composer textarea:disabled { opacity: .6; }
 .reply-send {
-  align-self: end; background: var(--accent); color: #fff; border: none;
-  border-radius: 12px; padding: 0 18px; height: 42px; font-weight: 700; font-size: 13.5px; cursor: pointer;
+  align-self: end; background: var(--accent); color: var(--accent-fg); border: none;
+  border-radius: 12px; padding: 0 18px; height: 42px; font-weight: 700; font-size: var(--t-body); cursor: pointer;
   box-shadow: 0 6px 16px -8px rgba(var(--accent-rgb),.7); transition: background .15s, transform .05s;
 }
 .reply-send:hover { background: var(--accent-d); }
@@ -1308,21 +1866,21 @@ code.path { color: var(--muted); font-size: 11px; word-break: break-all; font-fa
 .reply-mic:hover { border-color: var(--accent); }
 .reply-mic:active { transform: translateY(1px); }
 .reply-mic:disabled { opacity: .55; cursor: default; }
-.reply-mic.listening { background: var(--accent); color: #fff; border-color: var(--accent); animation: mic-pulse 1.4s ease-in-out infinite; }
+.reply-mic.listening { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); animation: mic-pulse 1.4s ease-in-out infinite; }
 .reply-mic.downloading { color: var(--muted); cursor: default; }
 @keyframes mic-pulse { 0%, 100% { box-shadow: 0 0 0 3px var(--accent-soft); } 50% { box-shadow: 0 0 0 6px var(--accent-soft); } }
 /* Pied du composer : aide-mémoire des raccourcis, toujours visible sous le cadre (hors bordure).
    Le statut occupe la même ligne quand il y en a un → hauteur stable, rien ne saute. */
 .composer-foot {
   display: flex; align-items: center; flex-wrap: wrap; gap: 3px 9px;
-  margin: 7px 6px 0; min-height: 15px; font-size: 11.5px; line-height: 1.3; color: var(--muted);
+  margin: 7px 6px 0; min-height: 15px; font-size: var(--t-meta); line-height: 1.3; color: var(--muted);
 }
 .composer-foot .hint { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
 .composer-foot kbd {
   font: 10px/1 var(--mono); color: var(--muted);
   background: var(--bg3); border: 1px solid var(--border); border-radius: 4px; padding: 2px 4px;
 }
-.reply-status { font-size: 12px; color: var(--muted); font-family: var(--mono); }
+.reply-status { font-size: var(--t-meta); color: var(--muted); font-family: var(--mono); }
 .reply-status.ok { color: var(--ended); }
 .reply-status.err { color: var(--attention); }
 .reply-status.warn { color: var(--waiting); font-weight: 600; }
@@ -1332,12 +1890,12 @@ code.path { color: var(--muted); font-size: 11px; word-break: break-all; font-fa
 .me-pill {
   display: inline-flex; align-items: center; gap: 5px; background: var(--bg3);
   border: 1px solid var(--border2); border-radius: 9px; padding: 3px 8px 3px 10px;
-  color: var(--muted); font-size: 12.5px; font-weight: 600;
+  color: var(--muted); font-size: var(--t-ui); font-weight: 600;
 }
 .me-pill .me-ico { font-size: 12px; opacity: .8; }
 .me-pill select {
   border: none; background: transparent; color: var(--text); font: inherit; font-weight: 600;
-  font-size: 12.5px; padding: 2px 2px; cursor: pointer; box-shadow: none;
+  font-size: var(--t-ui); padding: 2px 2px; cursor: pointer; box-shadow: none;
 }
 .me-pill select:focus { outline: none; box-shadow: none; }
 .me-pill select:disabled { opacity: .55; cursor: default; }
@@ -1348,8 +1906,8 @@ code.path { color: var(--muted); font-size: 11px; word-break: break-all; font-fa
 /* ---------- écran « nouvelle session » (chat plein écran) ---------- */
 .newsession { flex: 1 1 auto; overflow-y: auto; display: flex; justify-content: center; padding: 28px; }
 .ns-inner { width: 100%; max-width: 760px; margin: auto; }
-.ns-title { font-size: 26px; font-weight: 800; text-align: center; margin: 0 0 6px; color: var(--text); }
-.ns-sub { color: var(--muted); font-size: 13px; line-height: 1.6; text-align: center; margin: 0 0 22px; }
+.ns-title { font-family: var(--font-display); font-size: var(--t-display); line-height: var(--lh-display); font-weight: 750; letter-spacing: -.02em; text-align: center; margin: 0 0 6px; color: var(--text); }
+.ns-sub { color: var(--muted); font-size: var(--t-ui); line-height: 1.6; text-align: center; margin: 0 0 22px; }
 /* Écran « nouvelle session » : pas de transcript derrière → ni dock collé, ni fondu. */
 .newsession .composer-dock { position: relative; bottom: auto; margin-top: 0; background: none; }
 .newsession .composer-dock::before { display: none; }
@@ -1358,7 +1916,7 @@ code.path { color: var(--muted); font-size: 11px; word-break: break-all; font-fa
    defaultModelForQuota) — say so, otherwise the selector would look like it ignores the settings. */
 .ns-quota {
   display: flex; align-items: flex-start; gap: 8px; margin: 12px 4px 0;
-  padding: 8px 11px; border-radius: 10px; font-size: 12.5px; line-height: 1.45;
+  padding: 8px 11px; border-radius: 10px; font-size: var(--t-ui); line-height: 1.45;
   border: 1px solid rgba(var(--warn-rgb), .35); background: rgba(var(--warn-rgb), .1); color: var(--text);
 }
 .ns-quota b { font-weight: 650; }
@@ -1367,12 +1925,12 @@ code.path { color: var(--muted); font-size: 11px; word-break: break-all; font-fa
 .ns-browse {
   flex: 0 0 auto; white-space: nowrap; padding: 0 14px; border-radius: 10px;
   border: 1px solid var(--border2); background: var(--bg3); color: var(--accent);
-  font-weight: 600; font-size: 13px; cursor: pointer;
+  font-weight: 600; font-size: var(--t-ui); cursor: pointer;
 }
 .ns-browse:hover:not(:disabled) { background: var(--bg2); border-color: var(--accent-d); }
 .ns-browse:disabled { opacity: 0.6; cursor: default; }
-.ns-watch { margin: 14px 4px 0; font-size: 12.5px; color: var(--accent-d); font-family: var(--mono); }
-.ns-group { display: flex; align-items: center; gap: 6px; margin: 0 4px 10px; font-size: 12.5px; color: var(--muted); }
+.ns-watch { margin: 14px 4px 0; font-size: var(--t-ui); color: var(--accent-d); font-family: var(--mono); }
+.ns-group { display: flex; align-items: center; gap: 6px; margin: 0 4px 10px; font-size: var(--t-ui); color: var(--muted); }
 .ns-group b { color: var(--text); }
 .ns-worktree { cursor: pointer; user-select: none; }
 .ns-worktree input { margin: 0 2px 0 0; cursor: pointer; accent-color: var(--accent-d); }
@@ -1384,27 +1942,27 @@ code.path { color: var(--muted); font-size: 11px; word-break: break-all; font-fa
 .img-chip img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .img-rm {
   position: absolute; top: 2px; right: 2px; width: 18px; height: 18px; line-height: 16px;
-  border: none; border-radius: 50%; background: rgba(0,0,0,.6); color: #fff; font-size: 13px;
+  border: none; border-radius: 50%; background: rgba(0,0,0,.6); color: #fff; font-size: var(--t-ui);
   cursor: pointer; padding: 0; display: grid; place-items: center;
 }
 .img-rm:hover { background: rgba(0,0,0,.85); }
-.img-up { font-size: 12px; color: var(--muted); font-family: var(--mono); }
+.img-up { font-size: var(--t-meta); color: var(--muted); font-family: var(--mono); }
 
 /* ---------- question interactive (AskUserQuestion) ---------- */
 /* réponse en 1 clic depuis la sidebar */
 .question {
   margin-top: 20px; padding: 18px 18px 16px; background: var(--surface);
-  border: 1px solid rgba(var(--accent-rgb),.35); border-radius: 18px;
-  box-shadow: var(--shadow); border-left: 4px solid var(--accent);
+  border: 1px solid color-mix(in srgb, var(--attention) 42%, var(--border)); border-radius: 18px;
+  box-shadow: var(--shadow);
 }
 .q-head { display: flex; align-items: center; gap: 9px; margin-bottom: 14px; }
 .q-ico { font-size: 16px; }
-.q-title { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: var(--accent-d); }
+.q-title { font-size: var(--t-meta); font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: var(--attention-ink); }
 .q-block { margin-bottom: 18px; }
 .q-block:last-of-type { margin-bottom: 0; }
-.q-chip { display: inline-block; background: var(--accent-soft); color: var(--accent-d); border: 1px solid rgba(var(--accent-rgb),.22); border-radius: 8px; padding: 2px 9px; font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; margin-bottom: 8px; }
-.q-text { font-size: 15px; font-weight: 600; line-height: 1.4; margin-bottom: 4px; }
-.q-hint { font-size: 11.5px; color: var(--muted); font-style: italic; margin-bottom: 8px; }
+.q-chip { display: inline-block; background: var(--accent-soft); color: var(--accent-d); border: 1px solid rgba(var(--accent-rgb),.22); border-radius: 8px; padding: 2px 9px; font-size: var(--t-micro); font-weight: 700; text-transform: uppercase; letter-spacing: .05em; margin-bottom: 8px; }
+.q-text { font-size: var(--t-title); font-weight: 600; line-height: 1.4; margin-bottom: 4px; }
+.q-hint { font-size: var(--t-meta); color: var(--muted); font-style: italic; margin-bottom: 8px; }
 .q-opts { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
 .q-opt {
   display: flex; align-items: flex-start; gap: 11px; padding: 11px 13px; cursor: pointer;
@@ -1421,10 +1979,10 @@ code.path { color: var(--muted); font-size: 11px; word-break: break-all; font-fa
    removes the activation behaviour entirely, so `checked={isSel(...)}` is the only writer. */
 .q-opt input { margin-top: 3px; accent-color: var(--accent); flex-shrink: 0; width: 16px; height: 16px; pointer-events: none; }
 .q-opt-body { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
-.q-opt-label { font-size: 13.5px; font-weight: 600; color: var(--text); }
-.q-opt-desc { font-size: 12px; color: var(--muted); line-height: 1.4; }
+.q-opt-label { font-size: var(--t-body); font-weight: 600; color: var(--text); }
+.q-opt-desc { font-size: var(--t-meta); color: var(--muted); line-height: 1.4; }
 .q-foot { display: flex; align-items: center; gap: 14px; margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--border); }
-.q-recap { flex: 1; min-width: 0; font-size: 12.5px; color: var(--accent-d); font-family: var(--mono); overflow: hidden; text-overflow: ellipsis; }
+.q-recap { flex: 1; min-width: 0; font-size: var(--t-ui); color: var(--accent-d); font-family: var(--mono); overflow: hidden; text-overflow: ellipsis; }
 .q-recap.ok { color: var(--ended); }
 .q-recap.err { color: var(--attention); }
 /* Answered: keep everything legible (you often want to re-read what you picked while
@@ -1437,33 +1995,36 @@ code.path { color: var(--muted); font-size: 11px; word-break: break-all; font-fa
 .ask-ro { padding: 8px 10px 10px; }
 .ask-ro .q-block { margin-bottom: 12px; }
 .ask-ro .q-block:last-child { margin-bottom: 0; }
-.ask-ro .q-text { font-size: 13.5px; }
+.ask-ro .q-text { font-size: var(--t-body); }
 .ask-ro .q-opts { margin-top: 8px; gap: 6px; }
 .ask-ro .q-opt { cursor: default; padding: 8px 11px; }
 .ask-ro .q-opt:hover { border-color: var(--border); background: var(--bg2); }
 .ask-ro .q-opt.sel, .ask-ro .q-opt.sel:hover { border-color: var(--accent); background: var(--accent-soft); }
 .ask-ro .ask-check { color: var(--accent-d); font-weight: 700; }
-.ask-answer { padding: 4px 10px 10px; font-family: var(--mono); font-size: 11.5px; line-height: 1.5; color: var(--text); white-space: pre-wrap; word-break: break-word; }
+.ask-answer { padding: 4px 10px 10px; font-family: var(--mono); font-size: var(--t-meta); line-height: 1.5; color: var(--text); white-space: pre-wrap; word-break: break-word; }
 
 /* lancer / reprendre une session */
 .resume-btn {
-  background: var(--accent); color: #fff; border: none; border-radius: 8px;
-  padding: 4px 10px; font-size: 12px; font-weight: 600; cursor: pointer;
+  background: var(--accent); color: var(--accent-fg); border: none; border-radius: 8px;
+  padding: 4px 10px; font-size: var(--t-meta); font-weight: 600; cursor: pointer;
 }
 .resume-btn:hover { background: var(--accent-d); }
 .resume-btn:disabled { opacity: .6; cursor: default; }
 .archive-btn {
   display: inline-flex; align-items: center; gap: 4px;
-  background: transparent; color: var(--attention); border: 1px solid var(--attention);
-  border-radius: 8px; padding: 4px 10px; font-size: 12px; font-weight: 600; cursor: pointer;
+  background: transparent; color: var(--muted); border: 1px solid var(--border2);
+  border-radius: 8px; padding: 4px 10px; font-size: var(--t-meta); font-weight: 600; cursor: pointer;
+  transition: background .12s, color .12s, border-color .12s;
 }
-.archive-btn:hover { background: var(--attention); color: #fff; }
+/* Neutral at rest: cherry means "decide now" everywhere else. It turns cherry when aimed at,
+   because it stops the session. */
+.archive-btn:hover, .archive-btn:focus-visible { background: var(--danger-soft); color: var(--attention-ink); border-color: color-mix(in srgb, var(--attention) 45%, var(--border)); }
 .archive-btn:disabled { opacity: .6; cursor: default; }
 /* boutons d’action secondaires de l’en-tête (éditeur / Ghostty / Focus / Supprimer) :
    style « fantôme » uniforme et discret — pas de couleur au repos, révélée au survol. */
 .vscode-btn {
   background: transparent; color: var(--muted); border: 1px solid var(--border2);
-  border-radius: 8px; padding: 4px 10px; font-size: 12px; font-weight: 600; cursor: pointer;
+  border-radius: 8px; padding: 4px 10px; font-size: var(--t-meta); font-weight: 600; cursor: pointer;
 }
 .vscode-btn:hover { background: var(--bg3); color: var(--text); }
 .vscode-btn:disabled { opacity: .6; cursor: default; }
@@ -1473,26 +2034,26 @@ code.path { color: var(--muted); font-size: 11px; word-break: break-all; font-fa
 .mode-now {
   display: inline-flex; align-items: center; gap: 5px; background: var(--accent-soft);
   color: var(--accent-d); border: 1px solid rgba(var(--accent-rgb),.28); border-radius: 8px;
-  padding: 4px 10px; font-size: 12px; font-weight: 700;
+  padding: 4px 10px; font-size: var(--t-meta); font-weight: 700;
 }
 .mode-chip {
   display: inline-flex; align-items: center; gap: 5px; background: var(--bg3); color: var(--muted);
-  border: 1px solid var(--border2); border-radius: 8px; padding: 4px 10px; font-size: 12px;
+  border: 1px solid var(--border2); border-radius: 8px; padding: 4px 10px; font-size: var(--t-meta);
   font-weight: 600; cursor: pointer; transition: background .15s, color .15s, border-color .15s;
 }
 .mode-chip:hover:not(:disabled) { color: var(--text); border-color: var(--accent); }
-.mode-chip.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+.mode-chip.active { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
 .mode-chip:disabled { opacity: .55; cursor: default; }
 .mode-chip .mode-ico { font-size: 11px; }
 .lf-row { display: flex; gap: 14px; }
 .lf-row > div { flex: 1; }
 /* sélecteur de mode de permission (modales de lancement) : ligne pleine sous modèle/effort */
 .lf-mode { margin-top: 10px; }
-.lf-resume-title { background: var(--bg3); border: 1px solid var(--border2); border-radius: 10px; padding: 9px 12px; font-size: 13px; font-weight: 600; margin-bottom: 4px; word-break: break-word; }
+.lf-resume-title { background: var(--bg3); border: 1px solid var(--border2); border-radius: 10px; padding: 9px 12px; font-size: var(--t-ui); font-weight: 600; margin-bottom: 4px; word-break: break-word; }
 /* rappel du message servant de point de coupe dans la modale de fork */
-.fork-from { display: flex; flex-direction: column; gap: 3px; margin: 8px 0 2px; padding: 8px 11px; border-radius: 10px; background: var(--bg3); border: 1px solid var(--border2); border-left: 3px solid var(--accent); }
-.fork-from-who { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
-.fork-from-snip { font-size: 12.5px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+.fork-from { display: flex; flex-direction: column; gap: 3px; margin: 8px 0 2px; padding: 8px 11px; border-radius: 10px; background: var(--bg3); border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--border2)); }
+.fork-from-who { font-size: var(--t-micro); font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+.fork-from-snip { font-size: var(--t-ui); color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
 /* renommage de session (titre éditable dans l'en-tête du détail) */
 
 /* sélecteur de projet recherchable (nouvelle session) */
@@ -1504,17 +2065,17 @@ code.path { color: var(--muted); font-size: 11px; word-break: break-all; font-fa
 .lf-pick-main { flex: 1; min-width: 0; }
 /* duotone folder chip — colored icon on its soft counterpart (hue picked in NewSession.svelte) */
 .lf-chip { width: 30px; height: 30px; border-radius: 8px; display: flex; align-items: center; justify-content: center; flex: none; }
-.lf-pick .pn { font-size: 13px; font-weight: 600; }
-.lf-pick .pp { display: block; color: var(--muted); font-family: var(--mono); font-size: 11px; word-break: break-all; margin-top: 1px; }
+.lf-pick .pn { font-size: var(--t-ui); font-weight: 600; }
+.lf-pick .pp { display: block; color: var(--muted); font-family: var(--mono); font-size: var(--t-micro); word-break: break-all; margin-top: 1px; }
 /* étoile favori : discrète au repos, révélée au survol/focus de la ligne, pleine quand épinglée */
 .lf-star { flex: none; background: none; border: none; cursor: pointer; font-size: 16px; line-height: 1; padding: 2px 5px; border-radius: 6px; color: var(--muted); opacity: 0; transition: opacity .12s, background .12s, color .12s; }
 .lf-pick:hover .lf-star, .lf-pick:focus-within .lf-star { opacity: .75; }
 .lf-star:hover { opacity: 1; background: var(--bg3); }
 .lf-star.on { opacity: 1; color: var(--accent); }
 .lf-star.on svg { fill: currentColor; } /* filled star when favorited (the old ★ vs ☆) */
-.lf-pick.custom { color: var(--accent); font-weight: 600; font-size: 13px; }
+.lf-pick.custom { color: var(--accent); font-weight: 600; font-size: var(--t-ui); }
 .lf-pick.hide { display: none; }
-.lf-empty { padding: 10px 12px; color: var(--muted); font-size: 12.5px; }
+.lf-empty { padding: 10px 12px; color: var(--muted); font-size: var(--t-ui); }
 
 /* badges modèle / effort sur les sessions */
 
@@ -1529,20 +2090,30 @@ code.path { color: var(--muted); font-size: 11px; word-break: break-all; font-fa
 /* onglet « Tâches » du détail de session */
 
 /* filtre par statut (chips) */
-.lf-label { display: block; font-size: 12px; font-weight: 700; color: var(--muted); margin: 16px 0 6px; text-transform: uppercase; letter-spacing: .05em; }
-.lf-input { width: 100%; box-sizing: border-box; font-size: 14px; }
+.lf-label { display: block; font-size: var(--t-meta); font-weight: 700; color: var(--muted); margin: 16px 0 6px; text-transform: uppercase; letter-spacing: .05em; }
+.lf-input { width: 100%; box-sizing: border-box; font-size: var(--t-body); }
 textarea.lf-input { font-family: inherit; resize: vertical; }
 .ns-proj-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
 .ns-proj-head .lf-label { margin-bottom: 6px; }
-.ns-wt-toggle { display: inline-flex; align-items: center; gap: 5px; cursor: pointer; user-select: none; font-size: 12px; color: var(--muted); white-space: nowrap; }
+.ns-wt-toggle { display: inline-flex; align-items: center; gap: 5px; cursor: pointer; user-select: none; font-size: var(--t-meta); color: var(--muted); white-space: nowrap; }
 .ns-wt-toggle input { margin: 0; cursor: pointer; accent-color: var(--accent-d); }
 .ns-wt-toggle:has(input:checked) { color: var(--text); }
 .lf-actions { display: flex; align-items: center; gap: 14px; margin-top: 20px; }
 .lf-actions .reply-send { grid-column: auto; }
 .attach-row { display: flex; align-items: center; gap: 10px; background: var(--bg3); border: 1px solid var(--border2); border-radius: 10px; padding: 10px 12px; }
-.attach-row code { flex: 1; font-family: var(--mono); font-size: 13px; word-break: break-all; }
+.attach-row code { flex: 1; font-family: var(--mono); font-size: var(--t-ui); word-break: break-all; }
+
+/* La sélection de texte est une surface du design, pas un bleu système : elle suit l'accent du
+   scheme actif, donc elle change avec legacy / gruvbox / datadog sans une ligne de plus. Seul le
+   fond est imposé — forcer l'encre casserait la sélection dans les blocs de code, qui gardent la
+   leur sur fond sombre quel que soit le thème. */
+::selection { background: color-mix(in srgb, var(--accent) 28%, transparent); }
+.bubble.user ::selection { background: rgba(255,255,255,.32); }
 
 /* scrollbars chaudes et discrètes */
+/* `scrollbar-color` est la seule voie sur Gecko : sans elle, Firefox garde ses barres système
+   au milieu de quatre thèmes. Les règles -webkit- ci-dessous couvrent Chrome et Safari. */
+html { scrollbar-color: var(--border2) transparent; scrollbar-width: thin; }
 ::-webkit-scrollbar { width: 11px; height: 11px; }
 ::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 8px; border: 3px solid transparent; background-clip: padding-box; }
 ::-webkit-scrollbar-thumb:hover { background: var(--muted); background-clip: padding-box; }
@@ -1555,26 +2126,26 @@ textarea.lf-input { font-family: inherit; resize: vertical; }
   user-select: none; transition: background .12s;
 }
 .change-head:hover { background: var(--bg3); }
-.ch-arrow { color: var(--muted); font-size: 11px; transition: transform .15s; flex: 0 0 auto; }
+.ch-arrow { color: var(--muted); font-size: var(--t-micro); transition: transform .15s; flex: 0 0 auto; }
 .change.open .ch-arrow { transform: rotate(90deg); }
-.ch-name { font-weight: 700; font-family: var(--mono); font-size: 13px; flex: 0 0 auto; }
-.ch-path { color: var(--muted); font-family: var(--mono); font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1 1 auto; min-width: 0; }
+.ch-name { font-weight: 700; font-family: var(--mono); font-size: var(--t-ui); flex: 0 0 auto; }
+.ch-path { color: var(--muted); font-family: var(--mono); font-size: var(--t-meta); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1 1 auto; min-width: 0; }
 .ch-open {
   flex: 0 0 auto; color: var(--accent-d); background: var(--accent-soft);
   border: 1px solid rgba(var(--accent-rgb),.22); border-radius: 8px; padding: 2px 9px;
-  font-size: 11px; font-weight: 700; text-decoration: none; font-family: var(--mono);
+  font-size: var(--t-micro); font-weight: 700; text-decoration: none; font-family: var(--mono);
   transition: background .12s, color .12s, border-color .12s;
 }
-.ch-open:hover { background: var(--accent); color: #fff; border-color: var(--accent); }
-.ch-count { color: var(--accent-d); background: var(--accent-soft); border-radius: 20px; padding: 2px 9px; font-size: 11px; font-weight: 700; flex: 0 0 auto; }
+.ch-open:hover { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
+.ch-count { color: var(--accent-d); background: var(--accent-soft); border-radius: 20px; padding: 2px 9px; font-size: var(--t-micro); font-weight: 700; flex: 0 0 auto; }
 .change-ops { display: none; border-top: 1px solid var(--border); }
 .change.open .change-ops { display: block; }
 .sa-block { padding: 10px 14px; border-bottom: 1px dashed var(--border); }
 .sa-block:last-child { border-bottom: none; }
-.sa-label { font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin-bottom: 6px; }
+.sa-label { font-size: var(--t-micro); font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin-bottom: 6px; }
 .diff { padding: 10px 14px; border-bottom: 1px dashed var(--border); }
 .diff:last-child { border-bottom: none; }
-.diff-tag { font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin-bottom: 6px; }
+.diff-tag { font-size: var(--t-micro); font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin-bottom: 6px; }
 .diff-tag.write { color: var(--ended); }
 /* Pierre diffs (@pierre/diffs, shadow DOM): bound the height like the old rendering */
 .pierre-diff { display: block; border-radius: 8px; overflow: hidden; max-height: 420px; overflow-y: auto; }
@@ -1593,7 +2164,7 @@ textarea.lf-input { font-family: inherit; resize: vertical; }
 .tool-diff.expanded .chip-x { transform: rotate(90deg); }
 .diff-more {
   display: block; width: 100%; margin-top: 4px; padding: 3px 0;
-  font-family: inherit; font-size: 11px; font-weight: 700; color: var(--muted);
+  font-family: inherit; font-size: var(--t-micro); font-weight: 700; color: var(--muted);
   background: var(--bg3); border: 1px solid var(--border); border-radius: 8px; cursor: pointer;
   transition: background .12s, color .12s;
 }
@@ -1611,10 +2182,10 @@ textarea.lf-input { font-family: inherit; resize: vertical; }
   display: flex; align-items: baseline; gap: 10px; padding: 7px 10px; border-radius: 9px; cursor: pointer;
 }
 .at-item.sel, .at-item:hover { background: var(--accent-soft); }
-.at-name { font-weight: 700; font-family: var(--mono); font-size: 13px; flex: 0 0 auto; }
-.at-path { color: var(--muted); font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.at-name { font-weight: 700; font-family: var(--mono); font-size: var(--t-ui); flex: 0 0 auto; }
+.at-path { color: var(--muted); font-size: var(--t-meta); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .at-badge {
-  flex: 0 0 auto; font-size: 10px; font-weight: 600; letter-spacing: .02em; text-transform: uppercase;
+  flex: 0 0 auto; font-size: var(--t-micro); font-weight: 600; letter-spacing: .02em; text-transform: uppercase;
   color: var(--muted); background: var(--accent-soft); padding: 1px 6px; border-radius: 6px;
 }
 
@@ -1623,7 +2194,7 @@ textarea.lf-input { font-family: inherit; resize: vertical; }
   display: none;
   background: var(--bg3); color: var(--text); border: 1px solid var(--border2);
   width: 32px; height: 32px; border-radius: 10px; cursor: pointer;
-  font-size: 16px; font-weight: 700; align-items: center; justify-content: center;
+  font-size: var(--t-title); line-height: var(--lh-title); font-weight: 700; align-items: center; justify-content: center;
   margin-right: 4px; flex: 0 0 auto;
 }
 .pane-back:hover { background: var(--border2); }
@@ -1635,7 +2206,7 @@ textarea.lf-input { font-family: inherit; resize: vertical; }
    - ≤560px : grilles à une colonne, header compact, modales pleine largeur
    ===================================================================== */
 @media (max-width: 900px) {
-  body { font-size: 13.5px; }
+  body { font-size: var(--t-body); }
   /* layout : inbox plein écran ; détail glisse par-dessus */
   .layout { display: block; position: relative; height: 100%; overflow: hidden; }
   .main-pane {
@@ -1675,19 +2246,19 @@ textarea.lf-input { font-family: inherit; resize: vertical; }
 
   /* KPI / cartes plus compacts */
   .kpi { padding: 14px; border-radius: 13px; }
-  .kpi .v { font-size: 22px; }
+  .kpi .v { font-size: var(--t-head); line-height: var(--lh-head); }
   .card { padding: 13px; border-radius: 13px; }
 
   /* chat */
-  .bubble { max-width: 92%; font-size: 13px; padding: 10px 12px; }
+  .bubble { max-width: 92%; font-size: var(--t-ui); padding: 10px 12px; }
   .chip-d { max-width: 180px; }
 
   /* composer plus compact */
   .composer { padding: 10px; border-radius: 14px; gap: 8px; }
-  .reply-send { padding: 0 14px; height: 38px; font-size: 13px; }
+  .reply-send { padding: 0 14px; height: 38px; font-size: var(--t-ui); }
   .reply-mic { width: 38px; height: 38px; }
-  .composer textarea { font-size: 13.5px; min-height: 36px; }
-  .composer-foot { margin: 6px 2px 0; gap: 3px 7px; font-size: 11px; }
+  .composer textarea { font-size: var(--t-body); min-height: 36px; }
+  .composer-foot { margin: 6px 2px 0; gap: 3px 7px; font-size: var(--t-micro); }
 
   /* modale plein écran utile */
   .modal-card { width: 96vw; padding: 20px 14px; border-radius: 14px; max-height: 92vh; }
@@ -1770,4 +2341,24 @@ textarea.lf-input { font-family: inherit; resize: vertical; }
    references stay valid and the page's MutationObserver is never tripped. */
 ::highlight(settings-search) {
   background-color: rgba(var(--accent-rgb), .28);
+}
+
+/* ---------- mouvement ---------- */
+/* Dix-huit animations tournent en boucle pour signaler un état vivant (pastilles, dots de frappe,
+   spinners). L'état lui-même est porté par la couleur ET le libellé, donc les couper ne retire
+   aucune information — seulement le clignotement, que ce réglage demande explicitement. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* ---------- plancher tactile ---------- */
+/* Le mobile est une scène d'usage de premier rang (PRODUCT.md), et le retour est la seule sortie
+   d'une session en plein écran : il ne peut pas rester sous le plancher du doigt. */
+@media (pointer: coarse) and (max-width: 900px) {
+  .pane-back { min-width: 40px; min-height: 40px; }
 }

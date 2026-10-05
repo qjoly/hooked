@@ -154,17 +154,29 @@ export function isFinishedAndCold(s, now = Date.now()) {
   return !t || Number.isNaN(t) || now - t > COLD_MS;
 }
 
-// Couleur stable d'un tag (palette du redesign). Noms connus → couleur fixe ; sinon hash du nom →
-// index dans la palette. Le fond de pilule = couleur + '22' (13% alpha). Partagé entre l'inbox et
-// la modale d'édition des tags.
-const TAG_BASE = { azure: '#c62a9e', constant: '#0f8a7e', chart: '#c27a12', infra: '#3b6fd4', urgent: '#d1493a' };
-const TAG_PALETTE = ['#c62a9e', '#0f8a7e', '#c27a12', '#3b6fd4', '#d1493a', '#7c4bd0', '#2a9d63'];
-export function tagColor(name) {
-  const n = (name || '').toLowerCase();
-  if (TAG_BASE[n]) return TAG_BASE[n];
+// Couleur stable d'un tag. Noms connus → index fixe ; sinon hash du nom → index. Renvoie une
+// variable CSS (--tag-N, définie par chaque palette dans app.css et lisible en texte sur sa teinte
+// à 13 %) : tous les appelants l'emploient dans du CSS (`--c:` / `background:`).
+const TAG_BASE = { chart: 0, constant: 1, azure: 3, infra: 4, urgent: 5 };
+const TAG_COUNT = 6;
+const hashName = (n) => {
   let h = 0;
   for (let i = 0; i < n.length; i++) h = (h * 31 + n.charCodeAt(i)) >>> 0;
-  return TAG_PALETTE[h % TAG_PALETTE.length];
+  return h;
+};
+export function tagColor(name) {
+  const n = (name || '').toLowerCase();
+  return `var(--tag-${n in TAG_BASE ? TAG_BASE[n] : hashName(n) % TAG_COUNT})`;
+}
+
+// Teinte de « lot » d'un projet : un carré fixe, le même partout où le repo apparaît (en-têtes de
+// groupe, cartes de décision, en-tête de session), pour le reconnaître avant de le lire.
+const LOT_COUNT = 8;
+// Keyed on the last path segment: a session knows its repo (« luccasa/hooked »), Stats only the
+// project name (« hooked ») — both must land on the same lot.
+export function lotColor(project) {
+  const key = String(project || '').split('/').pop().toLowerCase();
+  return `var(--lot-${hashName(key) % LOT_COUNT})`;
 }
 
 // Métadonnées d'affichage de TOUS les modes de permission Claude Code (label + icône).

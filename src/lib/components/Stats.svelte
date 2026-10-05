@@ -1,7 +1,7 @@
 <script>
   import { getStats, getUsage } from '$lib/api.js';
   import Icon from '$lib/components/Icon.svelte';
-  import { fmtCost, fmtTokens, shortModel, fmtDuration, ago } from '$lib/format.js';
+  import { fmtCost, fmtTokens, shortModel, fmtDuration, ago, lotColor } from '$lib/format.js';
   import { ui } from '$lib/state.svelte.js';
   import BarChart from './BarChart.svelte';
 
@@ -123,7 +123,7 @@
   </div>
   <div class="card chart-card">
     <h3>By project</h3>
-    <div><BarChart entries={projectEntries} fmt={fmtCost} /></div>
+    <div><BarChart entries={projectEntries} fmt={fmtCost} series={lotColor} /></div>
   </div>
   <div class="card chart-card">
     <h3>Most used tools</h3>
@@ -132,22 +132,22 @@
 </div>
 
 <style>
-  .usage-title { margin: 0 0 14px; font-size: 15px; }
-  .usage-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 14px; margin-bottom: 24px; }
-  .usage-card h3 { margin: 0 0 14px; font-size: 14px; }
-  .usage-card h3 .sub { color: var(--muted); font-weight: 400; font-size: 12px; }
+  .usage-title { margin: 0 0 14px; font-size: var(--t-title); line-height: var(--lh-title); }
+  .usage-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 14px; margin-bottom: 24px; }
+  .usage-card h3 { margin: 0 0 14px; font-size: var(--t-body); }
+  .usage-card h3 .sub { color: var(--muted); font-weight: 400; font-size: var(--t-meta); }
   .ubar-row { margin-bottom: 14px; }
   .ubar-row:last-child { margin-bottom: 0; }
-  .ubar-head { display: flex; justify-content: space-between; font-size: 12.5px; margin-bottom: 6px; }
+  .ubar-head { display: flex; justify-content: space-between; font-size: var(--t-ui); margin-bottom: 6px; }
   .ubar-head .pct { font-weight: 700; font-variant-numeric: tabular-nums; }
   .ubar { height: 8px; background: var(--bg2); border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
   .ubar-fill { height: 100%; background: linear-gradient(90deg, #d2825a, var(--accent)); border-radius: 6px; transition: width .3s ease; }
-  .ubar-sub { color: var(--muted); font-size: 11px; margin-top: 5px; }
-  .usage-foot { color: var(--muted); font-size: 11px; margin-top: 12px; }
+  .ubar-sub { color: var(--muted); font-size: var(--t-micro); margin-top: 5px; }
+  .usage-foot { color: var(--muted); font-size: var(--t-micro); margin-top: 12px; }
   .chips { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 4px; }
-  .chip { background: var(--bg2); border: 1px solid var(--border); border-radius: 8px; padding: 5px 10px; font-size: 12px; color: var(--muted); }
+  .chip { background: var(--bg2); border: 1px solid var(--border); border-radius: 8px; padding: 5px 10px; font-size: var(--t-meta); color: var(--muted); }
   .chip b { color: var(--text); font-weight: 600; }
   .chip.fast { color: var(--accent); border-color: var(--accent); }
-  .empty { color: var(--muted); font-size: 12.5px; }
+  .empty { color: var(--muted); font-size: var(--t-ui); }
   .empty code { font-family: var(--mono); }
 </style>

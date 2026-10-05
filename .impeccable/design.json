@@ -1,0 +1,461 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-10-05T17:09:50.627Z",
+  "title": "Design System: hooked",
+  "extensions": {
+    "colorMeta": {
+      "raw-sage-ground-r2": {
+        "role": "neutral",
+        "displayName": "Raw Sage Ground",
+        "canonical": "#e9ebdf",
+        "tonalRamp": [
+          "#110a09",
+          "#1e1512",
+          "#2f231f",
+          "#4d3f37",
+          "#6e6056",
+          "#aaa497",
+          "#dadacd",
+          "#f2f3ec"
+        ]
+      },
+      "porcelain": {
+        "role": "neutral",
+        "displayName": "Porcelain",
+        "canonical": "#ffffff"
+      },
+      "roast-muted-r7": {
+        "role": "neutral",
+        "displayName": "Roast Muted",
+        "canonical": "#6e6056",
+        "tonalRamp": [
+          "#110a09",
+          "#1e1512",
+          "#2f231f",
+          "#4d3f37",
+          "#6e6056",
+          "#aaa497",
+          "#dadacd",
+          "#f2f3ec"
+        ]
+      },
+      "espresso-r11": {
+        "role": "primary",
+        "displayName": "Espresso",
+        "canonical": "#261b18",
+        "tonalRamp": [
+          "#110a09",
+          "#1e1512",
+          "#2f231f",
+          "#4d3f37",
+          "#6e6056",
+          "#aaa497",
+          "#dadacd",
+          "#f2f3ec"
+        ]
+      },
+      "espresso-bar-r12": {
+        "role": "neutral",
+        "displayName": "Espresso Bar",
+        "canonical": "#1e1512",
+        "tonalRamp": [
+          "#110a09",
+          "#1e1512",
+          "#2f231f",
+          "#4d3f37",
+          "#6e6056",
+          "#aaa497",
+          "#dadacd",
+          "#f2f3ec"
+        ]
+      },
+      "espresso-ink-r13": {
+        "role": "neutral",
+        "displayName": "Espresso Ink",
+        "canonical": "#18110e",
+        "tonalRamp": [
+          "#110a09",
+          "#1e1512",
+          "#2f231f",
+          "#4d3f37",
+          "#6e6056",
+          "#aaa497",
+          "#dadacd",
+          "#f2f3ec"
+        ]
+      },
+      "latte": {
+        "role": "primary",
+        "displayName": "Latte (dark-theme and top-bar interaction)",
+        "canonical": "#e4cdb1",
+        "tonalRamp": [
+          "#3a2a1f",
+          "#5e4632",
+          "#82644b",
+          "#a88466",
+          "#c8a98a",
+          "#e4cdb1",
+          "#efdfc8",
+          "#f8f0e4"
+        ]
+      },
+      "crema-soft": {
+        "role": "primary",
+        "displayName": "Crema Soft",
+        "canonical": "#f3e5d9"
+      },
+      "cherry-attention": {
+        "role": "secondary",
+        "displayName": "Cherry (attention, diamond)",
+        "canonical": "#c43d4d",
+        "tonalRamp": [
+          "#5c1520",
+          "#7d1f2c",
+          "#a12437",
+          "#c43d4d",
+          "#ed737b",
+          "#f2a1a6",
+          "#f9eaeb",
+          "#fdf6f6"
+        ]
+      },
+      "caramel-waiting": {
+        "role": "secondary",
+        "displayName": "Caramel (waiting, disc)",
+        "canonical": "#e1901f",
+        "tonalRamp": [
+          "#473223",
+          "#6b4200",
+          "#8b5500",
+          "#b87214",
+          "#e1901f",
+          "#f5ad5a",
+          "#fbefe0",
+          "#fef9f2"
+        ]
+      },
+      "leaf-working": {
+        "role": "secondary",
+        "displayName": "Leaf (working, pulsing disc)",
+        "canonical": "#418d50",
+        "tonalRamp": [
+          "#1a3f22",
+          "#1f5a2c",
+          "#256b35",
+          "#418d50",
+          "#5aa868",
+          "#70c47e",
+          "#e8f1ea",
+          "#f5faf6"
+        ]
+      },
+      "lilac-background": {
+        "role": "secondary",
+        "displayName": "Lilac (background, thick ring)",
+        "canonical": "#9e59b3",
+        "tonalRamp": [
+          "#3f1f4a",
+          "#5e2f6e",
+          "#804293",
+          "#9e59b3",
+          "#b77acb",
+          "#ca92dc",
+          "#ead6f1",
+          "#f8f1fa"
+        ]
+      },
+      "papery-idle": {
+        "role": "secondary",
+        "displayName": "Papery Grey-Blue (idle, hairline ring)",
+        "canonical": "#92a1a9"
+      },
+      "roasted-ended": {
+        "role": "secondary",
+        "displayName": "Roasted Brown (ended, square)",
+        "canonical": "#96684f",
+        "tonalRamp": [
+          "#3a271d",
+          "#57382a",
+          "#724a34",
+          "#96684f",
+          "#ab7f66",
+          "#be947d",
+          "#e3d1c6",
+          "#f5eee9"
+        ]
+      },
+      "lot-olive": {
+        "role": "tertiary",
+        "displayName": "Lot: Olive",
+        "canonical": "#918112"
+      },
+      "lot-teal": {
+        "role": "tertiary",
+        "displayName": "Lot: Teal",
+        "canonical": "#0d8d82"
+      },
+      "lot-blue": {
+        "role": "tertiary",
+        "displayName": "Lot: Blue",
+        "canonical": "#2b519c"
+      },
+      "lot-raspberry": {
+        "role": "tertiary",
+        "displayName": "Lot: Raspberry",
+        "canonical": "#b3487e"
+      }
+    },
+    "typographyMeta": {
+      "display": {
+        "displayName": "Wheel Figure",
+        "purpose": "Decisions count in the fleet wheel centre."
+      },
+      "stat-figure": {
+        "displayName": "Stat Figure",
+        "purpose": "Big numbers of Stats (--t-display)."
+      },
+      "headline": {
+        "displayName": "Column Headline",
+        "purpose": "Deck column titles."
+      },
+      "title": {
+        "displayName": "Session Title",
+        "purpose": "Session header title; wordmark at 17px."
+      },
+      "card-title": {
+        "displayName": "Card Title",
+        "purpose": "Decision card and modal titles (--t-title)."
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "Conversation and markdown (--t-body, --lh-body)."
+      },
+      "ui": {
+        "displayName": "UI",
+        "purpose": "Tabs, buttons, cells, fields (--t-ui)."
+      },
+      "meta": {
+        "displayName": "Meta",
+        "purpose": "Ages, captions, paths (--t-meta)."
+      },
+      "label": {
+        "displayName": "Label",
+        "purpose": "Counters, gauges, badges, state pills (--t-micro)."
+      },
+      "mono": {
+        "displayName": "Mono",
+        "purpose": "Code, paths, repos, branches only."
+      }
+    },
+    "shadows": [
+      {
+        "name": "card",
+        "value": "0 1px 2px rgba(24,17,14,.06), 0 10px 26px -16px rgba(24,17,14,.32)",
+        "purpose": "Porcelain cards, modals, the fleet card (dark: 0 1px 2px rgba(0,0,0,.4), 0 12px 28px -14px rgba(0,0,0,.7))."
+      },
+      {
+        "name": "small",
+        "value": "0 1px 2px rgba(24,17,14,.08)",
+        "purpose": "Bubbles and secondary panels."
+      }
+    ],
+    "motion": [
+      {
+        "name": "wheel-sweep",
+        "value": ".7s cubic-bezier(.16, 1, .3, 1)",
+        "purpose": "The one authored motion: a session changing state sweeps its wheel segment to the new family."
+      },
+      {
+        "name": "state-pulse",
+        "value": "dot-pulse 1.6s ease-in-out infinite (attention 1s)",
+        "purpose": "Live state dots; legend dots never pulse."
+      },
+      {
+        "name": "hover",
+        "value": ".12s",
+        "purpose": "Background/colour transitions on rows, tabs, buttons."
+      },
+      {
+        "name": "reduced-motion",
+        "value": "animation/transition .01ms",
+        "purpose": "prefers-reduced-motion cuts every loop and sweep; state stays carried by label and shape."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "phone",
+        "value": "640px"
+      },
+      {
+        "name": "shell",
+        "value": "900px"
+      },
+      {
+        "name": "deck-one-column",
+        "value": "1080px"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Espresso pill for the main card action (latte in dark).",
+      "html": "<button class=\"ds-btn-primary\">Reply</button>",
+      "css": ".ds-btn-primary{background:var(--accent,#261b18);color:var(--accent-fg,#fbfbf8);border:1px solid var(--accent,#261b18);border-radius:999px;padding:6px 14px;font:650 13px \"Schibsted Grotesk\",sans-serif;cursor:pointer;transition:background .12s}.ds-btn-primary:hover{background:var(--accent-d,#3a2d27)}.ds-btn-primary:focus-visible{outline:2px solid var(--accent,#261b18);outline-offset:2px}"
+    },
+    {
+      "name": "Secondary Button",
+      "kind": "button",
+      "refersTo": "button-secondary",
+      "description": "Porcelain pill beside the primary action.",
+      "html": "<button class=\"ds-btn-secondary\">Open the session</button>",
+      "css": ".ds-btn-secondary{background:var(--bg2,#fff);color:var(--text,#18110e);border:1px solid var(--border2,#c7c4b7);border-radius:999px;padding:6px 14px;font:650 13px \"Schibsted Grotesk\",sans-serif;cursor:pointer;transition:background .12s}.ds-btn-secondary:hover{background:var(--hover,#f2f3ec)}.ds-btn-secondary:focus-visible{outline:2px solid var(--accent,#261b18);outline-offset:2px}"
+    },
+    {
+      "name": "Archive Button",
+      "kind": "button",
+      "refersTo": "button-secondary",
+      "description": "Neutral at rest; turns cherry only when aimed at.",
+      "html": "<button class=\"ds-btn-archive\">Archive</button>",
+      "css": ".ds-btn-archive{background:transparent;color:var(--muted,#6e6056);border:1px solid var(--border2,#c7c4b7);border-radius:8px;padding:4px 10px;font:600 12px \"Schibsted Grotesk\",sans-serif;cursor:pointer;transition:background .12s,color .12s,border-color .12s}.ds-btn-archive:hover,.ds-btn-archive:focus-visible{background:var(--danger-soft,#f9eaeb);color:var(--attention-ink,#a12437);border-color:#d99aa2}"
+    },
+    {
+      "name": "Espresso Bar",
+      "kind": "nav",
+      "refersTo": "topbar",
+      "description": "Flat espresso top bar, identical in both themes, latte for interaction.",
+      "html": "<nav class=\"ds-bar\"><b class=\"ds-bar-mark\">hooked</b><a class=\"ds-bar-tab on\">Deck</a><a class=\"ds-bar-tab\">Sessions</a><button class=\"ds-bar-new\">+ Session</button></nav>",
+      "css": ".ds-bar{display:flex;align-items:center;gap:18px;min-height:48px;padding:0 14px;background:#1e1512;color:#f2f3ec;font:600 13px \"Schibsted Grotesk\",sans-serif}.ds-bar-mark{font:700 17px \"Bricolage Grotesque\",sans-serif;letter-spacing:-.02em}.ds-bar-tab{color:#aaa497;padding:14px 2px;cursor:pointer}.ds-bar-tab:hover{color:#f2f3ec}.ds-bar-tab.on{color:#f2f3ec;box-shadow:inset 0 -2px 0 #e4cdb1}.ds-bar-new{margin-left:auto;background:#e4cdb1;color:#1e1512;border:0;border-radius:999px;padding:6px 12px;font:inherit;font-weight:700;cursor:pointer}.ds-bar-new:hover{background:#efdfc8}.ds-bar-new:focus-visible{outline:2px solid #e4cdb1;outline-offset:2px}"
+    },
+    {
+      "name": "State Pill",
+      "kind": "chip",
+      "refersTo": "state-pill-waiting",
+      "description": "Label + shape + hue: waiting disc, attention diamond.",
+      "html": "<span class=\"ds-pill ds-wait\">Waiting</span> <span class=\"ds-pill ds-att\">Action required</span>",
+      "css": ".ds-pill{display:inline-flex;align-items:center;gap:6px;padding:3px 9px 3px 8px;border-radius:999px;font:750 11px \"Schibsted Grotesk\",sans-serif;letter-spacing:.07em;text-transform:uppercase}.ds-pill::before{content:\"\";width:7px;height:7px;border-radius:50%;background:var(--tk)}.ds-wait{--tk:#e1901f;color:#8b5500;background:#fbefe0}.ds-att{--tk:#c43d4d;color:#a12437;background:#f9eaeb}.ds-att::before{border-radius:1px;transform:rotate(45deg) scale(.9)}"
+    },
+    {
+      "name": "Decision Card",
+      "kind": "card",
+      "refersTo": "card",
+      "description": "Porcelain card on the sage ground: state pill, title, lot tab + repo, actions in the foot.",
+      "html": "<article class=\"ds-card\"><header class=\"ds-card-h\"><span class=\"ds-lot\"></span><b>Ouvrir une instance de test</b><span class=\"ds-meta\">luccasa/hooked · 4 h ago</span></header><p class=\"ds-card-b\">Waiting for you</p></article>",
+      "css": ".ds-card{background:#fff;border:1px solid #dadacd;border-radius:16px;box-shadow:0 1px 2px rgba(24,17,14,.06),0 10px 26px -16px rgba(24,17,14,.32);overflow:hidden;font:400 14px/1.62 \"Schibsted Grotesk\",sans-serif;color:#18110e}.ds-card-h{display:flex;align-items:center;gap:10px;padding:12px 16px;border-bottom:1px solid #dadacd}.ds-meta{margin-left:auto;font:11px \"JetBrains Mono Web\",monospace;color:#6e6056}.ds-card-b{margin:0;padding:10px 16px;color:#8b5500;font-weight:600;font-size:13px}.ds-lot{width:14px;height:7px;border-radius:2px;background:#0d8d82}"
+    },
+    {
+      "name": "Filter Field",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "Sage-washed field, espresso focus.",
+      "html": "<input class=\"ds-input\" placeholder=\"Filter…\">",
+      "css": ".ds-input{background:#f2f3ec;border:1px solid #dadacd;border-radius:8px;padding:5px 10px;font:12px \"Schibsted Grotesk\",sans-serif;color:#18110e}.ds-input:focus-visible{outline:none;border-color:#261b18;box-shadow:0 0 0 3px #f3e5d9}"
+    },
+    {
+      "name": "Conversation Bubbles",
+      "kind": "custom",
+      "refersTo": "bubble-user",
+      "description": "Espresso user turns, porcelain assistant turns, 5px speaker-side tail.",
+      "html": "<div class=\"ds-chat\"><div class=\"ds-b ds-a\">Done, the tests pass.</div><div class=\"ds-b ds-u\">Ship it.</div></div>",
+      "css": ".ds-chat{display:flex;flex-direction:column;gap:12px;padding:16px;background:#e9ebdf;font:400 14px/1.62 \"Schibsted Grotesk\",sans-serif}.ds-b{max-width:85%;padding:11px 14px;border-radius:16px;box-shadow:0 1px 2px rgba(24,17,14,.08)}.ds-a{align-self:flex-start;background:#fff;border:1px solid #dadacd;border-bottom-left-radius:5px;color:#18110e}.ds-u{align-self:flex-end;background:#261b18;color:#fbfbf8;border-bottom-right-radius:5px}"
+    },
+    {
+      "name": "State Dots",
+      "kind": "custom",
+      "refersTo": "lot-tab",
+      "description": "The six state shapes, and the 2:1 lot tab no state uses.",
+      "html": "<div class=\"ds-dots\"><i class=\"ds-d a\"></i><i class=\"ds-d w\"></i><i class=\"ds-d k\"></i><i class=\"ds-d b\"></i><i class=\"ds-d i\"></i><i class=\"ds-d e\"></i><i class=\"ds-lot2\"></i></div>",
+      "css": ".ds-dots{display:flex;gap:14px;align-items:center;padding:12px}.ds-d{width:8px;height:8px;border-radius:50%}.a{background:#c43d4d;border-radius:1px;transform:rotate(45deg) scale(.88)}.w{background:#e1901f}.k{background:#418d50;animation:ds-p 1.6s ease-in-out infinite}.b{box-shadow:inset 0 0 0 2.5px #9e59b3}.i{box-shadow:inset 0 0 0 1.5px #92a1a9}.e{background:#96684f;border-radius:2px}.ds-lot2{width:14px;height:7px;border-radius:2px;background:#b3487e}@keyframes ds-p{50%{opacity:.35}}@media (prefers-reduced-motion:reduce){.k{animation:none}}"
+    }
+  ],
+  "narrative": {
+    "northStar": "La Roue des arômes",
+    "overview": "hooked reads its sessions like a cup on the coffee taster's flavour wheel: each live state is one flavour family, one hue with one meaning, laid on a roasted, cool-modern shell. The space is raw green coffee (a sage ground with porcelain-white cards); the ink and the chrome are roasted espresso (text, the top bar, primary actions). The dark theme turns the bean over: espresso grounds, raw-sage ink. Both themes are first-rank and AA-measured; neither is a derivative of the other.\n\nColour is spent only on meaning: live states, project lots, tags and data series. Everything else is a step of one roast-tinted neutral ladder. Coffee lives in the materials (sage, porcelain, espresso, latte, a fine roast grain) and in one signature, the fleet wheel, never in ornament: no beans, no cream, no serif, no latte art, and the English UI wording is untouched by the world.\n\nDensity is that of a working console: a 48px espresso bar, compact 13px controls, a calm 14px reading measure in conversations. Everything is local: fonts are bundled woff2 in `static/fonts/`, the grain is inline SVG noise, nothing is fetched from a CDN.",
+    "keyCharacteristics": [
+      "One neutral family, the roast scale r0…r14; no grey outside it.",
+      "Six state families, each carried by label + shape + hue, never hue alone.",
+      "Interaction is espresso in light, latte in dark, never a state hue.",
+      "Projects wear a fixed lot hue as a 2:1 tab, from hue bands no state owns.",
+      "The fleet wheel is live in three places: Deck, top-bar mark, favicon.",
+      "A roast grain on the sage ground only (the espresso bar stays flat), never under text-dense cards."
+    ],
+    "rules": [
+      {
+        "name": "The Flavour Wheel Rule",
+        "body": "Colour means something or it is absent. A hue on screen is a state, a lot, a tag or a data series; chrome, decoration and interaction are roast neutrals or espresso/latte.",
+        "section": "colors"
+      },
+      {
+        "name": "The One Ladder Rule",
+        "body": "Every neutral token of both themes aliases a step of r0…r14. A new surface, line or code ink picks a step or becomes a token; no ad-hoc grey.",
+        "section": "colors"
+      },
+      {
+        "name": "The Out-of-Band Rule",
+        "body": "Lots and tags live in hue bands no state owns (olive, teal, cyan, blue, indigo, raspberry). A new lot or tag hue must never land near cherry, caramel, leaf, lilac, roasted brown or the papery grey-blue.",
+        "section": "colors"
+      },
+      {
+        "name": "The Espresso/Latte Rule",
+        "body": "Interaction is espresso in light and latte in dark. No hue, ever, for a button, a selection or a focus ring.",
+        "section": "colors"
+      },
+      {
+        "name": "The Display Is For Figures Rule",
+        "body": "Bricolage sets titles and big numbers only; running text, labels and controls stay in Schibsted Grotesk.",
+        "section": "typography"
+      },
+      {
+        "name": "The Mono Is Data Rule",
+        "body": "JetBrains Mono is for code, paths, repos and branches, never for prose or headings.",
+        "section": "typography"
+      },
+      {
+        "name": "The Tabular Rule",
+        "body": "Every count, age and gauge uses tabular figures so columns don't jitter as numbers change.",
+        "section": "typography"
+      },
+      {
+        "name": "The Ticket-Wallet Rule",
+        "body": "A row or card never reflows when its state changes; only its mark and its colour change.",
+        "section": "layout"
+      },
+      {
+        "name": "The Thumb Rule",
+        "body": "On phones a decision card's actions sit in one full-width band at the bottom of the card, 44px targets, nothing overflowing the viewport. Coarse pointers under 900px get a 40px floor on the back control.",
+        "section": "layout"
+      },
+      {
+        "name": "The Grain Rule",
+        "body": "The roast grain (`--grain`, on the page and pane ground only; the espresso bar stays flat) is a material, not a pattern: it never sits under text-dense cards, bubbles or code.",
+        "section": "elevation"
+      },
+      {
+        "name": "The Shape-Carries-State Rule",
+        "body": "A state is never told by hue alone: label + shape + hue, and the shapes above are reserved for states. Nothing else may be a diamond-dot, ring-dot or square-dot.",
+        "section": "shapes"
+      }
+    ],
+    "dos": [
+      "Do alias every neutral to a roast step r0…r14, in both themes.",
+      "Do give every state its label, its shape and its hue; use the `-ink` form for text and the bare hue for marks.",
+      "Do use espresso (light) or latte (dark) for every interaction; latte on the espresso bar in both themes.",
+      "Do draw a project with `lotColor()` as a 14×7px tab, identical wherever the repo appears.",
+      "Do keep both themes AA, measured on porcelain, ground and chip surfaces.",
+      "Do bundle every font and texture locally.",
+      "Do neutralise any new coffee-only token in `:root[data-scheme]`."
+    ],
+    "donts": [
+      "Don't use a hue for chrome, decoration or interaction; colour is reserved for meaning.",
+      "Don't pick a lot or tag hue inside a state's band (cherry, caramel, leaf, lilac, roasted brown, papery grey-blue).",
+      "Don't reuse the state marks (diamond, ring, square) or the 2:1 lot tab for anything else.",
+      "Don't add coffee ornament: no beans, cream, serif, latte art; the cup belongs to inbox zero only.",
+      "Don't lay the grain under text-dense cards, bubbles or code.",
+      "Don't set running text in Bricolage or prose in JetBrains Mono.",
+      "Don't reflow a row or card when its state changes.",
+      "Don't fetch fonts or assets from a CDN."
+    ]
+  }
+}

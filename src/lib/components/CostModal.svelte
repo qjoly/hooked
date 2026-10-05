@@ -36,10 +36,10 @@
 </script>
 
 <h2 style="margin:0 0 4px"><Icon name="cost" size={18} /> Estimated API cost — {one ? 'this session' : 'all sessions'} · {fmtCost(tot)}</h2>
-<p style="color:var(--muted);font-size:12.5px;line-height:1.5;margin:0 0 18px">
+<p style="color:var(--muted);font-size: var(--t-ui);line-height:1.5;margin:0 0 18px">
   Pay-as-you-go API estimate. On a subscription (Max/Pro), this is <b>not</b> your actual bill.
   Rates: Fable 10/50, Opus 5/25, Sonnet 3/15, Haiku 1/5 $/Mtok; cache write ×1.25, read ×0.1.</p>
-<h3 style="margin:0 0 12px">By component <span style="color:var(--muted);font-weight:400;font-size:12px">(cost · % · tokens)</span></h3>
+<h3 style="margin:0 0 12px">By component <span style="color:var(--muted);font-weight:400;font-size: var(--t-meta)">(cost · % · tokens)</span></h3>
 {#each COMP as [label, key, col]}
   <div class="bar-row">
     <span class="label">{label}</span>

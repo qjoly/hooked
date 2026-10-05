@@ -28,5 +28,5 @@
   .sessions-empty { flex: 1 1 auto; min-height: 0; display: flex; align-items: center; justify-content: center; background: var(--panel); }
   .se-inner { text-align: center; color: var(--muted); }
   .se-ico { font-size: 34px; opacity: .5; margin-bottom: 8px; }
-  .se-inner p { font-size: 13.5px; }
+  .se-inner p { font-size: var(--t-body); }
 </style>

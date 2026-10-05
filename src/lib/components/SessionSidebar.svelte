@@ -5,9 +5,9 @@
   // and width all live in ui (localStorage). Toggle via the ◀/▶ buttons or ⌘/Ctrl+B.
   import { goto } from '$app/navigation';
   import { page } from '$app/state';
-  import { ui, data, settings, sessionTitle, sessionTags, togglePin, allTags, tagUsage, openModal, isSessionArchived, isArchived, toggleArchive, addSplit, isInSplit, canSplit, groupUnits, isGroupArchived, groupName, isGrouped, dnd } from '$lib/state.svelte.js';
+  import { ui, data, settings, sessionTitle, sessionTags, togglePin, allTags, tagUsage, openModal, isSessionArchived, isArchived, toggleArchive, isIncognito, toggleIncognito, addSplit, isInSplit, canSplit, groupUnits, isGroupArchived, groupName, isGrouped, dnd } from '$lib/state.svelte.js';
   import { onMount } from 'svelte';
-  import { ago, agoShort, fmtSpan, tagColor, isActiveSession as isActive, needsDecision, sessionDot as dotClass } from '$lib/format.js';
+  import { ago, agoShort, fmtSpan, tagColor, lotColor, isActiveSession as isActive, needsDecision, sessionDot as dotClass } from '$lib/format.js';
   import { cacheCountdown } from '$lib/promptCache.js';
   import { dragSession, dropSession, dropDetach } from '$lib/groupDnd.js';
   import Icon from '$lib/components/Icon.svelte';
@@ -251,7 +251,7 @@
         {#if g.label}
           <!-- a project header is a drop target too: dropping a grouped session on it detaches it -->
           <button class="ssb-group" class:collapsed={ui.collapsed[g.key]} onclick={() => toggleGroup(g.key)} use:dropDetach>
-            <span class="ssb-chev"><Icon name="chevron-right" size={12} /></span><span class="ssb-gname">{g.label}</span><span class="ssb-gn">{g.items.length}</span>
+            <span class="ssb-chev"><Icon name="chevron-right" size={12} /></span><span class="ssb-lot" style="--lot:{lotColor(g.key)}"></span><span class="ssb-gname">{g.label}</span><span class="ssb-gn">{g.items.length}</span>
           </button>
         {/if}
         {#if !g.label || !ui.collapsed[g.key]}
@@ -320,6 +320,9 @@
       {/if}
       <span class="state-dot ssb-dot d-{unit && collapsedU ? unitDot(unit) : dotClass(s)}"></span>
       {#if isPinned(s.id)}<span class="ssb-pin-mark" title="Pinned"><Icon name="pin" size={11} /></span>{/if}
+      <!-- Marqueur incognito : utile hors du mode (quelles sessions seront visibles) ; dans le
+           mode, toutes les sessions listées le sont, l'afficher partout serait du bruit. -->
+      {#if !ui.incognito && isIncognito(s.id)}<span class="ssb-pin-mark" title="Incognito"><Icon name="eye-off" size={11} /></span>{/if}
       <span class="ssb-name" title={unit ? 'Group · mother session: ' + sessionTitle(s) : undefined}>{unit ? groupName(s.id) : sessionTitle(s)}</span>
       {#if unit}<span class="ssb-gcount" title="{unit.all.length} sessions in this group">{unit.all.length}</span>{/if}
       <!-- settings.sidebarCache: the countdown sits in a pill beside the elapsed time, or takes its
@@ -340,6 +343,9 @@
                 onclick={(e) => { e.stopPropagation(); openModal('editTags', { sessionId: s.id }); }}><Icon name="tag" size={13} /></button>
         <button class="ssb-act" class:on={isPinned(s.id)} title={isPinned(s.id) ? 'Unpin' : 'Pin'} aria-label="Pin"
                 onclick={(e) => { e.stopPropagation(); togglePin(s.id); }}><Icon name="pin" size={13} /></button>
+        <button class="ssb-act" class:on={isIncognito(s.id)} aria-label="Incognito"
+                title={isIncognito(s.id) ? 'Remove from incognito — hidden while incognito mode is on' : 'Mark incognito — keep it visible in incognito mode'}
+                onclick={(e) => { e.stopPropagation(); toggleIncognito(s.id); }}><Icon name={isIncognito(s.id) ? 'eye-off' : 'eye'} size={13} /></button>
         {#if tab === 'archived' && isArchived(s.id)}
           <button class="ssb-act" title="Unarchive" onclick={(e) => { e.stopPropagation(); toggleArchive(s.id); }}><Icon name="unarchive" size={13} /></button>
         {:else if tab === 'active' && s.id !== currentId && !isInSplit(s.id) && canSplit()}
@@ -360,17 +366,31 @@
   .ssb {
     position: relative; background: var(--bg2); border-right: 1px solid var(--border);
     display: flex; flex-direction: column; flex: 0 0 auto;
+    /* La largeur est posée par la poignée, pas par la fenêtre : c'est elle que l'en-tête doit
+       interroger, d'où un conteneur plutôt qu'une media query. */
+    container-type: inline-size;
+  }
+  /* Les six commandes de l'en-tête réclament ~305px. En dessous, les outils passent sous les
+     onglets au lieu de se marcher dessus — aucune n'est retirée, et une sidebar large retrouve
+     la ligne unique toute seule. */
+  @container (max-width: 312px) {
+    .ssb-head { flex-wrap: wrap; row-gap: 2px; }
+    .ssb-tabs { flex: 1 0 100%; }
+    .ssb-head > .ssb-icon:first-of-type { margin-left: auto; }
   }
   :global(body.focus) .ssb, :global(body.focus) .ssb-collapsed { display: none; }
   .ssb-head { display: flex; align-items: center; gap: 4px; padding: 8px 8px 6px; border-bottom: 1px solid var(--border); }
-  .ssb-tabs { display: flex; gap: 2px; flex: 1 1 auto; min-width: 0; }
+  .ssb-tabs { display: flex; gap: 2px; flex: 1 1 auto; min-width: 0; overflow: hidden; }
   .ssb-tab {
     background: none; border: none; border-radius: 7px; padding: 4px 8px; cursor: pointer;
-    font: inherit; font-size: 12px; font-weight: 700; color: var(--muted); white-space: nowrap;
+    font: inherit; font-size: var(--t-meta); font-weight: 700; color: var(--muted); white-space: nowrap;
+    /* Sans ces trois-là, un onglet en nowrap sort de sa boîte rétrécie et passe sous les icônes
+       au lieu de céder — c'est la superposition, pas un manque de place. */
+    min-width: 0; overflow: hidden; text-overflow: ellipsis;
   }
   .ssb-tab:hover { color: var(--text); }
   .ssb-tab.on { background: var(--accent-soft); color: var(--accent-d); }
-  .ssb-count { font-family: var(--mono); font-size: 9.5px; opacity: .8; font-weight: 600; }
+  .ssb-count { font-family: var(--mono); font-size: var(--t-micro); opacity: .8; font-weight: 600; }
   .ssb-icon {
     width: 26px; height: 24px; border: none; background: transparent; color: var(--muted); flex: 0 0 auto;
     border-radius: 7px; cursor: pointer; font-size: 12px; display: inline-flex; align-items: center; justify-content: center;
@@ -391,13 +411,13 @@
   .ssb-mi {
     display: flex; align-items: flex-start; gap: 6px; width: 100%; padding: 6px 8px;
     border: none; background: transparent; border-radius: 7px; cursor: pointer;
-    text-align: left; color: var(--text); font: inherit; font-size: 12px;
+    text-align: left; color: var(--text); font: inherit; font-size: var(--t-meta);
   }
   .ssb-mi:hover { background: var(--hover); }
   .ssb-mi.on { color: var(--accent-d); font-weight: 600; }
   .ssb-mi-check { flex: 0 0 12px; display: inline-flex; justify-content: center; padding-top: 2px; }
   .ssb-mi-txt { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
-  .ssb-mi-hint { color: var(--muted); font-size: 11px; font-weight: 400; }
+  .ssb-mi-hint { color: var(--muted); font-size: var(--t-micro); font-weight: 400; }
 
   /* « +N older sessions » / « show less » : même bandeau discret que les en-têtes de groupe, pour
      que l'extension de la fenêtre se lise comme une ligne de structure et pas comme une session. */
@@ -411,7 +431,7 @@
     grid-column: 1 / -1;
     display: flex; align-items: center; gap: 6px; width: 100%; background: transparent; border: none;
     border-bottom: 1px solid var(--border);
-    color: var(--muted); font: inherit; font-family: var(--mono); font-size: 10px; font-weight: 600;
+    color: var(--muted); font: inherit; font-family: var(--mono); font-size: var(--t-micro); font-weight: 600;
     letter-spacing: .06em; padding: 6px 10px 6px 22px; cursor: pointer; text-align: left;
   }
   .ssb-more:hover { background: var(--hover); color: var(--text); }
@@ -419,18 +439,20 @@
   /* Side panel sans gap (anti-bulle) : liste affleurante — une ligne = un filet, group headers
      en bandeaux uppercase, session courante = rail accent 2px + fond de surface. */
   .ssb-list { flex: 1 1 auto; overflow-y: auto; padding: 0; }
-  .ssb-empty { color: var(--muted); font-size: 12px; text-align: center; padding: 24px 8px; }
+  .ssb-empty { color: var(--muted); font-size: var(--t-meta); text-align: center; padding: 24px 8px; }
   .ssb-group {
-    display: flex; align-items: center; gap: 6px; width: 100%; background: var(--bg3); border: none;
+    display: flex; align-items: center; gap: 7px; width: 100%; background: var(--bg2); border: none;
     border-bottom: 1px solid var(--border);
-    color: var(--muted); font: inherit; font-family: var(--mono); font-size: 10px; font-weight: 700;
-    letter-spacing: .1em; text-transform: uppercase; padding: 5px 10px; cursor: pointer; text-align: left;
+    color: var(--text); font: inherit; font-size: var(--t-meta); font-weight: 750;
+    letter-spacing: .01em; padding: 10px 10px 6px; cursor: pointer; text-align: left;
   }
+  .ssb-group .ssb-chev { color: var(--muted); }
+  .ssb-lot { display: var(--lot-display, block); width: 14px; height: 7px; border-radius: 2px; background: var(--lot); flex: 0 0 auto; }
   .ssb-group:hover { color: var(--text); }
   .ssb-chev { transition: transform .12s; }
   .ssb-group:not(.collapsed) .ssb-chev { transform: rotate(90deg); }
   .ssb-gname { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .ssb-gn { color: var(--muted); }
+  .ssb-gn { color: var(--muted); font-weight: 600; font-variant-numeric: tabular-nums; }
 
   .ssb-row {
     position: relative; display: flex; flex-direction: column; align-items: stretch; gap: 3px;
@@ -442,12 +464,13 @@
   /* tags compacts : lisibles mais discrets, alignés sous le nom (décalés du dot) */
   .ssb-tags { display: flex; flex-wrap: wrap; gap: 3px; padding-left: 16px; min-width: 0; }
   .ssb-tag {
-    font: 600 9px var(--mono); line-height: 1.6; padding: 0 5px; border-radius: 0;
+    font: 650 10.5px var(--font); line-height: 1.6; padding: 0 7px; border-radius: 999px;
     color: var(--c); background: color-mix(in srgb, var(--c) 14%, transparent);
     max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
   .ssb-row:hover { background: var(--hover); }
-  .ssb-row.cur { background: var(--panel); box-shadow: inset 2px 0 0 var(--accent); }
+  /* Current row: a latte wash and a bolder name, no coloured edge (the rail read as one more state). */
+  .ssb-row.cur { background: var(--accent-soft); }
   .ssb-row.dim { opacity: .6; }
   .ssb-row.dim:hover { opacity: 1; }
   /* groups: indented children hang off a guide line; drag/drop feedback */
@@ -460,21 +483,27 @@
     cursor: pointer; display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; transition: transform .12s;
   }
   .ssb-gchev.open { transform: rotate(90deg); }
-  .ssb-gcount { font-family: var(--mono); font-size: 9.5px; color: var(--muted); flex: 0 0 auto; }
+  .ssb-gcount { font-family: var(--mono); font-size: var(--t-micro); color: var(--muted); flex: 0 0 auto; }
   .ssb-group:global(.drop-over) { box-shadow: inset 0 0 0 2px var(--accent); }
   .ssb-detach {
     position: sticky; bottom: 0; margin: 8px; padding: 12px 10px; display: flex; align-items: center; justify-content: center; gap: 7px;
-    border: 1px dashed var(--border2); border-radius: 10px; background: var(--bg2); color: var(--muted); font-size: 12px; font-weight: 600;
+    border: 1px dashed var(--border2); border-radius: 10px; background: var(--bg2); color: var(--muted); font-size: var(--t-meta); font-weight: 600;
   }
   .ssb-detach:global(.drop-over) { border-color: var(--accent); background: var(--accent-soft); color: var(--accent-d); }
-  .ssb-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12.5px; }
+  .ssb-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--t-ui); }
   .ssb-row.cur .ssb-name { font-weight: 700; color: var(--accent-d); }
-  .ssb-ago { flex: 0 0 auto; font-family: var(--mono); font-size: 9.5px; color: var(--muted); }
-  .ssb-pin-mark { flex: 0 0 auto; font-size: 9px; line-height: 1; opacity: .8; }
+  .ssb-ago { flex: 0 0 auto; font-size: var(--t-micro); color: var(--muted); font-variant-numeric: tabular-nums; }
+  .ssb-pin-mark { flex: 0 0 auto; font-size: var(--t-micro); line-height: 1; opacity: .8; }
   /* actions au survol : groupe ancré à droite, masqué au repos, révélé au hover de la ligne */
-  .ssb-acts { position: absolute; right: 4px; display: none; gap: 2px; background: transparent; padding-left: 4px; }
+  /* The icons sit on the row's own colour, faded in from the left: a transparent strip let them
+     draw straight over the title. */
+  .ssb-acts {
+    position: absolute; right: 0; top: 50%; transform: translateY(-50%); display: none; gap: 2px; padding-left: 22px;
+    background: linear-gradient(to right, transparent, var(--acts-bg, var(--hover)) 20px);
+  }
+  .ssb-row.cur .ssb-acts { --acts-bg: var(--accent-soft); }
   .ssb-row:hover .ssb-acts { display: inline-flex; }
-  .ssb-cache { flex: 0 0 auto; display: inline-flex; align-items: center; gap: 2px; font-family: var(--mono); font-size: 9.5px; color: var(--muted); }
+  .ssb-cache { flex: 0 0 auto; display: inline-flex; align-items: center; gap: 2px; font-family: var(--mono); font-size: var(--t-micro); color: var(--muted); }
   /* Beside the elapsed time: a pill, so the countdown never reads as one more "time ago". */
   .ssb-cache.pill { padding: 0 5px; border: 1px solid rgba(var(--warn-rgb), .45); border-radius: 999px; color: var(--text); font-variant-numeric: tabular-nums; }
   .ssb-row:hover .ssb-ago, .ssb-row:hover .ssb-cache, .ssb-row:hover .ssb-gcount { visibility: hidden; }
@@ -489,7 +518,7 @@
   /* barre de filtre par tag (chips, comme l'ancienne inbox) */
   .ssb-filters { display: flex; flex-wrap: wrap; gap: 4px; padding: 6px 8px; border-bottom: 1px solid var(--border); }
   .ssb-tf {
-    font: 600 9.5px var(--mono); line-height: 1.6; padding: 1px 6px; border-radius: 0; cursor: pointer;
+    font: 650 11px var(--font); line-height: 1.6; padding: 1px 8px; border-radius: 999px; cursor: pointer;
     color: var(--c); background: transparent; border: 1px solid color-mix(in srgb, var(--c) 40%, transparent);
   }
   .ssb-tf:hover { background: color-mix(in srgb, var(--c) 12%, transparent); }
@@ -518,9 +547,15 @@
   .ssb-tile.cur { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
   .ssb-tile.dim { opacity: .5; }
   .ssb-tile.dim:hover { opacity: 1; }
-  .ssb-ab { font-family: var(--mono); font-size: 8.5px; font-weight: 700; color: var(--muted); }
+  .ssb-ab { font-family: var(--mono); font-size: var(--t-micro); font-weight: 700; color: var(--muted); }
   .ssb-tile.cur .ssb-ab { color: var(--accent-d); }
   .ssb-tile .ssb-dot { position: absolute; top: -3px; right: -3px; width: 9px; height: 9px; border: 2px solid var(--bg2); }
 
-  @media (max-width: 900px) { .ssb, .ssb-collapsed { display: none; } }
+  /* La liste ne s'efface que lorsqu'une session la recouvre : sinon elle EST l'écran. */
+  @media (max-width: 900px) {
+    :global(.layout.has-detail) .ssb, :global(.layout.has-detail) .ssb-collapsed { display: none; }
+    /* `!important` parce que la largeur est posée en style inline : c'est une préférence de
+       poignée de redimensionnement, qui n'a pas de sens quand la liste occupe tout l'écran. */
+    .ssb { flex: 1 1 auto; width: 100% !important; min-width: 0 !important; border-right: none; }
+  }
 </style>

@@ -7,10 +7,11 @@
   import { ui, data, sessionTitle, sessionTags, loadSessions, toggleArchive, isArchived, isSessionArchived, snoozeSession, snoozeUntil, groupUnits, isGroupArchived, isGrouped, groupName } from '$lib/state.svelte.js';
   import { dragSession, dropSession, dropDetach } from '$lib/groupDnd.js';
   import { getSession, reply } from '$lib/api.js';
-  import { ago, tagColor, STATE_LABEL, needsDecision, isActiveSession as isLive, sessionDot as dotClass } from '$lib/format.js';
+  import { ago, tagColor, lotColor, STATE_LABEL, needsDecision, isActiveSession as isLive, sessionDot as dotClass } from '$lib/format.js';
   import Question from './Question.svelte';
   import Plan from './Plan.svelte';
   import Icon from '$lib/components/Icon.svelte';
+  import FleetWheel from '$lib/components/FleetWheel.svelte';
 
   const S = $derived(data.sessions);
 
@@ -110,6 +111,7 @@
   let archivedOpen = $state(false); // fleet: reveal the collapsed "Archived" section
   // shared search predicate for the fleet quick filter.
   function matchesQ(s) {
+    if (fstate && dotClass(s) !== fstate) return false;
     const q = fq.toLowerCase().trim();
     if (!q) return true;
     const hay = `${s.repo} ${s.projectName} ${sessionTitle(s)} ${s.lastPrompt} ${s.gitBranch} ${sessionTags(s.id).join(' ')}`.toLowerCase();
@@ -123,6 +125,8 @@
   let view = $state((typeof localStorage !== 'undefined' && localStorage.getItem('hooked.deckView')) || 'grid');
   $effect(() => { try { localStorage.setItem('hooked.deckView', view); } catch {} });
   let fq = $state(''); // fleet quick filter
+  let fstate = $state(null); // fleet state filter, set from the wheel legend (a sessionDot family)
+  const wheelSessions = $derived(S.filter((s) => !isSessionArchived(s)));
 
   const projectKey = (s) => s.repo || s.projectName || '—';
   const unitLive = (u) => u.all.some(isLive);
@@ -192,7 +196,12 @@
 
       {#if !triage.length}
         <div class="triage-empty">
-          <div class="te-ico"><Icon name="all-clear" size={28} /></div>
+          <div class="te-ico te-cup" aria-hidden="true">
+            <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+              <path class="steam" d="M7 2.5v2" /><path class="steam" d="M10.5 2.5v2" /><path class="steam" d="M14 2.5v2" />
+              <path d="M17 8.5a1 1 0 0 1 1 1v6.5a4 4 0 0 1-4 4H8a4 4 0 0 1-4-4V9.5a1 1 0 0 1 1-1z" /><path d="M18 10.5h1a3 3 0 0 1 0 6h-1" />
+            </svg>
+          </div>
           Inbox zero — nothing needs you right now.
           {#if snoozedCount}<div class="te-sub">{snoozedCount} snoozed decision{snoozedCount > 1 ? 's' : ''} will come back within the hour.</div>{/if}
         </div>
@@ -235,10 +244,15 @@
         </div>
       </div>
 
+      <div class="wheel-card">
+        <FleetWheel sessions={wheelSessions} quiet={(s) => snoozed(s.id)} decisions={triage.length} bind:filter={fstate} />
+      </div>
+
       {#each fleetGroups as g (g.proj)}
         <div class="repo-group">
           <!-- drop a grouped session on a repo header to take it out of its group -->
           <div class="repo-head" use:dropDetach>
+            <span class="lot" style="--lot:{lotColor(g.proj)}"></span>
             <span class="repo-name">{g.proj}</span>
             <span class="repo-n">{g.items.length}</span>
             <a class="repo-plus" href={'/new?project=' + encodeURIComponent(g.newProject)} title="New session in this project"><Icon name="plus" size={15} /></a>
@@ -256,7 +270,17 @@
           </div>
         </div>
       {:else}
-        <div class="triage-empty">No sessions{fq ? ' matching “' + fq + '”' : ''}.</div>
+        <div class="triage-empty">
+          {#if fq || fstate}
+            <div class="te-ico"><Icon name="sessions" size={28} /></div>
+            {fq ? `Nothing matches “${fq}”.` : 'No session in this state.'}
+            <div class="te-sub"><button class="te-link" onclick={() => { fq = ''; fstate = null; }}>Clear the filter</button></div>
+          {:else}
+            <div class="te-ico"><Icon name="sessions" size={28} /></div>
+            No sessions yet — this is where they'll land.
+            <div class="te-sub"><a class="te-link" href="/new">Start your first one</a></div>
+          {/if}
+        </div>
       {/each}
 
       {#if archivedList.length}
@@ -285,7 +309,6 @@
   {@const folded = child && !kidOpen[s.id]}
   <article class="tcard tk-{meta.cls}" class:child>
     <header class="tcard-head">
-      <span class="tdot t-{meta.cls}"></span>
       <span class="tkind tk-{meta.cls}">{meta.label}</span>
       <button class="ttitle" onclick={() => open(s)} title="Open the session">{sessionTitle(s)}</button>
       {#if child}
@@ -297,7 +320,7 @@
         </button>
       {:else}
         {#if isGrouped(s.id)}<span class="tgroup" title="Session group"><Icon name="sessions" size={11} /> {groupName(s.id)}</span>{/if}
-        <span class="tmeta">{s.repo || s.projectName || ''}{#if s.gitBranch} · <Icon name="git-branch" size={12} /> {s.gitBranch}{/if}</span>
+        <span class="tmeta">{#if projectKey(s) !== '—'}<span class="lot" style="--lot:{lotColor(projectKey(s))}"></span>{/if}{s.repo || s.projectName || ''}{#if s.gitBranch} · <Icon name="git-branch" size={12} /> {s.gitBranch}{/if}</span>
         <span class="tago">{ago(s.lastActivity)}</span>
       {/if}
     </header>
@@ -366,8 +389,8 @@
 {#snippet convo(s)}
   {#if s.lastPrompt || s.lastReply}
     <span class="fconv">
-      {#if s.lastPrompt}<span class="fmsg me">{s.lastPrompt}</span>{/if}
-      {#if s.lastReply}<span class="fmsg ai">{s.lastReply}</span>{/if}
+      {#if s.lastPrompt}<span class="fmsg me"><span class="fmsg-t">{s.lastPrompt}</span></span>{/if}
+      {#if s.lastReply}<span class="fmsg ai"><span class="fmsg-t">{s.lastReply}</span></span>{/if}
     </span>
   {/if}
 {/snippet}
@@ -445,118 +468,167 @@
   .deck { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 18px 22px 40px; }
 
   .deck-cols { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, .9fr); gap: 22px; }
-  @media (max-width: 1080px) { .deck-cols { grid-template-columns: 1fr; } }
+  /* minmax(0, …): a bare 1fr track grows to its widest unbreakable line (a path in a reply), which
+     pushed every card past the right edge of a phone. */
+  @media (max-width: 1080px) { .deck-cols { grid-template-columns: minmax(0, 1fr); } }
 
-  .colhead { display: flex; align-items: center; gap: 10px; margin: 2px 0 12px; }
-  .colhead h2 { font-size: 15px; font-weight: 800; letter-spacing: -.01em; margin: 0; }
-  .colcount { font-family: var(--mono); font-size: 11px; color: var(--muted); }
+  .colhead { display: flex; align-items: baseline; gap: 10px; margin: 4px 0 14px; }
+  .colhead h2 {
+    font-family: var(--font-display); font-size: 25px; line-height: var(--lh-head); font-weight: 750;
+    letter-spacing: -.025em; margin: 0; font-variation-settings: "opsz" 36;
+  }
+  .colcount { font-size: var(--t-meta); font-weight: 600; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .colhead .ghost-btn, .colhead .fleet-q, .colhead .viewseg { align-self: center; }
   .ghost-btn {
     margin-left: auto; background: none; border: none; color: var(--muted); cursor: pointer;
-    font: inherit; font-size: 12px; font-weight: 600; padding: 4px 8px; border-radius: 7px;
+    font: inherit; font-size: var(--t-meta); font-weight: 600; padding: 4px 8px; border-radius: 7px;
   }
   .ghost-btn:hover { background: var(--hover); color: var(--text); }
 
   /* triage cards */
   .triage-empty {
-    border: 1px dashed var(--border2); border-radius: 14px; padding: 34px 16px;
-    text-align: center; color: var(--muted); font-size: 13px;
+    border: 1px solid var(--border); border-radius: 16px; padding: 34px 16px;
+    background: color-mix(in srgb, var(--bg2) 55%, transparent);
+    text-align: center; color: var(--muted); font-size: var(--t-ui);
   }
-  .te-ico { font-size: 22px; margin-bottom: 6px; }
-  .te-sub { font-size: 11.5px; margin-top: 6px; opacity: .8; }
+  .te-ico { margin-bottom: 6px; }
+  /* Inbox zero is the one empty state that is good news: the cup, steam rising. */
+  .te-cup { color: var(--ended); }
+  .te-cup .steam { animation: steam 2.4s ease-in-out infinite; }
+  .te-cup .steam:nth-child(2) { animation-delay: .4s; }
+  .te-cup .steam:nth-child(3) { animation-delay: .8s; }
+  @keyframes steam { 0%, 100% { opacity: .2; transform: translateY(1px); } 50% { opacity: 1; transform: translateY(-1px); } }
+  .te-sub { font-size: var(--t-meta); margin-top: 8px; color: var(--muted); }
+  /* Un état vide qui ne propose rien est une impasse. La sortie est un lien, pas un bouton :
+     elle accompagne une phrase, elle ne réclame pas le regard. */
+  .te-link {
+    background: none; border: none; padding: 0; font: inherit; font-size: var(--t-meta); font-weight: 700;
+    color: var(--accent-d); cursor: pointer; text-decoration: underline; text-underline-offset: 3px;
+  }
+  .te-link:hover { color: var(--accent); }
   .tcard {
-    border: 1px solid var(--border); border-radius: 14px; background: var(--bg2);
-    box-shadow: var(--shadow-sm); margin-bottom: 14px; overflow: hidden;
+    border: 1px solid var(--border); border-radius: 16px; background: var(--bg2);
+    box-shadow: var(--shadow); margin-bottom: 14px; overflow: hidden;
   }
-  .tcard.tk-q { border-left: 3px solid var(--accent); }
-  .tcard.tk-plan { border-left: 3px solid var(--waiting); }
-  .tcard.tk-perm { border-left: 3px solid var(--attention); }
-  .tcard.tk-wait { border-left: 3px solid var(--waiting); }
+  /* L'état se lit à deux distances : de près par la pastille pleine de l'en-tête, de loin par
+     l'anneau teinté de la carte. Rien entre les deux — pas de tranche gauche, pas de bandeau
+     lavé, qui ternissait la carte sans se voir de plus loin qu'un contour. */
+  /* Same families as the dots and the wheel: anything that blocks Claude (question, plan,
+     permission) is attention; a finished turn waiting for your reply is waiting. */
+  .tcard.tk-q, .tcard.tk-plan, .tcard.tk-perm { --tk: var(--attention); --tk-ink: var(--attention-ink); }
+  .tcard.tk-wait { --tk: var(--waiting); --tk-ink: var(--waiting-ink); }
+  .tcard.tk-q, .tcard.tk-plan, .tcard.tk-perm, .tcard.tk-wait {
+    border-color: color-mix(in srgb, var(--tk) 55%, var(--border));
+  }
   .tcard-head {
-    display: flex; align-items: center; gap: 9px; padding: 10px 14px;
-    border-bottom: 1px solid var(--border); background: var(--panel); min-width: 0;
+    display: flex; align-items: center; gap: 10px; padding: 12px 16px;
+    border-bottom: 1px solid var(--border); background: transparent; min-width: 0;
   }
-  .tdot { width: 8px; height: 8px; border-radius: 50%; flex: 0 0 auto; animation: tpulse 1.4s ease-in-out infinite; }
-  .t-q { background: var(--accent); }
-  .t-plan, .t-wait { background: var(--waiting); }
-  .t-perm { background: var(--attention); }
-  @keyframes tpulse { 0%, 100% { opacity: 1; } 50% { opacity: .4; } }
+  /* Un point qui clignote n'attire l'œil que s'il est le seul à bouger. Sur quarante sessions,
+     la flotte en faisait battre quarante à un troisième tempo : le mouvement cessait d'être un
+     signal pour devenir une texture. La pulsation reste ici, dans la colonne des décisions, et
+     adopte le tempo du système (1,6 s) au lieu d'en inventer un. */
+  /* La flotte est un inventaire, pas une alarme : ses pastilles gardent couleur et libellé, elles
+     ne battent plus. Rien ne bat plus sur le Deck — la pastille pleine de l'en-tête dit la nature
+     de la décision assez fort pour que le mouvement n'ait plus rien à ajouter. */
+  .fleet :global(.state-dot) { animation: none; }
+  /* Fond plein plutôt que lavis : c'est le seul objet coloré de la carte, il peut se permettre
+     d'être franc — et du blanc sur l'encre est plus net qu'une encre sur un lavis de sa teinte. */
+  /* The kind pill: label + the family's shape (diamond = blocks Claude, disc = your turn) + its hue. */
   .tkind {
-    font-family: var(--mono); font-size: 9px; letter-spacing: .1em; text-transform: uppercase;
-    padding: 2px 7px; border-radius: 5px; flex: 0 0 auto; font-weight: 700;
+    display: inline-flex; align-items: center; gap: 6px; flex: 0 0 auto;
+    font-size: var(--t-micro); font-weight: 750; letter-spacing: .07em; text-transform: uppercase;
+    padding: 3px 9px 3px 8px; border-radius: 999px;
+    color: var(--tk-ink); background: color-mix(in srgb, var(--tk) 14%, transparent);
   }
-  .tkind.tk-q { background: var(--accent-soft); color: var(--accent-d); }
-  .tkind.tk-plan, .tkind.tk-wait { background: color-mix(in srgb, var(--waiting) 14%, transparent); color: var(--waiting); }
-  .tkind.tk-perm { background: color-mix(in srgb, var(--attention) 14%, transparent); color: var(--attention); }
+  .tkind::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--tk); flex: 0 0 auto; }
+  .tkind.tk-q::before, .tkind.tk-plan::before, .tkind.tk-perm::before { border-radius: 1px; transform: rotate(45deg) scale(.9); }
   .ttitle {
-    background: none; border: none; padding: 0; font: inherit; font-size: 13px; font-weight: 700;
+    background: none; border: none; padding: 0; font: inherit; font-size: var(--t-body); font-weight: 700; text-align: left;
     color: var(--text); cursor: pointer; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
   .ttitle:hover { color: var(--accent-d); }
-  .tmeta { font-family: var(--mono); font-size: 10px; color: var(--muted); flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .tago { font-family: var(--mono); font-size: 10px; color: var(--muted); flex: 0 0 auto; }
-  .tbody { padding: 4px 14px; }
+  .tmeta { font-family: var(--mono); font-size: var(--t-micro); color: var(--muted); flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tago { font-size: var(--t-meta); color: var(--muted); flex: 0 0 auto; font-variant-numeric: tabular-nums; }
+  .tbody { padding: 6px 16px; }
+  /* Project lot: one square per repo, identical wherever the repo shows up. */
+  .lot { display: var(--lot-display, inline-block); width: 14px; height: 7px; border-radius: 2px; background: var(--lot); margin-right: 6px; vertical-align: 1px; flex: 0 0 auto; }
+  .wheel-card {
+    background: var(--bg2); border: 1px solid var(--border); border-radius: 16px;
+    padding: 16px 18px; margin-bottom: 20px; box-shadow: var(--shadow-sm);
+  }
   /* Deck decision cards stay scannable: cap the body height, fade the overflow, and surface a
      "see more" that opens the full session (where the plan/question is fully actionable). */
   .tbody-wrap { position: relative; }
+  .tbody-clamp { position: relative; }
   .tbody-clamp.is-clamped { max-height: 300px; overflow: hidden; }
-  .tbody-wrap.is-clamped::after {
-    content: ''; position: absolute; left: 0; right: 0; bottom: 34px; height: 60px; pointer-events: none;
+  /* Le fondu appartient à la zone tronquée, pas au conteneur : ancré en bas de `.tbody-clamp`,
+     il n'a plus à connaître la hauteur du bouton qui le suit — hauteur que le bloc mobile et le
+     scheme datadog changent tous les deux, et que l'ancienne valeur en dur désalignait. */
+  .tbody-clamp.is-clamped::after {
+    content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: 60px; pointer-events: none;
     background: linear-gradient(to bottom, transparent, var(--bg2));
   }
   .tsee-more {
     display: block; width: 100%; background: none; border: none; border-top: 1px dashed var(--border2);
-    color: var(--accent-d); font: inherit; font-size: 12px; font-weight: 700; cursor: pointer; padding: 8px;
+    color: var(--accent-d); font: inherit; font-size: var(--t-meta); font-weight: 700; cursor: pointer; padding: 8px;
   }
   .tsee-more:hover { background: var(--hover); }
   /* the embedded Question/Plan cards already carry their own chrome — flatten it inside a tcard */
   .tbody :global(.question), .tbody :global(.plan) { margin: 8px 0; }
-  .tload { padding: 12px 2px; font-size: 12.5px; color: var(--muted); }
-  .tperm { padding: 10px 2px 2px; font-size: 13px; font-weight: 600; color: var(--attention); }
-  .twait { padding: 10px 2px 2px; font-size: 12.5px; font-weight: 600; color: var(--waiting); }
+  .tload { padding: 12px 2px; font-size: var(--t-ui); color: var(--muted); }
+  .tperm { padding: 10px 2px 2px; font-size: var(--t-ui); font-weight: 600; color: var(--attention-ink); }
+  .twait { padding: 10px 2px 2px; font-size: var(--t-ui); font-weight: 600; color: var(--waiting-ink); }
   .tsnip {
-    padding: 4px 2px 10px; font-size: 12px; color: var(--muted);
+    padding: 4px 2px 10px; font-size: var(--t-meta); color: var(--muted);
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
   .tfollow {
     display: flex; flex-direction: column; align-items: flex-start; gap: 7px; margin: 2px 0 10px; padding: 9px 11px;
     background: var(--accent-soft); border: 1px solid rgba(var(--accent-rgb), .3); border-radius: 10px;
   }
-  .tfollow-head { font-family: var(--mono); font-size: 10px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--accent-d); }
+  .tfollow-head { font-family: var(--mono); font-size: var(--t-micro); font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--accent-d); }
   .tfollow-text {
-    font-size: 12.5px; color: var(--text); line-height: 1.45;
+    font-size: var(--t-ui); color: var(--text); line-height: 1.45;
     display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
   }
   .tfollow-send {
     background: var(--accent); border: none; color: var(--accent-fg); border-radius: 8px;
-    padding: 5px 12px; font: inherit; font-size: 12px; font-weight: 700; cursor: pointer;
+    padding: 5px 12px; font: inherit; font-size: var(--t-meta); font-weight: 700; cursor: pointer;
   }
   .tfollow-send:hover:not(:disabled) { background: var(--accent-d); }
   .tfollow-send:disabled { opacity: .6; cursor: default; }
-  .tfollow-sent { font-size: 12px; font-weight: 700; color: var(--success); }
-  .tfoot { display: flex; gap: 7px; align-items: center; padding: 10px 14px; border-top: 1px solid var(--border); }
+  .tfollow-sent { font-size: var(--t-meta); font-weight: 700; color: var(--success-ink); }
+  .tfoot { display: flex; gap: 8px; align-items: center; padding: 12px 16px; border-top: 1px solid var(--border); }
   .tbtn {
-    display: inline-flex; align-items: center; gap: 4px;
-    background: var(--bg3); border: 1px solid var(--border2); color: var(--text);
-    border-radius: 8px; padding: 5px 11px; font: inherit; font-size: 12px; font-weight: 600; cursor: pointer;
-    transition: background .12s;
+    display: inline-flex; align-items: center; gap: 5px;
+    background: var(--bg2); border: 1px solid var(--border2); color: var(--text);
+    border-radius: 999px; padding: 6px 14px; font: inherit; font-size: var(--t-ui); font-weight: 650; cursor: pointer;
+    transition: background .12s, border-color .12s;
   }
   .tbtn:hover { background: var(--hover); }
   .tbtn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-fg); }
   .tbtn.primary:hover { background: var(--accent-d); }
-  .tbtn.ghost { background: transparent; border-color: transparent; color: var(--muted); }
-  .tbtn.ghost:hover { color: var(--text); background: var(--hover); }
+  /* Le bouton le plus discret de la carte était le seul irréversible : il arrête la session et,
+     sur une mère, tout son groupe. Il garde son rang tertiaire — ce n'est pas l'action attendue —
+     mais cesse d'être invisible, et s'annonce en rouge dès qu'on le vise. */
+  .tbtn.ghost { background: transparent; border-color: var(--border); color: var(--muted); }
+  .tbtn.ghost:hover, .tbtn.ghost:focus-visible {
+    color: var(--attention-ink); border-color: color-mix(in srgb, var(--attention) 45%, var(--border));
+    background: var(--danger-soft);
+  }
 
   /* triage folded by session group: finished children sit inside the mother card as tree rows,
      children with a decision hang under it through a left rail */
   .tunit { margin-bottom: 14px; }
   .tunit > .tcard { margin-bottom: 0; }
   .tunit.has-kids > .tcard { margin-bottom: 6px; }
-  .tunit-head { display: flex; flex-direction: column; gap: 2px; padding: 4px 6px 6px; border: 1px dashed var(--border2); border-radius: 10px; }
+  .tunit-head { display: flex; flex-direction: column; gap: 2px; padding: 4px 6px 6px; border: 1px solid var(--border); border-radius: 14px; background: color-mix(in srgb, var(--bg2) 55%, transparent); }
   .tunit.has-kids > .tunit-head { margin-bottom: 6px; }
   .tunit-open {
     display: flex; align-items: center; gap: 7px; width: 100%; min-width: 0; padding: 4px 6px;
     border: none; border-radius: 7px; background: none; cursor: pointer;
-    font: inherit; font-size: 12.5px; font-weight: 700; color: var(--text); text-align: left;
+    font: inherit; font-size: var(--t-ui); font-weight: 700; color: var(--text); text-align: left;
   }
   .tunit-open:hover { background: var(--hover); }
   .ttree { padding: 0 14px 10px; }
@@ -564,7 +636,7 @@
   .tkids { display: flex; flex-direction: column; gap: 6px; margin-left: 12px; padding-left: 10px; border-left: 1px solid var(--border2); }
   .tcard.child { margin-bottom: 0; border-radius: 10px; box-shadow: none; }
   .tcard.child .tcard-head { padding: 6px 10px; border-bottom: 0; }
-  .tcard.child .ttitle { font-size: 12px; }
+  .tcard.child .ttitle { font-size: var(--t-meta); }
   .tfold {
     display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; flex: 0 0 auto;
     background: none; border: none; border-radius: 6px; color: var(--muted); cursor: pointer; padding: 0;
@@ -574,13 +646,13 @@
   /* fleet */
   .fleet-q {
     margin-left: auto; width: 130px; background: var(--input); border: 1px solid var(--border);
-    border-radius: 8px; padding: 5px 10px; font: inherit; font-size: 12px; color: var(--text);
+    border-radius: 8px; padding: 5px 10px; font: inherit; font-size: var(--t-meta); color: var(--text);
   }
   .fleet-q:focus { outline: none; border-color: var(--accent); }
   .arch-group { margin-top: 4px; }
   .arch-head {
     display: flex; align-items: center; gap: 7px; width: 100%; background: none; border: none;
-    color: var(--muted); font: inherit; font-family: var(--mono); font-size: 11px; font-weight: 700;
+    color: var(--muted); font: inherit; font-family: var(--mono); font-size: var(--t-micro); font-weight: 700;
     letter-spacing: .04em; padding: 6px 4px; cursor: pointer; margin-bottom: 6px;
   }
   .arch-head:hover { color: var(--text); }
@@ -589,16 +661,17 @@
   .viewseg { display: flex; gap: 2px; background: var(--input); border-radius: 8px; padding: 2px; }
   .viewseg button {
     background: transparent; border: none; border-radius: 6px; color: var(--muted);
-    font-size: 13px; padding: 3px 9px; cursor: pointer;
+    font-size: var(--t-ui); padding: 3px 9px; cursor: pointer;
   }
   .viewseg button.on { background: var(--accent-soft); color: var(--accent); }
   .repo-group { margin-bottom: 18px; }
-  .repo-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
-  .repo-name { font-family: var(--mono); font-size: 11.5px; font-weight: 600; color: var(--muted); }
-  .repo-n { font-size: 10px; color: var(--muted); background: var(--chip); border-radius: 20px; padding: 1px 7px; }
+  .repo-head { display: flex; align-items: center; gap: 2px; margin-bottom: 8px; }
+  .repo-head .repo-n { margin-left: 6px; }
+  .repo-name { font-size: var(--t-ui); font-weight: 700; color: var(--text); letter-spacing: -.005em; }
+  .repo-n { font-size: var(--t-micro); color: var(--muted); background: var(--chip); border-radius: 20px; padding: 1px 7px; }
   .repo-plus {
     margin-left: auto; width: 22px; height: 22px; display: inline-flex; align-items: center; justify-content: center;
-    border-radius: 6px; color: var(--muted); text-decoration: none; font-size: 15px;
+    border-radius: 6px; color: var(--muted); text-decoration: none;
     opacity: 0; transition: opacity .12s, background .12s, color .12s;
   }
   .repo-head:hover .repo-plus { opacity: 1; }
@@ -607,31 +680,33 @@
   /* align-items: start — a tall group card must not stretch its whole grid row */
   .fleet.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); align-items: start; }
   .fcard {
-    position: relative; display: flex; flex-direction: column; gap: 5px; padding: 10px 13px; text-align: left;
-    border-radius: 12px; border: 1px solid var(--border); background: var(--bg2);
+    position: relative; display: flex; flex-direction: column; gap: 6px; padding: 11px 14px; text-align: left;
+    border-radius: 14px; border: 1px solid var(--border); background: var(--bg2);
     font: inherit; cursor: pointer; min-width: 0; transition: border-color .12s, box-shadow .12s, opacity .12s;
   }
   .fcard:hover { border-color: var(--border2); box-shadow: var(--shadow-sm); }
   .fcard:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
-  .fcard.dim { opacity: .58; }
-  .fcard.dim:hover { opacity: .95; }
+  /* L'atténuation est le bon geste — elle recule vraiment — mais .58 emportait le texte avec le
+     chrome et faisait tomber le titre sous le seuil. .75 garde le recul et repasse au-dessus. */
+  .fcard.dim { opacity: .75; }
+  .fcard.dim:hover { opacity: 1; }
   .fcard.archived { border-style: dashed; }
   .fcard-act {
     position: absolute; top: 6px; right: 6px; width: 22px; height: 22px; display: flex; align-items: center; justify-content: center;
     border: 1px solid var(--border); background: var(--bg2); border-radius: 6px; color: var(--muted);
-    font-size: 11px; cursor: pointer; padding: 0; opacity: 0; transition: opacity .12s, background .12s, color .12s;
+    font-size: var(--t-micro); cursor: pointer; padding: 0; opacity: 0; transition: opacity .12s, background .12s, color .12s;
   }
   .fcard:hover .fcard-act { opacity: 1; }
   .fcard-act:hover { background: var(--accent-soft); color: var(--accent-d); }
   .frow1 { display: flex; align-items: center; gap: 8px; min-width: 0; }
-  .ft { font-size: 12.5px; font-weight: 600; color: var(--text); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
-  .fago { margin-left: auto; font-family: var(--mono); font-size: 9.5px; color: var(--muted); flex: 0 0 auto; }
+  .ft { font-size: var(--t-ui); font-weight: 600; color: var(--text); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+  .fago { margin-left: auto; font-size: var(--t-micro); color: var(--muted); flex: 0 0 auto; font-variant-numeric: tabular-nums; }
   /* session groups: member count on the head, the other members listed inside the card */
-  .fgn { display: inline-flex; align-items: center; gap: 3px; font-family: var(--mono); font-size: 9.5px; color: var(--muted); flex: 0 0 auto; }
+  .fgn { display: inline-flex; align-items: center; gap: 3px; font-family: var(--mono); font-size: var(--t-micro); color: var(--muted); flex: 0 0 auto; }
   .fkids { display: flex; flex-direction: column; gap: 2px; min-width: 0; padding-left: 3px; }
   .fkid {
     position: relative; display: flex; align-items: center; gap: 6px; min-width: 0; margin-left: 11px;
-    padding: 2px 6px; border-radius: 7px; font-size: 11.5px; color: var(--text); cursor: pointer;
+    padding: 2px 6px; border-radius: 7px; font-size: var(--t-meta); color: var(--text); cursor: pointer;
   }
   .fkid:hover { background: var(--hover); }
   /* tree connectors (├ / └) tying each child to the mother above */
@@ -641,40 +716,39 @@
   .fkid::after { top: 50%; width: 8px; border-top: 1px solid; }
   button.fkid { background: none; border: none; font: inherit; text-align: left; }
   .fkid-more { color: var(--muted); }
-  .fkid-more .fkid-t { font-family: var(--mono); font-size: 10.5px; }
+  .fkid-more .fkid-t { font-family: var(--mono); font-size: var(--t-micro); }
   .fkid-dots { display: flex; flex-wrap: wrap; gap: 3px; min-width: 0; }
   .fkid .fdot, .fkid-dots .fdot { width: 6px; height: 6px; }
   .fkid-t { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
-  .fkid-a { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: 10.5px; }
-  .fkid-ago { margin-left: auto; font-family: var(--mono); font-size: 9px; color: var(--muted); flex: 0 0 auto; }
+  .fkid-a { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: var(--t-micro); }
+  .fkid-ago { margin-left: auto; font-size: var(--t-micro); color: var(--muted); flex: 0 0 auto; font-variant-numeric: tabular-nums; }
   .fcard:global(.drop-over) { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
   .repo-head:global(.drop-over) { box-shadow: inset 0 0 0 2px var(--accent); border-radius: 8px; }
   .fcard:global(.dragging), .fkid:global(.dragging) { opacity: .4; }
   .tgroup {
     display: inline-flex; align-items: center; gap: 3px; flex: 0 1 auto; min-width: 0; max-width: 30%;
-    font-size: 10.5px; font-weight: 600; color: var(--muted); padding: 1px 6px; border-radius: 6px;
+    font-size: var(--t-micro); font-weight: 600; color: var(--muted); padding: 1px 6px; border-radius: 6px;
     background: var(--chip); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
-  .fact { font-size: 11px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .fact.working { color: var(--working); font-style: italic; }
+  .fact { font-size: var(--t-micro); color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .fact.working { color: var(--working-ink); font-style: italic; }
   /* last exchange preview: the user's message aligned right, Claude's reply left, both clamped. */
   .fconv { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
   .tbody .fconv { margin: 6px 0 10px; }
-  .fmsg {
-    max-width: 88%; font-size: 11px; line-height: 1.4; border-radius: 9px; padding: 4px 8px;
-    overflow: hidden; text-overflow: ellipsis; word-break: break-word;
-    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
-  }
+  /* The bubble pads, the inner text clamps: clamping the padded box let the third line's
+     ascenders show through the bottom padding. */
+  .fmsg { display: block; max-width: 88%; font-size: var(--t-micro); line-height: 1.4; border-radius: 9px; padding: 4px 8px; word-break: break-word; }
+  .fmsg-t { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
   .fmsg.me { align-self: flex-end; background: var(--accent-soft); color: var(--accent-d); border-bottom-right-radius: 3px; }
   .fmsg.ai { align-self: flex-start; background: var(--bg3); color: var(--muted); border-bottom-left-radius: 3px; }
   .fpills { display: flex; flex-wrap: wrap; gap: 4px; }
   .fmore {
     background: none; border: 1px dashed var(--border2); border-radius: 10px; color: var(--muted);
-    font: inherit; font-size: 11px; font-weight: 600; cursor: pointer; padding: 8px;
+    font: inherit; font-size: var(--t-micro); font-weight: 600; cursor: pointer; padding: 8px;
   }
   .fmore:hover { color: var(--text); border-color: var(--accent); }
   .fpill {
-    font-family: var(--mono); font-size: 9.5px; font-weight: 600; line-height: 1.6;
+    font-family: var(--mono); font-size: var(--t-micro); font-weight: 600; line-height: 1.6;
     color: var(--c); background: color-mix(in srgb, var(--c) 13%, transparent);
     border-radius: 6px; padding: 0 6px;
   }
@@ -691,7 +765,7 @@
     .deck-cols { gap: 16px; }
 
     .colhead { flex-wrap: wrap; row-gap: 6px; gap: 8px; }
-    .colhead h2 { font-size: 14px; }
+    .colhead h2 { font-size: var(--t-body); }
     .ghost-btn { margin-left: auto; }
     .fleet-q { order: 3; flex: 1 1 100%; width: auto; margin-left: 0; }
     .viewseg { margin-left: auto; }
@@ -704,13 +778,23 @@
     .tgroup { max-width: 100%; }
     .tbody { padding: 4px 11px; }
     .tbody-clamp.is-clamped { max-height: 260px; }
-    .tfoot { flex-wrap: wrap; row-gap: 6px; padding: 10px 11px; }
-    .tbtn { padding: 8px 12px; }
+    /* Thumb band: the expected action spans the card, the others share the row under it, all
+       above the 44px floor. */
+    .tfoot { flex-wrap: wrap; gap: 8px; padding: 10px 11px 12px; }
+    .tfoot > .tbtn { flex: 1 1 auto; justify-content: center; min-height: 44px; padding: 8px 12px; white-space: nowrap; }
+    .tfoot > .tbtn:first-child { flex-basis: 100%; }
+    .wheel-card { padding: 12px; }
 
     /* fleet: single column, and the archive / new-session buttons stay reachable */
     .fleet.grid { grid-template-columns: 1fr; }
     .fcard { padding: 11px 12px; }
-    .fcard-act, .repo-plus { opacity: .5; }
+    /* Sans survol, ces deux-là doivent être visibles en permanence — mais à demi-opacité le
+       glyphe tombait à 2,0:1, sous le plancher de contraste non-textuel. Ils s'affichent en
+       entier et c'est le ton, pas la transparence, qui les tient au second plan. */
+    .fcard-act, .repo-plus { opacity: 1; color: var(--muted); }
+    /* The archive action stays visible on touch: give it a real target and keep the age clear of it. */
+    .fcard-act { width: 32px; height: 32px; top: 5px; right: 5px; }
+    .fcard:has(.fcard-act) .frow1 { padding-right: 34px; }
     .fmsg { max-width: 100%; }
     .triage-empty { padding: 26px 12px; }
   }

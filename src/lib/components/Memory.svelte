@@ -141,46 +141,46 @@
 <style>
   .mem { max-width: 900px; margin: 0 auto; padding: 24px 20px 80px; }
   .mem-head { display: flex; align-items: flex-start; gap: 16px; justify-content: space-between; margin-bottom: 20px; }
-  h1 { font-size: 22px; margin: 0 0 4px; letter-spacing: -.01em; }
-  .sub { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.5; }
-  .sub code { background: var(--bg3); padding: 1px 5px; border-radius: 5px; font-size: 12px; }
-  .count { flex: none; font-weight: 700; font-size: 18px; background: var(--bg2); border: 1px solid var(--border); border-radius: 12px; padding: 8px 14px; color: var(--accent); }
+  h1 { font-size: var(--t-head); line-height: var(--lh-head); margin: 0 0 4px; letter-spacing: -.01em; }
+  .sub { margin: 0; color: var(--muted); font-size: var(--t-ui); line-height: 1.5; }
+  .sub code { background: var(--bg3); padding: 1px 5px; border-radius: 5px; font-size: var(--t-meta); }
+  .count { flex: none; font-weight: 700; font-size: var(--t-title); line-height: var(--lh-title); background: var(--bg2); border: 1px solid var(--border); border-radius: 12px; padding: 8px 14px; color: var(--accent); }
   .empty { color: var(--muted); text-align: center; padding: 40px 0; }
 
   .controls { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-bottom: 18px; }
-  .search { flex: 1 1 220px; padding: 9px 13px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg2); color: var(--text); font-size: 14px; }
+  .search { flex: 1 1 220px; padding: 9px 13px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg2); color: var(--text); font-size: var(--t-body); }
   .search:focus { outline: none; border-color: var(--accent); }
   .types { display: flex; flex-wrap: wrap; gap: 6px; }
-  .chip { display: inline-flex; align-items: center; gap: 6px; padding: 6px 11px; border: 1px solid var(--border); border-radius: 999px; background: var(--bg2); color: var(--muted); font-size: 12.5px; font-weight: 600; cursor: pointer; }
+  .chip { display: inline-flex; align-items: center; gap: 6px; padding: 6px 11px; border: 1px solid var(--border); border-radius: 999px; background: var(--bg2); color: var(--muted); font-size: var(--t-ui); font-weight: 600; cursor: pointer; }
   .chip:hover { border-color: var(--border2); }
   .chip.on { color: var(--accent-fg); background: var(--accent); border-color: var(--accent); }
   .chip .n { opacity: .7; font-variant-numeric: tabular-nums; }
   .chip.on .n { opacity: .85; }
 
-  .hits { color: var(--muted); font-size: 12.5px; margin: 0 0 10px; }
+  .hits { color: var(--muted); font-size: var(--t-ui); margin: 0 0 10px; }
   .projects { display: flex; flex-direction: column; gap: 26px; }
   .project h2 { margin: 0 0 10px; }
-  .phead { display: flex; align-items: center; gap: 8px; width: 100%; padding: 4px 2px; background: none; border: none; cursor: pointer; font-size: 14px; font-weight: 700; color: var(--text); text-align: left; }
+  .phead { display: flex; align-items: center; gap: 8px; width: 100%; padding: 4px 2px; background: none; border: none; cursor: pointer; font-size: var(--t-body); font-weight: 700; color: var(--text); text-align: left; }
   .phead:hover { color: var(--accent); }
   .pchev { flex: none; color: var(--muted); transition: transform .15s; }
   .project.collapsed .pchev { transform: rotate(-90deg); }
   .pname { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .pcount { flex: none; font-size: 11px; font-weight: 600; color: var(--muted); background: var(--bg3); border-radius: 999px; padding: 1px 8px; }
+  .pcount { flex: none; font-size: var(--t-micro); font-weight: 600; color: var(--muted); background: var(--bg3); border-radius: 999px; padding: 1px 8px; }
   .cards { display: flex; flex-direction: column; gap: 8px; }
 
-  .card { border: 1px solid var(--border); border-left: 3px solid var(--type-c, var(--border2)); border-radius: 10px; background: var(--bg2); overflow: hidden; }
+  .card { border: 1px solid color-mix(in srgb, var(--type-c, var(--border2)) 42%, var(--border)); border-radius: 10px; background: var(--bg2); overflow: hidden; }
   .card.open { border-color: var(--border2); }
   .card-head { width: 100%; display: flex; flex-direction: column; gap: 6px; padding: 11px 13px; background: none; border: none; cursor: pointer; text-align: left; color: var(--text); }
   .card-head:hover { background: rgba(var(--ink-rgb), .04); }
   .row { display: flex; align-items: center; gap: 9px; }
-  .badge { flex: none; font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .03em; padding: 2px 7px; border-radius: 6px; color: var(--type-c, var(--muted)); background: var(--type-soft, var(--bg3)); }
-  .name { flex: 1; font-size: 13.5px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .badge { flex: none; font-size: var(--t-micro); font-weight: 700; text-transform: uppercase; letter-spacing: .03em; padding: 2px 7px; border-radius: 6px; color: var(--type-c, var(--muted)); background: var(--type-soft, var(--bg3)); }
+  .name { flex: 1; font-size: var(--t-body); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .chev { flex: none; color: var(--muted); transition: transform .15s; }
   .card.open .chev { transform: rotate(180deg); }
-  .desc { display: block; color: var(--muted); font-size: 12.5px; line-height: 1.5; }
-  .body { padding: 4px 14px 14px; border-top: 1px solid var(--border); font-size: 13px; line-height: 1.6; }
+  .desc { display: block; color: var(--muted); font-size: var(--t-ui); line-height: 1.5; }
+  .body { padding: 4px 14px 14px; border-top: 1px solid var(--border); font-size: var(--t-ui); line-height: 1.6; }
   .body :global(pre) { max-width: 100%; overflow-x: auto; }
-  .origin { display: inline-flex; align-items: center; gap: 6px; margin-top: 10px; font-size: 12px; font-weight: 600; color: var(--accent); text-decoration: none; padding: 5px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg3); }
+  .origin { display: inline-flex; align-items: center; gap: 6px; margin-top: 10px; font-size: var(--t-meta); font-weight: 600; color: var(--accent); text-decoration: none; padding: 5px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg3); }
   .origin:hover { border-color: var(--accent); }
 
   /* type colours — soft chip + accent bar */
