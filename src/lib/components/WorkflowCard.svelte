@@ -164,7 +164,7 @@
 
 <style>
   .wf {
-    border: 1px solid var(--border); border-left: 3px solid var(--background);
+    border: 1px solid color-mix(in srgb, var(--background) 42%, var(--border));
     border-radius: 10px; background: var(--panel); padding: 9px 11px;
   }
   .wf-head {
@@ -175,16 +175,16 @@
   /* le nom prend la place restante et s'ellipse : la colonne est étroite et un nom de workflow
      est un slug sans espaces, qui sinon se casse lettre à lettre. */
   .wf-name {
-    font-weight: 700; font-size: 13px; font-family: var(--mono);
+    font-weight: 700; font-size: var(--t-ui); font-family: var(--mono);
     flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
   .wf-status {
     flex: 0 0 auto;
-    font-size: 9.5px; font-weight: 700; letter-spacing: 0.03em; text-transform: uppercase;
+    font-size: var(--t-micro); font-weight: 700; letter-spacing: 0.03em; text-transform: uppercase;
     border: 1px solid var(--muted); border-radius: 999px; padding: 1px 6px; line-height: 1.5;
     white-space: nowrap;
   }
-  .wf-sum { margin-top: 4px; font-size: 12.5px; color: var(--text); }
+  .wf-sum { margin-top: 4px; font-size: var(--t-ui); color: var(--text); }
   /* replié : deux lignes de résumé suffisent à identifier le run sans manger la colonne. */
   .wf-sum.clamp { display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
   /* jauge d'avancement : agents terminés / agents lancés */
@@ -192,12 +192,12 @@
   .wf-bar i { display: block; height: 100%; background: var(--background); transition: width .3s; }
   .wf-stats {
     margin-top: 6px; display: flex; gap: 8px; flex-wrap: wrap;
-    font-size: 11px; color: var(--muted); font-family: var(--mono);
+    font-size: var(--t-micro); color: var(--muted); font-family: var(--mono);
   }
   .wf-ago { margin-left: auto; }
 
   .wf-sec {
-    margin: 12px 0 5px; font-size: 10px; font-weight: 700; letter-spacing: .05em;
+    margin: 12px 0 5px; font-size: var(--t-micro); font-weight: 700; letter-spacing: .05em;
     text-transform: uppercase; color: var(--muted);
   }
   .wf-note { text-transform: none; letter-spacing: 0; font-weight: 400; font-style: italic; margin-left: 6px; }
@@ -205,29 +205,29 @@
   .wf-phases { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
   .wf-phases li {
     display: flex; align-items: baseline; gap: 7px; padding: 3px 6px;
-    border-radius: 6px; font-size: 12.5px;
+    border-radius: 6px; font-size: var(--t-ui);
   }
   .wf-phases li.cur { background: var(--bg3); }
   .wf-phases li.cur .wf-pt { font-weight: 700; }
   .wf-pn {
-    font-family: var(--mono); font-size: 10px; color: var(--muted);
+    font-family: var(--mono); font-size: var(--t-micro); color: var(--muted);
     min-width: 14px; text-align: right;
   }
   .wf-pc {
-    font-family: var(--mono); font-size: 10px; color: var(--muted);
+    font-family: var(--mono); font-size: var(--t-micro); color: var(--muted);
     background: var(--bg3); border-radius: 5px; padding: 0 5px;
   }
-  .wf-pd { font-size: 11px; color: var(--muted); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .wf-pd { font-size: var(--t-micro); color: var(--muted); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
   .wf-group {
-    margin: 8px 0 3px; font-size: 11px; font-weight: 600; color: var(--muted); font-family: var(--mono);
+    margin: 8px 0 3px; font-size: var(--t-micro); font-weight: 600; color: var(--muted); font-family: var(--mono);
   }
 
   .wa { border-top: 1px solid var(--border); }
   .wa:first-of-type { border-top: none; }
   .wa > summary {
     display: flex; align-items: center; gap: 7px; cursor: pointer; padding: 5px 2px;
-    list-style: none; font-size: 12.5px;
+    list-style: none; font-size: var(--t-ui);
   }
   .wa > summary::-webkit-details-marker { display: none; }
   .wa > summary:hover { background: var(--bg3); border-radius: 6px; }
@@ -240,15 +240,15 @@
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
   .wa-num {
-    font-size: 10.5px; color: var(--muted); font-family: var(--mono);
+    font-size: var(--t-micro); color: var(--muted); font-family: var(--mono);
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
   .wa-i {
-    flex: 0 0 auto; font-family: var(--mono); font-size: 9.5px; color: var(--muted);
+    flex: 0 0 auto; font-family: var(--mono); font-size: var(--t-micro); color: var(--muted);
     background: var(--bg3); border-radius: 5px; padding: 0 4px; align-self: center;
   }
   .wa-tool {
-    padding: 0 2px 5px 40px; font-size: 11px; color: var(--muted); font-family: var(--mono);
+    padding: 0 2px 5px 40px; font-size: var(--t-micro); color: var(--muted); font-family: var(--mono);
     display: flex; align-items: baseline; gap: 5px;
   }
   .wa-tool span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -257,11 +257,11 @@
   .wa-block { padding: 4px 2px 8px 40px; min-width: 0; overflow-wrap: anywhere; }
   .wa-block :global(pre) { white-space: pre-wrap; word-break: break-word; }
   .wa-lab {
-    display: flex; align-items: center; gap: 5px; font-size: 10px; font-weight: 700;
+    display: flex; align-items: center; gap: 5px; font-size: var(--t-micro); font-weight: 700;
     letter-spacing: .05em; text-transform: uppercase; color: var(--muted); margin-bottom: 4px;
   }
 
   .wf-logs {
-    margin: 0; padding-left: 18px; font-size: 11.5px; color: var(--muted); font-family: var(--mono);
+    margin: 0; padding-left: 18px; font-size: var(--t-meta); color: var(--muted); font-family: var(--mono);
   }
 </style>

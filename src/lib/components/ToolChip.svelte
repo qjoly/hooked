@@ -148,7 +148,7 @@
 
 <style>
   /* taille d'un gros diff replié (indice avant ouverture) */
-  .diff-size { font-family: var(--mono); font-size: 10px; color: var(--muted); margin-left: 6px; }
+  .diff-size { font-family: var(--mono); font-size: var(--t-micro); color: var(--muted); margin-left: 6px; }
 
   /* SendUserFile : chip « envoyé » + miniatures images / liens fichiers */
   .tool-send { display: flex; flex-direction: column; gap: 6px; }
@@ -163,7 +163,7 @@
   .send-file {
     display: inline-flex; align-items: center; gap: 6px; max-width: 260px;
     padding: 6px 10px; border: 1px solid var(--border); border-radius: 8px;
-    background: var(--bg2); color: var(--text); text-decoration: none; font-size: 12.5px;
+    background: var(--bg2); color: var(--text); text-decoration: none; font-size: var(--t-ui);
   }
   .send-file:hover { border-color: var(--accent); background: var(--bg3); }
   .sf-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

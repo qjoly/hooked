@@ -3,11 +3,12 @@
   // gauges (5h / 7d / model-scoped), quick actions (notifications, theme, settings) and the primary
   // "+ Session" button. Replaces the old 14-icon left rail.
   import { page } from '$app/state';
-  import { ui, data, settings, account, cycleTheme, toggleNotify, openModal, isArchived, snoozeUntil } from '$lib/state.svelte.js';
+  import { ui, data, settings, account, cycleTheme, toggleNotify, toggleIncognitoMode, openModal, isArchived, isSessionArchived, snoozeUntil } from '$lib/state.svelte.js';
   import { getUsage } from '$lib/api.js';
-  import { initials, needsDecision } from '$lib/format.js';
+  import { initials, needsDecision, sessionDot } from '$lib/format.js';
   import { NAV_TABS, NAV_KEYS, pageHref } from '$lib/nav.js';
   import Icon from '$lib/components/Icon.svelte';
+  import FleetWheel from '$lib/components/FleetWheel.svelte';
 
   let { onOmnibar } = $props();
 
@@ -27,10 +28,13 @@
   // Minute clock so the badge comes back when a snooze expires, without waiting for a live tick.
   let nowMin = $state(Date.now());
   $effect(() => { const iv = setInterval(() => (nowMin = Date.now()), 30_000); return () => clearInterval(iv); });
-  const decisions = $derived(
-    data.sessions.filter((s) =>
-      needsDecision(s) && !isArchived(s.id) && !(snoozeUntil(s.id) > nowMin)).length,
-  );
+  // The logo is the live fleet wheel: on every page, red or caramel in the corner means someone waits.
+  const fleet = $derived(data.sessions.filter((s) => !isSessionArchived(s)));
+  const pending = $derived(data.sessions.filter((s) =>
+    needsDecision(s) && !isArchived(s.id) && !(snoozeUntil(s.id) > nowMin)));
+  const decisions = $derived(pending.length);
+  // The badge wears the worst family waiting: cherry only when something actually blocks Claude.
+  const blocking = $derived(pending.some((s) => sessionDot(s) === 'attention'));
 
   // Account rate-limit gauges (statusline snapshots + Claude Code usage cache). Refreshed on
   // every live tick.
@@ -67,17 +71,19 @@
 </script>
 
 <header class="topbar">
-  <a class="tb-logo" href={homeHref} title="hooked — home" aria-label="Home">
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a6 6 0 0 0-9-5.2M6 16a6 6 0 0 0 9 5.2"/><circle cx="12" cy="12" r="3"/></svg>
+  <a class="tb-logo" href={homeHref} title="hooked — home" aria-label="hooked — home">
+    <FleetWheel mini sessions={fleet} />
+    <!-- the wordmark yields first when every nav tab is shown: the search field matters more -->
+    {#if tabs.length <= 3}<span class="tb-word">hooked</span>{/if}
   </a>
 
   <nav class="tb-spaces" aria-label="Spaces">
     <a class="tb-space" class:on={onDeck} href="/">
-      <Icon name="deck" size={14} /> Deck
-      {#if decisions > 0}<span class="tb-badge" title="{decisions} decision{decisions > 1 ? 's' : ''} awaiting you">{decisions}</span>{/if}
+      <Icon name="deck" size={14} /> <span class="tb-lbl">Deck</span>
+      {#if decisions > 0}<span class="tb-badge" class:wait={!blocking} title="{decisions} decision{decisions > 1 ? 's' : ''} awaiting you">{decisions}</span>{/if}
     </a>
     {#each tabs as t (t.key)}
-      <a class="tb-space" class:on={tabActive(t)} href={t.href} style={t.tint ? `--tab-tint:${t.tint}` : null}><Icon name={t.icon} size={14} /> {t.label}</a>
+      <a class="tb-space" class:on={tabActive(t)} href={t.href} style={t.tint ? `--tab-tint:${t.tint}` : null} aria-label={t.label}><Icon name={t.icon} size={14} /> <span class="tb-lbl">{t.label}</span></a>
     {/each}
   </nav>
 
@@ -108,6 +114,16 @@
   </div>
 
   <div class="tb-actions">
+    <!-- Incognito: hides every session that wasn't created in this mode (screen sharing). Wears its
+         name when on — a mode that empties the dashboard must never be mistaken for a bug. -->
+    <button class="tb-icon" class:incog={ui.incognito} onclick={toggleIncognitoMode} aria-label="Toggle incognito mode"
+            aria-pressed={ui.incognito}
+            title={ui.incognito
+              ? 'Incognito: on — only sessions started in this mode are shown. Click to show everything again.'
+              : 'Incognito: off — click to show only the sessions you start from now on (screen sharing)'}>
+      <Icon name={ui.incognito ? 'eye-off' : 'eye'} size={16} tint={false} />
+      {#if ui.incognito}<span class="tb-incog-lbl">Incognito</span>{/if}
+    </button>
     <button class="tb-icon" class:on={ui.notify} onclick={toggleNotify} aria-label="Toggle notifications"
             title={ui.notify ? 'Notifications: on' : 'Notifications: off'}>
       {#if ui.notify}
@@ -140,64 +156,71 @@
 </header>
 
 <style>
-  /* Onglets « console » : pleine hauteur de la barre, actif souligné 2px — pas de boîte
-     segmentée arrondie autour des espaces. */
+  /* The espresso bar: the shell's one committed surface (--shell-*). Every scheme other than the
+     coffee default maps those tokens back onto its own panel colours, so it keeps its old bar. */
   .topbar {
     flex: 0 0 auto; display: flex; align-items: stretch; gap: 12px;
-    padding: 0 14px 0 0; background: var(--bg2); border-bottom: 1px solid var(--border);
-    min-height: 44px;
+    padding: 0 14px 0 0; background: var(--shell-bg); color: var(--shell-fg);
+    border-bottom: 1px solid var(--shell-line); min-height: 48px;
   }
   :global(body.focus) .topbar { display: none; }
 
   .tb-logo {
-    width: 44px; align-self: stretch; border-radius: 0; background: transparent; color: var(--accent);
-    border-right: 1px solid var(--border);
-    display: flex; align-items: center; justify-content: center; flex: 0 0 auto; text-decoration: none;
+    align-self: stretch; display: flex; align-items: center; gap: 8px; flex: 0 0 auto;
+    padding: 0 14px 0 12px; border-right: 1px solid var(--shell-line);
+    color: var(--shell-fg); text-decoration: none; transition: background .12s;
   }
-  .tb-logo:hover { background: var(--hover); }
+  .tb-logo:hover { background: var(--shell-hover); }
+  .tb-word {
+    font-family: var(--font-display); font-size: var(--t-title); font-weight: 700; letter-spacing: -.02em;
+    font-variation-settings: "opsz" 24; line-height: 1;
+  }
 
-  .tb-spaces { display: flex; gap: 0; background: transparent; border: none; padding: 0; flex: 0 0 auto; align-items: stretch; }
+  .tb-spaces { display: flex; gap: 0; flex: 0 0 auto; align-items: stretch; }
   .tb-space {
     display: inline-flex; align-items: center; gap: 6px;
-    padding: 0 13px; border-radius: 0; font-size: 12.5px; font-weight: 600;
-    color: var(--muted); text-decoration: none; white-space: nowrap;
+    padding: 0 13px; font-size: var(--t-ui); font-weight: 600;
+    color: var(--shell-muted); text-decoration: none; white-space: nowrap;
     box-shadow: inset 0 -2px 0 transparent; transition: color .12s, box-shadow .12s;
   }
-  .tb-space:hover { color: var(--text); }
-  /* Active tab: icon + underline pick the tab's tint (nav.js), accent when it has none. */
-  .tb-space.on { background: transparent; color: var(--text); box-shadow: inset 0 -2px 0 var(--tab-tint, var(--accent)); }
-  .tb-space.on :global(svg) { color: var(--tab-tint, var(--accent)); }
+  .tb-space:hover { color: var(--shell-fg); }
+  /* Active tab: the bar's own tab colour (latte on espresso), or the tab's tint in other schemes. */
+  .tb-space.on { color: var(--shell-fg); box-shadow: inset 0 -2px 0 var(--shell-tab, var(--tab-tint, var(--accent))); }
+  .tb-space.on :global(svg) { color: var(--shell-tab, var(--tab-tint, var(--accent))); }
   .tb-badge {
-    min-width: 16px; height: 16px; padding: 0 4px; border-radius: 9px;
-    background: var(--attention); color: #fff; font-size: 10px; font-weight: 800;
-    display: inline-flex; align-items: center; justify-content: center;
+    min-width: 17px; height: 17px; padding: 0 5px; border-radius: 999px;
+    background: var(--attention); color: var(--accent-fg); font-size: var(--t-micro); font-weight: 800;
+    display: inline-flex; align-items: center; justify-content: center; font-variant-numeric: tabular-nums;
   }
+  .tb-badge.wait { background: var(--waiting); color: var(--on-state); }
 
   .tb-omni {
     align-self: center;
     flex: 1 1 auto; max-width: 430px; min-width: 0;
     display: flex; align-items: center; gap: 9px; padding: 7px 12px;
-    background: var(--input); border: 1px solid var(--border); border-radius: 10px;
-    color: var(--muted); font: inherit; font-size: 12.5px; cursor: pointer; text-align: left;
-    transition: border-color .12s, box-shadow .12s;
+    background: var(--shell-input); border: 1px solid var(--shell-line); border-radius: 10px;
+    color: var(--shell-muted); font: inherit; font-size: var(--t-ui); cursor: pointer; text-align: left;
+    transition: border-color .12s, background .12s;
   }
-  .tb-omni:hover { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+  .tb-omni:hover { border-color: color-mix(in srgb, var(--shell-accent) 55%, transparent); background: var(--shell-hover); }
   .tb-omni-ph { flex: 1; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
   .tb-omni kbd {
-    font: 10.5px/1 var(--mono); color: var(--muted);
-    background: var(--bg3); border: 1px solid var(--border2); border-radius: 4px; padding: 2px 6px;
+    font: 10.5px/1 var(--mono); color: var(--shell-muted);
+    background: var(--shell-hover); border: 1px solid var(--shell-line); border-radius: 4px; padding: 2px 6px;
   }
 
-  .tb-gauges { display: flex; gap: 12px; margin-left: auto; flex: 0 0 auto; align-self: center; }
-  .tb-gauge { display: flex; flex-direction: column; gap: 3px; width: 82px; }
+  .tb-gauges { display: flex; gap: 14px; margin-left: auto; flex: 0 0 auto; align-self: center; }
+  .tb-gauge { display: flex; flex-direction: column; gap: 4px; width: 82px; }
   .tb-g-lbl {
     display: flex; justify-content: space-between;
-    font-family: var(--mono); font-size: 9px; color: var(--muted); letter-spacing: .05em;
+    font-size: var(--t-micro); font-weight: 700; color: var(--shell-muted); letter-spacing: .06em;
     font-variant-numeric: tabular-nums;
   }
-  .tb-g-track { height: 4px; border-radius: 2px; background: var(--bg3); overflow: hidden; }
-  .tb-g-fill { height: 100%; border-radius: 2px; background: var(--accent); transition: width .3s ease; }
+  .tb-g-lbl span:last-child { color: var(--shell-fg); }
+  .tb-g-track { height: 4px; border-radius: 2px; background: var(--shell-line); overflow: hidden; }
+  .tb-g-fill { height: 100%; border-radius: 2px; background: var(--shell-accent); transition: width .3s ease; }
   .tb-gauge.warn .tb-g-fill { background: var(--waiting); }
+  .tb-gauge.crit .tb-g-fill { background: var(--attention); }
   /* Stale bucket (source older than 10 min): dimmed + hatched, so a frozen number never
      passes for a live one. The tooltip says how old and why. */
   .tb-gauge.stale { opacity: .55; }
@@ -207,53 +230,73 @@
 
   .tb-actions { display: flex; gap: 2px; flex: 0 0 auto; align-self: center; }
   .tb-icon {
-    width: 32px; height: 32px; border-radius: 9px; border: none; background: transparent;
-    display: flex; align-items: center; justify-content: center; color: var(--muted);
+    width: 32px; height: 32px; border-radius: 8px; border: none; background: transparent;
+    display: flex; align-items: center; justify-content: center; color: var(--shell-muted);
     cursor: pointer; padding: 0; text-decoration: none; transition: background .12s, color .12s;
   }
-  .tb-icon:hover { background: var(--hover); color: var(--text); }
-  .tb-icon.on { color: var(--accent); }
-  .tb-icon.active { background: var(--accent-soft); color: var(--accent); }
+  .tb-icon:hover { background: var(--shell-hover); color: var(--shell-fg); }
+  .tb-icon.on { color: var(--shell-fg); }
+  /* On : le bouton s'élargit et s'annonce — impossible de laisser le mode actif sans le voir. */
+  .tb-icon.incog {
+    width: auto; gap: 5px; padding: 0 9px; background: var(--shell-accent); color: var(--shell-accent-fg);
+  }
+  .tb-incog-lbl { font-size: var(--t-meta); font-weight: 700; letter-spacing: .02em; }
+  .tb-icon.active { background: var(--shell-hover); color: var(--shell-fg); }
 
   .tb-new {
     align-self: center;
-    flex: 0 0 auto; display: inline-flex; align-items: center; gap: 4px;
-    background: var(--accent); color: var(--accent-fg); border-radius: 9px;
-    padding: 7px 13px; font-size: 12.5px; font-weight: 700; text-decoration: none;
+    flex: 0 0 auto; display: inline-flex; align-items: center; gap: 5px;
+    background: var(--shell-accent); color: var(--shell-accent-fg); border-radius: 999px;
+    padding: 7px 15px 7px 12px; font-size: var(--t-ui); font-weight: 700; text-decoration: none;
     transition: background .12s; white-space: nowrap;
   }
-  .tb-new:hover { background: var(--accent-d); }
+  .tb-new:hover { background: var(--shell-accent-d); }
 
   .tb-avatar {
     align-self: center;
     position: relative; width: 30px; height: 30px; border-radius: 50%; flex: 0 0 auto;
-    background: var(--chip); color: var(--muted); border: none; font: inherit; padding: 0; cursor: pointer;
+    background: var(--shell-input); color: var(--shell-fg); border: 1px solid var(--shell-line);
+    font: inherit; padding: 0; cursor: pointer;
     display: flex; align-items: center; justify-content: center;
-    font-size: 10.5px; font-weight: 700; letter-spacing: .02em;
-    transition: background .12s, color .12s;
+    font-size: var(--t-micro); font-weight: 700; letter-spacing: .02em;
+    transition: background .12s;
   }
-  .tb-avatar:hover { background: var(--hover); color: var(--text); }
+  .tb-avatar:hover { background: var(--shell-hover); }
   .tb-avatar::after {
     content: ""; position: absolute; bottom: -1px; right: -1px; width: 9px; height: 9px; border-radius: 50%;
-    background: var(--idle); border: 2px solid var(--bg2);
+    background: var(--idle); border: 2px solid var(--shell-bg);
   }
   .tb-avatar.live::after { background: var(--success); }
 
+  @media (max-width: 1180px) { .tb-word { display: none; } .tb-logo { padding: 0 11px; } }
   @media (max-width: 900px) {
     .tb-gauges, .tb-omni kbd { display: none; }
     .tb-omni { max-width: none; }
   }
+  /* Au doigt, la barre est le seul chrome permanent de l'écran : ses commandes passent le
+     plancher tactile au lieu de garder leur gabarit de curseur. */
+  @media (pointer: coarse) {
+    .topbar { min-height: 52px; }
+    .tb-icon { width: 40px; height: 40px; }
+    .tb-avatar { width: 36px; height: 36px; }
+    .tb-new { padding: 10px 14px; }
+  }
   @media (max-width: 640px) {
+    /* Les actions quittent la barre, pas l'application : thème, notifications, incognito,
+       corbeille et réglages vivent tous dans la palette, ouverte ici par la loupe. */
     .tb-actions { display: none; }
     .topbar { gap: 6px; padding: 0 8px 0 0; }
-    .tb-logo { width: 38px; }
+    .tb-logo { padding: 0 8px; }
     /* Spaces scroll sideways instead of pushing the omnibar and "+ Session" off-screen. */
     .tb-spaces { flex: 1 1 auto; min-width: 0; overflow-x: auto; scrollbar-width: none; }
     .tb-spaces::-webkit-scrollbar { display: none; }
-    .tb-space { padding: 0 10px; }
+    /* Icons only on a phone: three labelled tabs overflowed under the search button. */
+    .tb-space { padding: 0 12px; min-width: 44px; justify-content: center; }
+    .tb-lbl { display: none; }
     /* Omnibar collapses to its magnifier — the placeholder alone eats the whole width. */
-    .tb-omni { flex: 0 0 auto; padding: 7px 9px; }
+    .tb-omni { flex: 0 0 auto; padding: 10px 11px; }
     .tb-omni-ph { display: none; }
-    .tb-new { padding: 7px 10px; font-size: 0; gap: 0; }
+    /* Le libellé tombe, la cible reste ronde et pleine : un « + » de 28px ne s'attrape pas. */
+    .tb-new { width: 40px; padding: 0; font-size: 0; gap: 0; justify-content: center; align-self: center; height: 40px; }
   }
 </style>

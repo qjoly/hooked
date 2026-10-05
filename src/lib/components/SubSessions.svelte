@@ -29,6 +29,6 @@
   /* la carte (ou le repli) remplit la ligne, en laissant la place au badge de source à droite. */
   .ss-row :global(.session-card),
   .ss-row :global(.session-link) { flex: 1; min-width: 0; }
-  .ss-source { flex-shrink: 0; font-size: 11px; color: var(--muted); white-space: nowrap; }
+  .ss-source { flex-shrink: 0; font-size: var(--t-micro); color: var(--muted); white-space: nowrap; }
   .ss-created { color: var(--accent, var(--muted)); }
 </style>

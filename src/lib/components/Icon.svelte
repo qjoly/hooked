@@ -165,7 +165,12 @@
 <script>
   let { name, size = 16, stroke = 2, color = null, tint = true, title = null, class: cls = '' } = $props();
   const body = $derived(ICONS[name] ?? ICONS.close);
-  const paint = $derived(color ?? (tint ? TINTS[name] ?? null : null));
+  // A palette can mute the decorative tints through --icon-tint (the coffee world keeps colour for
+  // meaning); the ones that carry a meaning of their own always keep their hue.
+  const MEANING = new Set(['trash', 'ban', 'stop', 'interrupt', 'warning', 'check', 'circle-check', 'checkbox-done', 'all-clear']);
+  const paint = $derived(color ?? (tint && TINTS[name]
+    ? (MEANING.has(name) ? TINTS[name] : `var(--icon-tint, ${TINTS[name]})`)
+    : null));
 </script>
 
 <svg

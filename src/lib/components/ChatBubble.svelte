@@ -205,7 +205,7 @@
   }
   .more {
     display: inline-flex; align-items: center; gap: 5px; margin-top: 6px;
-    font: inherit; font-size: 11px; font-weight: 700; line-height: 1.4; cursor: pointer;
+    font: inherit; font-size: var(--t-micro); font-weight: 700; line-height: 1.4; cursor: pointer;
     border: 1px solid rgba(255,255,255,.45); background: rgba(255,255,255,.12); color: inherit;
     border-radius: 999px; padding: 2px 10px;
   }
@@ -216,16 +216,17 @@
   .sysline {
     display: flex; align-items: baseline; gap: 8px; justify-content: center;
     margin: 4px auto; padding: 4px 12px; max-width: 90%;
-    font-size: 12px; color: var(--muted); text-align: center;
+    font-size: var(--t-meta); color: var(--muted); text-align: center;
   }
   .sysline.bg { color: var(--background); font-weight: 600; }
   .sysline .sys-txt {
     background: var(--bg2); border: 1px dashed var(--border);
     border-radius: 999px; padding: 3px 12px;
   }
-  .sysline .t { font-size: 10.5px; color: var(--muted); font-weight: 400; }
-  /* message auto-repris (ScheduleWakeup) : liseré indigo pour le distinguer d'un vrai « You ». */
-  .bubble.auto { border-left: 3px solid var(--background); }
+  .sysline .t { font-size: var(--t-micro); color: var(--muted); font-weight: 400; }
+  /* message auto-repris (ScheduleWakeup) : l'en-tête le dit déjà en toutes lettres, la bulle prend
+     simplement le violet des jobs de fond au lieu de l'indigo du « You » — même token partout. */
+  .bubble.auto { background: var(--background); }
 
   /* run de tool calls replié : une ligne grise mono carrée + filet jusqu'au bord. */
   .tool-fold {

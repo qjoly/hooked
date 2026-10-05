@@ -7,3 +7,10 @@ dist/
 build/
 .claude
 .worktrees
+
+# Impeccable: machine-local state and review evidence (screenshots of real sessions)
+.impeccable/config.local.json
+.impeccable/hook.cache.json
+.impeccable/review/
+.impeccable/questions/
+.impeccable/critique/

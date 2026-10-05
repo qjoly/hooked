@@ -1,5 +1,6 @@
 <script>
-  let { entries, fmt } = $props();
+  // series(key) → a colour per row (the project chart paints each bar with its project lot).
+  let { entries, fmt, series = null } = $props();
   const sorted = $derived.by(() => {
     const e = entries.slice().sort((a, b) => b[1] - a[1]).slice(0, 8);
     return e;
@@ -13,7 +14,7 @@
   {#each sorted as [k, v]}
     <div class="bar-row">
       <span class="label" title={k}>{k}</span>
-      <span class="track"><span class="fill" style="width:{Math.max(2, (v / max) * 100)}%"></span></span>
+      <span class="track"><span class="fill" style="width:{Math.max(2, (v / max) * 100)}%{series ? ';--series:' + series(k) : ''}"></span></span>
       <span class="val">{fmt(v)}</span>
     </div>
   {/each}

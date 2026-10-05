@@ -165,13 +165,13 @@
      fils de commentaires (.dv-thread), pour qu'un bloc inséré sous une ligne se lise toujours
      de la même façon. */
   .dp {
-    margin: 4px 0; border: 1px solid var(--border2); border-left: 3px solid var(--accent);
+    margin: 4px 0; border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--border2));
     border-radius: 10px; overflow: hidden; background: var(--surface);
   }
   .dp-head {
     display: flex; align-items: center; gap: 8px; padding: 5px 8px;
     background: var(--surface); border-bottom: 1px solid var(--border2);
-    font-family: var(--mono); font-size: 10.5px; color: var(--muted);
+    font-family: var(--mono); font-size: var(--t-micro); color: var(--muted);
   }
   .dp-where { display: flex; align-items: center; gap: 4px; min-width: 0; }
   .dp-crumb { color: var(--muted); }
@@ -179,7 +179,7 @@
   .dp-sep { opacity: .5; }
   .dp-path { margin-left: auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .dp-kind {
-    flex: 0 0 auto; padding: 1px 7px; border-radius: 999px; font-size: 9.5px; font-weight: 700;
+    flex: 0 0 auto; padding: 1px 7px; border-radius: 999px; font-size: var(--t-micro); font-weight: 700;
     text-transform: uppercase; background: rgba(var(--accent-rgb), .14); color: var(--accent-d);
   }
   .dp-load { flex: 0 0 auto; opacity: .7; }
@@ -190,20 +190,20 @@
   .dp-btn:hover { color: var(--text); background: rgba(255,255,255,.06); }
   /* Plafonné : une définition de 400 lignes ne doit pas repousser le diff hors de l'écran. */
   .dp-body { max-height: min(46vh, 420px); overflow-y: auto; }
-  .dp-msg { padding: 8px 12px; font-family: var(--mono); font-size: 11px; color: var(--muted); }
+  .dp-msg { padding: 8px 12px; font-family: var(--mono); font-size: var(--t-micro); color: var(--muted); }
   .dp-title { color: var(--muted); }
   .dp-list { max-height: min(46vh, 420px); overflow-y: auto; padding: 4px; }
-  .dp-list-note { padding: 4px 8px; font-family: var(--mono); font-size: 10.5px; color: var(--warning, #c98a1b); }
+  .dp-list-note { padding: 4px 8px; font-family: var(--mono); font-size: var(--t-micro); color: var(--warning, #c98a1b); }
   .dp-cand {
     display: flex; align-items: baseline; gap: 8px; width: 100%; padding: 4px 8px;
     background: none; border: none; border-radius: 7px; cursor: pointer; text-align: left;
-    font-family: var(--mono); font-size: 11px; color: var(--text);
+    font-family: var(--mono); font-size: var(--t-micro); color: var(--text);
   }
   .dp-cand:hover { background: rgba(var(--accent-rgb), .10); }
   .dp-cand-where { flex: 0 0 auto; color: var(--accent-d); font-weight: 700; }
-  .dp-cand-why { flex: 0 0 auto; color: var(--muted); font-size: 10px; }
+  .dp-cand-why { flex: 0 0 auto; color: var(--muted); font-size: var(--t-micro); }
   .dp-cand-code {
     flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-    color: #c9cedb; font-size: 11px;
+    color: var(--code-fg); font-size: var(--t-micro);
   }
 </style>
