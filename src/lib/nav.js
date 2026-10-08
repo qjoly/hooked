@@ -8,6 +8,7 @@ export const NAV_TABS = [
   { key: 'stats',    label: 'Stats',    icon: 'stats', href: '/stats', tint: 'var(--success)' },
   { key: 'digest',   label: 'Digest',   icon: 'digest', href: '/digest', tint: 'var(--warn)' },
   { key: 'memory',   label: 'Memory',   icon: 'memory', href: '/memory', tint: 'var(--background)' },
+  { key: 'github',   label: 'GitHub',   icon: 'pr', href: '/github', tint: 'var(--danger)' },
 ];
 export const NAV_KEYS = NAV_TABS.map((t) => t.key);
 // href for a page key (used by the logo / default-page redirect). 'deck' → '/'.
