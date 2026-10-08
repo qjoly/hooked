@@ -561,7 +561,7 @@ export const settings = $state({
   sidebarCache: { display: 'badge', windowMin: 15 }, // cf. server/settings.js
   editor: 'vscode', // éditeur préféré (clé de src/lib/editors.js) pour les liens « open in editor »
   defaultPage: 'deck',
-  navTabs: ['sessions', 'stats', 'digest', 'memory'], // onglets de nav visibles (paramétrable)
+  navTabs: ['sessions', 'stats', 'digest', 'memory', 'github'], // onglets de nav visibles (paramétrable)
   hiddenModels: [...DEFAULT_HIDDEN_MODELS], // versions de modèle masquées des sélecteurs (liste noire)
 });
 export async function loadSettings() {
