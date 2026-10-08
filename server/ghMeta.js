@@ -60,4 +60,4 @@ async function ghView(url) {
   return out;
 }
 
-export { ghView };
+export { ghView, resolveGh };
