@@ -291,7 +291,7 @@
     busy = true;
     status = { text: newSession ? 'launching…' : 'sending…', cls: '' };
     const res = newSession
-      ? await launch({ cwd: project, prompt: full, model, effort, worktree, permissionMode: mode, groupWith: groupWith || undefined }).catch((e) => ({ ok: false, data: { error: e.message } }))
+      ? await launch({ cwd: project, prompt: full, model, effort, worktree, permissionMode: mode, groupWith: groupWith || undefined, incognito: ui.incognito || undefined }).catch((e) => ({ ok: false, data: { error: e.message } }))
       : await reply(id, full).catch((e) => ({ ok: false, data: { error: e.message } }));
     if (res.ok) {
       text = ''; images = []; autosize();

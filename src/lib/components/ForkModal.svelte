@@ -31,7 +31,7 @@
   <LaunchResult d={result} />
 {:else}
   <h2 style="margin:0 0 4px"><Icon name="git-branch" size={18} /> Fork session</h2>
-  <p style="color:var(--muted);font-size:12.5px;line-height:1.5;margin:0 0 16px">
+  <p style="color:var(--muted);font-size: var(--t-ui);line-height:1.5;margin:0 0 16px">
     Creates an <b>independent branch</b>: copies the conversation <b>up to and including this message</b>,
     then re-runs <code>claude --resume …</code> on it in <code>{r.project || r.projectName || '?'}</code>
     (a new session driven by hooked, <b>zero token cost</b>). The original session is not modified.</p>

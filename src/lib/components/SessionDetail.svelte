@@ -13,7 +13,7 @@
   import { ui, data, settings, loadSessions, openModal, sessionTitle, sessionTags, renameSession, toggleFocus, splitWithMostRecent, canSplit, toggleArchive, isArchived, unarchive } from '$lib/state.svelte.js';
   import { getSession, setMode, setModelEffort, setAutoApprove, openInEditor, openInGhostty, fork, launch, deleteSession, connectSessionStream, listTerminals, openTerminal, killTerminal } from '$lib/api.js';
   import { promptCacheState } from '$lib/promptCache.js';
-  import { STATE_LABEL, fmtCost, fmtTokens, shortModel, PERMISSION_MODES, modeLabel, modeMeta, modelAlias, tagColor, resumeCommand, parseBang, isBlockForCommand } from '$lib/format.js';
+  import { STATE_LABEL, fmtCost, fmtTokens, shortModel, PERMISSION_MODES, modeLabel, modeMeta, modelAlias, tagColor, lotColor, resumeCommand, parseBang, isBlockForCommand } from '$lib/format.js';
   import { page } from '$app/state';
   import ModelEffort from './ModelEffort.svelte';
   import ChatBubble from './ChatBubble.svelte';
@@ -729,7 +729,7 @@
       {:else}
         <button class="sess-name" onclick={startRename} title="Rename this session (local)">{sessionTitle(s)}</button>
       {/if}
-      <span class="head-meta" title={s.project || ''}>{s.repo || s.projectName || '?'}{#if s.gitBranch} · <Icon name="git-branch" size={13} /> {s.gitBranch}{/if}</span>
+      <span class="head-meta" title={s.project || ''}>{#if s.repo || s.projectName}<span class="head-lot" style="--lot:{lotColor(s.repo || s.projectName)}"></span>{/if}{s.repo || s.projectName || '?'}{#if s.gitBranch} · <Icon name="git-branch" size={13} /> {s.gitBranch}{/if}</span>
       {#if sessionTags(id).length}
         <!-- tags de session (manuels + auto-tag PR) : cliquer ouvre l'éditeur -->
         <button class="head-tags" onclick={() => openModal('editTags', { sessionId: id })} title="Edit tags">
@@ -770,7 +770,7 @@
         {/if}
         <!-- The one Archive control: stops the session when it runs, hides it, reversible. -->
         <button class="archive-btn" disabled={archiving} onclick={archive}
-                title={archived ? 'Restore this session to the live fleet' : s.live ? 'Stop the running session and move it to Archived' : 'Move this session to Archived'}>{#if archiving}<Icon name="queued" size={14} tint={false} />{:else if archived}<Icon name="unarchive" size={14} tint={false} /> Unarchive{:else}<Icon name="archive" size={14} tint={false} /> Archive{/if}</button>
+                title={archived ? 'Restore this session to the live fleet' : s.live ? 'Stop the running session and move it to Archived' : 'Move this session to Archived'}>{#if archiving}<Icon name="queued" size={14} tint={false} />{:else if archived}<Icon name="unarchive" size={14} tint={false} /> Unarchive{:else}<Icon name="archive" size={14} tint={false} /> <span class="ab-lbl">Archive</span>{/if}</button>
         {#if !inSplit}
           <button class="hdr-icon-btn" title="Split with the most recent session (⌘/Ctrl+⇧+S)"
                   aria-label="Split view" disabled={!canSplit()} onclick={() => splitWithMostRecent(id)}><Icon name="pane" size={16} /></button>
@@ -1010,7 +1010,7 @@
     list-style: none; cursor: pointer; user-select: none;
     display: inline-flex; align-items: center; justify-content: center;
     width: 30px; height: 28px; border: 1px solid var(--border2); border-radius: 8px;
-    color: var(--muted); background: transparent; font-size: 18px; line-height: 1;
+    color: var(--muted); background: transparent; font-size: var(--t-title); line-height: 1;
   }
   .hdr-more > summary::-webkit-details-marker { display: none; }
   .hdr-more > summary:hover { background: var(--bg3); color: var(--text); }
@@ -1039,7 +1039,7 @@
   .sess-name, .sess-rename-inline {
     flex: 1 1 auto; width: 0; min-width: 96px; max-width: none;
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-    font: inherit; font-size: 15px; font-weight: 800; letter-spacing: -.01em;
+    font: inherit; font-family: var(--font-display); font-size: 18px; line-height: var(--lh-title); font-weight: 700; letter-spacing: -.02em;
     padding: 2px 6px; margin: -3px -6px; border: 1px solid transparent; border-radius: 7px;
     color: var(--text); text-align: left;
   }
@@ -1054,20 +1054,21 @@
   .sess-rename-wrap.has-restore .sess-rename-inline { padding-right: 26px; }
   .sess-restore {
     position: absolute; right: 0; display: inline-flex; align-items: center;
-    background: none; border: none; color: var(--muted); cursor: pointer; font-size: 12px; padding: 0 2px;
+    background: none; border: none; color: var(--muted); cursor: pointer; font-size: var(--t-meta); padding: 0 2px;
   }
   .sess-restore:hover { color: var(--text); }
   .head-meta {
     flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-    font-family: var(--mono); font-size: 11px; color: var(--muted);
+    font-family: var(--mono); font-size: var(--t-micro); color: var(--muted);
   }
+  .head-lot { display: var(--lot-display, inline-block); width: 14px; height: 7px; border-radius: 2px; background: var(--lot); margin-right: 6px; vertical-align: 1px; }
   /* tags de session dans l'en-tête : compacts, cliquables (→ éditeur de tags) */
   .head-tags {
     flex: 0 1 auto; min-width: 0; display: inline-flex; gap: 4px; overflow: hidden;
     background: none; border: none; padding: 0; cursor: pointer;
   }
   .head-tag {
-    font: 600 9.5px var(--mono); line-height: 1.7; padding: 0 6px; border-radius: 0;
+    font: 650 10.5px var(--font); line-height: 1.7; padding: 0 8px; border-radius: 999px;
     color: var(--c); background: color-mix(in srgb, var(--c) 14%, transparent); white-space: nowrap;
   }
   .head-tags:hover .head-tag { filter: brightness(1.15); }
@@ -1116,11 +1117,18 @@
     .hdr-icon-btn { display: none; }
   }
   @container (max-width: 520px) {
-    /* 2) l'Archive inline se replie (il reste dans le menu ⋯) — seuls ⋯ (et Resume) subsistent. */
+    /* 2) Archive keeps its icon only (it is the one archive control, so it never leaves). */
+    .ab-lbl { display: none; }
   }
   @container (max-width: 440px) {
-    /* 3) enfin le statut et la branche disparaissent ; le TITRE, lui, reste toujours lisible. */
-    .head-meta, .s-badge, .head-tags, .ctx-gauge, .cache-badge { display: none; }
+    /* 3) Phone: the title gets its own row beside the back button; state, repo and actions share
+       the row under it. Gauges and tags leave (the dock and the menu carry them). */
+    .head-line { flex-wrap: wrap; row-gap: 8px; }
+    .sess-name, .sess-rename-wrap { flex: 1 1 calc(100% - 52px); }
+    .s-badge { order: 2; margin-left: 0; }
+    .head-meta { order: 3; flex: 1 1 0; }
+    .head-actions { order: 4; }
+    .head-tags, .ctx-gauge, .cache-badge { display: none; }
   }
   .head-line + :global(.subtabs) { margin-top: 9px; }
   .strip-modes { display: flex; gap: 4px; }
@@ -1137,7 +1145,7 @@
     border: 1px dashed rgba(255, 255, 255, .5);
   }
   .bubble.user.command .who .t { font-weight: 600; opacity: .95; display: inline-flex; align-items: center; gap: 4px; }
-  .bubble.user.command .md { font-family: var(--mono); font-size: 12px; }
+  .bubble.user.command .md { font-family: var(--mono); font-size: var(--t-meta); }
   .sd-text { white-space: pre-wrap; }
   .sd-thinking {
     margin: 0 0 8px; padding: 6px 8px; border-radius: 6px;
@@ -1170,7 +1178,7 @@
   .term-chip.dead .term-tab { opacity: .55; }
   .term-tab {
     background: none; border: none; color: var(--muted); padding: 3px 8px; cursor: pointer;
-    font-family: var(--mono); font-size: 11px; display: inline-flex; align-items: center; gap: 5px;
+    font-family: var(--mono); font-size: var(--t-micro); display: inline-flex; align-items: center; gap: 5px;
   }
   .term-tab:hover { color: var(--text); }
   .term-x { background: none; border: none; border-left: 1px solid var(--border); color: var(--muted); cursor: pointer; padding: 3px 5px; line-height: 1; }
@@ -1186,7 +1194,7 @@
   /* panneau ouvert sans terminal actif (le temps d'en créer un, ou après avoir fermé le dernier) */
   .term-void {
     flex: 1 1 auto; display: flex; align-items: center; justify-content: center;
-    font-family: var(--mono); font-size: 11px; color: var(--muted); background: var(--code-bg);
+    font-family: var(--mono); font-size: var(--t-micro); color: var(--muted); background: var(--code-bg);
   }
 
   /* tiroir sous la conversation : un clic ouvre le panneau (ou crée le premier shell) */
@@ -1194,7 +1202,7 @@
     flex: 0 0 auto; display: flex; align-items: center; gap: 9px;
     margin: 0; padding: 6px 16px; width: 100%;
     background: var(--bg3); border: none; border-top: 1px solid var(--border);
-    color: var(--muted); font-family: var(--mono); font-size: 11px; cursor: pointer; text-align: left;
+    color: var(--muted); font-family: var(--mono); font-size: var(--t-micro); cursor: pointer; text-align: left;
   }
   .term-drawer:hover { background: var(--hover); color: var(--text); }
   .term-drawer:hover .td-open { color: var(--accent); }
@@ -1205,7 +1213,7 @@
 
   .auto-chip { border-style: dashed; }
   .auto-chip.active { border-style: solid; }
-  .strip-status { font-family: var(--mono); font-size: 10.5px; color: var(--muted); }
+  .strip-status { font-family: var(--mono); font-size: var(--t-micro); color: var(--muted); }
   .strip-status.err { color: var(--danger); }
 
   /* corps du workspace : la zone scrollable + le dock contextuel côte à côte */
@@ -1214,7 +1222,7 @@
   /* rail fin pour rouvrir le dock quand il est masqué */
   .dock-reopen {
     flex: 0 0 auto; width: 18px; border: none; border-left: 1px solid var(--border);
-    background: var(--bg2); color: var(--muted); cursor: pointer; font-size: 12px; padding: 0;
+    background: var(--bg2); color: var(--muted); cursor: pointer; font-size: var(--t-meta); padding: 0;
     transition: background .12s, color .12s;
   }
   .dock-reopen:hover { background: var(--hover); color: var(--text); }
@@ -1249,7 +1257,7 @@
   /* bouton « révéler les messages plus anciens » en tête du transcript fenêtré */
   .show-earlier {
     display: block; margin: 4px auto 10px; padding: 5px 14px;
-    font-size: 12.5px; color: var(--muted); font-weight: 600;
+    font-size: var(--t-ui); color: var(--muted); font-weight: 600;
     background: var(--bg2); border: 1px dashed var(--border); border-radius: 999px;
     cursor: pointer;
   }
@@ -1258,7 +1266,7 @@
   .working-live {
     display: flex; align-items: center; gap: 6px;
     margin: 4px 2px 2px; padding: 2px 2px;
-    font-size: 12.5px; color: var(--working); font-weight: 600;
+    font-size: var(--t-ui); color: var(--working); font-weight: 600;
   }
   .wl-verb { animation: act-pulse 1.6s ease-in-out infinite; }
   .wl-sep { opacity: .5; }

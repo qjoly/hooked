@@ -1,0 +1,80 @@
+{
+  "hook": {
+    "enabled": true,
+    "limits": {
+      "maxFindings": 5,
+      "maxChars": 8000
+    }
+  },
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [],
+    "ignoreValues": [
+      {
+        "rule": "layout-transition",
+        "value": "*",
+        "files": [
+          "src/lib/components/Dock.svelte",
+          "src/lib/components/Review.svelte",
+          "src/lib/components/Stats.svelte",
+          "src/lib/components/TopBar.svelte",
+          "src/lib/components/WorkflowCard.svelte"
+        ],
+        "createdAt": "2026-10-05T11:31:47.672Z",
+        "reason": "Agent: les cinq sites sont des remplissages de barre de progression de 2 a 4px de haut ; la largeur EST la donnee animee et l'element ne reflue sur rien"
+      },
+      {
+        "rule": "bounce-easing",
+        "value": "wl-bounce",
+        "createdAt": "2026-10-05T11:31:47.765Z",
+        "reason": "Agent: trois points de frappe, translateY de 3px en ease-in-out — un rebond litteral, pas une courbe d'easing elastique"
+      },
+      {
+        "rule": "broken-image",
+        "value": "*",
+        "files": [
+          "src/lib/components/Lightbox.svelte"
+        ],
+        "createdAt": "2026-10-05T11:31:47.850Z",
+        "reason": "Agent: src et alt sont des props requises du composant, il n'y a pas de placeholder"
+      },
+      {
+        "rule": "side-tab",
+        "value": "*",
+        "files": [
+          "src/lib/components/FileView.svelte",
+          "src/lib/components/SessionDetail.svelte"
+        ],
+        "createdAt": "2026-10-05T11:31:59.512Z",
+        "reason": "Agent: bandes inset box-shadow marquant le focus / la ligne atteinte, pas une decoration de carte"
+      },
+      {
+        "rule": "side-tab",
+        "value": "*",
+        "files": [
+          "src/lib/components/Plan.svelte"
+        ],
+        "createdAt": "2026-10-05T11:31:59.663Z",
+        "reason": "Agent: gouttiere de blockquote markdown (convention typographique de la citation), les cartes du composant ont ete corrigees"
+      },
+      {
+        "rule": "design-system-font",
+        "value": "public sans",
+        "files": [
+          "src/app.css"
+        ],
+        "createdAt": "2026-10-05T17:11:05.315Z",
+        "reason": "user confirmed keeping the former default as the selectable Indigo scheme: Public Sans is that scheme's face (the :root[data-scheme] base), not part of the coffee world"
+      },
+      {
+        "rule": "design-system-font",
+        "value": "iowan old style",
+        "files": [
+          "src/app.css"
+        ],
+        "createdAt": "2026-10-05T17:11:05.414Z",
+        "reason": "user confirmed keeping the other schemes: system serif of the claude scheme for assistant turns, scoped to :root[data-scheme=claude]"
+      }
+    ]
+  }
+}

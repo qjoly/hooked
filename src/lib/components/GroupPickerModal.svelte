@@ -93,28 +93,28 @@
 
 <style>
   .gpk-head { margin-bottom: 14px; padding-right: 24px; }
-  .gpk-title { font-size: 16px; font-weight: 800; }
-  .gpk-sub { font-size: 12.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-top: 2px; }
+  .gpk-title { font-size: var(--t-title); line-height: var(--lh-title); font-weight: 800; }
+  .gpk-sub { font-size: var(--t-ui); color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-top: 2px; }
   .gpk-q {
     width: 100%; box-sizing: border-box; background: var(--input); border: 1px solid var(--border); border-radius: 9px;
-    padding: 9px 12px; font: inherit; font-size: 13px; color: var(--text); margin-bottom: 10px;
+    padding: 9px 12px; font: inherit; font-size: var(--t-ui); color: var(--text); margin-bottom: 10px;
   }
   .gpk-q:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
   .gpk-list { max-height: 300px; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; }
-  .gpk-empty { color: var(--muted); font-size: 12.5px; padding: 10px 2px; }
+  .gpk-empty { color: var(--muted); font-size: var(--t-ui); padding: 10px 2px; }
   .gpk-row {
     display: flex; align-items: center; gap: 9px; width: 100%; text-align: left; min-width: 0;
     background: var(--bg2); border: 1px solid var(--border); border-radius: 10px; color: var(--text);
-    padding: 8px 11px; cursor: pointer; font: inherit; font-size: 13px;
+    padding: 8px 11px; cursor: pointer; font: inherit; font-size: var(--t-ui);
   }
   .gpk-row:hover { border-color: var(--accent); background: var(--accent-soft); }
   .gpk-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
-  .gpk-meta { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11.5px; color: var(--muted); }
-  .gpk-n { flex: 0 0 auto; font-family: var(--mono); font-size: 10.5px; color: var(--muted); max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .gpk-meta { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--t-meta); color: var(--muted); }
+  .gpk-n { flex: 0 0 auto; font-family: var(--mono); font-size: var(--t-micro); color: var(--muted); max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .gpk-foot { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
   .gpk-detach, .gpk-done {
     background: var(--chip); color: var(--text); border: 1px solid var(--border); border-radius: 9px;
-    padding: 8px 14px; font: inherit; font-size: 13px; font-weight: 600; cursor: pointer;
+    padding: 8px 14px; font: inherit; font-size: var(--t-ui); font-weight: 600; cursor: pointer;
     display: inline-flex; align-items: center; gap: 6px;
   }
   .gpk-detach { margin-right: auto; }

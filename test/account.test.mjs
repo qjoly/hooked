@@ -13,19 +13,19 @@ import { mergeAccountInfo, readAccountFile } from '../server/account.js';
 
 const STATUS = {
   loggedIn: true, authMethod: 'claude.ai', apiProvider: 'firstParty',
-  email: 'larago@luccasoftware.com', orgId: 'org-1', orgName: 'Luccasoftware', subscriptionType: 'team',
+  email: 'larago@example.com', orgId: 'org-1', orgName: 'Example Corp', subscriptionType: 'team',
 };
 const FILE_ACCOUNT = {
-  displayName: 'Lilian', email: 'larago@luccasoftware.com', organizationName: 'Luccasoftware',
+  displayName: 'Lilian', email: 'larago@example.com', organizationName: 'Example Corp',
 };
 
 describe('mergeAccountInfo', () => {
   it('merges live status with the file cache, status winning where both carry a field', () => {
     expect(mergeAccountInfo(STATUS, FILE_ACCOUNT)).toEqual({
       loggedIn: true,
-      email: 'larago@luccasoftware.com',
+      email: 'larago@example.com',
       displayName: 'Lilian',
-      organizationName: 'Luccasoftware',
+      organizationName: 'Example Corp',
       subscriptionType: 'team',
     });
   });
@@ -33,15 +33,15 @@ describe('mergeAccountInfo', () => {
   it('displayName only ever comes from the file — auth status does not carry it', () => {
     const noFile = mergeAccountInfo(STATUS, null);
     expect(noFile.displayName).toBe(null);
-    expect(noFile.email).toBe('larago@luccasoftware.com'); // still available from status
+    expect(noFile.email).toBe('larago@example.com'); // still available from status
   });
 
   it('falls back to the file when the CLI call failed (status = null)', () => {
     expect(mergeAccountInfo(null, FILE_ACCOUNT)).toEqual({
       loggedIn: null,
-      email: 'larago@luccasoftware.com',
+      email: 'larago@example.com',
       displayName: 'Lilian',
-      organizationName: 'Luccasoftware',
+      organizationName: 'Example Corp',
       subscriptionType: null,
     });
   });
@@ -62,7 +62,7 @@ describe('readAccountFile', () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hooked-account-'));
     const file = path.join(dir, '.claude.json');
     fs.writeFileSync(file, JSON.stringify({
-      oauthAccount: { displayName: 'Lilian', emailAddress: 'larago@luccasoftware.com', organizationName: 'Luccasoftware' },
+      oauthAccount: { displayName: 'Lilian', emailAddress: 'larago@example.com', organizationName: 'Example Corp' },
     }));
     expect(readAccountFile(file)).toEqual(FILE_ACCOUNT);
     fs.rmSync(dir, { recursive: true, force: true });

@@ -69,12 +69,12 @@
   .session-card .sdot { display: inline-block; margin: 0; flex-shrink: 0; }
   .sc-body { display: inline-flex; flex-direction: column; min-width: 0; }
   .sc-title {
-    font-weight: 600; font-size: 12.5px;
+    font-weight: 600; font-size: var(--t-ui);
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 28ch;
   }
   .sc-sub {
     display: inline-flex; gap: 4px; align-items: baseline;
-    font-size: 11px; color: var(--muted);
+    font-size: var(--t-micro); color: var(--muted);
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 34ch;
   }
   /* le libellé d'état prend la couleur de l'état (variables partagées avec la sidebar). */

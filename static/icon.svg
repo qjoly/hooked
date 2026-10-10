@@ -1,8 +1,16 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-  <rect width="512" height="512" fill="#101013"/>
-  <g fill="none" stroke="#e7eaef" stroke-width="34" stroke-linecap="round" stroke-linejoin="round">
-    <path d="M256 118 v152"/>
-    <path d="M256 270 a70 70 0 1 1 -70 70"/>
-    <path d="M212 118 h88"/>
+  <!-- hooked: the hook on a latte cup, ringed by the six flavour-wheel state families -->
+  <rect width="512" height="512" rx="116" fill="#1e1512"/>
+  <g>
+    <path d="M270.8 60.6A196 196 0 0 1 417.9 145.5" stroke="#c43d4d" stroke-width="40" fill="none"/>
+    <path d="M432.6 171.1A196 196 0 0 1 432.6 340.9" stroke="#e1901f" stroke-width="40" fill="none"/>
+    <path d="M417.9 366.5A196 196 0 0 1 270.8 451.4" stroke="#418d50" stroke-width="40" fill="none"/>
+    <path d="M241.2 451.4A196 196 0 0 1 94.1 366.5" stroke="#9e59b3" stroke-width="40" fill="none"/>
+    <path d="M79.4 340.9A196 196 0 0 1 79.4 171.1" stroke="#92a1a9" stroke-width="40" fill="none"/>
+    <path d="M94.1 145.5A196 196 0 0 1 241.2 60.6" stroke="#96684f" stroke-width="40" fill="none"/>
+  </g>
+  <circle cx="256" cy="256" r="160" fill="#e4cdb1"/>
+  <g fill="none" stroke="#1e1512" stroke-width="44" stroke-linecap="round" stroke-linejoin="round" transform="translate(256 256) scale(0.86) translate(-256 -260)">
+    <path d="M256 120v144"/><path d="M256 264a68 68 0 1 1-68 68"/><path d="M212 120h88"/>
   </g>
 </svg>

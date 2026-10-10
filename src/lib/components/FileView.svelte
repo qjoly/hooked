@@ -89,11 +89,11 @@
 </div>
 
 <style>
-  .fv { font-family: var(--mono); font-size: 12px; line-height: 1.55; background: var(--code-bg); color: #c9cedb; }
+  .fv { font-family: var(--mono); font-size: var(--t-meta); line-height: 1.55; background: var(--code-bg); color: var(--code-fg); }
   .fv-row { display: grid; grid-template-columns: 52px 1fr; align-items: stretch; }
   .fv-no {
-    text-align: right; padding: 0 8px; color: #5a6072; user-select: none;
-    font-size: 10.5px; background: rgba(255,255,255,.02); white-space: nowrap;
+    text-align: right; padding: 0 8px; color: var(--code-dim); user-select: none;
+    font-size: var(--t-micro); background: rgba(255,255,255,.02); white-space: nowrap;
   }
   /* même traitement que .dv-code : les longues lignes se replient, pas de scroll horizontal */
   .fv-code { padding: 0 10px 0 4px; white-space: pre-wrap; overflow-wrap: anywhere; tab-size: 2; min-width: 0; }
@@ -103,8 +103,8 @@
   .fv-more {
     display: flex; align-items: center; gap: 5px; width: 100%; padding: 3px 12px;
     background: rgba(var(--accent-rgb), .05); border: none; border-block: 1px solid var(--border);
-    color: var(--accent); font-family: inherit; font-size: 10.5px; cursor: pointer;
+    color: var(--accent); font-family: inherit; font-size: var(--t-micro); cursor: pointer;
   }
   .fv-more:hover { background: rgba(var(--accent-rgb), .14); }
-  .fv-foot { padding: 2px 12px; font-size: 10px; color: #5a6072; text-align: right; }
+  .fv-foot { padding: 2px 12px; font-size: var(--t-micro); color: var(--code-dim); text-align: right; }
 </style>

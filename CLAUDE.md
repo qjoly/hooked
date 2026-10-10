@@ -106,6 +106,37 @@ listent des **groupes**, via `groupUnits()` de `state.svelte.js`.
   hooked** — une session ouverte à la main n'a pas de clé.
 - **Archiver la mère archive tout le groupe** ; une fille s'archive seule et reste dans son groupe.
 
+## Mode incognito (`ui.incognito`, drapeau `incognito` de `session-meta.json`)
+
+Pour les screenshares : quand le mode est actif, le dashboard n'affiche **que** les sessions
+marquées incognito. Le mode lui-même est **local au navigateur** (localStorage) — c'est un état
+d'affichage ; le **drapeau**, lui, est **serveur** (`session-meta.json`), donc le jeu de sessions
+survit à un rechargement et suit d'un navigateur à l'autre.
+
+- **Le drapeau est posé côté serveur au lancement**, jamais deviné côté front : `launchSession`
+  marque la session neuve si le dashboard a demandé `incognito`, **ou** si sa mère l'est (MCP
+  `start_session` / `groupWith`), et `forkSession` le recopie depuis la session d'origine. Sans cet
+  héritage, une sous-session créée en pleine démo disparaîtrait de l'écran à la seconde où elle naît.
+- **Un seul point de filtrage : `data.sessions`** (`state.svelte.js`). La liste brute du serveur vit
+  dans `raw`, `data.sessions` en est la vue filtrée — tous les panneaux (sidebar, Deck, splits,
+  sélecteur de groupe, palette) la lisent, donc aucun n'a de filtre à lui. `loadSessions` compare en
+  revanche la fraîcheur sur `raw` : en incognito la vue est vide tant que `ui.meta` n'est pas
+  revenu, et s'y fier empêcherait le resync de jamais partir.
+- **Filtrer les listes ne suffit pas.** Un pane de session rend sa conversation **par id** : le
+  garde `hidden()` de `session/[id]/+page.svelte` masque le pane au lieu de rediriger (déclaratif →
+  rien à défaire, et ça se corrige tout seul quand `ui.meta` arrive). Deux autres fuites traitées au
+  même titre : les **notifications** (`checkNotifications` reçoit la liste visible — un popup
+  système portant le titre d'une session masquée est exactement ce que le mode empêche) et la
+  **recherche plein texte**, qui est serveur et ignore le mode (`CommandPalette` écarte les hits des
+  sessions masquées).
+- **Les tags sont filtrés à part.** `allTags()` / `tagUsage()` lisent `ui.tags`, pas
+  `data.sessions` : sans garde, la barre de filtres, les suggestions de la modale et le
+  gestionnaire des réglages nommeraient les sessions masquées. Basculer le mode vide aussi
+  `ui.tagFilters` (transitoire) — un filtre actif sur un tag qui vient de disparaître de la barre
+  viderait la sidebar sans rien pour l'expliquer.
+- **Restent hors périmètre** : Stats et Digest, qui agrègent toutes les sessions sans passer par
+  `data.sessions`.
+
 ## Ce que la migration hors tmux a supprimé
 
 Retiré parce que **spécifique à tmux**, sans équivalent : l'onglet **Terminal** (mirroir xterm d'un pane), le MCP `show_in_pane`, `Copy attach` / `tmux attach`, la **sidebar tmux** (`tmux/`), et le pilotage d'une session **lancée hors hooked** (il venait de `send-keys`). Les démons **remote-control** sont conservés : ce sont maintenant des **process détachés** supervisés par un fichier de PID (`rc-daemons.json`), reconnus dans le dashboard via `HOOKED_RC=1` → drapeau `rc` recopié par `hook.cjs`.
