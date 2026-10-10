@@ -68,23 +68,23 @@
 
 <style>
   .et-head { margin-bottom: 16px; padding-right: 24px; }
-  .et-title { font-size: 16px; font-weight: 800; }
-  .et-sess { font-size: 12.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-top: 2px; }
-  .et-label { display: block; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin: 14px 0 7px; }
+  .et-title { font-size: var(--t-title); line-height: var(--lh-title); font-weight: 800; }
+  .et-sess { font-size: var(--t-ui); color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-top: 2px; }
+  .et-label { display: block; font-size: var(--t-micro); font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin: 14px 0 7px; }
   .et-add { display: flex; gap: 8px; }
   .et-add input {
     flex: 1; background: var(--input); border: 1px solid var(--border); border-radius: 9px;
-    padding: 9px 12px; font: inherit; font-size: 13px; color: var(--text);
+    padding: 9px 12px; font: inherit; font-size: var(--t-ui); color: var(--text);
   }
   .et-add input::placeholder { color: var(--muted); }
   .et-add input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
   .et-addbtn {
     background: var(--accent); color: var(--accent-fg); border: none; border-radius: 9px;
-    padding: 0 16px; font: inherit; font-size: 13px; font-weight: 700; cursor: pointer;
+    padding: 0 16px; font: inherit; font-size: var(--t-ui); font-weight: 700; cursor: pointer;
   }
   .et-addbtn:hover { background: var(--accent-d); }
   .et-list { max-height: 260px; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; }
-  .et-empty { color: var(--muted); font-size: 12.5px; padding: 10px 2px; }
+  .et-empty { color: var(--muted); font-size: var(--t-ui); padding: 10px 2px; }
   .et-row {
     display: flex; align-items: center; gap: 10px; width: 100%; text-align: left;
     background: var(--bg2); border: 1px solid var(--border); border-radius: 10px;
@@ -93,12 +93,12 @@
   .et-row:hover { border-color: var(--border2); }
   .et-row.on { background: var(--accent-soft); border-color: var(--accent); }
   .et-sw { width: 11px; height: 11px; border-radius: 4px; flex: 0 0 auto; }
-  .et-name { flex: 1; font-size: 13px; }
+  .et-name { flex: 1; font-size: var(--t-ui); }
   .et-check { color: var(--accent); flex: 0 0 auto; }
   .et-foot { display: flex; justify-content: flex-end; margin-top: 18px; }
   .et-done {
     background: var(--chip); color: var(--text); border: 1px solid var(--border); border-radius: 9px;
-    padding: 8px 18px; font: inherit; font-size: 13px; font-weight: 600; cursor: pointer;
+    padding: 8px 18px; font: inherit; font-size: var(--t-ui); font-weight: 600; cursor: pointer;
   }
   .et-done:hover { background: var(--hover); }
 </style>

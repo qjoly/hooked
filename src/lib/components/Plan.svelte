@@ -141,43 +141,43 @@
 <style>
   .plan-card {
     margin-top: 20px; padding: 16px 18px 14px; background: var(--surface);
-    border: 1px solid rgba(176,90,52,.35); border-radius: 18px;
-    box-shadow: var(--shadow); border-left: 4px solid var(--accent);
+    border: 1px solid color-mix(in srgb, var(--accent) 50%, var(--border)); border-radius: 18px;
+    box-shadow: var(--shadow);
   }
   .plan-head { display: flex; align-items: center; gap: 9px; margin-bottom: 12px; }
   .plan-ico { font-size: 16px; }
-  .plan-title { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: var(--accent-d); }
-  .plan-hint { margin-left: auto; font-size: 11px; color: var(--muted); font-style: italic; }
-  .plan-body { font-size: 13.5px; line-height: 1.6; color: var(--text); word-wrap: break-word; overflow-wrap: anywhere; }
+  .plan-title { font-size: var(--t-meta); font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: var(--accent-d); }
+  .plan-hint { margin-left: auto; font-size: var(--t-micro); color: var(--muted); font-style: italic; }
+  .plan-body { font-size: var(--t-body); line-height: 1.6; color: var(--text); word-wrap: break-word; overflow-wrap: anywhere; }
   /* le contenu markdown est injecté via {@html} → styliser avec :global (mêmes valeurs que .bubble .md) */
   .plan-body :global(a) { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; word-break: break-all; }
   .plan-body :global(a:hover) { color: var(--accent-d); }
-  .plan-body :global(code) { font-family: var(--mono); font-size: 12px; }
+  .plan-body :global(code) { font-family: var(--mono); font-size: var(--t-meta); }
   .plan-body :global(:not(pre) > code) { background: var(--code-inline); padding: 1px 5px; border-radius: 5px; }
-  .plan-body :global(table) { border-collapse: collapse; margin: 8px 0; font-size: 12px; max-width: 100%; }
+  .plan-body :global(table) { border-collapse: collapse; margin: 8px 0; font-size: var(--t-meta); max-width: 100%; }
   .plan-body :global(th), .plan-body :global(td) { border: 1px solid rgba(120,95,60,.28); padding: 4px 9px; text-align: left; vertical-align: top; }
   .plan-body :global(th) { background: rgba(120,95,60,.12); font-weight: 700; }
   .plan-body :global(blockquote) { margin: 6px 0; padding: 2px 0 2px 12px; border-left: 3px solid rgba(120,95,60,.38); color: var(--muted); }
 
   .plan-comments { margin-top: 14px; display: flex; flex-direction: column; gap: 8px; }
-  .pc { position: relative; padding: 8px 10px; background: var(--code-inline); border-radius: 10px; border-left: 3px solid var(--accent); }
-  .pc-x { position: absolute; top: 5px; right: 6px; border: none; background: none; color: var(--muted); cursor: pointer; font-size: 11px; line-height: 1; }
+  .pc { position: relative; padding: 8px 10px; background: var(--code-inline); border-radius: 10px; border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent); }
+  .pc-x { position: absolute; top: 5px; right: 6px; border: none; background: none; color: var(--muted); cursor: pointer; font-size: var(--t-micro); line-height: 1; }
   .pc-x:hover { color: var(--accent-d); }
-  .pc-quote { margin: 0 0 5px; padding: 0 0 0 9px; border-left: 2px solid rgba(120,95,60,.4); color: var(--muted); font-size: 12px; white-space: pre-wrap; }
-  .pc-note { font-size: 13px; color: var(--text); white-space: pre-wrap; }
+  .pc-quote { margin: 0 0 5px; padding: 0 0 0 9px; border-left: 2px solid rgba(120,95,60,.4); color: var(--muted); font-size: var(--t-meta); white-space: pre-wrap; }
+  .pc-note { font-size: var(--t-ui); color: var(--text); white-space: pre-wrap; }
 
   .plan-draft { margin-top: 12px; padding: 10px; background: var(--code-inline); border-radius: 10px; }
-  .plan-draft textarea { width: 100%; margin-top: 6px; font: inherit; font-size: 13px; padding: 6px 8px; border: 1px solid rgba(120,95,60,.35); border-radius: 8px; background: var(--surface); color: var(--text); resize: vertical; box-sizing: border-box; }
+  .plan-draft textarea { width: 100%; margin-top: 6px; font: inherit; font-size: var(--t-ui); padding: 6px 8px; border: 1px solid rgba(120,95,60,.35); border-radius: 8px; background: var(--surface); color: var(--text); resize: vertical; box-sizing: border-box; }
   .draft-actions { display: flex; gap: 8px; margin-top: 6px; }
 
   .plan-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 14px; }
-  .btn { font: inherit; font-size: 12.5px; font-weight: 600; padding: 6px 12px; border-radius: 9px; border: 1px solid rgba(120,95,60,.35); background: var(--surface); color: var(--text); cursor: pointer; }
+  .btn { font: inherit; font-size: var(--t-ui); font-weight: 600; padding: 6px 12px; border-radius: 9px; border: 1px solid rgba(120,95,60,.35); background: var(--surface); color: var(--text); cursor: pointer; }
   .btn:hover:not(:disabled) { border-color: var(--accent); }
   .btn:disabled { opacity: .5; cursor: default; }
   .btn.approve { background: var(--accent); color: #fff; border-color: var(--accent); }
   .btn.feedback { background: var(--accent-d); color: #fff; border-color: var(--accent-d); }
   .btn.ghost { background: none; }
-  .plan-status { font-size: 12px; color: #c0392b; }
+  .plan-status { font-size: var(--t-meta); color: #c0392b; }
 
-  .sel-comment { position: fixed; z-index: 40; transform: translateX(-50%); font-size: 12px; font-weight: 600; padding: 4px 10px; border-radius: 8px; border: none; background: var(--accent-d); color: #fff; cursor: pointer; box-shadow: var(--shadow); }
+  .sel-comment { position: fixed; z-index: 40; transform: translateX(-50%); font-size: var(--t-meta); font-weight: 600; padding: 4px 10px; border-radius: 8px; border: none; background: var(--accent-d); color: #fff; cursor: pointer; box-shadow: var(--shadow); }
 </style>

@@ -70,7 +70,7 @@ const DEFAULTS = {
   // Page d'accueil (espace ouvert à froid au chargement) : 'deck' ou une clé de nav.
   defaultPage: 'deck',
   // Onglets de navigation visibles à côté du Deck (paramétrable). Sous-ensemble de NAV_PAGES.
-  navTabs: ['sessions', 'stats', 'digest', 'memory'],
+  navTabs: ['sessions', 'stats', 'digest', 'memory', 'github'],
   // Versions de modèle masquées des sélecteurs (liste noire, cf. src/lib/models.js). Défaut : les
   // vieilles générations. [] = tout afficher. Purement cosmétique : un modèle masqué reste valide
   // au lancement, et le modèle courant d'une session reste toujours affiché.
@@ -99,7 +99,7 @@ const DEFAULTS = {
   sidebarCache: { display: 'badge', windowMin: 15 },
 };
 
-const NAV_PAGES = ['sessions', 'stats', 'digest', 'memory'];
+const NAV_PAGES = ['sessions', 'stats', 'digest', 'memory', 'github'];
 const DEFAULT_PAGES = ['deck', ...NAV_PAGES];
 
 // Ramène un objet arbitraire (fichier ou payload client) à des valeurs sûres et complètes.

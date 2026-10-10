@@ -6,20 +6,25 @@
   import Workflows from './Workflows.svelte';
   import SubSessions from './SubSessions.svelte';
   import Background from './Background.svelte';
-  import GhLinks from './GhLinks.svelte';
+  import GhDetail from './GhDetail.svelte';
   import Screenshots from './Screenshots.svelte';
   import Icon from '$lib/components/Icon.svelte';
   import { fmtCost, prLabel, issueLabel } from '$lib/format.js';
   import { prState, prStateIcon } from '$lib/prState.svelte.js';
   import { ui } from '$lib/state.svelte.js';
+  import { reply } from '$lib/api.js';
 
   let { s, id, onreview } = $props();
 
   // drag-resize the dock width (persisted). It's a right panel, so dragging left widens it.
   function startResize(e) {
     e.preventDefault();
-    const startX = e.clientX, startW = ui.dockWidth;
-    const move = (ev) => { ui.dockWidth = Math.max(220, Math.min(520, startW - (ev.clientX - startX))); };
+    const startX = e.clientX, startW = width;
+    const move = (ev) => {
+      const w = startW - (ev.clientX - startX);
+      if (ghOpen) ghWidth = Math.max(420, Math.min(1100, w));
+      else ui.dockWidth = Math.max(220, Math.min(520, w));
+    };
     const up = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); };
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', up);
@@ -41,6 +46,21 @@
   const issueLinks = $derived(s?.issueLinks || []);
   const shots = $derived(s?.screenshots || []);
 
+  // A PR / issue opened in place of the cards; the detail needs room, hence its own width.
+  let ghOpen = $state(null);
+  $effect(() => { id; ghOpen = null; });
+  let ghWidth = $state(+globalThis.localStorage?.getItem('hooked.ghDetailWidth') || 640);
+  $effect(() => { globalThis.localStorage?.setItem('hooked.ghDetailWidth', String(ghWidth)); });
+  const width = $derived(ghOpen ? ghWidth : ui.dockWidth);
+  const ghLinks = $derived([...prLinks, ...issueLinks]);
+  const openGh = (e, url) => {
+    if (e.metaKey || e.ctrlKey || e.shiftKey) return;
+    e.preventDefault();
+    ghOpen = url;
+  };
+  const fixCheck = async (c, d) => (await reply(id,
+    `The CI check "${c.name}" fails on ${d.url}${c.url ? ` (logs: ${c.url})` : ''}. Investigate why and fix it.`)).ok;
+
   // per-file add/del totals when available on change entries; tolerate absent fields.
   const fileList = $derived(changes.slice(0, 4));
 
@@ -61,10 +81,21 @@
   };
 </script>
 
-<aside class="dock" aria-label="Session context" style="width:{ui.dockWidth}px;min-width:{ui.dockWidth}px">
+<aside class="dock" aria-label="Session context" style="width:{width}px;min-width:{width}px">
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div class="dock-resize" onpointerdown={startResize} title="Drag to resize"></div>
   <button class="dock-hide" onclick={() => (ui.dockHidden = true)} title="Hide the context panel" aria-label="Hide the context panel">»</button>
+  {#if ghOpen}
+    <nav class="ghnav" aria-label="Linked pull requests and issues">
+      <button class="ghback" onclick={() => (ghOpen = null)} title="Back to the session context"><Icon name="arrow-left" size={13} /></button>
+      {#each ghLinks as l (l)}
+        <button class="ghtab" class:on={l === ghOpen} onclick={() => (ghOpen = l)} title={l}>
+          <Icon name={l.includes('/pull/') ? prStateIcon(prState(l)) : 'issue'} size={12} tint={false} /> #{l.split('/').pop()}
+        </button>
+      {/each}
+    </nav>
+    <GhDetail url={ghOpen} onfix={fixCheck} />
+  {:else}
   {#if todos.length}
     <div class="dcard">
       <button class="dh" onclick={() => toggle('todos')}>
@@ -189,22 +220,15 @@
 
   {#if prLinks.length || issueLinks.length}
     <div class="dcard">
-      <button class="dh" onclick={() => toggle('links')}>
+      <button class="dh" onclick={() => (ghOpen = ghLinks[0])} title="Open the details">
         <span class="dh-ico"><Icon name="link" size={13} /></span> Links
-        <span class="dh-n">{prLinks.length + issueLinks.length}</span>
-        <span class="dh-chev" class:open={expanded.links}>▾</span>
+        <span class="dh-n">{ghLinks.length}</span>
+        <span class="dh-chev">›</span>
       </button>
-      {#if expanded.links}
-        <div class="dfull">
-          {#if prLinks.length}<GhLinks links={prLinks} kind="pr" />{/if}
-          {#if issueLinks.length}<GhLinks links={issueLinks} kind="issue" />{/if}
-        </div>
-      {:else}
-        <div class="db dpills">
-          {#each prLinks as l}{@const st = prState(l)}<a class="dpill pr" class:merged={st === 'MERGED'} class:closed={st === 'CLOSED'} href={l} target="_blank" rel="noopener" title={st ? st.toLowerCase() : null}><Icon name={prStateIcon(st)} size={13} tint={false} /> {prLabel(l)}</a>{/each}
-          {#each issueLinks as l}<a class="dpill" href={l} target="_blank" rel="noopener"><Icon name="issue" size={13} /> {issueLabel(l)}</a>{/each}
-        </div>
-      {/if}
+      <div class="db dpills">
+        {#each prLinks as l}{@const st = prState(l)}<a class="dpill pr" class:merged={st === 'MERGED'} class:closed={st === 'CLOSED'} href={l} target="_blank" rel="noopener" onclick={(e) => openGh(e, l)} title={st ? st.toLowerCase() : null}><Icon name={prStateIcon(st)} size={13} tint={false} /> {prLabel(l)}</a>{/each}
+        {#each issueLinks as l}<a class="dpill" href={l} target="_blank" rel="noopener" onclick={(e) => openGh(e, l)}><Icon name="issue" size={13} /> {issueLabel(l)}</a>{/each}
+      </div>
     </div>
   {/if}
 
@@ -218,12 +242,13 @@
       <Screenshots {shots} session={id} limit={expanded.shots ? 0 : 4} />
     </div>
   {/if}
+  {/if}
 </aside>
 
 <style>
   /* Side panels sans gap (anti-bulle) : sections affleurantes separees par des filets. */
   /* compteur d'agents d'un run, collé à droite de la ligne (le nom, lui, s'ellipse) */
-  .dnum { margin-left: auto; flex: 0 0 auto; font-family: var(--mono); font-size: 10px; color: var(--muted); }
+  .dnum { margin-left: auto; flex: 0 0 auto; font-family: var(--mono); font-size: var(--t-micro); color: var(--muted); }
   .dock {
     position: relative; border-left: 1px solid var(--border); background: var(--bg2);
     overflow-y: auto; display: flex; flex-direction: column; gap: 0; padding: 0;
@@ -234,7 +259,7 @@
   .dock-hide {
     position: absolute; top: 8px; right: 8px; z-index: 4; width: 22px; height: 22px; padding: 0;
     display: flex; align-items: center; justify-content: center; border: 1px solid var(--border2);
-    background: var(--bg2); color: var(--muted); border-radius: 7px; cursor: pointer; font-size: 12px; line-height: 1;
+    background: var(--bg2); color: var(--muted); border-radius: 7px; cursor: pointer; font-size: var(--t-meta); line-height: 1;
     opacity: 0; transition: opacity .12s, background .12s, color .12s;
   }
   .dock:hover .dock-hide { opacity: 1; }
@@ -244,17 +269,17 @@
   .dcard { border: none; border-radius: 0; background: transparent; border-bottom: 1px solid var(--border); overflow: hidden; flex: 0 0 auto; }
   .dh {
     display: flex; align-items: center; gap: 7px; width: 100%; padding: 10px 14px 7px;
-    background: none; border: none; font: 600 10px var(--mono); letter-spacing: .09em;
+    background: none; border: none; font: 750 var(--t-micro) var(--font); letter-spacing: .07em;
     text-transform: uppercase; color: var(--muted); cursor: pointer; text-align: left;
   }
   .dh:hover { color: var(--text); }
   .dh-ico { display: none; }
-  .dh-n { margin-left: auto; font-family: var(--mono); font-size: 10px; color: var(--muted); font-weight: 600; letter-spacing: 0; text-transform: none; }
-  .dh-chev { flex: 0 0 auto; color: var(--muted); font-size: 11px; transition: transform .12s; }
+  .dh-n { margin-left: auto; font-size: var(--t-micro); color: var(--muted); font-weight: 600; letter-spacing: 0; text-transform: none; font-variant-numeric: tabular-nums; }
+  .dh-chev { flex: 0 0 auto; color: var(--muted); font-size: var(--t-micro); transition: transform .12s; }
   .dh-chev.open { transform: rotate(180deg); }
   .dprog { height: 2px; background: var(--bg3); margin: 0 14px 6px; border-radius: 0; overflow: hidden; }
   .dprog i { display: block; height: 100%; background: var(--success); border-radius: 0; transition: width .3s; }
-  .db { padding: 2px 14px 11px; font-size: 11.5px; }
+  .db { padding: 2px 14px 11px; font-size: var(--t-meta); }
   .ditem { display: flex; gap: 7px; padding: 2px 0; color: var(--muted); min-width: 0; }
   .ditem.cur { color: var(--text); }
   .ditem.cur .dst { color: var(--working); }
@@ -262,19 +287,19 @@
   .ditem.done .dst { color: var(--success); }
   .dst { flex: 0 0 auto; }
   .dtxt { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .dtxt.mono { font-family: var(--mono); font-size: 10.5px; }
-  .dfile { display: flex; align-items: center; gap: 7px; padding: 2px 0; font-family: var(--mono); font-size: 10.5px; min-width: 0; }
+  .dtxt.mono { font-family: var(--mono); font-size: var(--t-micro); }
+  .dfile { display: flex; align-items: center; gap: 7px; padding: 2px 0; font-family: var(--mono); font-size: var(--t-micro); min-width: 0; }
   .dpath { color: var(--muted); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left; }
-  .dpm { margin-left: auto; flex: 0 0 auto; font-size: 9.5px; color: var(--muted); }
+  .dpm { margin-left: auto; flex: 0 0 auto; font-size: var(--t-micro); color: var(--muted); }
   .dmore {
     display: block; margin-top: 5px; background: none; border: none; padding: 0;
-    font: inherit; font-family: var(--mono); font-size: 10px; color: var(--accent-d); cursor: pointer;
+    font: inherit; font-family: var(--mono); font-size: var(--t-micro); color: var(--accent-d); cursor: pointer;
   }
   .dmore:hover { text-decoration: underline; }
   .dpills { display: flex; flex-wrap: wrap; gap: 5px; }
   .dpill {
     display: inline-flex; align-items: center; gap: 4px; text-decoration: none;
-    font-family: var(--mono); font-size: 10.5px; font-weight: 600; color: var(--muted);
+    font-family: var(--mono); font-size: var(--t-micro); font-weight: 600; color: var(--muted);
     background: transparent; border: 1px solid var(--border2); border-radius: 0; padding: 2px 7px;
   }
   .dpill.pr { color: var(--success); background: color-mix(in srgb, var(--success) 12%, transparent); }
@@ -282,5 +307,9 @@
   .dpill.pr.closed { color: var(--danger); background: color-mix(in srgb, var(--danger) 12%, transparent); }
   .dpill:hover { filter: brightness(1.1); }
   /* the legacy components mounted on expand get a bounded, scrollable area */
+  .ghnav { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; gap: 4px; padding: 8px 40px 8px 10px; background: var(--bg2); border-bottom: 1px solid var(--border); overflow-x: auto; flex: none; }
+  .ghback, .ghtab { flex: none; display: inline-flex; align-items: center; gap: 4px; border: none; background: none; color: var(--muted); font: inherit; font-size: var(--t-meta); font-weight: 600; padding: 3px 8px; border-radius: 7px; cursor: pointer; }
+  .ghback:hover, .ghtab:hover { color: var(--text); background: var(--bg3); }
+  .ghtab.on { color: var(--text); background: var(--bg3); }
   .dfull { max-height: 46vh; overflow-y: auto; padding: 0 8px 8px; }
 </style>

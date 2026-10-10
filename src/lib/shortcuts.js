@@ -10,6 +10,7 @@ export const SHORTCUT_DEFS = [
   { id: 'go-stats', label: 'Go to Stats', section: 'Navigation', defaultKeys: { alt: true, key: '4' } },
   { id: 'go-digest', label: 'Go to Digest', section: 'Navigation', defaultKeys: { alt: true, key: '5' } },
   { id: 'go-memory', label: 'Go to Memory', section: 'Navigation', defaultKeys: { alt: true, key: '6' } },
+  { id: 'go-github', label: 'Go to GitHub', section: 'Navigation', defaultKeys: { alt: true, key: '7' } },
   { id: 'toggle-sidebar', label: 'Toggle session sidebar', section: 'Actions', defaultKeys: { mod: true, key: 'b' } },
   // Session-scoped: SessionDetail's own window listener handles these two (the global layout
   // handler skips them). They came back with the PTY terminal panel — `2` toggles it too, but as a
@@ -133,6 +134,7 @@ export function shortcutForCommand(commandId) {
     'nav:stats': 'go-stats',
     'nav:digest': 'go-digest',
     'nav:memory': 'go-memory',
+    'nav:github': 'go-github',
     'nav:settings': 'settings',
     'act:focus': 'focus-mode',
   };

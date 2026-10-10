@@ -159,16 +159,16 @@
   .rc { border-bottom: 1px solid var(--border); }
   .rc-toggle {
     display: flex; align-items: center; gap: 6px; width: 100%; background: none; border: none;
-    color: var(--muted); font: inherit; font-size: 12px; font-weight: 700; text-align: left;
+    color: var(--muted); font: inherit; font-size: var(--t-meta); font-weight: 700; text-align: left;
     padding: 9px 14px; cursor: pointer;
   }
   .rc-toggle:hover { color: var(--text); background: var(--hover); }
-  .rc-sub { margin-left: auto; font-family: var(--mono); font-size: 10px; font-weight: 600; opacity: .8; }
+  .rc-sub { margin-left: auto; font-family: var(--mono); font-size: var(--t-micro); font-weight: 600; opacity: .8; }
 
   .rc-list { max-height: 320px; overflow-y: auto; padding-bottom: 6px; }
   .rc-file {
     position: sticky; top: 0; z-index: 1; background: var(--bg2);
-    font-family: var(--mono); font-size: 10px; font-weight: 700; letter-spacing: .04em;
+    font-family: var(--mono); font-size: var(--t-micro); font-weight: 700; letter-spacing: .04em;
     color: var(--muted); padding: 5px 14px 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
   .rc-row { display: flex; align-items: flex-start; gap: 4px; padding: 0 8px 0 14px; }
@@ -183,17 +183,17 @@
   }
   .rc-main.dead { cursor: default; }
   .rc-meta { display: flex; align-items: center; gap: 6px; }
-  .rc-anchor { font-family: var(--mono); font-size: 10px; color: var(--muted); }
+  .rc-anchor { font-family: var(--mono); font-size: var(--t-micro); color: var(--muted); }
   .rc-tag {
     display: inline-flex; align-items: center; gap: 3px; border-radius: 999px; padding: 0 6px;
-    font-family: var(--mono); font-size: 9px; font-weight: 800; letter-spacing: .04em; text-transform: uppercase;
+    font-family: var(--mono); font-size: var(--t-micro); font-weight: 800; letter-spacing: .04em; text-transform: uppercase;
   }
   .rc-tag.pending { background: rgba(var(--waiting-rgb), .16); color: var(--waiting); }
   .rc-tag.other { background: var(--input); color: var(--muted); }
   .rc-tag.gone { background: color-mix(in srgb, var(--warning, #c98a1b) 18%, transparent); color: var(--warning, #c98a1b); }
-  .rc-n { font-family: var(--mono); font-size: 9.5px; color: var(--muted); }
+  .rc-n { font-family: var(--mono); font-size: var(--t-micro); color: var(--muted); }
   .rc-text {
-    font-size: 12px; line-height: 1.4; color: var(--text);
+    font-size: var(--t-meta); line-height: 1.4; color: var(--text);
     display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
   }
 
@@ -210,7 +210,7 @@
   .rc-confirm { flex: 0 0 auto; display: flex; align-items: center; gap: 2px; margin-top: 3px; }
   .rc-yes {
     background: var(--danger); color: #fff; border: none; border-radius: 6px;
-    font: inherit; font-size: 10.5px; font-weight: 800; padding: 3px 7px; cursor: pointer;
+    font: inherit; font-size: var(--t-micro); font-weight: 800; padding: 3px 7px; cursor: pointer;
   }
   .rc-no { background: none; border: none; color: var(--muted); padding: 3px; cursor: pointer; border-radius: 6px; }
   .rc-no:hover { color: var(--text); background: var(--input); }

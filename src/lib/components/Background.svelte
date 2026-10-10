@@ -125,49 +125,49 @@
 
 <style>
   .bg-list { display: flex; flex-direction: column; gap: 10px; padding: 4px 2px; }
-  .bg-hint { font-size: 12.5px; color: var(--muted); margin: 0 0 4px; }
+  .bg-hint { font-size: var(--t-ui); color: var(--muted); margin: 0 0 4px; }
   .bg-item {
-    border: 1px solid var(--border); border-left: 3px solid var(--background);
+    border: 1px solid color-mix(in srgb, var(--background) 42%, var(--border));
     border-radius: 10px; background: var(--panel); padding: 10px 12px;
   }
   .bg-top { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
-  .bg-kind { font-weight: 700; font-size: 13px; color: var(--text); }
-  .bg-id { font-family: var(--mono); font-size: 10.5px; color: var(--muted); background: var(--bg3); border-radius: 6px; padding: 0 6px; }
+  .bg-kind { font-weight: 700; font-size: var(--t-ui); color: var(--text); }
+  .bg-id { font-family: var(--mono); font-size: var(--t-micro); color: var(--muted); background: var(--bg3); border-radius: 6px; padding: 0 6px; }
   /* pastille de statut : couleur d'état (var passée en inline style) sur fond transparent.
      Classe dédiée (pas `.badge`) pour n'hériter NI du `.badge { margin-left:auto }` global ni des
      `.s-<state> .badge { background }` (app.css) — sinon la couleur d'état de la SESSION bavait sur
      la pastille du job et le `margin-left:auto` la décalait au milieu de .bg-top. */
   .bg-status {
-    font-size: 10px; font-weight: 700; letter-spacing: 0.03em; text-transform: uppercase;
+    font-size: var(--t-micro); font-weight: 700; letter-spacing: 0.03em; text-transform: uppercase;
     border: 1px solid var(--muted); border-radius: 999px; padding: 1px 7px; line-height: 1.5;
   }
   .bg-finished { margin-top: 6px; }
   .bg-finished > summary {
-    cursor: pointer; font-size: 12.5px; font-weight: 600; color: var(--muted);
+    cursor: pointer; font-size: var(--t-ui); font-weight: 600; color: var(--muted);
     padding: 4px 2px; list-style-position: inside;
   }
   .bg-finished > summary:hover { color: var(--text); }
   .bg-finished[open] > summary { margin-bottom: 8px; }
   .bg-finished .bg-item { margin-bottom: 8px; }
   .bg-finished .bg-item:last-child { margin-bottom: 0; }
-  .bg-ago { margin-left: auto; font-size: 11px; color: var(--muted); }
-  .bg-desc { margin-top: 6px; font-size: 13px; color: var(--text); }
+  .bg-ago { margin-left: auto; font-size: var(--t-micro); color: var(--muted); }
+  .bg-desc { margin-top: 6px; font-size: var(--t-ui); color: var(--text); }
   .bg-cmd {
     margin: 6px 0 0; padding: 8px 10px; background: var(--bg2); border: 1px solid var(--border);
-    border-radius: 8px; font-family: var(--mono); font-size: 12px; color: var(--muted);
+    border-radius: 8px; font-family: var(--mono); font-size: var(--t-meta); color: var(--muted);
     white-space: pre-wrap; word-break: break-word; overflow-x: auto;
   }
   .bg-log-toggle {
     margin-top: 8px; background: none; border: none; padding: 0; cursor: pointer;
-    font-size: 12px; font-weight: 600; color: var(--background); font-family: inherit;
+    font-size: var(--t-meta); font-weight: 600; color: var(--background); font-family: inherit;
   }
   .bg-log-toggle:hover { text-decoration: underline; }
-  .bg-nolog { margin-top: 8px; font-size: 11.5px; color: var(--muted); font-style: italic; }
+  .bg-nolog { margin-top: 8px; font-size: var(--t-meta); color: var(--muted); font-style: italic; }
   /* mini-terminal : le tail live du .output */
   .bg-log {
     margin: 8px 0 0; padding: 8px 10px; max-height: 320px; overflow: auto;
-    background: #0b0b0d; color: #d6d3cc; border: 1px solid var(--border); border-radius: 8px;
-    font-family: var(--mono); font-size: 12px; line-height: 1.45;
+    background: var(--code-surface); color: var(--code-fg); border: 1px solid var(--border); border-radius: 8px;
+    font-family: var(--mono); font-size: var(--t-meta); line-height: 1.45;
     white-space: pre-wrap; word-break: break-word;
   }
 </style>
