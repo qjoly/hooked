@@ -6,20 +6,25 @@
   import Workflows from './Workflows.svelte';
   import SubSessions from './SubSessions.svelte';
   import Background from './Background.svelte';
-  import GhLinks from './GhLinks.svelte';
+  import GhDetail from './GhDetail.svelte';
   import Screenshots from './Screenshots.svelte';
   import Icon from '$lib/components/Icon.svelte';
   import { fmtCost, prLabel, issueLabel } from '$lib/format.js';
   import { prState, prStateIcon } from '$lib/prState.svelte.js';
   import { ui } from '$lib/state.svelte.js';
+  import { reply } from '$lib/api.js';
 
   let { s, id, onreview } = $props();
 
   // drag-resize the dock width (persisted). It's a right panel, so dragging left widens it.
   function startResize(e) {
     e.preventDefault();
-    const startX = e.clientX, startW = ui.dockWidth;
-    const move = (ev) => { ui.dockWidth = Math.max(220, Math.min(520, startW - (ev.clientX - startX))); };
+    const startX = e.clientX, startW = width;
+    const move = (ev) => {
+      const w = startW - (ev.clientX - startX);
+      if (ghOpen) ghWidth = Math.max(420, Math.min(1100, w));
+      else ui.dockWidth = Math.max(220, Math.min(520, w));
+    };
     const up = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); };
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', up);
@@ -41,6 +46,21 @@
   const issueLinks = $derived(s?.issueLinks || []);
   const shots = $derived(s?.screenshots || []);
 
+  // A PR / issue opened in place of the cards; the detail needs room, hence its own width.
+  let ghOpen = $state(null);
+  $effect(() => { id; ghOpen = null; });
+  let ghWidth = $state(+globalThis.localStorage?.getItem('hooked.ghDetailWidth') || 640);
+  $effect(() => { globalThis.localStorage?.setItem('hooked.ghDetailWidth', String(ghWidth)); });
+  const width = $derived(ghOpen ? ghWidth : ui.dockWidth);
+  const ghLinks = $derived([...prLinks, ...issueLinks]);
+  const openGh = (e, url) => {
+    if (e.metaKey || e.ctrlKey || e.shiftKey) return;
+    e.preventDefault();
+    ghOpen = url;
+  };
+  const fixCheck = async (c, d) => (await reply(id,
+    `The CI check "${c.name}" fails on ${d.url}${c.url ? ` (logs: ${c.url})` : ''}. Investigate why and fix it.`)).ok;
+
   // per-file add/del totals when available on change entries; tolerate absent fields.
   const fileList = $derived(changes.slice(0, 4));
 
@@ -61,10 +81,21 @@
   };
 </script>
 
-<aside class="dock" aria-label="Session context" style="width:{ui.dockWidth}px;min-width:{ui.dockWidth}px">
+<aside class="dock" aria-label="Session context" style="width:{width}px;min-width:{width}px">
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div class="dock-resize" onpointerdown={startResize} title="Drag to resize"></div>
   <button class="dock-hide" onclick={() => (ui.dockHidden = true)} title="Hide the context panel" aria-label="Hide the context panel">»</button>
+  {#if ghOpen}
+    <nav class="ghnav" aria-label="Linked pull requests and issues">
+      <button class="ghback" onclick={() => (ghOpen = null)} title="Back to the session context"><Icon name="arrow-left" size={13} /></button>
+      {#each ghLinks as l (l)}
+        <button class="ghtab" class:on={l === ghOpen} onclick={() => (ghOpen = l)} title={l}>
+          <Icon name={l.includes('/pull/') ? prStateIcon(prState(l)) : 'issue'} size={12} tint={false} /> #{l.split('/').pop()}
+        </button>
+      {/each}
+    </nav>
+    <GhDetail url={ghOpen} onfix={fixCheck} />
+  {:else}
   {#if todos.length}
     <div class="dcard">
       <button class="dh" onclick={() => toggle('todos')}>
@@ -189,22 +220,15 @@
 
   {#if prLinks.length || issueLinks.length}
     <div class="dcard">
-      <button class="dh" onclick={() => toggle('links')}>
+      <button class="dh" onclick={() => (ghOpen = ghLinks[0])} title="Open the details">
         <span class="dh-ico"><Icon name="link" size={13} /></span> Links
-        <span class="dh-n">{prLinks.length + issueLinks.length}</span>
-        <span class="dh-chev" class:open={expanded.links}>▾</span>
+        <span class="dh-n">{ghLinks.length}</span>
+        <span class="dh-chev">›</span>
       </button>
-      {#if expanded.links}
-        <div class="dfull">
-          {#if prLinks.length}<GhLinks links={prLinks} kind="pr" />{/if}
-          {#if issueLinks.length}<GhLinks links={issueLinks} kind="issue" />{/if}
-        </div>
-      {:else}
-        <div class="db dpills">
-          {#each prLinks as l}{@const st = prState(l)}<a class="dpill pr" class:merged={st === 'MERGED'} class:closed={st === 'CLOSED'} href={l} target="_blank" rel="noopener" title={st ? st.toLowerCase() : null}><Icon name={prStateIcon(st)} size={13} tint={false} /> {prLabel(l)}</a>{/each}
-          {#each issueLinks as l}<a class="dpill" href={l} target="_blank" rel="noopener"><Icon name="issue" size={13} /> {issueLabel(l)}</a>{/each}
-        </div>
-      {/if}
+      <div class="db dpills">
+        {#each prLinks as l}{@const st = prState(l)}<a class="dpill pr" class:merged={st === 'MERGED'} class:closed={st === 'CLOSED'} href={l} target="_blank" rel="noopener" onclick={(e) => openGh(e, l)} title={st ? st.toLowerCase() : null}><Icon name={prStateIcon(st)} size={13} tint={false} /> {prLabel(l)}</a>{/each}
+        {#each issueLinks as l}<a class="dpill" href={l} target="_blank" rel="noopener" onclick={(e) => openGh(e, l)}><Icon name="issue" size={13} /> {issueLabel(l)}</a>{/each}
+      </div>
     </div>
   {/if}
 
@@ -217,6 +241,7 @@
       </button>
       <Screenshots {shots} session={id} limit={expanded.shots ? 0 : 4} />
     </div>
+  {/if}
   {/if}
 </aside>
 
@@ -282,5 +307,9 @@
   .dpill.pr.closed { color: var(--danger); background: color-mix(in srgb, var(--danger) 12%, transparent); }
   .dpill:hover { filter: brightness(1.1); }
   /* the legacy components mounted on expand get a bounded, scrollable area */
+  .ghnav { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; gap: 4px; padding: 8px 40px 8px 10px; background: var(--bg2); border-bottom: 1px solid var(--border); overflow-x: auto; flex: none; }
+  .ghback, .ghtab { flex: none; display: inline-flex; align-items: center; gap: 4px; border: none; background: none; color: var(--muted); font: inherit; font-size: var(--t-meta); font-weight: 600; padding: 3px 8px; border-radius: 7px; cursor: pointer; }
+  .ghback:hover, .ghtab:hover { color: var(--text); background: var(--bg3); }
+  .ghtab.on { color: var(--text); background: var(--bg3); }
   .dfull { max-height: 46vh; overflow-y: auto; padding: 0 8px 8px; }
 </style>
