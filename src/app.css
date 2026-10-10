@@ -1723,6 +1723,8 @@ code.path { color: var(--muted); font-size: var(--t-micro); word-break: break-al
 .cb-copy { font: inherit; font-size: var(--t-micro); font-weight: 600; color: #cfc6b4; background: transparent; border: 1px solid rgba(255,255,255,.14); border-radius: 7px; padding: 3px 9px; cursor: pointer; transition: background .15s, color .15s, border-color .15s; }
 .cb-copy:hover { background: rgba(255,255,255,.1); color: #fff; }
 .cb-copy.done { color: #a9c089; border-color: rgba(169,192,137,.5); }
+.cb-copy.err { color: #e6998a; border-color: rgba(230,153,138,.5); }
+.cb-copy:disabled { opacity: .6; cursor: progress; }
 .code-block pre { margin: 0; padding: 11px 13px; overflow-x: auto; background: var(--code-surface); font-size: var(--t-meta); line-height: 1.55; }
 .code-block code { font-family: var(--mono); color: #e6e6e6; }
 

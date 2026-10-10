@@ -1,6 +1,7 @@
 <script>
   import { ago, splitMessageImages, fmtTokens } from '$lib/format.js';
   import { getMessageText } from '$lib/api.js';
+  import { setContext } from 'svelte';
   import ToolChip from './ToolChip.svelte';
   import Markdown from './Markdown.svelte';
   import MessageImages from './MessageImages.svelte';
@@ -15,6 +16,8 @@
   // `session` / `agent` : identifiants pour servir les fichiers SendUserFile (cf. userFileUrl).
   // `agent` non nul quand la bulle appartient au déroulé d'un sous-agent (SubagentCard).
   let { m, onfork = null, onforkadvanced = null, forkState = null, session = null, agent = null } = $props();
+  // Lets a shell CodeBlock, two components down, run itself in this session (cf. CodeBlock).
+  setContext('hooked.session', () => session);
 
   // Style claude-cli : on rend les blocs dans l'ordre, et on distingue le DERNIER
   // bloc texte (réponse finale, contrasté) des précédents (raisonnement, discret).
