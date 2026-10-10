@@ -1,7 +1,9 @@
 <script>
   import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
-  import { ui, settings, loadSettings, startLive, toggleFocus, cycleTheme, splitWithMostRecent } from '$lib/state.svelte.js';
+  import { ui, data, settings, loadSettings, startLive, toggleFocus, cycleTheme, splitWithMostRecent, isSessionArchived } from '$lib/state.svelte.js';
+  import { wheelModel, faviconSvg } from '$lib/fleetWheel.js';
+  import { themeType } from '$lib/theme.svelte.js';
   import { page } from '$app/state';
   import { pageHref } from '$lib/nav.js';
   import { matchShortcut } from '$lib/shortcuts.js';
@@ -54,6 +56,31 @@
     document.body.classList.toggle('focus', ui.focus);
   });
 
+  // The tab icon is the fleet wheel too: with hooked in a background tab, red or caramel in the
+  // favicon is the glance. Colours are read from the active palette (an SVG favicon is rendered
+  // outside the document, so it cannot resolve the CSS variables itself).
+  let faviconLink = null;
+  let lastFavicon = '';
+  $effect(() => {
+    const families = wheelModel(data.sessions.filter((s) => !isSessionArchived(s))).families;
+    themeType(); ui.scheme;
+    const css = getComputedStyle(document.documentElement);
+    const v = (n) => css.getPropertyValue(n).trim();
+    const svg = faviconSvg(families, {
+      attention: v('--attention'), waiting: v('--waiting'), working: v('--working'),
+      bgjob: v('--background'), idle: v('--idle'), ended: v('--ended'),
+    }, { bg: v('--shell-accent') || '#e4cdb1', ink: v('--shell-accent-fg') || '#1e1512' });
+    if (svg === lastFavicon) return;
+    lastFavicon = svg;
+    if (!faviconLink) {
+      faviconLink = document.createElement('link');
+      faviconLink.rel = 'icon';
+      faviconLink.type = 'image/svg+xml';
+      document.head.appendChild(faviconLink);
+    }
+    faviconLink.href = 'data:image/svg+xml,' + encodeURIComponent(svg);
+  });
+
   function onGlobalKeydown(e) {
     const id = matchShortcut(e);
     if (!id) return;
@@ -65,7 +92,7 @@
     const tag = e.target?.tagName;
     const isInput = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || e.target?.isContentEditable;
     const alwaysActive = ['command-palette', 'commands-only', 'new-session', 'settings',
-      'go-sessions', 'go-board', 'go-stats', 'go-digest', 'go-memory',
+      'go-sessions', 'go-board', 'go-stats', 'go-digest', 'go-memory', 'go-github',
       'toggle-sidebar', 'split-session', 'focus-mode', 'theme-cycle'];
     if (isInput && !alwaysActive.includes(id)) return;
 
@@ -80,6 +107,7 @@
       case 'go-stats': goto('/stats'); break;
       case 'go-digest': goto('/digest'); break;
       case 'go-memory': goto('/memory'); break;
+      case 'go-github': goto('/github'); break;
       case 'toggle-sidebar': ui.sideMenuOpen = !ui.sideMenuOpen; break;
       case 'split-session': {
         const m = page.url.pathname.match(/^\/session\/(.+)/);
@@ -117,7 +145,7 @@
   .skip-link {
     position: fixed; top: -100px; left: 16px; z-index: 9999;
     background: var(--accent); color: var(--accent-fg); padding: 8px 16px;
-    border-radius: 0 0 8px 8px; font-weight: 700; font-size: 13px;
+    border-radius: 0 0 8px 8px; font-weight: 700; font-size: var(--t-ui);
     text-decoration: none; transition: top .15s;
   }
   .skip-link:focus { top: 0; }
@@ -131,7 +159,7 @@
   .focus-ctl { display: none; position: fixed; top: 12px; right: 14px; gap: 6px; z-index: 20; }
   :global(body.focus) .focus-ctl { display: flex; }
   .focus-fab-btn {
-    width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; font-size: 14px;
+    width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; font-size: var(--t-body);
     border: 1px solid var(--border2); background: var(--bg2); color: var(--text); border-radius: 9px; cursor: pointer;
     box-shadow: var(--shadow-sm); opacity: .85; transition: opacity .12s, background .12s;
   }

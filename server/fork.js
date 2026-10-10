@@ -15,6 +15,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { scanSessions } from './transcript.js';
 import { launchSession, err400 } from './agent.js';
+import { isIncognitoSession, setSessionMeta } from './sessionMeta.js';
 
 function safeParse(line) { try { return JSON.parse(line); } catch (_) { return null; } }
 
@@ -84,6 +85,9 @@ function forkSession({ id, forkUuid, prompt, model, effort, permissionMode }, cb
       try { fs.unlinkSync(newFile); } catch (_) {} // nettoyage si le lancement échoue
       return cb(err);
     }
+    // Une branche d'une session incognito reste incognito : sans ça le fork disparaîtrait de
+    // l'écran au moment même où on le crée (le mode ne montre que les sessions marquées).
+    try { if (isIncognitoSession(id)) setSessionMeta(info.sessionId, { incognito: true }); } catch (_) {}
     cb(null, { ...info, forkedFrom: id });
   });
 }

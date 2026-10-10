@@ -205,6 +205,7 @@ function renderTokens(tokens) {
 }
 
 // diff : coloration ligne à ligne (ajout / suppression / en-tête / hunk).
+// Classed lines are display:block, so they already break: a '\n' after them would add an empty line.
 function highlightDiff(code) {
   return code.split('\n').map((line) => {
     let cls = '';
@@ -212,8 +213,8 @@ function highlightDiff(code) {
     else if (/^(\+\+\+|---|diff |index |new file|deleted file|rename )/.test(line)) cls = 'diff-meta';
     else if (line[0] === '+') cls = 'diff-add';
     else if (line[0] === '-') cls = 'diff-del';
-    return cls ? `<span class="hl-${cls}">${esc(line)}</span>` : esc(line);
-  }).join('\n');
+    return cls ? `<span class="hl-${cls}">${esc(line)}</span>` : esc(line) + '\n';
+  }).join('').replace(/\n$/, '');
 }
 
 // rend `code` en HTML coloré (déjà échappé). `lang` est le tag de la fence.

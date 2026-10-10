@@ -79,8 +79,8 @@
   /* Tout en variables CSS, comme TerminalBlock : suit clair/sombre et toutes les palettes. */
   /* width 100% : la bulle parente est élargie pour nous (cf. ChatBubble), on la remplit. */
   .pb { width: 100%; margin: 6px 0; border: 1px solid var(--border); border-radius: 8px; background: var(--bg3); overflow: hidden; }
-  /* vivant = liseré d'accent : dans un fil long, on repère d'un coup d'œil le terminal actif */
-  .pb:not(.dead) { border-left: 2px solid var(--accent); }
+  /* vivant = contour d'accent : dans un fil long, on repère d'un coup d'œil le terminal actif */
+  .pb:not(.dead) { border-color: color-mix(in srgb, var(--accent) 55%, var(--border)); }
 
   .pb-head {
     display: flex; align-items: center; gap: 7px; min-width: 0;
@@ -88,17 +88,17 @@
   }
   .pb-ico { color: var(--muted); display: inline-flex; flex: 0 0 auto; }
   .pb-cmd {
-    font-family: var(--mono); font-size: 11.5px; font-weight: 600; color: var(--text);
+    font-family: var(--mono); font-size: var(--t-meta); font-weight: 600; color: var(--text);
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 1 1 auto;
   }
   /* `$` dessiné, pas écrit : il ne part pas à la copie */
   .pb-cmd::before { content: '$ '; color: var(--accent); font-weight: 700; }
   .pb-cwd {
-    flex: 0 0 auto; font-family: var(--mono); font-size: 10px; color: var(--muted);
+    flex: 0 0 auto; font-family: var(--mono); font-size: var(--t-micro); color: var(--muted);
     max-width: 34%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
   .pb-tag {
-    flex: 0 0 auto; font-family: var(--mono); font-size: 10px; font-weight: 700;
+    flex: 0 0 auto; font-family: var(--mono); font-size: var(--t-micro); font-weight: 700;
     color: var(--muted); background: var(--bg2); border-radius: 4px; padding: 1px 5px;
   }
   .pb-tag.live { color: var(--success); background: var(--success-soft); }
@@ -111,7 +111,7 @@
   /* hauteur fixe : un terminal dans un fil ne doit pas pousser la conversation à l'infini */
   .pb-term { height: 340px; display: flex; flex-direction: column; }
   .pb-gone {
-    padding: 7px 10px; font-family: var(--mono); font-size: 10.5px;
+    padding: 7px 10px; font-family: var(--mono); font-size: var(--t-micro);
     color: var(--muted); font-style: italic;
   }
 </style>

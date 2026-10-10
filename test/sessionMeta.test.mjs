@@ -39,6 +39,19 @@ describe('setSessionMeta', () => {
     expect(readSessionMeta()['sess-2']).toBeUndefined();
   });
 
+  it('marks a session incognito, and clearing it drops the entry', () => {
+    const map = setSessionMeta('sess-incog', { incognito: true });
+    expect(map['sess-incog']).toEqual({ incognito: true });
+    expect(readSessionMeta()['sess-incog']).toEqual({ incognito: true });
+    expect(setSessionMeta('sess-incog', { incognito: false })['sess-incog']).toBeUndefined();
+  });
+
+  it('keeps the incognito flag alongside the other facts', () => {
+    setSessionMeta('sess-incog2', { incognito: true });
+    const map = setSessionMeta('sess-incog2', { archived: true });
+    expect(map['sess-incog2']).toEqual({ archived: true, incognito: true });
+  });
+
   it('stores a future snooze and merges with an archived flag', () => {
     const until = inOneHour();
     setSessionMeta('sess-3', { archived: true });

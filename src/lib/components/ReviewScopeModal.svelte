@@ -123,44 +123,44 @@
 
 <style>
   .rs-head { margin-bottom: 14px; padding-right: 24px; }
-  .rs-title { display: flex; align-items: center; gap: 8px; font-size: 16px; font-weight: 800; }
-  .rs-sub { font-size: 12.5px; color: var(--muted); margin-top: 2px; }
+  .rs-title { display: flex; align-items: center; gap: 8px; font-size: var(--t-title); line-height: var(--lh-title); font-weight: 800; }
+  .rs-sub { font-size: var(--t-ui); color: var(--muted); margin-top: 2px; }
   .rs-sec { padding: 10px 0; border-top: 1px solid var(--border); }
   .rs-sec h3 { margin: 0 0 8px; font: 700 10px var(--mono); letter-spacing: .09em; text-transform: uppercase; color: var(--muted); }
   .rs-note { font-weight: 600; letter-spacing: 0; text-transform: none; opacity: .8; margin-left: 6px; }
-  .rs-hint { margin: 0 0 8px; font-size: 12px; color: var(--muted); line-height: 1.5; }
+  .rs-hint { margin: 0 0 8px; font-size: var(--t-meta); color: var(--muted); line-height: 1.5; }
   .rs-q {
     width: 100%; box-sizing: border-box; background: var(--input); border: 1px solid var(--border); border-radius: 9px;
-    padding: 7px 11px; font: inherit; font-size: 12.5px; color: var(--text); margin-bottom: 8px;
+    padding: 7px 11px; font: inherit; font-size: var(--t-ui); color: var(--text); margin-bottom: 8px;
   }
   .rs-q:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
   .rs-chips { display: flex; flex-wrap: wrap; gap: 6px; max-height: 160px; overflow-y: auto; }
   .rs-chip {
     display: inline-flex; align-items: center; gap: 6px; max-width: 100%;
     background: var(--chip); border: 1px solid var(--border); border-radius: 999px;
-    color: var(--muted); font: inherit; font-size: 11.5px; font-weight: 600; padding: 4px 11px; cursor: pointer;
+    color: var(--muted); font: inherit; font-size: var(--t-meta); font-weight: 600; padding: 4px 11px; cursor: pointer;
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
   .rs-chip:hover { color: var(--text); }
   .rs-chip.on { background: var(--accent-soft); border-color: rgba(var(--accent-rgb), .4); color: var(--accent-d); }
   .rs-chip.mono { font-family: var(--mono); }
-  .rs-cur { font-size: 9px; font-weight: 800; letter-spacing: .05em; text-transform: uppercase; opacity: .7; }
+  .rs-cur { font-size: var(--t-micro); font-weight: 800; letter-spacing: .05em; text-transform: uppercase; opacity: .7; }
   .rs-commits { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 3px; max-height: 260px; overflow-y: auto; }
   .rs-commit {
     display: grid; grid-template-columns: 72px 1fr auto; align-items: center; gap: 10px; width: 100%; text-align: left;
     background: var(--bg2); border: 1px solid var(--border); border-radius: 9px; color: var(--text);
-    padding: 6px 10px; cursor: pointer; font: inherit; font-size: 12.5px; min-width: 0;
+    padding: 6px 10px; cursor: pointer; font: inherit; font-size: var(--t-ui); min-width: 0;
   }
   .rs-commit:hover { border-color: var(--accent); }
   .rs-commit.on { background: var(--accent-soft); border-color: rgba(var(--accent-rgb), .4); }
   .rs-commit.in { border-style: dashed; border-color: rgba(var(--accent-rgb), .45); }
-  .rs-sha { font-family: var(--mono); font-size: 10.5px; font-weight: 800; color: var(--accent-d); }
+  .rs-sha { font-family: var(--mono); font-size: var(--t-micro); font-weight: 800; color: var(--accent-d); }
   .rs-subj { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .rs-meta { font-family: var(--mono); font-size: 10px; color: var(--muted); white-space: nowrap; }
+  .rs-meta { font-family: var(--mono); font-size: var(--t-micro); color: var(--muted); white-space: nowrap; }
   .rs-foot { display: flex; justify-content: flex-end; margin-top: 14px; }
   .rs-done {
     background: var(--accent); color: var(--accent-fg); border: 1px solid var(--accent); border-radius: 9px;
-    padding: 8px 16px; font: inherit; font-size: 13px; font-weight: 700; cursor: pointer;
+    padding: 8px 16px; font: inherit; font-size: var(--t-ui); font-weight: 700; cursor: pointer;
   }
   .rs-done:hover { background: var(--accent-d); }
 </style>

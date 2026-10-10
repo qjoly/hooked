@@ -1,6 +1,7 @@
 <script>
   import { ago, splitMessageImages, fmtTokens } from '$lib/format.js';
   import { getMessageText } from '$lib/api.js';
+  import { setContext } from 'svelte';
   import ToolChip from './ToolChip.svelte';
   import Markdown from './Markdown.svelte';
   import MessageImages from './MessageImages.svelte';
@@ -15,6 +16,8 @@
   // `session` / `agent` : identifiants pour servir les fichiers SendUserFile (cf. userFileUrl).
   // `agent` non nul quand la bulle appartient au déroulé d'un sous-agent (SubagentCard).
   let { m, onfork = null, onforkadvanced = null, forkState = null, session = null, agent = null } = $props();
+  // Lets a shell CodeBlock, two components down, run itself in this session (cf. CodeBlock).
+  setContext('hooked.session', () => session);
 
   // Style claude-cli : on rend les blocs dans l'ordre, et on distingue le DERNIER
   // bloc texte (réponse finale, contrasté) des précédents (raisonnement, discret).
@@ -205,7 +208,7 @@
   }
   .more {
     display: inline-flex; align-items: center; gap: 5px; margin-top: 6px;
-    font: inherit; font-size: 11px; font-weight: 700; line-height: 1.4; cursor: pointer;
+    font: inherit; font-size: var(--t-micro); font-weight: 700; line-height: 1.4; cursor: pointer;
     border: 1px solid rgba(255,255,255,.45); background: rgba(255,255,255,.12); color: inherit;
     border-radius: 999px; padding: 2px 10px;
   }
@@ -216,16 +219,17 @@
   .sysline {
     display: flex; align-items: baseline; gap: 8px; justify-content: center;
     margin: 4px auto; padding: 4px 12px; max-width: 90%;
-    font-size: 12px; color: var(--muted); text-align: center;
+    font-size: var(--t-meta); color: var(--muted); text-align: center;
   }
   .sysline.bg { color: var(--background); font-weight: 600; }
   .sysline .sys-txt {
     background: var(--bg2); border: 1px dashed var(--border);
     border-radius: 999px; padding: 3px 12px;
   }
-  .sysline .t { font-size: 10.5px; color: var(--muted); font-weight: 400; }
-  /* message auto-repris (ScheduleWakeup) : liseré indigo pour le distinguer d'un vrai « You ». */
-  .bubble.auto { border-left: 3px solid var(--background); }
+  .sysline .t { font-size: var(--t-micro); color: var(--muted); font-weight: 400; }
+  /* message auto-repris (ScheduleWakeup) : l'en-tête le dit déjà en toutes lettres, la bulle prend
+     simplement le violet des jobs de fond au lieu de l'indigo du « You » — même token partout. */
+  .bubble.auto { background: var(--background); }
 
   /* run de tool calls replié : une ligne grise mono carrée + filet jusqu'au bord. */
   .tool-fold {

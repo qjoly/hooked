@@ -229,12 +229,12 @@
   .q-opt-row :global(.q-opt) { flex: 1; }
   .q-annotate {
     flex-shrink: 0; width: 36px; border: 1px solid var(--border); border-radius: 12px;
-    background: var(--bg2); color: var(--muted); cursor: pointer; font-size: 14px;
+    background: var(--bg2); color: var(--muted); cursor: pointer; font-size: var(--t-body);
     transition: border-color .12s, color .12s, background .12s;
   }
   .q-annotate:hover:not(:disabled) { border-color: var(--accent); color: var(--accent-d); }
   .q-annotate.on { border-color: var(--accent); color: #fff; background: var(--accent); }
   .q-annotate:disabled { opacity: .5; cursor: default; }
   .q-note { margin-top: 6px; padding-left: 27px; }
-  .q-note textarea { width: 100%; font: inherit; font-size: 13px; padding: 6px 8px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--text); resize: vertical; box-sizing: border-box; }
+  .q-note textarea { width: 100%; font: inherit; font-size: var(--t-ui); padding: 6px 8px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--text); resize: vertical; box-sizing: border-box; }
 </style>

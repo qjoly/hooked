@@ -1,5 +1,5 @@
 // Speech-to-text (mic dictation) for the composer.
-// Port of Lucca.Assistant's SpeechToText directive to Svelte 5 runes: it wraps
+// Port of an Angular SpeechToText directive to Svelte 5 runes: it wraps
 // the Web Speech API, exposes a reactive `state`, and appends the live
 // transcript to whatever text the composer already holds.
 //

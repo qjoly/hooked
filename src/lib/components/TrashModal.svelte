@@ -64,20 +64,20 @@
 <style>
   .tr-head { display: flex; align-items: flex-start; gap: 11px; margin-bottom: 16px; padding-right: 24px; color: var(--muted); }
   .tr-head > svg { margin-top: 2px; flex: 0 0 auto; }
-  .tr-title { font-size: 16px; font-weight: 800; color: var(--text); }
-  .tr-sub { font-size: 12.5px; color: var(--muted); margin-top: 2px; line-height: 1.5; }
-  .tr-sub code { font-family: var(--mono); font-size: 11.5px; background: var(--code-inline); padding: 1px 5px; border-radius: 5px; }
+  .tr-title { font-size: var(--t-title); line-height: var(--lh-title); font-weight: 800; color: var(--text); }
+  .tr-sub { font-size: var(--t-ui); color: var(--muted); margin-top: 2px; line-height: 1.5; }
+  .tr-sub code { font-family: var(--mono); font-size: var(--t-meta); background: var(--code-inline); padding: 1px 5px; border-radius: 5px; }
   .tr-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; max-height: 60vh; overflow: auto; }
   .tr-row {
     display: flex; align-items: center; gap: 10px; padding: 10px 12px;
     background: var(--bg); border: 1px solid var(--border); border-radius: 11px;
   }
   .tr-main { min-width: 0; flex: 1; }
-  .tr-name { font-size: 13.5px; font-weight: 700; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .tr-meta { font-family: var(--mono); font-size: 11px; color: var(--muted); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tr-name { font-size: var(--t-body); font-weight: 700; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .tr-meta { font-family: var(--mono); font-size: var(--t-micro); color: var(--muted); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .tr-restore {
     flex: none; background: var(--chip); color: var(--text); border: 1px solid var(--border);
-    border-radius: 8px; padding: 6px 12px; cursor: pointer; font: inherit; font-size: 12.5px; font-weight: 600; white-space: nowrap;
+    border-radius: 8px; padding: 6px 12px; cursor: pointer; font: inherit; font-size: var(--t-ui); font-weight: 600; white-space: nowrap;
     transition: background .12s, border-color .12s;
   }
   .tr-restore:hover:not(:disabled) { background: var(--hover); border-color: var(--accent); color: var(--accent); }

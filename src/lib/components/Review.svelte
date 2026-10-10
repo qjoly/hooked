@@ -1052,7 +1052,7 @@
 </div>
 
 <style>
-  .ship-empty { padding: 40px 24px; color: var(--muted); font-size: 13px; }
+  .ship-empty { padding: 40px 24px; color: var(--muted); font-size: var(--t-ui); }
   /* container-type: the queries below measure the lens's REAL width (a split pane's too), not the viewport. */
   .review-wrap { flex: 1 1 auto; min-height: 0; min-width: 0; display: flex; flex-direction: column; container-type: inline-size; }
   .ship { flex: 1 1 auto; min-height: 0; min-width: 0; display: flex; }
@@ -1061,7 +1061,7 @@
   .br-merged {
     flex: 0 0 auto; display: flex; align-items: center; gap: 7px; padding: 6px 14px;
     border-bottom: 1px solid var(--border); background: color-mix(in srgb, var(--success) 8%, transparent);
-    color: var(--muted); font-size: 11.5px;
+    color: var(--muted); font-size: var(--t-meta);
   }
   .br-merged b { color: var(--text); }
 
@@ -1070,22 +1070,22 @@
   .st-toggle { display: flex; gap: 2px; background: var(--input); border-radius: 8px; padding: 2px; flex: 0 0 auto; }
   .st-toggle button {
     display: inline-flex; align-items: center; gap: 5px; background: none; border: none; border-radius: 6px;
-    color: var(--muted); font: inherit; font-size: 11px; font-weight: 700; padding: 3px 9px; cursor: pointer;
+    color: var(--muted); font: inherit; font-size: var(--t-micro); font-weight: 700; padding: 3px 9px; cursor: pointer;
   }
   .st-toggle button:hover { color: var(--text); }
   .st-toggle button.on { background: var(--accent-soft); color: var(--accent-d); }
-  .st-label { font-family: var(--mono); font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); flex: 0 0 auto; }
-  .st-one { font-size: 11.5px; color: var(--muted); }
-  .st-right { margin-left: auto; font-family: var(--mono); font-size: 10.5px; }
+  .st-label { font-family: var(--mono); font-size: var(--t-micro); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); flex: 0 0 auto; }
+  .st-one { font-size: var(--t-meta); color: var(--muted); }
+  .st-right { margin-left: auto; font-family: var(--mono); font-size: var(--t-micro); }
   .st-end { margin-left: auto; }
   .st-scope {
     flex: 0 1 auto; min-width: 0; display: inline-flex; align-items: center; gap: 6px;
     background: var(--chip); border: 1px solid var(--border); border-radius: 999px;
-    color: var(--text); font: inherit; font-size: 11.5px; font-weight: 600; padding: 4px 11px; cursor: pointer;
+    color: var(--text); font: inherit; font-size: var(--t-meta); font-weight: 600; padding: 4px 11px; cursor: pointer;
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
   .st-scope:hover { border-color: var(--accent); color: var(--accent-d); }
-  .st-mono { font-family: var(--mono); font-size: 11px; }
+  .st-mono { font-family: var(--mono); font-size: var(--t-micro); }
   .st-refresh {
     flex: 0 0 auto; display: inline-flex; align-items: center; background: none; border: 1px solid var(--border);
     border-radius: 999px; color: var(--muted); padding: 4px 8px; cursor: pointer;
@@ -1096,7 +1096,7 @@
   .ship-files { width: var(--ship-files-w, 232px); min-width: var(--ship-files-w, 232px); border-right: 1px solid var(--border); background: var(--bg2); display: flex; flex-direction: column; }
   .sf-head { display: flex; align-items: baseline; gap: 8px; padding: 10px 14px 7px; border-bottom: 1px solid var(--border); }
   .sf-title { font: 600 10px var(--mono); letter-spacing: .09em; text-transform: uppercase; color: var(--muted); }
-  .sf-rev { margin-left: auto; font-family: var(--mono); font-size: 10px; color: var(--muted); }
+  .sf-rev { margin-left: auto; font-family: var(--mono); font-size: var(--t-micro); color: var(--muted); }
   .sf-list { flex: 1 1 auto; overflow-y: auto; padding: 0; }
   .sf-item {
     display: flex; align-items: center; gap: 8px; width: 100%; padding: 6px 12px; border: none; border-bottom: 1px solid var(--border);
@@ -1106,87 +1106,87 @@
   .sf-item.on { background: var(--panel); box-shadow: inset 2px 0 0 var(--accent); }
   .sf-dot {
     flex: 0 0 auto; width: 15px; height: 15px; border-radius: 50%; border: 1.5px solid var(--border2);
-    display: flex; align-items: center; justify-content: center; font-size: 9px; color: #fff;
+    display: flex; align-items: center; justify-content: center; font-size: var(--t-micro); color: #fff;
   }
   .sf-dot.done { background: var(--success); border-color: var(--success); }
-  .sf-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--mono); font-size: 11.5px; }
+  .sf-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--mono); font-size: var(--t-meta); }
   .sf-item.on .sf-name { font-weight: 700; color: var(--accent-d); }
-  .sf-stat { flex: 0 0 auto; font-family: var(--mono); font-size: 10px; }
+  .sf-stat { flex: 0 0 auto; font-family: var(--mono); font-size: var(--t-micro); }
   .sf-add { color: var(--success); }
   .sf-del { color: var(--danger); }
   .sf-bin { color: var(--muted); }
-  .sf-cmd { color: var(--muted); font-size: 9px; border: 1px solid var(--border, currentColor); border-radius: 3px; padding: 0 3px; line-height: 1.4; flex: none; }
-  .sf-trunc { color: var(--waiting); font-size: 10px; }
+  .sf-cmd { color: var(--muted); font-size: var(--t-micro); border: 1px solid var(--border, currentColor); border-radius: 3px; padding: 0 3px; line-height: 1.4; flex: none; }
+  .sf-trunc { color: var(--waiting); font-size: var(--t-micro); }
   /* per-repo section header (working tree, several repos detected) */
   .sf-repo {
     display: flex; align-items: center; gap: 6px; padding: 9px 12px 4px;
-    font-family: var(--mono); font-size: 10px; color: var(--muted);
+    font-family: var(--mono); font-size: var(--t-micro); color: var(--muted);
     letter-spacing: .05em; text-transform: uppercase;
     position: sticky; top: 0; z-index: 1; background: var(--bg2);
   }
   .sf-repo-name { font-weight: 700; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .sf-truncnote { padding: 8px 12px; font-family: var(--mono); font-size: 10px; font-style: italic; color: var(--muted); }
+  .sf-truncnote { padding: 8px 12px; font-family: var(--mono); font-size: var(--t-micro); font-style: italic; color: var(--muted); }
   .sf-foot { border-top: 1px solid var(--border); padding: 10px 14px; }
   .sf-prog { height: 2px; border-radius: 0; background: var(--bg3); overflow: hidden; margin-bottom: 7px; }
   .sf-prog i { display: block; height: 100%; background: var(--success); transition: width .2s; }
-  .sf-hint { font-family: var(--mono); font-size: 9.5px; color: var(--muted); }
+  .sf-hint { font-family: var(--mono); font-size: var(--t-micro); color: var(--muted); }
 
   /* diff */
   .ship-diff { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; background: var(--panel); }
   .sd-head { display: flex; align-items: center; gap: 10px; padding: 10px 16px; border-bottom: 1px solid var(--border); }
-  .sd-name { font-family: var(--mono); font-size: 12.5px; font-weight: 700; }
-  .sd-path { font-family: var(--mono); font-size: 10px; color: var(--muted); flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left; }
-  .sd-editor { font-family: var(--mono); font-size: 10.5px; color: var(--accent-d); text-decoration: none; flex: 0 0 auto; }
+  .sd-name { font-family: var(--mono); font-size: var(--t-ui); font-weight: 700; }
+  .sd-path { font-family: var(--mono); font-size: var(--t-micro); color: var(--muted); flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left; }
+  .sd-editor { font-family: var(--mono); font-size: var(--t-micro); color: var(--accent-d); text-decoration: none; flex: 0 0 auto; }
   .sd-editor:hover { text-decoration: underline; }
   .sd-modes { display: flex; gap: 2px; background: var(--input); border-radius: 8px; padding: 2px; flex: 0 0 auto; }
-  .sd-modes button { background: none; border: none; border-radius: 6px; color: var(--muted); font-size: 13px; padding: 2px 9px; cursor: pointer; }
+  .sd-modes button { background: none; border: none; border-radius: 6px; color: var(--muted); font-size: var(--t-ui); padding: 2px 9px; cursor: pointer; }
   .sd-modes button.on { background: var(--accent-soft); color: var(--accent); }
-  .sd-compact { display: flex; align-items: center; gap: 4px; flex: 0 0 auto; cursor: pointer; font-family: var(--mono); font-size: 10.5px; color: var(--muted); }
+  .sd-compact { display: flex; align-items: center; gap: 4px; flex: 0 0 auto; cursor: pointer; font-family: var(--mono); font-size: var(--t-micro); color: var(--muted); }
   .sd-compact input { accent-color: var(--accent); margin: 0; cursor: pointer; }
   .sd-review {
     flex: 0 0 auto; background: var(--bg3); border: 1px solid var(--border2); color: var(--text);
-    border-radius: 8px; padding: 5px 11px; font: inherit; font-size: 11.5px; font-weight: 600; cursor: pointer;
+    border-radius: 8px; padding: 5px 11px; font: inherit; font-size: var(--t-meta); font-weight: 600; cursor: pointer;
   }
   .sd-review.done { background: color-mix(in srgb, var(--success) 16%, transparent); border-color: var(--success); color: var(--success); }
   .sd-body { flex: 1 1 auto; min-height: 0; min-width: 0; overflow-y: auto; overflow-x: hidden; }
   /* brief "go to definition" feedback: nothing to open, or opened elsewhere */
   .sd-sym {
-    padding: 5px 12px; font-family: var(--mono); font-size: 11px; color: var(--accent-d);
+    padding: 5px 12px; font-family: var(--mono); font-size: var(--t-micro); color: var(--accent-d);
     background: rgba(var(--accent-rgb), .08); border-bottom: 1px solid var(--border);
   }
-  .sd-oplabel { font-family: var(--mono); font-size: 10px; color: var(--muted); padding: 8px 14px 2px; text-transform: uppercase; letter-spacing: .06em; }
+  .sd-oplabel { font-family: var(--mono); font-size: var(--t-micro); color: var(--muted); padding: 8px 14px 2px; text-transform: uppercase; letter-spacing: .06em; }
   .sd-trunc {
     display: flex; align-items: center; gap: 12px; margin: 10px 14px; padding: 9px 12px;
     border: 1px solid rgba(var(--waiting-rgb), .4); background: rgba(var(--waiting-rgb), .1);
-    border-radius: 10px; font-size: 12.5px; color: var(--text);
+    border-radius: 10px; font-size: var(--t-ui); color: var(--text);
   }
   .sd-trunc-btn {
     margin-left: auto; flex: 0 0 auto; background: var(--accent); color: var(--accent-fg); border: none;
-    border-radius: 8px; padding: 5px 12px; font: inherit; font-size: 12px; font-weight: 700; cursor: pointer;
+    border-radius: 8px; padding: 5px 12px; font: inherit; font-size: var(--t-meta); font-weight: 700; cursor: pointer;
   }
   .sd-trunc-btn:hover:not(:disabled) { background: var(--accent-d); }
   .sd-trunc-btn:disabled { opacity: .6; cursor: default; }
-  .sd-empty { padding: 24px; color: var(--muted); font-size: 12.5px; }
+  .sd-empty { padding: 24px; color: var(--muted); font-size: var(--t-ui); }
 
   /* side panel */
   .ship-panel { width: var(--ship-panel-w, 288px); min-width: var(--ship-panel-w, 288px); border-left: 1px solid var(--border); background: var(--bg2); overflow-y: auto; padding: 0; display: flex; flex-direction: column; gap: 0; }
   .sp-card { border: none; border-radius: 0; background: transparent; border-bottom: 1px solid var(--border); padding: 12px 14px; }
-  .sp-card h4 { margin: 0 0 9px; font-family: var(--mono); font-size: 10px; font-weight: 700; letter-spacing: .09em; text-transform: uppercase; color: var(--muted); }
-  .sp-check { display: flex; align-items: center; gap: 8px; padding: 3px 0; font-size: 12.5px; min-width: 0; }
+  .sp-card h4 { margin: 0 0 9px; font-family: var(--mono); font-size: var(--t-micro); font-weight: 700; letter-spacing: .09em; text-transform: uppercase; color: var(--muted); }
+  .sp-check { display: flex; align-items: center; gap: 8px; padding: 3px 0; font-size: var(--t-ui); min-width: 0; }
   .sp-ico { flex: 0 0 auto; }
-  .sp-mono { font-family: var(--mono); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .sp-mono { font-family: var(--mono); font-size: var(--t-micro); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .sp-send {
     background: var(--accent); color: var(--accent-fg); border: none; border-radius: 10px; padding: 9px 12px;
-    font: inherit; font-size: 12.5px; font-weight: 700; cursor: pointer;
+    font: inherit; font-size: var(--t-ui); font-weight: 700; cursor: pointer;
   }
   .sp-send:hover:not(:disabled) { background: var(--accent-d); }
   .sp-send:disabled, .sp-pr-btn:disabled { opacity: .5; cursor: default; }
-  .sp-hint { margin: 0 0 9px; font-size: 11.5px; color: var(--muted); line-height: 1.5; }
-  .sp-pr { display: block; font-size: 11.5px; color: var(--success); text-decoration: none; margin-bottom: 8px; word-break: break-all; }
+  .sp-hint { margin: 0 0 9px; font-size: var(--t-meta); color: var(--muted); line-height: 1.5; }
+  .sp-pr { display: block; font-size: var(--t-meta); color: var(--success); text-decoration: none; margin-bottom: 8px; word-break: break-all; }
   .sp-pr:hover { text-decoration: underline; }
-  .sp-pr-btn { display: block; width: 100%; background: var(--bg3); border: 1px solid var(--border2); color: var(--text); border-radius: 9px; padding: 7px 10px; font: inherit; font-size: 12px; font-weight: 700; cursor: pointer; }
+  .sp-pr-btn { display: block; width: 100%; background: var(--bg3); border: 1px solid var(--border2); color: var(--text); border-radius: 9px; padding: 7px 10px; font: inherit; font-size: var(--t-meta); font-weight: 700; cursor: pointer; }
   .sp-pr-btn:hover:not(:disabled) { background: var(--hover); }
-  .sp-meta { font-size: 11px; color: var(--muted); padding: 8px 14px; }
+  .sp-meta { font-size: var(--t-micro); color: var(--muted); padding: 8px 14px; }
   .sp-meta b { color: var(--text); }
 
   /* the rail handles are <Grip> — styled globally in app.css (`.ship-grip`, out of this scope) */
