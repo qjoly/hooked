@@ -2,11 +2,20 @@
   import { onMount } from 'svelte';
   import { ago } from '$lib/format.js';
   import Icon from './Icon.svelte';
+  import GhDetail from './GhDetail.svelte';
 
   let res = $state(null); // { notifications, issues, mine, review, fetchedAt } | { error }
   let loading = $state(false);
   let query = $state('');
   let repo = $state(''); // '' = all repositories
+  let open = $state(null); // URL shown in the detail panel
+
+  // Plain click opens the panel; a modified click keeps the browser's own behaviour.
+  function peek(e, url) {
+    if (e.metaKey || e.ctrlKey || e.shiftKey || !/\/(pull|issues)\/\d+$/.test(url)) return;
+    e.preventDefault();
+    open = open === url ? null : url;
+  }
 
   async function load(refresh = false) {
     loading = true;
@@ -88,7 +97,7 @@
     {@render where(pr)}
     <span class="when">{ago(pr.updatedAt)}</span>
   </div>
-  <a class="title" href={pr.url} target="_blank" rel="noreferrer">{pr.title}</a>
+  <a class="title" class:sel={open === pr.url} href={pr.url} target="_blank" rel="noreferrer" onclick={(e) => peek(e, pr.url)}>{pr.title}</a>
   <div class="meta">
     {#if pr.draft}<span class="tag muted">Draft</span>{/if}
     {#if d}<span class="tag {d.cls}">{d.label}</span>{/if}
@@ -148,7 +157,7 @@
                         {#if !repo}<span class="repo">{short(x.repo)}</span>{/if}
                         <span class="when">{ago(x.updatedAt)}</span>
                       </div>
-                      <a class="title" href={x.url} target="_blank" rel="noreferrer">{x.title}</a>
+                      <a class="title" class:sel={open === x.url} href={x.url} target="_blank" rel="noreferrer" onclick={(e) => peek(e, x.url)}>{x.title}</a>
                       <div class="meta"><span class="tag neutral">{x.reason.replaceAll('_', ' ')}</span></div>
                     {:else if col.key === 'issues'}
                       <div class="top">
@@ -156,7 +165,7 @@
                         {@render where(x)}
                         <span class="when">{ago(x.updatedAt)}</span>
                       </div>
-                      <a class="title" href={x.url} target="_blank" rel="noreferrer">{x.title}</a>
+                      <a class="title" class:sel={open === x.url} href={x.url} target="_blank" rel="noreferrer" onclick={(e) => peek(e, x.url)}>{x.title}</a>
                       <div class="meta">
                         {#each x.labels as l (l.name)}<span class="label" style={labelStyle(l.color)}>{l.name}</span>{/each}
                         <span class="dim">by {x.author}</span>
@@ -168,7 +177,7 @@
                         <span class="dim">{REVIEW_LABEL[x.state] || x.state}</span>
                         <span class="when">{ago(x.at)}</span>
                       </div>
-                      <a class="title" href={x.url} target="_blank" rel="noreferrer">{x.title}</a>
+                      <a class="title" class:sel={open === x.url} href={x.url} target="_blank" rel="noreferrer" onclick={(e) => peek(e, x.url)}>{x.title}</a>
                       <div class="meta">{#if !repo}<span class="repo">{short(x.repo)}</span>{/if}<span class="num">#{x.number}</span></div>
                     {:else}
                       {@render prCard(x, col.key === 'review')}
@@ -180,6 +189,13 @@
           </section>
         {/each}
       </div>
+
+      {#if open}
+        <aside class="detail" aria-label="Pull request or issue details">
+          <button class="dclose" onclick={() => (open = null)} title="Close"><Icon name="close" size={14} /></button>
+          <GhDetail url={open} />
+        </aside>
+      {/if}
     </div>
   {/if}
 </div>
@@ -226,7 +242,11 @@
   .num { color: var(--muted); font-variant-numeric: tabular-nums; }
   .when { margin-left: auto; flex: none; color: var(--muted); }
   .title { margin-top: 4px; color: var(--text); text-decoration: none; font-size: var(--t-ui); font-weight: 600; line-height: 1.4; display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-  .title:hover { color: var(--accent); }
+  .title:hover, .title.sel { color: var(--accent); }
+  .detail { position: relative; flex: 0 0 min(620px, 45vw); min-height: 0; overflow-y: auto; border: 1px solid var(--border); border-radius: 12px; background: var(--bg2); margin-bottom: 14px; }
+  .dclose { position: absolute; top: 10px; right: 10px; z-index: 1; display: inline-flex; padding: 4px; border: none; background: none; color: var(--muted); border-radius: 6px; cursor: pointer; }
+  .dclose:hover { color: var(--text); background: var(--bg3); }
+  .detail :global(.hd) { padding-right: 40px; }
   .meta { display: flex; flex-wrap: wrap; align-items: center; gap: 5px 7px; margin-top: 6px; font-size: var(--t-meta); }
   .meta:empty { display: none; }
   .dim { color: var(--muted); display: inline-flex; align-items: center; gap: 3px; }
@@ -248,6 +268,7 @@
     .body { flex-direction: column; }
     .rail { flex: none; flex-direction: row; overflow-x: auto; overflow-y: hidden; padding-bottom: 0; }
     .rrow { flex: none; }
+    .detail { flex: none; max-height: 70vh; }
     .col { flex-basis: 85vw; }
   }
 </style>
