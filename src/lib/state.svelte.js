@@ -6,6 +6,8 @@ import { getSessions, connectSSE, getSettings, saveSettings as apiSaveSettings, 
 import { NOTIFY_KINDS, notifyKeyFor, countsForBadge } from './notify.js';
 import { isFinishedAndCold } from './format.js';
 import { DEFAULT_HIDDEN_MODELS } from './models.js';
+import { goto } from '$app/navigation';
+import { page } from '$app/state';
 
 const LS_KEY = 'hooked.ui';
 const persisted = (() => {
@@ -93,6 +95,11 @@ export function toggleArchive(id) {
     if (isArchived(m) === willArchive) continue;
     patchMeta(m, { archived: willArchive });
     if (willArchive) kill(m).catch(() => {});
+  }
+  // The sidebar always keeps the open session listed, so archiving it changed nothing on screen.
+  if (willArchive && ids.includes(page.params?.id)) {
+    const next = pickCandidate();
+    goto(next ? '/session/' + encodeURIComponent(next) : '/', { replaceState: true });
   }
 }
 export function isArchived(id) { return !!(ui.meta[id] && ui.meta[id].archived); }

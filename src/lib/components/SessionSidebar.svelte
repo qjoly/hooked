@@ -348,8 +348,12 @@
                 onclick={(e) => { e.stopPropagation(); toggleIncognito(s.id); }}><Icon name={isIncognito(s.id) ? 'eye-off' : 'eye'} size={13} /></button>
         {#if tab === 'archived' && isArchived(s.id)}
           <button class="ssb-act" title="Unarchive" onclick={(e) => { e.stopPropagation(); toggleArchive(s.id); }}><Icon name="unarchive" size={13} /></button>
-        {:else if tab === 'active' && s.id !== currentId && !isInSplit(s.id) && canSplit()}
-          <button class="ssb-act" title="Split beside the current session" onclick={(e) => { e.stopPropagation(); addSplit(s.id); }}><Icon name="pane" size={13} /></button>
+        {:else if tab === 'active'}
+          {#if s.id !== currentId && !isInSplit(s.id) && canSplit()}
+            <button class="ssb-act" title="Split beside the current session" onclick={(e) => { e.stopPropagation(); addSplit(s.id); }}><Icon name="pane" size={13} /></button>
+          {/if}
+          <button class="ssb-act" title="Archive" aria-label="Archive"
+                  onclick={(e) => { e.stopPropagation(); toggleArchive(s.id); }}><Icon name="archive" size={13} /></button>
         {/if}
       </span>
     </div>
