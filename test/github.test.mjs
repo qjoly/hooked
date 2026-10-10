@@ -41,7 +41,7 @@ describe('github detail panel', () => {
         { submittedAt: '2026-01-03', author: { login: 'bob' }, state: 'APPROVED', body: '' },
         { submittedAt: '2026-01-04', author: { login: 'bob' }, state: 'COMMENTED', body: '' },
       ],
-      comments: [{ createdAt: '2026-01-01', author: { login: 'lucca-renovate' }, body: 'hi' }],
+      comments: [{ createdAt: '2026-01-01', author: { login: 'acme-renovate' }, body: 'hi' }],
     });
     expect(d.state).toBe('DRAFT');
     expect(d.timeline.map((e) => e.kind)).toEqual(['comment', 'commit', 'review']);

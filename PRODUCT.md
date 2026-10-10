@@ -8,7 +8,7 @@ web
 
 ## Users
 
-Développeurs de Lucca qui utilisent Claude Code au quotidien et font tourner **plusieurs sessions
+Développeurs qui utilisent Claude Code au quotidien et font tourner **plusieurs sessions
 en parallèle**. Leur métier n'est pas hooked : c'est leur code. hooked est l'écran de contrôle
 à côté.
 
@@ -101,7 +101,7 @@ aérer s'il sert mieux les trois scènes d'usage.
 - Nom : **hooked**, en minuscules. Emoji associé : 🪝.
 - Le produit parle **français** à l'utilisateur (README, docs internes) mais **tout le code,
   les identifiants, les commentaires et les PR sont en anglais**.
-- Pas d'identité graphique imposée par ailleurs : aucun logo, aucune charte Lucca à respecter ici.
+- Pas d'identité graphique imposée par ailleurs : aucun logo, aucune charte d'entreprise à respecter ici.
 
 ## Evidence on Hand
 

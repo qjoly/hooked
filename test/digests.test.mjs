@@ -34,11 +34,11 @@ beforeAll(async () => {
     { type: 'assistant', timestamp: '2026-07-22T09:01:00.000',
       message: { role: 'assistant', model: 'claude-opus-4-8',
         content: [
-          { type: 'text', text: 'On it. See https://github.com/LuccaSA/hooked/pull/42' },
+          { type: 'text', text: 'On it. See https://github.com/acme/hooked/pull/42' },
           { type: 'tool_use', id: 'tu1', name: 'Edit', input: { file_path: '/repo/projA/x.js' } },
         ],
         usage: { input_tokens: 100, output_tokens: 50 } } },
-    { type: 'pr-link', timestamp: '2026-07-22T09:01:30.000', prNumber: 42, prUrl: 'https://github.com/LuccaSA/hooked/pull/42', prRepository: 'LuccaSA/hooked' },
+    { type: 'pr-link', timestamp: '2026-07-22T09:01:30.000', prNumber: 42, prUrl: 'https://github.com/acme/hooked/pull/42', prRepository: 'acme/hooked' },
     { type: 'assistant', timestamp: '2026-07-22T09:02:00.000',
       message: { role: 'assistant', model: 'claude-opus-4-8',
         content: [{ type: 'tool_use', id: 'tuq', name: 'AskUserQuestion', input: { questions: [{ question: 'Which model?', header: 'Model' }] } }],
@@ -70,7 +70,7 @@ describe('collectSessionsForDay', () => {
     expect(a.prompts).toContain('Add the daily digest feature');
     expect(a.tools.Edit).toBe(1);
     expect(a.tools.AskUserQuestion).toBe(1);
-    expect(a.prLinks).toContain('https://github.com/LuccaSA/hooked/pull/42');
+    expect(a.prLinks).toContain('https://github.com/acme/hooked/pull/42');
     expect(a.pendingQuestion).toContain('Which model?');
     expect(a.link).toBe('/session/sessA');
     expect(a.projectName).toBe('projA');
