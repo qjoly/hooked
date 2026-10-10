@@ -14,7 +14,7 @@ function write(name, lines) {
   return fp;
 }
 
-const prLink = (n, repo = 'LuccaSA/hooked') => ({
+const prLink = (n, repo = 'acme/hooked') => ({
   type: 'pr-link', prNumber: n, prUrl: `https://github.com/${repo}/pull/${n}`, prRepository: repo,
   timestamp: `2026-09-18T10:0${n}:00.000Z`,
 });
@@ -26,8 +26,8 @@ describe('prLinks', () => {
       prLink(1), prLink(2),
     ]), 'sess-ok');
     expect(s.prLinks).toEqual([
-      'https://github.com/LuccaSA/hooked/pull/2',
-      'https://github.com/LuccaSA/hooked/pull/1',
+      'https://github.com/acme/hooked/pull/2',
+      'https://github.com/acme/hooked/pull/1',
     ]);
   });
 
@@ -44,8 +44,8 @@ describe('prLinks', () => {
   it('keeps issue links but not those from injected content', () => {
     const s = parseTranscript(write('issues', [
       { type: 'user', isMeta: true, message: { role: 'user', content: [{ type: 'text', text: 'https://github.com/cli/cli/issues/1' }] } },
-      { type: 'user', message: { role: 'user', content: 'fix https://github.com/LuccaSA/hooked/issues/7' } },
+      { type: 'user', message: { role: 'user', content: 'fix https://github.com/acme/hooked/issues/7' } },
     ]), 'sess-issues');
-    expect(s.issueLinks).toEqual(['https://github.com/LuccaSA/hooked/issues/7']);
+    expect(s.issueLinks).toEqual(['https://github.com/acme/hooked/issues/7']);
   });
 });
