@@ -189,8 +189,8 @@ describe('mdInline — alertes GitHub (callouts)', () => {
 describe('mdInline — liens', () => {
   const A = 'target="_blank" rel="noopener noreferrer"';
   it('lien markdown [texte](url) → nouvel onglet', () => {
-    expect(mdInline('[#1447](https://github.com/LuccaSA/Infra.Charts/pull/1447)'))
-      .toBe(`<a href="https://github.com/LuccaSA/Infra.Charts/pull/1447" ${A}>#1447</a>`);
+    expect(mdInline('[#1447](https://github.com/acme/charts/pull/1447)'))
+      .toBe(`<a href="https://github.com/acme/charts/pull/1447" ${A}>#1447</a>`);
   });
   it('autolinkifie une URL nue', () => {
     expect(mdInline('voir https://google.com ok'))

@@ -37,7 +37,7 @@ export function agoShort(ts, now = Date.now()) {
 // `name` here is only ever the FIRST name (`oauthAccount.displayName` in ~/.claude.json never
 // carries a surname — confirmed against a real account) — a single word can't yield first+last
 // initials the way claude.ai's avatar does, e.g. "LA" for "Lilian" (Arago). We recover the
-// surname's initial from the email's local-part instead: Lucca addresses are
+// surname's initial from the email's local-part instead: many corporate addresses are
 // <first-initial><surname>@…, so "larago" for "Lilian" → strip the matching leading "l", the
 // first letter of what remains ("arago") is the surname's. Falls through to plain first-two-letters
 // when that convention doesn't match (name has no email, or the email doesn't fit the pattern).
@@ -172,7 +172,7 @@ export function tagColor(name) {
 // Teinte de « lot » d'un projet : un carré fixe, le même partout où le repo apparaît (en-têtes de
 // groupe, cartes de décision, en-tête de session), pour le reconnaître avant de le lire.
 const LOT_COUNT = 8;
-// Keyed on the last path segment: a session knows its repo (« luccasa/hooked »), Stats only the
+// Keyed on the last path segment: a session knows its repo (« owner/hooked »), Stats only the
 // project name (« hooked ») — both must land on the same lot.
 export function lotColor(project) {
   const key = String(project || '').split('/').pop().toLowerCase();
