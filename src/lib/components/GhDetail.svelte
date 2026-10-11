@@ -5,7 +5,7 @@
 </script>
 
 <script>
-  // Detail panel of a GitHub pull request or issue: header, then Summary · Timeline · Code.
+  // Detail panel of a GitHub / GitLab pull request or issue: header, then Summary · Timeline · Code.
   // `onfix(check, detail)` is optional: when given, a failed check offers to fix it in the session.
   import Icon from './Icon.svelte';
   import Markdown from './Markdown.svelte';
@@ -89,8 +89,10 @@
   const people = $derived((d?.comments || []).filter((c) => !c.bot).slice().reverse());
   const bots = $derived((d?.comments || []).filter((c) => c.bot).slice().reverse());
 
-  const avatar = (login) => `https://github.com/${String(login).replace(/^app\//, '')}.png?size=40`;
-  const repoOf = (u) => u.split('/').slice(3, 5).join('/');
+  // GitLab hands out avatar URLs; GitHub's are derived from the login.
+  const avatar = (login, url) => url || `https://github.com/${String(login).replace(/^app\//, '')}.png?size=40`;
+  const repoOf = (u) => u.replace(/^https?:\/\/[^/]+\//, '').replace(/\/(-\/)?(issues|work_items)\/\d+.*$/, '');
+  const gitlab = $derived(!!d?.url?.includes('/-/'));
 
   async function fix(c) {
     fixed = { ...fixed, [c.name]: 'sending' };
@@ -102,7 +104,7 @@
 {#snippet comment(c)}
   <details class="cmt">
     <summary>
-      <img class="av" src={avatar(c.author)} alt="" loading="lazy" />
+      <img class="av" src={avatar(c.author, c.avatar)} alt="" loading="lazy" />
       <b>{c.author}</b><span class="dim">{ago(c.at)}</span>
       <span class="excerpt">{c.body.replace(/[#*`>_\[\]]/g, '').slice(0, 120)}</span>
     </summary>
@@ -120,13 +122,13 @@
     {@const dec = DECISION[d.decision]}
     <header class="hd">
       <div class="row">
-        <a class="ttl" href={d.url} target="_blank" rel="noreferrer" title="Open on GitHub">
-          <span class="num">#{d.number}</span> {d.title} <Icon name="external" size={12} />
+        <a class="ttl" href={d.url} target="_blank" rel="noreferrer" title="Open on {gitlab ? 'GitLab' : 'GitHub'}">
+          <span class="num">{gitlab && d.kind === 'pr' ? '!' : '#'}{d.number}</span> {d.title} <Icon name="external" size={12} />
         </a>
         <span class="badge {st[1]}">{st[0]}</span>
       </div>
       <div class="row meta">
-        <img class="av" src={avatar(d.author)} alt="" />
+        <img class="av" src={avatar(d.author, d.authorAvatar)} alt="" />
         <span>{d.author}</span>
         <span class="dim">{ago(d.createdAt)}</span>
         {#if d.kind === 'pr'}

@@ -1,5 +1,6 @@
 import { execFile } from 'node:child_process';
 import fs from 'node:fs';
+import { glabView, parseGitlabUrl } from './gitlab.js';
 
 // TTL découplé du tick pr-review (5 min) : à TTL == tick, toute entrée expirait pile au passage
 // suivant → le cache ne servait jamais et chaque tick re-frappait l'API GraphQL pour tous les liens.
@@ -45,19 +46,23 @@ function run(bin, args) {
 
 async function ghView(url) {
   const m = GH_URL.exec(String(url || ''));
-  if (!m) return null;
+  if (!m && !parseGitlabUrl(url)) return null;
   const hit = cache.get(url);
   if (hit && (hit.permanent || Date.now() - hit.at < TTL_MS)) return hit.data;
+  const out = m ? await viaGh(url, m) : await glabView(url);
+  // Une PR/issue en état terminal ne changera plus : on la fige pour ne plus jamais la re-fetcher.
+  const permanent = !!(out && TERMINAL_STATES.has(String(out.state).toUpperCase()));
+  cache.set(url, { at: Date.now(), data: out, permanent });
+  return out;
+}
+
+async function viaGh(url, m) {
   const gh = await resolveGh();
   const kind = m[1] === 'pull' ? 'pr' : 'issue';
   // reviewDecision n'existe que pour `pr view` (APPROVED/CHANGES_REQUESTED/REVIEW_REQUIRED/'').
   const fields = kind === 'pr' ? 'title,body,state,author,number,reviewDecision' : 'title,body,state,author,number';
   const d = await run(gh, [kind, 'view', url, '--json', fields]);
-  const out = d ? { kind, number: d.number, title: d.title, state: d.state, author: d.author?.login || '', body: (d.body || '').slice(0, 4000), reviewDecision: d.reviewDecision || '' } : null;
-  // Une PR/issue en état terminal ne changera plus : on la fige pour ne plus jamais la re-fetcher.
-  const permanent = !!(out && TERMINAL_STATES.has(String(out.state).toUpperCase()));
-  cache.set(url, { at: Date.now(), data: out, permanent });
-  return out;
+  return d ? { kind, number: d.number, title: d.title, state: d.state, author: d.author?.login || '', body: (d.body || '').slice(0, 4000), reviewDecision: d.reviewDecision || '' } : null;
 }
 
 export { ghView, resolveGh };
