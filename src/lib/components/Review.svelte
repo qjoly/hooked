@@ -1032,7 +1032,7 @@
         <h4>Pull request</h4>
         {#if (s?.prLinks || []).length}
           {#each s.prLinks as l}
-            <a class="sp-pr" href={l} target="_blank" rel="noopener"><Icon name="pr" size={13} /> {l.replace(/^https?:\/\/github\.com\//, '')}</a>
+            <a class="sp-pr" href={l} target="_blank" rel="noopener"><Icon name="pr" size={13} /> {l.replace(/^https?:\/\/[^/]+\//, '')}</a>
           {/each}
         {:else}
           <p class="sp-hint">No PR yet. Let the session push the branch and draft the description.</p>

@@ -395,17 +395,15 @@ export function mdSegments(t) {
   return segs;
 }
 
-// libellé court d'un lien de PR GitHub (repo #num) sinon l'URL brute.
+// Short label of a PR / MR / issue link: `repo #12` (GitHub, GitLab issue), `repo !12` (GitLab MR),
+// else the raw URL.
 export function prLabel(l) {
-  const m = l.match(/github\.com\/([^/]+)\/([^/]+)\/pull\/(\d+)/);
-  return m ? `${m[2]} #${m[3]}` : l;
+  const gh = l.match(/github\.com\/[^/]+\/([^/]+)\/(?:pull|issues)\/(\d+)/);
+  if (gh) return `${gh[1]} #${gh[2]}`;
+  const gl = l.match(/\/([^/]+)\/-\/(merge_requests|issues|work_items)\/(\d+)/);
+  return gl ? `${gl[1]} ${gl[2] === 'merge_requests' ? '!' : '#'}${gl[3]}` : l;
 }
-
-// libellé court d'un lien d'issue GitHub (repo #num) sinon l'URL brute.
-export function issueLabel(l) {
-  const m = l.match(/github\.com\/([^/]+)\/([^/]+)\/issues\/(\d+)/);
-  return m ? `${m[2]} #${m[3]}` : l;
-}
+export const issueLabel = prLabel;
 
 // Session-state predicates shared by every list panel (sidebar, Deck, TopBar badge, palette) — each
 // used to carry its own copy. "Active": the session is doing or awaiting something. "Needs a
