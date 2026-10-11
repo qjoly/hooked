@@ -90,7 +90,7 @@
       <button class="ghback" onclick={() => (ghOpen = null)} title="Back to the session context"><Icon name="arrow-left" size={13} /></button>
       {#each ghLinks as l (l)}
         <button class="ghtab" class:on={l === ghOpen} onclick={() => (ghOpen = l)} title={l}>
-          <Icon name={l.includes('/pull/') ? prStateIcon(prState(l)) : 'issue'} size={12} tint={false} /> #{l.split('/').pop()}
+          <Icon name={/\/(pull|merge_requests)\//.test(l) ? prStateIcon(prState(l)) : 'issue'} size={12} tint={false} /> {l.includes('/merge_requests/') ? '!' : '#'}{l.split('/').pop()}
         </button>
       {/each}
     </nav>

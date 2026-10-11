@@ -46,7 +46,8 @@ function blankSummary(sessionId, fp) {
   };
 }
 
-const ISSUE_RE = /https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/issues\/\d+/g;
+// GitHub issues, plus GitLab ones on any host (`/-/issues/N`, or `/-/work_items/N` on newer GitLab).
+const ISSUE_RE = /https:\/\/(?:github\.com\/[\w.-]+\/[\w.-]+\/issues|[\w.-]+\/[\w.\/-]+?\/-\/(?:issues|work_items))\/\d+/g;
 
 // Accumulateur d'un parse : le résumé en cours + l'état transitoire nécessaire pour
 // REPRENDRE le parse sur des octets ajoutés (parse incrémental, cf. getSummary). Les
