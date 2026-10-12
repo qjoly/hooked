@@ -13,8 +13,7 @@ what it changed, and launch the next one, all from the browser.
 ![The Deck: every session that needs a decision, and the whole fleet at a glance](docs/screenshots/deck.jpg)
 
 - 🔒 **100% local.** Nothing leaves your machine.
-- 🕹️ **Drives real sessions.** Sessions run through Anthropic's Agent SDK under your own
-  subscription: no `claude -p`, no extra token cost.
+- 🕹️ **Drives real sessions.** Launch, answer, approve and interrupt sessions from the browser.
 - ⚡ **Real time.** State is pushed over SSE as soon as a hook fires.
 - 👀 **Sees every session**, including the ones you opened in a terminal (read-only).
 

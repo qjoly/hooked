@@ -44,7 +44,7 @@ une session bloquée ne reste pas bloquée pendant qu'il est ailleurs.
 ## Positioning
 
 Les sessions **tournent dans le processus hooked**, via l'Agent SDK d'Anthropic en streaming
-input/output — pas de `claude -p`, pas de scraping de terminal. C'est ce qui rend hooked différent
+input/output. C'est ce qui rend hooked différent
 d'un lecteur de transcripts : il est l'hôte de la session, donc il connaît son état réel sans le
 deviner, et il peut l'interrompre, lui répondre, changer son mode ou son modèle.
 
