@@ -1,39 +1,46 @@
 # 🪝 hooked
 
-Un dashboard **local** pour suivre tes sessions Claude Code en temps réel — et garder un œil sur ton usage (tokens, coût estimé, projets).
+> [!NOTE]
+> hooked is an initiative of its four maintainers:
+> [@briangtn](https://github.com/briangtn),
+> [@NahisWayard](https://github.com/NahisWayard),
+> [@comeChaslerie](https://github.com/comeChaslerie) and
+> [@GitBluub](https://github.com/GitBluub).
 
-- 🔒 **100 % local** — rien ne sort de ta machine.
-- 🪶 **Logique back zéro dépendance** — les modules `server/*` et `hook.cjs` n'utilisent que la lib standard de Node (les dépendances ne servent qu'à *builder*/*servir* le front).
-- ⚡ **Temps réel** — l'état des sessions se met à jour tout seul (SSE).
-- 🧩 **SvelteKit** — front Svelte 5 + endpoints API dans un seul process (Vite en dev, adapter-node en prod). Back découpé en modules testés (Vitest).
+A **local** dashboard to follow your Claude Code sessions in real time, and keep an eye on your usage (tokens, estimated cost, projects).
+
+- 🔒 **100% local**: nothing leaves your machine.
+- 🪶 **Zero-dependency back-end logic**: the `server/*` modules and `hook.cjs` only use the Node standard library (dependencies are only there to *build*/*serve* the front end).
+- ⚡ **Real time**: session state updates on its own (SSE).
+- 🧩 **SvelteKit**: Svelte 5 front end + API endpoints in a single process (Vite in dev, adapter-node in prod). The back end is split into tested modules (Vitest).
 
 ---
 
-## Pourquoi ?
+## Why?
 
-Quand tu jongles entre plusieurs sessions Claude Code, tu perds vite le fil : laquelle attend une réponse ? laquelle bosse encore ? combien ça t'a coûté aujourd'hui ?
+When you juggle several Claude Code sessions, you quickly lose track: which one is waiting for an answer? Which one is still working? How much did it cost you today?
 
-**hooked** regroupe tout ça dans une seule page : tu vois en un coup d'œil les sessions qui ont besoin de toi, et tu peux même **répondre à Claude directement depuis le navigateur**.
+**hooked** puts all of that on a single page: you see at a glance the sessions that need you, and you can even **reply to Claude straight from the browser**.
 
 ---
 
-## Prérequis
+## Requirements
 
-- **[mise](https://mise.jdx.dev)** — gestionnaire d'outils + task runner : il installe **la bonne version de Node tout seul** (Node ≥ 24, requis pour `node:sqlite`) et pilote toutes les tâches du projet
-- **Claude Code** installé et utilisé sur ta machine
-- Rien d'autre : le pilotage des sessions passe par l'**Agent SDK d'Anthropic** (`@anthropic-ai/claude-agent-sdk`), installé avec les dépendances du projet
+- **[mise](https://mise.jdx.dev)**: tool manager + task runner. It installs **the right Node version on its own** (Node ≥ 24, required for `node:sqlite`) and drives every project task
+- **Claude Code** installed and used on your machine
+- Nothing else: sessions are driven through Anthropic's **Agent SDK** (`@anthropic-ai/claude-agent-sdk`), installed with the project dependencies
 
-### 1. Installer mise
+### 1. Install mise
 
 ```bash
 # macOS (Homebrew)
 brew install mise
 
-# ou n'importe quel OS (script officiel)
+# or any OS (official script)
 curl https://mise.run | sh
 ```
 
-Puis active mise dans ton shell (une seule fois) :
+Then activate mise in your shell (once):
 
 ```bash
 # zsh
@@ -44,27 +51,27 @@ echo 'eval "$(mise activate bash)"' >> ~/.bashrc && exec bash
 ```
 
 > [!TIP]
-> Autres méthodes d'installation (apt, dnf, Windows…) : [docs mise](https://mise.jdx.dev/getting-started.html).
+> Other installation methods (apt, dnf, Windows…): [mise docs](https://mise.jdx.dev/getting-started.html).
 
-### 🪟 Et sous Windows ?
+### 🪟 What about Windows?
 
-hooked lit `~/.claude` et pilote des process `claude` : la voie testée est **WSL2**.
+hooked reads `~/.claude` and drives `claude` processes: the tested path is **WSL2**.
 
 ```powershell
 wsl --install -d Ubuntu
 ```
 
-Puis **tout se passe dans WSL** — installe **Claude Code** et **mise** dans Ubuntu et suis les
-étapes ci-dessus telles quelles. Deux points d'attention :
+Then **everything happens inside WSL**: install **Claude Code** and **mise** in Ubuntu and follow the
+steps above as is. Two things to watch:
 
-- **Claude Code doit tourner dans WSL** (pas côté Windows) : les hooks écrivent dans le
-  `~/.claude` Linux, c'est là que hooked lit tout.
-- Le dashboard lancé dans WSL est accessible depuis ton navigateur Windows sur
-  **http://localhost:4123** (WSL2 forwarde localhost automatiquement).
+- **Claude Code must run inside WSL** (not on the Windows side): hooks write to the Linux
+  `~/.claude`, which is where hooked reads everything.
+- The dashboard started in WSL is reachable from your Windows browser at
+  **http://localhost:4123** (WSL2 forwards localhost automatically).
 
 > [!NOTE]
-> Le service `mise run service-install` (launchd) est macOS-only — sous WSL, lance
-> `mise run start` à la main ou via systemd (activé par défaut dans les WSL récents).
+> The `mise run service-install` service (launchd) is macOS-only. Under WSL, run
+> `mise run start` by hand or through systemd (enabled by default in recent WSL versions).
 
 ---
 
@@ -74,186 +81,186 @@ Puis **tout se passe dans WSL** — installe **Claude Code** et **mise** dans Ub
 git clone git@github.com:qjoly/hooked.git
 cd hooked
 
-mise trust        # autorise le mise.toml du projet (env + tâches)
-mise run setup    # installe Node 24 + les deps, build le front, branche les hooks Claude Code
-mise run start    # démarre le dashboard
+mise trust        # allow the project's mise.toml (env + tasks)
+mise run setup    # install Node 24 + deps, build the front end, wire up the Claude Code hooks
+mise run start    # start the dashboard
 ```
 
-Ouvre ensuite **http://localhost:4123**.
+Then open **http://localhost:4123**.
 
-`mise run setup` fait tout en une passe : `npm install` (devDeps uniquement), build de prod,
-puis branchement de hooked sur les hooks Claude Code (`~/.claude/settings.json`, **avec backup
-automatique** `settings.json.hooked.bak`).
+`mise run setup` does everything in one pass: `npm install` (devDeps only), production build,
+then wiring hooked into the Claude Code hooks (`~/.claude/settings.json`, **with an automatic
+backup** `settings.json.hooked.bak`).
 
-> ⚠️ Après `setup`, **redémarre tes sessions Claude Code** pour activer les hooks.
-> Les sessions déjà ouvertes restent visibles (via les transcripts), mais leur état
-> live n'apparaît qu'à partir du prochain évènement.
+> ⚠️ After `setup`, **restart your Claude Code sessions** to activate the hooks.
+> Sessions that are already open stay visible (through their transcripts), but their live
+> state only shows up from the next event onwards.
 
 > [!TIP]
-> **macOS** : `mise run service-install` installe hooked comme **service launchd** —
-> démarrage au login, auto-restart, logs dans `~/Library/Logs/hooked/`.
-> (`service-status`, `service-logs`, `service-restart`, `service-uninstall` existent aussi.)
+> **macOS**: `mise run service-install` installs hooked as a **launchd service**:
+> starts at login, auto-restarts, logs in `~/Library/Logs/hooked/`.
+> (`service-status`, `service-logs`, `service-restart`, `service-uninstall` also exist.)
 
 <details>
-<summary><strong>Sans mise (npm directement)</strong></summary>
+<summary><strong>Without mise (npm directly)</strong></summary>
 
-Il te faut **Node.js ≥ 24** déjà installé.
+You need **Node.js ≥ 24** already installed.
 
 ```bash
-npm install       # dépendances (SvelteKit + outillage) — devDeps uniquement
-npm run setup     # branche hooked sur les hooks Claude Code (avec backup automatique)
-npm run build     # build de prod (adapter-node) → build/
-node build        # démarre le dashboard sur http://localhost:3000 (PORT pour changer)
+npm install       # dependencies (SvelteKit + tooling), devDeps only
+npm run setup     # wire hooked into the Claude Code hooks (with automatic backup)
+npm run build     # production build (adapter-node) → build/
+node build        # start the dashboard on http://localhost:3000 (set PORT to change it)
 ```
 
 </details>
 
 ---
 
-## Fonctionnalités
+## Features
 
-### 🗂️ Vue Sessions
+### 🗂️ Sessions view
 
-Toutes tes sessions (en cours + passées), regroupées par état pour gérer le multi-tâche :
+All your sessions (running + past), grouped by state to handle multitasking:
 
-| État | Signification |
+| State | Meaning |
 |------|---------------|
-| 🔴 **Action requise** | Claude demande une permission |
-| 🟡 **En attente de toi** | Claude a fini, à toi de jouer |
-| 🔵 **Claude travaille** | session active (avec l'outil en cours, ex. `Bash`) |
-| 🕘 **Récentes** | en pause / terminées / passées |
+| 🔴 **Action required** | Claude is asking for a permission |
+| 🟡 **Waiting for you** | Claude is done, your turn |
+| 🔵 **Claude is working** | active session (with the current tool, e.g. `Bash`) |
+| 🕘 **Recent** | paused / ended / past |
 
-Plus :
+Also:
 
-- **Recherche** + **filtres** par statut (chips avec compteurs) et par projet.
-- **Tâche en cours dans la sidebar** : si Claude utilise `TodoWrite`, l'item *in progress* et l'avancement (`done/total`) s'affichent directement sur la carte de session.
-- **Réponse en 1 clic depuis la sidebar** : quand Claude pose une question à choix unique (`AskUserQuestion`), les options apparaissent en boutons sur la carte — un clic envoie la réponse sans ouvrir le détail.
-- **Détail d'une session**, en sous-onglets :
-  - **💬 Conversation** : le chat reconstruit, avec le composer pour répondre (sessions pilotées par hooked).
-  - **📝 Fichiers** : les fichiers modifiés par Claude (`Write` / `Edit` / `MultiEdit` / `NotebookEdit`) avec un **diff dépliable** (rouge/vert).
-  - **✅ Tâches** : la TodoList de la session (`TodoWrite`) avec barre d'avancement.
-  - **🤖 Sous-agents** : les appels `Agent` / `Task` lancés pendant la session.
-  - **🪝 Activité** : la timeline brute des hooks.
-- **Liens de PR GitHub** : les URLs de pull requests mentionnées dans la session sont détectées et affichées en chips cliquables.
+- **Search** + **filters** by status (chips with counters) and by project.
+- **Current task in the sidebar**: if Claude uses `TodoWrite`, the *in progress* item and the progress (`done/total`) show up right on the session card.
+- **One-click answer from the sidebar**: when Claude asks a single-choice question (`AskUserQuestion`), the options appear as buttons on the card. One click sends the answer without opening the detail view.
+- **Session detail**, in sub-tabs:
+  - **💬 Conversation**: the rebuilt chat, with the composer to reply (sessions driven by hooked).
+  - **📝 Files**: the files changed by Claude (`Write` / `Edit` / `MultiEdit` / `NotebookEdit`) with an **expandable diff** (red/green).
+  - **✅ Tasks**: the session's todo list (`TodoWrite`) with a progress bar.
+  - **🤖 Subagents**: the `Agent` / `Task` calls made during the session.
+  - **🪝 Activity**: the raw hook timeline.
+- **GitHub PR links**: pull request URLs mentioned in the session are detected and shown as clickable chips.
 
-### 💬 Répondre à Claude depuis l'UI *(sessions pilotées par hooked)*
+### 💬 Reply to Claude from the UI *(sessions driven by hooked)*
 
-Pour les sessions que hooked pilote, un composer apparaît en bas de la conversation :
+For the sessions hooked drives, a composer shows up at the bottom of the conversation:
 
-- Envoie un message directement dans la session, via la **file d'entrée en streaming** de l'Agent SDK.
-- C'est **ta session / ton abonnement** qui continue → **aucune conso token supplémentaire**, pas de `claude -p`.
-- `Entrée` envoie, `Maj+Entrée` insère un saut de ligne.
-- `Échap` **interrompt Claude** et recharge le dernier prompt pour l'éditer (comme dans le CLI).
-- Tape `@` pour **auto-compléter** un fichier du projet (↑/↓ pour naviguer, Entrée/Tab pour insérer).
-- **Colle une image** (Cmd/Ctrl+V) : elle est enregistrée localement et son chemin est joint au message — Claude Code la lit comme un drag-drop dans le TUI. Une miniature s'affiche dans le composer (× pour la retirer).
-- **File d'attente** : comme dans le CLI, les messages envoyés pendant que Claude travaille sont mis en attente et marqués `⏳ en file d'attente` jusqu'à ce qu'ils apparaissent dans le transcript.
-- **Session arrêtée** : si elle n'est plus vivante, envoyer un message **relance `claude --resume`** automatiquement dans son dossier d'origine.
-- **Questions interactives** (`AskUserQuestion`) : l'intitulé et les réponses proposées s'affichent dans une carte, et tu peux sélectionner une ou plusieurs réponses.
-- **Demandes de permission d'outil** : quand Claude veut lancer un outil qui requiert ton accord, la demande arrive dans la **même carte** avec *Allow once* / *Allow always* / *Deny* — approuvable depuis le navigateur, sans terminal.
+- Send a message straight into the session, through the Agent SDK's **streaming input queue**.
+- It is **your session / your subscription** that carries on → **no extra token usage**, no `claude -p`.
+- `Enter` sends, `Shift+Enter` inserts a line break.
+- `Esc` **interrupts Claude** and reloads the last prompt so you can edit it (like in the CLI).
+- Type `@` to **autocomplete** a project file (↑/↓ to navigate, Enter/Tab to insert).
+- **Paste an image** (Cmd/Ctrl+V): it is saved locally and its path is attached to the message. Claude Code reads it like a drag-and-drop in the TUI. A thumbnail shows in the composer (× to remove it).
+- **Queue**: as in the CLI, messages sent while Claude is working are queued and marked `⏳ queued` until they show up in the transcript.
+- **Stopped session**: if it is no longer alive, sending a message **relaunches `claude --resume`** automatically in its original folder.
+- **Interactive questions** (`AskUserQuestion`): the question and its suggested answers are shown in a card, and you can pick one or more answers.
+- **Tool permission requests**: when Claude wants to run a tool that needs your approval, the request lands in the **same card** with *Allow once* / *Allow always* / *Deny*, approvable from the browser, no terminal needed.
 
-### 🔀 Changer le mode de Claude *(sessions pilotées par hooked)*
+### 🔀 Change Claude's mode *(sessions driven by hooked)*
 
-Pour une session **live**, l'en-tête du chat affiche le **mode de permission courant** et un sélecteur pour le changer :
+For a **live** session, the chat header shows the **current permission mode** and a selector to change it:
 
-- **● Normal** : Claude demande la permission avant chaque action sensible.
-- **⚡ Auto** : Claude approuve automatiquement les actions sans confirmation (full auto).
-- **⏸ Plan** : mode plan, Claude réfléchit et propose sans rien modifier.
+- **● Normal**: Claude asks for permission before every sensitive action.
+- **⚡ Auto**: Claude approves actions automatically, without confirmation (full auto).
+- **⏸ Plan**: plan mode, Claude thinks and proposes without changing anything.
 
-Le **mode actuel** est publié par la session elle-même (Agent SDK) — source fiable et temps-réel, contrairement aux hooks (différés) ou à la statusline (qui ne porte pas le mode). Les autres modes (**⏵⏵ Auto-edits**, **⛔ Bypass**…) sont reconnus et affichés même s'ils ne sont pas proposés au sélecteur.
+The **current mode** is published by the session itself (Agent SDK): a reliable, real-time source, unlike hooks (delayed) or the statusline (which does not carry the mode). Other modes (**⏵⏵ Auto-edits**, **⛔ Bypass**…) are recognized and displayed even though the selector does not offer them.
 
-Le changement est **une requête de contrôle** (`setPermissionMode`) : un appel, une confirmation.
+The change is **a control request** (`setPermissionMode`): one call, one confirmation.
 
-### ▶️ Lancer / reprendre / stopper
+### ▶️ Launch / resume / stop
 
-- **＋ Nouvelle session** : choisis un projet, le **modèle** (Opus / Sonnet / Haiku / Fable), l'**effort** (low → max) et un 1ᵉʳ message optionnel.
-- **▶ Reprendre** : relance une session passée (`--resume`) dans son dossier d'origine.
-- **⏹ Stopper** : termine le process Claude Code de la session.
+- **＋ New session**: pick a project, the **model** (Opus / Sonnet / Haiku / Fable), the **effort** (low → max) and an optional first message.
+- **▶ Resume**: relaunches a past session (`--resume`) in its original folder.
+- **⏹ Stop**: ends the session's Claude Code process.
 
-> Les sessions tournent **dans le processus hooked**, via l'Agent SDK, sous ton abonnement (**zéro conso token**, pas de `claude -p`). Corollaire : **redémarrer hooked termine les sessions en cours** — leur transcript reste sur disque, `▶ Reprendre` repart où on en était.
+> Sessions run **inside the hooked process**, through the Agent SDK, under your subscription (**zero token usage**, no `claude -p`). The flip side: **restarting hooked ends the running sessions**. Their transcript stays on disk, and `▶ Resume` picks up where they left off.
 
-### 📊 Vue Stats & usage
+### 📊 Stats & usage view
 
-Coût estimé, tokens, sessions, tours, prompts — avec des graphes par **jour / modèle / projet / outil** et des plages **1j / 7j / 30j / tout**.
+Estimated cost, tokens, sessions, turns, prompts, with charts by **day / model / project / tool** and **1d / 7d / 30d / all** ranges.
 
 ---
 
-## Développement
+## Development
 
 ```bash
-mise run dev       # front (HMR) + API + SSE dans un seul process Vite, sur :5173
-mise run test      # tests de caractérisation (Vitest) — filet anti-régression du back
-mise run build     # build de prod (adapter-node) → build/
-mise run start     # lance le serveur de prod (node build) sur :4123
-mise run deploy    # rebuild + redémarre le service launchd (si installé)
-mise tasks         # liste toutes les tâches disponibles
+mise run dev       # front end (HMR) + API + SSE in a single Vite process, on :5173
+mise run test      # characterization tests (Vitest), the back end's regression safety net
+mise run build     # production build (adapter-node) → build/
+mise run start     # start the production server (node build) on :4123
+mise run deploy    # rebuild + restart the launchd service (if installed)
+mise tasks         # list every available task
 ```
 
-(Équivalents npm : `npm run dev`, `npm test`, `npm run build`, `npm start`.)
+(npm equivalents: `npm run dev`, `npm test`, `npm run build`, `npm start`.)
 
 ### Architecture
 
 ```
-src/routes/            SvelteKit : pages (routing URL) + endpoints API
-  ├─ +layout.svelte    header / onglets / état live (SSE) / modale
-  ├─ (sessions)/       / (overview), /session/[id], /new — avec sidebar
+src/routes/            SvelteKit: pages (URL routing) + API endpoints
+  ├─ +layout.svelte    header / tabs / live state (SSE) / modal
+  ├─ (sessions)/       / (overview), /session/[id], /new, with sidebar
   ├─ stats/            /stats
-  └─ api/*/+server.js  endpoints JSON + /api/stream (SSE)
+  └─ api/*/+server.js  JSON endpoints + /api/stream (SSE)
 src/lib/
-  ├─ components/       composants Svelte 5
-  ├─ server/           pont vers le back (core.js) + singleton SSE (live.js)
-  └─ {api,format,state.svelte}.js  accès API, helpers, état partagé
-server/                logique back (ESM), stdlib + l'Agent SDK, en modules testables
-  ├─ pricing.js        tarifs + calcul de coût
-  ├─ transcript.js     parsing des transcripts (+ cache mtime, scan, sous-agents)
-  ├─ conversation.js   reconstruction du chat
-  ├─ changes.js        diffs de fichiers
-  ├─ subagents.js      appels Agent/Task
-  ├─ files.js          listing + matching flou (@-complétion)
-  ├─ events.js         évènements live (hook)
-  ├─ live.js           état live d'une session
-  ├─ agent.js          pilotage Agent SDK : registre, lancer / répondre / interrompre / mode
-  └─ stats.js          sessions, stats, détail
-hook.cjs               capteur d'évènements (branché sur les hooks)
-test/                  fixtures synthétiques + tests différentiels (ancien vs nouveau)
+  ├─ components/       Svelte 5 components
+  ├─ server/           bridge to the back end (core.js) + SSE singleton (live.js)
+  └─ {api,format,state.svelte}.js  API access, helpers, shared state
+server/                back-end logic (ESM), stdlib + the Agent SDK, in testable modules
+  ├─ pricing.js        prices + cost computation
+  ├─ transcript.js     transcript parsing (+ mtime cache, scan, subagents)
+  ├─ conversation.js   chat reconstruction
+  ├─ changes.js        file diffs
+  ├─ subagents.js      Agent/Task calls
+  ├─ files.js          listing + fuzzy matching (@-completion)
+  ├─ events.js         live events (hook)
+  ├─ live.js           live state of a session
+  ├─ agent.js          Agent SDK driver: registry, launch / reply / interrupt / mode
+  └─ stats.js          sessions, stats, detail
+hook.cjs               event sensor (wired into the hooks)
+test/                  synthetic fixtures + differential tests (old vs new)
 ```
 
-Les tests comparent, sur des fixtures synthétiques, la sortie de l'ancien `server.js`
-(figé dans `test/reference/`) à celle des nouveaux modules : toute divergence = régression.
+On synthetic fixtures, the tests compare the output of the old `server.js`
+(frozen in `test/reference/`) with the output of the new modules: any difference is a regression.
 
-## Comment ça marche
+## How it works
 
-1. **`hook.cjs`** est branché sur **tous** les hooks Claude Code. À chaque évènement (prompt, appel d'outil, fin de tour, notification…), il écrit une ligne dans `~/.claude/hooked/events.jsonl` → c'est la source de l'**état live**.
-2. **Les endpoints SvelteKit** (`src/routes/api/*`) lisent aussi tes **transcripts** (`~/.claude/projects/*/*.jsonl`) pour l'historique, les tokens, le coût et les titres. Ils servent l'UI + l'API JSON, et poussent les mises à jour en **SSE** (`/api/stream`, temps réel).
+1. **`hook.cjs`** is wired into **every** Claude Code hook. On each event (prompt, tool call, end of turn, notification…), it writes a line to `~/.claude/hooked/events.jsonl`. That is the source of the **live state**.
+2. **The SvelteKit endpoints** (`src/routes/api/*`) also read your **transcripts** (`~/.claude/projects/*/*.jsonl`) for history, tokens, cost and titles. They serve the UI + the JSON API, and push updates over **SSE** (`/api/stream`, real time).
 
 ---
 
 ## Configuration
 
-| Réglage | Comment |
+| Setting | How |
 |---------|---------|
-| **Changer de port** | `PORT=5000 mise run start` (prod) ou `npm run dev -- --port 5000` (dev) |
-| **Exposer sur le LAN** | `HOST=0.0.0.0 mise run start` — par défaut hooked n'écoute qu'en local (127.0.0.1) |
-| **Ajuster les tarifs** | édite l'objet `PRICING` dans `server/pricing.js` (USD / million de tokens) |
-| **Lancer au démarrage** | `mise run service-install` (macOS, service launchd : login + auto-restart) |
-| **Budget de session (fallback)** | `HOOKED_SESSION_BUDGET=60 mise run start` — utilisé pour estimer le % de la fenêtre 5 h **uniquement** si le tap statusline n'est pas en place |
+| **Change the port** | `PORT=5000 mise run start` (prod) or `npm run dev -- --port 5000` (dev) |
+| **Expose on the LAN** | `HOST=0.0.0.0 mise run start`. By default hooked only listens locally (127.0.0.1) |
+| **Adjust prices** | edit the `PRICING` object in `server/pricing.js` (USD / million tokens) |
+| **Start at boot** | `mise run service-install` (macOS, launchd service: login + auto-restart) |
+| **Session budget (fallback)** | `HOOKED_SESSION_BUDGET=60 mise run start`. Used to estimate the % of the 5 h window **only** when the statusline tap is not set up |
 
-### ⏳ Rate limits réels (5 h / 7 j) — tap statusline
+### ⏳ Real rate limits (5 h / 7 d): statusline tap
 
-Claude Code passe à ta **statusline** un JSON contenant les **vrais** rate limits du compte
-(`rate_limits.five_hour` / `seven_day`). hooked les affiche en barre de progression dans le
-header du chat si tu « tappes » ta statusline : colle le contenu de **`statusline-tap.sh`** en
-haut de ton script de statusline (juste après `input=$(cat)`). Il dépose un snapshot par session
-dans `~/.claude/hooked/status/`. Sans ce tap, hooked retombe sur une **estimation par coût**
-(voir `HOOKED_SESSION_BUDGET`).
-
----
-
-## Désinstaller
-
-Retire les lignes `node .../hook.js` de `~/.claude/settings.json` (un backup `settings.json.hooked.bak` a été créé par `setup`). Les autres hooks existants sont préservés.
+Claude Code passes your **statusline** a JSON payload holding the account's **real** rate limits
+(`rate_limits.five_hour` / `seven_day`). hooked shows them as a progress bar in the chat header
+if you "tap" your statusline: paste the content of **`statusline-tap.sh`** at the top of your
+statusline script (right after `input=$(cat)`). It drops one snapshot per session into
+`~/.claude/hooked/status/`. Without this tap, hooked falls back to a **cost-based estimate**
+(see `HOOKED_SESSION_BUDGET`).
 
 ---
 
-## Confidentialité
+## Uninstall
 
-Rien ne sort de ta machine. `events.jsonl` ne stocke que des **métadonnées** (évènement, session, cwd, nom d'outil) — **pas le contenu** de tes messages.
+Remove the `node .../hook.js` lines from `~/.claude/settings.json` (a `settings.json.hooked.bak` backup was created by `setup`). Your other existing hooks are preserved.
+
+---
+
+## Privacy
+
+Nothing leaves your machine. `events.jsonl` only stores **metadata** (event, session, cwd, tool name), **not the content** of your messages.
