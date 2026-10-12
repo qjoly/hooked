@@ -218,6 +218,7 @@ flowchart LR
 mise run dev       # Vite with HMR, front end and API in one process (:5173)
 mise run test      # Vitest suite
 mise run deploy    # rebuild and restart the installed service
+mise run screenshots  # regenerate docs/screenshots from fictional data (needs Google Chrome)
 mise tasks         # every available task
 ```
 
