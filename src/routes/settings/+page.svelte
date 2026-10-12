@@ -21,6 +21,7 @@
     { id: 'pset-editor', label: 'Editor' },
     { id: 'pset-speech', label: 'Voice dictation' },
     { id: 'pset-new', label: 'New session defaults' },
+    { id: 'pset-showwork', label: 'Show your work' },
     { id: 'pset-models', label: 'Models' },
     { id: 'pset-project', label: 'Default project' },
     { id: 'pset-remote-control', label: 'Remote control' },
@@ -636,6 +637,16 @@
       <h2>New session defaults</h2>
       <p class="hint">Model, reasoning effort and permission mode pre-selected when you start a new session or resume one. <strong>Inherit</strong> falls back to your Claude Code config (<code>~/.claude</code>).</p>
       <ModelEffort showMode allowInherit bind:model={defModel} bind:effort={defEffort} bind:mode={defMode} onchange={saveDefaults} />
+    </div>
+
+    <div class="card" id="pset-showwork" data-sec>
+      <h2>Show your work</h2>
+      <p class="hint">Gives sessions the <code>show_image</code> and <code>show_video</code> tools: after visual work, Claude screenshots or records it (Playwright) and the result shows up in the conversation, with what changed and a before/after when relevant. Applies from the next launch or resume.</p>
+      <label class="check">
+        <input type="checkbox" checked={settings.showWork !== false}
+               onchange={(e) => updateSettings({ showWork: e.currentTarget.checked })} />
+        <span>Let Claude show screenshots and recordings in the conversation</span>
+      </label>
     </div>
 
     <div class="card" id="pset-models" data-sec>

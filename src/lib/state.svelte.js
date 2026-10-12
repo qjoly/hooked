@@ -554,6 +554,7 @@ export async function loadSessions() {
 export const settings = $state({
   speechLang: 'fr-FR',
   speechEnabled: true,
+  showWork: true, // cf. server/settings.js
   statusBar: { permissionMode: true, modelEffort: true, focusBtn: true },
   defaultModel: '', defaultEffort: '', defaultMode: '',
   remoteControlProjects: [],
