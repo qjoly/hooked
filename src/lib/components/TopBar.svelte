@@ -101,7 +101,7 @@
       <div class="tb-g-track"><div class="tb-g-fill" style="width:{barW(g5)}%"></div></div>
     </div>
     <div class="tb-gauge" class:warn={g7 != null && g7 >= 75} class:crit={g7 != null && g7 >= 90}>
-      <div class="tb-g-lbl"><span>7J</span><span>{g7 != null ? g7 + '%' : '—'}</span></div>
+      <div class="tb-g-lbl"><span>7D</span><span>{g7 != null ? g7 + '%' : '—'}</span></div>
       <div class="tb-g-track"><div class="tb-g-fill" style="width:{barW(g7)}%"></div></div>
     </div>
     {#if fable}
