@@ -7,73 +7,136 @@
 > [@comeChaslerie](https://github.com/comeChaslerie) and
 > [@GitBluub](https://github.com/GitBluub).
 
-A **local** dashboard to follow your Claude Code sessions in real time, and keep an eye on your usage (tokens, estimated cost, projects).
+**A local cockpit for your Claude Code sessions.** See which session needs you, answer it, review
+what it changed, and launch the next one, all from the browser.
 
-- 🔒 **100% local**: nothing leaves your machine.
-- 🪶 **Zero-dependency back-end logic**: the `server/*` modules and `hook.cjs` only use the Node standard library (dependencies are only there to *build*/*serve* the front end).
-- ⚡ **Real time**: session state updates on its own (SSE).
-- 🧩 **SvelteKit**: Svelte 5 front end + API endpoints in a single process (Vite in dev, adapter-node in prod). The back end is split into tested modules (Vitest).
+![The Deck: every session that needs a decision, and the whole fleet at a glance](docs/screenshots/deck.jpg)
+
+- 🔒 **100% local.** Nothing leaves your machine.
+- 🕹️ **Drives real sessions.** Sessions run through Anthropic's Agent SDK under your own
+  subscription: no `claude -p`, no extra token cost.
+- ⚡ **Real time.** State is pushed over SSE as soon as a hook fires.
+- 👀 **Sees every session**, including the ones you opened in a terminal (read-only).
 
 ---
 
-## Why?
+## Features
 
-When you juggle several Claude Code sessions, you quickly lose track: which one is waiting for an answer? Which one is still working? How much did it cost you today?
+### 🃏 Deck: what needs you, right now
 
-**hooked** puts all of that on a single page: you see at a glance the sessions that need you, and you can even **reply to Claude straight from the browser**.
+The home page sorts your sessions into decisions. Permission requests, questions and plans to
+approve come first, each with its own card, so you can **answer without opening the session**.
+Next to it, the fleet view groups every session by project with its state: action required,
+waiting for you, working, background, paused, ended.
+
+- Snooze a session (or all of them) for an hour, archive the ones you're done with.
+- Browser notifications when a session starts waiting on you.
+- Tags, session groups, a trash with restore, and an **incognito mode** for screen sharing that
+  only shows the sessions you marked.
+
+### 💬 Converse: drive the session from the browser
+
+![A session: the conversation with inline diffs, and the dock with tasks and changed files](docs/screenshots/converse.jpg)
+
+- The full conversation, rebuilt from the transcript: Markdown, Mermaid diagrams, inline diffs
+  for every edit, images, subagent calls and background jobs.
+- A composer that talks straight to the session: `@` to attach a file, paste an image, `/`
+  commands, voice dictation, `!cmd` to run a shell command in the chat. Messages sent while Claude
+  works are queued, like in the CLI.
+- **Questions, plans and tool permissions** show up as cards: *Allow once* / *Allow always* /
+  *Deny* from the browser, no terminal needed.
+- Switch the **permission mode** (normal, auto, plan), the **model** and the **effort** live.
+  hooked warns you before a model switch throws away a warm prompt cache.
+- The dock on the right follows the session: todo list, changed files, subagents, workflows,
+  pull requests and screenshots.
+- A real terminal (PTY) in the project folder, one shortcut away (`⌘J`).
+
+### 🔍 Review: read the diff like a pull request
+
+![The Review lens: the session's changes file by file, with a review checklist](docs/screenshots/review.jpg)
+
+- Three scopes: what **this session** changed, the **working tree**, or a whole **branch** against
+  its base.
+- Comment on any line, then send the whole review to Claude in one go. Claude answers in the
+  thread, and threads follow the code when it moves (or get marked outdated).
+- Mark files as reviewed (`V`), jump to a symbol's definition with `⌘`-click, see who wrote the
+  line under the cursor.
+- A **MCP** lens next to it lists the project's MCP servers, their health, and lets you log in to
+  the ones that need authentication.
+
+### 🚀 Launch, resume, fork
+
+![New session: describe the task, pick the model, effort, mode and project](docs/screenshots/new.jpg)
+
+- Start a session from any project with its model, effort, permission mode and an optional git
+  worktree. Favorite projects are pinned at the top.
+- **Resume** any past session in one click, **fork** it, or stop it.
+- Sessions survive a hooked restart: they are relaunched from the last snapshot, and a session cut
+  off mid-turn picks up where it stopped.
+- The prompt cache countdown is shown on each session. Optional **auto-compact** compacts an idle
+  session just before its cache expires, so coming back later doesn't re-read the whole thread.
+
+### ⌘ Omnibar
+
+![The omnibar: sessions, navigation and commands in one search box](docs/screenshots/palette.jpg)
+
+`⌘P` searches sessions, commands **and the full text of every transcript**. Type `>` for commands
+only. Every shortcut can be rebound in the settings.
+
+### 📊 Stats, Digest, Memory, GitHub
+
+![Stats: estimated cost per day, by model, by project, and the most used tools](docs/screenshots/stats.jpg)
+
+| Page | What it shows |
+|---|---|
+| **Stats** | Estimated cost, sessions, prompts and tokens over today / 7 days / 30 days / all time, broken down by day, model, project and tool. Live 5 h / 7 d rate-limit gauges in the top bar. |
+| **Digest** | An AI recap of the previous day: highlights, then one status line per session. |
+| **Memory** | What Claude remembers about you and your projects (its auto-memory notes), searchable and filtered by type. |
+| **GitHub** | The pull requests and issues your sessions opened or mentioned, with their review state. Sessions get tagged automatically when their PR is reviewed. |
+
+### 🤖 MCP server
+
+hooked ships an MCP server (`mcp/server.cjs`), so a Claude session can drive the others:
+`list_sessions`, `get_session`, `search_sessions`, `start_session`, `reply_to_session`,
+`interrupt_session`, `stop_session`, `set_mode`, `set_model`, `get_stats`, `get_digest`,
+`reply_review_comment`, plus `show_image` / `show_video` to display media in the conversation.
+A session started this way lands in its parent's group.
+
+### 🎨 And also
+
+Split view for several sessions side by side, focus mode, several themes (including a Datadog-like
+one), installable as a PWA, and `claude --remote-control` daemons managed per project.
 
 ---
 
 ## Requirements
 
-- **[mise](https://mise.jdx.dev)**: tool manager + task runner. It installs **the right Node version on its own** (Node ≥ 24, required for `node:sqlite`) and drives every project task
-- **Claude Code** installed and used on your machine
-- Nothing else: sessions are driven through Anthropic's **Agent SDK** (`@anthropic-ai/claude-agent-sdk`), installed with the project dependencies
+- **[mise](https://mise.jdx.dev)**: it installs the right Node version (≥ 24, needed for
+  `node:sqlite`) and runs every project task.
+- **Claude Code**, installed and logged in.
 
-### 1. Install mise
+That's all: sessions are driven through `@anthropic-ai/claude-agent-sdk`, installed with the
+project dependencies.
 
 ```bash
-# macOS (Homebrew)
+# macOS
 brew install mise
-
-# or any OS (official script)
+# any OS
 curl https://mise.run | sh
-```
 
-Then activate mise in your shell (once):
-
-```bash
-# zsh
+# then, once, in your shell (zsh shown, use `bash` for bash)
 echo 'eval "$(mise activate zsh)"' >> ~/.zshrc && exec zsh
-
-# bash
-echo 'eval "$(mise activate bash)"' >> ~/.bashrc && exec bash
 ```
 
-> [!TIP]
-> Other installation methods (apt, dnf, Windows…): [mise docs](https://mise.jdx.dev/getting-started.html).
+<details>
+<summary><strong>🪟 Windows</strong></summary>
 
-### 🪟 What about Windows?
+The tested path is **WSL2** (`wsl --install -d Ubuntu`). Do everything inside WSL: install Claude
+Code and mise in Ubuntu, then follow the steps below. Claude Code must run inside WSL too, since its
+hooks write to the Linux `~/.claude`. The dashboard is then reachable from your Windows browser at
+http://localhost:4123.
 
-hooked reads `~/.claude` and drives `claude` processes: the tested path is **WSL2**.
-
-```powershell
-wsl --install -d Ubuntu
-```
-
-Then **everything happens inside WSL**: install **Claude Code** and **mise** in Ubuntu and follow the
-steps above as is. Two things to watch:
-
-- **Claude Code must run inside WSL** (not on the Windows side): hooks write to the Linux
-  `~/.claude`, which is where hooked reads everything.
-- The dashboard started in WSL is reachable from your Windows browser at
-  **http://localhost:4123** (WSL2 forwards localhost automatically).
-
-> [!NOTE]
-> The `mise run service-install` service (launchd) is macOS-only. Under WSL, run
-> `mise run start` by hand or through systemd (enabled by default in recent WSL versions).
-
----
+</details>
 
 ## Installation
 
@@ -81,186 +144,94 @@ steps above as is. Two things to watch:
 git clone git@github.com:qjoly/hooked.git
 cd hooked
 
-mise trust        # allow the project's mise.toml (env + tasks)
-mise run setup    # install Node 24 + deps, build the front end, wire up the Claude Code hooks
+mise trust        # allow the project's mise.toml
+mise run setup    # install Node + deps, build, wire hooked into the Claude Code hooks
 mise run start    # start the dashboard
 ```
 
-Then open **http://localhost:4123**.
+Open **http://localhost:4123**.
 
-`mise run setup` does everything in one pass: `npm install` (devDeps only), production build,
-then wiring hooked into the Claude Code hooks (`~/.claude/settings.json`, **with an automatic
-backup** `settings.json.hooked.bak`).
+`setup` adds hooked to the hooks in `~/.claude/settings.json` and keeps a backup next to it
+(`settings.json.hooked.bak`).
 
-> ⚠️ After `setup`, **restart your Claude Code sessions** to activate the hooks.
-> Sessions that are already open stay visible (through their transcripts), but their live
-> state only shows up from the next event onwards.
+> [!IMPORTANT]
+> **Restart your Claude Code sessions** after `setup` to activate the hooks. Sessions already open
+> stay visible through their transcripts, but their live state only appears from their next event.
 
 > [!TIP]
-> **macOS**: `mise run service-install` installs hooked as a **launchd service**:
-> starts at login, auto-restarts, logs in `~/Library/Logs/hooked/`.
-> (`service-status`, `service-logs`, `service-restart`, `service-uninstall` also exist.)
+> `mise run service-install` installs hooked as a user service (launchd on macOS, `systemd --user`
+> on Linux): it starts at login and restarts on failure. `service-status`, `service-logs`,
+> `service-restart` and `service-uninstall` go with it.
 
 <details>
-<summary><strong>Without mise (npm directly)</strong></summary>
+<summary><strong>Without mise</strong></summary>
 
-You need **Node.js ≥ 24** already installed.
+With Node.js ≥ 24 already installed:
 
 ```bash
-npm install       # dependencies (SvelteKit + tooling), devDeps only
-npm run setup     # wire hooked into the Claude Code hooks (with automatic backup)
-npm run build     # production build (adapter-node) → build/
-node build        # start the dashboard on http://localhost:3000 (set PORT to change it)
+npm install
+npm run setup     # wire hooked into the Claude Code hooks (with a backup)
+npm run build
+PORT=4123 npm start
 ```
 
 </details>
 
----
+## Configuration
 
-## Features
+Most settings live in the dashboard (`⌘,`): default model, effort and mode, shortcuts, theme,
+notifications, auto-compact, which models appear in the pickers…
 
-### 🗂️ Sessions view
+| Environment variable | Effect |
+|---|---|
+| `PORT` | HTTP port (default `4123`) |
+| `HOST` | Listen address (default `127.0.0.1`; `0.0.0.0` exposes hooked on your network) |
+| `HOOKED_NO_RESUME=1` | Don't relaunch the driven sessions at startup |
+| `HOOKED_NO_CONTINUE=1` | Relaunch them, but don't send "Continue" to the ones cut off mid-turn |
 
-All your sessions (running + past), grouped by state to handle multitasking:
+Costs are estimates computed from the token counts in the transcripts. Prices live in
+`server/pricing.js`.
 
-| State | Meaning |
-|------|---------------|
-| 🔴 **Action required** | Claude is asking for a permission |
-| 🟡 **Waiting for you** | Claude is done, your turn |
-| 🔵 **Claude is working** | active session (with the current tool, e.g. `Bash`) |
-| 🕘 **Recent** | paused / ended / past |
+## How it works
 
-Also:
+```mermaid
+flowchart LR
+  CC[Claude Code sessions] -- hooks --> H[hook.cjs] --> E[(events.jsonl)]
+  CC -- transcripts --> T[(~/.claude/projects)]
+  E --> S[hooked server]
+  T --> S
+  S -- Agent SDK --> D[Driven sessions]
+  S -- SSE --> UI[Browser]
+```
 
-- **Search** + **filters** by status (chips with counters) and by project.
-- **Current task in the sidebar**: if Claude uses `TodoWrite`, the *in progress* item and the progress (`done/total`) show up right on the session card.
-- **One-click answer from the sidebar**: when Claude asks a single-choice question (`AskUserQuestion`), the options appear as buttons on the card. One click sends the answer without opening the detail view.
-- **Session detail**, in sub-tabs:
-  - **💬 Conversation**: the rebuilt chat, with the composer to reply (sessions driven by hooked).
-  - **📝 Files**: the files changed by Claude (`Write` / `Edit` / `MultiEdit` / `NotebookEdit`) with an **expandable diff** (red/green).
-  - **✅ Tasks**: the session's todo list (`TodoWrite`) with a progress bar.
-  - **🤖 Subagents**: the `Agent` / `Task` calls made during the session.
-  - **🪝 Activity**: the raw hook timeline.
-- **GitHub PR links**: pull request URLs mentioned in the session are detected and shown as clickable chips.
-
-### 💬 Reply to Claude from the UI *(sessions driven by hooked)*
-
-For the sessions hooked drives, a composer shows up at the bottom of the conversation:
-
-- Send a message straight into the session, through the Agent SDK's **streaming input queue**.
-- It is **your session / your subscription** that carries on → **no extra token usage**, no `claude -p`.
-- `Enter` sends, `Shift+Enter` inserts a line break.
-- `Esc` **interrupts Claude** and reloads the last prompt so you can edit it (like in the CLI).
-- Type `@` to **autocomplete** a project file (↑/↓ to navigate, Enter/Tab to insert).
-- **Paste an image** (Cmd/Ctrl+V): it is saved locally and its path is attached to the message. Claude Code reads it like a drag-and-drop in the TUI. A thumbnail shows in the composer (× to remove it).
-- **Queue**: as in the CLI, messages sent while Claude is working are queued and marked `⏳ queued` until they show up in the transcript.
-- **Stopped session**: if it is no longer alive, sending a message **relaunches `claude --resume`** automatically in its original folder.
-- **Interactive questions** (`AskUserQuestion`): the question and its suggested answers are shown in a card, and you can pick one or more answers.
-- **Tool permission requests**: when Claude wants to run a tool that needs your approval, the request lands in the **same card** with *Allow once* / *Allow always* / *Deny*, approvable from the browser, no terminal needed.
-
-### 🔀 Change Claude's mode *(sessions driven by hooked)*
-
-For a **live** session, the chat header shows the **current permission mode** and a selector to change it:
-
-- **● Normal**: Claude asks for permission before every sensitive action.
-- **⚡ Auto**: Claude approves actions automatically, without confirmation (full auto).
-- **⏸ Plan**: plan mode, Claude thinks and proposes without changing anything.
-
-The **current mode** is published by the session itself (Agent SDK): a reliable, real-time source, unlike hooks (delayed) or the statusline (which does not carry the mode). Other modes (**⏵⏵ Auto-edits**, **⛔ Bypass**…) are recognized and displayed even though the selector does not offer them.
-
-The change is **a control request** (`setPermissionMode`): one call, one confirmation.
-
-### ▶️ Launch / resume / stop
-
-- **＋ New session**: pick a project, the **model** (Opus / Sonnet / Haiku / Fable), the **effort** (low → max) and an optional first message.
-- **▶ Resume**: relaunches a past session (`--resume`) in its original folder.
-- **⏹ Stop**: ends the session's Claude Code process.
-
-> Sessions run **inside the hooked process**, through the Agent SDK, under your subscription (**zero token usage**, no `claude -p`). The flip side: **restarting hooked ends the running sessions**. Their transcript stays on disk, and `▶ Resume` picks up where they left off.
-
-### 📊 Stats & usage view
-
-Estimated cost, tokens, sessions, turns, prompts, with charts by **day / model / project / tool** and **1d / 7d / 30d / all** ranges.
-
----
+1. **`hook.cjs`** is wired into every Claude Code hook and appends one line per event to
+   `~/.claude/hooked/events.jsonl`. That gives the live state of *every* session, even one
+   opened in a terminal.
+2. The **server** also reads the transcripts in `~/.claude/projects` for the conversation, files,
+   tokens and costs, and pushes updates to the browser over SSE.
+3. Sessions launched from hooked run **inside the hooked process** through the Agent SDK. That is
+   what makes replying, approving and switching modes possible from the browser.
 
 ## Development
 
 ```bash
-mise run dev       # front end (HMR) + API + SSE in a single Vite process, on :5173
-mise run test      # characterization tests (Vitest), the back end's regression safety net
-mise run build     # production build (adapter-node) → build/
-mise run start     # start the production server (node build) on :4123
-mise run deploy    # rebuild + restart the launchd service (if installed)
-mise tasks         # list every available task
+mise run dev       # Vite with HMR, front end and API in one process (:5173)
+mise run test      # Vitest suite
+mise run deploy    # rebuild and restart the installed service
+mise tasks         # every available task
 ```
 
-(npm equivalents: `npm run dev`, `npm test`, `npm run build`, `npm start`.)
-
-### Architecture
-
-```
-src/routes/            SvelteKit: pages (URL routing) + API endpoints
-  ├─ +layout.svelte    header / tabs / live state (SSE) / modal
-  ├─ (sessions)/       / (overview), /session/[id], /new, with sidebar
-  ├─ stats/            /stats
-  └─ api/*/+server.js  JSON endpoints + /api/stream (SSE)
-src/lib/
-  ├─ components/       Svelte 5 components
-  ├─ server/           bridge to the back end (core.js) + SSE singleton (live.js)
-  └─ {api,format,state.svelte}.js  API access, helpers, shared state
-server/                back-end logic (ESM), stdlib + the Agent SDK, in testable modules
-  ├─ pricing.js        prices + cost computation
-  ├─ transcript.js     transcript parsing (+ mtime cache, scan, subagents)
-  ├─ conversation.js   chat reconstruction
-  ├─ changes.js        file diffs
-  ├─ subagents.js      Agent/Task calls
-  ├─ files.js          listing + fuzzy matching (@-completion)
-  ├─ events.js         live events (hook)
-  ├─ live.js           live state of a session
-  ├─ agent.js          Agent SDK driver: registry, launch / reply / interrupt / mode
-  └─ stats.js          sessions, stats, detail
-hook.cjs               event sensor (wired into the hooks)
-test/                  synthetic fixtures + differential tests (old vs new)
-```
-
-On synthetic fixtures, the tests compare the output of the old `server.js`
-(frozen in `test/reference/`) with the output of the new modules: any difference is a regression.
-
-## How it works
-
-1. **`hook.cjs`** is wired into **every** Claude Code hook. On each event (prompt, tool call, end of turn, notification…), it writes a line to `~/.claude/hooked/events.jsonl`. That is the source of the **live state**.
-2. **The SvelteKit endpoints** (`src/routes/api/*`) also read your **transcripts** (`~/.claude/projects/*/*.jsonl`) for history, tokens, cost and titles. They serve the UI + the JSON API, and push updates over **SSE** (`/api/stream`, real time).
-
----
-
-## Configuration
-
-| Setting | How |
-|---------|---------|
-| **Change the port** | `PORT=5000 mise run start` (prod) or `npm run dev -- --port 5000` (dev) |
-| **Expose on the LAN** | `HOST=0.0.0.0 mise run start`. By default hooked only listens locally (127.0.0.1) |
-| **Adjust prices** | edit the `PRICING` object in `server/pricing.js` (USD / million tokens) |
-| **Start at boot** | `mise run service-install` (macOS, launchd service: login + auto-restart) |
-| **Session budget (fallback)** | `HOOKED_SESSION_BUDGET=60 mise run start`. Used to estimate the % of the 5 h window **only** when the statusline tap is not set up |
-
-### ⏳ Real rate limits (5 h / 7 d): statusline tap
-
-Claude Code passes your **statusline** a JSON payload holding the account's **real** rate limits
-(`rate_limits.five_hour` / `seven_day`). hooked shows them as a progress bar in the chat header
-if you "tap" your statusline: paste the content of **`statusline-tap.sh`** at the top of your
-statusline script (right after `input=$(cat)`). It drops one snapshot per session into
-`~/.claude/hooked/status/`. Without this tap, hooked falls back to a **cost-based estimate**
-(see `HOOKED_SESSION_BUDGET`).
-
----
+See [`CLAUDE.md`](CLAUDE.md) for the architecture notes and the pitfalls worth knowing before
+changing the back end.
 
 ## Uninstall
 
-Remove the `node .../hook.js` lines from `~/.claude/settings.json` (a `settings.json.hooked.bak` backup was created by `setup`). Your other existing hooks are preserved.
-
----
+Remove the hooked lines from the `hooks` section of `~/.claude/settings.json` (the backup made by
+`setup` is `settings.json.hooked.bak`), then `mise run service-uninstall` if you installed the
+service.
 
 ## Privacy
 
-Nothing leaves your machine. `events.jsonl` only stores **metadata** (event, session, cwd, tool name), **not the content** of your messages.
+Nothing leaves your machine. `events.jsonl` only stores metadata (event, session, folder, tool
+name), never the content of your messages. The only outbound calls are the ones Claude Code itself
+makes, plus `gh` for the GitHub page and Anthropic's usage endpoint for the rate-limit gauges.
