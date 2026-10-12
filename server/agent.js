@@ -446,6 +446,7 @@ function hookedMcpServer(launchKey) {
   if (!server) return null;
   const env = { HOOKED_PORT: String(PORT) };
   if (launchKey) env.HOOKED_LAUNCH_KEY = launchKey;
+  if (readSettings().showWork) env.HOOKED_SHOW_WORK = '1';
   return { command: 'node', args: [server], env };
 }
 

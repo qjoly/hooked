@@ -88,7 +88,7 @@
   // (`▸ 14 tool calls · read ×9, bash ×5`) you can open — the prose stays readable.
   // Interactive tools (ask/send), hand-off tools and tool calls carrying a diff stay visible.
   const FOLD_MIN = 3;
-  const isPlainTool = (p) => p.type === 'tool' && !p.ask && !p.send && !p.diff && !HANDOFF_TOOLS.has(p.tool?.name);
+  const isPlainTool = (p) => p.type === 'tool' && !p.ask && !p.send && !p.show && !p.diff && !HANDOFF_TOOLS.has(p.tool?.name);
   const blocks = $derived.by(() => {
     const out = [];
     let run = null;
@@ -159,7 +159,7 @@
               <div class="md reasoning"><Markdown text={b.p.text} /></div>
             {/if}
           {:else}
-            <div class="part-tool"><ToolChip t={b.p.tool} diff={b.p.diff} ask={b.p.ask} send={b.p.send} {session} {agent} /></div>
+            <div class="part-tool"><ToolChip t={b.p.tool} diff={b.p.diff} ask={b.p.ask} send={b.p.send} show={b.p.show} {session} {agent} /></div>
           {/if}
         {:else}
           {@const tail = liveTail(b) ? 1 : 0}
@@ -172,7 +172,7 @@
             </button>
           {:else}
             {#each folded as p, k (b.start + k)}
-              <div class="part-tool"><ToolChip t={p.tool} diff={p.diff} ask={p.ask} send={p.send} {session} {agent} /></div>
+              <div class="part-tool"><ToolChip t={p.tool} diff={p.diff} ask={p.ask} send={p.send} show={p.show} {session} {agent} /></div>
             {/each}
             {#if folded.length >= FOLD_MIN}
               <button class="tool-fold" onclick={() => (openRuns = { ...openRuns, [b.start]: false })} title="Collapse">
@@ -183,7 +183,7 @@
           {/if}
           {#if tail}
             {@const p = b.items[b.items.length - 1]}
-            <div class="part-tool"><ToolChip t={p.tool} diff={p.diff} ask={p.ask} send={p.send} {session} {agent} /></div>
+            <div class="part-tool"><ToolChip t={p.tool} diff={p.diff} ask={p.ask} send={p.send} show={p.show} {session} {agent} /></div>
           {/if}
         {/if}
       {/each}

@@ -15,6 +15,8 @@
 'use strict';
 
 const http = require('node:http');
+const fs = require('node:fs');
+const path = require('node:path');
 
 const PORT = process.env.HOOKED_PORT || '4123';
 // Défaut en `localhost` (PAS 127.0.0.1) : hooked peut n'écouter qu'en IPv6 (`::1`, le défaut de
@@ -276,6 +278,102 @@ const TOOLS = [
     run: (a) => httpRequest('GET', '/api/digest' + (a.date ? '?date=' + encodeURIComponent(a.date) : '')),
   },
 ];
+
+// --- show your work (show_image / show_video) --------------------------------
+// hooked renders these calls as a media card in the conversation, straight from the transcript
+// (server/util.js toolShowWork); the tool itself only checks that the file is there. Listed only
+// when hooked launched the session with the `showWork` setting on (HOOKED_SHOW_WORK=1).
+
+const IMAGE_EXT = ['.png', '.jpg', '.jpeg', '.gif', '.webp'];
+const VIDEO_EXT = ['.mp4', '.m4v', '.webm', '.mov'];
+
+function showFile(exts, kind) {
+  return (a) => {
+    for (const f of [a.path, a.compare]) {
+      if (f == null) continue;
+      if (typeof f !== 'string' || !path.isAbsolute(f)) return { error: `${f}: an absolute path is expected` };
+      if (!exts.includes(path.extname(f).toLowerCase())) return { error: `${f}: not a supported ${kind} (${exts.join(', ')})` };
+      let st;
+      try { st = fs.statSync(f); } catch (_) { return { error: `${f}: file not found` }; }
+      if (st.size > 50 * 1024 * 1024) return { error: `${f}: larger than 50 MB` };
+    }
+    return { ok: true, data: `Shown to the user in hooked. You do not see the ${kind}.` };
+  };
+}
+
+const CHANGES = {
+  type: 'array',
+  description: 'What changed, a few words each: { title, detail?, at? (seconds into the video) }',
+  items: {
+    type: 'object',
+    properties: { title: { type: 'string' }, detail: { type: 'string' }, at: { type: 'number' } },
+    required: ['title'],
+  },
+};
+const SUMMARY = {
+  type: 'array',
+  description: 'Results of checks you actually ran, at most 3 lines: { label, ok, passed?, total? }',
+  items: {
+    type: 'object',
+    properties: { label: { type: 'string' }, ok: { type: 'boolean' }, passed: { type: 'number' }, total: { type: 'number' } },
+    required: ['label', 'ok'],
+  },
+};
+const SHOW_PROPS = {
+  path: { type: 'string', description: 'Absolute path of the file' },
+  title: { type: 'string', description: 'Short caption' },
+  url: { type: 'string', description: 'The page shown, if any (adds an Open page link)' },
+  compare: { type: 'string', description: 'Absolute path of the same view before the change' },
+  changes: CHANGES,
+  summary: SUMMARY,
+};
+
+const SHOW_TOOLS = [
+  {
+    name: 'show_image',
+    description:
+      'Shows an image file to the user, inline in the hooked conversation. Accepts PNG, JPEG, WebP and GIF.\n\n' +
+      'Use it without being asked whenever you have made or changed something visual, before you say the work is done: ' +
+      'screenshot a page or component with headless Playwright, or show a design concept, chart, slide or generated image. ' +
+      "Do this instead of asking the user to open a file or a localhost URL. Don't use it when nothing visual changed.\n\n" +
+      'When the image shows work you changed, also pass `changes` and `compare` (an image of the same view from before the ' +
+      'change), so both are shown side by side. Pass `summary` only for checks you actually ran.\n\n' +
+      "The image goes to the user's screen, not to you. Read the file yourself only if you need to check it.",
+    inputSchema: { type: 'object', properties: SHOW_PROPS, required: ['path'], additionalProperties: false },
+    run: showFile(IMAGE_EXT, 'image'),
+  },
+  {
+    name: 'show_video',
+    description:
+      'Plays a video file to the user, inline in the hooked conversation. Accepts MP4, WebM and MOV.\n\n' +
+      'Use it without being asked to show recordings: after building or fixing an interactive feature, record a headless ' +
+      'Playwright run that clicks through it and play that, rather than asking the user to try it themselves. Also use it ' +
+      'for animations and video cuts you have made.\n\n' +
+      'When the video shows work you changed, pass `changes`, each with `at` (the second it appears), and `checks` for what ' +
+      'you tested, also with `at`. For a fix, record the same steps on the old version and pass that file as `compare`: ' +
+      'the two play side by side, in sync. Pass `summary` only for checks you actually ran.\n\n' +
+      'Keep clips short (50 MB max). You do not see the video.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        ...SHOW_PROPS,
+        checks: {
+          type: 'array',
+          description: 'Checks run: { name, ok, at? (seconds into the video) }',
+          items: {
+            type: 'object',
+            properties: { name: { type: 'string' }, ok: { type: 'boolean' }, at: { type: 'number' } },
+            required: ['name', 'ok'],
+          },
+        },
+      },
+      required: ['path'],
+      additionalProperties: false,
+    },
+    run: showFile(VIDEO_EXT, 'video'),
+  },
+];
+if (process.env.HOOKED_SHOW_WORK === '1') TOOLS.push(...SHOW_TOOLS);
 
 const TOOL_BY_NAME = new Map(TOOLS.map((t) => [t.name, t]));
 

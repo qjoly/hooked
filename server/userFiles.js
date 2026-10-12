@@ -10,7 +10,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { PROJECTS_DIR } from './config.js';
-import { readdirSafe, statSafe } from './util.js';
+import { readdirSafe, statSafe, SHOW_TOOLS } from './util.js';
 import { agentTranscriptPath } from './transcript.js';
 
 const CONTENT_TYPE = {
@@ -18,6 +18,7 @@ const CONTENT_TYPE = {
   '.pdf': 'application/pdf', '.svg': 'image/svg+xml', '.html': 'text/html; charset=utf-8', '.htm': 'text/html; charset=utf-8',
   '.txt': 'text/plain; charset=utf-8', '.log': 'text/plain; charset=utf-8', '.md': 'text/markdown; charset=utf-8',
   '.csv': 'text/csv; charset=utf-8', '.json': 'application/json; charset=utf-8',
+  '.mp4': 'video/mp4', '.m4v': 'video/mp4', '.webm': 'video/webm', '.mov': 'video/quicktime',
 };
 // jamais rendus inline same-origin (SVG/HTML peuvent porter du script exécuté contre l'origine)
 const FORCE_ATTACHMENT = new Set(['.html', '.htm', '.svg']);
@@ -34,6 +35,15 @@ function sessionTranscriptPath(sessionId, projectsDir = PROJECTS_DIR) {
   return null;
 }
 
+// Files a tool_use hands to the user: SendUserFile's `files`, show_image/show_video's `path` and
+// `compare` (the before side).
+function sentPaths(b) {
+  const i = b.input || {};
+  if (b.name === 'SendUserFile') return Array.isArray(i.files) ? i.files : [];
+  if (SHOW_TOOLS[b.name]) return [i.path, i.compare];
+  return [];
+}
+
 // Ensemble des chemins (realpath) réellement envoyés via SendUserFile dans ce transcript.
 // Les relatifs sont résolus contre le `cwd` de la ligne du tool_use.
 function collectAllowlist(fp) {
@@ -41,16 +51,15 @@ function collectAllowlist(fp) {
   let data;
   try { data = fs.readFileSync(fp, 'utf8'); } catch (_) { return set; }
   for (const line of data.split('\n')) {
-    if (!line || line.indexOf('SendUserFile') === -1) continue;
+    if (!line || (line.indexOf('SendUserFile') === -1 && line.indexOf('mcp__hooked__show_') === -1)) continue;
     let j;
     try { j = JSON.parse(line); } catch (_) { continue; }
     const c = j && j.message && j.message.content;
     if (!Array.isArray(c)) continue;
     const cwd = typeof j.cwd === 'string' ? j.cwd : '';
     for (const b of c) {
-      if (!b || b.type !== 'tool_use' || b.name !== 'SendUserFile') continue;
-      const files = b.input && Array.isArray(b.input.files) ? b.input.files : [];
-      for (const f of files) {
+      if (!b || b.type !== 'tool_use') continue;
+      for (const f of sentPaths(b)) {
         if (typeof f !== 'string' || !f) continue;
         const abs = path.isAbsolute(f) ? f : (cwd ? path.resolve(cwd, f) : null);
         if (!abs) continue;
