@@ -125,4 +125,29 @@ function toolSendFiles(toolName, input, cwd) {
   return { caption: typeof input.caption === 'string' ? input.caption.slice(0, 300) : '', files: out };
 }
 
-export { readdirSafe, statSafe, textOf, cleanPrompt, truncTitle, chatText, toolDetail, toolResultText, toolInputText, toolDiffOps, toolSendFiles };
+// hooked's own show_image / show_video MCP tools (mcp/server.cjs): a picture or a recording of the
+// work, rendered as a media card in the conversation. Same trust model as SendUserFile: the paths
+// are display hints, /api/user-file re-derives its allowlist from the transcript.
+const SHOW_TOOLS = { mcp__hooked__show_image: 'image', mcp__hooked__show_video: 'video' };
+const str = (v, max) => (typeof v === 'string' ? v.slice(0, max) : '');
+const num = (v) => (typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : null);
+const list = (v) => (Array.isArray(v) ? v.filter((x) => x && typeof x === 'object').slice(0, 30) : []);
+function toolShowWork(toolName, input, cwd) {
+  const kind = SHOW_TOOLS[toolName];
+  if (!kind || !input || typeof input !== 'object' || typeof input.path !== 'string' || !input.path) return null;
+  const abs = (f) => (typeof f === 'string' && f ? (path.isAbsolute(f) ? f : (cwd ? path.resolve(cwd, f) : f)) : '');
+  const url = str(input.url, 2000);
+  return {
+    kind,
+    path: abs(input.path),
+    name: input.path.split('/').pop(),
+    compare: abs(input.compare),
+    title: str(input.title, 200),
+    url: /^https?:\/\//i.test(url) ? url : '', // rendered as a link: no javascript: URLs
+    changes: list(input.changes).map((c) => ({ title: str(c.title, 200), detail: str(c.detail, 500), at: num(c.at) })).filter((c) => c.title),
+    checks: list(input.checks).map((c) => ({ name: str(c.name, 200), ok: !!c.ok, at: num(c.at) })).filter((c) => c.name),
+    summary: list(input.summary).slice(0, 3).map((c) => ({ label: str(c.label, 200), ok: !!c.ok, passed: num(c.passed), total: num(c.total) })).filter((c) => c.label),
+  };
+}
+
+export { readdirSafe, statSafe, textOf, cleanPrompt, truncTitle, chatText, toolDetail, toolResultText, toolInputText, toolDiffOps, toolSendFiles, toolShowWork, SHOW_TOOLS };
