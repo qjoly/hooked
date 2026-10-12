@@ -9,7 +9,7 @@
  * transcripts sans uuid laissent simplement ce champ à undefined (fork indisponible).
  */
 import fs from 'node:fs';
-import { chatText, toolDetail, toolDiffOps, toolInputText, toolResultText, toolSendFiles } from './util.js';
+import { chatText, toolDetail, toolDiffOps, toolInputText, toolResultText, toolSendFiles, toolShowWork } from './util.js';
 
 // Plafond par message dans la charge utile de la conversation : une session porte des centaines
 // de messages et la liste entière repart à chaque rafraîchissement. Au-delà, le texte est coupé
@@ -175,7 +175,7 @@ function buildConversation(fp, includeSidechain) {
           const ask = b.name === 'AskUserQuestion' && Array.isArray(b.input?.questions) ? b.input.questions : null;
           // `send` carries the files delivered by SendUserFile (like `diff`/`ask`, on the part) so
           // the chip renders image thumbnails / open-file links instead of raw JSON.
-          parts.push({ type: 'tool', tool, diff: toolDiffOps(b.name, b.input, b.id ? writeOriginals.get(b.id) : null), ask, send: toolSendFiles(b.name, b.input, j.cwd) });
+          parts.push({ type: 'tool', tool, diff: toolDiffOps(b.name, b.input, b.id ? writeOriginals.get(b.id) : null), ask, send: toolSendFiles(b.name, b.input, j.cwd), show: toolShowWork(b.name, b.input, j.cwd) });
         }
       }
       text = text.trim();

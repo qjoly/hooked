@@ -7,10 +7,11 @@
   // State is local; since the list is keyed by tool_use id it survives live re-renders.
   import Lightbox from './Lightbox.svelte';
   import PierreDiff from './PierreDiff.svelte';
+  import ShowWork from './ShowWork.svelte';
   import Icon from '$lib/components/Icon.svelte';
   import { ui } from '$lib/state.svelte.js';
   import { userFileUrl } from '$lib/api.js';
-  let { t, diff = null, ask = null, send = null, session = null, agent = null } = $props();
+  let { t, diff = null, ask = null, send = null, show = null, session = null, agent = null } = $props();
   const hasDiff = $derived(!!(diff && diff.ops && diff.ops.length));
 
   // SendUserFile: files delivered to the user. Images render as click-to-expand thumbnails; other
@@ -66,7 +67,9 @@
   });
 </script>
 
-{#if hasDiff}
+{#if show}
+  <ShowWork {show} result={t.result} {session} {agent} />
+{:else if hasDiff}
   <div class="tool tool-diff" class:expanded>
     <!-- toujours cliquable : même sur un petit diff, le clic déplie le chemin complet -->
     <span class="chip chip-diff clickable" onclick={() => (expanded = !expanded)}>
