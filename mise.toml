@@ -273,3 +273,7 @@ Linux)
   ;;
 esac
 '''
+
+[tasks.screenshots]
+description = "Regenerate docs/screenshots from a throwaway instance fed with fictional data (needs Google Chrome)"
+run = "node scripts/screenshots.mjs"
