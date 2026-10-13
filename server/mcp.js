@@ -195,18 +195,18 @@ function claudeBin() {
 // Every claude invocation gets the login shell's environment, for the same reason sessions do
 // (server/agent.js): under launchd the service PATH is frozen at install time, and the CLI needs
 // its real one to reach node, the keychain helper and the OAuth opener.
-async function runClaude(args, cwd, timeout = LIST_TIMEOUT_MS) {
+export async function runClaude(args, cwd, timeout = LIST_TIMEOUT_MS) {
   const env = await loginEnv();
   return new Promise((resolve) => {
     cp.execFile(claudeBin(), args, {
       cwd, env: { ...process.env, ...env }, timeout, encoding: 'utf8', maxBuffer: 4 << 20,
     }, (err, stdout, stderr) => {
-      resolve({ ok: !err, out: String(stdout || '') + String(stderr || ''), code: err ? (err.code ?? 1) : 0 });
+      resolve({ ok: !err, out: String(stdout || '') + String(stderr || ''), stdout: String(stdout || ''), code: err ? (err.code ?? 1) : 0 });
     });
   });
 }
 
-function validCwd(cwd) {
+export function validCwd(cwd) {
   const dir = cwd && String(cwd).trim() ? String(cwd) : HOME;
   try { if (fs.statSync(dir).isDirectory()) return dir; } catch (_) { /* fall through */ }
   return HOME;

@@ -220,6 +220,8 @@
 
   // Echap (comme dans le CLI claude-code) : interrompt Claude et recharge le dernier prompt
   // dans le composer pour le corriger. Exposé au parent (écoute aussi Echap hors textarea).
+  export function focus() { ta?.focus(); }
+
   export function interruptEdit() {
     if (newSession) { closeAc(); return; }
     // 1er Échap : on arme et on demande confirmation pour éviter les annulations accidentelles.

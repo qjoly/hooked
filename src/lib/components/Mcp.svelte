@@ -236,7 +236,7 @@
 </div>
 
 <style>
-  .mcp { max-width: 900px; margin: 0 auto; padding: 24px 20px 80px; }
+  .mcp { padding: 10px 0 60px; }
   .mcp-head { display: flex; align-items: flex-start; gap: 16px; margin-bottom: 18px; }
   .mcp-head > div:first-child { flex: 1 1 auto; }
   h2 { font-size: var(--t-title); line-height: var(--lh-title); margin: 0 0 4px; letter-spacing: -.01em; }

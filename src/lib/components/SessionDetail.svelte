@@ -24,6 +24,7 @@
   import Dock from './Dock.svelte';
   import Terminal from './Terminal.svelte';
   import Mcp from './Mcp.svelte';
+  import Trace from './Trace.svelte';
   import Icon from '$lib/components/Icon.svelte';
   import { editorFor } from '$lib/editors.js';
   import { conversationToMarkdown } from '$lib/exportConversation.js';
@@ -38,12 +39,12 @@
   // remplace `s` en entier au refetch), donc raw est correct : réactif à la réaffectation, sans
   // proxy profond. Coût de `s = d` : O(1) au lieu de O(nombre de nœuds du transcript).
   let s = $state.raw(null);      // détail de session
-  // Active lens: 'chat' (Converse + dock) / 'review' (diffs + comment threads) / 'mcp'. Keys 1, 3, 4
+  // Active lens: 'chat' (Converse + dock) / 'review' (diffs + comment threads) / 'mcp' / 'trace'. Keys 1, 3, 4, 5
   // (2 toggles the terminal panel). Reopened where the session was left (cf. lastLens).
   let tab = $state(lastLens.get(id) || 'chat');
   $effect(() => { const t = tab; untrack(() => lastLens.set(id, t)); });
   let body;                      // ref .pane-body (conteneur scrollable)
-  let composer;                  // ref Composer (pour déclencher interruption + édition via Échap)
+  let composer = $state();       // ref Composer (pour déclencher interruption + édition via Échap)
   let lastActivity = null;
   let archiving = $state(false);
   // changement de mode de permission (Normal / Auto / Plan) — requête de contrôle de l'Agent SDK.
@@ -96,6 +97,7 @@
     { key: 'chat', icon: 'converse', label: 'Converse', kbd: '1' },
     { key: 'review', icon: 'ship', label: 'Review', kbd: '3' },
     { key: 'mcp', icon: 'mcp', label: 'MCP', kbd: '4' },
+    { key: 'trace', icon: 'activity', label: 'Trace', kbd: '5' },
   ];
   const lensCount = $derived({
     chat: (s?.messages || []).length,
@@ -365,10 +367,10 @@
   });
 
   // Raccourcis fenêtre du workspace :
-  //  • 1, 3, 4 (hors saisie) : bascule de lentille (Converse / Review / MCP) ;
+  //  • 1, 3, 4, 5 (hors saisie) : bascule de lentille (Converse / Review / MCP / Trace) ;
   //  • Échap dans la vue chat (hors textarea — le composer gère lui-même quand il a le focus) :
   //    interrompt Claude et recharge le dernier prompt pour l'éditer, comme dans le CLI.
-  const LENS_KEYS = { 1: 'chat', 3: 'review', 4: 'mcp' };
+  const LENS_KEYS = { 1: 'chat', 3: 'review', 4: 'mcp', 5: 'trace' };
   function onWindowKey(e) {
     if (ui.modal) return;
     if (inSplit && !focused) return; // in split, only the focused pane reacts to keys
@@ -439,6 +441,11 @@
   // Composer takes over once the session is back up.
   let resuming = $state(false);
   let resumeStatus = $state('');
+  // The Composer only mounts once the refetched detail says `live`, so the focus waits for it.
+  let focusAfterResume = $state(false);
+  $effect(() => {
+    if (composer && focusAfterResume) { focusAfterResume = false; composer.focus(); }
+  });
   async function resume() {
     if (resuming) return;
     resuming = true;
@@ -452,6 +459,7 @@
     }).catch((e) => ({ ok: false, data: { error: e?.message || 'failed' } }));
     if (res.ok) {
       unarchive(s.id);
+      focusAfterResume = true;
       // Explicit refetch of THIS session's detail (alive, permissionMode…): the tick effect above
       // only reloads on specific diffs against the sidebar list (question/activity/followup change),
       // which a just-resumed session doesn't necessarily trip right away — without this, the pane
@@ -932,6 +940,13 @@
     <div class="pane" class:active={tab === 'mcp'}>
       {#if seen.mcp}
         <Mcp project={s.project || ''} />
+      {/if}
+    </div>
+
+    <!-- Trace lens: tool calls as a timed waterfall, input/output on click. -->
+    <div class="pane" class:active={tab === 'trace'}>
+      {#if seen.trace}
+        <Trace {id} version={s.lastActivity} active={tab === 'trace'} />
       {/if}
     </div>
 

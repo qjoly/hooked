@@ -38,6 +38,8 @@ export * from './live.js';
 export * from './agent.js';
 export * from './terminal.js';
 export * from './mcp.js';
+export * from './plugins.js';
+export * from './trace.js';
 export * from './account.js';
 export * from './images.js';
 export * from './userFiles.js';
