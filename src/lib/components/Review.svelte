@@ -19,11 +19,12 @@
   // restoring that scope first (threadContext / restoreContext).
   import { untrack, tick, onDestroy } from 'svelte';
   import DiffView from './DiffView.svelte';
+  import MarkdownDiff from './MarkdownDiff.svelte';
   import Grip from './Grip.svelte';
   import ReviewComments from './ReviewComments.svelte';
   import DefPeek from './DefPeek.svelte';
   import Icon from '$lib/components/Icon.svelte';
-  import { toSegments, countStats, applyOp } from '$lib/difflines.js';
+  import { toSegments, countStats, applyOp, langFromName } from '$lib/difflines.js';
   import { fmtCost } from '$lib/format.js';
   import { getFileChangeFull, getVcsDiff, getVcsBranches, getVcsBranchDiff, getVcsBlame, getSymbolDefs,
            getReviewThreads, postReviewComment, editReviewThread, deleteReviewThread,
@@ -438,9 +439,18 @@
   });
   const defaultMode = $derived(isNewFile ? 'unified' : ui.shipDiff);
   function chooseMode(m) {
+    if (isMarkdown) ui.shipRendered = false;
     if (isNewFile && activeFile) modeOverride = { ...modeOverride, [activeFile.file]: m };
     else ui.shipDiff = m;
   }
+
+  // Markdown files get a third view: the document rendered, its blocks tinted like the diff. The
+  // choice holds for every markdown file (`ui.shipRendered`) and leaves the unified/split
+  // preference of the source view alone. Threads are anchored to source lines, so they only show
+  // in the source view: jumping to one brings it back (see jumpToComment).
+  const isMarkdownName = (name) => langFromName(name) === 'md';
+  const isMarkdown = $derived(!!activeFile && isMarkdownName(activeFile.name));
+  const rendered = $derived(isMarkdown && ui.shipRendered);
 
   // Narrow mode (split pane / small window): the three columns don't fit — the side columns
   // collapse (CSS container queries on .review-wrap) and the diff is FORCED unified (a side-by-side
@@ -628,6 +638,7 @@
     const ctx = threadContext(t.opIndex);
     if (!ctx) return false;
     await restoreContext(ctx);
+    if (isMarkdownName(t.file)) ui.shipRendered = false;
     // `changes` is derived, so it already reflects the restored scope here
     let i = changes.findIndex((c) => c.file === t.file);
     if (i < 0) {
@@ -986,12 +997,17 @@
           <span class="sd-path" title={activeFile.file}>{activeFile.file}</span>
           <a class="sd-editor" href={editorFor(settings.editor).fileUrl(activeFile.file)} title={'Open in ' + editorFor(settings.editor).label}><Icon name="external" size={12} /> editor</a>
           <div class="sd-modes">
-            <button class:on={effMode === 'unified'} onclick={() => chooseMode('unified')} title="Unified"><Icon name="menu" size={14} /></button>
-            <button class:on={effMode === 'split'} onclick={() => chooseMode('split')} title="Side-by-side"><Icon name="pane" size={14} /></button>
+            <button class:on={!rendered && effMode === 'unified'} onclick={() => chooseMode('unified')} title="Unified"><Icon name="menu" size={14} /></button>
+            <button class:on={!rendered && effMode === 'split'} onclick={() => chooseMode('split')} title="Side-by-side"><Icon name="pane" size={14} /></button>
+            {#if isMarkdown}
+              <button class:on={rendered} onclick={() => (ui.shipRendered = true)} title="Rendered markdown"><Icon name="eye" size={14} /></button>
+            {/if}
           </div>
-          <label class="sd-compact" title="Hide the unchanged context lines">
-            <input type="checkbox" bind:checked={ui.shipCompact} /> compact
-          </label>
+          {#if !rendered}
+            <label class="sd-compact" title="Hide the unchanged context lines">
+              <input type="checkbox" bind:checked={ui.shipCompact} /> compact
+            </label>
+          {/if}
           <button class="sd-review" class:done={isReviewed(activeFile.file)} onclick={reviewCurrent}
                   title="Mark this file reviewed ({reviewKey})">
             {#if isReviewed(activeFile.file)}<Icon name="check" size={14} /> Reviewed{:else}Mark reviewed{/if}
@@ -1015,18 +1031,28 @@
             {/snippet}
             {#each fileDiffs(activeFile) as d, di (d.opIndex)}
               {#if d.label}<div class="sd-oplabel">{d.label}</div>{/if}
-              <DiffView oldStr={d.oldStr} newStr={d.newStr} name={activeFile.name} mode={effMode} compact={ui.shipCompact}
-                        blame={blameFor}
-                        wholeFile={!!d.wholeFile}
-                        onSymbol={(p) => gotoDefinition(activeFile.file, d.opIndex, p)}
-                        markAt={def && def.opIndex === d.opIndex ? { side: def.atSide, line: def.atLine, start: def.atStart, end: def.atEnd } : null}
-                        definitionAt={def && def.opIndex === d.opIndex ? { side: def.atSide, line: def.atLine } : null}
-                        definition={defCard}
-                        commentable={!!onReview}
-                        comments={commentsForSection(di, d.opIndex)}
-                        focus={jumpTarget}
-                        onComment={(p) => addComment(activeFile.file, d.opIndex, activeFile.name, p)}
-                        onDelete={delComment} onEdit={editComment} onReply={replyComment} onArchive={archiveComment} />
+              {#if rendered}
+                {@const n = commentsForSection(di, d.opIndex).length}
+                {#if n}
+                  <button class="sd-mdnote" onclick={() => (ui.shipRendered = false)}>
+                    <Icon name="comment" size={12} /> {n} comment{n > 1 ? 's' : ''} on this diff — show the source view
+                  </button>
+                {/if}
+                <MarkdownDiff oldStr={d.oldStr} newStr={d.newStr} />
+              {:else}
+                <DiffView oldStr={d.oldStr} newStr={d.newStr} name={activeFile.name} mode={effMode} compact={ui.shipCompact}
+                          blame={blameFor}
+                          wholeFile={!!d.wholeFile}
+                          onSymbol={(p) => gotoDefinition(activeFile.file, d.opIndex, p)}
+                          markAt={def && def.opIndex === d.opIndex ? { side: def.atSide, line: def.atLine, start: def.atStart, end: def.atEnd } : null}
+                          definitionAt={def && def.opIndex === d.opIndex ? { side: def.atSide, line: def.atLine } : null}
+                          definition={defCard}
+                          commentable={!!onReview}
+                          comments={commentsForSection(di, d.opIndex)}
+                          focus={jumpTarget}
+                          onComment={(p) => addComment(activeFile.file, d.opIndex, activeFile.name, p)}
+                          onDelete={delComment} onEdit={editComment} onReply={replyComment} onArchive={archiveComment} />
+              {/if}
             {/each}
           {/if}
         </div>
@@ -1199,6 +1225,13 @@
     background: rgba(var(--accent-rgb), .08); border-bottom: 1px solid var(--border);
   }
   .sd-oplabel { font-family: var(--mono); font-size: var(--t-micro); color: var(--muted); padding: 8px 14px 2px; text-transform: uppercase; letter-spacing: .06em; }
+  /* rendered markdown: this diff's threads only show in the source view */
+  .sd-mdnote {
+    display: flex; align-items: center; gap: 6px; width: 100%; padding: 5px 14px; text-align: left;
+    background: rgba(var(--accent-rgb), .08); border: none; border-bottom: 1px solid var(--border);
+    color: var(--accent-d); font-family: var(--mono); font-size: var(--t-micro); cursor: pointer;
+  }
+  .sd-mdnote:hover { background: rgba(var(--accent-rgb), .14); }
   .sd-trunc {
     display: flex; align-items: center; gap: 12px; margin: 10px 14px; padding: 9px 12px;
     border: 1px solid rgba(var(--waiting-rgb), .4); background: rgba(var(--waiting-rgb), .1);

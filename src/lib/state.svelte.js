@@ -49,6 +49,7 @@ export const ui = $state({
   diffRatio: persisted.diffRatio ?? 0.5,            // part (0..1) de la colonne « old » dans un diff side-by-side (barre déplaçable), persistée
   shipDiff: persisted.shipDiff ?? 'split',          // review lenses (Ship / Branch): 'split' | 'unified' — one preference for both
   shipCompact: persisted.shipCompact ?? false,      // review lenses: hide the unchanged context lines
+  shipRendered: persisted.shipRendered ?? false,    // review lenses: show markdown files rendered instead of their source
   companion: persisted.companion ?? false,          // dancing companion floating above the UI (Companion.svelte)
   companionPos: persisted.companionPos ?? null,     // { x, y } px of its top-left corner; null = bottom-right corner (never dragged)
 });
@@ -56,7 +57,7 @@ export const ui = $state({
 if (typeof localStorage !== 'undefined') {
   $effect.root(() => {
     $effect(() => {
-      const snapshot = { hideOld: ui.hideOld, incognito: ui.incognito, collapsed: ui.collapsed, pinned: ui.pinned, names: ui.names, focus: ui.focus, notify: ui.notify, diffSplit: ui.diffSplit, groupByProject: ui.groupByProject, sortMode: ui.sortMode, sideMenuOpen: ui.sideMenuOpen, sidebarWidth: ui.sidebarWidth, dockWidth: ui.dockWidth, dockHidden: ui.dockHidden, lastSessionId: ui.lastSessionId, termHeight: ui.termHeight, collapseWorktrees: ui.collapseWorktrees, shipFilesWidth: ui.shipFilesWidth, shipPanelWidth: ui.shipPanelWidth, diffRatio: ui.diffRatio, shipDiff: ui.shipDiff, shipCompact: ui.shipCompact, companion: ui.companion, companionPos: ui.companionPos };
+      const snapshot = { hideOld: ui.hideOld, incognito: ui.incognito, collapsed: ui.collapsed, pinned: ui.pinned, names: ui.names, focus: ui.focus, notify: ui.notify, diffSplit: ui.diffSplit, groupByProject: ui.groupByProject, sortMode: ui.sortMode, sideMenuOpen: ui.sideMenuOpen, sidebarWidth: ui.sidebarWidth, dockWidth: ui.dockWidth, dockHidden: ui.dockHidden, lastSessionId: ui.lastSessionId, termHeight: ui.termHeight, collapseWorktrees: ui.collapseWorktrees, shipFilesWidth: ui.shipFilesWidth, shipPanelWidth: ui.shipPanelWidth, diffRatio: ui.diffRatio, shipDiff: ui.shipDiff, shipCompact: ui.shipCompact, shipRendered: ui.shipRendered, companion: ui.companion, companionPos: ui.companionPos };
       try { localStorage.setItem(LS_KEY, JSON.stringify(snapshot)); } catch {}
     });
   });
