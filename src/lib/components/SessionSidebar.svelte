@@ -250,9 +250,16 @@
       {#each groups as g (g.key)}
         {#if g.label}
           <!-- a project header is a drop target too: dropping a grouped session on it detaches it -->
-          <button class="ssb-group" class:collapsed={ui.collapsed[g.key]} onclick={() => toggleGroup(g.key)} use:dropDetach>
-            <span class="ssb-chev"><Icon name="chevron-right" size={12} /></span><span class="ssb-lot" style="--lot:{lotColor(g.key)}"></span><span class="ssb-gname">{g.label}</span><span class="ssb-gn">{g.items.length}</span>
-          </button>
+          <!-- the + is a sibling of the header button: a link cannot live inside a <button> -->
+          <div class="ssb-ghead">
+            <button class="ssb-group" class:collapsed={ui.collapsed[g.key]} onclick={() => toggleGroup(g.key)} use:dropDetach>
+              <span class="ssb-chev"><Icon name="chevron-right" size={12} /></span><span class="ssb-lot" style="--lot:{lotColor(g.key)}"></span><span class="ssb-gname">{g.label}</span><span class="ssb-gn">{g.items.length}</span>
+            </button>
+            {#if g.items[0]?.mother.project}
+              <a class="ssb-gplus" href={'/new?project=' + encodeURIComponent(g.items[0].mother.project)}
+                 title="New session in this project" aria-label="New session in {g.label}"><Icon name="plus" size={13} /></a>
+            {/if}
+          </div>
         {/if}
         {#if !g.label || !ui.collapsed[g.key]}
           {#each g.items as u (u.key)}
@@ -457,6 +464,17 @@
   .ssb-group:not(.collapsed) .ssb-chev { transform: rotate(90deg); }
   .ssb-gname { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .ssb-gn { color: var(--muted); font-weight: 600; font-variant-numeric: tabular-nums; }
+  .ssb-ghead { position: relative; }
+  /* the count slides left on hover to make room for the + */
+  .ssb-ghead:hover .ssb-group, .ssb-ghead:focus-within .ssb-group { padding-right: 34px; }
+  .ssb-gplus {
+    position: absolute; right: 6px; top: 50%; transform: translateY(-50%); width: 22px; height: 22px;
+    display: inline-flex; align-items: center; justify-content: center; border-radius: 6px;
+    color: var(--muted); text-decoration: none; opacity: 0; transition: opacity .12s, background .12s, color .12s;
+  }
+  .ssb-ghead:hover .ssb-gplus, .ssb-gplus:focus-visible { opacity: 1; }
+  .ssb-gplus:hover { background: var(--accent-soft); color: var(--accent); }
+  @media (hover: none) { .ssb-gplus { opacity: 1; } .ssb-group { padding-right: 34px; } }
 
   .ssb-row {
     position: relative; display: flex; flex-direction: column; align-items: stretch; gap: 3px;

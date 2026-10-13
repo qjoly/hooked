@@ -1172,7 +1172,7 @@
   column-gap: 7px;
 }
 /* Full-width bands: group headers and the empty state are not table rows. */
-:root[data-scheme="datadog"] .ssb-group,
+:root[data-scheme="datadog"] .ssb-ghead,
 :root[data-scheme="datadog"] .ssb-empty { grid-column: 1 / -1; }
 :root[data-scheme="datadog"] .ssb-row {
   display: grid;
