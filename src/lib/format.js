@@ -311,6 +311,10 @@ export function mdInline(t) {
   return stripSoleParagraph(md.render(String(t == null ? '' : t)).trim());
 }
 
+// Block tokens of a markdown text, from the rendering engine itself: cutting a document into
+// blocks (mdDiff.js) has to find the very boundaries the renderer will draw.
+export const mdParse = (t) => md.parse(String(t == null ? '' : t), {});
+
 // Anchor émise par le rendu markdown pour un lien profond de session (`[label](/session/<id>)`).
 // On la re-repère dans le HTML pour la remplacer par un <SessionCard> vivant. Regex tolérante à
 // l'ordre des attributs : on repère `class="session-link"` puis on extrait href et le libellé.
@@ -370,14 +374,17 @@ export function isCommandTranscript(seg) {
 // <CodeBlock> (coloration + copie) ou <Mermaid> (lang === 'mermaid') ; tout le reste est rendu en
 // HTML par markdown-it puis découpé en sous-parties (html en {@html}, session en <SessionCard>).
 // Un bloc de code IMBRIQUÉ (dans une liste/citation) reste rendu inline par markdown-it (<pre>).
-export function mdSegments(t) {
+// `breaks: false` renders a single newline as a space, as GitHub does for a file: a hard-wrapped
+// document would otherwise break at every source line. The chat keeps the default.
+export function mdSegments(t, { breaks = md.options.breaks } = {}) {
   const src = String(t == null ? '' : t);
   const tokens = md.parse(src, {});
+  const options = { ...md.options, breaks };
   const segs = [];
   let run = []; // tokens de bloc accumulés (non-code, premier niveau) à rendre ensemble
   const flushRun = () => {
     if (!run.length) return;
-    const html = stripSoleParagraph(md.renderer.render(run, md.options, {}).trim());
+    const html = stripSoleParagraph(md.renderer.render(run, options, {}).trim());
     run = [];
     if (html) segs.push({ type: 'text', parts: splitSessionLinks(html) });
   };

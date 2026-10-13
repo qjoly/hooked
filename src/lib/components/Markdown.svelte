@@ -6,8 +6,9 @@
   import PtyBlock from './PtyBlock.svelte';
   import SessionCard from './SessionCard.svelte';
 
-  let { text = '' } = $props();
-  const segs = $derived(mdSegments(text));
+  // breaks: a single newline becomes a <br> (chat). Pass false for a document (see mdSegments).
+  let { text = '', breaks = true } = $props();
+  const segs = $derived(mdSegments(text, { breaks }));
 </script>
 
 {#each segs as s, i (i)}

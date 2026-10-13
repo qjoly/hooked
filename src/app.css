@@ -1656,20 +1656,22 @@ code.path { color: var(--muted); font-size: var(--t-micro); word-break: break-al
 .bubble .fork-state.done { color: var(--accent-d); }
 .bubble .fork-state.err { color: var(--danger, #c0392b); }
 .bubble.user .fork-state { color: #fff; opacity: .95; }
-.bubble .md { word-wrap: break-word; overflow-wrap: anywhere; }
-.bubble .md code { font-family: var(--mono); font-size: var(--t-meta); }
-.bubble .md :not(pre) > code { background: var(--code-inline); padding: 1px 5px; border-radius: 5px; }
+/* `.md-doc`: a markdown FILE rendered outside the chat (Review lens, MarkdownDiff.svelte) wears the
+   assistant bubble's skin. */
+.bubble .md, .md-doc { word-wrap: break-word; overflow-wrap: anywhere; }
+.bubble .md code, .md-doc code { font-family: var(--mono); font-size: var(--t-meta); }
+.bubble .md :not(pre) > code, .md-doc :not(pre) > code { background: var(--code-inline); padding: 1px 5px; border-radius: 5px; }
 .bubble.user .md :not(pre) > code { background: rgba(255,255,255,.22); }
-.bubble .md a { color: var(--link); text-decoration: underline; text-decoration-color: color-mix(in srgb, currentColor 45%, transparent); text-underline-offset: 3px; word-break: break-all; }
-.bubble .md a:hover { color: var(--accent-d); text-decoration-color: currentColor; }
+.bubble .md a, .md-doc a { color: var(--link); text-decoration: underline; text-decoration-color: color-mix(in srgb, currentColor 45%, transparent); text-underline-offset: 3px; word-break: break-all; }
+.bubble .md a:hover, .md-doc a:hover { color: var(--accent-d); text-decoration-color: currentColor; }
 .bubble.user .md a { color: #fff; text-decoration-color: rgba(255,255,255,.6); }
-.bubble .md table { border-collapse: collapse; margin: 8px 0; font-size: var(--t-meta); max-width: 100%; }
-.bubble .md th, .bubble .md td { border: 1px solid rgba(var(--ink-rgb),.28); padding: 4px 9px; text-align: left; vertical-align: top; }
-.bubble .md th { background: rgba(var(--ink-rgb),.12); font-weight: 700; }
+.bubble .md table, .md-doc table { border-collapse: collapse; margin: 8px 0; font-size: var(--t-meta); max-width: 100%; }
+.bubble .md th, .bubble .md td, .md-doc th, .md-doc td { border: 1px solid rgba(var(--ink-rgb),.28); padding: 4px 9px; text-align: left; vertical-align: top; }
+.bubble .md th, .md-doc th { background: rgba(var(--ink-rgb),.12); font-weight: 700; }
 .bubble.user .md th, .bubble.user .md td { border-color: rgba(255,255,255,.28); }
 .bubble.user .md th { background: rgba(255,255,255,.14); }
-.bubble .md blockquote { margin: 6px 0; padding: 2px 0 2px 12px; border-left: 2px solid rgba(var(--ink-rgb),.38); color: var(--muted); }
-.bubble .md blockquote blockquote { margin: 4px 0; }
+.bubble .md blockquote, .md-doc blockquote { margin: 6px 0; padding: 2px 0 2px 12px; border-left: 2px solid rgba(var(--ink-rgb),.38); color: var(--muted); }
+.bubble .md blockquote blockquote, .md-doc blockquote blockquote { margin: 4px 0; }
 .bubble.user .md blockquote { border-left-color: rgba(255,255,255,.45); color: rgba(255,255,255,.82); }
 
 /* ----- GFM (markdown-it) : blocs communs à tous les rendus <Markdown> (chat, plan, sous-agents) */

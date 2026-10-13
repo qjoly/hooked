@@ -95,6 +95,17 @@ describe('buildVcsChanges — workspace of clones (cwd under no VCS)', () => {
     expect(r.changes).toEqual([]); // no primary repo
     expect(r.repos.map((x) => [x.label, x.changes.length])).toEqual([['a', 2], ['b', 0]]);
   });
+
+  it('reports every clone, however many: the working tree and the branch repo picker alike', async () => {
+    const ws = path.join(T, 'many');
+    const names = Array.from({ length: 12 }, (_, i) => 'r' + String(i).padStart(2, '0'));
+    for (const n of names) await makeRepo(path.join(ws, n), { dirty: n === 'r11' });
+    const tree = await buildVcsChanges(ws);
+    expect(tree.repos.map((x) => x.label)).toEqual(names);
+    expect(tree.repos.at(-1).changes).toHaveLength(2);
+    const picker = await listVcsBranches(ws);
+    expect(picker.repos.map((x) => x.label)).toEqual(names);
+  });
 });
 
 describe('scanSubRepos — bounds', () => {
@@ -133,6 +144,18 @@ describe('buildVcsChanges — global file budget', () => {
     expect(r.changes.length).toBe(60);
     const sub = r.repos.find((x) => x.label === 'sub');
     expect(sub.changes).toEqual([]);
+  });
+
+  it('shares the budget out in repo order, whatever order the repos are read in', async () => {
+    const ws = path.join(T, 'budget-order');
+    const sizes = { a: 40, b: 40, c: 1 };
+    for (const [n, count] of Object.entries(sizes)) {
+      const dir = await makeRepo(path.join(ws, n));
+      for (let i = 0; i < count; i++) fs.writeFileSync(path.join(dir, `f${i}.txt`), 'x\n');
+    }
+    const r = await buildVcsChanges(ws);
+    expect(r.repos.map((x) => [x.label, x.changes.length])).toEqual([['a', 40], ['b', 20], ['c', 0]]);
+    expect(r.truncated).toBe(true);
   });
 });
 
