@@ -418,8 +418,8 @@ function permissionQuestion(toolName, opts) {
 
 // ── Lancement / cycle de vie ─────────────────────────────────────────────────────────────────────
 
-// hooked's own MCP server (mcp/server.cjs) is what gives a session the reply_review_comment /
-// resolve_review_comment tools that the review prompts (Ship/Branch) rely on. It is only
+// hooked's own MCP server (mcp/server.cjs) is what gives a session the add_review_comment /
+// reply_review_comment tools that the Review lens prompts rely on. It is only
 // registered project-scope (this repo's .mcp.json): a session launched in ANY OTHER repo has no
 // hooked tools at all unless we pass them explicitly. So every launch carries an `mcpServers`
 // entry pointing at mcp/server.cjs by ABSOLUTE path (a relative one resolves against the session's

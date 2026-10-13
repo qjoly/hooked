@@ -5,7 +5,7 @@
  * curl fallback on /api/review with the exact field names the endpoint expects.
  */
 import { describe, it, expect } from 'vitest';
-import { threadInstructions } from '../src/lib/reviewPrompt.js';
+import { threadInstructions, reviewRequestPrompt } from '../src/lib/reviewPrompt.js';
 
 describe('threadInstructions', () => {
   const text = threadInstructions('sess-42');
@@ -33,5 +33,63 @@ describe('threadInstructions', () => {
     expect(text).toContain('"author":"claude"');
     // Outside a browser (no `location`) the fallback targets the default hooked port.
     expect(text).toContain('http://localhost:4123/api/review');
+  });
+});
+
+// "Review with Claude": the prompt asking the session to review the diff on screen and to open its
+// findings as inline threads itself.
+describe('reviewRequestPrompt', () => {
+  const text = reviewRequestPrompt('sess-42', {
+    scope: 'the uncommitted changes in the working tree',
+    files: ['/repo/a.js', '/repo/lib/b.js'],
+    open: [{ file: '/repo/a.js', anchor: '+L3', text: 'Null check missing\non the second line' }],
+  });
+
+  it('reviews exactly the scope and the files on screen', () => {
+    expect(text).toContain('Review the uncommitted changes in the working tree');
+    expect(text).toContain('- /repo/a.js\n- /repo/lib/b.js');
+  });
+
+  it('asks for one thread per finding through the full MCP tool name, with the literal session id', () => {
+    expect(text).toContain('mcp__hooked__add_review_comment');
+    expect(text).toContain('(id: "sess-42"');
+  });
+
+  it('anchors on the lines of the file as it is on disk', () => {
+    expect(text).toMatch(/1-based lines of the file as it is on disk/);
+  });
+
+  it('spells out a curl fallback matching the claude-comment contract of /api/review', () => {
+    expect(text).toContain('http://localhost:4123/api/review');
+    expect(text).toContain('"id":"sess-42","action":"claude-comment","file":"<path>","start":<line>,"end":<end_line>,"text":"<finding>"');
+  });
+
+  it('is a review, not a fix', () => {
+    expect(text).toContain('Do NOT change any code');
+  });
+
+  it('lists the threads already open so they are not raised twice — first line only', () => {
+    expect(text).toContain('- /repo/a.js (+L3): Null check missing');
+    expect(text).not.toContain('on the second line');
+  });
+
+  it('says nothing about open or dismissed threads when there are none', () => {
+    const bare = reviewRequestPrompt('s', { scope: 'your changes', files: ['/x.js'], open: [] });
+    expect(bare).not.toContain('already open');
+    expect(bare).not.toContain('dismissed');
+  });
+
+  it('lists the archived threads apart, so a finding the reviewer dismissed is not raised again', () => {
+    const t = reviewRequestPrompt('s', {
+      scope: 'your changes', files: ['/x.js'], open: [],
+      dismissed: [{ file: '/x.js', anchor: '+L9', text: 'False positive about caching' }],
+    });
+    expect(t).toMatch(/dismissed by the reviewer[^\n]*do not raise them again:\n- \/x\.js \(\+L9\): False positive about caching/);
+  });
+
+  it('anchors on the revision the diff shows when it is not the disk (branch scope)', () => {
+    const t = reviewRequestPrompt('s', { scope: 'the full diff of branch `feat`', rev: 'feat', files: ['/x.js'], open: [] });
+    expect(t).toContain('1-based lines of the file at revision feat (git show feat:<path>)');
+    expect(t).not.toContain('as it is on disk');
   });
 });
