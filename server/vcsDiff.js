@@ -30,9 +30,11 @@ import { FILE_IGNORE } from './files.js';
 const FILE_MAX = 200000; // cap par côté (old/new) d'un fichier
 const MAX_FILES = 60;    // budget global de fichiers rendus, tous dépôts confondus
 const TIMEOUT = 20000;
-const SUBREPO_MAX = 10;    // max nested repos reported
 const SCAN_DEPTH = 3;      // levels scanned below the base for nested repos
 const SCAN_MAX_DIRS = 2000; // directories visited before the scan gives up
+// Repos listed at once by buildVcsChanges: enough to hide the spawn latency, few enough to keep
+// the number of live processes (and their pipes) well under the fd limit, however many repos.
+const REPO_CONCURRENCY = 8;
 
 // execFile en buffer (gère le -z null-séparé ET la détection de binaire). Ne rejette jamais.
 function run(cmd, args, cwd) {
@@ -84,11 +86,12 @@ async function detectVcs(cwd) {
 // file — submodules and linked worktrees use a file) or a `.jj` dir. Found repos are not
 // descended into (no recursive nesting); symlinks are never followed (no cycles). Bare
 // repos are naturally excluded (their directory IS the git dir, no inner `.git` entry).
+// The walk is bounded (depth, directories visited), the number of repos it reports is not.
 function scanSubRepos(base) {
   const found = [];
   const queue = [{ dir: base, depth: 0 }];
   let visited = 0;
-  while (queue.length && found.length < SUBREPO_MAX && visited < SCAN_MAX_DIRS) {
+  while (queue.length && visited < SCAN_MAX_DIRS) {
     const { dir, depth } = queue.shift();
     visited++;
     let entries;
@@ -146,6 +149,17 @@ function makeEntry(root, relPath, badge, oldT, newT) {
   };
 }
 
+// fn over every item, at most `limit` in flight; results in input order, not completion order.
+async function mapLimit(items, limit, fn) {
+  const out = new Array(items.length);
+  let next = 0;
+  const worker = async () => {
+    while (next < items.length) { const i = next++; out[i] = await fn(items[i], i); }
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return out;
+}
+
 // Contenu d'un fichier à une révision git donnée, buffer vide si absent (fichier ajouté).
 async function gitShowAt(root, ref, relPath) {
   const r = await run('git', ['-C', root, 'show', `${ref}:${relPath}`], root);
@@ -175,29 +189,33 @@ function parseNameStatusZ(buf) {
   return specs;
 }
 
-async function gitChanges(root, limit = MAX_FILES) {
-  const specs = []; // { code, oldp, newp }
-  const ns = await run('git', ['-C', root, 'diff', '--name-status', '-z', 'HEAD'], root);
+// The uncommitted files of a git repo, content not read yet: [{ code, oldp, newp }].
+async function gitChangeSpecs(root) {
+  const specs = [];
+  const [ns, un] = await Promise.all([
+    run('git', ['-C', root, 'diff', '--name-status', '-z', 'HEAD'], root),
+    run('git', ['-C', root, 'ls-files', '--others', '--exclude-standard', '-z'], root),
+  ]);
   if (!ns.failed) specs.push(...parseNameStatusZ(ns.stdout));
-  const un = await run('git', ['-C', root, 'ls-files', '--others', '--exclude-standard', '-z'], root);
   if (!un.failed) {
     for (const p of un.stdout.toString('utf8').split('\0').filter(Boolean)) specs.push({ code: '?', oldp: p, newp: p });
   }
 
   // Gitlink specs (submodule pointer moves) and untracked nested clones resolve to a
   // directory on disk — no file diff to show; the nested repo gets its own entry instead.
-  const files = specs.filter(({ code, oldp, newp }) => {
+  return specs.filter(({ code, oldp, newp }) => {
     const st = statSafe(path.join(root, code === 'D' ? oldp : newp));
     return !(st && st.isDirectory());
   });
+}
 
-  const capped = files.slice(0, limit);
-  const out = await Promise.all(capped.map(async ({ code, oldp, newp }) => {
+// gitChangeSpecs entries → change entries, HEAD side vs disk side.
+function gitReadChanges(root, specs) {
+  return Promise.all(specs.map(async ({ code, oldp, newp }) => {
     const oldBuf = code === 'A' || code === '?' ? Buffer.alloc(0) : await gitShowAt(root, 'HEAD', oldp);
     const newBuf = code === 'D' ? Buffer.alloc(0) : readDisk(path.join(root, newp));
     return makeEntry(root, code === 'D' ? oldp : newp, GIT_STATUS[code] || 'changed', textOrNull(oldBuf), textOrNull(newBuf));
   }));
-  return out;
 }
 
 // Arbre vide canonique de git — parent de substitution pour diff-er un commit racine.
@@ -241,16 +259,19 @@ function parseJjSummary(buf) {
   return specs;
 }
 
-async function jjChanges(root, limit = MAX_FILES) {
+// The changed files of a jj working copy, content not read yet: [{ code, p }].
+async function jjChangeSpecs(root) {
   const sum = await run('jj', ['diff', '--summary'], root);
-  if (sum.failed) return [];
-  const capped = parseJjSummary(sum.stdout).slice(0, limit);
-  const out = await Promise.all(capped.map(async ({ code, p }) => {
+  return sum.failed ? [] : parseJjSummary(sum.stdout);
+}
+
+// jjChangeSpecs entries → change entries, parent (@-) side vs disk side.
+function jjReadChanges(root, specs) {
+  return Promise.all(specs.map(async ({ code, p }) => {
     const oldBuf = code === 'A' ? Buffer.alloc(0) : await jjShowAt(root, '@-', p);
     const newBuf = code === 'D' ? Buffer.alloc(0) : readDisk(path.join(root, p));
     return makeEntry(root, p, JJ_STATUS[code] || 'changed', textOrNull(oldBuf), textOrNull(newBuf));
   }));
-  return out;
 }
 
 // Diff jj entre deux revsets arbitraires (from → to) — pendant jj de gitRangeChanges.
@@ -287,7 +308,6 @@ async function computeRepos(cwd) {
   for (const w of walked) if (!byRoot.has(w.root)) byRoot.set(w.root, w);
   const subs = [...byRoot.values()].map(subRepoInfo)
     .sort((a, b) => a.root.localeCompare(b.root))
-    .slice(0, SUBREPO_MAX)
     .map((s) => ({ ...s, primary: false }));
 
   return { base, list: primary ? [{ ...primary, primary: true }, ...subs] : subs };
@@ -339,6 +359,9 @@ async function resolveRepo(cwd, repoRoot) {
 // `repos` lists every detected repo, primary first when it exists. Top-level vcs/root/changes
 // keep mirroring the primary repo. MAX_FILES is a global budget: repos past it stay listed
 // with empty changes and `truncated` flips to true.
+// Listing is the cost that grows with the number of repos (two spawns each), so the repos are
+// listed in parallel. The budget is then shared out IN ORDER, primary first, as a walk from
+// one repo to the next would, and only the files that made the cut have their content read.
 async function buildVcsChanges(cwd) {
   const empty = { vcs: null, root: null, changes: [], truncated: false, repos: [] };
   if (!cwd) return empty;
@@ -346,19 +369,20 @@ async function buildVcsChanges(cwd) {
   if (!list.length) return empty;
   const primary = list[0].primary ? list[0] : null;
 
+  const listed = await mapLimit(list, REPO_CONCURRENCY, (r) => (r.mechanism === 'jj' ? jjChangeSpecs(r.root) : gitChangeSpecs(r.root)));
   let budget = MAX_FILES;
   let truncated = false;
-  const repos = [];
-  for (const r of list) {
-    let changes = [];
-    if (budget > 0) {
-      changes = r.mechanism === 'jj' ? await jjChanges(r.root, budget) : await gitChanges(r.root, budget);
-      budget -= changes.length;
-    } else {
-      truncated = true;
-    }
-    repos.push({ kind: r.kind, root: r.root, label: r.primary ? '' : path.relative(base, r.root), primary: r.primary, changes });
-  }
+  const kept = listed.map((specs) => {
+    if (budget <= 0) { truncated = true; return []; }
+    const take = specs.slice(0, budget);
+    budget -= take.length;
+    return take;
+  });
+  // At most MAX_FILES reads in flight across all repos: the budget already bounds them.
+  const repos = await Promise.all(list.map(async (r, i) => ({
+    kind: r.kind, root: r.root, label: r.primary ? '' : path.relative(base, r.root), primary: r.primary,
+    changes: r.mechanism === 'jj' ? await jjReadChanges(r.root, kept[i]) : await gitReadChanges(r.root, kept[i]),
+  })));
   const vcs = primary ? primary.kind : (repos.every((r) => r.kind === 'jj') ? 'jj' : 'git');
   return { vcs, root: base, changes: repos[0].primary ? repos[0].changes : [], truncated, repos };
 }
