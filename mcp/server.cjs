@@ -194,6 +194,29 @@ const TOOLS = [
     run: (a) => httpRequest('POST', '/api/review', { id: a.id, action: 'reply', threadId: a.thread_id, text: a.text, author: 'claude' }),
   },
   {
+    name: 'add_review_comment',
+    description:
+      'Opens a new code-review thread inline in the hooked diff, anchored on lines of a file. Use it ' +
+      'when a hooked review prompt asks you to report findings as threads: one call per finding. ' +
+      'Lines are 1-based and refer to the new side of the diff under review: the file on disk, unless ' +
+      'the review prompt names a revision. Only files of the session\'s repositories can be commented. The ' +
+      'thread stays open: archiving it is the reviewer\'s decision, there is no tool for it. The ' +
+      'returned thread id is the one to pass to reply_review_comment if the reviewer answers.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: { type: 'string', description: 'session id (given in the review prompt)' },
+        file: { type: 'string', description: 'absolute path of the file (relative paths resolve against the session project)' },
+        line: { type: 'integer', minimum: 1, description: 'first line the finding is about' },
+        end_line: { type: 'integer', minimum: 1, description: 'last line, when the finding spans several lines' },
+        text: { type: 'string', description: 'the finding, in Markdown: what is wrong, why it matters, the suggested fix' },
+      },
+      required: ['id', 'file', 'line', 'text'],
+      additionalProperties: false,
+    },
+    run: (a) => httpRequest('POST', '/api/review', { id: a.id, action: 'claude-comment', file: a.file, start: a.line, end: a.end_line, text: a.text }),
+  },
+  {
     name: 'interrupt_session',
     description: 'Envoie Échap à une session live pour interrompre Claude en cours de travail.',
     inputSchema: {

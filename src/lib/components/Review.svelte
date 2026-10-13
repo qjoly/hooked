@@ -27,13 +27,13 @@
   import { fmtCost } from '$lib/format.js';
   import { getFileChangeFull, getVcsDiff, getVcsBranches, getVcsBranchDiff, getVcsBlame, getSymbolDefs,
            getReviewThreads, postReviewComment, editReviewThread, deleteReviewThread,
-           replyReviewThread, archiveReviewThread, markReviewSent, reply as sendToSession } from '$lib/api.js';
+           replyReviewThread, archiveReviewThread, markReviewSent, startClaudeReview, reply as sendToSession } from '$lib/api.js';
   import { settings, ui, openModal } from '$lib/state.svelte.js';
   import { editorFor } from '$lib/editors.js';
   import { fingerprint, isReviewed as hasReview, toggleReviewed as tickReview, nextUnreviewed,
            toMap as reviewedToMap, toEntries as reviewedToEntries } from '$lib/reviewState.js';
   import { loadDraft, saveDraft } from '$lib/reviewDraft.js';
-  import { threadInstructions } from '$lib/reviewPrompt.js';
+  import { threadInstructions, reviewRequestPrompt } from '$lib/reviewPrompt.js';
   import { getBinding, matchesEvent, formatKeys } from '$lib/shortcuts.js';
 
   let { s, id, onReview = null, canReview = true, active = false } = $props();
@@ -379,12 +379,14 @@
   //   • branch       — fork point (merge-base, else the base branch) → branch head, or the ends of
   //                    the selected commits when the review is narrowed to some.
   // DiffView drops the answer whenever the blamed line's text no longer matches the line shown.
+  // `branchNewRev` is also where "Review with Claude" anchors its threads in the branch scope.
+  const branchNewRev = $derived(scope === 'branch' && meta.vcs !== 'jj' ? (diffRange ? diffRange.to : (branch || null)) : null);
   const blameFor = $derived.by(() => {
     if (!activeFile || activeFile.binary) return null;
     const load = (rev) => getVcsBlame(id, activeFile.file, rev);
     if (scope === 'branch') {
       if (meta.vcs === 'jj') return null;
-      return { file: activeFile.file, old: diffRange ? diffRange.parent : (mergeBase || base || null), new: diffRange ? diffRange.to : (branch || null), load };
+      return { file: activeFile.file, old: diffRange ? diffRange.parent : (mergeBase || base || null), new: branchNewRev, load };
     }
     return { file: activeFile.file, old: scope === 'tree' ? 'HEAD' : null, new: '', load };
   });
@@ -515,9 +517,9 @@
       threadInstructions(id);
     try { await sendToSession(id, prompt); } catch (_) {}
   }
+  const toView = (c) => ({ id: c.id, side: c.side, start: c.start, end: c.end, snippet: c.snippet, sent: c.sent, messages: c.messages });
   const commentsFor = (file, opIndex) =>
-    threads.filter((c) => c.file === file && c.opIndex === opIndex && c.status !== 'archived')
-      .map((c) => ({ id: c.id, side: c.side, start: c.start, end: c.end, snippet: c.snippet, sent: c.sent, messages: c.messages }));
+    threads.filter((c) => c.file === file && c.opIndex === opIndex && c.status !== 'archived').map(toView);
 
   // ── lost threads ── their FILE left the diff they were written on (typically: Claude committed
   // and the working-tree diff emptied under the comment). They render nowhere in the rail, so they
@@ -535,12 +537,23 @@
   const lostThreads = $derived.by(() => {
     const here = new Set(changes.map((c) => c.file));
     return threads.filter((t) => t.status !== 'archived' && inKey(t.opIndex) && !here.has(t.file))
-      .map((t) => ({ id: t.id, side: t.side, start: t.start, end: t.end, snippet: t.snippet,
-                     sent: t.sent, messages: t.messages, lost: true, file: t.file,
-                     name: t.name || (t.file || '').split('/').pop() }));
+      .map((t) => ({ ...toView(t), lost: true, file: t.file, name: t.name || (t.file || '').split('/').pop() }));
+  });
+  // ── threads Claude opened ("Review with Claude") ── keyed to the whole SCOPE (`scopeKey`), not
+  // to one of its sections: Claude anchors on the file as it is on disk, i.e. the new side. Each
+  // goes to the section whose new side holds its snippet — in practice the only one, unless a
+  // session file's history could not be merged — else to the first.
+  const scopeKey = $derived(keyBase + ':*');
+  const isScoped = (t) => String(t.opIndex || '').endsWith(':*');
+  const scopedHere = $derived.by(() => {
+    if (!activeFile) return [];
+    const mine = threads.filter((t) => t.file === activeFile.file && t.opIndex === scopeKey && t.status !== 'archived');
+    if (!mine.length) return [];
+    const diffs = fileDiffs(activeFile);
+    return mine.map((t) => ({ ...toView(t), di: Math.max(0, t.snippet ? diffs.findIndex((d) => d.newStr.includes(t.snippet)) : 0) }));
   });
   const commentsForSection = (di, opIndex) => {
-    const own = commentsFor(activeFile.file, opIndex);
+    const own = [...commentsFor(activeFile.file, opIndex), ...scopedHere.filter((t) => t.di === di)];
     return activeIdx === 0 && di === 0 && lostThreads.length ? [...lostThreads, ...own] : own;
   };
 
@@ -556,6 +569,7 @@
   //   vcs:wt:<j>                              — the working tree
   //   br:<repo>:<base>:<branch>[:@from..to]:<j> — a branch pair, optionally a commit slice
   //   vcs:<repo>:<rev>:<j>                    — the retired per-commit view: nothing shows it
+  //   <any of the above, section index `*`>   — a thread Claude opened, in any section of that scope
   function threadContext(opIndex) {
     const key = String(opIndex || '');
     if (key.startsWith('br:')) {
@@ -563,7 +577,7 @@
       // optional selection segment is recognised by the '@' no branch name can carry.
       const parts = key.split(':');
       parts.shift();
-      if (!/^\d+$/.test(parts.pop() || '')) return null;
+      if (!/^(\d+|\*)$/.test(parts.pop() || '')) return null;
       let range = null;
       if (parts.length && parts[parts.length - 1].startsWith('@')) {
         const [from, to] = parts.pop().slice(1).split('..');
@@ -627,7 +641,7 @@
     // Session sections are minted from the diff we currently HOLD, and a CAPPED file yields
     // different ones (one per raw op instead of the merged span). A thread anchored on the full
     // diff then matches no section — so load the full file and look again.
-    if (ctx.scope === 'session' && !fileDiffs(changes[i]).some((d) => d.opIndex === t.opIndex)) {
+    if (ctx.scope === 'session' && !isScoped(t) && !fileDiffs(changes[i]).some((d) => d.opIndex === t.opIndex)) {
       await loadFull(t.file);
       i = changes.findIndex((c) => c.file === t.file);
       if (i < 0) return false;
@@ -728,6 +742,25 @@
     } finally { sending = false; }
   }
 
+  // ── "Review with Claude" ── the session reviews the diff on screen and opens its findings as
+  // threads in it. The scope is recorded first, so those threads land under it; the request then
+  // goes straight to the session with no tab switch: the threads show up here as they come.
+  let asking = $state(false);
+  async function askReview() {
+    if (!canReview || asking || !changes.length) return;
+    asking = true;
+    try {
+      await startClaudeReview(id, scopeKey, branchNewRev);
+      const brief = (t) => ({ file: t.file, anchor: anchorLabel(t), text: t.messages[0]?.text || '' });
+      const here = threads.filter((t) => inKey(t.opIndex));
+      await sendToSession(id, reviewRequestPrompt(id, {
+        scope: reviewScope, rev: branchNewRev, files: changes.map((c) => c.file),
+        open: here.filter((t) => t.status !== 'archived').map(brief),
+        dismissed: here.filter((t) => t.status === 'archived').map(brief),
+      }));
+    } finally { asking = false; }
+  }
+
   const PR_PROMPT =
     'Open a pull request for the current branch:\n' +
     '1. push the branch;\n' +
@@ -826,6 +859,10 @@
         <button class:on={scope === sc.key} onclick={() => setScope(sc.key)} title={sc.title}><Icon name={sc.icon} size={12} /> {sc.label}</button>
       {/each}
     </div>
+    <button class="st-ask" onclick={askReview} disabled={asking || !canReview || !changes.length}
+            title={canReview ? 'Ask Claude to review this diff — its findings open as threads here' : 'No live session to send to'}>
+      <Icon name="bot" size={12} /> {asking ? 'Asking…' : 'Review with Claude'}
+    </button>
     {#if scope === 'session'}
       <span class="st-label">Changes for</span>
       {#if turns.length > 1}
@@ -1074,6 +1111,13 @@
   }
   .st-toggle button:hover { color: var(--text); }
   .st-toggle button.on { background: var(--accent-soft); color: var(--accent-d); }
+  .st-ask {
+    flex: 0 0 auto; display: inline-flex; align-items: center; gap: 5px; background: none;
+    border: 1px solid var(--accent); border-radius: 999px; color: var(--accent-d); font: inherit;
+    font-size: var(--t-micro); font-weight: 700; padding: 4px 10px; cursor: pointer;
+  }
+  .st-ask:hover:not(:disabled) { background: var(--accent-soft); }
+  .st-ask:disabled { opacity: .5; cursor: default; }
   .st-label { font-family: var(--mono); font-size: var(--t-micro); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); flex: 0 0 auto; }
   .st-one { font-size: var(--t-meta); color: var(--muted); }
   .st-right { margin-left: auto; font-family: var(--mono); font-size: var(--t-micro); }

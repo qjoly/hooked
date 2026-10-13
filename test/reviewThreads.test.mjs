@@ -13,6 +13,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { execFileSync } from 'node:child_process';
 
 const TMP = path.join(os.tmpdir(), 'hooked-reviewthreads-' + process.pid);
 process.env.HOOKED_DATA_DIR = TMP;
@@ -136,5 +137,108 @@ describe('reviewThreads — gardes', () => {
       JSON.stringify({ threads: [{ id: 'old-1', file: '/repo/a.js', side: 'new', start: 1, end: 1, status: 'resolved', sent: true, messages: [{ author: 'user', text: 'x' }] }] }),
     );
     expect(store.listThreads(legacy)[0].status).toBe('archived');
+  });
+});
+
+// "Review with Claude": Claude opens the threads itself. It only gives a path and line numbers;
+// the store reads the snippet (reanchor() needs the exact lines, and a model cannot be trusted to
+// copy them byte for byte) — through symbols.readSlice, so only files of the session's repositories
+// are read, at the revision the diff shows — and files the thread under the scope the review was
+// asked on.
+describe('reviewThreads — threads opened by Claude', () => {
+  const CSID = 'session-claude';
+  const PROJECT = path.join(TMP, 'project');
+  const FILE = path.join(PROJECT, 'src', 'b.js');
+  const src = ['line 1', 'line 2', 'line 3', 'line 4', 'line 5'].join('\n');
+  const GIT = ['-c', 'user.email=t@test', '-c', 'user.name=t', '-c', 'commit.gpgsign=false'];
+  const git = (...args) => execFileSync('git', [...GIT, ...args], { cwd: PROJECT });
+
+  beforeAll(() => {
+    fs.mkdirSync(path.dirname(FILE), { recursive: true });
+    fs.writeFileSync(FILE, src);
+    git('init', '-q');
+    git('add', '.');
+    git('commit', '-q', '-m', 'init');
+  });
+
+  it('files a thread under the default working-tree scope when no review was started', async () => {
+    const { thread } = await store.addClaudeThread('session-no-review', { file: FILE, start: 2, text: 'x' }, PROJECT);
+    expect(thread.opIndex).toBe('vcs:wt:*');
+  });
+
+  it('opens a sent thread, authored by Claude, anchored on the disk lines of the started scope', async () => {
+    expect(store.startReview(CSID, 'vcs:wt:*')).toMatchObject({ scope: 'vcs:wt:*', rev: null });
+    const { thread } = await store.addClaudeThread(CSID, { file: FILE, start: 2, end: 3, text: 'off by one' }, PROJECT);
+    expect(thread).toMatchObject({
+      file: FILE, name: 'b.js', opIndex: 'vcs:wt:*', side: 'new', start: 2, end: 3,
+      snippet: 'line 2\nline 3', status: 'open', sent: true,
+    });
+    expect(thread.messages).toEqual([expect.objectContaining({ author: 'claude', text: 'off by one' })]);
+    expect(store.listThreads(CSID).map((t) => t.id)).toContain(thread.id);
+  });
+
+  it('resolves a relative path against the session project', async () => {
+    const { thread } = await store.addClaudeThread(CSID, { file: 'src/b.js', start: 5, text: 'last line' }, PROJECT);
+    expect(thread).toMatchObject({ file: FILE, start: 5, end: 5, snippet: 'line 5' });
+  });
+
+  it('clamps an end past the end of the file', async () => {
+    const { thread } = await store.addClaudeThread(CSID, { file: FILE, start: 4, end: 99, text: 'tail' }, PROJECT);
+    expect(thread).toMatchObject({ start: 4, end: 5, snippet: 'line 4\nline 5' });
+  });
+
+  it('keeps the started scope when other threads are written', async () => {
+    store.startReview(CSID, 'br:/repo:main:feat:*');
+    store.addThread(CSID, { ...anchor, text: 'a user comment in between' });
+    const { thread } = await store.addClaudeThread(CSID, { file: FILE, start: 1, text: 'still scoped' }, PROJECT);
+    expect(thread.opIndex).toBe('br:/repo:main:feat:*');
+  });
+
+  it('reads the lines at the revision the diff shows, not on disk', async () => {
+    // A branch review: the new side is `git show <tip>:<path>`, whatever the working tree holds.
+    fs.writeFileSync(FILE, 'uncommitted 1\nuncommitted 2');
+    try {
+      store.startReview('session-rev', 'br:/repo:main:feat:*', 'HEAD');
+      const { thread } = await store.addClaudeThread('session-rev', { file: FILE, start: 3, text: 'x' }, PROJECT);
+      expect(thread).toMatchObject({ start: 3, end: 3, snippet: 'line 3' });
+    } finally {
+      fs.writeFileSync(FILE, src);
+    }
+  });
+
+  it('falls back to the disk when the revision no longer resolves', async () => {
+    store.startReview('session-gone', 'br:/repo:main:gone:*', 'gone-branch');
+    const { thread } = await store.addClaudeThread('session-gone', { file: FILE, start: 2, text: 'x' }, PROJECT);
+    expect(thread.snippet).toBe('line 2');
+  });
+
+  it('refuses a file outside the session repositories — nothing of it is stored', async () => {
+    const outside = path.join(TMP, 'secret.txt');
+    fs.writeFileSync(outside, 'token=abc');
+    const { error } = await store.addClaudeThread(CSID, { file: outside, start: 1, text: 'x' }, PROJECT);
+    expect(error).toMatch(/outside the session's repositories/);
+    expect(JSON.stringify(store.listThreads(CSID))).not.toContain('token=abc');
+  });
+
+  it('keeps no snippet rather than a line cut short (it could never re-anchor)', async () => {
+    const wide = path.join(PROJECT, 'wide.txt');
+    fs.writeFileSync(wide, 'x'.repeat(5000) + '\nshort');
+    const { thread } = await store.addClaudeThread(CSID, { file: wide, start: 1, text: 'minified' }, PROJECT);
+    expect(thread).toMatchObject({ start: 1, end: 1, snippet: '' });
+  });
+
+  it('explains a refusal, so the model can fix its call', async () => {
+    const err = async (sid, input, cwd = PROJECT) => (await store.addClaudeThread(sid, input, cwd)).error;
+    expect(await err(CSID, { file: FILE, start: 9, text: 'x' })).toMatch(/past the end.*5 lines/);
+    expect(await err(CSID, { file: 'nope.js', start: 1, text: 'x' })).toMatch(/cannot read/);
+    expect(await err(CSID, { file: 'src/b.js', start: 1, text: 'x' }, null)).toMatch(/project/);
+    expect(await err(CSID, { file: FILE, start: 1, text: '  ' })).toMatch(/text/);
+    expect(await err(CSID, { file: FILE, start: 0, text: 'x' })).toMatch(/line/);
+    expect(await err('../evil', { file: FILE, start: 1, text: 'x' })).toBeTruthy();
+  });
+
+  it('refuses to start a review without a scope', () => {
+    expect(store.startReview(CSID, '')).toBe(null);
+    expect(store.startReview('../evil', 'vcs:wt:*')).toBe(null);
   });
 });

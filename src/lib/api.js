@@ -61,6 +61,7 @@ export const deleteReviewThread = (id, threadId) => jpost('/api/review', { id, a
 export const replyReviewThread = (id, threadId, text) => jpost('/api/review', { id, action: 'reply', threadId, text });
 export const archiveReviewThread = (id, threadId, archived = true) => jpost('/api/review', { id, action: 'archive', threadId, archived });
 export const markReviewSent = (id, ids) => jpost('/api/review', { id, action: 'sent', ids });
+export const startClaudeReview = (id, scope, rev) => jpost('/api/review', { id, action: 'start', scope, rev });
 // Texte COMPLET d'un message user coupé dans la conversation (bulle marquée `truncated`),
 // chargé quand on déplie la bulle. `uuid` = le forkUuid du message. { text }.
 export const getMessageText = (id, uuid, agent = null) =>
