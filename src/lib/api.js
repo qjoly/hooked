@@ -120,6 +120,9 @@ export const getMemory = () => jget('/api/memory');
 // MCP servers of a project (health-checked list, scope, diagnostics) + the OAuth actions.
 // `cwd` selects the project: project- and local-scope servers are per-directory.
 export const getMcpServers = (cwd) => jget('/api/mcp?cwd=' + encodeURIComponent(cwd || ''));
+// Trace lens: tool-call spans grouped by turn, and one span's input/result on demand.
+export const getTrace = (id) => jget('/api/session/trace?id=' + encodeURIComponent(id));
+export const getTraceTool = (id, tool) => jget('/api/session/trace?id=' + encodeURIComponent(id) + '&tool=' + encodeURIComponent(tool));
 export const mcpAction = (body) => jpost('/api/mcp', body);
 
 // Signed-in Claude account (top bar avatar/menu) + the `claude auth login`/`logout` actions.
