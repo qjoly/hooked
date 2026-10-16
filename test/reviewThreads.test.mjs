@@ -117,6 +117,23 @@ describe('reviewThreads — gardes', () => {
     expect(store.addThread(SID, { ...anchor, start: 0 })).toBe(null);
   });
 
+  // A cut key never matches its section again (the front requires a `:<index>` or `:*` tail), so
+  // the thread turned "unreachable". Real case: a worktree path + branch + commit range, 225 chars.
+  const BRANCH_KEY = 'br:/Users/cchaslerie/Documents/Lucca/CC.Master/.claude/worktrees/precious-crunching-hearth:master:fix/environment-renaming-dns-verification:@15d92d88e555f04bc14b70366043b643ec6b5949..39414400614c34683df37d3e197bb40678ca6967:0';
+
+  it('stores a branch section key longer than 200 chars intact', () => {
+    expect(BRANCH_KEY.length).toBeGreaterThan(200);
+    const t = store.addThread(SID, { ...anchor, opIndex: BRANCH_KEY, text: 'long key' });
+    expect(t.opIndex).toBe(BRANCH_KEY);
+    expect(store.listThreads(SID).find((x) => x.id === t.id).opIndex).toBe(BRANCH_KEY);
+  });
+
+  it('rejects a section key past the limit rather than cutting it', () => {
+    const before = store.listThreads(SID).length;
+    expect(store.addThread(SID, { ...anchor, opIndex: 'br:' + 'x'.repeat(1000) + ':0', text: 'too long' })).toBe(null);
+    expect(store.listThreads(SID)).toHaveLength(before);
+  });
+
   it('refuse un id de session menaçant (traversal) sans toucher au disque', () => {
     expect(store.addThread('../evil', anchor)).toBe(null);
     expect(store.listThreads('../evil')).toEqual([]);
@@ -240,5 +257,13 @@ describe('reviewThreads — threads opened by Claude', () => {
   it('refuses to start a review without a scope', () => {
     expect(store.startReview(CSID, '')).toBe(null);
     expect(store.startReview('../evil', 'vcs:wt:*')).toBe(null);
+  });
+
+  it('keeps a long scope and revision intact, and rejects them past the limit', () => {
+    const scope = 'br:/' + 'deep/'.repeat(80) + 'wt:master:feat:*';
+    const rev = 'feature/' + 'n'.repeat(300);
+    expect(store.startReview('session-long', scope, rev)).toMatchObject({ scope, rev });
+    expect(store.startReview('session-long', 'br:' + 'x'.repeat(1000) + ':*')).toBe(null);
+    expect(store.startReview('session-long', scope, 'x'.repeat(1001))).toBe(null);
   });
 });

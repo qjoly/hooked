@@ -47,6 +47,11 @@ const MAX_MESSAGES = 50;    // par thread
 const MAX_TEXT = 20000;     // par message
 const MAX_SNIPPET = 4000;
 const MAX_CLAUDE_SPAN = 30;  // lines a Claude-opened thread may cover
+// Section keys (`opIndex`, `scope`) and revisions are matched exactly: a truncated one never
+// matches again, so the thread becomes unreachable. Too long means rejected, never cut. A branch
+// key carries a worktree path, a branch name and two 40-char SHAs: 200 was already too short.
+const MAX_KEY = 1000;
+const isKey = (v) => typeof v === 'string' && v.length <= MAX_KEY;
 // Where a Claude thread goes when no review was started from the lens (Claude asked in the chat):
 // the working tree, i.e. the current changes — the front's key for "any section of that scope".
 const DEFAULT_SCOPE = 'vcs:wt:*';
@@ -101,6 +106,7 @@ function addThread(sessionId, input) {
   const start = Number.isInteger(input.start) && input.start > 0 ? input.start : null;
   const end = Number.isInteger(input.end) && input.end >= (start || 1) ? input.end : start;
   if (!text || !file || !start) return null;
+  if (typeof input.opIndex === 'string' && !isKey(input.opIndex)) return null;
   const threads = readThreads(sessionId);
   if (threads.length >= MAX_THREADS) return null;
   const now = new Date().toISOString();
@@ -108,7 +114,7 @@ function addThread(sessionId, input) {
     id: crypto.randomUUID(),
     file,
     name: typeof input.name === 'string' ? input.name.slice(0, 200) : path.basename(file),
-    opIndex: typeof input.opIndex === 'string' ? input.opIndex.slice(0, 200) : '',
+    opIndex: typeof input.opIndex === 'string' ? input.opIndex : '',
     side, start, end,
     snippet: typeof input.snippet === 'string' ? input.snippet.slice(0, MAX_SNIPPET) : '',
     status: 'open',
@@ -188,10 +194,12 @@ function markThreadsSent(sessionId, ids) {
 // new side comes from revision `rev` (none: the file on disk): the threads Claude opens from now
 // on are filed under that scope and anchored at that revision.
 function startReview(sessionId, scope, rev = null) {
-  if (!sessionId || !SID_RE.test(sessionId) || typeof scope !== 'string' || !scope) return null;
+  if (!sessionId || !SID_RE.test(sessionId) || !scope || !isKey(scope)) return null;
+  // A cut revision would not resolve, and addClaudeThread would silently read the disk instead.
+  if (typeof rev === 'string' && !isKey(rev)) return null;
   const review = {
-    scope: scope.slice(0, 400),
-    rev: typeof rev === 'string' && rev ? rev.slice(0, 200) : null,
+    scope,
+    rev: typeof rev === 'string' && rev ? rev : null,
     at: new Date().toISOString(),
   };
   writeDoc(sessionId, { ...readDoc(sessionId), review });
