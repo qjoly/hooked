@@ -11,7 +11,7 @@
   import { onMount, onDestroy, tick, untrack } from 'svelte';
   import { goto } from '$app/navigation';
   import { ui, data, settings, loadSessions, openModal, sessionTitle, sessionTags, renameSession, toggleFocus, splitWithMostRecent, canSplit, toggleArchive, isArchived, unarchive } from '$lib/state.svelte.js';
-  import { getSession, setMode, setModelEffort, setAutoApprove, openInEditor, openInGhostty, fork, launch, deleteSession, connectSessionStream, listTerminals, openTerminal, killTerminal } from '$lib/api.js';
+  import { getSession, setMode, setModelEffort, setAutoApprove, openInEditor, openInGhostty, fork, launch, deleteSession, restartClaudeSession, connectSessionStream, listTerminals, openTerminal, killTerminal } from '$lib/api.js';
   import { promptCacheState } from '$lib/promptCache.js';
   import { STATE_LABEL, fmtCost, fmtTokens, shortModel, PERMISSION_MODES, modeLabel, modeMeta, modelAlias, tagColor, lotColor, resumeCommand, parseBang, isBlockForCommand } from '$lib/format.js';
   import { page } from '$app/state';
@@ -580,6 +580,21 @@
     if (res.ok) { loadSessions(); ui.tick++; }
     else { deleting = false; alert('✗ ' + (res.data.error || 'failed')); }
   }
+  let restarting = $state(false);
+  function restart() {
+    openModal('confirm', {
+      title: 'Restart session?',
+      message: 'The Claude process is stopped and resumed from its transcript. A turn in progress is lost.',
+      confirmLabel: 'Restart', confirmIcon: 'rotate-cw', onConfirm: doRestart,
+    });
+  }
+  async function doRestart() {
+    restarting = true;
+    const res = await restartClaudeSession(s.id).catch((e) => ({ ok: false, data: { error: e.message } }));
+    restarting = false;
+    if (res.ok) { loadSessions(); ui.tick++; }
+    else alert('✗ ' + (res.data.error || 'failed'));
+  }
   // Auto-approbation des permissions d'outil. `autoView` est optimiste tant que le refetch n'a pas
   // confirmé, comme pour le mode de permission.
   let autoBusy = $state(false);
@@ -830,6 +845,7 @@
             {#if sb.focusBtn !== false}<button class="vscode-btn" class:on={ui.focus} onclick={toggleFocus} title="Focus mode: full-screen conversation"><Icon name="maximize" size={14} /> {ui.focus ? 'Exit focus' : 'Focus'}</button>{/if}
             <button class="vscode-btn" class:on={ui.toolsOpen} onclick={() => (ui.toolsOpen = !ui.toolsOpen)} title="Expand every tool call's input/result inline (this session only, off on reload)"><Icon name="tool" size={14} /> {ui.toolsOpen ? 'Collapse tool details' : 'Expand tool details'}</button>
             <div class="hdr-div"></div>
+            <button class="vscode-btn" disabled={restarting} onclick={restart} title="Stop the Claude process and resume it from its transcript (picks up the installed claude version)">{#if restarting}<Icon name="queued" size={14} />{:else}<Icon name="rotate-cw" size={14} />{/if} Restart</button>
             <button class="vscode-btn del-btn" disabled={deleting} onclick={del} title="Move to trash: removes from dashboard; transcript kept in bin/ (recoverable)">{#if deleting}<Icon name="queued" size={14} tint={false} />{:else}<Icon name="trash" size={14} tint={false} />{/if} Delete</button>
           </div>
         </details>
