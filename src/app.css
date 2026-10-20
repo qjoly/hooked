@@ -2221,7 +2221,11 @@ html { scrollbar-color: var(--border2) transparent; scrollbar-width: thin; }
     z-index: 5;
     box-shadow: -8px 0 24px -16px rgba(var(--shadow-rgb),.4);
   }
-  .layout.no-inbox .main-pane { position: static; transform: none; }
+  /* Sans sidebar (le Deck en accueil), `.layout` passe en `display: block` : un `.main-pane`
+     statique prend alors la hauteur de son contenu, le `.deck` interne n'a plus de hauteur à
+     remplir et c'est `.layout` (overflow: hidden) qui rogne la liste — plus rien ne défile au
+     doigt. La hauteur explicite redonne au `.deck` sa zone de scroll. */
+  .layout.no-inbox .main-pane { position: static; transform: none; height: 100%; min-height: 0; }
   .layout.has-detail .main-pane { transform: translateX(0); }
 
   /* paddings réduits */
