@@ -1,5 +1,5 @@
 import { dev } from '$app/environment';
-import { startDigestScheduler, startRemoteControl, readSettings, resumeDrivenSessions, startDrivenSnapshot, installShutdownHook, startWarmupScheduler, startAutoCompactScheduler, applyGitSyncSetting, applyPrReviewTagSetting } from '$lib/server/core.js';
+import { startDigestScheduler, startRemoteControl, readSettings, resumeDrivenSessions, startDrivenSnapshot, installShutdownHook, startWarmupScheduler, startAutoCompactScheduler, applyGitSyncSetting, applyPrReviewTagSetting, applyAutoTagSetting } from '$lib/server/core.js';
 
 // Ctrl+C has to actually stop the process. adapter-node closes the HTTP listener on SIGINT but
 // never exits, so any handle left behind (fs watchers, driven subprocesses, PTYs) keeps hooked
@@ -24,6 +24,7 @@ if (!dev || process.env.HOOKED_MODE) {
   // opened a browser on never ran them. Idempotent; POST /api/settings re-applies them on change.
   applyGitSyncSetting(settings);
   applyPrReviewTagSetting(settings);
+  applyAutoTagSetting(settings);
   // Sessions live in this process, so a restart kills them all. Bring back the ones that were being
   // driven when we last stopped, then keep the snapshot current for the next restart.
   resumeDrivenSessions();

@@ -1,5 +1,5 @@
 import { json } from '@sveltejs/kit';
-import { readTags, setTags, writeTags } from '$lib/server/core.js';
+import { readTags, setTags, writeTags, autoTagSession } from '$lib/server/core.js';
 import { fail, readJson } from '$lib/server/respond.js';
 
 // Étiquettes de session persistées côté serveur (tags.json). GET renvoie { tags: { [id]: [] } }.
@@ -15,6 +15,7 @@ export async function POST({ request }) {
   try {
     let tags;
     if (body.replace && typeof body.replace === 'object') tags = writeTags(body.replace);
+    else if (typeof body.suggest === 'string') tags = await autoTagSession(body.suggest);
     else if (typeof body.id === 'string') tags = setTags(body.id, Array.isArray(body.tags) ? body.tags : []);
     else return fail(400, 'invalid request');
     return json({ ok: true, tags });

@@ -993,6 +993,10 @@
         <input type="checkbox" checked={settings.autoPrReviewTag} onchange={(e) => updateSettings({ autoPrReviewTag: e.currentTarget.checked })} />
         <span>Auto-tag a session <code>pr-approved</code> / <code>pr-changes-requested</code> when its most recent linked PR gets reviewed on GitHub (checked every 5 min via <code>gh</code>, read-only)</span>
       </label>
+      <label class="check">
+        <input type="checkbox" checked={settings.autoTags} onchange={(e) => updateSettings({ autoTags: e.currentTarget.checked })} />
+        <span>Auto-tag new sessions from their content (one Haiku call per session after its first turn; existing tags are kept)</span>
+      </label>
       <p class="hint">Tags live only through the sessions that carry them — deleting one removes it from every session and clears it from any active filter. This can't be undone.</p>
       {#if allTags().length}
         <ul class="taglist">

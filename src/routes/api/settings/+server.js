@@ -1,5 +1,5 @@
 import { json } from '@sveltejs/kit';
-import { readSettings, writeSettings, applyGitSyncSetting, applyRemoteControlSetting, applyPrReviewTagSetting, applyWarmupSetting } from '$lib/server/core.js';
+import { readSettings, writeSettings, applyGitSyncSetting, applyRemoteControlSetting, applyPrReviewTagSetting, applyAutoTagSetting, applyWarmupSetting } from '$lib/server/core.js';
 import { fail, readJson } from '$lib/server/respond.js';
 
 // Réglages persistants de hooked (settings.json côté serveur). GET renvoie l'objet complet
@@ -17,6 +17,7 @@ export async function POST({ request }) {
     const settings = writeSettings(body);
     applyGitSyncSetting(settings); // (dé)marre la boucle immédiatement au toggle de autoGitSync
     applyPrReviewTagSetting(settings); // idem pour le tag auto de review PR
+    applyAutoTagSetting(settings);
     applyRemoteControlSetting(settings); // réconcilie les démons remote-control au changement de liste
     applyWarmupSetting(settings); // le tick relit la config, donc activer la fenêtre 5 h prend effet tout de suite
     return json({ ok: true, settings });

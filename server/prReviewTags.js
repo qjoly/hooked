@@ -88,4 +88,4 @@ function applyPrReviewTagSetting(settings) {
   else stopPrReviewTags();
 }
 
-export { prReviewTick, startPrReviewTags, stopPrReviewTags, applyPrReviewTagSetting };
+export { PR_REVIEW_TAGS, prReviewTick, startPrReviewTags, stopPrReviewTags, applyPrReviewTagSetting };
