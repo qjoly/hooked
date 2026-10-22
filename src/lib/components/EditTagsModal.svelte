@@ -1,11 +1,19 @@
 <script>
-  import { data, closeModal, sessionTitle, sessionTags, setSessionTags, allTags } from '$lib/state.svelte.js';
+  import { data, closeModal, sessionTitle, sessionTags, setSessionTags, suggestSessionTags, allTags } from '$lib/state.svelte.js';
   import { tagColor } from '$lib/format.js';
 
   let { r } = $props(); // { sessionId }
   const session = $derived(data.sessions.find((s) => s.id === r.sessionId) || { id: r.sessionId, title: '(session)' });
 
   let newTag = $state('');
+  let suggesting = $state(false);
+  let suggestError = $state('');
+
+  async function suggest() {
+    suggesting = true;
+    suggestError = '';
+    try { await suggestSessionTags(r.sessionId); } catch (e) { suggestError = e.message; } finally { suggesting = false; }
+  }
 
   // liste de tous les tags connus (en usage) UNION ceux de la session — triée.
   const known = $derived.by(() => {
@@ -41,7 +49,9 @@
     <input id="et-add" type="text" placeholder="Type a tag name…" bind:value={newTag}
            onkeydown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addTag(); } }} />
     <button class="et-addbtn" onclick={addTag}>Add</button>
+    <button class="et-done" onclick={suggest} disabled={suggesting} title="Ask Haiku for tags that fit this session">{suggesting ? 'Suggesting…' : 'Suggest'}</button>
   </div>
+  {#if suggestError}<div class="et-empty">{suggestError}</div>{/if}
 
   <div class="et-label">Tags</div>
   <div class="et-list">
@@ -101,4 +111,5 @@
     padding: 8px 18px; font: inherit; font-size: var(--t-ui); font-weight: 600; cursor: pointer;
   }
   .et-done:hover { background: var(--hover); }
+  .et-done:disabled { opacity: .6; cursor: progress; }
 </style>

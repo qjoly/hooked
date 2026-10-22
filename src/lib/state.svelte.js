@@ -2,7 +2,7 @@
 // La navigation (vue courante, session ouverte, écran « nouvelle session ») n'est PLUS
 // ici : elle est portée par l'URL (routing SvelteKit). Ne restent que les filtres de la
 // sidebar, l'état live (SSE), le tick de rafraîchissement et la modale.
-import { getSessions, connectSSE, getSettings, saveSettings as apiSaveSettings, getTags, saveTags, replaceTags, getSessionMeta, saveSessionMeta, groupOp, kill, getAccount } from './api.js';
+import { getSessions, connectSSE, getSettings, saveSettings as apiSaveSettings, getTags, saveTags, replaceTags, suggestTags, getSessionMeta, saveSessionMeta, groupOp, kill, getAccount } from './api.js';
 import { NOTIFY_KINDS, notifyKeyFor, countsForBadge } from './notify.js';
 import { isFinishedAndCold } from './format.js';
 import { DEFAULT_HIDDEN_MODELS } from './models.js';
@@ -314,6 +314,12 @@ export function setSessionTags(id, list) {
   else delete next[id];
   ui.tags = next;
   saveTags(id, clean).then((res) => { if (res.ok && res.data.tags) ui.tags = res.data.tags; }).catch(() => {});
+}
+// Asks the server for model-suggested tags; they are merged server-side, never replacing existing ones.
+export async function suggestSessionTags(id) {
+  const res = await suggestTags(id);
+  if (!res.ok) throw new Error((res.data && res.data.error) || 'suggestion failed');
+  if (res.data.tags) ui.tags = res.data.tags;
 }
 // Listes de tags des sessions VISIBLES. En incognito, la barre de filtres, les suggestions de la
 // modale et le gestionnaire de tags des réglages nommeraient sinon les sessions qu'on vient

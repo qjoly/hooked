@@ -107,6 +107,7 @@ export const getRemoteControl = () => jget('/api/remote-control');
 export const getTags = () => jget('/api/tags');
 export const saveTags = (id, tags) => jpost('/api/tags', { id, tags });
 export const replaceTags = (map) => jpost('/api/tags', { replace: map });
+export const suggestTags = (id) => jpost('/api/tags', { suggest: id });
 // Per-session Deck metadata (session-meta.json server-side, shared across browsers):
 // archived flag + snooze deadline. saveSessionMeta merge-patches one session.
 export const getSessionMeta = () => jget('/api/session-meta');
