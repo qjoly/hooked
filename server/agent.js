@@ -23,7 +23,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
-import { execFile } from 'node:child_process';
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import { PORT, LAUNCHES_FILE, SESSION_LAUNCH_FILE, DRIVEN_FILE, PERMISSION_MODES, LAUNCH_PERMISSION_MODES, isValidModelArg } from './config.js';
 import { isValidEffort } from './capabilities.js';
@@ -181,17 +180,42 @@ function loginEnv() {
     return globalThis[LOGIN_ENV];
   }
   globalThis[LOGIN_ENV] = new Promise((resolve) => {
-    execFile(shell, ['-l', '-i', '-c', `printf '${ENV_SENTINEL}\\0'; env -0`],
-      { encoding: 'utf8', timeout: LOGIN_ENV_TIMEOUT, maxBuffer: 4 << 20 },
-      (err, out) => {
-        const env = err ? {} : parseEnvBlock(out);
-        if (!env.PATH) {
-          console.log(`[hooked] could not read the login shell environment (${shell}): sessions will `
-            + 'inherit the hooked process PATH only' + (err ? ` — ${err.message || err}` : ''));
-          return resolve(withoutServerEnv(process.env));
-        }
-        resolve(withoutServerEnv({ ...process.env, ...env }));
-      });
+    let timer = null;
+    let settled = false;
+    const finish = (env, why) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      if (!env || !env.PATH) {
+        console.log(`[hooked] could not read the login shell environment (${shell}): sessions will `
+          + 'inherit the hooked process PATH only' + (why ? ` — ${why}` : ''));
+        return resolve(withoutServerEnv(process.env));
+      }
+      resolve(withoutServerEnv({ ...process.env, ...env }));
+    };
+    // `spawn` rather than `execFile`, for its two options that make the deadline below real:
+    // `detached` (the probe leads its own process group, so the kill takes down whatever the profile
+    // started behind it — execFile drops that option) and `stdio.stdin: ignore` (a profile that asks
+    // for something, an SSH passphrase say, reads EOF instead of waiting on input that never comes).
+    const child = spawn(shell, ['-l', '-i', '-c', `printf '${ENV_SENTINEL}\\0'; env -0`],
+      // stderr dropped rather than piped: nothing reads it, and a chatty profile would fill the
+      // pipe and block the shell for good.
+      { detached: true, stdio: ['ignore', 'pipe', 'ignore'] });
+    let out = '';
+    child.stdout.setEncoding('utf8');
+    child.stdout.on('data', (d) => { if (out.length < (4 << 20)) out += d; });
+    child.on('error', (e) => finish(null, (e && e.message) || String(e)));
+    child.on('close', () => finish(parseEnvBlock(out)));
+    // The deadline is OURS, and no longer execFile's `timeout` option: that one sends a SIGTERM an
+    // interactive shell ignores, and its callback waits for stdout to close anyway — which a
+    // grandchild of the shell keeps open. One `keychain` stuck in .zshrc was therefore enough to
+    // leave this promise pending FOREVER: `query()` was never called and every launch failed with
+    // « agent sdk session did not start within 30s », with nothing in the logs.
+    timer = setTimeout(() => {
+      try { process.kill(-child.pid, 'SIGKILL'); } catch (_) { try { child.kill('SIGKILL'); } catch (_) {} }
+      finish(null, `no answer within ${LOGIN_ENV_TIMEOUT / 1000}s`);
+    }, LOGIN_ENV_TIMEOUT);
+    timer.unref?.();
   });
   return globalThis[LOGIN_ENV];
 }
