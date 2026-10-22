@@ -1,6 +1,6 @@
 <script>
   import { onMount } from 'svelte';
-  import { ago } from '$lib/format.js';
+  import { ago, ghFilter } from '$lib/format.js';
   import Icon from './Icon.svelte';
   import GhDetail from './GhDetail.svelte';
 
@@ -71,8 +71,9 @@
     return [...m.values()].sort((a, b) => b.last.localeCompare(a.last));
   });
 
-  const q = $derived(query.trim().toLowerCase());
-  const keep = (x) => (!repo || x.repo === repo) && (!q || x.title.toLowerCase().includes(q) || x.repo.toLowerCase().includes(q));
+  const filter = $derived(ghFilter(query));
+  const keep = (x) => (!repo || x.repo === repo) && filter.keep(x);
+  const shownRepos = $derived(repos.filter((r) => filter.inScope(r.repo)));
   const cols = $derived([
     { key: 'notifications', label: 'Notifications', icon: 'bell', tint: 'var(--warn)', items: lists.notifications.filter(keep) },
     { key: 'issues', label: 'Assigned issues', icon: 'issue', tint: 'var(--success)', items: lists.issues.filter(keep) },
@@ -114,7 +115,7 @@
 <div class="gh">
   <header class="bar">
     <h1>GitHub</h1>
-    <input class="search" type="search" placeholder="Filter by title or repo…" bind:value={query} />
+    <input class="search" type="search" placeholder="Filter by title or repo, org/ to scope…" bind:value={query} />
     {#if res?.fetchedAt}<span class="fetched">fetched {ago(res.fetchedAt)}</span>{/if}
     <button class="refresh" onclick={() => load(true)} disabled={loading}>
       <Icon name="refresh" size={14} /> {loading ? 'Loading…' : 'Refresh'}
@@ -129,9 +130,9 @@
     <div class="body">
       <nav class="rail" aria-label="Repositories">
         <button class="rrow" class:on={!repo} onclick={() => (repo = '')}>
-          <span class="rname">All repositories</span><span class="rn">{repos.reduce((n, r) => n + r.n, 0)}</span>
+          <span class="rname">All repositories</span><span class="rn">{shownRepos.reduce((n, r) => n + r.n, 0)}</span>
         </button>
-        {#each repos as r (r.repo)}
+        {#each shownRepos as r (r.repo)}
           <button class="rrow" class:on={repo === r.repo} onclick={() => (repo = repo === r.repo ? '' : r.repo)} title={r.repo}>
             <span class="rname"><span class="owner">{r.repo.split('/')[0]}/</span>{short(r.repo)}</span><span class="rn">{r.n}</span>
           </button>
