@@ -1003,6 +1003,12 @@
               <button class:on={rendered} onclick={() => (ui.shipRendered = true)} title="Rendered markdown"><Icon name="eye" size={14} /></button>
             {/if}
           </div>
+          {#if isMarkdown}
+            <a class="sd-editor" target="_blank" rel="noopener" title="Open the rendered document in a new tab"
+               href={`/render?id=${encodeURIComponent(id)}&file=${encodeURIComponent(activeFile.file)}${revForSide('new') ? '&rev=' + encodeURIComponent(revForSide('new')) : ''}`}>
+              <Icon name="external" size={12} /> rendered
+            </a>
+          {/if}
           {#if !rendered}
             <label class="sd-compact" title="Hide the unchanged context lines">
               <input type="checkbox" bind:checked={ui.shipCompact} /> compact
