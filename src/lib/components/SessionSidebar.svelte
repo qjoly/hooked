@@ -5,7 +5,7 @@
   // and width all live in ui (localStorage). Toggle via the ◀/▶ buttons or ⌘/Ctrl+B.
   import { goto } from '$app/navigation';
   import { page } from '$app/state';
-  import { ui, data, settings, sessionTitle, sessionTags, togglePin, allTags, tagUsage, openModal, isSessionArchived, isArchived, toggleArchive, isIncognito, toggleIncognito, addSplit, isInSplit, canSplit, groupUnits, isGroupArchived, groupName, isGrouped, dnd } from '$lib/state.svelte.js';
+  import { ui, data, settings, sessionTitle, sessionTags, togglePin, openModal, isSessionArchived, isArchived, toggleArchive, isIncognito, toggleIncognito, addSplit, isInSplit, canSplit, groupUnits, isGroupArchived, groupName, isGrouped, dnd } from '$lib/state.svelte.js';
   import { onMount } from 'svelte';
   import { ago, agoShort, fmtSpan, tagColor, lotColor, isActiveSession as isActive, needsDecision, sessionDot as dotClass } from '$lib/format.js';
   import { cacheCountdown } from '$lib/promptCache.js';
@@ -28,8 +28,7 @@
   const isPinned = (id) => pinnedSet.has(id);
 
   // tag filter (transient) : click = single tag; Ctrl/⌘+click = combine (AND). A session must
-  // carry ALL active filter tags. The chip bar lists tags actually in use.
-  const knownTags = $derived(allTags());
+  // carry ALL active filter tags. The chip bar lists tags of the current tab (see `tagCounts`).
   function selectTag(tag, e) {
     if (e.ctrlKey || e.metaKey) {
       ui.tagFilters = ui.tagFilters.includes(tag) ? ui.tagFilters.filter((t) => t !== tag) : [...ui.tagFilters, tag];
@@ -96,18 +95,24 @@
   }
 
   // active list (hide archived/finished, keep current) vs archived list — both honour the tag filter.
-  const active = $derived.by(() => {
+  const activePool = $derived.by(() => {
     const now = Date.now();
-    return data.sessions
-      .filter((s) => (s.id === currentId || !isSessionArchived(s)) && matchesTagFilter(s) && passesAge(s, now))
-      .sort(byActivity);
+    return data.sessions.filter((s) => (s.id === currentId || !isSessionArchived(s)) && passesAge(s, now));
   });
-  const archived = $derived.by(() => {
+  const archivedPool = $derived.by(() => {
     const now = Date.now();
-    return data.sessions
-      .filter((s) => isSessionArchived(s) && matchesTagFilter(s) && passesAge(s, now))
-      .sort(byActivity);
+    return data.sessions.filter((s) => isSessionArchived(s) && passesAge(s, now));
   });
+  const active = $derived(activePool.filter(matchesTagFilter).sort(byActivity));
+  const archived = $derived(archivedPool.filter(matchesTagFilter).sort(byActivity));
+  // Counted before the tag filter, so picking one tag doesn't hide the others; tags living only on
+  // archived sessions stay out of the Active tab. Active filters are kept so they can be untoggled.
+  const tagCounts = $derived.by(() => {
+    const m = new Map();
+    for (const s of tab === 'archived' ? archivedPool : activePool) for (const t of sessionTags(s.id)) m.set(t, (m.get(t) || 0) + 1);
+    return m;
+  });
+  const knownTags = $derived([...new Set([...tagCounts.keys(), ...ui.tagFilters])].sort((a, b) => a.localeCompare(b)));
   const projectKey = (s) => s.repo || s.projectName || '—';
 
   // Session GROUPS are the list's unit: a group is one entry headed by its mother session, its
@@ -238,7 +243,7 @@
           {@const on = ui.tagFilters.includes(t)}
           <button class="ssb-tf" class:on style="--c:{tagColor(t)}"
                   title="Filter by #{t} · Ctrl/⌘+click to combine" onclick={(e) => selectTag(t, e)}>
-            #{t} <span class="ssb-tf-n">{tagUsage(t)}</span>
+            #{t} <span class="ssb-tf-n">{tagCounts.get(t) || 0}</span>
           </button>
         {/each}
         {#if ui.tagFilters.length}
