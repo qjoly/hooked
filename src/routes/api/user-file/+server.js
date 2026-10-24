@@ -1,6 +1,6 @@
 import { readUserFile } from '$lib/server/core.js';
 
-// Serve a file delivered by SendUserFile / show_image / show_video for display in the
+// Serve a file delivered by SendUserFile / show_image / show_video / show_audio for display in the
 // conversation. `readUserFile` only serves paths that appear in the (session / sub-agent)
 // transcript's own calls (allowlist, realpath-guarded) → no arbitrary file read even if the server
 // is bound to 0.0.0.0.
