@@ -1,6 +1,6 @@
 <script>
-  // Media card for hooked's show_image / show_video MCP tools: the picture or recording Claude made
-  // of its work, an optional before/after pair, what changed and the checks it ran. Files are
+  // Media card for hooked's show_image / show_video / show_audio MCP tools: the picture or recording
+  // Claude made of its work, an optional before/after pair, what changed and the checks it ran. Files are
   // served by /api/user-file (transcript allowlist), like SendUserFile.
   import Lightbox from './Lightbox.svelte';
   import Icon from '$lib/components/Icon.svelte';
@@ -8,6 +8,9 @@
   let { show, result = '', session = null, agent = null } = $props();
 
   const isVideo = $derived(show.kind === 'video');
+  const isAudio = $derived(show.kind === 'audio');
+  // Both play on a timeline, so changes and checks can carry a timecode.
+  const timed = $derived(isVideo || isAudio);
   const src = $derived(userFileUrl(session, agent, show.path));
   const before = $derived(show.compare ? userFileUrl(session, agent, show.compare) : '');
   let zoom = $state(null);
@@ -30,12 +33,12 @@
   }
   const fmt = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
   // A timed check stays pending until the recording reaches it, like in the plugin this mirrors.
-  const reached = (c) => !isVideo || c.at == null || now >= c.at;
+  const reached = (c) => !timed || c.at == null || now >= c.at;
 </script>
 
 <div class="show">
   <div class="show-head">
-    <Icon name="image" size={13} />
+    <Icon name={isAudio ? 'mic' : 'image'} size={13} />
     <span class="show-title">{show.title || show.name}</span>
     {#if show.url}<a class="show-link" href={show.url} target="_blank" rel="noopener">Open page <Icon name="external" size={12} /></a>{/if}
   </div>
@@ -49,6 +52,8 @@
           <figcaption>Before</figcaption>
           {#if isVideo}
             <video bind:this={other} src={before} muted playsinline preload="metadata"></video>
+          {:else if isAudio}
+            <audio src={before} controls preload="metadata"></audio>
           {:else}
             <button class="show-img" onclick={() => (zoom = before)}><img src={before} alt="before" loading="lazy" /></button>
           {/if}
@@ -61,6 +66,10 @@
                  onplay={sync} onpause={sync} onseeked={sync}
                  ontimeupdate={(e) => (now = e.currentTarget.currentTime)}
                  onerror={() => (failed = true)}></video>
+        {:else if isAudio}
+          <audio bind:this={main} {src} controls preload="metadata"
+                 ontimeupdate={(e) => (now = e.currentTarget.currentTime)}
+                 onerror={() => (failed = true)}></audio>
         {:else}
           <button class="show-img" onclick={() => (zoom = src)}><img {src} alt={show.name} loading="lazy" onerror={() => (failed = true)} /></button>
         {/if}
@@ -75,7 +84,7 @@
           <li class="show-h">What changed</li>
           {#each show.changes as c}
             <li>
-              {#if isVideo && c.at != null}<button class="show-at" onclick={() => seek(c.at)}>{fmt(c.at)}</button>{/if}
+              {#if timed && c.at != null}<button class="show-at" onclick={() => seek(c.at)}>{fmt(c.at)}</button>{/if}
               <span>{c.title}{#if c.detail}<span class="show-d">{' · '}{c.detail}</span>{/if}</span>
             </li>
           {/each}
@@ -90,7 +99,7 @@
           {#each show.checks as c}
             <li class={reached(c) ? (c.ok ? 'ok' : 'ko') : 'pending'}>
               {#if reached(c)}<Icon name={c.ok ? 'check' : 'close'} size={12} tint={false} />{:else}<span class="dot"></span>{/if}
-              {#if isVideo && c.at != null}<button class="show-at" onclick={() => seek(c.at)}>{fmt(c.at)}</button>{/if}
+              {#if timed && c.at != null}<button class="show-at" onclick={() => seek(c.at)}>{fmt(c.at)}</button>{/if}
               {c.name}
             </li>
           {/each}
@@ -108,6 +117,7 @@
   .show-link { margin-left: auto; display: inline-flex; align-items: center; gap: 4px; color: var(--accent); text-decoration: none; }
   .show-media { display: grid; gap: 8px; }
   .show-media.pair { grid-template-columns: 1fr 1fr; }
+  audio { width: 100%; }
   figure { margin: 0; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
   figcaption { font-size: var(--t-micro); color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
   video, .show-img img { display: block; width: 100%; max-height: 480px; object-fit: contain; border-radius: 6px; background: #000; }

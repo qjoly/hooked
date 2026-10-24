@@ -98,7 +98,7 @@ only. Every shortcut can be rebound in the settings.
 hooked ships an MCP server (`mcp/server.cjs`), so a Claude session can drive the others:
 `list_sessions`, `get_session`, `search_sessions`, `start_session`, `reply_to_session`,
 `interrupt_session`, `stop_session`, `set_mode`, `set_model`, `get_stats`, `get_digest`,
-`reply_review_comment`, plus `show_image` / `show_video` to display media in the conversation.
+`reply_review_comment`, plus `show_image` / `show_video` / `show_audio` to display media in the conversation.
 A session started this way lands in its parent's group.
 
 ### 🎨 And also

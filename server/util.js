@@ -125,10 +125,11 @@ function toolSendFiles(toolName, input, cwd) {
   return { caption: typeof input.caption === 'string' ? input.caption.slice(0, 300) : '', files: out };
 }
 
-// hooked's own show_image / show_video MCP tools (mcp/server.cjs): a picture or a recording of the
+// hooked's own show_image / show_video / show_audio MCP tools (mcp/server.cjs): a picture or a
+// recording of the
 // work, rendered as a media card in the conversation. Same trust model as SendUserFile: the paths
 // are display hints, /api/user-file re-derives its allowlist from the transcript.
-const SHOW_TOOLS = { mcp__hooked__show_image: 'image', mcp__hooked__show_video: 'video' };
+const SHOW_TOOLS = { mcp__hooked__show_image: 'image', mcp__hooked__show_video: 'video', mcp__hooked__show_audio: 'audio' };
 const str = (v, max) => (typeof v === 'string' ? v.slice(0, max) : '');
 const num = (v) => (typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : null);
 const list = (v) => (Array.isArray(v) ? v.filter((x) => x && typeof x === 'object').slice(0, 30) : []);

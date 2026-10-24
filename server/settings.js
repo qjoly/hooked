@@ -41,8 +41,8 @@ const DEFAULTS = {
   gitAutoRestartOnLock: false,
   // Afficher la bannière « redémarrage nécessaire / effectué » dans l'UI (indépendant de l'auto-restart).
   gitRestartNotice: true,
-  // show_image / show_video MCP tools (cf. mcp/server.cjs): Claude shows its visual work in the
-  // conversation. Applies from the next launch or resume.
+  // show_image / show_video / show_audio MCP tools (cf. mcp/server.cjs): Claude shows its work in
+  // the conversation. Applies from the next launch or resume.
   showWork: true,
   // Défauts pré-sélectionnés au lancement/à la reprise d'une session (formulaires Nouvelle session
   // et Resume). Chaîne vide = « hériter » : on retombe sur la config Claude Code de l'utilisateur

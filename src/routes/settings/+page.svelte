@@ -641,7 +641,7 @@
 
     <div class="card" id="pset-showwork" data-sec>
       <h2>Show your work</h2>
-      <p class="hint">Gives sessions the <code>show_image</code> and <code>show_video</code> tools: after visual work, Claude screenshots or records it (Playwright) and the result shows up in the conversation, with what changed and a before/after when relevant. Applies from the next launch or resume.</p>
+      <p class="hint">Gives sessions the <code>show_image</code>, <code>show_video</code> and <code>show_audio</code> tools: after visual or audio work, Claude screenshots, records or plays it back and the result shows up in the conversation, with what changed and a before/after when relevant. Applies from the next launch or resume.</p>
       <label class="check">
         <input type="checkbox" checked={settings.showWork !== false}
                onchange={(e) => updateSettings({ showWork: e.currentTarget.checked })} />

@@ -302,13 +302,14 @@ const TOOLS = [
   },
 ];
 
-// --- show your work (show_image / show_video) --------------------------------
+// --- show your work (show_image / show_video / show_audio) -------------------
 // hooked renders these calls as a media card in the conversation, straight from the transcript
 // (server/util.js toolShowWork); the tool itself only checks that the file is there. Listed only
 // when hooked launched the session with the `showWork` setting on (HOOKED_SHOW_WORK=1).
 
 const IMAGE_EXT = ['.png', '.jpg', '.jpeg', '.gif', '.webp'];
 const VIDEO_EXT = ['.mp4', '.m4v', '.webm', '.mov'];
+const AUDIO_EXT = ['.mp3', '.m4a', '.aac', '.wav', '.ogg', '.oga', '.opus', '.flac'];
 
 function showFile(exts, kind) {
   return (a) => {
@@ -326,7 +327,7 @@ function showFile(exts, kind) {
 
 const CHANGES = {
   type: 'array',
-  description: 'What changed, a few words each: { title, detail?, at? (seconds into the video) }',
+  description: 'What changed, a few words each: { title, detail?, at? (seconds into the recording) }',
   items: {
     type: 'object',
     properties: { title: { type: 'string' }, detail: { type: 'string' }, at: { type: 'number' } },
@@ -349,6 +350,23 @@ const SHOW_PROPS = {
   compare: { type: 'string', description: 'Absolute path of the same view before the change' },
   changes: CHANGES,
   summary: SUMMARY,
+};
+
+const CHECKS = {
+  type: 'array',
+  description: 'Checks run: { name, ok, at? (seconds into the recording) }',
+  items: {
+    type: 'object',
+    properties: { name: { type: 'string' }, ok: { type: 'boolean' }, at: { type: 'number' } },
+    required: ['name', 'ok'],
+  },
+};
+// show_video / show_audio: same card, plus checks pinned to a moment in the recording.
+const TIMED_SCHEMA = {
+  type: 'object',
+  properties: { ...SHOW_PROPS, checks: CHECKS },
+  required: ['path'],
+  additionalProperties: false,
 };
 
 const SHOW_TOOLS = [
@@ -376,24 +394,22 @@ const SHOW_TOOLS = [
       'you tested, also with `at`. For a fix, record the same steps on the old version and pass that file as `compare`: ' +
       'the two play side by side, in sync. Pass `summary` only for checks you actually ran.\n\n' +
       'Keep clips short (50 MB max). You do not see the video.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        ...SHOW_PROPS,
-        checks: {
-          type: 'array',
-          description: 'Checks run: { name, ok, at? (seconds into the video) }',
-          items: {
-            type: 'object',
-            properties: { name: { type: 'string' }, ok: { type: 'boolean' }, at: { type: 'number' } },
-            required: ['name', 'ok'],
-          },
-        },
-      },
-      required: ['path'],
-      additionalProperties: false,
-    },
+    inputSchema: TIMED_SCHEMA,
     run: showFile(VIDEO_EXT, 'video'),
+  },
+  {
+    name: 'show_audio',
+    description:
+      'Plays an audio file to the user, inline in the hooked conversation. Accepts MP3, M4A, WAV, OGG, Opus and FLAC.\n\n' +
+      'Use it without being asked whenever you have made or changed something audible: a generated or edited track, a ' +
+      'sound effect, a text-to-speech render, the output of an audio pipeline. Do this instead of asking the user to open ' +
+      'a file or a localhost URL.\n\n' +
+      'When the clip is work you changed, pass `changes`, each with `at` (the second it happens), and `checks` for what ' +
+      'you tested, also with `at`. For a fix, pass the old render as `compare`: the two are shown side by side, each ' +
+      'with its own player. Pass `summary` only for checks you actually ran.\n\n' +
+      'Keep clips short (50 MB max). You do not hear the audio.',
+    inputSchema: TIMED_SCHEMA,
+    run: showFile(AUDIO_EXT, 'audio'),
   },
 ];
 if (process.env.HOOKED_SHOW_WORK === '1') TOOLS.push(...SHOW_TOOLS);

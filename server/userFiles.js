@@ -19,6 +19,8 @@ const CONTENT_TYPE = {
   '.txt': 'text/plain; charset=utf-8', '.log': 'text/plain; charset=utf-8', '.md': 'text/markdown; charset=utf-8',
   '.csv': 'text/csv; charset=utf-8', '.json': 'application/json; charset=utf-8',
   '.mp4': 'video/mp4', '.m4v': 'video/mp4', '.webm': 'video/webm', '.mov': 'video/quicktime',
+  '.mp3': 'audio/mpeg', '.m4a': 'audio/mp4', '.aac': 'audio/aac', '.wav': 'audio/wav',
+  '.ogg': 'audio/ogg', '.oga': 'audio/ogg', '.opus': 'audio/ogg', '.flac': 'audio/flac',
 };
 // jamais rendus inline same-origin (SVG/HTML peuvent porter du script exécuté contre l'origine)
 const FORCE_ATTACHMENT = new Set(['.html', '.htm', '.svg']);
@@ -35,7 +37,7 @@ function sessionTranscriptPath(sessionId, projectsDir = PROJECTS_DIR) {
   return null;
 }
 
-// Files a tool_use hands to the user: SendUserFile's `files`, show_image/show_video's `path` and
+// Files a tool_use hands to the user: SendUserFile's `files`, the show_* tools' `path` and
 // `compare` (the before side).
 function sentPaths(b) {
   const i = b.input || {};
