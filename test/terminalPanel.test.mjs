@@ -15,6 +15,7 @@ import fs from 'node:fs';
 
 const SRC = fs.readFileSync(new URL('../src/lib/components/SessionDetail.svelte', import.meta.url), 'utf8');
 const TERM = fs.readFileSync(new URL('../src/lib/components/Terminal.svelte', import.meta.url), 'utf8');
+const CSS = fs.readFileSync(new URL('../src/app.css', import.meta.url), 'utf8');
 
 describe('terminal panel', () => {
   it('gates the panel on termOpen alone', () => {
@@ -41,10 +42,41 @@ describe('terminal panel', () => {
     expect(body.slice(0, body.indexOf('\n  }'))).toMatch(/if \(!terms\.length\) termOpen = false/);
   });
 
-  // `--code-bg` est sombre dans TOUS les thèmes, alors que `--fg` vaut #181b20 en thème clair :
-  // les marier donnait un terminal noir sur noir.
-  it('never takes the terminal foreground from a theme-dependent variable', () => {
-    expect(TERM).not.toMatch(/foreground:\s*v\(/);
-    expect(TERM).toContain('foreground: TERM_FG');
+  // `--code-bg` is dark in EVERY theme, whereas `--fg` is #181b20 in light themes: pairing them gave
+  // a black-on-black terminal. The terminal must read its ink from the code-surface tokens, and
+  // those must stay readable on the code surface in every scheme and theme.
+  it('takes the terminal foreground from the code-surface ink, never the UI ink', () => {
+    expect(TERM).toContain("v('--code-fg'");
+    expect(TERM).not.toMatch(/['"]--fg['"]/);
+  });
+
+  it('keeps the code-surface ink readable on the code surface in every theme', () => {
+    const scale = Object.fromEntries([...CSS.matchAll(/--(r\d+):\s*(#[0-9a-f]{6})/gi)].map((m) => [m[1], m[2]]));
+    const resolve = (value) => value.replace(/^var\(--(r\d+)\)$/, (_, name) => scale[name] ?? value);
+    const tokens = (name) => [...CSS.matchAll(new RegExp(`--${name}:\\s*([^;]+);`, 'g'))].map((m) => resolve(m[1].trim()));
+
+    const backgrounds = tokens('code-bg');
+    const inks = tokens('code-fg');
+    expect(backgrounds.length).toBeGreaterThan(0);
+    expect(inks.length).toBeGreaterThan(0);
+    // worst case across every definition, so any scheme/theme combination is covered
+    const darkestInk = Math.min(...inks.map(luminance));
+    const lightestBackground = Math.max(...backgrounds.map(luminance));
+    expect(contrast(darkestInk, lightestBackground)).toBeGreaterThanOrEqual(4.5);
   });
 });
+
+// WCAG relative luminance of a #rrggbb colour; anything else (unresolved var, rgba) fails loudly.
+function luminance(hex) {
+  const match = /^#([0-9a-f]{6})$/i.exec(hex);
+  if (!match) throw new Error(`not a #rrggbb colour: ${hex}`);
+  const [r, g, b] = [0, 2, 4].map((i) => {
+    const c = parseInt(match[1].slice(i, i + 2), 16) / 255;
+    return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+  });
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
+
+function contrast(a, b) {
+  return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+}

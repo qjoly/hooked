@@ -7,8 +7,8 @@
   // Ce composant remplace le mirroir de pane tmux. Deux simplifications par rapport à lui : il n'y a
   // plus de session Claude à recopier (donc plus de mode lecture seule ni d'évènement `meta` pour se
   // caler sur la taille d'un pane distant — ici c'est NOUS qui dimensionnons le PTY), et le thème
-  // n'est plus un sélecteur : seul le FOND vient des variables CSS de hooked, le reste est une
-  // palette de terminal sombre fixe (cf. readTheme).
+  // n'est plus un sélecteur : la palette vient des variables `--code-*` de hooked, celles de la
+  // surface de code, sombre dans tous les thèmes (cf. readTheme).
   import { onMount, onDestroy } from 'svelte';
   import { sendTerminalInput, resizeTerminal } from '$lib/api.js';
   import { getBinding, matchesEvent } from '$lib/shortcuts.js';
@@ -20,12 +20,12 @@
   let fitAddon = null, fitTimer = null, lastDims = '', resizeObs = null;
   let closed = $state(false);
 
-  // Palette du terminal. On ne dérive QUE le fond des variables CSS : `--code-bg` est sombre dans
-  // tous les thèmes, donc le texte doit être clair dans tous les thèmes aussi. Dériver l'avant-plan
-  // de `--fg` donnait #181b20 sur #0f1218 en thème clair — noir sur noir, illisible. Les couleurs
-  // ANSI restent celles d'un terminal sombre standard : les accents de l'UI en thème clair sont
-  // calculés pour un fond clair et passent mal ici, et un `ls` ou un prompt doit ressembler à ce
-  // qu'il donne dans n'importe quel autre terminal.
+  // Terminal palette. Every colour comes from the code-surface tokens (`--code-bg`, `--code-fg`,
+  // `--code-selection`): `--code-bg` is dark in every theme and `--code-fg` is the light ink drawn
+  // for it, so the pair stays readable in light themes too. Never take the foreground from the UI
+  // ink (`--fg`): it is #181b20 in light themes, which put black text on a black terminal. The ANSI
+  // colours stay those of a standard dark terminal: the light-theme UI accents are tuned for a light
+  // background, and an `ls` or a prompt should look the way it does in any other terminal.
   function readTheme() {
     if (typeof getComputedStyle === 'undefined' || !host) return null;
     const css = getComputedStyle(document.documentElement);
