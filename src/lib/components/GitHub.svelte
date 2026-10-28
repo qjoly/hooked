@@ -1,6 +1,7 @@
 <script>
   import { onMount } from 'svelte';
   import { ago, ghFilter } from '$lib/format.js';
+  import { markGithubNotificationsDone } from '$lib/api.js';
   import Icon from './Icon.svelte';
   import GhDetail from './GhDetail.svelte';
 
@@ -9,6 +10,8 @@
   let query = $state('');
   let repo = $state(''); // '' = all repositories
   let open = $state(null); // URL shown in the detail panel
+  let clearing = $state(false); // notifications being marked as done
+  let clearError = $state('');
 
   // Plain click opens the panel; a modified click keeps the browser's own behaviour.
   function peek(e, url) {
@@ -19,6 +22,7 @@
 
   async function load(refresh = false) {
     loading = true;
+    clearError = '';
     try {
       const r = await fetch('/api/github' + (refresh ? '?refresh=1' : ''));
       res = await r.json();
@@ -29,6 +33,22 @@
     }
   }
   onMount(() => load());
+
+  // Clears what the column shows, filters included: a filtered view clears only its matches.
+  async function clearNotifications(items) {
+    clearing = true;
+    clearError = '';
+    try {
+      const { data } = await markGithubNotificationsDone(items.map((n) => n.id));
+      const done = new Set(data.done || []);
+      res.notifications = res.notifications.filter((n) => !done.has(n.id));
+      clearError = data.error || '';
+    } catch (e) {
+      clearError = e.message;
+    } finally {
+      clearing = false;
+    }
+  }
 
   const DECISION = {
     APPROVED: { label: 'Approved', cls: 'ok' },
@@ -144,8 +164,15 @@
           <section class="col" style="--col-tint:{col.tint}">
             <h2>
               <Icon name={col.icon} size={14} /> {col.label}<span class="cn">{col.items.length}</span>
+              {#if col.key === 'notifications' && col.items.length}
+                <button class="clear" onclick={() => clearNotifications(col.items)} disabled={clearing}
+                  title="Mark the {col.items.length} notifications shown as done on GitHub">
+                  <Icon name={clearing ? 'busy' : 'check'} size={13} tint={false} /> {clearing ? 'Clearing…' : 'Clear'}
+                </button>
+              {/if}
               {#if repo}<a class="ext" href="https://github.com/{repo}" target="_blank" rel="noreferrer" title="Open {repo} on GitHub"><Icon name="external" size={13} /></a>{/if}
             </h2>
+            {#if col.key === 'notifications' && clearError}<p class="clear-err">Could not clear every notification: {clearError}</p>{/if}
             {#if !col.items.length}
               <p class="none">Nothing here.</p>
             {:else}
@@ -232,6 +259,12 @@
   .cn { font-size: var(--t-micro); font-weight: 600; color: var(--col-tint); background: color-mix(in srgb, var(--col-tint) 14%, transparent); border-radius: 999px; padding: 1px 8px; }
   .ext { margin-left: auto; color: var(--muted); display: inline-flex; }
   .ext:hover { color: var(--accent); }
+  .clear { margin-left: auto; display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border: 1px solid var(--border); border-radius: 7px; background: none; color: var(--muted); font-size: var(--t-micro); font-weight: 600; cursor: pointer; }
+  .clear:hover:not(:disabled) { color: var(--success); border-color: var(--success); }
+  .clear:disabled { opacity: .6; cursor: progress; }
+  .clear + .ext { margin-left: 0; }
+  .col h2 .clear :global(svg) { color: inherit; } /* not the column tint */
+  .clear-err { flex: none; margin: 0; padding: 8px 12px; color: var(--danger); font-size: var(--t-meta); border-bottom: 1px solid var(--border); }
   .none { color: var(--muted); font-size: var(--t-ui); text-align: center; padding: 24px 0; margin: 0; }
   .col ul { flex: 1 1 auto; min-height: 0; overflow-y: auto; list-style: none; margin: 0; padding: 0; }
 

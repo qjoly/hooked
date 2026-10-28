@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { htmlUrl, toPr, toCheck, toPrDetail, isBotLogin, splitPatch } from '../server/github.js';
+import { htmlUrl, toPr, toCheck, toPrDetail, isBotLogin, splitPatch, markNotificationsDone } from '../server/github.js';
 
 describe('github page helpers', () => {
   it('maps notification API URLs to their web page', () => {
@@ -21,6 +21,13 @@ describe('github page helpers', () => {
     });
     expect(pr).toMatchObject({ repo: 'o/r', checks: 'FAILURE', decision: 'APPROVED', requested: ['team'], comments: 2 });
     expect(pr.reviews[0]).toEqual({ author: 'bob', state: 'APPROVED', at: 'y', url: 'v' });
+  });
+
+  // The id lands in a DELETE path: anything but a thread id could aim it at another endpoint.
+  it('refuses to mark anything but thread ids as done', async () => {
+    await expect(markNotificationsDone(['../../repos/o/r'])).rejects.toThrow(/thread ids/);
+    await expect(markNotificationsDone(['12', '13?x=1'])).rejects.toThrow(/thread ids/);
+    await expect(markNotificationsDone('12')).rejects.toThrow(/thread ids/);
   });
 });
 

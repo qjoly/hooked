@@ -129,6 +129,29 @@ export async function githubOverview({ refresh = false } = {}) {
   return cache.promise;
 }
 
+// Marks notification threads as done, like the inbox's "Done" (which also marks them read).
+// GitHub has no bulk "done", so it is one call per thread, a chunk at a time to bound the gh
+// processes in flight. A failed thread does not stop the others: the caller gets back the ids
+// that went through, plus the first error.
+export async function markNotificationsDone(ids) {
+  if (!Array.isArray(ids) || !ids.every((id) => /^\d+$/.test(id))) {
+    throw new Error('Expected a list of notification thread ids');
+  }
+  const done = [];
+  let error = null;
+  for (let i = 0; i < ids.length; i += CHUNK) {
+    const chunk = ids.slice(i, i + CHUNK);
+    const results = await Promise.allSettled(chunk.map((id) =>
+      gh(['api', '--method', 'DELETE', `notifications/threads/${id}`], { raw: true })));
+    results.forEach((r, j) => {
+      if (r.status === 'fulfilled') done.push(chunk[j]);
+      else error ??= r.reason.message;
+    });
+  }
+  if (done.length) cache = null; // the cached overview still lists them
+  return { done, error };
+}
+
 // ── Detail panel of a single PR / issue (Summary · Timeline · Code) ──
 
 const DETAIL_URL = /^https:\/\/github\.com\/[^/]+\/[^/]+\/(pull|issues)\/\d+$/;
