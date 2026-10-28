@@ -20,6 +20,35 @@ const TEXT_CAP = 8000;
 const FULL_CAP = 400000; // garde-fou sur le texte complet servi à la demande
 const capped = (t) => (t.length > TEXT_CAP ? { text: t.slice(0, TEXT_CAP), truncated: true } : { text: t });
 
+// `attachment.queued_command` prompt. It used to be a string and became an array of blocks. The
+// string is kept raw: chatText strips tags, which would erase the <task-notification> /
+// <agent-message> markers we look for.
+function queuedPrompt(j) {
+  if (j.type !== 'attachment' || !j.attachment || j.attachment.type !== 'queued_command') return null;
+  return typeof j.attachment.prompt === 'string' ? j.attachment.prompt : chatText(j.attachment.prompt);
+}
+
+// A subagent's message to this session (its final report, or a SendMessage on the way). The CLI
+// writes the same message on up to four carriers: queue-operation enqueue/remove, attachment
+// queued_command, and a user line with `origin.kind: "peer"`. The closing tag only counts at
+// column 0: the CLI indents every line of a report so that a tag inside it cannot close the frame.
+function agentMessage(j) {
+  const text = j.type === 'queue-operation' ? j.content
+    : j.type === 'user' && j.message ? j.message.content
+    : queuedPrompt(j);
+  const m = typeof text === 'string' && text.match(/<agent-message from="([^"]+)">\n([\s\S]*?)\n<\/agent-message>/);
+  return m ? { from: m[1], body: m[2] } : null;
+}
+
+// A final report comes wrapped in a frame written for the model ("[Subagent hand-back] … The
+// report follows:") with every line indented by two spaces. Keep what the subagent wrote.
+const HANDBACK_REPORT = 'The report follows:\n';
+function unframeReport(body) {
+  const at = body.indexOf(HANDBACK_REPORT);
+  if (!body.startsWith('[Subagent hand-back]') || at < 0) return body;
+  return body.slice(at + HANDBACK_REPORT.length).split('\n').map((l) => (l.startsWith('  ') ? l.slice(2) : l)).join('\n');
+}
+
 // includeSidechain : pour un transcript de sous-agent (tout est isSidechain), on garde tout.
 function buildConversation(fp, includeSidechain) {
   let data;
@@ -33,6 +62,10 @@ function buildConversation(fp, includeSidechain) {
   // fichier existait déjà). Sans lui, le chip d'un Write affiche tout le fichier en ajout.
   const writeOriginals = new Map();
   const processedUserTexts = new Set();
+  // A subagent's report is not in its Agent tool_result (that one only says "launched" or
+  // "delivered as a message"): it arrives later as an <agent-message>, matched by agentId.
+  const agentOfToolUse = new Map(); // tool_use_id → agentId
+  const agentMessages = new Map();  // agentId → bodies, in arrival order, one per message
   // clé de dédup queue-op ↔ tour user : on collapse TOUT le whitespace (pas seulement `[ \t]+`
   // comme chatText) pour qu'un collage multi-espaces (table alignée) ou multi-lignes matche.
   const dedupKey = (t) => chatText(t).replace(/\s+/g, ' ').trim();
@@ -40,14 +73,22 @@ function buildConversation(fp, includeSidechain) {
     if (!line) continue;
     let j;
     try { j = JSON.parse(line); } catch (_) { continue; }
+    const am = agentMessage(j);
+    if (am) {
+      const bodies = agentMessages.get(am.from) || [];
+      if (!bodies.includes(am.body)) bodies.push(am.body);
+      agentMessages.set(am.from, bodies);
+    }
     if (j.type === 'user' && j.message) {
       const c = j.message.content;
       if (Array.isArray(c)) {
+        const tur = j.toolUseResult && typeof j.toolUseResult === 'object' ? j.toolUseResult : null;
         for (const b of c) {
           if (b && b.type === 'tool_result' && b.tool_use_id) {
             results.set(b.tool_use_id, toolResultText(b.content));
-            const orig = j.toolUseResult && typeof j.toolUseResult === 'object' ? j.toolUseResult.originalFile : null;
+            const orig = tur ? tur.originalFile : null;
             if (typeof orig === 'string' && orig) writeOriginals.set(b.tool_use_id, orig);
+            if (tur && typeof tur.agentId === 'string') agentOfToolUse.set(b.tool_use_id, tur.agentId);
           }
         }
       }
@@ -59,6 +100,13 @@ function buildConversation(fp, includeSidechain) {
       }
     }
   }
+  // Not capped at TEXT_CAP: a tool chip has no way to fetch a tail, and most reports run past it.
+  // The payload stays about the same, since each report used to come as two capped user bubbles.
+  const agentReport = (toolUseId) => {
+    const bodies = agentMessages.get(agentOfToolUse.get(toolUseId));
+    return bodies ? bodies.map(unframeReport).join('\n\n---\n\n').slice(0, FULL_CAP) : null;
+  };
+  const delegatedAgents = new Set(agentOfToolUse.values());
   const msgs = [];
   const seenNotes = new Set(); // dédup des <task-notification> (mêmes notifs sur plusieurs porteurs)
   for (const line of lines) {
@@ -66,18 +114,18 @@ function buildConversation(fp, includeSidechain) {
     let j;
     try { j = JSON.parse(line); } catch (_) { continue; }
     if (!includeSidechain && j.isSidechain) continue;
+    // A message from a subagent of this session is shown as the result of its Agent call (see
+    // agentReport), not as a bubble: it is model output, not something the user typed.
+    const am = agentMessage(j);
+    if (am && delegatedAgents.has(am.from)) continue;
     // Notification de tâche de fond (Bash run_in_background / Monitor) : <task-notification> livrée via
     // 3 porteurs (queue-operation, user/system, attachment queued_command). Sans ça, une complétion
     // « ré-invoque » l'agent sans cause visible, et la variante user/system s'afficherait comme un faux
     // message « 🧑 You » (XML brut). On la rend en ligne système sobre, DÉDUPLIQUÉE par task-id+résumé
     // (une même notif peut arriver en double sur plusieurs porteurs).
     // `attachment.queued_command` porte DEUX choses : une notification de tâche de fond, et le
-    // message tapé pendant que l'agent travaille. Son `prompt` était une chaîne, c'est devenu un
-    // TABLEAU de blocs → on aplatit. On garde la chaîne brute telle quelle : chatText y retire les
-    // balises, ce qui effacerait le marqueur <task-notification> juste en dessous.
-    const qc = (j.type === 'attachment' && j.attachment && j.attachment.type === 'queued_command')
-      ? (typeof j.attachment.prompt === 'string' ? j.attachment.prompt : chatText(j.attachment.prompt))
-      : null;
+    // message tapé pendant que l'agent travaille.
+    const qc = queuedPrompt(j);
     const note =
       (j.type === 'queue-operation' && typeof j.content === 'string' && j.content.includes('<task-notification>')) ? j.content :
       (qc && qc.includes('<task-notification>')) ? qc :
@@ -165,7 +213,7 @@ function buildConversation(fp, includeSidechain) {
           text += (text ? '\n' : '') + b.text;
           parts.push({ type: 'text', text: b.text });
         } else if (b.type === 'tool_use') {
-          const tool = { id: b.id || null, name: b.name, detail: toolDetail(b.input), inputText: toolInputText(b.input), result: b.id ? (results.get(b.id) || null) : null };
+          const tool = { id: b.id || null, name: b.name, detail: toolDetail(b.input), inputText: toolInputText(b.input), result: b.id ? (agentReport(b.id) || results.get(b.id) || null) : null };
           tools.push(tool);
           // `diff` carried on the part (not on `tool`, which is shared with `tools[]` frozen
           // by the test baseline) → rendered as a collapsible Pierre diff in the conversation.
