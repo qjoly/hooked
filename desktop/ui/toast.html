@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>hooked</title>
+    <style>
+      /* Tokens taken from the dashboard's default palette. No stored theme is
+         readable here, so these windows follow the system the way the
+         dashboard does when left on "system". */
+      :root {
+        color-scheme: light dark;
+        --bg: #e7eaef;
+        --panel: #ffffff;
+        --card: #ffffff;
+        --chip: #e3e6ec;
+        --border: #d3d8e0;
+        --border2: #bcc3cd;
+        --text: #18110e;
+        --muted: #5c636e;
+        --accent: #4f46e5;
+        --sel: #e2e0fb;
+        --code: #eceef2;
+        --pre: #f6f7f9;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #101013;
+          --panel: #1a1a1e;
+          --card: #1a1a1e;
+          --chip: #212127;
+          --border: #34343c;
+          --border2: #44444e;
+          --text: #ececee;
+          --muted: #a7a7b2;
+          --accent: #7d74f5;
+          --sel: #2b2b47;
+          --code: #26262e;
+          --pre: #101013;
+        }
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        height: 100vh;
+        display: flex;
+        gap: 10px;
+        align-items: center;
+        padding: 12px 14px;
+        background: var(--panel);
+        color: var(--text);
+        font: 13px/1.45 ui-sans-serif, -apple-system, system-ui, sans-serif;
+        border: 1px solid var(--border2);
+        border-left: 3px solid var(--accent);
+        cursor: pointer;
+        user-select: none;
+        overflow: hidden;
+      }
+      body:hover { background: var(--chip); }
+      .text { flex: 1; min-width: 0; }
+      .title { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .sub { color: var(--muted); font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .extra {
+        flex: none;
+        background: var(--sel);
+        color: var(--accent);
+        padding: .1rem .45rem;
+        font-size: 11px;
+        font-weight: 600;
+      }
+      .extra:empty { display: none; }
+    </style>
+  </head>
+  <body>
+    <div class="text">
+      <div class="title" id="title"></div>
+      <div class="sub" id="sub"></div>
+    </div>
+    <div class="extra" id="extra"></div>
+    <script>
+      const { invoke } = window.__TAURI__.core;
+      let current = null;
+      let timer;
+
+      // Called by the app each time a session starts waiting.
+      window.render = (data) => {
+        current = data.id;
+        document.getElementById('title').textContent = data.title || '(untitled)';
+        document.getElementById('sub').textContent = `${data.project} — ${data.reason}`;
+        document.getElementById('extra').textContent = data.extra ? `+${data.extra}` : '';
+        clearTimeout(timer);
+        timer = setTimeout(() => invoke('hide_toast'), 7000);
+      };
+
+      document.body.onclick = () => {
+        clearTimeout(timer);
+        if (current) invoke('open_from_toast', { id: current });
+      };
+    </script>
+  </body>
+</html>

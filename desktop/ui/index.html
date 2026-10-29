@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>hooked</title>
+    <style>
+      :root { color-scheme: dark; }
+      body {
+        margin: 0;
+        height: 100vh;
+        display: grid;
+        place-items: center;
+        background: #0b0d10;
+        color: #e6e8eb;
+        font: 14px/1.6 ui-sans-serif, -apple-system, system-ui, sans-serif;
+        -webkit-user-select: none;
+        user-select: none;
+      }
+      main { text-align: center; max-width: 30rem; padding: 0 2rem; }
+      h1 { margin: 0 0 .25rem; font-size: 1.1rem; font-weight: 600; letter-spacing: .02em; }
+      p { margin: 0 0 1.25rem; color: #8b94a0; }
+      code {
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        background: #171a1f;
+        border-radius: 4px;
+        padding: .15rem .4rem;
+        color: #d6dae0;
+      }
+      button {
+        font: inherit;
+        color: inherit;
+        background: #1d2127;
+        border: 1px solid #2c323a;
+        border-radius: 6px;
+        padding: .4rem 1rem;
+        cursor: pointer;
+      }
+      button:hover { background: #262b33; }
+      .hidden { display: none; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>hooked</h1>
+      <p id="status">Connecting…</p>
+      <div id="down" class="hidden">
+        <p>Start it with <code>mise run start</code>, or deploy the service with <code>mise run deploy</code>.</p>
+        <button id="retry">Retry now</button>
+      </div>
+    </main>
+    <script>
+      // ponytail: the port is the one mise pins (PORT=4123); make it a setting
+      // the day someone actually runs hooked elsewhere.
+      const TARGET = 'http://localhost:4123/';
+      const status = document.getElementById('status');
+      const down = document.getElementById('down');
+      let timer;
+
+      // no-cors turns the probe into a reachability test: the response is
+      // opaque, but a refused connection still rejects.
+      async function probe() {
+        clearTimeout(timer);
+        try {
+          await fetch(TARGET, { mode: 'no-cors', cache: 'no-store' });
+          location.replace(TARGET);
+        } catch {
+          status.textContent = 'The hooked service is not answering on port 4123.';
+          down.classList.remove('hidden');
+          timer = setTimeout(probe, 2000);
+        }
+      }
+
+      document.getElementById('retry').addEventListener('click', probe);
+      probe();
+    </script>
+  </body>
+</html>

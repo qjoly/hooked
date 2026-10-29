@@ -1,0 +1,279 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>hooked quick reply</title>
+    <style>
+      /* Tokens taken from the dashboard's default palette. No stored theme is
+         readable here, so these windows follow the system the way the
+         dashboard does when left on "system". */
+      :root {
+        color-scheme: light dark;
+        --bg: #e7eaef;
+        --panel: #ffffff;
+        --card: #ffffff;
+        --chip: #e3e6ec;
+        --border: #d3d8e0;
+        --border2: #bcc3cd;
+        --text: #18110e;
+        --muted: #5c636e;
+        --accent: #4f46e5;
+        --sel: #e2e0fb;
+        --code: #eceef2;
+        --pre: #f6f7f9;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #101013;
+          --panel: #1a1a1e;
+          --card: #1a1a1e;
+          --chip: #212127;
+          --border: #34343c;
+          --border2: #44444e;
+          --text: #ececee;
+          --muted: #a7a7b2;
+          --accent: #7d74f5;
+          --sel: #2b2b47;
+          --code: #26262e;
+          --pre: #101013;
+        }
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        height: 100vh;
+        display: flex;
+        flex-direction: column;
+        background: var(--bg);
+        color: var(--text);
+        font: 13px/1.55 ui-sans-serif, -apple-system, system-ui, sans-serif;
+        border: 1px solid var(--border2);
+        overflow: hidden;
+      }
+
+      ul {
+        list-style: none;
+        margin: 0;
+        padding: 5px;
+        max-height: 6.5rem;
+        overflow-y: auto;
+        background: var(--panel);
+        border-bottom: 1px solid var(--border);
+      }
+      li {
+        padding: .3rem .55rem;
+        cursor: pointer;
+        display: flex;
+        gap: .5rem;
+        align-items: baseline;
+      }
+      li[aria-selected='true'] { background: var(--sel); box-shadow: inset 2px 0 0 var(--accent); }
+      .name { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .meta { color: var(--muted); font-size: 11.5px; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .empty { padding: 1.2rem; text-align: center; color: var(--muted); cursor: default; }
+
+      #chat {
+        flex: 1;
+        overflow-y: auto;
+        padding: 12px;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+      .msg { max-width: 85%; padding: 8px 12px; }
+      .msg.user {
+        align-self: flex-end;
+        background: var(--accent);
+        color: #fff;
+      }
+      .msg.assistant {
+        align-self: flex-start;
+        background: var(--card);
+        border: 1px solid var(--border);
+      }
+      .msg.trace {
+        align-self: center;
+        max-width: 100%;
+        padding: 0;
+        color: var(--muted);
+        font-size: 11.5px;
+        white-space: pre-wrap;
+      }
+      .who { font-size: 10.5px; font-weight: 700; letter-spacing: .03em; opacity: .75; margin-bottom: 3px; }
+      .msg.user .who { text-align: right; }
+
+      .body > :first-child { margin-top: 0; }
+      .body > :last-child { margin-bottom: 0; }
+      .body { overflow-wrap: anywhere; }
+      .body p, .body ul, .body ol, .body pre { margin: .3rem 0; }
+      .body ul, .body ol { padding-left: 1.2rem; }
+      .body code {
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: 12px;
+        background: var(--code);
+        padding: .05rem .3rem;
+      }
+      .body pre {
+        background: var(--pre);
+        border: 1px solid var(--border);
+        padding: .45rem .6rem;
+        overflow-x: auto;
+      }
+      .body pre code { background: none; padding: 0; }
+      /* On the accent fill of a "You" bubble a surface tint vanishes. */
+      .msg.user .body code { background: rgba(255, 255, 255, .22); }
+      .msg.user .body pre { background: rgba(0, 0, 0, .25); border-color: rgba(255, 255, 255, .22); }
+      .msg.user .body a { color: #fff; }
+      .body a { color: var(--accent); }
+      .body h1, .body h2, .body h3 { font-size: 13px; margin: .4rem 0 .2rem; }
+      .body blockquote {
+        margin: .3rem 0;
+        padding-left: .6rem;
+        border-left: 2px solid var(--border2);
+        color: var(--muted);
+      }
+      .body table { border-collapse: collapse; font-size: 12px; }
+      .body th, .body td { border: 1px solid var(--border); padding: .15rem .4rem; }
+
+      textarea {
+        font: inherit;
+        color: inherit;
+        background: var(--panel);
+        border: 0;
+        border-top: 1px solid var(--border);
+        padding: .6rem;
+        resize: none;
+        height: 4.6rem;
+        outline: none;
+        flex: none;
+      }
+      textarea:focus { background: var(--card); }
+      footer {
+        display: flex;
+        justify-content: space-between;
+        padding: .35rem .6rem;
+        color: var(--muted);
+        font-size: 11px;
+        background: var(--panel);
+        border-top: 1px solid var(--border);
+        flex: none;
+      }
+      kbd { font-family: inherit; color: var(--text); opacity: .8; }
+    </style>
+  </head>
+  <body>
+    <ul id="list"></ul>
+    <div id="chat"></div>
+    <textarea id="text" placeholder="Reply…" autofocus></textarea>
+    <footer>
+      <span><kbd>↑↓</kbd> pick · <kbd>⏎</kbd> send · <kbd>esc</kbd> close</span>
+      <span id="note"></span>
+    </footer>
+    <script src="markdown-it.min.js"></script>
+    <script>
+      const { invoke } = window.__TAURI__.core;
+      // html:false escapes raw tags, and link validation rejects javascript: —
+      // a transcript is arbitrary content and this page can talk to the app.
+      const md = window.markdownit({ html: false, linkify: true, breaks: true });
+      const list = document.getElementById('list');
+      const chat = document.getElementById('chat');
+      const text = document.getElementById('text');
+      const note = document.getElementById('note');
+      let items = [];
+      let at = 0;
+      let token = 0; // discards a transcript that arrives after another pick
+
+      function row(cls, who, body) {
+        const el = document.createElement('div');
+        el.className = 'msg ' + cls;
+        if (who) {
+          const w = document.createElement('div');
+          w.className = 'who';
+          w.textContent = who;
+          el.append(w);
+        }
+        const b = document.createElement('div');
+        b.className = 'body';
+        if (cls === 'trace') b.textContent = body;
+        else b.innerHTML = md.render(body);
+        el.append(b);
+        return el;
+      }
+
+      function renderList() {
+        if (!items.length) {
+          list.innerHTML = '<li class="empty">Nothing is waiting on you.</li>';
+          chat.replaceChildren();
+          return;
+        }
+        list.replaceChildren(
+          ...items.map((s, i) => {
+            const li = document.createElement('li');
+            li.setAttribute('aria-selected', i === at);
+            const name = document.createElement('span');
+            name.className = 'name';
+            name.textContent = s.title || '(untitled)';
+            const meta = document.createElement('span');
+            meta.className = 'meta';
+            meta.textContent = `${s.project} — ${s.reason}`;
+            li.append(name, meta);
+            li.onclick = () => { at = i; pick(); text.focus(); };
+            return li;
+          }),
+        );
+        // The list scrolls, so the arrow keys have to drag the view with them.
+        list.children[at]?.scrollIntoView({ block: 'nearest' });
+      }
+
+      async function pick() {
+        renderList();
+        if (!items[at]) return;
+        const mine = ++token;
+        chat.replaceChildren(row('trace', '', 'Loading the conversation…'));
+        const msgs = await invoke('transcript', { id: items[at].id });
+        if (mine !== token) return;
+        chat.replaceChildren(
+          ...msgs.map((m) => {
+            const trace = m.text.startsWith('· ');
+            return row(trace ? 'trace' : m.role === 'user' ? 'user' : 'assistant',
+                       trace ? '' : m.role === 'user' ? 'You' : 'Claude', m.text);
+          }),
+        );
+        chat.scrollTop = chat.scrollHeight;
+      }
+
+      async function refresh() {
+        items = await invoke('waiting');
+        at = 0;
+        note.textContent = '';
+        await pick();
+      }
+
+      async function send() {
+        const body = text.value.trim();
+        if (!body || !items[at]) return;
+        note.textContent = 'sending…';
+        try {
+          await invoke('send_reply', { id: items[at].id, text: body });
+          text.value = '';
+          invoke('hide_quick');
+        } catch (e) {
+          note.textContent = String(e);
+        }
+      }
+
+      document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') invoke('hide_quick');
+        else if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
+        else if (e.key === 'ArrowDown' && items.length) { e.preventDefault(); at = (at + 1) % items.length; pick(); }
+        else if (e.key === 'ArrowUp' && items.length) { e.preventDefault(); at = (at - 1 + items.length) % items.length; pick(); }
+      });
+
+      // The window is only hidden, never destroyed, so the list is reloaded each
+      // time it comes back.
+      window.addEventListener('focus', refresh);
+      refresh();
+      text.focus();
+    </script>
+  </body>
+</html>
