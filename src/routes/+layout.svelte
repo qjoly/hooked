@@ -13,13 +13,14 @@
   import CommandPalette from '$lib/components/CommandPalette.svelte';
   import Companion from '$lib/components/Companion.svelte';
   import GhRunWindow from '$lib/components/GhRunWindow.svelte';
+  import QueryWindow from '$lib/components/QueryWindow.svelte';
+  import { floating } from '$lib/floating.svelte.js';
   import TopBar from '$lib/components/TopBar.svelte';
   import Icon from '$lib/components/Icon.svelte';
   import '../app.css';
 
   let { children } = $props();
   let palette;
-  let ghRunUrl = $state(null);
   onMount(startLive);
   // Suivi global de la touche « go to definition » (⌘ sur Mac, ⌃ ailleurs) : un seul écouteur
   // pour toute l'application, et il rend la touche à `blur`/`visibilitychange` — un ⌘-Tab ne
@@ -52,7 +53,7 @@
       if (a) { try { window.focus(); } catch (_) {} }
       // A GitHub Actions run link opens the floating run window; a modifier click still opens GitHub.
       const run = e.target?.closest?.('a[href]:not([data-native])');
-      if (run && parseRunUrl(run.href)) { e.preventDefault(); ghRunUrl = run.href; }
+      if (run && parseRunUrl(run.href)) { e.preventDefault(); floating.run = run.href; }
     };
     document.addEventListener('click', onClick);
     return () => document.removeEventListener('click', onClick);
@@ -146,7 +147,8 @@
 <Modal />
 <CommandPalette bind:this={palette} />
 {#if ui.companion}<Companion />{/if}
-{#key ghRunUrl}{#if ghRunUrl}<GhRunWindow url={ghRunUrl} onclose={() => (ghRunUrl = null)} />{/if}{/key}
+{#key floating.run}{#if floating.run}<GhRunWindow url={floating.run} onclose={() => (floating.run = null)} />{/if}{/key}
+{#key floating.query}{#if floating.query}<QueryWindow q={floating.query} onclose={() => (floating.query = null)} />{/if}{/key}
 
 <style>
   .skip-link {
