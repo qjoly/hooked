@@ -44,5 +44,13 @@ describe('grafana query results', () => {
     expect(r.input.datasource).toBe('mimir');
     expect(r.data.series).toHaveLength(2);
     expect(readQueryResult('s1', '', 'toolu_b', root)).toBeNull();
+
+    // The other saved format: the content blocks, as JSON, under the tool_use id.
+    fs.writeFileSync(path.join(proj, 's1', 'tool-results', 'toolu_q2.json'), JSON.stringify([{ type: 'text', text: JSON.stringify(matrix) }]));
+    fs.appendFileSync(path.join(proj, 's1.jsonl'), '\n' + [
+      line([{ type: 'tool_use', id: 'toolu_q2', name: 'mcp__mcp-gateway__grafana_query_prometheus', input: {} }]),
+      line([{ type: 'tool_result', tool_use_id: 'toolu_q2', content: '<persisted-output>\nFull output saved to: /x/tool-results/toolu_q2.json\n\nPreview (first 2KB):\n[' }]),
+    ].join('\n'));
+    expect(readQueryResult('s1', '', 'toolu_q2', root).data.series).toHaveLength(2);
   });
 });
