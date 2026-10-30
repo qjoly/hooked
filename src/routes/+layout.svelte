@@ -1,7 +1,7 @@
 <script>
   import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
-  import { ui, data, settings, loadSettings, startLive, toggleFocus, cycleTheme, splitWithMostRecent, isSessionArchived, openModal } from '$lib/state.svelte.js';
+  import { ui, data, settings, loadSettings, startLive, toggleFocus, cycleTheme, splitWithMostRecent, isSessionArchived } from '$lib/state.svelte.js';
   import { wheelModel, faviconSvg } from '$lib/fleetWheel.js';
   import { themeType } from '$lib/theme.svelte.js';
   import { page } from '$app/state';
@@ -12,12 +12,14 @@
   import Modal from '$lib/components/Modal.svelte';
   import CommandPalette from '$lib/components/CommandPalette.svelte';
   import Companion from '$lib/components/Companion.svelte';
+  import GhRunWindow from '$lib/components/GhRunWindow.svelte';
   import TopBar from '$lib/components/TopBar.svelte';
   import Icon from '$lib/components/Icon.svelte';
   import '../app.css';
 
   let { children } = $props();
   let palette;
+  let ghRunUrl = $state(null);
   onMount(startLive);
   // Suivi global de la touche « go to definition » (⌘ sur Mac, ⌃ ailleurs) : un seul écouteur
   // pour toute l'application, et il rend la touche à `blur`/`visibilitychange` — un ⌘-Tab ne
@@ -48,9 +50,9 @@
       if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
       const a = e.target && e.target.closest && e.target.closest('a[data-session-link]');
       if (a) { try { window.focus(); } catch (_) {} }
-      // A GitHub Actions run link opens the live log modal; a modifier click still opens GitHub.
+      // A GitHub Actions run link opens the floating run window; a modifier click still opens GitHub.
       const run = e.target?.closest?.('a[href]:not([data-native])');
-      if (run && parseRunUrl(run.href)) { e.preventDefault(); openModal('ghRun', { url: run.href }); }
+      if (run && parseRunUrl(run.href)) { e.preventDefault(); ghRunUrl = run.href; }
     };
     document.addEventListener('click', onClick);
     return () => document.removeEventListener('click', onClick);
@@ -144,6 +146,7 @@
 <Modal />
 <CommandPalette bind:this={palette} />
 {#if ui.companion}<Companion />{/if}
+{#key ghRunUrl}{#if ghRunUrl}<GhRunWindow url={ghRunUrl} onclose={() => (ghRunUrl = null)} />{/if}{/key}
 
 <style>
   .skip-link {

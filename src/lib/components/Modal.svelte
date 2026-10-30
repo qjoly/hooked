@@ -9,7 +9,6 @@
   import AccountModal from './AccountModal.svelte';
   import GroupPickerModal from './GroupPickerModal.svelte';
   import ReviewScopeModal from './ReviewScopeModal.svelte';
-  import GhRunModal from './GhRunModal.svelte';
 
   let card;
   let prevFocus = null;
@@ -46,7 +45,7 @@
 {#if ui.modal}
   <div class="modal" role="dialog" aria-modal="true" aria-label={ui.modal.type}>
     <div class="modal-bg" onclick={closeModal}></div>
-    <div class="modal-card" class:narrow={ui.modal.type === 'editTags' || ui.modal.type === 'groupPicker' || ui.modal.type === 'confirm' || ui.modal.type === 'account'} class:wide={ui.modal.type === 'ghRun'} bind:this={card}>
+    <div class="modal-card" class:narrow={ui.modal.type === 'editTags' || ui.modal.type === 'groupPicker' || ui.modal.type === 'confirm' || ui.modal.type === 'account'} bind:this={card}>
       <button class="modal-close" onclick={closeModal} aria-label="Close"><Icon name="close" /></button>
       <div>
         {#if ui.modal.type === 'cost'}
@@ -65,8 +64,6 @@
           <GroupPickerModal r={ui.modal.data} />
         {:else if ui.modal.type === 'reviewScope'}
           <ReviewScopeModal r={ui.modal.data} />
-        {:else if ui.modal.type === 'ghRun'}
-          <GhRunModal r={ui.modal.data} />
         {/if}
       </div>
     </div>

@@ -1605,7 +1605,6 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { outline: non
 .modal-bg { position: absolute; inset: 0; background: var(--overlay); backdrop-filter: blur(2px); }
 .modal-card { position: relative; background: var(--bg2); border: 1px solid var(--border); border-radius: 16px; width: min(720px, 92vw); max-height: 86vh; overflow: auto; padding: 24px; box-shadow: var(--shadow); }
 .modal-card.narrow { width: min(440px, 92vw); }
-.modal-card.wide { width: min(1100px, 94vw); }
 .modal-close { position: absolute; top: 16px; right: 16px; background: var(--chip); border: none; color: var(--text); width: 30px; height: 30px; border-radius: 9px; cursor: pointer; font-size: var(--t-body); }
 .modal-close:hover { background: var(--border2); }
 
