@@ -33,6 +33,7 @@
     { id: 'nav:digest', label: 'Go to Digest', section: 'Navigation', icon: 'digest', action: () => goto('/digest') },
     { id: 'nav:memory', label: 'Go to Memory', section: 'Navigation', icon: 'memory', action: () => goto('/memory') },
     { id: 'nav:github', label: 'Go to GitHub', section: 'Navigation', icon: 'pr', action: () => goto('/github') },
+    { id: 'nav:skills', label: 'Go to Skills', section: 'Navigation', icon: 'zap', action: () => goto('/skills') },
     { id: 'nav:settings', label: 'Go to Settings', section: 'Navigation', icon: 'settings', action: () => goto('/settings') },
   ];
 

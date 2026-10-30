@@ -118,6 +118,9 @@ export const groupOp = (op, id, extra = {}) => jpost('/api/session-meta', { op, 
 // date; getDigest(date) → one digest (or { status:'absent' }); generateDigest → kick off (async)
 // generation, poll getDigest until status is done/partial/error.
 export const getMemory = () => jget('/api/memory');
+const cwdQuery = (cwds) => (cwds || []).map((c) => '&cwd=' + encodeURIComponent(c)).join('');
+export const getSkills = (cwds) => jget('/api/skills?' + cwdQuery(cwds).slice(1));
+export const getSkill = (id, cwds) => jget('/api/skills?id=' + encodeURIComponent(id) + cwdQuery(cwds));
 // MCP servers of a project (health-checked list, scope, diagnostics) + the OAuth actions.
 // `cwd` selects the project: project- and local-scope servers are per-directory.
 export const getMcpServers = (cwd) => jget('/api/mcp?cwd=' + encodeURIComponent(cwd || ''));
