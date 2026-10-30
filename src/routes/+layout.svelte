@@ -1,13 +1,14 @@
 <script>
   import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
-  import { ui, data, settings, loadSettings, startLive, toggleFocus, cycleTheme, splitWithMostRecent, isSessionArchived } from '$lib/state.svelte.js';
+  import { ui, data, settings, loadSettings, startLive, toggleFocus, cycleTheme, splitWithMostRecent, isSessionArchived, openModal } from '$lib/state.svelte.js';
   import { wheelModel, faviconSvg } from '$lib/fleetWheel.js';
   import { themeType } from '$lib/theme.svelte.js';
   import { page } from '$app/state';
   import { pageHref } from '$lib/nav.js';
   import { matchShortcut } from '$lib/shortcuts.js';
   import { trackModifier } from '$lib/peek.svelte.js';
+  import { parseRunUrl } from '$lib/ghRun.js';
   import Modal from '$lib/components/Modal.svelte';
   import CommandPalette from '$lib/components/CommandPalette.svelte';
   import Companion from '$lib/components/Companion.svelte';
@@ -47,6 +48,9 @@
       if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
       const a = e.target && e.target.closest && e.target.closest('a[data-session-link]');
       if (a) { try { window.focus(); } catch (_) {} }
+      // A GitHub Actions run link opens the live log modal; a modifier click still opens GitHub.
+      const run = e.target?.closest?.('a[href]:not([data-native])');
+      if (run && parseRunUrl(run.href)) { e.preventDefault(); openModal('ghRun', { url: run.href }); }
     };
     document.addEventListener('click', onClick);
     return () => document.removeEventListener('click', onClick);

@@ -11,6 +11,7 @@
   import Markdown from './Markdown.svelte';
   import CodeBlock from './CodeBlock.svelte';
   import { ago } from '$lib/format.js';
+  import { CHECK } from '$lib/ghRun.js';
 
   let { url, onfix = null } = $props();
 
@@ -71,14 +72,6 @@
   // A closed issue was resolved, a closed PR was dropped — same hues as GitHub.
   const stateOf = (x) => (x.kind === 'issue' && x.state === 'CLOSED' ? ['Closed', 'merged'] : STATE[x.state] || [x.state, 'muted']);
   const DECISION = { APPROVED: ['Approved', 'ok'], CHANGES_REQUESTED: ['Changes requested', 'ko'], REVIEW_REQUIRED: ['Review required', 'wait'] };
-  const CHECK = {
-    failed: { icon: 'attention', label: 'Failed', cls: 'ko' },
-    cancelled: { icon: 'ban', label: 'Cancelled', cls: 'ko' },
-    pending: { icon: 'busy', label: 'Running', cls: 'wait' },
-    passed: { icon: 'circle-check', label: 'Passed', cls: 'ok' },
-    skipped: { icon: 'circle', label: 'Skipped', cls: 'muted' },
-    neutral: { icon: 'circle', label: 'Neutral', cls: 'muted' },
-  };
   const RANK = { failed: 0, cancelled: 1, pending: 2 };
   const REVIEW = { APPROVED: ['approved', 'ok'], CHANGES_REQUESTED: ['requested changes', 'ko'], COMMENTED: ['reviewed', 'muted'], DISMISSED: ['dismissed', 'muted'] };
   const CHANGE = { ADDED: 'A', DELETED: 'D', RENAMED: 'R', MODIFIED: 'M' };

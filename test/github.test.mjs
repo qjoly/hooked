@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { htmlUrl, toPr, toCheck, toPrDetail, isBotLogin, splitPatch, markNotificationsDone } from '../server/github.js';
+import { htmlUrl, toPr, toCheck, toPrDetail, isBotLogin, splitPatch, markNotificationsDone, toRun, cleanJobLog } from '../server/github.js';
+import { parseRunUrl } from '../src/lib/ghRun.js';
 
 describe('github page helpers', () => {
   it('maps notification API URLs to their web page', () => {
@@ -61,5 +62,32 @@ describe('github detail panel', () => {
     const p = splitPatch('diff --git a/x b/x\n--- a/x\n+++ b/x\n@@\n-a\n+b\ndiff --git a/gone b/gone\n--- a/gone\n+++ /dev/null\n@@\n-z\n');
     expect(Object.keys(p)).toEqual(['x', 'gone']);
     expect(p.x).toMatch(/^diff --git a\/x b\/x[\s\S]*\+b$/);
+  });
+});
+
+describe('github actions run', () => {
+  it('recognises run and job URLs only', () => {
+    expect(parseRunUrl('https://github.com/o/r/actions/runs/12')).toEqual({ repo: 'o/r', run: '12', job: '' });
+    expect(parseRunUrl('https://github.com/o/r/actions/runs/12/job/34?pr=5')).toEqual({ repo: 'o/r', run: '12', job: '34' });
+    expect(parseRunUrl('https://github.com/o/r/actions/runs/12/attempts/2')).toEqual({ repo: 'o/r', run: '12', job: '' });
+    expect(parseRunUrl('https://github.com/o/r/actions/workflows/ci.yml')).toBeNull();
+    expect(parseRunUrl('https://github.com/o/r/actions/runs/12x')).toBeNull();
+  });
+
+  it('maps run, job and step states, and drops the zero date', () => {
+    const r = toRun({
+      displayTitle: 't', workflowName: 'CI', status: 'in_progress', conclusion: '', url: 'u', jobs: [{
+        databaseId: 7, name: 'build', status: 'completed', conclusion: 'failure', url: 'ju', startedAt: '2026-01-01T00:00:00Z',
+        steps: [{ name: 'a', status: 'queued', conclusion: '', startedAt: '0001-01-01T00:00:00Z' }],
+      }],
+    });
+    expect(r.status).toBe('pending');
+    expect(r.jobs[0]).toMatchObject({ id: '7', status: 'failed' });
+    expect(r.jobs[0].steps[0]).toMatchObject({ status: 'pending', startedAt: '' });
+  });
+
+  it('cleans a raw job log', () => {
+    const raw = '\uFEFF2026-10-30T13:14:03.6064736Z ##[group]Setup\n2026-10-30T13:14:03.6Z \x1b[31mboom\x1b[0m\n2026-10-30T13:14:03.6Z ##[endgroup]\n2026-10-30T13:14:04Z ##[error]Process exited\n';
+    expect(cleanJobLog(raw)).toBe('▸ Setup\nboom\n##[error]Process exited');
   });
 });
