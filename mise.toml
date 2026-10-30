@@ -277,3 +277,25 @@ esac
 [tasks.screenshots]
 description = "Regenerate docs/screenshots from a throwaway instance fed with fictional data (needs Google Chrome)"
 run = "node scripts/screenshots.mjs"
+
+# Rust n'est tiré que par ces tâches : le build du front n'en a pas besoin.
+[tasks.desktop-icons]
+description = "Génère les icônes de l'app Tauri depuis static/icon-512.png"
+tools = { "npm:@tauri-apps/cli" = "2" }
+run = "tauri icon static/icon-512.png --output desktop/src-tauri/icons"
+
+# Remplace l'app installée et la relance : une seule copie lançable, donc jamais
+# de doute sur la version qui tourne.
+[tasks.desktop]
+description = "Build l'app Tauri, l'installe dans /Applications et la relance"
+dir = "desktop/src-tauri"
+tools = { rust = "latest", "npm:@tauri-apps/cli" = "2" }
+run = """
+cp ../../node_modules/markdown-it/dist/markdown-it.min.js ../ui/
+tauri build
+osascript -e 'quit app id "dev.qjoly.hooked"' 2>/dev/null || true
+sleep 1
+rm -rf /Applications/hooked.app
+ditto target/release/bundle/macos/hooked.app /Applications/hooked.app
+open /Applications/hooked.app
+"""

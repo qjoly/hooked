@@ -14,3 +14,7 @@ build/
 .impeccable/review/
 .impeccable/questions/
 .impeccable/critique/
+
+desktop/src-tauri/target/
+desktop/src-tauri/gen/
+desktop/ui/markdown-it.min.js
