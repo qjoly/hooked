@@ -13,7 +13,7 @@
   // pourrait envoyer, donc elle est solidaire de la saisie et ne défile pas avec le transcript.
   // Seul le masquage remonte (`onFollowupDismiss`), parce qu'il est persisté par session.
   let { id, project = null, lastPrompt = '',
-        onSent = null, newSession = false, model = '', effort = '', mode = 'default', worktree = false, onLaunched = null, groupWith = null,
+        onSent = null, newSession = false, model = '', effort = '', mode = 'default', worktree = false, ephemeral = false, onLaunched = null, groupWith = null,
         followup = null, onFollowupDismiss = null } = $props();
 
   // Reprendre la suggestion pour la retoucher : on la pose dans la saisie sans envoyer, et la carte
@@ -293,7 +293,7 @@
     busy = true;
     status = { text: newSession ? 'launching…' : 'sending…', cls: '' };
     const res = newSession
-      ? await launch({ cwd: project, prompt: full, model, effort, worktree, permissionMode: mode, groupWith: groupWith || undefined, incognito: ui.incognito || undefined }).catch((e) => ({ ok: false, data: { error: e.message } }))
+      ? await launch({ cwd: project, prompt: full, model, effort, worktree, ephemeral, permissionMode: mode, groupWith: groupWith || undefined, incognito: ui.incognito || undefined }).catch((e) => ({ ok: false, data: { error: e.message } }))
       : await reply(id, full).catch((e) => ({ ok: false, data: { error: e.message } }));
     if (res.ok) {
       text = ''; images = []; autosize();

@@ -139,6 +139,7 @@ const TOOLS = [
         effort: { type: 'string', description: 'niveau d\'effort optionnel (low/medium/high/xhigh/max, + ultracode si claude ≥ 2.1.203). Validé par le serveur.' },
         resumeId: { type: 'string', description: 'id d\'une session existante à reprendre' },
         worktree: { type: 'boolean', description: 'démarrer dans un git worktree dédié (session neuve uniquement)' },
+        ephemeral: { type: 'boolean', description: 'the session archives itself once its task is done, when it is confident nothing is left to check (new session with a prompt only)' },
       },
       additionalProperties: false,
     },
@@ -156,6 +157,17 @@ const TOOLS = [
       additionalProperties: false,
     },
     run: (a) => httpRequest('POST', '/api/kill', { id: a.id }),
+  },
+  {
+    name: 'archive_this_session',
+    description:
+      'Archives the session you are running in; it stops once your current turn ends. Call it only when ' +
+      'your first message says the session is ephemeral, as your last action, and only when you are highly ' +
+      'confident the task is done with nothing left for the user to check or decide.',
+    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+    run: () => process.env.HOOKED_LAUNCH_KEY
+      ? httpRequest('POST', '/api/kill', { launchKey: process.env.HOOKED_LAUNCH_KEY })
+      : Promise.resolve({ error: 'this session is not driven by hooked, it cannot archive itself' }),
   },
   {
     name: 'reply_to_session',
