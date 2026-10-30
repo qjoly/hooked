@@ -65,6 +65,8 @@ export function readQueryResult(sessionId, agentId, toolUseId, projectsDir = PRO
       if (b?.type === 'tool_result' && b.tool_use_id === toolUseId) result = b.content;
     }
   }
+  // show_query carries only the query: the window runs it live.
+  if (use?.name === 'mcp__hooked__show_query') return { tool: use.input?.tool, input: use.input || {}, data: null };
   const m = use && QUERY_TOOL.exec(use.name);
   if (!m) return null;
   let text = resultText(result);

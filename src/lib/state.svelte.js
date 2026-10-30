@@ -2,6 +2,7 @@
 // La navigation (vue courante, session ouverte, écran « nouvelle session ») n'est PLUS
 // ici : elle est portée par l'URL (routing SvelteKit). Ne restent que les filtres de la
 // sidebar, l'état live (SSE), le tick de rafraîchissement et la modale.
+import { floating } from './floating.svelte.js';
 import { getSessions, connectSSE, getSettings, saveSettings as apiSaveSettings, getTags, saveTags, replaceTags, suggestTags, getSessionMeta, saveSessionMeta, groupOp, kill, getAccount } from './api.js';
 import { NOTIFY_KINDS, notifyKeyFor, countsForBadge } from './notify.js';
 import { isFinishedAndCold } from './format.js';
@@ -649,6 +650,11 @@ export function startLive() {
     },
     onError: () => { ui.live = false; },
     onTick: scheduleRefresh,
+    // A chart Claude opened with show_query. In incognito, only for a session that is on screen.
+    onShowQuery: ({ spec, session }) => {
+      if (ui.incognito && !data.sessions.some((x) => x.id === session)) return;
+      floating.query = { spec, session };
+    },
   });
   // filet : rafraîchit la liste régulièrement même sans évènement
   setInterval(scheduleRefresh, 5000);
