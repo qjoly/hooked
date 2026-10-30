@@ -1156,10 +1156,14 @@
    component (ssb-, tb-, f*, t*, d*), which keeps that risk legible.
 
    HOW THE TABLES ARE BUILT
-   Lists become real tables via `grid-template-columns: subgrid` — the row keeps being a genuine
-   box (hover, :focus-visible, and position:relative for its absolutely-placed hover actions all
-   survive), while its cells align with every sibling row. Only the inert layout wrapper INSIDE
-   the row (.ssb-line, .frow1) is flattened with `display: contents`.
+   Every row is its own grid with the same fixed column template, so its cells line up with every
+   sibling row while the row keeps being a genuine box (hover, :focus-visible, and
+   position:relative for its absolutely-placed hover actions all survive). Only the inert layout
+   wrapper INSIDE the row (.ssb-line, .frow1) is flattened with `display: contents`.
+   Not `grid-template-columns: subgrid`, although it is the textbook tool: WebKit (Safari, the
+   desktop app's WKWebView) re-sizes a subgrid row's tracks on its own when a hover restyles it,
+   and the row stays shifted right after the pointer leaves. The price: a max-content column is
+   now sized per row, so the columns that must line up under a header (Deck status, age) are fixed.
    Every cell is placed EXPLICITLY (`grid-column: N`) rather than by auto-flow, because several
    cells are conditional (a pin mark, an activity verb). Under auto-placement a row missing one of
    them would slide every following cell one column left and break the alignment. */
@@ -1167,7 +1171,8 @@
 /* ── Zone 1 — session sidebar: status | pin | name | age, aligned across all rows ───────────── */
 :root[data-scheme="datadog"] .ssb-list {
   display: grid;
-  grid-template-columns: max-content max-content minmax(0, 1fr) max-content;
+  --dd-ssb-cols: 3px max-content minmax(0, 1fr) max-content;
+  grid-template-columns: var(--dd-ssb-cols);
   align-content: start;
   column-gap: 7px;
 }
@@ -1176,11 +1181,11 @@
 :root[data-scheme="datadog"] .ssb-empty { grid-column: 1 / -1; }
 :root[data-scheme="datadog"] .ssb-row {
   display: grid;
-  grid-template-columns: subgrid;
+  grid-template-columns: var(--dd-ssb-cols);
   grid-column: 1 / -1;
   align-items: center;
   padding: var(--dd-row);
-  row-gap: 1px;
+  gap: 1px 7px;
 }
 :root[data-scheme="datadog"] .ssb-line { display: contents; }
 /* Status is a bar at the head of the line, not a floating dot. The radius sweep above is
@@ -1206,14 +1211,15 @@
    scan. That information stays one click away in the session, and in the sidebar for the tags. */
 :root[data-scheme="datadog"] .fleet:not(.grid) {
   display: grid;
-  grid-template-columns: 3px minmax(0, 2fr) minmax(0, 1fr) max-content max-content;
+  --dd-fleet-cols: 3px minmax(0, 2fr) minmax(0, 1fr) calc(var(--t-micro) * 9) calc(var(--t-micro) * 6);
+  grid-template-columns: var(--dd-fleet-cols);
   column-gap: 10px;
   row-gap: 0;
 }
 :root[data-scheme="datadog"] .fleet:not(.grid) .fcard,
 :root[data-scheme="datadog"] .fleet:not(.grid) .fhead {
   display: grid;
-  grid-template-columns: subgrid;
+  grid-template-columns: var(--dd-fleet-cols);
   grid-column: 1 / -1;
   align-items: center;
   gap: 0 10px;
@@ -1243,7 +1249,7 @@
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 :root[data-scheme="datadog"] .fleet:not(.grid) .fstate {
-  display: block; grid-column: 4; width: 15ch;
+  display: block; grid-column: 4; min-width: 0;
   font-family: var(--mono); font-size: var(--t-micro); color: var(--muted);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
