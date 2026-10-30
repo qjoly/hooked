@@ -28,8 +28,8 @@
   // "Expand all" (ui.toolsOpen, transient) shows every chip; a click still collapses one. The two
   // states are kept apart: switching the global on never hides a chip opened by hand, and switching
   // it off brings back exactly the chips opened by hand — the old XOR did the opposite.
-  // A Grafana query from any MCP server name; its result opens in a floating window.
-  const isQuery = $derived(!!t.id && /__grafana_query_(prometheus|loki)$/.test(t.name || ''));
+  // A Grafana query from any MCP server name, or a show_query; it opens in a floating window.
+  const isQuery = $derived(!!t.id && /__grafana_query_(prometheus|loki)$|^mcp__hooked__show_query$/.test(t.name || ''));
   const openQuery = (e) => { e.stopPropagation(); floating.query = { session, agent, id: t.id }; };
 
   let open = $state(false);        // opened by hand while "expand all" is off
