@@ -20,6 +20,9 @@
   const d = $derived(r?.data);
   const range = $derived(r ? [r.input.start, r.input.end].filter(Boolean).join(' → ') : '');
   const fmt = new Intl.NumberFormat(undefined, { maximumFractionDigits: 4 });
+  // ponytail: the unit is guessed from the query, an explicit unit needs the metric metadata.
+  // A ratio of two memory metrics is a percentage, not bytes.
+  const bytesQuery = (x = '') => (/bytes|memory/i.test(x) && !x.includes('/') ? 'bytes' : '');
   const LEVEL = { error: 'ko', err: 'ko', critical: 'ko', fatal: 'ko', warn: 'wait', warning: 'wait' };
 </script>
 
@@ -41,7 +44,7 @@
     {#if d.kind === 'error'}
       <p class="ko">{d.error}</p>
     {:else if d.kind === 'series'}
-      {#if d.series.some((x) => x.points.length)}<QueryChart series={d.series} />{:else}<p class="empty">No data.</p>{/if}
+      {#if d.series.some((x) => x.points.length)}<QueryChart series={d.series} unit={bytesQuery(r.input.query)} />{:else}<p class="empty">No data.</p>{/if}
     {:else if d.kind === 'table'}
       <div class="scroll">
         <table>

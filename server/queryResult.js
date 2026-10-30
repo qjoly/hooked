@@ -76,5 +76,9 @@ export function readQueryResult(sessionId, agentId, toolUseId, projectsDir = PRO
   }
   let body;
   try { body = JSON.parse(text); } catch (_) { body = { error: text.trim().slice(0, 300) || 'No result yet' }; }
+  // Some CLI versions save the tool's content blocks rather than their text.
+  if (Array.isArray(body)) {
+    try { body = JSON.parse(resultText(body)); } catch (_) { body = { error: 'Unreadable saved result' }; }
+  }
   return { tool: m[1], input: use.input || {}, data: parseQueryResult(body) };
 }

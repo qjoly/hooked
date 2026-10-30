@@ -3,7 +3,7 @@
   // where a click isolates one series.
   import { themeType } from '$lib/theme.svelte.js';
 
-  let { series } = $props();
+  let { series, unit = '' } = $props();
 
   // Categorical slots in fixed order; past them, series are drawn in recessive grey.
   const LIGHT = ['#2a78d6', '#eb6834', '#1baf7a', '#eda100', '#e87ba4', '#008300', '#6250d6', '#e34948'];
@@ -16,7 +16,13 @@
   let hover = $state(null); // { t, x }
 
   const fmt = new Intl.NumberFormat(undefined, { notation: 'compact', maximumFractionDigits: 2 });
-  const fmtV = (v) => (Number.isFinite(v) ? fmt.format(v) : '–');
+  const BYTES = ['B', 'KiB', 'MiB', 'GiB', 'TiB', 'PiB'];
+  function fmtBytes(v) {
+    let i = 0;
+    while (Math.abs(v) >= 1024 && i < BYTES.length - 1) { v /= 1024; i++; }
+    return `${+v.toFixed(v >= 100 ? 0 : 1)} ${BYTES[i]}`;
+  }
+  const fmtV = (v) => (!Number.isFinite(v) ? '–' : unit === 'bytes' ? fmtBytes(v) : fmt.format(v));
 
   // Highest peaks first, so the colored slots go to the series that matter.
   const rows = $derived.by(() => {
