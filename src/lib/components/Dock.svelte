@@ -156,11 +156,11 @@
       {:else}
         <div class="db">
           {#each workflows.slice(0, 3) as w}
-            <div class="ditem" class:cur={w.status === 'running'}>
+            <button class="ditem ditem-btn" class:cur={w.status === 'running'} onclick={() => toggle('workflows')} title="Open workflow details">
               <span class="dst"><Icon name={WF_ICON[w.status]?.icon || 'circle'} size={13} color="var(--{WF_ICON[w.status]?.tint || 'muted'})" title={w.status} /></span>
               <span class="dtxt mono">{w.name}</span>
               <span class="dnum">{w.doneCount}/{w.agentCount}</span>
-            </div>
+            </button>
           {/each}
         </div>
       {/if}
@@ -285,6 +285,11 @@
   .ditem.cur .dst { color: var(--working); }
   .ditem.done .dtxt { text-decoration: line-through; }
   .ditem.done .dst { color: var(--success); }
+  .ditem-btn {
+    width: 100%; background: none; border: none; font: inherit; text-align: left; cursor: pointer;
+    border-radius: 4px;
+  }
+  .ditem-btn:hover { background: var(--hover); }
   .dst { flex: 0 0 auto; }
   .dtxt { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .dtxt.mono { font-family: var(--mono); font-size: var(--t-micro); }
