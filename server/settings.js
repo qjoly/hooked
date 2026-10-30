@@ -104,7 +104,7 @@ const DEFAULTS = {
   sidebarCache: { display: 'badge', windowMin: 15 },
 };
 
-const NAV_PAGES = ['sessions', 'stats', 'digest', 'memory', 'github'];
+const NAV_PAGES = ['sessions', 'stats', 'digest', 'memory', 'github', 'skills'];
 const DEFAULT_PAGES = ['deck', ...NAV_PAGES];
 
 // Ramène un objet arbitraire (fichier ou payload client) à des valeurs sûres et complètes.
@@ -216,7 +216,7 @@ function sanitize(raw) {
     hiddenModels,
     navTabs: Array.isArray(o.navTabs)
       ? NAV_PAGES.filter((k) => o.navTabs.includes(k)) // keep known keys, canonical order
-      : [...NAV_PAGES],
+      : [...DEFAULTS.navTabs],
   };
 }
 

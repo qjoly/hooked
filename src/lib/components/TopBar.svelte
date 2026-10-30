@@ -19,6 +19,19 @@
   const onSettings = $derived(path.startsWith('/settings'));
   // Nav tabs the user chose to show (settings.navTabs). '/sessions' also lights up on /session/* & /new.
   const tabs = $derived(NAV_TABS.filter((t) => (settings.navTabs || NAV_KEYS).includes(t.key)));
+  const hiddenTabs = $derived(NAV_TABS.filter((t) => !tabs.includes(t)));
+  // On a hidden page, the More button wears that page's name so the bar still says where you are.
+  const hiddenActive = $derived(hiddenTabs.find((t) => tabActive(t)));
+
+  let moreBtn = $state();
+  let moreMenu = $state();
+  // The popover lives in the top layer, so it is placed under its button by hand.
+  function placeMore(e) {
+    if (e.newState !== 'open') return;
+    const r = moreBtn.getBoundingClientRect();
+    moreMenu.style.left = `${Math.max(8, Math.min(r.left, window.innerWidth - moreMenu.offsetWidth - 8))}px`;
+    moreMenu.style.top = `${r.bottom + 4}px`;
+  }
   const tabActive = (t) => t.key === 'sessions'
     ? (path === '/sessions' || path.startsWith('/session/') || path.startsWith('/new'))
     : path.startsWith(t.href);
@@ -85,7 +98,26 @@
     {#each tabs as t (t.key)}
       <a class="tb-space" class:on={tabActive(t)} href={t.href} style={t.tint ? `--tab-tint:${t.tint}` : null} aria-label={t.label}><Icon name={t.icon} size={14} /> <span class="tb-lbl">{t.label}</span></a>
     {/each}
+    {#if hiddenTabs.length}
+      <button class="tb-space tb-more" class:on={hiddenActive} bind:this={moreBtn} popovertarget="tb-more-menu"
+              style={hiddenActive?.tint ? `--tab-tint:${hiddenActive.tint}` : null} aria-label="More spaces">
+        {#if hiddenActive}<Icon name={hiddenActive.icon} size={14} /> <span class="tb-lbl">{hiddenActive.label}</span>
+        {:else}<span class="tb-lbl">More</span>{/if}
+        <Icon name="chevron-down" size={12} />
+      </button>
+    {/if}
   </nav>
+
+  {#if hiddenTabs.length}
+    <div class="tb-menu" id="tb-more-menu" popover bind:this={moreMenu} ontoggle={placeMore}>
+      {#each hiddenTabs as t (t.key)}
+        <a class="tb-menu-item" class:on={tabActive(t)} href={t.href} onclick={() => moreMenu.hidePopover()}>
+          <Icon name={t.icon} size={14} /> {t.label}
+        </a>
+      {/each}
+      <a class="tb-menu-foot" href="/settings#pset-sidebar" onclick={() => moreMenu.hidePopover()}>Choose tabs…</a>
+    </div>
+  {/if}
 
   <button class="tb-omni" onclick={() => onOmnibar && onOmnibar()} title="Search, launch, command…">
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
@@ -187,6 +219,19 @@
   /* Active tab: the bar's own tab colour (latte on espresso), or the tab's tint in other schemes. */
   .tb-space.on { color: var(--shell-fg); box-shadow: inset 0 -2px 0 var(--shell-tab, var(--tab-tint, var(--accent))); }
   .tb-space.on :global(svg) { color: var(--shell-tab, var(--tab-tint, var(--accent))); }
+  .tb-more { border: none; background: none; font: inherit; font-size: var(--t-ui); font-weight: 600; cursor: pointer; }
+  .tb-menu {
+    position: fixed; inset: auto; margin: 0; min-width: 180px; padding: 4px;
+    background: var(--bg2); color: var(--text); border: 1px solid var(--border); border-radius: 10px;
+    box-shadow: 0 8px 24px rgba(0,0,0,.18);
+  }
+  .tb-menu-item, .tb-menu-foot {
+    display: flex; align-items: center; gap: 8px; padding: 7px 10px; border-radius: 7px;
+    color: var(--text); text-decoration: none; font-size: var(--t-ui); font-weight: 600;
+  }
+  .tb-menu-item:hover, .tb-menu-foot:hover { background: rgba(var(--ink-rgb), .06); }
+  .tb-menu-item.on { color: var(--accent); }
+  .tb-menu-foot { margin-top: 4px; border-top: 1px solid var(--border); border-radius: 0 0 7px 7px; color: var(--muted); font-weight: 500; }
   .tb-badge {
     min-width: 17px; height: 17px; padding: 0 5px; border-radius: 999px;
     background: var(--attention); color: var(--accent-fg); font-size: var(--t-micro); font-weight: 800;
