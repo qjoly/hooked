@@ -7,6 +7,7 @@ use serde::Deserialize;
 use serde::Serialize;
 use std::collections::HashSet;
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Instant;
 
 use tauri::{
@@ -353,15 +354,13 @@ fn choose_microphone(app: &AppHandle, name: &str) {
 }
 
 #[tauri::command]
-fn hide_toast(app: AppHandle) {
-    if let Some(w) = app.get_webview_window("toast") {
-        let _ = w.hide();
-    }
+fn hide_toast(window: tauri::WebviewWindow) {
+    let _ = window.destroy();
 }
 
 #[tauri::command]
-fn open_from_toast(app: AppHandle, id: String) {
-    hide_toast(app.clone());
+fn open_from_toast(app: AppHandle, window: tauri::WebviewWindow, id: String) {
+    let _ = window.destroy();
     open_session(&app, &id);
 }
 
@@ -380,11 +379,22 @@ fn place_toast(win: &tauri::WebviewWindow) {
     ));
 }
 
+static TOAST_SEQ: AtomicU64 = AtomicU64::new(0);
+
+// Visual notice that does not go through the system: it follows the same
+// stream as the menu bar count, so it works with the dashboard closed and
+// whatever the system allows.
+//
+// A fresh window per notice, never one reused: a tiling manager such as
+// AeroSpace pins a window to the workspace it first appeared on, so a reused
+// toast stays on that workspace. Not focusable, or showing it makes it the key
+// window and the manager switches workspace to follow it.
 fn show_toast(app: &AppHandle, session: &Waiting, extra: usize) {
-    let Some(win) = app.get_webview_window("toast") else {
-        eprintln!("toast: no window");
-        return;
-    };
+    for (label, w) in app.webview_windows() {
+        if label.starts_with("toast-") {
+            let _ = w.destroy();
+        }
+    }
     let payload = serde_json::json!({
         "id": session.id,
         "title": session.title,
@@ -392,9 +402,26 @@ fn show_toast(app: &AppHandle, session: &Waiting, extra: usize) {
         "reason": session.reason,
         "extra": extra,
     });
-    let _ = win.eval(&format!("render({payload})"));
-    place_toast(&win);
-    let _ = win.show();
+    let label = format!("toast-{}", TOAST_SEQ.fetch_add(1, Ordering::Relaxed));
+    let built = WebviewWindowBuilder::new(app, label, WebviewUrl::App("toast.html".into()))
+        .title("hooked")
+        .inner_size(TOAST_W, 68.0)
+        .resizable(false)
+        .decorations(false)
+        .always_on_top(true)
+        .skip_taskbar(true)
+        .focused(false)
+        .focusable(false)
+        .visible(false)
+        .initialization_script(format!("window.__TOAST__ = {payload};"))
+        .build();
+    match built {
+        Ok(win) => {
+            place_toast(&win);
+            let _ = win.show();
+        }
+        Err(e) => eprintln!("toast: {e}"),
+    }
 }
 
 static ANNOUNCED: Mutex<Option<HashSet<String>>> = Mutex::new(None);
@@ -563,20 +590,6 @@ fn main() {
                     let _ = blurred.hide();
                 }
             });
-
-            // Visual notice that does not go through the system: it follows the
-            // same stream as the menu bar count, so it works with the dashboard
-            // closed and whatever the system allows.
-            WebviewWindowBuilder::new(app, "toast", WebviewUrl::App("toast.html".into()))
-                .title("hooked")
-                .inner_size(TOAST_W, 68.0)
-                .resizable(false)
-                .decorations(false)
-                .always_on_top(true)
-                .skip_taskbar(true)
-                .focused(false)
-                .visible(false)
-                .build()?;
 
             let hotkey = Shortcut::new(Some(Modifiers::SUPER | Modifiers::SHIFT), Code::KeyH);
             app.handle().plugin(

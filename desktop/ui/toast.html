@@ -81,8 +81,7 @@
       let current = null;
       let timer;
 
-      // Called by the app each time a session starts waiting.
-      window.render = (data) => {
+      const render = (data) => {
         current = data.id;
         document.getElementById('title').textContent = data.title || '(untitled)';
         document.getElementById('sub').textContent = `${data.project} — ${data.reason}`;
@@ -95,6 +94,8 @@
         clearTimeout(timer);
         if (current) invoke('open_from_toast', { id: current });
       };
+
+      if (window.__TOAST__) render(window.__TOAST__);
     </script>
   </body>
 </html>
