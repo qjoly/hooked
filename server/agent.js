@@ -671,6 +671,10 @@ async function readLoop(st) {
       // Status snapshot (context + rate limits): no statusline runs for an SDK session, so we ask
       // the Query ourselves. End of turn = immediately (that is when context moved most); mid-turn,
       // throttled. Fire-and-forget, cf. server/agent-status.js.
+      if (msg.type === 'result' && st.closeAfterTurn) {
+        try { setSessionMeta(st.id, { archived: true }); } catch (_) {}
+        killSession(st.id, () => {});
+      }
       if (msg.type === 'result') refreshAgentStatus(st, true);
       else if (msg.type === 'assistant' || (msg.type === 'system' && msg.subtype === 'init')) refreshAgentStatus(st);
     }
@@ -733,9 +737,21 @@ function resolveLaunchForSession(id) {
   return sessionLaunchMap().get(id) || null;
 }
 
+const EPHEMERAL_NOTE = 'This is an ephemeral session. When the task is done and you are highly confident nothing is left '
+  + 'for the user to check or decide, call the hooked MCP tool `archive_this_session` as your last action. '
+  + 'If anything is uncertain or unfinished, do not call it.';
+
+// Archives the calling session (identified by the launch key its MCP proxy carries) once its turn ends.
+function closeAfterTurn(launchKey, cb) {
+  const id = sessionIdForLaunchKey(launchKey);
+  if (!id) return cb(err400('only a session driven by hooked can archive itself'));
+  live.get(id).closeAfterTurn = true;
+  cb(null, { sessionId: id });
+}
+
 // Lance `claude` via l'Agent SDK. `resumeId` reprend une session existante ; `worktree` ne vaut que
 // pour une session neuve (une reprise rouvre la session dans son dossier d'origine).
-function launchSession({ resumeId, cwd, prompt, model, effort, worktree, permissionMode, autoApprove, parentKey, groupWith, incognito }, cb) {
+function launchSession({ resumeId, cwd, prompt, model, effort, worktree, permissionMode, autoApprove, parentKey, groupWith, incognito, ephemeral }, cb) {
   let dir = cwd && typeof cwd === 'string' ? cwd : null;
   let id = null;
   if (resumeId) {
@@ -814,7 +830,8 @@ function launchSession({ resumeId, cwd, prompt, model, effort, worktree, permiss
   // soit prêt. Plus d'attente de composer, plus de dialogue de confiance à accepter, plus de fenêtre
   // de détection de collage — tout ce que l'ancien launchSession devait contourner à l'écran.
   const seed = prompt && typeof prompt === 'string' ? prompt.trim() : '';
-  if (seed) input.push(userMessage(seed));
+  // The note lives in the first message rather than the system prompt, so a resumed session still has it.
+  if (seed) input.push(userMessage(ephemeral === true && !id ? seed + '\n\n' + EPHEMERAL_NOTE : seed));
 
   // On attend l'environnement du shell de login (résolu une fois, déjà chaud en pratique) avant de
   // spawner : sans lui la session perdrait le PATH et les variables du profil (cf. loginEnv).
@@ -1626,7 +1643,7 @@ export {
   launchSession, killSession, restartSession,
   deliverReply, answerQuestion, questionAnswers, answerQuestionFreeText, answerPlan, answerPermission, answerPendingSelection,
   interruptSession, setMode, setModelEffort, setAutoApprove, alwaysAllowRules, clearAgentState,
-  resumeDrivenSessions, startDrivenSnapshot, pickResumable, saveDriven, failStartup, resumeLaunchArgs,
+  closeAfterTurn, resumeDrivenSessions, startDrivenSnapshot, pickResumable, saveDriven, failStartup, resumeLaunchArgs,
   isRequestStart, shouldAutoCompact, autoCompactTick, startAutoCompactScheduler, agentCacheInfo, decideModelSwitch,
   runInteractiveCommand, formatInteractiveCommand, whenReady, settleReady,
   parseBangCommand, formatLocalCommand, stripAnsi, runLocalCommand,

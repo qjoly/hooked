@@ -72,6 +72,7 @@
   let effort = $state('high');
   let mode = $state('default'); // mode de permission au lancement (claude --permission-mode)
   let worktree = $state(false); // lance `claude --worktree` (git worktree isolé)
+  let ephemeral = $state(false);
 
   // Défauts de la config Claude Code (~/.claude), chargés au montage. Les défauts hooked (settings)
   // les surchargent quand ils sont définis (non vides).
@@ -171,7 +172,7 @@
     {#if groupWith}
       <div class="ns-group"><Icon name="sessions" size={14} /> Joins the group <b>{groupName(groupWith)}</b></div>
     {/if}
-    <Composer newSession project={cwd} {model} {effort} {mode} {worktree} {onLaunched} {groupWith} />
+    <Composer newSession project={cwd} {model} {effort} {mode} {worktree} {ephemeral} {onLaunched} {groupWith} />
 
     {#if fableFallback}
       <div class="ns-quota" role="status">
@@ -187,6 +188,10 @@
       <label class="me-pill ns-worktree" title="Launch the session in a dedicated git worktree (claude --worktree)">
         <input type="checkbox" bind:checked={worktree} />
         <span class="me-ico"><Icon name="git-branch" size={14} /></span> worktree
+      </label>
+      <label class="me-pill ns-worktree" title="Claude archives the session once the task is done, when it is confident nothing is left to check">
+        <input type="checkbox" bind:checked={ephemeral} />
+        <span class="me-ico"><Icon name="archive" size={14} /></span> ephemeral
       </label>
     </div>
 
