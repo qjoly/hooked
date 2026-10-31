@@ -1,6 +1,7 @@
 import { execFile } from 'node:child_process';
 import { resolveGh } from './ghMeta.js';
 import { loginEnv } from './agent.js';
+import { parseRunUrl } from '../src/lib/ghRun.js';
 
 // GitHub page: unread notifications, assigned issues, open PRs (authored / review requested).
 
@@ -250,4 +251,61 @@ export function splitPatch(text) {
 export async function githubDiff(url) {
   if (detailKind(url) !== 'pr') throw new Error('Only pull requests have a diff');
   return splitPatch(await gh(['pr', 'diff', url], { raw: true }));
+}
+
+// ── GitHub Actions run (live job/step status, logs of finished jobs) ──
+
+const RUN_FIELDS = 'name,displayTitle,workflowName,status,conclusion,url,headBranch,event,createdAt,updatedAt,attempt,jobs';
+
+// Runs, jobs and steps share the check vocabulary of the PR panel.
+// gh reports a step that has not started yet with the zero date.
+const when = (t) => (t && !t.startsWith('0001-') ? t : '');
+const runStatus = (status, conclusion) =>
+  status !== 'completed' ? 'pending' : CHECK_STATUS[String(conclusion || '').toUpperCase()] || 'neutral';
+
+export function toRun(d) {
+  return {
+    title: d.displayTitle || d.name || '', workflow: d.workflowName || d.name || '',
+    status: runStatus(d.status, d.conclusion), url: d.url,
+    branch: d.headBranch || '', event: d.event || '', attempt: d.attempt || 1,
+    createdAt: d.createdAt, updatedAt: d.updatedAt,
+    jobs: (d.jobs || []).map((j) => ({
+      id: String(j.databaseId), name: j.name, url: j.url,
+      status: runStatus(j.status, j.conclusion), startedAt: when(j.startedAt), completedAt: when(j.completedAt),
+      steps: (j.steps || []).map((s) => ({
+        name: s.name, status: runStatus(s.status, s.conclusion), startedAt: when(s.startedAt), completedAt: when(s.completedAt),
+      })),
+    })),
+  };
+}
+
+function runRef(url) {
+  const r = parseRunUrl(url);
+  if (!r) throw new Error('Not a GitHub Actions run URL');
+  return r;
+}
+
+export async function githubRun(url) {
+  const { repo, run } = runRef(url);
+  return toRun(await gh(['run', 'view', run, '-R', repo, '--json', RUN_FIELDS]));
+}
+
+// Drops the BOM, the per-line timestamps, ANSI colours and the group markers of the raw job log.
+export function cleanJobLog(text) {
+  return String(text || '').replace(/^﻿/, '').split('\n')
+    .filter((l) => !l.includes('##[endgroup]'))
+    .map((l) => l.replace(/^\d{4}-\d\d-\d\dT[\d:.]+Z ?/, '').replace(/\x1b\[[0-9;]*[A-Za-z]/g, '').replace('##[group]', '▸ ').trimEnd())
+    .join('\n').trimEnd();
+}
+
+// GitHub only serves a job's log once the job has finished (404 before that).
+export async function githubJobLog(url) {
+  const { repo, job } = runRef(url);
+  if (!job) throw new Error('Not a GitHub Actions job URL');
+  try {
+    return { log: cleanJobLog(await gh(['api', `repos/${repo}/actions/jobs/${job}/logs`], { raw: true })) };
+  } catch (e) {
+    if (/HTTP 404/.test(e.message)) return { log: null };
+    throw e;
+  }
 }
