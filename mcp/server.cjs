@@ -352,6 +352,19 @@ const TOOLS = [
     },
     run: (a) => httpRequest('POST', '/api/cron', { op: 'delete', id: a.id }),
   },
+  {
+    name: 'run_cron_task',
+    description:
+      'Runs a cron task now, outside its schedule. Fails if its previous run is still working or waiting on the user. ' +
+      'The response carries `sessionId` and `link` (relative `/session/<id>`): emit a markdown link `[label](<link>)` to point the user at it.',
+    inputSchema: {
+      type: 'object',
+      properties: { id: { type: 'string', description: 'id of the task' } },
+      required: ['id'],
+      additionalProperties: false,
+    },
+    run: (a) => httpRequest('POST', '/api/cron', { op: 'run', id: a.id }),
+  },
 ];
 
 // --- show your work (show_image / show_video / show_audio) -------------------
