@@ -120,6 +120,8 @@ export const groupOp = (op, id, extra = {}) => jpost('/api/session-meta', { op, 
 export const getMemory = () => jget('/api/memory');
 const cwdQuery = (cwds) => (cwds || []).map((c) => '&cwd=' + encodeURIComponent(c)).join('');
 export const getSkills = (cwds) => jget('/api/skills?' + cwdQuery(cwds).slice(1));
+export const getCronTasks = () => jget('/api/cron');
+export const cronOp = (op, extra) => jpost('/api/cron', { op, ...extra });
 export const getSkill = (id, cwds) => jget('/api/skills?id=' + encodeURIComponent(id) + cwdQuery(cwds));
 // MCP servers of a project (health-checked list, scope, diagnostics) + the OAuth actions.
 // `cwd` selects the project: project- and local-scope servers are per-directory.

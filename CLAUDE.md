@@ -161,6 +161,18 @@ Every session belongs to exactly one group. A session on its own is an implicit 
 - **Archiving the parent archives the whole group.** A child is archived on its own and stays in
   its group.
 
+## Cron tasks (`server/cron.js`, `Cron.svelte`)
+
+A task launches a new driven session with its prompt on a five-field cron schedule, in local time.
+Tasks live in `cron-tasks.json`; the parser (`src/lib/cron.js`) is pure and shared with the UI preview.
+
+- **The scheduler starts with the digest one**, so a bare `npm run live` never fires a task. Run now
+  works everywhere.
+- **One live session per task.** A run closes the previous one if it is idle, and is skipped if it
+  is still working or waiting on you. Runs missed while hooked is down are not caught up.
+- **MCP tools** `list_cron_tasks`, `save_cron_task`, `delete_cron_task`, `run_cron_task`. A save with an `id` only
+  changes the fields it carries.
+
 ## Incognito mode (`ui.incognito`, `incognito` flag in `session-meta.json`)
 
 This is for screen sharing. While the mode is on, the dashboard shows only the sessions marked
