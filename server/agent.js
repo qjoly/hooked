@@ -831,7 +831,11 @@ function launchSession({ resumeId, cwd, prompt, model, effort, worktree, permiss
   // de détection de collage — tout ce que l'ancien launchSession devait contourner à l'écran.
   const seed = prompt && typeof prompt === 'string' ? prompt.trim() : '';
   // The note lives in the first message rather than the system prompt, so a resumed session still has it.
-  if (seed) input.push(userMessage(ephemeral === true && !id ? seed + '\n\n' + EPHEMERAL_NOTE : seed));
+  // Busy from now, as deliverReply does: the CLI only reports the turn once it starts it.
+  if (seed) {
+    input.push(userMessage(ephemeral === true && !id ? seed + '\n\n' + EPHEMERAL_NOTE : seed));
+    st.busy = true;
+  }
 
   // On attend l'environnement du shell de login (résolu une fois, déjà chaud en pratique) avant de
   // spawner : sans lui la session perdrait le PATH et les variables du profil (cf. loginEnv).

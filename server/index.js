@@ -41,6 +41,7 @@ export * from './terminal.js';
 export * from './mcp.js';
 export * from './plugins.js';
 export * from './skills.js';
+export * from './cron.js';
 export * from './trace.js';
 export * from './account.js';
 export * from './images.js';

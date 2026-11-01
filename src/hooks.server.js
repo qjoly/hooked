@@ -1,5 +1,5 @@
 import { dev } from '$app/environment';
-import { startDigestScheduler, startRemoteControl, readSettings, resumeDrivenSessions, startDrivenSnapshot, installShutdownHook, startWarmupScheduler, startAutoCompactScheduler, applyGitSyncSetting, applyPrReviewTagSetting, applyAutoTagSetting } from '$lib/server/core.js';
+import { startDigestScheduler, startCronScheduler, startRemoteControl, readSettings, resumeDrivenSessions, startDrivenSnapshot, installShutdownHook, startWarmupScheduler, startAutoCompactScheduler, applyGitSyncSetting, applyPrReviewTagSetting, applyAutoTagSetting } from '$lib/server/core.js';
 
 // Ctrl+C has to actually stop the process. adapter-node closes the HTTP listener on SIGINT but
 // never exits, so any handle left behind (fs watchers, driven subprocesses, PTYs) keeps hooked
@@ -18,6 +18,7 @@ installShutdownHook();
 if (!dev || process.env.HOOKED_MODE) {
   const settings = readSettings();
   startDigestScheduler();
+  startCronScheduler();
   startRemoteControl(settings);
   // Settings-driven background loops (git sync of hooked's own checkout, PR review tags). They used
   // to start from GET /api/settings, i.e. only once a browser had loaded the page — a service nobody
