@@ -414,6 +414,38 @@ const SHOW_TOOLS = [
 ];
 if (process.env.HOOKED_SHOW_WORK === '1') TOOLS.push(...SHOW_TOOLS);
 
+// show_query: a live Grafana chart in a floating window of the dashboard. hooked runs and refreshes
+// the query itself through mcp-gateway, so the series never go through the conversation.
+TOOLS.push({
+  name: 'show_query',
+  description:
+    'Opens a live Grafana-style view of a Prometheus/Mimir (PromQL) or Loki (LogQL) query in a floating window of the ' +
+    'hooked dashboard, refreshed automatically. Use it when the user asks to see, graph, chart or follow metrics or logs, ' +
+    'or when a chart says more than a table. hooked runs the query itself through mcp-gateway: you do not see the result, ' +
+    'so query mcp-gateway yourself if you need the numbers. Same label conventions as the mcp-gateway grafana_query_* tools.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      tool: { type: 'string', enum: ['prometheus', 'loki'], description: 'Query language: prometheus (PromQL) or loki (LogQL)' },
+      datasource: { type: 'string', description: 'Datasource, e.g. mimir-prod, loki-prod' },
+      query: { type: 'string', description: 'PromQL or LogQL query' },
+      title: { type: 'string', description: 'Short title of the view' },
+      range: { type: 'string', description: 'Time range ending now, e.g. 15m, 6h, 2d (default 1h)' },
+      step: { type: 'string', description: 'Range step, e.g. 1m (default: range/60)' },
+      limit: { type: 'number', description: 'Max log lines for a Loki log query' },
+      refresh: { type: 'number', description: 'Auto-refresh period in seconds, 0 to turn it off (default 30)' },
+    },
+    required: ['tool', 'datasource', 'query'],
+    additionalProperties: false,
+  },
+  run: async (a) => {
+    const spec = { range: '1h', refresh: 30, ...a };
+    const r = await httpRequest('POST', '/api/grafana/show', { spec, launchKey: process.env.HOOKED_LAUNCH_KEY || '' });
+    if (!r.ok) return r;
+    return { ok: true, data: `Shown to the user in hooked as a live view (last ${spec.range}, refreshed every ${spec.refresh || 'never'}${spec.refresh ? ' s' : ''}). You do not see it.` };
+  },
+});
+
 const TOOL_BY_NAME = new Map(TOOLS.map((t) => [t.name, t]));
 
 // --- boucle JSON-RPC sur stdio ------------------------------------------------

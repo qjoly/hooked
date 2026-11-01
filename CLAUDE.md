@@ -232,6 +232,20 @@ Converse / Review) replaces it. It is built on the non-interactive subcommands
   `server/index.js` re-exports with `export *`, and an ambiguous name silently disappears from the
   barrel.
 
+## Grafana views (`server/grafanaGateway.js`, `QueryWindow.svelte`)
+
+A Prometheus or Loki query opens in a floating window, either from a `grafana_query_*` call Claude
+made through mcp-gateway (View button on the tool chip) or from the hooked MCP tool `show_query`
+(the window pops up on its own, through a `showQuery` SSE event).
+
+- **hooked is its own MCP client of the gateway.** It signs in once through the browser (dynamic
+  client registration + PKCE, callback on the dashboard's own origin) and keeps its tokens in
+  `grafana-gateway.json` (mode 0600). The CLI's credentials are never read.
+- **A refresh re-runs the query with a range of the same length ending now**, so the view slides.
+  The first view of a Claude call is the result Claude got, read from the transcript; a large one
+  lives in `<session>/tool-results/`, in two formats depending on the CLI version (raw text, or
+  the content blocks as JSON).
+
 ## Workflows (`Workflow` tool): two sources, never both at once
 
 The dock's "Workflows" card (see `server/workflows.js`) rebuilds what the CLI's `/workflows` shows.

@@ -11,6 +11,7 @@
   import Icon from '$lib/components/Icon.svelte';
   import { ui } from '$lib/state.svelte.js';
   import { userFileUrl } from '$lib/api.js';
+  import { floating } from '$lib/floating.svelte.js';
   let { t, diff = null, ask = null, send = null, show = null, session = null, agent = null } = $props();
   const hasDiff = $derived(!!(diff && diff.ops && diff.ops.length));
 
@@ -27,6 +28,10 @@
   // "Expand all" (ui.toolsOpen, transient) shows every chip; a click still collapses one. The two
   // states are kept apart: switching the global on never hides a chip opened by hand, and switching
   // it off brings back exactly the chips opened by hand — the old XOR did the opposite.
+  // A Grafana query from any MCP server name, or a show_query; it opens in a floating window.
+  const isQuery = $derived(!!t.id && /__grafana_query_(prometheus|loki)$|^mcp__hooked__show_query$/.test(t.name || ''));
+  const openQuery = (e) => { e.stopPropagation(); floating.query = { session, agent, id: t.id }; };
+
   let open = $state(false);        // opened by hand while "expand all" is off
   let collapsed = $state(false);   // collapsed by hand while "expand all" is on
   const hasDetail = $derived(!!(t.inputText || t.result || ask));
@@ -112,7 +117,7 @@
 {:else}
   <div class="tool" class:has-detail={hasDetail} class:open={shown}>
     <span class="chip" onclick={() => { if (hasDetail) toggleDetail(); }}>
-      <Icon name="tool" size={13} /> {t.name}{#if t.detail}<span class="chip-d" title={t.detail}>{t.detail}</span>{/if}{#if hasDetail}<span class="chip-x"><Icon name="chevron-right" size={13} /></span>{/if}
+      <Icon name="tool" size={13} /> {t.name}{#if t.detail}<span class="chip-d" title={t.detail}>{t.detail}</span>{/if}{#if isQuery && t.result}<button class="chip-view" onclick={openQuery} title="Show the result in a floating window"><Icon name="stats" size={12} /> View</button>{/if}{#if hasDetail}<span class="chip-x"><Icon name="chevron-right" size={13} /></span>{/if}
     </span>
     {#if shown}
       <div class="tool-detail">
@@ -156,6 +161,8 @@
   /* SendUserFile : chip « envoyé » + miniatures images / liens fichiers */
   .tool-send { display: flex; flex-direction: column; gap: 6px; }
   .chip-send { align-self: flex-start; }
+  .chip-view { flex: none; display: inline-flex; align-items: center; gap: 4px; border: 1px solid rgba(var(--accent-rgb), .3); background: var(--bg2); color: var(--accent-d); font: inherit; padding: 0 6px; border-radius: 5px; cursor: pointer; }
+  .chip-view:hover { border-color: var(--accent); }
   .send-files { display: flex; flex-wrap: wrap; gap: 8px; }
   .send-img {
     padding: 0; border: 1px solid var(--border); border-radius: 8px; background: var(--bg2);
