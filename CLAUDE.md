@@ -170,6 +170,8 @@ Tasks live in `cron-tasks.json`; the parser (`src/lib/cron.js`) is pure and shar
   works everywhere.
 - **One live session per task.** A run closes the previous one if it is idle, and is skipped if it
   is still working or waiting on you. Runs missed while hooked is down are not caught up.
+- **MCP tools** `list_cron_tasks`, `save_cron_task`, `delete_cron_task`. A save with an `id` only
+  changes the fields it carries.
 
 ## Incognito mode (`ui.incognito`, `incognito` flag in `session-meta.json`)
 

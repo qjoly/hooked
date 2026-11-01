@@ -73,9 +73,16 @@ function listCronTasks(now = Date.now()) {
   });
 }
 
-// Creates (no id) or updates a task. Runs history is kept from the stored task, never the payload.
+// Creates (no id) or updates a task. An update only changes the fields it carries, and the runs
+// history always comes from the stored task.
 function saveCronTask(raw) {
-  const t = cleanTask(raw);
+  const patch = raw && typeof raw === 'object' ? raw : {};
+  const list = readCronTasks();
+  const i = patch.id ? list.findIndex((x) => x.id === patch.id) : -1;
+  if (patch.id && i < 0) throw err400('task not found');
+  const t = cleanTask(i >= 0
+    ? { ...list[i], ...patch, createdAt: list[i].createdAt, runs: list[i].runs }
+    : { ...patch, id: null, createdAt: null, runs: [] });
   if (!t.schedule) throw err400('schedule required');
   try { parseCron(t.schedule); } catch (e) { throw err400('invalid schedule: ' + e.message); }
   if (!t.prompt) throw err400('prompt required');
@@ -84,18 +91,13 @@ function saveCronTask(raw) {
   if (!st || !st.isDirectory()) throw err400('not a directory: ' + t.cwd);
   if (!t.name) t.name = t.prompt.split('\n')[0].slice(0, 60);
 
-  const list = readCronTasks();
-  const i = t.id ? list.findIndex((x) => x.id === t.id) : -1;
-  if (t.id && i < 0) throw err400('task not found');
-  if (i >= 0) {
-    list[i] = { ...t, createdAt: list[i].createdAt, runs: list[i].runs };
-  } else {
+  if (i >= 0) list[i] = t;
+  else {
     t.id = crypto.randomBytes(5).toString('hex');
-    t.runs = [];
     list.push(t);
   }
   writeCronTasks(list);
-  return i >= 0 ? list[i] : t;
+  return t;
 }
 
 function deleteCronTask(id) {

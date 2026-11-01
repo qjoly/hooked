@@ -79,6 +79,9 @@ describe('cron task storage', () => {
     expect(u.runs).toEqual([]);
     expect(cron.listCronTasks()[0].nextRun).toBeNull();
 
+    const p = cron.saveCronTask({ id: t.id, schedule: '@hourly' });
+    expect(p).toMatchObject({ schedule: '@hourly', prompt: t.prompt, cwd, enabled: false });
+
     cron.deleteCronTask(t.id);
     expect(cron.readCronTasks()).toEqual([]);
   });
