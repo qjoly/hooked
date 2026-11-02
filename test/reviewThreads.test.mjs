@@ -119,7 +119,7 @@ describe('reviewThreads — gardes', () => {
 
   // A cut key never matches its section again (the front requires a `:<index>` or `:*` tail), so
   // the thread turned "unreachable". Real case: a worktree path + branch + commit range, 225 chars.
-  const BRANCH_KEY = 'br:/Users/cchaslerie/Documents/Lucca/CC.Master/.claude/worktrees/precious-crunching-hearth:master:fix/environment-renaming-dns-verification:@15d92d88e555f04bc14b70366043b643ec6b5949..39414400614c34683df37d3e197bb40678ca6967:0';
+  const BRANCH_KEY = 'br:/Users/jdoe/Documents/acme/platform-api/.claude/worktrees/precious-crunching-hearth:master:fix/environment-renaming-dns-verification:@15d92d88e555f04bc14b70366043b643ec6b5949..39414400614c34683df37d3e197bb40678ca6967:0';
 
   it('stores a branch section key longer than 200 chars intact', () => {
     expect(BRANCH_KEY.length).toBeGreaterThan(200);

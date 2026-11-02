@@ -4,7 +4,7 @@ import { ghFilter } from '../src/lib/format.js';
 const items = [
   { repo: 'une-tasse-de-cafe/blog', title: 'Fix RSS feed' },
   { repo: 'une-tasse-de-cafe/hooked', title: 'Add GitHub filter' },
-  { repo: 'LuccaSA/une-tasse-de-cafe', title: 'Fix chart' },
+  { repo: 'acme/une-tasse-de-cafe', title: 'Fix chart' },
 ];
 const run = (q) => items.filter(ghFilter(q).keep).map((x) => x.repo);
 
@@ -19,7 +19,7 @@ describe('ghFilter', () => {
     expect(run('une-tasse-de-cafe/ fix')).toEqual(['une-tasse-de-cafe/blog']);
   });
   it('keeps the plain title/repo search', () => {
-    expect(run('fix')).toEqual(['une-tasse-de-cafe/blog', 'LuccaSA/une-tasse-de-cafe']);
+    expect(run('fix')).toEqual(['une-tasse-de-cafe/blog', 'acme/une-tasse-de-cafe']);
     expect(run('')).toHaveLength(3);
   });
 });
