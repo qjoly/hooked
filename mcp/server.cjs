@@ -161,9 +161,9 @@ const TOOLS = [
   {
     name: 'archive_this_session',
     description:
-      'Archives the session you are running in; it stops once your current turn ends. Call it only when ' +
-      'your first message says the session is ephemeral, as your last action, and only when you are highly ' +
-      'confident the task is done with nothing left for the user to check or decide.',
+      'Archives the session you are running in; it stops once your current turn ends. Call it as your last ' +
+      'action, only when you are highly confident the task is done with nothing left for the user to check, ' +
+      'decide or follow up on in this session. If anything is uncertain or unfinished, do not call it.',
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
     run: () => process.env.HOOKED_LAUNCH_KEY
       ? httpRequest('POST', '/api/kill', { launchKey: process.env.HOOKED_LAUNCH_KEY })
