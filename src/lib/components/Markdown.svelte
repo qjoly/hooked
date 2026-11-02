@@ -24,7 +24,7 @@
            by Claude has no such marker and falls through to CodeBlock. -->
       <TerminalBlock code={s.code} meta={s.meta || {}} />
     {:else}
-      <CodeBlock code={s.code} lang={s.lang} />
+      <CodeBlock code={s.code} lang={s.lang} meta={s.meta || {}} />
     {/if}
   {:else}
     <!-- un segment texte est une suite de sous-parties : html brut ({@html}) et liens de
