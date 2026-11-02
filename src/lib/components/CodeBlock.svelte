@@ -3,9 +3,11 @@
   import Icon from '$lib/components/Icon.svelte';
   import { highlight, langLabel } from '$lib/highlight.js';
   import { reply } from '$lib/api.js';
+  import { fenceQuery } from '$lib/format.js';
+  import { floating } from '$lib/floating.svelte.js';
   import { getContext } from 'svelte';
 
-  let { code = '', lang = '' } = $props();
+  let { code = '', lang = '', meta = {} } = $props();
 
   let copied = $state(false);
   let timer;
@@ -26,6 +28,8 @@
     run = r.ok ? 'done' : (r.data?.error || `HTTP ${r.status}`);
   }
 
+  const isQuery = $derived(/^(promql|logql)$/i.test(lang));
+  const query = $derived(fenceQuery(lang, meta, code));
   async function copy() {
     if (!(await copyText(code))) return;
     copied = true;
@@ -42,6 +46,12 @@
         <button class="cb-copy" class:done={run === 'done'} class:err={run && run !== 'busy' && run !== 'done'} onclick={runIt} disabled={run === 'busy'}
           title={run && run !== 'busy' && run !== 'done' ? run : 'Run in the session folder — output goes to the conversation'}>
           <Icon name={run === 'done' ? 'check' : 'shell'} size={13} /> {run === 'busy' ? 'Running…' : run === 'done' ? 'Ran' : run ? 'Failed' : 'Run'}
+        </button>
+      {/if}
+      {#if isQuery}
+        <button class="cb-copy" onclick={() => (floating.query = { spec: query })} disabled={!query}
+          title={query ? 'Open a live chart of this query' : 'Add datasource=… after the language to view it'}>
+          <Icon name="stats" size={13} /> View
         </button>
       {/if}
       <button class="cb-copy" class:done={copied} onclick={copy} title="Copy code">

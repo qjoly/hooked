@@ -60,6 +60,14 @@ export function stopLive() {
   state.started = false;
 }
 
+// A named event for the open dashboards (e.g. a chart Claude asked to show), next to the ticks.
+export function broadcastEvent(name, data) {
+  const msg = encoder.encode(`event: ${name}\ndata: ${JSON.stringify(data)}\n\n`);
+  for (const c of state.clients) {
+    try { c.enqueue(msg); } catch (_) { state.clients.delete(c); }
+  }
+}
+
 // Enregistre un client SSE (le controller d'un ReadableStream). Démarre les watchers
 // au premier client. Renvoie une fonction de désinscription (appelée à la fermeture).
 export function addClient(controller) {

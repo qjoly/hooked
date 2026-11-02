@@ -362,6 +362,18 @@ export function fenceMeta(info) {
   return out;
 }
 
+// A ```promql / ```logql fence as a live Grafana view, its options on the info-string:
+// ```promql datasource=mimir-prod range=6h step=5m refresh=30. No datasource, no view.
+export function fenceQuery(lang, meta = {}, code = '') {
+  const tool = { promql: 'prometheus', logql: 'loki' }[String(lang).toLowerCase()];
+  const datasource = meta.datasource || meta.ds;
+  if (!tool || !datasource || !code.trim()) return null;
+  const spec = { tool, datasource, query: code.trim(), range: meta.range || '1h', refresh: meta.refresh ? Number(meta.refresh) : 30 };
+  if (meta.step) spec.step = meta.step;
+  if (meta.limit) spec.limit = Number(meta.limit);
+  return spec;
+}
+
 // A `console` fence is a terminal transcript only when hooked produced it: formatLocalCommand
 // (server/agent.js) always stamps the exit code in the info-string. A ```console block Claude
 // writes carries no such marker and is plain code — its first line is not a command to promote.

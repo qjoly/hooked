@@ -92,4 +92,4 @@ function readUserFile(sessionId, agentId, absPath, projectsDir = PROJECTS_DIR) {
   return { buffer, contentType, attachment, name: real.split('/').pop() };
 }
 
-export { readUserFile };
+export { readUserFile, sessionTranscriptPath };
