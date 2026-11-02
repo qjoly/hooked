@@ -229,6 +229,9 @@ Converse / Review) replaces it. It is built on the non-interactive subcommands
   `test/mcp.test.mjs` on verbatim captures (`test/fixtures/mcp/`). The scope is inferred from disk
   (`~/.claude.json` + `.mcp.json`): that is free, whereas `claude mcp get` would cost one
   health-checked spawn per server.
+- **`claude mcp list` waits for its slowest server**, so one unreachable host costs the 30 s
+  connect timeout. The lens paints the last result for that directory at once (`?cached=1`), then
+  swaps in the live check; concurrent checks of one directory share a single spawn.
 - **`claude mcp login` runs under a real PTY** (node-pty), not `spawn`. It prints the URL as OSC-8
   hyperlinks and, for a regular OAuth server, waits on stdin for the redirect URL to be pasted
   back. The PTY keeps that process alive between the two HTTP calls, so logins live in a registry

@@ -18,7 +18,7 @@
   let notice = $state('');
   let poll = null;
 
-  const RANK = { needs_auth: 0, failed: 1, pending: 2, connected: 3 };
+  const RANK = { needs_auth: 0, failed: 1, pending: 2, connected: 3, disabled: 4 };
   // Anything needing a human first: this lens exists to fix broken auth, not to admire what works.
   const servers = $derived([...(res?.servers || [])]
     .sort((a, b) => (RANK[a.state] ?? 9) - (RANK[b.state] ?? 9) || a.name.localeCompare(b.name)));
@@ -29,15 +29,25 @@
     needs_auth: { icon: 'warning', color: 'var(--warn)', label: 'Needs authentication' },
     failed: { icon: 'close', color: 'var(--attention)', label: 'Failed' },
     pending: { icon: 'clock', color: 'var(--muted)', label: 'Pending approval' },
+    disabled: { icon: 'idle', color: 'var(--muted)', label: 'Disabled for this project' },
   };
   const stateUi = (s) => STATE_UI[s] || { icon: 'dot', color: 'var(--muted)', label: s };
 
+  // Paints the last known list at once, then waits for the live health check, which can take
+  // 30 s when a server is unreachable.
   async function load(dir = project) {
     loading = true;
     open = null;
     details = {};
-    try { res = await getMcpServers(dir); } catch (_) { res = { servers: [], diagnostics: [], error: 'request failed' }; }
-    finally { loading = false; }
+    const hit = await getMcpServers(dir, true).catch(() => null);
+    if (dir !== project) return;
+    if (hit) res = hit;
+    else if (res?.cwd !== dir) res = null;
+    let fresh;
+    try { fresh = await getMcpServers(dir); } catch (_) { fresh = { servers: [], diagnostics: [], error: 'request failed' }; }
+    if (dir !== project) return;
+    res = fresh;
+    loading = false;
   }
 
   async function toggleDetails(name) {
@@ -126,55 +136,6 @@
     <p class="notice">{notice}</p>
   {/if}
 
-  {#if login}
-    <div class="auth">
-      <div class="auth-head">
-        <strong><Icon name="lock" size={14} /> Authorize “{login.name}”</strong>
-        <button class="link" onclick={closeLogin}>Close</button>
-      </div>
-      {#if login.starting}
-        <p class="sub">Starting the login flow…</p>
-      {:else if login.done && login.outOfBand && login.url}
-        <p class="sub">Approve the connection on claude.ai, then hit Refresh:</p>
-        <div class="urlrow">
-          <a class="url" href={login.url} target="_blank" rel="noreferrer noopener">{login.url}</a>
-          <button class="btn" onclick={() => copyText(login.url)}>
-            <Icon name="copy" size={14} /> Copy
-          </button>
-        </div>
-        <p class="sub">The connector reports as authenticated once claude.ai has it — this page will not notice on its own.</p>
-      {:else if login.done}
-        <p class="sub">
-          {login.exitCode === 0 ? 'Login flow finished. The list has been refreshed.' : 'Login flow ended before completing.'}
-        </p>
-      {:else if login.url}
-        <p class="sub">Open this URL in your browser and approve the connection:</p>
-        <div class="urlrow">
-          <a class="url" href={login.url} target="_blank" rel="noreferrer noopener">{login.url}</a>
-          <button class="btn" onclick={() => copyText(login.url)}>
-            <Icon name="copy" size={14} /> Copy
-          </button>
-        </div>
-        {#if login.needsPaste}
-          <p class="sub">This server finishes the flow locally. Paste the URL you were redirected to:</p>
-          <div class="urlrow">
-            <input class="pick" bind:value={redirect} placeholder="http://localhost:…/callback?code=…"
-                   onkeydown={(e) => e.key === 'Enter' && sendRedirect()} />
-            <button class="btn" onclick={sendRedirect} disabled={!redirect.trim()}>Submit</button>
-          </div>
-        {:else}
-          <p class="sub waiting"><Icon name="queued" size={13} /> Waiting for authorization…</p>
-        {/if}
-      {:else}
-        <p class="sub">No authorization URL was produced. Raw output:</p>
-      {/if}
-      {#if login.output && (login.done ? login.exitCode !== 0 : !login.url)}
-        <pre class="raw">{login.output}</pre>
-      {/if}
-      {#if !login.done}<button class="link danger" onclick={cancelLogin}>Cancel</button>{/if}
-    </div>
-  {/if}
-
   {#if res?.error}
     <p class="empty">{res.error}</p>
   {:else if loading && !res}
@@ -185,7 +146,7 @@
     <div class="list">
       {#each servers as s (s.name)}
         {@const ui = stateUi(s.state)}
-        <div class="card" style="--st:{ui.color}">
+        <div class="card" class:off={s.state === 'disabled'} style="--st:{ui.color}">
           <div class="row">
             <span class="st" title={s.status}><Icon name={ui.icon} size={15} color={ui.color} /></span>
             <div class="idcol">
@@ -210,6 +171,54 @@
               </button>
             </div>
           </div>
+          {#if login?.name === s.name}
+            <div class="auth">
+              <div class="auth-head">
+                <strong><Icon name="lock" size={14} /> Authorize “{login.name}”</strong>
+                <button class="link" onclick={closeLogin}>Close</button>
+              </div>
+              {#if login.starting}
+                <p class="sub">Starting the login flow…</p>
+              {:else if login.done && login.outOfBand && login.url}
+                <p class="sub">Approve the connection on claude.ai, then hit Refresh:</p>
+                <div class="urlrow">
+                  <a class="url" href={login.url} target="_blank" rel="noreferrer noopener">{login.url}</a>
+                  <button class="btn" onclick={() => copyText(login.url)}>
+                    <Icon name="copy" size={14} /> Copy
+                  </button>
+                </div>
+                <p class="sub">The connector reports as authenticated once claude.ai has it — this page will not notice on its own.</p>
+              {:else if login.done}
+                <p class="sub">
+                  {login.exitCode === 0 ? 'Login flow finished. The list has been refreshed.' : 'Login flow ended before completing.'}
+                </p>
+              {:else if login.url}
+                <p class="sub">Open this URL in your browser and approve the connection:</p>
+                <div class="urlrow">
+                  <a class="url" href={login.url} target="_blank" rel="noreferrer noopener">{login.url}</a>
+                  <button class="btn" onclick={() => copyText(login.url)}>
+                    <Icon name="copy" size={14} /> Copy
+                  </button>
+                </div>
+                {#if login.needsPaste}
+                  <p class="sub">This server finishes the flow locally. Paste the URL you were redirected to:</p>
+                  <div class="urlrow">
+                    <input class="pick" bind:value={redirect} placeholder="http://localhost:…/callback?code=…"
+                           onkeydown={(e) => e.key === 'Enter' && sendRedirect()} />
+                    <button class="btn" onclick={sendRedirect} disabled={!redirect.trim()}>Submit</button>
+                  </div>
+                {:else}
+                  <p class="sub waiting"><Icon name="queued" size={13} /> Waiting for authorization…</p>
+                {/if}
+              {:else}
+                <p class="sub">No authorization URL was produced. Raw output:</p>
+              {/if}
+              {#if login.output && (login.done ? login.exitCode !== 0 : !login.url)}
+                <pre class="raw">{login.output}</pre>
+              {/if}
+              {#if !login.done}<button class="link danger" onclick={cancelLogin}>Cancel</button>{/if}
+            </div>
+          {/if}
           {#if open === s.name}
             <div class="det">
               {#if busy === s.name && !details[s.name]}
@@ -258,7 +267,7 @@
   .notice { margin: 0 0 14px; padding: 9px 12px; border-radius: 9px; background: var(--bg2); border: 1px solid var(--border); color: var(--muted); font-size: var(--t-ui); }
   .empty { color: var(--muted); text-align: center; padding: 40px 0; }
 
-  .auth { border: 1px solid var(--accent); border-radius: 12px; background: var(--bg2); padding: 14px 16px; margin: 0 0 18px; }
+  .auth { border-top: 1px solid var(--accent); background: color-mix(in srgb, var(--accent) 6%, var(--bg2)); padding: 12px 13px; }
   .auth-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
   .auth-head strong { display: inline-flex; align-items: center; gap: 7px; font-size: var(--t-body); }
   .urlrow { display: flex; gap: 8px; align-items: center; margin: 8px 0; }
@@ -268,6 +277,7 @@
 
   .list { display: flex; flex-direction: column; gap: 8px; }
   .card { border: 1px solid color-mix(in srgb, var(--st) 42%, var(--border)); border-radius: 10px; background: var(--bg2); overflow: hidden; }
+  .card.off { opacity: .6; }
   .row { display: flex; align-items: center; gap: 11px; padding: 11px 13px; }
   .st { flex: none; display: inline-flex; }
   .idcol { flex: 1 1 auto; min-width: 0; }
