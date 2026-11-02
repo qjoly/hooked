@@ -7,9 +7,10 @@ service to answer, then redirects to it. Updating the dashboard is still
 
 ## What the native layer adds
 
-- **System notifications.** WKWebView has no Web Notification API, so
-  `shim.js` replaces `window.Notification` with one that forwards to the system.
-  What gets notified, and when, is still decided by the dashboard.
+- **A notice in the top-right corner** when a session starts waiting on you.
+  It is drawn by the app, not by macOS Notification Center, and never takes
+  the keyboard focus. Clicking it opens the session. There are no system
+  banners.
 - **A menu bar icon** showing how many sessions are waiting on you. It follows
   the same event stream the dashboard uses, so it stays right even when the
   window is closed.
@@ -29,12 +30,10 @@ That builds, replaces `/Applications/hooked.app` and relaunches it. There is
 only ever one installed copy, and the menu bar tooltip says how old the running
 build is.
 
-## When notifications stay silent
+## Checking the notice
 
-`HOOKED_TEST_NOTIFY=1` fires one banner from the app itself at startup, without
-going through the page. A banner means the system allows it and the problem is
-in the dashboard; nothing at all means macOS is blocking the app, under System
-Settings → Notifications.
+`HOOKED_TEST_TOAST=1` shows a test notice 3 s after startup. The menu bar's
+"Show a test notice" does the same while the app is running.
 
 ## Not done yet
 

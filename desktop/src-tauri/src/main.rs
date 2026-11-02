@@ -180,13 +180,6 @@ fn send_reply(id: String, text: String) -> Result<(), String> {
         .map_err(|e| e.to_string())
 }
 
-// The dashboard is served from another origin, where a failed call is
-// indistinguishable from a call never made. This is how it reports back.
-#[tauri::command]
-fn page_log(msg: String) {
-    eprintln!("page: {msg}");
-}
-
 #[tauri::command]
 fn hide_quick(app: AppHandle) {
     if let Some(w) = app.get_webview_window("quick") {
@@ -482,8 +475,7 @@ fn follow_stream(app: AppHandle) {
 
 fn main() {
     tauri::Builder::default()
-        .plugin(tauri_plugin_notification::init())
-        .invoke_handler(tauri::generate_handler![waiting, transcript, send_reply, hide_quick, page_log, hide_toast, open_from_toast])
+        .invoke_handler(tauri::generate_handler![waiting, transcript, send_reply, hide_quick, hide_toast, open_from_toast])
         .setup(|app| {
             let handle = app.handle().clone();
 
@@ -497,8 +489,8 @@ fn main() {
                 .on_navigation(|url| route_navigation(url, true))
                 .build()?;
 
-            // Closing hides the window instead of destroying it: the page keeps
-            // running, so notifications survive.
+            // Closing hides the window instead of destroying it, so the page keeps
+            // running.
             let hidden = window.clone();
             window.on_window_event(move |event| {
                 if let WindowEvent::CloseRequested { api, .. } = event {
@@ -574,7 +566,10 @@ fn main() {
                 .decorations(false)
                 .always_on_top(true)
                 .skip_taskbar(true)
-                .focused(false)
+                // show() runs makeKeyAndOrderFront on macOS: without this, every
+                // notice steals the keyboard from whatever app you are typing in.
+                .focusable(false)
+                .accept_first_mouse(true)
                 .visible(false)
                 .build()?;
 
@@ -589,18 +584,6 @@ fn main() {
                     .build(),
             )?;
             app.global_shortcut().register(hotkey)?;
-
-            // Tells apart "macOS refuses to show anything" from "the page never
-            // asked": HOOKED_TEST_NOTIFY=1 fires one banner straight from here.
-            if std::env::var_os("HOOKED_TEST_NOTIFY").is_some() {
-                use tauri_plugin_notification::NotificationExt;
-                let _ = app
-                    .notification()
-                    .builder()
-                    .title("hooked")
-                    .body("If you can read this, the system path works.")
-                    .show();
-            }
 
             if std::env::var_os("HOOKED_TEST_TOAST").is_some() {
                 let probe = app.handle().clone();
