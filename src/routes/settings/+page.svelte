@@ -21,6 +21,7 @@
     { id: 'pset-editor', label: 'Editor' },
     { id: 'pset-speech', label: 'Voice dictation' },
     { id: 'pset-new', label: 'New session defaults' },
+    { id: 'pset-prompts', label: 'Prompt library' },
     { id: 'pset-showwork', label: 'Show your work' },
     { id: 'pset-models', label: 'Models' },
     { id: 'pset-project', label: 'Default project' },
@@ -107,6 +108,16 @@
     if (confirmTag !== tag) { confirmTag = tag; return; }
     deleteTag(tag);
     confirmTag = null;
+  }
+  // Local copy so a field can be edited freely; the whole list is saved when a field loses focus.
+  let prompts = $state([]);
+  $effect(() => { prompts = (settings.promptLibrary || []).map((p) => ({ ...p })); });
+  let newPrompt = $state({ name: '', text: '' });
+  const savePrompts = (list) => updateSettings({ promptLibrary: list });
+  function addPrompt() {
+    if (!newPrompt.name.trim() || !newPrompt.text.trim()) return;
+    savePrompts([...prompts, newPrompt]);
+    newPrompt = { name: '', text: '' };
   }
   function goTo(id) {
     activeSec = id;
@@ -639,6 +650,28 @@
       <ModelEffort showMode allowInherit bind:model={defModel} bind:effort={defEffort} bind:mode={defMode} onchange={saveDefaults} />
     </div>
 
+    <div class="card" id="pset-prompts" data-sec>
+      <h2>Prompt library</h2>
+      <p class="hint">Reusable prompts shown above the composer on the New session page. Clicking one appends it to the draft, so you can still edit it before launching. Clearing a prompt's text removes it.</p>
+      {#each prompts as p, i (i)}
+        <div class="pl-item">
+          <div class="pl-head">
+            <input class="cmd-input" placeholder="Name" bind:value={p.name} onchange={() => savePrompts(prompts)} />
+            <button class="mini" title="Delete prompt" aria-label="Delete prompt"
+                    onclick={() => savePrompts(prompts.filter((_, j) => j !== i))}><Icon name="trash" size={14} /></button>
+          </div>
+          <textarea class="lf-input" rows="3" bind:value={p.text} onchange={() => savePrompts(prompts)}></textarea>
+        </div>
+      {/each}
+      <div class="pl-item">
+        <div class="pl-head">
+          <input class="cmd-input" placeholder="New prompt name" bind:value={newPrompt.name} />
+          <button class="mini wide" disabled={!newPrompt.name.trim() || !newPrompt.text.trim()} onclick={addPrompt}>Add</button>
+        </div>
+        <textarea class="lf-input" rows="3" placeholder="Prompt text…" bind:value={newPrompt.text}></textarea>
+      </div>
+    </div>
+
     <div class="card" id="pset-showwork" data-sec>
       <h2>Show your work</h2>
       <p class="hint">Gives sessions the <code>show_image</code>, <code>show_video</code> and <code>show_audio</code> tools: after visual or audio work, Claude screenshots, records or plays it back and the result shows up in the conversation, with what changed and a before/after when relevant. Applies from the next launch or resume.</p>
@@ -1155,6 +1188,11 @@
   .mini.danger { width: auto; padding: 0 12px; font-weight: 600; color: #b42318; border-color: #f0a99f; background: #fef3f2; }
   .mini.danger:hover:not(:disabled) { border-color: #d92d20; color: #b42318; }
 
+  .pl-item { display: flex; flex-direction: column; gap: 6px; padding: 10px 0; border-bottom: 1px solid var(--border); }
+  .pl-item:last-child { border-bottom: 0; }
+  .pl-head { display: flex; gap: 8px; align-items: center; }
+  .pl-head .mini { height: 36px; }
+  .pl-item textarea { width: 100%; box-sizing: border-box; }
   .taglist { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
   .taglist li { display: flex; align-items: center; gap: 10px; padding: 6px 4px; border-bottom: 1px solid var(--border); }
   .taglist li:last-child { border-bottom: 0; }

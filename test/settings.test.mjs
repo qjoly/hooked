@@ -161,6 +161,23 @@ describe('navTabs', () => {
   });
 });
 
+describe('promptLibrary', () => {
+  it('defaults to an empty list', () => {
+    expect(readSettings().promptLibrary).toEqual([]);
+  });
+
+  it('keeps named prompts and drops blank or malformed entries', () => {
+    const s = writeSettings({ promptLibrary: [
+      { name: ' Review ', text: 'Review the diff' },
+      { name: '', text: 'no name' },
+      { name: 'empty', text: '  ' },
+      'junk',
+    ] });
+    expect(s.promptLibrary).toEqual([{ name: 'Review', text: 'Review the diff' }]);
+    expect(readSettings().promptLibrary).toEqual(s.promptLibrary);
+  });
+});
+
 describe('autoCompact', () => {
   it('is off by default, 100k-token threshold', () => {
     expect(readSettings().autoCompact).toEqual({ enabled: false, minContextK: 100 });
