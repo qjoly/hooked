@@ -60,6 +60,7 @@ const STATES = [
   { sym: '✓', state: 'connected' },
   { sym: '!', state: 'needs_auth' },
   { sym: '⏸', state: 'pending' },
+  { sym: '⊘', state: 'disabled' },
   { sym: '✘', state: 'failed' },
   { sym: '✗', state: 'failed' },
   { sym: '×', state: 'failed' },
@@ -179,7 +180,7 @@ const SCOPE_LABEL = { user: 'User', project: 'Project', local: 'Local', connecto
 export function decorate(servers, scopes) {
   return servers.map((s) => {
     const scope = scopes.get(s.name) || 'connector';
-    const authable = s.transport !== 'stdio' || scope === 'connector';
+    const authable = s.state !== 'disabled' && (s.transport !== 'stdio' || scope === 'connector');
     return { ...s, scope, scopeLabel: SCOPE_LABEL[scope], authable };
   });
 }
@@ -212,14 +213,36 @@ export function validCwd(cwd) {
   return HOME;
 }
 
-export async function listMcp(cwd) {
-  const dir = validCwd(cwd);
+// `claude mcp list` waits for its slowest server, so one unreachable host costs the 30 s connect
+// timeout. The last result per directory is kept so the lens can paint it at once, and concurrent
+// checks of the same directory share one spawn.
+const LIST_CACHE = Symbol.for('hooked.mcp.lists');
+/** @type {Map<string, { data?: any, at?: number, run?: Promise<any> | null }>} */
+const lists = globalThis[LIST_CACHE] || (globalThis[LIST_CACHE] = new Map());
+
+async function checkMcp(dir) {
   if (!resolveClaudeBin()) {
     return { cwd: dir, servers: [], diagnostics: [], error: 'claude binary not found' };
   }
   const { out } = await runClaude(['mcp', 'list'], dir);
   const { servers, diagnostics } = parseList(out);
   return { cwd: dir, diagnostics, servers: decorate(servers, readScopes(dir)) };
+}
+
+// `cached` returns the last result without spawning anything (null if the directory was never checked).
+export async function listMcp(cwd, { cached = false } = {}) {
+  const dir = validCwd(cwd);
+  let slot = lists.get(dir);
+  if (cached) return slot?.data ? { ...slot.data, checkedAt: slot.at, cached: true } : null;
+  if (!slot) lists.set(dir, (slot = {}));
+  if (!slot.run) {
+    const s = slot;
+    s.run = checkMcp(dir)
+      .then((data) => { s.data = data; s.at = Date.now(); return data; })
+      .finally(() => { s.run = null; });
+  }
+  const data = await slot.run;
+  return { ...data, checkedAt: slot.at };
 }
 
 export async function getMcp(cwd, name) {

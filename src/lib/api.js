@@ -125,7 +125,7 @@ export const cronOp = (op, extra) => jpost('/api/cron', { op, ...extra });
 export const getSkill = (id, cwds) => jget('/api/skills?id=' + encodeURIComponent(id) + cwdQuery(cwds));
 // MCP servers of a project (health-checked list, scope, diagnostics) + the OAuth actions.
 // `cwd` selects the project: project- and local-scope servers are per-directory.
-export const getMcpServers = (cwd) => jget('/api/mcp?cwd=' + encodeURIComponent(cwd || ''));
+export const getMcpServers = (cwd, cached = false) => jget('/api/mcp?cwd=' + encodeURIComponent(cwd || '') + (cached ? '&cached=1' : ''));
 // Trace lens: tool-call spans grouped by turn, and one span's input/result on demand.
 export const getTrace = (id) => jget('/api/session/trace?id=' + encodeURIComponent(id));
 export const getTraceTool = (id, tool) => jget('/api/session/trace?id=' + encodeURIComponent(id) + '&tool=' + encodeURIComponent(tool));

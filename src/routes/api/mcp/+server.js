@@ -7,7 +7,7 @@ import { fail, readJson } from '$lib/server/respond.js';
 // MCP servers of a project: health-checked list + scope + config diagnostics.
 // `cwd` matters — project and local scopes are per-directory (see server/mcp.js).
 export async function GET({ url }) {
-  return json(await listMcp(url.searchParams.get('cwd')));
+  return json(await listMcp(url.searchParams.get('cwd'), { cached: url.searchParams.get('cached') === '1' }));
 }
 
 // Everything that mutates or blocks: OAuth login (start / poll / paste back / cancel), logout,

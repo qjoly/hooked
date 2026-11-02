@@ -57,6 +57,8 @@ describe('parseServerLine', () => {
   it('maps the failure and pending markers', () => {
     expect(parseServerLine('a: x - ✘ Failed to connect')?.state).toBe('failed');
     expect(parseServerLine('b: y - ⏸ Pending approval')?.state).toBe('pending');
+    expect(parseServerLine('c: http://h/mcp (HTTP) - ⊘ Disabled for this project (re-enable via /mcp)'))
+      .toMatchObject({ state: 'disabled', status: 'Disabled for this project (re-enable via /mcp)' });
   });
 
   it('ignores noise lines', () => {
