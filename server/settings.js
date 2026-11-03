@@ -106,7 +106,7 @@ const DEFAULTS = {
   sidebarCache: { display: 'badge', windowMin: 15 },
 };
 
-const NAV_PAGES = ['sessions', 'stats', 'digest', 'memory', 'github', 'skills', 'cron'];
+const NAV_PAGES = ['sessions', 'stats', 'digest', 'memory', 'github', 'skills', 'cron', 'prompts'];
 const DEFAULT_PAGES = ['deck', ...NAV_PAGES];
 
 // Ramène un objet arbitraire (fichier ou payload client) à des valeurs sûres et complètes.

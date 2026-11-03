@@ -35,6 +35,7 @@
     { id: 'nav:github', label: 'Go to GitHub', section: 'Navigation', icon: 'pr', action: () => goto('/github') },
     { id: 'nav:skills', label: 'Go to Skills', section: 'Navigation', icon: 'zap', action: () => goto('/skills') },
     { id: 'nav:cron', label: 'Go to Cron', section: 'Navigation', icon: 'clock', action: () => goto('/cron') },
+    { id: 'nav:prompts', label: 'Go to Prompts', section: 'Navigation', icon: 'note', action: () => goto('/prompts') },
     { id: 'nav:settings', label: 'Go to Settings', section: 'Navigation', icon: 'settings', action: () => goto('/settings') },
   ];
 

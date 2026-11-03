@@ -180,7 +180,7 @@
             <span class="me-ico"><Icon name="comment" size={13} /></span> {p.name}
           </button>
         {/each}
-        <a class="ns-prompts-edit" href="/settings#pset-prompts" title="Manage the prompt library"><Icon name="pencil" size={13} /></a>
+        <a class="ns-prompts-edit" href="/prompts" title="Manage the prompt library"><Icon name="pencil" size={13} /></a>
       </div>
     {/if}
     <Composer bind:this={composer} newSession project={cwd} {model} {effort} {mode} {worktree} {ephemeral} {onLaunched} {groupWith} />
