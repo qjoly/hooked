@@ -444,10 +444,11 @@
     else ui.shipDiff = m;
   }
 
-  // Markdown files get a third view: the document rendered, its blocks tinted like the diff. The
-  // choice holds for every markdown file (`ui.shipRendered`) and leaves the unified/split
-  // preference of the source view alone. Threads are anchored to source lines, so they only show
-  // in the source view: jumping to one brings it back (see jumpToComment).
+  // Markdown files get a third view: the inline source diff next to the document rendered, its
+  // blocks tinted like the diff. The choice holds for every markdown file (`ui.shipRendered`) and
+  // leaves the unified/split preference of the source view alone. Threads are anchored to source
+  // lines, so they live in the source column; when the two columns don't fit, the rendered
+  // document shows alone and jumping to a thread brings the source view back (see jumpToComment).
   const isMarkdownName = (name) => langFromName(name) === 'md';
   const isMarkdown = $derived(!!activeFile && isMarkdownName(activeFile.name));
   const rendered = $derived(isMarkdown && ui.shipRendered);
@@ -468,6 +469,21 @@
     : (activeFile && activeFile.file in modeOverride) ? modeOverride[activeFile.file]
     : defaultMode
   );
+
+  // The rendered markdown sits beside its source diff only when the diff column can hold two
+  // readable columns. It is measured on its own: with both side columns open, a wide-enough lens
+  // still leaves it too thin.
+  let bodyWidth = $state(Infinity);
+  $effect(() => {
+    if (!bodyEl) return;
+    // A hidden lens (`display: none`) measures 0: keep the last width, or flipping to the rendered
+    // view alone would tear down the source diffs, open comment drafts included.
+    const ro = new ResizeObserver(() => { if (bodyEl.clientWidth) bodyWidth = bodyEl.clientWidth; });
+    ro.observe(bodyEl);
+    return () => ro.disconnect();
+  });
+  const sideBySideFits = $derived(bodyWidth >= 640);
+  const renderedAlone = $derived(rendered && !sideBySideFits);
 
   // ── review threads (GitHub-style, anchored in the diff) ─────────────────────────────────────
   // Threads live SERVER-side (HOOKED_DIR/reviews/<id>.json), not in component state: Claude
@@ -638,7 +654,7 @@
     const ctx = threadContext(t.opIndex);
     if (!ctx) return false;
     await restoreContext(ctx);
-    if (isMarkdownName(t.file)) ui.shipRendered = false;
+    if (!sideBySideFits && isMarkdownName(t.file)) ui.shipRendered = false;
     // `changes` is derived, so it already reflects the restored scope here
     let i = changes.findIndex((c) => c.file === t.file);
     if (i < 0) {
@@ -1009,7 +1025,7 @@
               <Icon name="external" size={12} /> rendered
             </a>
           {/if}
-          {#if !rendered}
+          {#if !renderedAlone}
             <label class="sd-compact" title="Hide the unchanged context lines">
               <input type="checkbox" bind:checked={ui.shipCompact} /> compact
             </label>
@@ -1037,7 +1053,7 @@
             {/snippet}
             {#each fileDiffs(activeFile) as d, di (d.opIndex)}
               {#if d.label}<div class="sd-oplabel">{d.label}</div>{/if}
-              {#if rendered}
+              {#if renderedAlone}
                 {@const n = commentsForSection(di, d.opIndex).length}
                 {#if n}
                   <button class="sd-mdnote" onclick={() => (ui.shipRendered = false)}>
@@ -1046,18 +1062,21 @@
                 {/if}
                 <MarkdownDiff oldStr={d.oldStr} newStr={d.newStr} />
               {:else}
-                <DiffView oldStr={d.oldStr} newStr={d.newStr} name={activeFile.name} mode={effMode} compact={ui.shipCompact}
-                          blame={blameFor}
-                          wholeFile={!!d.wholeFile}
-                          onSymbol={(p) => gotoDefinition(activeFile.file, d.opIndex, p)}
-                          markAt={def && def.opIndex === d.opIndex ? { side: def.atSide, line: def.atLine, start: def.atStart, end: def.atEnd } : null}
-                          definitionAt={def && def.opIndex === d.opIndex ? { side: def.atSide, line: def.atLine } : null}
-                          definition={defCard}
-                          commentable={!!onReview}
-                          comments={commentsForSection(di, d.opIndex)}
-                          focus={jumpTarget}
-                          onComment={(p) => addComment(activeFile.file, d.opIndex, activeFile.name, p)}
-                          onDelete={delComment} onEdit={editComment} onReply={replyComment} onArchive={archiveComment} />
+                <div class:sd-sbs={rendered}>
+                  <DiffView oldStr={d.oldStr} newStr={d.newStr} name={activeFile.name} mode={rendered ? 'unified' : effMode} compact={ui.shipCompact}
+                            blame={blameFor}
+                            wholeFile={!!d.wholeFile}
+                            onSymbol={(p) => gotoDefinition(activeFile.file, d.opIndex, p)}
+                            markAt={def && def.opIndex === d.opIndex ? { side: def.atSide, line: def.atLine, start: def.atStart, end: def.atEnd } : null}
+                            definitionAt={def && def.opIndex === d.opIndex ? { side: def.atSide, line: def.atLine } : null}
+                            definition={defCard}
+                            commentable={!!onReview}
+                            comments={commentsForSection(di, d.opIndex)}
+                            focus={jumpTarget}
+                            onComment={(p) => addComment(activeFile.file, d.opIndex, activeFile.name, p)}
+                            onDelete={delComment} onEdit={editComment} onReply={replyComment} onArchive={archiveComment} />
+                  {#if rendered}<MarkdownDiff oldStr={d.oldStr} newStr={d.newStr} />{/if}
+                </div>
               {/if}
             {/each}
           {/if}
@@ -1231,7 +1250,9 @@
     background: rgba(var(--accent-rgb), .08); border-bottom: 1px solid var(--border);
   }
   .sd-oplabel { font-family: var(--mono); font-size: var(--t-micro); color: var(--muted); padding: 8px 14px 2px; text-transform: uppercase; letter-spacing: .06em; }
-  /* rendered markdown: this diff's threads only show in the source view */
+  .sd-sbs { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .sd-sbs > :global(.mdd) { border-left: 1px solid var(--border); }
+  /* rendered markdown alone: this diff's threads only show in the source view */
   .sd-mdnote {
     display: flex; align-items: center; gap: 6px; width: 100%; padding: 5px 14px; text-align: left;
     background: rgba(var(--accent-rgb), .08); border: none; border-bottom: 1px solid var(--border);
