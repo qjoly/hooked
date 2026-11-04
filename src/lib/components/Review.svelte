@@ -20,11 +20,13 @@
   import { untrack, tick, onDestroy } from 'svelte';
   import DiffView from './DiffView.svelte';
   import MarkdownDiff from './MarkdownDiff.svelte';
+  import MdDiffBlock from './MdDiffBlock.svelte';
   import Grip from './Grip.svelte';
   import ReviewComments from './ReviewComments.svelte';
   import DefPeek from './DefPeek.svelte';
   import Icon from '$lib/components/Icon.svelte';
   import { toSegments, countStats, applyOp, langFromName } from '$lib/difflines.js';
+  import { mdBlockDiff } from '$lib/mdDiff.js';
   import { fmtCost } from '$lib/format.js';
   import { getFileChangeFull, getVcsDiff, getVcsBranches, getVcsBranchDiff, getVcsBlame, getSymbolDefs,
            getReviewThreads, postReviewComment, editReviewThread, deleteReviewThread,
@@ -444,11 +446,12 @@
     else ui.shipDiff = m;
   }
 
-  // Markdown files get a third view: the inline source diff next to the document rendered, its
-  // blocks tinted like the diff. The choice holds for every markdown file (`ui.shipRendered`) and
-  // leaves the unified/split preference of the source view alone. Threads are anchored to source
-  // lines, so they live in the source column; when the two columns don't fit, the rendered
-  // document shows alone and jumping to a thread brings the source view back (see jumpToComment).
+  // Markdown files get a third view: the inline source diff with the document rendered beside it,
+  // each block level with its source lines and tinted like the diff. The choice holds for every
+  // markdown file (`ui.shipRendered`) and leaves the unified/split preference of the source view
+  // alone. Threads are anchored to source lines, so they live in the source column; when the two
+  // columns don't fit, the rendered document shows alone and jumping to a thread brings the source
+  // view back (see jumpToComment).
   const isMarkdownName = (name) => langFromName(name) === 'md';
   const isMarkdown = $derived(!!activeFile && isMarkdownName(activeFile.name));
   const rendered = $derived(isMarkdown && ui.shipRendered);
@@ -1051,6 +1054,7 @@
             {#snippet defCard()}
               <DefPeek {id} target={def} onClose={() => (def = null)} />
             {/snippet}
+            {#snippet mdBlock(b)}<MdDiffBlock block={b} level />{/snippet}
             {#each fileDiffs(activeFile) as d, di (d.opIndex)}
               {#if d.label}<div class="sd-oplabel">{d.label}</div>{/if}
               {#if renderedAlone}
@@ -1062,21 +1066,19 @@
                 {/if}
                 <MarkdownDiff oldStr={d.oldStr} newStr={d.newStr} />
               {:else}
-                <div class:sd-sbs={rendered}>
-                  <DiffView oldStr={d.oldStr} newStr={d.newStr} name={activeFile.name} mode={rendered ? 'unified' : effMode} compact={ui.shipCompact}
-                            blame={blameFor}
-                            wholeFile={!!d.wholeFile}
-                            onSymbol={(p) => gotoDefinition(activeFile.file, d.opIndex, p)}
-                            markAt={def && def.opIndex === d.opIndex ? { side: def.atSide, line: def.atLine, start: def.atStart, end: def.atEnd } : null}
-                            definitionAt={def && def.opIndex === d.opIndex ? { side: def.atSide, line: def.atLine } : null}
-                            definition={defCard}
-                            commentable={!!onReview}
-                            comments={commentsForSection(di, d.opIndex)}
-                            focus={jumpTarget}
-                            onComment={(p) => addComment(activeFile.file, d.opIndex, activeFile.name, p)}
-                            onDelete={delComment} onEdit={editComment} onReply={replyComment} onArchive={archiveComment} />
-                  {#if rendered}<MarkdownDiff oldStr={d.oldStr} newStr={d.newStr} />{/if}
-                </div>
+                <DiffView oldStr={d.oldStr} newStr={d.newStr} name={activeFile.name} mode={rendered ? 'unified' : effMode} compact={ui.shipCompact}
+                          aside={mdBlock} asideItems={rendered ? mdBlockDiff(d.oldStr, d.newStr) : null}
+                          blame={blameFor}
+                          wholeFile={!!d.wholeFile}
+                          onSymbol={(p) => gotoDefinition(activeFile.file, d.opIndex, p)}
+                          markAt={def && def.opIndex === d.opIndex ? { side: def.atSide, line: def.atLine, start: def.atStart, end: def.atEnd } : null}
+                          definitionAt={def && def.opIndex === d.opIndex ? { side: def.atSide, line: def.atLine } : null}
+                          definition={defCard}
+                          commentable={!!onReview}
+                          comments={commentsForSection(di, d.opIndex)}
+                          focus={jumpTarget}
+                          onComment={(p) => addComment(activeFile.file, d.opIndex, activeFile.name, p)}
+                          onDelete={delComment} onEdit={editComment} onReply={replyComment} onArchive={archiveComment} />
               {/if}
             {/each}
           {/if}
@@ -1250,8 +1252,6 @@
     background: rgba(var(--accent-rgb), .08); border-bottom: 1px solid var(--border);
   }
   .sd-oplabel { font-family: var(--mono); font-size: var(--t-micro); color: var(--muted); padding: 8px 14px 2px; text-transform: uppercase; letter-spacing: .06em; }
-  .sd-sbs { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
-  .sd-sbs > :global(.mdd) { border-left: 1px solid var(--border); }
   /* rendered markdown alone: this diff's threads only show in the source view */
   .sd-mdnote {
     display: flex; align-items: center; gap: 6px; width: 100%; padding: 5px 14px; text-align: left;

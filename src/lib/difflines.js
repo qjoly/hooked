@@ -77,6 +77,33 @@ export function unifiedRows(segs, expand = {}, ctx = CTX) {
   return rows;
 }
 
+// Unified rows cut into bands, so that items tied to source lines — `{ old, new }`, each a
+// [first, last] line range or null — can be laid beside the rows they come from: a band opens on
+// the first visible row of one or more items and runs until the next one opens. Rows before the
+// first anchor form an item-less band; an item whose lines are all folded into a gap is left out.
+// → [{ rows, items }], every row in exactly one band, in order.
+export function besideBands(rows, items) {
+  const byOld = new Map(), byNew = new Map();
+  items.forEach((it, idx) => {
+    for (const [map, range] of [[byOld, it.old], [byNew, it.new]]) {
+      if (range) for (let no = range[0]; no <= range[1]; no++) map.set(no, idx);
+    }
+  });
+  const placed = new Set();
+  const bands = [{ rows: [], items: [] }];
+  for (const r of rows) {
+    const hits = [...new Set([byOld.get(r.oldNo), byNew.get(r.newNo)])]
+      .filter((idx) => idx !== undefined && !placed.has(idx))
+      .sort((a, b) => a - b);
+    if (hits.length) {
+      hits.forEach((idx) => placed.add(idx));
+      bands.push({ rows: [], items: hits.map((idx) => items[idx]) });
+    }
+    bands.at(-1).rows.push(r);
+  }
+  return bands.filter((b) => b.rows.length);
+}
+
 // ── split rows ────────────────────────────────────────────────────────────────────────────────
 // row: { kind:'ctx'|'change'|'gap', left:{no,text}|null, right:{no,text}|null, count?, seg? }
 // `expand`: same contract as unifiedRows.
