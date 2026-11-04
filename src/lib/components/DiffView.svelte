@@ -3,7 +3,7 @@
   // the app tokens, syntax-highlighted per line via the repo's own highlighter, unified or split,
   // with GitHub-style inline comments. Input is a single (oldStr → newStr) pair; the caller (Ship)
   // passes the NET original→final content so transient add-then-delete never shows.
-  import { toSegments, unifiedRows, splitRows, langFromName, EXPAND_STEP } from '$lib/difflines.js';
+  import { toSegments, unifiedRows, splitRows, besideBands, langFromName, EXPAND_STEP } from '$lib/difflines.js';
   import { highlight } from '$lib/highlight.js';
   import { ago } from '$lib/format.js';
   import { reanchor } from '$lib/reviewAnchor.js';
@@ -63,6 +63,11 @@
     // each side of this diff comes from ('' = working tree, null = don't blame that side), and
     // `load(rev)` fetches the blame of `file` at `rev`. Null disables the feature entirely.
     blame = null,
+    // Something to lay level with the source, e.g. a markdown file rendered block by block:
+    // `asideItems` are tied to line ranges ({ old, new }, see besideBands) and `aside` renders
+    // one. Each item sits beside the first visible row of its lines. Unified mode only.
+    aside = null,
+    asideItems = null,
   } = $props();
 
   const lang = $derived(langFromName(name));
@@ -86,6 +91,7 @@
     const ctx = compact ? 0 : undefined;
     return mode === 'split' ? splitRows(segs, expand, ctx) : unifiedRows(segs, expand, ctx);
   });
+  const bands = $derived(aside && asideItems && mode === 'unified' ? besideBands(rows, asideItems) : null);
 
   // highlight cache: identical lines are common (context) → memoise the escaped HTML.
   let hlCache = new Map();
@@ -535,73 +541,89 @@
       </div>
     </div>
   {/if}
-  {#each rows as r, i (i)}
-    {#if r.kind === 'gap'}
-      <div class="dv-gap">
-        <span class="dv-gap-btns">
-          {#if r.count <= EXPAND_STEP}
-            <button class="dv-gap-btn" title="Show all {r.count} lines" onclick={() => expandAll(r.seg)}><Icon name="arrow-up" size={11} /><Icon name="arrow-down" size={11} /></button>
-          {:else}
-            <button class="dv-gap-btn" title="Expand up ({EXPAND_STEP} lines)" onclick={() => expandGap(r.seg, 'tail')}><Icon name="arrow-up" size={11} /></button>
-            <button class="dv-gap-btn" title="Expand down ({EXPAND_STEP} lines)" onclick={() => expandGap(r.seg, 'head')}><Icon name="arrow-down" size={11} /></button>
-          {/if}
-        </span>
-        <span class="dv-gap-line"></span>
-        <button class="dv-gap-txt" title="Show all {r.count} lines" onclick={() => expandAll(r.seg)}>⋯ {r.count} unchanged line{r.count > 1 ? 's' : ''}</button>
-        <span class="dv-gap-line"></span>
+  {#if bands}
+    {#each bands as band, b (b)}
+      <div class="dv-band">
+        <div class="dv-band-src">
+          {#each band.rows as r, i (i)}{@render row(r)}{/each}
+        </div>
+        <div class="dv-band-aside">
+          {#each band.items as item, k (k)}{@render aside(item)}{/each}
+        </div>
       </div>
-    {:else if mode === 'unified'}
-      {@const side = r.kind === 'del' ? 'old' : 'new'}
-      {@const lineNo = r.kind === 'del' ? r.oldNo : r.newNo}
-      {@const slot = slotFor(side, lineNo)}
-      <div class="dv-row u {r.kind}" class:dv-inrange={inDraft(side, lineNo)}
-           data-side={side} data-line={lineNo}
-           onpointerenter={() => { overLine(side, lineNo); setHover(side, lineNo); }}>
-        <span class="dv-no">{r.oldNo ?? ''}</span>
-        <span class="dv-no">{r.newNo ?? ''}</span>
-        <span class="dv-sign">{r.kind === 'add' ? '+' : r.kind === 'del' ? '−' : ''}</span>
-        {#if commentable}
-          <button class="dv-plus" title="Comment — click a line or drag over several"
-                  onpointerdown={(e) => startDrag(side, lineNo, e)}>+</button>
-        {/if}
-        <span class="dv-line">
-          <code class="dv-code">{@html hl(r.text)}</code>
-          {#if blameOn(side, lineNo)}{@render blameTag(blameOn(side, lineNo))}{/if}
-        </span>
-      </div>
-      {#if slot.list.length || slot.draft}
-        {@render commentSlot(slot, side, lineNo)}
-      {/if}
-      {#if isDefAt(side, lineNo)}<div class="dv-def">{@render definition()}</div>{/if}
-    {:else}
-      <div class="dv-row s">
-        <span class="dv-no">{r.left ? r.left.no : ''}</span>
-        <span class="dv-cell {r.left ? (r.kind === 'change' ? 'del' : 'ctx') : 'empty'}" class:dv-inrange={r.left && inDraft('old', r.left.no)}
-              data-side={r.left ? 'old' : null} data-line={r.left ? r.left.no : null}
-              onpointerenter={() => { if (r.left) { overLine('old', r.left.no); setHover('old', r.left.no); } }}>
-          {#if commentable && r.left}<button class="dv-plus" title="Comment — click a line or drag over several" onpointerdown={(e) => startDrag('old', r.left.no, e)}>+</button>{/if}
-          <code class="dv-code">{@html r.left ? hl(r.left.text) : ''}</code>
-          {#if r.left && blameOn('old', r.left.no)}{@render blameTag(blameOn('old', r.left.no))}{/if}
-        </span>
-        <span class="dv-no">{r.right ? r.right.no : ''}</span>
-        <span class="dv-cell {r.right ? (r.kind === 'change' ? 'add' : 'ctx') : 'empty'}" class:dv-inrange={r.right && inDraft('new', r.right.no)}
-              data-side={r.right ? 'new' : null} data-line={r.right ? r.right.no : null}
-              onpointerenter={() => { if (r.right) { overLine('new', r.right.no); setHover('new', r.right.no); } }}>
-          {#if commentable && r.right}<button class="dv-plus" title="Comment — click a line or drag over several" onpointerdown={(e) => startDrag('new', r.right.no, e)}>+</button>{/if}
-          <code class="dv-code">{@html r.right ? hl(r.right.text) : ''}</code>
-          {#if r.right && blameOn('new', r.right.no)}{@render blameTag(blameOn('new', r.right.no))}{/if}
-        </span>
-      </div>
-      {@const ls = r.left ? slotFor('old', r.left.no) : { list: [], draft: false }}
-      {@const rs = r.right ? slotFor('new', r.right.no) : { list: [], draft: false }}
-      {#if ls.list.length || ls.draft}{@render commentSlot(ls, 'old', r.left.no)}{/if}
-      {#if rs.list.length || rs.draft}{@render commentSlot(rs, 'new', r.right.no)}{/if}
-      {#if (r.left && isDefAt('old', r.left.no)) || (r.right && isDefAt('new', r.right.no))}
-        <div class="dv-def">{@render definition()}</div>
-      {/if}
-    {/if}
-  {/each}
+    {/each}
+  {:else}
+    {#each rows as r, i (i)}{@render row(r)}{/each}
+  {/if}
 </div>
+
+<!-- svelte-ignore a11y_no_static_element_interactions — the hover only feeds blame and the comment drag, as on the root -->
+{#snippet row(r)}
+  {#if r.kind === 'gap'}
+    <div class="dv-gap">
+      <span class="dv-gap-btns">
+        {#if r.count <= EXPAND_STEP}
+          <button class="dv-gap-btn" title="Show all {r.count} lines" onclick={() => expandAll(r.seg)}><Icon name="arrow-up" size={11} /><Icon name="arrow-down" size={11} /></button>
+        {:else}
+          <button class="dv-gap-btn" title="Expand up ({EXPAND_STEP} lines)" onclick={() => expandGap(r.seg, 'tail')}><Icon name="arrow-up" size={11} /></button>
+          <button class="dv-gap-btn" title="Expand down ({EXPAND_STEP} lines)" onclick={() => expandGap(r.seg, 'head')}><Icon name="arrow-down" size={11} /></button>
+        {/if}
+      </span>
+      <span class="dv-gap-line"></span>
+      <button class="dv-gap-txt" title="Show all {r.count} lines" onclick={() => expandAll(r.seg)}>⋯ {r.count} unchanged line{r.count > 1 ? 's' : ''}</button>
+      <span class="dv-gap-line"></span>
+    </div>
+  {:else if mode === 'unified'}
+    {@const side = r.kind === 'del' ? 'old' : 'new'}
+    {@const lineNo = r.kind === 'del' ? r.oldNo : r.newNo}
+    {@const slot = slotFor(side, lineNo)}
+    <div class="dv-row u {r.kind}" class:dv-inrange={inDraft(side, lineNo)}
+         data-side={side} data-line={lineNo}
+         onpointerenter={() => { overLine(side, lineNo); setHover(side, lineNo); }}>
+      <span class="dv-no">{r.oldNo ?? ''}</span>
+      <span class="dv-no">{r.newNo ?? ''}</span>
+      <span class="dv-sign">{r.kind === 'add' ? '+' : r.kind === 'del' ? '−' : ''}</span>
+      {#if commentable}
+        <button class="dv-plus" title="Comment — click a line or drag over several"
+                onpointerdown={(e) => startDrag(side, lineNo, e)}>+</button>
+      {/if}
+      <span class="dv-line">
+        <code class="dv-code">{@html hl(r.text)}</code>
+        {#if blameOn(side, lineNo)}{@render blameTag(blameOn(side, lineNo))}{/if}
+      </span>
+    </div>
+    {#if slot.list.length || slot.draft}
+      {@render commentSlot(slot, side, lineNo)}
+    {/if}
+    {#if isDefAt(side, lineNo)}<div class="dv-def">{@render definition()}</div>{/if}
+  {:else}
+    <div class="dv-row s">
+      <span class="dv-no">{r.left ? r.left.no : ''}</span>
+      <span class="dv-cell {r.left ? (r.kind === 'change' ? 'del' : 'ctx') : 'empty'}" class:dv-inrange={r.left && inDraft('old', r.left.no)}
+            data-side={r.left ? 'old' : null} data-line={r.left ? r.left.no : null}
+            onpointerenter={() => { if (r.left) { overLine('old', r.left.no); setHover('old', r.left.no); } }}>
+        {#if commentable && r.left}<button class="dv-plus" title="Comment — click a line or drag over several" onpointerdown={(e) => startDrag('old', r.left.no, e)}>+</button>{/if}
+        <code class="dv-code">{@html r.left ? hl(r.left.text) : ''}</code>
+        {#if r.left && blameOn('old', r.left.no)}{@render blameTag(blameOn('old', r.left.no))}{/if}
+      </span>
+      <span class="dv-no">{r.right ? r.right.no : ''}</span>
+      <span class="dv-cell {r.right ? (r.kind === 'change' ? 'add' : 'ctx') : 'empty'}" class:dv-inrange={r.right && inDraft('new', r.right.no)}
+            data-side={r.right ? 'new' : null} data-line={r.right ? r.right.no : null}
+            onpointerenter={() => { if (r.right) { overLine('new', r.right.no); setHover('new', r.right.no); } }}>
+        {#if commentable && r.right}<button class="dv-plus" title="Comment — click a line or drag over several" onpointerdown={(e) => startDrag('new', r.right.no, e)}>+</button>{/if}
+        <code class="dv-code">{@html r.right ? hl(r.right.text) : ''}</code>
+        {#if r.right && blameOn('new', r.right.no)}{@render blameTag(blameOn('new', r.right.no))}{/if}
+      </span>
+    </div>
+    {@const ls = r.left ? slotFor('old', r.left.no) : { list: [], draft: false }}
+    {@const rs = r.right ? slotFor('new', r.right.no) : { list: [], draft: false }}
+    {#if ls.list.length || ls.draft}{@render commentSlot(ls, 'old', r.left.no)}{/if}
+    {#if rs.list.length || rs.draft}{@render commentSlot(rs, 'new', r.right.no)}{/if}
+    {#if (r.left && isDefAt('old', r.left.no)) || (r.right && isDefAt('new', r.right.no))}
+      <div class="dv-def">{@render definition()}</div>
+    {/if}
+  {/if}
+{/snippet}
 
 {#snippet blameTag(b)}
   <span class="dv-blame" class:loading={b.state === 'loading'}>
@@ -713,6 +735,11 @@
     font-family: var(--mono); font-size: var(--t-meta); line-height: 1.55;
     background: var(--code-bg); color: var(--code-fg); overflow-x: hidden; position: relative;
   }
+  /* one grid row per band, as tall as its taller side: the source rows and what they produced
+     start on the same line */
+  .dv-band { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .dv-band-src { min-width: 0; }
+  .dv-band-aside { min-width: 0; background: var(--panel); border-left: 1px solid var(--border); }
   .dv-row { display: grid; align-items: stretch; }
   .dv.unified .dv-row { grid-template-columns: 46px 46px 16px 1fr; }
   .dv.unified.commentable .dv-row { grid-template-columns: 46px 46px 16px 18px 1fr; }

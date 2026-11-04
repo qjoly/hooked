@@ -8,7 +8,7 @@
  * Ces invariants sont ce dont dépend l'affichage NET (original→final) de Ship.
  */
 import { describe, it, expect } from 'vitest';
-import { toSegments, countStats, unifiedRows, splitRows, langFromName, applyOp } from '../src/lib/difflines.js';
+import { toSegments, countStats, unifiedRows, splitRows, langFromName, applyOp, besideBands } from '../src/lib/difflines.js';
 
 describe('toSegments', () => {
   it('pairs a removed block with the following added block into one change', () => {
@@ -121,6 +121,48 @@ describe('splitRows', () => {
     const change = rows.find((r) => r.kind === 'change');
     expect(change.left.text).toBe('b');
     expect(change.right.text).toBe('B');
+  });
+});
+
+describe('besideBands', () => {
+  const lines = (band) => band.rows.map((r) => (r.kind === 'gap' ? 'gap' : r.text));
+  const names = (band) => band.items.map((it) => it.name);
+
+  it('opens a band on the first row of each item, trailing rows staying with it', () => {
+    const rows = unifiedRows(toSegments('# T\n\nold\n', '# T\n\nnew\n'));
+    const bands = besideBands(rows, [
+      { name: 'title', old: [1, 1], new: [1, 1] },
+      { name: 'was', old: [3, 3], new: null },
+      { name: 'now', old: null, new: [3, 3] },
+    ]);
+    expect(bands.map(lines)).toEqual([['# T', ''], ['old'], ['new']]);
+    expect(bands.map(names)).toEqual([['title'], ['was'], ['now']]);
+  });
+
+  it('keeps the rows before the first anchor in an item-less band', () => {
+    const rows = unifiedRows(toSegments('\n\ntext\n', '\n\ntext!\n'));
+    const bands = besideBands(rows, [{ name: 'p', old: null, new: [3, 3] }]);
+    expect(bands.map(names)).toEqual([[], ['p']]);
+    expect(bands[0].rows.map((r) => r.kind)).toEqual(['ctx', 'ctx', 'del']);
+  });
+
+  it('shares a band between items anchored on the same row, in item order', () => {
+    // An unchanged line that both versions file under different blocks.
+    const rows = unifiedRows(toSegments('a\n', 'a\n'));
+    const bands = besideBands(rows, [{ name: 'del', old: [1, 1], new: null }, { name: 'add', old: null, new: [1, 1] }]);
+    expect(bands.map(names)).toEqual([['del', 'add']]);
+  });
+
+  it('leaves out an item whose lines are all folded into a gap', () => {
+    const before = Array.from({ length: 30 }, (_, i) => `l${i + 1}`);
+    const after = [...before.slice(0, -1), 'changed'];
+    const rows = unifiedRows(toSegments(before.join('\n') + '\n', after.join('\n') + '\n'));
+    const bands = besideBands(rows, [
+      { name: 'hidden', old: [2, 5], new: [2, 5] },
+      { name: 'tail', old: [30, 30], new: null },
+    ]);
+    expect(bands.flatMap(names)).toEqual(['tail']);
+    expect(bands.flatMap((b) => b.rows)).toEqual(rows);
   });
 });
 

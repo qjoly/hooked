@@ -22,6 +22,7 @@ describe('mdSegments breaks option', () => {
 });
 
 const texts = (src) => mdBlocks(src).map((b) => b.text);
+const shown = (diff) => diff.map(({ kind, text }) => ({ kind, text }));
 
 describe('mdBlocks', () => {
   it('cuts headings, paragraphs and code fences into separate blocks', () => {
@@ -67,6 +68,20 @@ describe('mdBlocks', () => {
     expect(mdBlocks('# T\r\n\r\n- a\r\n- b\r\n')).toEqual(mdBlocks('# T\n\n- a\n- b\n'));
   });
 
+  it('records the source lines of each block, 1-based and inclusive', () => {
+    expect(mdBlocks('# T\n\nfirst\nsecond\n\n- a\n- b\n  - b.1\n').map((b) => b.lines)).toEqual([
+      [1, 1], [3, 4], [6, 6], [7, 8],
+    ]);
+  });
+
+  it('counts the front matter lines before the body', () => {
+    expect(mdBlocks('---\nname: x\n---\n\n# Body\n').map((b) => b.lines)).toEqual([[1, 3], [5, 5]]);
+  });
+
+  it('leaves the blank lines of a loose list out of its items', () => {
+    expect(mdBlocks('- a\n\n- b\n').map((b) => b.lines)).toEqual([[1, 1], [3, 3]]);
+  });
+
   it('has no block for an empty document', () => {
     expect(mdBlocks('')).toEqual([]);
     expect(mdBlocks(null)).toEqual([]);
@@ -80,7 +95,7 @@ describe('mdBlockDiff', () => {
   });
 
   it('tints only the list item that changed, the removed one before its replacement', () => {
-    expect(mdBlockDiff('# T\n\n- a\n- b\n- c\n', '# T\n\n- a\n- B\n- c\n')).toEqual([
+    expect(shown(mdBlockDiff('# T\n\n- a\n- b\n- c\n', '# T\n\n- a\n- B\n- c\n'))).toEqual([
       { kind: 'ctx', text: '# T' },
       { kind: 'ctx', text: '- a' },
       { kind: 'del', text: '- b' },
@@ -90,7 +105,7 @@ describe('mdBlockDiff', () => {
   });
 
   it('shows a new file as all additions', () => {
-    expect(mdBlockDiff('', '# T\n\ntext\n')).toEqual([
+    expect(shown(mdBlockDiff('', '# T\n\ntext\n'))).toEqual([
       { kind: 'add', text: '# T' },
       { kind: 'add', text: 'text' },
     ]);
@@ -99,10 +114,19 @@ describe('mdBlockDiff', () => {
   it('renders each block with the ordinal of its own version', () => {
     // An item inserted at the top of a `1.`-style list: the source of the others is unchanged,
     // so they stay context, but they read their NEW number.
-    expect(mdBlockDiff('1. b\n1. c\n', '1. a\n1. b\n1. c\n')).toEqual([
+    expect(shown(mdBlockDiff('1. b\n1. c\n', '1. a\n1. b\n1. c\n'))).toEqual([
       { kind: 'add', text: '1. a' },
       { kind: 'ctx', text: '2. b' },
       { kind: 'ctx', text: '3. c' },
+    ]);
+  });
+
+  it('anchors each block to its lines in the version it comes from', () => {
+    const diff = mdBlockDiff('# T\n\nold\n', '# T\n\nnew\nline\n');
+    expect(diff.map(({ kind, old, new: nu }) => ({ kind, old, new: nu }))).toEqual([
+      { kind: 'ctx', old: [1, 1], new: [1, 1] },
+      { kind: 'del', old: [3, 3], new: null },
+      { kind: 'add', old: null, new: [3, 4] },
     ]);
   });
 });
