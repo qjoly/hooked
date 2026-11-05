@@ -19,6 +19,7 @@ import { buildScreenshots } from './screenshots.js';
 import { buildWorkflows } from './workflows.js';
 import { latestTodos, todoSummary } from './todos.js';
 import { buildBackgroundJobs, jobStatus, jobLabel } from './background.js';
+import { readSessionMeta, groupInfo } from './sessionMeta.js';
 import { DIGEST_PROMPT_PREFIX } from './digests.js';
 
 // Sessions « live-only » : présentes dans les évènements de hooks mais pas encore
@@ -147,8 +148,10 @@ function buildSessions() {
   });
   const now = Date.now();
   const evMeta = eventSessionMeta();
+  const meta = readSessionMeta();
   for (const s of visible) {
     fillFromEvents(s, evMeta.get(s.id));
+    s.group = groupInfo(s.id, meta);
     // dépôt GitHub (owner/repo) pour le regroupement sidebar ; null hors dépôt git.
     s.repo = repoSlug(s.project);
     const ev = last.get(s.id);
@@ -430,6 +433,7 @@ function sessionDetail(id) {
     followupSuggestion: (agent && state !== 'working') ? agent.followup : null,
     // la session est-elle pilotable depuis le dashboard ? (elle tourne dans ce processus hooked)
     live: alive,
+    group: groupInfo(id),
     // deep-link relatif vers cette session (à émettre par un agent en markdown : `[label](/session/<id>)`).
     link: '/session/' + encodeURIComponent(id),
     // mode courant : lu dans le registre quand la session est pilotée (le SDK le publie sur

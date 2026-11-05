@@ -146,6 +146,13 @@ function groupMotherOf(id, map = readSessionMeta()) {
   return rootOf(map, id) || id;
 }
 
+function groupInfo(id, map = readSessionMeta()) {
+  const mother = groupMotherOf(id, map);
+  const kids = childrenOf(map, mother);
+  if (!kids.length) return null;
+  return { mother, name: (map[mother] && map[mother].groupName) || null, members: [mother, ...kids] };
+}
+
 // Puts `id` in the group of `targetId` (whose mother stays the mother). When `id` is itself a
 // mother, its whole group follows: dragging a group onto another merges them.
 function joinGroup(id, targetId) {
@@ -216,5 +223,5 @@ function renameGroup(id, name) {
 
 export {
   SESSION_META_FILE, readSessionMeta, writeSessionMeta, setSessionMeta, isIncognitoSession,
-  groupMotherOf, joinGroup, leaveGroup, setGroupMother, renameGroup,
+  groupMotherOf, groupInfo, joinGroup, leaveGroup, setGroupMother, renameGroup,
 };

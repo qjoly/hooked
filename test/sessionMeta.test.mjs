@@ -11,10 +11,10 @@ import path from 'node:path';
 const TMP = path.join(os.tmpdir(), 'hooked-session-meta-test-' + process.pid);
 process.env.HOOKED_DATA_DIR = TMP;
 
-let readSessionMeta, writeSessionMeta, setSessionMeta, joinGroup, leaveGroup, setGroupMother, renameGroup, groupMotherOf;
+let readSessionMeta, writeSessionMeta, setSessionMeta, joinGroup, leaveGroup, setGroupMother, renameGroup, groupMotherOf, groupInfo;
 beforeAll(async () => {
   fs.rmSync(TMP, { recursive: true, force: true });
-  ({ readSessionMeta, writeSessionMeta, setSessionMeta, joinGroup, leaveGroup, setGroupMother, renameGroup, groupMotherOf } = await import('../server/sessionMeta.js'));
+  ({ readSessionMeta, writeSessionMeta, setSessionMeta, joinGroup, leaveGroup, setGroupMother, renameGroup, groupMotherOf, groupInfo } = await import('../server/sessionMeta.js'));
 });
 
 const inOneHour = () => Date.now() + 3600_000;
@@ -118,6 +118,7 @@ describe('session groups', () => {
 
   it('a lone session is its own mother', () => {
     expect(groupMotherOf('g-lone')).toBe('g-lone');
+    expect(groupInfo('g-lone')).toBeNull();
   });
 
   it('join puts a session under the target mother, in join order', () => {
@@ -152,6 +153,13 @@ describe('session groups', () => {
     expect(map['g-a'].groupName).toBe('Auth refactor');
     expect(renameGroup('g-a', '')['g-a']?.groupName).toBeUndefined();
     renameGroup('g-a', 'Auth refactor');
+  });
+
+  it('groupInfo describes the group from any member, mother first then join order', () => {
+    const info = { mother: 'g-a', name: 'Auth refactor', members: ['g-a', 'g-b', 'g-c', 'g-d', 'g-x', 'g-y'] };
+    expect(groupInfo('g-a')).toEqual(info);
+    expect(groupInfo('g-d')).toEqual(info);
+    expect(groupInfo('g-a', readSessionMeta())).toEqual(info);
   });
 
   it('setGroupMother swaps roles and moves the name', () => {

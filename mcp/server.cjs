@@ -92,6 +92,32 @@ function resultFrom(r) {
 
 // --- définition des outils ----------------------------------------------------
 
+function groupView(meta, id) {
+  const mother = (meta[id] && meta[id].groupOf) || id;
+  const kids = Object.keys(meta).filter((k) => meta[k].groupOf === mother)
+    .sort((a, b) => (meta[a].groupAt || 0) - (meta[b].groupAt || 0));
+  if (!kids.length) return null;
+  return {
+    mother,
+    name: (meta[mother] && meta[mother].groupName) || null,
+    members: [mother, ...kids].map((m) => ({ id: m, link: '/session/' + encodeURIComponent(m) })),
+  };
+}
+
+async function groupOp(body) {
+  let other = body.id;
+  // Once `id` has left, nothing links it to its former group: read the group through another member.
+  if (body.op === 'leave') {
+    const before = await httpRequest('GET', '/api/session-meta');
+    if (!before.ok) return before;
+    const was = groupView((before.data && before.data.meta) || {}, body.id);
+    other = was ? was.members.map((m) => m.id).find((m) => m !== body.id) : body.id;
+  }
+  const r = await httpRequest('POST', '/api/session-meta', body);
+  if (!r.ok) return r;
+  return { ok: true, data: { ok: true, group: groupView((r.data && r.data.meta) || {}, other) } };
+}
+
 // Modèles & efforts ne sont plus énumérés ici (liste figée = obsolète) : `type: string` libre,
 // le serveur hooked valide contre les valeurs dérivées du binaire claude (cf. server/capabilities.js)
 // et renvoie une erreur si la valeur est inconnue. MODES reste une liste (concept propre à hooked).
@@ -102,7 +128,9 @@ const TOOLS = [
     name: 'list_sessions',
     description:
       'Liste toutes les sessions Claude Code suivies par hooked (live + passées) avec leur état ' +
-      "courant (working / waiting / attention / idle / ended), modèle, projet, coût et outil en cours.",
+      "courant (working / waiting / attention / idle / ended), modèle, projet, coût et outil en cours. " +
+      'Le champ `group` (`{ mother, name, members }`, null pour une session seule) dit à quel groupe ' +
+      'de sessions elle appartient.',
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
     run: () => httpRequest('GET', '/api/sessions'),
   },
@@ -110,7 +138,8 @@ const TOOLS = [
     name: 'get_session',
     description:
       "Détail complet d'une session : conversation, todos, fichiers touchés, sous-agents, " +
-      'événements récents et question en attente éventuelle. Le champ `link` (ex. `/session/<id>`) ' +
+      'événements récents, question en attente éventuelle et groupe (`group`, cf. list_sessions). ' +
+      'Le champ `link` (ex. `/session/<id>`) ' +
       "est un deep-link vers la session : pour diriger l'utilisateur vers elle dans hooked, émets un " +
       'lien markdown `[label](<link>)` (chemin RELATIF, pas une URL absolue) — le clic focalise la ' +
       'session dans l\'app sans rechargement.',
@@ -129,7 +158,7 @@ const TOOLS = [
       'existante via resumeId), dans le dossier indiqué. La réponse inclut `sessionId` et `link` ' +
       "(deep-link relatif `/session/<id>`) : pour pointer l'utilisateur vers la nouvelle session " +
       'dans hooked, émets un lien markdown `[label](<link>)`. Une session lancée depuis une session ' +
-      'pilotée par hooked rejoint automatiquement le groupe de la session appelante.',
+      'pilotée par hooked rejoint automatiquement le groupe de la session appelante, sauf `group: false`.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -140,12 +169,70 @@ const TOOLS = [
         resumeId: { type: 'string', description: 'id d\'une session existante à reprendre' },
         worktree: { type: 'boolean', description: 'démarrer dans un git worktree dédié (session neuve uniquement)' },
         ephemeral: { type: 'boolean', description: 'the session archives itself once its task is done, when it is confident nothing is left to check (new session with a prompt only)' },
+        group: { type: 'boolean', description: 'false pour lancer une session indépendante, hors du groupe de la session appelante (défaut : true)' },
       },
       additionalProperties: false,
     },
     // HOOKED_LAUNCH_KEY est injecté par hooked dans l'env de ce proxy (cf. hookedMcpServer) : il
     // désigne la session appelante, que la nouvelle session rejoint dans son groupe.
     run: (a) => httpRequest('POST', '/api/launch', process.env.HOOKED_LAUNCH_KEY ? { ...a, parentKey: process.env.HOOKED_LAUNCH_KEY } : a),
+  },
+  {
+    name: 'group_sessions',
+    description:
+      "Met une session dans le groupe d'une autre (celui de `target`, qui garde sa session mère). " +
+      'Si `id` est elle-même mère d\'un groupe, tout son groupe suit (fusion). Renvoie le groupe ' +
+      'résultant : `{ mother, name, members: [{ id, link }] }`, `link` étant le deep-link relatif ' +
+      '`/session/<id>` à émettre en markdown `[label](<link>)`.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: { type: 'string', description: 'id de la session à grouper' },
+        target: { type: 'string', description: 'id d\'une session du groupe à rejoindre' },
+      },
+      required: ['id', 'target'],
+      additionalProperties: false,
+    },
+    run: (a) => groupOp({ op: 'join', id: a.id, target: a.target }),
+  },
+  {
+    name: 'ungroup_session',
+    description:
+      'Sort une session de son groupe (elle redevient seule). Si c\'est la session mère, la plus ' +
+      'ancienne de ses sessions filles prend sa place et hérite du nom. Renvoie ce qui reste du ' +
+      "groupe quitté (`{ mother, name, members }`), ou `null` s'il ne reste qu'une session.",
+    inputSchema: {
+      type: 'object',
+      properties: { id: { type: 'string', description: 'id de la session à sortir' } },
+      required: ['id'],
+      additionalProperties: false,
+    },
+    run: (a) => groupOp({ op: 'leave', id: a.id }),
+  },
+  {
+    name: 'set_group_mother',
+    description: "Fait d'une session la mère de son groupe (l'ancienne mère devient la première fille). Renvoie le groupe.",
+    inputSchema: {
+      type: 'object',
+      properties: { id: { type: 'string', description: 'id de la session à promouvoir' } },
+      required: ['id'],
+      additionalProperties: false,
+    },
+    run: (a) => groupOp({ op: 'mother', id: a.id }),
+  },
+  {
+    name: 'rename_group',
+    description: "Renomme le groupe d'une session (n'importe quel membre fait l'affaire). Nom vide : retour au nom par défaut. Renvoie le groupe.",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: { type: 'string', description: 'id d\'une session du groupe' },
+        name: { type: 'string', description: 'nouveau nom (vide pour le nom par défaut)' },
+      },
+      required: ['id', 'name'],
+      additionalProperties: false,
+    },
+    run: (a) => groupOp({ op: 'rename', id: a.id, name: a.name }),
   },
   {
     name: 'stop_session',
