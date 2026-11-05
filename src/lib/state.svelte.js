@@ -567,6 +567,7 @@ export const settings = $state({
   defaultModel: '', defaultEffort: '', defaultMode: '',
   remoteControlProjects: [],
   favoriteProjects: [],
+  promptLibrary: [], // cf. server/settings.js
   digest: { auto: true, hour: 7, model: '' },
   // Gestion de la fenêtre 5 h (cf. server/warmup.js) — défauts alignés sur server/settings.js.
   warmup: {

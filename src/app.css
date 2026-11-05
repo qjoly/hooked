@@ -1943,6 +1943,11 @@ code.path { color: var(--muted); font-size: var(--t-micro); word-break: break-al
 .ns-group { display: flex; align-items: center; gap: 6px; margin: 0 4px 10px; font-size: var(--t-ui); color: var(--muted); }
 .ns-group b { color: var(--text); }
 .ns-worktree { cursor: pointer; user-select: none; }
+.ns-prompts { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 0 4px 10px; }
+.ns-prompt { cursor: pointer; max-width: 220px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ns-prompt:hover { color: var(--accent-d); border-color: var(--accent); }
+.ns-prompts-edit { color: var(--muted); display: inline-flex; padding: 4px; }
+.ns-prompts-edit:hover { color: var(--accent-d); }
 .ns-worktree input { margin: 0 2px 0 0; cursor: pointer; accent-color: var(--accent-d); }
 .ns-worktree:has(input:checked) { color: var(--text); border-color: var(--accent-d); }
 

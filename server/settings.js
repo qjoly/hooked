@@ -62,6 +62,8 @@ const DEFAULTS = {
   // Projets épinglés en favori (cwd absolus) : remontés en tête du sélecteur de la Nouvelle session.
   // Même forme que remoteControlProjects (liste de chemins absolus, dédupée/bornée). [] = aucun.
   favoriteProjects: [],
+  // Reusable prompts offered on the New session page: [{ name, text }].
+  promptLibrary: [],
   // Digest quotidien (onglet Digest / server/digests.js). auto : génère le digest de la veille
   // chaque jour à `hour` (heure locale) ; model : modèle passé à `claude -p` ('' = hérite du défaut
   // Claude Code). Remplace les anciennes variables d'env HOOKED_DIGEST_*.
@@ -104,7 +106,7 @@ const DEFAULTS = {
   sidebarCache: { display: 'badge', windowMin: 15 },
 };
 
-const NAV_PAGES = ['sessions', 'stats', 'digest', 'memory', 'github', 'skills', 'cron'];
+const NAV_PAGES = ['sessions', 'stats', 'digest', 'memory', 'github', 'skills', 'cron', 'prompts'];
 const DEFAULT_PAGES = ['deck', ...NAV_PAGES];
 
 // Ramène un objet arbitraire (fichier ou payload client) à des valeurs sûres et complètes.
@@ -134,6 +136,10 @@ function sanitize(raw) {
   const favProjects = Array.isArray(o.favoriteProjects)
     ? [...new Set(o.favoriteProjects.filter((p) => typeof p === 'string' && p.startsWith('/')).map((p) => p.slice(0, 4096)))].slice(0, 64)
     : [];
+  const promptLibrary = (Array.isArray(o.promptLibrary) ? o.promptLibrary : [])
+    .filter((p) => p && typeof p.name === 'string' && p.name.trim() && typeof p.text === 'string' && p.text.trim())
+    .map((p) => ({ name: p.name.trim().slice(0, 80), text: p.text.slice(0, 20000) }))
+    .slice(0, 100);
   // digest : auto (bool, défaut true), hour (entier 0-23, défaut 7), model ('' = hérite, sinon
   // validé contre --model comme au lancement — jamais interpolé brut dans un shell sans ce filtre).
   const rawDg = o.digest && typeof o.digest === 'object' ? o.digest : {};
@@ -204,6 +210,7 @@ function sanitize(raw) {
     quickLaunchProject,
     remoteControlProjects: rcProjects,
     favoriteProjects: favProjects,
+    promptLibrary,
     digest,
     warmup,
     autoCompact,
