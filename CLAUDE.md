@@ -157,7 +157,12 @@ Every session belongs to exactly one group. A session on its own is an implicit 
   `HOOKED_LAUNCH_KEY` (the registry entry's `launchKey`) into the env of the `mcp/server.cjs`
   proxy. `start_session` sends it back as `parentKey`, and `launchSession` puts the new session in
   the caller's group. This only works when the caller is driven by hooked; a session opened by
-  hand has no key.
+  hand has no key. `start_session` with `group: false` skips the join (the key is still sent, so
+  incognito is inherited either way).
+- **MCP tools** `group_sessions`, `ungroup_session`, `set_group_mother`, `rename_group` wrap the
+  `POST /api/session-meta` ops and answer with the affected group only, not the whole meta map.
+  `list_sessions` / `get_session` carry `group` (`{ mother, name, members }`, null for a lone
+  session), computed by `groupInfo()`.
 - **Archiving the parent archives the whole group.** A child is archived on its own and stays in
   its group.
 

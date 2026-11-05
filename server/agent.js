@@ -751,7 +751,7 @@ function closeAfterTurn(launchKey, cb) {
 
 // Lance `claude` via l'Agent SDK. `resumeId` reprend une session existante ; `worktree` ne vaut que
 // pour une session neuve (une reprise rouvre la session dans son dossier d'origine).
-function launchSession({ resumeId, cwd, prompt, model, effort, worktree, permissionMode, autoApprove, parentKey, groupWith, incognito, ephemeral }, cb) {
+function launchSession({ resumeId, cwd, prompt, model, effort, worktree, permissionMode, autoApprove, parentKey, groupWith, group, incognito, ephemeral }, cb) {
   let dir = cwd && typeof cwd === 'string' ? cwd : null;
   let id = null;
   if (resumeId) {
@@ -868,9 +868,10 @@ function launchSession({ resumeId, cwd, prompt, model, effort, worktree, permiss
     if (!finalSt.id) return cb(new Error('agent sdk session ended before reporting its id'));
     persistLaunch(finalSt.id, model, effort);
     // Launched from another driven session (MCP start_session), or from a group's « + » (groupWith):
-    // the new session joins that group.
+    // the new session joins that group, unless the caller opted out (`group: false`). The parent
+    // is still resolved in that case: incognito is inherited either way.
     const parentId = !id && (sessionIdForLaunchKey(parentKey) || (typeof groupWith === 'string' && groupWith));
-    if (parentId && parentId !== finalSt.id) { try { joinGroup(finalSt.id, parentId); } catch (_) {} }
+    if (parentId && parentId !== finalSt.id && group !== false) { try { joinGroup(finalSt.id, parentId); } catch (_) {} }
     // Incognito: asked for by the dashboard (the mode was on at launch), or inherited from the
     // session that spawned this one — a sub-session of a demo belongs to the demo, and without
     // the flag it would simply vanish from a dashboard filtering on it.
