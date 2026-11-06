@@ -14,6 +14,9 @@ service to answer, then redirects to it. Updating the dashboard is still
   the same event stream the dashboard uses, so it stays right even when the
   window is closed.
 - **Closing hides the window** rather than quitting. Quit from the menu bar.
+- **⌘R reloads the dashboard** (View → Reload). The window has no address bar,
+  and after `mise run deploy` it keeps running the old build until the page is
+  reloaded.
 
 ## Build
 

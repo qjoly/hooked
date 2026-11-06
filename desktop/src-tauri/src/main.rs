@@ -507,10 +507,44 @@ fn follow_stream(app: AppHandle) {
     });
 }
 
+// ⌘R reloads the dashboard. The window has no address bar, so after
+// `mise run deploy` nothing else would load the new build. A menu accelerator
+// rather than a global shortcut: it must only fire while hooked is frontmost.
+fn app_menu(handle: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
+    let menu = Menu::default(handle)?;
+    let reload = MenuItem::with_id(handle, "reload", "Reload", true, Some("CmdOrCtrl+R"))?;
+    // Under View, where browsers keep it. Building on the default menu keeps
+    // Edit, and with it copy and paste in the webview.
+    let items = menu.items()?;
+    let view = items
+        .iter()
+        .filter_map(|i| i.as_submenu())
+        .find(|s| s.text().ok().as_deref() == Some("View"));
+    match view {
+        Some(view) => {
+            view.insert(&reload, 0)?;
+            view.insert(&PredefinedMenuItem::separator(handle)?, 1)?;
+        }
+        None => menu.append(&Submenu::with_items(handle, "View", true, &[&reload])?)?,
+    }
+    Ok(menu)
+}
+
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_notification::init())
         .invoke_handler(tauri::generate_handler![waiting, transcript, send_reply, hide_quick, page_log, hide_toast, open_from_toast])
+        .menu(app_menu)
+        // Menu listeners are global, so the tray's handler sees this event too;
+        // the ids keep them apart. Always the dashboard, even from the quick
+        // window: that overlay has nothing worth reloading.
+        .on_menu_event(|app, event| {
+            if event.id.as_ref() == "reload" {
+                if let Some(w) = app.get_webview_window("main") {
+                    let _ = w.reload();
+                }
+            }
+        })
         .setup(|app| {
             let handle = app.handle().clone();
 
