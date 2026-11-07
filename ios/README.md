@@ -21,7 +21,7 @@ The `.xcodeproj` is generated, not committed: rerun `xcodegen generate` after pu
 3. Plug in the phone, enable Developer Mode (Settings → Privacy & Security), pick it as the run destination and press Run.
 4. First launch: trust the developer profile in Settings → General → VPN & Device Management.
 
-A free team signs the app for **7 days**. After that it won't open: plug the phone in and press Run again to re-sign. No push notifications with a free team.
+A free team signs the app for **7 days**. After that it won't open: plug the phone in and press Run again to re-sign, or let [ios-keepalive](https://tangled.org/une-tasse-de.cafe/ios-keepalive) rebuild and reinstall it in the background. No push notifications with a free team.
 
 ## Pair
 
