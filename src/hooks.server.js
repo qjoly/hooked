@@ -1,5 +1,5 @@
 import { dev } from '$app/environment';
-import { startDigestScheduler, startCronScheduler, startRemoteControl, readSettings, resumeDrivenSessions, startDrivenSnapshot, installShutdownHook, startWarmupScheduler, startAutoCompactScheduler, applyGitSyncSetting, applyPrReviewTagSetting, applyAutoTagSetting, authorizeRemote, remoteCookie } from '$lib/server/core.js';
+import { startDigestScheduler, startCronScheduler, startRemoteControl, readSettings, resumeDrivenSessions, startDrivenSnapshot, installShutdownHook, startWarmupScheduler, startAutoCompactScheduler, applyGitSyncSetting, applyPrReviewTagSetting, applyAutoTagSetting } from '$lib/server/core.js';
 
 // Ctrl+C has to actually stop the process. adapter-node closes the HTTP listener on SIGINT but
 // never exits, so any handle left behind (fs watchers, driven subprocesses, PTYs) keeps hooked
@@ -38,17 +38,3 @@ if (!dev || process.env.HOOKED_MODE) {
 startWarmupScheduler();
 // Same reasons for auto-compact (settings → autoCompact): every tick reads the setting.
 startAutoCompactScheduler();
-
-// Requests from another machine need the remote token (Bearer header, or a cookie set by ?token=).
-export async function handle({ event, resolve }) {
-  let addr = null;
-  try { addr = event.getClientAddress(); } catch (_) { }
-  const h = event.request.headers;
-  const verdict = authorizeRemote({ addr, authorization: h.get('authorization'), cookie: h.get('cookie'), queryToken: event.url.searchParams.get('token') });
-  if (verdict === 'ok') return resolve(event);
-  if (verdict === 'pair') {
-    event.url.searchParams.delete('token');
-    return new Response(null, { status: 303, headers: { location: event.url.pathname + event.url.search, 'set-cookie': remoteCookie() } });
-  }
-  return new Response('hooked: remote access needs a token. Open this page once with ?token=<token> (Settings → Remote access on the hooked machine).\n', { status: 401, headers: { 'content-type': 'text/plain; charset=utf-8' } });
-}

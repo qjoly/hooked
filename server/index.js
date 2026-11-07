@@ -12,7 +12,6 @@ export * from './memory.js';
 export * from './digestScheduler.js';
 export * from './warmup.js';
 export * from './remoteControl.js';
-export * from './remoteAuth.js';
 export * from './util.js';
 export * from './git.js';
 export * from './gitOps.js';

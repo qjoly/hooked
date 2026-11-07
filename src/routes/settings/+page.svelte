@@ -2,8 +2,7 @@
   import { untrack, onMount } from 'svelte';
   import { data, ui, settings, updateSettings, setTheme, setScheme, setCorners, loadSessions, allTags, tagUsage, deleteTag } from '$lib/state.svelte.js';
   import { tagColor } from '$lib/format.js';
-  import { copyText } from '$lib/clipboard.js';
-  import { resync, getGit, checkoutBranch, dismissRestartNotice, getClaudeVersion, upgradeClaude, restartClaudeSession, pickFolder, getRemoteControl, getRemoteToken, rotateRemoteToken, getCapabilities, getWarmup, runWarmup } from '$lib/api.js';
+  import { resync, getGit, checkoutBranch, dismissRestartNotice, getClaudeVersion, upgradeClaude, restartClaudeSession, pickFolder, getRemoteControl, getCapabilities, getWarmup, runWarmup } from '$lib/api.js';
   import { COMPACT_LEAD_MS, CACHED_READ_SHARE } from '$lib/promptCache.js';
   import { isHideableModel } from '$lib/models.js';
   import { getAllBindings, setBinding, resetBinding, resetAll as resetAllShortcuts, formatKeys, keysFromEvent } from '$lib/shortcuts.js';
@@ -26,7 +25,6 @@
     { id: 'pset-models', label: 'Models' },
     { id: 'pset-project', label: 'Default project' },
     { id: 'pset-remote-control', label: 'Remote control' },
-    { id: 'pset-remote-access', label: 'Remote access' },
     { id: 'pset-digest', label: 'Daily digest' },
     { id: 'pset-warmup', label: '5-hour window' },
     { id: 'pset-autocompact', label: 'Auto-compact' },
@@ -322,24 +320,6 @@
     const t = setInterval(loadRcStatus, 4000);
     return () => clearInterval(t);
   });
-
-  // null until loaded; { error } when this page is not opened on the hooked machine.
-  let remote = $state(null);
-  let remoteShown = $state(false);
-  let remoteCopied = $state('');
-  async function loadRemote() {
-    try { remote = await getRemoteToken(); } catch (_) { remote = { error: true }; }
-  }
-  async function rotateRemote() {
-    if (!confirm('Rotate the token? Paired phones and browsers will need the new one.')) return;
-    const r = await rotateRemoteToken();
-    if (r.ok) remote = { ...remote, token: r.data.token };
-  }
-  async function copyRemote(what, text) {
-    if (await copyText(text)) { remoteCopied = what; setTimeout(() => (remoteCopied = ''), 1500); }
-  }
-  const remoteBase = (addr) => `http://${addr}:${remote?.port}`;
-  onMount(loadRemote);
 
   // ⋯ menu controls: read / toggle one entry.
   const sbOn = (k) => settings.statusBar?.[k] !== false;
@@ -743,32 +723,6 @@
       {/if}
     </div>
 
-    <div class="card" id="pset-remote-access" data-sec>
-      <h2>Remote access</h2>
-      <p class="hint">Requests from another machine (the iOS app, a phone browser, over LAN or WireGuard) need this token. Requests from this machine never do. Expose hooked with <code>HOST=0.0.0.0</code>.</p>
-      {#if remote?.error}
-        <p class="hint" style="margin-top:8px">Open Settings on the hooked machine to see the token.</p>
-      {:else if remote}
-        <div class="cmd-row">
-          <code class="rt-token">{remoteShown ? remote.token : '•'.repeat(24)}</code>
-          <button class="save" onclick={() => (remoteShown = !remoteShown)}>{remoteShown ? 'Hide' : 'Show'}</button>
-          <button class="save" onclick={() => copyRemote('token', remote.token)}>{remoteCopied === 'token' ? 'Copied' : 'Copy'}</button>
-          <button class="save" onclick={rotateRemote}>Rotate</button>
-        </div>
-        {#if remote.addresses?.length}
-          <p class="hint" style="margin-top:10px">Pair a browser by opening one of these links once (it sets a cookie):</p>
-          <ul class="rc-list">
-            {#each remote.addresses as addr (addr)}
-              <li class="rc-row">
-                <span class="rc-path">{remoteBase(addr)}</span>
-                <button class="save" onclick={() => copyRemote(addr, `${remoteBase(addr)}/?token=${remote.token}`)}>{remoteCopied === addr ? 'Copied' : 'Copy link'}</button>
-              </li>
-            {/each}
-          </ul>
-        {/if}
-      {/if}
-    </div>
-
     <div class="card" id="pset-digest" data-sec>
       <h2>Daily digest</h2>
       <p class="hint">Generate an AI recap of the previous day's sessions each morning — see the <strong>Digest</strong> tab. Runs a headless <code>claude -p</code> pass. Manual generation from the tab always works, even with auto off.</p>
@@ -1157,7 +1111,6 @@
   .mini { background: var(--surface); border: 1px solid var(--border); color: var(--text); border-radius: 6px; width: 28px; height: 26px; cursor: pointer; font-size: var(--t-micro); }
   .mini:hover:not(:disabled) { border-color: var(--accent); color: var(--accent-d); }
   .mini:disabled { opacity: .35; cursor: default; }
-  .rt-token { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--mono, ui-monospace, monospace); font-size: var(--t-ui); }
   .cmd-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
   .cmd-input { flex: 1; min-width: 240px; background: var(--surface); border: 1px solid var(--border2); border-radius: 8px; padding: 9px 12px; color: var(--text); font-size: var(--t-ui); font-family: inherit; }
   .cmd-input:focus { outline: none; border-color: var(--accent); }
