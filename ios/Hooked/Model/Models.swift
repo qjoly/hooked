@@ -116,6 +116,8 @@ struct Session: Identifiable, Equatable, Sendable {
         todo = td.object == nil ? nil : TodoSummary(total: td["total"].int ?? 0, done: td["done"].int ?? 0, current: td["current"].text)
     }
 
+    var motherId: String { group?.mother ?? id }
+
     var displayTitle: String { title ?? lastPrompt ?? projectName ?? "Untitled session" }
 
     var needsYou: Bool { state == .attention || state == .waiting || hasQuestion || hasPlan }
@@ -192,6 +194,14 @@ struct SessionDetail: Equatable, Sendable {
     let permissionMode: String?
     let autoApprove: Bool
     let messages: [Message]
+    /// Sessions this one launched or linked to.
+    let subSessions: [(id: String, label: String)]
+
+    static func == (a: Self, b: Self) -> Bool {
+        a.session == b.session && a.pendingQuestion == b.pendingQuestion && a.pendingPlan == b.pendingPlan
+            && a.pendingLeadIn == b.pendingLeadIn && a.permissionMode == b.permissionMode && a.autoApprove == b.autoApprove
+            && a.messages == b.messages && a.subSessions.map(\.id) == b.subSessions.map(\.id)
+    }
 
     init(_ j: JSON) {
         session = Session(j)
@@ -201,6 +211,7 @@ struct SessionDetail: Equatable, Sendable {
         permissionMode = j["permissionMode"].text
         autoApprove = j["autoApprove"].bool
         messages = j["messages"].array.enumerated().map { Message(index: $0.offset, $0.element) }
+        subSessions = j["subSessions"].array.compactMap { s in s["id"].string.map { ($0, s["label"].text ?? "") } }
     }
 }
 

@@ -47,6 +47,7 @@ struct SessionView: View {
                 if atBottom { withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo("bottom", anchor: .bottom) } }
             }
         }
+        .safeAreaInset(edge: .top, spacing: 0) { relatedBar }
         .safeAreaInset(edge: .bottom, spacing: 0) { bottomBar }
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -83,6 +84,48 @@ struct SessionView: View {
         let fields = store.heldSwitch?.impact.object ?? [:]
         let lines = fields.keys.sorted().map { "\($0): \(fields[$0]?.display ?? "")" }
         return (["Switching models drops the cached prompt and re-sends the whole conversation."] + lines).joined(separator: "\n")
+    }
+
+    /// Group mother and siblings, then sessions this one launched or linked to.
+    private var related: [(id: String, session: Session?, label: String, isMother: Bool)] {
+        let me = store.id
+        let group = summary?.group
+        var ids = (group?.members ?? []).filter { $0 != me }
+        let labels = Dictionary((store.detail?.subSessions ?? []).map { ($0.id, $0.label) }, uniquingKeysWith: { a, _ in a })
+        for s in store.detail?.subSessions ?? [] where s.id != me && !ids.contains(s.id) { ids.append(s.id) }
+        return ids.map { id in
+            let s = sessions.session(id)
+            return (id, s, s?.displayTitle ?? labels[id]?.nilIfEmpty ?? String(id.prefix(8)), id == group?.mother)
+        }
+    }
+
+    @ViewBuilder private var relatedBar: some View {
+        let items = related
+        if !items.isEmpty {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 6) {
+                    ForEach(items, id: \.id) { r in
+                        let style = r.session.map { $0.needsYou ? StateStyle.decision : StateStyle.of($0.state) } ?? StateStyle.of(.unknown)
+                        Button { app.path.append(r.id) } label: {
+                            HStack(spacing: 5) {
+                                if r.isMother { Image(systemName: "arrow.turn.left.up").font(.caption2) }
+                                StateDot(style: style, size: 7)
+                                Text(r.label).font(.system(size: 12, weight: .semibold)).lineLimit(1)
+                            }
+                            .frame(maxWidth: 200)
+                            .padding(.vertical, 5)
+                            .padding(.horizontal, 9)
+                            .background(Theme.card, in: Capsule())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel(r.isMother ? "Parent: \(r.label)" : r.label)
+                    }
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+            }
+            .background(.bar)
+        }
     }
 
     @ViewBuilder private var bottomBar: some View {
