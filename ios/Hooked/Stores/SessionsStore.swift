@@ -4,7 +4,6 @@ import Observation
 @MainActor @Observable
 final class SessionsStore {
     let client: HookedClient
-    private let onUnauthorized: @MainActor () -> Void
 
     private(set) var sessions: [Session] = []
     private(set) var loaded = false
@@ -14,9 +13,8 @@ final class SessionsStore {
     private var pendingRefresh: Task<Void, Never>?
     private var lastRefresh = Date.distantPast
 
-    init(client: HookedClient, onUnauthorized: @escaping @MainActor () -> Void) {
+    init(client: HookedClient) {
         self.client = client
-        self.onUnauthorized = onUnauthorized
     }
 
     func session(_ id: String) -> Session? { sessions.first { $0.id == id } }
@@ -32,7 +30,6 @@ final class SessionsStore {
         Task { await refresh() }
         streamTask = Task { [weak self, client] in
             await SSEClient.run({ try client.request("api/stream", timeout: 60) },
-                               onUnauthorized: { self?.onUnauthorized() },
                                handle: { _ in self?.scheduleRefresh(); return self != nil })
         }
     }
@@ -64,8 +61,6 @@ final class SessionsStore {
             if list != sessions { sessions = list }
             loaded = true
             error = nil
-        } catch HookedError.unauthorized {
-            onUnauthorized()
         } catch is CancellationError {
         } catch {
             self.error = error.localizedDescription

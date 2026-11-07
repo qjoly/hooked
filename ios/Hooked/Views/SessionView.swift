@@ -8,9 +8,9 @@ struct SessionView: View {
     @State private var atBottom = true
     @State private var confirmKill = false
 
-    init(id: String, sessions: SessionsStore, onUnauthorized: @escaping @MainActor () -> Void) {
+    init(id: String, sessions: SessionsStore) {
         self.sessions = sessions
-        _store = State(initialValue: SessionStore(id: id, client: sessions.client, onUnauthorized: onUnauthorized))
+        _store = State(initialValue: SessionStore(id: id, client: sessions.client))
     }
 
     private var summary: Session? { store.session ?? sessions.session(store.id) }

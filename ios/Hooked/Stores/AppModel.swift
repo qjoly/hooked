@@ -6,32 +6,27 @@ final class AppModel {
     private(set) var config: ServerConfig?
     private(set) var client: HookedClient?
     private(set) var sessions: SessionsStore?
-    /// Shown on the connect screen after a failure that sent the user back there.
-    var connectMessage: String?
     var capabilities = Capabilities()
     var path: [String] = []
 
     init() {
-        if let c = ServerConfig.load(), let t = Keychain.token() { connect(c, token: t) }
+        if let c = ServerConfig.load() { connect(c) }
     }
 
     var savedConfig: ServerConfig? { config ?? ServerConfig.load() }
-    var savedToken: String { Keychain.token() ?? "" }
 
-    func save(_ c: ServerConfig, token: String) {
+    func save(_ c: ServerConfig) {
         c.save()
-        Keychain.setToken(token)
-        connect(c, token: token)
+        connect(c)
     }
 
-    private func connect(_ c: ServerConfig, token: String) {
+    private func connect(_ c: ServerConfig) {
         sessions?.stop()
         config = c
-        connectMessage = nil
         path = []
-        let client = HookedClient(config: c, token: token)
+        let client = HookedClient(config: c)
         self.client = client
-        let store = SessionsStore(client: client) { [weak self] in self?.unauthorized() }
+        let store = SessionsStore(client: client)
         sessions = store
         store.start()
         Task { [weak self] in
@@ -39,16 +34,8 @@ final class AppModel {
         }
     }
 
-    func unauthorized() {
-        sessions?.stop()
-        sessions = nil
-        client = nil
-        path = []
-        connectMessage = "Invalid token"
-    }
-
     func handle(url: URL) {
-        guard let (c, token) = ServerConfig.fromDeepLink(url) else { return }
-        save(c, token: token)
+        guard let c = ServerConfig.fromDeepLink(url) else { return }
+        save(c)
     }
 }

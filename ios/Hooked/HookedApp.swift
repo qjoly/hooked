@@ -24,13 +24,11 @@ struct RootView: View {
                 NavigationStack(path: $app.path) {
                     SessionsListView(store: sessions)
                         .navigationDestination(for: String.self) { id in
-                            SessionView(id: id, sessions: sessions) { app.unauthorized() }
+                            SessionView(id: id, sessions: sessions)
                         }
                 }
             } else {
                 ConnectView()
-                    // Rebuild so a deep link or an auth failure re-prefills the form.
-                    .id(app.connectMessage ?? "connect")
             }
         }
         .tint(Theme.accent)

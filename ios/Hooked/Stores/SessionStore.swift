@@ -13,7 +13,6 @@ struct Attachment: Identifiable {
 final class SessionStore {
     let id: String
     let client: HookedClient
-    private let onUnauthorized: @MainActor () -> Void
 
     private(set) var detail: SessionDetail?
     private(set) var snapshot: LiveSnapshot?
@@ -31,10 +30,9 @@ final class SessionStore {
     private var streamTask: Task<Void, Never>?
     private var pollTask: Task<Void, Never>?
 
-    init(id: String, client: HookedClient, onUnauthorized: @escaping @MainActor () -> Void) {
+    init(id: String, client: HookedClient) {
         self.id = id
         self.client = client
-        self.onUnauthorized = onUnauthorized
     }
 
     var session: Session? { detail?.session }
@@ -76,8 +74,6 @@ final class SessionStore {
                 loadError = nil
                 if let o = outgoing, d.messages.contains(where: { $0.role == "user" && $0.text.contains(o) }) { outgoing = nil }
                 if d.session.live, streamTask == nil, pollTask != nil { openStream() }
-            } catch HookedError.unauthorized {
-                onUnauthorized(); return
             } catch is CancellationError {
                 return
             } catch {
@@ -89,7 +85,6 @@ final class SessionStore {
     private func openStream() {
         streamTask = Task { [weak self, client, id] in
             await SSEClient.run({ try client.request("api/session/stream", query: ["id": id], timeout: 60) },
-                               onUnauthorized: { self?.onUnauthorized() },
                                handle: { payload in self?.apply(payload) ?? false })
             self?.streamTask = nil
         }
@@ -117,8 +112,6 @@ final class SessionStore {
         do {
             try await body()
             return true
-        } catch HookedError.unauthorized {
-            onUnauthorized()
         } catch is CancellationError {
         } catch {
             actionError = error.localizedDescription

@@ -105,9 +105,6 @@ struct NewSessionView: View {
                 model: model.nilIfEmpty, effort: effort.nilIfEmpty, mode: mode)
             await store.refresh()
             onLaunched(id)
-        } catch HookedError.unauthorized {
-            dismiss()
-            app.unauthorized()
         } catch {
             self.error = error.localizedDescription
         }

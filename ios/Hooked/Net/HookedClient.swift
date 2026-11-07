@@ -1,7 +1,6 @@
 import Foundation
 
 enum HookedError: LocalizedError, Equatable {
-    case unauthorized
     case notDriven(String)
     case server(Int, String)
     case badURL
@@ -9,7 +8,6 @@ enum HookedError: LocalizedError, Equatable {
 
     var errorDescription: String? {
         switch self {
-        case .unauthorized: return "Invalid token"
         case .notDriven(let m): return m.isEmpty ? "This session is not driven by hooked." : m
         case .server(let code, let m): return m.isEmpty ? "Server error (\(code))" : m
         case .badURL: return "Invalid server address"
@@ -20,7 +18,6 @@ enum HookedError: LocalizedError, Equatable {
 
 struct HookedClient: Sendable {
     let config: ServerConfig
-    let token: String
 
     static let session: URLSession = {
         let c = URLSessionConfiguration.default
@@ -36,7 +33,6 @@ struct HookedClient: Sendable {
         if !query.isEmpty { c.queryItems = query.map { URLQueryItem(name: $0.key, value: $0.value) } }
         guard let url = c.url else { throw HookedError.badURL }
         var r = URLRequest(url: url, timeoutInterval: timeout)
-        r.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         r.setValue("application/json", forHTTPHeaderField: "Accept")
         return r
     }
@@ -70,7 +66,6 @@ struct HookedClient: Sendable {
         let msg = body["error"].string ?? ""
         switch status {
         case 200..<300: return
-        case 401, 403: throw HookedError.unauthorized
         case 409: throw HookedError.notDriven(msg)
         default: throw HookedError.server(status, msg)
         }

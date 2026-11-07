@@ -8,7 +8,6 @@ struct ConnectView: View {
 
     @State private var host = ""
     @State private var port = "4123"
-    @State private var token = ""
     @State private var https = false
     @State private var testing = false
     @State private var message: String?
@@ -30,20 +29,6 @@ struct ConnectView: View {
                 } footer: {
                     Text("The machine running hooked, reachable from this phone (LAN or WireGuard).")
                 }
-                Section("Token") {
-                    HStack {
-                        SecureField("Token", text: $token)
-                            .textInputAutocapitalization(.never)
-                            .autocorrectionDisabled()
-                        Button {
-                            if let s = UIPasteboard.general.string { token = s.trimmingCharacters(in: .whitespacesAndNewlines) }
-                        } label: {
-                            Image(systemName: "doc.on.clipboard")
-                        }
-                        .buttonStyle(.borderless)
-                        .accessibilityLabel("Paste token")
-                    }
-                }
                 if let message {
                     Section {
                         Label(message, systemImage: "exclamationmark.triangle")
@@ -60,7 +45,7 @@ struct ConnectView: View {
                             if testing { ProgressView() }
                         }
                     }
-                    .disabled(testing || ServerConfig.cleanHost(host).isEmpty || token.isEmpty || Int(port) == nil)
+                    .disabled(testing || ServerConfig.cleanHost(host).isEmpty || Int(port) == nil)
                 }
             }
             .scrollContentBackground(.hidden)
@@ -82,18 +67,15 @@ struct ConnectView: View {
             port = String(c.port)
             https = c.https
         }
-        token = app.savedToken
-        message = app.connectMessage
     }
 
     private func testAndSave() async {
         let config = ServerConfig(host: ServerConfig.cleanHost(host), port: Int(port) ?? 4123, https: https)
-        let t = token.trimmingCharacters(in: .whitespacesAndNewlines)
         testing = true
         defer { testing = false }
         do {
-            _ = try await HookedClient(config: config, token: t).get("api/sessions", timeout: 10)
-            app.save(config, token: t)
+            _ = try await HookedClient(config: config).get("api/sessions", timeout: 10)
+            app.save(config)
             if editing { dismiss() }
         } catch {
             message = error.localizedDescription

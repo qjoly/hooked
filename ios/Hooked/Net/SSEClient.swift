@@ -26,11 +26,10 @@ enum SSEClient {
     }
 
     /// Runs `handle` on every event and reconnects with exponential backoff until cancelled.
-    /// `handle` returns false to stop for good; an auth failure is reported and also stops.
+    /// `handle` returns false to stop for good.
     @MainActor
     static func run(
         _ makeRequest: () throws -> URLRequest,
-        onUnauthorized: @MainActor () -> Void,
         handle: @MainActor (String) -> Bool
     ) async {
         var backoff: Double = 1
@@ -40,9 +39,6 @@ enum SSEClient {
                     backoff = 1
                     if !handle(payload) { return }
                 }
-            } catch HookedError.unauthorized {
-                onUnauthorized()
-                return
             } catch {}
             if Task.isCancelled { return }
             try? await Task.sleep(for: .seconds(backoff))

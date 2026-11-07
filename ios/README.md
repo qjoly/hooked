@@ -25,12 +25,12 @@ A free team signs the app for **7 days**. After that it won't open: plug the pho
 
 ## Pair
 
-The phone needs to reach the hooked machine (same LAN, or WireGuard). On that machine, copy the token from **Settings → Remote access**, then in the app enter host, port (4123) and token, and tap **Test & Save**.
+The phone needs to reach the hooked machine (same LAN, or WireGuard) and hooked must listen on it (`HOST=0.0.0.0`). In the app, enter host and port (4123), then tap **Test & Save**.
 
 Or open a pairing link on the phone, which fills and saves everything:
 
 ```
-hooked://connect?host=192.168.1.20&port=4123&token=<token>
+hooked://connect?host=192.168.1.20&port=4123
 ```
 
 Add `&https=1` if hooked sits behind TLS. Plain HTTP is allowed on purpose (LAN / WireGuard, personal app).
