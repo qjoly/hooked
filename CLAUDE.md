@@ -252,6 +252,13 @@ Converse / Review) replaces it. It is built on the non-interactive subcommands
   `server/index.js` re-exports with `export *`, and an ambiguous name silently disappears from the
   barrel.
 
+## Remote access (`server/remoteAuth.js`, `handle` in `hooks.server.js`)
+
+Requests from loopback pass freely; any other address needs the token in `remote-token` (0600), as
+`Authorization: Bearer` (iOS app in `ios/`) or the `hooked_token` cookie, set once by opening a page
+with `?token=`. `/api/remote-token` only answers loopback, so a paired client cannot read the token
+back. A reverse proxy on the same machine would look like loopback: don't put one in front.
+
 ## Grafana views (`server/grafanaGateway.js`, `QueryWindow.svelte`)
 
 A Prometheus or Loki query opens in a floating window, either from a `grafana_query_*` call Claude

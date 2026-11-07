@@ -184,7 +184,7 @@ notifications, auto-compact, which models appear in the pickers…
 | Environment variable | Effect |
 |---|---|
 | `PORT` | HTTP port (default `4123`) |
-| `HOST` | Listen address (default `127.0.0.1`; `0.0.0.0` exposes hooked on your network) |
+| `HOST` | Listen address (default `127.0.0.1`; `0.0.0.0` exposes hooked on your network; other machines then need the token from Settings → Remote access) |
 | `HOOKED_NO_RESUME=1` | Don't relaunch the driven sessions at startup |
 | `HOOKED_NO_CONTINUE=1` | Relaunch them, but don't send "Continue" to the ones cut off mid-turn |
 

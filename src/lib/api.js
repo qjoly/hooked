@@ -103,6 +103,9 @@ export const runWarmup = () => jpost('/api/warmup', {});
 
 // Per-project status of the remote-control daemons (Settings → Remote control).
 export const getRemoteControl = () => jget('/api/remote-control');
+// Token for clients on another machine (iOS app, phone browser). Local-only endpoint.
+export const getRemoteToken = () => jget('/api/remote-token');
+export const rotateRemoteToken = () => jpost('/api/remote-token', { rotate: true });
 // Étiquettes de session persistées côté serveur (tags.json, partagées entre navigateurs).
 export const getTags = () => jget('/api/tags');
 export const saveTags = (id, tags) => jpost('/api/tags', { id, tags });
