@@ -123,10 +123,10 @@ struct SessionRow: View {
                 StatePill(style: pill.0, label: pill.1)
                 Spacer()
                 if !session.live {
-                    Image(systemName: "lock")
+                    Image(systemName: "pause.circle")
                         .font(.caption2)
                         .foregroundStyle(Theme.muted)
-                        .accessibilityLabel("Read-only")
+                        .accessibilityLabel("Not running")
                 }
                 if let d = session.lastActivity {
                     Text(d.shortAge)

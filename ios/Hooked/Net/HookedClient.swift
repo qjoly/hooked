@@ -133,6 +133,13 @@ extension HookedClient {
         return id
     }
 
+    /// Re-runs `claude --resume` under hooked, like the web Resume button: no model (keeps the cache), same effort.
+    func resume(_ id: String, prompt: String, effort: String?) async throws {
+        let mode = (try? await get("api/settings"))?["defaultMode"].text
+        _ = try await post("api/launch", ["resumeId": JSON(id), "prompt": JSON(prompt), "effort": JSON(effort),
+                                          "permissionMode": JSON(mode?.isEmpty == false ? mode : "default")], timeout: 60)
+    }
+
     func uploadImage(jpeg: Data) async throws -> String {
         let r = try await post("api/upload-image", ["dataUrl": JSON("data:image/jpeg;base64," + jpeg.base64EncodedString())], timeout: 60)
         guard let path = r["path"].text else { throw HookedError.server(200, "Upload returned no path") }

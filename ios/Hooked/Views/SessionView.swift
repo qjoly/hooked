@@ -93,14 +93,20 @@ struct SessionView: View {
                     .frame(maxHeight: 420)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            if store.isLive {
-                ComposerView(store: store, answering: store.detail?.pendingQuestion.map { !$0.isPermission } ?? false)
-            } else if store.detail != nil {
-                Label("Read-only: this session is not driven by hooked.", systemImage: "lock")
-                    .font(.system(size: 12))
-                    .foregroundStyle(Theme.muted)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 12)
+            if store.detail != nil {
+                if !store.isLive {
+                    HStack {
+                        Text("Not running. Sending a message resumes it.")
+                            .font(.system(size: 12))
+                            .foregroundStyle(Theme.muted)
+                        Spacer()
+                        Button("Resume") { Task { await store.resume() } }
+                            .font(.system(size: 13, weight: .semibold))
+                            .disabled(store.sending)
+                    }
+                    .padding(.horizontal, 14)
+                }
+                ComposerView(store: store, answering: store.isLive && store.detail?.pendingQuestion.map { !$0.isPermission } == true)
             }
         }
         .padding(.top, 6)

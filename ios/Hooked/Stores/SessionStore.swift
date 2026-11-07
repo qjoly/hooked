@@ -129,13 +129,25 @@ final class SessionStore {
         }
         sending = true
         defer { sending = false }
-        let ok = await run { try await client.reply(id, text: body) }
+        let live = isLive
+        let ok = await run { [client, id, effort = session?.effort] in
+            if live { try await client.reply(id, text: body) } else { try await client.resume(id, prompt: body, effort: effort) }
+        }
         if ok {
             attachments = []
             outgoing = body
             await load()
         }
         return ok
+    }
+
+    func resume() async {
+        guard !sending else { return }
+        sending = true
+        defer { sending = false }
+        if await run({ [client, id, effort = session?.effort] in try await client.resume(id, prompt: "", effort: effort) }) {
+            await load()
+        }
     }
 
     func attach(_ image: UIImage) {
