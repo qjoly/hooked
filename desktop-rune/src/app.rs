@@ -61,6 +61,13 @@ pub enum Popup {
     NewMode,
 }
 
+pub struct Attachment {
+    pub id: u64,
+    pub name: String,
+    pub path: Option<String>,
+    pub failed: bool,
+}
+
 pub struct Flash {
     pub text: String,
     pub error: bool,
@@ -100,6 +107,8 @@ pub struct Hooked {
     pub visible: usize,
 
     pub composer: TextEdit,
+    pub attachments: Vec<Attachment>,
+    pub attach_seq: u64,
     pub queued: Vec<String>,
     pub sending: bool,
 
@@ -169,6 +178,8 @@ impl Hooked {
             all_tools_open: false,
             visible: WINDOW,
             composer: TextEdit::new(""),
+            attachments: Vec::new(),
+            attach_seq: 0,
             queued: Vec::new(),
             sending: false,
             q_sel: Vec::new(),
@@ -320,6 +331,7 @@ impl Hooked {
         self.working_since = None;
         self.visible = WINDOW;
         self.queued.clear();
+        self.attachments.clear();
         self.tools_open.clear();
         let source = self.lens_data.review_source;
         let mode = self.lens_data.diff.mode();
@@ -558,11 +570,27 @@ impl Hooked {
     }
 
     pub fn send(&mut self) {
-        let text = self.composer.text.trim().to_string();
         let Some(d) = self.detail.as_ref() else {
             return;
         };
-        if text.is_empty() || self.sending {
+        if self.sending {
+            return;
+        }
+        if self
+            .attachments
+            .iter()
+            .any(|a| a.path.is_none() && !a.failed)
+        {
+            self.flash("Wait for the images to finish uploading", true);
+            return;
+        }
+        let paths = self.attachments.iter().filter_map(|a| a.path.clone());
+        let text = paths
+            .chain(std::iter::once(self.composer.text.trim().to_string()))
+            .filter(|t| !t.is_empty())
+            .collect::<Vec<_>>()
+            .join(" ");
+        if text.is_empty() {
             return;
         }
         let (id, live, effort) = (
@@ -572,6 +600,7 @@ impl Hooked {
         );
         self.sending = true;
         self.queued.push(text.clone());
+        self.attachments.clear();
         self.composer = TextEdit::new("");
         self.composer.focused = true;
         spawn(
@@ -591,6 +620,52 @@ impl Hooked {
                 s.refresh_detail();
             },
         );
+    }
+
+    pub fn attach(&mut self, name: String, mime: &'static str, bytes: Vec<u8>) {
+        if self.page != Page::Session || self.detail.is_none() {
+            return;
+        }
+        self.attach_seq += 1;
+        let id = self.attach_seq;
+        self.attachments.push(Attachment {
+            id,
+            name,
+            path: None,
+            failed: false,
+        });
+        spawn(
+            move || api::upload_image(mime, &bytes),
+            move |s, r, _| {
+                let Some(a) = s.attachments.iter_mut().find(|a| a.id == id) else {
+                    return;
+                };
+                match r {
+                    Ok(p) => a.path = Some(p),
+                    Err(e) => {
+                        a.failed = true;
+                        s.flash(format!("✗ Upload failed: {e}"), true);
+                    }
+                }
+            },
+        );
+    }
+
+    pub fn attach_files(&mut self, files: &[std::path::PathBuf]) {
+        for f in files {
+            let Some(mime) = api::image_mime(f) else {
+                continue;
+            };
+            let Ok(bytes) = std::fs::read(f) else {
+                continue;
+            };
+            let name = f
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("image")
+                .to_string();
+            self.attach(name, mime, bytes);
+        }
     }
 
     pub fn use_followup(&mut self, text: String) {

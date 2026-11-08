@@ -1047,7 +1047,7 @@ fn send_button(s: &Hooked, k: &Kit) -> El {
         .variant(IconButtonVariant::Contrast)
         .label("Send")
         .help("Send (Enter) · Shift+Enter for a new line")
-        .disabled(s.sending || s.composer.text.trim().is_empty())
+        .disabled(s.sending || (s.composer.text.trim().is_empty() && s.attachments.is_empty()))
         .on_press(|s: &mut Hooked| s.send())
         .build(k)
         .key("composer-send")
@@ -1101,6 +1101,49 @@ fn composer(s: &Hooked, d: &Detail, k: &Kit, busy: bool) -> El {
             )
             .help("Suggested follow-up: click to put it in the box")
             .on_press(move |s: &mut Hooked| s.use_followup(use_it.clone())),
+        );
+    }
+    if !s.attachments.is_empty() {
+        c = c.child(
+            row()
+                .key("attachments")
+                .w_full()
+                .gap(6.0)
+                .flex_wrap()
+                .children(s.attachments.iter().map(|a| {
+                    let id = a.id;
+                    let (status, color) = match (&a.path, a.failed) {
+                        (_, true) => ("failed", k.c.danger.fg),
+                        (Some(_), _) => ("ready", k.c.success.fg),
+                        (None, _) => ("uploading…", k.c.text_faint),
+                    };
+                    row()
+                        .key(format!("att-{id}"))
+                        .h(26.0)
+                        .pl(8.0)
+                        .pr(2.0)
+                        .gap(6.0)
+                        .center_y()
+                        .radius(k.radius.md)
+                        .fill(k.c.layer_02)
+                        .child(glyph(&icons::IMAGE, 12.0, k.c.icon_muted))
+                        .child(
+                            text(a.name.clone())
+                                .font(k.ty.text_small)
+                                .color(k.c.text_base),
+                        )
+                        .child(text(status).font(k.ty.text_xsmall).color(color))
+                        .child(
+                            IconButton::new(&icons::CLOSE)
+                                .variant(IconButtonVariant::GhostMuted)
+                                .control_size(ControlSize::Small)
+                                .label("Remove")
+                                .on_press(move |s: &mut Hooked| {
+                                    s.attachments.retain(|x| x.id != id)
+                                })
+                                .build(k),
+                        )
+                })),
         );
     }
     let mut bar = row().w_full().gap(8.0).items_end().child(composer_field(

@@ -90,6 +90,13 @@ pub fn view(s: &Hooked, cx: &mut Cx<Hooked>) -> El {
     }
     let base = col()
         .key("window")
+        .on_paste_content(|s: &mut Hooked, c: &rune::ClipboardContent, _| {
+            if let Some(img) = c.image() {
+                let n = s.attach_seq + 1;
+                s.attach(format!("pasted-{n}.png"), "image/png", img.png().to_vec());
+            }
+        })
+        .on_drop_files(|s: &mut Hooked, files: &[std::path::PathBuf], _| s.attach_files(files))
         .w_full()
         .h_full()
         .fill(k.c.bg_deep)

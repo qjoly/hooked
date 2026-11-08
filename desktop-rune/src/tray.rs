@@ -75,6 +75,7 @@ mod native {
         }
         let _ = m.append(&PredefinedMenuItem::separator());
         let _ = m.append(&MenuItem::with_id("open", "Open hooked", true, None));
+        let _ = m.append(&MenuItem::with_id("quick", "Quick reply (⌘⇧H)", true, None));
         let _ = m.append(&MenuItem::with_id("new", "New session…", true, None));
         let _ = m.append(&PredefinedMenuItem::separator());
         let _ = m.append(&MenuItem::with_id("quit", "Quit", true, None));
@@ -129,6 +130,11 @@ mod native {
         match id.as_str() {
             "quit" => h.quit(),
             "open" => h.open(),
+            "quick" => {
+                if let Some(q) = crate::quick::QUICK.get() {
+                    q.update(|s, _| crate::quick::show(s));
+                }
+            }
             "new" => {
                 h.open();
                 h.update(|s, _| s.go_new(None));

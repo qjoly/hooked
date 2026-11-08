@@ -585,6 +585,29 @@ pub fn delete(id: &str) -> Result<(), String> {
     post("/api/delete", json!({ "id": id })).map(|_| ())
 }
 
+pub fn upload_image(mime: &str, bytes: &[u8]) -> Result<String, String> {
+    use base64::Engine;
+    let data = base64::engine::general_purpose::STANDARD.encode(bytes);
+    let v = post(
+        "/api/upload-image",
+        json!({ "dataUrl": format!("data:{mime};base64,{data}") }),
+    )?;
+    v["path"]
+        .as_str()
+        .map(str::to_string)
+        .ok_or_else(|| "the upload returned no path".into())
+}
+
+pub fn image_mime(path: &std::path::Path) -> Option<&'static str> {
+    match path.extension()?.to_str()?.to_ascii_lowercase().as_str() {
+        "png" => Some("image/png"),
+        "jpg" | "jpeg" => Some("image/jpeg"),
+        "gif" => Some("image/gif"),
+        "webp" => Some("image/webp"),
+        _ => None,
+    }
+}
+
 pub fn open_editor(id: &str) -> Result<(), String> {
     post("/api/open-editor", json!({ "id": id })).map(|_| ())
 }

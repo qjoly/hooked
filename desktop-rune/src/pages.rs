@@ -143,10 +143,10 @@ impl Hooked {
                                 s.pages.digests =
                                     v["digests"].as_array().cloned().unwrap_or_default();
                                 let first = v["latest"].as_str().map(str::to_string);
-                                if s.pages.digest_date.is_none() {
-                                    if let Some(d) = first {
-                                        s.open_digest(d);
-                                    }
+                                if s.pages.digest_date.is_none()
+                                    && let Some(d) = first
+                                {
+                                    s.open_digest(d);
                                 }
                             }
                             Err(e) => s.flash(format!("✗ Digest: {e}"), true),

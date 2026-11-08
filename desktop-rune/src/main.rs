@@ -4,6 +4,7 @@ mod fmt;
 mod icons;
 mod lenses;
 mod pages;
+mod quick;
 mod tray;
 mod view;
 
@@ -138,16 +139,19 @@ fn main() {
     let app = rune::App::new(spec)
         .chrome(chrome)
         .keep_running()
-        .on_close(on_close)
-        .global_shortcut("Cmd+Shift+H", |s: &mut Hooked, _| {
-            if let Some(h) = HANDLE.get() {
-                h.open();
-            }
-            if let Some(w) = s.waiting().first().map(|x| x.id.clone()) {
-                s.open_session(&w);
-            }
-        });
+        .on_close(on_close);
     let _ = HANDLE.set(app.handle());
     tray::init_notifications();
-    app.run();
+    let quick = quick::app();
+    rune::run_windows(move |_| {
+        let windows: Vec<rune::AnyWindowSpec> = vec![
+            rune::WindowSpec::from_app("main", app).into(),
+            rune::WindowSpec::from_app("quick", quick)
+                .configured_options(
+                    rune::WindowOptions::launcher_panel().macos(|n| n.corner_radius(14.0)),
+                )
+                .into(),
+        ];
+        windows
+    });
 }
