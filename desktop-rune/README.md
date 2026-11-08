@@ -16,32 +16,38 @@ The installed app has its own bundle id (`dev.qjoly.hooked-rune`), so it sits ne
 
 The layout follows the web dashboard; the look is Rune's neutral kit theme.
 
-- **Top bar**: Deck / Sessions spaces (badge = decisions waiting), search-launch-command palette
-  (⌘K / ⌘P), 5H / 7D / Fable rate-limit gauges, notifications and theme toggles, `+ Session`, a
-  connection dot.
-- **Sidebar**: Sessions / Archived tabs with counts, last-24h filter, group by project (collapsible
-  sections with a `+` per project), cache countdown or age per row, × on hover to archive, resizable,
-  collapses to a rail (⌘B).
-- **Session**: back, title, repo · branch, state badge, context gauge, prompt-cache badge, Resume,
-  Archive, context-panel toggle, and a ⋯ menu (model, effort, permission mode, auto-approve, cost,
-  open in editor / web, copy resume command, expand tool calls, restart, trash).
-  Lenses: Converse (1), Review (3), MCP (4), Trace (5).
-- **Converse**: transcript with markdown and collapsible tool calls, live streaming text, working
-  indicator with elapsed time, question, permission and plan cards, composer (Enter sends,
-  Shift+Enter new line, Esc interrupts) with the follow-up suggestion.
-- **Context panel**: tasks, changes (opens Review), agents, sub-sessions.
-- **Deck**: awaiting you / working / recent cards. **New session**: project, prompt, model, effort,
-  permission mode.
-- **Menu bar** item with the waiting count and the waiting sessions; closing the window keeps the app
-  running; ⌘⇧H brings it back on the oldest waiting session; system notifications when a session
-  starts waiting on you (bundled app only).
+- **Top bar**: Deck, Sessions, Stats, Digest, Memory, Cron and GitHub, the
+  search-launch-command palette (⌘K / ⌘P), 5H / 7D / Fable gauges, notifications, theme,
+  settings (⌘,), `+ Session`, and a connection dot.
+- **Sidebar**: Sessions / Archived tabs with counts, last-24h filter, group by project
+  (collapsible sections with a `+` each), cache countdown or age per row, × on hover to archive,
+  resizable, folds to a rail (⌘B).
+- **Session**: title, repo · branch, state, context gauge, prompt-cache badge, Resume, Archive,
+  split, context panel, and a ⋯ menu (model, effort, permission mode, auto-approve, cost, open in
+  editor or web, copy resume command, expand tool calls, restart, trash).
+  - **Converse (1)**: transcript with markdown and collapsible tool calls, live streaming text,
+    working indicator, question / permission / plan cards, composer (Enter sends, Shift+Enter
+    new line, Esc interrupts, paste or drop images) with the follow-up suggestion.
+  - **Review (3)**: Claude's edits or the working tree as a diff, unified or split, j/k between
+    hunks and [ / ] between files.
+  - **MCP (4)**: the project's servers with their health, details, re-authenticate, log out.
+  - **Trace (5)**: each turn's tool calls as a timed waterfall, input and output on click.
+  - **Terminal (2)**: the session's shells over hooked's PTYs, one tab each.
+  - **Split (⌘⇧S)**: the most recent other session beside the current one, with its own reply box.
+- **Context panel**: tasks, changes, agents, sub-sessions.
+- **Pages**: Deck (awaiting you / working / recent), New session, Stats, Digest (generate and
+  regenerate), Memory, Cron (create, edit, pause, run, delete), GitHub, Settings (theme,
+  notifications, new-session defaults, digest, auto-compact, tags, git sync).
+- **Outside the window**: a menu bar item with the waiting count and sessions; closing the window
+  keeps the app running; ⌘⇧H (`HOOKED_QUICK_SHORTCUT` overrides it) opens a quick-reply panel on
+  the sessions waiting on you; system notifications when one starts waiting (bundled app only).
 
 ## Not done yet
 
-- MCP and Trace lenses link to the web dashboard; Review shows Claude's edits as plain -/+ blocks,
-  without the working-tree diff or comment threads.
-- No Stats, Digest, Memory, GitHub, Cron, Settings, split view, terminals, image attachments,
-  dictation or quick-reply window.
+- Dictation, review comment threads, the Skills page, tags editing, session groups and
+  drag-and-drop between them, incognito mode, fork.
+- Terminals open at 120×28 and don't follow the panel's size.
+- Settings has the main switches; the rest links to the web dashboard.
 
 ## Checking it headless
 
@@ -51,4 +57,10 @@ Rune renders any app without a window, which is how the layout was checked:
 cargo run -- --snap /tmp/deck.png --size 1440x900
 cargo run -- --snap /tmp/session.png --size 1440x900 -- --session <id>
 cargo run -- --snap /tmp/new.png --size 1440x900 -- --new
+cargo run -- --snap /tmp/review.png --size 1440x900 -- --session <id> --lens review   # mcp, trace
+cargo run -- --snap /tmp/stats.png --size 1440x900 -- --page stats   # digest, memory, cron, github, settings
+cargo run -- --snap /tmp/split.png --size 1600x900 -- --session <id> --split
+cargo run -- --window quick --snap /tmp/quick.png --size 760x500
 ```
+
+With these flags the app loads the data synchronously before the first frame, so the PNG shows it.
