@@ -189,6 +189,7 @@ pub struct Meta {
     pub archived: bool,
     pub incognito: bool,
     pub group_of: Option<String>,
+    pub group_at: Option<Value>,
     pub group_name: Option<String>,
 }
 
@@ -199,6 +200,43 @@ pub fn session_meta() -> Result<std::collections::HashMap<String, Meta>, String>
             .cloned()
             .unwrap_or(Value::Object(Default::default())),
     )
+}
+
+pub fn patch_meta(id: &str, mut patch: Value) -> Result<(), String> {
+    patch["id"] = json!(id);
+    post("/api/session-meta", patch).map(|_| ())
+}
+
+pub fn group_op(op: &str, id: &str, extra: Value) -> Result<(), String> {
+    let mut body = json!({ "op": op, "id": id });
+    if let (Some(b), Some(e)) = (body.as_object_mut(), extra.as_object()) {
+        b.extend(e.clone());
+    }
+    post("/api/session-meta", body).map(|_| ())
+}
+
+pub fn tags() -> Result<std::collections::HashMap<String, Vec<String>>, String> {
+    decode(get("/api/tags")?.get("tags").cloned().unwrap_or(json!({})))
+}
+
+pub fn save_tags(id: &str, tags: &[String]) -> Result<(), String> {
+    post("/api/tags", json!({ "id": id, "tags": tags })).map(|_| ())
+}
+
+pub fn fork(
+    id: &str,
+    fork_uuid: &str,
+    model: Option<&str>,
+    effort: Option<&str>,
+) -> Result<String, String> {
+    let v = post(
+        "/api/fork",
+        json!({ "id": id, "forkUuid": fork_uuid, "prompt": "", "model": model, "effort": effort }),
+    )?;
+    v["sessionId"]
+        .as_str()
+        .map(str::to_string)
+        .ok_or_else(|| "the fork returned no session id".into())
 }
 
 pub fn set_archived(id: &str, archived: bool) -> Result<(), String> {
@@ -254,6 +292,7 @@ pub struct Message {
     parts: Vec<RawPart>,
     pub kind: Option<String>,
     pub auto: bool,
+    pub fork_uuid: Option<String>,
 }
 
 impl Message {
@@ -552,10 +591,11 @@ pub fn launch(
     model: Option<&str>,
     effort: Option<&str>,
     mode: Option<&str>,
+    incognito: bool,
 ) -> Result<String, String> {
     let v = post(
         "/api/launch",
-        json!({ "cwd": cwd, "prompt": prompt, "model": model, "effort": effort, "permissionMode": mode }),
+        json!({ "cwd": cwd, "prompt": prompt, "model": model, "effort": effort, "permissionMode": mode, "incognito": incognito }),
     )?;
     v["sessionId"]
         .as_str()

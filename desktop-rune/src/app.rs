@@ -86,6 +86,10 @@ pub struct Hooked {
     pub prefs: Prefs,
     pub sessions: Vec<Session>,
     pub meta: HashMap<String, Meta>,
+    pub tags: HashMap<String, Vec<String>>,
+    pub tag_filter: Vec<String>,
+    pub incognito: bool,
+    pub picker: Option<crate::organize::Picker>,
     pub gauges: Vec<Gauge>,
     pub caps: Capabilities,
     pub connected: bool,
@@ -154,6 +158,7 @@ impl Hooked {
         let prefs = Prefs::open("dev.qjoly.hooked-rune");
         let theme = prefs.get("theme").unwrap_or(Theme::System);
         let notify = prefs.get("notify").unwrap_or(true);
+        let incognito = prefs.get("incognito").unwrap_or(false);
         let sidebar_open = prefs.get("sidebarOpen").unwrap_or(true);
         let hide_old = prefs.get("hideOld").unwrap_or(false);
         let group_by_project = prefs.get("groupByProject").unwrap_or(true);
@@ -163,6 +168,10 @@ impl Hooked {
             prefs,
             sessions: Vec::new(),
             meta: HashMap::new(),
+            tags: HashMap::new(),
+            tag_filter: Vec::new(),
+            incognito,
+            picker: None,
             gauges: Vec::new(),
             caps: Capabilities::default(),
             connected: false,
@@ -219,6 +228,7 @@ impl Hooked {
             s.sessions = list;
         }
         s.meta = api::session_meta().unwrap_or_default();
+        s.tags = api::tags().unwrap_or_default();
         s.gauges = api::usage().unwrap_or_default();
         s.announced = s
             .sessions
@@ -268,6 +278,16 @@ impl Hooked {
                         d.session.last_activity.clone().unwrap_or_default()
                     ));
                 }
+                _ => {}
+            }
+        }
+        if let (Some(i), Some(id)) = (
+            args.iter().position(|a| a == "--picker"),
+            s.selected.clone(),
+        ) {
+            match args.get(i + 1).map(String::as_str) {
+                Some("tags") => s.open_tags(id),
+                Some("group") => s.open_group_picker(id),
                 _ => {}
             }
         }
@@ -822,6 +842,21 @@ impl Hooked {
     }
 
     pub fn toggle_archive(&mut self, id: &str) {
+        if self.group_of(id).is_none() {
+            let members = self.group_members(id);
+            if members.len() > 1 {
+                for m in members.iter().filter(|m| *m != id) {
+                    let archived = self.meta.get(id).is_some_and(|x| x.archived);
+                    if self.meta.get(m.as_str()).is_some_and(|x| x.archived) == archived {
+                        self.archive_one(m);
+                    }
+                }
+            }
+        }
+        self.archive_one(id);
+    }
+
+    fn archive_one(&mut self, id: &str) {
         let archived = self.meta.get(id).is_some_and(|m| m.archived);
         let live = self.session(id).is_some_and(|s| s.live);
         self.meta.entry(id.to_string()).or_default().archived = !archived;
@@ -1021,10 +1056,11 @@ impl Hooked {
             self.flash("Pick a project folder first", true);
             return;
         }
-        let (model, effort, mode) = (
+        let (model, effort, mode, incognito) = (
             self.new_model.clone(),
             self.new_effort.clone(),
             self.new_mode.clone(),
+            self.incognito,
         );
         self.sending = true;
         spawn(
@@ -1035,6 +1071,7 @@ impl Hooked {
                     model.as_deref(),
                     effort.as_deref(),
                     Some(&mode),
+                    incognito,
                 )
             },
             |s, r, _| {
@@ -1067,9 +1104,14 @@ impl Hooked {
 
 pub fn refresh_sessions() {
     spawn(
-        || (api::sessions(), api::session_meta().ok()),
-        |s, (r, meta), _| match r {
-            Ok(list) => s.apply_sessions(list, meta),
+        || (api::sessions(), api::session_meta().ok(), api::tags().ok()),
+        |s, (r, meta, tags), _| match r {
+            Ok(list) => {
+                if let Some(t) = tags {
+                    s.tags = t;
+                }
+                s.apply_sessions(list, meta)
+            }
             Err(_) => {
                 s.connected = false;
                 s.tray_dirty = true;
@@ -1090,8 +1132,15 @@ pub fn start_workers() {
             let r = api::follow("/api/stream", |_| {
                 if last.elapsed() > Duration::from_millis(400) {
                     last = Instant::now();
-                    if let (Ok(list), meta) = (api::sessions(), api::session_meta().ok()) {
-                        h.update(move |s, _| s.apply_sessions(list, meta));
+                    if let (Ok(list), meta, tags) =
+                        (api::sessions(), api::session_meta().ok(), api::tags().ok())
+                    {
+                        h.update(move |s, _| {
+                            if let Some(t) = tags {
+                                s.tags = t;
+                            }
+                            s.apply_sessions(list, meta)
+                        });
                     }
                 }
                 true

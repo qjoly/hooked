@@ -234,3 +234,23 @@ lucide!(
 );
 lucide!(TERMINAL, "terminal", r#"<path d="m4 17 6-6-6-6M12 19h8"/>"#);
 lucide!(CHEVRON_DOWN, "chevron-down", r#"<path d="m6 9 6 6 6-6"/>"#);
+lucide!(
+    EYE,
+    "eye",
+    r#"<path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/>"#
+);
+lucide!(
+    EYE_OFF,
+    "eye-off",
+    r#"<path d="M9.88 9.88a3 3 0 1 0 4.24 4.24M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68M6.61 6.61A13.526 13.526 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.39-1.61M2 2l20 20"/>"#
+);
+lucide!(
+    TAG,
+    "tag",
+    r#"<path d="M12 2H2v10l9.29 9.29a1 1 0 0 0 1.41 0l8.59-8.59a1 1 0 0 0 0-1.41Z"/><circle cx="7" cy="7" r="1.5"/>"#
+);
+lucide!(
+    FORK,
+    "fork",
+    r#"<circle cx="6" cy="6" r="3"/><circle cx="18" cy="6" r="3"/><circle cx="12" cy="18" r="3"/><path d="M6 9v1a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V9M12 12v3"/>"#
+);

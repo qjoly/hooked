@@ -3,6 +3,7 @@ mod app;
 mod fmt;
 mod icons;
 mod lenses;
+mod organize;
 mod pages;
 mod quick;
 mod terminal;
@@ -62,6 +63,10 @@ fn on_key(s: &mut Hooked, ev: &KeyEvent, tx: &mut Tx) -> bool {
     if ev.key == Key::Escape {
         if s.palette_open {
             s.palette_open = false;
+            return true;
+        }
+        if s.picker.is_some() {
+            s.picker = None;
             return true;
         }
         if s.popup.is_some() {

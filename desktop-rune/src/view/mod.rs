@@ -2,6 +2,7 @@ mod deck;
 mod dock;
 mod lenses;
 mod new_session;
+mod organize;
 mod pages;
 mod palette;
 mod session;
@@ -109,6 +110,9 @@ pub fn view(s: &Hooked, cx: &mut Cx<Hooked>) -> El {
         .child(body);
     if s.palette_open {
         layer.push(palette::view(s, &k));
+    }
+    if s.picker.is_some() {
+        layer.push(organize::view(s, &k));
     }
     rune_kit::root(base, layer)
 }
@@ -271,6 +275,24 @@ fn topbar(s: &Hooked, k: &Kit, inset: f32, _layer: &mut Vec<El>) -> El {
         .key("tb-actions")
         .gap(2.0)
         .center_y()
+        .child(if s.incognito {
+            Button::new("Incognito")
+                .icon(&icons::EYE_OFF)
+                .variant(ButtonVariant::Warning)
+                .control_size(ControlSize::Small)
+                .help("Incognito: only sessions started in this mode are shown. Click to show everything again.")
+                .on_press(|s: &mut Hooked| s.toggle_incognito_mode())
+                .build(k)
+                .key("tb-incognito")
+        } else {
+            IconButton::new(&icons::EYE)
+                .variant(IconButtonVariant::GhostMuted)
+                .label("Incognito mode")
+                .help("Incognito: show only the sessions you start from now on (screen sharing)")
+                .on_press(|s: &mut Hooked| s.toggle_incognito_mode())
+                .build(k)
+                .key("tb-incognito")
+        })
         .child(
             IconButton::new(if s.notify {
                 &icons::BELL
@@ -477,7 +499,14 @@ fn status(k: &Kit, s: &Session) -> Option<RowStatus> {
     }
 }
 
-fn session_row(s: &Hooked, x: &Session, k: &Kit) -> El {
+fn unit_rows(s: &Hooked, u: crate::organize::Unit<'_>, k: &Kit) -> Vec<El> {
+    let n = u.children.len();
+    let mut out = vec![session_row(s, u.mother, k, 0, (n > 0).then_some(n + 1))];
+    out.extend(u.children.iter().map(|c| session_row(s, c, k, 1, None)));
+    out
+}
+
+fn session_row(s: &Hooked, x: &Session, k: &Kit, depth: u8, group: Option<usize>) -> El {
     let id = x.id.clone();
     let mut detail = fmt::ago_short(x.last_activity.as_deref(), s.now);
     if let Some(left) = x
@@ -488,12 +517,25 @@ fn session_row(s: &Hooked, x: &Session, k: &Kit) -> El {
         detail = format!("⚡{}", fmt::span(left, ""));
     }
     let archived = s.meta.get(&x.id).is_some_and(|m| m.archived);
-    let mut r = SidebarRow::new(x.display_title())
+    let mut subtitle = match &x.git_branch {
+        Some(b) if !b.is_empty() => format!("{} · {b}", x.project_label()),
+        _ => x.project_label(),
+    };
+    for t in s.session_tags(&x.id) {
+        subtitle.push_str(&format!("  #{t}"));
+    }
+    if !s.incognito && s.meta.get(&x.id).is_some_and(|m| m.incognito) {
+        subtitle.push_str("  · incognito");
+    }
+    let label = if group.is_some() {
+        s.group_label(x)
+    } else {
+        x.display_title()
+    };
+    let mut r = SidebarRow::new(label)
         .height(44.0)
-        .subtitle(match &x.git_branch {
-            Some(b) if !b.is_empty() => format!("{} · {b}", x.project_label()),
-            _ => x.project_label(),
-        })
+        .depth(depth)
+        .subtitle(subtitle)
         .detail(detail)
         .selected(s.page == Page::Session && s.selected.as_deref() == Some(x.id.as_str()))
         .on_select({
@@ -504,6 +546,9 @@ fn session_row(s: &Hooked, x: &Session, k: &Kit) -> El {
             let id = id.clone();
             move |s: &mut Hooked, _| s.toggle_archive(&id)
         });
+    if let Some(n) = group {
+        r = r.badge(n.to_string());
+    }
     if !archived && let Some(st) = status(k, x) {
         r = r.status(st);
     }
@@ -515,8 +560,11 @@ fn session_row(s: &Hooked, x: &Session, k: &Kit) -> El {
 }
 
 fn sidebar(s: &Hooked, k: &Kit) -> El {
-    let (active, archived): (Vec<&Session>, Vec<&Session>) =
-        s.sessions.iter().partition(|x| !s.is_archived(x));
+    let (active, archived): (Vec<&Session>, Vec<&Session>) = s
+        .sessions
+        .iter()
+        .filter(|x| s.visible(x))
+        .partition(|x| !s.is_archived(x));
     let mut shown = if s.show_archived {
         archived.clone()
     } else {
@@ -527,6 +575,13 @@ fn sidebar(s: &Hooked, k: &Kit) -> El {
             x.needs_you()
                 || x.state == "working"
                 || fmt::age_ms(x.last_activity.as_deref(), s.now).is_none_or(|a| a < 86_400_000)
+        });
+    }
+    if !s.tag_filter.is_empty() {
+        shown.retain(|x| {
+            s.tag_filter
+                .iter()
+                .all(|t| s.session_tags(&x.id).contains(t))
         });
     }
     let tab = |key: &'static str, label: &'static str, n: usize, on: bool| {
@@ -611,6 +666,52 @@ fn sidebar(s: &Hooked, k: &Kit) -> El {
         .header_padding(10.0, 6.0)
         .row_gap(2.0)
         .header(head);
+    let known = s.known_tags();
+    if !known.is_empty() {
+        let chips = row()
+            .key("ssb-filters")
+            .w_full()
+            .gap(4.0)
+            .flex_wrap()
+            .children(known.into_iter().map(|(t, n)| {
+                let on = s.tag_filter.contains(&t);
+                let tag = t.clone();
+                k.interactive(
+                    row()
+                        .key(format!("tf-{t}"))
+                        .role("checkbox")
+                        .checked(on)
+                        .h(20.0)
+                        .px(7.0)
+                        .gap(4.0)
+                        .center_y()
+                        .radius(10.0)
+                        .cursor(Cursor::Pointer)
+                        .fill(if on { k.c.layer_03 } else { k.c.layer_01 })
+                        .border(
+                            1.0,
+                            if on {
+                                k.c.border_strong
+                            } else {
+                                k.c.border_weak
+                            },
+                        )
+                        .child(
+                            text(format!("#{t}"))
+                                .font(k.ty.text_xsmall_medium)
+                                .color(if on { k.c.text_base } else { k.c.text_muted }),
+                        )
+                        .child(
+                            text(n.to_string())
+                                .font(k.ty.text_xsmall)
+                                .color(k.c.text_faint),
+                        ),
+                )
+                .help(format!("Show only #{t} (combines with other tags)"))
+                .on_press(move |s: &mut Hooked| s.toggle_tag_filter(tag.clone()))
+            }));
+        sb = sb.header(chips);
+    }
     if shown.is_empty() {
         sb = sb.child(
             text(if s.show_archived {
@@ -656,12 +757,14 @@ fn sidebar(s: &Hooked, k: &Kit) -> El {
                             s.collapsed.insert(toggle.clone());
                         }
                     })
-                    .rows(rows.iter().map(|x| session_row(s, x, k))),
+                    .rows(s.units(rows).into_iter().flat_map(|u| unit_rows(s, u, k))),
             );
         }
     } else {
-        for x in &shown {
-            sb = sb.child(session_row(s, x, k));
+        for u in s.units(&shown) {
+            for r in unit_rows(s, u, k) {
+                sb = sb.child(r);
+            }
         }
     }
     let handle = el()
@@ -700,7 +803,7 @@ fn rail(s: &Hooked, k: &Kit) -> El {
     let tiles = s
         .sessions
         .iter()
-        .filter(|x| !s.is_archived(x))
+        .filter(|x| !s.is_archived(x) && s.visible(x))
         .take(30)
         .map(|x| {
             let id = x.id.clone();

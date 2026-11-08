@@ -127,7 +127,11 @@ fn lane(s: &Hooked, k: &Kit, key: &str, title: &str, items: &[&Session]) -> El {
 }
 
 pub fn view(s: &Hooked, k: &Kit) -> El {
-    let active: Vec<&Session> = s.sessions.iter().filter(|x| !s.is_archived(x)).collect();
+    let active: Vec<&Session> = s
+        .sessions
+        .iter()
+        .filter(|x| !s.is_archived(x) && s.visible(x))
+        .collect();
     let decide: Vec<&Session> = active.iter().copied().filter(|x| x.needs_you()).collect();
     let working: Vec<&Session> = active
         .iter()

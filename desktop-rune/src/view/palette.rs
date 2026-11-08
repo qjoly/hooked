@@ -40,7 +40,7 @@ pub fn hits(s: &Hooked) -> Vec<(Hit, String, String)> {
             out.push((Hit::Go(p), label.to_string(), keys.to_string()));
         }
     }
-    for x in &s.sessions {
+    for x in s.sessions.iter().filter(|x| s.visible(x)) {
         let hay = format!(
             "{} {} {}",
             x.display_title(),
@@ -140,7 +140,7 @@ pub fn view(s: &Hooked, k: &Kit) -> El {
         .padding(8.0)
         .gap(6.0)
         .radius(k.radius.lg)
-        .fill(k.c.surface_float)
+        .fill(k.c.bg_base)
         .border(1.0, k.c.border_base)
         .box_shadows(&k.elevation.overlay)
         .child(

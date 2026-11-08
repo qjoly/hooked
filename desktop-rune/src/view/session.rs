@@ -95,6 +95,7 @@ fn head(s: &Hooked, d: &Detail, k: &Kit, layer: &mut Vec<El>) -> El {
                 .key("sess-name"),
         )
         .child(meta.shrink().key("head-meta"))
+        .child(head_tags(s, &x.id, k))
         .child(
             row()
                 .key("state-badge")
@@ -247,6 +248,28 @@ fn head(s: &Hooked, d: &Detail, k: &Kit, layer: &mut Vec<El>) -> El {
         .child(right)
 }
 
+fn head_tags(s: &Hooked, id: &str, k: &Kit) -> El {
+    let tags = s.session_tags(id);
+    if tags.is_empty() {
+        return el();
+    }
+    let id = id.to_string();
+    k.interactive(
+        row()
+            .key("head-tags")
+            .role("button")
+            .gap(4.0)
+            .center_y()
+            .cursor(Cursor::Pointer)
+            .help("Edit tags")
+            .children(
+                tags.iter()
+                    .map(|t| pill(k, format!("#{t}"), k.c.text_muted, k.c.layer_02)),
+            ),
+    )
+    .on_press(move |s: &mut Hooked| s.open_tags(id.clone()))
+}
+
 fn more_menu(s: &Hooked, d: &Detail, k: &Kit, layer: &mut Vec<El>) -> El {
     let x = &d.session;
     let open = s.popup == Some(Popup::More);
@@ -352,6 +375,49 @@ fn more_menu(s: &Hooked, d: &Detail, k: &Kit, layer: &mut Vec<El>) -> El {
     );
     let link = format!("{}/session/{}", crate::api::base(), x.id);
     m.item(MenuItem::new(format!("Cost · {}", fmt::cost(x.cost))).disabled(true))
+        .separator()
+        .item({
+            let id = x.id.clone();
+            MenuItem::new("Edit tags…")
+                .icon(&icons::TAG)
+                .on_select(move |s: &mut Hooked| s.open_tags(id.clone()))
+        })
+        .item({
+            let id = x.id.clone();
+            MenuItem::new("Move to group…")
+                .icon(&icons::LIST)
+                .on_select(move |s: &mut Hooked| s.open_group_picker(id.clone()))
+        })
+        .item({
+            let id = x.id.clone();
+            let grouped = s.group_of(&x.id).is_some();
+            let leads = !grouped && s.group_members(&x.id).len() > 1;
+            if grouped {
+                MenuItem::new("Leave the group").on_select(move |s: &mut Hooked| {
+                    s.group_op("leave", id.clone(), serde_json::json!({}))
+                })
+            } else if leads {
+                MenuItem::new("Rename the group…")
+                    .on_select(move |s: &mut Hooked| s.open_rename_group(id.clone()))
+            } else {
+                MenuItem::new("Not in a group").disabled(true)
+            }
+        })
+        .item({
+            let id = x.id.clone();
+            let on = s.meta.get(&x.id).is_some_and(|m| m.incognito);
+            MenuItem::new(if on {
+                "Remove from incognito"
+            } else {
+                "Mark incognito"
+            })
+            .icon(if on { &icons::EYE } else { &icons::EYE_OFF })
+            .description("Incognito sessions stay visible in incognito mode")
+            .on_select(move |s: &mut Hooked| {
+                s.popup = None;
+                s.toggle_incognito(&id)
+            })
+        })
         .separator()
         .item(
             MenuItem::new("Open in editor")
@@ -693,10 +759,22 @@ pub(super) fn bubble(s: &Hooked, m: &Message, k: &Kit, i: usize) -> El {
         m.ts.as_deref()
             .map(|t| fmt::ago_short(Some(t), s.now))
             .unwrap_or_default();
-    let mut b = col()
+    let mut head = row()
         .w_full()
-        .gap(8.0)
+        .center_y()
         .child(who(k, user, if m.auto { "auto" } else { &ts }));
+    if let Some(uuid) = m.fork_uuid.clone().filter(|_| user) {
+        head = head.child(el().grow(1.0)).child(
+            Button::new("Fork")
+                .icon(&icons::FORK)
+                .variant(ButtonVariant::GhostFaint)
+                .control_size(ControlSize::Small)
+                .help("Start a new session from this point of the conversation")
+                .on_press(move |s: &mut Hooked| s.fork_at(uuid.clone()))
+                .build(k),
+        );
+    }
+    let mut b = col().w_full().gap(8.0).child(head);
     for (pi, p) in m.render_parts().into_iter().enumerate() {
         b = b.child(match p {
             Part::Text(t) if user => text(t)
