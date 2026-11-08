@@ -1,0 +1,188 @@
+use rune::Icon;
+
+macro_rules! lucide {
+    ($id:ident, $name:literal, $body:literal) => {
+        pub static $id: Icon = Icon {
+            name: concat!("hooked-", $name),
+            view: 24.0,
+            body: concat!(
+                r#"<g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">"#,
+                $body,
+                "</g>"
+            ),
+        };
+    };
+}
+
+lucide!(
+    DECK,
+    "deck",
+    r#"<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>"#
+);
+lucide!(
+    SEARCH,
+    "search",
+    r#"<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>"#
+);
+lucide!(PLUS, "plus", r#"<path d="M12 5v14M5 12h14"/>"#);
+lucide!(
+    BELL,
+    "bell",
+    r#"<path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/>"#
+);
+lucide!(
+    BELL_OFF,
+    "bell-off",
+    r#"<path d="M8.7 3A6 6 0 0 1 18 8c0 2.3.4 4 .9 5.3M18 8c0 7 3 9 3 9H7M10.3 21a1.94 1.94 0 0 0 3.4 0"/><path d="M2 2l20 20"/>"#
+);
+lucide!(
+    SUN,
+    "sun",
+    r#"<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>"#
+);
+lucide!(
+    MOON,
+    "moon",
+    r#"<path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9z"/>"#
+);
+lucide!(
+    MONITOR,
+    "monitor",
+    r#"<rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/>"#
+);
+lucide!(
+    ARROW_LEFT,
+    "arrow-left",
+    r#"<path d="M19 12H5M12 19l-7-7 7-7"/>"#
+);
+lucide!(
+    ARROW_RIGHT,
+    "arrow-right",
+    r#"<path d="M5 12h14M12 5l7 7-7 7"/>"#
+);
+lucide!(ARROW_UP, "arrow-up", r#"<path d="M12 19V5M5 12l7-7 7 7"/>"#);
+lucide!(
+    ARCHIVE,
+    "archive",
+    r#"<rect x="2" y="3" width="20" height="5" rx="1"/><path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8M10 12h4"/>"#
+);
+lucide!(
+    UNARCHIVE,
+    "unarchive",
+    r#"<rect x="2" y="3" width="20" height="5" rx="1"/><path d="M4 8v11a2 2 0 0 0 2 2h2M20 8v11a2 2 0 0 1-2 2h-2M9 15l3-3 3 3M12 12v9"/>"#
+);
+lucide!(
+    CLOCK,
+    "clock",
+    r#"<circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>"#
+);
+lucide!(
+    FOLDER,
+    "folder",
+    r#"<path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/>"#
+);
+lucide!(
+    LIST,
+    "list",
+    r#"<path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/>"#
+);
+lucide!(
+    MORE,
+    "more",
+    r#"<circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/>"#
+);
+lucide!(
+    GIT_BRANCH,
+    "git-branch",
+    r#"<path d="M6 3v12"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/>"#
+);
+lucide!(ZAP, "zap", r#"<path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z"/>"#);
+lucide!(PLAY, "play", r#"<path d="m6 3 14 9-14 9V3z"/>"#);
+lucide!(
+    STOP,
+    "stop",
+    r#"<rect x="6" y="6" width="12" height="12" rx="1"/>"#
+);
+lucide!(
+    USER,
+    "user",
+    r#"<path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>"#
+);
+lucide!(
+    BOT,
+    "bot",
+    r#"<path d="M12 8V4H8"/><rect x="4" y="8" width="16" height="12" rx="2"/><path d="M2 14h2M20 14h2M15 13v2M9 13v2"/>"#
+);
+lucide!(
+    TOOL,
+    "tool",
+    r#"<path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>"#
+);
+lucide!(DIFF, "diff", r#"<path d="M12 3v14M5 10h14M5 21h14"/>"#);
+lucide!(
+    TASKS,
+    "tasks",
+    r#"<path d="m3 17 2 2 4-4M3 7l2 2 4-4M13 6h8M13 12h8M13 18h8"/>"#
+);
+lucide!(
+    LINK,
+    "link",
+    r#"<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>"#
+);
+lucide!(
+    TRASH,
+    "trash",
+    r#"<path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>"#
+);
+lucide!(
+    RESTART,
+    "restart",
+    r#"<path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/>"#
+);
+lucide!(CODE, "code", r#"<path d="m16 18 6-6-6-6M8 6l-6 6 6 6"/>"#);
+lucide!(
+    COPY,
+    "copy",
+    r#"<rect x="8" y="8" width="14" height="14" rx="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/>"#
+);
+lucide!(
+    CONVERSE,
+    "converse",
+    r#"<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>"#
+);
+lucide!(
+    SHIP,
+    "ship",
+    r#"<path d="M12 20h9M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/>"#
+);
+lucide!(
+    PLUG,
+    "plug",
+    r#"<path d="M12 22v-5M9 8V2M15 8V2M18 8v5a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V8Z"/>"#
+);
+lucide!(
+    ACTIVITY,
+    "activity",
+    r#"<path d="M22 12h-4l-3 9L9 3l-3 9H2"/>"#
+);
+lucide!(
+    SIDEBAR,
+    "sidebar",
+    r#"<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18"/>"#
+);
+lucide!(
+    PANEL_RIGHT,
+    "panel-right",
+    r#"<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M15 3v18"/>"#
+);
+lucide!(CIRCLE, "circle", r#"<circle cx="12" cy="12" r="9"/>"#);
+lucide!(
+    CIRCLE_DOT,
+    "circle-dot",
+    r#"<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3" fill="currentColor"/>"#
+);
+lucide!(
+    CIRCLE_CHECK,
+    "circle-check",
+    r#"<circle cx="12" cy="12" r="9"/><path d="m8.5 12 2.5 2.5 5-5"/>"#
+);

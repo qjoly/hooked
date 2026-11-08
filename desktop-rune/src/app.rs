@@ -1,0 +1,867 @@
+use std::collections::{BTreeSet, HashMap, HashSet};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, OnceLock};
+use std::time::{Duration, Instant};
+
+use rune::prefs::Prefs;
+use rune::{AppHandle, TextEdit, Tx};
+
+use crate::api::{self, Capabilities, Detail, Gauge, LiveSnapshot, Meta, Session};
+use crate::fmt;
+
+pub static HANDLE: OnceLock<AppHandle<Hooked>> = OnceLock::new();
+
+pub fn spawn<T: Send + 'static>(
+    work: impl FnOnce() -> T + Send + 'static,
+    done: impl FnOnce(&mut Hooked, T, &mut Tx) + Send + 'static,
+) {
+    let Some(h) = HANDLE.get().cloned() else {
+        return;
+    };
+    std::thread::spawn(move || {
+        let r = work();
+        h.update(move |s, tx| done(s, r, tx));
+    });
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Page {
+    Deck,
+    Session,
+    New,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
+pub enum Lens {
+    Converse,
+    Review,
+    Mcp,
+    Trace,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash, serde::Serialize, serde::Deserialize)]
+pub enum Theme {
+    System,
+    Light,
+    Dark,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Popup {
+    More,
+    Model,
+    Effort,
+    NewModel,
+    NewEffort,
+    NewMode,
+}
+
+pub struct Flash {
+    pub text: String,
+    pub error: bool,
+    pub until: i64,
+}
+
+pub struct Hooked {
+    pub prefs: Prefs,
+    pub sessions: Vec<Session>,
+    pub meta: HashMap<String, Meta>,
+    pub gauges: Vec<Gauge>,
+    pub caps: Capabilities,
+    pub connected: bool,
+    pub now: i64,
+
+    pub page: Page,
+    pub selected: Option<String>,
+    pub lens: Lens,
+    pub theme: Theme,
+    pub notify: bool,
+
+    pub sidebar_open: bool,
+    pub sidebar_w: f32,
+    pub show_archived: bool,
+    pub hide_old: bool,
+    pub group_by_project: bool,
+    pub collapsed: HashSet<String>,
+
+    pub detail: Option<Detail>,
+    pub detail_gen: Arc<AtomicU64>,
+    pub detail_loading: bool,
+    pub live: Option<LiveSnapshot>,
+    pub working_since: Option<i64>,
+    pub dock_open: bool,
+    pub tools_open: HashSet<String>,
+    pub all_tools_open: bool,
+    pub visible: usize,
+
+    pub composer: TextEdit,
+    pub queued: Vec<String>,
+    pub sending: bool,
+
+    pub q_sel: Vec<BTreeSet<usize>>,
+    pub q_other: TextEdit,
+    pub plan_feedback: TextEdit,
+
+    pub popup: Option<Popup>,
+    pub flash: Option<Flash>,
+    pub held_switch: Option<(Option<String>, Option<String>)>,
+
+    pub new_project: TextEdit,
+    pub new_prompt: TextEdit,
+    pub new_model: Option<String>,
+    pub new_effort: Option<String>,
+    pub new_mode: String,
+
+    pub palette_open: bool,
+    pub palette_query: TextEdit,
+    pub palette_index: usize,
+
+    pub announced: HashSet<String>,
+    pub tray_dirty: bool,
+}
+
+pub const WINDOW: usize = 40;
+const STEP: usize = 120;
+
+impl Hooked {
+    pub fn new() -> Hooked {
+        let prefs = Prefs::open("dev.qjoly.hooked-rune");
+        let theme = prefs.get("theme").unwrap_or(Theme::System);
+        let notify = prefs.get("notify").unwrap_or(true);
+        let sidebar_open = prefs.get("sidebarOpen").unwrap_or(true);
+        let hide_old = prefs.get("hideOld").unwrap_or(false);
+        let group_by_project = prefs.get("groupByProject").unwrap_or(true);
+        let dock_open = prefs.get("dockOpen").unwrap_or(true);
+        let prefs_w = prefs.get("sidebarW").unwrap_or(crate::view::SIDEBAR_W);
+        let mut s = Hooked {
+            prefs,
+            sessions: Vec::new(),
+            meta: HashMap::new(),
+            gauges: Vec::new(),
+            caps: Capabilities::default(),
+            connected: false,
+            now: fmt::now_ms(),
+            page: Page::Deck,
+            selected: None,
+            lens: Lens::Converse,
+            theme,
+            notify,
+            sidebar_open,
+            sidebar_w: prefs_w,
+            show_archived: false,
+            hide_old,
+            group_by_project,
+            collapsed: HashSet::new(),
+            detail: None,
+            detail_gen: Arc::new(AtomicU64::new(0)),
+            detail_loading: false,
+            live: None,
+            working_since: None,
+            dock_open,
+            tools_open: HashSet::new(),
+            all_tools_open: false,
+            visible: WINDOW,
+            composer: TextEdit::new(""),
+            queued: Vec::new(),
+            sending: false,
+            q_sel: Vec::new(),
+            q_other: TextEdit::new(""),
+            plan_feedback: TextEdit::new(""),
+            popup: None,
+            flash: None,
+            held_switch: None,
+            new_project: TextEdit::new(""),
+            new_prompt: TextEdit::new(""),
+            new_model: None,
+            new_effort: None,
+            new_mode: "default".into(),
+            palette_open: false,
+            palette_query: TextEdit::new(""),
+            palette_index: 0,
+            announced: HashSet::new(),
+            tray_dirty: true,
+        };
+        // A synchronous first read: headless snapshots and the first frame show real data.
+        if let Ok(list) = api::sessions() {
+            s.connected = true;
+            s.sessions = list;
+        }
+        s.meta = api::session_meta().unwrap_or_default();
+        s.gauges = api::usage().unwrap_or_default();
+        s.announced = s
+            .sessions
+            .iter()
+            .filter(|x| x.needs_you())
+            .map(|x| x.id.clone())
+            .collect();
+        let args = rune::extra_args();
+        if let Some(i) = args.iter().position(|a| a == "--session")
+            && let Some(id) = args.get(i + 1)
+        {
+            s.selected = Some(id.clone());
+            s.page = Page::Session;
+            s.detail = api::detail(id).ok();
+            s.reset_question();
+        }
+        if args.iter().any(|a| a == "--new") {
+            s.page = Page::New;
+        }
+        s
+    }
+
+    pub fn save_pref<T: serde::Serialize>(&mut self, key: &str, v: &T) {
+        let _ = self.prefs.set(key, v);
+    }
+
+    pub fn dark(&self, system_dark: bool) -> bool {
+        match self.theme {
+            Theme::System => system_dark,
+            Theme::Light => false,
+            Theme::Dark => true,
+        }
+    }
+
+    pub fn cycle_theme(&mut self) {
+        self.theme = match self.theme {
+            Theme::System => Theme::Light,
+            Theme::Light => Theme::Dark,
+            Theme::Dark => Theme::System,
+        };
+        let t = self.theme;
+        self.save_pref("theme", &t);
+    }
+
+    pub fn flash(&mut self, text: impl Into<String>, error: bool) {
+        self.flash = Some(Flash {
+            text: text.into(),
+            error,
+            until: fmt::now_ms() + 4000,
+        });
+    }
+
+    pub fn session(&self, id: &str) -> Option<&Session> {
+        self.sessions.iter().find(|s| s.id == id)
+    }
+
+    pub fn is_archived(&self, s: &Session) -> bool {
+        self.meta.get(&s.id).is_some_and(|m| m.archived)
+            || fmt::finished_and_cold(
+                &s.state,
+                s.last_seen_ts.as_deref().or(s.last_activity.as_deref()),
+                self.now,
+            )
+    }
+
+    pub fn waiting(&self) -> Vec<&Session> {
+        self.sessions
+            .iter()
+            .filter(|s| s.needs_you() && !self.is_archived(s))
+            .collect()
+    }
+
+    pub fn open_session(&mut self, id: &str) {
+        self.page = Page::Session;
+        self.palette_open = false;
+        self.popup = None;
+        if self.selected.as_deref() == Some(id) && self.detail.is_some() {
+            return;
+        }
+        self.selected = Some(id.to_string());
+        self.detail = None;
+        self.live = None;
+        self.working_since = None;
+        self.visible = WINDOW;
+        self.queued.clear();
+        self.tools_open.clear();
+        self.composer = TextEdit::new("");
+        self.composer.focused = true;
+        self.reset_question();
+        self.load_detail();
+    }
+
+    pub fn go_deck(&mut self) {
+        self.page = Page::Deck;
+        self.popup = None;
+    }
+
+    pub fn go_new(&mut self, project: Option<String>) {
+        self.page = Page::New;
+        self.popup = None;
+        if let Some(p) =
+            project.or_else(|| self.detail.as_ref().and_then(|d| d.session.project.clone()))
+        {
+            self.new_project = TextEdit::new(p);
+        }
+        self.new_prompt = TextEdit::new("");
+        self.new_prompt.focused = true;
+    }
+
+    pub fn show_earlier(&mut self) {
+        self.visible += STEP;
+    }
+
+    pub fn reset_question(&mut self) {
+        let n = self
+            .detail
+            .as_ref()
+            .and_then(|d| d.pending_question.as_ref())
+            .map_or(0, |q| q.questions.len());
+        self.q_sel = vec![BTreeSet::new(); n];
+        self.q_other = TextEdit::new("");
+        self.plan_feedback = TextEdit::new("");
+    }
+
+    pub fn load_detail(&mut self) {
+        let Some(id) = self.selected.clone() else {
+            return;
+        };
+        let generation = self.detail_gen.fetch_add(1, Ordering::SeqCst) + 1;
+        self.detail_loading = true;
+        let gen_ref = self.detail_gen.clone();
+        spawn(
+            {
+                let id = id.clone();
+                move || api::detail(&id)
+            },
+            move |s, r, _| {
+                if gen_ref.load(Ordering::SeqCst) != generation {
+                    return;
+                }
+                s.detail_loading = false;
+                match r {
+                    Ok(d) => s.apply_detail(d, generation),
+                    Err(e) => s.flash(format!("Could not load the session: {e}"), true),
+                }
+            },
+        );
+    }
+
+    /// Refetches the open session without bumping the stream generation.
+    pub fn refresh_detail(&mut self) {
+        let Some(id) = self.selected.clone() else {
+            return;
+        };
+        let generation = self.detail_gen.load(Ordering::SeqCst);
+        let gen_ref = self.detail_gen.clone();
+        spawn(
+            move || api::detail(&id),
+            move |s, r, _| {
+                if gen_ref.load(Ordering::SeqCst) != generation {
+                    return;
+                }
+                if let Ok(d) = r {
+                    s.apply_detail(d, generation);
+                }
+            },
+        );
+    }
+
+    fn apply_detail(&mut self, d: Detail, generation: u64) {
+        let had_question = self
+            .detail
+            .as_ref()
+            .and_then(|x| x.pending_question.as_ref())
+            .map(|q| q.id.clone());
+        let now_question = d.pending_question.as_ref().map(|q| q.id.clone());
+        if !self.queued.is_empty() {
+            let norm = |t: &str| t.split_whitespace().collect::<Vec<_>>().join(" ");
+            let seen: HashSet<String> = d
+                .messages
+                .iter()
+                .filter(|m| m.role == "user")
+                .map(|m| norm(&m.text))
+                .collect();
+            self.queued.retain(|q| !seen.contains(&norm(q)));
+        }
+        let start_stream = d.session.live
+            && self
+                .detail
+                .as_ref()
+                .is_none_or(|x| !x.session.live || x.session.id != d.session.id);
+        if d.session.state == "working" {
+            self.working_since.get_or_insert(fmt::now_ms());
+        } else {
+            self.working_since = None;
+        }
+        self.detail = Some(d);
+        if had_question != now_question {
+            self.reset_question();
+        }
+        if start_stream {
+            self.follow_session(generation);
+        }
+    }
+
+    fn follow_session(&mut self, generation: u64) {
+        let Some(id) = self.selected.clone() else {
+            return;
+        };
+        let Some(h) = HANDLE.get().cloned() else {
+            return;
+        };
+        let gen_ref = self.detail_gen.clone();
+        std::thread::spawn(move || {
+            let alive = || gen_ref.load(Ordering::SeqCst) == generation;
+            while alive() {
+                let path = api::session_stream_path(&id);
+                let _ = api::follow(&path, |payload| {
+                    if !alive() {
+                        return false;
+                    }
+                    let snap: LiveSnapshot = serde_json::from_str(payload).unwrap_or_default();
+                    let ended = snap.ended || snap.live == Some(false);
+                    let gen_ref = gen_ref.clone();
+                    h.update(move |s, _| {
+                        if gen_ref.load(Ordering::SeqCst) != generation {
+                            return;
+                        }
+                        let prev = s.live.take();
+                        let finished = prev.as_ref().is_some_and(|p| p.busy) && !snap.busy;
+                        let needs = snap.state.as_deref() == Some("requires_action")
+                            && prev.as_ref().and_then(|p| p.state.as_deref())
+                                != Some("requires_action");
+                        if snap.busy {
+                            s.working_since.get_or_insert(fmt::now_ms());
+                        }
+                        s.live = if ended { None } else { Some(snap) };
+                        if finished || needs || ended {
+                            s.refresh_detail();
+                        }
+                    });
+                    !ended
+                });
+                if !alive() {
+                    return;
+                }
+                std::thread::sleep(Duration::from_secs(2));
+            }
+        });
+    }
+
+    pub fn apply_sessions(&mut self, list: Vec<Session>, meta: Option<HashMap<String, Meta>>) {
+        let changed = |a: &Session, b: &Session| {
+            a.last_activity != b.last_activity
+                || a.state != b.state
+                || a.has_question != b.has_question
+                || a.has_plan != b.has_plan
+        };
+        if let Some(sel) = self.selected.clone() {
+            let before = self.session(&sel).cloned();
+            let after = list.iter().find(|x| x.id == sel);
+            if let (Some(b), Some(a)) = (before, after)
+                && changed(&b, a)
+                && self.page == Page::Session
+            {
+                self.refresh_detail();
+            }
+        }
+        self.sessions = list;
+        if let Some(m) = meta {
+            self.meta = m;
+        }
+        self.connected = true;
+        self.tray_dirty = true;
+        self.announce();
+    }
+
+    fn announce(&mut self) {
+        let waiting: HashSet<String> = self.waiting().into_iter().map(|s| s.id.clone()).collect();
+        let fresh: Vec<Session> = self
+            .sessions
+            .iter()
+            .filter(|s| waiting.contains(&s.id) && !self.announced.contains(&s.id))
+            .cloned()
+            .collect();
+        self.announced = waiting;
+        if !self.notify || rune_notify::app_focused() {
+            return;
+        }
+        for s in fresh {
+            let body = match s.question.as_ref().and_then(|q| q.as_str()) {
+                Some(q) => q.to_string(),
+                None if s.state == "attention" => "Action required".into(),
+                None => {
+                    fmt::first_line(s.last_reply.as_deref().unwrap_or("Finished its turn"), 140)
+                }
+            };
+            crate::tray::notify(&s.id, &s.display_title(), &body);
+        }
+    }
+
+    fn act(
+        &mut self,
+        label: &'static str,
+        work: impl FnOnce() -> Result<(), String> + Send + 'static,
+    ) {
+        spawn(work, move |s, r, _| {
+            match r {
+                Ok(()) => s.flash(format!("✓ {label}"), false),
+                Err(e) => s.flash(format!("✗ {label}: {e}"), true),
+            }
+            s.refresh_detail();
+        });
+    }
+
+    pub fn send(&mut self) {
+        let text = self.composer.text.trim().to_string();
+        let Some(d) = self.detail.as_ref() else {
+            return;
+        };
+        if text.is_empty() || self.sending {
+            return;
+        }
+        let (id, live, effort) = (
+            d.session.id.clone(),
+            d.session.live,
+            d.session.effort.clone(),
+        );
+        self.sending = true;
+        self.queued.push(text.clone());
+        self.composer = TextEdit::new("");
+        self.composer.focused = true;
+        spawn(
+            move || {
+                if live {
+                    api::reply(&id, &text)
+                } else {
+                    api::resume(&id, &text, effort.as_deref())
+                }
+            },
+            |s, r, _| {
+                s.sending = false;
+                if let Err(e) = r {
+                    s.queued.pop();
+                    s.flash(format!("✗ Send failed: {e}"), true);
+                }
+                s.refresh_detail();
+            },
+        );
+    }
+
+    pub fn use_followup(&mut self, text: String) {
+        self.composer = TextEdit::new(text);
+        self.composer.focused = true;
+    }
+
+    pub fn interrupt(&mut self) {
+        let Some(id) = self.selected.clone() else {
+            return;
+        };
+        self.act("Interrupted", move || api::interrupt(&id));
+    }
+
+    pub fn resume(&mut self) {
+        let Some(d) = self.detail.as_ref() else {
+            return;
+        };
+        let (id, effort) = (d.session.id.clone(), d.session.effort.clone());
+        spawn(
+            move || api::resume(&id, "", effort.as_deref()),
+            move |s, r, _| {
+                match r {
+                    Ok(()) => s.flash("✓ Resumed", false),
+                    Err(e) => s.flash(format!("✗ Resume: {e}"), true),
+                }
+                s.load_detail();
+            },
+        );
+    }
+
+    pub fn toggle_archive(&mut self, id: &str) {
+        let archived = self.meta.get(id).is_some_and(|m| m.archived);
+        let live = self.session(id).is_some_and(|s| s.live);
+        self.meta.entry(id.to_string()).or_default().archived = !archived;
+        let id = id.to_string();
+        spawn(
+            move || {
+                if !archived && live {
+                    let _ = api::kill(&id);
+                }
+                api::set_archived(&id, !archived)
+            },
+            move |s, r, _| {
+                if let Err(e) = r {
+                    s.flash(format!("✗ Archive: {e}"), true);
+                }
+                refresh_sessions();
+            },
+        );
+    }
+
+    pub fn set_mode(&mut self, mode: &'static str) {
+        let Some(id) = self.selected.clone() else {
+            return;
+        };
+        if let Some(d) = self.detail.as_mut() {
+            d.permission_mode = Some(mode.into());
+        }
+        self.act(fmt::mode_label(mode), move || api::set_mode(&id, mode));
+    }
+
+    pub fn toggle_auto_approve(&mut self) {
+        let Some(d) = self.detail.as_mut() else {
+            return;
+        };
+        d.auto_approve = !d.auto_approve;
+        let (id, on) = (d.session.id.clone(), d.auto_approve);
+        self.act(
+            if on {
+                "Auto-approve on"
+            } else {
+                "Auto-approve off"
+            },
+            move || api::set_auto_approve(&id, on),
+        );
+    }
+
+    pub fn set_model(&mut self, model: Option<String>, effort: Option<String>, force: bool) {
+        let Some(id) = self.selected.clone() else {
+            return;
+        };
+        self.popup = None;
+        spawn(
+            {
+                let (model, effort) = (model.clone(), effort.clone());
+                move || api::set_model(&id, model.as_deref(), effort.as_deref(), force)
+            },
+            move |s, r, _| {
+                match r {
+                    Ok(None) => s.flash("✓ Model updated", false),
+                    Ok(Some(why)) => {
+                        s.flash(
+                            format!("Held: {why} Pick it again from the menu to force it."),
+                            true,
+                        );
+                        s.held_switch = Some((model, effort));
+                    }
+                    Err(e) => s.flash(format!("✗ Model: {e}"), true),
+                }
+                s.refresh_detail();
+            },
+        );
+    }
+
+    pub fn restart(&mut self) {
+        let Some(id) = self.selected.clone() else {
+            return;
+        };
+        self.popup = None;
+        self.act("Restarted", move || api::restart(&id));
+    }
+
+    pub fn delete(&mut self) {
+        let Some(id) = self.selected.clone() else {
+            return;
+        };
+        self.popup = None;
+        spawn(
+            move || api::delete(&id),
+            |s, r, _| {
+                match r {
+                    Ok(()) => {
+                        s.flash("✓ Moved to trash", false);
+                        s.selected = None;
+                        s.detail = None;
+                        s.page = Page::Deck;
+                    }
+                    Err(e) => s.flash(format!("✗ Delete: {e}"), true),
+                }
+                refresh_sessions();
+            },
+        );
+    }
+
+    pub fn open_editor(&mut self) {
+        let Some(id) = self.selected.clone() else {
+            return;
+        };
+        self.popup = None;
+        self.act("Opened in editor", move || api::open_editor(&id));
+    }
+
+    pub fn answer(&mut self) {
+        let Some(d) = self.detail.as_ref() else {
+            return;
+        };
+        let Some(q) = d.pending_question.as_ref() else {
+            return;
+        };
+        let other = self.q_other.text.trim().to_string();
+        let selections: Vec<api::Selection> = q
+            .questions
+            .iter()
+            .enumerate()
+            .map(|(i, qq)| api::Selection {
+                multi: qq.multi_select,
+                indices: self
+                    .q_sel
+                    .get(i)
+                    .map(|s| s.iter().copied().collect())
+                    .unwrap_or_default(),
+                other: (i == 0 && !other.is_empty()).then(|| other.clone()),
+            })
+            .collect();
+        let id = d.session.id.clone();
+        self.act("Answered", move || api::answer(&id, &selections, None));
+    }
+
+    /// Permission requests are a three-option question; the order is the server's contract.
+    pub fn answer_permission(&mut self, index: usize) {
+        let Some(d) = self.detail.as_ref() else {
+            return;
+        };
+        let id = d.session.id.clone();
+        let label = ["Allowed once", "Always allowed", "Denied"][index.min(2)];
+        self.act(label, move || {
+            api::answer(
+                &id,
+                &[api::Selection {
+                    multi: false,
+                    indices: vec![index],
+                    other: None,
+                }],
+                None,
+            )
+        });
+    }
+
+    pub fn pick_option(&mut self, qi: usize, oi: usize) {
+        let multi = self
+            .detail
+            .as_ref()
+            .and_then(|d| d.pending_question.as_ref())
+            .and_then(|q| q.questions.get(qi))
+            .is_some_and(|q| q.multi_select);
+        if self.q_sel.len() <= qi {
+            self.q_sel.resize(qi + 1, BTreeSet::new());
+        }
+        let set = &mut self.q_sel[qi];
+        if multi {
+            if !set.remove(&oi) {
+                set.insert(oi);
+            }
+        } else {
+            set.clear();
+            set.insert(oi);
+        }
+    }
+
+    pub fn plan_action(&mut self, action: &'static str) {
+        let Some(id) = self.selected.clone() else {
+            return;
+        };
+        let feedback = self.plan_feedback.text.trim().to_string();
+        let feedback = (!feedback.is_empty()).then_some(feedback);
+        let label = if action == "reject" {
+            "Plan rejected"
+        } else {
+            "Plan approved"
+        };
+        self.act(label, move || api::plan(&id, action, feedback.as_deref()));
+    }
+
+    pub fn launch(&mut self) {
+        let cwd = self.new_project.text.trim().to_string();
+        let prompt = self.new_prompt.text.trim().to_string();
+        if cwd.is_empty() {
+            self.flash("Pick a project folder first", true);
+            return;
+        }
+        let (model, effort, mode) = (
+            self.new_model.clone(),
+            self.new_effort.clone(),
+            self.new_mode.clone(),
+        );
+        self.sending = true;
+        spawn(
+            move || {
+                api::launch(
+                    &cwd,
+                    &prompt,
+                    model.as_deref(),
+                    effort.as_deref(),
+                    Some(&mode),
+                )
+            },
+            |s, r, _| {
+                s.sending = false;
+                match r {
+                    Ok(id) => {
+                        s.flash("✓ Session launched", false);
+                        refresh_sessions();
+                        s.open_session(&id);
+                    }
+                    Err(e) => s.flash(format!("✗ Launch: {e}"), true),
+                }
+            },
+        );
+    }
+
+    pub fn projects(&self) -> Vec<String> {
+        let mut seen = HashSet::new();
+        let mut out = Vec::new();
+        for s in &self.sessions {
+            if let Some(p) = s.project.clone()
+                && seen.insert(p.clone())
+            {
+                out.push(p);
+            }
+        }
+        out
+    }
+}
+
+pub fn refresh_sessions() {
+    spawn(
+        || (api::sessions(), api::session_meta().ok()),
+        |s, (r, meta), _| match r {
+            Ok(list) => s.apply_sessions(list, meta),
+            Err(_) => {
+                s.connected = false;
+                s.tray_dirty = true;
+            }
+        },
+    );
+}
+
+/// Follows `/api/stream` (a tick per hook event and transcript write, plus a heartbeat) and
+/// rereads the session list, at most a few times a second.
+pub fn start_workers() {
+    let Some(h) = HANDLE.get().cloned() else {
+        return;
+    };
+    std::thread::spawn(move || {
+        let mut last = Instant::now() - Duration::from_secs(10);
+        loop {
+            let r = api::follow("/api/stream", |_| {
+                if last.elapsed() > Duration::from_millis(400) {
+                    last = Instant::now();
+                    if let (Ok(list), meta) = (api::sessions(), api::session_meta().ok()) {
+                        h.update(move |s, _| s.apply_sessions(list, meta));
+                    }
+                }
+                true
+            });
+            if r.is_err() {
+                h.update(|s, _| {
+                    s.connected = false;
+                    s.tray_dirty = true;
+                });
+            }
+            std::thread::sleep(Duration::from_secs(3));
+        }
+    });
+    std::thread::spawn(|| {
+        if let Ok(caps) = api::capabilities()
+            && let Some(h) = HANDLE.get()
+        {
+            h.update(move |s, _| s.caps = caps);
+        }
+        loop {
+            std::thread::sleep(Duration::from_secs(60));
+            if let (Ok(g), Some(h)) = (api::usage(), HANDLE.get()) {
+                h.update(move |s, _| s.gauges = g);
+            }
+        }
+    });
+}
