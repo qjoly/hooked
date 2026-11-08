@@ -232,3 +232,5 @@ lucide!(
     "swap",
     r#"<path d="m16 3 4 4-4 4M20 7H4M8 21l-4-4 4-4M4 17h16"/>"#
 );
+lucide!(TERMINAL, "terminal", r#"<path d="m4 17 6-6-6-6M12 19h8"/>"#);
+lucide!(CHEVRON_DOWN, "chevron-down", r#"<path d="m6 9 6 6 6-6"/>"#);

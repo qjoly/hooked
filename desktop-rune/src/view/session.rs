@@ -45,6 +45,7 @@ pub fn view(s: &Hooked, k: &Kit, layer: &mut Vec<El>) -> El {
                 .min_h(0.0)
                 .child(body),
         )
+        .child(super::terminal::panel(s, k))
 }
 
 fn head(s: &Hooked, d: &Detail, k: &Kit, layer: &mut Vec<El>) -> El {
@@ -682,22 +683,17 @@ fn who(k: &Kit, user: bool, extra: &str) -> El {
 pub(super) fn bubble(s: &Hooked, m: &Message, k: &Kit, i: usize) -> El {
     let user = m.role == "user";
     if m.role == "system" {
-        return row()
-            .key(format!("sys-{i}"))
-            .w_full()
-            .justify_center()
-            .child(
-                text(fmt::first_line(&m.text, 160))
-                    .font(k.ty.text_xsmall)
-                    .color(k.c.text_faint),
-            );
+        return row().w_full().justify_center().child(
+            text(fmt::first_line(&m.text, 160))
+                .font(k.ty.text_xsmall)
+                .color(k.c.text_faint),
+        );
     }
     let ts =
         m.ts.as_deref()
             .map(|t| fmt::ago_short(Some(t), s.now))
             .unwrap_or_default();
     let mut b = col()
-        .key(format!("bubble-{i}"))
         .w_full()
         .gap(8.0)
         .child(who(k, user, if m.auto { "auto" } else { &ts }));

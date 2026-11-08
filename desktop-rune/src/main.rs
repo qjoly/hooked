@@ -5,6 +5,7 @@ mod icons;
 mod lenses;
 mod pages;
 mod quick;
+mod terminal;
 mod tray;
 mod view;
 

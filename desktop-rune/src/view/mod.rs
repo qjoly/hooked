@@ -6,6 +6,7 @@ mod pages;
 mod palette;
 mod session;
 mod split;
+mod terminal;
 
 use std::collections::BTreeMap;
 

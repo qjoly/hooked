@@ -117,6 +117,7 @@ pub struct Hooked {
     pub composer: TextEdit,
     pub attachments: Vec<Attachment>,
     pub split: Option<SplitPane>,
+    pub term: crate::terminal::TermPanel,
     pub attach_seq: u64,
     pub queued: Vec<String>,
     pub sending: bool,
@@ -189,6 +190,7 @@ impl Hooked {
             composer: TextEdit::new(""),
             attachments: Vec::new(),
             split: None,
+            term: crate::terminal::TermPanel::default(),
             attach_seq: 0,
             queued: Vec::new(),
             sending: false,
@@ -260,6 +262,9 @@ impl Hooked {
                 }
                 _ => {}
             }
+        }
+        if args.iter().any(|a| a == "--term") {
+            s.preload_terms();
         }
         if args.iter().any(|a| a == "--split") && s.detail.is_some() {
             s.split_with_recent();
@@ -361,6 +366,7 @@ impl Hooked {
         self.composer.focused = true;
         self.reset_question();
         self.load_detail();
+        self.load_terms();
     }
 
     /// Opens the most recently active other session beside the current one.
