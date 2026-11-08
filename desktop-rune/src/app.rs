@@ -253,6 +253,14 @@ impl Hooked {
                     s.lens_data.mcp_cwd = Some(cwd.clone());
                     s.lens_data.mcp = api::mcp_list(&cwd, true).unwrap_or_default();
                 }
+                Lens::Review => {
+                    s.ensure_lens();
+                    s.lens_data.threads = api::get(&format!("/api/review?id={id}"))
+                        .ok()
+                        .and_then(|v| v["threads"].as_array().cloned())
+                        .unwrap_or_default();
+                    s.annotate();
+                }
                 Lens::Trace => {
                     s.lens_data.trace = api::trace(&id).unwrap_or_default();
                     s.lens_data.trace_sig = Some(format!(

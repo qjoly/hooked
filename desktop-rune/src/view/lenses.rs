@@ -1,6 +1,9 @@
 use rune::{Color, Cursor, El, ScrollSpec, col, el, row, text};
-use rune_kit::diff::{DiffMode, DiffView};
-use rune_kit::{Button, ButtonVariant, ControlSize, Kit, SegmentedControl, Spinner, TextInput};
+use rune_kit::diff::{Annotation, DiffMode, DiffView};
+use rune_kit::{
+    Button, ButtonVariant, ControlSize, Kit, Markdown, SegmentedControl, Spinner, TextArea,
+    TextInput,
+};
 
 use super::{glyph, section_title};
 use crate::api::{Detail, McpServer, TraceSpan};
@@ -70,9 +73,24 @@ pub fn review(s: &Hooked, d: &Detail, k: &Kit) -> El {
     if ld.diff_loading {
         top = top.child(Spinner::new().build(k));
     }
+    let pending = s.pending_threads().len();
+    if pending > 0 {
+        top = top.child(
+            Button::new(format!(
+                "Send {pending} comment{} to Claude",
+                if pending == 1 { "" } else { "s" }
+            ))
+            .icon(&icons::ARROW_UP)
+            .variant(ButtonVariant::Contrast)
+            .control_size(ControlSize::Regular)
+            .on_press(|s: &mut Hooked| s.send_review())
+            .build(k)
+            .key("review-send"),
+        );
+    }
     top = top
         .child(
-            text("j/k hunks · [/] files")
+            text("+ on a line comments · j/k hunks · [/] files")
                 .font(k.ty.text_xsmall)
                 .color(k.c.text_faint),
         )
@@ -111,6 +129,11 @@ pub fn review(s: &Hooked, d: &Detail, k: &Kit) -> El {
                     |s: &mut Hooked| &mut s.lens_data.diff,
                 )
                 .key("diff")
+                .annotation({
+                    let k = k.clone();
+                    move |s: &Hooked, a: &Annotation| annotation(s, a, &k)
+                })
+                .on_comment(|s: &mut Hooked, range, _| s.start_comment(range))
                 .build(s, k),
             )
     };
@@ -579,4 +602,150 @@ pub fn trace(s: &Hooked, k: &Kit) -> El {
             })
             .child(list),
     )
+}
+
+fn annotation(s: &Hooked, a: &Annotation, k: &Kit) -> El {
+    let shell = |key: String| {
+        col()
+            .key(key)
+            .w_full()
+            .max_w(720.0)
+            .mx(12.0)
+            .my(6.0)
+            .padding(12.0)
+            .gap(8.0)
+            .radius(k.radius.md)
+            .fill(k.c.surface_raised)
+            .border(1.0, k.c.border_base)
+    };
+    if a.id == "draft" {
+        let Some((_, edit)) = s.lens_data.draft.as_ref() else {
+            return el();
+        };
+        return shell("draft".into())
+            .child(
+                TextArea::new(edit)
+                    .placeholder("Comment on these lines… (⌘Enter saves)")
+                    .width(None)
+                    .auto_grow(2, 10)
+                    .on_edit(|s: &mut Hooked| &mut s.lens_data.draft.as_mut().expect("draft").1)
+                    .on_key(|s: &mut Hooked, ev: &rune::KeyEvent, _| match ev.key {
+                        rune::Key::Enter if ev.mods.cmd => {
+                            s.save_comment();
+                            true
+                        }
+                        rune::Key::Escape => {
+                            s.cancel_comment();
+                            true
+                        }
+                        _ => false,
+                    })
+                    .build(k)
+                    .key("draft-field"),
+            )
+            .child(
+                row()
+                    .gap(8.0)
+                    .justify_end()
+                    .child(
+                        Button::new("Cancel")
+                            .variant(ButtonVariant::GhostMuted)
+                            .control_size(ControlSize::Small)
+                            .on_press(|s: &mut Hooked| s.cancel_comment())
+                            .build(k)
+                            .key("draft-cancel"),
+                    )
+                    .child(
+                        Button::new("Comment")
+                            .variant(ButtonVariant::Contrast)
+                            .control_size(ControlSize::Small)
+                            .on_press(|s: &mut Hooked| s.save_comment())
+                            .build(k)
+                            .key("draft-save"),
+                    ),
+            );
+    }
+    let Some(t) = s
+        .lens_data
+        .threads
+        .iter()
+        .find(|t| t["id"].as_str() == Some(a.id.as_str()))
+    else {
+        return el();
+    };
+    let tid = a.id.clone();
+    let sent = t["sent"].as_bool() == Some(true);
+    let archived = t["status"].as_str() == Some("archived");
+    let status = if archived {
+        ("archived", k.c.text_faint)
+    } else if sent {
+        ("sent", k.c.info.fg)
+    } else {
+        ("pending · not sent yet", k.c.warning.fg)
+    };
+    let (t1, t2, t3) = (tid.clone(), tid.clone(), tid.clone());
+    let mut c = shell(format!("thread-{tid}")).child(
+        row()
+            .w_full()
+            .gap(8.0)
+            .center_y()
+            .child(text(status.0).font(k.ty.text_xsmall_medium).color(status.1))
+            .child(el().grow(1.0))
+            .child(
+                Button::new(if archived { "Reopen" } else { "Archive" })
+                    .variant(ButtonVariant::GhostMuted)
+                    .control_size(ControlSize::Small)
+                    .on_press(move |s: &mut Hooked| s.archive_thread(t1.clone(), !archived))
+                    .build(k)
+                    .key(format!("th-arch-{tid}")),
+            )
+            .child(
+                Button::new("Delete")
+                    .variant(ButtonVariant::GhostMuted)
+                    .control_size(ControlSize::Small)
+                    .on_press(move |s: &mut Hooked| s.delete_thread(t2.clone()))
+                    .build(k)
+                    .key(format!("th-del-{tid}")),
+            ),
+    );
+    if archived {
+        return c;
+    }
+    for (i, m) in t["messages"].as_array().into_iter().flatten().enumerate() {
+        let claude = m["author"].as_str() == Some("claude");
+        c = c.child(
+            col()
+                .key(format!("th-{tid}-{i}"))
+                .w_full()
+                .gap(2.0)
+                .child(
+                    text(if claude { "Claude" } else { "You" })
+                        .font(k.ty.text_xsmall_medium)
+                        .color(k.c.text_faint),
+                )
+                .child(Markdown::new(m["text"].as_str().unwrap_or("").to_string()).build(k)),
+        );
+    }
+    if sent {
+        let empty = rune::TextEdit::new("");
+        let edit = s.lens_data.replies.get(&tid).unwrap_or(&empty);
+        c = c.child(
+            TextInput::new(edit)
+                .placeholder("Reply…")
+                .width(None)
+                .on_edit(move |s: &mut Hooked| {
+                    s.lens_data
+                        .replies
+                        .entry(t3.clone())
+                        .or_insert_with(|| rune::TextEdit::new(""))
+                })
+                .on_submit({
+                    let tid = tid.clone();
+                    move |s: &mut Hooked, _| s.reply_thread(tid.clone())
+                })
+                .build(k)
+                .key(format!("th-reply-{tid}")),
+        );
+    }
+    c
 }

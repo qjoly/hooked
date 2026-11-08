@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 
 use rune::TextEdit;
-use rune_kit::diff::{DiffState, FileDiff};
-use serde_json::json;
+use rune_kit::diff::{Annotation, DiffState, FileDiff, LineRange, LineRef, Side};
+use serde_json::{Value, json};
 
 use crate::api::{self, Change, McpLogin, McpServer, TraceTurn};
 use crate::app::{Hooked, Lens, Page, spawn};
@@ -20,6 +20,10 @@ pub struct LensData {
     pub diff_sig: Option<String>,
     pub diff_loading: bool,
     pub diff_count: usize,
+    pub anchors: Vec<(String, String)>,
+    pub threads: Vec<Value>,
+    pub draft: Option<(LineRange, TextEdit)>,
+    pub replies: HashMap<String, TextEdit>,
 
     pub mcp_cwd: Option<String>,
     pub mcp: Vec<McpServer>,
@@ -46,6 +50,10 @@ impl Default for LensData {
             diff_sig: None,
             diff_loading: false,
             diff_count: 0,
+            anchors: Vec::new(),
+            threads: Vec::new(),
+            draft: None,
+            replies: HashMap::new(),
             mcp_cwd: None,
             mcp: Vec::new(),
             mcp_loading: false,
@@ -70,23 +78,33 @@ fn relative(path: &str, root: Option<&str>) -> String {
         .unwrap_or_else(|| path.to_string())
 }
 
-pub fn file_diffs(changes: &[Change], root: Option<&str>) -> Vec<FileDiff> {
-    let mut out = Vec::new();
+/// One diff per op, with the `(file, opIndex)` anchor the web lens files review threads under.
+pub fn file_diffs(
+    changes: &[Change],
+    root: Option<&str>,
+    key: &str,
+) -> (Vec<FileDiff>, Vec<(String, String)>) {
+    let (mut out, mut anchors) = (Vec::new(), Vec::new());
     for c in changes {
         let path = relative(&c.file, root);
         let n = c.ops.len();
         for (i, op) in c.ops.iter().enumerate() {
             let old = op.get("old").and_then(|v| v.as_str()).unwrap_or("");
-            let new = op.get("new").and_then(|v| v.as_str()).unwrap_or("");
+            let new = op
+                .get("new")
+                .or_else(|| op.get("content"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
             let label = if n > 1 {
                 format!("{path} · edit {}/{n}", i + 1)
             } else {
                 path.clone()
             };
             out.push(FileDiff::from_texts(label, old, new));
+            anchors.push((c.file.clone(), format!("{key}:{i}")));
         }
     }
-    out
+    (out, anchors)
 }
 
 impl Hooked {
@@ -114,10 +132,12 @@ impl Hooked {
                 }
                 match ld.review_source {
                     ReviewSource::Claude => {
-                        let files = file_diffs(&d.changes, project.as_deref());
+                        let (files, anchors) = file_diffs(&d.changes, project.as_deref(), "full");
                         self.lens_data.diff_count = d.changes.len();
                         self.lens_data.diff.set_files(files);
+                        self.lens_data.anchors = anchors;
                         self.lens_data.diff_sig = Some(sig);
+                        self.load_threads();
                         true
                     }
                     ReviewSource::Tree => {
@@ -130,8 +150,11 @@ impl Hooked {
                                 match r {
                                     Ok(changes) => {
                                         s.lens_data.diff_count = changes.len();
-                                        let files = file_diffs(&changes, project.as_deref());
+                                        let (files, anchors) =
+                                            file_diffs(&changes, project.as_deref(), "vcs:wt");
                                         s.lens_data.diff.set_files(files);
+                                        s.lens_data.anchors = anchors;
+                                        s.load_threads();
                                     }
                                     Err(e) => s.flash(format!("✗ Working tree: {e}"), true),
                                 }
@@ -238,6 +261,262 @@ impl Hooked {
                         }
                     },
                 );
+            },
+        );
+    }
+
+    pub fn load_threads(&mut self) {
+        let Some(id) = self.selected.clone() else {
+            return;
+        };
+        spawn(
+            move || api::get(&format!("/api/review?id={id}")),
+            |s, r, _| {
+                if let Ok(v) = r {
+                    s.lens_data.threads = v["threads"].as_array().cloned().unwrap_or_default();
+                    s.annotate();
+                }
+            },
+        );
+    }
+
+    /// Puts each thread, and the comment being written, under the diff line it points at.
+    pub fn annotate(&mut self) {
+        let ld = &mut self.lens_data;
+        let mut notes = Vec::new();
+        for t in &ld.threads {
+            let (file, key) = (
+                t["file"].as_str().unwrap_or(""),
+                t["opIndex"].as_str().unwrap_or(""),
+            );
+            let Some(i) = ld.anchors.iter().position(|(f, k)| f == file && k == key) else {
+                continue;
+            };
+            let side = if t["side"].as_str() == Some("old") {
+                Side::Old
+            } else {
+                Side::New
+            };
+            let line = t["end"].as_u64().or(t["start"].as_u64()).unwrap_or(1) as u32;
+            notes.push(Annotation::new(
+                i,
+                LineRef::new(side, line),
+                t["id"].as_str().unwrap_or(""),
+            ));
+        }
+        if let Some((range, _)) = ld.draft.as_ref() {
+            let end = if range.end.line >= range.start.line {
+                range.end
+            } else {
+                range.start
+            };
+            notes.push(Annotation::new(range.file, end, "draft"));
+        }
+        ld.diff.set_annotations(notes);
+    }
+
+    pub fn start_comment(&mut self, range: LineRange) {
+        let mut edit = TextEdit::new("");
+        edit.focused = true;
+        self.lens_data.draft = Some((range, edit));
+        self.annotate();
+    }
+
+    pub fn cancel_comment(&mut self) {
+        self.lens_data.draft = None;
+        self.annotate();
+    }
+
+    pub fn save_comment(&mut self) {
+        let Some(id) = self.selected.clone() else {
+            return;
+        };
+        let Some((range, edit)) = self.lens_data.draft.take() else {
+            return;
+        };
+        let text = edit.text.trim().to_string();
+        let Some((file, key)) = self.lens_data.anchors.get(range.file).cloned() else {
+            return;
+        };
+        if text.is_empty() {
+            self.annotate();
+            return;
+        }
+        let (a, b) = (
+            range.start.line.min(range.end.line),
+            range.start.line.max(range.end.line),
+        );
+        let side = range.end.side;
+        let snippet: Vec<String> = self
+            .lens_data
+            .diff
+            .files()
+            .get(range.file)
+            .map(|f| {
+                f.hunks
+                    .iter()
+                    .flat_map(|h| h.lines.iter())
+                    .filter(|l| l.number(side).is_some_and(|n| n >= a && n <= b))
+                    .map(|l| l.text.clone())
+                    .collect()
+            })
+            .unwrap_or_default();
+        let thread = json!({
+            "file": file,
+            "name": file.rsplit('/').next().unwrap_or(&file),
+            "opIndex": key,
+            "side": if side == Side::Old { "old" } else { "new" },
+            "start": a,
+            "end": b,
+            "snippet": snippet.join("\n"),
+            "text": text,
+        });
+        self.review_op(json!({ "id": id, "action": "comment", "thread": thread }));
+    }
+
+    fn review_op(&mut self, body: Value) {
+        self.annotate();
+        spawn(
+            move || api::post("/api/review", body),
+            |s, r, _| {
+                if let Err(e) = r {
+                    s.flash(format!("✗ Review: {e}"), true);
+                }
+                s.load_threads();
+            },
+        );
+    }
+
+    pub fn reply_thread(&mut self, tid: String) {
+        let Some(id) = self.selected.clone() else {
+            return;
+        };
+        let text = self
+            .lens_data
+            .replies
+            .remove(&tid)
+            .map(|e| e.text.trim().to_string())
+            .unwrap_or_default();
+        if !text.is_empty() {
+            self.review_op(json!({ "id": id, "action": "reply", "threadId": tid, "text": text, "author": "user" }));
+        }
+    }
+
+    pub fn archive_thread(&mut self, tid: String, archived: bool) {
+        let Some(id) = self.selected.clone() else {
+            return;
+        };
+        self.review_op(
+            json!({ "id": id, "action": "archive", "threadId": tid, "archived": archived }),
+        );
+    }
+
+    pub fn delete_thread(&mut self, tid: String) {
+        let Some(id) = self.selected.clone() else {
+            return;
+        };
+        self.review_op(json!({ "id": id, "action": "delete", "threadId": tid }));
+    }
+
+    pub fn pending_threads(&self) -> Vec<&Value> {
+        self.lens_data
+            .threads
+            .iter()
+            .filter(|t| t["sent"].as_bool() != Some(true))
+            .collect()
+    }
+
+    /// Sends the unsent comments as one prompt, in the shape the web lens uses.
+    pub fn send_review(&mut self) {
+        let Some(d) = self.detail.as_ref() else {
+            return;
+        };
+        let id = d.session.id.clone();
+        let pending: Vec<Value> = self.pending_threads().into_iter().cloned().collect();
+        if pending.is_empty() {
+            return;
+        }
+        let scope = if self.lens_data.review_source == ReviewSource::Tree {
+            "the uncommitted changes in the working tree"
+        } else {
+            "your changes"
+        };
+        let items: Vec<String> = pending
+            .iter()
+            .enumerate()
+            .map(|(n, t)| {
+                let (a, b) = (
+                    t["start"].as_u64().unwrap_or(1),
+                    t["end"].as_u64().unwrap_or(1),
+                );
+                let p = if t["side"].as_str() == Some("old") {
+                    "−L"
+                } else {
+                    "+L"
+                };
+                let anchor = if a == b {
+                    format!("{p}{b}")
+                } else {
+                    format!("{p}{a}–{b}")
+                };
+                let body = t["messages"][0]["text"]
+                    .as_str()
+                    .unwrap_or("")
+                    .replace('\n', "\n   > ");
+                let snip: Vec<String> = t["snippet"]
+                    .as_str()
+                    .unwrap_or("")
+                    .lines()
+                    .map(|l| format!("   | {l}"))
+                    .collect();
+                format!(
+                    "{}) {} ({anchor}) [thread_id: {}]\n   > {body}\n   Relevant code:\n{}",
+                    n + 1,
+                    t["file"].as_str().unwrap_or(""),
+                    t["id"].as_str().unwrap_or(""),
+                    snip.join("\n")
+                )
+            })
+            .collect();
+        let api_url = format!("{}/api/review", api::base());
+        let prompt = format!(
+            "I reviewed {scope} and left the following inline comments. Address each one, then, for each: \
+             Reply in the thread with the hooked MCP tool mcp__hooked__reply_review_comment (id: \"{id}\", thread_id above). \
+             Do NOT close the thread — closing is the reviewer's call, and there is no tool for it. If that MCP tool is \
+             unavailable, POST the same reply to the local hooked API instead: curl -sS -X POST {api_url} -H 'content-type: application/json' \
+             -d '{{\"id\":\"{id}\",\"action\":\"reply\",\"threadId\":\"<thread_id>\",\"text\":\"<your reply>\",\"author\":\"claude\"}}'. \
+             Keep your chat answer to a one-line summary — the details belong in the thread.\n\n{}",
+            items.join("\n\n")
+        );
+        let ids: Vec<String> = pending
+            .iter()
+            .filter_map(|t| t["id"].as_str().map(str::to_string))
+            .collect();
+        let live = d.session.live;
+        let effort = d.session.effort.clone();
+        spawn(
+            move || {
+                if live {
+                    api::reply(&id, &prompt)
+                } else {
+                    api::resume(&id, &prompt, effort.as_deref())
+                }?;
+                api::post(
+                    "/api/review",
+                    json!({ "id": id, "action": "sent", "ids": ids }),
+                )
+                .map(|_| ())
+            },
+            |s, r, _| {
+                match r {
+                    Ok(()) => {
+                        s.flash("✓ Comments sent to Claude", false);
+                        s.lens = Lens::Converse;
+                    }
+                    Err(e) => s.flash(format!("✗ Send: {e}"), true),
+                }
+                s.load_threads();
+                s.refresh_detail();
             },
         );
     }
@@ -380,7 +659,11 @@ mod tests {
             "ops": [{ "old": "a\n", "new": "b\n" }, { "old": "", "new": "c\n" }]
         }))
         .unwrap();
-        let files = file_diffs(&[c], Some("/repo"));
+        let (files, anchors) = file_diffs(&[c], Some("/repo"), "full");
+        assert_eq!(
+            anchors[1],
+            ("/repo/src/a.rs".to_string(), "full:1".to_string())
+        );
         assert_eq!(files.len(), 2);
         assert_eq!(files[0].path(), "src/a.rs · edit 1/2");
         assert_eq!(files[0].additions(), 1);
