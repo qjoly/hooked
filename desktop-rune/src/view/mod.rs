@@ -66,6 +66,7 @@ pub fn view(s: &Hooked, cx: &mut Cx<Hooked>) -> El {
         Page::Digest => pages::digest(s, &k),
         Page::Memory => pages::memory(s, &k),
         Page::Cron => pages::cron(s, &k),
+        Page::GitHub => pages::github(s, &k),
         Page::Settings => pages::settings(s, &k, &mut layer),
     };
     let mut body = row().key("body").w_full().grow(1.0).min_h(0.0);
@@ -230,7 +231,9 @@ fn topbar(s: &Hooked, k: &Kit, inset: f32, _layer: &mut Vec<El>) -> El {
                     text("Search, launch, command…")
                         .font(k.ty.ui)
                         .color(k.c.text_faint)
-                        .grow(1.0),
+                        .truncate()
+                        .grow(1.0)
+                        .shrink(),
                 )
                 .child(
                     text("⌘K")
@@ -349,8 +352,8 @@ fn topbar(s: &Hooked, k: &Kit, inset: f32, _layer: &mut Vec<El>) -> El {
                 .key("tb-logo")
                 .gap(6.0)
                 .center_y()
-                .child(glyph(&icons::CIRCLE_DOT, 16.0, k.c.text_base))
-                .child(text("hooked").font(k.ty.body_medium).color(k.c.text_base)),
+                .help("hooked")
+                .child(glyph(&icons::CIRCLE_DOT, 16.0, k.c.text_base)),
         )
         .child(
             row()
@@ -392,6 +395,16 @@ fn topbar(s: &Hooked, k: &Kit, inset: f32, _layer: &mut Vec<El>) -> El {
                 .child(
                     space("tb-cron", "Cron", &icons::TIMER, s.page == Page::Cron, None)
                         .on_press(|s: &mut Hooked| s.go(Page::Cron)),
+                )
+                .child(
+                    space(
+                        "tb-github",
+                        "GitHub",
+                        &icons::GITHUB,
+                        s.page == Page::GitHub,
+                        None,
+                    )
+                    .on_press(|s: &mut Hooked| s.go(Page::GitHub)),
                 ),
         )
         .child(

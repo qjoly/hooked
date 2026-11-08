@@ -33,6 +33,7 @@ pub enum Page {
     Digest,
     Memory,
     Cron,
+    GitHub,
     Settings,
 }
 
@@ -260,6 +261,7 @@ impl Hooked {
                 Some("digest") => Page::Digest,
                 Some("memory") => Page::Memory,
                 Some("cron") => Page::Cron,
+                Some("github") => Page::GitHub,
                 Some("settings") => Page::Settings,
                 _ => s.page,
             };

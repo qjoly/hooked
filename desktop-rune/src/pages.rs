@@ -4,6 +4,13 @@ use serde_json::{Value, json};
 use crate::api;
 use crate::app::{Hooked, Page, refresh_sessions, spawn};
 
+pub const GITHUB_TABS: [(&str, &str); 4] = [
+    ("review", "Review requested"),
+    ("mine", "My pull requests"),
+    ("issues", "Assigned issues"),
+    ("notifications", "Notifications"),
+];
+
 pub const STATS_RANGES: [(&str, &str); 4] = [
     ("1", "Today"),
     ("7", "7 days"),
@@ -60,6 +67,10 @@ pub struct PageData {
     pub cron_loaded: bool,
     pub cron_form: Option<CronForm>,
 
+    pub github: Option<Value>,
+    pub github_loading: bool,
+    pub github_tab: usize,
+
     pub settings: Option<Value>,
     pub settings_loading: bool,
     pub settings_project: Option<TextEdit>,
@@ -91,6 +102,7 @@ impl Hooked {
                 }
             }
             Page::Memory => pd.memory = api::get("/api/memory").ok(),
+            Page::GitHub => pd.github = api::get("/api/github").ok(),
             Page::Cron => {
                 pd.cron = api::get("/api/cron")
                     .ok()
@@ -174,6 +186,20 @@ impl Hooked {
                 self.load_cron();
                 true
             }
+            Page::GitHub if pd.github.is_none() && !pd.github_loading => {
+                pd.github_loading = true;
+                spawn(
+                    || api::get("/api/github"),
+                    |s, r, _| {
+                        s.pages.github_loading = false;
+                        match r {
+                            Ok(v) => s.pages.github = Some(v),
+                            Err(e) => s.flash(format!("✗ GitHub: {e}"), true),
+                        }
+                    },
+                );
+                true
+            }
             Page::Settings if pd.settings.is_none() && !pd.settings_loading => {
                 pd.settings_loading = true;
                 spawn(
@@ -206,6 +232,7 @@ impl Hooked {
             Page::Digest => self.pages.digests_loaded = false,
             Page::Memory => self.pages.memory = None,
             Page::Cron => self.pages.cron_loaded = false,
+            Page::GitHub => self.pages.github = None,
             Page::Settings => self.pages.settings = None,
             _ => {}
         }

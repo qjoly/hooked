@@ -7,7 +7,7 @@ use serde_json::{Value, json};
 
 use super::{dot, glyph, pill, section_title};
 use crate::app::{Hooked, Popup, Theme};
-use crate::pages::STATS_RANGES;
+use crate::pages::{GITHUB_TABS, STATS_RANGES};
 use crate::{fmt, icons};
 
 fn page(k: &Kit, key: &str, title: &str, actions: El, body: El) -> El {
@@ -1097,4 +1097,125 @@ pub fn settings(s: &Hooked, k: &Kit, layer: &mut Vec<El>) -> El {
         .child(server)
         .child(more);
     page(k, "settings", "Settings", el(), scroll("set-scroll", body))
+}
+
+pub fn github(s: &Hooked, k: &Kit) -> El {
+    let pd = &s.pages;
+    let refresh = Button::new("Refresh")
+        .icon(&icons::RESTART)
+        .variant(ButtonVariant::GhostMuted)
+        .control_size(ControlSize::Regular)
+        .disabled(pd.github_loading)
+        .on_press(|s: &mut Hooked| s.pages.github = None)
+        .build(k)
+        .key("gh-refresh");
+    let Some(v) = pd.github.as_ref() else {
+        return page(k, "github", "GitHub", refresh, loading(k));
+    };
+    let labels: Vec<String> = GITHUB_TABS
+        .iter()
+        .map(|(key, label)| format!("{label} · {}", v[*key].as_array().map_or(0, Vec::len)))
+        .collect();
+    let tabs = SegmentedControl::new(&labels, Some(pd.github_tab))
+        .label("List")
+        .fit()
+        .on_pick(|s: &mut Hooked, i, _| s.pages.github_tab = i)
+        .build(k)
+        .key("gh-tabs");
+    let key = GITHUB_TABS[pd.github_tab].0;
+    let mut list = col()
+        .key("gh-list")
+        .w_full()
+        .max_w(1100.0)
+        .self_center()
+        .padding(24.0)
+        .gap(6.0)
+        .child(row().pb(10.0).child(tabs));
+    let items = v[key].as_array().cloned().unwrap_or_default();
+    if items.is_empty() {
+        list = list.child(text("Nothing here.").font(k.ty.body).color(k.c.text_faint));
+    }
+    for (i, x) in items.iter().enumerate() {
+        let url = x["url"].as_str().unwrap_or("").to_string();
+        let title = x["title"]
+            .as_str()
+            .or(x["subject"].as_str())
+            .unwrap_or("")
+            .to_string();
+        let repo = x["repo"].as_str().unwrap_or("").to_string();
+        let num = x["number"]
+            .as_i64()
+            .map(|n| format!("#{n}"))
+            .unwrap_or_default();
+        let checks = x["checks"].as_str().unwrap_or("");
+        let check_color = match checks {
+            "SUCCESS" => k.c.success.icon,
+            "FAILURE" | "ERROR" => k.c.danger.icon,
+            "PENDING" => k.c.warning.icon,
+            _ => k.c.icon_faint,
+        };
+        let decision = match x["decision"].as_str().unwrap_or("") {
+            "APPROVED" => Some(("Approved", k.c.success.fg)),
+            "CHANGES_REQUESTED" => Some(("Changes requested", k.c.danger.fg)),
+            "REVIEW_REQUIRED" => Some(("Review required", k.c.text_faint)),
+            _ => None,
+        };
+        let mut r = row()
+            .key(format!("gh-{key}-{i}"))
+            .role("link")
+            .w_full()
+            .px(12.0)
+            .py(8.0)
+            .gap(10.0)
+            .center_y()
+            .radius(k.radius.md)
+            .cursor(Cursor::Pointer)
+            .border(1.0, k.c.border_weak)
+            .help(url.clone())
+            .child(el().size(8.0, 8.0).radius(4.0).fill(check_color))
+            .child(
+                col()
+                    .grow(1.0)
+                    .shrink()
+                    .gap(2.0)
+                    .child(
+                        text(title)
+                            .font(k.ty.ui_medium)
+                            .color(k.c.text_base)
+                            .truncate(),
+                    )
+                    .child(
+                        text(format!(
+                            "{repo} {num} · {} · {}",
+                            x["author"].as_str().unwrap_or(""),
+                            fmt::ago_short(x["updatedAt"].as_str(), s.now)
+                        ))
+                        .font(k.ty.text_xsmall)
+                        .color(k.c.text_faint),
+                    ),
+            );
+        if x["draft"].as_bool() == Some(true) {
+            r = r.child(pill(k, "draft", k.c.text_muted, k.c.layer_02));
+        }
+        if let Some((label, color)) = decision {
+            r = r.child(text(label).font(k.ty.text_xsmall_medium).color(color));
+        }
+        if let (Some(a), Some(d)) = (x["additions"].as_i64(), x["deletions"].as_i64()) {
+            r = r
+                .child(
+                    text(format!("+{a}"))
+                        .font(k.ty.text_xsmall)
+                        .color(k.c.success.fg),
+                )
+                .child(
+                    text(format!("−{d}"))
+                        .font(k.ty.text_xsmall)
+                        .color(k.c.danger.fg),
+                );
+        }
+        list = list.child(k.interactive(r).on_press_tx(move |_: &mut Hooked, tx| {
+            let _ = tx.open_url(&url);
+        }));
+    }
+    page(k, "github", "GitHub", refresh, scroll("gh-scroll", list))
 }
