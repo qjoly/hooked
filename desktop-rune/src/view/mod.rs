@@ -1,5 +1,6 @@
 mod deck;
 mod dock;
+mod lenses;
 mod new_session;
 mod palette;
 mod session;

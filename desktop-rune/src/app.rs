@@ -116,6 +116,7 @@ pub struct Hooked {
     pub palette_query: TextEdit,
     pub palette_index: usize,
 
+    pub lens_data: crate::lenses::LensData,
     pub announced: HashSet<String>,
     pub tray_dirty: bool,
 }
@@ -178,6 +179,7 @@ impl Hooked {
             palette_open: false,
             palette_query: TextEdit::new(""),
             palette_index: 0,
+            lens_data: crate::lenses::LensData::default(),
             announced: HashSet::new(),
             tray_dirty: true,
         };
@@ -202,6 +204,34 @@ impl Hooked {
             s.page = Page::Session;
             s.detail = api::detail(id).ok();
             s.reset_question();
+        }
+        if let Some(i) = args.iter().position(|a| a == "--lens") {
+            s.lens = match args.get(i + 1).map(String::as_str) {
+                Some("review") => Lens::Review,
+                Some("mcp") => Lens::Mcp,
+                Some("trace") => Lens::Trace,
+                _ => Lens::Converse,
+            };
+        }
+        if let Some(d) = s.detail.as_ref() {
+            let (id, cwd) = (
+                d.session.id.clone(),
+                d.session.project.clone().unwrap_or_default(),
+            );
+            match s.lens {
+                Lens::Mcp => {
+                    s.lens_data.mcp_cwd = Some(cwd.clone());
+                    s.lens_data.mcp = api::mcp_list(&cwd, true).unwrap_or_default();
+                }
+                Lens::Trace => {
+                    s.lens_data.trace = api::trace(&id).unwrap_or_default();
+                    s.lens_data.trace_sig = Some(format!(
+                        "{id}|{}",
+                        d.session.last_activity.clone().unwrap_or_default()
+                    ));
+                }
+                _ => {}
+            }
         }
         if args.iter().any(|a| a == "--new") {
             s.page = Page::New;
@@ -273,6 +303,13 @@ impl Hooked {
         self.visible = WINDOW;
         self.queued.clear();
         self.tools_open.clear();
+        let source = self.lens_data.review_source;
+        let mode = self.lens_data.diff.mode();
+        self.lens_data = crate::lenses::LensData {
+            review_source: source,
+            ..Default::default()
+        };
+        self.lens_data.diff.set_mode(mode);
         self.composer = TextEdit::new("");
         self.composer.focused = true;
         self.reset_question();

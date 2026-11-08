@@ -27,9 +27,9 @@ pub fn view(s: &Hooked, k: &Kit, layer: &mut Vec<El>) -> El {
     };
     let body = match s.lens {
         Lens::Converse => converse(s, d, k),
-        Lens::Review => review(s, d, k),
-        Lens::Mcp => web_only(k, d, "mcp", "MCP servers for this project"),
-        Lens::Trace => web_only(k, d, "trace", "Tool calls as a timed waterfall"),
+        Lens::Review => super::lenses::review(s, d, k),
+        Lens::Mcp => super::lenses::mcp(s, d, k),
+        Lens::Trace => super::lenses::trace(s, k),
     };
     col()
         .key("detail")
@@ -1157,122 +1157,4 @@ fn composer(s: &Hooked, d: &Detail, k: &Kit, busy: bool) -> El {
                 .color(k.c.text_faint),
         );
     c.child(bar).child(hint)
-}
-
-fn review(s: &Hooked, d: &Detail, k: &Kit) -> El {
-    let _ = s;
-    if d.changes.is_empty() {
-        return col().key("review-empty").w_full().h_full().center().child(
-            text("No file changes in this session yet.")
-                .font(k.ty.body)
-                .color(k.c.text_faint),
-        );
-    }
-    let mut list = col()
-        .key("review-list")
-        .w_full()
-        .max_w(1100.0)
-        .self_center()
-        .padding(20.0)
-        .gap(14.0);
-    for (i, c) in d.changes.iter().enumerate() {
-        let mut file = col()
-            .key(format!("chg-{i}"))
-            .w_full()
-            .radius(k.radius.md)
-            .border(1.0, k.c.border_weak)
-            .child(
-                row()
-                    .w_full()
-                    .h(34.0)
-                    .px(12.0)
-                    .gap(8.0)
-                    .center_y()
-                    .fill(k.c.layer_01)
-                    .child(glyph(&icons::DIFF, 13.0, k.c.icon_muted))
-                    .child(text(c.label()).font(k.ty.ui_medium).color(k.c.text_base))
-                    .child(
-                        text(c.file.clone())
-                            .font(k.ty.text_xsmall)
-                            .color(k.c.text_faint)
-                            .truncate()
-                            .grow(1.0)
-                            .min_w(0.0),
-                    )
-                    .child(
-                        text(format!(
-                            "{} edit{}",
-                            c.ops.len(),
-                            if c.ops.len() == 1 { "" } else { "s" }
-                        ))
-                        .font(k.ty.text_xsmall)
-                        .color(k.c.text_faint),
-                    ),
-            );
-        for (oi, op) in c.ops.iter().enumerate().take(6) {
-            let old = op.get("old").and_then(|v| v.as_str()).unwrap_or("");
-            let new = op.get("new").and_then(|v| v.as_str()).unwrap_or("");
-            let mut lines = col().key(format!("chg-{i}-{oi}")).w_full().py(6.0);
-            for l in old.lines().take(40) {
-                lines = lines.child(diff_line(k, '-', l));
-            }
-            for l in new.lines().take(80) {
-                lines = lines.child(diff_line(k, '+', l));
-            }
-            file = file.child(lines);
-        }
-        list = list.child(file);
-    }
-    col()
-        .key("review")
-        .w_full()
-        .h_full()
-        .scroll(ScrollSpec {
-            stick_bottom: false,
-        })
-        .child(list)
-}
-
-fn diff_line(k: &Kit, sign: char, l: &str) -> El {
-    let (bg, fg) = if sign == '+' {
-        (k.c.success.bg, k.c.success.fg)
-    } else {
-        (k.c.danger.bg, k.c.danger.fg)
-    };
-    row().w_full().px(12.0).fill(bg).child(
-        text(format!("{sign} {l}"))
-            .font(k.ty.mono)
-            .color(fg)
-            .wrap_anywhere(),
-    )
-}
-
-fn web_only(k: &Kit, d: &Detail, lens: &'static str, what: &'static str) -> El {
-    let url = format!(
-        "{}/session/{}?lens={lens}",
-        crate::api::base(),
-        d.session.id
-    );
-    col()
-        .key(format!("lens-{lens}-web"))
-        .w_full()
-        .h_full()
-        .center()
-        .gap(12.0)
-        .child(text(what).font(k.ty.body_medium).color(k.c.text_base))
-        .child(
-            text("Not rebuilt natively yet.")
-                .font(k.ty.ui)
-                .color(k.c.text_faint),
-        )
-        .child(
-            Button::new("Open in the web dashboard")
-                .icon(&icons::LINK)
-                .variant(ButtonVariant::Outline)
-                .on_press_tx(move |_: &mut Hooked, tx| {
-                    let _ = tx.open_url(&url);
-                })
-                .build(k)
-                .key(format!("lens-{lens}-open")),
-        )
 }

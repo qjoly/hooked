@@ -2,6 +2,7 @@ mod api;
 mod app;
 mod fmt;
 mod icons;
+mod lenses;
 mod tray;
 mod view;
 
@@ -40,6 +41,9 @@ fn on_key(s: &mut Hooked, ev: &KeyEvent, tx: &mut Tx) -> bool {
     }
     if ev.is_command('q') {
         tx.quit();
+        return true;
+    }
+    if s.page == Page::Session && s.lens == Lens::Review && s.lens_data.diff.key(ev, tx) {
         return true;
     }
     if ev.key == Key::Escape {
@@ -95,6 +99,7 @@ fn poll(s: &mut Hooked, _clock: f64, tx: &mut Tx) -> bool {
         s.flash = None;
         changed = true;
     }
+    changed |= s.ensure_lens();
     tray::sync(s);
     tx.wake_after(Duration::from_millis(if working { 1000 } else { 5000 }));
     changed

@@ -334,6 +334,7 @@ pub struct Todo {
 pub struct Change {
     pub file: String,
     pub name: Option<String>,
+    pub badge: Option<String>,
     pub ops: Vec<Value>,
 }
 
@@ -586,6 +587,101 @@ pub fn delete(id: &str) -> Result<(), String> {
 
 pub fn open_editor(id: &str) -> Result<(), String> {
     post("/api/open-editor", json!({ "id": id })).map(|_| ())
+}
+
+pub fn vcs_changes(id: &str) -> Result<Vec<Change>, String> {
+    let v = get(&format!("/api/session/vcs-diff?id={}", enc(id)))?;
+    decode(
+        v.get("changes")
+            .cloned()
+            .unwrap_or(Value::Array(Vec::new())),
+    )
+}
+
+#[derive(Clone, Debug, Default, Deserialize, PartialEq)]
+#[serde(default, rename_all = "camelCase")]
+pub struct McpServer {
+    pub name: String,
+    pub target: Option<String>,
+    pub transport: Option<String>,
+    pub state: String,
+    pub status: Option<String>,
+    pub scope_label: Option<String>,
+    pub authable: bool,
+}
+
+pub fn mcp_list(cwd: &str, cached: bool) -> Result<Vec<McpServer>, String> {
+    let v = get(&format!(
+        "/api/mcp?cwd={}{}",
+        enc(cwd),
+        if cached { "&cached=1" } else { "" }
+    ))?;
+    decode(
+        v.get("servers")
+            .cloned()
+            .unwrap_or(Value::Array(Vec::new())),
+    )
+}
+
+#[derive(Clone, Debug, Default, Deserialize, PartialEq)]
+#[serde(default, rename_all = "camelCase")]
+pub struct McpLogin {
+    pub id: Option<String>,
+    pub name: String,
+    pub url: Option<String>,
+    pub done: bool,
+    pub exit_code: Option<i64>,
+    pub needs_paste: bool,
+    pub out_of_band: bool,
+    pub output: String,
+}
+
+pub fn mcp_action(body: Value) -> Result<Value, String> {
+    post("/api/mcp", body)
+}
+
+pub fn mcp_login(body: Value) -> Result<McpLogin, String> {
+    let v = mcp_action(body)?;
+    decode(v.get("login").cloned().unwrap_or(Value::Null))
+}
+
+#[derive(Clone, Debug, Default, Deserialize, PartialEq)]
+#[serde(default, rename_all = "camelCase")]
+pub struct TraceSpan {
+    pub id: String,
+    pub name: String,
+    pub detail: Option<String>,
+    pub start: f64,
+    pub end: Option<f64>,
+    pub error: bool,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, PartialEq)]
+#[serde(default, rename_all = "camelCase")]
+pub struct TraceTurn {
+    pub prompt: Option<String>,
+    pub start: f64,
+    pub end: Option<f64>,
+    pub spans: Vec<TraceSpan>,
+}
+
+pub fn trace(id: &str) -> Result<Vec<TraceTurn>, String> {
+    let v = get(&format!("/api/session/trace?id={}", enc(id)))?;
+    decode(v.get("turns").cloned().unwrap_or(Value::Array(Vec::new())))
+}
+
+pub fn trace_tool(id: &str, tool: &str) -> Result<(String, String), String> {
+    let v = get(&format!(
+        "/api/session/trace?id={}&tool={}",
+        enc(id),
+        enc(tool)
+    ))?;
+    let text = |k: &str| match &v[k] {
+        Value::String(s) => s.clone(),
+        Value::Null => String::new(),
+        other => serde_json::to_string_pretty(other).unwrap_or_default(),
+    };
+    Ok((text("input"), text("result")))
 }
 
 #[cfg(test)]
