@@ -195,6 +195,28 @@ fn head(s: &Hooked, d: &Detail, k: &Kit, layer: &mut Vec<El>) -> El {
         .key("archive-btn"),
     );
     line = line.child(
+        IconButton::new(&icons::SPLIT)
+            .variant(if s.split.is_some() {
+                IconButtonVariant::Neutral
+            } else {
+                IconButtonVariant::GhostMuted
+            })
+            .label("Split view")
+            .help(if s.split.is_some() {
+                "Close the split (⌘⇧S)"
+            } else {
+                "Split with the most recent session (⌘⇧S)"
+            })
+            .expanded(s.split.is_some())
+            .on_press(|s: &mut Hooked| {
+                if s.split.take().is_none() {
+                    s.split_with_recent();
+                }
+            })
+            .build(k)
+            .key("split-btn"),
+    );
+    line = line.child(
         IconButton::new(if s.dock_open {
             &icons::PANEL_RIGHT
         } else {
@@ -467,7 +489,7 @@ fn lenses(s: &Hooked, d: &Detail, k: &Kit) -> El {
         ))
 }
 
-fn hash_of(v: impl Hash) -> u64 {
+pub(super) fn hash_of(v: impl Hash) -> u64 {
     let mut h = std::collections::hash_map::DefaultHasher::new();
     v.hash(&mut h);
     h.finish()
@@ -657,7 +679,7 @@ fn who(k: &Kit, user: bool, extra: &str) -> El {
     r
 }
 
-fn bubble(s: &Hooked, m: &Message, k: &Kit, i: usize) -> El {
+pub(super) fn bubble(s: &Hooked, m: &Message, k: &Kit, i: usize) -> El {
     let user = m.role == "user";
     if m.role == "system" {
         return row()

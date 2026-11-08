@@ -5,6 +5,7 @@ mod new_session;
 mod pages;
 mod palette;
 mod session;
+mod split;
 
 use std::collections::BTreeMap;
 
@@ -84,10 +85,12 @@ pub fn view(s: &Hooked, cx: &mut Cx<Hooked>) -> El {
             .fill(k.c.bg_base)
             .child(main),
     );
-    if s.page == Page::Session
-        && let Some(d) = s.detail.as_ref()
-    {
-        body = body.child(dock::view(s, d, &k));
+    if s.page == Page::Session {
+        if let Some(p) = s.split.as_ref() {
+            body = body.child(split::view(s, p, &k));
+        } else if let Some(d) = s.detail.as_ref() {
+            body = body.child(dock::view(s, d, &k));
+        }
     }
     let base = col()
         .key("window")

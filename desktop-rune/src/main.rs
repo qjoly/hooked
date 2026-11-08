@@ -26,6 +26,12 @@ fn on_key(s: &mut Hooked, ev: &KeyEvent, tx: &mut Tx) -> bool {
         s.go(Page::Settings);
         return true;
     }
+    if ev.is_command('s') && ev.mods.shift {
+        if s.split.take().is_none() && s.page == Page::Session {
+            s.split_with_recent();
+        }
+        return true;
+    }
     if ev.is_command('n') {
         s.go_new(None);
         return true;
