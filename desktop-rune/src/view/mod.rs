@@ -2,6 +2,7 @@ mod deck;
 mod dock;
 mod lenses;
 mod new_session;
+mod pages;
 mod palette;
 mod session;
 
@@ -61,6 +62,11 @@ pub fn view(s: &Hooked, cx: &mut Cx<Hooked>) -> El {
         Page::Deck => deck::view(s, &k),
         Page::Session => session::view(s, &k, &mut layer),
         Page::New => new_session::view(s, &k, &mut layer),
+        Page::Stats => pages::stats(s, &k),
+        Page::Digest => pages::digest(s, &k),
+        Page::Memory => pages::memory(s, &k),
+        Page::Cron => pages::cron(s, &k),
+        Page::Settings => pages::settings(s, &k, &mut layer),
     };
     let mut body = row().key("body").w_full().grow(1.0).min_h(0.0);
     body = if s.sidebar_open {
@@ -284,6 +290,19 @@ fn topbar(s: &Hooked, k: &Kit, inset: f32, _layer: &mut Vec<El>) -> El {
                 .on_press(|s: &mut Hooked| s.cycle_theme())
                 .build(k)
                 .key("tb-theme"),
+        )
+        .child(
+            IconButton::new(&icons::GEAR)
+                .variant(if s.page == Page::Settings {
+                    IconButtonVariant::Neutral
+                } else {
+                    IconButtonVariant::GhostMuted
+                })
+                .label("Settings")
+                .help("Settings (⌘,)")
+                .on_press(|s: &mut Hooked| s.go(Page::Settings))
+                .build(k)
+                .key("tb-settings"),
         );
     let new = Button::new("Session")
         .icon(&icons::PLUS)
@@ -332,7 +351,41 @@ fn topbar(s: &Hooked, k: &Kit, inset: f32, _layer: &mut Vec<El>) -> El {
                 .gap(2.0)
                 .center_y()
                 .child(deck)
-                .child(sessions),
+                .child(sessions)
+                .child(
+                    space(
+                        "tb-stats",
+                        "Stats",
+                        &icons::CHART,
+                        s.page == Page::Stats,
+                        None,
+                    )
+                    .on_press(|s: &mut Hooked| s.go(Page::Stats)),
+                )
+                .child(
+                    space(
+                        "tb-digest",
+                        "Digest",
+                        &icons::BOOK,
+                        s.page == Page::Digest,
+                        None,
+                    )
+                    .on_press(|s: &mut Hooked| s.go(Page::Digest)),
+                )
+                .child(
+                    space(
+                        "tb-memory",
+                        "Memory",
+                        &icons::BRAIN,
+                        s.page == Page::Memory,
+                        None,
+                    )
+                    .on_press(|s: &mut Hooked| s.go(Page::Memory)),
+                )
+                .child(
+                    space("tb-cron", "Cron", &icons::TIMER, s.page == Page::Cron, None)
+                        .on_press(|s: &mut Hooked| s.go(Page::Cron)),
+                ),
         )
         .child(
             row()

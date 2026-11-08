@@ -29,6 +29,11 @@ pub enum Page {
     Deck,
     Session,
     New,
+    Stats,
+    Digest,
+    Memory,
+    Cron,
+    Settings,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
@@ -117,6 +122,7 @@ pub struct Hooked {
     pub palette_index: usize,
 
     pub lens_data: crate::lenses::LensData,
+    pub pages: crate::pages::PageData,
     pub announced: HashSet<String>,
     pub tray_dirty: bool,
 }
@@ -180,6 +186,7 @@ impl Hooked {
             palette_query: TextEdit::new(""),
             palette_index: 0,
             lens_data: crate::lenses::LensData::default(),
+            pages: crate::pages::PageData::default(),
             announced: HashSet::new(),
             tray_dirty: true,
         };
@@ -235,6 +242,17 @@ impl Hooked {
         }
         if args.iter().any(|a| a == "--new") {
             s.page = Page::New;
+        }
+        if let Some(i) = args.iter().position(|a| a == "--page") {
+            s.page = match args.get(i + 1).map(String::as_str) {
+                Some("stats") => Page::Stats,
+                Some("digest") => Page::Digest,
+                Some("memory") => Page::Memory,
+                Some("cron") => Page::Cron,
+                Some("settings") => Page::Settings,
+                _ => s.page,
+            };
+            s.preload_page();
         }
         s
     }

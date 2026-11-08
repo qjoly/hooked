@@ -3,6 +3,7 @@ mod app;
 mod fmt;
 mod icons;
 mod lenses;
+mod pages;
 mod tray;
 mod view;
 
@@ -18,6 +19,10 @@ fn on_key(s: &mut Hooked, ev: &KeyEvent, tx: &mut Tx) -> bool {
         s.palette_query = rune::TextEdit::new("");
         s.palette_query.focused = true;
         s.palette_index = 0;
+        return true;
+    }
+    if ev.is_command(',') {
+        s.go(Page::Settings);
         return true;
     }
     if ev.is_command('n') {
@@ -100,6 +105,7 @@ fn poll(s: &mut Hooked, _clock: f64, tx: &mut Tx) -> bool {
         changed = true;
     }
     changed |= s.ensure_lens();
+    changed |= s.ensure_page();
     tray::sync(s);
     tx.wake_after(Duration::from_millis(if working { 1000 } else { 5000 }));
     changed

@@ -7,6 +7,7 @@ use crate::{fmt, icons};
 
 pub enum Hit {
     Session(String),
+    Go(Page),
     New,
     Deck,
     Theme,
@@ -25,6 +26,17 @@ pub fn hits(s: &Hooked) -> Vec<(Hit, String, String)> {
     for (h, label, keys) in commands {
         if q.is_empty() || label.to_lowercase().contains(&q) {
             out.push((h, label.to_string(), keys.to_string()));
+        }
+    }
+    for (p, label, keys) in [
+        (Page::Stats, "Go to Stats", ""),
+        (Page::Digest, "Go to the daily digest", ""),
+        (Page::Memory, "Go to Memory", ""),
+        (Page::Cron, "Go to scheduled tasks", ""),
+        (Page::Settings, "Open Settings", "⌘,"),
+    ] {
+        if !q.is_empty() && label.to_lowercase().contains(&q) {
+            out.push((Hit::Go(p), label.to_string(), keys.to_string()));
         }
     }
     for x in &s.sessions {
@@ -62,6 +74,7 @@ pub fn run(s: &mut Hooked, index: usize) {
     s.palette_open = false;
     match h {
         Hit::Session(id) => s.open_session(&id),
+        Hit::Go(p) => s.go(p),
         Hit::New => s.go_new(None),
         Hit::Deck => s.page = Page::Deck,
         Hit::Theme => s.cycle_theme(),
@@ -79,6 +92,7 @@ pub fn view(s: &Hooked, k: &Kit) -> El {
         .map(|(i, (h, label, detail))| {
             let lead = match h {
                 Hit::Session(id) => dot(k, s.session(id).map_or("idle", |x| x.state.as_str()), 7.0),
+                Hit::Go(_) => glyph(&icons::ARROW_RIGHT, 13.0, k.c.icon_muted),
                 Hit::New => glyph(&icons::PLUS, 13.0, k.c.icon_muted),
                 Hit::Deck => glyph(&icons::DECK, 13.0, k.c.icon_muted),
                 Hit::Theme => glyph(&icons::SUN, 13.0, k.c.icon_muted),
