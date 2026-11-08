@@ -67,6 +67,10 @@ pub struct PageData {
     pub cron_loaded: bool,
     pub cron_form: Option<CronForm>,
 
+    pub skills: Option<Vec<Value>>,
+    pub skill_open: Option<String>,
+    pub skill: Option<Value>,
+
     pub github: Option<Value>,
     pub github_loading: bool,
     pub github_tab: usize,
@@ -103,6 +107,21 @@ impl Hooked {
             }
             Page::Memory => pd.memory = api::get("/api/memory").ok(),
             Page::GitHub => pd.github = api::get("/api/github").ok(),
+            Page::Skills => {
+                pd.skills = api::get("/api/skills")
+                    .ok()
+                    .and_then(|v| v.as_array().cloned());
+                if let Some(id) = pd
+                    .skills
+                    .as_ref()
+                    .and_then(|l| l.first())
+                    .and_then(|x| x["id"].as_str())
+                    .map(str::to_string)
+                {
+                    pd.skill = api::get(&format!("/api/skills?id={}", urlenc(&id))).ok();
+                    pd.skill_open = Some(id);
+                }
+            }
             Page::Cron => {
                 pd.cron = api::get("/api/cron")
                     .ok()
@@ -175,7 +194,10 @@ impl Hooked {
                         s.pages.memory_loading = false;
                         match r {
                             Ok(v) => s.pages.memory = Some(v),
-                            Err(e) => s.flash(format!("✗ Memory: {e}"), true),
+                            Err(e) => {
+                                s.pages.memory = Some(Value::Null);
+                                s.flash(format!("✗ Memory: {e}"), true)
+                            }
                         }
                     },
                 );
@@ -186,6 +208,22 @@ impl Hooked {
                 self.load_cron();
                 true
             }
+            Page::Skills if pd.skills.is_none() => {
+                pd.skills = Some(Vec::new());
+                let cwds: Vec<String> = self.projects();
+                spawn(
+                    move || {
+                        let q: Vec<String> =
+                            cwds.iter().map(|c| format!("cwd={}", urlenc(c))).collect();
+                        api::get(&format!("/api/skills?{}", q.join("&")))
+                    },
+                    |s, r, _| match r {
+                        Ok(v) => s.pages.skills = Some(v.as_array().cloned().unwrap_or_default()),
+                        Err(e) => s.flash(format!("✗ Skills: {e}"), true),
+                    },
+                );
+                true
+            }
             Page::GitHub if pd.github.is_none() && !pd.github_loading => {
                 pd.github_loading = true;
                 spawn(
@@ -194,7 +232,10 @@ impl Hooked {
                         s.pages.github_loading = false;
                         match r {
                             Ok(v) => s.pages.github = Some(v),
-                            Err(e) => s.flash(format!("✗ GitHub: {e}"), true),
+                            Err(e) => {
+                                s.pages.github = Some(Value::Null);
+                                s.flash(format!("✗ GitHub: {e}"), true)
+                            }
                         }
                     },
                 );
@@ -213,7 +254,10 @@ impl Hooked {
                                 ));
                                 s.pages.settings = Some(v);
                             }
-                            Err(e) => s.flash(format!("✗ Settings: {e}"), true),
+                            Err(e) => {
+                                s.pages.settings = Some(json!({}));
+                                s.flash(format!("✗ Settings: {e}"), true)
+                            }
                         }
                     },
                 );
@@ -233,9 +277,22 @@ impl Hooked {
             Page::Memory => self.pages.memory = None,
             Page::Cron => self.pages.cron_loaded = false,
             Page::GitHub => self.pages.github = None,
+            Page::Skills => self.pages.skills = None,
             Page::Settings => self.pages.settings = None,
             _ => {}
         }
+    }
+
+    pub fn open_skill(&mut self, id: String) {
+        self.pages.skill_open = Some(id.clone());
+        self.pages.skill = None;
+        spawn(
+            move || api::get(&format!("/api/skills?id={}", urlenc(&id))),
+            |s, r, _| match r {
+                Ok(v) => s.pages.skill = Some(v),
+                Err(e) => s.flash(format!("✗ Skill: {e}"), true),
+            },
+        );
     }
 
     pub fn open_digest(&mut self, date: String) {
@@ -387,4 +444,15 @@ impl Hooked {
         obj[field] = value;
         self.save_setting(key, obj);
     }
+}
+
+fn urlenc(s: &str) -> String {
+    s.bytes()
+        .map(|b| match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'/' => {
+                (b as char).to_string()
+            }
+            _ => format!("%{b:02X}"),
+        })
+        .collect()
 }

@@ -254,3 +254,8 @@ lucide!(
     "fork",
     r#"<circle cx="6" cy="6" r="3"/><circle cx="18" cy="6" r="3"/><circle cx="12" cy="18" r="3"/><path d="M6 9v1a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V9M12 12v3"/>"#
 );
+lucide!(
+    SPARKLE,
+    "sparkle",
+    r#"<path d="M12 3l1.9 5.8L20 10.7l-6.1 1.9L12 18.5l-1.9-5.9L4 10.7l6.1-1.9Z"/>"#
+);

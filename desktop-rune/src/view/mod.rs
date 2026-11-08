@@ -70,6 +70,7 @@ pub fn view(s: &Hooked, cx: &mut Cx<Hooked>) -> El {
         Page::Memory => pages::memory(s, &k),
         Page::Cron => pages::cron(s, &k),
         Page::GitHub => pages::github(s, &k),
+        Page::Skills => pages::skills(s, &k),
         Page::Settings => pages::settings(s, &k, &mut layer),
     };
     let mut body = row().key("body").w_full().grow(1.0).min_h(0.0);
@@ -431,6 +432,16 @@ fn topbar(s: &Hooked, k: &Kit, inset: f32, _layer: &mut Vec<El>) -> El {
                         None,
                     )
                     .on_press(|s: &mut Hooked| s.go(Page::GitHub)),
+                )
+                .child(
+                    space(
+                        "tb-skills",
+                        "Skills",
+                        &icons::SPARKLE,
+                        s.page == Page::Skills,
+                        None,
+                    )
+                    .on_press(|s: &mut Hooked| s.go(Page::Skills)),
                 ),
         )
         .child(

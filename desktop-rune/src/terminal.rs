@@ -27,6 +27,7 @@ impl Drop for Term {
 
 #[derive(Default)]
 pub struct TermPanel {
+    pub size: Option<(u16, u16)>,
     pub open: bool,
     pub terms: Vec<Term>,
     pub active: usize,
@@ -77,14 +78,14 @@ fn urlencode(s: &str) -> String {
         .collect()
 }
 
-fn attach(id: String, exited: bool) -> Term {
+fn attach(id: String, exited: bool, (cols, rows): (u16, u16)) -> Term {
     let alive = Arc::new(AtomicBool::new(true));
     if !exited {
         follow(id.clone(), alive.clone());
     }
     Term {
         id,
-        parser: vt100::Parser::new(ROWS, COLS, 2000),
+        parser: vt100::Parser::new(rows, cols, 2000),
         exited,
         alive,
     }
@@ -163,6 +164,7 @@ impl Hooked {
         spawn(
             move || api::get(&format!("/api/terminal?sessionId={}", urlencode(&sid))),
             |s, r, _| {
+                let size = s.term.size.unwrap_or((COLS, ROWS));
                 let list: Vec<Value> = r
                     .ok()
                     .and_then(|v| v["terminals"].as_array().cloned())
@@ -171,9 +173,9 @@ impl Hooked {
                     .iter()
                     .filter(|t| t["inline"].as_bool() != Some(true))
                     .filter_map(|t| {
-                        t["id"]
-                            .as_str()
-                            .map(|id| attach(id.to_string(), t["exited"].as_bool() == Some(true)))
+                        t["id"].as_str().map(|id| {
+                            attach(id.to_string(), t["exited"].as_bool() == Some(true), size)
+                        })
                     })
                     .collect();
                 if s.term.terms.is_empty() {
@@ -194,18 +196,19 @@ impl Hooked {
             return;
         }
         self.term.busy = true;
+        let size = self.term.size.unwrap_or((COLS, ROWS));
         spawn(
             move || {
                 api::post(
                     "/api/terminal",
-                    json!({ "cwd": cwd, "sessionId": id, "cols": COLS, "rows": ROWS }),
+                    json!({ "cwd": cwd, "sessionId": id, "cols": size.0, "rows": size.1 }),
                 )
             },
-            |s, r, _| {
+            move |s, r, _| {
                 s.term.busy = false;
                 match r.map(|v| v["id"].as_str().map(str::to_string)) {
                     Ok(Some(id)) => {
-                        s.term.terms.push(attach(id, false));
+                        s.term.terms.push(attach(id, false, size));
                         s.term.active = s.term.terms.len() - 1;
                         s.term.open = true;
                     }
@@ -242,6 +245,32 @@ impl Hooked {
             move || api::post("/api/terminal/kill", json!({ "id": id })),
             |_, _, _| {},
         );
+    }
+
+    /// Fits the shells to the panel: the vt100 grid at once, the PTY over the API.
+    pub fn fit_terms(&mut self, w: f32, h: f32, cell: (f32, f32)) {
+        let cols = ((w - 16.0) / cell.0).floor().clamp(20.0, 400.0) as u16;
+        let rows = ((h - 16.0) / cell.1).floor().clamp(5.0, 200.0) as u16;
+        if self.term.size == Some((cols, rows)) {
+            return;
+        }
+        self.term.size = Some((cols, rows));
+        for t in self.term.terms.iter_mut() {
+            t.parser.set_size(rows, cols);
+            if t.exited {
+                continue;
+            }
+            let id = t.id.clone();
+            spawn(
+                move || {
+                    api::post(
+                        "/api/terminal/resize",
+                        json!({ "id": id, "cols": cols, "rows": rows }),
+                    )
+                },
+                |_, _, _| {},
+            );
+        }
     }
 
     pub fn term_input(&mut self, bytes: Vec<u8>) {

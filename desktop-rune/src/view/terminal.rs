@@ -4,7 +4,7 @@ use rune_kit::{IconButton, IconButtonVariant, Kit};
 use super::glyph;
 use crate::app::Hooked;
 use crate::icons;
-use crate::terminal::{COLS, Term, encode};
+use crate::terminal::{Term, encode};
 
 const ANSI: [(u8, u8, u8); 16] = [
     (0x1e, 0x1e, 0x1e),
@@ -249,7 +249,6 @@ pub fn panel(s: &Hooked, k: &Kit) -> El {
         .padding(8.0)
         .fill(rgb(0x14, 0x14, 0x16))
         .cursor(Cursor::Text)
-        .scroll_x()
         .on_key(|s: &mut Hooked, ev: &rune::KeyEvent, _| {
             if ev.mods.cmd {
                 return false;
@@ -262,11 +261,15 @@ pub fn panel(s: &Hooked, k: &Kit) -> El {
                 None => false,
             }
         })
+        .on_layout({
+            let cell = rune::text::measure("M", &[], k.ty.mono, None);
+            move |s: &mut Hooked, r: [f32; 4]| s.fit_terms(r[2], r[3], (cell.0.max(1.0), 18.0))
+        })
         .on_paste_content(|s: &mut Hooked, c: &rune::ClipboardContent, _| {
             if !c.text().is_empty() {
                 s.term_input(c.text().as_bytes().to_vec());
             }
         })
-        .child(body.min_w(COLS as f32 * 7.6));
+        .child(body);
     col().key("term-panel").w_full().child(bar).child(term)
 }

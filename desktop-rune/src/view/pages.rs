@@ -1219,3 +1219,141 @@ pub fn github(s: &Hooked, k: &Kit) -> El {
     }
     page(k, "github", "GitHub", refresh, scroll("gh-scroll", list))
 }
+
+pub fn skills(s: &Hooked, k: &Kit) -> El {
+    let pd = &s.pages;
+    let Some(list) = pd.skills.as_ref().filter(|l| !l.is_empty()) else {
+        return page(k, "skills", "Skills", el(), loading(k));
+    };
+    let mut groups: Vec<(String, Vec<&Value>)> = Vec::new();
+    for x in list {
+        let src = x["source"].as_str().unwrap_or("other").to_string();
+        match groups.iter_mut().find(|g| g.0 == src) {
+            Some(g) => g.1.push(x),
+            None => groups.push((src, vec![x])),
+        }
+    }
+    let mut left = col().key("skills-list").w_full().padding(10.0).gap(2.0);
+    for (src, items) in groups {
+        left = left.child(
+            row()
+                .pt(8.0)
+                .pb(4.0)
+                .px(6.0)
+                .child(section_title(k, &src.to_uppercase())),
+        );
+        for x in items {
+            let id = x["id"].as_str().unwrap_or("").to_string();
+            let on = pd.skill_open.as_deref() == Some(id.as_str());
+            let open = id.clone();
+            left = left.child(
+                k.interactive(
+                    col()
+                        .key(format!("sk-{id}"))
+                        .role("option")
+                        .checked(on)
+                        .w_full()
+                        .px(10.0)
+                        .py(6.0)
+                        .gap(2.0)
+                        .radius(k.radius.md)
+                        .cursor(Cursor::Pointer)
+                        .fill(if on { k.c.layer_02 } else { Color::TRANSPARENT })
+                        .child(
+                            text(x["name"].as_str().unwrap_or("").to_string())
+                                .font(k.ty.ui_medium)
+                                .color(k.c.text_base)
+                                .truncate(),
+                        )
+                        .child(
+                            text(fmt::first_line(x["description"].as_str().unwrap_or(""), 90))
+                                .font(k.ty.text_xsmall)
+                                .color(k.c.text_faint)
+                                .truncate(),
+                        ),
+                )
+                .on_press(move |s: &mut Hooked| s.open_skill(open.clone())),
+            );
+        }
+    }
+    let detail = match pd.skill.as_ref() {
+        None => loading(k),
+        Some(x) => {
+            let mut c = col()
+                .key("skill-detail")
+                .w_full()
+                .max_w(900.0)
+                .padding(24.0)
+                .gap(12.0)
+                .child(
+                    row()
+                        .gap(10.0)
+                        .center_y()
+                        .child(
+                            text(x["name"].as_str().unwrap_or("").to_string())
+                                .font(k.ty.body_medium)
+                                .color(k.c.text_base),
+                        )
+                        .child(pill(
+                            k,
+                            x["source"].as_str().unwrap_or("").to_string(),
+                            k.c.text_muted,
+                            k.c.layer_02,
+                        )),
+                )
+                .child(
+                    text(x["file"].as_str().unwrap_or("").to_string())
+                        .font(k.ty.text_xsmall)
+                        .color(k.c.text_faint)
+                        .selectable(true),
+                )
+                .child(
+                    text(x["description"].as_str().unwrap_or("").to_string())
+                        .font(k.ty.ui)
+                        .color(k.c.text_muted)
+                        .wrap(),
+                );
+            let meta: Vec<String> = x["meta"]
+                .as_object()
+                .map(|m| {
+                    m.iter()
+                        .filter(|(key, _)| *key != "name" && *key != "description")
+                        .map(|(key, v)| {
+                            format!(
+                                "{key}: {}",
+                                v.as_str()
+                                    .map(str::to_string)
+                                    .unwrap_or_else(|| v.to_string())
+                            )
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+            if !meta.is_empty() {
+                c = c.child(
+                    text(meta.join("  ·  "))
+                        .font(k.ty.text_xsmall)
+                        .color(k.c.text_faint)
+                        .wrap(),
+                );
+            }
+            c = c.child(
+                Markdown::new(x["body"].as_str().unwrap_or("").to_string())
+                    .selectable(true)
+                    .build(k),
+            );
+            scroll("skill-scroll", c)
+        }
+    };
+    let body = row()
+        .key("skills")
+        .w_full()
+        .h_full()
+        .child(
+            scroll("skills-scroll", left)
+                .w(300.0)
+                .border_sides([0.0, 1.0, 0.0, 0.0], k.c.border_weak),
+        )
+        .child(col().grow(1.0).shrink().h_full().child(detail));
+    page(k, "skills", &format!("Skills · {}", list.len()), el(), body)
+}

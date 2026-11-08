@@ -34,6 +34,7 @@ pub fn hits(s: &Hooked) -> Vec<(Hit, String, String)> {
         (Page::Memory, "Go to Memory", ""),
         (Page::Cron, "Go to scheduled tasks", ""),
         (Page::GitHub, "Go to GitHub", ""),
+        (Page::Skills, "Go to Skills", ""),
         (Page::Settings, "Open Settings", "⌘,"),
     ] {
         if !q.is_empty() && label.to_lowercase().contains(&q) {

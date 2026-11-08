@@ -29,24 +29,27 @@ The layout follows the web dashboard; the look is Rune's neutral kit theme.
     working indicator, question / permission / plan cards, composer (Enter sends, Shift+Enter
     new line, Esc interrupts, paste or drop images) with the follow-up suggestion.
   - **Review (3)**: Claude's edits or the working tree as a diff, unified or split, j/k between
-    hunks and [ / ] between files.
+    hunks and [ / ] between files; + on a line opens a comment thread, and the pending ones go to
+    Claude in one message. Threads are shared with the web lens.
   - **MCP (4)**: the project's servers with their health, details, re-authenticate, log out.
   - **Trace (5)**: each turn's tool calls as a timed waterfall, input and output on click.
-  - **Terminal (2)**: the session's shells over hooked's PTYs, one tab each.
+  - **Terminal (2)**: the session's shells over hooked's PTYs, one tab each, sized to the panel.
   - **Split (⌘⇧S)**: the most recent other session beside the current one, with its own reply box.
 - **Context panel**: tasks, changes, agents, sub-sessions.
 - **Pages**: Deck (awaiting you / working / recent), New session, Stats, Digest (generate and
-  regenerate), Memory, Cron (create, edit, pause, run, delete), GitHub, Settings (theme,
+  regenerate), Memory, Cron (create, edit, pause, run, delete), GitHub, Skills, Settings (theme,
   notifications, new-session defaults, digest, auto-compact, tags, git sync).
+- **Organizing**: tags on rows and in the header, a tag filter in the sidebar, groups under their
+  lead session (move, leave, rename, archive together), incognito mode for screen sharing, and
+  Fork on any of your messages.
 - **Outside the window**: a menu bar item with the waiting count and sessions; closing the window
   keeps the app running; ⌘⇧H (`HOOKED_QUICK_SHORTCUT` overrides it) opens a quick-reply panel on
   the sessions waiting on you; system notifications when one starts waiting (bundled app only).
 
 ## Not done yet
 
-- Dictation, review comment threads, the Skills page, tags editing, session groups and
-  drag-and-drop between them, incognito mode, fork.
-- Terminals open at 120×28 and don't follow the panel's size.
+- Dictation (not planned).
+- Dragging a session onto another to group it: the ⋯ menu's "Move to group…" does it instead.
 - Settings has the main switches; the rest links to the web dashboard.
 
 ## Checking it headless
