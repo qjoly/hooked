@@ -106,6 +106,9 @@ pub struct PageData {
     pub memory_query: TextEdit,
     pub cron_history: Option<String>,
     pub digest_pick: TextEdit,
+    pub warmup: Option<Value>,
+    pub branches_open: bool,
+    pub checkout_dirty: Option<String>,
     pub memory_type: Option<String>,
     pub skills_query: TextEdit,
 
@@ -191,6 +194,7 @@ impl Hooked {
             Page::Settings => {
                 pd.claude = api::get("/api/claude").ok();
                 pd.git = api::get("/api/git").ok();
+                pd.warmup = api::get("/api/warmup").ok();
                 pd.rc = api::get("/api/remote-control").ok();
                 if let Ok(v) = api::get("/api/settings") {
                     self.apply_settings(v);
@@ -620,12 +624,61 @@ impl Hooked {
                     api::get("/api/claude").ok(),
                     api::get("/api/git").ok(),
                     api::get("/api/remote-control").ok(),
+                    api::get("/api/warmup").ok(),
                 )
             },
-            |s, (c, g, r), _| {
+            |s, (c, g, r, w), _| {
                 s.pages.claude = c;
                 s.pages.git = g;
                 s.pages.rc = r;
+                s.pages.warmup = w;
+            },
+        );
+    }
+
+    pub fn run_warmup(&mut self) {
+        self.pages.busy = Some("warmup");
+        spawn(
+            || api::post("/api/warmup", json!({})),
+            |s, r, _| {
+                s.pages.busy = None;
+                match r {
+                    Ok(_) => s.flash("✓ Warm-up ping sent", false),
+                    Err(e) => s.flash(format!("✗ Warm-up: {e}"), true),
+                }
+                s.load_settings_extras();
+            },
+        );
+    }
+
+    pub fn checkout(&mut self, branch: String, strategy: &'static str) {
+        self.pages.busy = Some("checkout");
+        spawn(
+            {
+                let branch = branch.clone();
+                move || {
+                    api::post(
+                        "/api/git",
+                        json!({ "action": "checkout", "branch": branch, "strategy": strategy }),
+                    )
+                }
+            },
+            move |s, r, _| {
+                s.pages.busy = None;
+                match r {
+                    Ok(v) => {
+                        s.pages.checkout_dirty = None;
+                        s.pages.branches_open = false;
+                        let stash = v["stashRef"]
+                            .as_str()
+                            .map(|x| format!(" (stashed: {x})"))
+                            .unwrap_or_default();
+                        s.flash(format!("✓ On {branch}{stash}"), false);
+                    }
+                    Err(e) if e.contains("uncommitted") => s.pages.checkout_dirty = Some(branch),
+                    Err(e) => s.flash(format!("✗ Checkout: {e}"), true),
+                }
+                s.load_settings_extras();
             },
         );
     }

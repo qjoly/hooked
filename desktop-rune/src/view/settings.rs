@@ -517,8 +517,40 @@ fn service_card(s: &Hooked, k: &Kit, v: &Value) -> El {
         .child(line(
             k,
             "5-hour window",
-            "Keep a usage window open across your working hours with a tiny early ping.",
-            toggle(k, "wu-on", wu_on, move |s| s.save_nested("warmup", "enabled", json!(!wu_on))),
+            &match s.pages.warmup.as_ref().filter(|w| w["decision"].is_object()) {
+                Some(w) => {
+                    let d = &w["decision"];
+                    let now = if d["act"] == true {
+                        "ping due".to_string()
+                    } else {
+                        d["reason"].as_str().unwrap_or("").to_string()
+                    };
+                    let window = w["fiveHour"]["at"]
+                        .as_str()
+                        .map(|at| {
+                            format!(
+                                " · window open until {at} ({}% used)",
+                                w["fiveHour"]["pct"].as_f64().unwrap_or(0.0)
+                            )
+                        })
+                        .unwrap_or_default();
+                    format!("Keep a usage window open across your working hours with a tiny early ping. Scheduler right now: {now}{window}.")
+                }
+                None => "Keep a usage window open across your working hours with a tiny early ping.".to_string(),
+            },
+            row()
+                .gap(8.0)
+                .center_y()
+                .child(
+                    Button::new("Run now")
+                        .variant(ButtonVariant::GhostMuted)
+                        .control_size(ControlSize::Small)
+                        .disabled(s.pages.busy.is_some())
+                        .help("Send the warm-up ping now")
+                        .on_press(|s: &mut Hooked| s.run_warmup())
+                        .build(k),
+                )
+                .child(toggle(k, "wu-on", wu_on, move |s| s.save_nested("warmup", "enabled", json!(!wu_on)))),
         ))
         .child(line(k, "Working hours", "Slots separated by commas. Enter to save.", hours))
         .child(line(
@@ -817,9 +849,15 @@ fn maintenance_card(s: &Hooked, k: &Kit, v: &Value) -> El {
         .child(line(
             k,
             &format!("hooked on {branch}"),
-            &format!("{ahead} ahead, {behind} behind its upstream. Switching branch stays in the web dashboard."),
-            el(),
+            &format!("{ahead} ahead, {behind} behind its upstream."),
+            Button::new(if s.pages.branches_open { "Close" } else { "Switch branch…" })
+                .variant(ButtonVariant::Outline)
+                .control_size(ControlSize::Small)
+                .on_press(|s: &mut Hooked| s.pages.branches_open = !s.pages.branches_open)
+                .build(k)
+                .key("set-branches"),
         ))
+        .child(branches(s, k))
         .child(line(
             k,
             "Auto git sync",
@@ -868,4 +906,64 @@ pub fn view(s: &Hooked, k: &Kit) -> El {
         .child(remote_card(s, k, v))
         .child(maintenance_card(s, k, v));
     page(k, "settings", "Settings", more, scroll("set-scroll", body))
+}
+
+fn branches(s: &Hooked, k: &Kit) -> El {
+    if !s.pages.branches_open {
+        return el();
+    }
+    let git = s.pages.git.clone().unwrap_or_default();
+    let busy = s.pages.busy.is_some();
+    let mut c = col().w_full().gap(8.0).pb(8.0);
+    if let Some(b) = s.pages.checkout_dirty.clone() {
+        let (b1, b2) = (b.clone(), b.clone());
+        c = c.child(
+            row()
+                .gap(8.0)
+                .center_y()
+                .child(
+                    text("The working tree is dirty: choose how to proceed.")
+                        .font(k.ty.text_small)
+                        .color(k.c.warning.fg),
+                )
+                .child(
+                    Button::new("Stash & checkout")
+                        .variant(ButtonVariant::Outline)
+                        .control_size(ControlSize::Small)
+                        .disabled(busy)
+                        .on_press(move |s: &mut Hooked| s.checkout(b1.clone(), "stash"))
+                        .build(k),
+                )
+                .child(
+                    Button::new("Force (drop changes)")
+                        .variant(ButtonVariant::Danger)
+                        .control_size(ControlSize::Small)
+                        .disabled(busy)
+                        .on_press(move |s: &mut Hooked| s.checkout(b2.clone(), "force"))
+                        .build(k),
+                ),
+        );
+    }
+    let list: Vec<El> = git["branches"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|b| b["locked"] != true)
+        .take(40)
+        .map(|b| {
+            let name = b["name"].as_str().unwrap_or("").to_string();
+            let current = b["current"] == true;
+            let label = if b["remote"] == true && !current {
+                format!("{name} ↓")
+            } else {
+                name.clone()
+            };
+            chip(k, format!("br-{name}"), label, current, move |s| {
+                if !current {
+                    s.checkout(name.clone(), "block");
+                }
+            })
+        })
+        .collect();
+    c.child(chips(list))
 }
