@@ -130,6 +130,7 @@ pub struct Hooked {
     pub thumbs: HashMap<String, rune::Image>,
     pub media: HashMap<String, Option<rune::Image>>,
     pub drafts: HashMap<String, String>,
+    pub full_texts: HashMap<String, Option<String>>,
     pub tools_open: HashSet<String>,
     pub all_tools_open: bool,
     pub visible: usize,
@@ -244,6 +245,7 @@ impl Hooked {
             thumbs: HashMap::new(),
             media: HashMap::new(),
             drafts,
+            full_texts: HashMap::new(),
             tools_open: HashSet::new(),
             all_tools_open: false,
             visible: WINDOW,
@@ -433,6 +435,9 @@ impl Hooked {
                 s.palette_cites_for = q;
             }
         }
+        if args.iter().any(|a| a == "--expand-tools") {
+            s.all_tools_open = true;
+        }
         if args.iter().any(|a| a == "--trash") {
             let items = api::get("/api/trash")
                 .ok()
@@ -544,6 +549,34 @@ impl Hooked {
         if self.split.take().is_none() && self.page == Page::Session {
             self.split_with_recent();
         }
+    }
+
+    pub fn load_full_text(&mut self, session: String, uuid: String) {
+        if self.full_texts.contains_key(&uuid) {
+            return;
+        }
+        self.full_texts.insert(uuid.clone(), None);
+        spawn(
+            {
+                let uuid = uuid.clone();
+                move || {
+                    api::get(&format!(
+                        "/api/session/message?id={}&uuid={}",
+                        api::enc(&session),
+                        api::enc(&uuid)
+                    ))
+                }
+            },
+            move |s, r, _| match r.ok().and_then(|v| v["text"].as_str().map(str::to_string)) {
+                Some(t) => {
+                    s.full_texts.insert(uuid, Some(t));
+                }
+                None => {
+                    s.full_texts.remove(&uuid);
+                    s.flash("✗ Could not load the full message", true);
+                }
+            },
+        );
     }
 
     pub fn open_ghostty(&mut self) {

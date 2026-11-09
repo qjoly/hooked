@@ -587,32 +587,9 @@ fn converse(s: &Hooked, d: &Detail, k: &Kit) -> El {
         );
     }
     for (i, m) in d.messages.iter().enumerate().skip(start) {
-        let open_ids: Vec<String> = m
-            .render_parts()
-            .into_iter()
-            .filter_map(|p| if let Part::Tool(t) = p { t.id } else { None })
-            .filter(|id| s.tools_open.contains(id))
-            .collect();
-        let pictures: Vec<bool> = message_media(m)
-            .iter()
-            .map(|p| {
-                s.media
-                    .get(p)
-                    .and_then(Option::as_ref)
-                    .is_some_and(rune::Image::is_ready)
-            })
-            .collect();
-        let version = hash_of((
-            &m.text,
-            pictures,
-            m.tools.len(),
-            m.ts.as_deref(),
-            k.dark,
-            s.all_tools_open,
-            open_ids,
-        ));
+        let version = bubble_version(s, m, k);
         chat = chat.child(memo(format!("msg-{}-{i}", d.session.id), version, || {
-            bubble(s, m, k, i)
+            bubble(s, &d.session.id, m, k, i)
         }));
     }
     for (i, q) in s.queued.iter().enumerate() {
@@ -751,7 +728,40 @@ fn who(k: &Kit, user: bool, extra: &str) -> El {
     r
 }
 
-pub(super) fn bubble(s: &Hooked, m: &Message, k: &Kit, i: usize) -> El {
+pub(super) fn bubble_version(s: &Hooked, m: &Message, k: &Kit) -> u64 {
+    let open_ids: Vec<String> = m
+        .render_parts()
+        .into_iter()
+        .filter_map(|p| if let Part::Tool(t) = p { t.id } else { None })
+        .filter(|id| s.tools_open.contains(id))
+        .collect();
+    let pictures: Vec<bool> = message_media(m)
+        .iter()
+        .map(|p| {
+            s.media
+                .get(p)
+                .and_then(Option::as_ref)
+                .is_some_and(rune::Image::is_ready)
+        })
+        .collect();
+    let full = m
+        .fork_uuid
+        .as_ref()
+        .and_then(|u| s.full_texts.get(u))
+        .map(Option::is_some);
+    hash_of((
+        &m.text,
+        full,
+        pictures,
+        m.tools.len(),
+        m.ts.as_deref(),
+        k.dark,
+        s.all_tools_open,
+        open_ids,
+    ))
+}
+
+pub(super) fn bubble(s: &Hooked, session: &str, m: &Message, k: &Kit, i: usize) -> El {
     let user = m.role == "user";
     if m.role == "system" {
         return row().w_full().justify_center().child(
@@ -780,7 +790,16 @@ pub(super) fn bubble(s: &Hooked, m: &Message, k: &Kit, i: usize) -> El {
         );
     }
     let mut b = col().w_full().gap(8.0).child(head);
+    let full = m
+        .fork_uuid
+        .as_ref()
+        .and_then(|u| s.full_texts.get(u))
+        .cloned();
     for (pi, p) in m.render_parts().into_iter().enumerate() {
+        let p = match (p, &full) {
+            (Part::Text(_), Some(Some(t))) if user => Part::Text(t.clone()),
+            (p, _) => p,
+        };
         b = b.child(match p {
             Part::Text(t) if user => {
                 let (images, rest) = crate::api::split_message_images(&t);
@@ -810,6 +829,25 @@ pub(super) fn bubble(s: &Hooked, m: &Message, k: &Kit, i: usize) -> El {
                 .key(format!("md-{i}-{pi}")),
             Part::Tool(t) => tool_chip(s, &t, k, format!("tool-{i}-{pi}")),
         });
+    }
+    if user
+        && m.truncated
+        && !matches!(full, Some(Some(_)))
+        && let Some(uuid) = m.fork_uuid.clone()
+    {
+        let session = session.to_string();
+        b = b.child(
+            Button::new(if full.is_some() {
+                "Loading…"
+            } else {
+                "Show the full message"
+            })
+            .icon(&icons::CHEVRON_DOWN)
+            .variant(ButtonVariant::GhostMuted)
+            .control_size(ControlSize::Small)
+            .on_press(move |s: &mut Hooked| s.load_full_text(session.clone(), uuid.clone()))
+            .build(k),
+        );
     }
     if user {
         b = b
@@ -1041,10 +1079,99 @@ fn show_work(s: &Hooked, k: &Kit, show: &serde_json::Value) -> El {
     c
 }
 
+const BIG_DIFF: usize = 12;
+
+fn diff_lines(diff: &serde_json::Value) -> usize {
+    let n = |v: &serde_json::Value| v.as_str().map_or(0, |s| s.lines().count().max(1));
+    diff["ops"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|o| n(&o["old"]).max(n(&o["new"])).max(n(&o["content"])))
+        .sum()
+}
+
+fn inline_diff(k: &Kit, diff: &serde_json::Value) -> El {
+    use rune_kit::diff::{FileDiff, LineKind};
+    let name = diff["name"].as_str().unwrap_or("").to_string();
+    let mut c = col().w_full().gap(6.0).px(10.0).pb(10.0);
+    for op in diff["ops"].as_array().into_iter().flatten() {
+        if op["all"].as_bool() == Some(true) {
+            c = c.child(
+                text("replace all occurrences")
+                    .font(k.ty.text_xsmall)
+                    .color(k.c.text_faint),
+            );
+        }
+        let old = if op["kind"] == "notebook" {
+            ""
+        } else {
+            op["old"].as_str().unwrap_or("")
+        };
+        let new = if op["kind"] == "write" {
+            op["content"].as_str().unwrap_or("")
+        } else {
+            op["new"].as_str().unwrap_or("")
+        };
+        let fd = FileDiff::from_texts_with_context(name.clone(), old, new, 3);
+        let mut block = col()
+            .w_full()
+            .radius(k.radius.sm)
+            .border(1.0, k.c.border_weak)
+            .clip_rounded(k.radius.sm);
+        let mut shown = 0;
+        for (hi, h) in fd.hunks.iter().enumerate() {
+            if hi > 0 {
+                block = block.child(el().w_full().h(1.0).fill(k.c.border_weak));
+            }
+            for l in &h.lines {
+                if shown >= 400 {
+                    break;
+                }
+                shown += 1;
+                let (sign, fill, ink) = match l.kind {
+                    LineKind::Added => ("+", k.c.success.bg, k.c.success.fg),
+                    LineKind::Removed => ("-", k.c.danger.bg, k.c.danger.fg),
+                    _ => (" ", Color::TRANSPARENT, k.c.text_faint),
+                };
+                block = block.child(
+                    row()
+                        .w_full()
+                        .px(6.0)
+                        .gap(6.0)
+                        .fill(fill)
+                        .child(text(sign).font(k.ty.mono).color(ink).w(10.0))
+                        .child(
+                            text(if l.text.is_empty() {
+                                " ".to_string()
+                            } else {
+                                l.text.clone()
+                            })
+                            .font(k.ty.mono)
+                            .color(if l.kind == LineKind::Context {
+                                k.c.text_muted
+                            } else {
+                                k.c.text_base
+                            })
+                            .wrap_anywhere()
+                            .grow(1.0)
+                            .min_w(0.0)
+                            .selectable(true),
+                        ),
+                );
+            }
+        }
+        c = c.child(block);
+    }
+    c
+}
+
 fn tool_chip(s: &Hooked, t: &Tool, k: &Kit, key: String) -> El {
     let id = t.id.clone().unwrap_or_else(|| key.clone());
     let open = s.all_tools_open || s.tools_open.contains(&id);
     let detail = t.detail.clone().unwrap_or_default();
+    let changed = t.diff.as_ref().map(diff_lines);
+    let big = changed.is_some_and(|n| n > BIG_DIFF);
     let head = k
         .interactive(
             row()
@@ -1072,6 +1199,15 @@ fn tool_chip(s: &Hooked, t: &Tool, k: &Kit, key: String) -> El {
                         .truncate()
                         .grow(1.0)
                         .min_w(0.0),
+                )
+                .child(
+                    text(if big {
+                        format!("{} lines", changed.unwrap_or(0))
+                    } else {
+                        String::new()
+                    })
+                    .font(k.ty.text_xsmall)
+                    .color(k.c.text_faint),
                 ),
         )
         .on_press(move |s: &mut Hooked| {
@@ -1086,7 +1222,11 @@ fn tool_chip(s: &Hooked, t: &Tool, k: &Kit, key: String) -> El {
         .border(1.0, k.c.border_weak)
         .fill(k.c.layer_01)
         .child(head);
-    if open {
+    if let Some(diff) = t.diff.as_ref() {
+        if !big || open {
+            chip = chip.child(inline_diff(k, diff));
+        }
+    } else if open {
         let mono = |label: &str, body: String| {
             col()
                 .w_full()

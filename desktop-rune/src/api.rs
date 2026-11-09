@@ -269,6 +269,8 @@ pub struct Tool {
     pub send: Option<Value>,
     #[serde(skip)]
     pub show: Option<Value>,
+    #[serde(skip)]
+    pub diff: Option<Value>,
 }
 
 impl Tool {
@@ -296,6 +298,7 @@ struct RawPart {
     tool: Option<Tool>,
     send: Option<Value>,
     show: Option<Value>,
+    diff: Option<Value>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, PartialEq)]
@@ -309,6 +312,7 @@ pub struct Message {
     pub kind: Option<String>,
     pub auto: bool,
     pub fork_uuid: Option<String>,
+    pub truncated: bool,
 }
 
 impl Message {
@@ -325,6 +329,10 @@ impl Message {
                 "tool" => p.tool.clone().map(|mut t| {
                     t.send = p.send.clone();
                     t.show = p.show.clone();
+                    t.diff = p
+                        .diff
+                        .clone()
+                        .filter(|d| d["ops"].as_array().is_some_and(|o| !o.is_empty()));
                     Part::Tool(t)
                 }),
                 _ => None,

@@ -3222,8 +3222,17 @@ source = "git+https://github.com/anomalyco/rune?rev=a7f276c3630f85a06a0230295da4
 dependencies = [
  "pulldown-cmark",
  "rune",
+ "rune-mermaid",
  "rune-motion",
  "unicode-segmentation",
+]
+
+[[package]]
+name = "rune-mermaid"
+version = "0.0.1"
+source = "git+https://github.com/anomalyco/rune?rev=a7f276c3630f85a06a0230295da4d2bd172d8d3b#a7f276c3630f85a06a0230295da4d2bd172d8d3b"
+dependencies = [
+ "rune",
 ]
 
 [[package]]

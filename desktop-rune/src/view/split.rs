@@ -1,7 +1,7 @@
 use rune::{Key, ScrollSpec, col, el, memo, row, text};
 use rune_kit::{IconButton, IconButtonVariant, Kit, TextArea};
 
-use super::session::{bubble, hash_of};
+use super::session::bubble;
 use super::{dot, glyph};
 use crate::app::{Hooked, SplitPane};
 use crate::{fmt, icons};
@@ -61,15 +61,9 @@ pub fn view(s: &Hooked, p: &SplitPane, k: &Kit) -> rune::El {
     if let Some(d) = p.detail.as_ref() {
         let start = d.messages.len().saturating_sub(30);
         for (i, m) in d.messages.iter().enumerate().skip(start) {
-            let version = hash_of((
-                &m.text,
-                m.tools.len(),
-                m.ts.as_deref(),
-                k.dark,
-                s.all_tools_open,
-            ));
+            let version = super::session::bubble_version(s, m, k);
             chat = chat.child(memo(format!("split-{}-{i}", d.session.id), version, || {
-                bubble(s, m, k, i)
+                bubble(s, &d.session.id, m, k, i)
             }));
         }
         if let Some(q) = d
