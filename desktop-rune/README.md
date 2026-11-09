@@ -86,8 +86,8 @@ session states coloured by how much they need you.
 - Mouse: only the left button reaches programs; no motion without a button held.
 - Rendering: cursor blink, strikethrough / overline / curly and coloured underlines, clickable
   links (OSC 8 and plain URLs), images (kitty graphics, sixel), a light palette, exact widths
-  for emoji drawn from fallback fonts, a scrollback indicator, font and size settings, zoom.
-- Behaviour: search in the scrollback, the bell, focus reporting, key releases and repeats for
+  for emoji drawn from fallback fonts, font and size settings, zoom.
+- Behaviour: search in the scrollback, focus reporting, key releases and repeats for
   the full kitty keyboard protocol, batching redraws under heavy output.
 - hooked: `!!command` output inline in the conversation, terminals in their own window or split.
 

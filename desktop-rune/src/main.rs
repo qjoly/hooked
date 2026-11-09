@@ -209,6 +209,9 @@ fn poll(s: &mut Hooked, _clock: f64, tx: &mut Tx) -> bool {
     if let Some(wait) = s.flush_term_size(now) {
         tx.wake_after(wait);
     }
+    if now - s.term.bell_at < 250 {
+        tx.wake_after(Duration::from_millis(300));
+    }
     tray::sync(s);
     tx.wake_after(Duration::from_millis(if working { 1000 } else { 5000 }));
     changed

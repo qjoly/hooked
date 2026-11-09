@@ -86,6 +86,7 @@ pub struct Vt {
     row_iter: RowIterator<'static>,
     cell_iter: CellIterator<'static>,
     replies: Rc<RefCell<Vec<u8>>>,
+    bells: Rc<std::cell::Cell<u32>>,
     keys: key::Encoder<'static>,
     pub lines: Vec<Line>,
     pub cursor: Option<CursorAt>,
@@ -102,7 +103,14 @@ pub fn color(c: RgbColor) -> Color {
 impl Vt {
     pub fn new(cols: u16, rows: u16) -> Option<Vt> {
         let replies = Rc::new(RefCell::new(Vec::new()));
+        let bells = Rc::new(std::cell::Cell::new(0));
         let mut terminal = Terminal::new(cols, rows).ok()?;
+        terminal
+            .on_bell({
+                let bells = Rc::clone(&bells);
+                move |_| bells.set(bells.get() + 1)
+            })
+            .ok()?;
         terminal
             .on_pty_write({
                 let replies = Rc::clone(&replies);
@@ -118,6 +126,7 @@ impl Vt {
             row_iter: RowIterator::new().ok()?,
             cell_iter: CellIterator::new().ok()?,
             replies,
+            bells,
             keys: key::Encoder::new().ok()?,
             lines: Vec::new(),
             cursor: None,
@@ -136,6 +145,17 @@ impl Vt {
         self.terminal.vt_write(bytes);
         self.refresh();
         std::mem::take(&mut *self.replies.borrow_mut())
+    }
+
+    /// Bells rung since the last call.
+    pub fn take_bells(&mut self) -> u32 {
+        self.bells.replace(0)
+    }
+
+    /// `(rows above the viewport, viewport rows, total rows)` when there is scrollback.
+    pub fn scroll_position(&self) -> Option<(u64, u64, u64)> {
+        let sb = self.terminal.scrollbar().ok()?;
+        (sb.total > sb.len).then_some((sb.offset, sb.len, sb.total))
     }
 
     pub fn size(&self) -> (u16, u16) {

@@ -71,6 +71,7 @@ pub struct TermPanel {
     pub terms: Vec<Term>,
     pub active: usize,
     pub busy: bool,
+    pub bell_at: i64,
 }
 
 fn decode(payload: &str) -> Option<Vec<u8>> {
@@ -162,6 +163,9 @@ impl Hooked {
         let reply = t.vt.write(bytes);
         if !reply.is_empty() && !t.exited {
             post_input(id.to_string(), &reply);
+        }
+        if t.vt.take_bells() > 0 {
+            self.term.bell_at = crate::fmt::now_ms();
         }
     }
 

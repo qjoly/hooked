@@ -285,6 +285,8 @@ pub fn panel(s: &Hooked, k: &Kit) -> El {
         Some(t) => screen(s, k, t),
         None => el(),
     };
+    let bell = crate::fmt::now_ms() - p.bell_at < 250;
+    let scroll = p.terms.get(p.active).and_then(|t| t.vt.scroll_position());
     let term = col()
         .key("term-screen")
         .instant_changes()
@@ -301,6 +303,14 @@ pub fn panel(s: &Hooked, k: &Kit) -> El {
                 .map_or(Color::BLACK, |t| t.vt.background),
         )
         .cursor(Cursor::Text)
+        .border(
+            1.0,
+            if bell {
+                k.c.warning.border
+            } else {
+                Color::TRANSPARENT
+            },
+        )
         .on_key(|s: &mut Hooked, ev: &rune::KeyEvent, tx: &mut rune::Tx| {
             if ev.is_command('c') {
                 if let Some(text) = s.selection_text() {
@@ -334,7 +344,39 @@ pub fn panel(s: &Hooked, k: &Kit) -> El {
             },
         )
         .on_drop_files(|s: &mut Hooked, files: &[std::path::PathBuf], _| s.term_drop(files))
-        .child(body);
+        .child(body)
+        .child(match scroll {
+            Some((offset, len, total)) => {
+                let h = (p.screen.1 - 16.0).max(10.0);
+                let top = h * offset as f32 / total as f32;
+                let size = (h * len as f32 / total as f32).max(12.0);
+                let below = total.saturating_sub(offset + len);
+                let mut layer = el().absolute(0.0, 0.0).w_full().h_full().child(
+                    el().absolute(p.screen.0 - 6.0, 8.0 + top)
+                        .size(3.0, size)
+                        .radius(1.5)
+                        .fill(crate::ghostty::color(crate::ghostty::FG).alpha(0.35)),
+                );
+                if below > 0 {
+                    layer = layer.child(
+                        row()
+                            .absolute((p.screen.0 - 150.0).max(0.0), (p.screen.1 - 30.0).max(0.0))
+                            .h(22.0)
+                            .px(8.0)
+                            .center_y()
+                            .radius(11.0)
+                            .fill(k.c.bg_base.alpha(0.9))
+                            .child(
+                                text(format!("↓ {below} lines below"))
+                                    .font(k.ty.text_xsmall)
+                                    .color(k.c.text_muted),
+                            ),
+                    );
+                }
+                layer
+            }
+            None => el(),
+        });
     let grip = el()
         .key("term-resize")
         .w_full()
