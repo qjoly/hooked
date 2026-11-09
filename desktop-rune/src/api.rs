@@ -235,16 +235,21 @@ pub fn save_tags(id: &str, tags: &[String]) -> Result<(), String> {
     post("/api/tags", json!({ "id": id, "tags": tags })).map(|_| ())
 }
 
-pub fn fork(
-    id: &str,
-    fork_uuid: &str,
-    model: Option<&str>,
-    effort: Option<&str>,
-) -> Result<String, String> {
-    let v = post(
-        "/api/fork",
-        json!({ "id": id, "forkUuid": fork_uuid, "prompt": "", "model": model, "effort": effort }),
-    )?;
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ForkRequest {
+    pub fork_uuid: String,
+    pub prompt: String,
+    pub model: Option<String>,
+    pub effort: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub permission_mode: Option<String>,
+}
+
+pub fn fork(id: &str, req: &ForkRequest) -> Result<String, String> {
+    let mut body = serde_json::to_value(req).map_err(|e| e.to_string())?;
+    body["id"] = json!(id);
+    let v = post("/api/fork", body)?;
     v["sessionId"]
         .as_str()
         .map(str::to_string)

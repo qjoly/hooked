@@ -23,6 +23,13 @@ pub enum Picker {
         items: Option<Vec<serde_json::Value>>,
         busy: Option<String>,
     },
+    Fork {
+        uuid: String,
+        model: Option<String>,
+        effort: Option<String>,
+        mode: String,
+        prompt: TextEdit,
+    },
 }
 
 /// A sidebar entry: a session, and the sessions grouped under it when it leads a group.
@@ -234,18 +241,62 @@ impl Hooked {
         self.group_op("rename", id, json!({ "name": name }));
     }
 
+    pub fn fork_options(&mut self, uuid: String) {
+        let Some(d) = self.detail.as_ref() else {
+            return;
+        };
+        let mut prompt = TextEdit::new("");
+        prompt.focused = true;
+        self.picker = Some(Picker::Fork {
+            uuid,
+            model: d.session.model.clone(),
+            effort: d.session.effort.clone(),
+            mode: "default".into(),
+            prompt,
+        });
+    }
+
+    pub fn fork_with_options(&mut self) {
+        let Some(Picker::Fork {
+            uuid,
+            model,
+            effort,
+            mode,
+            prompt,
+        }) = self.picker.take()
+        else {
+            return;
+        };
+        self.fork_request(api::ForkRequest {
+            fork_uuid: uuid,
+            prompt: prompt.text.trim().to_string(),
+            model,
+            effort,
+            permission_mode: Some(mode),
+        });
+    }
+
     pub fn fork_at(&mut self, fork_uuid: String) {
         let Some(d) = self.detail.as_ref() else {
             return;
         };
-        let (id, model, effort) = (
-            d.session.id.clone(),
-            d.session.model.clone(),
-            d.session.effort.clone(),
-        );
+        let req = api::ForkRequest {
+            fork_uuid,
+            prompt: String::new(),
+            model: d.session.model.clone(),
+            effort: d.session.effort.clone(),
+            permission_mode: None,
+        };
+        self.fork_request(req);
+    }
+
+    fn fork_request(&mut self, req: api::ForkRequest) {
+        let Some(id) = self.detail.as_ref().map(|d| d.session.id.clone()) else {
+            return;
+        };
         self.flash("⑂ Forking…", false);
         spawn(
-            move || api::fork(&id, &fork_uuid, model.as_deref(), effort.as_deref()),
+            move || api::fork(&id, &req),
             |s, r, _| match r {
                 Ok(new_id) => {
                     s.flash("✓ Forked into a new session", false);

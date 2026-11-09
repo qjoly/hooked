@@ -781,16 +781,28 @@ pub(super) fn bubble(s: &Hooked, session: &str, m: &Message, k: &Kit, i: usize) 
         .w_full()
         .center_y()
         .child(who(k, user, if m.auto { "auto" } else { &ts }));
-    if let Some(uuid) = m.fork_uuid.clone().filter(|_| user) {
-        head = head.child(el().grow(1.0)).child(
-            Button::new("Fork")
-                .icon(&icons::FORK)
-                .variant(ButtonVariant::GhostFaint)
-                .control_size(ControlSize::Small)
-                .help("Start a new session from this point of the conversation")
-                .on_press(move |s: &mut Hooked| s.fork_at(uuid.clone()))
-                .build(k),
-        );
+    if let Some(uuid) = m.fork_uuid.clone() {
+        let opts = uuid.clone();
+        head = head
+            .child(el().grow(1.0))
+            .child(
+                Button::new("Fork")
+                    .icon(&icons::FORK)
+                    .variant(ButtonVariant::GhostFaint)
+                    .control_size(ControlSize::Small)
+                    .help("Fork here without a message: an independent branch waiting for you")
+                    .on_press(move |s: &mut Hooked| s.fork_at(uuid.clone()))
+                    .build(k),
+            )
+            .child(
+                IconButton::new(&icons::CHEVRON_DOWN)
+                    .variant(IconButtonVariant::GhostMuted)
+                    .control_size(ControlSize::Small)
+                    .label("Fork options")
+                    .help("Fork options (model, effort, mode, a first message)")
+                    .on_press(move |s: &mut Hooked| s.fork_options(opts.clone()))
+                    .build(k),
+            );
     }
     let mut b = col().w_full().gap(8.0).child(head);
     let full = m

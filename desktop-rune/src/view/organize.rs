@@ -202,6 +202,13 @@ pub fn view(s: &Hooked, k: &Kit) -> El {
             modal(k, "group-modal", "Move to group", body)
         }
         Some(Picker::Trash { items, busy }) => trash(s, k, items.as_deref(), busy.as_deref()),
+        Some(Picker::Fork {
+            model,
+            effort,
+            mode,
+            prompt,
+            ..
+        }) => fork(s, k, model.as_deref(), effort.as_deref(), mode, prompt),
         Some(Picker::RenameGroup { edit, .. }) => {
             let body = col()
                 .w_full()
@@ -309,4 +316,113 @@ fn trash(s: &Hooked, k: &Kit, items: Option<&[serde_json::Value]>, busy: Option<
         .child(text(sub).font(k.ty.text_small).color(k.c.text_muted))
         .child(list);
     modal(k, "trash-modal", "Trash", body)
+}
+
+fn set_fork(s: &mut Hooked, f: impl FnOnce(&mut Option<String>, &mut Option<String>, &mut String)) {
+    if let Some(Picker::Fork {
+        model,
+        effort,
+        mode,
+        ..
+    }) = s.picker.as_mut()
+    {
+        f(model, effort, mode);
+    }
+}
+
+fn fork(
+    s: &Hooked,
+    k: &Kit,
+    model: Option<&str>,
+    effort: Option<&str>,
+    mode: &str,
+    prompt: &rune::TextEdit,
+) -> El {
+    use super::settings::{chip, chips};
+    let models = s
+        .visible_models()
+        .into_iter()
+        .map(|(id, label)| {
+            let on = model == Some(id.as_str());
+            chip(k, format!("fm-{id}"), label, on, move |s| {
+                let id = id.clone();
+                set_fork(s, |m, _, _| *m = Some(id));
+            })
+        })
+        .collect();
+    let efforts = s
+        .caps
+        .efforts
+        .iter()
+        .map(|e| {
+            let e = e.clone();
+            chip(
+                k,
+                format!("fe-{e}"),
+                e.clone(),
+                effort == Some(e.as_str()),
+                move |s| {
+                    let e = e.clone();
+                    set_fork(s, |_, ef, _| *ef = Some(e));
+                },
+            )
+        })
+        .collect();
+    let modes = crate::fmt::LAUNCH_MODES
+        .iter()
+        .map(|&m| {
+            chip(
+                k,
+                format!("fmode-{m}"),
+                crate::fmt::mode_label(m).into(),
+                mode == m,
+                move |s| set_fork(s, |_, _, md| *md = m.to_string()),
+            )
+        })
+        .collect();
+    let line = |label: &str, body: El| {
+        col()
+            .w_full()
+            .gap(6.0)
+            .child(super::section_title(k, label))
+            .child(body)
+    };
+    let body = col()
+        .w_full()
+        .gap(12.0)
+        .child(line("MODEL", chips(models)))
+        .child(line("EFFORT", chips(efforts)))
+        .child(line("MODE", chips(modes)))
+        .child(
+            rune_kit::TextArea::new(prompt)
+                .placeholder("New direction from this point… (leave empty to just open the branch)")
+                .width(None)
+                .auto_grow(3, 8)
+                .on_edit(|s: &mut Hooked| match s.picker.as_mut() {
+                    Some(Picker::Fork { prompt, .. }) => prompt,
+                    _ => unreachable!("fork closed while editing"),
+                })
+                .build(k)
+                .key("fork-prompt"),
+        )
+        .child(
+            row()
+                .w_full()
+                .gap(8.0)
+                .justify_end()
+                .child(
+                    Button::new("Cancel")
+                        .variant(ButtonVariant::GhostMuted)
+                        .on_press(|s: &mut Hooked| s.picker = None)
+                        .build(k),
+                )
+                .child(
+                    Button::new("Fork")
+                        .variant(ButtonVariant::Contrast)
+                        .on_press(|s: &mut Hooked| s.fork_with_options())
+                        .build(k)
+                        .key("fork-go"),
+                ),
+        );
+    modal(k, "fork-modal", "Fork from this message", body)
 }
