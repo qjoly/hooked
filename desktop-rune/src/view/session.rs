@@ -843,7 +843,6 @@ fn file_name(p: &str) -> String {
     p.rsplit('/').next().unwrap_or(p).to_string()
 }
 
-/// A picture of the conversation, fitted in `max_w` × `max_h`; a click opens the file.
 pub(super) fn picture(s: &Hooked, k: &Kit, path: &str, max_w: f32, max_h: f32) -> El {
     let img = s.media.get(path).and_then(Option::as_ref);
     let fitted = img.and_then(|i| i.size()).map(|[w, h]| {

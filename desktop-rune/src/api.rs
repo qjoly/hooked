@@ -366,7 +366,6 @@ pub fn split_message_images(text: &str) -> (Vec<String>, String) {
     (images, rest.trim().to_string())
 }
 
-/// Every picture the conversation shows, as (path, URL to fetch it from).
 pub fn media_refs(d: &Detail) -> Vec<(String, String)> {
     let user_file = |p: &str| {
         format!(
