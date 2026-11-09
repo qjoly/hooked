@@ -3,18 +3,18 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use base64::Engine;
-use rune::Key;
 use serde_json::{Value, json};
 
 use crate::api;
 use crate::app::{HANDLE, Hooked, spawn};
+use crate::ghostty::Vt;
 
 pub const COLS: u16 = 120;
 pub const ROWS: u16 = 28;
 
 pub struct Term {
     pub id: String,
-    pub parser: vt100::Parser,
+    pub vt: Vt,
     pub exited: bool,
     alive: Arc<AtomicBool>,
 }
@@ -28,10 +28,17 @@ impl Drop for Term {
 #[derive(Default)]
 pub struct TermPanel {
     pub size: Option<(u16, u16)>,
+    pub cell: (f32, f32),
     pub open: bool,
     pub terms: Vec<Term>,
     pub active: usize,
     pub busy: bool,
+}
+
+fn decode(payload: &str) -> Option<Vec<u8>> {
+    base64::engine::general_purpose::STANDARD
+        .decode(payload)
+        .ok()
 }
 
 fn follow(id: String, alive: Arc<AtomicBool>) {
@@ -45,13 +52,9 @@ fn follow(id: String, alive: Arc<AtomicBool>) {
                 if !alive.load(Ordering::SeqCst) {
                     return false;
                 }
-                if let Ok(bytes) = base64::engine::general_purpose::STANDARD.decode(payload) {
+                if let Some(bytes) = decode(payload) {
                     let id = id.clone();
-                    h.update(move |s, _| {
-                        if let Some(t) = s.term.terms.iter_mut().find(|t| t.id == id) {
-                            t.parser.process(&bytes);
-                        }
-                    });
+                    h.update(move |s, _| s.term_output(&id, &bytes));
                 }
                 true
             });
@@ -78,77 +81,86 @@ fn urlencode(s: &str) -> String {
         .collect()
 }
 
-fn attach(id: String, exited: bool, (cols, rows): (u16, u16)) -> Term {
+fn attach(id: String, exited: bool, (cols, rows): (u16, u16), cell: (f32, f32)) -> Option<Term> {
+    let mut vt = Vt::new(cols, rows)?;
+    vt.cell = cell;
     let alive = Arc::new(AtomicBool::new(true));
     if !exited {
         follow(id.clone(), alive.clone());
     }
-    Term {
+    Some(Term {
         id,
-        parser: vt100::Parser::new(rows, cols, 2000),
+        vt,
         exited,
         alive,
-    }
+    })
 }
 
-/// The bytes a key sends to a shell, as xterm encodes them.
-pub fn encode(ev: &rune::KeyEvent) -> Option<Vec<u8>> {
-    let seq = |s: &str| Some(s.as_bytes().to_vec());
-    match &ev.key {
-        Key::Enter => seq("\r"),
-        Key::Backspace => seq("\x7f"),
-        Key::Tab => seq(if ev.mods.shift { "\x1b[Z" } else { "\t" }),
-        Key::Escape => seq("\x1b"),
-        Key::Up => seq("\x1b[A"),
-        Key::Down => seq("\x1b[B"),
-        Key::Right => seq("\x1b[C"),
-        Key::Left => seq("\x1b[D"),
-        Key::Home => seq("\x1b[H"),
-        Key::End => seq("\x1b[F"),
-        Key::Delete => seq("\x1b[3~"),
-        Key::PageUp => seq("\x1b[5~"),
-        Key::PageDown => seq("\x1b[6~"),
-        Key::Text(t) if ev.mods.ctrl && !ev.mods.cmd => {
-            let c = t.chars().next()?.to_ascii_lowercase();
-            if c.is_ascii_lowercase() || "@[\\]^_".contains(c) {
-                Some(vec![(c as u8) & 0x1f])
-            } else {
-                None
-            }
-        }
-        Key::Text(t) if ev.mods.alt => Some([b"\x1b".as_slice(), t.as_bytes()].concat()),
-        Key::Text(t) => Some(t.as_bytes().to_vec()),
-        _ => None,
-    }
+fn post_input(id: String, bytes: &[u8]) {
+    let data = String::from_utf8_lossy(bytes).into_owned();
+    spawn(
+        move || api::post("/api/terminal/input", json!({ "id": id, "data": data })),
+        |_, _, _| {},
+    );
 }
 
 impl Hooked {
+    fn term_cell(&self) -> (f32, f32) {
+        if self.term.cell.0 > 0.0 {
+            self.term.cell
+        } else {
+            (7.2, 18.0)
+        }
+    }
+
+    /// Shell output lands in its terminal; whatever the terminal answers goes back to that shell.
+    pub fn term_output(&mut self, id: &str, bytes: &[u8]) {
+        let Some(t) = self.term.terms.iter_mut().find(|t| t.id == id) else {
+            return;
+        };
+        let reply = t.vt.write(bytes);
+        if !reply.is_empty() && !t.exited {
+            post_input(id.to_string(), &reply);
+        }
+    }
+
     /// Headless renders: attach the session's first shell and replay its scrollback in place.
     pub fn preload_terms(&mut self) {
         let Some(sid) = self.selected.clone() else {
             return;
         };
+        let args = rune::extra_args();
+        let wanted = args
+            .iter()
+            .position(|a| a == "--term")
+            .and_then(|i| args.get(i + 1))
+            .filter(|a| !a.starts_with("--"))
+            .cloned();
         let list = api::get(&format!("/api/terminal?sessionId={}", urlencode(&sid))).ok();
-        let Some(id) = list.and_then(|v| {
-            v["terminals"].as_array()?.first()?["id"]
-                .as_str()
-                .map(str::to_string)
+        let Some(id) = wanted.or_else(|| {
+            list.and_then(|v| {
+                v["terminals"].as_array()?.first()?["id"]
+                    .as_str()
+                    .map(str::to_string)
+            })
         }) else {
             return;
         };
-        let mut parser = vt100::Parser::new(ROWS, COLS, 2000);
+        let Some(mut vt) = Vt::new(COLS, ROWS) else {
+            return;
+        };
         let _ = api::follow(
             &format!("/api/terminal/stream?id={}", urlencode(&id)),
             |payload| {
-                if let Ok(bytes) = base64::engine::general_purpose::STANDARD.decode(payload) {
-                    parser.process(&bytes);
+                if let Some(bytes) = decode(payload) {
+                    vt.write(&bytes);
                 }
                 false
             },
         );
         self.term.terms.push(Term {
             id,
-            parser,
+            vt,
             exited: false,
             alive: Arc::new(AtomicBool::new(false)),
         });
@@ -164,7 +176,7 @@ impl Hooked {
         spawn(
             move || api::get(&format!("/api/terminal?sessionId={}", urlencode(&sid))),
             |s, r, _| {
-                let size = s.term.size.unwrap_or((COLS, ROWS));
+                let (size, cell) = (s.term.size.unwrap_or((COLS, ROWS)), s.term_cell());
                 let list: Vec<Value> = r
                     .ok()
                     .and_then(|v| v["terminals"].as_array().cloned())
@@ -173,9 +185,12 @@ impl Hooked {
                     .iter()
                     .filter(|t| t["inline"].as_bool() != Some(true))
                     .filter_map(|t| {
-                        t["id"].as_str().map(|id| {
-                            attach(id.to_string(), t["exited"].as_bool() == Some(true), size)
-                        })
+                        attach(
+                            t["id"].as_str()?.to_string(),
+                            t["exited"].as_bool() == Some(true),
+                            size,
+                            cell,
+                        )
                     })
                     .collect();
                 if s.term.terms.is_empty() {
@@ -196,7 +211,7 @@ impl Hooked {
             return;
         }
         self.term.busy = true;
-        let size = self.term.size.unwrap_or((COLS, ROWS));
+        let (size, cell) = (self.term.size.unwrap_or((COLS, ROWS)), self.term_cell());
         spawn(
             move || {
                 api::post(
@@ -207,11 +222,14 @@ impl Hooked {
             move |s, r, _| {
                 s.term.busy = false;
                 match r.map(|v| v["id"].as_str().map(str::to_string)) {
-                    Ok(Some(id)) => {
-                        s.term.terms.push(attach(id, false, size));
-                        s.term.active = s.term.terms.len() - 1;
-                        s.term.open = true;
-                    }
+                    Ok(Some(id)) => match attach(id, false, size, cell) {
+                        Some(t) => {
+                            s.term.terms.push(t);
+                            s.term.active = s.term.terms.len() - 1;
+                            s.term.open = true;
+                        }
+                        None => s.flash("✗ Could not start the terminal emulator", true),
+                    },
                     Ok(None) => s.flash("✗ The shell did not start", true),
                     Err(e) => s.flash(format!("✗ Terminal: {e}"), true),
                 }
@@ -247,8 +265,9 @@ impl Hooked {
         );
     }
 
-    /// Fits the shells to the panel: the vt100 grid at once, the PTY over the API.
+    /// Fits the shells to the panel: Ghostty's grid at once, the PTY over the API.
     pub fn fit_terms(&mut self, w: f32, h: f32, cell: (f32, f32)) {
+        self.term.cell = cell;
         let cols = ((w - 16.0) / cell.0).floor().clamp(20.0, 400.0) as u16;
         let rows = ((h - 16.0) / cell.1).floor().clamp(5.0, 200.0) as u16;
         if self.term.size == Some((cols, rows)) {
@@ -256,7 +275,7 @@ impl Hooked {
         }
         self.term.size = Some((cols, rows));
         for t in self.term.terms.iter_mut() {
-            t.parser.set_size(rows, cols);
+            t.vt.resize(cols, rows, cell);
             if t.exited {
                 continue;
             }
@@ -273,45 +292,56 @@ impl Hooked {
         }
     }
 
-    pub fn term_input(&mut self, bytes: Vec<u8>) {
-        let Some(t) = self.term.terms.get(self.term.active) else {
+    pub fn term_key(
+        &mut self,
+        ev: &rune::KeyEvent,
+        physical: Option<rune::PhysicalKeyCode>,
+    ) -> bool {
+        let Some(t) = self.term.terms.get_mut(self.term.active) else {
+            return false;
+        };
+        let Some(bytes) = t.vt.encode_key(ev, physical) else {
+            return false;
+        };
+        if !t.exited {
+            t.vt.scroll_to_bottom();
+            post_input(t.id.clone(), &bytes);
+        }
+        true
+    }
+
+    pub fn term_paste(&mut self, text: &str) {
+        let Some(t) = self.term.terms.get_mut(self.term.active) else {
             return;
         };
-        if t.exited {
+        if t.exited || text.is_empty() {
             return;
         }
-        let id = t.id.clone();
-        let data = String::from_utf8_lossy(&bytes).into_owned();
-        spawn(
-            move || api::post("/api/terminal/input", json!({ "id": id, "data": data })),
-            |_, _, _| {},
-        );
+        let bytes = t.vt.encode_paste(text);
+        t.vt.scroll_to_bottom();
+        post_input(t.id.clone(), &bytes);
     }
-}
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use rune::{KeyEvent, Mods};
-
-    fn ev(key: Key, ctrl: bool) -> KeyEvent {
-        KeyEvent {
-            key,
-            mods: Mods {
-                ctrl,
-                ..Default::default()
-            },
+    pub fn term_wheel(&mut self, dy: f32, x: f32, y: f32) {
+        let Some(t) = self.term.terms.get_mut(self.term.active) else {
+            return;
+        };
+        let lines = (dy / t.vt.cell.1).round() as isize;
+        if lines == 0 {
+            return;
         }
-    }
-
-    #[test]
-    fn keys_encode_as_xterm_does() {
-        assert_eq!(encode(&ev(Key::Enter, false)), Some(b"\r".to_vec()));
-        assert_eq!(encode(&ev(Key::Up, false)), Some(b"\x1b[A".to_vec()));
-        assert_eq!(encode(&ev(Key::Text("c".into()), true)), Some(vec![3]));
-        assert_eq!(
-            encode(&ev(Key::Text("é".into()), false)),
-            Some("é".as_bytes().to_vec())
-        );
+        if t.vt.mouse_tracking() {
+            let mut out = Vec::new();
+            for _ in 0..lines.unsigned_abs().min(10) {
+                if let Some(b) = t.vt.encode_wheel(lines > 0, x, y) {
+                    out.extend(b);
+                }
+            }
+            if !out.is_empty() && !t.exited {
+                post_input(t.id.clone(), &out);
+            }
+        } else {
+            t.vt.scroll(-lines);
+        }
     }
 }

@@ -10,6 +10,9 @@ mise run desktop-rune-dev   # run from source
 mise run desktop-rune       # build, install "/Applications/hooked (Rune).app" and relaunch it
 ```
 
+Ghostty's terminal core (`libghostty-vt`) is built from source with Zig; the mise tasks pull Zig
+0.17.1 along with Rust, so there is nothing to install by hand.
+
 The installed app has its own bundle id (`dev.qjoly.hooked-rune`), so it sits next to the Tauri app.
 
 ## What is there
@@ -33,7 +36,10 @@ The layout follows the web dashboard; the look is Rune's neutral kit theme.
     Claude in one message. Threads are shared with the web lens.
   - **MCP (4)**: the project's servers with their health, details, re-authenticate, log out.
   - **Trace (5)**: each turn's tool calls as a timed waterfall, input and output on click.
-  - **Terminal (2)**: the session's shells over hooked's PTYs, one tab each, sized to the panel.
+  - **Terminal (2)**: the session's shells over hooked's PTYs, one tab each, sized to the panel,
+    emulated by Ghostty's VT core: its colours and styles, cursor shapes, window title, query
+    replies, key encoding (application cursor keys, kitty keyboard protocol), bracketed paste,
+    scrollback on the wheel, and wheel events for programs that track the mouse.
   - **Split (⌘⇧S)**: the most recent other session beside the current one, with its own reply box.
 - **Context panel**: tasks, changes, agents, sub-sessions.
 - **Pages**: Deck (awaiting you / working / recent), New session, Stats, Digest (generate and

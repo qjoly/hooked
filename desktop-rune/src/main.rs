@@ -1,6 +1,7 @@
 mod api;
 mod app;
 mod fmt;
+mod ghostty;
 mod icons;
 mod lenses;
 mod organize;

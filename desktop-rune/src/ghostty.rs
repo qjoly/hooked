@@ -1,0 +1,582 @@
+use std::cell::RefCell;
+use std::rc::Rc;
+
+use libghostty_vt::key::{self, Key as GKey, Mods};
+use libghostty_vt::render::{CellIterator, CursorVisualStyle, Dirty, RowIterator};
+use libghostty_vt::screen::CellWide;
+use libghostty_vt::style::RgbColor;
+use libghostty_vt::terminal::{Mode, ScrollViewport};
+use libghostty_vt::{RenderState, Terminal, mouse, paste};
+use rune::{Color, Key, KeyEvent, PhysicalKeyCode, Span};
+
+pub const FG: RgbColor = RgbColor {
+    r: 0xd4,
+    g: 0xd4,
+    b: 0xd4,
+};
+pub const BG: RgbColor = RgbColor {
+    r: 0x14,
+    g: 0x14,
+    b: 0x16,
+};
+const SCROLLBACK: usize = 10_000;
+
+#[derive(Clone, Default)]
+pub struct Line {
+    pub text: String,
+    pub spans: Vec<Span>,
+    pub version: u64,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum CursorShape {
+    Block,
+    Hollow,
+    Bar,
+    Underline,
+}
+
+#[derive(Clone, Copy)]
+pub struct CursorAt {
+    pub x: u16,
+    pub y: u16,
+    pub shape: CursorShape,
+    pub color: Color,
+}
+
+/// One shell's screen, parsed by Ghostty's VT core and kept as styled lines for Rune.
+pub struct Vt {
+    terminal: Terminal<'static, 'static>,
+    render: RenderState<'static>,
+    row_iter: RowIterator<'static>,
+    cell_iter: CellIterator<'static>,
+    replies: Rc<RefCell<Vec<u8>>>,
+    keys: key::Encoder<'static>,
+    pub lines: Vec<Line>,
+    pub cursor: Option<CursorAt>,
+    pub background: Color,
+    pub title: String,
+    pub cell: (f32, f32),
+    version: u64,
+}
+
+pub fn color(c: RgbColor) -> Color {
+    rune::color::hex(&format!("#{:02x}{:02x}{:02x}", c.r, c.g, c.b)).unwrap_or(Color::WHITE)
+}
+
+impl Vt {
+    pub fn new(cols: u16, rows: u16) -> Option<Vt> {
+        let replies = Rc::new(RefCell::new(Vec::new()));
+        let mut terminal = Terminal::new(cols, rows).ok()?;
+        terminal
+            .on_pty_write({
+                let replies = Rc::clone(&replies);
+                move |_, bytes| replies.borrow_mut().extend_from_slice(bytes)
+            })
+            .ok()?;
+        terminal.set_scrollback_max_lines(Some(SCROLLBACK)).ok()?;
+        terminal.set_default_fg_color(Some(FG)).ok()?;
+        terminal.set_default_bg_color(Some(BG)).ok()?;
+        let mut vt = Vt {
+            terminal,
+            render: RenderState::new().ok()?,
+            row_iter: RowIterator::new().ok()?,
+            cell_iter: CellIterator::new().ok()?,
+            replies,
+            keys: key::Encoder::new().ok()?,
+            lines: Vec::new(),
+            cursor: None,
+            background: color(BG),
+            title: String::new(),
+            cell: (7.2, 18.0),
+            version: 0,
+        };
+        vt.refresh();
+        Some(vt)
+    }
+
+    /// Feeds shell output; returns what the terminal answers back (device attributes, cursor
+    /// reports…), which belongs on the shell's input.
+    pub fn write(&mut self, bytes: &[u8]) -> Vec<u8> {
+        self.terminal.vt_write(bytes);
+        self.refresh();
+        std::mem::take(&mut *self.replies.borrow_mut())
+    }
+
+    pub fn size(&self) -> (u16, u16) {
+        (
+            self.terminal.cols().unwrap_or(80),
+            self.terminal.rows().unwrap_or(24),
+        )
+    }
+
+    pub fn resize(&mut self, cols: u16, rows: u16, cell: (f32, f32)) {
+        self.cell = cell;
+        let _ = self
+            .terminal
+            .resize(cols, rows, cell.0.round() as u32, cell.1.round() as u32);
+        self.refresh();
+    }
+
+    pub fn scroll(&mut self, rows: isize) {
+        self.terminal.scroll_viewport(ScrollViewport::Delta(rows));
+        self.refresh();
+    }
+
+    pub fn scroll_to_bottom(&mut self) {
+        self.terminal.scroll_viewport(ScrollViewport::Bottom);
+        self.refresh();
+    }
+
+    pub fn mouse_tracking(&self) -> bool {
+        self.terminal.is_mouse_tracking().unwrap_or(false)
+    }
+
+    /// Re-reads the rows Ghostty marked dirty; untouched rows keep their version so the view
+    /// reuses them.
+    fn refresh(&mut self) {
+        let Ok(snapshot) = self.render.update(&self.terminal) else {
+            return;
+        };
+        let dirty = snapshot.dirty().unwrap_or(Dirty::Full);
+        let rows = snapshot.rows().unwrap_or(0) as usize;
+        let full = dirty == Dirty::Full || self.lines.len() != rows;
+        if self.lines.len() != rows {
+            self.lines.resize_with(rows, Line::default);
+        }
+        let colors = snapshot.colors().ok();
+        let (fg, bg) = colors
+            .as_ref()
+            .map_or((FG, BG), |c| (c.foreground, c.background));
+        self.background = color(bg);
+        self.cursor = None;
+        if snapshot.cursor_visible().unwrap_or(false)
+            && let Ok(Some(at)) = snapshot.cursor_viewport()
+        {
+            let shape = match snapshot
+                .cursor_visual_style()
+                .unwrap_or(CursorVisualStyle::Block)
+            {
+                CursorVisualStyle::Bar => CursorShape::Bar,
+                CursorVisualStyle::Underline => CursorShape::Underline,
+                CursorVisualStyle::BlockHollow => CursorShape::Hollow,
+                _ => CursorShape::Block,
+            };
+            let c = colors.as_ref().and_then(|c| c.cursor).unwrap_or(fg);
+            self.cursor = Some(CursorAt {
+                x: at.x,
+                y: at.y,
+                shape,
+                color: color(c),
+            });
+        }
+        if dirty == Dirty::Clean && !full {
+            return;
+        }
+        let _ = snapshot.set_dirty(Dirty::Clean);
+        let Ok(mut rows_it) = self.row_iter.update(&snapshot) else {
+            return;
+        };
+        let mut y = 0usize;
+        while let Some(row) = rows_it.next() {
+            let row_dirty = full || row.dirty().unwrap_or(true);
+            let _ = row.set_dirty(false);
+            if !row_dirty || y >= self.lines.len() {
+                y += 1;
+                continue;
+            }
+            let mut text = String::new();
+            let mut spans: Vec<Span> = Vec::new();
+            if let Ok(mut cells) = self.cell_iter.update(row) {
+                let mut graphemes = String::new();
+                while let Some(cell) = cells.next() {
+                    if cell
+                        .raw_cell()
+                        .and_then(|r| r.wide())
+                        .is_ok_and(|w| w == CellWide::SpacerTail)
+                    {
+                        continue;
+                    }
+                    graphemes.clear();
+                    let _ = cell.graphemes_utf8(&mut graphemes);
+                    let start = text.len();
+                    text.push_str(if graphemes.is_empty() {
+                        " "
+                    } else {
+                        &graphemes
+                    });
+                    let end = text.len();
+                    let style = cell.style().ok();
+                    let mut cfg = cell.fg_color().ok().flatten();
+                    let mut cbg = cell.bg_color().ok().flatten();
+                    let (bold, italic, faint, underline, inverse) =
+                        style
+                            .as_ref()
+                            .map_or((false, false, false, false, false), |s| {
+                                (
+                                    s.bold,
+                                    s.italic,
+                                    s.faint,
+                                    !matches!(s.underline, libghostty_vt::style::Underline::None),
+                                    s.inverse,
+                                )
+                            });
+                    if inverse {
+                        (cfg, cbg) = (Some(cbg.unwrap_or(bg)), Some(cfg.unwrap_or(fg)));
+                    }
+                    if cfg.is_none() && cbg.is_none() && !bold && !italic && !faint && !underline {
+                        continue;
+                    }
+                    let mut sp = Span::new(start, end);
+                    let ink = cfg.map(color).unwrap_or_else(|| color(fg));
+                    if cfg.is_some() || faint {
+                        sp = sp.color(if faint { ink.alpha(0.6) } else { ink });
+                    }
+                    if let Some(b) = cbg {
+                        sp.bg = Some(color(b));
+                    }
+                    if bold {
+                        sp = sp.bold();
+                    }
+                    if italic {
+                        sp = sp.italic();
+                    }
+                    if underline {
+                        sp.underline = Some(ink);
+                    }
+                    match spans.last_mut() {
+                        Some(last) if last.end as usize == start && same_look(last, &sp) => {
+                            last.end = end as u32
+                        }
+                        _ => spans.push(sp),
+                    }
+                }
+            }
+            if spans.last().is_none_or(|s| (s.end as usize) < text.len()) {
+                let keep = spans.last().map_or(0, |s| s.end as usize);
+                let trimmed = text[keep..].trim_end().len();
+                text.truncate(keep + trimmed);
+            }
+            self.version += 1;
+            self.lines[y] = Line {
+                text,
+                spans,
+                version: self.version,
+            };
+            y += 1;
+        }
+        if let Ok(t) = self.terminal.title() {
+            self.title = String::from_utf8_lossy(t).into_owned();
+        }
+    }
+
+    /// Encodes a key the way Ghostty would for this terminal's current modes.
+    pub fn encode_key(
+        &mut self,
+        ev: &KeyEvent,
+        physical: Option<PhysicalKeyCode>,
+    ) -> Option<Vec<u8>> {
+        let gkey = physical
+            .map(physical_to_ghostty)
+            .unwrap_or(GKey::Unidentified);
+        let gkey = if gkey == GKey::Unidentified {
+            logical_to_ghostty(&ev.key)
+        } else {
+            gkey
+        };
+        let mut mods = Mods::empty();
+        if ev.mods.shift {
+            mods |= Mods::SHIFT;
+        }
+        if ev.mods.alt {
+            mods |= Mods::ALT;
+        }
+        if ev.mods.ctrl {
+            mods |= Mods::CTRL;
+        }
+        let text = match &ev.key {
+            Key::Text(t) if !ev.mods.ctrl && !t.chars().any(char::is_control) => Some(t.clone()),
+            _ => None,
+        };
+        if gkey == GKey::Unidentified && text.is_none() {
+            return None;
+        }
+        let mut event = key::Event::new().ok()?;
+        event
+            .set_action(key::Action::Press)
+            .set_key(gkey)
+            .set_mods(mods)
+            .set_utf8(text.clone());
+        if let Some(c) = text.as_deref().and_then(|t| t.chars().next()) {
+            event.set_unshifted_codepoint(c.to_ascii_lowercase());
+        } else if let Some(c) = unshifted(gkey) {
+            event.set_unshifted_codepoint(c);
+        }
+        self.keys
+            .set_options_from_terminal(&self.terminal)
+            .set_macos_option_as_alt(key::OptionAsAlt::Left);
+        let mut out = Vec::new();
+        self.keys.encode_to_vec(&event, &mut out).ok()?;
+        (!out.is_empty()).then_some(out)
+    }
+
+    pub fn encode_paste(&self, text: &str) -> Vec<u8> {
+        let bracketed = self.terminal.mode(Mode::BRACKETED_PASTE).unwrap_or(false);
+        let mut data = text.as_bytes().to_vec();
+        let mut buf = vec![0u8; data.len() * 2 + 16];
+        match paste::encode(&mut data, bracketed, &mut buf) {
+            Ok(n) => buf[..n].to_vec(),
+            Err(_) => text.as_bytes().to_vec(),
+        }
+    }
+
+    /// A wheel notch as the program asked to receive it (mouse tracking on), else None.
+    pub fn encode_wheel(&self, up: bool, x: f32, y: f32) -> Option<Vec<u8>> {
+        if !self.mouse_tracking() {
+            return None;
+        }
+        let (cols, rows) = self.size();
+        let (cw, ch) = (self.cell.0.max(1.0) as u32, self.cell.1.max(1.0) as u32);
+        let mut enc = mouse::Encoder::new().ok()?;
+        let _ = enc
+            .set_options_from_terminal(&self.terminal)
+            .set_size(mouse::EncoderSize {
+                screen_width: u32::from(cols) * cw,
+                screen_height: u32::from(rows) * ch,
+                cell_width: cw,
+                cell_height: ch,
+                padding_top: 0,
+                padding_bottom: 0,
+                padding_left: 0,
+                padding_right: 0,
+            });
+        let mut ev = mouse::Event::new().ok()?;
+        ev.set_action(mouse::Action::Press)
+            .set_button(Some(if up {
+                mouse::Button::Four
+            } else {
+                mouse::Button::Five
+            }))
+            .set_position(mouse::Position { x, y });
+        let mut out = Vec::new();
+        enc.encode_to_vec(&ev, &mut out).ok()?;
+        (!out.is_empty()).then_some(out)
+    }
+}
+
+fn same_look(a: &Span, b: &Span) -> bool {
+    a.color == b.color
+        && a.bg == b.bg
+        && a.weight == b.weight
+        && a.italic == b.italic
+        && a.underline == b.underline
+}
+
+fn unshifted(k: GKey) -> Option<char> {
+    Some(match k {
+        GKey::Space => ' ',
+        GKey::Enter => '\r',
+        GKey::Tab => '\t',
+        _ => return None,
+    })
+}
+
+fn logical_to_ghostty(k: &Key) -> GKey {
+    match k {
+        Key::Enter => GKey::Enter,
+        Key::Backspace => GKey::Backspace,
+        Key::Delete => GKey::Delete,
+        Key::Left => GKey::ArrowLeft,
+        Key::Right => GKey::ArrowRight,
+        Key::Up => GKey::ArrowUp,
+        Key::Down => GKey::ArrowDown,
+        Key::Home => GKey::Home,
+        Key::End => GKey::End,
+        Key::PageUp => GKey::PageUp,
+        Key::PageDown => GKey::PageDown,
+        Key::Insert => GKey::Insert,
+        Key::Escape => GKey::Escape,
+        Key::Tab => GKey::Tab,
+        _ => GKey::Unidentified,
+    }
+}
+
+fn physical_to_ghostty(code: PhysicalKeyCode) -> GKey {
+    use PhysicalKeyCode as P;
+    match code {
+        P::KeyA => GKey::A,
+        P::KeyB => GKey::B,
+        P::KeyC => GKey::C,
+        P::KeyD => GKey::D,
+        P::KeyE => GKey::E,
+        P::KeyF => GKey::F,
+        P::KeyG => GKey::G,
+        P::KeyH => GKey::H,
+        P::KeyI => GKey::I,
+        P::KeyJ => GKey::J,
+        P::KeyK => GKey::K,
+        P::KeyL => GKey::L,
+        P::KeyM => GKey::M,
+        P::KeyN => GKey::N,
+        P::KeyO => GKey::O,
+        P::KeyP => GKey::P,
+        P::KeyQ => GKey::Q,
+        P::KeyR => GKey::R,
+        P::KeyS => GKey::S,
+        P::KeyT => GKey::T,
+        P::KeyU => GKey::U,
+        P::KeyV => GKey::V,
+        P::KeyW => GKey::W,
+        P::KeyX => GKey::X,
+        P::KeyY => GKey::Y,
+        P::KeyZ => GKey::Z,
+        P::Digit0 => GKey::Digit0,
+        P::Digit1 => GKey::Digit1,
+        P::Digit2 => GKey::Digit2,
+        P::Digit3 => GKey::Digit3,
+        P::Digit4 => GKey::Digit4,
+        P::Digit5 => GKey::Digit5,
+        P::Digit6 => GKey::Digit6,
+        P::Digit7 => GKey::Digit7,
+        P::Digit8 => GKey::Digit8,
+        P::Digit9 => GKey::Digit9,
+        P::Backquote => GKey::Backquote,
+        P::Backslash => GKey::Backslash,
+        P::BracketLeft => GKey::BracketLeft,
+        P::BracketRight => GKey::BracketRight,
+        P::Comma => GKey::Comma,
+        P::Equal => GKey::Equal,
+        P::Minus => GKey::Minus,
+        P::Period => GKey::Period,
+        P::Quote => GKey::Quote,
+        P::Semicolon => GKey::Semicolon,
+        P::Slash => GKey::Slash,
+        P::IntlBackslash => GKey::IntlBackslash,
+        P::Backspace => GKey::Backspace,
+        P::Enter => GKey::Enter,
+        P::Space => GKey::Space,
+        P::Tab => GKey::Tab,
+        P::Delete => GKey::Delete,
+        P::End => GKey::End,
+        P::Home => GKey::Home,
+        P::Insert => GKey::Insert,
+        P::PageDown => GKey::PageDown,
+        P::PageUp => GKey::PageUp,
+        P::ArrowDown => GKey::ArrowDown,
+        P::ArrowLeft => GKey::ArrowLeft,
+        P::ArrowRight => GKey::ArrowRight,
+        P::ArrowUp => GKey::ArrowUp,
+        P::Escape => GKey::Escape,
+        P::F1 => GKey::F1,
+        P::F2 => GKey::F2,
+        P::F3 => GKey::F3,
+        P::F4 => GKey::F4,
+        P::F5 => GKey::F5,
+        P::F6 => GKey::F6,
+        P::F7 => GKey::F7,
+        P::F8 => GKey::F8,
+        P::F9 => GKey::F9,
+        P::F10 => GKey::F10,
+        P::F11 => GKey::F11,
+        P::F12 => GKey::F12,
+        P::Numpad0 => GKey::Numpad0,
+        P::Numpad1 => GKey::Numpad1,
+        P::Numpad2 => GKey::Numpad2,
+        P::Numpad3 => GKey::Numpad3,
+        P::Numpad4 => GKey::Numpad4,
+        P::Numpad5 => GKey::Numpad5,
+        P::Numpad6 => GKey::Numpad6,
+        P::Numpad7 => GKey::Numpad7,
+        P::Numpad8 => GKey::Numpad8,
+        P::Numpad9 => GKey::Numpad9,
+        P::NumpadAdd => GKey::NumpadAdd,
+        P::NumpadDecimal => GKey::NumpadDecimal,
+        P::NumpadDivide => GKey::NumpadDivide,
+        P::NumpadEnter => GKey::NumpadEnter,
+        P::NumpadMultiply => GKey::NumpadMultiply,
+        P::NumpadSubtract => GKey::NumpadSubtract,
+        _ => GKey::Unidentified,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rune::Mods as RMods;
+
+    fn ev(key: Key, ctrl: bool) -> KeyEvent {
+        KeyEvent {
+            key,
+            mods: RMods {
+                ctrl,
+                ..Default::default()
+            },
+        }
+    }
+
+    #[test]
+    fn output_becomes_styled_lines() {
+        let mut vt = Vt::new(20, 3).expect("terminal");
+        vt.write(b"hi \x1b[1;31mred\x1b[0m\r\nnext");
+        assert_eq!(vt.lines[0].text, "hi red");
+        assert!(
+            vt.lines[0]
+                .spans
+                .iter()
+                .any(|s| s.start == 3 && s.end == 6 && s.color.is_some())
+        );
+        assert_eq!(vt.lines[1].text, "next");
+        let c = vt.cursor.expect("cursor");
+        assert_eq!((c.x, c.y), (4, 1));
+    }
+
+    #[test]
+    fn untouched_rows_keep_their_version() {
+        let mut vt = Vt::new(20, 3).expect("terminal");
+        vt.write(b"one\r\ntwo");
+        let first = vt.lines[0].version;
+        vt.write(b"!");
+        assert_eq!(vt.lines[0].version, first);
+        assert_eq!(vt.lines[1].text, "two!");
+    }
+
+    #[test]
+    fn keys_follow_the_terminal_modes() {
+        let mut vt = Vt::new(20, 3).expect("terminal");
+        assert_eq!(
+            vt.encode_key(&ev(Key::Up, false), Some(PhysicalKeyCode::ArrowUp)),
+            Some(b"\x1b[A".to_vec())
+        );
+        vt.write(b"\x1b[?1h");
+        assert_eq!(
+            vt.encode_key(&ev(Key::Up, false), Some(PhysicalKeyCode::ArrowUp)),
+            Some(b"\x1bOA".to_vec())
+        );
+        assert_eq!(
+            vt.encode_key(
+                &ev(Key::Text("c".into()), true),
+                Some(PhysicalKeyCode::KeyC)
+            ),
+            Some(vec![3])
+        );
+        assert_eq!(
+            vt.encode_key(&ev(Key::Text("é".into()), false), None),
+            Some("é".as_bytes().to_vec())
+        );
+    }
+
+    #[test]
+    fn queries_get_answered() {
+        let mut vt = Vt::new(20, 3).expect("terminal");
+        let reply = vt.write(b"\x1b[6n");
+        assert_eq!(reply, b"\x1b[1;1R");
+    }
+
+    #[test]
+    fn paste_is_bracketed_when_asked() {
+        let mut vt = Vt::new(20, 3).expect("terminal");
+        assert_eq!(vt.encode_paste("ls"), b"ls");
+        vt.write(b"\x1b[?2004h");
+        assert_eq!(vt.encode_paste("ls"), b"\x1b[200~ls\x1b[201~");
+    }
+}

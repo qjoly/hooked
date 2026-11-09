@@ -305,7 +305,7 @@ open /Applications/hooked.app
 [tasks.desktop-rune]
 description = "Build the native Rune app, install it in /Applications and relaunch it"
 dir = "desktop-rune"
-tools = { rust = "1.99.1" }
+tools = { rust = "1.99.1", zig = "0.17.1" }
 run = """
 set -e
 cargo build --release
@@ -325,5 +325,5 @@ open "/Applications/hooked (Rune).app"
 [tasks.desktop-rune-dev]
 description = "Run the native Rune app from source (no bundle: system notifications stay off)"
 dir = "desktop-rune"
-tools = { rust = "1.99.1" }
+tools = { rust = "1.99.1", zig = "0.17.1" }
 run = "cargo run"

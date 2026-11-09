@@ -1,104 +1,33 @@
-use rune::{Color, Cursor, El, Span, col, el, rich, row, text};
+use rune::{Color, Cursor, El, col, el, memo, rich, row, text};
 use rune_kit::{IconButton, IconButtonVariant, Kit};
 
 use super::glyph;
 use crate::app::Hooked;
+use crate::ghostty::CursorShape;
 use crate::icons;
-use crate::terminal::{Term, encode};
-
-const ANSI: [(u8, u8, u8); 16] = [
-    (0x1e, 0x1e, 0x1e),
-    (0xe0, 0x6c, 0x75),
-    (0x98, 0xc3, 0x79),
-    (0xe5, 0xc0, 0x7b),
-    (0x61, 0xaf, 0xef),
-    (0xc6, 0x78, 0xdd),
-    (0x56, 0xb6, 0xc2),
-    (0xab, 0xb2, 0xbf),
-    (0x5c, 0x63, 0x70),
-    (0xf0, 0x7c, 0x85),
-    (0xa8, 0xd3, 0x89),
-    (0xf5, 0xd0, 0x8b),
-    (0x71, 0xbf, 0xff),
-    (0xd6, 0x88, 0xed),
-    (0x66, 0xc6, 0xd2),
-    (0xff, 0xff, 0xff),
-];
-
-fn rgb(r: u8, g: u8, b: u8) -> Color {
-    rune::color::hex(&format!("#{r:02x}{g:02x}{b:02x}")).unwrap_or(Color::WHITE)
-}
-
-fn color(c: vt100::Color) -> Option<Color> {
-    match c {
-        vt100::Color::Default => None,
-        vt100::Color::Idx(i) if i < 16 => {
-            let (r, g, b) = ANSI[i as usize];
-            Some(rgb(r, g, b))
-        }
-        vt100::Color::Idx(i) if i >= 232 => {
-            let v = 8 + (i - 232) * 10;
-            Some(rgb(v, v, v))
-        }
-        vt100::Color::Idx(i) => {
-            let i = i - 16;
-            let step = |n: u8| if n == 0 { 0 } else { 55 + n * 40 };
-            Some(rgb(step(i / 36), step((i / 6) % 6), step(i % 6)))
-        }
-        vt100::Color::Rgb(r, g, b) => Some(rgb(r, g, b)),
-    }
-}
+use crate::terminal::Term;
 
 fn screen(k: &Kit, t: &Term) -> El {
-    let sc = t.parser.screen();
-    let (rows, cols) = sc.size();
-    let (cr, cc) = sc.cursor_position();
-    let show_cursor = !sc.hide_cursor() && !t.exited;
-    let fg_default = rgb(0xd4, 0xd4, 0xd4);
-    let bg_default = rgb(0x14, 0x14, 0x16);
+    let vt = &t.vt;
+    let (cw, ch) = vt.cell;
+    let fg = crate::ghostty::color(crate::ghostty::FG);
     let mut lines = col().key(format!("term-lines-{}", t.id)).w_full().gap(0.0);
-    for r in 0..rows {
-        let mut line = String::with_capacity(cols as usize);
-        let mut spans = Vec::new();
-        for c in 0..cols {
-            let Some(cell) = sc.cell(r, c) else { continue };
-            if cell.is_wide_continuation() {
-                continue;
-            }
-            let start = line.len();
-            let s = cell.contents();
-            line.push_str(if s.is_empty() { " " } else { &s });
-            let end = line.len();
-            let (mut fg, mut bg) = (color(cell.fgcolor()), color(cell.bgcolor()));
-            if cell.inverse() {
-                (fg, bg) = (
-                    Some(bg.unwrap_or(bg_default)),
-                    Some(fg.unwrap_or(fg_default)),
-                );
-            }
-            if show_cursor && r == cr && c == cc {
-                (fg, bg) = (Some(bg_default), Some(fg_default));
-            }
-            if fg.is_some() || bg.is_some() || cell.bold() {
-                let mut sp = Span::new(start, end);
-                if let Some(f) = fg {
-                    sp = sp.color(f);
-                }
-                if let Some(b) = bg {
-                    sp.bg = Some(b);
-                }
-                if cell.bold() {
-                    sp = sp.bold();
-                }
-                spans.push(sp);
-            }
-        }
-        lines = lines.child(
-            rich(line, spans)
-                .font(k.ty.mono)
-                .color(fg_default)
-                .single_line(),
-        );
+    for (i, line) in vt.lines.iter().enumerate() {
+        let (text, spans) = (line.text.clone(), line.spans.clone());
+        let mono = k.ty.mono;
+        lines = lines.child(memo(format!("tl-{}-{i}", t.id), line.version, move || {
+            rich(text, spans).font(mono).color(fg).single_line().h(ch)
+        }));
+    }
+    if let Some(c) = vt.cursor.filter(|_| !t.exited) {
+        let (x, y) = (f32::from(c.x) * cw, f32::from(c.y) * ch);
+        let mark = match c.shape {
+            CursorShape::Block => el().size(cw, ch).fill(c.color.alpha(0.55)),
+            CursorShape::Hollow => el().size(cw, ch).border(1.0, c.color),
+            CursorShape::Bar => el().size(2.0, ch).fill(c.color),
+            CursorShape::Underline => el().size(cw, 2.0).fill(c.color).mt(ch - 2.0),
+        };
+        lines = lines.child(el().key("term-cursor").absolute(x, y).child(mark));
     }
     lines
 }
@@ -149,7 +78,7 @@ pub fn panel(s: &Hooked, k: &Kit) -> El {
         .center_y()
         .children(p.terms.iter().enumerate().map(|(i, t)| {
             let on = i == p.active;
-            let short: String =
+            let id_tail: String =
                 t.id.chars()
                     .rev()
                     .take(4)
@@ -157,6 +86,11 @@ pub fn panel(s: &Hooked, k: &Kit) -> El {
                     .into_iter()
                     .rev()
                     .collect();
+            let short = if t.vt.title.trim().is_empty() {
+                id_tail
+            } else {
+                crate::fmt::first_line(&t.vt.title, 40)
+            };
             row()
                 .key(format!("term-tab-{}", t.id))
                 .h(24.0)
@@ -247,28 +181,28 @@ pub fn panel(s: &Hooked, k: &Kit) -> El {
         .w_full()
         .h(420.0)
         .padding(8.0)
-        .fill(rgb(0x14, 0x14, 0x16))
+        .fill(
+            p.terms
+                .get(p.active)
+                .map_or(Color::BLACK, |t| t.vt.background),
+        )
         .cursor(Cursor::Text)
-        .on_key(|s: &mut Hooked, ev: &rune::KeyEvent, _| {
+        .on_key(|s: &mut Hooked, ev: &rune::KeyEvent, tx: &mut rune::Tx| {
             if ev.mods.cmd {
                 return false;
             }
-            match encode(ev) {
-                Some(bytes) => {
-                    s.term_input(bytes);
-                    true
-                }
-                None => false,
-            }
+            s.term_key(ev, tx.physical_key())
+        })
+        .on_wheel(|s: &mut Hooked, e: rune::WheelEvent, _| {
+            s.term_wheel(e.dy, e.x, e.y);
+            true
         })
         .on_layout({
             let cell = rune::text::measure("M", &[], k.ty.mono, None);
             move |s: &mut Hooked, r: [f32; 4]| s.fit_terms(r[2], r[3], (cell.0.max(1.0), 18.0))
         })
         .on_paste_content(|s: &mut Hooked, c: &rune::ClipboardContent, _| {
-            if !c.text().is_empty() {
-                s.term_input(c.text().as_bytes().to_vec());
-            }
+            s.term_paste(c.text());
         })
         .child(body);
     col().key("term-panel").w_full().child(bar).child(term)
