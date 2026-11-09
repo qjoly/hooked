@@ -59,9 +59,6 @@ pub enum Popup {
     More,
     Model,
     Effort,
-    NewModel,
-    NewEffort,
-    NewMode,
 }
 
 pub struct Attachment {
@@ -155,6 +152,11 @@ pub struct Hooked {
     pub new_model: Option<String>,
     pub new_effort: Option<String>,
     pub new_mode: String,
+    pub new_custom: bool,
+    pub new_search: TextEdit,
+    pub new_worktree: bool,
+    pub new_ephemeral: bool,
+    pub collapse_worktrees: bool,
 
     pub palette_open: bool,
     pub palette_query: TextEdit,
@@ -178,6 +180,7 @@ impl Hooked {
             .get("sortMode")
             .unwrap_or_else(|| "dynamic".to_string());
         let folded_groups: HashSet<String> = prefs.get("foldedGroups").unwrap_or_default();
+        let collapse_worktrees: bool = prefs.get("collapseWorktrees").unwrap_or(true);
         let theme = prefs.get("theme").unwrap_or(Theme::System);
         let notify = prefs.get("notify").unwrap_or(true);
         let incognito = prefs.get("incognito").unwrap_or(false);
@@ -250,6 +253,11 @@ impl Hooked {
             new_model: None,
             new_effort: None,
             new_mode: "default".into(),
+            new_custom: false,
+            new_search: TextEdit::new(""),
+            new_worktree: false,
+            new_ephemeral: false,
+            collapse_worktrees,
             palette_open: false,
             palette_query: TextEdit::new(""),
             palette_index: 0,
@@ -383,7 +391,7 @@ impl Hooked {
             }
         }
         if args.iter().any(|a| a == "--new") {
-            s.page = Page::New;
+            s.go_new(None);
         }
         if let Some(i) = args.iter().position(|a| a == "--page") {
             s.page = match args.get(i + 1).map(String::as_str) {
@@ -573,11 +581,19 @@ impl Hooked {
     pub fn go_new(&mut self, project: Option<String>) {
         self.page = Page::New;
         self.popup = None;
-        if let Some(p) =
-            project.or_else(|| self.detail.as_ref().and_then(|d| d.session.project.clone()))
+        let fallback = self
+            .setting("quickLaunchProject")
+            .as_str()
+            .filter(|p| !p.is_empty())
+            .map(str::to_string);
+        if let Some(p) = project
+            .or(fallback)
+            .or_else(|| self.detail.as_ref().and_then(|d| d.session.project.clone()))
         {
             self.new_project = TextEdit::new(p);
         }
+        self.new_custom = false;
+        self.new_search = TextEdit::new("");
         self.new_prompt = TextEdit::new("");
         self.new_prompt.focused = true;
     }
@@ -1157,6 +1173,7 @@ impl Hooked {
             self.new_mode.clone(),
             self.incognito,
         );
+        let (worktree, ephemeral) = (self.new_worktree, self.new_ephemeral);
         self.sending = true;
         spawn(
             move || {
@@ -1167,6 +1184,8 @@ impl Hooked {
                     effort.as_deref(),
                     Some(&mode),
                     incognito,
+                    worktree,
+                    ephemeral,
                 )
             },
             |s, r, _| {
@@ -1303,6 +1322,48 @@ impl Hooked {
             move |s, r, _| {
                 let v = r.unwrap_or_else(|e| serde_json::json!({ "error": e }));
                 s.gh.insert(url, v);
+            },
+        );
+    }
+
+    /// Projects offered by New session: favourites first, then by last activity, worktrees
+    /// under `.claude/worktrees/` folded into their project when asked to.
+    pub fn launch_projects(&self) -> Vec<(String, bool)> {
+        let favs: Vec<String> = self
+            .setting("favoriteProjects")
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|v| v.as_str().map(str::to_string))
+            .collect();
+        let mut out: Vec<(String, bool)> = favs.iter().map(|f| (f.clone(), true)).collect();
+        let mut recent: Vec<&Session> = self.sessions.iter().collect();
+        recent.sort_by(|a, b| b.last_activity.cmp(&a.last_activity));
+        for x in recent {
+            let Some(p) = x.project.clone() else { continue };
+            let p = match p.find("/.claude/worktrees/") {
+                Some(i) if self.collapse_worktrees => p[..i].to_string(),
+                _ => p,
+            };
+            if !out.iter().any(|(q, _)| *q == p) {
+                out.push((p, false));
+            }
+        }
+        out
+    }
+
+    pub fn pick_folder(&mut self) {
+        let start = self.new_project.text.trim().to_string();
+        self.new_custom = true;
+        spawn(
+            move || api::post("/api/pick-folder", serde_json::json!({ "start": start })),
+            |s, r, _| match r {
+                Ok(v) => {
+                    if let Some(dir) = v["dir"].as_str() {
+                        s.new_project = TextEdit::new(dir);
+                    }
+                }
+                Err(e) => s.flash(format!("✗ Folder picker: {e}"), true),
             },
         );
     }

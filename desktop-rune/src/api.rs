@@ -588,10 +588,12 @@ pub fn launch(
     effort: Option<&str>,
     mode: Option<&str>,
     incognito: bool,
+    worktree: bool,
+    ephemeral: bool,
 ) -> Result<String, String> {
     let v = post(
         "/api/launch",
-        json!({ "cwd": cwd, "prompt": prompt, "model": model, "effort": effort, "permissionMode": mode, "incognito": incognito }),
+        json!({ "cwd": cwd, "prompt": prompt, "model": model, "effort": effort, "permissionMode": mode, "incognito": incognito, "worktree": worktree, "ephemeral": ephemeral }),
     )?;
     v["sessionId"]
         .as_str()

@@ -134,3 +134,49 @@ pub fn state_color(dark: bool, state: &str) -> Color {
         _ => s.idle,
     }
 }
+
+/// hooked's tag palette: a few names keep a fixed hue, the rest hash to one, as in the web UI.
+pub fn tag_color(dark: bool, name: &str) -> Color {
+    const LIGHT: [&str; 6] = [
+        "#665d00", "#006f5d", "#006c7b", "#005f99", "#41559e", "#8a3a64",
+    ];
+    const DARK: [&str; 6] = [
+        "#c6c17c", "#78d1c0", "#71cfd9", "#8cc4f4", "#a7bbf9", "#eba6c6",
+    ];
+    let n = name.to_lowercase();
+    let i = match n.as_str() {
+        "chart" => 0,
+        "constant" => 1,
+        "azure" => 3,
+        "infra" => 4,
+        "urgent" => 5,
+        _ => {
+            (n.encode_utf16()
+                .fold(0u32, |h, c| h.wrapping_mul(31).wrapping_add(u32::from(c)))
+                % 6) as usize
+        }
+    };
+    hex(if dark { DARK[i] } else { LIGHT[i] })
+}
+
+/// A stable hue per project folder, from the scheme's accent and state colours.
+pub fn folder_color(dark: bool, path: &str) -> Color {
+    let s = scheme(dark);
+    let hues = [s.accent, s.info.0, s.success.0, s.warn.0, s.danger.0];
+    let h = path.encode_utf16().fold(0i32, |h, c| {
+        h.wrapping_mul(31).wrapping_add(i32::from(c as i16))
+    });
+    hues[(h.unsigned_abs() as usize) % hues.len()]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn tags_keep_the_web_hues() {
+        assert_eq!(tag_color(true, "infra"), hex("#a7bbf9"));
+        assert_eq!(tag_color(true, "Azure"), hex("#8cc4f4"));
+        assert_eq!(tag_color(false, "feature"), tag_color(false, "feature"));
+    }
+}

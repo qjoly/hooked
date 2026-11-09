@@ -92,7 +92,13 @@ fn block(k: &Kit, title: &str, hint: &str, control: El) -> El {
         .child(control.w_full())
 }
 
-fn chip(k: &Kit, key: String, label: String, on: bool, f: impl Fn(&mut Hooked) + 'static) -> El {
+pub(super) fn chip(
+    k: &Kit,
+    key: String,
+    label: String,
+    on: bool,
+    f: impl Fn(&mut Hooked) + 'static,
+) -> El {
     k.interactive(
         row()
             .key(key)
@@ -121,7 +127,7 @@ fn chip(k: &Kit, key: String, label: String, on: bool, f: impl Fn(&mut Hooked) +
     .on_press(f)
 }
 
-fn chips(items: Vec<El>) -> El {
+pub(super) fn chips(items: Vec<El>) -> El {
     row().gap(6.0).flex_wrap().children(items)
 }
 
@@ -594,9 +600,7 @@ fn tags_card(s: &Hooked, k: &Kit, v: &Value) -> El {
                 .on_submit(|s: &mut Hooked, _| s.rename_tag())
                 .build(k)
                 .key(format!("tag-edit-{t}")),
-            None => text(format!("#{t}"))
-                .font(k.ty.ui_medium)
-                .color(k.c.text_base),
+            None => super::tag_pill(k, t),
         };
         let (t1, t2) = (tag.clone(), tag.clone());
         c = c.child(

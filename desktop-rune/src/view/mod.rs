@@ -518,9 +518,6 @@ fn session_row(s: &Hooked, x: &Session, k: &Kit, depth: u8, group: Option<usize>
         Some(b) if !b.is_empty() => format!("{} · {b}", x.project_label()),
         _ => x.project_label(),
     };
-    for t in s.session_tags(&x.id) {
-        subtitle.push_str(&format!("  #{t}"));
-    }
     if !s.incognito && s.meta.get(&x.id).is_some_and(|m| m.incognito) {
         subtitle.push_str("  · incognito");
     }
@@ -574,7 +571,22 @@ fn session_row(s: &Hooked, x: &Session, k: &Kit, depth: u8, group: Option<usize>
         r = r.status(st);
     }
     let menu_id = id.clone();
-    r.build(k)
+    let tags = s.session_tags(&x.id);
+    let built = r.build(k);
+    let built = if tags.is_empty() {
+        built
+    } else {
+        col().w_full().child(built).child(
+            row()
+                .w_full()
+                .pl(10.0 + f32::from(depth) * 16.0)
+                .pb(4.0)
+                .gap(4.0)
+                .flex_wrap()
+                .children(tags.iter().map(|t| tag_pill(k, t))),
+        )
+    };
+    built
         .key(format!("row-{}", x.id))
         .help(if archived {
             "Click × to unarchive · right-click for more"
@@ -778,7 +790,7 @@ fn sidebar(s: &Hooked, k: &Kit, layer: &mut Vec<El>) -> El {
                         .child(
                             text(format!("#{t}"))
                                 .font(k.ty.text_xsmall_medium)
-                                .color(if on { k.c.text_base } else { k.c.text_muted }),
+                                .color(crate::theme::tag_color(k.dark, &t)),
                         )
                         .child(
                             text(n.to_string())
@@ -1085,6 +1097,21 @@ fn rail(s: &Hooked, k: &Kit) -> El {
 /// Markdown whose links open (see `app::open_link`).
 pub fn md(src: impl Into<String>) -> rune_kit::Markdown {
     rune_kit::Markdown::new(src).on_link_tx(crate::app::open_link)
+}
+
+pub fn tag_pill(k: &Kit, name: &str) -> El {
+    let c = crate::theme::tag_color(k.dark, name);
+    row()
+        .h(18.0)
+        .px(6.0)
+        .center_y()
+        .radius(k.radius.sm)
+        .fill(c.alpha(0.14))
+        .child(
+            text(format!("#{name}"))
+                .font(k.ty.text_xsmall_medium)
+                .color(c),
+        )
 }
 
 pub fn pill(k: &Kit, label: impl Into<String>, fg: Color, bg: Color) -> El {
