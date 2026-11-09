@@ -70,6 +70,7 @@ pub fn view(s: &Hooked, cx: &mut Cx<Hooked>) -> El {
         Page::GitHub => pages::github(s, &k),
         Page::Skills => pages::skills(s, &k),
         Page::Settings => settings::view(s, &k),
+        Page::Prompts => pages::prompts(s, &k),
     };
     let mut body = row().key("body").w_full().grow(1.0).min_h(0.0);
     body = if s.focus {
@@ -418,6 +419,13 @@ fn topbar(s: &Hooked, k: &Kit, inset: f32, _layer: &mut Vec<El>) -> El {
                             "Skills",
                             &icons::SPARKLE,
                             Page::Skills,
+                        ),
+                        (
+                            "prompts",
+                            "tb-prompts",
+                            "Prompts",
+                            &icons::BOOK,
+                            Page::Prompts,
                         ),
                     ]
                     .into_iter()

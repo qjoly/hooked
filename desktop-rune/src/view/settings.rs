@@ -9,7 +9,7 @@ use super::section_title;
 use crate::app::{Hooked, Theme};
 use crate::{fmt, icons};
 
-const NAV: [(&str, &str); 7] = [
+const NAV: [(&str, &str); 8] = [
     ("sessions", "Sessions"),
     ("stats", "Stats"),
     ("digest", "Digest"),
@@ -17,6 +17,7 @@ const NAV: [(&str, &str); 7] = [
     ("github", "GitHub"),
     ("skills", "Skills"),
     ("cron", "Cron"),
+    ("prompts", "Prompts"),
 ];
 const EDITORS: [(&str, &str); 6] = [
     ("vscode", "VS Code"),

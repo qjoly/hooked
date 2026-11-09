@@ -373,6 +373,7 @@ pub fn view(s: &Hooked, k: &Kit, _layer: &mut Vec<El>) -> El {
         .gap(18.0)
         .child(header)
         .child(prompt)
+        .child(prompt_pills(s, k))
         .child(controls(s, k))
         .child(launch_row)
         .child(
@@ -391,4 +392,39 @@ pub fn view(s: &Hooked, k: &Kit, _layer: &mut Vec<El>) -> El {
             stick_bottom: false,
         })
         .child(form)
+}
+
+fn prompt_pills(s: &Hooked, k: &Kit) -> El {
+    let list = s.prompts();
+    let mut r = row()
+        .key("new-prompts")
+        .w_full()
+        .gap(6.0)
+        .flex_wrap()
+        .center_y();
+    if list.is_empty() {
+        return r;
+    }
+    r = r.child(section_title(k, "PROMPTS"));
+    for (i, (name, text)) in list.into_iter().enumerate() {
+        r = r.child(chip(k, format!("np-{i}"), name, false, move |s| {
+            let cur = s.new_prompt.text.trim_end().to_string();
+            let next = if cur.is_empty() {
+                text.clone()
+            } else {
+                format!("{cur}\n\n{text}")
+            };
+            let end = next.len();
+            s.new_prompt.replace_text(next);
+            s.new_prompt.set_caret(end);
+            s.new_prompt.focused = true;
+        }));
+    }
+    r.child(
+        Button::new("Manage")
+            .variant(ButtonVariant::GhostMuted)
+            .control_size(ControlSize::Small)
+            .on_press(|s: &mut Hooked| s.go(crate::app::Page::Prompts))
+            .build(k),
+    )
 }

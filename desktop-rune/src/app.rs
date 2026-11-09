@@ -35,6 +35,7 @@ pub enum Page {
     Cron,
     GitHub,
     Skills,
+    Prompts,
     Settings,
 }
 
@@ -412,6 +413,7 @@ impl Hooked {
                 "github" => Page::GitHub,
                 "skills" => Page::Skills,
                 "cron" => Page::Cron,
+                "prompts" => Page::Prompts,
                 _ => Page::Deck,
             };
             s.new_mode = s
@@ -534,6 +536,7 @@ impl Hooked {
                 Some("github") => Page::GitHub,
                 Some("skills") => Page::Skills,
                 Some("settings") => Page::Settings,
+                Some("prompts") => Page::Prompts,
                 _ => s.page,
             };
             s.preload_page();

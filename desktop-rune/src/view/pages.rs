@@ -1130,3 +1130,126 @@ pub fn skills(s: &Hooked, k: &Kit) -> El {
         .child(col().grow(1.0).shrink().h_full().child(detail));
     page(k, "skills", &format!("Skills · {}", list.len()), el(), body)
 }
+
+pub fn prompts(s: &Hooked, k: &Kit) -> El {
+    use rune_kit::{TextArea, TextInput};
+    let list = s.prompts();
+    let sel = s.pages.prompt_sel;
+    let mut items = col().w_full().gap(2.0);
+    if list.is_empty() {
+        items = items.child(
+            text("No prompt yet. Saved prompts show up on the New session page, ready to drop into the draft.")
+                .font(k.ty.text_small)
+                .color(k.c.text_faint)
+                .wrap(),
+        );
+    }
+    for (i, (name, body)) in list.iter().enumerate() {
+        let on = sel == Some(Some(i));
+        items = items.child(
+            k.interactive(
+                col()
+                    .key(format!("prompt-{i}"))
+                    .role("button")
+                    .checked(on)
+                    .w_full()
+                    .px(10.0)
+                    .py(8.0)
+                    .gap(2.0)
+                    .radius(k.radius.sm)
+                    .cursor(Cursor::Pointer)
+                    .fill(if on { k.c.layer_02 } else { Color::TRANSPARENT })
+                    .child(
+                        text(name.clone())
+                            .font(k.ty.ui_medium)
+                            .color(k.c.text_base)
+                            .truncate(),
+                    )
+                    .child(
+                        text(fmt::first_line(body, 80))
+                            .font(k.ty.text_xsmall)
+                            .color(k.c.text_faint)
+                            .truncate(),
+                    ),
+            )
+            .on_press(move |s: &mut Hooked| s.edit_prompt(Some(i))),
+        );
+    }
+    let left = col()
+        .key("prompts-list")
+        .w(300.0)
+        .h_full()
+        .padding(12.0)
+        .gap(8.0)
+        .border_sides([0.0, 1.0, 0.0, 0.0], k.c.border_weak)
+        .child(
+            Button::new("New prompt")
+                .icon(&icons::PLUS)
+                .variant(ButtonVariant::Contrast)
+                .on_press(|s: &mut Hooked| s.edit_prompt(None))
+                .build(k),
+        )
+        .child(scroll("prompts-scroll", items));
+    let right = match sel {
+        None => col().grow(1.0).center().child(
+            text("Pick a prompt to edit it, or create one.")
+                .font(k.ty.body)
+                .color(k.c.text_faint),
+        ),
+        Some(i) => {
+            let mut actions = row()
+                .gap(8.0)
+                .child(
+                    Button::new("Save")
+                        .variant(ButtonVariant::Contrast)
+                        .on_press(|s: &mut Hooked| s.save_prompt())
+                        .build(k),
+                )
+                .child(
+                    Button::new("Cancel")
+                        .variant(ButtonVariant::GhostMuted)
+                        .on_press(|s: &mut Hooked| s.pages.prompt_sel = None)
+                        .build(k),
+                );
+            if i.is_some() {
+                actions = actions.child(el().grow(1.0)).child(
+                    Button::new("Delete")
+                        .variant(ButtonVariant::Danger)
+                        .on_press(|s: &mut Hooked| s.delete_prompt())
+                        .build(k),
+                );
+            }
+            col()
+                .grow(1.0)
+                .min_w(0.0)
+                .h_full()
+                .padding(20.0)
+                .gap(12.0)
+                .child(
+                    TextInput::new(&s.pages.prompt_name)
+                        .placeholder("Name")
+                        .width(None)
+                        .on_edit(|s: &mut Hooked| &mut s.pages.prompt_name)
+                        .build(k)
+                        .key("prompt-name"),
+                )
+                .child(
+                    TextArea::new(&s.pages.prompt_text)
+                        .placeholder("The prompt…")
+                        .width(None)
+                        .auto_grow(8, 30)
+                        .on_edit(|s: &mut Hooked| &mut s.pages.prompt_text)
+                        .build(k)
+                        .key("prompt-text"),
+                )
+                .child(actions)
+        }
+    };
+    page(
+        k,
+        "prompts",
+        &format!("Prompts · {}", list.len()),
+        el(),
+        row().w_full().grow(1.0).min_h(0.0).child(left).child(right),
+    )
+}

@@ -82,6 +82,9 @@ pub struct PageData {
     pub hours: Option<TextEdit>,
     pub tag_edit: Option<(String, TextEdit)>,
     pub tag_hue_open: Option<String>,
+    pub prompt_sel: Option<Option<usize>>,
+    pub prompt_name: TextEdit,
+    pub prompt_text: TextEdit,
     pub busy: Option<&'static str>,
     pub settings_stale: bool,
     pub settings_loading: bool,
@@ -272,6 +275,72 @@ impl Hooked {
             }
             _ => false,
         }
+    }
+
+    pub fn prompts(&self) -> Vec<(String, String)> {
+        self.setting("promptLibrary")
+            .as_array()
+            .into_iter()
+            .flatten()
+            .map(|p| {
+                (
+                    p["name"].as_str().unwrap_or("").to_string(),
+                    p["text"].as_str().unwrap_or("").to_string(),
+                )
+            })
+            .collect()
+    }
+
+    pub fn edit_prompt(&mut self, index: Option<usize>) {
+        let (name, text) = index
+            .and_then(|i| self.prompts().get(i).cloned())
+            .unwrap_or_default();
+        self.pages.prompt_sel = Some(index);
+        self.pages.prompt_name = TextEdit::new(name);
+        self.pages.prompt_text = TextEdit::new(text);
+        self.pages.prompt_name.focused = true;
+    }
+
+    pub fn save_prompt(&mut self) {
+        let Some(sel) = self.pages.prompt_sel else {
+            return;
+        };
+        let name = self.pages.prompt_name.text.trim().to_string();
+        let text = self.pages.prompt_text.text.trim().to_string();
+        if name.is_empty() || text.is_empty() {
+            self.flash("A prompt needs a name and a text", true);
+            return;
+        }
+        let mut list = self.prompts();
+        let entry = (name, text);
+        match sel {
+            Some(i) if i < list.len() => list[i] = entry,
+            _ => {
+                list.push(entry);
+                self.pages.prompt_sel = Some(Some(list.len() - 1));
+            }
+        }
+        self.save_prompts(list);
+    }
+
+    pub fn delete_prompt(&mut self) {
+        let Some(Some(i)) = self.pages.prompt_sel else {
+            return;
+        };
+        let mut list = self.prompts();
+        if i < list.len() {
+            list.remove(i);
+        }
+        self.pages.prompt_sel = None;
+        self.save_prompts(list);
+    }
+
+    fn save_prompts(&mut self, list: Vec<(String, String)>) {
+        let v: Vec<Value> = list
+            .into_iter()
+            .map(|(name, text)| json!({ "name": name, "text": text }))
+            .collect();
+        self.save_setting("promptLibrary", Value::Array(v));
     }
 
     pub fn go(&mut self, page: Page) {
