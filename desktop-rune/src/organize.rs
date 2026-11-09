@@ -7,9 +7,22 @@ use crate::api::{self, Session};
 use crate::app::{Hooked, refresh_sessions, spawn};
 
 pub enum Picker {
-    Tags { id: String, edit: TextEdit },
-    Group { id: String, query: TextEdit },
-    RenameGroup { id: String, edit: TextEdit },
+    Tags {
+        id: String,
+        edit: TextEdit,
+    },
+    Group {
+        id: String,
+        query: TextEdit,
+    },
+    RenameGroup {
+        id: String,
+        edit: TextEdit,
+    },
+    Trash {
+        items: Option<Vec<serde_json::Value>>,
+        busy: Option<String>,
+    },
 }
 
 /// A sidebar entry: a session, and the sessions grouped under it when it leads a group.

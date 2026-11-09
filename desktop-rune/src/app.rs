@@ -129,6 +129,7 @@ pub struct Hooked {
     pub images: Option<rune::ImageCache>,
     pub thumbs: HashMap<String, rune::Image>,
     pub media: HashMap<String, Option<rune::Image>>,
+    pub drafts: HashMap<String, String>,
     pub tools_open: HashSet<String>,
     pub all_tools_open: bool,
     pub visible: usize,
@@ -183,6 +184,7 @@ impl Hooked {
             .unwrap_or_else(|| "dynamic".to_string());
         let folded_groups: HashSet<String> = prefs.get("foldedGroups").unwrap_or_default();
         let tag_colors: HashMap<String, usize> = prefs.get("tagColors").unwrap_or_default();
+        let drafts: HashMap<String, String> = prefs.get("drafts").unwrap_or_default();
         let collapse_worktrees: bool = prefs.get("collapseWorktrees").unwrap_or(true);
         let theme = prefs.get("theme").unwrap_or(Theme::System);
         let notify = prefs.get("notify").unwrap_or(true);
@@ -237,6 +239,7 @@ impl Hooked {
             images: None,
             thumbs: HashMap::new(),
             media: HashMap::new(),
+            drafts,
             tools_open: HashSet::new(),
             all_tools_open: false,
             visible: WINDOW,
@@ -411,6 +414,12 @@ impl Hooked {
             };
             s.preload_page();
         }
+        if args.iter().any(|a| a == "--trash") {
+            let items = api::get("/api/trash")
+                .ok()
+                .and_then(|v| v["trashed"].as_array().cloned());
+            s.picker = Some(crate::organize::Picker::Trash { items, busy: None });
+        }
         if let Some(i) = args.iter().position(|a| a == "--tag-hues") {
             s.pages.tag_hue_open = args.get(i + 1).cloned();
         }
@@ -485,6 +494,22 @@ impl Hooked {
             .collect()
     }
 
+    pub fn stash_draft(&mut self) {
+        let Some(id) = self.selected.clone() else {
+            return;
+        };
+        let text = self.composer.text.trim_end().to_string();
+        let changed = if text.is_empty() {
+            self.drafts.remove(&id).is_some()
+        } else {
+            self.drafts.insert(id, text.clone()).as_ref() != Some(&text)
+        };
+        if changed {
+            let drafts = self.drafts.clone();
+            self.save_pref("drafts", &drafts);
+        }
+    }
+
     pub fn open_session(&mut self, id: &str) {
         self.page = Page::Session;
         self.palette_open = false;
@@ -492,6 +517,7 @@ impl Hooked {
         if self.selected.as_deref() == Some(id) && self.detail.is_some() {
             return;
         }
+        self.stash_draft();
         self.selected = Some(id.to_string());
         self.detail = None;
         self.live = None;
@@ -507,7 +533,7 @@ impl Hooked {
             ..Default::default()
         };
         self.lens_data.diff.set_mode(mode);
-        self.composer = TextEdit::new("");
+        self.composer = TextEdit::new(self.drafts.get(id).cloned().unwrap_or_default());
         self.composer.focused = true;
         self.reset_question();
         self.load_detail();
@@ -918,6 +944,7 @@ impl Hooked {
         self.attachments.clear();
         self.composer = TextEdit::new("");
         self.composer.focused = true;
+        self.stash_draft();
         spawn(
             move || {
                 if live {
@@ -1107,6 +1134,65 @@ impl Hooked {
         };
         self.popup = None;
         self.act("Restarted", move || api::restart(&id));
+    }
+
+    pub fn open_trash(&mut self) {
+        self.palette_open = false;
+        self.picker = Some(crate::organize::Picker::Trash {
+            items: None,
+            busy: None,
+        });
+        spawn(
+            || api::get("/api/trash"),
+            |s, r, _| {
+                if let Some(crate::organize::Picker::Trash { items, .. }) = s.picker.as_mut() {
+                    let mut seen = HashSet::new();
+                    let list = r
+                        .ok()
+                        .and_then(|v| v["trashed"].as_array().cloned())
+                        .unwrap_or_default()
+                        .into_iter()
+                        .filter(|t| {
+                            t["id"]
+                                .as_str()
+                                .is_some_and(|id| seen.insert(id.to_string()))
+                        })
+                        .collect();
+                    *items = Some(list);
+                }
+            },
+        );
+    }
+
+    pub fn restore(&mut self, id: String) {
+        let Some(crate::organize::Picker::Trash { busy, .. }) = self.picker.as_mut() else {
+            return;
+        };
+        if busy.is_some() {
+            return;
+        }
+        *busy = Some(id.clone());
+        spawn(
+            {
+                let id = id.clone();
+                move || api::post("/api/restore", serde_json::json!({ "id": id }))
+            },
+            move |s, r, _| {
+                if let Some(crate::organize::Picker::Trash { items, busy }) = s.picker.as_mut() {
+                    *busy = None;
+                    if r.is_ok()
+                        && let Some(list) = items.as_mut()
+                    {
+                        list.retain(|t| t["id"].as_str() != Some(id.as_str()));
+                    }
+                }
+                match r {
+                    Ok(_) => s.flash("✓ Restored", false),
+                    Err(e) => s.flash(format!("✗ Restore: {e}"), true),
+                }
+                refresh_sessions();
+            },
+        );
     }
 
     pub fn delete(&mut self) {

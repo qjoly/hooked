@@ -112,6 +112,7 @@ fn on_key(s: &mut Hooked, ev: &KeyEvent, tx: &mut Tx) -> bool {
 fn poll(s: &mut Hooked, _clock: f64, tx: &mut Tx) -> bool {
     let now = fmt::now_ms();
     let mut changed = false;
+    s.stash_draft();
     let working = s.page == Page::Session && s.working_since.is_some();
     let step = if working { 1000 } else { 30_000 };
     if now / step != s.now / step {
@@ -141,7 +142,9 @@ fn setup(s: &mut Hooked, waker: rune::Waker) {
     app::start_workers();
 }
 
-fn on_close(_: &mut Hooked, _: &mut Tx) {}
+fn on_close(s: &mut Hooked, _: &mut Tx) {
+    s.stash_draft();
+}
 
 fn on_ime(s: &mut Hooked, ime: &rune::Ime, tx: &mut Tx) -> bool {
     if tx.focused() != Some("term-screen") {

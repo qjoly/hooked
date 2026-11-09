@@ -148,7 +148,27 @@ pub fn first_line(s: &str, max: usize) -> String {
     }
 }
 
+fn unlink(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut rest = s;
+    while let Some(open) = rest.find('[') {
+        let after = &rest[open + 1..];
+        let Some(close) = after.find("](") else {
+            break;
+        };
+        let Some(end) = after[close + 2..].find(')') else {
+            break;
+        };
+        out.push_str(&rest[..open]);
+        out.push_str(&after[..close]);
+        rest = &after[close + 2 + end + 1..];
+    }
+    out.push_str(rest);
+    out
+}
+
 pub fn plain(s: &str, max: usize) -> String {
+    let s = &unlink(s);
     let flat: String = s
         .lines()
         .map(|l| {
@@ -195,6 +215,17 @@ pub fn link_label(url: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn plain_keeps_link_text() {
+        assert_eq!(
+            plain(
+                "pushed to [#2178](https://github.com/x/y/pull/2178). Done [a]",
+                200
+            ),
+            "pushed to #2178. Done [a]"
+        );
+    }
 
     #[test]
     fn links_name_their_repo() {

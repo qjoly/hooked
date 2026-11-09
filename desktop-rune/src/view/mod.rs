@@ -297,6 +297,15 @@ fn topbar(s: &Hooked, k: &Kit, inset: f32, _layer: &mut Vec<El>) -> El {
                 .key("tb-incognito")
         })
         .child(
+            IconButton::new(&icons::TRASH)
+                .variant(IconButtonVariant::GhostMuted)
+                .label("Trash")
+                .help("Trash: deleted sessions, recoverable")
+                .on_press(|s: &mut Hooked| s.open_trash())
+                .build(k)
+                .key("tb-trash"),
+        )
+        .child(
             IconButton::new(if s.notify {
                 &icons::BELL
             } else {

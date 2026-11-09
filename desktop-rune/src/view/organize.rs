@@ -201,6 +201,7 @@ pub fn view(s: &Hooked, k: &Kit) -> El {
                 .child(list);
             modal(k, "group-modal", "Move to group", body)
         }
+        Some(Picker::Trash { items, busy }) => trash(s, k, items.as_deref(), busy.as_deref()),
         Some(Picker::RenameGroup { edit, .. }) => {
             let body = col()
                 .w_full()
@@ -240,4 +241,72 @@ pub fn view(s: &Hooked, k: &Kit) -> El {
             modal(k, "rename-modal", "Rename the group", body)
         }
     }
+}
+
+fn trash(s: &Hooked, k: &Kit, items: Option<&[serde_json::Value]>, busy: Option<&str>) -> El {
+    let sub = match items {
+        None => "Loading…".to_string(),
+        Some([]) => "Empty. Deleted sessions land here and stay recoverable.".to_string(),
+        Some(l) => format!(
+            "{} session{}: the transcript is kept in bin/, restorable anytime.",
+            l.len(),
+            if l.len() == 1 { "" } else { "s" }
+        ),
+    };
+    let mut list = col()
+        .key("trash-list")
+        .w_full()
+        .gap(2.0)
+        .max_h(420.0)
+        .scroll(rune::ScrollSpec {
+            stick_bottom: false,
+        });
+    for it in items.unwrap_or_default() {
+        let id = it["id"].as_str().unwrap_or("").to_string();
+        let title = ["title", "firstPrompt"]
+            .iter()
+            .filter_map(|f| it[*f].as_str())
+            .find(|t| !t.is_empty() && *t != "(sans titre)")
+            .unwrap_or("(untitled)")
+            .to_string();
+        let mut meta = format!(
+            "{} · deleted {} ago",
+            it["projectName"].as_str().unwrap_or("?"),
+            crate::fmt::ago_short(it["trashedAt"].as_str(), s.now)
+        );
+        if let Some(c) = it["cost"].as_f64().filter(|c| *c > 0.0) {
+            meta.push_str(&format!(" · {}", crate::fmt::cost(Some(c))));
+        }
+        let on = busy == Some(id.as_str());
+        list = list.child(
+            row()
+                .key(format!("trash-{id}"))
+                .w_full()
+                .py(6.0)
+                .gap(10.0)
+                .center_y()
+                .border_sides([0.0, 0.0, 1.0, 0.0], k.c.border_weak)
+                .child(
+                    col()
+                        .grow(1.0)
+                        .min_w(0.0)
+                        .gap(2.0)
+                        .child(text(title).font(k.ty.ui).color(k.c.text_base).truncate())
+                        .child(text(meta).font(k.ty.text_xsmall).color(k.c.text_faint)),
+                )
+                .child(
+                    Button::new(if on { "Restoring…" } else { "Restore" })
+                        .variant(ButtonVariant::Outline)
+                        .disabled(busy.is_some())
+                        .on_press(move |s: &mut Hooked| s.restore(id.clone()))
+                        .build(k),
+                ),
+        );
+    }
+    let body = col()
+        .w_full()
+        .gap(10.0)
+        .child(text(sub).font(k.ty.text_small).color(k.c.text_muted))
+        .child(list);
+    modal(k, "trash-modal", "Trash", body)
 }
