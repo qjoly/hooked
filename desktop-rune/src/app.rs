@@ -136,6 +136,7 @@ pub struct Hooked {
     pub gh_checks: HashMap<String, Vec<serde_json::Value>>,
     pub plan_quote: Option<String>,
     pub new_group: Option<String>,
+    pub usage: Option<serde_json::Value>,
     pub deck_plans: HashMap<String, (String, Option<String>)>,
     pub plan_comments: Vec<(String, String)>,
     pub job_gen: Arc<AtomicU64>,
@@ -350,6 +351,7 @@ impl Hooked {
             gh_checks: HashMap::new(),
             plan_quote: None,
             new_group: None,
+            usage: None,
             deck_plans: HashMap::new(),
             plan_comments: Vec::new(),
             job_gen: Arc::new(AtomicU64::new(0)),
@@ -433,7 +435,10 @@ impl Hooked {
                 .filter(|m| !m.is_empty())
                 .map(str::to_string);
         }
-        s.gauges = api::usage().unwrap_or_default();
+        if let Ok((g, raw)) = api::usage() {
+            s.gauges = g;
+            s.usage = Some(raw);
+        }
         s.announced = s
             .sessions
             .iter()
@@ -2320,8 +2325,11 @@ pub fn start_workers() {
         }
         loop {
             std::thread::sleep(Duration::from_secs(60));
-            if let (Ok(g), Some(h)) = (api::usage(), HANDLE.get()) {
-                h.update(move |s, _| s.gauges = g);
+            if let (Ok((g, raw)), Some(h)) = (api::usage(), HANDLE.get()) {
+                h.update(move |s, _| {
+                    s.gauges = g;
+                    s.usage = Some(raw);
+                });
             }
         }
     });

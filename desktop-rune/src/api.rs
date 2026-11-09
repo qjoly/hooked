@@ -588,7 +588,7 @@ pub struct Gauge {
     pub pct: Option<f64>,
 }
 
-pub fn usage() -> Result<Vec<Gauge>, String> {
+pub fn usage() -> Result<(Vec<Gauge>, Value), String> {
     let v = get("/api/usage")?;
     let a = v.get("account").cloned().unwrap_or(Value::Null);
     let pct = |x: &Value| x.get("pct").and_then(Value::as_f64);
@@ -612,7 +612,7 @@ pub fn usage() -> Result<Vec<Gauge>, String> {
             pct: pct(&a["fable"]),
         });
     }
-    Ok(out)
+    Ok((out, v))
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]

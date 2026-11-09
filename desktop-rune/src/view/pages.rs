@@ -142,6 +142,150 @@ fn sorted_by(obj: &Value, field: &str) -> Vec<(String, Value)> {
     v
 }
 
+fn usage_bar(k: &Kit, label: &str, pct: Option<f64>, sub: String) -> El {
+    let p = pct.unwrap_or(0.0).clamp(0.0, 100.0) as f32;
+    let fill = if p >= 90.0 {
+        k.c.danger.icon
+    } else if p >= 75.0 {
+        k.c.warning.icon
+    } else {
+        k.c.icon_accent
+    };
+    col()
+        .w_full()
+        .gap(4.0)
+        .child(
+            row()
+                .w_full()
+                .child(
+                    text(label.to_string())
+                        .font(k.ty.text_small)
+                        .color(k.c.text_muted),
+                )
+                .child(el().grow(1.0))
+                .child(
+                    text(pct.map_or("—".into(), |p| format!("{p:.0}%")))
+                        .font(k.ty.text_small_medium)
+                        .color(k.c.text_base),
+                ),
+        )
+        .child(
+            el().w_full()
+                .h(6.0)
+                .radius(3.0)
+                .fill(k.c.layer_02)
+                .child(el().w_frac(p / 100.0).h(6.0).radius(3.0).fill(fill)),
+        )
+        .child(text(sub).font(k.ty.text_xsmall).color(k.c.text_faint))
+}
+
+fn resets(v: &Value) -> String {
+    v["resetInMin"]
+        .as_f64()
+        .map(|m| format!("resets in {}", fmt::span((m * 60_000.0) as i64, " ")))
+        .unwrap_or_else(|| "—".into())
+}
+
+fn usage_cards(s: &Hooked, k: &Kit) -> El {
+    let Some(u) = s.usage.as_ref() else {
+        return el();
+    };
+    let card = |title: &str| {
+        col()
+            .grow(1.0)
+            .min_w(280.0)
+            .padding(16.0)
+            .gap(12.0)
+            .radius(k.radius.lg)
+            .fill(k.c.layer_01)
+            .border(1.0, k.c.border_weak)
+            .child(
+                text(title.to_string())
+                    .font(k.ty.ui_medium)
+                    .color(k.c.text_base),
+            )
+    };
+    let a = &u["account"];
+    let mut limits = card("Account limits")
+        .child(usage_bar(
+            k,
+            "5-hour",
+            a["fiveHour"]["pct"].as_f64(),
+            resets(&a["fiveHour"]),
+        ))
+        .child(usage_bar(
+            k,
+            "7-day",
+            a["sevenDay"]["pct"].as_f64(),
+            resets(&a["sevenDay"]),
+        ));
+    if a["fable"].is_object() {
+        limits = limits.child(usage_bar(
+            k,
+            a["fable"]["label"].as_str().unwrap_or("Fable"),
+            a["fable"]["pct"].as_f64(),
+            resets(&a["fable"]),
+        ));
+    }
+    if let Some(at) = a["at"].as_str() {
+        limits = limits.child(
+            text(format!("updated {} ago", fmt::ago_short(Some(at), s.now)))
+                .font(k.ty.text_xsmall)
+                .color(k.c.text_faint),
+        );
+    }
+    let x = &u["session"];
+    let current = if x.is_object() {
+        let size = x["context"]["size"].as_f64().map_or("—".into(), |n| {
+            if n >= 1e6 {
+                format!("of {:.0}M tokens", n / 1e6)
+            } else {
+                format!("of {:.0}k tokens", n / 1e3)
+            }
+        });
+        let mut chips = row()
+            .gap(6.0)
+            .flex_wrap()
+            .child(pill(
+                k,
+                format!("Effort: {}", x["effort"].as_str().unwrap_or("—")),
+                k.c.text_muted,
+                k.c.layer_02,
+            ))
+            .child(pill(
+                k,
+                format!(
+                    "Model: {}",
+                    x["modelName"]
+                        .as_str()
+                        .or(x["modelId"].as_str())
+                        .unwrap_or("—")
+                ),
+                k.c.text_muted,
+                k.c.layer_02,
+            ));
+        if x["fastMode"] == true {
+            chips = chips.child(pill(k, "Fast", k.c.warning.fg, k.c.warning.bg));
+        }
+        card("Current session")
+            .child(usage_bar(k, "Context", x["context"]["pct"].as_f64(), size))
+            .child(chips)
+    } else {
+        card("Current session").child(
+            text("No active session snapshot.")
+                .font(k.ty.text_small)
+                .color(k.c.text_faint),
+        )
+    };
+    row()
+        .key("stats-usage")
+        .w_full()
+        .gap(12.0)
+        .flex_wrap()
+        .child(limits)
+        .child(current)
+}
+
 pub fn stats(s: &Hooked, k: &Kit) -> El {
     let pd = &s.pages;
     let labels: Vec<&str> = STATS_RANGES.iter().map(|r| r.1).collect();
@@ -155,6 +299,7 @@ pub fn stats(s: &Hooked, k: &Kit) -> El {
         return page(k, "stats", "Stats", actions, loading(k));
     };
     let t = &v["totals"];
+    let usage = usage_cards(s, k);
     let tiles = row()
         .key("stats-tiles")
         .w_full()
@@ -264,6 +409,7 @@ pub fn stats(s: &Hooked, k: &Kit) -> El {
         .self_center()
         .padding(24.0)
         .gap(18.0)
+        .child(usage)
         .child(tiles)
         .child(card(k, "stats-chart", "COST PER DAY").child(chart))
         .child(
