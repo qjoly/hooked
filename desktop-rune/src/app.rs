@@ -1276,9 +1276,9 @@ impl Hooked {
     }
 
     pub fn send(&mut self) {
-        let Some(d) = self.detail.as_ref() else {
+        if self.detail.is_none() {
             return;
-        };
+        }
         if self.sending {
             return;
         }
@@ -1299,6 +1299,17 @@ impl Hooked {
         if text.is_empty() {
             return;
         }
+        self.attachments.clear();
+        self.composer = TextEdit::new("");
+        self.composer.focused = true;
+        self.stash_draft();
+        self.send_prompt(text);
+    }
+
+    pub fn send_prompt(&mut self, text: String) {
+        let Some(d) = self.detail.as_ref() else {
+            return;
+        };
         let (id, live, effort) = (
             d.session.id.clone(),
             d.session.live,
@@ -1306,10 +1317,6 @@ impl Hooked {
         );
         self.sending = true;
         self.queued.push(text.clone());
-        self.attachments.clear();
-        self.composer = TextEdit::new("");
-        self.composer.focused = true;
-        self.stash_draft();
         spawn(
             move || {
                 if live {

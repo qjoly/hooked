@@ -214,6 +214,23 @@ pub fn review(s: &Hooked, d: &Detail, k: &Kit) -> El {
     if ld.diff_loading {
         top = top.child(Spinner::new().build(k));
     }
+    if !ld.diff.files().is_empty() {
+        top = top.child(
+            Button::new(if ld.asking {
+                "Asking…"
+            } else {
+                "Review with Claude"
+            })
+            .icon(&icons::BOT)
+            .variant(ButtonVariant::Outline)
+            .control_size(ControlSize::Regular)
+            .disabled(ld.asking)
+            .help("Claude reviews the diff on screen and opens a thread for each finding")
+            .on_press(|s: &mut Hooked| s.review_with_claude())
+            .build(k)
+            .key("review-claude"),
+        );
+    }
     let pending = s.pending_threads().len();
     if pending > 0 {
         top = top.child(

@@ -20,6 +20,7 @@ pub struct LensData {
     pub diff_sig: Option<String>,
     pub diff_loading: bool,
     pub diff_count: usize,
+    pub asking: bool,
     pub anchors: Vec<(String, String)>,
     pub threads: Vec<Value>,
     pub draft: Option<(LineRange, TextEdit)>,
@@ -50,6 +51,7 @@ impl Default for LensData {
             diff_sig: None,
             diff_loading: false,
             diff_count: 0,
+            asking: false,
             anchors: Vec::new(),
             threads: Vec::new(),
             draft: None,
@@ -123,7 +125,156 @@ pub fn fingerprint(f: &FileDiff) -> String {
 
 const REVIEWED_PER_FILE: usize = 12;
 
+pub struct ReviewBrief {
+    pub file: String,
+    pub anchor: String,
+    pub text: String,
+}
+
+fn brief_list(threads: &[ReviewBrief]) -> String {
+    threads
+        .iter()
+        .map(|t| {
+            let first: String = t
+                .text
+                .lines()
+                .next()
+                .unwrap_or("")
+                .chars()
+                .take(160)
+                .collect();
+            format!("- {} ({}): {first}", t.file, t.anchor)
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// The web's `reviewRequestPrompt`, word for word, so Claude gets the same brief from either client.
+pub fn review_request_prompt(
+    session: &str,
+    scope: &str,
+    files: &[String],
+    open: &[ReviewBrief],
+    dismissed: &[ReviewBrief],
+) -> String {
+    let api = format!("{}/api/review", api::base());
+    let list = files
+        .iter()
+        .map(|f| format!("- {f}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let lines = "1-based lines of the file as it is on disk now, i.e. the new side of the diff";
+    let mut out = format!(
+        "Review {scope}. Files under review:\n{list}\n\n\
+         Look for real problems — bugs, wrong behaviour, unhandled cases, risky changes — and for \
+         simplifications worth making. Check each finding against the code before reporting it; skip \
+         style nits. Do NOT change any code: this is a review, fixes come once I answer in the threads.\n\n\
+         Report EACH finding as its own inline thread with the hooked MCP tool \
+         mcp__hooked__add_review_comment (id: \"{session}\", file: absolute path, line / end_line: \
+         {lines}; text: what is wrong, why it matters and the fix you suggest, in Markdown). If that MCP \
+         tool is unavailable, POST each finding to the local hooked API instead: curl -sS -X POST {api} \
+         -H 'content-type: application/json' -d '{{\"id\":\"{session}\",\"action\":\"claude-comment\",\
+         \"file\":\"<path>\",\"start\":<line>,\"end\":<end_line>,\"text\":\"<finding>\"}}'. \
+         Keep your chat answer to a one-line summary (how many threads you opened) — the findings \
+         belong in the threads."
+    );
+    if !open.is_empty() {
+        out.push_str("\n\nThese threads are already open, do not raise them again:\n");
+        out.push_str(&brief_list(open));
+    }
+    if !dismissed.is_empty() {
+        out.push_str("\n\nThese were dismissed by the reviewer, do not raise them again:\n");
+        out.push_str(&brief_list(dismissed));
+    }
+    out
+}
+
 impl Hooked {
+    pub fn review_key_base(&self) -> &'static str {
+        match self.lens_data.review_source {
+            ReviewSource::Claude => "full",
+            ReviewSource::Tree => "vcs:wt",
+        }
+    }
+
+    pub fn review_with_claude(&mut self) {
+        let Some(d) = self.detail.as_ref() else {
+            return;
+        };
+        let id = d.session.id.clone();
+        let base = self.review_key_base();
+        let scope_key = format!("{base}:*");
+        let mut files: Vec<String> = Vec::new();
+        for (f, _) in &self.lens_data.anchors {
+            if !files.contains(f) {
+                files.push(f.clone());
+            }
+        }
+        if files.is_empty() {
+            return;
+        }
+        let in_key = |op: &str| op == base || op.starts_with(&format!("{base}:"));
+        let brief = |t: &Value| {
+            let side = if t["side"] == "old" { "−L" } else { "+L" };
+            let (a, b) = (
+                t["start"].as_u64().unwrap_or(0),
+                t["end"].as_u64().unwrap_or(0),
+            );
+            ReviewBrief {
+                file: t["file"].as_str().unwrap_or("").to_string(),
+                anchor: if a == b || b == 0 {
+                    format!("{side}{a}")
+                } else {
+                    format!("{side}{a}–{b}")
+                },
+                text: t["messages"][0]["text"].as_str().unwrap_or("").to_string(),
+            }
+        };
+        let here: Vec<&Value> = self
+            .lens_data
+            .threads
+            .iter()
+            .filter(|t| in_key(t["opIndex"].as_str().unwrap_or("")))
+            .collect();
+        let open: Vec<ReviewBrief> = here
+            .iter()
+            .filter(|t| t["status"] != "archived")
+            .map(|t| brief(t))
+            .collect();
+        let dismissed: Vec<ReviewBrief> = here
+            .iter()
+            .filter(|t| t["status"] == "archived")
+            .map(|t| brief(t))
+            .collect();
+        let scope = match self.lens_data.review_source {
+            ReviewSource::Claude => "your changes",
+            ReviewSource::Tree => "the uncommitted changes in the working tree",
+        };
+        let prompt = review_request_prompt(&id, scope, &files, &open, &dismissed);
+        self.lens_data.asking = true;
+        spawn(
+            move || {
+                api::post(
+                    "/api/review",
+                    json!({ "id": id, "action": "start", "scope": scope_key }),
+                )
+            },
+            move |s, r, _| {
+                s.lens_data.asking = false;
+                match r {
+                    Ok(_) => {
+                        s.send_prompt(prompt);
+                        s.flash(
+                            "✓ Claude is reviewing: its findings land here as threads",
+                            false,
+                        );
+                    }
+                    Err(e) => s.flash(format!("✗ Review: {e}"), true),
+                }
+            },
+        );
+    }
+
     fn review_key(&self, file: usize) -> Option<(String, String)> {
         let f = self.lens_data.diff.files().get(file)?;
         let id = self.selected.as_deref()?;
@@ -354,7 +505,14 @@ impl Hooked {
                 t["file"].as_str().unwrap_or(""),
                 t["opIndex"].as_str().unwrap_or(""),
             );
-            let Some(i) = ld.anchors.iter().position(|(f, k)| f == file && k == key) else {
+            let scoped = key.strip_suffix(":*");
+            let Some(i) = ld.anchors.iter().position(|(f, k)| {
+                f == file
+                    && match scoped {
+                        Some(base) => k.starts_with(&format!("{base}:")),
+                        None => k == key,
+                    }
+            }) else {
                 continue;
             };
             let side = if t["side"].as_str() == Some("old") {
@@ -733,5 +891,33 @@ mod tests {
         assert_eq!(files[0].path(), "src/a.rs · edit 1/2");
         assert_eq!(files[0].additions(), 1);
         assert_eq!(files[0].deletions(), 1);
+    }
+}
+
+#[cfg(test)]
+mod prompt_tests {
+    use super::*;
+
+    #[test]
+    fn review_prompt_matches_the_web_brief() {
+        let p = review_request_prompt(
+            "abc",
+            "your changes",
+            &["/r/a.rs".to_string()],
+            &[ReviewBrief {
+                file: "/r/a.rs".into(),
+                anchor: "+L3".into(),
+                text: "off by one\nmore".into(),
+            }],
+            &[],
+        );
+        assert!(p.starts_with(
+            "Review your changes. Files under review:\n- /r/a.rs\n\nLook for real problems"
+        ));
+        assert!(p.contains("mcp__hooked__add_review_comment (id: \"abc\", file: absolute path"));
+        assert!(
+            p.contains("-d '{\"id\":\"abc\",\"action\":\"claude-comment\",\"file\":\"<path>\"")
+        );
+        assert!(p.ends_with("do not raise them again:\n- /r/a.rs (+L3): off by one"));
     }
 }
