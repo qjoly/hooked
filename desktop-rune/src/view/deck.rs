@@ -208,11 +208,62 @@ fn decision_card(s: &Hooked, x: &Session, k: &Kit) -> El {
                 .color(k.c.text_muted),
         );
     } else if x.has_plan {
-        c = c.child(
-            text("A plan is ready for review.")
-                .font(k.ty.text_small)
-                .color(k.c.text_muted),
-        );
+        match s.deck_plans.get(&x.id).and_then(|(_, p)| p.clone()) {
+            Some(plan) => {
+                let (r, a, b) = (id.clone(), id.clone(), id.clone());
+                c = c
+                    .child(
+                        col()
+                            .w_full()
+                            .max_h(260.0)
+                            .padding(8.0)
+                            .radius(k.radius.sm)
+                            .fill(k.c.layer_01)
+                            .scroll(ScrollSpec {
+                                stick_bottom: false,
+                            })
+                            .child(super::md(plan).build(k)),
+                    )
+                    .child(
+                        row()
+                            .w_full()
+                            .gap(6.0)
+                            .flex_wrap()
+                            .child(
+                                Button::new("Keep planning")
+                                    .variant(ButtonVariant::Outline)
+                                    .control_size(ControlSize::Small)
+                                    .on_press(move |s: &mut Hooked| {
+                                        s.deck_plan(r.clone(), "reject")
+                                    })
+                                    .build(k),
+                            )
+                            .child(
+                                Button::new("Approve · accept edits")
+                                    .variant(ButtonVariant::Neutral)
+                                    .control_size(ControlSize::Small)
+                                    .on_press(move |s: &mut Hooked| {
+                                        s.deck_plan(a.clone(), "acceptEdits")
+                                    })
+                                    .build(k),
+                            )
+                            .child(
+                                Button::new("Approve · auto")
+                                    .variant(ButtonVariant::Contrast)
+                                    .control_size(ControlSize::Small)
+                                    .on_press(move |s: &mut Hooked| s.deck_plan(b.clone(), "auto"))
+                                    .build(k),
+                            ),
+                    );
+            }
+            None => {
+                c = c.child(
+                    text("Loading the plan…")
+                        .font(k.ty.text_small)
+                        .color(k.c.text_muted),
+                );
+            }
+        }
     } else {
         let reply = fmt::plain(
             x.last_reply

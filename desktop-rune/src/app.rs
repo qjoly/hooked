@@ -135,6 +135,7 @@ pub struct Hooked {
     pub gh_checks: HashMap<String, Vec<serde_json::Value>>,
     pub plan_quote: Option<String>,
     pub new_group: Option<String>,
+    pub deck_plans: HashMap<String, (String, Option<String>)>,
     pub plan_comments: Vec<(String, String)>,
     pub job_gen: Arc<AtomicU64>,
     pub full_texts: HashMap<String, Option<String>>,
@@ -348,6 +349,7 @@ impl Hooked {
             gh_checks: HashMap::new(),
             plan_quote: None,
             new_group: None,
+            deck_plans: HashMap::new(),
             plan_comments: Vec::new(),
             job_gen: Arc::new(AtomicU64::new(0)),
             full_texts: HashMap::new(),
@@ -1389,7 +1391,53 @@ impl Hooked {
         });
     }
 
+    /// The Deck shows a plan in place; the list only says there is one, so fetch it once per change.
+    fn want_deck_plans(&mut self, list: &[Session]) {
+        for x in list.iter().filter(|x| x.has_plan) {
+            let ts = x.last_activity.clone().unwrap_or_default();
+            if self.deck_plans.get(&x.id).is_some_and(|(t, _)| *t == ts) {
+                continue;
+            }
+            self.deck_plans.insert(x.id.clone(), (ts.clone(), None));
+            let id = x.id.clone();
+            spawn(
+                {
+                    let id = id.clone();
+                    move || api::detail(&id)
+                },
+                move |s, r, _| {
+                    let plan = r.ok().and_then(|d| d.pending_plan.map(|p| p.plan));
+                    s.deck_plans.insert(id, (ts, plan));
+                },
+            );
+        }
+        self.deck_plans
+            .retain(|id, _| list.iter().any(|x| x.id == *id && x.has_plan));
+    }
+
+    pub fn deck_plan(&mut self, id: String, action: &'static str) {
+        self.deck_plans.remove(&id);
+        spawn(
+            move || api::plan(&id, action, None),
+            move |s, r, _| {
+                match r {
+                    Ok(()) => s.flash(
+                        if action == "reject" {
+                            "✓ Back to planning"
+                        } else {
+                            "✓ Plan approved"
+                        },
+                        false,
+                    ),
+                    Err(e) => s.flash(format!("✗ Plan: {e}"), true),
+                }
+                refresh_sessions();
+            },
+        );
+    }
+
     pub fn apply_sessions(&mut self, list: Vec<Session>, meta: Option<HashMap<String, Meta>>) {
+        self.want_deck_plans(&list);
         let changed = |a: &Session, b: &Session| {
             a.last_activity != b.last_activity
                 || a.state != b.state
