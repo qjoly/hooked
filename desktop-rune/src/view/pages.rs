@@ -887,7 +887,7 @@ pub fn github(s: &Hooked, k: &Kit) -> El {
     };
     let labels: Vec<String> = GITHUB_TABS
         .iter()
-        .map(|(key, label)| format!("{label} · {}", v[*key].as_array().map_or(0, Vec::len)))
+        .map(|(key, label)| format!("{label} · {}", s.gh_items(key).len()))
         .collect();
     let tabs = SegmentedControl::new(&labels, Some(pd.github_tab))
         .label("List")
@@ -903,8 +903,93 @@ pub fn github(s: &Hooked, k: &Kit) -> El {
         .self_center()
         .padding(24.0)
         .gap(6.0)
-        .child(row().pb(10.0).child(tabs));
-    let items = v[key].as_array().cloned().unwrap_or_default();
+        .child(row().pb(4.0).child(tabs));
+    let mut repos: Vec<(String, usize, String)> = Vec::new();
+    for (k2, _) in GITHUB_TABS {
+        let all = if k2 == "reviews" {
+            crate::pages::gh_reviews(v)
+        } else {
+            v[k2].as_array().cloned().unwrap_or_default()
+        };
+        for x in all {
+            let r = x["repo"].as_str().unwrap_or("").to_string();
+            let at = x["updatedAt"].as_str().unwrap_or("").to_string();
+            match repos.iter_mut().find(|e| e.0 == r) {
+                Some(e) => {
+                    e.1 += 1;
+                    if at > e.2 {
+                        e.2 = at;
+                    }
+                }
+                None => repos.push((r, 1, at)),
+            }
+        }
+    }
+    repos.sort_by(|a, b| b.2.cmp(&a.2));
+    let mut rail = row().w_full().gap(6.0).flex_wrap().pb(6.0).child(
+        TextInput::new(&pd.gh_query)
+            .placeholder("Filter by title or repo, org/ to scope…")
+            .width(Some(320.0))
+            .on_edit(|s: &mut Hooked| &mut s.pages.gh_query)
+            .build(k)
+            .key("gh-query"),
+    );
+    for (r, n, _) in repos.into_iter().take(16) {
+        let on = pd.gh_repo.as_deref() == Some(r.as_str());
+        let name = r.rsplit('/').next().unwrap_or(&r).to_string();
+        let pick = r.clone();
+        rail = rail.child(
+            k.interactive(
+                row()
+                    .key(format!("gh-repo-{r}"))
+                    .role("checkbox")
+                    .checked(on)
+                    .h(26.0)
+                    .px(8.0)
+                    .gap(4.0)
+                    .center_y()
+                    .radius(k.radius.sm)
+                    .cursor(Cursor::Pointer)
+                    .help(r.clone())
+                    .fill(if on { k.c.layer_02 } else { Color::TRANSPARENT })
+                    .border(
+                        1.0,
+                        if on {
+                            k.c.border_strong
+                        } else {
+                            k.c.border_weak
+                        },
+                    )
+                    .child(text(name).font(k.ty.text_small).color(k.c.text_base))
+                    .child(
+                        text(n.to_string())
+                            .font(k.ty.text_xsmall)
+                            .color(k.c.text_faint),
+                    ),
+            )
+            .on_press(move |s: &mut Hooked| {
+                s.pages.gh_repo = if s.pages.gh_repo.as_deref() == Some(pick.as_str()) {
+                    None
+                } else {
+                    Some(pick.clone())
+                };
+            }),
+        );
+    }
+    list = list.child(rail);
+    let items = s.gh_items(key);
+    if key == "notifications" && !items.is_empty() {
+        list = list.child(
+            row().pb(4.0).child(
+                Button::new(format!("Mark the {} shown as done", items.len()))
+                    .icon(&icons::CIRCLE_CHECK)
+                    .variant(ButtonVariant::Outline)
+                    .control_size(ControlSize::Small)
+                    .on_press(|s: &mut Hooked| s.mark_notifications_done())
+                    .build(k),
+            ),
+        );
+    }
     if items.is_empty() {
         list = list.child(text("Nothing here.").font(k.ty.body).color(k.c.text_faint));
     }
@@ -927,9 +1012,11 @@ pub fn github(s: &Hooked, k: &Kit) -> El {
             "PENDING" => k.c.warning.icon,
             _ => k.c.icon_faint,
         };
-        let decision = match x["decision"].as_str().unwrap_or("") {
+        let decision = match x["decision"].as_str().or(x["state"].as_str()).unwrap_or("") {
             "APPROVED" => Some(("Approved", k.c.success.fg)),
             "CHANGES_REQUESTED" => Some(("Changes requested", k.c.danger.fg)),
+            "COMMENTED" => Some(("Commented", k.c.text_muted)),
+            "DISMISSED" => Some(("Dismissed", k.c.text_faint)),
             "REVIEW_REQUIRED" => Some(("Review required", k.c.text_faint)),
             _ => None,
         };

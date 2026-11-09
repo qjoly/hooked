@@ -4,12 +4,53 @@ use serde_json::{Value, json};
 use crate::api;
 use crate::app::{Hooked, Page, refresh_sessions, spawn};
 
-pub const GITHUB_TABS: [(&str, &str); 4] = [
+pub const GITHUB_TABS: [(&str, &str); 5] = [
     ("review", "Review requested"),
     ("mine", "My pull requests"),
+    ("reviews", "Latest reviews"),
     ("issues", "Assigned issues"),
     ("notifications", "Notifications"),
 ];
+
+/// Reviews others left on my pull requests, newest first, as their own feed.
+pub fn gh_reviews(v: &Value) -> Vec<Value> {
+    let mut out: Vec<Value> = Vec::new();
+    for pr in v["mine"].as_array().into_iter().flatten() {
+        for rv in pr["reviews"].as_array().into_iter().flatten() {
+            if rv["author"] == pr["author"] {
+                continue;
+            }
+            let mut x = rv.clone();
+            x["repo"] = pr["repo"].clone();
+            x["title"] = pr["title"].clone();
+            x["number"] = pr["number"].clone();
+            x["url"] = pr["url"].clone();
+            x["updatedAt"] = rv["at"].clone();
+            out.push(x);
+        }
+    }
+    out.sort_by(|a, b| b["at"].as_str().cmp(&a["at"].as_str()));
+    out
+}
+
+/// The web's `ghFilter`: words with a `/` scope to repos by prefix, the rest must all match.
+pub fn gh_keep(query: &str, x: &Value) -> bool {
+    let q = query.trim().to_lowercase();
+    let words: Vec<&str> = q.split_whitespace().collect();
+    let repo = x["repo"].as_str().unwrap_or("").to_lowercase();
+    let title = x["title"]
+        .as_str()
+        .or(x["subject"].as_str())
+        .unwrap_or("")
+        .to_lowercase();
+    let scopes: Vec<&&str> = words.iter().filter(|w| w.contains('/')).collect();
+    let in_scope = scopes.is_empty() || scopes.iter().any(|s| repo.starts_with(**s));
+    in_scope
+        && words
+            .iter()
+            .filter(|w| !w.contains('/'))
+            .all(|t| title.contains(t) || repo.contains(t))
+}
 
 pub const STATS_RANGES: [(&str, &str); 4] = [
     ("1", "Today"),
@@ -74,6 +115,8 @@ pub struct PageData {
     pub github: Option<Value>,
     pub github_loading: bool,
     pub github_tab: usize,
+    pub gh_query: TextEdit,
+    pub gh_repo: Option<String>,
 
     pub settings: Option<Value>,
     pub claude: Option<Value>,
@@ -341,6 +384,63 @@ impl Hooked {
             .map(|(name, text)| json!({ "name": name, "text": text }))
             .collect();
         self.save_setting("promptLibrary", Value::Array(v));
+    }
+
+    pub fn gh_items(&self, key: &str) -> Vec<Value> {
+        let Some(v) = self.pages.github.as_ref() else {
+            return Vec::new();
+        };
+        let all = if key == "reviews" {
+            gh_reviews(v)
+        } else {
+            v[key].as_array().cloned().unwrap_or_default()
+        };
+        let q = self.pages.gh_query.text.clone();
+        let repo = self.pages.gh_repo.clone();
+        all.into_iter()
+            .filter(|x| {
+                repo.as_deref()
+                    .is_none_or(|r| x["repo"].as_str() == Some(r))
+            })
+            .filter(|x| gh_keep(&q, x))
+            .collect()
+    }
+
+    pub fn mark_notifications_done(&mut self) {
+        let ids: Vec<Value> = self
+            .gh_items("notifications")
+            .iter()
+            .filter_map(|n| n["id"].as_str().map(|s| json!(s)))
+            .collect();
+        if ids.is_empty() {
+            return;
+        }
+        spawn(
+            move || api::post("/api/github/notifications", json!({ "ids": ids })),
+            |s, r, _| match r {
+                Ok(v) => {
+                    let done: Vec<String> = v["done"]
+                        .as_array()
+                        .into_iter()
+                        .flatten()
+                        .filter_map(|x| x.as_str().map(str::to_string))
+                        .collect();
+                    if let Some(list) = s
+                        .pages
+                        .github
+                        .as_mut()
+                        .and_then(|g| g["notifications"].as_array_mut())
+                    {
+                        list.retain(|n| !done.iter().any(|d| n["id"].as_str() == Some(d)));
+                    }
+                    match v["error"].as_str() {
+                        Some(e) => s.flash(format!("✗ Some notifications stayed: {e}"), true),
+                        None => s.flash(format!("✓ {} marked done", done.len()), false),
+                    }
+                }
+                Err(e) => s.flash(format!("✗ Notifications: {e}"), true),
+            },
+        );
     }
 
     pub fn go(&mut self, page: Page) {
@@ -682,4 +782,19 @@ fn urlenc(s: &str) -> String {
             _ => format!("%{b:02X}"),
         })
         .collect()
+}
+
+#[cfg(test)]
+mod gh_tests {
+    use super::*;
+
+    #[test]
+    fn github_filter_scopes_and_matches() {
+        let x = json!({ "repo": "LuccaSA/Infra.Charts", "title": "ARC stall alert" });
+        assert!(gh_keep("", &x));
+        assert!(gh_keep("luccasa/ stall", &x));
+        assert!(gh_keep("charts", &x));
+        assert!(!gh_keep("gitbluub/ stall", &x));
+        assert!(!gh_keep("stall pprof", &x));
+    }
 }
