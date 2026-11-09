@@ -777,6 +777,68 @@ impl Hooked {
         self.sessions.iter().find(|s| s.id == id)
     }
 
+    pub fn snoozed(&self, id: &str) -> bool {
+        self.meta
+            .get(id)
+            .and_then(|m| m.snooze_until)
+            .is_some_and(|t| t as i64 > self.now)
+    }
+
+    pub fn snooze(&mut self, ids: Vec<String>, hours: f64) {
+        let until = fmt::now_ms() as f64 + hours * 3_600_000.0;
+        for id in &ids {
+            self.meta.entry(id.clone()).or_default().snooze_until = Some(until);
+        }
+        self.now = fmt::now_ms();
+        spawn(
+            move || {
+                ids.iter().try_for_each(|id| {
+                    api::patch_meta(id, serde_json::json!({ "snoozeUntil": until }))
+                })
+            },
+            |s, r, _| match r {
+                Ok(()) => s.flash("✓ Snoozed for an hour", false),
+                Err(e) => s.flash(format!("✗ Snooze: {e}"), true),
+            },
+        );
+    }
+
+    pub fn send_followup(&mut self, id: String, text: String) {
+        spawn(
+            move || api::reply(&id, &text),
+            |s, r, _| {
+                match r {
+                    Ok(_) => s.flash("✓ Follow-up sent", false),
+                    Err(e) => s.flash(format!("✗ Follow-up: {e}"), true),
+                }
+                refresh_sessions();
+            },
+        );
+    }
+
+    pub fn deck_answer(&mut self, id: String, index: usize) {
+        spawn(
+            move || {
+                api::answer(
+                    &id,
+                    &[api::Selection {
+                        multi: false,
+                        indices: vec![index],
+                        other: None,
+                    }],
+                    None,
+                )
+            },
+            |s, r, _| {
+                match r {
+                    Ok(()) => s.flash("✓ Answered", false),
+                    Err(e) => s.flash(format!("✗ Answer: {e}"), true),
+                }
+                refresh_sessions();
+            },
+        );
+    }
+
     pub fn is_archived(&self, s: &Session) -> bool {
         self.meta.get(&s.id).is_some_and(|m| m.archived)
             || fmt::finished_and_cold(

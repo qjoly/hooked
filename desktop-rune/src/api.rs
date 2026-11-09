@@ -150,6 +150,7 @@ pub struct Session {
     pub has_question: bool,
     pub has_plan: bool,
     pub question: Option<Value>,
+    pub followup: Option<String>,
     pub todo: Option<TodoSummary>,
     pub cache: Option<CacheInfo>,
 }
@@ -201,6 +202,7 @@ pub struct Meta {
     pub group_of: Option<String>,
     pub group_at: Option<Value>,
     pub group_name: Option<String>,
+    pub snooze_until: Option<f64>,
 }
 
 pub fn session_meta() -> Result<std::collections::HashMap<String, Meta>, String> {
