@@ -282,9 +282,12 @@ pub fn view(s: &Hooked, k: &Kit, _layer: &mut Vec<El>) -> El {
                         .color(k.c.text_base),
                 )
                 .child(
-                    text("Launches a Claude Code session driven by hooked.")
-                        .font(k.ty.text_small)
-                        .color(k.c.text_faint),
+                    text(match s.new_group.as_deref().and_then(|g| s.session(g)) {
+                        Some(m) => format!("Joins the group {}", s.group_label(m)),
+                        None => "Launches a Claude Code session driven by hooked.".to_string(),
+                    })
+                    .font(k.ty.text_small)
+                    .color(k.c.text_faint),
                 ),
         );
     let prompt = TextArea::new(&s.new_prompt)

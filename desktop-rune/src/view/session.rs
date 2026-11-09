@@ -36,6 +36,7 @@ pub fn view(s: &Hooked, k: &Kit, layer: &mut Vec<El>) -> El {
         .w_full()
         .h_full()
         .child(head(s, d, k, layer))
+        .child(group_tabs(s, &d.session.id, k))
         .child(lenses(s, d, k))
         .child(
             col()
@@ -914,6 +915,128 @@ pub(super) fn bubble(s: &Hooked, session: &str, m: &Message, k: &Kit, i: usize) 
             .border(1.0, k.c.border_weak);
     }
     b
+}
+
+fn group_tabs(s: &Hooked, id: &str, k: &Kit) -> El {
+    let mother = s.group_of(id).unwrap_or(id).to_string();
+    let members: Vec<String> = s
+        .group_members(&mother)
+        .into_iter()
+        .filter(|m| s.session(m).is_some())
+        .collect();
+    if members.len() < 2 {
+        return el();
+    }
+    let name = s
+        .session(&mother)
+        .map(|m| s.group_label(m))
+        .unwrap_or_default();
+    let rename = mother.clone();
+    let strip = row()
+        .key("group-tabs")
+        .w_full()
+        .h(34.0)
+        .px(16.0)
+        .gap(4.0)
+        .center_y()
+        .border_sides([0.0, 0.0, 1.0, 0.0], k.c.border_weak)
+        .child(
+            k.interactive(
+                row()
+                    .role("button")
+                    .gap(5.0)
+                    .pr(8.0)
+                    .center_y()
+                    .cursor(Cursor::Pointer)
+                    .help("Session group: click to rename")
+                    .child(glyph(&icons::LIST, 12.0, k.c.icon_muted))
+                    .child(
+                        text(name)
+                            .font(k.ty.text_small_medium)
+                            .color(k.c.text_muted),
+                    ),
+            )
+            .on_press(move |s: &mut Hooked| s.open_rename_group(rename.clone())),
+        );
+    let mut tabs = row().gap(4.0).center_y();
+    for m in members {
+        let Some(x) = s.session(&m) else { continue };
+        let on = m == id;
+        let lead = m == mother;
+        let (open, make, leave) = (m.clone(), m.clone(), m.clone());
+        let mut tab = row()
+            .key(format!("gt-{m}"))
+            .h(26.0)
+            .pl(8.0)
+            .pr(4.0)
+            .gap(5.0)
+            .center_y()
+            .max_w(240.0)
+            .radius(k.radius.sm)
+            .fill(if on { k.c.layer_02 } else { Color::TRANSPARENT })
+            .child(
+                k.interactive(
+                    row()
+                        .role("tab")
+                        .checked(on)
+                        .gap(5.0)
+                        .center_y()
+                        .min_w(0.0)
+                        .cursor(Cursor::Pointer)
+                        .help(s.title_of(x))
+                        .child(dot(k, &x.state, 7.0))
+                        .child(if lead {
+                            glyph(&icons::STAR, 11.0, k.c.icon_accent)
+                        } else {
+                            el()
+                        })
+                        .child(
+                            text(s.title_of(x))
+                                .font(k.ty.text_small)
+                                .color(if on { k.c.text_base } else { k.c.text_muted })
+                                .truncate()
+                                .min_w(0.0),
+                        ),
+                )
+                .on_press(move |s: &mut Hooked| s.open_session(&open)),
+            );
+        if !lead {
+            tab = tab.child(
+                IconButton::new(&icons::STAR)
+                    .variant(IconButtonVariant::GhostMuted)
+                    .control_size(ControlSize::Small)
+                    .label("Make it the lead session")
+                    .help("Make it the lead session")
+                    .on_press(move |s: &mut Hooked| {
+                        s.group_op("mother", make.clone(), serde_json::json!({}))
+                    })
+                    .build(k),
+            );
+        }
+        tab = tab.child(
+            IconButton::new(&icons::CLOSE)
+                .variant(IconButtonVariant::GhostMuted)
+                .control_size(ControlSize::Small)
+                .label("Remove from the group")
+                .help("Remove from the group")
+                .on_press(move |s: &mut Hooked| {
+                    s.group_op("leave", leave.clone(), serde_json::json!({}))
+                })
+                .build(k),
+        );
+        tabs = tabs.child(tab);
+    }
+    strip
+        .child(row().grow(1.0).min_w(0.0).scroll_x().child(tabs))
+        .child(
+            IconButton::new(&icons::PLUS)
+                .variant(IconButtonVariant::GhostMuted)
+                .control_size(ControlSize::Small)
+                .label("New session in this group")
+                .help("New session in this group")
+                .on_press(move |s: &mut Hooked| s.go_new_in_group(mother.clone()))
+                .build(k),
+        )
 }
 
 fn message_media(m: &Message) -> Vec<String> {

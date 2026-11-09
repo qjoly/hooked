@@ -726,6 +726,8 @@ pub struct Launch {
     pub incognito: bool,
     pub worktree: bool,
     pub ephemeral: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub group_with: Option<String>,
 }
 
 pub fn launch(req: &Launch) -> Result<String, String> {

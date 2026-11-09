@@ -134,6 +134,7 @@ pub struct Hooked {
     pub run_win: Option<crate::ghrun::RunWin>,
     pub gh_checks: HashMap<String, Vec<serde_json::Value>>,
     pub plan_quote: Option<String>,
+    pub new_group: Option<String>,
     pub plan_comments: Vec<(String, String)>,
     pub job_gen: Arc<AtomicU64>,
     pub full_texts: HashMap<String, Option<String>>,
@@ -345,6 +346,7 @@ impl Hooked {
             run_win: None,
             gh_checks: HashMap::new(),
             plan_quote: None,
+            new_group: None,
             plan_comments: Vec::new(),
             job_gen: Arc::new(AtomicU64::new(0)),
             full_texts: HashMap::new(),
@@ -1156,9 +1158,16 @@ impl Hooked {
         self.popup = None;
     }
 
+    pub fn go_new_in_group(&mut self, mother: String) {
+        let project = self.session(&mother).and_then(|x| x.project.clone());
+        self.go_new(project);
+        self.new_group = Some(mother);
+    }
+
     pub fn go_new(&mut self, project: Option<String>) {
         self.page = Page::New;
         self.popup = None;
+        self.new_group = None;
         let fallback = self
             .setting("quickLaunchProject")
             .as_str()
@@ -1851,6 +1860,7 @@ impl Hooked {
             self.incognito,
         );
         let (worktree, ephemeral) = (self.new_worktree, self.new_ephemeral);
+        let group_with = self.new_group.take();
         self.sending = true;
         spawn(
             move || {
@@ -1863,6 +1873,7 @@ impl Hooked {
                     incognito,
                     worktree,
                     ephemeral,
+                    group_with,
                 })
             },
             |s, r, _| {

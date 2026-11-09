@@ -242,6 +242,7 @@ impl Hooked {
                             "join" => "✓ Moved to the group",
                             "leave" => "✓ Left the group",
                             "rename" => "✓ Group renamed",
+                            "mother" => "✓ New lead session",
                             _ => "✓ Done",
                         },
                         false,
