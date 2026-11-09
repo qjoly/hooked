@@ -1018,19 +1018,34 @@ fn show_work(s: &Hooked, k: &Kit, show: &serde_json::Value) -> El {
     }
     let mut c = col().w_full().gap(8.0).px(10.0).pb(10.0).child(head);
     let path = str_of("path");
-    if show["kind"] != "image" {
-        let url = format!("file://{path}");
-        return c.child(
-            Button::new(format!("Open {}", file_name(&path)))
+    let before = str_of("compare");
+    let timed = show["kind"] != "image";
+    if timed {
+        let play = |label: String, p: &str| {
+            let url = format!("file://{p}");
+            Button::new(label)
+                .icon(&icons::PLAY)
                 .variant(ButtonVariant::Outline)
                 .control_size(ControlSize::Small)
+                .help("Opens in the system player")
                 .on_press_tx(move |_: &mut Hooked, tx| {
                     let _ = tx.open_url(&url);
                 })
-                .build(k),
-        );
+                .build(k)
+        };
+        let mut r = row().gap(8.0).child(play(
+            if before.is_empty() {
+                format!("Play {}", file_name(&path))
+            } else {
+                "Play after".to_string()
+            },
+            &path,
+        ));
+        if !before.is_empty() {
+            r = r.child(play("Play before".into(), &before));
+        }
+        c = c.child(r);
     }
-    let before = str_of("compare");
     let figure = |label: &str, p: &str, w: f32| {
         col()
             .gap(4.0)
@@ -1041,7 +1056,9 @@ fn show_work(s: &Hooked, k: &Kit, show: &serde_json::Value) -> El {
             )
             .child(picture(s, k, p, w, 360.0))
     };
-    c = c.child(if before.is_empty() {
+    c = c.child(if timed {
+        el()
+    } else if before.is_empty() {
         picture(s, k, &path, 640.0, 420.0)
     } else {
         row()
@@ -1049,14 +1066,26 @@ fn show_work(s: &Hooked, k: &Kit, show: &serde_json::Value) -> El {
             .child(figure("Before", &before, 320.0))
             .child(figure("After", &path, 320.0))
     });
+    let at = |v: &serde_json::Value| {
+        v["at"]
+            .as_f64()
+            .filter(|_| timed)
+            .map(|t| format!("{}:{:02} ", t as u64 / 60, t as u64 % 60))
+            .unwrap_or_default()
+    };
     for ch in show["changes"].as_array().into_iter().flatten() {
-        let mut line = text(format!("• {}", ch["title"].as_str().unwrap_or("")))
-            .font(k.ty.text_small_medium)
-            .color(k.c.text_base)
-            .wrap();
+        let mut line = text(format!(
+            "• {}{}",
+            at(ch),
+            ch["title"].as_str().unwrap_or("")
+        ))
+        .font(k.ty.text_small_medium)
+        .color(k.c.text_base)
+        .wrap();
         if let Some(detail) = ch["detail"].as_str().filter(|d| !d.is_empty()) {
             line = text(format!(
-                "• {} — {detail}",
+                "• {}{} — {detail}",
+                at(ch),
                 ch["title"].as_str().unwrap_or("")
             ))
             .font(k.ty.text_small)
