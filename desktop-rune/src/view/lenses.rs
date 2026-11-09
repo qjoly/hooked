@@ -293,8 +293,88 @@ fn threads_panel(s: &Hooked, k: &Kit) -> El {
         .child(c)
 }
 
+fn is_markdown(path: &str) -> bool {
+    let p = path.split(" · ").next().unwrap_or(path).to_lowercase();
+    p.ends_with(".md") || p.ends_with(".markdown") || p.ends_with(".mdx")
+}
+
+fn rendered_panel(s: &Hooked, k: &Kit) -> El {
+    let ld = &s.lens_data;
+    let i = ld.diff.visible_file();
+    let Some(f) = ld.diff.files().get(i).filter(|f| is_markdown(f.path())) else {
+        return el();
+    };
+    let src = f
+        .text(rune_kit::diff::Side::New)
+        .map(str::to_string)
+        .unwrap_or_else(|| {
+            f.hunks
+                .iter()
+                .flat_map(|h| &h.lines)
+                .filter(|l| l.new.is_some())
+                .map(|l| l.text.as_str())
+                .collect::<Vec<_>>()
+                .join("\n")
+        });
+    col()
+        .key("review-rendered")
+        .w(460.0)
+        .h_full()
+        .border_sides([0.0, 0.0, 0.0, 1.0], k.c.border_weak)
+        .child(
+            row()
+                .w_full()
+                .h(32.0)
+                .px(12.0)
+                .center_y()
+                .child(section_title(k, "RENDERED"))
+                .child(el().grow(1.0))
+                .child(
+                    text(f.path().rsplit('/').next().unwrap_or("").to_string())
+                        .font(k.ty.text_xsmall)
+                        .color(k.c.text_faint),
+                ),
+        )
+        .child(
+            col()
+                .w_full()
+                .grow(1.0)
+                .min_h(0.0)
+                .px(16.0)
+                .pb(16.0)
+                .scroll(ScrollSpec {
+                    stick_bottom: false,
+                })
+                .child(super::md(src).selectable(true).build(k)),
+        )
+}
+
 fn file_actions(s: &Hooked, k: &Kit, i: usize) -> El {
     let mut r = row().gap(6.0).center_y();
+    if s.lens_data
+        .diff
+        .files()
+        .get(i)
+        .is_some_and(|f| is_markdown(f.path()))
+    {
+        let on = s.lens_data.rendered;
+        r = r.child(
+            Button::new("Rendered")
+                .icon(&icons::EYE)
+                .variant(if on {
+                    ButtonVariant::Outline
+                } else {
+                    ButtonVariant::GhostMuted
+                })
+                .control_size(ControlSize::Small)
+                .help("Show the document rendered beside its diff")
+                .on_press_tx(move |s: &mut Hooked, tx| {
+                    s.lens_data.rendered = !s.lens_data.rendered;
+                    s.lens_data.diff.scroll_to_file(i, tx);
+                })
+                .build(k),
+        );
+    }
     if let Some(path) = s.truncated_at(i) {
         let loading = s.lens_data.full.contains_key(&path);
         r = r.child(
@@ -634,6 +714,9 @@ pub fn review(s: &Hooked, d: &Detail, k: &Kit) -> El {
             .min_h(0.0)
             .child(files_rail(s, k))
             .child(diff);
+        if ld.rendered {
+            body = body.child(rendered_panel(s, k));
+        }
         if ld.threads_open {
             body = body.child(threads_panel(s, k));
         }

@@ -548,6 +548,9 @@ impl Hooked {
                 .map(|v| v.split(',').filter_map(|n| n.parse().ok()).collect())
                 .unwrap_or_default();
         }
+        if args.iter().any(|a| a == "--rendered") {
+            s.lens_data.rendered = true;
+        }
         if args.iter().any(|a| a == "--threads") {
             s.lens_data.threads_open = true;
         }
