@@ -93,10 +93,9 @@ fn head(s: &Hooked, d: &Detail, k: &Kit, layer: &mut Vec<El>) -> El {
                 .color(k.c.text_base)
                 .truncate()
                 .shrink()
+                .min_w(60.0)
                 .key("sess-name"),
         )
-        .child(meta.shrink().key("head-meta"))
-        .child(head_tags(s, &x.id, k))
         .child(
             row()
                 .key("state-badge")
@@ -115,6 +114,17 @@ fn head(s: &Hooked, d: &Detail, k: &Kit, layer: &mut Vec<El>) -> El {
                         .truncate(),
                 ),
         );
+    let mut sub_line = row()
+        .key("head-sub")
+        .w_full()
+        .h(24.0)
+        .pl(54.0)
+        .pr(14.0)
+        .gap(12.0)
+        .center_y()
+        .child(meta.shrink().min_w(0.0).clip_rounded(0.0).key("head-meta"))
+        .child(head_tags(s, &x.id, k).shrink().min_w(0.0).clip_rounded(0.0))
+        .child(el().grow(1.0));
     let mut line = row().key("head-right").gap(10.0).center_y();
     if let Some(pct) = d.context.as_ref().and_then(|c| c.pct) {
         let p = pct.clamp(0.0, 100.0) as f32;
@@ -125,7 +135,7 @@ fn head(s: &Hooked, d: &Detail, k: &Kit, layer: &mut Vec<El>) -> El {
         } else {
             k.c.icon_muted
         };
-        line = line.child(
+        sub_line = sub_line.child(
             row()
                 .key("ctx-gauge")
                 .gap(6.0)
@@ -156,7 +166,7 @@ fn head(s: &Hooked, d: &Detail, k: &Kit, layer: &mut Vec<El>) -> El {
             Some(ms) => (format!("⚡ warm {}", fmt::span(ms, " ")), k.c.success.fg),
             None => ("cold cache".to_string(), k.c.text_faint),
         };
-        line = line.child(
+        sub_line = sub_line.child(
             text(label)
                 .font(k.ty.text_xsmall_medium)
                 .color(color)
@@ -253,15 +263,22 @@ fn head(s: &Hooked, d: &Detail, k: &Kit, layer: &mut Vec<El>) -> El {
             .key("focus-toggle"),
         );
     let right = line.child(more_menu(s, d, k, layer));
-    row()
-        .key("head-line")
+    col()
+        .key("head")
         .w_full()
-        .h(44.0)
-        .px(14.0)
-        .gap(12.0)
-        .center_y()
-        .child(left)
-        .child(right)
+        .pb(4.0)
+        .child(
+            row()
+                .key("head-line")
+                .w_full()
+                .h(40.0)
+                .px(14.0)
+                .gap(12.0)
+                .center_y()
+                .child(left)
+                .child(right),
+        )
+        .child(sub_line)
 }
 
 fn head_tags(s: &Hooked, id: &str, k: &Kit) -> El {
