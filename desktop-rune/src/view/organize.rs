@@ -204,6 +204,7 @@ pub fn view(s: &Hooked, k: &Kit) -> El {
         Some(Picker::Trash { items, busy }) => trash(s, k, items.as_deref(), busy.as_deref()),
         Some(Picker::Image { paths, index }) => image(s, k, paths, *index),
         Some(Picker::Cost) => cost(s, k),
+        Some(Picker::Account(a)) => account(k, a),
         Some(Picker::Agent {
             title, messages, ..
         }) => agent(s, k, title, messages.as_deref()),
@@ -657,4 +658,184 @@ fn cost(s: &Hooked, k: &Kit) -> El {
                 .wrap(),
         );
     modal(k, "cost-modal", "Cost of this session", body)
+}
+
+fn account(k: &Kit, a: &crate::account::AccountWin) -> El {
+    use crate::app::Hooked as H;
+    let info = a.info.clone().unwrap_or_default();
+    let name = info["displayName"]
+        .as_str()
+        .or(info["email"].as_str())
+        .unwrap_or("Loading…")
+        .to_string();
+    let mut who = col()
+        .gap(2.0)
+        .child(text(name).font(k.ty.ui_medium).color(k.c.text_base));
+    for key in ["email", "organizationName", "subscriptionType"] {
+        if let Some(v) = info[key].as_str().filter(|v| !v.is_empty()) {
+            who = who.child(
+                text(v.to_string())
+                    .font(k.ty.text_small)
+                    .color(k.c.text_muted),
+            );
+        }
+    }
+    if info["loggedIn"] == false {
+        who = who.child(
+            text("Not signed in")
+                .font(k.ty.text_small)
+                .color(k.c.warning.fg),
+        );
+    }
+    let mut body = col().w_full().gap(12.0).child(who);
+    if let Some(n) = a.notice.as_ref() {
+        body = body.child(text(n.clone()).font(k.ty.text_small).color(k.c.text_muted));
+    }
+    if let Some(l) = a.login.as_ref() {
+        let mut flow = col().w_full().gap(8.0);
+        if l["starting"] == true {
+            flow = flow.child(
+                text("Starting the login flow…")
+                    .font(k.ty.text_small)
+                    .color(k.c.text_faint),
+            );
+        } else if l["done"] == true {
+            flow = flow.child(
+                text(if l["exitCode"] == 0 {
+                    "Signed in."
+                } else {
+                    "The login flow ended before completing."
+                })
+                .font(k.ty.text_small)
+                .color(k.c.text_muted),
+            );
+        } else if let Some(url) = l["url"].as_str().map(str::to_string) {
+            let (open, copy) = (url.clone(), url.clone());
+            flow = flow
+                .child(
+                    text("Open this page to approve the sign-in:")
+                        .font(k.ty.text_small)
+                        .color(k.c.text_muted),
+                )
+                .child(
+                    text(url)
+                        .font(k.ty.text_xsmall)
+                        .color(k.c.text_accent)
+                        .wrap_anywhere()
+                        .selectable(true),
+                )
+                .child(
+                    row()
+                        .gap(8.0)
+                        .child(
+                            Button::new("Open")
+                                .variant(ButtonVariant::Outline)
+                                .on_press_tx(move |_: &mut H, tx| {
+                                    let _ = tx.open_url(&open);
+                                })
+                                .build(k),
+                        )
+                        .child(
+                            Button::new("Copy")
+                                .variant(ButtonVariant::GhostMuted)
+                                .on_press_tx(move |_: &mut H, tx| tx.copy(&copy))
+                                .build(k),
+                        ),
+                );
+            if l["needsPaste"] == true {
+                flow = flow.child(
+                    TextInput::new(&a.redirect)
+                        .placeholder("Paste the code or redirect URL…")
+                        .width(None)
+                        .on_edit(|s: &mut H| match s.picker.as_mut() {
+                            Some(Picker::Account(a)) => &mut a.redirect,
+                            _ => unreachable!("account closed while editing"),
+                        })
+                        .on_submit(|s: &mut H, _| s.account_send_redirect())
+                        .build(k)
+                        .key("account-redirect"),
+                );
+            } else {
+                flow = flow.child(
+                    text("Waiting for authorization…")
+                        .font(k.ty.text_small)
+                        .color(k.c.text_faint),
+                );
+            }
+        } else {
+            flow = flow.child(
+                text("Starting…")
+                    .font(k.ty.text_small)
+                    .color(k.c.text_faint),
+            );
+        }
+        if l["done"] != true {
+            flow = flow.child(
+                Button::new("Cancel")
+                    .variant(ButtonVariant::GhostMuted)
+                    .on_press(|s: &mut H| s.account_cancel_login())
+                    .build(k),
+            );
+        }
+        body = body.child(flow);
+    } else {
+        body = body
+            .child(
+                row()
+                    .gap(8.0)
+                    .flex_wrap()
+                    .child(
+                        Button::new("Switch account (Claude subscription)")
+                            .variant(ButtonVariant::Contrast)
+                            .on_press(|s: &mut H| s.account_login("claudeai"))
+                            .build(k),
+                    )
+                    .child(
+                        Button::new("Switch to Console / API billing")
+                            .variant(ButtonVariant::Outline)
+                            .on_press(|s: &mut H| s.account_login("console"))
+                            .build(k),
+                    ),
+            )
+            .child(
+                text("Runs the same sign-in flow as claude auth login. It replaces the credentials the CLI keeps on this machine: every session, not just hooked's, uses the new account afterwards.")
+                    .font(k.ty.text_xsmall)
+                    .color(k.c.text_faint)
+                    .wrap(),
+            )
+            .child(if a.confirm_logout {
+                row()
+                    .gap(8.0)
+                    .center_y()
+                    .child(text("Sign out of Claude on this machine?").font(k.ty.text_small).color(k.c.text_base))
+                    .child(
+                        Button::new("Sign out")
+                            .variant(ButtonVariant::Danger)
+                            .on_press(|s: &mut H| s.account_logout())
+                            .build(k),
+                    )
+                    .child(
+                        Button::new("Cancel")
+                            .variant(ButtonVariant::GhostMuted)
+                            .on_press(|s: &mut H| {
+                                if let Some(Picker::Account(a)) = s.picker.as_mut() {
+                                    a.confirm_logout = false;
+                                }
+                            })
+                            .build(k),
+                    )
+            } else {
+                row().child(
+                    Button::new("Sign out…")
+                        .variant(ButtonVariant::GhostMuted)
+                        .on_press(|s: &mut H| {
+                            if let Some(Picker::Account(a)) = s.picker.as_mut() {
+                                a.confirm_logout = true;
+                            }
+                        })
+                        .build(k),
+                )
+            });
+    }
+    modal(k, "account-modal", "Claude account", body)
 }

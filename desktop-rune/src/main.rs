@@ -1,3 +1,4 @@
+mod account;
 mod api;
 mod app;
 mod export;
@@ -191,6 +192,7 @@ fn poll(s: &mut Hooked, _clock: f64, tx: &mut Tx) -> bool {
     let mut changed = false;
     s.stash_draft();
     s.poll_run(now);
+    s.poll_account(now);
     let working = s.page == Page::Session && s.working_since.is_some();
     let step = if working { 1000 } else { 30_000 };
     if now / step != s.now / step {

@@ -637,6 +637,14 @@ impl Hooked {
             }
             s.run_win = Some(w);
         }
+        if args.iter().any(|a| a == "--account") {
+            s.picker = Some(crate::organize::Picker::Account(Box::new(
+                crate::account::AccountWin {
+                    info: api::get("/api/account").ok(),
+                    ..Default::default()
+                },
+            )));
+        }
         if args.iter().any(|a| a == "--cost") {
             s.picker = Some(crate::organize::Picker::Cost);
         }

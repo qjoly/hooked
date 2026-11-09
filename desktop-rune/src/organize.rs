@@ -24,6 +24,7 @@ pub enum Picker {
         busy: Option<String>,
     },
     Cost,
+    Account(Box<crate::account::AccountWin>),
     Image {
         paths: Vec<String>,
         index: usize,

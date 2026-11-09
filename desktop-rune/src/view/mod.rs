@@ -297,6 +297,15 @@ fn topbar(s: &Hooked, k: &Kit, inset: f32, _layer: &mut Vec<El>) -> El {
                 .key("tb-incognito")
         })
         .child(
+            IconButton::new(&icons::USER)
+                .variant(IconButtonVariant::GhostMuted)
+                .label("Claude account")
+                .help("Claude account: who is signed in, switch, sign out")
+                .on_press(|s: &mut Hooked| s.open_account())
+                .build(k)
+                .key("tb-account"),
+        )
+        .child(
             IconButton::new(&icons::TRASH)
                 .variant(IconButtonVariant::GhostMuted)
                 .label("Trash")
