@@ -146,7 +146,7 @@ pub struct Hooked {
 
     pub composer: TextEdit,
     pub attachments: Vec<Attachment>,
-    pub split: Option<SplitPane>,
+    pub splits: Vec<SplitPane>,
     pub term: crate::terminal::TermPanel,
     pub attach_seq: u64,
     pub queued: Vec<String>,
@@ -186,6 +186,7 @@ pub struct Hooked {
 }
 
 pub const WINDOW: usize = 40;
+const MAX_SPLITS: usize = 3;
 
 pub fn compose_plan_feedback(comments: &[(String, String)]) -> String {
     let blocks: Vec<String> = comments
@@ -357,7 +358,7 @@ impl Hooked {
             visible: WINDOW,
             composer: TextEdit::new(""),
             attachments: Vec::new(),
-            split: None,
+            splits: Vec::new(),
             term: crate::terminal::TermPanel::default(),
             attach_seq: 0,
             queued: Vec::new(),
@@ -508,9 +509,14 @@ impl Hooked {
                 });
             }
         }
-        if args.iter().any(|a| a == "--split") && s.detail.is_some() {
-            s.split_with_recent();
-            if let Some(p) = s.split.as_mut() {
+        if let Some(i) = args.iter().position(|a| a == "--split")
+            && s.detail.is_some()
+        {
+            let n: usize = args.get(i + 1).and_then(|v| v.parse().ok()).unwrap_or(1);
+            for _ in 0..n {
+                s.split_with_recent();
+            }
+            for p in &mut s.splits {
                 p.detail = api::detail(&p.id).ok();
             }
         }
@@ -746,7 +752,9 @@ impl Hooked {
     }
 
     pub fn toggle_split(&mut self) {
-        if self.split.take().is_none() && self.page == Page::Session {
+        if !self.splits.is_empty() {
+            self.splits.clear();
+        } else if self.page == Page::Session {
             self.split_with_recent();
         }
     }
@@ -1065,13 +1073,18 @@ impl Hooked {
         self.load_terms();
     }
 
-    /// Opens the most recently active other session beside the current one.
+    /// Opens the most recently active session not already on screen beside the others.
     pub fn split_with_recent(&mut self) {
-        let cur = self.selected.clone();
+        let shown: Vec<&str> = self
+            .selected
+            .iter()
+            .map(String::as_str)
+            .chain(self.splits.iter().map(|p| p.id.as_str()))
+            .collect();
         let mut others: Vec<&Session> = self
             .sessions
             .iter()
-            .filter(|x| Some(&x.id) != cur.as_ref() && !self.is_archived(x))
+            .filter(|x| !shown.contains(&x.id.as_str()) && !self.is_archived(x))
             .collect();
         others.sort_by(|a, b| b.last_activity.cmp(&a.last_activity));
         if let Some(id) = others.first().map(|x| x.id.clone()) {
@@ -1079,20 +1092,29 @@ impl Hooked {
         }
     }
 
+    /// Up to three panes beside the main one; a fourth replaces the last.
     pub fn open_split(&mut self, id: String) {
-        self.split = Some(SplitPane {
-            id,
+        if self.splits.iter().any(|p| p.id == id) || self.selected.as_deref() == Some(id.as_str()) {
+            return;
+        }
+        if self.splits.len() >= MAX_SPLITS {
+            self.splits.pop();
+        }
+        self.splits.push(SplitPane {
+            id: id.clone(),
             detail: None,
             composer: TextEdit::new(""),
             sending: false,
         });
-        self.refresh_split();
+        self.refresh_split(&id);
     }
 
-    pub fn refresh_split(&mut self) {
-        let Some(id) = self.split.as_ref().map(|p| p.id.clone()) else {
-            return;
-        };
+    pub fn close_split(&mut self, id: &str) {
+        self.splits.retain(|p| p.id != id);
+    }
+
+    pub fn refresh_split(&mut self, id: &str) {
+        let id = id.to_string();
         spawn(
             {
                 let id = id.clone();
@@ -1100,10 +1122,10 @@ impl Hooked {
             },
             move |s, r, _| {
                 if let Ok(d) = r
-                    && s.split.as_ref().is_some_and(|p| p.id == id)
+                    && s.splits.iter().any(|p| p.id == id)
                 {
                     s.want_media(&d, false);
-                    if let Some(p) = s.split.as_mut() {
+                    if let Some(p) = s.splits.iter_mut().find(|p| p.id == id) {
                         p.detail = Some(d);
                     }
                 }
@@ -1111,22 +1133,28 @@ impl Hooked {
         );
     }
 
-    pub fn swap_split(&mut self) {
-        let (Some(p), Some(cur)) = (self.split.take(), self.selected.clone()) else {
+    pub fn swap_split(&mut self, id: &str) {
+        let (Some(i), Some(cur)) = (
+            self.splits.iter().position(|p| p.id == id),
+            self.selected.clone(),
+        ) else {
             return;
         };
+        let p = self.splits.remove(i);
         self.open_session(&p.id);
         self.open_split(cur);
     }
 
-    pub fn send_split(&mut self) {
-        let Some(p) = self.split.as_mut() else { return };
+    pub fn send_split(&mut self, id: &str) {
+        let Some(p) = self.splits.iter_mut().find(|p| p.id == id) else {
+            return;
+        };
         let text = p.composer.text.trim().to_string();
         let Some(d) = p.detail.as_ref() else { return };
         if text.is_empty() || p.sending {
             return;
         }
-        let (id, live, effort) = (
+        let (sid, live, effort) = (
             d.session.id.clone(),
             d.session.live,
             d.session.effort.clone(),
@@ -1136,19 +1164,22 @@ impl Hooked {
         spawn(
             move || {
                 if live {
-                    api::reply(&id, &text)
+                    api::reply(&sid, &text)
                 } else {
-                    api::resume(&id, &text, effort.as_deref())
+                    api::resume(&sid, &text, effort.as_deref())
                 }
             },
-            |s, r, _| {
-                if let Some(p) = s.split.as_mut() {
-                    p.sending = false;
+            {
+                let id = id.to_string();
+                move |s, r, _| {
+                    if let Some(p) = s.splits.iter_mut().find(|p| p.id == id) {
+                        p.sending = false;
+                    }
+                    if let Err(e) = r {
+                        s.flash(format!("✗ Send failed: {e}"), true);
+                    }
+                    s.refresh_split(&id);
                 }
-                if let Err(e) = r {
-                    s.flash(format!("✗ Send failed: {e}"), true);
-                }
-                s.refresh_split();
             },
         );
     }
@@ -1365,12 +1396,13 @@ impl Hooked {
                 || a.has_question != b.has_question
                 || a.has_plan != b.has_plan
         };
-        if let Some(sid) = self.split.as_ref().map(|p| p.id.clone()) {
+        let panes: Vec<String> = self.splits.iter().map(|p| p.id.clone()).collect();
+        for sid in panes {
             let before = self.session(&sid).cloned();
             if let (Some(b), Some(a)) = (before, list.iter().find(|x| x.id == sid))
                 && changed(&b, a)
             {
-                self.refresh_split();
+                self.refresh_split(&sid);
             }
         }
         if let Some(sel) = self.selected.clone() {

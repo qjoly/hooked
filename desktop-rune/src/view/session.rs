@@ -199,23 +199,19 @@ fn head(s: &Hooked, d: &Detail, k: &Kit, layer: &mut Vec<El>) -> El {
     );
     line = line.child(
         IconButton::new(&icons::SPLIT)
-            .variant(if s.split.is_some() {
+            .variant(if !s.splits.is_empty() {
                 IconButtonVariant::Neutral
             } else {
                 IconButtonVariant::GhostMuted
             })
             .label("Split view")
-            .help(if s.split.is_some() {
+            .help(if !s.splits.is_empty() {
                 "Close the split (⌘⇧S)"
             } else {
                 "Split with the most recent session (⌘⇧S)"
             })
-            .expanded(s.split.is_some())
-            .on_press(|s: &mut Hooked| {
-                if s.split.take().is_none() {
-                    s.split_with_recent();
-                }
-            })
+            .expanded(!s.splits.is_empty())
+            .on_press(|s: &mut Hooked| s.toggle_split())
             .build(k)
             .key("split-btn"),
     );

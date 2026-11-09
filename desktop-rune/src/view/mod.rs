@@ -89,8 +89,10 @@ pub fn view(s: &Hooked, cx: &mut Cx<Hooked>) -> El {
             .child(main),
     );
     if s.page == Page::Session && !s.focus {
-        if let Some(p) = s.split.as_ref() {
-            body = body.child(split::view(s, p, &k));
+        if !s.splits.is_empty() {
+            for p in &s.splits {
+                body = body.child(split::view(s, p, &k));
+            }
         } else if let Some(d) = s.detail.as_ref() {
             body = body.child(dock::view(s, d, &k));
         }

@@ -7,6 +7,8 @@ use crate::app::{Hooked, SplitPane};
 use crate::{fmt, icons};
 
 pub fn view(s: &Hooked, p: &SplitPane, k: &Kit) -> rune::El {
+    let id = p.id.clone();
+    let last = s.splits.last().is_some_and(|l| l.id == p.id);
     let title = p
         .detail
         .as_ref()
@@ -17,8 +19,10 @@ pub fn view(s: &Hooked, p: &SplitPane, k: &Kit) -> rune::El {
         .as_ref()
         .map(|d| d.session.state.clone())
         .unwrap_or_default();
-    let head = row()
-        .key("split-head")
+    let (swap, close, edit, send, send2) =
+        (id.clone(), id.clone(), id.clone(), id.clone(), id.clone());
+    let mut head = row()
+        .key(format!("split-head-{id}"))
         .w_full()
         .h(44.0)
         .px(12.0)
@@ -44,20 +48,33 @@ pub fn view(s: &Hooked, p: &SplitPane, k: &Kit) -> rune::El {
                 .variant(IconButtonVariant::GhostMuted)
                 .label("Make this the main pane")
                 .help("Make this the main pane")
-                .on_press(|s: &mut Hooked| s.swap_split())
-                .build(k)
-                .key("split-swap"),
-        )
-        .child(
-            IconButton::new(&icons::CLOSE)
-                .variant(IconButtonVariant::GhostMuted)
-                .label("Close the split")
-                .help("Close the split (⌘⇧S)")
-                .on_press(|s: &mut Hooked| s.split = None)
-                .build(k)
-                .key("split-close"),
+                .on_press(move |s: &mut Hooked| s.swap_split(&swap))
+                .build(k),
         );
-    let mut chat = col().key("split-chat").w_full().px(16.0).py(12.0).gap(12.0);
+    if last && s.splits.len() < 3 {
+        head = head.child(
+            IconButton::new(&icons::PLUS)
+                .variant(IconButtonVariant::GhostMuted)
+                .label("Add a pane")
+                .help("Add a pane with the next most recent session")
+                .on_press(|s: &mut Hooked| s.split_with_recent())
+                .build(k),
+        );
+    }
+    let head = head.child(
+        IconButton::new(&icons::CLOSE)
+            .variant(IconButtonVariant::GhostMuted)
+            .label("Close this pane")
+            .help("Close this pane")
+            .on_press(move |s: &mut Hooked| s.close_split(&close))
+            .build(k),
+    );
+    let mut chat = col()
+        .key(format!("split-chat-{id}"))
+        .w_full()
+        .px(16.0)
+        .py(12.0)
+        .gap(12.0);
     if let Some(d) = p.detail.as_ref() {
         let start = d.messages.len().saturating_sub(30);
         for (i, m) in d.messages.iter().enumerate().skip(start) {
@@ -73,7 +90,7 @@ pub fn view(s: &Hooked, p: &SplitPane, k: &Kit) -> rune::El {
         {
             chat = chat.child(
                 row()
-                    .key("split-q")
+                    .key(format!("split-q-{id}"))
                     .w_full()
                     .padding(10.0)
                     .gap(8.0)
@@ -92,7 +109,7 @@ pub fn view(s: &Hooked, p: &SplitPane, k: &Kit) -> rune::El {
         }
     }
     let composer = row()
-        .key("split-composer")
+        .key(format!("split-composer-{id}"))
         .w_full()
         .padding(10.0)
         .gap(6.0)
@@ -103,16 +120,23 @@ pub fn view(s: &Hooked, p: &SplitPane, k: &Kit) -> rune::El {
                 .placeholder("Reply here…")
                 .width(None)
                 .auto_grow(1, 6)
-                .on_edit(|s: &mut Hooked| &mut s.split.as_mut().expect("split pane").composer)
-                .on_key(|s: &mut Hooked, ev: &rune::KeyEvent, _| {
+                .on_edit(move |s: &mut Hooked| {
+                    &mut s
+                        .splits
+                        .iter_mut()
+                        .find(|p| p.id == edit)
+                        .expect("split pane")
+                        .composer
+                })
+                .on_key(move |s: &mut Hooked, ev: &rune::KeyEvent, _| {
                     if ev.key == Key::Enter && !ev.mods.shift {
-                        s.send_split();
+                        s.send_split(&send);
                         return true;
                     }
                     false
                 })
                 .build(k)
-                .key("split-field")
+                .key(format!("split-field-{id}"))
                 .grow(1.0)
                 .shrink(),
         )
@@ -121,13 +145,16 @@ pub fn view(s: &Hooked, p: &SplitPane, k: &Kit) -> rune::El {
                 .variant(IconButtonVariant::Contrast)
                 .label("Send")
                 .disabled(p.sending || p.composer.text.trim().is_empty())
-                .on_press(|s: &mut Hooked| s.send_split())
-                .build(k)
-                .key("split-send"),
+                .on_press(move |s: &mut Hooked| s.send_split(&send2))
+                .build(k),
         );
-    col()
-        .key("split")
-        .w_frac(0.42)
+    let width = if s.splits.len() == 1 {
+        col().w_frac(0.42)
+    } else {
+        col().grow(1.0).min_w(0.0)
+    };
+    width
+        .key(format!("split-{id}"))
         .h_full()
         .fill(k.c.bg_base)
         .border_sides([0.0, 0.0, 0.0, 1.0], k.c.border_weak)
