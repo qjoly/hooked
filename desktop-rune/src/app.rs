@@ -653,6 +653,9 @@ impl Hooked {
         if args.iter().any(|a| a == "--cost") {
             s.picker = Some(crate::organize::Picker::Cost);
         }
+        if args.iter().any(|a| a == "--side-by-side") {
+            s.lens_data.diff.set_mode(rune_kit::diff::DiffMode::Split);
+        }
         if args.iter().any(|a| a == "--rendered") {
             s.lens_data.rendered = true;
         }

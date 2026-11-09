@@ -1313,7 +1313,81 @@ fn diff_lines(diff: &serde_json::Value) -> usize {
         .sum()
 }
 
-fn inline_diff(k: &Kit, diff: &serde_json::Value) -> El {
+fn diff_cell(k: &Kit, line: Option<&rune_kit::diff::Line>) -> El {
+    use rune_kit::diff::LineKind;
+    let Some(l) = line else {
+        return row().w_frac(0.5).min_w(0.0).fill(k.c.layer_02);
+    };
+    let (sign, fill, ink) = match l.kind {
+        LineKind::Added => ("+", k.c.success.bg, k.c.success.fg),
+        LineKind::Removed => ("-", k.c.danger.bg, k.c.danger.fg),
+        _ => (" ", Color::TRANSPARENT, k.c.text_faint),
+    };
+    row()
+        .w_frac(0.5)
+        .min_w(0.0)
+        .px(6.0)
+        .gap(6.0)
+        .fill(fill)
+        .child(text(sign).font(k.ty.mono).color(ink).w(10.0))
+        .child(
+            text(if l.text.is_empty() {
+                " ".to_string()
+            } else {
+                l.text.clone()
+            })
+            .font(k.ty.mono)
+            .color(if l.kind == LineKind::Context {
+                k.c.text_muted
+            } else {
+                k.c.text_base
+            })
+            .wrap_anywhere()
+            .grow(1.0)
+            .min_w(0.0)
+            .selectable(true),
+        )
+}
+
+/// Side by side: context on both sides, a run of removed lines paired with the added run after it.
+fn split_rows(k: &Kit, lines: &[rune_kit::diff::Line]) -> Vec<El> {
+    use rune_kit::diff::LineKind;
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i < lines.len() {
+        if lines[i].kind == LineKind::Context {
+            out.push(
+                row()
+                    .w_full()
+                    .child(diff_cell(k, Some(&lines[i])))
+                    .child(diff_cell(k, Some(&lines[i]))),
+            );
+            i += 1;
+            continue;
+        }
+        let start = i;
+        while i < lines.len() && lines[i].kind == LineKind::Removed {
+            i += 1;
+        }
+        let removed = &lines[start..i];
+        let mid = i;
+        while i < lines.len() && lines[i].kind == LineKind::Added {
+            i += 1;
+        }
+        let added = &lines[mid..i];
+        for j in 0..removed.len().max(added.len()) {
+            out.push(
+                row()
+                    .w_full()
+                    .child(diff_cell(k, removed.get(j)))
+                    .child(diff_cell(k, added.get(j))),
+            );
+        }
+    }
+    out
+}
+
+fn inline_diff(k: &Kit, diff: &serde_json::Value, split: bool) -> El {
     use rune_kit::diff::{FileDiff, LineKind};
     let name = diff["name"].as_str().unwrap_or("").to_string();
     let mut c = col().w_full().gap(6.0).px(10.0).pb(10.0);
@@ -1345,6 +1419,12 @@ fn inline_diff(k: &Kit, diff: &serde_json::Value) -> El {
         for (hi, h) in fd.hunks.iter().enumerate() {
             if hi > 0 {
                 block = block.child(el().w_full().h(1.0).fill(k.c.border_weak));
+            }
+            if split && !old.is_empty() {
+                let lines = &h.lines[..h.lines.len().min(400usize.saturating_sub(shown))];
+                shown += lines.len();
+                block = block.children(split_rows(k, lines));
+                continue;
             }
             for l in &h.lines {
                 if shown >= 400 {
@@ -1446,7 +1526,11 @@ fn tool_chip(s: &Hooked, t: &Tool, k: &Kit, key: String) -> El {
         .child(head);
     if let Some(diff) = t.diff.as_ref() {
         if !big || open {
-            chip = chip.child(inline_diff(k, diff));
+            chip = chip.child(inline_diff(
+                k,
+                diff,
+                s.lens_data.diff.mode() == rune_kit::diff::DiffMode::Split,
+            ));
         }
     } else if open {
         let mono = |label: &str, body: String| {
