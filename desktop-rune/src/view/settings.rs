@@ -904,6 +904,7 @@ pub fn view(s: &Hooked, k: &Kit) -> El {
         .child(service_card(s, k, v))
         .child(tags_card(s, k, v))
         .child(remote_card(s, k, v))
+        .child(shortcuts_card(s, k))
         .child(maintenance_card(s, k, v));
     page(k, "settings", "Settings", more, scroll("set-scroll", body))
 }
@@ -966,4 +967,40 @@ fn branches(s: &Hooked, k: &Kit) -> El {
         })
         .collect();
     c.child(chips(list))
+}
+
+fn shortcuts_card(s: &Hooked, k: &Kit) -> El {
+    use rune_kit::ShortcutRecorder;
+    let mut c = card(k, "set-keys", "KEYBOARD SHORTCUTS");
+    for (id, label, _) in crate::shortcuts::ACTIONS {
+        let Some(state) = s.shortcuts.get(id) else {
+            continue;
+        };
+        let custom = state.shortcut().map(ToString::to_string)
+            != crate::shortcuts::default_of(id).map(|d| d.to_string());
+        let mut rec = ShortcutRecorder::new(format!("key-{id}"), state, move |s: &mut Hooked| {
+            s.shortcuts.get_mut(id).expect("known shortcut")
+        })
+        .label(label)
+        .width(200.0)
+        .on_change(move |s: &mut Hooked, sc, _| {
+            s.set_shortcut(id, sc);
+            Ok(())
+        });
+        if id == "review-file" {
+            rec = rec.allow_unmodified();
+        }
+        let mut right = row().gap(6.0).center_y().child(rec.build(k));
+        if custom {
+            right = right.child(
+                Button::new("Reset")
+                    .variant(ButtonVariant::GhostMuted)
+                    .control_size(ControlSize::Small)
+                    .on_press(move |s: &mut Hooked| s.reset_shortcut(id))
+                    .build(k),
+            );
+        }
+        c = c.child(line(k, label, "", right));
+    }
+    c
 }

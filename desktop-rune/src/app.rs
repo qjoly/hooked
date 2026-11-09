@@ -137,6 +137,7 @@ pub struct Hooked {
     pub plan_quote: Option<String>,
     pub new_group: Option<String>,
     pub usage: Option<serde_json::Value>,
+    pub shortcuts: HashMap<&'static str, rune_kit::ShortcutRecorderState>,
     pub deck_plans: HashMap<String, (String, Option<String>)>,
     pub plan_comments: Vec<(String, String)>,
     pub job_gen: Arc<AtomicU64>,
@@ -291,6 +292,8 @@ impl Hooked {
         let tag_colors: HashMap<String, usize> = prefs.get("tagColors").unwrap_or_default();
         let drafts: HashMap<String, String> = prefs.get("drafts").unwrap_or_default();
         let reviewed: HashMap<String, Vec<String>> = prefs.get("reviewed").unwrap_or_default();
+        let saved_keys: HashMap<String, String> = prefs.get("shortcuts").unwrap_or_default();
+        let shortcuts = crate::shortcuts::load(&saved_keys);
         let collapse_worktrees: bool = prefs.get("collapseWorktrees").unwrap_or(true);
         let theme = prefs.get("theme").unwrap_or(Theme::System);
         let notify = prefs.get("notify").unwrap_or(true);
@@ -352,6 +355,7 @@ impl Hooked {
             plan_quote: None,
             new_group: None,
             usage: None,
+            shortcuts,
             deck_plans: HashMap::new(),
             plan_comments: Vec::new(),
             job_gen: Arc::new(AtomicU64::new(0)),

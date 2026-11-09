@@ -11,6 +11,7 @@ mod lenses;
 mod organize;
 mod pages;
 mod quick;
+mod shortcuts;
 mod terminal;
 mod theme;
 mod tray;
@@ -26,81 +27,20 @@ use app::{HANDLE, Hooked, Lens, Page};
 pub const MONO: &str = "ui-monospace, Menlo, monospace";
 
 fn on_key(s: &mut Hooked, ev: &KeyEvent, tx: &mut Tx) -> bool {
-    if ev.is_command('p') && ev.mods.shift {
-        s.open_palette(">");
+    if s.shortcuts.values().any(|r| r.is_recording()) {
+        return false;
+    }
+    if let Some(id) = s.shortcut_hit(ev, tx)
+        && s.run_shortcut(id, tx)
+    {
         return true;
     }
-    if ev.is_command('k') || ev.is_command('p') {
+    if ev.is_command('k') {
         if s.palette_open {
             s.palette_open = false;
         } else {
             s.open_palette("");
         }
-        return true;
-    }
-    if ev.mods.cmd && ev.mods.shift {
-        let handled = match tx.key_base() {
-            Some('d') => {
-                s.toggle_dock();
-                true
-            }
-            Some('f') => {
-                s.focus = !s.focus;
-                true
-            }
-            Some('t') => {
-                s.cycle_theme();
-                true
-            }
-            Some('j') if s.page == Page::Session => {
-                s.term.open = true;
-                s.new_term();
-                true
-            }
-            _ => false,
-        };
-        if handled {
-            return true;
-        }
-    }
-    if ev.is_command('j') && !ev.mods.shift && s.page == Page::Session {
-        s.toggle_terms();
-        return true;
-    }
-    if ev.mods.alt && !ev.mods.cmd && !ev.mods.ctrl {
-        let page = match tx.key_base() {
-            Some('1') => Some(Page::Deck),
-            Some('2') => Some(Page::Session),
-            Some('4') => Some(Page::Stats),
-            Some('5') => Some(Page::Digest),
-            Some('6') => Some(Page::Memory),
-            Some('7') => Some(Page::GitHub),
-            _ => None,
-        };
-        match page {
-            Some(Page::Deck) => s.go_deck(),
-            Some(Page::Session) => s.open_sessions(),
-            Some(p) => s.go(p),
-            None => {}
-        }
-        if page.is_some() {
-            return true;
-        }
-    }
-    if ev.is_command(',') {
-        s.go(Page::Settings);
-        return true;
-    }
-    if ev.is_command('s') && ev.mods.shift {
-        s.toggle_split();
-        return true;
-    }
-    if ev.is_command('n') {
-        s.go_new(None);
-        return true;
-    }
-    if ev.is_command('b') {
-        s.toggle_sidebar();
         return true;
     }
     if ev.is_command('r') {
@@ -114,16 +54,6 @@ fn on_key(s: &mut Hooked, ev: &KeyEvent, tx: &mut Tx) -> bool {
     }
     if ev.is_command('q') {
         tx.quit();
-        return true;
-    }
-    if s.page == Page::Session
-        && s.lens == Lens::Review
-        && !ev.mods.cmd
-        && !ev.mods.ctrl
-        && matches!(&ev.key, Key::Text(t) if t == "v")
-    {
-        let i = s.lens_data.diff.visible_file();
-        s.toggle_reviewed(i, Some(tx));
         return true;
     }
     if s.page == Page::Session && s.lens == Lens::Review && s.lens_data.diff.key(ev, tx) {
