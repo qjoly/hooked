@@ -56,28 +56,27 @@ session states coloured by how much they need you.
   regenerate), Memory, Cron (create, edit, pause, run, delete), GitHub, Skills, Settings (theme,
   notifications, new-session defaults, digest, auto-compact, tags, git sync).
 - **Organizing**: tags on rows and in the header, a tag filter in the sidebar, groups under their
-  lead session (move, leave, rename, archive together), incognito mode for screen sharing, and
-  Fork on any of your messages.
+  lead session with a tab strip (switch, make lead, leave, rename, new session in the group),
+  incognito mode for screen sharing, Fork from any message with model, effort, mode and a first
+  message, cost breakdown, copy as Markdown, focus mode, and up to four split panes.
+- **Review**: a files rail with reviewed ticks (v), a prompt filter, Review with Claude, a
+  comments panel (edit, archive, restore, jump), blame for the clicked line, rendered Markdown,
+  and the full diff of a truncated change.
 - **Outside the window**: a menu bar item with the waiting count and sessions; closing the window
   keeps the app running; ⌘⇧H (`HOOKED_QUICK_SHORTCUT` overrides it) opens a quick-reply panel on
   the sessions waiting on you; system notifications when one starts waiting (bundled app only).
 
 ## Not done yet
 
-- Dictation (not planned).
-- Dragging a session onto another to group it: the ⋯ menu's "Move to group…" does it instead.
-- Settings has the main switches; the rest links to the web dashboard.
-- Conversation: Fork from Claude's messages and with options, subagent transcripts, live
-  background-job logs, video and audio cards, an in-app image viewer, copy / run buttons on code
-  blocks, selecting a passage of a plan to comment on it, the GitHub Actions and Grafana windows.
-- Review: branch scope, per-prompt filter, files rail with reviewed ticks, "Review with Claude",
-  editing and listing threads, blame, go-to-definition, rendered Markdown diffs.
-- Organizing: the group tab strip, more than one split pane, the cost breakdown, copying the
-  conversation as Markdown.
-- Deck: the fleet grouped by repo with search and filters, plans approved in place.
-- Pages: Prompts, the account window, GitHub's reviews column and full PR detail, search on
-  Memory and Skills, Cron run history, Digest date picker, the Usage block on Stats, the
-  shortcut editor.
+- Dictation (not planned), the companion (decorative).
+- Dragging a session onto another to group it: the group tabs and the ⋯ menu do it instead.
+- Review: the branch scope (a branch against its base, a range of its commits) and
+  go-to-definition. Blame shows for the clicked line, not on hover. Markdown renders beside
+  its diff without the per-block tint.
+- Conversation: the Grafana query window; video and audio open in the system player.
+- Deck: the fleet grouped by repo with search and filters.
+- GitHub: the full pull-request panel (summary, timeline, code); the context panel shows the
+  PR's state and checks, which open the Actions run window.
 
 ## Terminal: what is still missing
 
