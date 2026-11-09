@@ -262,7 +262,7 @@ fn head_tags(s: &Hooked, id: &str, k: &Kit) -> El {
             .center_y()
             .cursor(Cursor::Pointer)
             .help("Edit tags")
-            .children(tags.iter().map(|t| super::tag_pill(k, t))),
+            .children(tags.iter().map(|t| super::tag_pill(s, k, t))),
     )
     .on_press(move |s: &mut Hooked| s.open_tags(id.clone()))
 }

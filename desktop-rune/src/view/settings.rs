@@ -600,9 +600,36 @@ fn tags_card(s: &Hooked, k: &Kit, v: &Value) -> El {
                 .on_submit(|s: &mut Hooked, _| s.rename_tag())
                 .build(k)
                 .key(format!("tag-edit-{t}")),
-            None => super::tag_pill(k, t),
+            None => super::tag_pill(s, k, t),
         };
-        let (t1, t2) = (tag.clone(), tag.clone());
+        let (t1, t2, t3) = (tag.clone(), tag.clone(), tag.clone());
+        let picking = s.pages.tag_hue_open.as_deref() == Some(t);
+        let swatch = k
+            .interactive(
+                el().key(format!("tag-hue-{t}"))
+                    .role("button")
+                    .label(format!("Colour of #{t}"))
+                    .help("Pick a colour")
+                    .size(16.0, 16.0)
+                    .radius(k.radius.sm)
+                    .cursor(Cursor::Pointer)
+                    .fill(s.tag_color(k.dark, t))
+                    .border(
+                        if picking { 2.0 } else { 1.0 },
+                        if picking {
+                            k.c.border_focus
+                        } else {
+                            k.c.border_strong
+                        },
+                    ),
+            )
+            .on_press(move |s: &mut Hooked| {
+                s.pages.tag_hue_open = if s.pages.tag_hue_open.as_deref() == Some(t3.as_str()) {
+                    None
+                } else {
+                    Some(t3.clone())
+                };
+            });
         c = c.child(
             row()
                 .key(format!("tag-row-{t}"))
@@ -611,6 +638,7 @@ fn tags_card(s: &Hooked, k: &Kit, v: &Value) -> El {
                 .gap(10.0)
                 .center_y()
                 .border_sides([1.0, 0.0, 0.0, 0.0], k.c.border_weak)
+                .child(swatch)
                 .child(name)
                 .child(
                     text(format!("{n} session{}", if n == 1 { "" } else { "s" }))
@@ -637,8 +665,66 @@ fn tags_card(s: &Hooked, k: &Kit, v: &Value) -> El {
                         .build(k),
                 ),
         );
+        if picking {
+            c = c.child(hue_picker(s, k, t));
+        }
     }
     c
+}
+
+fn hue_picker(s: &Hooked, k: &Kit, tag: &str) -> El {
+    let picked = s.tag_colors.get(tag).copied();
+    let mut strip = row()
+        .key(format!("tag-hues-{tag}"))
+        .w_full()
+        .pl(26.0)
+        .pb(8.0)
+        .gap(6.0)
+        .center_y()
+        .flex_wrap();
+    for i in 0..crate::theme::TAG_HUE_COUNT {
+        let hue = crate::theme::tag_hue(k.dark, i);
+        let on = picked == Some(i);
+        let t = tag.to_string();
+        strip = strip.child(
+            k.interactive(
+                row()
+                    .key(format!("tag-hue-{tag}-{i}"))
+                    .role("radio")
+                    .checked(on)
+                    .label(format!("Hue {}", i + 1))
+                    .h(22.0)
+                    .px(7.0)
+                    .center_y()
+                    .radius(k.radius.sm)
+                    .cursor(Cursor::Pointer)
+                    .fill(hue.alpha(0.14))
+                    .border(
+                        if on { 2.0 } else { 1.0 },
+                        if on { hue } else { hue.alpha(0.35) },
+                    )
+                    .child(
+                        text(format!("#{tag}"))
+                            .font(k.ty.text_xsmall_medium)
+                            .color(hue),
+                    ),
+            )
+            .on_press(move |s: &mut Hooked| s.set_tag_color(&t, Some(i))),
+        );
+    }
+    let t = tag.to_string();
+    strip.child(
+        Button::new("Auto")
+            .variant(if picked.is_none() {
+                ButtonVariant::Outline
+            } else {
+                ButtonVariant::GhostMuted
+            })
+            .control_size(ControlSize::Small)
+            .help("Back to the colour hooked derives from the name")
+            .on_press(move |s: &mut Hooked| s.set_tag_color(&t, None))
+            .build(k),
+    )
 }
 
 fn remote_card(s: &Hooked, k: &Kit, v: &Value) -> El {

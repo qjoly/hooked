@@ -108,6 +108,10 @@ pub fn kit(dark: bool) -> Kit {
     c.icon_contrast = s.accent_fg;
     c.bg_icon_button_contrast = s.accent;
     c.submit_icon = s.accent_fg;
+    c.bg_accent = s.accent;
+    c.layer_04 = s.border2;
+    c.knob = Color::WHITE;
+    c.knob_on = Color::WHITE;
     c.info = state(s.info);
     c.warning = state(s.warn);
     c.success = state(s.success);
@@ -135,16 +139,32 @@ pub fn state_color(dark: bool, state: &str) -> Color {
     }
 }
 
-/// hooked's tag palette: a few names keep a fixed hue, the rest hash to one, as in the web UI.
-pub fn tag_color(dark: bool, name: &str) -> Color {
-    const LIGHT: [&str; 6] = [
-        "#665d00", "#006f5d", "#006c7b", "#005f99", "#41559e", "#8a3a64",
-    ];
-    const DARK: [&str; 6] = [
-        "#c6c17c", "#78d1c0", "#71cfd9", "#8cc4f4", "#a7bbf9", "#eba6c6",
-    ];
+/// hooked's six tag hues first (what a tag hashes to, as in the web UI), then extra hues only a
+/// picked colour can land on. Each pair stays readable as text over its own hue at 14 %.
+const TAG_HUES: [(&str, &str); 11] = [
+    ("#665d00", "#c6c17c"),
+    ("#006f5d", "#78d1c0"),
+    ("#006c7b", "#71cfd9"),
+    ("#005f99", "#8cc4f4"),
+    ("#41559e", "#a7bbf9"),
+    ("#8a3a64", "#eba6c6"),
+    ("#b42318", "#f19a8f"),
+    ("#9a4a00", "#f0b27a"),
+    ("#2b6a14", "#9fd68a"),
+    ("#632ca6", "#c4a8fb"),
+    ("#55556a", "#b4b4c6"),
+];
+
+pub const TAG_HUE_COUNT: usize = TAG_HUES.len();
+
+pub fn tag_hue(dark: bool, i: usize) -> Color {
+    let (light, dark_hex) = TAG_HUES[i % TAG_HUES.len()];
+    hex(if dark { dark_hex } else { light })
+}
+
+pub fn tag_index(name: &str) -> usize {
     let n = name.to_lowercase();
-    let i = match n.as_str() {
+    match n.as_str() {
         "chart" => 0,
         "constant" => 1,
         "azure" => 3,
@@ -155,8 +175,7 @@ pub fn tag_color(dark: bool, name: &str) -> Color {
                 .fold(0u32, |h, c| h.wrapping_mul(31).wrapping_add(u32::from(c)))
                 % 6) as usize
         }
-    };
-    hex(if dark { DARK[i] } else { LIGHT[i] })
+    }
 }
 
 /// A stable hue per project folder, from the scheme's accent and state colours.
@@ -175,8 +194,8 @@ mod tests {
 
     #[test]
     fn tags_keep_the_web_hues() {
-        assert_eq!(tag_color(true, "infra"), hex("#a7bbf9"));
-        assert_eq!(tag_color(true, "Azure"), hex("#8cc4f4"));
-        assert_eq!(tag_color(false, "feature"), tag_color(false, "feature"));
+        assert_eq!(tag_hue(true, tag_index("infra")), hex("#a7bbf9"));
+        assert_eq!(tag_hue(true, tag_index("Azure")), hex("#8cc4f4"));
+        assert!(tag_index("feature") < 6);
     }
 }

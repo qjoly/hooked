@@ -114,6 +114,7 @@ pub struct Hooked {
     pub renaming: Option<(String, TextEdit)>,
     pub older_open: bool,
     pub folded_groups: HashSet<String>,
+    pub tag_colors: HashMap<String, usize>,
 
     pub detail: Option<Detail>,
     pub detail_gen: Arc<AtomicU64>,
@@ -180,6 +181,7 @@ impl Hooked {
             .get("sortMode")
             .unwrap_or_else(|| "dynamic".to_string());
         let folded_groups: HashSet<String> = prefs.get("foldedGroups").unwrap_or_default();
+        let tag_colors: HashMap<String, usize> = prefs.get("tagColors").unwrap_or_default();
         let collapse_worktrees: bool = prefs.get("collapseWorktrees").unwrap_or(true);
         let theme = prefs.get("theme").unwrap_or(Theme::System);
         let notify = prefs.get("notify").unwrap_or(true);
@@ -195,6 +197,7 @@ impl Hooked {
             meta: HashMap::new(),
             tags: HashMap::new(),
             tag_filter: Vec::new(),
+            tag_colors,
             incognito,
             picker: None,
             gauges: Vec::new(),
@@ -406,7 +409,28 @@ impl Hooked {
             };
             s.preload_page();
         }
+        if let Some(i) = args.iter().position(|a| a == "--tag-hues") {
+            s.pages.tag_hue_open = args.get(i + 1).cloned();
+        }
         s
+    }
+
+    pub fn tag_color(&self, dark: bool, name: &str) -> rune::Color {
+        let i = self
+            .tag_colors
+            .get(name)
+            .copied()
+            .unwrap_or_else(|| crate::theme::tag_index(name));
+        crate::theme::tag_hue(dark, i)
+    }
+
+    pub fn set_tag_color(&mut self, name: &str, hue: Option<usize>) {
+        match hue {
+            Some(i) => self.tag_colors.insert(name.to_string(), i),
+            None => self.tag_colors.remove(name),
+        };
+        let map = self.tag_colors.clone();
+        self.save_pref("tagColors", &map);
     }
 
     pub fn save_pref<T: serde::Serialize>(&mut self, key: &str, v: &T) {

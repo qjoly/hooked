@@ -583,7 +583,7 @@ fn session_row(s: &Hooked, x: &Session, k: &Kit, depth: u8, group: Option<usize>
                 .pb(4.0)
                 .gap(4.0)
                 .flex_wrap()
-                .children(tags.iter().map(|t| tag_pill(k, t))),
+                .children(tags.iter().map(|t| tag_pill(s, k, t))),
         )
     };
     built
@@ -790,7 +790,7 @@ fn sidebar(s: &Hooked, k: &Kit, layer: &mut Vec<El>) -> El {
                         .child(
                             text(format!("#{t}"))
                                 .font(k.ty.text_xsmall_medium)
-                                .color(crate::theme::tag_color(k.dark, &t)),
+                                .color(s.tag_color(k.dark, &t)),
                         )
                         .child(
                             text(n.to_string())
@@ -1099,8 +1099,8 @@ pub fn md(src: impl Into<String>) -> rune_kit::Markdown {
     rune_kit::Markdown::new(src).on_link_tx(crate::app::open_link)
 }
 
-pub fn tag_pill(k: &Kit, name: &str) -> El {
-    let c = crate::theme::tag_color(k.dark, name);
+pub fn tag_pill(s: &Hooked, k: &Kit, name: &str) -> El {
+    let c = s.tag_color(k.dark, name);
     row()
         .h(18.0)
         .px(6.0)

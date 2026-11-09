@@ -68,7 +68,7 @@ pub fn view(s: &Hooked, k: &Kit) -> El {
                             .child(
                                 text(format!("#{t}"))
                                     .font(k.ty.text_small)
-                                    .color(crate::theme::tag_color(k.dark, &t)),
+                                    .color(s.tag_color(k.dark, &t)),
                             ),
                     )
                     .on_press(move |s: &mut Hooked| s.toggle_tag_in_editor(&tag))

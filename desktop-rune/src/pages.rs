@@ -81,6 +81,7 @@ pub struct PageData {
     pub rc: Option<Value>,
     pub hours: Option<TextEdit>,
     pub tag_edit: Option<(String, TextEdit)>,
+    pub tag_hue_open: Option<String>,
     pub busy: Option<&'static str>,
     pub settings_stale: bool,
     pub settings_loading: bool,
@@ -560,6 +561,11 @@ impl Hooked {
         }
         self.tags.retain(|_, v| !v.is_empty());
         self.tag_filter.retain(|t| t != old);
+        let hue = self.tag_colors.get(old).copied();
+        self.set_tag_color(old, None);
+        if let (Some(n), Some(i)) = (new, hue) {
+            self.set_tag_color(n, Some(i));
+        }
         let map = json!(self.tags);
         spawn(
             move || api::post("/api/tags", json!({ "replace": map })),
