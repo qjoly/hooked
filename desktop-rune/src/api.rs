@@ -391,14 +391,6 @@ impl Change {
 
 #[derive(Clone, Debug, Default, Deserialize, PartialEq)]
 #[serde(default, rename_all = "camelCase")]
-pub struct Subagent {
-    #[serde(rename = "type")]
-    pub kind: Option<String>,
-    pub description: Option<String>,
-}
-
-#[derive(Clone, Debug, Default, Deserialize, PartialEq)]
-#[serde(default, rename_all = "camelCase")]
 pub struct SubSession {
     pub id: String,
     pub label: Option<String>,
@@ -425,10 +417,14 @@ pub struct Detail {
     pub followup_suggestion: Option<String>,
     pub todos: Vec<Todo>,
     pub changes: Vec<Change>,
-    pub subagents: Vec<Subagent>,
+    pub subagents: Vec<Value>,
     pub sub_sessions: Vec<SubSession>,
     pub context: Option<Context>,
-    pub pr_links: Vec<Value>,
+    pub pr_links: Vec<String>,
+    pub issue_links: Vec<String>,
+    pub bg_jobs: Vec<Value>,
+    pub workflows: Vec<Value>,
+    pub screenshots: Vec<Value>,
 }
 
 pub fn detail(id: &str) -> Result<Detail, String> {
@@ -623,6 +619,13 @@ pub fn restart(id: &str) -> Result<(), String> {
 
 pub fn delete(id: &str) -> Result<(), String> {
     post("/api/delete", json!({ "id": id })).map(|_| ())
+}
+
+pub fn gh_view(url: &str) -> Result<Value, String> {
+    Ok(get(&format!("/api/gh?url={}", enc(url)))?
+        .get("data")
+        .cloned()
+        .unwrap_or(Value::Null))
 }
 
 pub fn upload_image(mime: &str, bytes: &[u8]) -> Result<String, String> {

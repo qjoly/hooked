@@ -116,6 +116,12 @@ pub struct Hooked {
     pub live: Option<LiveSnapshot>,
     pub working_since: Option<i64>,
     pub dock_open: bool,
+    pub dock_cards: HashSet<&'static str>,
+    pub dock_agent: Option<String>,
+    pub gh_open: Option<String>,
+    pub gh: HashMap<String, serde_json::Value>,
+    pub images: Option<rune::ImageCache>,
+    pub thumbs: HashMap<String, rune::Image>,
     pub tools_open: HashSet<String>,
     pub all_tools_open: bool,
     pub visible: usize,
@@ -196,6 +202,12 @@ impl Hooked {
             live: None,
             working_since: None,
             dock_open,
+            dock_cards: HashSet::new(),
+            dock_agent: None,
+            gh_open: None,
+            gh: HashMap::new(),
+            images: None,
+            thumbs: HashMap::new(),
             tools_open: HashSet::new(),
             all_tools_open: false,
             visible: WINDOW,
@@ -627,6 +639,18 @@ impl Hooked {
             self.working_since.get_or_insert(fmt::now_ms());
         } else {
             self.working_since = None;
+        }
+        if let Some(cache) = self.images.as_ref() {
+            for shot in &d.screenshots {
+                let Some(path) = shot["path"].as_str() else {
+                    continue;
+                };
+                if !self.thumbs.contains_key(path)
+                    && let Ok(bytes) = std::fs::read(path)
+                {
+                    self.thumbs.insert(path.to_string(), cache.load(bytes));
+                }
+            }
         }
         self.detail = Some(d);
         if had_question != now_question {
@@ -1156,6 +1180,33 @@ impl Hooked {
 
     pub fn menu_shows(&self, key: &str) -> bool {
         self.setting("statusBar")[key].as_bool().unwrap_or(true)
+    }
+
+    pub fn toggle_card(&mut self, card: &'static str) {
+        if !self.dock_cards.remove(card) {
+            self.dock_cards.insert(card);
+        }
+    }
+
+    pub fn open_gh(&mut self, url: String) {
+        if self.gh_open.as_deref() == Some(url.as_str()) {
+            self.gh_open = None;
+            return;
+        }
+        self.gh_open = Some(url.clone());
+        if self.gh.contains_key(&url) {
+            return;
+        }
+        spawn(
+            {
+                let url = url.clone();
+                move || api::gh_view(&url)
+            },
+            move |s, r, _| {
+                let v = r.unwrap_or_else(|e| serde_json::json!({ "error": e }));
+                s.gh.insert(url, v);
+            },
+        );
     }
 
     pub fn projects(&self) -> Vec<String> {

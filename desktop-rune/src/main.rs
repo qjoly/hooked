@@ -132,7 +132,8 @@ fn poll(s: &mut Hooked, _clock: f64, tx: &mut Tx) -> bool {
     changed
 }
 
-fn setup(s: &mut Hooked, _waker: rune::Waker) {
+fn setup(s: &mut Hooked, waker: rune::Waker) {
+    s.images = Some(rune::ImageCache::new(waker));
     s.tray_dirty = true;
     app::start_workers();
 }
