@@ -107,7 +107,72 @@ pub fn file_diffs(
     (out, anchors)
 }
 
+/// What a reviewed tick signs off: the file's diff as shown, so a later edit clears it.
+pub fn fingerprint(f: &FileDiff) -> String {
+    let mut h: u32 = 0x811c_9dc5;
+    let mut len = 0usize;
+    for l in f.hunks.iter().flat_map(|h| &h.lines) {
+        for b in [l.kind as u8].iter().chain(l.text.as_bytes()).chain(b"\0") {
+            h ^= u32::from(*b);
+            h = h.wrapping_mul(0x0100_0193);
+            len += 1;
+        }
+    }
+    format!("{h:x}-{len:x}")
+}
+
+const REVIEWED_PER_FILE: usize = 12;
+
 impl Hooked {
+    fn review_key(&self, file: usize) -> Option<(String, String)> {
+        let f = self.lens_data.diff.files().get(file)?;
+        let id = self.selected.as_deref()?;
+        Some((format!("{id}|{}", f.path()), fingerprint(f)))
+    }
+
+    pub fn is_reviewed(&self, file: usize) -> bool {
+        self.review_key(file)
+            .is_some_and(|(k, fp)| self.reviewed.get(&k).is_some_and(|v| v.contains(&fp)))
+    }
+
+    pub fn reviewed_count(&self) -> usize {
+        (0..self.lens_data.diff.files().len())
+            .filter(|&i| self.is_reviewed(i))
+            .count()
+    }
+
+    /// Ticking a file moves on to the next one still to review, as the web lens does.
+    pub fn toggle_reviewed(&mut self, file: usize, tx: Option<&mut rune::Tx>) {
+        let Some((key, fp)) = self.review_key(file) else {
+            return;
+        };
+        let seen = self.reviewed.entry(key.clone()).or_default();
+        let marking = !seen.contains(&fp);
+        if marking {
+            seen.push(fp);
+            let n = seen.len();
+            if n > REVIEWED_PER_FILE {
+                seen.drain(..n - REVIEWED_PER_FILE);
+            }
+        } else {
+            seen.retain(|h| *h != fp);
+            if seen.is_empty() {
+                self.reviewed.remove(&key);
+            }
+        }
+        let all = self.reviewed.clone();
+        self.save_pref("reviewed", &all);
+        if marking && let Some(tx) = tx {
+            let n = self.lens_data.diff.files().len();
+            if let Some(next) = (1..n)
+                .map(|d| (file + d) % n)
+                .find(|&i| !self.is_reviewed(i))
+            {
+                self.lens_data.diff.scroll_to_file(next, tx);
+            }
+        }
+    }
+
     /// Starts whatever the open lens is missing; true when state changed synchronously.
     pub fn ensure_lens(&mut self) -> bool {
         if self.page != Page::Session {

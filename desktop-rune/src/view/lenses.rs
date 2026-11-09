@@ -30,6 +30,148 @@ fn empty(k: &Kit, key: &str, msg: &str) -> El {
         .child(text(msg.to_string()).font(k.ty.body).color(k.c.text_faint))
 }
 
+fn reviewed_toggle(s: &Hooked, k: &Kit, i: usize) -> El {
+    let on = s.is_reviewed(i);
+    Button::new(if on { "Reviewed" } else { "Mark reviewed" })
+        .icon(if on {
+            &icons::CIRCLE_CHECK
+        } else {
+            &icons::CIRCLE
+        })
+        .variant(if on {
+            ButtonVariant::Outline
+        } else {
+            ButtonVariant::GhostMuted
+        })
+        .control_size(ControlSize::Small)
+        .help("Mark this file reviewed (v)")
+        .on_press_tx(move |s: &mut Hooked, tx| s.toggle_reviewed(i, Some(tx)))
+        .build(k)
+}
+
+fn files_rail(s: &Hooked, k: &Kit) -> El {
+    let ld = &s.lens_data;
+    let files = ld.diff.files();
+    let visible = ld.diff.visible_file();
+    let done = s.reviewed_count();
+    let mut list = col().w_full().gap(1.0);
+    for (i, f) in files.iter().enumerate() {
+        let on = i == visible;
+        let reviewed = s.is_reviewed(i);
+        let path = f.path().to_string();
+        let (file, part) = path.split_once(" · ").unwrap_or((path.as_str(), ""));
+        let base = file.rsplit('/').next().unwrap_or(file);
+        let name = if part.is_empty() {
+            base.to_string()
+        } else {
+            format!("{base} · {}", part.trim_start_matches("edit "))
+        };
+        list = list.child(
+            row()
+                .key(format!("rf-{i}"))
+                .w_full()
+                .h(28.0)
+                .pl(4.0)
+                .pr(8.0)
+                .gap(4.0)
+                .center_y()
+                .radius(k.radius.sm)
+                .fill(if on { k.c.layer_02 } else { Color::TRANSPARENT })
+                .child(
+                    k.interactive(
+                        row()
+                            .role("checkbox")
+                            .checked(reviewed)
+                            .label(format!("{name} reviewed"))
+                            .size(22.0, 22.0)
+                            .center()
+                            .cursor(Cursor::Pointer)
+                            .child(glyph(
+                                if reviewed {
+                                    &icons::CIRCLE_CHECK
+                                } else {
+                                    &icons::CIRCLE
+                                },
+                                13.0,
+                                if reviewed {
+                                    k.c.success.icon
+                                } else {
+                                    k.c.icon_faint
+                                },
+                            )),
+                    )
+                    .on_press_tx(move |s: &mut Hooked, tx| s.toggle_reviewed(i, Some(tx))),
+                )
+                .child(
+                    k.interactive(
+                        row()
+                            .role("link")
+                            .grow(1.0)
+                            .min_w(0.0)
+                            .h_full()
+                            .gap(6.0)
+                            .center_y()
+                            .cursor(Cursor::Pointer)
+                            .help(path.clone())
+                            .child(
+                                text(name)
+                                    .font(k.ty.text_small)
+                                    .color(if reviewed {
+                                        k.c.text_faint
+                                    } else {
+                                        k.c.text_base
+                                    })
+                                    .truncate()
+                                    .grow(1.0)
+                                    .min_w(0.0),
+                            )
+                            .child(
+                                text(format!("+{}", f.additions()))
+                                    .font(k.ty.text_xsmall)
+                                    .color(k.c.success.fg),
+                            )
+                            .child(
+                                text(format!("−{}", f.deletions()))
+                                    .font(k.ty.text_xsmall)
+                                    .color(k.c.danger.fg),
+                            ),
+                    )
+                    .on_press_tx(move |s: &mut Hooked, tx| s.lens_data.diff.scroll_to_file(i, tx)),
+                ),
+        );
+    }
+    col()
+        .key("review-files")
+        .w(240.0)
+        .h_full()
+        .border_sides([0.0, 1.0, 0.0, 0.0], k.c.border_weak)
+        .child(
+            row()
+                .w_full()
+                .h(32.0)
+                .px(10.0)
+                .center_y()
+                .child(section_title(k, "FILES"))
+                .child(el().grow(1.0))
+                .child(
+                    text(format!("{done}/{} reviewed", files.len()))
+                        .font(k.ty.text_xsmall)
+                        .color(k.c.text_faint),
+                ),
+        )
+        .child(
+            col()
+                .w_full()
+                .grow(1.0)
+                .min_h(0.0)
+                .px(4.0)
+                .scroll(ScrollSpec {
+                    stick_bottom: false,
+                })
+                .child(list),
+        )
+}
+
 pub fn review(s: &Hooked, d: &Detail, k: &Kit) -> El {
     let ld = &s.lens_data;
     let src = match ld.review_source {
@@ -89,7 +231,7 @@ pub fn review(s: &Hooked, d: &Detail, k: &Kit) -> El {
     }
     top = top
         .child(
-            text("+ on a line comments · j/k hunks · [/] files")
+            text("+ on a line comments · j/k hunks · [/] files · v reviewed")
                 .font(k.ty.text_xsmall)
                 .color(k.c.text_faint),
         )
@@ -117,11 +259,11 @@ pub fn review(s: &Hooked, d: &Detail, k: &Kit) -> El {
         };
         empty(k, "review-empty", msg)
     } else {
-        col()
+        let diff = col()
             .key("review-diff")
-            .w_full()
             .grow(1.0)
-            .min_h(0.0)
+            .h_full()
+            .min_w(0.0)
             .child(
                 DiffView::new(
                     |s: &Hooked| &s.lens_data.diff,
@@ -133,8 +275,20 @@ pub fn review(s: &Hooked, d: &Detail, k: &Kit) -> El {
                     move |s: &Hooked, a: &Annotation| annotation(s, a, &k)
                 })
                 .on_comment(|s: &mut Hooked, range, _| s.start_comment(range))
+                .on_visible_file(|_: &mut Hooked, _| {})
+                .header_actions({
+                    let k = k.clone();
+                    move |s: &Hooked, i| reviewed_toggle(s, &k, i)
+                })
                 .build(s, k),
-            )
+            );
+        row()
+            .key("review-body")
+            .w_full()
+            .grow(1.0)
+            .min_h(0.0)
+            .child(files_rail(s, k))
+            .child(diff)
     };
     col().key("review").w_full().h_full().child(top).child(body)
 }

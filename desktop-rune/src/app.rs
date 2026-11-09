@@ -130,6 +130,7 @@ pub struct Hooked {
     pub thumbs: HashMap<String, rune::Image>,
     pub media: HashMap<String, Option<rune::Image>>,
     pub drafts: HashMap<String, String>,
+    pub reviewed: HashMap<String, Vec<String>>,
     pub full_texts: HashMap<String, Option<String>>,
     pub ac: Option<Autocomplete>,
     pub ac_req: u64,
@@ -265,6 +266,7 @@ impl Hooked {
         let folded_groups: HashSet<String> = prefs.get("foldedGroups").unwrap_or_default();
         let tag_colors: HashMap<String, usize> = prefs.get("tagColors").unwrap_or_default();
         let drafts: HashMap<String, String> = prefs.get("drafts").unwrap_or_default();
+        let reviewed: HashMap<String, Vec<String>> = prefs.get("reviewed").unwrap_or_default();
         let collapse_worktrees: bool = prefs.get("collapseWorktrees").unwrap_or(true);
         let theme = prefs.get("theme").unwrap_or(Theme::System);
         let notify = prefs.get("notify").unwrap_or(true);
@@ -320,6 +322,7 @@ impl Hooked {
             thumbs: HashMap::new(),
             media: HashMap::new(),
             drafts,
+            reviewed,
             full_texts: HashMap::new(),
             ac: None,
             ac_req: 0,

@@ -112,6 +112,16 @@ fn on_key(s: &mut Hooked, ev: &KeyEvent, tx: &mut Tx) -> bool {
         tx.quit();
         return true;
     }
+    if s.page == Page::Session
+        && s.lens == Lens::Review
+        && !ev.mods.cmd
+        && !ev.mods.ctrl
+        && matches!(&ev.key, Key::Text(t) if t == "v")
+    {
+        let i = s.lens_data.diff.visible_file();
+        s.toggle_reviewed(i, Some(tx));
+        return true;
+    }
     if s.page == Page::Session && s.lens == Lens::Review && s.lens_data.diff.key(ev, tx) {
         return true;
     }
