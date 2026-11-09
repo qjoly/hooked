@@ -597,8 +597,18 @@ fn converse(s: &Hooked, d: &Detail, k: &Kit) -> El {
             .filter_map(|p| if let Part::Tool(t) = p { t.id } else { None })
             .filter(|id| s.tools_open.contains(id))
             .collect();
+        let pictures: Vec<bool> = message_media(m)
+            .iter()
+            .map(|p| {
+                s.media
+                    .get(p)
+                    .and_then(Option::as_ref)
+                    .is_some_and(rune::Image::is_ready)
+            })
+            .collect();
         let version = hash_of((
             &m.text,
+            pictures,
             m.tools.len(),
             m.ts.as_deref(),
             k.dark,
@@ -776,12 +786,28 @@ pub(super) fn bubble(s: &Hooked, m: &Message, k: &Kit, i: usize) -> El {
     let mut b = col().w_full().gap(8.0).child(head);
     for (pi, p) in m.render_parts().into_iter().enumerate() {
         b = b.child(match p {
-            Part::Text(t) if user => text(t)
-                .font(k.ty.body)
-                .color(k.c.text_base)
-                .wrap()
-                .selectable(true)
-                .key(format!("t-{i}-{pi}")),
+            Part::Text(t) if user => {
+                let (images, rest) = crate::api::split_message_images(&t);
+                let mut c = col().w_full().gap(8.0).key(format!("t-{i}-{pi}"));
+                if !images.is_empty() {
+                    c = c.child(
+                        row()
+                            .gap(8.0)
+                            .flex_wrap()
+                            .children(images.iter().map(|p| picture(s, k, p, 220.0, 160.0))),
+                    );
+                }
+                if !rest.is_empty() {
+                    c = c.child(
+                        text(rest)
+                            .font(k.ty.body)
+                            .color(k.c.text_base)
+                            .wrap()
+                            .selectable(true),
+                    );
+                }
+                c
+            }
             Part::Text(t) => super::md(t)
                 .selectable(true)
                 .build(k)
@@ -797,6 +823,227 @@ pub(super) fn bubble(s: &Hooked, m: &Message, k: &Kit, i: usize) -> El {
             .border(1.0, k.c.border_weak);
     }
     b
+}
+
+fn message_media(m: &Message) -> Vec<String> {
+    let mut out = if m.role == "user" {
+        crate::api::split_message_images(&m.text).0
+    } else {
+        Vec::new()
+    };
+    for p in m.render_parts() {
+        if let Part::Tool(t) = p {
+            out.extend(crate::api::tool_media(&t));
+        }
+    }
+    out
+}
+
+fn file_name(p: &str) -> String {
+    p.rsplit('/').next().unwrap_or(p).to_string()
+}
+
+/// A picture of the conversation, fitted in `max_w` × `max_h`; a click opens the file.
+pub(super) fn picture(s: &Hooked, k: &Kit, path: &str, max_w: f32, max_h: f32) -> El {
+    let img = s.media.get(path).and_then(Option::as_ref);
+    let fitted = img.and_then(|i| i.size()).map(|[w, h]| {
+        let (w, h) = (w.max(1) as f32 / 2.0, h.max(1) as f32 / 2.0);
+        let scale = (max_w / w).min(max_h / h).min(1.0);
+        (w * scale, h * scale)
+    });
+    let name = file_name(path);
+    let tile = match (img, fitted) {
+        (Some(img), Some((w, h))) => el().size(w, h).pixels(img.pixels()),
+        _ => col()
+            .size(max_w.min(180.0), max_h.min(110.0))
+            .gap(6.0)
+            .center()
+            .fill(k.c.layer_02)
+            .child(glyph(&icons::IMAGE, 18.0, k.c.icon_faint))
+            .child(
+                text(if img.is_none() && s.media.contains_key(path) {
+                    "loading…".to_string()
+                } else {
+                    name.clone()
+                })
+                .font(k.ty.text_xsmall)
+                .color(k.c.text_faint)
+                .truncate(),
+            ),
+    };
+    let url = format!("file://{path}");
+    k.interactive(
+        tile.key(format!("pic-{path}"))
+            .role("link")
+            .label(name.clone())
+            .help(format!("{name} · click to open"))
+            .radius(k.radius.md)
+            .clip_rounded(k.radius.md)
+            .border(1.0, k.c.border_weak)
+            .cursor(Cursor::Pointer),
+    )
+    .on_press_tx(move |_: &mut Hooked, tx| {
+        let _ = tx.open_url(&url);
+    })
+}
+
+fn sent_files(s: &Hooked, k: &Kit, send: &serde_json::Value) -> El {
+    let mut c = col().w_full().gap(6.0).px(10.0).pb(10.0);
+    if let Some(cap) = send["caption"].as_str().filter(|c| !c.is_empty()) {
+        c = c.child(
+            text(cap.to_string())
+                .font(k.ty.text_small)
+                .color(k.c.text_muted)
+                .wrap(),
+        );
+    }
+    let files = send["files"].as_array().cloned().unwrap_or_default();
+    let mut pics = row().gap(8.0).flex_wrap();
+    let mut others = row().gap(6.0).flex_wrap();
+    for f in &files {
+        let Some(p) = f["path"].as_str() else {
+            continue;
+        };
+        if f["kind"] == "image" {
+            pics = pics.child(picture(s, k, p, 320.0, 220.0));
+        } else {
+            let url = format!("file://{p}");
+            others = others.child(
+                k.interactive(
+                    row()
+                        .key(format!("file-{p}"))
+                        .role("link")
+                        .h(24.0)
+                        .px(8.0)
+                        .gap(5.0)
+                        .center_y()
+                        .radius(k.radius.sm)
+                        .border(1.0, k.c.border_weak)
+                        .cursor(Cursor::Pointer)
+                        .help(p.to_string())
+                        .child(glyph(&icons::LINK, 12.0, k.c.icon_muted))
+                        .child(
+                            text(file_name(p))
+                                .font(k.ty.text_small)
+                                .color(k.c.text_base),
+                        ),
+                )
+                .on_press_tx(move |_: &mut Hooked, tx| {
+                    let _ = tx.open_url(&url);
+                }),
+            );
+        }
+    }
+    c.child(pics).child(others)
+}
+
+fn show_work(s: &Hooked, k: &Kit, show: &serde_json::Value) -> El {
+    let str_of = |key: &str| show[key].as_str().unwrap_or("").to_string();
+    let title = Some(str_of("title"))
+        .filter(|t| !t.is_empty())
+        .unwrap_or_else(|| str_of("name"));
+    let mut head = row()
+        .w_full()
+        .gap(6.0)
+        .center_y()
+        .child(glyph(&icons::IMAGE, 13.0, k.c.icon_muted))
+        .child(
+            text(title)
+                .font(k.ty.text_small_medium)
+                .color(k.c.text_base)
+                .truncate()
+                .grow(1.0)
+                .min_w(0.0),
+        );
+    let page = str_of("url");
+    if !page.is_empty() {
+        head = head.child(
+            Button::new("Open page")
+                .icon(&icons::LINK)
+                .variant(ButtonVariant::GhostMuted)
+                .control_size(ControlSize::Small)
+                .on_press_tx(move |_: &mut Hooked, tx| {
+                    let _ = tx.open_url(&page);
+                })
+                .build(k),
+        );
+    }
+    let mut c = col().w_full().gap(8.0).px(10.0).pb(10.0).child(head);
+    let path = str_of("path");
+    if show["kind"] != "image" {
+        let url = format!("file://{path}");
+        return c.child(
+            Button::new(format!("Open {}", file_name(&path)))
+                .variant(ButtonVariant::Outline)
+                .control_size(ControlSize::Small)
+                .on_press_tx(move |_: &mut Hooked, tx| {
+                    let _ = tx.open_url(&url);
+                })
+                .build(k),
+        );
+    }
+    let before = str_of("compare");
+    let figure = |label: &str, p: &str, w: f32| {
+        col()
+            .gap(4.0)
+            .child(
+                text(label.to_string())
+                    .font(k.ty.text_xsmall_medium)
+                    .color(k.c.text_faint),
+            )
+            .child(picture(s, k, p, w, 360.0))
+    };
+    c = c.child(if before.is_empty() {
+        picture(s, k, &path, 640.0, 420.0)
+    } else {
+        row()
+            .gap(10.0)
+            .child(figure("Before", &before, 320.0))
+            .child(figure("After", &path, 320.0))
+    });
+    for ch in show["changes"].as_array().into_iter().flatten() {
+        let mut line = text(format!("• {}", ch["title"].as_str().unwrap_or("")))
+            .font(k.ty.text_small_medium)
+            .color(k.c.text_base)
+            .wrap();
+        if let Some(detail) = ch["detail"].as_str().filter(|d| !d.is_empty()) {
+            line = text(format!(
+                "• {} — {detail}",
+                ch["title"].as_str().unwrap_or("")
+            ))
+            .font(k.ty.text_small)
+            .color(k.c.text_base)
+            .wrap();
+        }
+        c = c.child(line);
+    }
+    let checks: Vec<&serde_json::Value> = show["checks"].as_array().into_iter().flatten().collect();
+    if !checks.is_empty() {
+        c = c.child(
+            row()
+                .gap(6.0)
+                .flex_wrap()
+                .children(checks.into_iter().map(|ch| {
+                    let ok = ch["ok"].as_bool().unwrap_or(false);
+                    let (fg, bg) = if ok {
+                        (k.c.success.fg, k.c.success.bg)
+                    } else {
+                        (k.c.danger.fg, k.c.danger.bg)
+                    };
+                    pill(
+                        k,
+                        format!(
+                            "{} {}",
+                            if ok { "✓" } else { "✗" },
+                            ch["name"].as_str().unwrap_or("")
+                        ),
+                        fg,
+                        bg,
+                    )
+                })),
+        );
+    }
+    c
 }
 
 fn tool_chip(s: &Hooked, t: &Tool, k: &Kit, key: String) -> El {
@@ -870,6 +1117,12 @@ fn tool_chip(s: &Hooked, t: &Tool, k: &Kit, key: String) -> El {
         if let Some(r) = t.result_text() {
             chip = chip.child(mono("Result", r));
         }
+    }
+    if let Some(send) = t.send.as_ref() {
+        chip = chip.child(sent_files(s, k, send));
+    }
+    if let Some(show) = t.show.as_ref() {
+        chip = chip.child(show_work(s, k, show));
     }
     chip
 }

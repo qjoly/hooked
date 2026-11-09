@@ -134,6 +134,9 @@ fn poll(s: &mut Hooked, _clock: f64, tx: &mut Tx) -> bool {
 
 fn setup(s: &mut Hooked, waker: rune::Waker) {
     s.images = Some(rune::ImageCache::new(waker));
+    if let Some(d) = s.detail.clone() {
+        s.want_media(&d, true);
+    }
     s.tray_dirty = true;
     app::start_workers();
 }

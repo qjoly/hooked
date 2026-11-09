@@ -473,8 +473,7 @@ fn links(s: &Hooked, d: &Detail, k: &Kit) -> El {
         .flex_wrap()
         .children(all.iter().map(|l| {
             let pr = l.contains("/pull/") || l.contains("/merge_requests/");
-            let num = l.rsplit('/').next().unwrap_or("");
-            let label = format!("{}{num}", if pr { "PR #" } else { "#" });
+            let label = crate::fmt::link_label(l);
             let on = s.gh_open.as_deref() == Some(l.as_str());
             let url = (*l).clone();
             k.interactive(
@@ -484,6 +483,7 @@ fn links(s: &Hooked, d: &Detail, k: &Kit) -> El {
                     .checked(on)
                     .h(22.0)
                     .px(8.0)
+                    .gap(5.0)
                     .center_y()
                     .radius(k.radius.sm)
                     .cursor(Cursor::Pointer)
@@ -497,6 +497,15 @@ fn links(s: &Hooked, d: &Detail, k: &Kit) -> El {
                         },
                     )
                     .help((*l).clone())
+                    .child(glyph(
+                        if pr {
+                            &icons::PULL_REQUEST
+                        } else {
+                            &icons::CIRCLE_DOT
+                        },
+                        12.0,
+                        k.c.icon_muted,
+                    ))
                     .child(
                         text(label)
                             .font(k.ty.text_small_medium)

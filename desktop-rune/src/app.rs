@@ -128,6 +128,7 @@ pub struct Hooked {
     pub gh: HashMap<String, serde_json::Value>,
     pub images: Option<rune::ImageCache>,
     pub thumbs: HashMap<String, rune::Image>,
+    pub media: HashMap<String, Option<rune::Image>>,
     pub tools_open: HashSet<String>,
     pub all_tools_open: bool,
     pub visible: usize,
@@ -235,6 +236,7 @@ impl Hooked {
             gh: HashMap::new(),
             images: None,
             thumbs: HashMap::new(),
+            media: HashMap::new(),
             tools_open: HashSet::new(),
             all_tools_open: false,
             visible: WINDOW,
@@ -546,10 +548,13 @@ impl Hooked {
                 move || api::detail(&id)
             },
             move |s, r, _| {
-                if let (Some(p), Ok(d)) = (s.split.as_mut(), r)
-                    && p.id == id
+                if let Ok(d) = r
+                    && s.split.as_ref().is_some_and(|p| p.id == id)
                 {
-                    p.detail = Some(d);
+                    s.want_media(&d, false);
+                    if let Some(p) = s.split.as_mut() {
+                        p.detail = Some(d);
+                    }
                 }
             },
         );
@@ -721,12 +726,43 @@ impl Hooked {
                 }
             }
         }
+        self.want_media(&d, false);
         self.detail = Some(d);
         if had_question != now_question {
             self.reset_question();
         }
         if start_stream {
             self.follow_session(generation);
+        }
+    }
+
+    pub fn want_media(&mut self, d: &Detail, now: bool) {
+        let Some(cache) = self.images.as_ref() else {
+            return;
+        };
+        let media = &mut self.media;
+        for (path, url) in api::media_refs(d) {
+            if media.contains_key(&path) {
+                continue;
+            }
+            media.insert(path.clone(), None);
+            if now {
+                if let Ok(bytes) = api::bytes(&url) {
+                    let img = cache.load(bytes);
+                    let _ = img.wait();
+                    media.insert(path, Some(img));
+                }
+                continue;
+            }
+            spawn(
+                move || api::bytes(&url),
+                move |s, r, _| {
+                    if let (Ok(bytes), Some(cache)) = (r, s.images.as_ref()) {
+                        let img = cache.load(bytes);
+                        s.media.insert(path, Some(img));
+                    }
+                },
+            );
         }
     }
 

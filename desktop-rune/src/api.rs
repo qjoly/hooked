@@ -33,6 +33,16 @@ pub fn get(path: &str) -> Result<Value, String> {
     read(r)
 }
 
+pub fn bytes(path: &str) -> Result<Vec<u8>, String> {
+    let resp = agent()
+        .get(&format!("{}{path}", base()))
+        .call()
+        .map_err(|e| e.to_string())?;
+    let mut out = Vec::new();
+    std::io::Read::read_to_end(&mut resp.into_reader(), &mut out).map_err(|e| e.to_string())?;
+    Ok(out)
+}
+
 pub fn post(path: &str, body: Value) -> Result<Value, String> {
     let r = agent().post(&format!("{}{path}", base())).send_json(body);
     read(r)
@@ -255,6 +265,10 @@ pub struct Tool {
     pub detail: Option<String>,
     pub input_text: Option<String>,
     pub result: Option<Value>,
+    #[serde(skip)]
+    pub send: Option<Value>,
+    #[serde(skip)]
+    pub show: Option<Value>,
 }
 
 impl Tool {
@@ -280,6 +294,8 @@ struct RawPart {
     kind: String,
     text: Option<String>,
     tool: Option<Tool>,
+    send: Option<Value>,
+    show: Option<Value>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, PartialEq)]
@@ -306,7 +322,11 @@ impl Message {
                     .clone()
                     .filter(|t| !t.trim().is_empty())
                     .map(Part::Text),
-                "tool" => p.tool.clone().map(Part::Tool),
+                "tool" => p.tool.clone().map(|mut t| {
+                    t.send = p.send.clone();
+                    t.show = p.show.clone();
+                    Part::Tool(t)
+                }),
                 _ => None,
             })
             .collect();
@@ -320,6 +340,77 @@ impl Message {
         out.extend(self.tools.iter().cloned().map(Part::Tool));
         out
     }
+}
+
+const IMAGE_EXTS: [&str; 5] = [".png", ".jpg", ".jpeg", ".gif", ".webp"];
+
+fn is_image_name(p: &str) -> bool {
+    let l = p.to_lowercase();
+    IMAGE_EXTS.iter().any(|e| l.ends_with(e))
+}
+
+/// Pasted images reach the transcript as absolute paths under hooked's images dir, written into
+/// the prompt text; this splits them out, as the web's `splitMessageImages`.
+pub fn split_message_images(text: &str) -> (Vec<String>, String) {
+    let mut images = Vec::new();
+    let mut rest = String::with_capacity(text.len());
+    for piece in text.split_inclusive(char::is_whitespace) {
+        let word = piece.trim_end();
+        if word.starts_with('/') && word.contains("/images/") && is_image_name(word) {
+            images.push(word.to_string());
+            rest.push_str(&piece[word.len()..]);
+        } else {
+            rest.push_str(piece);
+        }
+    }
+    (images, rest.trim().to_string())
+}
+
+/// Every picture the conversation shows, as (path, URL to fetch it from).
+pub fn media_refs(d: &Detail) -> Vec<(String, String)> {
+    let user_file = |p: &str| {
+        format!(
+            "/api/user-file?session={}&agent=&path={}",
+            enc(&d.session.id),
+            enc(p)
+        )
+    };
+    let mut out = Vec::new();
+    for m in &d.messages {
+        if m.role == "user" {
+            for p in split_message_images(&m.text).0 {
+                out.push((p.clone(), format!("/api/image?path={}", enc(&p))));
+            }
+        }
+        for part in m.render_parts() {
+            let Part::Tool(t) = part else { continue };
+            for p in tool_media(&t) {
+                out.push((p.clone(), user_file(&p)));
+            }
+        }
+    }
+    out
+}
+
+pub fn tool_media(t: &Tool) -> Vec<String> {
+    let mut out = Vec::new();
+    if let Some(files) = t.send.as_ref().and_then(|s| s["files"].as_array()) {
+        for f in files {
+            if f["kind"] == "image"
+                && let Some(p) = f["path"].as_str()
+            {
+                out.push(p.to_string());
+            }
+        }
+    }
+    if let Some(show) = t.show.as_ref().filter(|s| s["kind"] == "image") {
+        for key in ["compare", "path"] {
+            if let Some(p) = show[key].as_str().filter(|p| !p.is_empty()) {
+                out.push(p.to_string());
+            }
+        }
+    }
+    out
 }
 
 #[derive(Clone, Debug, Default, Deserialize, PartialEq)]
@@ -792,5 +883,24 @@ mod tests {
     #[test]
     fn query_values_are_percent_encoded() {
         assert_eq!(enc("a b/c"), "a%20b%2Fc");
+    }
+}
+
+#[cfg(test)]
+mod media_tests {
+    use super::*;
+
+    #[test]
+    fn pasted_images_leave_the_text() {
+        let (imgs, rest) =
+            split_message_images("/Users/me/.hooked/images/a1.png look at this\n/tmp/images/b.JPG");
+        assert_eq!(
+            imgs,
+            ["/Users/me/.hooked/images/a1.png", "/tmp/images/b.JPG"]
+        );
+        assert_eq!(rest, "look at this");
+        let (none, same) = split_message_images("see /tmp/shot.png");
+        assert!(none.is_empty());
+        assert_eq!(same, "see /tmp/shot.png");
     }
 }

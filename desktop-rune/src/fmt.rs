@@ -168,9 +168,50 @@ pub fn plain(s: &str, max: usize) -> String {
     first_line(&cleaned, max)
 }
 
+/// "repo #12" for a GitHub link, "repo !12" for a GitLab merge request, as the web's `prLabel`.
+pub fn link_label(url: &str) -> String {
+    let segs: Vec<&str> = url.split('/').collect();
+    if let Some(i) = segs.iter().position(|s| s.ends_with("github.com"))
+        && let (Some(repo), Some(kind), Some(n)) =
+            (segs.get(i + 2), segs.get(i + 3), segs.get(i + 4))
+        && matches!(*kind, "pull" | "issues")
+    {
+        return format!("{repo} #{n}");
+    }
+    if let Some(i) = segs.iter().position(|s| *s == "-")
+        && i > 0
+        && let (Some(kind), Some(n)) = (segs.get(i + 1), segs.get(i + 2))
+    {
+        let sigil = match *kind {
+            "merge_requests" => "!",
+            "issues" | "work_items" => "#",
+            _ => return url.to_string(),
+        };
+        return format!("{} {sigil}{n}", segs[i - 1]);
+    }
+    url.to_string()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn links_name_their_repo() {
+        assert_eq!(
+            link_label("https://github.com/LuccaSA/Infra.Charts/pull/123"),
+            "Infra.Charts #123"
+        );
+        assert_eq!(
+            link_label("https://github.com/qjoly/hooked/issues/7"),
+            "hooked #7"
+        );
+        assert_eq!(
+            link_label("https://gitlab.com/grp/sub/proj/-/merge_requests/4"),
+            "proj !4"
+        );
+        assert_eq!(link_label("https://example.com/x"), "https://example.com/x");
+    }
 
     #[test]
     fn parses_iso_timestamps() {
