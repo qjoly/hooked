@@ -143,6 +143,7 @@ fn on_ime(s: &mut Hooked, ime: &rune::Ime, tx: &mut Tx) -> bool {
     if tx.focused() != Some("term-screen") {
         return false;
     }
+    tx.instant();
     s.term_ime(ime);
     true
 }

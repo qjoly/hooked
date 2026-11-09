@@ -302,17 +302,25 @@ pub fn panel(s: &Hooked, k: &Kit) -> El {
             if ev.mods.cmd {
                 return false;
             }
+            tx.instant();
             s.term_key(ev, tx.physical_key())
         })
-        .on_drag(|s: &mut Hooked, d: &mut rune::Drag, _| s.term_drag(d, false))
-        .on_wheel(|s: &mut Hooked, e: rune::WheelEvent, _| {
+        .on_drag(|s: &mut Hooked, d: &mut rune::Drag, tx: &mut rune::Tx| {
+            tx.instant();
+            s.term_drag(d, false)
+        })
+        .on_wheel(|s: &mut Hooked, e: rune::WheelEvent, tx: &mut rune::Tx| {
+            tx.instant();
             s.term_wheel(e.dy, e.x, e.y);
             true
         })
         .on_layout(|s: &mut Hooked, r: [f32; 4]| s.fit_terms(r[2], r[3]))
-        .on_paste_content(|s: &mut Hooked, c: &rune::ClipboardContent, _| {
-            s.term_paste(c.text());
-        })
+        .on_paste_content(
+            |s: &mut Hooked, c: &rune::ClipboardContent, tx: &mut rune::Tx| {
+                tx.instant();
+                s.term_paste(c.text());
+            },
+        )
         .child(body);
     let grip = el()
         .key("term-resize")

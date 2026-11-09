@@ -92,7 +92,10 @@ fn follow(id: String, alive: Arc<AtomicBool>) {
                 }
                 if let Some(bytes) = decode(payload) {
                     let id = id.clone();
-                    h.update(move |s, _| s.term_output(&id, &bytes));
+                    h.update(move |s, tx| {
+                        tx.instant();
+                        s.term_output(&id, &bytes)
+                    });
                 }
                 true
             });
