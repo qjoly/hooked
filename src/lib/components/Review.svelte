@@ -758,15 +758,18 @@
     return `I reviewed ${reviewScope} and left the following inline comments. Address each one, then, for each: ` +
       threadInstructions(id) + '\n\n' + items.join('\n\n');
   }
+  // Straight to the session, no tab switch (like askReview / replyComment): Claude's answers land
+  // in the threads on screen. A failed send leaves the batch pending, so it can be retried.
   let sending = $state(false);
   async function sendReview() {
-    if (!onReview || !pending || sending) return;
+    if (!canReview || !pending || sending) return;
     const prompt = buildReviewPrompt();
     if (!prompt) return;
     sending = true;
     const ids = pendingThreads.map((t) => t.id);
     try {
-      await onReview(prompt);
+      const res = await sendToSession(id, prompt);
+      if (!res.ok) return;
       threads = threads.map((t) => (ids.includes(t.id) ? { ...t, sent: true } : t));
       await markReviewSent(id, ids);
     } finally { sending = false; }
