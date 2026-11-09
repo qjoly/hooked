@@ -494,8 +494,59 @@ pub fn memory(s: &Hooked, k: &Kit) -> El {
     let Some(v) = pd.memory.as_ref() else {
         return page(k, "memory", "Memory", el(), loading(k));
     };
-    let projects = v["projects"].as_array().cloned().unwrap_or_default();
+    let q = pd.memory_query.text.trim().to_lowercase();
+    let kind = pd.memory_type.clone();
+    let keep = |m: &Value| {
+        kind.as_deref()
+            .is_none_or(|t| m["type"].as_str() == Some(t))
+            && (q.is_empty()
+                || ["name", "description", "body"].iter().any(|f| {
+                    m[*f]
+                        .as_str()
+                        .is_some_and(|x| x.to_lowercase().contains(&q))
+                }))
+    };
+    let projects: Vec<Value> = v["projects"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default()
+        .into_iter()
+        .map(|mut p| {
+            if let Some(ms) = p["memories"].as_array_mut() {
+                ms.retain(|m| keep(m));
+            }
+            p
+        })
+        .filter(|p| p["memories"].as_array().is_some_and(|m| !m.is_empty()))
+        .collect();
     let total = num(&v["total"]);
+    let mut types = row().w_full().gap(6.0).flex_wrap().center_y().child(
+        TextInput::new(&pd.memory_query)
+            .placeholder("Search memories…")
+            .width(Some(260.0))
+            .on_edit(|s: &mut Hooked| &mut s.pages.memory_query)
+            .on_change(|s: &mut Hooked, _| s.pages.memory_project = 0)
+            .build(k)
+            .key("mem-query"),
+    );
+    for (t, n) in v["byType"].as_object().into_iter().flatten() {
+        let on = pd.memory_type.as_deref() == Some(t.as_str());
+        let t2 = t.clone();
+        types = types.child(super::settings::chip(
+            k,
+            format!("memt-{t}"),
+            format!("{t} {}", n.as_u64().unwrap_or(0)),
+            on,
+            move |s| {
+                s.pages.memory_project = 0;
+                s.pages.memory_type = if s.pages.memory_type.as_deref() == Some(t2.as_str()) {
+                    None
+                } else {
+                    Some(t2.clone())
+                };
+            },
+        ));
+    }
     let list = col()
         .key("mem-projects")
         .w(260.0)
@@ -543,7 +594,8 @@ pub fn memory(s: &Hooked, k: &Kit) -> El {
         .w_full()
         .max_w(900.0)
         .padding(24.0)
-        .gap(10.0);
+        .gap(10.0)
+        .child(types);
     if let Some(p) = projects.get(pd.memory_project) {
         detail = detail.child(
             text(p["cwd"].as_str().unwrap_or("").to_string())
@@ -1085,15 +1137,35 @@ pub fn skills(s: &Hooked, k: &Kit) -> El {
     let Some(list) = pd.skills.as_ref().filter(|l| !l.is_empty()) else {
         return page(k, "skills", "Skills", el(), loading(k));
     };
+    let q = pd.skills_query.text.trim().to_lowercase();
     let mut groups: Vec<(String, Vec<&Value>)> = Vec::new();
-    for x in list {
+    for x in list.iter().filter(|x| {
+        q.is_empty()
+            || ["name", "description"].iter().any(|f| {
+                x[*f]
+                    .as_str()
+                    .is_some_and(|v| v.to_lowercase().contains(&q))
+            })
+    }) {
         let src = x["source"].as_str().unwrap_or("other").to_string();
         match groups.iter_mut().find(|g| g.0 == src) {
             Some(g) => g.1.push(x),
             None => groups.push((src, vec![x])),
         }
     }
-    let mut left = col().key("skills-list").w_full().padding(10.0).gap(2.0);
+    let mut left = col()
+        .key("skills-list")
+        .w_full()
+        .padding(10.0)
+        .gap(2.0)
+        .child(
+            TextInput::new(&pd.skills_query)
+                .placeholder("Search skills…")
+                .width(None)
+                .on_edit(|s: &mut Hooked| &mut s.pages.skills_query)
+                .build(k)
+                .key("skills-query"),
+        );
     for (src, items) in groups {
         left = left.child(
             row()
@@ -1159,7 +1231,21 @@ pub fn skills(s: &Hooked, k: &Kit) -> El {
                             x["source"].as_str().unwrap_or("").to_string(),
                             k.c.text_muted,
                             k.c.layer_02,
-                        )),
+                        ))
+                        .child(el().grow(1.0))
+                        .child({
+                            let cmd = format!("/{}", x["name"].as_str().unwrap_or(""));
+                            Button::new("Copy command")
+                                .icon(&icons::COPY)
+                                .variant(ButtonVariant::Outline)
+                                .control_size(ControlSize::Small)
+                                .help(cmd.clone())
+                                .on_press_tx(move |s: &mut Hooked, tx| {
+                                    tx.copy(&cmd);
+                                    s.flash(format!("✓ Copied {cmd}"), false);
+                                })
+                                .build(k)
+                        }),
                 )
                 .child(
                     text(x["file"].as_str().unwrap_or("").to_string())

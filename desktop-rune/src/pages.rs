@@ -103,6 +103,9 @@ pub struct PageData {
     pub memory_loading: bool,
     pub memory_project: usize,
     pub memory_open: Option<String>,
+    pub memory_query: TextEdit,
+    pub memory_type: Option<String>,
+    pub skills_query: TextEdit,
 
     pub cron: Vec<Value>,
     pub cron_loaded: bool,
