@@ -887,6 +887,11 @@ fn rail(s: &Hooked, k: &Kit) -> El {
         )
 }
 
+/// Markdown whose links open (see `app::open_link`).
+pub fn md(src: impl Into<String>) -> rune_kit::Markdown {
+    rune_kit::Markdown::new(src).on_link_tx(crate::app::open_link)
+}
+
 pub fn pill(k: &Kit, label: impl Into<String>, fg: Color, bg: Color) -> El {
     row()
         .h(20.0)

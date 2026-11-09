@@ -1,6 +1,6 @@
 use rune::{Color, Cursor, El, ScrollSpec, col, el, row, text};
 use rune_kit::{
-    Button, ButtonVariant, ControlSize, Kit, Markdown, SegmentedControl, Select, Spinner, Switch,
+    Button, ButtonVariant, ControlSize, Kit, SegmentedControl, Select, Spinner, Switch,
     TextArea, TextInput,
 };
 use serde_json::{Value, json};
@@ -389,7 +389,7 @@ pub fn digest(s: &Hooked, k: &Kit) -> El {
                 );
             }
             if let Some(sum) = d["summary"].as_str().filter(|x| !x.is_empty()) {
-                c = c.child(Markdown::new(sum.to_string()).build(k));
+                c = c.child(super::md(sum.to_string()).build(k));
             }
             for (key, title) in [("highlights", "HIGHLIGHTS"), ("blockers", "BLOCKERS")] {
                 let items: Vec<String> = d[key]
@@ -400,7 +400,7 @@ pub fn digest(s: &Hooked, k: &Kit) -> El {
                     .collect();
                 if !items.is_empty() {
                     c = c.child(
-                        Markdown::new(format!(
+                        super::md(format!(
                             "**{title}**\n\n{}",
                             items
                                 .iter()
@@ -610,7 +610,7 @@ pub fn memory(s: &Hooked, k: &Kit) -> El {
             }
             if open {
                 c = c.child(
-                    Markdown::new(m["body"].as_str().unwrap_or("").to_string())
+                    super::md(m["body"].as_str().unwrap_or("").to_string())
                         .selectable(true)
                         .build(k),
                 );
@@ -1338,7 +1338,7 @@ pub fn skills(s: &Hooked, k: &Kit) -> El {
                 );
             }
             c = c.child(
-                Markdown::new(x["body"].as_str().unwrap_or("").to_string())
+                super::md(x["body"].as_str().unwrap_or("").to_string())
                     .selectable(true)
                     .build(k),
             );

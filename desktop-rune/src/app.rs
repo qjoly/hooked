@@ -1113,6 +1113,57 @@ impl Hooked {
     }
 }
 
+pub enum LinkTarget {
+    Session(String),
+    Open(String),
+}
+
+/// Where a link in a message goes: a hooked session link opens the session here, web links and
+/// files open outside, other hooked paths open in the web dashboard.
+pub fn link_target(url: &str) -> LinkTarget {
+    let url = url.trim();
+    if let Some(rest) = url.strip_prefix("/session/") {
+        let id = rest.split(['?', '#', '/']).next().unwrap_or(rest);
+        if !id.is_empty() {
+            return LinkTarget::Session(id.to_string());
+        }
+    }
+    LinkTarget::Open(if url.contains("://") || url.starts_with("mailto:") {
+        url.to_string()
+    } else if url.starts_with('/') && std::path::Path::new(url).exists() {
+        format!("file://{url}")
+    } else if url.starts_with('/') {
+        format!("{}{url}", api::base())
+    } else {
+        format!("https://{url}")
+    })
+}
+
+pub fn open_link(s: &mut Hooked, url: &str, tx: &mut Tx) {
+    match link_target(url) {
+        LinkTarget::Session(id) => s.open_session(&id),
+        LinkTarget::Open(target) => {
+            if tx.open_url(&target).is_err() {
+                s.flash(format!("✗ Could not open {target}"), true);
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod link_tests {
+    use super::*;
+
+    #[test]
+    fn links_go_where_hooked_sends_them() {
+        assert!(matches!(link_target("/session/abc-123?lens=review"), LinkTarget::Session(id) if id == "abc-123"));
+        assert!(matches!(link_target("https://github.com/x"), LinkTarget::Open(u) if u == "https://github.com/x"));
+        assert!(matches!(link_target("/settings"), LinkTarget::Open(u) if u.ends_with("/settings") && u.starts_with("http")));
+        assert!(matches!(link_target("/tmp"), LinkTarget::Open(u) if u == "file:///tmp"));
+        assert!(matches!(link_target("example.com"), LinkTarget::Open(u) if u == "https://example.com"));
+    }
+}
+
 pub fn refresh_sessions() {
     spawn(
         || (api::sessions(), api::session_meta().ok(), api::tags().ok()),

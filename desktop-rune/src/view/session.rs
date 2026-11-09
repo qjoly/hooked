@@ -2,7 +2,7 @@ use std::hash::{Hash, Hasher};
 
 use rune::{Color, Cursor, El, Key, ScrollSpec, col, el, memo, row, text};
 use rune_kit::{
-    Button, ButtonVariant, ControlSize, IconButton, IconButtonVariant, Kit, Markdown, Menu,
+    Button, ButtonVariant, ControlSize, IconButton, IconButtonVariant, Kit, Menu,
     MenuItem, Spinner, TextArea, TextInput,
 };
 
@@ -631,7 +631,7 @@ fn converse(s: &Hooked, d: &Detail, k: &Kit) -> El {
                 .w_full()
                 .gap(6.0)
                 .child(who(k, false, "live stream"))
-                .child(Markdown::new(lead.clone()).streaming(true).build(k)),
+                .child(super::md(lead.clone()).streaming(true).build(k)),
         );
     } else if let Some(l) = s
         .live
@@ -652,7 +652,7 @@ fn converse(s: &Hooked, d: &Detail, k: &Kit) -> El {
             );
         }
         if !l.text.is_empty() {
-            b = b.child(Markdown::new(l.text.clone()).streaming(true).build(k));
+            b = b.child(super::md(l.text.clone()).streaming(true).build(k));
         }
         chat = chat.child(b);
     }
@@ -783,7 +783,7 @@ pub(super) fn bubble(s: &Hooked, m: &Message, k: &Kit, i: usize) -> El {
                 .wrap()
                 .selectable(true)
                 .key(format!("t-{i}-{pi}")),
-            Part::Text(t) => Markdown::new(t)
+            Part::Text(t) => super::md(t)
                 .selectable(true)
                 .build(k)
                 .key(format!("md-{i}-{pi}")),
@@ -1069,7 +1069,7 @@ fn plan(s: &Hooked, p: &PendingPlan, k: &Kit) -> El {
                 .scroll(ScrollSpec {
                     stick_bottom: false,
                 })
-                .child(Markdown::new(p.plan.clone()).build(k)),
+                .child(super::md(p.plan.clone()).build(k)),
         )
         .child(
             TextInput::new(&s.plan_feedback)

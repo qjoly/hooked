@@ -1,7 +1,7 @@
 use rune::{Color, Cursor, El, ScrollSpec, col, el, row, text};
 use rune_kit::diff::{Annotation, DiffMode, DiffView};
 use rune_kit::{
-    Button, ButtonVariant, ControlSize, Kit, Markdown, SegmentedControl, Spinner, TextArea,
+    Button, ButtonVariant, ControlSize, Kit, SegmentedControl, Spinner, TextArea,
     TextInput,
 };
 
@@ -723,7 +723,7 @@ fn annotation(s: &Hooked, a: &Annotation, k: &Kit) -> El {
                         .font(k.ty.text_xsmall_medium)
                         .color(k.c.text_faint),
                 )
-                .child(Markdown::new(m["text"].as_str().unwrap_or("").to_string()).build(k)),
+                .child(super::md(m["text"].as_str().unwrap_or("").to_string()).build(k)),
         );
     }
     if sent {

@@ -307,7 +307,17 @@ fn view(s: &Quick, cx: &mut Cx<Quick>) -> El {
             .w_full()
             .gap(4.0)
             .child(who)
-            .child(Markdown::new(body.clone()).build(&k));
+            .child(Markdown::new(body.clone()).on_link_tx(|_: &mut Quick, url: &str, tx: &mut rune::Tx| {
+            if url.starts_with("/session/") {
+                if let Some(h) = HANDLE.get() {
+                    let id = url.trim_start_matches("/session/").to_string();
+                    h.open();
+                    h.update(move |s, tx| crate::app::open_link(s, &format!("/session/{id}"), tx));
+                }
+            } else {
+                let _ = tx.open_url(url);
+            }
+        }).build(&k));
         if *user {
             b = b.padding(10.0).radius(k.radius.md).fill(k.c.layer_01);
         }
