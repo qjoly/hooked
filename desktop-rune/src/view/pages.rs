@@ -775,6 +775,24 @@ pub fn cron(s: &Hooked, k: &Kit) -> El {
                         .build(k)
                         .key("cron-cwd"),
                 ))
+                .child({
+                    let (msg, color) =
+                        match crate::cron::next_runs(&f.schedule.text, 3, fmt::now_ms()) {
+                            Ok(r) if !r.is_empty() => (
+                                format!(
+                                    "Next: {}",
+                                    r.iter()
+                                        .map(|t| crate::cron::stamp(*t))
+                                        .collect::<Vec<_>>()
+                                        .join(" · ")
+                                ),
+                                k.c.text_faint,
+                            ),
+                            Ok(_) => ("Never runs".to_string(), k.c.warning.fg),
+                            Err(e) => (e, k.c.danger.fg),
+                        };
+                    text(msg).font(k.ty.text_xsmall).color(color)
+                })
                 .child(field(
                     k,
                     "PROMPT",
@@ -886,7 +904,81 @@ pub fn cron(s: &Hooked, k: &Kit) -> El {
                     .color(k.c.text_muted)
                     .wrap(),
             );
-        if let Some(r) = last {
+        let next = t["nextRun"]
+            .as_str()
+            .and_then(fmt::parse_ts)
+            .filter(|_| on)
+            .map(|n| format!("Next {}", crate::cron::stamp(n)))
+            .unwrap_or_default();
+        let runs: Vec<Value> = t["runs"].as_array().cloned().unwrap_or_default();
+        let showing = pd.cron_history.as_deref() == Some(id.as_str());
+        let hid = id.clone();
+        c = c.child(
+            row()
+                .gap(8.0)
+                .center_y()
+                .child(text(next).font(k.ty.text_xsmall).color(k.c.text_faint))
+                .child(if runs.is_empty() {
+                    el()
+                } else {
+                    Button::new(format!("{} runs", runs.len()))
+                        .icon(&icons::CHEVRON_DOWN)
+                        .variant(ButtonVariant::GhostMuted)
+                        .control_size(ControlSize::Small)
+                        .on_press(move |s: &mut Hooked| {
+                            s.pages.cron_history =
+                                if s.pages.cron_history.as_deref() == Some(hid.as_str()) {
+                                    None
+                                } else {
+                                    Some(hid.clone())
+                                };
+                        })
+                        .build(k)
+                }),
+        );
+        if showing {
+            let mut hist = col().w_full().gap(4.0).pl(8.0);
+            for r in runs.iter().rev().take(30) {
+                let at = fmt::ago_short(r["at"].as_str(), s.now);
+                let mut line = row().gap(8.0).center_y().child(
+                    text(format!("{at} ago"))
+                        .font(k.ty.text_xsmall)
+                        .color(k.c.text_muted),
+                );
+                if r["manual"] == true {
+                    line = line.child(pill(k, "manual", k.c.text_muted, k.c.layer_02));
+                }
+                line = if let Some(e) = r["error"].as_str() {
+                    line.child(
+                        text(e.to_string())
+                            .font(k.ty.text_xsmall)
+                            .color(k.c.danger.fg),
+                    )
+                } else if let Some(sk) = r["skipped"].as_str() {
+                    line.child(
+                        text(format!("Skipped: {sk}"))
+                            .font(k.ty.text_xsmall)
+                            .color(k.c.warning.fg),
+                    )
+                } else if let Some(sid) = r["sessionId"].as_str().map(str::to_string) {
+                    line.child(
+                        k.interactive(
+                            text("Open session")
+                                .role("link")
+                                .font(k.ty.text_xsmall)
+                                .color(k.c.text_accent)
+                                .cursor(Cursor::Pointer),
+                        )
+                        .on_press(move |s: &mut Hooked| s.open_session(&sid)),
+                    )
+                } else {
+                    line
+                };
+                hist = hist.child(line);
+            }
+            c = c.child(hist);
+        }
+        if let Some(r) = last.filter(|_| !showing) {
             let sid = r["sessionId"].as_str().unwrap_or("").to_string();
             let at = fmt::ago_short(r["at"].as_str(), s.now);
             c = c.child(
