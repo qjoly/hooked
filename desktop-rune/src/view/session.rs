@@ -2,8 +2,8 @@ use std::hash::{Hash, Hasher};
 
 use rune::{Color, Cursor, El, Key, ScrollSpec, col, el, memo, row, text};
 use rune_kit::{
-    Button, ButtonVariant, ControlSize, IconButton, IconButtonVariant, Kit, Menu,
-    MenuItem, Spinner, TextArea, TextInput,
+    Button, ButtonVariant, ControlSize, IconButton, IconButtonVariant, Kit, Menu, MenuItem,
+    Spinner, TextArea, TextInput,
 };
 
 use super::{Shadows, dot, glyph, pill, state_color};
@@ -299,12 +299,10 @@ fn more_menu(s: &Hooked, d: &Detail, k: &Kit, layer: &mut Vec<El>) -> El {
     if x.live {
         let current = x.model.clone().unwrap_or_default();
         let models: Vec<_> = s
-            .caps
-            .models
-            .iter()
+            .visible_models()
+            .into_iter()
             .map(|(id, label)| {
-                let id = id.clone();
-                MenuItem::new(label.clone())
+                MenuItem::new(label)
                     .checked(current.contains(id.trim_start_matches("claude-")))
                     .on_select(move |s: &mut Hooked| {
                         let effort = s.detail.as_ref().and_then(|d| d.session.effort.clone());
@@ -330,31 +328,35 @@ fn more_menu(s: &Hooked, d: &Detail, k: &Kit, layer: &mut Vec<El>) -> El {
             })
             .map(rune_kit::MenuEntry::item)
             .collect();
-        m = m
-            .group_label(format!("Model · {}", fmt::short_model(&current)))
-            .item(
-                MenuItem::new("Model")
-                    .badge(fmt::short_model(&current))
-                    .submenu(
-                        models.into_iter().map(rune_kit::MenuEntry::item).collect(),
-                        s.popup == Some(Popup::Model),
-                    )
-                    .on_select(|s: &mut Hooked| s.popup = Some(Popup::Model)),
-            )
-            .item(
-                MenuItem::new("Effort")
-                    .badge(effort_now.clone())
-                    .submenu(efforts, s.popup == Some(Popup::Effort))
-                    .on_select(|s: &mut Hooked| s.popup = Some(Popup::Effort)),
-            )
-            .separator()
-            .group_label("Permission mode");
-        for md in fmt::LIVE_MODES {
-            m = m.item(
-                MenuItem::new(fmt::mode_label(md))
-                    .checked(mode == md)
-                    .on_select(move |s: &mut Hooked| s.set_mode(md)),
-            );
+        if s.menu_shows("modelEffort") {
+            m = m
+                .group_label(format!("Model · {}", fmt::short_model(&current)))
+                .item(
+                    MenuItem::new("Model")
+                        .badge(fmt::short_model(&current))
+                        .submenu(
+                            models.into_iter().map(rune_kit::MenuEntry::item).collect(),
+                            s.popup == Some(Popup::Model),
+                        )
+                        .on_select(|s: &mut Hooked| s.popup = Some(Popup::Model)),
+                )
+                .item(
+                    MenuItem::new("Effort")
+                        .badge(effort_now.clone())
+                        .submenu(efforts, s.popup == Some(Popup::Effort))
+                        .on_select(|s: &mut Hooked| s.popup = Some(Popup::Effort)),
+                )
+                .separator();
+        }
+        if s.menu_shows("permissionMode") {
+            m = m.group_label("Permission mode");
+            for md in fmt::LIVE_MODES {
+                m = m.item(
+                    MenuItem::new(fmt::mode_label(md))
+                        .checked(mode == md)
+                        .on_select(move |s: &mut Hooked| s.set_mode(md)),
+                );
+            }
         }
         m = m
             .item(

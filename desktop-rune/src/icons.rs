@@ -259,3 +259,4 @@ lucide!(
     "sparkle",
     r#"<path d="M12 3l1.9 5.8L20 10.7l-6.1 1.9L12 18.5l-1.9-5.9L4 10.7l6.1-1.9Z"/>"#
 );
+lucide!(MINUS, "minus", r#"<path d="M5 12h14"/>"#);

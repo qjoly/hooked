@@ -76,6 +76,13 @@ pub struct PageData {
     pub github_tab: usize,
 
     pub settings: Option<Value>,
+    pub claude: Option<Value>,
+    pub git: Option<Value>,
+    pub rc: Option<Value>,
+    pub hours: Option<TextEdit>,
+    pub tag_edit: Option<(String, TextEdit)>,
+    pub busy: Option<&'static str>,
+    pub settings_stale: bool,
     pub settings_loading: bool,
     pub settings_project: Option<TextEdit>,
 }
@@ -130,11 +137,11 @@ impl Hooked {
                 pd.cron_loaded = true;
             }
             Page::Settings => {
+                pd.claude = api::get("/api/claude").ok();
+                pd.git = api::get("/api/git").ok();
+                pd.rc = api::get("/api/remote-control").ok();
                 if let Ok(v) = api::get("/api/settings") {
-                    pd.settings_project = Some(TextEdit::new(
-                        v["quickLaunchProject"].as_str().unwrap_or(""),
-                    ));
-                    pd.settings = Some(v);
+                    self.apply_settings(v);
                 }
                 self.caps = api::capabilities().unwrap_or_default();
             }
@@ -241,19 +248,18 @@ impl Hooked {
                 );
                 true
             }
-            Page::Settings if pd.settings.is_none() && !pd.settings_loading => {
+            Page::Settings
+                if (pd.settings.is_none() || pd.settings_stale) && !pd.settings_loading =>
+            {
+                pd.settings_stale = false;
                 pd.settings_loading = true;
                 spawn(
                     || api::get("/api/settings"),
                     |s, r, _| {
                         s.pages.settings_loading = false;
+                        s.load_settings_extras();
                         match r {
-                            Ok(v) => {
-                                s.pages.settings_project = Some(TextEdit::new(
-                                    v["quickLaunchProject"].as_str().unwrap_or(""),
-                                ));
-                                s.pages.settings = Some(v);
-                            }
+                            Ok(v) => s.apply_settings(v),
                             Err(e) => {
                                 s.pages.settings = Some(json!({}));
                                 s.flash(format!("✗ Settings: {e}"), true)
@@ -278,7 +284,7 @@ impl Hooked {
             Page::Cron => self.pages.cron_loaded = false,
             Page::GitHub => self.pages.github = None,
             Page::Skills => self.pages.skills = None,
-            Page::Settings => self.pages.settings = None,
+            Page::Settings => self.pages.settings_stale = true,
             _ => {}
         }
     }
@@ -418,6 +424,152 @@ impl Hooked {
     }
 
     /// Settings are a shallow merge server-side, so a nested object is sent whole.
+    pub fn apply_settings(&mut self, v: Value) {
+        self.pages.settings_project = Some(TextEdit::new(
+            v["quickLaunchProject"].as_str().unwrap_or(""),
+        ));
+        let hours: Vec<String> = v["warmup"]["workHours"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|p| Some(format!("{}-{}", p.get(0)?.as_str()?, p.get(1)?.as_str()?)))
+            .collect();
+        self.pages.hours = Some(TextEdit::new(hours.join(", ")));
+        self.pages.settings = Some(v);
+    }
+
+    pub fn load_settings_extras(&mut self) {
+        spawn(
+            || {
+                (
+                    api::get("/api/claude").ok(),
+                    api::get("/api/git").ok(),
+                    api::get("/api/remote-control").ok(),
+                )
+            },
+            |s, (c, g, r), _| {
+                s.pages.claude = c;
+                s.pages.git = g;
+                s.pages.rc = r;
+            },
+        );
+    }
+
+    pub fn setting(&self, key: &str) -> &Value {
+        self.pages
+            .settings
+            .as_ref()
+            .map_or(&Value::Null, |v| &v[key])
+    }
+
+    pub fn toggle_in_list(&mut self, key: &str, item: &str) {
+        let mut list: Vec<String> = self
+            .setting(key)
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|x| x.as_str().map(str::to_string))
+            .collect();
+        match list.iter().position(|x| x == item) {
+            Some(i) => {
+                list.remove(i);
+            }
+            None => list.push(item.to_string()),
+        }
+        self.save_setting(key, json!(list));
+    }
+
+    pub fn save_hours(&mut self) {
+        let Some(edit) = self.pages.hours.as_ref() else {
+            return;
+        };
+        let slots: Vec<Value> = edit
+            .text
+            .split(',')
+            .filter_map(|slot| {
+                let (a, b) = slot.trim().split_once('-')?;
+                let ok = |t: &str| {
+                    t.len() == 5
+                        && t.as_bytes()[2] == b':'
+                        && t.split(':').all(|n| n.parse::<u8>().is_ok())
+                };
+                (ok(a.trim()) && ok(b.trim())).then(|| json!([a.trim(), b.trim()]))
+            })
+            .collect();
+        if slots.is_empty() {
+            self.flash("Working hours look like 09:00-12:00, 14:00-18:00", true);
+            return;
+        }
+        self.save_nested("warmup", "workHours", Value::Array(slots));
+        self.flash("✓ Saved", false);
+    }
+
+    fn server_action(&mut self, label: &'static str, path: &'static str, body: Value) {
+        self.pages.busy = Some(label);
+        spawn(
+            move || api::post(path, body),
+            move |s, r, _| {
+                s.pages.busy = None;
+                match r {
+                    Ok(_) => s.flash(format!("✓ {label}"), false),
+                    Err(e) => s.flash(format!("✗ {label}: {e}"), true),
+                }
+                s.load_settings_extras();
+            },
+        );
+    }
+
+    pub fn resync_states(&mut self) {
+        self.server_action("Live states resynced", "/api/resync", json!({}));
+    }
+
+    pub fn upgrade_claude(&mut self) {
+        self.server_action(
+            "Claude Code upgraded",
+            "/api/claude",
+            json!({ "action": "upgrade" }),
+        );
+    }
+
+    pub fn rename_tag(&mut self) {
+        let Some((old, edit)) = self.pages.tag_edit.take() else {
+            return;
+        };
+        let new = edit.text.trim().trim_start_matches('#').to_lowercase();
+        if new.is_empty() || new == old {
+            return;
+        }
+        self.retag(&old, Some(&new));
+    }
+
+    pub fn delete_tag(&mut self, tag: &str) {
+        self.retag(tag, None);
+    }
+
+    /// Tags only exist on sessions, so renaming or deleting one rewrites every session's list.
+    fn retag(&mut self, old: &str, new: Option<&str>) {
+        for tags in self.tags.values_mut() {
+            if let Some(i) = tags.iter().position(|t| t == old) {
+                tags.remove(i);
+                if let Some(n) = new
+                    && !tags.iter().any(|t| t == n)
+                {
+                    tags.insert(i, n.to_string());
+                }
+            }
+        }
+        self.tags.retain(|_, v| !v.is_empty());
+        self.tag_filter.retain(|t| t != old);
+        let map = json!(self.tags);
+        spawn(
+            move || api::post("/api/tags", json!({ "replace": map })),
+            |s, r, _| match r {
+                Ok(_) => s.flash("✓ Tags updated", false),
+                Err(e) => s.flash(format!("✗ Tags: {e}"), true),
+            },
+        );
+    }
+
     pub fn save_setting(&mut self, key: &str, value: Value) {
         if let Some(s) = self.pages.settings.as_mut() {
             s[key] = value.clone();

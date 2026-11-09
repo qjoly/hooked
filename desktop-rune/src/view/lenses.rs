@@ -1,8 +1,7 @@
 use rune::{Color, Cursor, El, ScrollSpec, col, el, row, text};
 use rune_kit::diff::{Annotation, DiffMode, DiffView};
 use rune_kit::{
-    Button, ButtonVariant, ControlSize, Kit, SegmentedControl, Spinner, TextArea,
-    TextInput,
+    Button, ButtonVariant, ControlSize, Kit, SegmentedControl, Spinner, TextArea, TextInput,
 };
 
 use super::{glyph, section_title};

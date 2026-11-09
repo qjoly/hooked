@@ -232,6 +232,37 @@ impl Hooked {
         }
         s.meta = api::session_meta().unwrap_or_default();
         s.tags = api::tags().unwrap_or_default();
+        if s.prefs.get::<bool>("diffSplit").unwrap_or(false) {
+            s.lens_data.diff.set_mode(rune_kit::diff::DiffMode::Split);
+        }
+        if let Ok(v) = api::get("/api/settings") {
+            s.apply_settings(v);
+            s.page = match s.setting("defaultPage").as_str().unwrap_or("deck") {
+                "stats" => Page::Stats,
+                "digest" => Page::Digest,
+                "memory" => Page::Memory,
+                "github" => Page::GitHub,
+                "skills" => Page::Skills,
+                "cron" => Page::Cron,
+                _ => Page::Deck,
+            };
+            s.new_mode = s
+                .setting("defaultMode")
+                .as_str()
+                .filter(|m| !m.is_empty())
+                .unwrap_or("default")
+                .to_string();
+            s.new_effort = s
+                .setting("defaultEffort")
+                .as_str()
+                .filter(|m| !m.is_empty())
+                .map(str::to_string);
+            s.new_model = s
+                .setting("defaultModel")
+                .as_str()
+                .filter(|m| !m.is_empty())
+                .map(str::to_string);
+        }
         s.gauges = api::usage().unwrap_or_default();
         s.announced = s
             .sessions
@@ -1099,6 +1130,34 @@ impl Hooked {
         );
     }
 
+    /// The models the pickers offer: the installed claude's list minus the ones hidden in Settings.
+    pub fn visible_models(&self) -> Vec<(String, String)> {
+        let hidden = self.setting("hiddenModels");
+        let hidden: Vec<&str> = hidden
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|x| x.as_str())
+            .collect();
+        self.caps
+            .models
+            .iter()
+            .filter(|(id, _)| !hidden.contains(&id.as_str()))
+            .cloned()
+            .collect()
+    }
+
+    pub fn nav_tab(&self, key: &str) -> bool {
+        match self.setting("navTabs").as_array() {
+            Some(list) => list.iter().any(|x| x.as_str() == Some(key)),
+            None => true,
+        }
+    }
+
+    pub fn menu_shows(&self, key: &str) -> bool {
+        self.setting("statusBar")[key].as_bool().unwrap_or(true)
+    }
+
     pub fn projects(&self) -> Vec<String> {
         let mut seen = HashSet::new();
         let mut out = Vec::new();
@@ -1156,11 +1215,19 @@ mod link_tests {
 
     #[test]
     fn links_go_where_hooked_sends_them() {
-        assert!(matches!(link_target("/session/abc-123?lens=review"), LinkTarget::Session(id) if id == "abc-123"));
-        assert!(matches!(link_target("https://github.com/x"), LinkTarget::Open(u) if u == "https://github.com/x"));
-        assert!(matches!(link_target("/settings"), LinkTarget::Open(u) if u.ends_with("/settings") && u.starts_with("http")));
+        assert!(
+            matches!(link_target("/session/abc-123?lens=review"), LinkTarget::Session(id) if id == "abc-123")
+        );
+        assert!(
+            matches!(link_target("https://github.com/x"), LinkTarget::Open(u) if u == "https://github.com/x")
+        );
+        assert!(
+            matches!(link_target("/settings"), LinkTarget::Open(u) if u.ends_with("/settings") && u.starts_with("http"))
+        );
         assert!(matches!(link_target("/tmp"), LinkTarget::Open(u) if u == "file:///tmp"));
-        assert!(matches!(link_target("example.com"), LinkTarget::Open(u) if u == "https://example.com"));
+        assert!(
+            matches!(link_target("example.com"), LinkTarget::Open(u) if u == "https://example.com")
+        );
     }
 }
 

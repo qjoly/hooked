@@ -6,6 +6,7 @@ mod organize;
 mod pages;
 mod palette;
 mod session;
+mod settings;
 mod split;
 mod terminal;
 
@@ -65,7 +66,7 @@ pub fn view(s: &Hooked, cx: &mut Cx<Hooked>) -> El {
         Page::Cron => pages::cron(s, &k),
         Page::GitHub => pages::github(s, &k),
         Page::Skills => pages::skills(s, &k),
-        Page::Settings => pages::settings(s, &k, &mut layer),
+        Page::Settings => settings::view(s, &k),
     };
     let mut body = row().key("body").w_full().grow(1.0).min_h(0.0);
     body = if s.sidebar_open {
@@ -387,60 +388,34 @@ fn topbar(s: &Hooked, k: &Kit, inset: f32, _layer: &mut Vec<El>) -> El {
                 .gap(2.0)
                 .center_y()
                 .child(deck)
-                .child(sessions)
-                .child(
-                    space(
-                        "tb-stats",
-                        "Stats",
-                        &icons::CHART,
-                        s.page == Page::Stats,
-                        None,
-                    )
-                    .on_press(|s: &mut Hooked| s.go(Page::Stats)),
-                )
-                .child(
-                    space(
-                        "tb-digest",
-                        "Digest",
-                        &icons::BOOK,
-                        s.page == Page::Digest,
-                        None,
-                    )
-                    .on_press(|s: &mut Hooked| s.go(Page::Digest)),
-                )
-                .child(
-                    space(
-                        "tb-memory",
-                        "Memory",
-                        &icons::BRAIN,
-                        s.page == Page::Memory,
-                        None,
-                    )
-                    .on_press(|s: &mut Hooked| s.go(Page::Memory)),
-                )
-                .child(
-                    space("tb-cron", "Cron", &icons::TIMER, s.page == Page::Cron, None)
-                        .on_press(|s: &mut Hooked| s.go(Page::Cron)),
-                )
-                .child(
-                    space(
-                        "tb-github",
-                        "GitHub",
-                        &icons::GITHUB,
-                        s.page == Page::GitHub,
-                        None,
-                    )
-                    .on_press(|s: &mut Hooked| s.go(Page::GitHub)),
-                )
-                .child(
-                    space(
-                        "tb-skills",
-                        "Skills",
-                        &icons::SPARKLE,
-                        s.page == Page::Skills,
-                        None,
-                    )
-                    .on_press(|s: &mut Hooked| s.go(Page::Skills)),
+                .children(s.nav_tab("sessions").then_some(sessions))
+                .children(
+                    [
+                        ("stats", "tb-stats", "Stats", &icons::CHART, Page::Stats),
+                        ("digest", "tb-digest", "Digest", &icons::BOOK, Page::Digest),
+                        ("memory", "tb-memory", "Memory", &icons::BRAIN, Page::Memory),
+                        ("cron", "tb-cron", "Cron", &icons::TIMER, Page::Cron),
+                        (
+                            "github",
+                            "tb-github",
+                            "GitHub",
+                            &icons::GITHUB,
+                            Page::GitHub,
+                        ),
+                        (
+                            "skills",
+                            "tb-skills",
+                            "Skills",
+                            &icons::SPARKLE,
+                            Page::Skills,
+                        ),
+                    ]
+                    .into_iter()
+                    .filter(|t| s.nav_tab(t.0) || s.page == t.4)
+                    .map(|(_, key, label, icon, page)| {
+                        space(key, label, icon, s.page == page, None)
+                            .on_press(move |s: &mut Hooked| s.go(page))
+                    }),
                 ),
         )
         .child(
@@ -519,12 +494,20 @@ fn unit_rows(s: &Hooked, u: crate::organize::Unit<'_>, k: &Kit) -> Vec<El> {
 fn session_row(s: &Hooked, x: &Session, k: &Kit, depth: u8, group: Option<usize>) -> El {
     let id = x.id.clone();
     let mut detail = fmt::ago_short(x.last_activity.as_deref(), s.now);
+    let window = s.setting("sidebarCache")["windowMin"]
+        .as_i64()
+        .unwrap_or(15);
     if let Some(left) = x
         .cache
         .as_ref()
         .and_then(|c| fmt::cache_left(c.last_request_at.as_deref(), c.ttl.as_deref(), s.now))
+        .filter(|left| window == 0 || *left <= window * 60_000)
     {
-        detail = format!("⚡{}", fmt::span(left, ""));
+        detail = if s.setting("sidebarCache")["display"].as_str() == Some("replace") {
+            format!("⚡{}", fmt::span(left, ""))
+        } else {
+            format!("⚡{} · {detail}", fmt::span(left, ""))
+        };
     }
     let archived = s.meta.get(&x.id).is_some_and(|m| m.archived);
     let mut subtitle = match &x.git_branch {

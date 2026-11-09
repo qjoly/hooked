@@ -501,8 +501,8 @@ pub fn capabilities() -> Result<Capabilities, String> {
                 && let Some(id) = pair.first().and_then(Value::as_str)
             {
                 let label = pair.get(1).and_then(Value::as_str).unwrap_or(id);
-                let label = if label.eq_ignore_ascii_case(group) {
-                    group.to_string()
+                let label = if label.to_lowercase().starts_with(&group.to_lowercase()) {
+                    label.to_string()
                 } else {
                     format!("{group} {label}")
                 };

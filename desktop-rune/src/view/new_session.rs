@@ -29,10 +29,10 @@ pub fn view(s: &Hooked, k: &Kit, layer: &mut Vec<El>) -> El {
         }));
 
     let model_ids: Vec<String> = std::iter::once("default".to_string())
-        .chain(s.caps.models.iter().map(|(id, _)| id.clone()))
+        .chain(s.visible_models().into_iter().map(|(id, _)| id))
         .collect();
     let model_labels: Vec<String> = std::iter::once("Default model".to_string())
-        .chain(s.caps.models.iter().map(|(_, l)| l.clone()))
+        .chain(s.visible_models().into_iter().map(|(_, l)| l))
         .collect();
     let cur_model = s
         .new_model
@@ -55,10 +55,10 @@ pub fn view(s: &Hooked, k: &Kit, layer: &mut Vec<El>) -> El {
         .on_close(|s: &mut Hooked| s.popup = None)
         .on_choose(move |s: &mut Hooked, v: &str, _| {
             let ids: Vec<String> = std::iter::once("default".to_string())
-                .chain(s.caps.models.iter().map(|(id, _)| id.clone()))
+                .chain(s.visible_models().into_iter().map(|(id, _)| id))
                 .collect();
             let labels: Vec<String> = std::iter::once("Default model".to_string())
-                .chain(s.caps.models.iter().map(|(_, l)| l.clone()))
+                .chain(s.visible_models().into_iter().map(|(_, l)| l))
                 .collect();
             s.new_model = labels
                 .iter()

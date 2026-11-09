@@ -1,16 +1,15 @@
 use rune::{Color, Cursor, El, ScrollSpec, col, el, row, text};
 use rune_kit::{
-    Button, ButtonVariant, ControlSize, Kit, SegmentedControl, Select, Spinner, Switch,
-    TextArea, TextInput,
+    Button, ButtonVariant, ControlSize, Kit, SegmentedControl, Spinner, Switch, TextArea, TextInput,
 };
-use serde_json::{Value, json};
+use serde_json::Value;
 
 use super::{dot, glyph, pill, section_title};
-use crate::app::{Hooked, Popup, Theme};
+use crate::app::Hooked;
 use crate::pages::{GITHUB_TABS, STATS_RANGES};
 use crate::{fmt, icons};
 
-fn page(k: &Kit, key: &str, title: &str, actions: El, body: El) -> El {
+pub(super) fn page(k: &Kit, key: &str, title: &str, actions: El, body: El) -> El {
     col()
         .key(key.to_string())
         .w_full()
@@ -42,7 +41,7 @@ fn page(k: &Kit, key: &str, title: &str, actions: El, body: El) -> El {
         )
 }
 
-fn scroll(key: &str, inner: El) -> El {
+pub(super) fn scroll(key: &str, inner: El) -> El {
     col()
         .key(key.to_string())
         .w_full()
@@ -53,7 +52,7 @@ fn scroll(key: &str, inner: El) -> El {
         .child(inner)
 }
 
-fn loading(k: &Kit) -> El {
+pub(super) fn loading(k: &Kit) -> El {
     col()
         .w_full()
         .h_full()
@@ -871,232 +870,6 @@ pub fn cron(s: &Hooked, k: &Kit) -> El {
         actions,
         scroll("cron-scroll", list),
     )
-}
-
-fn setting_row(k: &Kit, title: &str, hint: &str, control: El) -> El {
-    row()
-        .w_full()
-        .py(10.0)
-        .gap(16.0)
-        .center_y()
-        .border_sides([0.0, 0.0, 1.0, 0.0], k.c.border_weak)
-        .child(
-            col()
-                .grow(1.0)
-                .shrink()
-                .gap(2.0)
-                .child(
-                    text(title.to_string())
-                        .font(k.ty.ui_medium)
-                        .color(k.c.text_base),
-                )
-                .child(
-                    text(hint.to_string())
-                        .font(k.ty.text_small)
-                        .color(k.c.text_faint)
-                        .wrap(),
-                ),
-        )
-        .child(control)
-}
-
-fn toggle(k: &Kit, on: bool, key: &'static str, f: impl Fn(&mut Hooked) + 'static) -> El {
-    Switch::new(on)
-        .hide_label()
-        .label(key)
-        .on_toggle(f)
-        .build(k)
-        .key(key)
-}
-
-pub fn settings(s: &Hooked, k: &Kit, layer: &mut Vec<El>) -> El {
-    let Some(v) = s.pages.settings.as_ref() else {
-        return page(k, "settings", "Settings", el(), loading(k));
-    };
-    let b = |key: &str| v[key].as_bool().unwrap_or(false);
-    let theme_idx = match s.theme {
-        Theme::System => 0,
-        Theme::Light => 1,
-        Theme::Dark => 2,
-    };
-    let local = card(k, "set-local", "THIS APP")
-        .child(setting_row(
-            k,
-            "Theme",
-            "Follows the system unless forced.",
-            SegmentedControl::new(&["System", "Light", "Dark"], Some(theme_idx))
-                .fit()
-                .on_pick(|s: &mut Hooked, i, _| {
-                    s.theme = [Theme::System, Theme::Light, Theme::Dark][i];
-                    let t = s.theme;
-                    s.save_pref("theme", &t);
-                })
-                .build(k)
-                .key("set-theme"),
-        ))
-        .child(setting_row(
-            k,
-            "Notifications",
-            "A system notification when a session starts waiting on you, while the window is in the background.",
-            toggle(k, s.notify, "set-notify", |s| {
-                s.notify = !s.notify;
-                let n = s.notify;
-                s.save_pref("notify", &n);
-            }),
-        ));
-
-    let efforts: Vec<String> = s.caps.efforts.clone();
-    let cur_effort = v["defaultEffort"].as_str().unwrap_or("").to_string();
-    let effort = Select::new("set-effort", &efforts)
-        .current(Some(&cur_effort))
-        .width(160.0)
-        .open(s.popup == Some(Popup::NewEffort))
-        .on_toggle(|s: &mut Hooked| {
-            s.popup = if s.popup == Some(Popup::NewEffort) {
-                None
-            } else {
-                Some(Popup::NewEffort)
-            }
-        })
-        .on_close(|s: &mut Hooked| s.popup = None)
-        .on_choose(|s: &mut Hooked, v: &str, _| {
-            s.popup = None;
-            s.save_setting("defaultEffort", json!(v));
-        })
-        .build(k, layer);
-    let modes: Vec<&str> = fmt::LAUNCH_MODES
-        .iter()
-        .map(|m| fmt::mode_label(m))
-        .collect();
-    let cur_mode = fmt::mode_label(v["defaultMode"].as_str().unwrap_or("default"));
-    let mode = Select::new("set-mode", &modes)
-        .current(Some(cur_mode))
-        .width(180.0)
-        .open(s.popup == Some(Popup::NewMode))
-        .on_toggle(|s: &mut Hooked| {
-            s.popup = if s.popup == Some(Popup::NewMode) {
-                None
-            } else {
-                Some(Popup::NewMode)
-            }
-        })
-        .on_close(|s: &mut Hooked| s.popup = None)
-        .on_choose(|s: &mut Hooked, v: &str, _| {
-            s.popup = None;
-            if let Some(m) = fmt::LAUNCH_MODES.iter().find(|m| fmt::mode_label(m) == v) {
-                s.save_setting("defaultMode", json!(m));
-            }
-        })
-        .build(k, layer);
-    let project = s.pages.settings_project.as_ref().map(|p| {
-        TextInput::new(p)
-            .width(Some(320.0))
-            .placeholder("/path/to/project")
-            .on_edit(|s: &mut Hooked| s.pages.settings_project.as_mut().unwrap())
-            .on_submit(|s: &mut Hooked, _| {
-                let p = s
-                    .pages
-                    .settings_project
-                    .as_ref()
-                    .map(|p| p.text.trim().to_string())
-                    .unwrap_or_default();
-                s.save_setting("quickLaunchProject", json!(p));
-                s.flash("✓ Saved", false);
-            })
-            .build(k)
-            .key("set-project")
-    });
-    let sessions = card(k, "set-sessions", "NEW SESSIONS")
-        .child(setting_row(
-            k,
-            "Default effort",
-            "Used when a session is launched without one.",
-            effort,
-        ))
-        .child(setting_row(
-            k,
-            "Default permission mode",
-            "Also the mode a Resume runs in.",
-            mode,
-        ))
-        .child(setting_row(
-            k,
-            "Default project",
-            "Pre-filled in New session. Enter to save.",
-            project.unwrap_or_else(el),
-        ));
-
-    let digest = &v["digest"];
-    let ac = &v["autoCompact"];
-    let ac_on = ac["enabled"].as_bool().unwrap_or(false);
-    let server = card(k, "set-server", "HOOKED SERVICE")
-        .child(setting_row(
-            k,
-            "Daily digest",
-            &format!("Writes yesterday's summary every morning at {}:00.", digest["hour"].as_i64().unwrap_or(7)),
-            toggle(k, digest["auto"].as_bool().unwrap_or(false), "set-digest", |s| {
-                let on = s.pages.settings.as_ref().and_then(|v| v["digest"]["auto"].as_bool()).unwrap_or(false);
-                s.save_nested("digest", "auto", json!(!on));
-            }),
-        ))
-        .child(setting_row(
-            k,
-            "Auto-compact",
-            &format!(
-                "Runs /compact on a session waiting for you just before its prompt cache expires (only above {}k tokens). Lossy: earlier turns become a summary.",
-                ac["minContextK"].as_i64().unwrap_or(100)
-            ),
-            toggle(k, ac_on, "set-compact", move |s| s.save_nested("autoCompact", "enabled", json!(!ac_on))),
-        ))
-        .child(setting_row(
-            k,
-            "Auto tags",
-            "Tag sessions from their content.",
-            toggle(k, b("autoTags"), "set-autotags", |s| {
-                let on = s.pages.settings.as_ref().and_then(|v| v["autoTags"].as_bool()).unwrap_or(false);
-                s.save_setting("autoTags", json!(!on));
-            }),
-        ))
-        .child(setting_row(
-            k,
-            "PR review tags",
-            "Tag a session whose pull request got approved or changes requested.",
-            toggle(k, b("autoPrReviewTag"), "set-prtags", |s| {
-                let on = s.pages.settings.as_ref().and_then(|v| v["autoPrReviewTag"].as_bool()).unwrap_or(false);
-                s.save_setting("autoPrReviewTag", json!(!on));
-            }),
-        ))
-        .child(setting_row(
-            k,
-            "Auto git sync",
-            "Keep hooked's own checkout up to date with its remote.",
-            toggle(k, b("autoGitSync"), "set-gitsync", |s| {
-                let on = s.pages.settings.as_ref().and_then(|v| v["autoGitSync"].as_bool()).unwrap_or(false);
-                s.save_setting("autoGitSync", json!(!on));
-            }),
-        ));
-    let more = row().child(
-        Button::new("All settings in the web dashboard")
-            .icon(&icons::LINK)
-            .variant(ButtonVariant::GhostMuted)
-            .on_press_tx(|_: &mut Hooked, tx| {
-                let _ = tx.open_url(&format!("{}/settings", crate::api::base()));
-            })
-            .build(k)
-            .key("set-web"),
-    );
-    let body = col()
-        .key("set-inner")
-        .w_full()
-        .max_w(820.0)
-        .self_center()
-        .padding(24.0)
-        .gap(18.0)
-        .child(local)
-        .child(sessions)
-        .child(server)
-        .child(more);
-    page(k, "settings", "Settings", el(), scroll("set-scroll", body))
 }
 
 pub fn github(s: &Hooked, k: &Kit) -> El {
