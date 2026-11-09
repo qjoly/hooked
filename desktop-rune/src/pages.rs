@@ -105,6 +105,7 @@ pub struct PageData {
     pub memory_open: Option<String>,
     pub memory_query: TextEdit,
     pub cron_history: Option<String>,
+    pub digest_pick: TextEdit,
     pub memory_type: Option<String>,
     pub skills_query: TextEdit,
 

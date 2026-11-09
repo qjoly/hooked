@@ -280,8 +280,45 @@ pub fn stats(s: &Hooked, k: &Kit) -> El {
 
 pub fn digest(s: &Hooked, k: &Kit) -> El {
     let pd = &s.pages;
+    let step = |label: &'static str, delta: i64| {
+        let date = pd.digest_date.clone();
+        Button::new(label)
+            .variant(ButtonVariant::GhostMuted)
+            .control_size(ControlSize::Regular)
+            .disabled(date.is_none())
+            .on_press(move |s: &mut Hooked| {
+                if let Some(d) = date.as_deref().and_then(|d| fmt::shift_date(d, delta)) {
+                    s.open_digest(d);
+                }
+            })
+            .build(k)
+    };
     let actions = row()
         .gap(8.0)
+        .center_y()
+        .child(step("◀", -1))
+        .child(
+            TextInput::new(&pd.digest_pick)
+                .placeholder(
+                    pd.digest_date
+                        .clone()
+                        .unwrap_or_else(|| "YYYY-MM-DD".into()),
+                )
+                .width(Some(130.0))
+                .on_edit(|s: &mut Hooked| &mut s.pages.digest_pick)
+                .on_submit(|s: &mut Hooked, _| {
+                    let d = s.pages.digest_pick.text.trim().to_string();
+                    if fmt::shift_date(&d, 0).is_some() {
+                        s.pages.digest_pick = rune::TextEdit::new("");
+                        s.open_digest(d);
+                    } else {
+                        s.flash("Type a date as YYYY-MM-DD", true);
+                    }
+                })
+                .build(k)
+                .key("dg-pick"),
+        )
+        .child(step("▶", 1))
         .child(
             Button::new("Generate")
                 .variant(ButtonVariant::Outline)
@@ -389,6 +426,52 @@ pub fn digest(s: &Hooked, k: &Kit) -> El {
             }
             if let Some(sum) = d["summary"].as_str().filter(|x| !x.is_empty()) {
                 c = c.child(super::md(sum.to_string()).build(k));
+            }
+            let pending: Vec<&Value> = d["pending"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter(|p| {
+                    p["id"]
+                        .as_str()
+                        .and_then(|id| s.session(id))
+                        .is_some_and(|x| x.has_question)
+                })
+                .collect();
+            if !pending.is_empty() {
+                c = c.child(section_title(k, "NEEDS ATTENTION"));
+                for p in pending {
+                    let id = p["id"].as_str().unwrap_or("").to_string();
+                    c = c.child(
+                        k.interactive(
+                            row()
+                                .role("link")
+                                .w_full()
+                                .gap(8.0)
+                                .center_y()
+                                .cursor(Cursor::Pointer)
+                                .child(pill(
+                                    k,
+                                    p["kind"].as_str().unwrap_or("question").to_string(),
+                                    k.c.warning.fg,
+                                    k.c.warning.bg,
+                                ))
+                                .child(
+                                    text(format!(
+                                        "{} — {}",
+                                        p["title"].as_str().unwrap_or(""),
+                                        p["text"].as_str().unwrap_or("")
+                                    ))
+                                    .font(k.ty.text_small)
+                                    .color(k.c.text_base)
+                                    .truncate()
+                                    .grow(1.0)
+                                    .min_w(0.0),
+                                ),
+                        )
+                        .on_press(move |s: &mut Hooked| s.open_session(&id)),
+                    );
+                }
             }
             for (key, title) in [("highlights", "HIGHLIGHTS"), ("blockers", "BLOCKERS")] {
                 let items: Vec<String> = d[key]

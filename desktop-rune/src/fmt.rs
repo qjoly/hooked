@@ -29,6 +29,28 @@ pub fn parse_ts(ts: &str) -> Option<i64> {
     Some(((days * 24 + h) * 60 + mi) * 60_000 + s * 1000 + ms)
 }
 
+/// `YYYY-MM-DD` moved by `delta` days.
+pub fn shift_date(date: &str, delta: i64) -> Option<String> {
+    let num = |r: std::ops::Range<usize>| date.get(r)?.parse::<i64>().ok();
+    if date.len() != 10 {
+        return None;
+    }
+    let (y, m, d) = (num(0..4)?, num(5..7)?, num(8..10)?);
+    if !(1..=12).contains(&m) || !(1..=31).contains(&d) {
+        return None;
+    }
+    let z = days_from_civil(y, m, d) + delta + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let day = doy - (153 * mp + 2) / 5 + 1;
+    let month = if mp < 10 { mp + 3 } else { mp - 9 };
+    let year = yoe + era * 400 + i64::from(month <= 2);
+    Some(format!("{year:04}-{month:02}-{day:02}"))
+}
+
 fn days_from_civil(y: i64, m: i64, d: i64) -> i64 {
     let y = if m <= 2 { y - 1 } else { y };
     let era = if y >= 0 { y } else { y - 399 } / 400;
@@ -257,6 +279,13 @@ mod tests {
             strip_ansi("\u{1b}[1;32mok\u{1b}[0m 50%\r80%\r\n\u{1b}]0;title\u{7}done"),
             "ok 50%\n80%\ndone"
         );
+    }
+
+    #[test]
+    fn dates_shift_across_months() {
+        assert_eq!(shift_date("2026-03-01", -1).as_deref(), Some("2026-02-28"));
+        assert_eq!(shift_date("2024-12-31", 1).as_deref(), Some("2025-01-01"));
+        assert_eq!(shift_date("nope", 1), None);
     }
 
     #[test]
