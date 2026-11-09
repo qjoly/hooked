@@ -23,6 +23,7 @@ pub enum Picker {
         items: Option<Vec<serde_json::Value>>,
         busy: Option<String>,
     },
+    Cost,
     Image {
         paths: Vec<String>,
         index: usize,

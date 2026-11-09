@@ -624,6 +624,9 @@ impl Hooked {
             }
             s.run_win = Some(w);
         }
+        if args.iter().any(|a| a == "--cost") {
+            s.picker = Some(crate::organize::Picker::Cost);
+        }
         if args.iter().any(|a| a == "--rendered") {
             s.lens_data.rendered = true;
         }

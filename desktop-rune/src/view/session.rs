@@ -369,99 +369,106 @@ fn more_menu(s: &Hooked, d: &Detail, k: &Kit, layer: &mut Vec<El>) -> El {
         x.id
     );
     let link = format!("{}/session/{}", crate::api::base(), x.id);
-    m.item(MenuItem::new(format!("Cost · {}", fmt::cost(x.cost))).disabled(true))
-        .separator()
-        .item({
-            let id = x.id.clone();
-            MenuItem::new("Edit tags…")
-                .icon(&icons::TAG)
-                .on_select(move |s: &mut Hooked| s.open_tags(id.clone()))
-        })
-        .item({
-            let id = x.id.clone();
-            MenuItem::new("Move to group…")
-                .icon(&icons::LIST)
-                .on_select(move |s: &mut Hooked| s.open_group_picker(id.clone()))
-        })
-        .item({
-            let id = x.id.clone();
-            let grouped = s.group_of(&x.id).is_some();
-            let leads = !grouped && s.group_members(&x.id).len() > 1;
-            if grouped {
-                MenuItem::new("Leave the group").on_select(move |s: &mut Hooked| {
-                    s.group_op("leave", id.clone(), serde_json::json!({}))
-                })
-            } else if leads {
-                MenuItem::new("Rename the group…")
-                    .on_select(move |s: &mut Hooked| s.open_rename_group(id.clone()))
-            } else {
-                MenuItem::new("Not in a group").disabled(true)
-            }
-        })
-        .item({
-            let id = x.id.clone();
-            let on = s.meta.get(&x.id).is_some_and(|m| m.incognito);
-            MenuItem::new(if on {
-                "Remove from incognito"
-            } else {
-                "Mark incognito"
-            })
-            .icon(if on { &icons::EYE } else { &icons::EYE_OFF })
-            .description("Incognito sessions stay visible in incognito mode")
-            .on_select(move |s: &mut Hooked| {
-                s.popup = None;
-                s.toggle_incognito(&id)
-            })
-        })
-        .separator()
-        .item(
-            MenuItem::new("Open in editor")
-                .icon(&icons::CODE)
-                .on_select(|s: &mut Hooked| s.open_editor()),
-        )
-        .item(
-            MenuItem::new("Open in the web dashboard")
-                .icon(&icons::LINK)
-                .on_select_tx(move |s: &mut Hooked, tx| {
-                    s.popup = None;
-                    let _ = tx.open_url(&link);
-                }),
-        )
-        .item(
-            MenuItem::new("Copy resume command")
-                .icon(&icons::COPY)
-                .on_select_tx(move |s: &mut Hooked, tx| {
-                    s.popup = None;
-                    tx.copy(&resume_cmd);
-                    s.flash("✓ Copied", false);
-                }),
-        )
-        .item(
-            MenuItem::new(if s.all_tools_open {
-                "Collapse tool calls"
-            } else {
-                "Expand tool calls"
-            })
-            .icon(&icons::TOOL)
+    m.item(
+        MenuItem::new(format!("Cost · {}", fmt::cost(x.cost)))
+            .description("Where the money went: input, output, cache")
             .on_select(|s: &mut Hooked| {
-                s.all_tools_open = !s.all_tools_open;
                 s.popup = None;
+                s.picker = Some(crate::organize::Picker::Cost);
             }),
-        )
-        .separator()
-        .item(
-            MenuItem::new("Restart Claude")
-                .icon(&icons::RESTART)
-                .description("Stop the process and resume it from its transcript")
-                .on_select(|s: &mut Hooked| s.restart()),
-        )
-        .item(
-            MenuItem::new("Move to trash")
-                .icon(&icons::TRASH)
-                .danger(true)
-                .on_select(|s: &mut Hooked| s.delete()),
-        )
-        .build(k, layer)
+    )
+    .separator()
+    .item({
+        let id = x.id.clone();
+        MenuItem::new("Edit tags…")
+            .icon(&icons::TAG)
+            .on_select(move |s: &mut Hooked| s.open_tags(id.clone()))
+    })
+    .item({
+        let id = x.id.clone();
+        MenuItem::new("Move to group…")
+            .icon(&icons::LIST)
+            .on_select(move |s: &mut Hooked| s.open_group_picker(id.clone()))
+    })
+    .item({
+        let id = x.id.clone();
+        let grouped = s.group_of(&x.id).is_some();
+        let leads = !grouped && s.group_members(&x.id).len() > 1;
+        if grouped {
+            MenuItem::new("Leave the group").on_select(move |s: &mut Hooked| {
+                s.group_op("leave", id.clone(), serde_json::json!({}))
+            })
+        } else if leads {
+            MenuItem::new("Rename the group…")
+                .on_select(move |s: &mut Hooked| s.open_rename_group(id.clone()))
+        } else {
+            MenuItem::new("Not in a group").disabled(true)
+        }
+    })
+    .item({
+        let id = x.id.clone();
+        let on = s.meta.get(&x.id).is_some_and(|m| m.incognito);
+        MenuItem::new(if on {
+            "Remove from incognito"
+        } else {
+            "Mark incognito"
+        })
+        .icon(if on { &icons::EYE } else { &icons::EYE_OFF })
+        .description("Incognito sessions stay visible in incognito mode")
+        .on_select(move |s: &mut Hooked| {
+            s.popup = None;
+            s.toggle_incognito(&id)
+        })
+    })
+    .separator()
+    .item(
+        MenuItem::new("Open in editor")
+            .icon(&icons::CODE)
+            .on_select(|s: &mut Hooked| s.open_editor()),
+    )
+    .item(
+        MenuItem::new("Open in the web dashboard")
+            .icon(&icons::LINK)
+            .on_select_tx(move |s: &mut Hooked, tx| {
+                s.popup = None;
+                let _ = tx.open_url(&link);
+            }),
+    )
+    .item(
+        MenuItem::new("Copy resume command")
+            .icon(&icons::COPY)
+            .on_select_tx(move |s: &mut Hooked, tx| {
+                s.popup = None;
+                tx.copy(&resume_cmd);
+                s.flash("✓ Copied", false);
+            }),
+    )
+    .item(
+        MenuItem::new(if s.all_tools_open {
+            "Collapse tool calls"
+        } else {
+            "Expand tool calls"
+        })
+        .icon(&icons::TOOL)
+        .on_select(|s: &mut Hooked| {
+            s.all_tools_open = !s.all_tools_open;
+            s.popup = None;
+        }),
+    )
+    .separator()
+    .item(
+        MenuItem::new("Restart Claude")
+            .icon(&icons::RESTART)
+            .description("Stop the process and resume it from its transcript")
+            .on_select(|s: &mut Hooked| s.restart()),
+    )
+    .item(
+        MenuItem::new("Move to trash")
+            .icon(&icons::TRASH)
+            .danger(true)
+            .on_select(|s: &mut Hooked| s.delete()),
+    )
+    .build(k, layer)
 }
 
 fn lenses(s: &Hooked, d: &Detail, k: &Kit) -> El {

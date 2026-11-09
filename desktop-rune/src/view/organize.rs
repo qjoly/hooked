@@ -203,6 +203,7 @@ pub fn view(s: &Hooked, k: &Kit) -> El {
         }
         Some(Picker::Trash { items, busy }) => trash(s, k, items.as_deref(), busy.as_deref()),
         Some(Picker::Image { paths, index }) => image(s, k, paths, *index),
+        Some(Picker::Cost) => cost(s, k),
         Some(Picker::Agent {
             title, messages, ..
         }) => agent(s, k, title, messages.as_deref()),
@@ -569,4 +570,91 @@ fn image(s: &Hooked, k: &Kit, paths: &[String], index: usize) -> El {
                 .child(bar)
                 .child(pic.radius(k.radius.md).clip_rounded(k.radius.md)),
         )
+}
+
+fn tokens(n: f64) -> String {
+    if n >= 1e6 {
+        format!("{:.1}M", n / 1e6)
+    } else if n >= 1e3 {
+        format!("{:.0}k", n / 1e3)
+    } else {
+        format!("{n:.0}")
+    }
+}
+
+fn cost(s: &Hooked, k: &Kit) -> El {
+    let Some(d) = s.detail.as_ref() else {
+        return el();
+    };
+    let cb = d.cost_break.clone().unwrap_or_default();
+    let usage = d.usage.clone().unwrap_or_default();
+    let parts = [
+        ("Input", "input", k.c.info.fg),
+        ("Output", "output", k.c.success.fg),
+        ("Cache write", "cacheCreate", k.c.warning.fg),
+        ("Cache read", "cacheRead", k.c.danger.fg),
+    ];
+    let total: f64 = parts
+        .iter()
+        .map(|(_, key, _)| cb[*key].as_f64().unwrap_or(0.0))
+        .sum::<f64>()
+        .max(1e-9);
+    let mut body = col().w_full().gap(10.0);
+    for (label, key, color) in parts {
+        let c = cb[key].as_f64().unwrap_or(0.0);
+        let share = (c / total) as f32;
+        body = body.child(
+            col()
+                .w_full()
+                .gap(4.0)
+                .child(
+                    row()
+                        .w_full()
+                        .gap(8.0)
+                        .child(
+                            text(label)
+                                .font(k.ty.text_small_medium)
+                                .color(k.c.text_base),
+                        )
+                        .child(
+                            text(format!(
+                                "{} tokens",
+                                tokens(usage[key].as_f64().unwrap_or(0.0))
+                            ))
+                            .font(k.ty.text_xsmall)
+                            .color(k.c.text_faint),
+                        )
+                        .child(el().grow(1.0))
+                        .child(
+                            text(format!(
+                                "{} · {:.0}%",
+                                crate::fmt::cost(Some(c)),
+                                share * 100.0
+                            ))
+                            .font(k.ty.text_small)
+                            .color(k.c.text_muted),
+                        ),
+                )
+                .child(
+                    el().w_full()
+                        .h(6.0)
+                        .radius(3.0)
+                        .fill(k.c.layer_02)
+                        .child(el().w_frac(share).h(6.0).radius(3.0).fill(color)),
+                ),
+        );
+    }
+    let mut foot = format!("Total {}", crate::fmt::cost(d.session.cost));
+    if let Some(sub) = d.subagent_cost.filter(|c| *c > 0.0) {
+        foot.push_str(&format!(" · subagents {}", crate::fmt::cost(Some(sub))));
+    }
+    body = body
+        .child(text(foot).font(k.ty.ui_medium).color(k.c.text_base))
+        .child(
+            text("Rates: Fable 10/50, Opus 5/25, Sonnet 3/15, Haiku 1/5 $/Mtok; cache write ×1.25, read ×0.1.")
+                .font(k.ty.text_xsmall)
+                .color(k.c.text_faint)
+                .wrap(),
+        );
+    modal(k, "cost-modal", "Cost of this session", body)
 }
