@@ -844,6 +844,20 @@ impl Hooked {
         });
     }
 
+    pub fn run_code(&mut self, session: String, code: String) {
+        let cmd = format!("!{}", code.trim());
+        spawn(
+            move || api::reply(&session, &cmd),
+            |s, r, _| {
+                match r {
+                    Ok(_) => s.flash("✓ Running in the session", false),
+                    Err(e) => s.flash(format!("✗ Run: {e}"), true),
+                }
+                s.refresh_detail();
+            },
+        );
+    }
+
     pub fn open_ghostty(&mut self) {
         let Some(id) = self.selected.clone() else {
             return;

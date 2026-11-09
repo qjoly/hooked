@@ -1101,6 +1101,61 @@ pub fn md(src: impl Into<String>) -> rune_kit::Markdown {
     rune_kit::Markdown::new(src).on_link_tx(crate::app::open_link)
 }
 
+/// Markdown whose code blocks carry Copy, and Run for shell blocks of a session.
+pub fn md_code(src: impl Into<String>, k: &Kit, session: Option<String>) -> rune_kit::Markdown {
+    let k = k.clone();
+    md(src).code_frame(move |card, c| {
+        let code = c.source.to_string();
+        let lang = c.language.unwrap_or("").to_string();
+        let shell = matches!(
+            lang.to_lowercase().as_str(),
+            "sh" | "bash" | "shell" | "zsh"
+        );
+        let mut bar = row()
+            .w_full()
+            .gap(4.0)
+            .center_y()
+            .child(
+                text(lang.clone())
+                    .font(k.ty.text_xsmall)
+                    .color(k.c.text_faint),
+            )
+            .child(el().grow(1.0));
+        if let Some(id) = session
+            .clone()
+            .filter(|_| shell && !code.trim().is_empty() && !c.open)
+        {
+            let run = code.clone();
+            bar = bar.child(
+                Button::new("Run")
+                    .icon(&icons::TERMINAL)
+                    .variant(ButtonVariant::GhostMuted)
+                    .control_size(ControlSize::Small)
+                    .help("Run in the session folder; the output goes to the conversation")
+                    .on_press(move |s: &mut Hooked| s.run_code(id.clone(), run.clone()))
+                    .build(&k),
+            );
+        }
+        bar = bar.child(
+            Button::new("Copy")
+                .icon(&icons::COPY)
+                .variant(ButtonVariant::GhostMuted)
+                .control_size(ControlSize::Small)
+                .on_press_tx(move |s: &mut Hooked, tx| {
+                    tx.copy(&code);
+                    s.flash("✓ Copied", false);
+                })
+                .build(&k),
+        );
+        col()
+            .key(format!("code-{}", c.index))
+            .w_full()
+            .gap(2.0)
+            .child(bar)
+            .child(card)
+    })
+}
+
 pub fn tag_pill(s: &Hooked, k: &Kit, name: &str) -> El {
     let c = s.tag_color(k.dark, name);
     row()

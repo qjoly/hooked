@@ -838,7 +838,7 @@ pub(super) fn bubble(s: &Hooked, session: &str, m: &Message, k: &Kit, i: usize) 
                 }
                 c
             }
-            Part::Text(t) => super::md(t)
+            Part::Text(t) => super::md_code(t, k, Some(session.to_string()))
                 .selectable(true)
                 .build(k)
                 .key(format!("md-{i}-{pi}")),
