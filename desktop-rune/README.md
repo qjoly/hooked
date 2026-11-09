@@ -81,16 +81,14 @@ session states coloured by how much they need you.
 
 ## Terminal: what is still missing
 
-- Selection: double- and triple-click (word, line), selecting into the scrollback, Shift to
-  select inside mouse-tracking programs (Rune reports no modifiers during a drag), OSC 52
-  clipboard, right- and middle-click.
+- Selection: selecting into the scrollback, Shift to select inside mouse-tracking programs
+  (Rune reports no modifiers during a drag), OSC 52 clipboard, right- and middle-click.
 - Mouse: only the left button reaches programs; no motion without a button held.
 - Rendering: cursor blink, strikethrough / overline / curly and coloured underlines, clickable
   links (OSC 8 and plain URLs), images (kitty graphics, sixel), a light palette, exact widths
   for emoji drawn from fallback fonts, a scrollback indicator, font and size settings, zoom.
 - Behaviour: search in the scrollback, the bell, focus reporting, key releases and repeats for
-  the full kitty keyboard protocol, Cmd+arrow / Cmd+Backspace, dropping a file to type its path,
-  restarting an exited shell, batching redraws under heavy output.
+  the full kitty keyboard protocol, batching redraws under heavy output.
 - hooked: `!!command` output inline in the conversation, terminals in their own window or split.
 
 ## Checking it headless

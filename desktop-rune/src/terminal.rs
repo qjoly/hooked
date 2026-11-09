@@ -375,6 +375,49 @@ impl Hooked {
         true
     }
 
+    /// What a Mac terminal sends for ⌘←, ⌘→ and ⌘⌫: start of line, end of line, kill line.
+    pub fn term_cmd_key(&mut self, key: &rune::Key) -> bool {
+        let bytes: &[u8] = match key {
+            rune::Key::Left => b"\x01",
+            rune::Key::Right => b"\x05",
+            rune::Key::Backspace => b"\x15",
+            _ => return false,
+        };
+        let Some(t) = self
+            .term
+            .terms
+            .get_mut(self.term.active)
+            .filter(|t| !t.exited)
+        else {
+            return false;
+        };
+        t.vt.scroll_to_bottom();
+        post_input(t.id.clone(), bytes);
+        true
+    }
+
+    pub fn term_drop(&mut self, files: &[std::path::PathBuf]) {
+        let quoted: Vec<String> = files
+            .iter()
+            .map(|p| {
+                let s = p.to_string_lossy();
+                if s.chars()
+                    .all(|c| c.is_ascii_alphanumeric() || "/._-+@:".contains(c))
+                {
+                    s.into_owned()
+                } else {
+                    format!("'{}'", s.replace('\'', "'\\''"))
+                }
+            })
+            .collect();
+        self.term_paste(&format!("{} ", quoted.join(" ")));
+    }
+
+    pub fn restart_term(&mut self, i: usize) {
+        self.close_term(i);
+        self.new_term();
+    }
+
     pub fn term_paste(&mut self, text: &str) {
         let Some(t) = self.term.terms.get_mut(self.term.active) else {
             return;
@@ -426,19 +469,54 @@ impl Hooked {
             return;
         }
         match d.phase {
+            rune::Phase::Down if d.clicks >= 3 => {
+                let cols = t.vt.size().0;
+                self.term.sel = Some(Sel {
+                    anchor: (0, cell.1),
+                    head: (cols.saturating_sub(1), cell.1),
+                });
+            }
+            rune::Phase::Down if d.clicks == 2 => {
+                let Some(line) = t.vt.lines.get(usize::from(cell.1)) else {
+                    return;
+                };
+                let cols = t.vt.size().0;
+                let word = |c: u16| {
+                    line.slice(c, c + 1)
+                        .chars()
+                        .next()
+                        .is_some_and(|ch| !ch.is_whitespace() && !"\"'`()[]{}<>|;,".contains(ch))
+                };
+                if !word(cell.0) {
+                    self.term.sel = None;
+                    return;
+                }
+                let (mut a, mut b) = (cell.0, cell.0);
+                while a > 0 && word(a - 1) {
+                    a -= 1;
+                }
+                while b + 1 < cols && word(b + 1) {
+                    b += 1;
+                }
+                self.term.sel = Some(Sel {
+                    anchor: (a, cell.1),
+                    head: (b, cell.1),
+                });
+            }
             rune::Phase::Down => {
                 self.term.sel = Some(Sel {
                     anchor: cell,
                     head: cell,
                 })
             }
-            rune::Phase::Move => {
+            rune::Phase::Move if d.clicks <= 1 => {
                 if let Some(sel) = self.term.sel.as_mut() {
                     sel.head = cell;
                 }
             }
+            rune::Phase::Move => {}
             rune::Phase::Up => {
-                if self.term.sel.is_some_and(|s| s.anchor == s.head) {
+                if d.clicks <= 1 && self.term.sel.is_some_and(|s| s.anchor == s.head) {
                     self.term.sel = None;
                 }
             }

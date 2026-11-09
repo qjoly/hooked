@@ -225,6 +225,17 @@ pub fn panel(s: &Hooked, k: &Kit) -> El {
                     )
                     .on_press(move |s: &mut Hooked| s.term.active = i),
                 )
+                .child(if t.exited {
+                    IconButton::new(&icons::RESTART)
+                        .variant(IconButtonVariant::GhostMuted)
+                        .control_size(rune_kit::ControlSize::Small)
+                        .label("Restart this shell")
+                        .help("Restart this shell")
+                        .on_press(move |s: &mut Hooked| s.restart_term(i))
+                        .build(k)
+                } else {
+                    el()
+                })
                 .child(
                     IconButton::new(&icons::CLOSE)
                         .variant(IconButtonVariant::GhostMuted)
@@ -300,7 +311,8 @@ pub fn panel(s: &Hooked, k: &Kit) -> El {
                 return false;
             }
             if ev.mods.cmd {
-                return false;
+                tx.instant();
+                return s.term_cmd_key(&ev.key);
             }
             tx.instant();
             s.term_key(ev, tx.physical_key())
@@ -321,6 +333,7 @@ pub fn panel(s: &Hooked, k: &Kit) -> El {
                 s.term_paste(c.text());
             },
         )
+        .on_drop_files(|s: &mut Hooked, files: &[std::path::PathBuf], _| s.term_drop(files))
         .child(body);
     let grip = el()
         .key("term-resize")
