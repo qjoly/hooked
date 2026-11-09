@@ -475,6 +475,17 @@ pub struct Change {
     pub name: Option<String>,
     pub badge: Option<String>,
     pub ops: Vec<Value>,
+    pub raw_ops: Vec<Value>,
+    pub original: Option<String>,
+    pub truncated: bool,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, PartialEq)]
+#[serde(default, rename_all = "camelCase")]
+pub struct ChangeTurn {
+    pub turn: usize,
+    pub ts: String,
+    pub prompt: String,
 }
 
 impl Change {
@@ -517,6 +528,7 @@ pub struct Detail {
     pub followup_suggestion: Option<String>,
     pub todos: Vec<Todo>,
     pub changes: Vec<Change>,
+    pub change_turns: Vec<ChangeTurn>,
     pub subagents: Vec<Value>,
     pub sub_sessions: Vec<SubSession>,
     pub context: Option<Context>,

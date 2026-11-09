@@ -30,6 +30,115 @@ fn empty(k: &Kit, key: &str, msg: &str) -> El {
         .child(text(msg.to_string()).font(k.ty.body).color(k.c.text_faint))
 }
 
+fn turns_panel(s: &Hooked, d: &Detail, k: &Kit) -> El {
+    let ld = &s.lens_data;
+    let files_of = |turn: usize| {
+        d.changes
+            .iter()
+            .filter(|c| {
+                c.raw_ops
+                    .iter()
+                    .any(|o| crate::lenses::op_turn(&d.change_turns, o) == turn)
+            })
+            .count()
+    };
+    let mut list = col().w_full().gap(1.0);
+    let all = ld.turns.is_empty();
+    list = list.child(
+        k.interactive(
+            row()
+                .key("turn-all")
+                .role("checkbox")
+                .checked(all)
+                .w_full()
+                .h(28.0)
+                .px(8.0)
+                .gap(8.0)
+                .center_y()
+                .radius(k.radius.sm)
+                .cursor(Cursor::Pointer)
+                .child(glyph(
+                    if all {
+                        &icons::CIRCLE_CHECK
+                    } else {
+                        &icons::CIRCLE
+                    },
+                    13.0,
+                    if all { k.c.icon_accent } else { k.c.icon_faint },
+                ))
+                .child(
+                    text("The whole conversation (net change)")
+                        .font(k.ty.text_small_medium)
+                        .color(k.c.text_base),
+                ),
+        )
+        .on_press(|s: &mut Hooked| s.toggle_turn(None)),
+    );
+    for t in &d.change_turns {
+        let n = files_of(t.turn);
+        if n == 0 {
+            continue;
+        }
+        let on = ld.turns.contains(&t.turn);
+        let turn = t.turn;
+        list = list.child(
+            k.interactive(
+                row()
+                    .key(format!("turn-{turn}"))
+                    .role("checkbox")
+                    .checked(on)
+                    .w_full()
+                    .h(28.0)
+                    .px(8.0)
+                    .gap(8.0)
+                    .center_y()
+                    .radius(k.radius.sm)
+                    .cursor(Cursor::Pointer)
+                    .child(glyph(
+                        if on {
+                            &icons::CIRCLE_CHECK
+                        } else {
+                            &icons::CIRCLE
+                        },
+                        13.0,
+                        if on { k.c.icon_accent } else { k.c.icon_faint },
+                    ))
+                    .child(
+                        text(format!("P{}", turn + 1))
+                            .font(k.ty.text_small_medium)
+                            .color(k.c.text_muted)
+                            .w(34.0),
+                    )
+                    .child(
+                        text(fmt::first_line(&t.prompt, 140))
+                            .font(k.ty.text_small)
+                            .color(k.c.text_base)
+                            .truncate()
+                            .grow(1.0)
+                            .min_w(0.0),
+                    )
+                    .child(
+                        text(format!("{n} file{}", if n == 1 { "" } else { "s" }))
+                            .font(k.ty.text_xsmall)
+                            .color(k.c.text_faint),
+                    ),
+            )
+            .on_press(move |s: &mut Hooked| s.toggle_turn(Some(turn))),
+        );
+    }
+    col()
+        .key("review-turns")
+        .w_full()
+        .max_h(280.0)
+        .px(12.0)
+        .py(6.0)
+        .border_sides([0.0, 0.0, 1.0, 0.0], k.c.border_weak)
+        .scroll(ScrollSpec {
+            stick_bottom: false,
+        })
+        .child(list)
+}
+
 fn thread_row(s: &Hooked, k: &Kit, t: &serde_json::Value, archived: bool) -> El {
     let tid = t["id"].as_str().unwrap_or("").to_string();
     let side = if t["side"] == "old" { "−L" } else { "+L" };
@@ -368,6 +477,31 @@ pub fn review(s: &Hooked, d: &Detail, k: &Kit) -> El {
     if ld.diff_loading {
         top = top.child(Spinner::new().build(k));
     }
+    if ld.review_source == ReviewSource::Claude && !d.change_turns.is_empty() {
+        let label = if ld.turns.is_empty() {
+            "All prompts".to_string()
+        } else {
+            ld.turns
+                .iter()
+                .map(|t| format!("P{}", t + 1))
+                .collect::<Vec<_>>()
+                .join(", ")
+        };
+        top = top.child(
+            Button::new(label)
+                .icon(&icons::CHEVRON_DOWN)
+                .variant(if ld.turns.is_empty() {
+                    ButtonVariant::GhostMuted
+                } else {
+                    ButtonVariant::Outline
+                })
+                .control_size(ControlSize::Regular)
+                .help("Review only what some of your prompts changed")
+                .on_press(|s: &mut Hooked| s.lens_data.turns_open = !s.lens_data.turns_open)
+                .build(k)
+                .key("review-turns-toggle"),
+        );
+    }
     if !ld.diff.files().is_empty() {
         top = top.child(
             Button::new(if ld.asking {
@@ -484,7 +618,11 @@ pub fn review(s: &Hooked, d: &Detail, k: &Kit) -> El {
         }
         body
     };
-    col().key("review").w_full().h_full().child(top).child(body)
+    let mut out = col().key("review").w_full().h_full().child(top);
+    if ld.turns_open && ld.review_source == ReviewSource::Claude {
+        out = out.child(turns_panel(s, d, k));
+    }
+    out.child(body)
 }
 
 fn mcp_dot(k: &Kit, state: &str) -> Color {

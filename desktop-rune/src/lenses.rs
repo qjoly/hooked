@@ -4,7 +4,7 @@ use rune::TextEdit;
 use rune_kit::diff::{Annotation, DiffState, FileDiff, LineRange, LineRef, Side};
 use serde_json::{Value, json};
 
-use crate::api::{self, Change, McpLogin, McpServer, TraceTurn};
+use crate::api::{self, Change, ChangeTurn, McpLogin, McpServer, TraceTurn};
 use crate::app::{Hooked, Lens, Page, spawn};
 use crate::fmt;
 
@@ -21,6 +21,8 @@ pub struct LensData {
     pub diff_loading: bool,
     pub diff_count: usize,
     pub asking: bool,
+    pub turns: std::collections::BTreeSet<usize>,
+    pub turns_open: bool,
     pub anchors: Vec<(String, String)>,
     pub threads: Vec<Value>,
     pub draft: Option<(LineRange, TextEdit)>,
@@ -55,6 +57,8 @@ impl Default for LensData {
             diff_loading: false,
             diff_count: 0,
             asking: false,
+            turns: Default::default(),
+            turns_open: false,
             anchors: Vec::new(),
             threads: Vec::new(),
             draft: None,
@@ -84,6 +88,104 @@ fn relative(path: &str, root: Option<&str>) -> String {
     root.and_then(|r| path.strip_prefix(r))
         .map(|p| p.trim_start_matches('/').to_string())
         .unwrap_or_else(|| path.to_string())
+}
+
+pub fn apply_op(text: &str, o: &Value) -> String {
+    let s = |k: &str| o[k].as_str().unwrap_or("");
+    match o["kind"].as_str() {
+        Some("write") => s("content").to_string(),
+        Some("notebook") => text.to_string(),
+        _ => {
+            let (old, new) = (s("old"), s("new"));
+            if old.is_empty() {
+                return if text.is_empty() {
+                    new.to_string()
+                } else {
+                    text.to_string()
+                };
+            }
+            if o["all"].as_bool() == Some(true) {
+                text.replace(old, new)
+            } else {
+                text.replacen(old, new, 1)
+            }
+        }
+    }
+}
+
+/// The prompt an op belongs to: the last one sent before it.
+pub fn op_turn(turns: &[ChangeTurn], o: &Value) -> usize {
+    let ts = o["ts"].as_str().unwrap_or("");
+    let mut idx = turns.first().map_or(0, |t| t.turn);
+    for t in turns {
+        if t.ts.as_str() <= ts {
+            idx = t.turn;
+        } else {
+            break;
+        }
+    }
+    idx
+}
+
+/// The web keys a filtered section as `sel:` plus the turns sorted the way JavaScript sorts
+/// numbers by default, as strings; threads left there must land on the same key here.
+pub fn turns_key(selected: &std::collections::BTreeSet<usize>) -> String {
+    let mut t: Vec<String> = selected.iter().map(usize::to_string).collect();
+    t.sort();
+    format!("sel:{}", t.join(","))
+}
+
+/// Claude's edits restricted to the selected prompts: one section replayed from the original
+/// when the server could rebuild it, else each selected op on its own.
+pub fn filtered_diffs(
+    changes: &[Change],
+    turns: &[ChangeTurn],
+    selected: &std::collections::BTreeSet<usize>,
+    root: Option<&str>,
+) -> (Vec<FileDiff>, Vec<(String, String)>) {
+    let key = turns_key(selected);
+    let (mut out, mut anchors) = (Vec::new(), Vec::new());
+    for c in changes {
+        let path = relative(&c.file, root);
+        let picked: Vec<usize> = c
+            .raw_ops
+            .iter()
+            .enumerate()
+            .filter(|(_, o)| selected.contains(&op_turn(turns, o)))
+            .map(|(j, _)| j)
+            .collect();
+        let (Some(&first), Some(&last)) = (picked.first(), picked.last()) else {
+            continue;
+        };
+        if let Some(orig) = c.original.as_ref() {
+            let mut text = orig.clone();
+            let (mut before, mut after) = (String::new(), String::new());
+            for (j, o) in c.raw_ops.iter().enumerate() {
+                if j == first {
+                    before = text.clone();
+                }
+                text = apply_op(&text, o);
+                if j == last {
+                    after = text.clone();
+                }
+            }
+            out.push(FileDiff::from_texts(path.clone(), &before, &after));
+            anchors.push((c.file.clone(), key.clone()));
+        } else {
+            for j in picked {
+                let o = &c.raw_ops[j];
+                let old = o["old"].as_str().unwrap_or("");
+                let new = o["new"].as_str().or(o["content"].as_str()).unwrap_or("");
+                out.push(FileDiff::from_texts(
+                    format!("{path} · edit {}", j + 1),
+                    old,
+                    new,
+                ));
+                anchors.push((c.file.clone(), format!("{key}:{j}")));
+            }
+        }
+    }
+    (out, anchors)
 }
 
 /// One diff per op, with the `(file, opIndex)` anchor the web lens files review threads under.
@@ -196,10 +298,23 @@ pub fn review_request_prompt(
 }
 
 impl Hooked {
-    pub fn review_key_base(&self) -> &'static str {
+    pub fn review_key_base(&self) -> String {
         match self.lens_data.review_source {
-            ReviewSource::Claude => "full",
-            ReviewSource::Tree => "vcs:wt",
+            ReviewSource::Claude if self.lens_data.turns.is_empty() => "full".into(),
+            ReviewSource::Claude => turns_key(&self.lens_data.turns),
+            ReviewSource::Tree => "vcs:wt".into(),
+        }
+    }
+
+    pub fn toggle_turn(&mut self, turn: Option<usize>) {
+        let t = &mut self.lens_data.turns;
+        match turn {
+            None => t.clear(),
+            Some(n) => {
+                if !t.remove(&n) {
+                    t.insert(n);
+                }
+            }
         }
     }
 
@@ -220,6 +335,14 @@ impl Hooked {
             return;
         }
         let in_key = |op: &str| op == base || op.starts_with(&format!("{base}:"));
+        let filtered = self.lens_data.review_source == ReviewSource::Claude
+            && !self.lens_data.turns.is_empty();
+        let labels: Vec<String> = self
+            .lens_data
+            .turns
+            .iter()
+            .map(|t| format!("P{}", t + 1))
+            .collect();
         let brief = |t: &Value| {
             let side = if t["side"] == "old" { "−L" } else { "+L" };
             let (a, b) = (
@@ -253,10 +376,15 @@ impl Hooked {
             .map(|t| brief(t))
             .collect();
         let scope = match self.lens_data.review_source {
-            ReviewSource::Claude => "your changes",
-            ReviewSource::Tree => "the uncommitted changes in the working tree",
+            ReviewSource::Claude if filtered => format!(
+                "your changes for prompt{} {}",
+                if labels.len() > 1 { "s" } else { "" },
+                labels.join(", ")
+            ),
+            ReviewSource::Claude => "your changes".to_string(),
+            ReviewSource::Tree => "the uncommitted changes in the working tree".to_string(),
         };
-        let prompt = review_request_prompt(&id, scope, &files, &open, &dismissed);
+        let prompt = review_request_prompt(&id, &scope, &files, &open, &dismissed);
         self.lens_data.asking = true;
         spawn(
             move || {
@@ -346,7 +474,9 @@ impl Hooked {
             Lens::Review => {
                 let ld = &self.lens_data;
                 let sig = match ld.review_source {
-                    ReviewSource::Claude => format!("{id}|claude|{}|{activity}", d.changes.len()),
+                    ReviewSource::Claude => {
+                        format!("{id}|claude|{}|{activity}|{:?}", d.changes.len(), ld.turns)
+                    }
                     ReviewSource::Tree => format!("{id}|tree|{activity}"),
                 };
                 if ld.diff_sig.as_deref() == Some(sig.as_str()) || ld.diff_loading {
@@ -354,10 +484,20 @@ impl Hooked {
                 }
                 match ld.review_source {
                     ReviewSource::Claude => {
-                        let (files, anchors) = file_diffs(&d.changes, project.as_deref(), "full");
+                        let (files, anchors) = if ld.turns.is_empty() {
+                            file_diffs(&d.changes, project.as_deref(), "full")
+                        } else {
+                            filtered_diffs(
+                                &d.changes,
+                                &d.change_turns,
+                                &ld.turns,
+                                project.as_deref(),
+                            )
+                        };
                         self.lens_data.diff_count = d.changes.len();
                         self.lens_data.diff.set_files(files);
                         self.lens_data.anchors = anchors;
+                        self.annotate();
                         self.lens_data.diff_sig = Some(sig);
                         self.load_threads();
                         true
@@ -376,6 +516,7 @@ impl Hooked {
                                             file_diffs(&changes, project.as_deref(), "vcs:wt");
                                         s.lens_data.diff.set_files(files);
                                         s.lens_data.anchors = anchors;
+                                        s.annotate();
                                         s.load_threads();
                                     }
                                     Err(e) => s.flash(format!("✗ Working tree: {e}"), true),
@@ -962,6 +1103,41 @@ mod tests {
 #[cfg(test)]
 mod prompt_tests {
     use super::*;
+
+    #[test]
+    fn prompt_filter_replays_from_the_original() {
+        let turns = vec![
+            ChangeTurn {
+                turn: 0,
+                ts: "a".into(),
+                prompt: "one".into(),
+            },
+            ChangeTurn {
+                turn: 1,
+                ts: "c".into(),
+                prompt: "two".into(),
+            },
+        ];
+        let change = Change {
+            file: "/r/x".into(),
+            raw_ops: vec![
+                json!({"kind": "edit", "old": "1", "new": "2", "ts": "b"}),
+                json!({"kind": "edit", "old": "2", "new": "3", "ts": "d"}),
+            ],
+            original: Some("v1\n".replace('v', "")),
+            ..Default::default()
+        };
+        let sel: std::collections::BTreeSet<usize> = [1].into();
+        let (files, anchors) = filtered_diffs(&[change], &turns, &sel, Some("/r"));
+        assert_eq!(anchors, [("/r/x".to_string(), "sel:1".to_string())]);
+        assert_eq!(files[0].additions(), 1);
+        assert_eq!(
+            apply_op("aXa", &json!({"old": "a", "new": "b", "all": true})),
+            "bXb"
+        );
+        let ten: std::collections::BTreeSet<usize> = [2, 10].into();
+        assert_eq!(turns_key(&ten), "sel:10,2");
+    }
 
     #[test]
     fn review_prompt_matches_the_web_brief() {

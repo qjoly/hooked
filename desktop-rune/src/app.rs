@@ -541,6 +541,13 @@ impl Hooked {
                 });
             }
         }
+        if let Some(i) = args.iter().position(|a| a == "--turns") {
+            s.lens_data.turns_open = true;
+            s.lens_data.turns = args
+                .get(i + 1)
+                .map(|v| v.split(',').filter_map(|n| n.parse().ok()).collect())
+                .unwrap_or_default();
+        }
         if args.iter().any(|a| a == "--threads") {
             s.lens_data.threads_open = true;
         }
