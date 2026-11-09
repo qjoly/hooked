@@ -581,19 +581,23 @@ pub fn set_model(
     Ok(None)
 }
 
-pub fn launch(
-    cwd: &str,
-    prompt: &str,
-    model: Option<&str>,
-    effort: Option<&str>,
-    mode: Option<&str>,
-    incognito: bool,
-    worktree: bool,
-    ephemeral: bool,
-) -> Result<String, String> {
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Launch {
+    pub cwd: String,
+    pub prompt: String,
+    pub model: Option<String>,
+    pub effort: Option<String>,
+    pub permission_mode: String,
+    pub incognito: bool,
+    pub worktree: bool,
+    pub ephemeral: bool,
+}
+
+pub fn launch(req: &Launch) -> Result<String, String> {
     let v = post(
         "/api/launch",
-        json!({ "cwd": cwd, "prompt": prompt, "model": model, "effort": effort, "permissionMode": mode, "incognito": incognito, "worktree": worktree, "ephemeral": ephemeral }),
+        serde_json::to_value(req).map_err(|e| e.to_string())?,
     )?;
     v["sessionId"]
         .as_str()

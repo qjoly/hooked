@@ -1177,16 +1177,16 @@ impl Hooked {
         self.sending = true;
         spawn(
             move || {
-                api::launch(
-                    &cwd,
-                    &prompt,
-                    model.as_deref(),
-                    effort.as_deref(),
-                    Some(&mode),
+                api::launch(&api::Launch {
+                    cwd,
+                    prompt,
+                    model,
+                    effort,
+                    permission_mode: mode,
                     incognito,
                     worktree,
                     ephemeral,
-                )
+                })
             },
             |s, r, _| {
                 s.sending = false;
