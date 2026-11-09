@@ -17,7 +17,9 @@ The installed app has its own bundle id (`dev.qjoly.hooked-rune`), so it sits ne
 
 ## What is there
 
-The layout follows the web dashboard; the look is Rune's neutral kit theme.
+The layout follows the web dashboard; the look is hooked's datadog scheme as a rune-kit theme
+(`src/theme.rs`): flat cool surfaces held apart by borders, 3 pt corners, a violet accent, and
+session states coloured by how much they need you.
 
 - **Top bar**: Deck, Sessions, Stats, Digest, Memory, Cron and GitHub, the
   search-launch-command palette (⌘K / ⌘P), 5H / 7D / Fable gauges, notifications, theme,
@@ -58,6 +60,20 @@ The layout follows the web dashboard; the look is Rune's neutral kit theme.
 - Dictation (not planned).
 - Dragging a session onto another to group it: the ⋯ menu's "Move to group…" does it instead.
 - Settings has the main switches; the rest links to the web dashboard.
+
+## Terminal: what is still missing
+
+- Selection: double- and triple-click (word, line), selecting into the scrollback, Shift to
+  select inside mouse-tracking programs (Rune reports no modifiers during a drag), OSC 52
+  clipboard, right- and middle-click.
+- Mouse: only the left button reaches programs; no motion without a button held.
+- Rendering: cursor blink, strikethrough / overline / curly and coloured underlines, clickable
+  links (OSC 8 and plain URLs), images (kitty graphics, sixel), a light palette, exact widths
+  for emoji drawn from fallback fonts, a scrollback indicator, font and size settings, zoom.
+- Behaviour: search in the scrollback, the bell, focus reporting, key releases and repeats for
+  the full kitty keyboard protocol, Cmd+arrow / Cmd+Backspace, dropping a file to type its path,
+  restarting an exited shell, batching redraws under heavy output.
+- hooked: `!!command` output inline in the conversation, terminals in their own window or split.
 
 ## Checking it headless
 

@@ -2,7 +2,7 @@ use rune::{
     Align, AppHandle, AppSpec, Color, Cursor, Cx, DisplayTarget, El, Key, OverlayPlacement,
     ScreenEdge, ScrollSpec, TextEdit, Tx, col, el, row, text,
 };
-use rune_kit::{Kit, Markdown, TextArea};
+use rune_kit::{Markdown, TextArea};
 
 use crate::api::{self, Part, Session};
 use crate::app::HANDLE;
@@ -225,7 +225,7 @@ pub fn show(s: &mut Quick) {
 }
 
 fn view(s: &Quick, cx: &mut Cx<Quick>) -> El {
-    let k = Kit::neutral(cx.system_dark());
+    let k = crate::theme::kit(cx.system_dark());
     let list = col()
         .key("q-list")
         .w(250.0)

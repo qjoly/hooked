@@ -22,17 +22,11 @@ use crate::{fmt, icons};
 pub const SIDEBAR_W: f32 = 300.0;
 
 pub fn kit(s: &Hooked, cx: &Cx<Hooked>) -> Kit {
-    Kit::neutral(s.dark(cx.system_dark()))
+    crate::theme::kit(s.dark(cx.system_dark()))
 }
 
 pub fn state_color(k: &Kit, state: &str) -> Color {
-    match state {
-        "working" => k.c.info.icon,
-        "waiting" => k.c.warning.icon,
-        "attention" => k.c.danger.icon,
-        "background" => k.c.success.icon,
-        _ => k.c.icon_faint,
-    }
+    crate::theme::state_color(k.dark, state)
 }
 
 pub fn dot(k: &Kit, state: &str, size: f32) -> El {

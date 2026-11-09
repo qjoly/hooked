@@ -490,7 +490,7 @@ fn lenses(s: &Hooked, d: &Detail, k: &Kit) -> El {
             .border_sides(
                 [0.0, 0.0, 2.0, 0.0],
                 if on {
-                    k.c.text_base
+                    k.c.text_accent
                 } else {
                     Color::TRANSPARENT
                 },

@@ -8,6 +8,7 @@ mod organize;
 mod pages;
 mod quick;
 mod terminal;
+mod theme;
 mod tray;
 mod view;
 

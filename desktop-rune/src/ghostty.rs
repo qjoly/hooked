@@ -10,14 +10,14 @@ use libghostty_vt::{RenderState, Terminal, mouse, paste};
 use rune::{Color, Key, KeyEvent, PhysicalKeyCode, Span};
 
 pub const FG: RgbColor = RgbColor {
-    r: 0xd4,
-    g: 0xd4,
-    b: 0xd4,
+    r: 0xe9,
+    g: 0xe9,
+    b: 0xf0,
 };
 pub const BG: RgbColor = RgbColor {
-    r: 0x14,
-    g: 0x14,
-    b: 0x16,
+    r: 0x0d,
+    g: 0x0d,
+    b: 0x13,
 };
 const SCROLLBACK: usize = 10_000;
 
