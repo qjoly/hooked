@@ -29,7 +29,7 @@ fn card(s: &Hooked, x: &Session, k: &Kit) -> El {
     let mut c = col()
         .key(format!("card-{}", x.id))
         .role("button")
-        .label(x.display_title())
+        .label(s.title_of(x))
         .w(320.0)
         .h(132.0)
         .padding(14.0)
@@ -52,7 +52,7 @@ fn card(s: &Hooked, x: &Session, k: &Kit) -> El {
                 .center_y()
                 .child(dot(k, &x.state, 8.0))
                 .child(
-                    text(x.display_title())
+                    text(s.title_of(x))
                         .font(k.ty.ui_medium)
                         .color(k.c.text_base)
                         .truncate()

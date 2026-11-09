@@ -87,7 +87,7 @@ fn head(s: &Hooked, d: &Detail, k: &Kit, layer: &mut Vec<El>) -> El {
                 .key("pane-back"),
         )
         .child(
-            text(x.display_title())
+            text(s.title_of(x))
                 .font(k.ty.body_medium)
                 .color(k.c.text_base)
                 .truncate()

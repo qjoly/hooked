@@ -10,7 +10,7 @@ pub fn view(s: &Hooked, p: &SplitPane, k: &Kit) -> rune::El {
     let title = p
         .detail
         .as_ref()
-        .map(|d| d.session.display_title())
+        .map(|d| s.title_of(&d.session))
         .unwrap_or_else(|| "Loading…".into());
     let state = p
         .detail

@@ -55,6 +55,7 @@ pub enum Theme {
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Popup {
+    Sort,
     More,
     Model,
     Effort,
@@ -109,6 +110,13 @@ pub struct Hooked {
     pub hide_old: bool,
     pub group_by_project: bool,
     pub collapsed: HashSet<String>,
+    pub pinned: Vec<String>,
+    pub names: HashMap<String, String>,
+    pub sort_mode: String,
+    pub row_menu: Option<(String, rune::PointerPress)>,
+    pub renaming: Option<(String, TextEdit)>,
+    pub older_open: bool,
+    pub folded_groups: HashSet<String>,
 
     pub detail: Option<Detail>,
     pub detail_gen: Arc<AtomicU64>,
@@ -164,6 +172,12 @@ const STEP: usize = 120;
 impl Hooked {
     pub fn new() -> Hooked {
         let prefs = Prefs::open("dev.qjoly.hooked-rune");
+        let pinned: Vec<String> = prefs.get("pinned").unwrap_or_default();
+        let names: HashMap<String, String> = prefs.get("names").unwrap_or_default();
+        let sort_mode: String = prefs
+            .get("sortMode")
+            .unwrap_or_else(|| "dynamic".to_string());
+        let folded_groups: HashSet<String> = prefs.get("foldedGroups").unwrap_or_default();
         let theme = prefs.get("theme").unwrap_or(Theme::System);
         let notify = prefs.get("notify").unwrap_or(true);
         let incognito = prefs.get("incognito").unwrap_or(false);
@@ -196,6 +210,13 @@ impl Hooked {
             hide_old,
             group_by_project,
             collapsed: HashSet::new(),
+            pinned,
+            names,
+            sort_mode,
+            row_menu: None,
+            renaming: None,
+            older_open: false,
+            folded_groups,
             detail: None,
             detail_gen: Arc::new(AtomicU64::new(0)),
             detail_loading: false,
@@ -337,6 +358,14 @@ impl Hooked {
                 Some("group") => s.open_group_picker(id),
                 _ => {}
             }
+        }
+        if args.iter().any(|a| a == "--row-menu")
+            && let Some(id) = s.selected.clone()
+        {
+            s.row_menu = Some((id, rune::PointerPress { x: 220.0, y: 260.0 }));
+        }
+        if args.iter().any(|a| a == "--sort-menu") {
+            s.popup = Some(Popup::Sort);
         }
         if args.iter().any(|a| a == "--term") {
             s.preload_terms();
@@ -1180,6 +1209,75 @@ impl Hooked {
 
     pub fn menu_shows(&self, key: &str) -> bool {
         self.setting("statusBar")[key].as_bool().unwrap_or(true)
+    }
+
+    /// The name a session shows under: the one given here, else its own title.
+    pub fn title_of(&self, x: &Session) -> String {
+        self.names
+            .get(&x.id)
+            .cloned()
+            .unwrap_or_else(|| x.display_title())
+    }
+
+    pub fn is_pinned(&self, id: &str) -> bool {
+        self.pinned.iter().any(|p| p == id)
+    }
+
+    pub fn toggle_pin(&mut self, id: &str) {
+        match self.pinned.iter().position(|p| p == id) {
+            Some(i) => {
+                self.pinned.remove(i);
+            }
+            None => self.pinned.push(id.to_string()),
+        }
+        let v = self.pinned.clone();
+        self.save_pref("pinned", &v);
+    }
+
+    pub fn start_rename(&mut self, id: &str) {
+        let current = self
+            .session(id)
+            .map(|x| self.title_of(x))
+            .unwrap_or_default();
+        let mut edit = TextEdit::new(current);
+        edit.focused = true;
+        self.row_menu = None;
+        self.renaming = Some((id.to_string(), edit));
+    }
+
+    pub fn commit_rename(&mut self) {
+        let Some((id, edit)) = self.renaming.take() else {
+            return;
+        };
+        let name = edit.text.trim();
+        if name.is_empty() || self.session(&id).is_some_and(|x| x.display_title() == name) {
+            self.names.remove(&id);
+        } else {
+            self.names.insert(id, name.chars().take(120).collect());
+        }
+        let v = self.names.clone();
+        self.save_pref("names", &v);
+    }
+
+    pub fn toggle_group_fold(&mut self, id: &str) {
+        if !self.folded_groups.remove(id) {
+            self.folded_groups.insert(id.to_string());
+        }
+        let v = self.folded_groups.clone();
+        self.save_pref("foldedGroups", &v);
+    }
+
+    /// The sidebar's order: pinned, then (dynamic) awaiting you and most recent, or A→Z.
+    pub fn sorted<'a>(&self, mut list: Vec<&'a Session>) -> Vec<&'a Session> {
+        let recent = |x: &Session| std::cmp::Reverse(x.last_activity.clone().unwrap_or_default());
+        match self.sort_mode.as_str() {
+            "alpha" => {
+                list.sort_by_key(|x| (!self.is_pinned(&x.id), self.title_of(x).to_lowercase()))
+            }
+            "alpha-project" => list.sort_by_key(|x| (!self.is_pinned(&x.id), recent(x))),
+            _ => list.sort_by_key(|x| (!self.is_pinned(&x.id), !x.needs_you(), recent(x))),
+        }
+        list
     }
 
     pub fn toggle_card(&mut self, card: &'static str) {

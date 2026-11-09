@@ -44,7 +44,7 @@ pub fn hits(s: &Hooked) -> Vec<(Hit, String, String)> {
     for x in s.sessions.iter().filter(|x| s.visible(x)) {
         let hay = format!(
             "{} {} {}",
-            x.display_title(),
+            s.title_of(x),
             x.project_label(),
             x.last_prompt.clone().unwrap_or_default()
         )
@@ -52,7 +52,7 @@ pub fn hits(s: &Hooked) -> Vec<(Hit, String, String)> {
         if q.is_empty() || q.split_whitespace().all(|w| hay.contains(w)) {
             out.push((
                 Hit::Session(x.id.clone()),
-                x.display_title(),
+                s.title_of(x),
                 format!(
                     "{} · {}",
                     x.project_label(),

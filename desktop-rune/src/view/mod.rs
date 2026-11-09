@@ -14,10 +14,12 @@ use std::collections::BTreeMap;
 
 use rune::{Color, Cursor, Cx, El, Icon, Phase, col, el, icon, row, text};
 use rune_kit::shell::{RowStatus, Sidebar, SidebarRow, SidebarSection};
-use rune_kit::{Button, ButtonVariant, ControlSize, IconButton, IconButtonVariant, Kit};
+use rune_kit::{
+    Button, ButtonVariant, ControlSize, IconButton, IconButtonVariant, Kit, Menu, MenuItem,
+};
 
 use crate::api::Session;
-use crate::app::{Hooked, Page, Theme};
+use crate::app::{Hooked, Page, Popup, Theme};
 use crate::{fmt, icons};
 
 pub const SIDEBAR_W: f32 = 300.0;
@@ -70,7 +72,7 @@ pub fn view(s: &Hooked, cx: &mut Cx<Hooked>) -> El {
     };
     let mut body = row().key("body").w_full().grow(1.0).min_h(0.0);
     body = if s.sidebar_open {
-        body.child(sidebar(s, &k))
+        body.child(sidebar(s, &k, &mut layer))
     } else {
         body.child(rail(s, &k))
     };
@@ -487,7 +489,9 @@ fn status(k: &Kit, s: &Session) -> Option<RowStatus> {
 fn unit_rows(s: &Hooked, u: crate::organize::Unit<'_>, k: &Kit) -> Vec<El> {
     let n = u.children.len();
     let mut out = vec![session_row(s, u.mother, k, 0, (n > 0).then_some(n + 1))];
-    out.extend(u.children.iter().map(|c| session_row(s, c, k, 1, None)));
+    if !s.folded_groups.contains(&u.mother.id) {
+        out.extend(u.children.iter().map(|c| session_row(s, c, k, 1, None)));
+    }
     out
 }
 
@@ -520,10 +524,15 @@ fn session_row(s: &Hooked, x: &Session, k: &Kit, depth: u8, group: Option<usize>
     if !s.incognito && s.meta.get(&x.id).is_some_and(|m| m.incognito) {
         subtitle.push_str("  · incognito");
     }
-    let label = if group.is_some() {
+    let label = if group.is_some()
+        && s.meta
+            .get(&x.id)
+            .and_then(|m| m.group_name.as_ref())
+            .is_some()
+    {
         s.group_label(x)
     } else {
-        x.display_title()
+        s.title_of(x)
     };
     let mut r = SidebarRow::new(label)
         .height(44.0)
@@ -538,21 +547,44 @@ fn session_row(s: &Hooked, x: &Session, k: &Kit, depth: u8, group: Option<usize>
         .on_close({
             let id = id.clone();
             move |s: &mut Hooked, _| s.toggle_archive(&id)
+        })
+        .on_double_click({
+            let id = id.clone();
+            move |s: &mut Hooked, _| s.start_rename(&id)
         });
+    if s.is_pinned(&x.id) {
+        r = r.icon(&icons::PIN);
+    }
     if let Some(n) = group {
-        r = r.badge(n.to_string());
+        r = r.badge(if s.folded_groups.contains(&x.id) {
+            format!("+{}", n - 1)
+        } else {
+            n.to_string()
+        });
+    }
+    if let Some((_, edit)) = s.renaming.as_ref().filter(|(rid, _)| *rid == x.id) {
+        r = r.renaming(
+            edit,
+            |s: &mut Hooked| &mut s.renaming.as_mut().expect("renaming").1,
+            |s: &mut Hooked, _| s.commit_rename(),
+            |s: &mut Hooked, _| s.renaming = None,
+        );
     }
     if !archived && let Some(st) = status(k, x) {
         r = r.status(st);
     }
-    r.build(k).key(format!("row-{}", x.id)).help(if archived {
-        "Click × to unarchive"
-    } else {
-        "Hover the dot: × archives"
-    })
+    let menu_id = id.clone();
+    r.build(k)
+        .key(format!("row-{}", x.id))
+        .help(if archived {
+            "Click × to unarchive · right-click for more"
+        } else {
+            "× archives · double-click renames · right-click for more"
+        })
+        .on_secondary_press(move |s: &mut Hooked, p, _| s.row_menu = Some((menu_id.clone(), p)))
 }
 
-fn sidebar(s: &Hooked, k: &Kit) -> El {
+fn sidebar(s: &Hooked, k: &Kit, layer: &mut Vec<El>) -> El {
     let (active, archived): (Vec<&Session>, Vec<&Session>) = s
         .sessions
         .iter()
@@ -577,6 +609,23 @@ fn sidebar(s: &Hooked, k: &Kit) -> El {
                 .all(|t| s.session_tags(&x.id).contains(t))
         });
     }
+    let mut shown = s.sorted(shown);
+    const WINDOW: usize = 40;
+    let total = shown.len();
+    if !s.older_open && total > WINDOW {
+        let keep = |x: &&Session| {
+            s.is_pinned(&x.id)
+                || x.needs_you()
+                || x.state == "working"
+                || s.selected.as_deref() == Some(x.id.as_str())
+        };
+        let mut kept = 0;
+        shown.retain(|x| {
+            kept += 1;
+            kept <= WINDOW || keep(x)
+        });
+    }
+    let hidden_older = total - shown.len();
     let tab = |key: &'static str, label: &'static str, n: usize, on: bool| {
         k.interactive(
             row()
@@ -653,6 +702,43 @@ fn sidebar(s: &Hooked, k: &Kit) -> El {
                 .build(k)
                 .key("ssb-collapse"),
         );
+    let sort_open = s.popup == Some(Popup::Sort);
+    let sort_btn = small_icon_button(&icons::SORT, "Sort order", s.sort_mode != "dynamic")
+        .on_press(|s: &mut Hooked| {
+            s.popup = if s.popup == Some(Popup::Sort) {
+                None
+            } else {
+                Some(Popup::Sort)
+            }
+        })
+        .build(k)
+        .key("ssb-sort");
+    let mut sort_menu = Menu::new("ssb-sort-menu")
+        .trigger(sort_btn)
+        .open(sort_open)
+        .min_width(240.0)
+        .on_close(|s: &mut Hooked| s.popup = None);
+    for (key, label, hint) in [
+        ("dynamic", "Dynamic", "Awaiting you first, then most recent"),
+        ("alpha", "Alphabetical", "Projects and sessions A→Z"),
+        (
+            "alpha-project",
+            "Alphabetical (projects only)",
+            "Project headers A→Z, sessions by activity",
+        ),
+    ] {
+        sort_menu = sort_menu.item(
+            MenuItem::new(label)
+                .description(hint)
+                .checked(s.sort_mode == key)
+                .on_select(move |s: &mut Hooked| {
+                    s.sort_mode = key.to_string();
+                    s.popup = None;
+                    s.save_pref("sortMode", &key);
+                }),
+        );
+    }
+    let head = head.child(sort_menu.build(k, layer));
     let mut sb = Sidebar::new()
         .label("Sessions")
         .inset(8.0)
@@ -726,6 +812,9 @@ fn sidebar(s: &Hooked, k: &Kit) -> El {
             }
             groups.entry(g).or_default().push(x);
         }
+        if s.sort_mode != "dynamic" {
+            order.sort_by_key(|g| g.to_lowercase());
+        }
         for g in order {
             let rows = &groups[&g];
             let collapsed = s.collapsed.contains(&g);
@@ -760,6 +849,30 @@ fn sidebar(s: &Hooked, k: &Kit) -> El {
             }
         }
     }
+    if hidden_older > 0 || s.older_open && total > WINDOW {
+        let label = if s.older_open {
+            "Show less".to_string()
+        } else {
+            format!(
+                "{hidden_older} older session{}",
+                if hidden_older == 1 { "" } else { "s" }
+            )
+        };
+        sb = sb.child(
+            Button::new(label)
+                .icon(if s.older_open {
+                    &icons::CHEVRON_DOWN
+                } else {
+                    &icons::PLUS
+                })
+                .variant(ButtonVariant::GhostMuted)
+                .control_size(ControlSize::Small)
+                .on_press(|s: &mut Hooked| s.older_open = !s.older_open)
+                .build(k)
+                .key("ssb-older"),
+        );
+    }
+    let menu_anchor = row_menu(s, k, layer);
     let handle = el()
         .key("ssb-resize")
         .w(6.0)
@@ -787,9 +900,108 @@ fn sidebar(s: &Hooked, k: &Kit) -> El {
                 .grow(1.0)
                 .h_full()
                 .min_w(0.0)
-                .child(sb.build(k)),
+                .child(sb.build(k))
+                .child(menu_anchor),
         )
         .child(handle)
+}
+
+/// The right-click menu of a sidebar row, at the click.
+fn row_menu(s: &Hooked, k: &Kit, layer: &mut Vec<El>) -> El {
+    let Some((id, point)) = s.row_menu.clone() else {
+        return el();
+    };
+    let Some(x) = s.session(&id) else { return el() };
+    let grouped = s.group_of(&id).is_some();
+    let leads = !grouped && s.group_members(&id).len() > 1;
+    let archived = s.meta.get(&id).is_some_and(|m| m.archived);
+    let incognito = s.meta.get(&id).is_some_and(|m| m.incognito);
+    let pinned = s.is_pinned(&id);
+    let i = |f: fn(&mut Hooked, &str)| {
+        let id = id.clone();
+        move |s: &mut Hooked| {
+            s.row_menu = None;
+            f(s, &id)
+        }
+    };
+    let mut m = rune_kit::context_menu("ssb-row-menu", el().key("ssb-row-anchor"), Some(point))
+        .min_width(220.0)
+        .on_close(|s: &mut Hooked| s.row_menu = None)
+        .item(MenuItem::new("Open").on_select(i(|s, id| s.open_session(id))))
+        .item(
+            MenuItem::new("Open in split")
+                .icon(&icons::SPLIT)
+                .on_select(i(|s, id| s.open_split(id.to_string()))),
+        )
+        .separator()
+        .item(MenuItem::new("Rename…").on_select(i(|s, id| s.start_rename(id))))
+        .item(
+            MenuItem::new(if pinned { "Unpin" } else { "Pin to the top" })
+                .icon(&icons::PIN)
+                .checked(pinned)
+                .on_select(i(|s, id| s.toggle_pin(id))),
+        )
+        .item(
+            MenuItem::new("Edit tags…")
+                .icon(&icons::TAG)
+                .on_select(i(|s, id| s.open_tags(id.to_string()))),
+        )
+        .item(
+            MenuItem::new("Move to group…")
+                .on_select(i(|s, id| s.open_group_picker(id.to_string()))),
+        );
+    if grouped {
+        m = m.item(MenuItem::new("Leave the group").on_select(i(|s, id| {
+            s.group_op("leave", id.to_string(), serde_json::json!({}))
+        })));
+    }
+    if leads {
+        let folded = s.folded_groups.contains(&id);
+        m = m
+            .item(
+                MenuItem::new(if folded {
+                    "Unfold the group"
+                } else {
+                    "Fold the group"
+                })
+                .on_select(i(|s, id| s.toggle_group_fold(id))),
+            )
+            .item(
+                MenuItem::new("Rename the group…")
+                    .on_select(i(|s, id| s.open_rename_group(id.to_string()))),
+            );
+    }
+    m = m
+        .item(
+            MenuItem::new(if incognito {
+                "Remove from incognito"
+            } else {
+                "Mark incognito"
+            })
+            .icon(if incognito {
+                &icons::EYE
+            } else {
+                &icons::EYE_OFF
+            })
+            .on_select(i(|s, id| s.toggle_incognito(id))),
+        )
+        .separator()
+        .item(
+            MenuItem::new(if archived {
+                "Unarchive"
+            } else if x.live {
+                "Stop and archive"
+            } else {
+                "Archive"
+            })
+            .icon(if archived {
+                &icons::UNARCHIVE
+            } else {
+                &icons::ARCHIVE
+            })
+            .on_select(i(|s, id| s.toggle_archive(id))),
+        );
+    m.build(k, layer)
 }
 
 fn rail(s: &Hooked, k: &Kit) -> El {

@@ -345,7 +345,7 @@ fn sub_sessions(s: &Hooked, d: &Detail, k: &Kit) -> El {
             .label
             .clone()
             .filter(|l| !l.is_empty())
-            .or_else(|| known.map(|x| x.display_title()))
+            .or_else(|| known.map(|x| s.title_of(x)))
             .unwrap_or_else(|| sub.id.clone());
         let state = known.map_or("idle", |x| x.state.as_str());
         c = c.child(
