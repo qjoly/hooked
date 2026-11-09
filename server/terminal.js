@@ -158,6 +158,15 @@ function shellArgs(shell) {
   return [];
 }
 
+// A service started by launchd or systemd inherits no locale, and a shell without one treats every
+// byte above 0x7f as a meta character: typing « é » at the prompt echoes `<0303><0251>`. A UTF-8
+// default fixes that; a locale the user did set is left alone.
+function ptyEnv(env) {
+  const out = { ...env, TERM: 'xterm-256color', COLORTERM: 'truecolor' };
+  if (!env.LC_ALL && !env.LC_CTYPE && !env.LANG) out.LANG = 'en_US.UTF-8';
+  return out;
+}
+
 // ── Cycle de vie ─────────────────────────────────────────────────────────────────────────────────
 
 // Ouvre un shell de LOGIN interactif dans `cwd`. `-l -i` pour que le profil de l'utilisateur soit
@@ -187,7 +196,7 @@ function openTerminal({ cwd, sessionId, cols, rows, inline } = {}, cb) {
         cols: c, rows: r, cwd: dir,
         // loginEnv() contient déjà process.env, filtré de PORT / HOST (cf. agent.js) : le
         // réétaler ici les réintroduirait dans chaque terminal.
-        env: { ...env, TERM: 'xterm-256color' },
+        env: ptyEnv(env),
       });
     } catch (e) {
       return cb(new Error('failed to open a terminal: ' + ((e && e.message) || e)));
@@ -266,6 +275,6 @@ function closeTerminalsFor(sessionId) {
 export {
   openTerminal, writeTerminal, resizeTerminal, killTerminal, closeTerminalsFor,
   subscribeTerminal, listTerminals, getTerminal, terminalScrollback,
-  defaultShell, shellArgs,
+  defaultShell, shellArgs, ptyEnv,
   MAX_TERMINALS,
 };
