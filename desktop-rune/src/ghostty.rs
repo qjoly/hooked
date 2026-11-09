@@ -25,7 +25,39 @@ const SCROLLBACK: usize = 10_000;
 pub struct Line {
     pub text: String,
     pub spans: Vec<Span>,
+    /// Byte offset in `text` where each terminal column starts (a wide glyph's tail column
+    /// repeats its head's offset); columns past the trimmed end fall beyond `text.len()`.
+    pub cols: Vec<usize>,
     pub version: u64,
+}
+
+impl Line {
+    /// Byte range of terminal columns `a..b` in `text`, padded past the end with spaces.
+    pub fn byte_range(&self, a: u16, b: u16) -> (usize, usize) {
+        let at = |c: u16| -> usize {
+            let c = c as usize;
+            match self.cols.get(c) {
+                Some(&o) if o <= self.text.len() => o,
+                _ => {
+                    self.text.len()
+                        + c.saturating_sub(
+                            self.cols.iter().filter(|&&o| o < self.text.len()).count(),
+                        )
+                }
+            }
+        };
+        (at(a), at(b).max(at(a)))
+    }
+
+    pub fn slice(&self, a: u16, b: u16) -> String {
+        let (x, y) = self.byte_range(a, b);
+        let end = y.min(self.text.len());
+        if x >= end {
+            String::new()
+        } else {
+            self.text[x..end].to_string()
+        }
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -187,6 +219,7 @@ impl Vt {
             }
             let mut text = String::new();
             let mut spans: Vec<Span> = Vec::new();
+            let mut cols: Vec<usize> = Vec::new();
             if let Ok(mut cells) = self.cell_iter.update(row) {
                 let mut graphemes = String::new();
                 while let Some(cell) = cells.next() {
@@ -195,8 +228,10 @@ impl Vt {
                         .and_then(|r| r.wide())
                         .is_ok_and(|w| w == CellWide::SpacerTail)
                     {
+                        cols.push(cols.last().copied().unwrap_or(text.len()));
                         continue;
                     }
+                    cols.push(text.len());
                     graphemes.clear();
                     let _ = cell.graphemes_utf8(&mut graphemes);
                     let start = text.len();
@@ -261,6 +296,7 @@ impl Vt {
             self.lines[y] = Line {
                 text,
                 spans,
+                cols,
                 version: self.version,
             };
             y += 1;
@@ -328,6 +364,46 @@ impl Vt {
             Ok(n) => buf[..n].to_vec(),
             Err(_) => text.as_bytes().to_vec(),
         }
+    }
+
+    /// A button press, release or drag in the form the program asked for, else None.
+    pub fn encode_mouse(
+        &self,
+        action: mouse::Action,
+        button: Option<mouse::Button>,
+        x: f32,
+        y: f32,
+        shift: bool,
+    ) -> Option<Vec<u8>> {
+        if !self.mouse_tracking() {
+            return None;
+        }
+        let (cols, rows) = self.size();
+        let (cw, ch) = (self.cell.0.max(1.0), self.cell.1.max(1.0));
+        let mut enc = mouse::Encoder::new().ok()?;
+        let _ = enc
+            .set_options_from_terminal(&self.terminal)
+            .set_any_button_pressed(button.is_some() && action == mouse::Action::Motion)
+            .set_size(mouse::EncoderSize {
+                screen_width: (f32::from(cols) * cw) as u32,
+                screen_height: (f32::from(rows) * ch) as u32,
+                cell_width: cw as u32,
+                cell_height: ch as u32,
+                padding_top: 0,
+                padding_bottom: 0,
+                padding_left: 0,
+                padding_right: 0,
+            });
+        let mut ev = mouse::Event::new().ok()?;
+        ev.set_action(action)
+            .set_button(button)
+            .set_position(mouse::Position { x, y });
+        if shift {
+            ev.set_mods(Mods::SHIFT);
+        }
+        let mut out = Vec::new();
+        enc.encode_to_vec(&ev, &mut out).ok()?;
+        (!out.is_empty()).then_some(out)
     }
 
     /// A wheel notch as the program asked to receive it (mouse tracking on), else None.
@@ -570,6 +646,43 @@ mod tests {
         let mut vt = Vt::new(20, 3).expect("terminal");
         let reply = vt.write(b"\x1b[6n");
         assert_eq!(reply, b"\x1b[1;1R");
+    }
+
+    #[test]
+    fn columns_map_to_bytes_across_wide_glyphs() {
+        let mut vt = Vt::new(20, 2).expect("terminal");
+        vt.write("a日b".as_bytes());
+        let l = &vt.lines[0];
+        assert_eq!(l.slice(0, 1), "a");
+        assert_eq!(l.slice(1, 3), "日");
+        assert_eq!(l.slice(3, 4), "b");
+        assert_eq!(l.byte_range(6, 7), (l.text.len() + 2, l.text.len() + 3));
+    }
+
+    #[test]
+    fn clicks_reach_programs_that_track_the_mouse() {
+        let mut vt = Vt::new(20, 3).expect("terminal");
+        assert!(
+            vt.encode_mouse(
+                mouse::Action::Press,
+                Some(mouse::Button::Left),
+                1.0,
+                1.0,
+                false
+            )
+            .is_none()
+        );
+        vt.write(b"\x1b[?1000h\x1b[?1006h");
+        let b = vt
+            .encode_mouse(
+                mouse::Action::Press,
+                Some(mouse::Button::Left),
+                1.0,
+                1.0,
+                false,
+            )
+            .expect("press");
+        assert_eq!(b, b"\x1b[<0;1;1M");
     }
 
     #[test]

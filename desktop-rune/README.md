@@ -39,7 +39,8 @@ The layout follows the web dashboard; the look is Rune's neutral kit theme.
   - **Terminal (2)**: the session's shells over hooked's PTYs, one tab each, sized to the panel,
     emulated by Ghostty's VT core: its colours and styles, cursor shapes, window title, query
     replies, key encoding (application cursor keys, kitty keyboard protocol), bracketed paste,
-    scrollback on the wheel, and wheel events for programs that track the mouse.
+    scrollback on the wheel, mouse clicks, drags and wheel for programs that track the mouse,
+    drag to select and ⌘C to copy, and input-method composition (dead keys, CJK, emoji picker).
   - **Split (⌘⇧S)**: the most recent other session beside the current one, with its own reply box.
 - **Context panel**: tasks, changes, agents, sub-sessions.
 - **Pages**: Deck (awaiting you / working / recent), New session, Stats, Digest (generate and

@@ -1,35 +1,126 @@
-use rune::{Color, Cursor, El, col, el, memo, rich, row, text};
+use rune::{Color, Cursor, El, Span, col, el, memo, rich, row, text};
 use rune_kit::{IconButton, IconButtonVariant, Kit};
 
 use super::glyph;
 use crate::app::Hooked;
-use crate::ghostty::CursorShape;
+use crate::ghostty::{CursorShape, Line};
 use crate::icons;
 use crate::terminal::Term;
 
-fn screen(k: &Kit, t: &Term) -> El {
+/// The line's text and spans with `marks` (column range, ink, fill) painted over them; marks
+/// win over the cells' own colours, and pad the line with spaces when they reach past its end.
+fn painted(line: &Line, marks: &[(u16, u16, Option<Color>, Color)]) -> (String, Vec<Span>) {
+    let mut text = line.text.clone();
+    let mut spans = line.spans.clone();
+    for &(c0, c1, ink, fill) in marks {
+        let (a, b) = line.byte_range(c0, c1);
+        if text.len() < b {
+            text.push_str(&" ".repeat(b - text.len()));
+        }
+        let (a32, b32) = (a as u32, b as u32);
+        let mut kept = Vec::with_capacity(spans.len() + 2);
+        for sp in spans {
+            if sp.end <= a32 || sp.start >= b32 {
+                kept.push(sp);
+                continue;
+            }
+            if sp.start < a32 {
+                let mut left = sp.clone();
+                left.end = a32;
+                kept.push(left);
+            }
+            if sp.end > b32 {
+                let mut right = sp.clone();
+                right.start = b32;
+                kept.push(right);
+            }
+        }
+        let mut m = Span::new(a, b);
+        if let Some(c) = ink {
+            m = m.color(c);
+        }
+        m.bg = Some(fill);
+        kept.push(m);
+        kept.sort_by_key(|s| s.start);
+        spans = kept;
+    }
+    (text, spans)
+}
+
+fn screen(s: &Hooked, k: &Kit, t: &Term) -> El {
     let vt = &t.vt;
     let (cw, ch) = vt.cell;
     let fg = crate::ghostty::color(crate::ghostty::FG);
+    let cols = vt.size().0;
+    let cursor = vt.cursor.filter(|_| !t.exited);
+    let selection = k.selection();
     let mut lines = col().key(format!("term-lines-{}", t.id)).w_full().gap(0.0);
     for (i, line) in vt.lines.iter().enumerate() {
-        let (text, spans) = (line.text.clone(), line.spans.clone());
+        let row = i as u16;
+        let mut marks: Vec<(u16, u16, Option<Color>, Color)> = Vec::new();
+        if let Some((a, b)) = s.term.sel.and_then(|sel| sel.row_range(row, cols)) {
+            marks.push((a, b, None, selection));
+        }
+        let cur = cursor.filter(|c| c.y == row && s.term.preedit.is_empty());
+        if let Some(c) = cur {
+            match c.shape {
+                CursorShape::Block => marks.push((c.x, c.x + 1, Some(vt.background), c.color)),
+                _ => marks.push((c.x, c.x + 1, None, c.color.alpha(0.35))),
+            }
+        }
+        let version = (
+            line.version,
+            s.term.sel.and_then(|sel| sel.row_range(row, cols)),
+            cur.map(|c| c.x),
+            k.dark,
+        );
         let mono = k.ty.mono;
-        lines = lines.child(memo(format!("tl-{}-{i}", t.id), line.version, move || {
-            rich(text, spans).font(mono).color(fg).single_line().h(ch)
+        let built = if marks.is_empty() {
+            (line.text.clone(), line.spans.clone())
+        } else {
+            painted(line, &marks)
+        };
+        lines = lines.child(memo(format!("tl-{}-{i}", t.id), version, move || {
+            rich(built.0, built.1)
+                .font(mono)
+                .color(fg)
+                .single_line()
+                .h(ch)
         }));
     }
-    if let Some(c) = vt.cursor.filter(|_| !t.exited) {
+    if let Some(c) = cursor {
         let (x, y) = (f32::from(c.x) * cw, f32::from(c.y) * ch);
-        let mark = match c.shape {
-            CursorShape::Block => el().size(cw, ch).fill(c.color.alpha(0.55)),
-            CursorShape::Hollow => el().size(cw, ch).border(1.0, c.color),
-            CursorShape::Bar => el().size(2.0, ch).fill(c.color),
-            CursorShape::Underline => el().size(cw, 2.0).fill(c.color).mt(ch - 2.0),
-        };
-        lines = lines.child(el().key("term-cursor").absolute(x, y).child(mark));
+        let mut caret = row().key("term-caret").absolute(x, y).h(ch).ime_cursor();
+        if !s.term.preedit.is_empty() {
+            caret = caret.fill(vt.background).child(
+                rich(
+                    s.term.preedit.clone(),
+                    vec![Span::new(0, s.term.preedit.len()).color(fg)],
+                )
+                .font(k.ty.mono)
+                .single_line(),
+            );
+            caret = caret.border_sides([0.0, 0.0, 1.0, 0.0], fg);
+        } else {
+            caret = caret.w(1.0);
+        }
+        lines = lines.child(caret);
     }
-    lines
+    lines.child(
+        text("MMMMMMMMMM")
+            .key("term-measure")
+            .font(k.ty.mono)
+            .single_line()
+            .absolute(0.0, 0.0)
+            .opacity(0.0)
+            .on_layout(|s: &mut Hooked, r: [f32; 4]| {
+                let cw = (r[2] / 10.0).max(1.0);
+                if (s.term.cell.0 - cw).abs() > 0.01 {
+                    s.term.cell = (cw, 18.0);
+                    s.term.size = None;
+                }
+            }),
+    )
 }
 
 pub fn panel(s: &Hooked, k: &Kit) -> El {
@@ -170,7 +261,7 @@ pub fn panel(s: &Hooked, k: &Kit) -> El {
                 .key("term-hide"),
         );
     let body = match p.terms.get(p.active) {
-        Some(t) => screen(k, t),
+        Some(t) => screen(s, k, t),
         None => el(),
     };
     let term = col()
@@ -188,18 +279,31 @@ pub fn panel(s: &Hooked, k: &Kit) -> El {
         )
         .cursor(Cursor::Text)
         .on_key(|s: &mut Hooked, ev: &rune::KeyEvent, tx: &mut rune::Tx| {
+            if ev.is_command('c') {
+                if let Some(text) = s.selection_text() {
+                    tx.copy(text);
+                    s.term.sel = None;
+                    return true;
+                }
+                return false;
+            }
             if ev.mods.cmd {
                 return false;
             }
             s.term_key(ev, tx.physical_key())
         })
+        .on_drag(|s: &mut Hooked, d: &mut rune::Drag, _| s.term_drag(d, false))
         .on_wheel(|s: &mut Hooked, e: rune::WheelEvent, _| {
             s.term_wheel(e.dy, e.x, e.y);
             true
         })
-        .on_layout({
-            let cell = rune::text::measure("M", &[], k.ty.mono, None);
-            move |s: &mut Hooked, r: [f32; 4]| s.fit_terms(r[2], r[3], (cell.0.max(1.0), 18.0))
+        .on_layout(|s: &mut Hooked, r: [f32; 4]| {
+            let cell = if s.term.cell.0 > 0.0 {
+                s.term.cell
+            } else {
+                (7.2, 18.0)
+            };
+            s.fit_terms(r[2], r[3], cell)
         })
         .on_paste_content(|s: &mut Hooked, c: &rune::ClipboardContent, _| {
             s.term_paste(c.text());

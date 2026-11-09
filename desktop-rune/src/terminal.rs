@@ -25,8 +25,41 @@ impl Drop for Term {
     }
 }
 
+pub const PAD: f32 = 8.0;
+
+/// A selection in viewport cells, from where the drag started to where it is.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
+pub struct Sel {
+    pub anchor: (u16, u16),
+    pub head: (u16, u16),
+}
+
+impl Sel {
+    fn ordered(&self) -> ((u16, u16), (u16, u16)) {
+        let key = |p: (u16, u16)| (p.1, p.0);
+        if key(self.anchor) <= key(self.head) {
+            (self.anchor, self.head)
+        } else {
+            (self.head, self.anchor)
+        }
+    }
+
+    /// The columns `a..b` of `row` the selection covers, as a reading-order range.
+    pub fn row_range(&self, row: u16, cols: u16) -> Option<(u16, u16)> {
+        let ((c0, r0), (c1, r1)) = self.ordered();
+        if row < r0 || row > r1 {
+            return None;
+        }
+        let a = if row == r0 { c0 } else { 0 };
+        let b = if row == r1 { c1 + 1 } else { cols };
+        (b > a).then_some((a, b))
+    }
+}
+
 #[derive(Default)]
 pub struct TermPanel {
+    pub sel: Option<Sel>,
+    pub preedit: String,
     pub size: Option<(u16, u16)>,
     pub cell: (f32, f32),
     pub open: bool,
@@ -322,6 +355,98 @@ impl Hooked {
         post_input(t.id.clone(), &bytes);
     }
 
+    fn cell_at(&self, x: f32, y: f32) -> (u16, u16) {
+        let (cw, ch) = self.term_cell();
+        let (cols, rows) = self
+            .term
+            .terms
+            .get(self.term.active)
+            .map_or((COLS, ROWS), |t| t.vt.size());
+        let col = ((x - PAD) / cw)
+            .floor()
+            .clamp(0.0, f32::from(cols.saturating_sub(1))) as u16;
+        let row = ((y - PAD) / ch)
+            .floor()
+            .clamp(0.0, f32::from(rows.saturating_sub(1))) as u16;
+        (col, row)
+    }
+
+    /// A press, drag and release on the screen: forwarded to a program that tracks the mouse
+    /// (Shift bypasses it, as in Ghostty), otherwise a text selection.
+    pub fn term_drag(&mut self, d: &rune::Drag, shift: bool) {
+        use libghostty_vt::mouse::{Action, Button};
+        let cell = self.cell_at(d.x, d.y);
+        let Some(t) = self.term.terms.get(self.term.active) else {
+            return;
+        };
+        if !shift && t.vt.mouse_tracking() && !t.exited {
+            let (action, button) = match d.phase {
+                rune::Phase::Down => (Action::Press, Some(Button::Left)),
+                rune::Phase::Move => (Action::Motion, Some(Button::Left)),
+                rune::Phase::Up => (Action::Release, Some(Button::Left)),
+            };
+            if let Some(bytes) =
+                t.vt.encode_mouse(action, button, d.x - PAD, d.y - PAD, false)
+            {
+                post_input(t.id.clone(), &bytes);
+            }
+            self.term.sel = None;
+            return;
+        }
+        match d.phase {
+            rune::Phase::Down => {
+                self.term.sel = Some(Sel {
+                    anchor: cell,
+                    head: cell,
+                })
+            }
+            rune::Phase::Move => {
+                if let Some(sel) = self.term.sel.as_mut() {
+                    sel.head = cell;
+                }
+            }
+            rune::Phase::Up => {
+                if self.term.sel.is_some_and(|s| s.anchor == s.head) {
+                    self.term.sel = None;
+                }
+            }
+        }
+    }
+
+    pub fn selection_text(&self) -> Option<String> {
+        let sel = self.term.sel?;
+        let t = self.term.terms.get(self.term.active)?;
+        let cols = t.vt.size().0;
+        let rows: Vec<String> =
+            t.vt.lines
+                .iter()
+                .enumerate()
+                .filter_map(|(i, l)| {
+                    sel.row_range(i as u16, cols)
+                        .map(|(a, b)| l.slice(a, b).trim_end().to_string())
+                })
+                .collect();
+        (!rows.is_empty()).then(|| rows.join("\n"))
+    }
+
+    /// Input-method text for the focused terminal: the composition is drawn at the cursor,
+    /// the committed text goes to the shell.
+    pub fn term_ime(&mut self, ime: &rune::Ime) {
+        match ime {
+            rune::Ime::Preedit(text, _) => self.term.preedit = text.clone(),
+            rune::Ime::Commit(text) => {
+                self.term.preedit.clear();
+                if let Some(t) = self.term.terms.get_mut(self.term.active)
+                    && !t.exited
+                {
+                    t.vt.scroll_to_bottom();
+                    post_input(t.id.clone(), text.as_bytes());
+                }
+            }
+            _ => {}
+        }
+    }
+
     pub fn term_wheel(&mut self, dy: f32, x: f32, y: f32) {
         let Some(t) = self.term.terms.get_mut(self.term.active) else {
             return;
@@ -342,6 +467,7 @@ impl Hooked {
             }
         } else {
             t.vt.scroll(-lines);
+            self.term.sel = None;
         }
     }
 }

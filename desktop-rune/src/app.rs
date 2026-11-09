@@ -294,6 +294,12 @@ impl Hooked {
         }
         if args.iter().any(|a| a == "--term") {
             s.preload_terms();
+            if args.iter().any(|a| a == "--term-sel") {
+                s.term.sel = Some(crate::terminal::Sel {
+                    anchor: (2, 1),
+                    head: (12, 2),
+                });
+            }
         }
         if args.iter().any(|a| a == "--split") && s.detail.is_some() {
             s.split_with_recent();

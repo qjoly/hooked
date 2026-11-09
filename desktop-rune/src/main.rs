@@ -132,6 +132,14 @@ fn setup(s: &mut Hooked, _waker: rune::Waker) {
 
 fn on_close(_: &mut Hooked, _: &mut Tx) {}
 
+fn on_ime(s: &mut Hooked, ime: &rune::Ime, tx: &mut Tx) -> bool {
+    if tx.focused() != Some("term-screen") {
+        return false;
+    }
+    s.term_ime(ime);
+    true
+}
+
 fn main() {
     let _ = rune_notify::register(&rune_notify::Identity::new(
         "dev.qjoly.hooked-rune",
@@ -152,7 +160,8 @@ fn main() {
     let app = rune::App::new(spec)
         .chrome(chrome)
         .keep_running()
-        .on_close(on_close);
+        .on_close(on_close)
+        .on_ime(on_ime);
     let _ = HANDLE.set(app.handle());
     tray::init_notifications();
     let quick = quick::app();
