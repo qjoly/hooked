@@ -293,6 +293,26 @@ fn threads_panel(s: &Hooked, k: &Kit) -> El {
         .child(c)
 }
 
+fn file_actions(s: &Hooked, k: &Kit, i: usize) -> El {
+    let mut r = row().gap(6.0).center_y();
+    if let Some(path) = s.truncated_at(i) {
+        let loading = s.lens_data.full.contains_key(&path);
+        r = r.child(
+            Button::new(if loading {
+                "Loading…"
+            } else {
+                "Truncated · load the full diff"
+            })
+            .variant(ButtonVariant::Warning)
+            .control_size(ControlSize::Small)
+            .disabled(loading)
+            .on_press(move |s: &mut Hooked| s.load_full_change(path.clone()))
+            .build(k),
+        );
+    }
+    r.child(reviewed_toggle(s, k, i))
+}
+
 fn reviewed_toggle(s: &Hooked, k: &Kit, i: usize) -> El {
     let on = s.is_reviewed(i);
     Button::new(if on { "Reviewed" } else { "Mark reviewed" })
@@ -602,7 +622,7 @@ pub fn review(s: &Hooked, d: &Detail, k: &Kit) -> El {
                 .on_visible_file(|_: &mut Hooked, _| {})
                 .header_actions({
                     let k = k.clone();
-                    move |s: &Hooked, i| reviewed_toggle(s, &k, i)
+                    move |s: &Hooked, i| file_actions(s, &k, i)
                 })
                 .build(s, k),
             );

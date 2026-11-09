@@ -22,6 +22,7 @@ pub struct LensData {
     pub diff_count: usize,
     pub asking: bool,
     pub turns: std::collections::BTreeSet<usize>,
+    pub full: HashMap<String, Option<Change>>,
     pub turns_open: bool,
     pub anchors: Vec<(String, String)>,
     pub threads: Vec<Value>,
@@ -58,6 +59,7 @@ impl Default for LensData {
             diff_count: 0,
             asking: false,
             turns: Default::default(),
+            full: HashMap::new(),
             turns_open: false,
             anchors: Vec::new(),
             threads: Vec::new(),
@@ -306,6 +308,57 @@ impl Hooked {
         }
     }
 
+    pub fn truncated_at(&self, file: usize) -> Option<String> {
+        if self.lens_data.review_source != ReviewSource::Claude {
+            return None;
+        }
+        let (path, _) = self.lens_data.anchors.get(file)?;
+        let change = self
+            .detail
+            .as_ref()?
+            .changes
+            .iter()
+            .find(|c| c.file == *path)?;
+        (change.truncated && !matches!(self.lens_data.full.get(path), Some(Some(_))))
+            .then(|| path.clone())
+    }
+
+    pub fn load_full_change(&mut self, path: String) {
+        let Some(id) = self.selected.clone() else {
+            return;
+        };
+        if self.lens_data.full.contains_key(&path) {
+            return;
+        }
+        self.lens_data.full.insert(path.clone(), None);
+        spawn(
+            {
+                let path = path.clone();
+                move || {
+                    api::get(&format!(
+                        "/api/session/file-changes?id={}&path={}",
+                        api::enc(&id),
+                        api::enc(&path)
+                    ))
+                }
+            },
+            move |s, r, _| {
+                let change = r
+                    .ok()
+                    .and_then(|v| serde_json::from_value::<Change>(v["change"].clone()).ok());
+                match change {
+                    Some(c) => {
+                        s.lens_data.full.insert(path, Some(c));
+                    }
+                    None => {
+                        s.lens_data.full.remove(&path);
+                        s.flash("✗ Could not load the full diff", true);
+                    }
+                }
+            },
+        );
+    }
+
     pub fn toggle_turn(&mut self, turn: Option<usize>) {
         let t = &mut self.lens_data.turns;
         match turn {
@@ -475,7 +528,12 @@ impl Hooked {
                 let ld = &self.lens_data;
                 let sig = match ld.review_source {
                     ReviewSource::Claude => {
-                        format!("{id}|claude|{}|{activity}|{:?}", d.changes.len(), ld.turns)
+                        format!(
+                            "{id}|claude|{}|{activity}|{:?}|{}",
+                            d.changes.len(),
+                            ld.turns,
+                            ld.full.values().filter(|c| c.is_some()).count()
+                        )
                     }
                     ReviewSource::Tree => format!("{id}|tree|{activity}"),
                 };
@@ -484,15 +542,18 @@ impl Hooked {
                 }
                 match ld.review_source {
                     ReviewSource::Claude => {
+                        let changes: Vec<Change> = d
+                            .changes
+                            .iter()
+                            .map(|c| match ld.full.get(&c.file) {
+                                Some(Some(full)) => full.clone(),
+                                _ => c.clone(),
+                            })
+                            .collect();
                         let (files, anchors) = if ld.turns.is_empty() {
-                            file_diffs(&d.changes, project.as_deref(), "full")
+                            file_diffs(&changes, project.as_deref(), "full")
                         } else {
-                            filtered_diffs(
-                                &d.changes,
-                                &d.change_turns,
-                                &ld.turns,
-                                project.as_deref(),
-                            )
+                            filtered_diffs(&changes, &d.change_turns, &ld.turns, project.as_deref())
                         };
                         self.lens_data.diff_count = d.changes.len();
                         self.lens_data.diff.set_files(files);
