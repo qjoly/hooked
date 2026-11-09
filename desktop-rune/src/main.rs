@@ -22,21 +22,73 @@ use app::{HANDLE, Hooked, Lens, Page};
 pub const MONO: &str = "ui-monospace, Menlo, monospace";
 
 fn on_key(s: &mut Hooked, ev: &KeyEvent, tx: &mut Tx) -> bool {
-    if ev.is_command('k') || ev.is_command('p') {
-        s.palette_open = !s.palette_open;
-        s.palette_query = rune::TextEdit::new("");
-        s.palette_query.focused = true;
-        s.palette_index = 0;
+    if ev.is_command('p') && ev.mods.shift {
+        s.open_palette(">");
         return true;
+    }
+    if ev.is_command('k') || ev.is_command('p') {
+        if s.palette_open {
+            s.palette_open = false;
+        } else {
+            s.open_palette("");
+        }
+        return true;
+    }
+    if ev.mods.cmd && ev.mods.shift {
+        let handled = match tx.key_base() {
+            Some('d') => {
+                s.toggle_dock();
+                true
+            }
+            Some('f') => {
+                s.focus = !s.focus;
+                true
+            }
+            Some('t') => {
+                s.cycle_theme();
+                true
+            }
+            Some('j') if s.page == Page::Session => {
+                s.term.open = true;
+                s.new_term();
+                true
+            }
+            _ => false,
+        };
+        if handled {
+            return true;
+        }
+    }
+    if ev.is_command('j') && !ev.mods.shift && s.page == Page::Session {
+        s.toggle_terms();
+        return true;
+    }
+    if ev.mods.alt && !ev.mods.cmd && !ev.mods.ctrl {
+        let page = match tx.key_base() {
+            Some('1') => Some(Page::Deck),
+            Some('2') => Some(Page::Session),
+            Some('4') => Some(Page::Stats),
+            Some('5') => Some(Page::Digest),
+            Some('6') => Some(Page::Memory),
+            Some('7') => Some(Page::GitHub),
+            _ => None,
+        };
+        match page {
+            Some(Page::Deck) => s.go_deck(),
+            Some(Page::Session) => s.open_sessions(),
+            Some(p) => s.go(p),
+            None => {}
+        }
+        if page.is_some() {
+            return true;
+        }
     }
     if ev.is_command(',') {
         s.go(Page::Settings);
         return true;
     }
     if ev.is_command('s') && ev.mods.shift {
-        if s.split.take().is_none() && s.page == Page::Session {
-            s.split_with_recent();
-        }
+        s.toggle_split();
         return true;
     }
     if ev.is_command('n') {
@@ -44,9 +96,7 @@ fn on_key(s: &mut Hooked, ev: &KeyEvent, tx: &mut Tx) -> bool {
         return true;
     }
     if ev.is_command('b') {
-        s.sidebar_open = !s.sidebar_open;
-        let v = s.sidebar_open;
-        s.save_pref("sidebarOpen", &v);
+        s.toggle_sidebar();
         return true;
     }
     if ev.is_command('r') {
@@ -66,6 +116,10 @@ fn on_key(s: &mut Hooked, ev: &KeyEvent, tx: &mut Tx) -> bool {
         return true;
     }
     if ev.key == Key::Escape {
+        if s.focus && !s.palette_open && s.picker.is_none() && s.popup.is_none() {
+            s.focus = false;
+            return true;
+        }
         if s.palette_open {
             s.palette_open = false;
             return true;
@@ -96,6 +150,10 @@ fn on_key(s: &mut Hooked, ev: &KeyEvent, tx: &mut Tx) -> bool {
     {
         let lens = match t.as_str() {
             "1" => Some(Lens::Converse),
+            "2" => {
+                s.toggle_terms();
+                return true;
+            }
             "3" => Some(Lens::Review),
             "4" => Some(Lens::Mcp),
             "5" => Some(Lens::Trace),

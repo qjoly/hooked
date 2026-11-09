@@ -228,11 +228,7 @@ fn head(s: &Hooked, d: &Detail, k: &Kit, layer: &mut Vec<El>) -> El {
         .label("Toggle the context panel")
         .help("Context panel")
         .expanded(s.dock_open)
-        .on_press(|s: &mut Hooked| {
-            s.dock_open = !s.dock_open;
-            let v = s.dock_open;
-            s.save_pref("dockOpen", &v);
-        })
+        .on_press(|s: &mut Hooked| s.toggle_dock())
         .build(k)
         .key("dock-toggle"),
     );

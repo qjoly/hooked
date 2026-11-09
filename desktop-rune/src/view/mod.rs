@@ -71,7 +71,9 @@ pub fn view(s: &Hooked, cx: &mut Cx<Hooked>) -> El {
         Page::Settings => settings::view(s, &k),
     };
     let mut body = row().key("body").w_full().grow(1.0).min_h(0.0);
-    body = if s.sidebar_open {
+    body = if s.focus {
+        body
+    } else if s.sidebar_open {
         body.child(sidebar(s, &k, &mut layer))
     } else {
         body.child(rail(s, &k))
@@ -85,7 +87,7 @@ pub fn view(s: &Hooked, cx: &mut Cx<Hooked>) -> El {
             .fill(k.c.bg_base)
             .child(main),
     );
-    if s.page == Page::Session {
+    if s.page == Page::Session && !s.focus {
         if let Some(p) = s.split.as_ref() {
             body = body.child(split::view(s, p, &k));
         } else if let Some(d) = s.detail.as_ref() {
@@ -212,13 +214,7 @@ fn topbar(s: &Hooked, k: &Kit, inset: f32, _layer: &mut Vec<El>) -> El {
         None,
     )
     .on_press(|s: &mut Hooked| {
-        if let Some(id) = s
-            .selected
-            .clone()
-            .or_else(|| s.sessions.first().map(|x| x.id.clone()))
-        {
-            s.open_session(&id);
-        }
+        s.open_sessions();
     });
     let omni = k
         .interactive(
@@ -253,10 +249,7 @@ fn topbar(s: &Hooked, k: &Kit, inset: f32, _layer: &mut Vec<El>) -> El {
                 ),
         )
         .on_press(|s: &mut Hooked| {
-            s.palette_open = true;
-            s.palette_query = rune::TextEdit::new("");
-            s.palette_query.focused = true;
-            s.palette_index = 0;
+            s.open_palette("");
         });
     let gauges = row()
         .key("tb-gauges")

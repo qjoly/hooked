@@ -15,7 +15,7 @@ fn agent() -> ureq::Agent {
         .build()
 }
 
-fn enc(s: &str) -> String {
+pub fn enc(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     for b in s.bytes() {
         match b {

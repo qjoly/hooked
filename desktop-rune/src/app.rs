@@ -164,6 +164,10 @@ pub struct Hooked {
     pub palette_open: bool,
     pub palette_query: TextEdit,
     pub palette_index: usize,
+    pub palette_cites: Vec<serde_json::Value>,
+    pub palette_cites_for: String,
+    pub palette_all_cites: bool,
+    pub focus: bool,
 
     pub lens_data: crate::lenses::LensData,
     pub pages: crate::pages::PageData,
@@ -269,6 +273,10 @@ impl Hooked {
             palette_open: false,
             palette_query: TextEdit::new(""),
             palette_index: 0,
+            palette_cites: Vec::new(),
+            palette_cites_for: String::new(),
+            palette_all_cites: false,
+            focus: false,
             lens_data: crate::lenses::LensData::default(),
             pages: crate::pages::PageData::default(),
             announced: HashSet::new(),
@@ -414,6 +422,17 @@ impl Hooked {
             };
             s.preload_page();
         }
+        if let Some(i) = args.iter().position(|a| a == "--palette") {
+            let q = args.get(i + 1).cloned().unwrap_or_default();
+            s.open_palette(&q);
+            if !q.is_empty() && !q.starts_with('>') {
+                s.palette_cites = api::get(&format!("/api/search?q={}&limit=50", api::enc(&q)))
+                    .ok()
+                    .and_then(|v| v["results"].as_array().cloned())
+                    .unwrap_or_default();
+                s.palette_cites_for = q;
+            }
+        }
         if args.iter().any(|a| a == "--trash") {
             let items = api::get("/api/trash")
                 .ok()
@@ -454,6 +473,86 @@ impl Hooked {
             Theme::Light => false,
             Theme::Dark => true,
         }
+    }
+
+    pub fn set_theme(&mut self, theme: Theme) {
+        self.theme = theme;
+        self.save_pref("theme", &theme);
+    }
+
+    pub fn open_palette(&mut self, prefix: &str) {
+        self.palette_open = true;
+        self.palette_query = TextEdit::new(prefix);
+        self.palette_query.focused = true;
+        self.palette_index = 0;
+        self.palette_cites.clear();
+        self.palette_cites_for.clear();
+        self.palette_all_cites = false;
+    }
+
+    pub fn palette_changed(&mut self) {
+        self.palette_index = 0;
+        self.palette_all_cites = false;
+        let q = self.palette_query.text.trim().to_string();
+        if q.is_empty() || q.starts_with('>') {
+            return;
+        }
+        spawn(
+            {
+                let q = q.clone();
+                move || {
+                    std::thread::sleep(Duration::from_millis(250));
+                    api::get(&format!("/api/search?q={}&limit=50", api::enc(&q)))
+                }
+            },
+            move |s, r, _| {
+                if s.palette_query.text.trim() != q {
+                    return;
+                }
+                s.palette_cites = r
+                    .ok()
+                    .and_then(|v| v["results"].as_array().cloned())
+                    .unwrap_or_default();
+                s.palette_cites_for = q;
+            },
+        );
+    }
+
+    pub fn open_sessions(&mut self) {
+        if let Some(id) = self
+            .selected
+            .clone()
+            .or_else(|| self.sessions.first().map(|x| x.id.clone()))
+        {
+            self.open_session(&id);
+        }
+    }
+
+    pub fn toggle_sidebar(&mut self) {
+        self.sidebar_open = !self.sidebar_open;
+        let v = self.sidebar_open;
+        self.save_pref("sidebarOpen", &v);
+    }
+
+    pub fn toggle_dock(&mut self) {
+        self.dock_open = !self.dock_open;
+        let v = self.dock_open;
+        self.save_pref("dockOpen", &v);
+    }
+
+    pub fn toggle_split(&mut self) {
+        if self.split.take().is_none() && self.page == Page::Session {
+            self.split_with_recent();
+        }
+    }
+
+    pub fn open_ghostty(&mut self) {
+        let Some(id) = self.selected.clone() else {
+            return;
+        };
+        self.act("Opened in Ghostty", move || {
+            api::post("/api/open-ghostty", serde_json::json!({ "id": id })).map(|_| ())
+        });
     }
 
     pub fn cycle_theme(&mut self) {
