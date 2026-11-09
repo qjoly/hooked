@@ -218,20 +218,43 @@ fn head(s: &Hooked, d: &Detail, k: &Kit, layer: &mut Vec<El>) -> El {
             .build(k)
             .key("split-btn"),
     );
-    line = line.child(
-        IconButton::new(if s.dock_open {
-            &icons::PANEL_RIGHT
-        } else {
-            &icons::SIDEBAR
-        })
-        .variant(IconButtonVariant::GhostMuted)
-        .label("Toggle the context panel")
-        .help("Context panel")
-        .expanded(s.dock_open)
-        .on_press(|s: &mut Hooked| s.toggle_dock())
-        .build(k)
-        .key("dock-toggle"),
-    );
+    line = line
+        .child(
+            IconButton::new(if s.dock_open {
+                &icons::PANEL_RIGHT
+            } else {
+                &icons::SIDEBAR
+            })
+            .variant(IconButtonVariant::GhostMuted)
+            .label("Toggle the context panel")
+            .help("Context panel")
+            .expanded(s.dock_open)
+            .on_press(|s: &mut Hooked| s.toggle_dock())
+            .build(k)
+            .key("dock-toggle"),
+        )
+        .child(
+            IconButton::new(if s.focus {
+                &icons::SIDEBAR
+            } else {
+                &icons::MONITOR
+            })
+            .variant(if s.focus {
+                IconButtonVariant::Ghost
+            } else {
+                IconButtonVariant::GhostMuted
+            })
+            .label("Focus mode")
+            .help(if s.focus {
+                "Exit focus mode (⌘⇧F or Esc)"
+            } else {
+                "Focus mode: the conversation alone (⌘⇧F)"
+            })
+            .expanded(s.focus)
+            .on_press(|s: &mut Hooked| s.focus = !s.focus)
+            .build(k)
+            .key("focus-toggle"),
+        );
     let right = line.child(more_menu(s, d, k, layer));
     row()
         .key("head-line")
@@ -370,6 +393,18 @@ fn more_menu(s: &Hooked, d: &Detail, k: &Kit, layer: &mut Vec<El>) -> El {
     );
     let link = format!("{}/session/{}", crate::api::base(), x.id);
     m.item(
+        MenuItem::new("Copy as Markdown")
+            .icon(&icons::COPY)
+            .description("The whole conversation, tool calls included")
+            .on_select_tx(|s: &mut Hooked, tx: &mut rune::Tx| {
+                s.popup = None;
+                if let Some(d) = s.detail.as_ref() {
+                    tx.copy(crate::export::conversation(d));
+                    s.flash("✓ Conversation copied as Markdown", false);
+                }
+            }),
+    )
+    .item(
         MenuItem::new(format!("Cost · {}", fmt::cost(x.cost)))
             .description("Where the money went: input, output, cache")
             .on_select(|s: &mut Hooked| {

@@ -1,5 +1,6 @@
 mod api;
 mod app;
+mod export;
 mod fmt;
 mod ghostty;
 mod ghrun;
