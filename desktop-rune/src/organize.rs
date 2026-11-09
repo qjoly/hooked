@@ -23,6 +23,10 @@ pub enum Picker {
         items: Option<Vec<serde_json::Value>>,
         busy: Option<String>,
     },
+    Agent {
+        title: String,
+        messages: Option<Vec<crate::api::Message>>,
+    },
     Fork {
         uuid: String,
         model: Option<String>,
@@ -36,6 +40,17 @@ pub enum Picker {
 pub struct Unit<'a> {
     pub mother: &'a Session,
     pub children: Vec<&'a Session>,
+}
+
+/// An agent's cut points are its own transcript's; forking the session at one would be wrong.
+pub fn agent_messages(v: Option<serde_json::Value>) -> Vec<crate::api::Message> {
+    let mut list: Vec<crate::api::Message> = v
+        .and_then(|v| serde_json::from_value(v["messages"].clone()).ok())
+        .unwrap_or_default();
+    for m in &mut list {
+        m.fork_uuid = None;
+    }
+    list
 }
 
 pub fn parse_tags(text: &str) -> Vec<String> {
@@ -239,6 +254,31 @@ impl Hooked {
         };
         let name = edit.text.trim().to_string();
         self.group_op("rename", id, json!({ "name": name }));
+    }
+
+    pub fn open_agent(&mut self, agent: String, title: String) {
+        let Some(session) = self.selected.clone() else {
+            return;
+        };
+        self.picker = Some(Picker::Agent {
+            title,
+            messages: None,
+        });
+        spawn(
+            move || {
+                api::get(&format!(
+                    "/api/agent?session={}&agent={}",
+                    api::enc(&session),
+                    api::enc(&agent)
+                ))
+            },
+            |s, r, _| {
+                let list = agent_messages(r.ok());
+                if let Some(Picker::Agent { messages, .. }) = s.picker.as_mut() {
+                    *messages = Some(list);
+                }
+            },
+        );
     }
 
     pub fn fork_options(&mut self, uuid: String) {

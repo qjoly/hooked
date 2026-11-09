@@ -202,6 +202,9 @@ pub fn view(s: &Hooked, k: &Kit) -> El {
             modal(k, "group-modal", "Move to group", body)
         }
         Some(Picker::Trash { items, busy }) => trash(s, k, items.as_deref(), busy.as_deref()),
+        Some(Picker::Agent {
+            title, messages, ..
+        }) => agent(s, k, title, messages.as_deref()),
         Some(Picker::Fork {
             model,
             effort,
@@ -425,4 +428,80 @@ fn fork(
                 ),
         );
     modal(k, "fork-modal", "Fork from this message", body)
+}
+
+fn agent(s: &Hooked, k: &Kit, title: &str, messages: Option<&[crate::api::Message]>) -> El {
+    let session = s.selected.clone().unwrap_or_default();
+    let mut list = col().w_full().gap(12.0).padding(16.0);
+    match messages {
+        None => {
+            list = list.child(
+                text("Loading the transcript…")
+                    .font(k.ty.body)
+                    .color(k.c.text_faint),
+            )
+        }
+        Some([]) => {
+            list = list.child(
+                text("This agent left no transcript.")
+                    .font(k.ty.body)
+                    .color(k.c.text_faint),
+            )
+        }
+        Some(ms) => {
+            for (i, m) in ms.iter().enumerate() {
+                list = list.child(super::session::bubble(s, &session, m, k, 10_000 + i));
+            }
+        }
+    }
+    let panel = col()
+        .key("agent-panel")
+        .w(860.0)
+        .h(s.window_h * 0.8)
+        .radius(k.radius.lg)
+        .fill(k.c.bg_base)
+        .border(1.0, k.c.border_base)
+        .box_shadows(&k.elevation.overlay)
+        .child(
+            row()
+                .w_full()
+                .h(44.0)
+                .px(16.0)
+                .gap(8.0)
+                .center_y()
+                .border_sides([0.0, 0.0, 1.0, 0.0], k.c.border_weak)
+                .child(
+                    text(title.to_string())
+                        .font(k.ty.ui_medium)
+                        .color(k.c.text_base)
+                        .truncate()
+                        .grow(1.0)
+                        .min_w(0.0),
+                )
+                .child(
+                    Button::new("Close")
+                        .variant(ButtonVariant::GhostMuted)
+                        .on_press(|s: &mut Hooked| s.picker = None)
+                        .build(k),
+                ),
+        )
+        .child(
+            col()
+                .w_full()
+                .grow(1.0)
+                .min_h(0.0)
+                .scroll(rune::ScrollSpec {
+                    stick_bottom: false,
+                })
+                .child(list),
+        );
+    el().key("agent-modal")
+        .absolute(0.0, 0.0)
+        .w_full()
+        .h_full()
+        .fill(k.c.scrim)
+        .items_center()
+        .pt(60.0)
+        .modal(true, |s: &mut Hooked| s.picker = None)
+        .child(col().items_center().w_full().child(panel))
 }

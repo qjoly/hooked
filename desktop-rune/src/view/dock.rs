@@ -297,7 +297,7 @@ fn agents(s: &Hooked, d: &Detail, k: &Kit) -> El {
                         .gap(2.0)
                         .cursor(Cursor::Pointer)
                         .child(
-                            text(label)
+                            text(label.clone())
                                 .font(k.ty.text_small_medium)
                                 .color(k.c.text_base)
                                 .wrap(),
@@ -323,6 +323,18 @@ fn agents(s: &Hooked, d: &Detail, k: &Kit) -> El {
                 )
                 .child(section_title(k, "REPORT"))
                 .child(super::md(str_of(a, "result").to_string()).build(k));
+            if let Some(agent) = a["agentId"].as_str().map(str::to_string) {
+                let title = label.clone();
+                b = b.child(
+                    Button::new("Transcript")
+                        .icon(&icons::CONVERSE)
+                        .variant(ButtonVariant::Outline)
+                        .control_size(ControlSize::Small)
+                        .help("Everything this agent did, message by message")
+                        .on_press(move |s: &mut Hooked| s.open_agent(agent.clone(), title.clone()))
+                        .build(k),
+                );
+            }
         }
         c = c.child(b);
     }

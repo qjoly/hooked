@@ -548,6 +548,22 @@ impl Hooked {
                 .map(|v| v.split(',').filter_map(|n| n.parse().ok()).collect())
                 .unwrap_or_default();
         }
+        if let Some(i) = args.iter().position(|a| a == "--agent") {
+            let agent = args.get(i + 1).cloned().unwrap_or_default();
+            let session = s.selected.clone().unwrap_or_default();
+            let messages = crate::organize::agent_messages(
+                api::get(&format!(
+                    "/api/agent?session={}&agent={}",
+                    api::enc(&session),
+                    api::enc(&agent)
+                ))
+                .ok(),
+            );
+            s.picker = Some(crate::organize::Picker::Agent {
+                title: "Agent transcript".into(),
+                messages: Some(messages),
+            });
+        }
         if args.iter().any(|a| a == "--rendered") {
             s.lens_data.rendered = true;
         }
