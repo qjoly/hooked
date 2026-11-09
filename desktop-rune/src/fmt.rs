@@ -134,6 +134,41 @@ pub fn cache_left(last_request_at: Option<&str>, ttl: Option<&str>, now: i64) ->
     (left > 0).then_some(left)
 }
 
+pub fn strip_ansi(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut it = s.chars().peekable();
+    while let Some(c) = it.next() {
+        if c == '\u{1b}' {
+            match it.peek() {
+                Some('[') => {
+                    it.next();
+                    for c in it.by_ref() {
+                        if ('@'..='~').contains(&c) {
+                            break;
+                        }
+                    }
+                }
+                Some(']') => {
+                    it.next();
+                    while let Some(c) = it.next() {
+                        if c == '\u{7}' || (c == '\u{1b}' && it.peek() == Some(&'\\')) {
+                            break;
+                        }
+                    }
+                }
+                _ => {}
+            }
+        } else if c == '\r' {
+            if it.peek() != Some(&'\n') {
+                out.push('\n');
+            }
+        } else {
+            out.push(c);
+        }
+    }
+    out
+}
+
 pub fn first_line(s: &str, max: usize) -> String {
     let line = s
         .lines()
@@ -215,6 +250,14 @@ pub fn link_label(url: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn logs_lose_their_escapes() {
+        assert_eq!(
+            strip_ansi("\u{1b}[1;32mok\u{1b}[0m 50%\r80%\r\n\u{1b}]0;title\u{7}done"),
+            "ok 50%\n80%\ndone"
+        );
+    }
 
     #[test]
     fn plain_keeps_link_text() {

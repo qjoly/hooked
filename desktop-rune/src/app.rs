@@ -131,6 +131,8 @@ pub struct Hooked {
     pub media: HashMap<String, Option<rune::Image>>,
     pub drafts: HashMap<String, String>,
     pub reviewed: HashMap<String, Vec<String>>,
+    pub job_log: Option<(String, String)>,
+    pub job_gen: Arc<AtomicU64>,
     pub full_texts: HashMap<String, Option<String>>,
     pub ac: Option<Autocomplete>,
     pub ac_req: u64,
@@ -323,6 +325,8 @@ impl Hooked {
             media: HashMap::new(),
             drafts,
             reviewed,
+            job_log: None,
+            job_gen: Arc::new(AtomicU64::new(0)),
             full_texts: HashMap::new(),
             ac: None,
             ac_req: 0,
@@ -778,6 +782,56 @@ impl Hooked {
         self.composer.focused = true;
     }
 
+    /// Streams a background job's output file, keeping the last 64 KB.
+    pub fn toggle_job_log(&mut self, task: String) {
+        let generation = self.job_gen.fetch_add(1, Ordering::SeqCst) + 1;
+        if self.job_log.as_ref().is_some_and(|(t, _)| *t == task) {
+            self.job_log = None;
+            return;
+        }
+        let (Some(id), Some(h)) = (self.selected.clone(), HANDLE.get().cloned()) else {
+            return;
+        };
+        self.job_log = Some((task.clone(), String::new()));
+        let gen_ref = self.job_gen.clone();
+        std::thread::spawn(move || {
+            use base64::Engine;
+            let path = format!(
+                "/api/background/stream?id={}&taskId={}",
+                api::enc(&id),
+                api::enc(&task)
+            );
+            let _ = api::follow(&path, |d| {
+                if gen_ref.load(Ordering::SeqCst) != generation {
+                    return false;
+                }
+                let bytes = base64::engine::general_purpose::STANDARD
+                    .decode(d)
+                    .unwrap_or_default();
+                if bytes.is_empty() {
+                    return true;
+                }
+                let chunk = fmt::strip_ansi(&String::from_utf8_lossy(&bytes));
+                let task = task.clone();
+                h.update(move |s, _| {
+                    if let Some((t, text)) = s.job_log.as_mut()
+                        && *t == task
+                    {
+                        text.push_str(&chunk);
+                        if text.len() > 65_536 {
+                            let mut cut = text.len() - 65_536;
+                            while !text.is_char_boundary(cut) {
+                                cut += 1;
+                            }
+                            text.drain(..cut);
+                        }
+                    }
+                });
+                true
+            });
+        });
+    }
+
     pub fn open_ghostty(&mut self) {
         let Some(id) = self.selected.clone() else {
             return;
@@ -927,6 +981,8 @@ impl Hooked {
         };
         self.lens_data.diff.set_mode(mode);
         self.ac = None;
+        self.job_gen.fetch_add(1, Ordering::SeqCst);
+        self.job_log = None;
         self.composer = TextEdit::new(self.drafts.get(id).cloned().unwrap_or_default());
         self.composer.focused = true;
         self.reset_question();

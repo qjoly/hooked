@@ -427,6 +427,8 @@ fn jobs(s: &Hooked, d: &Detail, k: &Kit) -> El {
             "running".into()
         };
         let output = str_of(j, "outputPath").to_string();
+        let task = str_of(j, "taskId").to_string();
+        let showing = s.job_log.as_ref().filter(|(t, _)| *t == task);
         let mut r = row()
             .key(format!("job-{}", str_of(j, "taskId")))
             .w_full()
@@ -443,14 +445,53 @@ fn jobs(s: &Hooked, d: &Detail, k: &Kit) -> El {
                     .min_w(0.0),
             )
             .child(text(status).font(k.ty.text_xsmall).color(k.c.text_faint));
-        if !output.is_empty() {
+        if !task.is_empty() {
+            let t = task.clone();
             r = k
-                .interactive(r.role("link").cursor(Cursor::Pointer))
-                .on_press_tx(move |_: &mut Hooked, tx| {
-                    let _ = tx.open_url(&format!("file://{output}"));
-                });
+                .interactive(r.role("button").cursor(Cursor::Pointer))
+                .on_press(move |s: &mut Hooked| s.toggle_job_log(t.clone()));
         }
         c = c.child(r);
+        if let Some((_, log)) = showing {
+            let tail: Vec<&str> = log.lines().rev().take(200).collect();
+            let body = if tail.is_empty() {
+                "waiting for output…".to_string()
+            } else {
+                tail.into_iter().rev().collect::<Vec<_>>().join("\n")
+            };
+            let mut block = col()
+                .key(format!("job-log-{task}"))
+                .w_full()
+                .gap(6.0)
+                .child(
+                    col()
+                        .w_full()
+                        .max_h(260.0)
+                        .padding(8.0)
+                        .radius(k.radius.sm)
+                        .fill(k.c.layer_02)
+                        .scroll(ScrollSpec { stick_bottom: true })
+                        .child(
+                            text(body)
+                                .font(k.ty.mono)
+                                .color(k.c.text_muted)
+                                .wrap_anywhere()
+                                .selectable(true),
+                        ),
+                );
+            if !output.is_empty() {
+                block = block.child(
+                    Button::new("Open the file")
+                        .variant(ButtonVariant::GhostMuted)
+                        .control_size(ControlSize::Small)
+                        .on_press_tx(move |_: &mut Hooked, tx| {
+                            let _ = tx.open_url(&format!("file://{output}"));
+                        })
+                        .build(k),
+                );
+            }
+            c = c.child(block);
+        }
     }
     c
 }
