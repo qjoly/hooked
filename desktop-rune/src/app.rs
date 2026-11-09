@@ -131,6 +131,8 @@ pub struct Hooked {
     pub drafts: HashMap<String, String>,
     pub reviewed: HashMap<String, Vec<String>>,
     pub job_log: Option<(String, String)>,
+    pub plan_quote: Option<String>,
+    pub plan_comments: Vec<(String, String)>,
     pub job_gen: Arc<AtomicU64>,
     pub full_texts: HashMap<String, Option<String>>,
     pub ac: Option<Autocomplete>,
@@ -181,6 +183,20 @@ pub struct Hooked {
 }
 
 pub const WINDOW: usize = 40;
+
+pub fn compose_plan_feedback(comments: &[(String, String)]) -> String {
+    let blocks: Vec<String> = comments
+        .iter()
+        .map(|(quote, comment)| {
+            let q: Vec<String> = quote.lines().map(|l| format!("> {l}")).collect();
+            format!("{}\n{comment}", q.join("\n"))
+        })
+        .collect();
+    format!(
+        "Feedback on the plan — please keep planning and revise:\n\n{}",
+        blocks.join("\n\n")
+    )
+}
 
 #[derive(Clone, Debug)]
 pub struct AcItem {
@@ -324,6 +340,8 @@ impl Hooked {
             drafts,
             reviewed,
             job_log: None,
+            plan_quote: None,
+            plan_comments: Vec::new(),
             job_gen: Arc::new(AtomicU64::new(0)),
             full_texts: HashMap::new(),
             ac: None,
@@ -1767,8 +1785,21 @@ impl Hooked {
         let Some(id) = self.selected.clone() else {
             return;
         };
-        let feedback = self.plan_feedback.text.trim().to_string();
-        let feedback = (!feedback.is_empty()).then_some(feedback);
+        let note = self.plan_feedback.text.trim().to_string();
+        if let Some(q) = self.plan_quote.take()
+            && !note.is_empty()
+        {
+            self.plan_comments.push((q, note.clone()));
+        }
+        let feedback = if action != "reject" {
+            None
+        } else if self.plan_comments.is_empty() {
+            (!note.is_empty()).then_some(note)
+        } else {
+            Some(compose_plan_feedback(&self.plan_comments))
+        };
+        self.plan_comments.clear();
+        self.plan_feedback = TextEdit::new("");
         let label = if action == "reject" {
             "Plan rejected"
         } else {
@@ -2039,6 +2070,15 @@ pub fn open_link(s: &mut Hooked, url: &str, tx: &mut Tx) {
 #[cfg(test)]
 mod link_tests {
     use super::*;
+
+    #[test]
+    fn plan_feedback_quotes_each_passage() {
+        let f = compose_plan_feedback(&[("step 1\nstep 2".into(), "merge these".into())]);
+        assert_eq!(
+            f,
+            "Feedback on the plan — please keep planning and revise:\n\n> step 1\n> step 2\nmerge these"
+        );
+    }
 
     #[test]
     fn composer_triggers() {

@@ -1479,6 +1479,106 @@ fn question(s: &Hooked, q: &PendingQuestion, k: &Kit) -> El {
     )
 }
 
+fn plan_comments(s: &Hooked, k: &Kit) -> El {
+    let quote = |q: &str| {
+        row()
+            .w_full()
+            .pl(8.0)
+            .border_sides([0.0, 0.0, 0.0, 2.0], k.c.border_strong)
+            .child(
+                text(q.to_string())
+                    .font(k.ty.text_small)
+                    .color(k.c.text_muted)
+                    .wrap()
+                    .max_lines(4),
+            )
+    };
+    let mut c = col().w_full().gap(8.0);
+    for (i, (q, note)) in s.plan_comments.iter().enumerate() {
+        c = c.child(
+            row()
+                .key(format!("pc-{i}"))
+                .w_full()
+                .gap(8.0)
+                .items_start()
+                .child(
+                    col().grow(1.0).min_w(0.0).gap(4.0).child(quote(q)).child(
+                        text(note.clone())
+                            .font(k.ty.text_small)
+                            .color(k.c.text_base)
+                            .wrap(),
+                    ),
+                )
+                .child(
+                    Button::new("Remove")
+                        .variant(ButtonVariant::GhostFaint)
+                        .control_size(ControlSize::Small)
+                        .on_press(move |s: &mut Hooked| {
+                            if i < s.plan_comments.len() {
+                                s.plan_comments.remove(i);
+                            }
+                        })
+                        .build(k),
+                ),
+        );
+    }
+    let mut actions = row().w_full().gap(8.0).center_y();
+    if let Some(q) = s.plan_quote.as_ref() {
+        c = c.child(quote(q));
+        actions = actions
+            .child(
+                Button::new("Add the comment")
+                    .variant(ButtonVariant::Outline)
+                    .control_size(ControlSize::Small)
+                    .on_press(|s: &mut Hooked| {
+                        let note = s.plan_feedback.text.trim().to_string();
+                        if let (Some(q), false) = (s.plan_quote.take(), note.is_empty()) {
+                            s.plan_comments.push((q, note));
+                            s.plan_feedback = rune::TextEdit::new("");
+                        }
+                    })
+                    .build(k),
+            )
+            .child(
+                Button::new("Drop the quote")
+                    .variant(ButtonVariant::GhostMuted)
+                    .control_size(ControlSize::Small)
+                    .on_press(|s: &mut Hooked| s.plan_quote = None)
+                    .build(k),
+            );
+    } else {
+        actions = actions.child(
+            Button::new("Comment on the selection")
+                .icon(&icons::CONVERSE)
+                .variant(ButtonVariant::GhostMuted)
+                .control_size(ControlSize::Small)
+                .help("Select a passage of the plan first")
+                .on_press_tx(|s: &mut Hooked, tx| {
+                    match tx.text_selection().map(|t| t.text().trim().to_string()) {
+                        Some(q) if !q.is_empty() => {
+                            s.plan_quote = Some(q);
+                            s.plan_feedback.focused = true;
+                        }
+                        _ => s.flash("Select a passage of the plan first", true),
+                    }
+                })
+                .build(k),
+        );
+    }
+    if !s.plan_comments.is_empty() {
+        actions = actions.child(el().grow(1.0)).child(
+            text(format!(
+                "{} comment{} go out with Keep planning",
+                s.plan_comments.len(),
+                if s.plan_comments.len() == 1 { "" } else { "s" }
+            ))
+            .font(k.ty.text_xsmall)
+            .color(k.c.text_faint),
+        );
+    }
+    c.child(actions)
+}
+
 fn plan(s: &Hooked, p: &PendingPlan, k: &Kit) -> El {
     card(k, "plan", k.c.info.border)
         .child(
@@ -1500,11 +1600,16 @@ fn plan(s: &Hooked, p: &PendingPlan, k: &Kit) -> El {
                 .scroll(ScrollSpec {
                     stick_bottom: false,
                 })
-                .child(super::md(p.plan.clone()).build(k)),
+                .child(super::md(p.plan.clone()).selectable(true).build(k)),
         )
+        .child(plan_comments(s, k))
         .child(
             TextInput::new(&s.plan_feedback)
-                .placeholder("Feedback (sent when you keep planning)…")
+                .placeholder(if s.plan_quote.is_some() {
+                    "Your comment on the quoted passage…"
+                } else {
+                    "Feedback (sent when you keep planning)…"
+                })
                 .width(None)
                 .on_edit(|s: &mut Hooked| &mut s.plan_feedback)
                 .build(k)
