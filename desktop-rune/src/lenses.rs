@@ -25,6 +25,9 @@ pub struct LensData {
     pub threads: Vec<Value>,
     pub draft: Option<(LineRange, TextEdit)>,
     pub replies: HashMap<String, TextEdit>,
+    pub editing: Option<(String, TextEdit)>,
+    pub threads_open: bool,
+    pub delete_armed: Option<String>,
 
     pub mcp_cwd: Option<String>,
     pub mcp: Vec<McpServer>,
@@ -56,6 +59,9 @@ impl Default for LensData {
             threads: Vec::new(),
             draft: None,
             replies: HashMap::new(),
+            editing: None,
+            threads_open: false,
+            delete_armed: None,
             mcp_cwd: None,
             mcp: Vec::new(),
             mcp_loading: false,
@@ -645,8 +651,67 @@ impl Hooked {
         self.lens_data
             .threads
             .iter()
-            .filter(|t| t["sent"].as_bool() != Some(true))
+            .filter(|t| t["sent"].as_bool() != Some(true) && t["status"] != "archived")
             .collect()
+    }
+
+    pub fn start_edit_thread(&mut self, tid: String) {
+        let text = self
+            .lens_data
+            .threads
+            .iter()
+            .find(|t| t["id"].as_str() == Some(tid.as_str()))
+            .and_then(|t| t["messages"][0]["text"].as_str())
+            .unwrap_or("")
+            .to_string();
+        let mut e = TextEdit::new(text);
+        e.focused = true;
+        self.lens_data.editing = Some((tid, e));
+    }
+
+    pub fn save_edit_thread(&mut self) {
+        let (Some((tid, edit)), Some(id)) = (self.lens_data.editing.take(), self.selected.clone())
+        else {
+            return;
+        };
+        let text = edit.text.trim().to_string();
+        if text.is_empty() {
+            return;
+        }
+        self.review_op(json!({ "id": id, "action": "edit", "threadId": tid, "text": text }));
+    }
+
+    pub fn jump_to_thread(&mut self, tid: &str, tx: &mut rune::Tx) {
+        let Some(t) = self
+            .lens_data
+            .threads
+            .iter()
+            .find(|t| t["id"].as_str() == Some(tid))
+        else {
+            return;
+        };
+        let file = t["file"].as_str().unwrap_or("");
+        let key = t["opIndex"].as_str().unwrap_or("");
+        let scoped = key.strip_suffix(":*");
+        let Some(i) = self.lens_data.anchors.iter().position(|(f, k)| {
+            f == file
+                && match scoped {
+                    Some(base) => k.starts_with(&format!("{base}:")),
+                    None => k == key,
+                }
+        }) else {
+            self.flash("That thread belongs to another diff source", true);
+            return;
+        };
+        let side = if t["side"] == "old" {
+            Side::Old
+        } else {
+            Side::New
+        };
+        let line = t["start"].as_u64().unwrap_or(1) as u32;
+        self.lens_data
+            .diff
+            .scroll_to_line(i, LineRef::new(side, line), tx);
     }
 
     /// Sends the unsent comments as one prompt, in the shape the web lens uses.

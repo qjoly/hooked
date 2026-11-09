@@ -541,6 +541,9 @@ impl Hooked {
                 });
             }
         }
+        if args.iter().any(|a| a == "--threads") {
+            s.lens_data.threads_open = true;
+        }
         if args.iter().any(|a| a == "--expand-tools") {
             s.all_tools_open = true;
         }

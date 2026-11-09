@@ -30,6 +30,160 @@ fn empty(k: &Kit, key: &str, msg: &str) -> El {
         .child(text(msg.to_string()).font(k.ty.body).color(k.c.text_faint))
 }
 
+fn thread_row(s: &Hooked, k: &Kit, t: &serde_json::Value, archived: bool) -> El {
+    let tid = t["id"].as_str().unwrap_or("").to_string();
+    let side = if t["side"] == "old" { "−L" } else { "+L" };
+    let (a, b) = (
+        t["start"].as_u64().unwrap_or(0),
+        t["end"].as_u64().unwrap_or(0),
+    );
+    let anchor = if a == b || b == 0 {
+        format!("{side}{a}")
+    } else {
+        format!("{side}{a}–{b}")
+    };
+    let first = fmt::first_line(t["messages"][0]["text"].as_str().unwrap_or(""), 90);
+    let sent = t["sent"].as_bool() == Some(true);
+    let armed = s.lens_data.delete_armed.as_deref() == Some(tid.as_str());
+    let (j, d, r) = (tid.clone(), tid.clone(), tid.clone());
+    let mut line = row()
+        .key(format!("tl-{tid}"))
+        .w_full()
+        .gap(6.0)
+        .center_y()
+        .child(
+            k.interactive(
+                col()
+                    .role("link")
+                    .grow(1.0)
+                    .min_w(0.0)
+                    .gap(1.0)
+                    .cursor(Cursor::Pointer)
+                    .child(
+                        row()
+                            .gap(6.0)
+                            .child(
+                                text(anchor)
+                                    .font(k.ty.text_xsmall_medium)
+                                    .color(k.c.text_muted),
+                            )
+                            .child(
+                                text(if archived {
+                                    ""
+                                } else if sent {
+                                    "sent"
+                                } else {
+                                    "pending"
+                                })
+                                .font(k.ty.text_xsmall)
+                                .color(if sent {
+                                    k.c.info.fg
+                                } else {
+                                    k.c.warning.fg
+                                }),
+                            ),
+                    )
+                    .child(
+                        text(first)
+                            .font(k.ty.text_small)
+                            .color(k.c.text_base)
+                            .truncate(),
+                    ),
+            )
+            .on_press_tx(move |s: &mut Hooked, tx| s.jump_to_thread(&j, tx)),
+        );
+    if archived {
+        line = line.child(
+            Button::new("Restore")
+                .variant(ButtonVariant::GhostMuted)
+                .control_size(ControlSize::Small)
+                .on_press(move |s: &mut Hooked| s.archive_thread(r.clone(), false))
+                .build(k),
+        );
+    }
+    line.child(
+        Button::new(if armed { "Delete?" } else { "×" })
+            .variant(if armed {
+                ButtonVariant::Danger
+            } else {
+                ButtonVariant::GhostFaint
+            })
+            .control_size(ControlSize::Small)
+            .help("Delete this thread (click twice)")
+            .on_press(move |s: &mut Hooked| {
+                if s.lens_data.delete_armed.as_deref() == Some(d.as_str()) {
+                    s.lens_data.delete_armed = None;
+                    s.delete_thread(d.clone());
+                } else {
+                    s.lens_data.delete_armed = Some(d.clone());
+                }
+            })
+            .build(k),
+    )
+}
+
+fn threads_panel(s: &Hooked, k: &Kit) -> El {
+    let threads = &s.lens_data.threads;
+    let mut c = col().w_full().gap(10.0).padding(10.0);
+    for archived in [false, true] {
+        let list: Vec<&serde_json::Value> = threads
+            .iter()
+            .filter(|t| (t["status"] == "archived") == archived)
+            .collect();
+        if list.is_empty() {
+            continue;
+        }
+        c = c.child(section_title(
+            k,
+            if archived { "ARCHIVED" } else { "COMMENTS" },
+        ));
+        let mut files: Vec<&str> = Vec::new();
+        for t in &list {
+            let f = t["file"].as_str().unwrap_or("");
+            if !files.contains(&f) {
+                files.push(f);
+            }
+        }
+        for f in files {
+            let mut group: Vec<&&serde_json::Value> = list
+                .iter()
+                .filter(|t| t["file"].as_str() == Some(f))
+                .collect();
+            group.sort_by_key(|t| {
+                (
+                    t["sent"].as_bool() == Some(true),
+                    t["start"].as_u64().unwrap_or(0),
+                )
+            });
+            c = c.child(
+                text(f.rsplit('/').next().unwrap_or(f).to_string())
+                    .font(k.ty.text_xsmall_medium)
+                    .color(k.c.text_faint)
+                    .help(f.to_string()),
+            );
+            for t in group {
+                c = c.child(thread_row(s, k, t, archived));
+            }
+        }
+    }
+    if threads.is_empty() {
+        c = c.child(
+            text("No comments yet. + on a line starts one.")
+                .font(k.ty.text_small)
+                .color(k.c.text_faint),
+        );
+    }
+    col()
+        .key("review-threads")
+        .w(300.0)
+        .h_full()
+        .border_sides([0.0, 0.0, 0.0, 1.0], k.c.border_weak)
+        .scroll(ScrollSpec {
+            stick_bottom: false,
+        })
+        .child(c)
+}
+
 fn reviewed_toggle(s: &Hooked, k: &Kit, i: usize) -> El {
     let on = s.is_reviewed(i);
     Button::new(if on { "Reviewed" } else { "Mark reviewed" })
@@ -231,6 +385,25 @@ pub fn review(s: &Hooked, d: &Detail, k: &Kit) -> El {
             .key("review-claude"),
         );
     }
+    let live = ld
+        .threads
+        .iter()
+        .filter(|t| t["status"] != "archived")
+        .count();
+    top = top.child(
+        Button::new(format!("Comments · {live}"))
+            .icon(&icons::CONVERSE)
+            .variant(if ld.threads_open {
+                ButtonVariant::Outline
+            } else {
+                ButtonVariant::GhostMuted
+            })
+            .control_size(ControlSize::Regular)
+            .help("Every comment of this review, archived ones included")
+            .on_press(|s: &mut Hooked| s.lens_data.threads_open = !s.lens_data.threads_open)
+            .build(k)
+            .key("review-threads-toggle"),
+    );
     let pending = s.pending_threads().len();
     if pending > 0 {
         top = top.child(
@@ -299,13 +472,17 @@ pub fn review(s: &Hooked, d: &Detail, k: &Kit) -> El {
                 })
                 .build(s, k),
             );
-        row()
+        let mut body = row()
             .key("review-body")
             .w_full()
             .grow(1.0)
             .min_h(0.0)
             .child(files_rail(s, k))
-            .child(diff)
+            .child(diff);
+        if ld.threads_open {
+            body = body.child(threads_panel(s, k));
+        }
+        body
     };
     col().key("review").w_full().h_full().child(top).child(body)
 }
@@ -861,6 +1038,16 @@ fn annotation(s: &Hooked, a: &Annotation, k: &Kit) -> El {
             .center_y()
             .child(text(status.0).font(k.ty.text_xsmall_medium).color(status.1))
             .child(el().grow(1.0))
+            .child(if !sent && !archived {
+                let te = tid.clone();
+                Button::new("Edit")
+                    .variant(ButtonVariant::GhostMuted)
+                    .control_size(ControlSize::Small)
+                    .on_press(move |s: &mut Hooked| s.start_edit_thread(te.clone()))
+                    .build(k)
+            } else {
+                el()
+            })
             .child(
                 Button::new(if archived { "Reopen" } else { "Archive" })
                     .variant(ButtonVariant::GhostMuted)
@@ -880,6 +1067,47 @@ fn annotation(s: &Hooked, a: &Annotation, k: &Kit) -> El {
     );
     if archived {
         return c;
+    }
+    if let Some((_, edit)) = s.lens_data.editing.as_ref().filter(|(e, _)| *e == tid) {
+        return c
+            .child(
+                TextArea::new(edit)
+                    .width(None)
+                    .auto_grow(2, 10)
+                    .on_edit(|s: &mut Hooked| &mut s.lens_data.editing.as_mut().expect("editing").1)
+                    .on_key(|s: &mut Hooked, ev: &rune::KeyEvent, _| match ev.key {
+                        rune::Key::Enter if ev.mods.cmd => {
+                            s.save_edit_thread();
+                            true
+                        }
+                        rune::Key::Escape => {
+                            s.lens_data.editing = None;
+                            true
+                        }
+                        _ => false,
+                    })
+                    .build(k)
+                    .key(format!("th-edit-{tid}")),
+            )
+            .child(
+                row()
+                    .gap(8.0)
+                    .justify_end()
+                    .child(
+                        Button::new("Cancel")
+                            .variant(ButtonVariant::GhostMuted)
+                            .control_size(ControlSize::Small)
+                            .on_press(|s: &mut Hooked| s.lens_data.editing = None)
+                            .build(k),
+                    )
+                    .child(
+                        Button::new("Save")
+                            .variant(ButtonVariant::Contrast)
+                            .control_size(ControlSize::Small)
+                            .on_press(|s: &mut Hooked| s.save_edit_thread())
+                            .build(k),
+                    ),
+            );
     }
     for (i, m) in t["messages"].as_array().into_iter().flatten().enumerate() {
         let claude = m["author"].as_str() == Some("claude");
