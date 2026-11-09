@@ -25,6 +25,9 @@ const SCROLLBACK: usize = 10_000;
 pub struct Line {
     pub text: String,
     pub spans: Vec<Span>,
+    /// Cell backgrounds as column runs `[start, end)`, painted as full-height rectangles: a span
+    /// background only covers the glyphs' ascent and descent, which leaves a gap between rows.
+    pub bgs: Vec<(u16, u16, Color)>,
     /// Byte offset in `text` where each terminal column starts (a wide glyph's tail column
     /// repeats its head's offset); columns past the trimmed end fall beyond `text.len()`.
     pub cols: Vec<usize>,
@@ -220,6 +223,7 @@ impl Vt {
             let mut text = String::new();
             let mut spans: Vec<Span> = Vec::new();
             let mut cols: Vec<usize> = Vec::new();
+            let mut bgs: Vec<(u16, u16, Color)> = Vec::new();
             if let Ok(mut cells) = self.cell_iter.update(row) {
                 let mut graphemes = String::new();
                 while let Some(cell) = cells.next() {
@@ -228,9 +232,14 @@ impl Vt {
                         .and_then(|r| r.wide())
                         .is_ok_and(|w| w == CellWide::SpacerTail)
                     {
+                        let col = cols.len() as u16;
+                        if let Some(run) = bgs.last_mut().filter(|r| r.1 == col) {
+                            run.1 = col + 1;
+                        }
                         cols.push(cols.last().copied().unwrap_or(text.len()));
                         continue;
                     }
+                    let col = cols.len() as u16;
                     cols.push(text.len());
                     graphemes.clear();
                     let _ = cell.graphemes_utf8(&mut graphemes);
@@ -259,16 +268,19 @@ impl Vt {
                     if inverse {
                         (cfg, cbg) = (Some(cbg.unwrap_or(bg)), Some(cfg.unwrap_or(fg)));
                     }
-                    if cfg.is_none() && cbg.is_none() && !bold && !italic && !faint && !underline {
+                    if let Some(b) = cbg.map(color) {
+                        match bgs.last_mut() {
+                            Some(run) if run.1 == col && run.2 == b => run.1 = col + 1,
+                            _ => bgs.push((col, col + 1, b)),
+                        }
+                    }
+                    if cfg.is_none() && !bold && !italic && !faint && !underline {
                         continue;
                     }
                     let mut sp = Span::new(start, end);
                     let ink = cfg.map(color).unwrap_or_else(|| color(fg));
                     if cfg.is_some() || faint {
                         sp = sp.color(if faint { ink.alpha(0.6) } else { ink });
-                    }
-                    if let Some(b) = cbg {
-                        sp.bg = Some(color(b));
                     }
                     if bold {
                         sp = sp.bold();
@@ -296,6 +308,7 @@ impl Vt {
             self.lines[y] = Line {
                 text,
                 spans,
+                bgs,
                 cols,
                 version: self.version,
             };
@@ -604,6 +617,17 @@ mod tests {
         assert_eq!(vt.lines[1].text, "next");
         let c = vt.cursor.expect("cursor");
         assert_eq!((c.x, c.y), (4, 1));
+    }
+
+    #[test]
+    fn backgrounds_are_column_runs() {
+        let mut vt = Vt::new(20, 3).expect("terminal");
+        vt.write(b"ab\x1b[41mcde\x1b[0mf\x1b[44m\xe6\x97\xa5\x1b[0m");
+        let l = &vt.lines[0];
+        assert_eq!(l.bgs.len(), 2);
+        assert_eq!((l.bgs[0].0, l.bgs[0].1), (2, 5));
+        assert_eq!((l.bgs[1].0, l.bgs[1].1), (6, 8));
+        assert!(l.spans.iter().all(|s| s.bg.is_none()));
     }
 
     #[test]

@@ -7,12 +7,12 @@ use crate::ghostty::{CursorShape, Line};
 use crate::icons;
 use crate::terminal::Term;
 
-/// The line's text and spans with `marks` (column range, ink, fill) painted over them; marks
-/// win over the cells' own colours, and pad the line with spaces when they reach past its end.
-fn painted(line: &Line, marks: &[(u16, u16, Option<Color>, Color)]) -> (String, Vec<Span>) {
+/// The line's text and spans with `marks` (column range, ink) recoloured; marks win over the
+/// cells' own colours, and pad the line with spaces when they reach past its end.
+fn painted(line: &Line, marks: &[(u16, u16, Color)]) -> (String, Vec<Span>) {
     let mut text = line.text.clone();
     let mut spans = line.spans.clone();
-    for &(c0, c1, ink, fill) in marks {
+    for &(c0, c1, ink) in marks {
         let (a, b) = line.byte_range(c0, c1);
         if text.len() < b {
             text.push_str(&" ".repeat(b - text.len()));
@@ -35,12 +35,7 @@ fn painted(line: &Line, marks: &[(u16, u16, Option<Color>, Color)]) -> (String, 
                 kept.push(right);
             }
         }
-        let mut m = Span::new(a, b);
-        if let Some(c) = ink {
-            m = m.color(c);
-        }
-        m.bg = Some(fill);
-        kept.push(m);
+        kept.push(Span::new(a, b).color(ink));
         kept.sort_by_key(|s| s.start);
         spans = kept;
     }
@@ -71,21 +66,42 @@ fn screen(s: &Hooked, k: &Kit, t: &Term) -> El {
         let version = (
             line.version,
             s.term.sel.and_then(|sel| sel.row_range(row, cols)),
-            cur.map(|c| c.x),
+            cur.map(|c| (c.x, c.shape == CursorShape::Block)),
             k.dark,
+            (cw * 100.0) as i32,
         );
         let mono = k.ty.mono;
-        let built = if marks.is_empty() {
+        let inked: Vec<(u16, u16, Color)> = marks
+            .iter()
+            .filter_map(|&(a, b, ink, _)| Some((a, b, ink?)))
+            .collect();
+        let built = if inked.is_empty() {
             (line.text.clone(), line.spans.clone())
         } else {
-            painted(line, &marks)
+            painted(line, &inked)
         };
+        let fills: Vec<(u16, u16, Color)> = line
+            .bgs
+            .iter()
+            .copied()
+            .chain(marks.iter().map(|&(a, b, _, c)| (a, b, c)))
+            .collect();
         lines = lines.child(memo(format!("tl-{}-{i}", t.id), version, move || {
-            rich(built.0, built.1)
-                .font(mono)
-                .color(fg)
-                .single_line()
-                .h(ch)
+            let mut r = el().w_full().h(ch);
+            for (a, b, c) in fills {
+                r = r.child(
+                    el().absolute(f32::from(a) * cw, 0.0)
+                        .size(f32::from(b - a) * cw, ch)
+                        .fill(c),
+                );
+            }
+            r.child(
+                rich(built.0, built.1)
+                    .font(mono)
+                    .color(fg)
+                    .single_line()
+                    .h(ch),
+            )
         }));
     }
     if let Some(c) = cursor {
