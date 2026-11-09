@@ -687,6 +687,9 @@ fn converse(s: &Hooked, d: &Detail, k: &Kit) -> El {
     if d.session.live {
         out = out.child(composer(s, d, k, busy));
     } else {
+        if s.ac.is_some() {
+            out = out.child(row().w_full().px(20.0).child(autocomplete(s, k)));
+        }
         out = out.child(
             row()
                 .key("resume-bar")
@@ -1500,7 +1503,24 @@ fn composer_field(s: &Hooked, k: &Kit, placeholder: &str) -> El {
         .auto_grow(1, 10)
         .width(None)
         .on_edit(|s: &mut Hooked| &mut s.composer)
+        .on_change(|s: &mut Hooked, _| s.composer_changed())
         .on_key(|s: &mut Hooked, ev: &rune::KeyEvent, _| match ev.key {
+            Key::Down if s.ac.is_some() => {
+                s.ac_move(1);
+                true
+            }
+            Key::Up if s.ac.is_some() => {
+                s.ac_move(-1);
+                true
+            }
+            Key::Tab | Key::Enter if s.ac.is_some() => {
+                s.ac_accept(None);
+                true
+            }
+            Key::Escape if s.ac.is_some() => {
+                s.ac = None;
+                true
+            }
             Key::Enter if !ev.mods.shift && !ev.mods.alt => {
                 s.send();
                 true
@@ -1523,6 +1543,71 @@ fn composer_field(s: &Hooked, k: &Kit, placeholder: &str) -> El {
         .key("composer-field")
         .grow(1.0)
         .min_w(0.0)
+}
+
+fn autocomplete(s: &Hooked, k: &Kit) -> El {
+    let Some(ac) = s.ac.as_ref() else {
+        return el();
+    };
+    let start = ac.sel.saturating_sub(7);
+    let rows = ac
+        .items
+        .iter()
+        .enumerate()
+        .skip(start)
+        .take(8)
+        .map(|(i, it)| {
+            let on = i == ac.sel;
+            k.interactive(
+                row()
+                    .key(format!("ac-{i}"))
+                    .role("option")
+                    .checked(on)
+                    .w_full()
+                    .h(30.0)
+                    .px(10.0)
+                    .gap(10.0)
+                    .center_y()
+                    .radius(k.radius.sm)
+                    .cursor(Cursor::Pointer)
+                    .fill(if on { k.c.layer_02 } else { Color::TRANSPARENT })
+                    .child(
+                        text(it.label.clone())
+                            .font(k.ty.text_small_medium)
+                            .color(k.c.text_base),
+                    )
+                    .child(
+                        text(it.sub.clone())
+                            .font(k.ty.text_xsmall)
+                            .color(k.c.text_faint)
+                            .truncate()
+                            .grow(1.0)
+                            .min_w(0.0),
+                    )
+                    .child(
+                        text(it.badge.clone())
+                            .font(k.ty.text_xsmall)
+                            .color(k.c.text_faint),
+                    ),
+            )
+            .on_press(move |s: &mut Hooked| s.ac_accept(Some(i)))
+        });
+    col()
+        .key("composer-ac")
+        .w_full()
+        .padding(4.0)
+        .gap(1.0)
+        .radius(k.radius.md)
+        .fill(k.c.bg_base)
+        .border(1.0, k.c.border_base)
+        .children(rows)
+        .child(
+            text("↑↓ to choose · Tab or Enter to insert · Esc to close")
+                .font(k.ty.text_xsmall)
+                .color(k.c.text_faint)
+                .px(10.0)
+                .py(4.0),
+        )
 }
 
 fn send_button(s: &Hooked, k: &Kit) -> El {
@@ -1585,6 +1670,9 @@ fn composer(s: &Hooked, d: &Detail, k: &Kit, busy: bool) -> El {
             .help("Suggested follow-up: click to put it in the box")
             .on_press(move |s: &mut Hooked| s.use_followup(use_it.clone())),
         );
+    }
+    if s.ac.is_some() {
+        c = c.child(autocomplete(s, k));
     }
     if !s.attachments.is_empty() {
         c = c.child(

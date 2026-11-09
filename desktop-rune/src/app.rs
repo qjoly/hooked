@@ -131,6 +131,8 @@ pub struct Hooked {
     pub media: HashMap<String, Option<rune::Image>>,
     pub drafts: HashMap<String, String>,
     pub full_texts: HashMap<String, Option<String>>,
+    pub ac: Option<Autocomplete>,
+    pub ac_req: u64,
     pub tools_open: HashSet<String>,
     pub all_tools_open: bool,
     pub visible: usize,
@@ -177,6 +179,79 @@ pub struct Hooked {
 }
 
 pub const WINDOW: usize = 40;
+
+#[derive(Clone, Debug)]
+pub struct AcItem {
+    pub insert: String,
+    pub label: String,
+    pub sub: String,
+    pub badge: String,
+}
+
+pub struct Autocomplete {
+    pub start: usize,
+    pub caret: usize,
+    pub items: Vec<AcItem>,
+    pub sel: usize,
+}
+
+fn ac_items(v: &serde_json::Value, files: bool) -> Vec<AcItem> {
+    if files {
+        v["files"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|f| f.as_str())
+            .take(30)
+            .map(|f| AcItem {
+                insert: format!("@{f} "),
+                label: f.rsplit('/').next().unwrap_or(f).to_string(),
+                sub: f.to_string(),
+                badge: String::new(),
+            })
+            .collect()
+    } else {
+        v["commands"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .map(|c| {
+                let name = c["name"].as_str().unwrap_or("");
+                AcItem {
+                    insert: format!("/{name} "),
+                    label: format!("/{name}"),
+                    sub: c["description"].as_str().unwrap_or("").to_string(),
+                    badge: if c["group"] == "custom" {
+                        c["source"].as_str().unwrap_or("custom").to_string()
+                    } else {
+                        "built-in".to_string()
+                    },
+                }
+            })
+            .collect()
+    }
+}
+
+enum AcQuery {
+    Command(String),
+    File(String, usize),
+}
+
+fn ac_query(before: &str) -> Option<AcQuery> {
+    if let Some(q) = before.strip_prefix('/')
+        && q.chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, ':' | '_' | '-'))
+    {
+        return Some(AcQuery::Command(q.to_string()));
+    }
+    let at = before.rfind('@')?;
+    let q = &before[at + 1..];
+    let boundary = before[..at]
+        .chars()
+        .next_back()
+        .is_none_or(char::is_whitespace);
+    (boundary && !q.chars().any(char::is_whitespace)).then(|| AcQuery::File(q.to_string(), at))
+}
 const STEP: usize = 120;
 
 impl Hooked {
@@ -246,6 +321,8 @@ impl Hooked {
             media: HashMap::new(),
             drafts,
             full_texts: HashMap::new(),
+            ac: None,
+            ac_req: 0,
             tools_open: HashSet::new(),
             all_tools_open: false,
             visible: WINDOW,
@@ -435,6 +512,32 @@ impl Hooked {
                 s.palette_cites_for = q;
             }
         }
+        if let Some(i) = args.iter().position(|a| a == "--composer") {
+            let t = args.get(i + 1).cloned().unwrap_or_default();
+            s.composer = TextEdit::new(t.clone());
+            s.composer.set_caret(t.len());
+            if let (Some(q), Some(id)) = (ac_query(&t), s.selected.clone()) {
+                let (path, start, files) = match q {
+                    AcQuery::Command(q) => (
+                        format!("/api/commands?id={}&q={}", api::enc(&id), api::enc(&q)),
+                        0,
+                        false,
+                    ),
+                    AcQuery::File(q, at) => (
+                        format!("/api/files?id={}&q={}", api::enc(&id), api::enc(&q)),
+                        at,
+                        true,
+                    ),
+                };
+                let items = ac_items(&api::get(&path).unwrap_or_default(), files);
+                s.ac = Some(Autocomplete {
+                    start,
+                    caret: t.len(),
+                    items,
+                    sel: 0,
+                });
+            }
+        }
         if args.iter().any(|a| a == "--expand-tools") {
             s.all_tools_open = true;
         }
@@ -579,6 +682,70 @@ impl Hooked {
         );
     }
 
+    pub fn composer_changed(&mut self) {
+        let (caret, end) = self.composer.range();
+        let query = (caret == end)
+            .then(|| ac_query(&self.composer.text[..caret]))
+            .flatten();
+        let (Some(query), Some(id)) = (query, self.selected.clone()) else {
+            self.ac = None;
+            return;
+        };
+        self.ac_req += 1;
+        let req = self.ac_req;
+        let (path, start) = match &query {
+            AcQuery::Command(q) => (
+                format!("/api/commands?id={}&q={}", api::enc(&id), api::enc(q)),
+                0,
+            ),
+            AcQuery::File(q, at) => (
+                format!("/api/files?id={}&q={}", api::enc(&id), api::enc(q)),
+                *at,
+            ),
+        };
+        let files = matches!(query, AcQuery::File(..));
+        spawn(
+            move || api::get(&path),
+            move |s, r, _| {
+                if s.ac_req != req || s.composer.range() != (caret, caret) {
+                    return;
+                }
+                let items = ac_items(&r.unwrap_or_default(), files);
+                s.ac = (!items.is_empty()).then_some(Autocomplete {
+                    start,
+                    caret,
+                    items,
+                    sel: 0,
+                });
+            },
+        );
+    }
+
+    pub fn ac_move(&mut self, delta: isize) {
+        if let Some(ac) = self.ac.as_mut() {
+            let n = ac.items.len() as isize;
+            ac.sel = ((ac.sel as isize + delta).rem_euclid(n)) as usize;
+        }
+    }
+
+    pub fn ac_accept(&mut self, index: Option<usize>) {
+        let Some(ac) = self.ac.take() else {
+            return;
+        };
+        let Some(item) = ac.items.get(index.unwrap_or(ac.sel)) else {
+            return;
+        };
+        let t = &self.composer.text;
+        if ac.caret > t.len() || ac.start > ac.caret {
+            return;
+        }
+        let text = format!("{}{}{}", &t[..ac.start], item.insert, &t[ac.caret..]);
+        let caret = ac.start + item.insert.len();
+        self.composer.replace_text(text);
+        self.composer.set_caret(caret);
+        self.composer.focused = true;
+    }
+
     pub fn open_ghostty(&mut self) {
         let Some(id) = self.selected.clone() else {
             return;
@@ -665,6 +832,7 @@ impl Hooked {
             ..Default::default()
         };
         self.lens_data.diff.set_mode(mode);
+        self.ac = None;
         self.composer = TextEdit::new(self.drafts.get(id).cloned().unwrap_or_default());
         self.composer.focused = true;
         self.reset_question();
@@ -1700,6 +1868,15 @@ pub fn open_link(s: &mut Hooked, url: &str, tx: &mut Tx) {
 #[cfg(test)]
 mod link_tests {
     use super::*;
+
+    #[test]
+    fn composer_triggers() {
+        assert!(matches!(ac_query("/rev"), Some(AcQuery::Command(q)) if q == "rev"));
+        assert!(ac_query("fix /rev").is_none());
+        assert!(matches!(ac_query("see @src/ma"), Some(AcQuery::File(q, 4)) if q == "src/ma"));
+        assert!(ac_query("mail me@host").is_none());
+        assert!(ac_query("@a b").is_none());
+    }
 
     #[test]
     fn links_go_where_hooked_sends_them() {
