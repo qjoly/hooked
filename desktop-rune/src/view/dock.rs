@@ -627,6 +627,63 @@ fn links(s: &Hooked, d: &Detail, k: &Kit) -> El {
                     );
             }
         }
+        if let Some(checks) = s.gh_checks.get(&url).filter(|c| !c.is_empty()) {
+            let rank = |st: &str| match st {
+                "failed" | "cancelled" => 0,
+                "pending" => 1,
+                _ => 2,
+            };
+            let mut list: Vec<&Value> = checks.iter().collect();
+            list.sort_by_key(|c| rank(str_of(c, "status")));
+            let failing = list
+                .iter()
+                .filter(|c| rank(str_of(c, "status")) == 0)
+                .count();
+            let running = list
+                .iter()
+                .filter(|c| str_of(c, "status") == "pending")
+                .count();
+            detail = detail.child(
+                text(if failing > 0 {
+                    format!("{failing} of {} checks failing", list.len())
+                } else if running > 0 {
+                    format!("{running} of {} checks running", list.len())
+                } else {
+                    "All checks passed".to_string()
+                })
+                .font(k.ty.text_xsmall_medium)
+                .color(if failing > 0 {
+                    k.c.danger.fg
+                } else {
+                    k.c.text_muted
+                }),
+            );
+            for (i, c) in list.into_iter().enumerate() {
+                let link = str_of(c, "url").to_string();
+                detail = detail.child(
+                    k.interactive(
+                        row()
+                            .key(format!("check-{i}"))
+                            .role("link")
+                            .w_full()
+                            .gap(6.0)
+                            .center_y()
+                            .cursor(Cursor::Pointer)
+                            .help(str_of(c, "workflow").to_string())
+                            .child(dot(k, super::ghrun::state_of(str_of(c, "status")), 7.0))
+                            .child(
+                                text(str_of(c, "name").to_string())
+                                    .font(k.ty.text_small)
+                                    .color(k.c.text_muted)
+                                    .truncate()
+                                    .grow(1.0)
+                                    .min_w(0.0),
+                            ),
+                    )
+                    .on_press_tx(move |s: &mut Hooked, tx| crate::app::open_link(s, &link, tx)),
+                );
+            }
+        }
         let open_url = url.clone();
         detail = detail.child(
             Button::new("Open on GitHub")

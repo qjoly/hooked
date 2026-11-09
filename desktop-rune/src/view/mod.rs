@@ -1,5 +1,6 @@
 mod deck;
 mod dock;
+pub(crate) mod ghrun;
 mod lenses;
 mod new_session;
 mod organize;
@@ -113,6 +114,9 @@ pub fn view(s: &Hooked, cx: &mut Cx<Hooked>) -> El {
         .fill(k.c.bg_deep)
         .child(topbar(s, &k, cx.titlebar_inset(), &mut layer))
         .child(body);
+    if let Some(w) = s.run_win.as_ref() {
+        layer.push(ghrun::view(s, w, &k));
+    }
     if s.palette_open {
         layer.push(palette::view(s, &k));
     }

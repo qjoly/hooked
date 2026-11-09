@@ -131,6 +131,8 @@ pub struct Hooked {
     pub drafts: HashMap<String, String>,
     pub reviewed: HashMap<String, Vec<String>>,
     pub job_log: Option<(String, String)>,
+    pub run_win: Option<crate::ghrun::RunWin>,
+    pub gh_checks: HashMap<String, Vec<serde_json::Value>>,
     pub plan_quote: Option<String>,
     pub plan_comments: Vec<(String, String)>,
     pub job_gen: Arc<AtomicU64>,
@@ -340,6 +342,8 @@ impl Hooked {
             drafts,
             reviewed,
             job_log: None,
+            run_win: None,
+            gh_checks: HashMap::new(),
             plan_quote: None,
             plan_comments: Vec::new(),
             job_gen: Arc::new(AtomicU64::new(0)),
@@ -597,6 +601,28 @@ impl Hooked {
                 })
                 .unwrap_or_default();
             s.picker = Some(crate::organize::Picker::Image { paths, index: n });
+        }
+        if let Some(i) = args.iter().position(|a| a == "--run") {
+            let url = args.get(i + 1).cloned().unwrap_or_default();
+            let run = api::get(&format!("/api/github/run?url={}", api::enc(&url))).ok();
+            let mut w = crate::ghrun::RunWin {
+                job: crate::ghrun::parse_run_url(&url).filter(|j| !j.is_empty()),
+                url,
+                run,
+                err: None,
+                log: None,
+                loading: false,
+                polled: fmt::now_ms(),
+            };
+            if let Some(j) = w.job().cloned() {
+                let log = api::get(&format!(
+                    "/api/github/run/log?url={}",
+                    api::enc(j["url"].as_str().unwrap_or(""))
+                ))
+                .map(|v| v["log"].as_str().map(str::to_string));
+                w.log = Some((j["id"].as_str().unwrap_or("").to_string(), log));
+            }
+            s.run_win = Some(w);
         }
         if args.iter().any(|a| a == "--rendered") {
             s.lens_data.rendered = true;
@@ -1967,11 +1993,29 @@ impl Hooked {
                 let url = url.clone();
                 move || api::gh_view(&url)
             },
-            move |s, r, _| {
-                let v = r.unwrap_or_else(|e| serde_json::json!({ "error": e }));
-                s.gh.insert(url, v);
+            {
+                let url = url.clone();
+                move |s, r, _| {
+                    let v = r.unwrap_or_else(|e| serde_json::json!({ "error": e }));
+                    s.gh.insert(url, v);
+                }
             },
         );
+        if url.contains("/pull/") {
+            spawn(
+                {
+                    let url = url.clone();
+                    move || api::get(&format!("/api/github/detail?url={}", api::enc(&url)))
+                },
+                move |s, r, _| {
+                    let checks = r
+                        .ok()
+                        .and_then(|v| v["checks"].as_array().cloned())
+                        .unwrap_or_default();
+                    s.gh_checks.insert(url, checks);
+                },
+            );
+        }
     }
 
     /// Projects offered by New session: favourites first, then by last activity, worktrees
@@ -2057,6 +2101,10 @@ pub fn link_target(url: &str) -> LinkTarget {
 }
 
 pub fn open_link(s: &mut Hooked, url: &str, tx: &mut Tx) {
+    if crate::ghrun::parse_run_url(url).is_some() {
+        s.open_run(url.to_string());
+        return;
+    }
     match link_target(url) {
         LinkTarget::Session(id) => s.open_session(&id),
         LinkTarget::Open(target) => {
