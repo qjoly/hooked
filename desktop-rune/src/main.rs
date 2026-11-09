@@ -17,6 +17,9 @@ use rune::{AppSpec, Chrome, Key, KeyEvent, Tx};
 
 use app::{HANDLE, Hooked, Lens, Page};
 
+/// Rune's default mono family is Inter; terminals and code need a real fixed-width face.
+pub const MONO: &str = "ui-monospace, Menlo, monospace";
+
 fn on_key(s: &mut Hooked, ev: &KeyEvent, tx: &mut Tx) -> bool {
     if ev.is_command('k') || ev.is_command('p') {
         s.palette_open = !s.palette_open;
@@ -120,6 +123,9 @@ fn poll(s: &mut Hooked, _clock: f64, tx: &mut Tx) -> bool {
     }
     changed |= s.ensure_lens();
     changed |= s.ensure_page();
+    if let Some(wait) = s.flush_term_size(now) {
+        tx.wake_after(wait);
+    }
     tray::sync(s);
     tx.wake_after(Duration::from_millis(if working { 1000 } else { 5000 }));
     changed
@@ -155,6 +161,7 @@ fn main() {
         poll: Some(poll),
         setup: Some(setup),
         min_size: Some((720.0, 480.0)),
+        families: ("Inter", MONO),
         ..AppSpec::new("hooked", (1320.0, 860.0), Hooked::new, view::view)
     };
     let app = rune::App::new(spec)

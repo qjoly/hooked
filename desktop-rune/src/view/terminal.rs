@@ -113,13 +113,7 @@ fn screen(s: &Hooked, k: &Kit, t: &Term) -> El {
             .single_line()
             .absolute(0.0, 0.0)
             .opacity(0.0)
-            .on_layout(|s: &mut Hooked, r: [f32; 4]| {
-                let cw = (r[2] / 10.0).max(1.0);
-                if (s.term.cell.0 - cw).abs() > 0.01 {
-                    s.term.cell = (cw, 18.0);
-                    s.term.size = None;
-                }
-            }),
+            .on_layout(|s: &mut Hooked, r: [f32; 4]| s.set_cell((r[2] / 10.0).max(1.0))),
     )
 }
 
@@ -270,7 +264,8 @@ pub fn panel(s: &Hooked, k: &Kit) -> El {
         .label("Terminal")
         .focusable(true)
         .w_full()
-        .h(420.0)
+        .grow(1.0)
+        .min_h(0.0)
         .padding(8.0)
         .fill(
             p.terms
@@ -297,17 +292,37 @@ pub fn panel(s: &Hooked, k: &Kit) -> El {
             s.term_wheel(e.dy, e.x, e.y);
             true
         })
-        .on_layout(|s: &mut Hooked, r: [f32; 4]| {
-            let cell = if s.term.cell.0 > 0.0 {
-                s.term.cell
-            } else {
-                (7.2, 18.0)
-            };
-            s.fit_terms(r[2], r[3], cell)
-        })
+        .on_layout(|s: &mut Hooked, r: [f32; 4]| s.fit_terms(r[2], r[3]))
         .on_paste_content(|s: &mut Hooked, c: &rune::ClipboardContent, _| {
             s.term_paste(c.text());
         })
         .child(body);
-    col().key("term-panel").w_full().child(bar).child(term)
+    let grip = el()
+        .key("term-resize")
+        .w_full()
+        .h(6.0)
+        .cursor(Cursor::ResizeRow)
+        .help("Drag to resize")
+        .on_drag(|s: &mut Hooked, d: &mut rune::Drag, _| {
+            if d.phase == rune::Phase::Down {
+                d.data = s.term.height.unwrap_or(s.term.screen.1 + 38.0);
+            }
+            let h = (d.data - d.dy).clamp(120.0, s.window_h * 0.8);
+            s.term.height = Some(h);
+            if d.phase == rune::Phase::Up {
+                s.save_pref("termHeight", &h);
+            }
+        });
+    let height = s
+        .term
+        .height
+        .unwrap_or(s.window_h / 3.0)
+        .clamp(120.0, (s.window_h * 0.8).max(120.0));
+    col()
+        .key("term-panel")
+        .w_full()
+        .h(height)
+        .child(grip)
+        .child(bar)
+        .child(term)
 }

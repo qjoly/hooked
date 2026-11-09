@@ -58,6 +58,11 @@ impl Sel {
 
 #[derive(Default)]
 pub struct TermPanel {
+    /// Panel height in points; None until the user drags it (a third of the window then).
+    pub height: Option<f32>,
+    pub screen: (f32, f32),
+    /// The size the PTYs still have to be told about, and when (debounced like the web's fit).
+    pub pending: Option<((u16, u16), i64)>,
     pub sel: Option<Sel>,
     pub preedit: String,
     pub size: Option<(u16, u16)>,
@@ -298,20 +303,31 @@ impl Hooked {
         );
     }
 
-    /// Fits the shells to the panel: Ghostty's grid at once, the PTY over the API.
-    pub fn fit_terms(&mut self, w: f32, h: f32, cell: (f32, f32)) {
-        self.term.cell = cell;
-        let cols = ((w - 16.0) / cell.0).floor().clamp(20.0, 400.0) as u16;
-        let rows = ((h - 16.0) / cell.1).floor().clamp(5.0, 200.0) as u16;
+    /// Fits the shells to the panel, as the web's fit addon does: the grid only changes when the
+    /// cell count does, Ghostty follows at once and the PTYs 150 ms after the last change.
+    pub fn fit_terms(&mut self, w: f32, h: f32) {
+        self.term.screen = (w, h);
+        let cell = self.term_cell();
+        let cols = ((w - 2.0 * PAD) / cell.0).floor().clamp(20.0, 500.0) as u16;
+        let rows = ((h - 2.0 * PAD) / cell.1).floor().clamp(3.0, 300.0) as u16;
         if self.term.size == Some((cols, rows)) {
             return;
         }
         self.term.size = Some((cols, rows));
         for t in self.term.terms.iter_mut() {
             t.vt.resize(cols, rows, cell);
-            if t.exited {
-                continue;
-            }
+        }
+        self.term.pending = Some(((cols, rows), crate::fmt::now_ms() + 150));
+    }
+
+    /// Sends a settled panel size to every live PTY; called from `poll`.
+    pub fn flush_term_size(&mut self, now: i64) -> Option<std::time::Duration> {
+        let ((cols, rows), due) = self.term.pending?;
+        if now < due {
+            return Some(std::time::Duration::from_millis((due - now) as u64));
+        }
+        self.term.pending = None;
+        for t in self.term.terms.iter().filter(|t| !t.exited) {
             let id = t.id.clone();
             spawn(
                 move || {
@@ -322,6 +338,19 @@ impl Hooked {
                 },
                 |_, _, _| {},
             );
+        }
+        None
+    }
+
+    pub fn set_cell(&mut self, cw: f32) {
+        if (self.term.cell.0 - cw).abs() < 0.01 {
+            return;
+        }
+        self.term.cell = (cw, 18.0);
+        self.term.size = None;
+        let (w, h) = self.term.screen;
+        if w > 0.0 {
+            self.fit_terms(w, h);
         }
     }
 

@@ -97,6 +97,11 @@ pub fn view(s: &Hooked, cx: &mut Cx<Hooked>) -> El {
     }
     let base = col()
         .key("window")
+        .on_layout(|s: &mut Hooked, r: [f32; 4]| {
+            if (s.window_h - r[3]).abs() > 0.5 {
+                s.window_h = r[3];
+            }
+        })
         .on_paste_content(|s: &mut Hooked, c: &rune::ClipboardContent, _| {
             if let Some(img) = c.image() {
                 let n = s.attach_seq + 1;

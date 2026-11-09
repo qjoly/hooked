@@ -104,6 +104,7 @@ pub struct Hooked {
 
     pub sidebar_open: bool,
     pub sidebar_w: f32,
+    pub window_h: f32,
     pub show_archived: bool,
     pub hide_old: bool,
     pub group_by_project: bool,
@@ -184,6 +185,7 @@ impl Hooked {
             notify,
             sidebar_open,
             sidebar_w: prefs_w,
+            window_h: 860.0,
             show_archived: false,
             hide_old,
             group_by_project,
@@ -238,6 +240,7 @@ impl Hooked {
             .map(|x| x.id.clone())
             .collect();
         let args = rune::extra_args();
+        s.term.height = s.prefs.get("termHeight");
         if let Some(i) = args.iter().position(|a| a == "--session")
             && let Some(id) = args.get(i + 1)
         {
