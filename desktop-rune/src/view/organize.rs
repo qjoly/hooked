@@ -202,6 +202,7 @@ pub fn view(s: &Hooked, k: &Kit) -> El {
             modal(k, "group-modal", "Move to group", body)
         }
         Some(Picker::Trash { items, busy }) => trash(s, k, items.as_deref(), busy.as_deref()),
+        Some(Picker::Image { paths, index }) => image(s, k, paths, *index),
         Some(Picker::Agent {
             title, messages, ..
         }) => agent(s, k, title, messages.as_deref()),
@@ -504,4 +505,68 @@ fn agent(s: &Hooked, k: &Kit, title: &str, messages: Option<&[crate::api::Messag
         .pt(60.0)
         .modal(true, |s: &mut Hooked| s.picker = None)
         .child(col().items_center().w_full().child(panel))
+}
+
+fn image(s: &Hooked, k: &Kit, paths: &[String], index: usize) -> El {
+    let Some(path) = paths.get(index) else {
+        return el();
+    };
+    let img = s.media.get(path).and_then(Option::as_ref);
+    let (max_w, max_h) = (1280.0_f32, (s.window_h - 140.0).max(200.0));
+    let pic = match img.and_then(|i| i.size().map(|sz| (i, sz))) {
+        Some((i, [w, h])) => {
+            let (w, h) = (w.max(1) as f32 / 2.0, h.max(1) as f32 / 2.0);
+            let scale = (max_w / w).min(max_h / h).min(2.0);
+            el().size(w * scale, h * scale).pixels(i.pixels())
+        }
+        None => text("Loading…").font(k.ty.body).color(k.c.text_faint),
+    };
+    let name = path.rsplit('/').next().unwrap_or(path).to_string();
+    let url = format!("file://{path}");
+    let bar = row()
+        .gap(10.0)
+        .center_y()
+        .padding(8.0)
+        .radius(k.radius.md)
+        .fill(k.c.bg_base)
+        .child(text(name).font(k.ty.ui_medium).color(k.c.text_base))
+        .child(
+            text(if paths.len() > 1 {
+                format!("{} / {} · ← →", index + 1, paths.len())
+            } else {
+                String::new()
+            })
+            .font(k.ty.text_xsmall)
+            .color(k.c.text_faint),
+        )
+        .child(
+            Button::new("Open in Preview")
+                .variant(ButtonVariant::GhostMuted)
+                .on_press_tx(move |_: &mut Hooked, tx| {
+                    let _ = tx.open_url(&url);
+                })
+                .build(k),
+        )
+        .child(
+            Button::new("Close")
+                .variant(ButtonVariant::GhostMuted)
+                .on_press(|s: &mut Hooked| s.picker = None)
+                .build(k),
+        );
+    el().key("image-modal")
+        .absolute(0.0, 0.0)
+        .w_full()
+        .h_full()
+        .fill(k.c.scrim)
+        .items_center()
+        .pt(30.0)
+        .modal(true, |s: &mut Hooked| s.picker = None)
+        .child(
+            col()
+                .items_center()
+                .w_full()
+                .gap(10.0)
+                .child(bar)
+                .child(pic.radius(k.radius.md).clip_rounded(k.radius.md)),
+        )
 }

@@ -919,19 +919,19 @@ pub(super) fn picture(s: &Hooked, k: &Kit, path: &str, max_w: f32, max_h: f32) -
                 .truncate(),
             ),
     };
-    let url = format!("file://{path}");
     k.interactive(
         tile.key(format!("pic-{path}"))
             .role("link")
             .label(name.clone())
-            .help(format!("{name} · click to open"))
+            .help(format!("{name} · click to enlarge"))
             .radius(k.radius.md)
             .clip_rounded(k.radius.md)
             .border(1.0, k.c.border_weak)
             .cursor(Cursor::Pointer),
     )
-    .on_press_tx(move |_: &mut Hooked, tx| {
-        let _ = tx.open_url(&url);
+    .on_press({
+        let path = path.to_string();
+        move |s: &mut Hooked| s.open_image(vec![path.clone()], 0)
     })
 }
 

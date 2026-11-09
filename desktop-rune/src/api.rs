@@ -403,6 +403,18 @@ pub fn media_refs(d: &Detail) -> Vec<(String, String)> {
             }
         }
     }
+    for shot in &d.screenshots {
+        if let Some(p) = shot["path"].as_str() {
+            out.push((
+                p.to_string(),
+                format!(
+                    "/api/screenshot?session={}&path={}",
+                    enc(&d.session.id),
+                    enc(p)
+                ),
+            ));
+        }
+    }
     out
 }
 

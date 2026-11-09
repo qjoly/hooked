@@ -23,6 +23,10 @@ pub enum Picker {
         items: Option<Vec<serde_json::Value>>,
         busy: Option<String>,
     },
+    Image {
+        paths: Vec<String>,
+        index: usize,
+    },
     Agent {
         title: String,
         messages: Option<Vec<crate::api::Message>>,
@@ -254,6 +258,19 @@ impl Hooked {
         };
         let name = edit.text.trim().to_string();
         self.group_op("rename", id, json!({ "name": name }));
+    }
+
+    pub fn open_image(&mut self, paths: Vec<String>, index: usize) {
+        self.picker = Some(Picker::Image { paths, index });
+    }
+
+    pub fn step_image(&mut self, delta: isize) -> bool {
+        let Some(Picker::Image { paths, index }) = self.picker.as_mut() else {
+            return false;
+        };
+        let n = paths.len() as isize;
+        *index = ((*index as isize + delta).rem_euclid(n.max(1))) as usize;
+        true
     }
 
     pub fn open_agent(&mut self, agent: String, title: String) {

@@ -127,7 +127,6 @@ pub struct Hooked {
     pub gh_open: Option<String>,
     pub gh: HashMap<String, serde_json::Value>,
     pub images: Option<rune::ImageCache>,
-    pub thumbs: HashMap<String, rune::Image>,
     pub media: HashMap<String, Option<rune::Image>>,
     pub drafts: HashMap<String, String>,
     pub reviewed: HashMap<String, Vec<String>>,
@@ -321,7 +320,6 @@ impl Hooked {
             gh_open: None,
             gh: HashMap::new(),
             images: None,
-            thumbs: HashMap::new(),
             media: HashMap::new(),
             drafts,
             reviewed,
@@ -567,6 +565,20 @@ impl Hooked {
                 title: "Agent transcript".into(),
                 messages: Some(messages),
             });
+        }
+        if let Some(i) = args.iter().position(|a| a == "--image") {
+            let n: usize = args.get(i + 1).and_then(|v| v.parse().ok()).unwrap_or(0);
+            let paths: Vec<String> = s
+                .detail
+                .as_ref()
+                .map(|d| {
+                    d.screenshots
+                        .iter()
+                        .filter_map(|x| x["path"].as_str().map(str::to_string))
+                        .collect()
+                })
+                .unwrap_or_default();
+            s.picker = Some(crate::organize::Picker::Image { paths, index: n });
         }
         if args.iter().any(|a| a == "--rendered") {
             s.lens_data.rendered = true;
@@ -1189,18 +1201,6 @@ impl Hooked {
             self.working_since.get_or_insert(fmt::now_ms());
         } else {
             self.working_since = None;
-        }
-        if let Some(cache) = self.images.as_ref() {
-            for shot in &d.screenshots {
-                let Some(path) = shot["path"].as_str() else {
-                    continue;
-                };
-                if !self.thumbs.contains_key(path)
-                    && let Ok(bytes) = std::fs::read(path)
-                {
-                    self.thumbs.insert(path.to_string(), cache.load(bytes));
-                }
-            }
         }
         self.want_media(&d, false);
         self.detail = Some(d);

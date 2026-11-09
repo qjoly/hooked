@@ -654,12 +654,18 @@ fn screenshots(s: &Hooked, d: &Detail, k: &Kit) -> El {
     );
     let mut shots: Vec<&Value> = d.screenshots.iter().collect();
     shots.sort_by(|a, b| str_of(b, "ts").cmp(str_of(a, "ts")));
+    let all: Vec<String> = shots
+        .iter()
+        .map(|x| str_of(x, "path").to_string())
+        .collect();
     let grid = row().w_full().gap(6.0).flex_wrap().children(
         shots
             .into_iter()
             .take(if open { 60 } else { 4 })
-            .map(|shot| {
+            .enumerate()
+            .map(|(i, shot)| {
                 let path = str_of(shot, "path").to_string();
+                let all = all.clone();
                 let mut tile = el()
                     .key(format!("shot-{path}"))
                     .size(122.0, 76.0)
@@ -667,13 +673,11 @@ fn screenshots(s: &Hooked, d: &Detail, k: &Kit) -> El {
                     .fill(k.c.layer_02)
                     .border(1.0, k.c.border_weak)
                     .help(str_of(shot, "name").to_string());
-                if let Some(img) = s.thumbs.get(&path) {
+                if let Some(Some(img)) = s.media.get(&path) {
                     tile = tile.pixels(img.pixels());
                 }
                 k.interactive(tile.role("link").cursor(Cursor::Pointer))
-                    .on_press_tx(move |_: &mut Hooked, tx| {
-                        let _ = tx.open_url(&format!("file://{path}"));
-                    })
+                    .on_press(move |s: &mut Hooked| s.open_image(all.clone(), i))
             }),
     );
     c.child(grid)

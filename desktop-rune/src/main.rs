@@ -125,6 +125,13 @@ fn on_key(s: &mut Hooked, ev: &KeyEvent, tx: &mut Tx) -> bool {
     if s.page == Page::Session && s.lens == Lens::Review && s.lens_data.diff.key(ev, tx) {
         return true;
     }
+    if matches!(s.picker, Some(organize::Picker::Image { .. })) {
+        match ev.key {
+            Key::Left => return s.step_image(-1),
+            Key::Right => return s.step_image(1),
+            _ => {}
+        }
+    }
     if ev.key == Key::Escape {
         if s.focus && !s.palette_open && s.picker.is_none() && s.popup.is_none() {
             s.focus = false;
