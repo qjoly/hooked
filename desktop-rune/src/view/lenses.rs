@@ -620,6 +620,7 @@ pub fn review(s: &Hooked, d: &Detail, k: &Kit) -> El {
                 })
                 .on_comment(|s: &mut Hooked, range, _| s.start_comment(range))
                 .on_visible_file(|_: &mut Hooked, _| {})
+                .on_select(|s: &mut Hooked, sel, _| s.blame_line(sel))
                 .header_actions({
                     let k = k.clone();
                     move |s: &Hooked, i| file_actions(s, &k, i)
@@ -639,6 +640,27 @@ pub fn review(s: &Hooked, d: &Detail, k: &Kit) -> El {
         body
     };
     let mut out = col().key("review").w_full().h_full().child(top);
+    if let Some(b) = s.blame_text() {
+        out = out.child(
+            row()
+                .key("review-blame")
+                .w_full()
+                .h(26.0)
+                .px(16.0)
+                .gap(8.0)
+                .center_y()
+                .border_sides([0.0, 0.0, 1.0, 0.0], k.c.border_weak)
+                .child(glyph(&icons::GIT_BRANCH, 12.0, k.c.icon_muted))
+                .child(
+                    text(b)
+                        .font(k.ty.text_xsmall)
+                        .color(k.c.text_muted)
+                        .truncate()
+                        .grow(1.0)
+                        .min_w(0.0),
+                ),
+        );
+    }
     if ld.turns_open && ld.review_source == ReviewSource::Claude {
         out = out.child(turns_panel(s, d, k));
     }

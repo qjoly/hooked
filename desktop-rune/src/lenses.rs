@@ -23,6 +23,8 @@ pub struct LensData {
     pub asking: bool,
     pub turns: std::collections::BTreeSet<usize>,
     pub full: HashMap<String, Option<Change>>,
+    pub blame: HashMap<(String, String), Option<Value>>,
+    pub blame_at: Option<(usize, Side, u32)>,
     pub turns_open: bool,
     pub anchors: Vec<(String, String)>,
     pub threads: Vec<Value>,
@@ -60,6 +62,8 @@ impl Default for LensData {
             asking: false,
             turns: Default::default(),
             full: HashMap::new(),
+            blame: HashMap::new(),
+            blame_at: None,
             turns_open: false,
             anchors: Vec::new(),
             threads: Vec::new(),
@@ -357,6 +361,100 @@ impl Hooked {
                 }
             },
         );
+    }
+
+    /// Which revision a side of diff `file` comes from, when its line numbers are the file's.
+    fn blame_rev(&self, file: usize, side: Side) -> Option<(String, String)> {
+        let (path, key) = self.lens_data.anchors.get(file)?;
+        let rev = match (self.lens_data.review_source, side) {
+            (ReviewSource::Tree, Side::Old) => "HEAD",
+            (ReviewSource::Tree, Side::New) => "",
+            (ReviewSource::Claude, Side::Old) => return None,
+            (ReviewSource::Claude, Side::New) => {
+                let j: usize = key.strip_prefix("full:")?.parse().ok()?;
+                let c = self
+                    .detail
+                    .as_ref()?
+                    .changes
+                    .iter()
+                    .find(|c| c.file == *path)?;
+                (c.ops.get(j)?["kind"] == "write").then_some("")?
+            }
+        };
+        Some((path.clone(), rev.to_string()))
+    }
+
+    pub fn blame_line(&mut self, sel: Option<LineRange>) {
+        let Some(r) = sel else {
+            self.lens_data.blame_at = None;
+            return;
+        };
+        self.lens_data.blame_at = Some((r.file, r.start.side, r.start.line));
+        let Some(key) = self.blame_rev(r.file, r.start.side) else {
+            return;
+        };
+        let Some(id) = self.selected.clone() else {
+            return;
+        };
+        if self.lens_data.blame.contains_key(&key) {
+            return;
+        }
+        self.lens_data.blame.insert(key.clone(), None);
+        let (file, rev) = key.clone();
+        spawn(
+            move || {
+                api::get(&format!(
+                    "/api/session/vcs-blame?id={}&file={}&rev={}",
+                    api::enc(&id),
+                    api::enc(&file),
+                    api::enc(&rev)
+                ))
+            },
+            move |s, r, _| {
+                s.lens_data.blame.insert(key, r.ok());
+            },
+        );
+    }
+
+    /// The blame line for the clicked diff line: `None` while nothing applies, else the text.
+    pub fn blame_text(&self) -> Option<String> {
+        let (file, side, line) = self.lens_data.blame_at?;
+        let Some(key) = self.blame_rev(file, side) else {
+            return Some(format!(
+                "L{line}: no blame here, these line numbers are not the file's"
+            ));
+        };
+        let Some(Some(b)) = self.lens_data.blame.get(&key) else {
+            return Some(format!("L{line}: reading git blame…"));
+        };
+        if b["supported"] != true {
+            return Some(format!("L{line}: not in a git repository"));
+        }
+        let entry = &b["lines"][(line as usize).saturating_sub(1)];
+        let shown = self.lens_data.diff.files().get(file).and_then(|f| {
+            f.hunks
+                .iter()
+                .flat_map(|h| &h.lines)
+                .find(|l| l.number(side) == Some(line))
+                .map(|l| l.text.clone())
+        });
+        if entry.is_null() || shown.is_some_and(|t| entry["t"].as_str() != Some(t.as_str())) {
+            return Some(format!("L{line}: not committed yet"));
+        }
+        let c = &b["commits"][entry["c"].as_u64().unwrap_or(0) as usize];
+        if c["uncommitted"] == true {
+            return Some(format!("L{line}: not committed yet"));
+        }
+        let when = c["time"]
+            .as_i64()
+            .map(|t| fmt::span(fmt::now_ms() - t * 1000, "") + " ago")
+            .unwrap_or_default();
+        Some(format!(
+            "L{line} · {} · {} · {when} · {}",
+            c["rev"].as_str().unwrap_or(""),
+            c["author"].as_str().unwrap_or(""),
+            c["summary"].as_str().unwrap_or("")
+        ))
     }
 
     pub fn toggle_turn(&mut self, turn: Option<usize>) {
