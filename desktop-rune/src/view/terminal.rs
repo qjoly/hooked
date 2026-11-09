@@ -276,6 +276,7 @@ pub fn panel(s: &Hooked, k: &Kit) -> El {
     };
     let term = col()
         .key("term-screen")
+        .instant_changes()
         .role("textbox")
         .label("Terminal")
         .focusable(true)
