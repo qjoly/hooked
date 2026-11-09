@@ -374,6 +374,7 @@ pub fn view(s: &Hooked, k: &Kit, _layer: &mut Vec<El>) -> El {
         .child(header)
         .child(prompt)
         .child(prompt_pills(s, k))
+        .child(fable_notice(s, k))
         .child(controls(s, k))
         .child(launch_row)
         .child(
@@ -427,4 +428,38 @@ fn prompt_pills(s: &Hooked, k: &Kit) -> El {
             .on_press(|s: &mut Hooked| s.go(crate::app::Page::Prompts))
             .build(k),
     )
+}
+
+fn fable_notice(s: &Hooked, k: &Kit) -> El {
+    let Some(f) = s.fable_spent().filter(|_| s.new_fallback()) else {
+        return el();
+    };
+    let reset = f["resetInMin"]
+        .as_f64()
+        .map(|m| {
+            if m >= 60.0 {
+                format!(" (resets in {:.0}h)", m / 60.0)
+            } else {
+                format!(" (resets in {m:.0}m)")
+            }
+        })
+        .unwrap_or_default();
+    row()
+        .key("new-fable")
+        .w_full()
+        .padding(10.0)
+        .gap(8.0)
+        .center_y()
+        .radius(k.radius.md)
+        .fill(k.c.warning.bg)
+        .border(1.0, k.c.warning.border)
+        .child(
+            text(format!(
+                "{} weekly limit reached{reset}. Defaulting to Opus so the session doesn't fail on its first turn.",
+                f["label"].as_str().unwrap_or("Fable")
+            ))
+            .font(k.ty.text_small)
+            .color(k.c.warning.fg)
+            .wrap(),
+        )
 }

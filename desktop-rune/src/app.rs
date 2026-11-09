@@ -1213,10 +1213,31 @@ impl Hooked {
         self.new_group = Some(mother);
     }
 
+    /// The Fable bucket when it is spent: `pct` is the authority, `severity` the fallback.
+    pub fn fable_spent(&self) -> Option<&serde_json::Value> {
+        let f = &self.usage.as_ref()?["account"]["fable"];
+        let spent = match f["pct"].as_f64() {
+            Some(p) => p >= 100.0,
+            None => f["severity"]
+                .as_str()
+                .is_some_and(|s| s.eq_ignore_ascii_case("exhausted")),
+        };
+        spent.then_some(f)
+    }
+
+    pub fn new_fallback(&self) -> bool {
+        let wanted = self.setting("defaultModel").as_str().unwrap_or("");
+        let fable = wanted.starts_with("fable") || wanted.starts_with("claude-fable");
+        fable && self.fable_spent().is_some()
+    }
+
     pub fn go_new(&mut self, project: Option<String>) {
         self.page = Page::New;
         self.popup = None;
         self.new_group = None;
+        if self.new_fallback() {
+            self.new_model = Some("opus".into());
+        }
         let fallback = self
             .setting("quickLaunchProject")
             .as_str()
