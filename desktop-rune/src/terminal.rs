@@ -94,6 +94,8 @@ pub struct TermPanel {
     pub search: Option<(rune::TextEdit, (usize, Option<usize>))>,
     pub shift_drag: bool,
     pub motion_cell: Option<(u16, u16)>,
+    /// The terminal the selection belongs to: the panel or an inline `!!` one.
+    pub sel_owner: Option<TermFocus>,
 }
 
 fn decode(payload: &str) -> Option<Vec<u8>> {
@@ -544,7 +546,7 @@ impl Hooked {
 
     /// ⌘-click on a URL opens it; true when the press landed on one.
     pub fn term_open_link(&mut self, x: f32, y: f32, tx: &mut rune::Tx) -> bool {
-        let (col, row) = self.cell_at(x, y);
+        let (col, row) = self.cell_at(&TermFocus::Panel, x, y);
         if let Some(url) = self
             .term
             .terms
@@ -591,13 +593,23 @@ impl Hooked {
         post_input(t.id.clone(), &bytes);
     }
 
-    fn cell_at(&self, x: f32, y: f32) -> (u16, u16) {
+    fn target(&self, f: &TermFocus) -> Option<&Term> {
+        match f {
+            TermFocus::Panel => self.term.terms.get(self.term.active),
+            TermFocus::Pty(id) => self.ptys.terms.iter().find(|t| t.id == *id),
+        }
+    }
+
+    fn target_mut(&mut self, f: &TermFocus) -> Option<&mut Term> {
+        match f {
+            TermFocus::Panel => self.term.terms.get_mut(self.term.active),
+            TermFocus::Pty(id) => self.ptys.terms.iter_mut().find(|t| t.id == *id),
+        }
+    }
+
+    fn cell_at(&self, f: &TermFocus, x: f32, y: f32) -> (u16, u16) {
         let (cw, ch) = self.term_cell();
-        let (cols, rows) = self
-            .term
-            .terms
-            .get(self.term.active)
-            .map_or((COLS, ROWS), |t| t.vt.size());
+        let (cols, rows) = self.target(f).map_or((COLS, ROWS), |t| t.vt.size());
         let col = ((x - PAD) / cw)
             .floor()
             .clamp(0.0, f32::from(cols.saturating_sub(1))) as u16;
@@ -611,11 +623,21 @@ impl Hooked {
     /// (Shift bypasses it, as in Ghostty), otherwise a text selection, which scrolls the
     /// scrollback when dragged past the top or bottom edge. The middle button pastes the
     /// selection when no program takes it.
-    pub fn term_drag(&mut self, d: &rune::Drag, button: rune::PointerButton, shift: bool) {
+    pub fn term_drag(
+        &mut self,
+        f: TermFocus,
+        d: &rune::Drag,
+        button: rune::PointerButton,
+        shift: bool,
+    ) {
         use libghostty_vt::mouse::{Action, Button};
-        let (col, vrow) = self.cell_at(d.x, d.y);
+        let (col, vrow) = self.cell_at(&f, d.x, d.y);
         let (_, ch) = self.term_cell();
-        let Some(t) = self.term.terms.get_mut(self.term.active) else {
+        if d.phase == rune::Phase::Down && button == rune::PointerButton::Primary {
+            self.term.sel_owner = Some(f.clone());
+        }
+        let has_sel = self.term.sel.is_some();
+        let Some(t) = self.target_mut(&f) else {
             return;
         };
         let rows = t.vt.size().1;
@@ -635,7 +657,10 @@ impl Hooked {
             } else if d.phase == rune::Phase::Down
                 && let Some(text) = self.selection_text()
             {
-                self.term_paste(&text);
+                match &f {
+                    TermFocus::Panel => self.term_paste(&text),
+                    TermFocus::Pty(id) => self.pty_paste(id, &text),
+                }
             }
             return;
         }
@@ -648,7 +673,7 @@ impl Hooked {
             self.term.sel = None;
             return;
         }
-        if d.phase == rune::Phase::Move && self.term.sel.is_some() {
+        if d.phase == rune::Phase::Move && has_sel {
             if d.y < PAD {
                 t.vt.scroll(-1);
             } else if d.y > PAD + f32::from(rows) * ch {
@@ -656,20 +681,20 @@ impl Hooked {
             }
         }
         let top = t.vt.viewport_top();
+        let cols = t.vt.size().0;
+        let line = t.vt.lines.get(usize::from(vrow)).cloned();
         let cell = (col, top + u64::from(vrow));
         match d.phase {
             rune::Phase::Down if d.clicks >= 3 => {
-                let cols = t.vt.size().0;
                 self.term.sel = Some(Sel {
                     anchor: (0, cell.1),
                     head: (cols.saturating_sub(1), cell.1),
                 });
             }
             rune::Phase::Down if d.clicks == 2 => {
-                let Some(line) = t.vt.lines.get(usize::from(vrow)) else {
+                let Some(line) = line else {
                     return;
                 };
-                let cols = t.vt.size().0;
                 let word = |c: u16| {
                     line.slice(c, c + 1)
                         .chars()
@@ -713,9 +738,9 @@ impl Hooked {
     }
 
     /// The right button goes to a program that tracks the mouse, as a press and a release.
-    pub fn term_right_click(&mut self, x: f32, y: f32) {
+    pub fn term_right_click(&mut self, f: &TermFocus, x: f32, y: f32) {
         use libghostty_vt::mouse::{Action, Button};
-        let Some(t) = self.term.terms.get(self.term.active).filter(|t| !t.exited) else {
+        let Some(t) = self.target(f).filter(|t| !t.exited) else {
             return;
         };
         for action in [Action::Press, Action::Release] {
@@ -728,14 +753,14 @@ impl Hooked {
     }
 
     /// Pointer motion with no button held, for programs that asked for every motion (1003).
-    pub fn term_hover(&mut self, x: f32, y: f32) {
+    pub fn term_hover(&mut self, f: &TermFocus, x: f32, y: f32) {
         use libghostty_vt::mouse::Action;
-        let cell = self.cell_at(x, y);
+        let cell = self.cell_at(f, x, y);
         if self.term.motion_cell == Some(cell) {
             return;
         }
         self.term.motion_cell = Some(cell);
-        let Some(t) = self.term.terms.get(self.term.active).filter(|t| !t.exited) else {
+        let Some(t) = self.target(f).filter(|t| !t.exited) else {
             return;
         };
         if let Some(bytes) =
@@ -747,19 +772,19 @@ impl Hooked {
 
     pub fn selection_text(&self) -> Option<String> {
         let sel = self.term.sel?;
-        let t = self.term.terms.get(self.term.active)?;
+        let t = self.target(self.term.sel_owner.as_ref().unwrap_or(&TermFocus::Panel))?;
         let (a, b) = sel.ordered();
         t.vt.text_between(a, b).filter(|t| !t.is_empty())
     }
 
     /// Input-method text for the focused terminal: the composition is drawn at the cursor,
     /// the committed text goes to the shell.
-    pub fn term_ime(&mut self, ime: &rune::Ime) {
+    pub fn term_ime(&mut self, f: &TermFocus, ime: &rune::Ime) {
         match ime {
             rune::Ime::Preedit(text, _) => self.term.preedit = text.clone(),
             rune::Ime::Commit(text) => {
                 self.term.preedit.clear();
-                if let Some(t) = self.term.terms.get_mut(self.term.active)
+                if let Some(t) = self.target_mut(f)
                     && !t.exited
                 {
                     t.vt.scroll_to_bottom();
@@ -1013,18 +1038,10 @@ impl Hooked {
     }
 
     pub fn focused_ime(&mut self, ime: &rune::Ime) -> bool {
-        match self.term_focus.clone() {
-            Some(TermFocus::Panel) => self.term_ime(ime),
-            Some(TermFocus::Pty(id)) => {
-                if let rune::Ime::Commit(text) = ime
-                    && let Some(t) = self.ptys.terms.iter_mut().find(|t| t.id == id && !t.exited)
-                {
-                    t.vt.scroll_to_bottom();
-                    post_input(t.id.clone(), text.as_bytes());
-                }
-            }
-            None => return false,
-        }
+        let Some(f) = self.term_focus.clone() else {
+            return false;
+        };
+        self.term_ime(&f, ime);
         true
     }
 

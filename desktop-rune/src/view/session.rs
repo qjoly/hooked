@@ -812,22 +812,36 @@ pub(super) fn bubble_version(s: &Hooked, m: &Message, k: &Kit) -> u64 {
         .then(|| crate::terminal::pty_fence(&m.text))
         .flatten()
         .map(|f| match s.ptys.terms.iter().find(|t| t.id == f.id) {
-            Some(t) => (
-                1u8,
-                t.exited,
-                t.vt.lines
-                    .iter()
-                    .map(|l| l.version)
-                    .fold(0u64, u64::wrapping_add),
-                t.vt.cursor.map(|c| (c.x, c.y)),
-                t.vt.size(),
-            ),
+            Some(t) => {
+                let me = crate::terminal::TermFocus::Pty(f.id.clone());
+                let focused = s.term_focus.as_ref() == Some(&me);
+                let sel = s
+                    .term
+                    .sel
+                    .filter(|_| s.term.sel_owner.as_ref() == Some(&me));
+                (
+                    1u8,
+                    t.exited,
+                    t.vt.lines
+                        .iter()
+                        .map(|l| l.version)
+                        .fold(0u64, u64::wrapping_add),
+                    t.vt.cursor.map(|c| (c.x, c.y)),
+                    t.vt.size(),
+                    sel.map(|s| (s.anchor, s.head)),
+                    focused.then(|| (crate::terminal::blink_on(), s.term.preedit.clone())),
+                    t.vt.viewport_top(),
+                )
+            }
             None => (
                 u8::from(s.ptys.dead.contains(&f.id)) + 2,
                 false,
                 0,
                 None,
                 (0, 0),
+                None,
+                None,
+                0,
             ),
         });
     hash_of((

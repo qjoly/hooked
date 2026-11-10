@@ -97,8 +97,7 @@ session states coloured by how much they need you.
   a choice of font family.
 - Behaviour: key releases and repeats for
   the full kitty keyboard protocol, batching redraws under heavy output.
-- hooked: terminals in their own window or split; inline `!!` terminals take no IME composition
-  or mouse selection.
+- hooked: terminals in their own window or split.
 
 ## Checking it headless
 

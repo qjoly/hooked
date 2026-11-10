@@ -67,7 +67,16 @@ fn screen(s: &Hooked, k: &Kit, t: &Term, panel: bool) -> El {
     for (i, line) in vt.lines.iter().enumerate() {
         let row = i as u16;
         let mut marks: Vec<(u16, u16, Option<Color>, Color)> = Vec::new();
-        let sel = s.term.sel.filter(|_| panel);
+        let owner = s
+            .term
+            .sel_owner
+            .clone()
+            .unwrap_or(crate::terminal::TermFocus::Panel);
+        let mine = match owner {
+            crate::terminal::TermFocus::Panel => panel,
+            crate::terminal::TermFocus::Pty(ref id) => !panel && *id == t.id,
+        };
+        let sel = s.term.sel.filter(|_| mine);
         let screen_row = top + u64::from(row);
         if let Some((a, b)) = sel.and_then(|sel| sel.row_range(screen_row, cols)) {
             marks.push((a, b, None, selection));
@@ -167,10 +176,12 @@ fn screen(s: &Hooked, k: &Kit, t: &Term, panel: bool) -> El {
             )
         }));
     }
-    if !panel {
-        return lines;
-    }
-    if let Some(c) = cursor {
+    let caret_here = if panel {
+        !matches!(s.term_focus, Some(crate::terminal::TermFocus::Pty(_)))
+    } else {
+        has_focus
+    };
+    if let Some(c) = cursor.filter(|_| caret_here) {
         let (x, y) = (f32::from(c.x) * cw, f32::from(c.y) * ch);
         let mut caret = row().key("term-caret").absolute(x, y).h(ch).ime_cursor();
         if !s.term.preedit.is_empty() {
@@ -187,6 +198,9 @@ fn screen(s: &Hooked, k: &Kit, t: &Term, panel: bool) -> El {
             caret = caret.w(1.0);
         }
         lines = lines.child(caret);
+    }
+    if !panel {
+        return lines;
     }
     lines.child(
         text("MMMMMMMMMM")
@@ -526,14 +540,16 @@ pub fn panel(s: &Hooked, k: &Kit) -> El {
                 return;
             }
             let shift = s.term.shift_drag;
-            s.term_drag(d, tx.button(), shift)
+            s.term_drag(crate::terminal::TermFocus::Panel, d, tx.button(), shift)
         })
         .pointer_buttons([rune::PointerButton::Middle])
         .on_secondary_press_local(|s: &mut Hooked, p: rune::PointerEvent, tx: &mut rune::Tx| {
             tx.instant();
-            s.term_right_click(p.x, p.y);
+            s.term_right_click(&crate::terminal::TermFocus::Panel, p.x, p.y);
         })
-        .on_pointer_move_local(|s: &mut Hooked, p: rune::PointerEvent, _| s.term_hover(p.x, p.y))
+        .on_pointer_move_local(|s: &mut Hooked, p: rune::PointerEvent, _| {
+            s.term_hover(&crate::terminal::TermFocus::Panel, p.x, p.y)
+        })
         .on_wheel(|s: &mut Hooked, e: rune::WheelEvent, tx: &mut rune::Tx| {
             tx.instant();
             s.term_wheel(e.dy, e.x, e.y);
@@ -689,7 +705,9 @@ pub fn pty_block(s: &Hooked, k: &Kit, f: &crate::terminal::PtyFence) -> El {
                         .on_press(move |s: &mut Hooked| s.close_pty(id.clone()))
                         .build(k),
                 );
-            let (ka, kb, kc, kd) = (f.id.clone(), f.id.clone(), f.id.clone(), f.id.clone());
+            let (ka, kb, kd) = (f.id.clone(), f.id.clone(), f.id.clone());
+            let me = crate::terminal::TermFocus::Pty(f.id.clone());
+            let (m1, m2, m3) = (me.clone(), me.clone(), me.clone());
             let screen_el = col()
                 .key(format!("pty-screen-{}", f.id))
                 .instant_changes()
@@ -706,6 +724,14 @@ pub fn pty_block(s: &Hooked, k: &Kit, f: &crate::terminal::PtyFence) -> El {
                     move |s: &mut Hooked, ev: &rune::KeyEvent, tx: &mut rune::Tx| {
                         tx.instant();
                         s.set_term_focus(Some(crate::terminal::TermFocus::Pty(ka.clone())));
+                        if ev.is_command('c') {
+                            if let Some(text) = s.selection_text() {
+                                tx.copy(text);
+                                s.term.sel = None;
+                                return true;
+                            }
+                            return false;
+                        }
                         s.pty_key(&ka, ev, tx.physical_key())
                     },
                 )
@@ -716,10 +742,26 @@ pub fn pty_block(s: &Hooked, k: &Kit, f: &crate::terminal::PtyFence) -> El {
                         true
                     },
                 )
-                .on_drag(move |s: &mut Hooked, d: &mut rune::Drag, _| {
-                    if d.phase == rune::Phase::Down {
-                        s.set_term_focus(Some(crate::terminal::TermFocus::Pty(kc.clone())));
-                    }
+                .on_drag(
+                    move |s: &mut Hooked, d: &mut rune::Drag, tx: &mut rune::Tx| {
+                        tx.instant();
+                        if d.phase == rune::Phase::Down {
+                            s.set_term_focus(Some(m1.clone()));
+                            s.term.shift_drag = tx.mods().shift;
+                        }
+                        let shift = s.term.shift_drag;
+                        s.term_drag(m1.clone(), d, tx.button(), shift)
+                    },
+                )
+                .pointer_buttons([rune::PointerButton::Middle])
+                .on_secondary_press_local(
+                    move |s: &mut Hooked, p: rune::PointerEvent, tx: &mut rune::Tx| {
+                        tx.instant();
+                        s.term_right_click(&m2, p.x, p.y);
+                    },
+                )
+                .on_pointer_move_local(move |s: &mut Hooked, p: rune::PointerEvent, _| {
+                    s.term_hover(&m3, p.x, p.y)
                 })
                 .on_layout(move |s: &mut Hooked, r: [f32; 4]| s.pty_fit(&kd, r[2]))
                 .child(screen(s, k, t, false));
