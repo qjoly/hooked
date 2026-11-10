@@ -685,15 +685,29 @@ fn links(s: &Hooked, d: &Detail, k: &Kit) -> El {
             }
         }
         let open_url = url.clone();
+        let full_url = url.clone();
         detail = detail.child(
-            Button::new("Open on GitHub")
-                .icon(&icons::LINK)
-                .variant(ButtonVariant::GhostMuted)
-                .control_size(ControlSize::Small)
-                .on_press_tx(move |_: &mut Hooked, tx| {
-                    let _ = tx.open_url(&open_url);
-                })
-                .build(k),
+            row()
+                .gap(4.0)
+                .flex_wrap()
+                .child(
+                    Button::new("Details")
+                        .icon(&icons::PANEL_RIGHT)
+                        .variant(ButtonVariant::Outline)
+                        .control_size(ControlSize::Small)
+                        .on_press(move |s: &mut Hooked| s.open_gh_full(full_url.clone()))
+                        .build(k),
+                )
+                .child(
+                    Button::new("Open on GitHub")
+                        .icon(&icons::LINK)
+                        .variant(ButtonVariant::GhostMuted)
+                        .control_size(ControlSize::Small)
+                        .on_press_tx(move |_: &mut Hooked, tx| {
+                            let _ = tx.open_url(&open_url);
+                        })
+                        .build(k),
+                ),
         );
         c = c.child(detail);
     }
@@ -744,6 +758,9 @@ pub fn view(s: &Hooked, d: &Detail, k: &Kit) -> El {
     if !s.dock_open || s.lens != Lens::Converse || !has_content(d) {
         return el();
     }
+    if let Some(v) = s.gh_view(crate::ghdetail::GhSlot::Dock) {
+        return gh_full(s, d, k, &v.url);
+    }
     let mut cards = col().key("dock-cards").w_full().padding(10.0).gap(10.0);
     if !d.todos.is_empty() {
         cards = cards.child(tasks(s, d, k));
@@ -792,4 +809,72 @@ pub fn view(s: &Hooked, d: &Detail, k: &Kit) -> El {
                 })
                 .child(cards),
         )
+}
+
+fn gh_full(s: &Hooked, d: &Detail, k: &Kit, open: &str) -> El {
+    let mut nav = row()
+        .key("ghnav")
+        .w_full()
+        .px(8.0)
+        .py(6.0)
+        .gap(4.0)
+        .center_y()
+        .flex_wrap()
+        .border_sides([0.0, 0.0, 1.0, 0.0], k.c.border_weak)
+        .child(
+            rune_kit::IconButton::new(&icons::ARROW_LEFT)
+                .label("Back to the session context")
+                .control_size(ControlSize::Small)
+                .on_press(|s: &mut Hooked| s.close_gh_full())
+                .build(k),
+        );
+    for l in d.pr_links.iter().chain(d.issue_links.iter()) {
+        let on = l == open;
+        let pr = l.contains("/pull/");
+        let url = l.clone();
+        nav = nav.child(
+            k.interactive(
+                row()
+                    .key(format!("ghtab-{l}"))
+                    .role("tab")
+                    .checked(on)
+                    .h(24.0)
+                    .px(8.0)
+                    .gap(4.0)
+                    .center_y()
+                    .radius(k.radius.sm)
+                    .cursor(Cursor::Pointer)
+                    .help(l.clone())
+                    .fill(if on { k.c.layer_02 } else { Color::TRANSPARENT })
+                    .child(glyph(
+                        if pr {
+                            &icons::PULL_REQUEST
+                        } else {
+                            &icons::CIRCLE_DOT
+                        },
+                        12.0,
+                        k.c.icon_muted,
+                    ))
+                    .child(
+                        text(format!("#{}", l.rsplit('/').next().unwrap_or("")))
+                            .font(k.ty.text_small_medium)
+                            .color(if on { k.c.text_base } else { k.c.text_muted }),
+                    ),
+            )
+            .on_press(move |s: &mut Hooked| s.open_gh_full(url.clone())),
+        );
+    }
+    col()
+        .key("dock")
+        .w((s.window_w * 0.42).clamp(420.0, 720.0))
+        .h_full()
+        .fill(k.c.bg_deep)
+        .border_sides([0.0, 0.0, 0.0, 1.0], k.c.border_weak)
+        .child(nav)
+        .child(super::ghdetail::panel(
+            s,
+            k,
+            crate::ghdetail::GhSlot::Dock,
+            el(),
+        ))
 }

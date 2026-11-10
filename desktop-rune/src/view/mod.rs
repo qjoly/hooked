@@ -1,5 +1,6 @@
 mod deck;
 mod dock;
+mod ghdetail;
 pub(crate) mod ghrun;
 mod lenses;
 mod new_session;

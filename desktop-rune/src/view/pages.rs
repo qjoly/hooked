@@ -1276,7 +1276,7 @@ pub fn github(s: &Hooked, k: &Kit) -> El {
         .self_center()
         .padding(24.0)
         .gap(6.0)
-        .child(row().pb(4.0).child(tabs));
+        .child(row().w_full().min_w(0.0).pb(4.0).scroll_x().child(tabs));
     let mut repos: Vec<(String, usize, String)> = Vec::new();
     for (k2, _) in GITHUB_TABS {
         let all = if k2 == "reviews" {
@@ -1446,11 +1446,47 @@ pub fn github(s: &Hooked, k: &Kit) -> El {
                         .color(k.c.danger.fg),
                 );
         }
-        list = list.child(k.interactive(r).on_press_tx(move |_: &mut Hooked, tx| {
-            let _ = tx.open_url(&url);
+        let sel = s.gh_page_view.as_ref().is_some_and(|v| v.url == url);
+        if sel {
+            r = r.fill(k.c.layer_02).border(1.0, k.c.border_focus);
+        }
+        let peekable = url.contains("/pull/") || url.contains("/issues/");
+        list = list.child(k.interactive(r).on_press_tx(move |s: &mut Hooked, tx| {
+            if peekable && !tx.mods().cmd {
+                s.peek_gh(url.clone());
+            } else {
+                let _ = tx.open_url(&url);
+            }
         }));
     }
-    page(k, "github", "GitHub", refresh, scroll("gh-scroll", list))
+    let mut body = row().key("gh-split").w_full().h_full().child(
+        col()
+            .grow(1.0)
+            .min_w(0.0)
+            .h_full()
+            .child(scroll("gh-scroll", list)),
+    );
+    if s.gh_page_view.is_some() {
+        body = body.child(
+            col()
+                .key("gh-aside")
+                .w((s.window_w * 0.45).clamp(420.0, 720.0))
+                .h_full()
+                .fill(k.c.bg_deep)
+                .border_sides([0.0, 0.0, 0.0, 1.0], k.c.border_weak)
+                .child(super::ghdetail::panel(
+                    s,
+                    k,
+                    crate::ghdetail::GhSlot::Page,
+                    rune_kit::IconButton::new(&icons::CLOSE)
+                        .label("Close")
+                        .control_size(ControlSize::Small)
+                        .on_press(|s: &mut Hooked| s.gh_page_view = None)
+                        .build(k),
+                )),
+        );
+    }
+    page(k, "github", "GitHub", refresh, body)
 }
 
 pub fn skills(s: &Hooked, k: &Kit) -> El {

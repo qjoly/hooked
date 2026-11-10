@@ -150,6 +150,11 @@ pub struct Hooked {
     pub run_win: Option<crate::ghrun::RunWin>,
     pub query_win: Option<crate::querywin::QueryWin>,
     pub gh_checks: HashMap<String, Vec<serde_json::Value>>,
+    pub gh_details: HashMap<String, Result<serde_json::Value, String>>,
+    pub gh_diffs: HashMap<String, Result<serde_json::Value, String>>,
+    pub gh_loading: std::collections::HashSet<String>,
+    pub gh_page_view: Option<crate::ghdetail::GhView>,
+    pub gh_dock_view: Option<crate::ghdetail::GhView>,
     pub plan_quote: Option<String>,
     pub new_group: Option<String>,
     pub usage: Option<serde_json::Value>,
@@ -374,6 +379,11 @@ impl Hooked {
             run_win: None,
             query_win: None,
             gh_checks: HashMap::new(),
+            gh_details: HashMap::new(),
+            gh_diffs: HashMap::new(),
+            gh_loading: Default::default(),
+            gh_page_view: None,
+            gh_dock_view: None,
             plan_quote: None,
             new_group: None,
             usage: None,
@@ -706,6 +716,35 @@ impl Hooked {
                 refresh: 0,
                 ..Default::default()
             });
+        }
+        if let Some(i) = args.iter().position(|a| a == "--gh") {
+            let url = args.get(i + 1).cloned().unwrap_or_default();
+            let tab = args.get(i + 2).and_then(|t| t.parse().ok()).unwrap_or(0);
+            let d = api::get(&format!("/api/github/detail?url={}", api::enc(&url)));
+            s.gh_details.insert(url.clone(), d);
+            if tab == 2 {
+                let p = api::get(&format!("/api/github/diff?url={}", api::enc(&url)))
+                    .map(|v| v["files"].clone());
+                s.gh_diffs.insert(url.clone(), p);
+            }
+            let in_dock = s.selected.is_some();
+            s.gh_open = Some(url.clone());
+            if in_dock {
+                s.open_gh_full(url.clone());
+            } else {
+                s.peek_gh(url.clone());
+            }
+            let slot = if in_dock {
+                crate::ghdetail::GhSlot::Dock
+            } else {
+                crate::ghdetail::GhSlot::Page
+            };
+            if let Some(v) = s.gh_view_mut(slot) {
+                v.tab = tab;
+                if let Some(f) = args.get(i + 3) {
+                    v.files.insert(f.clone());
+                }
+            }
         }
         if args.iter().any(|a| a == "--branch") {
             s.lens_data.review_source = crate::lenses::ReviewSource::Branch;

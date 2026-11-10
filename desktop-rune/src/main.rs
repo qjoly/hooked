@@ -4,6 +4,7 @@ mod app;
 mod cron;
 mod export;
 mod fmt;
+mod ghdetail;
 mod ghostty;
 mod ghrun;
 mod icons;

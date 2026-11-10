@@ -58,7 +58,9 @@ session states coloured by how much they need you.
     scrollback on the wheel, mouse clicks, drags and wheel for programs that track the mouse,
     drag to select and ⌘C to copy, and input-method composition (dead keys, CJK, emoji picker).
   - **Split (⌘⇧S)**: the most recent other session beside the current one, with its own reply box.
-- **Context panel**: tasks, changes, agents, sub-sessions.
+- **Context panel**: tasks, changes, agents, sub-sessions, linked PRs and issues; Details opens
+  the full panel (summary, checks with Fix in this thread, comments, timeline, per-file diff),
+  which the GitHub page also opens beside its list (⌘-click opens GitHub instead).
 - **Pages**: Deck (awaiting you, answered, snoozed or followed up in place / working / recent),
   New session, Stats, Digest (generate and
   regenerate), Memory, Cron (create, edit, pause, run, delete), GitHub, Skills, Settings (theme,
@@ -83,8 +85,6 @@ session states coloured by how much they need you.
   its diff without the per-block tint.
 - Conversation: video and audio open in the system player.
 - Deck: the fleet grouped by repo with search and filters.
-- GitHub: the full pull-request panel (summary, timeline, code); the context panel shows the
-  PR's state and checks, which open the Actions run window.
 
 ## Terminal: what is still missing
 
