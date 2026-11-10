@@ -13,6 +13,9 @@ service to answer, then redirects to it. Updating the dashboard is still
 - **A menu bar icon** showing how many sessions are waiting on you. It follows
   the same event stream the dashboard uses, so it stays right even when the
   window is closed.
+- **Links leave the window.** Other sites, and any link meant for a new tab
+  (a rendered document, a sent file), open in the default browser; "open in
+  editor" links open in the editor. The window has no tabs and no back button.
 - **Closing hides the window** rather than quitting. Quit from the menu bar.
 - **⌘R reloads the dashboard** (View → Reload). The window has no address bar,
   and after `mise run deploy` it keeps running the old build until the page is
