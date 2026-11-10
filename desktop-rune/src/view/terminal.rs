@@ -430,6 +430,28 @@ pub fn panel(s: &Hooked, k: &Kit) -> El {
                 .key("term-new"),
         )
         .child(el().grow(1.0))
+        .child(
+            IconButton::new(if p.side {
+                &icons::TERMINAL
+            } else {
+                &icons::PANEL_RIGHT
+            })
+            .variant(IconButtonVariant::GhostMuted)
+            .control_size(rune_kit::ControlSize::Small)
+            .label(if p.side {
+                "Show the terminal below the conversation"
+            } else {
+                "Show the terminal beside the conversation"
+            })
+            .help(if p.side {
+                "Show the terminal below the conversation"
+            } else {
+                "Show the terminal beside the conversation"
+            })
+            .on_press(|s: &mut Hooked| s.toggle_term_side())
+            .build(k)
+            .key("term-side"),
+        )
         .child(match p.search.as_ref() {
             Some((edit, (n, sel))) => row()
                 .gap(6.0)
@@ -653,6 +675,39 @@ pub fn panel(s: &Hooked, k: &Kit) -> El {
                 s.save_pref("termHeight", &h);
             }
         });
+    if p.side {
+        let w = s.term_side_width();
+        let grip = el()
+            .key("term-resize")
+            .w(6.0)
+            .h_full()
+            .cursor(Cursor::ResizeColumn)
+            .help("Drag to resize")
+            .on_drag(|s: &mut Hooked, d: &mut rune::Drag, _| {
+                if d.phase == rune::Phase::Down {
+                    d.data = s.term_side_width();
+                }
+                let w = (d.data - d.dx).clamp(320.0, (s.window_w * 0.6).max(320.0));
+                s.term.side_w = w;
+                if d.phase == rune::Phase::Up {
+                    s.save_pref("termSideW", &w);
+                }
+            });
+        return rune::row()
+            .key("term-panel")
+            .w(w)
+            .h_full()
+            .border_sides([0.0, 0.0, 0.0, 1.0], k.c.border_weak)
+            .child(grip)
+            .child(
+                col()
+                    .grow(1.0)
+                    .min_w(0.0)
+                    .h_full()
+                    .child(bar.border_sides([0.0, 0.0, 1.0, 0.0], k.c.border_weak))
+                    .child(term),
+            );
+    }
     let height = s
         .term
         .height
@@ -665,6 +720,11 @@ pub fn panel(s: &Hooked, k: &Kit) -> El {
         .child(grip)
         .child(bar)
         .child(term)
+}
+
+/// Whether the terminal shows beside the conversation right now (open, with a shell).
+pub fn beside(s: &Hooked) -> bool {
+    s.term.side && s.term.open && !s.term.terms.is_empty()
 }
 
 pub fn pty_block(s: &Hooked, k: &Kit, f: &crate::terminal::PtyFence) -> El {

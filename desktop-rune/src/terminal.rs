@@ -77,6 +77,9 @@ impl Sel {
 pub struct TermPanel {
     /// Panel height in points; None until the user drags it (a third of the window then).
     pub height: Option<f32>,
+    /// Beside the conversation instead of below it, `side_w` points wide.
+    pub side: bool,
+    pub side_w: f32,
     /// Font size in points; 0 until loaded (the kit's mono size then).
     pub font: f32,
     /// A font family by name (a CSS list works), the kit's mono family when empty.
@@ -385,6 +388,27 @@ impl Hooked {
 
     /// Hands the keyboard to the panel's shell when it opens or a tab is picked: rune focuses
     /// only text fields from code, so the window routes keys to it until something else has focus.
+    pub fn toggle_term_side(&mut self) {
+        self.term.side = !self.term.side;
+        let side = self.term.side;
+        self.save_pref("termSide", &side);
+        if self.term.terms.is_empty() {
+            self.new_term();
+        } else {
+            self.term.open = true;
+            self.claim_term();
+        }
+    }
+
+    pub fn term_side_width(&self) -> f32 {
+        let w = if self.term.side_w > 0.0 {
+            self.term.side_w
+        } else {
+            560.0
+        };
+        w.clamp(320.0, (self.window_w * 0.6).max(320.0))
+    }
+
     pub fn claim_term(&mut self) {
         self.set_term_focus(Some(TermFocus::Panel));
         self.term_claimed = true;

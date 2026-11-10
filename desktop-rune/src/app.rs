@@ -508,6 +508,8 @@ impl Hooked {
             .collect();
         let args = rune::extra_args();
         s.term.height = s.prefs.get("termHeight");
+        s.term.side = s.prefs.get("termSide").unwrap_or(false);
+        s.term.side_w = s.prefs.get("termSideW").unwrap_or(0.0);
         s.term.font = s.prefs.get("termFont").unwrap_or(0.0);
         let family: String = s.prefs.get("termFontFamily").unwrap_or_default();
         s.term.family = rune::TextEdit::new(family.clone());
@@ -602,6 +604,9 @@ impl Hooked {
             s.preload_terms();
             if args.iter().any(|a| a == "--term-closed") {
                 s.term.open = false;
+            }
+            if args.iter().any(|a| a == "--term-side") {
+                s.term.side = true;
             }
             if args.iter().any(|a| a == "--term-sel") {
                 let top = s.term.terms.first().map_or(0, |t| t.vt.viewport_top());

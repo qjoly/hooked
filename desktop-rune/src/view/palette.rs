@@ -212,6 +212,13 @@ pub fn commands(s: &Hooked) -> Vec<Cmd> {
             "⌘J",
             |s, _| s.toggle_terms(),
         ),
+        cmd(
+            cur,
+            &icons::PANEL_RIGHT,
+            "Terminal beside or below the conversation",
+            "",
+            |s, _| s.toggle_term_side(),
+        ),
         cmd(cur, &icons::TERMINAL, "New terminal", "⌘⇧J", |s, _| {
             s.term.open = true;
             s.new_term();

@@ -63,6 +63,8 @@ session states coloured by how much they need you.
     drag to select (past an edge it scrolls the scrollback; Shift selects inside programs that
     track the mouse) and ⌘C to copy, middle-click pastes the selection, programs can set the
     clipboard (OSC 52) and hear the middle and right buttons and bare pointer motion, and input-method composition (dead keys, CJK, emoji picker).
+  - **Terminal beside the conversation**: the panel's button (or the palette) moves the
+    terminal from below the conversation to a resizable column beside it, and back.
   - **Split (⌘⇧S)**: the most recent other session beside the current one, with its own reply box.
 - **Context panel**: tasks, changes, agents, sub-sessions, linked PRs and issues; Details opens
   the full panel (summary, checks with Fix in this thread, comments, timeline, per-file diff),
@@ -97,7 +99,8 @@ session states coloured by how much they need you.
 ## Terminal: what is still missing
 
 - Rendering: images (kitty graphics, sixel).
-- hooked: terminals in their own window or split.
+- A terminal in its own window: rune gives each window its own app state, so it would need a
+  second copy of the terminal's input handling; the side layout covers the use.
 
 ## Checking it headless
 

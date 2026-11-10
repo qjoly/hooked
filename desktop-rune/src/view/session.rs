@@ -38,15 +38,34 @@ pub fn view(s: &Hooked, k: &Kit, layer: &mut Vec<El>) -> El {
         .child(head(s, d, k, layer))
         .child(group_tabs(s, &d.session.id, k))
         .child(lenses(s, d, k))
-        .child(
+        .child(if super::terminal::beside(s) {
+            row()
+                .key("lens-row")
+                .w_full()
+                .grow(1.0)
+                .min_h(0.0)
+                .child(
+                    col()
+                        .key("lens-body")
+                        .grow(1.0)
+                        .min_w(0.0)
+                        .h_full()
+                        .child(body),
+                )
+                .child(super::terminal::panel(s, k))
+        } else {
             col()
                 .key("lens-body")
                 .w_full()
                 .grow(1.0)
                 .min_h(0.0)
-                .child(body),
-        )
-        .child(super::terminal::panel(s, k))
+                .child(body)
+        })
+        .child(if super::terminal::beside(s) {
+            el()
+        } else {
+            super::terminal::panel(s, k)
+        })
 }
 
 fn head(s: &Hooked, d: &Detail, k: &Kit, layer: &mut Vec<El>) -> El {
