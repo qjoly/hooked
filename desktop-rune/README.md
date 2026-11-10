@@ -83,9 +83,8 @@ session states coloured by how much they need you.
 
 - Dictation (not planned), the companion (decorative).
 - Dragging a session onto another to group it: the group tabs and the ⋯ menu do it instead.
-- Review: the branch scope (a branch against its base, a range of its commits) and
-  go-to-definition. Blame shows for the clicked line, not on hover. Markdown renders beside
-  its diff without the per-block tint.
+- Review: go-to-definition. Blame shows for the clicked line, not on hover. Markdown renders
+  beside its diff without the per-block tint.
 - Conversation: video and audio open in the system player.
 
 ## Terminal: what is still missing
