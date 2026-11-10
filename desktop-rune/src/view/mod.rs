@@ -581,7 +581,7 @@ fn session_row(s: &Hooked, x: &Session, k: &Kit, depth: u8, group: Option<usize>
             .grow(1.0)
             .min_w(0.0),
     };
-    let mut line1 = row().w_full().gap(6.0).center_y();
+    let mut line1 = row().grow(1.0).min_w(0.0).gap(6.0).center_y();
     if s.is_pinned(&x.id) {
         line1 = line1.child(glyph(&icons::PIN, 12.0, k.c.icon_muted));
     }
