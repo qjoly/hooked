@@ -176,7 +176,10 @@ fn main() {
     ));
     let chrome = Chrome {
         full_size_content: true,
-        traffic_lights: Some((18.0, 26.0)),
+        traffic_lights: Some((
+            18.0,
+            ((view::TOPBAR_H - Chrome::TRAFFIC_LIGHT) / 2.0).round(),
+        )),
         drag_regions: true,
     };
     let spec = AppSpec {

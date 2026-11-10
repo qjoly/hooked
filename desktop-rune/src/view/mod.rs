@@ -56,6 +56,8 @@ pub fn small_icon_button(i: &'static Icon, help: &str, on: bool) -> IconButton {
         .expanded(on)
 }
 
+pub const TOPBAR_H: f32 = 52.0;
+
 pub fn view(s: &Hooked, cx: &mut Cx<Hooked>) -> El {
     let k = kit(s, cx);
     let mut layer = Vec::new();
@@ -103,6 +105,9 @@ pub fn view(s: &Hooked, cx: &mut Cx<Hooked>) -> El {
         .on_layout(|s: &mut Hooked, r: [f32; 4]| {
             if (s.window_h - r[3]).abs() > 0.5 {
                 s.window_h = r[3];
+            }
+            if (s.window_w - r[2]).abs() > 0.5 {
+                s.window_w = r[2];
             }
         })
         .on_paste_content(|s: &mut Hooked, c: &rune::ClipboardContent, _| {
@@ -386,8 +391,8 @@ fn topbar(s: &Hooked, k: &Kit, inset: f32, _layer: &mut Vec<El>) -> El {
     row()
         .key("topbar")
         .w_full()
-        .h(52.0)
-        .pl(inset.max(12.0) + 4.0)
+        .h(TOPBAR_H)
+        .pl(inset.max(12.0) + 12.0)
         .pr(12.0)
         .gap(12.0)
         .center_y()
@@ -458,7 +463,7 @@ fn topbar(s: &Hooked, k: &Kit, inset: f32, _layer: &mut Vec<El>) -> El {
                 .as_ref()
                 .map_or_else(el, |f| flash(k, &f.text, f.error)),
         )
-        .child(gauges)
+        .child(if s.window_w >= 1150.0 { gauges } else { el() })
         .child(actions)
         .child(new)
         .child(live)
