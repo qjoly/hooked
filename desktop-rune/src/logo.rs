@@ -5,22 +5,6 @@
 use crate::app::Hooked;
 use crate::theme;
 
-fn family(x: &crate::api::Session) -> usize {
-    if x.has_question || x.has_plan || x.state == "attention" {
-        0
-    } else if x.state == "working" {
-        2
-    } else if x.state == "background" {
-        3
-    } else if x.state == "waiting" {
-        1
-    } else if x.state == "ended" {
-        5
-    } else {
-        4
-    }
-}
-
 fn hex(c: rune::Color) -> String {
     c.hex().chars().take(7).collect()
 }
@@ -78,7 +62,7 @@ impl Hooked {
             .iter()
             .filter(|x| self.visible(x) && !self.is_archived(x))
         {
-            counts[family(x)] += 1;
+            counts[crate::fleet::family(x)] += 1;
         }
         if self.logo.as_ref().is_some_and(|(c, _)| *c == counts) {
             return;

@@ -1,5 +1,6 @@
 mod deck;
 mod dock;
+mod fleet;
 mod ghdetail;
 pub(crate) mod ghrun;
 mod lenses;

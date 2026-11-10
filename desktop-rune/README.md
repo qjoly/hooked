@@ -61,7 +61,9 @@ session states coloured by how much they need you.
 - **Context panel**: tasks, changes, agents, sub-sessions, linked PRs and issues; Details opens
   the full panel (summary, checks with Fix in this thread, comments, timeline, per-file diff),
   which the GitHub page also opens beside its list (⌘-click opens GitHub instead).
-- **Pages**: Deck (awaiting you, answered, snoozed or followed up in place / working / recent),
+- **Pages**: Deck (awaiting you, answered, snoozed or followed up in place; the fleet by repo
+  as cards or a table, with its wheel (hover names a session, click opens it), a state filter
+  from the legend, search, and archived groups folded at the bottom),
   New session, Stats, Digest (generate and
   regenerate), Memory, Cron (create, edit, pause, run, delete), GitHub, Skills, Settings (theme,
   notifications, new-session defaults, digest, auto-compact, tags, git sync).
@@ -84,7 +86,6 @@ session states coloured by how much they need you.
   go-to-definition. Blame shows for the clicked line, not on hover. Markdown renders beside
   its diff without the per-block tint.
 - Conversation: video and audio open in the system player.
-- Deck: the fleet grouped by repo with search and filters.
 
 ## Terminal: what is still missing
 

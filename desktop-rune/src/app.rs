@@ -164,6 +164,7 @@ pub struct Hooked {
     pub tray: Option<(crate::tray::native::TrayIcon, String)>,
     pub shortcuts: HashMap<&'static str, rune_kit::ShortcutRecorderState>,
     pub deck_plans: HashMap<String, (String, Option<String>)>,
+    pub fleet: crate::fleet::Fleet,
     pub plan_comments: Vec<(String, String)>,
     pub job_gen: Arc<AtomicU64>,
     pub full_texts: HashMap<String, Option<String>>,
@@ -308,6 +309,7 @@ const STEP: usize = 120;
 impl Hooked {
     pub fn new() -> Hooked {
         let prefs = Prefs::open("dev.qjoly.hooked-rune");
+        let deck_grid = prefs.get::<String>("deckView").is_none_or(|v| v != "list");
         let pinned: Vec<String> = prefs.get("pinned").unwrap_or_default();
         let names: HashMap<String, String> = prefs.get("names").unwrap_or_default();
         let sort_mode: String = prefs
@@ -393,6 +395,7 @@ impl Hooked {
             tray: None,
             shortcuts,
             deck_plans: HashMap::new(),
+            fleet: crate::fleet::Fleet::new(deck_grid),
             plan_comments: Vec::new(),
             job_gen: Arc::new(AtomicU64::new(0)),
             full_texts: HashMap::new(),
@@ -745,6 +748,10 @@ impl Hooked {
                     v.files.insert(f.clone());
                 }
             }
+        }
+        if args.iter().any(|a| a == "--fleet-list") {
+            s.fleet.grid = false;
+            s.fleet.archived_open = true;
         }
         if args.iter().any(|a| a == "--branch") {
             s.lens_data.review_source = crate::lenses::ReviewSource::Branch;

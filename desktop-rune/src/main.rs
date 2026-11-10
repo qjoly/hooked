@@ -3,6 +3,7 @@ mod api;
 mod app;
 mod cron;
 mod export;
+mod fleet;
 mod fmt;
 mod ghdetail;
 mod ghostty;
