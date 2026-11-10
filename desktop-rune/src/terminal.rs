@@ -111,13 +111,24 @@ fn follow(id: String, alive: Arc<AtomicBool>, h: Option<AppHandle<Hooked>>) {
     std::thread::spawn(move || {
         let path = format!("/api/terminal/stream?id={}", urlencode(&id));
         while alive.load(Ordering::SeqCst) {
+            let pending: Arc<std::sync::Mutex<Vec<u8>>> = Arc::default();
+            let queued = Arc::new(AtomicBool::new(false));
             let r = api::follow(&path, |payload| {
                 if !alive.load(Ordering::SeqCst) {
                     return false;
                 }
-                if let Some(bytes) = decode(payload) {
-                    let id = id.clone();
+                let Some(bytes) = decode(payload) else {
+                    return true;
+                };
+                pending.lock().map(|mut p| p.extend_from_slice(&bytes)).ok();
+                if !queued.swap(true, Ordering::SeqCst) {
+                    let (id, pending, queued) = (id.clone(), pending.clone(), queued.clone());
                     h.update(move |s, tx| {
+                        queued.store(false, Ordering::SeqCst);
+                        let bytes = pending
+                            .lock()
+                            .map(|mut p| std::mem::take(&mut *p))
+                            .unwrap_or_default();
                         tx.instant();
                         if let Some(text) = s.term_output(&id, &bytes) {
                             tx.copy(text);
