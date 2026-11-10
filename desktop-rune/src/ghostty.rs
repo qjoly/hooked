@@ -101,6 +101,75 @@ impl Line {
     }
 }
 
+/// A stretch of a line drawn at its own column: plain text, or one wide glyph given two cells.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct Seg {
+    pub col: u16,
+    pub cells: u16,
+    pub bytes: (usize, usize),
+    pub wide: bool,
+}
+
+/// The line cut around its wide glyphs, or None when it has none (one text run suffices).
+pub fn wide_segments(line: &Line) -> Option<Vec<Seg>> {
+    let n = line.cols.len();
+    let wide_at =
+        |c: usize| c + 1 < n && line.cols[c + 1] == line.cols[c] && line.cols[c] < line.text.len();
+    if !(0..n).any(wide_at) {
+        return None;
+    }
+    let byte = |c: usize| {
+        line.cols
+            .get(c)
+            .copied()
+            .unwrap_or(line.text.len())
+            .min(line.text.len())
+    };
+    let mut out = Vec::new();
+    let mut c = 0;
+    while c < n && byte(c) < line.text.len() {
+        if wide_at(c) {
+            let mut end = c + 1;
+            while end < n && line.cols[end] == line.cols[c] {
+                end += 1;
+            }
+            out.push(Seg {
+                col: c as u16,
+                cells: (end - c) as u16,
+                bytes: (byte(c), byte(end)),
+                wide: true,
+            });
+            c = end;
+        } else {
+            let start = c;
+            while c < n && !wide_at(c) && byte(c) < line.text.len() {
+                c += 1;
+            }
+            out.push(Seg {
+                col: start as u16,
+                cells: (c - start) as u16,
+                bytes: (byte(start), byte(c)),
+                wide: false,
+            });
+        }
+    }
+    Some(out)
+}
+
+/// `spans` cut to bytes `a..b` and moved to start at 0.
+pub fn spans_in(spans: &[Span], a: usize, b: usize) -> Vec<Span> {
+    spans
+        .iter()
+        .filter(|s| (s.start as usize) < b && (s.end as usize) > a)
+        .map(|s| {
+            let mut t = s.clone();
+            t.start = (s.start as usize).max(a) as u32 - a as u32;
+            t.end = (s.end as usize).min(b) as u32 - a as u32;
+            t
+        })
+        .collect()
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum CursorShape {
     Block,
@@ -934,6 +1003,18 @@ mod tests {
         let (n, _) = vt.search("NEEDLE");
         assert_eq!(n, 1);
         assert!(vt.lines.iter().any(|l| matches(l, "needle") == [(0, 6)]));
+    }
+
+    #[test]
+    fn wide_glyphs_get_their_own_two_cells() {
+        let mut vt = Vt::new(20, 2).expect("terminal");
+        vt.write("ab😀cd".as_bytes());
+        let segs = wide_segments(&vt.lines[0]).expect("wide");
+        let shape: Vec<(u16, u16, bool)> = segs.iter().map(|s| (s.col, s.cells, s.wide)).collect();
+        assert_eq!(shape, [(0, 2, false), (2, 2, true), (4, 2, false)]);
+        assert_eq!(&vt.lines[0].text[segs[1].bytes.0..segs[1].bytes.1], "😀");
+        vt.write(b"\r\nplain");
+        assert!(wide_segments(&vt.lines[1]).is_none());
     }
 
     #[test]

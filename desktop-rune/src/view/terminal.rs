@@ -154,6 +154,19 @@ fn screen(s: &Hooked, k: &Kit, t: &Term, panel: bool) -> El {
                 ch,
             ));
         }
+        let segs = crate::ghostty::wide_segments(line).map(|mut segs| {
+            let text_len = line.text.len();
+            if built.0.len() > text_len {
+                let col = segs.last().map_or(0, |g| g.col + g.cells);
+                segs.push(crate::ghostty::Seg {
+                    col,
+                    cells: 0,
+                    bytes: (text_len, built.0.len()),
+                    wide: false,
+                });
+            }
+            segs
+        });
         lines = lines.child(memo(format!("tl-{}-{i}", t.id), version, move || {
             let mut r = el().w_full().h(ch);
             for (a, b, c) in fills {
@@ -166,14 +179,45 @@ fn screen(s: &Hooked, k: &Kit, t: &Term, panel: bool) -> El {
             for (x, y, w, h, c) in rules {
                 r = r.child(el().absolute(x, y).size(w, h).fill(c));
             }
-            r.child(
-                rich(built.0, built.1)
-                    .font(mono)
-                    .color(fg)
-                    .single_line()
-                    .strikes(strikes)
-                    .h(ch),
-            )
+            let Some(segs) = segs else {
+                return r.child(
+                    rich(built.0, built.1)
+                        .font(mono)
+                        .color(fg)
+                        .single_line()
+                        .strikes(strikes)
+                        .h(ch),
+                );
+            };
+            for g in segs {
+                let (a, b) = g.bytes;
+                let piece = rich(
+                    built.0[a..b].to_string(),
+                    crate::ghostty::spans_in(&built.1, a, b),
+                )
+                .font(mono)
+                .color(fg)
+                .single_line()
+                .strikes(
+                    strikes
+                        .iter()
+                        .filter(|(x, y, _)| *x < b && *y > a)
+                        .map(|&(x, y, c)| (x.max(a) - a, y.min(b) - a, c)),
+                )
+                .h(ch);
+                let x = f32::from(g.col) * cw;
+                r = r.child(if g.wide {
+                    rune::row()
+                        .absolute(x, 0.0)
+                        .size(f32::from(g.cells) * cw, ch)
+                        .center()
+                        .clip_rounded(0.0)
+                        .child(piece)
+                } else {
+                    piece.absolute(x, 0.0)
+                });
+            }
+            r
         }));
     }
     let caret_here = if panel {
