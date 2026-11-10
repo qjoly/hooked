@@ -904,6 +904,7 @@ pub fn view(s: &Hooked, k: &Kit) -> El {
         .child(service_card(s, k, v))
         .child(tags_card(s, k, v))
         .child(remote_card(s, k, v))
+        .child(terminal_card(s, k))
         .child(shortcuts_card(s, k))
         .child(maintenance_card(s, k, v));
     page(k, "settings", "Settings", more, scroll("set-scroll", body))
@@ -967,6 +968,47 @@ fn branches(s: &Hooked, k: &Kit) -> El {
         })
         .collect();
     c.child(chips(list))
+}
+
+fn terminal_card(s: &Hooked, k: &Kit) -> El {
+    let size = s.term_font();
+    card(k, "set-term", "TERMINAL")
+        .child(line(
+            k,
+            "Font family",
+            "Any installed family, or a list tried in order: \"Iosevka\", JetBrains Mono. Empty uses the app's monospace font.",
+            row()
+                .gap(6.0)
+                .center_y()
+                .child(
+                    rune_kit::TextInput::new(&s.term.family)
+                        .placeholder("SF Mono")
+                        .width(Some(220.0))
+                        .on_edit(|s: &mut Hooked| &mut s.term.family)
+                        .on_submit(|s: &mut Hooked, _| s.apply_term_family())
+                        .build(k)
+                        .key("set-term-family"),
+                )
+                .child(
+                    Button::new("Apply")
+                        .variant(ButtonVariant::Outline)
+                        .control_size(ControlSize::Small)
+                        .on_press(|s: &mut Hooked| s.apply_term_family())
+                        .build(k),
+                ),
+        ))
+        .child(line(
+            k,
+            "Font size",
+            "⌘+ and ⌘- in a terminal do the same, ⌘0 resets it.",
+            stepper(
+                k,
+                "set-term-size",
+                format!("{size:.0} pt"),
+                |s| s.zoom_term(-1),
+                |s| s.zoom_term(1),
+            ),
+        ))
 }
 
 fn shortcuts_card(s: &Hooked, k: &Kit) -> El {

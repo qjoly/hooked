@@ -57,7 +57,7 @@ session states coloured by how much they need you.
     emulated by Ghostty's VT core: its colours and styles, cursor shapes, window title, query
     replies, key encoding (application cursor keys, the kitty keyboard protocol with repeats and releases), bracketed paste,
     scrollback on the wheel, every underline style, overline and strikethrough, OSC 8 and plain
-    links (⌘-click), a blinking cursor, emoji and CJK kept to their two cells, a light palette in the light theme, ⌘+ / ⌘- / ⌘0 zoom,
+    links (⌘-click), a blinking cursor, emoji and CJK kept to their two cells, a light palette in the light theme, ⌘+ / ⌘- / ⌘0 zoom, font family and size in Settings,
     focus reports, mouse clicks, drags and wheel for programs that track the mouse,
     drag to select (past an edge it scrolls the scrollback; Shift selects inside programs that
     track the mouse) and ⌘C to copy, middle-click pastes the selection, programs can set the
@@ -93,7 +93,7 @@ session states coloured by how much they need you.
 
 ## Terminal: what is still missing
 
-- Rendering: images (kitty graphics, sixel), a choice of font family.
+- Rendering: images (kitty graphics, sixel).
 - hooked: terminals in their own window or split.
 
 ## Checking it headless

@@ -501,6 +501,11 @@ impl Hooked {
         let args = rune::extra_args();
         s.term.height = s.prefs.get("termHeight");
         s.term.font = s.prefs.get("termFont").unwrap_or(0.0);
+        let family: String = s.prefs.get("termFontFamily").unwrap_or_default();
+        s.term.family = rune::TextEdit::new(family.clone());
+        if !family.is_empty() {
+            s.term.family_name = Some(Box::leak(family.into_boxed_str()));
+        }
         if let Some(i) = args.iter().position(|a| a == "--session")
             && let Some(id) = args.get(i + 1)
         {

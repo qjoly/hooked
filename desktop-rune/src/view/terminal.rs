@@ -56,12 +56,7 @@ fn screen(s: &Hooked, k: &Kit, t: &Term, panel: bool) -> El {
     let cursor = vt
         .cursor
         .filter(|c| !t.exited && (!c.blinking || !has_focus || crate::terminal::blink_on()));
-    let mono = {
-        let mut f = k.ty.mono;
-        f.size = s.term_font();
-        f.line_height = crate::terminal::line_height(f.size);
-        f
-    };
+    let mono = s.term_style(k.ty.mono);
     let selection = k.selection();
     let mut lines = col().key(format!("term-lines-{}", t.id)).w_full().gap(0.0);
     for (i, line) in vt.lines.iter().enumerate() {

@@ -79,6 +79,9 @@ pub struct TermPanel {
     pub height: Option<f32>,
     /// Font size in points; 0 until loaded (the kit's mono size then).
     pub font: f32,
+    /// A font family by name (a CSS list works), the kit's mono family when empty.
+    pub family: rune::TextEdit,
+    pub family_name: Option<&'static str>,
     pub screen: (f32, f32),
     /// The size the PTYs still have to be told about, and when (debounced like the web's fit).
     pub pending: Option<((u16, u16), i64)>,
@@ -1023,6 +1026,27 @@ impl Hooked {
         self.term.font = f;
         self.save_pref("termFont", &f);
         self.term.cell = (0.0, line_height(f));
+    }
+
+    /// Applies the family typed in Settings; rune keeps family names for the whole run.
+    pub fn apply_term_family(&mut self) {
+        let name = self.term.family.text.trim().to_string();
+        self.save_pref("termFontFamily", &name);
+        if self.term.family_name.unwrap_or("") == name {
+            return;
+        }
+        self.term.family_name = (!name.is_empty()).then(|| &*Box::leak(name.into_boxed_str()));
+        self.term.cell = (0.0, line_height(self.term_font()));
+    }
+
+    pub fn term_style(&self, base: rune::TextStyle) -> rune::TextStyle {
+        let mut f = base;
+        f.size = self.term_font();
+        f.line_height = line_height(f.size);
+        if let Some(name) = self.term.family_name {
+            f.family = rune::Family::Named(name);
+        }
+        f
     }
 
     pub fn set_term_focus(&mut self, next: Option<TermFocus>) {
