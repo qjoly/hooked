@@ -11,11 +11,25 @@ use crate::fmt;
 
 pub static HANDLE: OnceLock<AppHandle<Hooked>> = OnceLock::new();
 
-pub fn spawn<T: Send + 'static>(
+/// Runs `work` off the main thread, then `done` on the app state. The handle lives in the state,
+/// not in `HANDLE`: code a live-editing patch replaced sees a fresh copy of the crate's statics,
+/// so it would find `HANDLE` empty and never call back.
+impl Hooked {
+    pub fn spawn<T: Send + 'static>(
+        &self,
+        work: impl FnOnce() -> T + Send + 'static,
+        done: impl FnOnce(&mut Hooked, T, &mut Tx) + Send + 'static,
+    ) {
+        spawn_on(self.handle.as_ref(), work, done);
+    }
+}
+
+pub fn spawn_on<T: Send + 'static>(
+    handle: Option<&AppHandle<Hooked>>,
     work: impl FnOnce() -> T + Send + 'static,
     done: impl FnOnce(&mut Hooked, T, &mut Tx) + Send + 'static,
 ) {
-    let Some(h) = HANDLE.get().cloned() else {
+    let Some(h) = handle.cloned() else {
         return;
     };
     std::thread::spawn(move || {
@@ -139,6 +153,9 @@ pub struct Hooked {
     pub new_group: Option<String>,
     pub usage: Option<serde_json::Value>,
     pub logo: Option<([usize; 6], [rune::Image; 2])>,
+    pub handle: Option<AppHandle<Hooked>>,
+    #[cfg(target_os = "macos")]
+    pub tray: Option<(crate::tray::native::TrayIcon, String)>,
     pub shortcuts: HashMap<&'static str, rune_kit::ShortcutRecorderState>,
     pub deck_plans: HashMap<String, (String, Option<String>)>,
     pub plan_comments: Vec<(String, String)>,
@@ -359,6 +376,9 @@ impl Hooked {
             new_group: None,
             usage: None,
             logo: None,
+            handle: None,
+            #[cfg(target_os = "macos")]
+            tray: None,
             shortcuts,
             deck_plans: HashMap::new(),
             plan_comments: Vec::new(),
@@ -737,7 +757,7 @@ impl Hooked {
         if q.is_empty() || q.starts_with('>') {
             return;
         }
-        spawn(
+        self.spawn(
             {
                 let q = q.clone();
                 move || {
@@ -793,7 +813,7 @@ impl Hooked {
             return;
         }
         self.full_texts.insert(uuid.clone(), None);
-        spawn(
+        self.spawn(
             {
                 let uuid = uuid.clone();
                 move || {
@@ -838,7 +858,7 @@ impl Hooked {
             ),
         };
         let files = matches!(query, AcQuery::File(..));
-        spawn(
+        self.spawn(
             move || api::get(&path),
             move |s, r, _| {
                 if s.ac_req != req || s.composer.range() != (caret, caret) {
@@ -887,7 +907,7 @@ impl Hooked {
             self.job_log = None;
             return;
         }
-        let (Some(id), Some(h)) = (self.selected.clone(), HANDLE.get().cloned()) else {
+        let (Some(id), Some(h)) = (self.selected.clone(), self.handle.clone()) else {
             return;
         };
         self.job_log = Some((task.clone(), String::new()));
@@ -932,7 +952,7 @@ impl Hooked {
 
     pub fn run_code(&mut self, session: String, code: String) {
         let cmd = format!("!{}", code.trim());
-        spawn(
+        self.spawn(
             move || api::reply(&session, &cmd),
             |s, r, _| {
                 match r {
@@ -988,7 +1008,7 @@ impl Hooked {
             self.meta.entry(id.clone()).or_default().snooze_until = Some(until);
         }
         self.now = fmt::now_ms();
-        spawn(
+        self.spawn(
             move || {
                 ids.iter().try_for_each(|id| {
                     api::patch_meta(id, serde_json::json!({ "snoozeUntil": until }))
@@ -1002,20 +1022,20 @@ impl Hooked {
     }
 
     pub fn send_followup(&mut self, id: String, text: String) {
-        spawn(
+        self.spawn(
             move || api::reply(&id, &text),
             |s, r, _| {
                 match r {
                     Ok(_) => s.flash("✓ Follow-up sent", false),
                     Err(e) => s.flash(format!("✗ Follow-up: {e}"), true),
                 }
-                refresh_sessions();
+                s.refresh_sessions();
             },
         );
     }
 
     pub fn deck_answer(&mut self, id: String, index: usize) {
-        spawn(
+        self.spawn(
             move || {
                 api::answer(
                     &id,
@@ -1032,7 +1052,7 @@ impl Hooked {
                     Ok(()) => s.flash("✓ Answered", false),
                     Err(e) => s.flash(format!("✗ Answer: {e}"), true),
                 }
-                refresh_sessions();
+                s.refresh_sessions();
             },
         );
     }
@@ -1144,7 +1164,7 @@ impl Hooked {
 
     pub fn refresh_split(&mut self, id: &str) {
         let id = id.to_string();
-        spawn(
+        self.spawn(
             {
                 let id = id.clone();
                 move || api::detail(&id)
@@ -1190,7 +1210,7 @@ impl Hooked {
         );
         p.sending = true;
         p.composer = TextEdit::new("");
-        spawn(
+        self.spawn(
             move || {
                 if live {
                     api::reply(&sid, &text)
@@ -1288,7 +1308,7 @@ impl Hooked {
         let generation = self.detail_gen.fetch_add(1, Ordering::SeqCst) + 1;
         self.detail_loading = true;
         let gen_ref = self.detail_gen.clone();
-        spawn(
+        self.spawn(
             {
                 let id = id.clone();
                 move || api::detail(&id)
@@ -1313,7 +1333,7 @@ impl Hooked {
         };
         let generation = self.detail_gen.load(Ordering::SeqCst);
         let gen_ref = self.detail_gen.clone();
-        spawn(
+        self.spawn(
             move || api::detail(&id),
             move |s, r, _| {
                 if gen_ref.load(Ordering::SeqCst) != generation {
@@ -1367,6 +1387,7 @@ impl Hooked {
         let Some(cache) = self.images.as_ref() else {
             return;
         };
+        let handle = self.handle.clone();
         let media = &mut self.media;
         for (path, url) in api::media_refs(d) {
             if media.contains_key(&path) {
@@ -1381,7 +1402,8 @@ impl Hooked {
                 }
                 continue;
             }
-            spawn(
+            spawn_on(
+                handle.as_ref(),
                 move || api::bytes(&url),
                 move |s, r, _| {
                     if let (Ok(bytes), Some(cache)) = (r, s.images.as_ref()) {
@@ -1397,7 +1419,7 @@ impl Hooked {
         let Some(id) = self.selected.clone() else {
             return;
         };
-        let Some(h) = HANDLE.get().cloned() else {
+        let Some(h) = self.handle.clone() else {
             return;
         };
         let gen_ref = self.detail_gen.clone();
@@ -1448,7 +1470,7 @@ impl Hooked {
             }
             self.deck_plans.insert(x.id.clone(), (ts.clone(), None));
             let id = x.id.clone();
-            spawn(
+            self.spawn(
                 {
                     let id = id.clone();
                     move || api::detail(&id)
@@ -1465,7 +1487,7 @@ impl Hooked {
 
     pub fn deck_plan(&mut self, id: String, action: &'static str) {
         self.deck_plans.remove(&id);
-        spawn(
+        self.spawn(
             move || api::plan(&id, action, None),
             move |s, r, _| {
                 match r {
@@ -1479,7 +1501,7 @@ impl Hooked {
                     ),
                     Err(e) => s.flash(format!("✗ Plan: {e}"), true),
                 }
-                refresh_sessions();
+                s.refresh_sessions();
             },
         );
     }
@@ -1549,7 +1571,7 @@ impl Hooked {
         label: &'static str,
         work: impl FnOnce() -> Result<(), String> + Send + 'static,
     ) {
-        spawn(work, move |s, r, _| {
+        self.spawn(work, move |s, r, _| {
             match r {
                 Ok(()) => s.flash(format!("✓ {label}"), false),
                 Err(e) => s.flash(format!("✗ {label}: {e}"), true),
@@ -1600,7 +1622,7 @@ impl Hooked {
         );
         self.sending = true;
         self.queued.push(text.clone());
-        spawn(
+        self.spawn(
             move || {
                 if live {
                     api::reply(&id, &text)
@@ -1631,7 +1653,7 @@ impl Hooked {
             path: None,
             failed: false,
         });
-        spawn(
+        self.spawn(
             move || api::upload_image(mime, &bytes),
             move |s, r, _| {
                 let Some(a) = s.attachments.iter_mut().find(|a| a.id == id) else {
@@ -1682,7 +1704,7 @@ impl Hooked {
             return;
         };
         let (id, effort) = (d.session.id.clone(), d.session.effort.clone());
-        spawn(
+        self.spawn(
             move || api::resume(&id, "", effort.as_deref()),
             move |s, r, _| {
                 match r {
@@ -1714,7 +1736,7 @@ impl Hooked {
         let live = self.session(id).is_some_and(|s| s.live);
         self.meta.entry(id.to_string()).or_default().archived = !archived;
         let id = id.to_string();
-        spawn(
+        self.spawn(
             move || {
                 if !archived && live {
                     let _ = api::kill(&id);
@@ -1725,7 +1747,7 @@ impl Hooked {
                 if let Err(e) = r {
                     s.flash(format!("✗ Archive: {e}"), true);
                 }
-                refresh_sessions();
+                s.refresh_sessions();
             },
         );
     }
@@ -1761,7 +1783,7 @@ impl Hooked {
             return;
         };
         self.popup = None;
-        spawn(
+        self.spawn(
             {
                 let (model, effort) = (model.clone(), effort.clone());
                 move || api::set_model(&id, model.as_deref(), effort.as_deref(), force)
@@ -1797,7 +1819,7 @@ impl Hooked {
             items: None,
             busy: None,
         });
-        spawn(
+        self.spawn(
             || api::get("/api/trash"),
             |s, r, _| {
                 if let Some(crate::organize::Picker::Trash { items, .. }) = s.picker.as_mut() {
@@ -1827,7 +1849,7 @@ impl Hooked {
             return;
         }
         *busy = Some(id.clone());
-        spawn(
+        self.spawn(
             {
                 let id = id.clone();
                 move || api::post("/api/restore", serde_json::json!({ "id": id }))
@@ -1845,7 +1867,7 @@ impl Hooked {
                     Ok(_) => s.flash("✓ Restored", false),
                     Err(e) => s.flash(format!("✗ Restore: {e}"), true),
                 }
-                refresh_sessions();
+                s.refresh_sessions();
             },
         );
     }
@@ -1855,7 +1877,7 @@ impl Hooked {
             return;
         };
         self.popup = None;
-        spawn(
+        self.spawn(
             move || api::delete(&id),
             |s, r, _| {
                 match r {
@@ -1867,7 +1889,7 @@ impl Hooked {
                     }
                     Err(e) => s.flash(format!("✗ Delete: {e}"), true),
                 }
-                refresh_sessions();
+                s.refresh_sessions();
             },
         );
     }
@@ -1990,7 +2012,7 @@ impl Hooked {
         let (worktree, ephemeral) = (self.new_worktree, self.new_ephemeral);
         let group_with = self.new_group.take();
         self.sending = true;
-        spawn(
+        self.spawn(
             move || {
                 api::launch(&api::Launch {
                     cwd,
@@ -2009,7 +2031,7 @@ impl Hooked {
                 match r {
                     Ok(id) => {
                         s.flash("✓ Session launched", false);
-                        refresh_sessions();
+                        s.refresh_sessions();
                         s.open_session(&id);
                     }
                     Err(e) => s.flash(format!("✗ Launch: {e}"), true),
@@ -2130,7 +2152,7 @@ impl Hooked {
         if self.gh.contains_key(&url) {
             return;
         }
-        spawn(
+        self.spawn(
             {
                 let url = url.clone();
                 move || api::gh_view(&url)
@@ -2144,7 +2166,7 @@ impl Hooked {
             },
         );
         if url.contains("/pull/") {
-            spawn(
+            self.spawn(
                 {
                     let url = url.clone();
                     move || api::get(&format!("/api/github/detail?url={}", api::enc(&url)))
@@ -2189,7 +2211,7 @@ impl Hooked {
     pub fn pick_folder(&mut self) {
         let start = self.new_project.text.trim().to_string();
         self.new_custom = true;
-        spawn(
+        self.spawn(
             move || api::post("/api/pick-folder", serde_json::json!({ "start": start })),
             |s, r, _| match r {
                 Ok(v) => {
@@ -2297,30 +2319,33 @@ mod link_tests {
     }
 }
 
-pub fn refresh_sessions() {
-    spawn(
-        || (api::sessions(), api::session_meta().ok(), api::tags().ok()),
-        |s, (r, meta, tags), _| match r {
-            Ok(list) => {
-                if let Some(t) = tags {
-                    s.tags = t;
+impl Hooked {
+    pub fn refresh_sessions(&self) {
+        self.spawn(
+            || (api::sessions(), api::session_meta().ok(), api::tags().ok()),
+            |s, (r, meta, tags), _| match r {
+                Ok(list) => {
+                    if let Some(t) = tags {
+                        s.tags = t;
+                    }
+                    s.apply_sessions(list, meta)
                 }
-                s.apply_sessions(list, meta)
-            }
-            Err(_) => {
-                s.connected = false;
-                s.tray_dirty = true;
-            }
-        },
-    );
+                Err(_) => {
+                    s.connected = false;
+                    s.tray_dirty = true;
+                }
+            },
+        );
+    }
 }
 
 /// Follows `/api/stream` (a tick per hook event and transcript write, plus a heartbeat) and
 /// rereads the session list, at most a few times a second.
-pub fn start_workers() {
-    let Some(h) = HANDLE.get().cloned() else {
+pub fn start_workers(h: Option<AppHandle<Hooked>>) {
+    let Some(h) = h else {
         return;
     };
+    let h2 = h.clone();
     std::thread::spawn(move || {
         let mut last = Instant::now() - Duration::from_secs(10);
         loop {
@@ -2349,15 +2374,14 @@ pub fn start_workers() {
             std::thread::sleep(Duration::from_secs(3));
         }
     });
-    std::thread::spawn(|| {
-        if let Ok(caps) = api::capabilities()
-            && let Some(h) = HANDLE.get()
-        {
+    std::thread::spawn(move || {
+        let h = h2;
+        if let Ok(caps) = api::capabilities() {
             h.update(move |s, _| s.caps = caps);
         }
         loop {
             std::thread::sleep(Duration::from_secs(60));
-            if let (Ok((g, raw)), Some(h)) = (api::usage(), HANDLE.get()) {
+            if let Ok((g, raw)) = api::usage() {
                 h.update(move |s, _| {
                     s.gauges = g;
                     s.usage = Some(raw);

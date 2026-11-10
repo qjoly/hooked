@@ -24,17 +24,12 @@ pub fn init_notifications() {
 }
 
 #[cfg(target_os = "macos")]
-mod native {
-    use std::cell::RefCell;
-
+pub mod native {
+    pub use tray_icon::TrayIcon;
     use tray_icon::menu::{Menu, MenuEvent, MenuItem, PredefinedMenuItem};
-    use tray_icon::{Icon, TrayIcon, TrayIconBuilder};
+    use tray_icon::{Icon, TrayIconBuilder};
 
     use crate::app::{HANDLE, Hooked};
-
-    thread_local! {
-        static TRAY: RefCell<Option<(TrayIcon, String)>> = const { RefCell::new(None) };
-    }
 
     fn glyph() -> Icon {
         const N: u32 = 36;
@@ -92,12 +87,14 @@ mod native {
     }
 
     /// Builds the tray on first call and repaints it after; must run on the main thread with
-    /// the event loop running, which `poll` guarantees.
-    pub fn sync(s: &Hooked) {
-        TRAY.with_borrow_mut(|slot| {
+    /// the event loop running, which `poll` guarantees. The icon lives in the app state, where a
+    /// live-editing patch still finds it.
+    pub fn sync(s: &mut Hooked) {
+        let mut slot = s.tray.take();
+        {
             let (t, tip) = title(s);
             let (m, sig) = menu(s);
-            match slot {
+            match &mut slot {
                 Some((tray, last)) => {
                     tray.set_title(t.as_deref());
                     let _ = tray.set_tooltip(Some(&tip));
@@ -116,12 +113,13 @@ mod native {
                         .build();
                     if let Ok(tray) = built {
                         tray.set_title(t.as_deref());
-                        *slot = Some((tray, sig));
+                        slot = Some((tray, sig));
                         MenuEvent::set_event_handler(Some(on_menu));
                     }
                 }
             }
-        });
+        }
+        s.tray = slot;
     }
 
     fn on_menu(e: MenuEvent) {

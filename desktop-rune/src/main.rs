@@ -45,7 +45,7 @@ fn on_key(s: &mut Hooked, ev: &KeyEvent, tx: &mut Tx) -> bool {
         return true;
     }
     if ev.is_command('r') {
-        app::refresh_sessions();
+        s.refresh_sessions();
         s.refresh_detail();
         return true;
     }
@@ -150,13 +150,14 @@ fn poll(s: &mut Hooked, _clock: f64, tx: &mut Tx) -> bool {
 }
 
 fn setup(s: &mut Hooked, waker: rune::Waker) {
+    s.handle = HANDLE.get().cloned();
     s.images = Some(rune::ImageCache::new(waker));
     if let Some(d) = s.detail.clone() {
         s.want_media(&d, true);
     }
     s.tray_dirty = true;
     s.refresh_logo();
-    app::start_workers();
+    app::start_workers(s.handle.clone());
 }
 
 fn on_close(s: &mut Hooked, _: &mut Tx) {

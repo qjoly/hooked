@@ -12,6 +12,7 @@ use crate::{fmt, view};
 
 pub struct Quick {
     pub me: Option<AppHandle<Quick>>,
+    main: Option<AppHandle<crate::app::Hooked>>,
     items: Vec<Session>,
     at: usize,
     msgs: Vec<(bool, String)>,
@@ -22,11 +23,12 @@ pub struct Quick {
 }
 
 impl Quick {
-    pub fn new(me: AppHandle<Quick>) -> Quick {
+    pub fn new(me: AppHandle<Quick>, main: Option<AppHandle<crate::app::Hooked>>) -> Quick {
         let mut reply = TextEdit::new("");
         reply.focused = true;
         let mut q = Quick {
             me: Some(me),
+            main,
             items: Vec::new(),
             at: 0,
             msgs: Vec::new(),
@@ -182,7 +184,7 @@ impl Quick {
         let Some(id) = self.items.get(self.at).map(|x| x.id.clone()) else {
             return;
         };
-        if let Some(h) = HANDLE.get() {
+        if let Some(h) = self.main.as_ref() {
             h.open();
             h.update(move |s, _| s.open_session(&id));
         }
@@ -309,9 +311,9 @@ fn view(s: &Quick, cx: &mut Cx<Quick>) -> El {
             .child(who)
             .child(
                 Markdown::new(body.clone())
-                    .on_link_tx(|_: &mut Quick, url: &str, tx: &mut rune::Tx| {
+                    .on_link_tx(|q: &mut Quick, url: &str, tx: &mut rune::Tx| {
                         if url.starts_with("/session/") {
-                            if let Some(h) = HANDLE.get() {
+                            if let Some(h) = q.main.as_ref() {
                                 let id = url.trim_start_matches("/session/").to_string();
                                 h.open();
                                 h.update(move |s, tx| {
@@ -397,8 +399,9 @@ pub fn app() -> rune::App<Quick> {
     let quick = rune::App::new(spec).windowless();
     let me = quick.handle();
     let _ = QUICK.set(me.clone());
+    let main = HANDLE.get().cloned();
     quick
-        .init(move || Quick::new(me))
+        .init(move || Quick::new(me, main))
         .global_shortcut(
             &std::env::var("HOOKED_QUICK_SHORTCUT").unwrap_or_else(|_| "Cmd+Shift+H".into()),
             |s, _| show(s),

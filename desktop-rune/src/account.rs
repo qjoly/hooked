@@ -2,7 +2,7 @@ use rune::TextEdit;
 use serde_json::{Value, json};
 
 use crate::api;
-use crate::app::{Hooked, spawn};
+use crate::app::Hooked;
 use crate::fmt;
 use crate::organize::Picker;
 
@@ -30,7 +30,7 @@ impl Hooked {
     }
 
     fn refresh_account(&mut self) {
-        spawn(
+        self.spawn(
             || api::get("/api/account"),
             |s, r, _| {
                 if let Some(a) = s.account() {
@@ -41,7 +41,7 @@ impl Hooked {
     }
 
     fn account_action(&mut self, body: Value) {
-        spawn(
+        self.spawn(
             move || api::post("/api/account", body),
             |s, r, _| {
                 let Some(a) = s.account() else { return };
@@ -101,7 +101,7 @@ impl Hooked {
             .take()
             .and_then(|l| l["id"].as_str().map(str::to_string));
         if let Some(id) = id {
-            spawn(
+            self.spawn(
                 move || {
                     api::post(
                         "/api/account",
@@ -114,7 +114,7 @@ impl Hooked {
     }
 
     pub fn account_logout(&mut self) {
-        spawn(
+        self.spawn(
             || api::post("/api/account", json!({ "action": "logout" })),
             |s, r, _| match r {
                 Ok(_) => {

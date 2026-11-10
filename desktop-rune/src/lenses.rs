@@ -5,7 +5,7 @@ use rune_kit::diff::{Annotation, DiffState, FileDiff, LineRange, LineRef, Side};
 use serde_json::{Value, json};
 
 use crate::api::{self, Change, ChangeTurn, McpLogin, McpServer, TraceTurn};
-use crate::app::{Hooked, Lens, Page, spawn};
+use crate::app::{Hooked, Lens, Page};
 use crate::fmt;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
@@ -337,7 +337,7 @@ impl Hooked {
             return;
         }
         self.lens_data.full.insert(path.clone(), None);
-        spawn(
+        self.spawn(
             {
                 let path = path.clone();
                 move || {
@@ -403,7 +403,7 @@ impl Hooked {
         }
         self.lens_data.blame.insert(key.clone(), None);
         let (file, rev) = key.clone();
-        spawn(
+        self.spawn(
             move || {
                 api::get(&format!(
                     "/api/session/vcs-blame?id={}&file={}&rev={}",
@@ -539,7 +539,7 @@ impl Hooked {
         };
         let prompt = review_request_prompt(&id, &scope, &files, &open, &dismissed);
         self.lens_data.asking = true;
-        spawn(
+        self.spawn(
             move || {
                 api::post(
                     "/api/review",
@@ -665,7 +665,7 @@ impl Hooked {
                     }
                     ReviewSource::Tree => {
                         self.lens_data.diff_loading = true;
-                        spawn(
+                        self.spawn(
                             move || api::vcs_changes(&id),
                             move |s, r, _| {
                                 s.lens_data.diff_loading = false;
@@ -714,7 +714,7 @@ impl Hooked {
                         .as_ref()
                         .and_then(|l| l.id.clone())
                         .unwrap_or_default();
-                    spawn(
+                    self.spawn(
                         move || api::mcp_login(json!({ "action": "login-status", "id": lid })),
                         |s, r, _| {
                             if let Ok(l) = r {
@@ -737,7 +737,7 @@ impl Hooked {
                     return false;
                 }
                 self.lens_data.trace_loading = true;
-                spawn(
+                self.spawn(
                     move || api::trace(&id),
                     move |s, r, _| {
                         s.lens_data.trace_loading = false;
@@ -759,7 +759,7 @@ impl Hooked {
             return;
         };
         self.lens_data.mcp_loading = true;
-        spawn(
+        self.spawn(
             move || {
                 let quick = if cached_first {
                     api::mcp_list(&cwd, true).ok()
@@ -772,7 +772,7 @@ impl Hooked {
                 if let Some(list) = quick.filter(|l| !l.is_empty()) {
                     s.lens_data.mcp = list;
                 }
-                spawn(
+                s.spawn(
                     move || api::mcp_list(&cwd, false),
                     |s, r, _| {
                         s.lens_data.mcp_loading = false;
@@ -793,7 +793,7 @@ impl Hooked {
         let Some(id) = self.selected.clone() else {
             return;
         };
-        spawn(
+        self.spawn(
             move || api::get(&format!("/api/review?id={id}")),
             |s, r, _| {
                 if let Ok(v) = r {
@@ -907,7 +907,7 @@ impl Hooked {
 
     fn review_op(&mut self, body: Value) {
         self.annotate();
-        spawn(
+        self.spawn(
             move || api::post("/api/review", body),
             |s, r, _| {
                 if let Err(e) = r {
@@ -1084,7 +1084,7 @@ impl Hooked {
             .collect();
         let live = d.session.live;
         let effort = d.session.effort.clone();
-        spawn(
+        self.spawn(
             move || {
                 if live {
                     api::reply(&id, &prompt)
@@ -1129,7 +1129,7 @@ impl Hooked {
             return;
         }
         let cwd = self.lens_data.mcp_cwd.clone().unwrap_or_default();
-        spawn(
+        self.spawn(
             {
                 let name = name.clone();
                 move || api::mcp_action(json!({ "action": "get", "cwd": cwd, "name": name }))
@@ -1146,7 +1146,7 @@ impl Hooked {
 
     pub fn mcp_logout(&mut self, name: String) {
         let cwd = self.lens_data.mcp_cwd.clone().unwrap_or_default();
-        spawn(
+        self.spawn(
             {
                 let name = name.clone();
                 move || api::mcp_action(json!({ "action": "logout", "cwd": cwd, "name": name }))
@@ -1169,7 +1169,7 @@ impl Hooked {
             name: name.clone(),
             ..Default::default()
         });
-        spawn(
+        self.spawn(
             move || api::mcp_login(json!({ "action": "login", "cwd": cwd, "name": name })),
             |s, r, _| match r {
                 Ok(l) => {
@@ -1193,7 +1193,7 @@ impl Hooked {
             return;
         }
         self.lens_data.mcp_redirect = TextEdit::new("");
-        spawn(
+        self.spawn(
             move || api::mcp_login(json!({ "action": "login-input", "id": lid, "text": text })),
             |s, r, _| {
                 if let Ok(l) = r {
@@ -1206,7 +1206,7 @@ impl Hooked {
     pub fn mcp_cancel_login(&mut self) {
         let lid = self.lens_data.mcp_login.take().and_then(|l| l.id);
         if let Some(lid) = lid {
-            spawn(
+            self.spawn(
                 move || api::mcp_action(json!({ "action": "login-cancel", "id": lid })),
                 |s, _, _| s.load_mcp(false),
             );
@@ -1225,7 +1225,7 @@ impl Hooked {
         let Some(id) = self.selected.clone() else {
             return;
         };
-        spawn(
+        self.spawn(
             {
                 let tool = tool.clone();
                 move || api::trace_tool(&id, &tool)

@@ -2,7 +2,7 @@ use rune::TextEdit;
 use serde_json::{Value, json};
 
 use crate::api;
-use crate::app::{Hooked, Page, refresh_sessions, spawn};
+use crate::app::{Hooked, Page};
 
 pub const GITHUB_TABS: [(&str, &str); 5] = [
     ("review", "Review requested"),
@@ -212,7 +212,7 @@ impl Hooked {
             Page::Stats if pd.stats_loaded_for != Some(pd.stats_range) && !pd.stats_loading => {
                 pd.stats_loading = true;
                 let range = pd.stats_range;
-                spawn(
+                self.spawn(
                     move || api::get(&format!("/api/stats?range={}", STATS_RANGES[range].0)),
                     move |s, r, _| {
                         s.pages.stats_loading = false;
@@ -227,7 +227,7 @@ impl Hooked {
             }
             Page::Digest if !pd.digests_loaded && !pd.digest_loading => {
                 pd.digest_loading = true;
-                spawn(
+                self.spawn(
                     || api::get("/api/digest"),
                     |s, r, _| {
                         s.pages.digest_loading = false;
@@ -251,7 +251,7 @@ impl Hooked {
             }
             Page::Memory if pd.memory.is_none() && !pd.memory_loading => {
                 pd.memory_loading = true;
-                spawn(
+                self.spawn(
                     || api::get("/api/memory"),
                     |s, r, _| {
                         s.pages.memory_loading = false;
@@ -274,7 +274,7 @@ impl Hooked {
             Page::Skills if pd.skills.is_none() => {
                 pd.skills = Some(Vec::new());
                 let cwds: Vec<String> = self.projects();
-                spawn(
+                self.spawn(
                     move || {
                         let q: Vec<String> =
                             cwds.iter().map(|c| format!("cwd={}", urlenc(c))).collect();
@@ -289,7 +289,7 @@ impl Hooked {
             }
             Page::GitHub if pd.github.is_none() && !pd.github_loading => {
                 pd.github_loading = true;
-                spawn(
+                self.spawn(
                     || api::get("/api/github"),
                     |s, r, _| {
                         s.pages.github_loading = false;
@@ -309,7 +309,7 @@ impl Hooked {
             {
                 pd.settings_stale = false;
                 pd.settings_loading = true;
-                spawn(
+                self.spawn(
                     || api::get("/api/settings"),
                     |s, r, _| {
                         s.pages.settings_loading = false;
@@ -424,7 +424,7 @@ impl Hooked {
         if ids.is_empty() {
             return;
         }
-        spawn(
+        self.spawn(
             move || api::post("/api/github/notifications", json!({ "ids": ids })),
             |s, r, _| match r {
                 Ok(v) => {
@@ -471,7 +471,7 @@ impl Hooked {
     pub fn open_skill(&mut self, id: String) {
         self.pages.skill_open = Some(id.clone());
         self.pages.skill = None;
-        spawn(
+        self.spawn(
             move || api::get(&format!("/api/skills?id={}", urlenc(&id))),
             |s, r, _| match r {
                 Ok(v) => s.pages.skill = Some(v),
@@ -483,7 +483,7 @@ impl Hooked {
     pub fn open_digest(&mut self, date: String) {
         self.pages.digest_date = Some(date.clone());
         self.pages.digest = None;
-        spawn(
+        self.spawn(
             move || api::get(&format!("/api/digest?date={date}")),
             |s, r, _| match r {
                 Ok(v) => s.pages.digest = Some(v),
@@ -497,7 +497,7 @@ impl Hooked {
             return;
         };
         self.flash("Generating the digest… this takes a minute", false);
-        spawn(
+        self.spawn(
             move || api::post("/api/digest", json!({ "date": date, "force": force })),
             |s, r, _| match r {
                 Ok(_) => {
@@ -512,7 +512,7 @@ impl Hooked {
     }
 
     pub fn load_cron(&mut self) {
-        spawn(
+        self.spawn(
             || api::get("/api/cron"),
             |s, r, _| match r {
                 Ok(v) => s.pages.cron = v["tasks"].as_array().cloned().unwrap_or_default(),
@@ -543,7 +543,7 @@ impl Hooked {
     }
 
     fn cron_op(&mut self, body: Value, done: &'static str) {
-        spawn(
+        self.spawn(
             move || api::post("/api/cron", body),
             move |s, r, _| {
                 match r {
@@ -551,7 +551,7 @@ impl Hooked {
                     Err(e) => s.flash(format!("✗ {e}"), true),
                 }
                 s.load_cron();
-                refresh_sessions();
+                s.refresh_sessions();
             },
         );
     }
@@ -618,7 +618,7 @@ impl Hooked {
     }
 
     pub fn load_settings_extras(&mut self) {
-        spawn(
+        self.spawn(
             || {
                 (
                     api::get("/api/claude").ok(),
@@ -638,7 +638,7 @@ impl Hooked {
 
     pub fn run_warmup(&mut self) {
         self.pages.busy = Some("warmup");
-        spawn(
+        self.spawn(
             || api::post("/api/warmup", json!({})),
             |s, r, _| {
                 s.pages.busy = None;
@@ -653,7 +653,7 @@ impl Hooked {
 
     pub fn checkout(&mut self, branch: String, strategy: &'static str) {
         self.pages.busy = Some("checkout");
-        spawn(
+        self.spawn(
             {
                 let branch = branch.clone();
                 move || {
@@ -734,7 +734,7 @@ impl Hooked {
 
     fn server_action(&mut self, label: &'static str, path: &'static str, body: Value) {
         self.pages.busy = Some(label);
-        spawn(
+        self.spawn(
             move || api::post(path, body),
             move |s, r, _| {
                 s.pages.busy = None;
@@ -794,7 +794,7 @@ impl Hooked {
             self.set_tag_color(n, Some(i));
         }
         let map = json!(self.tags);
-        spawn(
+        self.spawn(
             move || api::post("/api/tags", json!({ "replace": map })),
             |s, r, _| match r {
                 Ok(_) => s.flash("✓ Tags updated", false),
@@ -808,7 +808,7 @@ impl Hooked {
             s[key] = value.clone();
         }
         let body = json!({ key: value });
-        spawn(
+        self.spawn(
             move || api::post("/api/settings", body),
             |s, r, _| {
                 if let Err(e) = r {

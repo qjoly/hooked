@@ -6,8 +6,9 @@ use base64::Engine;
 use serde_json::{Value, json};
 
 use crate::api;
-use crate::app::{HANDLE, Hooked, spawn};
+use crate::app::Hooked;
 use crate::ghostty::Vt;
+use rune::AppHandle;
 
 pub const COLS: u16 = 120;
 pub const ROWS: u16 = 28;
@@ -80,8 +81,8 @@ fn decode(payload: &str) -> Option<Vec<u8>> {
         .ok()
 }
 
-fn follow(id: String, alive: Arc<AtomicBool>) {
-    let Some(h) = HANDLE.get().cloned() else {
+fn follow(id: String, alive: Arc<AtomicBool>, h: Option<AppHandle<Hooked>>) {
+    let Some(h) = h else {
         return;
     };
     std::thread::spawn(move || {
@@ -123,12 +124,18 @@ fn urlencode(s: &str) -> String {
         .collect()
 }
 
-fn attach(id: String, exited: bool, (cols, rows): (u16, u16), cell: (f32, f32)) -> Option<Term> {
+fn attach(
+    h: Option<AppHandle<Hooked>>,
+    id: String,
+    exited: bool,
+    (cols, rows): (u16, u16),
+    cell: (f32, f32),
+) -> Option<Term> {
     let mut vt = Vt::new(cols, rows)?;
     vt.cell = cell;
     let alive = Arc::new(AtomicBool::new(true));
     if !exited {
-        follow(id.clone(), alive.clone());
+        follow(id.clone(), alive.clone(), h);
     }
     Some(Term {
         id,
@@ -140,10 +147,7 @@ fn attach(id: String, exited: bool, (cols, rows): (u16, u16), cell: (f32, f32)) 
 
 fn post_input(id: String, bytes: &[u8]) {
     let data = String::from_utf8_lossy(bytes).into_owned();
-    spawn(
-        move || api::post("/api/terminal/input", json!({ "id": id, "data": data })),
-        |_, _, _| {},
-    );
+    std::thread::spawn(move || api::post("/api/terminal/input", json!({ "id": id, "data": data })));
 }
 
 impl Hooked {
@@ -218,7 +222,7 @@ impl Hooked {
         let Some(sid) = self.selected.clone() else {
             return;
         };
-        spawn(
+        self.spawn(
             move || api::get(&format!("/api/terminal?sessionId={}", urlencode(&sid))),
             |s, r, _| {
                 let (size, cell) = (s.term.size.unwrap_or((COLS, ROWS)), s.term_cell());
@@ -231,6 +235,7 @@ impl Hooked {
                     .filter(|t| t["inline"].as_bool() != Some(true))
                     .filter_map(|t| {
                         attach(
+                            s.handle.clone(),
                             t["id"].as_str()?.to_string(),
                             t["exited"].as_bool() == Some(true),
                             size,
@@ -257,7 +262,7 @@ impl Hooked {
         }
         self.term.busy = true;
         let (size, cell) = (self.term.size.unwrap_or((COLS, ROWS)), self.term_cell());
-        spawn(
+        self.spawn(
             move || {
                 api::post(
                     "/api/terminal",
@@ -267,7 +272,7 @@ impl Hooked {
             move |s, r, _| {
                 s.term.busy = false;
                 match r.map(|v| v["id"].as_str().map(str::to_string)) {
-                    Ok(Some(id)) => match attach(id, false, size, cell) {
+                    Ok(Some(id)) => match attach(s.handle.clone(), id, false, size, cell) {
                         Some(t) => {
                             s.term.terms.push(t);
                             s.term.active = s.term.terms.len() - 1;
@@ -304,7 +309,7 @@ impl Hooked {
         }
         let id = t.id.clone();
         drop(t);
-        spawn(
+        self.spawn(
             move || api::post("/api/terminal/kill", json!({ "id": id })),
             |_, _, _| {},
         );
@@ -336,7 +341,7 @@ impl Hooked {
         self.term.pending = None;
         for t in self.term.terms.iter().filter(|t| !t.exited) {
             let id = t.id.clone();
-            spawn(
+            self.spawn(
                 move || {
                     api::post(
                         "/api/terminal/resize",

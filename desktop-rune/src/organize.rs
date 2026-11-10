@@ -4,7 +4,7 @@ use rune::TextEdit;
 use serde_json::json;
 
 use crate::api::{self, Session};
-use crate::app::{Hooked, refresh_sessions, spawn};
+use crate::app::Hooked;
 
 pub enum Picker {
     Tags {
@@ -154,7 +154,7 @@ impl Hooked {
         for m in &ids {
             self.meta.entry(m.clone()).or_default().incognito = on;
         }
-        spawn(
+        self.spawn(
             move || {
                 ids.iter()
                     .try_for_each(|m| api::patch_meta(m, json!({ "incognito": on })))
@@ -163,7 +163,7 @@ impl Hooked {
                 if let Err(e) = r {
                     s.flash(format!("✗ Incognito: {e}"), true);
                 }
-                refresh_sessions();
+                s.refresh_sessions();
             },
         );
     }
@@ -195,7 +195,7 @@ impl Hooked {
         };
         let tags = parse_tags(&edit.text);
         self.tags.insert(id.clone(), tags.clone());
-        spawn(
+        self.spawn(
             move || api::save_tags(&id, &tags),
             |s, r, _| match r {
                 Ok(()) => s.flash("✓ Tags saved", false),
@@ -234,7 +234,7 @@ impl Hooked {
     pub fn group_op(&mut self, op: &'static str, id: String, extra: serde_json::Value) {
         self.picker = None;
         self.popup = None;
-        spawn(
+        self.spawn(
             move || api::group_op(op, &id, extra),
             move |s, r, _| {
                 match r {
@@ -250,7 +250,7 @@ impl Hooked {
                     ),
                     Err(e) => s.flash(format!("✗ Group: {e}"), true),
                 }
-                refresh_sessions();
+                s.refresh_sessions();
             },
         );
     }
@@ -284,7 +284,7 @@ impl Hooked {
             title,
             messages: None,
         });
-        spawn(
+        self.spawn(
             move || {
                 api::get(&format!(
                     "/api/agent?session={}&agent={}",
@@ -355,12 +355,12 @@ impl Hooked {
             return;
         };
         self.flash("⑂ Forking…", false);
-        spawn(
+        self.spawn(
             move || api::fork(&id, &req),
             |s, r, _| match r {
                 Ok(new_id) => {
                     s.flash("✓ Forked into a new session", false);
-                    refresh_sessions();
+                    s.refresh_sessions();
                     s.open_session(&new_id);
                 }
                 Err(e) => s.flash(format!("✗ Fork: {e}"), true),

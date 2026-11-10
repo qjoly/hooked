@@ -1,7 +1,7 @@
 use serde_json::Value;
 
 use crate::api;
-use crate::app::{Hooked, spawn};
+use crate::app::Hooked;
 use crate::fmt;
 
 const POLL_MS: i64 = 5000;
@@ -85,7 +85,7 @@ impl Hooked {
         w.loading = true;
         w.polled = fmt::now_ms();
         let url = w.url.clone();
-        spawn(
+        self.spawn(
             {
                 let url = url.clone();
                 move || api::get(&format!("/api/github/run?url={}", api::enc(&url)))
@@ -127,7 +127,7 @@ impl Hooked {
             return;
         }
         let job_url = job["url"].as_str().unwrap_or("").to_string();
-        spawn(
+        self.spawn(
             move || api::get(&format!("/api/github/run/log?url={}", api::enc(&job_url))),
             move |s, r, _| {
                 let Some(w) = s.run_win.as_mut() else {

@@ -209,14 +209,8 @@ fn topbar(s: &Hooked, k: &Kit, inset: f32, _layer: &mut Vec<El>) -> El {
         }
         k.interactive(r)
     };
-    let deck = space(
-        "tb-deck",
-        "Deck",
-        &icons::DECK,
-        s.page == Page::Deck,
-        None,
-    )
-    .on_press(|s: &mut Hooked| s.go_deck());
+    let deck = space("tb-deck", "Deck", &icons::DECK, s.page == Page::Deck, None)
+        .on_press(|s: &mut Hooked| s.go_deck());
     let sessions = space(
         "tb-sessions",
         "Sessions",
