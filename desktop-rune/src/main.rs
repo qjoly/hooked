@@ -31,6 +31,22 @@ use app::{HANDLE, Hooked, Lens, Page};
 pub const MONO: &str = "ui-monospace, Menlo, monospace";
 
 fn on_key(s: &mut Hooked, ev: &KeyEvent, tx: &mut Tx) -> bool {
+    let focused = tx.focused();
+    let on_chrome = focused.is_none_or(|f| f.starts_with("term-"));
+    if s.term_claimed && on_chrome && s.term.open && s.page == app::Page::Session {
+        let handled = if ev.mods.cmd {
+            s.term_cmd_key(&ev.key)
+        } else {
+            s.term_key(ev, tx.physical_key())
+        };
+        if handled {
+            tx.instant();
+            return true;
+        }
+    } else if !focused.is_some_and(terminal::is_term_key) {
+        s.term_focus = None;
+        s.term_claimed = false;
+    }
     if s.shortcuts.values().any(|r| r.is_recording()) {
         return false;
     }
@@ -170,12 +186,8 @@ fn on_close(s: &mut Hooked, _: &mut Tx) {
 }
 
 fn on_ime(s: &mut Hooked, ime: &rune::Ime, tx: &mut Tx) -> bool {
-    if tx.focused() != Some("term-screen") {
-        return false;
-    }
     tx.instant();
-    s.term_ime(ime);
-    true
+    s.focused_ime(ime)
 }
 
 fn main() {

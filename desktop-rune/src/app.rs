@@ -179,6 +179,8 @@ pub struct Hooked {
     pub splits: Vec<SplitPane>,
     pub term: crate::terminal::TermPanel,
     pub ptys: crate::terminal::Ptys,
+    pub term_focus: Option<crate::terminal::TermFocus>,
+    pub term_claimed: bool,
     pub attach_seq: u64,
     pub queued: Vec<String>,
     pub sending: bool,
@@ -410,6 +412,8 @@ impl Hooked {
             splits: Vec::new(),
             term: crate::terminal::TermPanel::default(),
             ptys: Default::default(),
+            term_focus: None,
+            term_claimed: false,
             attach_seq: 0,
             queued: Vec::new(),
             sending: false,
@@ -560,6 +564,9 @@ impl Hooked {
         }
         if args.iter().any(|a| a == "--term") {
             s.preload_terms();
+            if args.iter().any(|a| a == "--term-closed") {
+                s.term.open = false;
+            }
             if args.iter().any(|a| a == "--term-sel") {
                 s.term.sel = Some(crate::terminal::Sel {
                     anchor: (2, 1),
@@ -1176,6 +1183,8 @@ impl Hooked {
             return;
         }
         self.stash_draft();
+        self.term_focus = None;
+        self.term_claimed = false;
         self.selected = Some(id.to_string());
         self.detail = None;
         self.live = None;

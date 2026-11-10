@@ -244,7 +244,7 @@ pub fn panel(s: &Hooked, k: &Kit) -> El {
                                 }),
                             ),
                     )
-                    .on_press(move |s: &mut Hooked| s.term.active = i),
+                    .on_press(move |s: &mut Hooked| s.pick_term(i)),
                 )
                 .child(if t.exited {
                     IconButton::new(&icons::RESTART)
@@ -388,6 +388,8 @@ pub fn panel(s: &Hooked, k: &Kit) -> El {
             },
         )
         .on_key(|s: &mut Hooked, ev: &rune::KeyEvent, tx: &mut rune::Tx| {
+            s.term_focus = Some(crate::terminal::TermFocus::Panel);
+            s.term_claimed = false;
             if ev.is_command('c') {
                 if let Some(text) = s.selection_text() {
                     tx.copy(text);
@@ -409,6 +411,10 @@ pub fn panel(s: &Hooked, k: &Kit) -> El {
         })
         .on_drag(|s: &mut Hooked, d: &mut rune::Drag, tx: &mut rune::Tx| {
             tx.instant();
+            if d.phase == rune::Phase::Down {
+                s.term_focus = Some(crate::terminal::TermFocus::Panel);
+                s.term_claimed = false;
+            }
             if d.phase == rune::Phase::Down && tx.mods().cmd && s.term_open_link(d.x, d.y, tx) {
                 return;
             }
@@ -420,12 +426,6 @@ pub fn panel(s: &Hooked, k: &Kit) -> El {
             true
         })
         .on_layout(|s: &mut Hooked, r: [f32; 4]| s.fit_terms(r[2], r[3]))
-        .on_paste_content(
-            |s: &mut Hooked, c: &rune::ClipboardContent, tx: &mut rune::Tx| {
-                tx.instant();
-                s.term_paste(c.text());
-            },
-        )
         .on_drop_files(|s: &mut Hooked, files: &[std::path::PathBuf], _| s.term_drop(files))
         .child(body)
         .child(match scroll {
@@ -586,6 +586,7 @@ pub fn pty_block(s: &Hooked, k: &Kit, f: &crate::terminal::PtyFence) -> El {
                 .on_key(
                     move |s: &mut Hooked, ev: &rune::KeyEvent, tx: &mut rune::Tx| {
                         tx.instant();
+                        s.term_focus = Some(crate::terminal::TermFocus::Pty(ka.clone()));
                         s.pty_key(&ka, ev, tx.physical_key())
                     },
                 )
@@ -596,12 +597,11 @@ pub fn pty_block(s: &Hooked, k: &Kit, f: &crate::terminal::PtyFence) -> El {
                         true
                     },
                 )
-                .on_paste_content(
-                    move |s: &mut Hooked, c: &rune::ClipboardContent, tx: &mut rune::Tx| {
-                        tx.instant();
-                        s.pty_paste(&kc, c.text());
-                    },
-                )
+                .on_drag(move |s: &mut Hooked, d: &mut rune::Drag, _| {
+                    if d.phase == rune::Phase::Down {
+                        s.term_focus = Some(crate::terminal::TermFocus::Pty(kc.clone()));
+                    }
+                })
                 .on_layout(move |s: &mut Hooked, r: [f32; 4]| s.pty_fit(&kd, r[2]))
                 .child(screen(s, k, t, false));
             c = c.child(head).child(screen_el);

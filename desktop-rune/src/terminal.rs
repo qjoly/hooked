@@ -319,6 +319,7 @@ impl Hooked {
                             s.term.terms.push(t);
                             s.term.active = s.term.terms.len() - 1;
                             s.term.open = true;
+                            s.claim_term();
                         }
                         None => s.flash("✗ Could not start the terminal emulator", true),
                     },
@@ -334,7 +335,25 @@ impl Hooked {
             self.new_term();
         } else {
             self.term.open = !self.term.open;
+            if self.term.open {
+                self.claim_term();
+            } else {
+                self.term_claimed = false;
+            }
         }
+    }
+
+    /// Hands the keyboard to the panel's shell when it opens or a tab is picked: rune focuses
+    /// only text fields from code, so the window routes keys to it until something else has focus.
+    pub fn claim_term(&mut self) {
+        self.term_focus = Some(TermFocus::Panel);
+        self.term_claimed = true;
+        self.composer.focused = false;
+    }
+
+    pub fn pick_term(&mut self, i: usize) {
+        self.term.active = i;
+        self.claim_term();
     }
 
     pub fn close_term(&mut self, i: usize) {
@@ -693,6 +712,18 @@ impl Hooked {
 
 pub const PTY_ROWS: u16 = 18;
 
+/// Which terminal holds the keyboard. Rune reports focus only to key handlers, while input-method
+/// events and pastes reach the app without it, so presses and keys on a terminal record it here.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub enum TermFocus {
+    Panel,
+    Pty(String),
+}
+
+pub fn is_term_key(key: &str) -> bool {
+    key == "term-screen" || key.starts_with("pty-screen-")
+}
+
 #[derive(Default)]
 pub struct Ptys {
     pub terms: Vec<Term>,
@@ -810,6 +841,31 @@ impl Hooked {
         if !t.exited {
             t.vt.scroll_to_bottom();
             post_input(t.id.clone(), &bytes);
+        }
+        true
+    }
+
+    pub fn focused_paste(&mut self, text: &str) -> bool {
+        match self.term_focus.clone() {
+            Some(TermFocus::Panel) => self.term_paste(text),
+            Some(TermFocus::Pty(id)) => self.pty_paste(&id, text),
+            None => return false,
+        }
+        true
+    }
+
+    pub fn focused_ime(&mut self, ime: &rune::Ime) -> bool {
+        match self.term_focus.clone() {
+            Some(TermFocus::Panel) => self.term_ime(ime),
+            Some(TermFocus::Pty(id)) => {
+                if let rune::Ime::Commit(text) = ime
+                    && let Some(t) = self.ptys.terms.iter_mut().find(|t| t.id == id && !t.exited)
+                {
+                    t.vt.scroll_to_bottom();
+                    post_input(t.id.clone(), text.as_bytes());
+                }
+            }
+            None => return false,
         }
         true
     }
