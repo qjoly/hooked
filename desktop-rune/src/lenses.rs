@@ -12,6 +12,7 @@ use crate::fmt;
 pub enum ReviewSource {
     Claude,
     Tree,
+    Branch,
 }
 
 pub struct LensData {
@@ -26,6 +27,14 @@ pub struct LensData {
     pub blame: HashMap<(String, String), Option<Value>>,
     pub blame_at: Option<(usize, Side, u32)>,
     pub rendered: bool,
+    pub branches: Option<Value>,
+    pub branches_loading: bool,
+    pub branch: Option<String>,
+    pub base: Option<String>,
+    pub branch_root: Option<String>,
+    pub commits: Vec<Value>,
+    pub picked: Vec<String>,
+    pub branch_open: bool,
     pub turns_open: bool,
     pub anchors: Vec<(String, String)>,
     pub threads: Vec<Value>,
@@ -66,6 +75,14 @@ impl Default for LensData {
             blame: HashMap::new(),
             blame_at: None,
             rendered: false,
+            branches: None,
+            branches_loading: false,
+            branch: None,
+            base: None,
+            branch_root: None,
+            commits: Vec::new(),
+            picked: Vec::new(),
+            branch_open: false,
             turns_open: false,
             anchors: Vec::new(),
             threads: Vec::new(),
@@ -269,6 +286,7 @@ fn brief_list(threads: &[ReviewBrief]) -> String {
 pub fn review_request_prompt(
     session: &str,
     scope: &str,
+    rev: Option<&str>,
     files: &[String],
     open: &[ReviewBrief],
     dismissed: &[ReviewBrief],
@@ -279,7 +297,13 @@ pub fn review_request_prompt(
         .map(|f| format!("- {f}"))
         .collect::<Vec<_>>()
         .join("\n");
-    let lines = "1-based lines of the file as it is on disk now, i.e. the new side of the diff";
+    let lines = match rev {
+        Some(r) => format!(
+            "1-based lines of the file at revision {r} (git show {r}:<path>), i.e. the new side of the diff"
+        ),
+        None => "1-based lines of the file as it is on disk now, i.e. the new side of the diff"
+            .to_string(),
+    };
     let mut out = format!(
         "Review {scope}. Files under review:\n{list}\n\n\
          Look for real problems — bugs, wrong behaviour, unhandled cases, risky changes — and for \
@@ -311,7 +335,195 @@ impl Hooked {
             ReviewSource::Claude if self.lens_data.turns.is_empty() => "full".into(),
             ReviewSource::Claude => turns_key(&self.lens_data.turns),
             ReviewSource::Tree => "vcs:wt".into(),
+            ReviewSource::Branch => format!("br:{}", self.branch_key().unwrap_or_default()),
         }
+    }
+
+    /// The picked commits as the range the server diffs, oldest first (`commits` is newest first).
+    pub fn branch_range(&self) -> Option<(String, String)> {
+        let ld = &self.lens_data;
+        let at: Vec<usize> = ld
+            .picked
+            .iter()
+            .filter_map(|r| {
+                ld.commits
+                    .iter()
+                    .position(|c| c["rev"].as_str() == Some(r.as_str()))
+            })
+            .collect();
+        let (lo, hi) = (*at.iter().min()?, *at.iter().max()?);
+        Some((
+            ld.commits[hi]["rev"].as_str()?.to_string(),
+            ld.commits[lo]["rev"].as_str()?.to_string(),
+        ))
+    }
+
+    /// The web's `diffKey`: `root:base:branch`, plus `:@from..to` for a commit range.
+    pub fn branch_key(&self) -> Option<String> {
+        let ld = &self.lens_data;
+        let pair = format!(
+            "{}:{}:{}",
+            ld.branch_root.as_deref()?,
+            ld.base.as_deref()?,
+            ld.branch.as_deref()?
+        );
+        Some(match self.branch_range() {
+            Some((from, to)) => format!("{pair}:@{from}..{to}"),
+            None => pair,
+        })
+    }
+
+    /// What "Review" names in prompts, and the revision the new side's lines come from.
+    pub fn review_scope(&self) -> (String, Option<String>) {
+        let ld = &self.lens_data;
+        match ld.review_source {
+            ReviewSource::Branch => {
+                let (b, base) = (
+                    ld.branch.clone().unwrap_or_default(),
+                    ld.base.clone().unwrap_or_default(),
+                );
+                match self.branch_range() {
+                    Some((from, to)) => (
+                        format!(
+                            "commits `{}`…`{}` of branch `{b}` (based on `{base}`)",
+                            &from[..from.len().min(7)],
+                            &to[..to.len().min(7)]
+                        ),
+                        Some(to),
+                    ),
+                    None => (
+                        format!("the full diff of branch `{b}` against `{base}`"),
+                        Some(b),
+                    ),
+                }
+            }
+            ReviewSource::Tree => ("the uncommitted changes in the working tree".into(), None),
+            ReviewSource::Claude if !ld.turns.is_empty() => {
+                let labels: Vec<String> = ld.turns.iter().map(|t| format!("P{}", t + 1)).collect();
+                (
+                    format!(
+                        "your changes for prompt{} {}",
+                        if labels.len() > 1 { "s" } else { "" },
+                        labels.join(", ")
+                    ),
+                    None,
+                )
+            }
+            ReviewSource::Claude => ("your changes".into(), None),
+        }
+    }
+
+    fn load_branches(&mut self, id: String) {
+        self.lens_data.branches_loading = true;
+        self.spawn(
+            move || api::get(&format!("/api/session/vcs-branches?id={}", api::enc(&id))),
+            |s, r, _| {
+                let ld = &mut s.lens_data;
+                ld.branches_loading = false;
+                let v = r.unwrap_or_default();
+                let names: Vec<String> = v["branches"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|b| b["name"].as_str().map(str::to_string))
+                    .collect();
+                let current = v["branches"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .find(|b| b["current"] == true)
+                    .and_then(|b| b["name"].as_str())
+                    .map(str::to_string);
+                let default = v["default"].as_str().map(str::to_string);
+                if ld.branch.as_ref().is_none_or(|b| !names.contains(b)) {
+                    ld.branch = current
+                        .or_else(|| default.clone())
+                        .or(names.first().cloned());
+                }
+                if ld.base.as_ref().is_none_or(|b| !names.contains(b)) {
+                    ld.base = default;
+                }
+                ld.branch_root = v["root"].as_str().map(str::to_string);
+                ld.branches = Some(v);
+            },
+        );
+    }
+
+    fn load_branch_diff(&mut self, id: String, sig: String) {
+        let ld = &self.lens_data;
+        let (Some(branch), Some(base), Some(root)) =
+            (ld.branch.clone(), ld.base.clone(), ld.branch_root.clone())
+        else {
+            return;
+        };
+        let range = self.branch_range();
+        let key = self.branch_key().unwrap_or_default();
+        self.lens_data.diff_loading = true;
+        self.spawn(
+            move || {
+                let mut path = format!(
+                    "/api/session/vcs-branch?id={}&branch={}&base={}&root={}",
+                    api::enc(&id),
+                    api::enc(&branch),
+                    api::enc(&base),
+                    api::enc(&root)
+                );
+                if let Some((from, to)) = &range {
+                    path.push_str(&format!("&from={}&to={}", api::enc(from), api::enc(to)));
+                }
+                api::get(&path)
+            },
+            move |s, r, _| {
+                s.lens_data.diff_loading = false;
+                s.lens_data.diff_sig = Some(sig);
+                match r {
+                    Ok(v) => {
+                        if s.lens_data.picked.is_empty()
+                            && let Some(c) = v["commits"].as_array()
+                        {
+                            s.lens_data.commits = c.clone();
+                        }
+                        let changes: Vec<Change> =
+                            serde_json::from_value(v["changes"].clone()).unwrap_or_default();
+                        s.lens_data.diff_count = changes.len();
+                        let root = v["root"].as_str().map(str::to_string);
+                        let (files, anchors) =
+                            file_diffs(&changes, root.as_deref(), &format!("br:{key}"));
+                        s.lens_data.diff.set_files(files);
+                        s.lens_data.anchors = anchors;
+                        s.annotate();
+                        s.load_threads();
+                    }
+                    Err(e) => s.flash(format!("✗ Branch: {e}"), true),
+                }
+            },
+        );
+    }
+
+    pub fn pick_commit(&mut self, rev: Option<String>) {
+        let ld = &mut self.lens_data;
+        match rev {
+            None => ld.picked.clear(),
+            Some(r) => {
+                if let Some(i) = ld.picked.iter().position(|p| *p == r) {
+                    ld.picked.remove(i);
+                } else {
+                    ld.picked.push(r);
+                }
+            }
+        }
+    }
+
+    pub fn set_branch(&mut self, branch: Option<String>, base: Option<String>) {
+        let ld = &mut self.lens_data;
+        if branch.is_some() {
+            ld.branch = branch;
+        }
+        if base.is_some() {
+            ld.base = base;
+        }
+        ld.picked.clear();
+        ld.commits.clear();
     }
 
     pub fn truncated_at(&self, file: usize) -> Option<String> {
@@ -371,7 +583,7 @@ impl Hooked {
         let rev = match (self.lens_data.review_source, side) {
             (ReviewSource::Tree, Side::Old) => "HEAD",
             (ReviewSource::Tree, Side::New) => "",
-            (ReviewSource::Claude, Side::Old) => return None,
+            (ReviewSource::Claude, Side::Old) | (ReviewSource::Branch, _) => return None,
             (ReviewSource::Claude, Side::New) => {
                 let j: usize = key.strip_prefix("full:")?.parse().ok()?;
                 let c = self
@@ -488,14 +700,6 @@ impl Hooked {
             return;
         }
         let in_key = |op: &str| op == base || op.starts_with(&format!("{base}:"));
-        let filtered = self.lens_data.review_source == ReviewSource::Claude
-            && !self.lens_data.turns.is_empty();
-        let labels: Vec<String> = self
-            .lens_data
-            .turns
-            .iter()
-            .map(|t| format!("P{}", t + 1))
-            .collect();
         let brief = |t: &Value| {
             let side = if t["side"] == "old" { "−L" } else { "+L" };
             let (a, b) = (
@@ -528,22 +732,14 @@ impl Hooked {
             .filter(|t| t["status"] == "archived")
             .map(|t| brief(t))
             .collect();
-        let scope = match self.lens_data.review_source {
-            ReviewSource::Claude if filtered => format!(
-                "your changes for prompt{} {}",
-                if labels.len() > 1 { "s" } else { "" },
-                labels.join(", ")
-            ),
-            ReviewSource::Claude => "your changes".to_string(),
-            ReviewSource::Tree => "the uncommitted changes in the working tree".to_string(),
-        };
-        let prompt = review_request_prompt(&id, &scope, &files, &open, &dismissed);
+        let (scope, rev) = self.review_scope();
+        let prompt = review_request_prompt(&id, &scope, rev.as_deref(), &files, &open, &dismissed);
         self.lens_data.asking = true;
         self.spawn(
             move || {
                 api::post(
                     "/api/review",
-                    json!({ "id": id, "action": "start", "scope": scope_key }),
+                    json!({ "id": id, "action": "start", "scope": scope_key, "rev": rev }),
                 )
             },
             move |s, r, _| {
@@ -636,6 +832,16 @@ impl Hooked {
                         )
                     }
                     ReviewSource::Tree => format!("{id}|tree|{activity}"),
+                    ReviewSource::Branch => match self.branch_key() {
+                        Some(key) => format!("{id}|branch|{key}|{activity}"),
+                        None => {
+                            if ld.branches.is_none() && !ld.branches_loading {
+                                self.load_branches(id);
+                                return true;
+                            }
+                            return false;
+                        }
+                    },
                 };
                 if ld.diff_sig.as_deref() == Some(sig.as_str()) || ld.diff_loading {
                     return false;
@@ -661,6 +867,10 @@ impl Hooked {
                         self.annotate();
                         self.lens_data.diff_sig = Some(sig);
                         self.load_threads();
+                        true
+                    }
+                    ReviewSource::Branch => {
+                        self.load_branch_diff(id, sig);
                         true
                     }
                     ReviewSource::Tree => {
@@ -1026,11 +1236,7 @@ impl Hooked {
         if pending.is_empty() {
             return;
         }
-        let scope = if self.lens_data.review_source == ReviewSource::Tree {
-            "the uncommitted changes in the working tree"
-        } else {
-            "your changes"
-        };
+        let (scope, _) = self.review_scope();
         let items: Vec<String> = pending
             .iter()
             .enumerate()
@@ -1305,6 +1511,7 @@ mod prompt_tests {
         let p = review_request_prompt(
             "abc",
             "your changes",
+            None,
             &["/r/a.rs".to_string()],
             &[ReviewBrief {
                 file: "/r/a.rs".into(),

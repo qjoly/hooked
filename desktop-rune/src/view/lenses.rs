@@ -30,6 +30,163 @@ fn empty(k: &Kit, key: &str, msg: &str) -> El {
         .child(text(msg.to_string()).font(k.ty.body).color(k.c.text_faint))
 }
 
+fn branch_panel(s: &Hooked, k: &Kit) -> El {
+    use super::settings::{chip, chips};
+    let ld = &s.lens_data;
+    let names: Vec<String> = ld
+        .branches
+        .as_ref()
+        .and_then(|v| v["branches"].as_array())
+        .into_iter()
+        .flatten()
+        .filter_map(|b| b["name"].as_str().map(str::to_string))
+        .collect();
+    let row_of = |title: &str, base: bool| {
+        let current = if base { &ld.base } else { &ld.branch };
+        let items = names
+            .iter()
+            .map(|n| {
+                let name = n.clone();
+                chip(
+                    k,
+                    format!("br-{}-{n}", if base { "base" } else { "head" }),
+                    n.clone(),
+                    current.as_deref() == Some(n.as_str()),
+                    move |s| {
+                        if base {
+                            s.set_branch(None, Some(name.clone()))
+                        } else {
+                            s.set_branch(Some(name.clone()), None)
+                        }
+                    },
+                )
+            })
+            .collect();
+        col()
+            .w_full()
+            .gap(6.0)
+            .child(section_title(k, title))
+            .child(chips(items))
+    };
+    let mut c = col()
+        .w_full()
+        .gap(10.0)
+        .child(row_of("BRANCH", false))
+        .child(row_of("BASE", true));
+    if !ld.commits.is_empty() {
+        let mut list = col().w_full().gap(1.0).child(
+            k.interactive(
+                row()
+                    .key("commit-all")
+                    .role("checkbox")
+                    .checked(ld.picked.is_empty())
+                    .w_full()
+                    .h(26.0)
+                    .px(8.0)
+                    .gap(8.0)
+                    .center_y()
+                    .radius(k.radius.sm)
+                    .cursor(Cursor::Pointer)
+                    .child(glyph(
+                        if ld.picked.is_empty() {
+                            &icons::CIRCLE_CHECK
+                        } else {
+                            &icons::CIRCLE
+                        },
+                        13.0,
+                        if ld.picked.is_empty() {
+                            k.c.icon_accent
+                        } else {
+                            k.c.icon_faint
+                        },
+                    ))
+                    .child(
+                        text(format!("All {} commits", ld.commits.len()))
+                            .font(k.ty.text_small_medium)
+                            .color(k.c.text_base),
+                    ),
+            )
+            .on_press(|s: &mut Hooked| s.pick_commit(None)),
+        );
+        let range = s.branch_range();
+        let span = range.as_ref().and_then(|(from, to)| {
+            let at = |r: &str| ld.commits.iter().position(|c| c["rev"].as_str() == Some(r));
+            Some((at(to)?, at(from)?))
+        });
+        for (i, cm) in ld.commits.iter().enumerate() {
+            let rev = cm["rev"].as_str().unwrap_or("").to_string();
+            let on = ld.picked.contains(&rev);
+            let inside = span.is_some_and(|(lo, hi)| i >= lo && i <= hi);
+            let r = rev.clone();
+            list = list.child(
+                k.interactive(
+                    row()
+                        .key(format!("commit-{rev}"))
+                        .role("checkbox")
+                        .checked(on)
+                        .w_full()
+                        .h(26.0)
+                        .px(8.0)
+                        .gap(8.0)
+                        .center_y()
+                        .radius(k.radius.sm)
+                        .cursor(Cursor::Pointer)
+                        .fill(if inside {
+                            k.c.layer_02
+                        } else {
+                            Color::TRANSPARENT
+                        })
+                        .child(glyph(
+                            if on {
+                                &icons::CIRCLE_CHECK
+                            } else {
+                                &icons::CIRCLE
+                            },
+                            13.0,
+                            if on { k.c.icon_accent } else { k.c.icon_faint },
+                        ))
+                        .child(
+                            text(rev.chars().take(7).collect::<String>())
+                                .font(k.ty.mono)
+                                .color(k.c.text_muted),
+                        )
+                        .child(
+                            text(cm["subject"].as_str().unwrap_or("").to_string())
+                                .font(k.ty.text_small)
+                                .color(k.c.text_base)
+                                .truncate()
+                                .grow(1.0)
+                                .min_w(0.0),
+                        )
+                        .child(
+                            text(fmt::ago_short(cm["ts"].as_str(), s.now))
+                                .font(k.ty.text_xsmall)
+                                .color(k.c.text_faint),
+                        ),
+                )
+                .on_press(move |s: &mut Hooked| s.pick_commit(Some(r.clone()))),
+            );
+        }
+        c = c
+            .child(section_title(
+                k,
+                "COMMITS · pick one or more to review just that range",
+            ))
+            .child(list);
+    }
+    col()
+        .key("review-branch")
+        .w_full()
+        .max_h(340.0)
+        .px(12.0)
+        .py(8.0)
+        .border_sides([0.0, 0.0, 1.0, 0.0], k.c.border_weak)
+        .scroll(ScrollSpec {
+            stick_bottom: false,
+        })
+        .child(c)
+}
+
 fn turns_panel(s: &Hooked, d: &Detail, k: &Kit) -> El {
     let ld = &s.lens_data;
     let files_of = |turn: usize| {
@@ -540,6 +697,7 @@ pub fn review(s: &Hooked, d: &Detail, k: &Kit) -> El {
     let src = match ld.review_source {
         ReviewSource::Claude => 0,
         ReviewSource::Tree => 1,
+        ReviewSource::Branch => 2,
     };
     let split = ld.diff.mode() == DiffMode::Split;
     let mut top = bar(k, "review-bar")
@@ -548,16 +706,17 @@ pub fn review(s: &Hooked, d: &Detail, k: &Kit) -> El {
                 &[
                     format!("Claude's edits · {}", d.changes.len()),
                     "Working tree".to_string(),
+                    "Branch".to_string(),
                 ],
                 Some(src),
             )
             .label("Diff source")
             .fit()
             .on_pick(|s: &mut Hooked, i, _| {
-                s.set_review_source(if i == 0 {
-                    ReviewSource::Claude
-                } else {
-                    ReviewSource::Tree
+                s.set_review_source(match i {
+                    0 => ReviewSource::Claude,
+                    1 => ReviewSource::Tree,
+                    _ => ReviewSource::Branch,
                 })
             })
             .build(k)
@@ -576,6 +735,37 @@ pub fn review(s: &Hooked, d: &Detail, k: &Kit) -> El {
         .child(el().grow(1.0));
     if ld.diff_loading {
         top = top.child(Spinner::new().build(k));
+    }
+    if ld.review_source == ReviewSource::Branch {
+        let label = match (&ld.branch, &ld.base) {
+            (Some(b), Some(base)) => {
+                let commits = if ld.picked.is_empty() {
+                    String::new()
+                } else {
+                    format!(
+                        " · {} commit{}",
+                        ld.picked.len(),
+                        if ld.picked.len() == 1 { "" } else { "s" }
+                    )
+                };
+                format!("{b} vs {base}{commits}")
+            }
+            _ => "Loading branches…".to_string(),
+        };
+        top = top.child(
+            Button::new(label)
+                .icon(&icons::GIT_BRANCH)
+                .variant(if ld.branch_open {
+                    ButtonVariant::Outline
+                } else {
+                    ButtonVariant::GhostMuted
+                })
+                .control_size(ControlSize::Regular)
+                .help("Pick the branch, its base and the commits to review")
+                .on_press(|s: &mut Hooked| s.lens_data.branch_open = !s.lens_data.branch_open)
+                .build(k)
+                .key("review-branch-toggle"),
+        );
     }
     if ld.review_source == ReviewSource::Claude && !d.change_turns.is_empty() {
         let label = if ld.turns.is_empty() {
@@ -676,6 +866,12 @@ pub fn review(s: &Hooked, d: &Detail, k: &Kit) -> El {
     let body = if ld.diff.files().is_empty() {
         let msg = if ld.diff_loading {
             "Reading the working tree…"
+        } else if ld.review_source == ReviewSource::Branch {
+            if ld.branch.is_none() {
+                "Reading the branches…"
+            } else {
+                "No difference between the branch and its base."
+            }
         } else if ld.review_source == ReviewSource::Tree {
             "The working tree is clean."
         } else {
@@ -746,6 +942,9 @@ pub fn review(s: &Hooked, d: &Detail, k: &Kit) -> El {
     }
     if ld.turns_open && ld.review_source == ReviewSource::Claude {
         out = out.child(turns_panel(s, d, k));
+    }
+    if ld.branch_open && ld.review_source == ReviewSource::Branch {
+        out = out.child(branch_panel(s, k));
     }
     out.child(body)
 }

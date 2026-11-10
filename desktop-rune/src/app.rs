@@ -684,6 +684,10 @@ impl Hooked {
         if args.iter().any(|a| a == "--side-by-side") {
             s.lens_data.diff.set_mode(rune_kit::diff::DiffMode::Split);
         }
+        if args.iter().any(|a| a == "--branch") {
+            s.lens_data.review_source = crate::lenses::ReviewSource::Branch;
+            s.lens_data.branch_open = true;
+        }
         if args.iter().any(|a| a == "--rendered") {
             s.lens_data.rendered = true;
         }
