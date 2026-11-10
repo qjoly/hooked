@@ -164,7 +164,6 @@ impl Shadows for El {
 }
 
 fn topbar(s: &Hooked, k: &Kit, inset: f32, _layer: &mut Vec<El>) -> El {
-    let decisions = s.waiting().len();
     let space = |key: &'static str,
                  label: &'static str,
                  i: &'static Icon,
@@ -215,7 +214,7 @@ fn topbar(s: &Hooked, k: &Kit, inset: f32, _layer: &mut Vec<El>) -> El {
         "Deck",
         &icons::DECK,
         s.page == Page::Deck,
-        Some(decisions),
+        None,
     )
     .on_press(|s: &mut Hooked| s.go_deck());
     let sessions = space(
