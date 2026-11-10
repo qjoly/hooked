@@ -11,6 +11,7 @@ mod ghrun;
 mod icons;
 mod lenses;
 mod logo;
+mod mddiff;
 mod organize;
 mod pages;
 mod querywin;

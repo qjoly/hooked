@@ -461,18 +461,61 @@ fn rendered_panel(s: &Hooked, k: &Kit) -> El {
     let Some(f) = ld.diff.files().get(i).filter(|f| is_markdown(f.path())) else {
         return el();
     };
-    let src = f
-        .text(rune_kit::diff::Side::New)
-        .map(str::to_string)
-        .unwrap_or_else(|| {
+    let side_text = |side: rune_kit::diff::Side| {
+        f.text(side).map(str::to_string).unwrap_or_else(|| {
             f.hunks
                 .iter()
                 .flat_map(|h| &h.lines)
-                .filter(|l| l.new.is_some())
+                .filter(|l| match side {
+                    rune_kit::diff::Side::New => l.new.is_some(),
+                    rune_kit::diff::Side::Old => l.old.is_some(),
+                })
                 .map(|l| l.text.as_str())
                 .collect::<Vec<_>>()
                 .join("\n")
-        });
+        })
+    };
+    let diff = crate::mddiff::block_diff(
+        &side_text(rune_kit::diff::Side::Old),
+        &side_text(rune_kit::diff::Side::New),
+    );
+    let mut doc = col().w_full().gap(2.0);
+    if diff.is_empty() {
+        doc = doc.child(
+            text("Empty document.")
+                .font(k.ty.text_small)
+                .color(k.c.text_faint),
+        );
+    }
+    for (i, (kind, md)) in diff.into_iter().enumerate() {
+        use crate::mddiff::Kind;
+        let (sign, tint) = match kind {
+            Kind::Add => ("+", Some(k.c.success)),
+            Kind::Del => ("−", Some(k.c.danger)),
+            Kind::Ctx => ("", None),
+        };
+        let mut b = row()
+            .key(format!("mdd-{i}"))
+            .w_full()
+            .py(2.0)
+            .gap(6.0)
+            .child(
+                text(sign)
+                    .font(k.ty.mono)
+                    .color(tint.map_or(k.c.text_faint, |t| t.fg))
+                    .w(14.0),
+            )
+            .child(
+                col()
+                    .grow(1.0)
+                    .min_w(0.0)
+                    .child(super::md(md).selectable(true).build(k)),
+            );
+        if let Some(t) = tint {
+            b = b.fill(t.bg).border_sides([0.0, 0.0, 0.0, 3.0], t.icon);
+        }
+        doc = doc.child(b);
+    }
     col()
         .key("review-rendered")
         .w(460.0)
@@ -497,12 +540,12 @@ fn rendered_panel(s: &Hooked, k: &Kit) -> El {
                 .w_full()
                 .grow(1.0)
                 .min_h(0.0)
-                .px(16.0)
+                .pr(16.0)
                 .pb(16.0)
                 .scroll(ScrollSpec {
                     stick_bottom: false,
                 })
-                .child(super::md(src).selectable(true).build(k)),
+                .child(doc),
         )
 }
 

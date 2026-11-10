@@ -1642,6 +1642,7 @@ dependencies = [
  "base64",
  "libc",
  "libghostty-vt",
+ "pulldown-cmark",
  "rune",
  "rune-kit",
  "rune-notify",

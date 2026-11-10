@@ -77,7 +77,7 @@ session states coloured by how much they need you.
   incognito mode for screen sharing, Fork from any message with model, effort, mode and a first
   message, cost breakdown, copy as Markdown, focus mode, and up to four split panes.
 - **Review**: a files rail with reviewed ticks (v), a prompt filter, Review with Claude, a
-  comments panel (edit, archive, restore, jump), blame for the clicked line, rendered Markdown,
+  comments panel (edit, archive, restore, jump), blame for the clicked line, rendered Markdown with added and removed blocks tinted,
   and the full diff of a truncated change.
 - **Outside the window**: a menu bar item with the waiting count and sessions; closing the window
   keeps the app running; ⌘⇧H (`HOOKED_QUICK_SHORTCUT` overrides it) opens a quick-reply panel on
@@ -87,8 +87,8 @@ session states coloured by how much they need you.
 
 - Dictation (not planned), the companion (decorative).
 - Dragging a session onto another to group it: the group tabs and the ⋯ menu do it instead.
-- Review: go-to-definition. Blame shows for the clicked line, not on hover. Markdown renders
-  beside its diff without the per-block tint.
+- Review: go-to-definition. Blame shows for the clicked line, not on hover (rune-kit's diff
+  view reports no hovered line).
 - Conversation: video and audio open in the system player.
 
 ## Terminal: what is still missing

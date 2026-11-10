@@ -13,6 +13,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 base64 = "0.22"
 libc = "0.2"
+pulldown-cmark = { version = "0.13", default-features = false }
 libghostty-vt = { git = "https://github.com/Uzaaft/libghostty-rs", rev = "9b598d6528c08c013407052767bb2e885ba869ba" }
 
 [features]
