@@ -78,7 +78,9 @@ session states coloured by how much they need you.
   lead session with a tab strip (switch, make lead, leave, rename, new session in the group),
   incognito mode for screen sharing, Fork from any message with model, effort, mode and a first
   message, cost breakdown, copy as Markdown, focus mode, and up to four split panes.
-- **Review**: a files rail with reviewed ticks (v), a prompt filter, Review with Claude, a
+- **Review**: go to definition (⌘-click a line number to pick one of its names, or double-click
+  a name then F12): the declaration opens in a card under the line, with candidates when it is
+  ambiguous, more lines on demand and Esc to close; a files rail with reviewed ticks (v), a prompt filter, Review with Claude, a
   comments panel (edit, archive, restore, jump), blame for the clicked line, rendered Markdown with added and removed blocks tinted,
   and the full diff of a truncated change.
 - **Outside the window**: a menu bar item with the waiting count and sessions; closing the window
@@ -88,8 +90,9 @@ session states coloured by how much they need you.
 ## Not done yet
 
 - Dictation (not planned), the companion (decorative).
-- Review: go-to-definition. Blame shows for the clicked line, not on hover (rune-kit's diff
-  view reports no hovered line).
+- Review: blame shows for the clicked line, not on hover, and go to definition starts from a
+  line number or a selected name rather than a ⌘-click on the word (rune-kit's diff view
+  reports neither the hovered line nor the clicked word).
 
 ## Terminal: what is still missing
 

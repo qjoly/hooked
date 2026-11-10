@@ -939,7 +939,15 @@ pub fn review(s: &Hooked, d: &Detail, k: &Kit) -> El {
                 })
                 .on_comment(|s: &mut Hooked, range, _| s.start_comment(range))
                 .on_visible_file(|_: &mut Hooked, _| {})
-                .on_select(|s: &mut Hooked, sel, _| s.blame_line(sel))
+                .on_select(|s: &mut Hooked, sel, tx| {
+                    s.blame_line(sel);
+                    if tx.mods().cmd
+                        && let Some(r) = sel
+                    {
+                        let word = tx.text_selection().map(|t| t.text().trim().to_string());
+                        s.def_click(r, word);
+                    }
+                })
                 .header_actions({
                     let k = k.clone();
                     move |s: &Hooked, i| file_actions(s, &k, i)
@@ -1457,6 +1465,9 @@ pub fn trace(s: &Hooked, k: &Kit) -> El {
 }
 
 fn annotation(s: &Hooked, a: &Annotation, k: &Kit) -> El {
+    if a.id == "def" {
+        return def_card(s, k);
+    }
     let shell = |key: String| {
         col()
             .key(key)
@@ -1651,4 +1662,225 @@ fn annotation(s: &Hooked, a: &Annotation, k: &Kit) -> El {
         );
     }
     c
+}
+
+fn def_card(s: &Hooked, k: &Kit) -> El {
+    use crate::defs::DefState;
+    let Some(d) = s.lens_data.def.as_ref() else {
+        return el();
+    };
+    let title = match (&d.state, d.symbol.as_deref()) {
+        (DefState::Choose, _) | (_, None) => "Go to definition of…".to_string(),
+        (
+            DefState::List {
+                refs_only: true, ..
+            },
+            Some(w),
+        ) => format!("References to {w}"),
+        (DefState::List { items, .. }, Some(w)) => {
+            format!("{} possible declarations of {w}", items.len())
+        }
+        (_, Some(w)) => format!("Definition of {w}"),
+    };
+    let mut head = row()
+        .w_full()
+        .gap(8.0)
+        .center_y()
+        .child(glyph(&icons::CODE, 13.0, k.c.icon_muted))
+        .child(
+            text(title)
+                .font(k.ty.text_small_medium)
+                .color(k.c.text_base)
+                .truncate()
+                .grow(1.0)
+                .min_w(0.0),
+        );
+    if d.choices.len() > 1 && !matches!(d.state, DefState::Choose) {
+        head = head.child(
+            Button::new("Other name")
+                .icon(&icons::ARROW_LEFT)
+                .variant(ButtonVariant::GhostMuted)
+                .control_size(ControlSize::Small)
+                .on_press(|s: &mut Hooked| s.def_back())
+                .build(k),
+        );
+    }
+    head = head.child(
+        rune_kit::IconButton::new(&icons::CLOSE)
+            .variant(rune_kit::IconButtonVariant::GhostMuted)
+            .control_size(ControlSize::Small)
+            .label("Close (Esc)")
+            .on_press(|s: &mut Hooked| s.close_def())
+            .build(k),
+    );
+    let note = |msg: String| text(msg).font(k.ty.text_small).color(k.c.text_faint).wrap();
+    let body = match &d.state {
+        DefState::Choose if d.choices.is_empty() => note("No name on this line to look up.".into()),
+        DefState::Choose => row()
+            .w_full()
+            .gap(6.0)
+            .flex_wrap()
+            .children(d.choices.iter().map(|w| {
+                let word = w.clone();
+                k.interactive(
+                    row()
+                        .key(format!("def-pick-{w}"))
+                        .role("button")
+                        .h(24.0)
+                        .px(8.0)
+                        .center_y()
+                        .radius(k.radius.sm)
+                        .cursor(Cursor::Pointer)
+                        .border(1.0, k.c.border_weak)
+                        .child(text(w.clone()).font(k.ty.mono).color(k.c.text_base)),
+                )
+                .on_press(move |s: &mut Hooked| s.def_lookup(word.clone()))
+            })),
+        DefState::Loading => note(format!("Looking up {}…", d.symbol.as_deref().unwrap_or(""))),
+        DefState::Note(msg) => note(msg.clone()),
+        DefState::List { items, .. } => {
+            col()
+                .w_full()
+                .gap(2.0)
+                .children(items.iter().enumerate().map(|(i, it)| {
+                    let target = it.clone();
+                    k.interactive(
+                        col()
+                            .key(format!("def-cand-{i}"))
+                            .role("button")
+                            .w_full()
+                            .px(8.0)
+                            .py(4.0)
+                            .gap(2.0)
+                            .radius(k.radius.sm)
+                            .cursor(Cursor::Pointer)
+                            .child(
+                                row()
+                                    .gap(8.0)
+                                    .child(
+                                        text(format!(
+                                            "{}:{}",
+                                            it["rel"].as_str().unwrap_or(""),
+                                            it["line"].as_u64().unwrap_or(0)
+                                        ))
+                                        .font(k.ty.text_xsmall_medium)
+                                        .color(k.c.text_accent),
+                                    )
+                                    .child(
+                                        text(
+                                            it["reason"]
+                                                .as_str()
+                                                .or(it["kind"].as_str())
+                                                .unwrap_or("")
+                                                .to_string(),
+                                        )
+                                        .font(k.ty.text_xsmall)
+                                        .color(k.c.text_faint)
+                                        .truncate()
+                                        .min_w(0.0),
+                                    ),
+                            )
+                            .child(
+                                text(it["text"].as_str().unwrap_or("").trim().to_string())
+                                    .font(k.ty.mono)
+                                    .color(k.c.text_muted)
+                                    .truncate(),
+                            ),
+                    )
+                    .on_press(move |s: &mut Hooked| s.def_pick(target.clone()))
+                }))
+        }
+        DefState::Source {
+            target, data, err, ..
+        } => {
+            let at = target["line"].as_u64().unwrap_or(0);
+            let mut c = col().w_full().gap(4.0).child(
+                row()
+                    .gap(8.0)
+                    .child(
+                        text(format!("{}:{at}", target["rel"].as_str().unwrap_or("")))
+                            .font(k.ty.text_xsmall_medium)
+                            .color(k.c.text_accent),
+                    )
+                    .child(
+                        text(target["kind"].as_str().unwrap_or("").to_string())
+                            .font(k.ty.text_xsmall)
+                            .color(k.c.text_faint),
+                    ),
+            );
+            match (data, err) {
+                (_, Some(e)) => c = c.child(note(e.clone())),
+                (None, None) => c = c.child(note("Loading the file…".into())),
+                (Some(v), None) => {
+                    let from = v["from"].as_u64().unwrap_or(1);
+                    let total = v["total"].as_u64().unwrap_or(0);
+                    let lines = v["lines"].as_array().cloned().unwrap_or_default();
+                    let more = |label: &str, up: bool| {
+                        Button::new(label.to_string())
+                            .variant(ButtonVariant::GhostMuted)
+                            .control_size(ControlSize::Small)
+                            .on_press(move |s: &mut Hooked| s.def_expand(up))
+                            .build(k)
+                    };
+                    if from > 1 {
+                        c = c.child(more("Earlier lines", true));
+                    }
+                    let mut code = col()
+                        .w_full()
+                        .py(4.0)
+                        .radius(k.radius.sm)
+                        .fill(k.c.bg_deep)
+                        .border(1.0, k.c.border_weak);
+                    for (i, l) in lines.iter().enumerate() {
+                        let n = from + i as u64;
+                        let here = n == at;
+                        code = code.child(
+                            row()
+                                .w_full()
+                                .px(8.0)
+                                .gap(10.0)
+                                .fill(if here {
+                                    k.c.warning.bg
+                                } else {
+                                    Color::TRANSPARENT
+                                })
+                                .child(
+                                    text(n.to_string())
+                                        .font(k.ty.mono)
+                                        .color(k.c.text_faint)
+                                        .w(36.0),
+                                )
+                                .child(
+                                    text(l.as_str().unwrap_or("").to_string())
+                                        .font(k.ty.mono)
+                                        .color(if here { k.c.text_base } else { k.c.text_muted })
+                                        .single_line()
+                                        .grow(1.0)
+                                        .min_w(0.0)
+                                        .selectable(true),
+                                ),
+                        );
+                    }
+                    c = c.child(code);
+                    if from + (lines.len() as u64) <= total {
+                        c = c.child(more("Later lines", false));
+                    }
+                }
+            }
+            c
+        }
+    };
+    col()
+        .key("def-card")
+        .w_full()
+        .max_w(820.0)
+        .mx(12.0)
+        .my(6.0)
+        .padding(12.0)
+        .gap(8.0)
+        .radius(k.radius.md)
+        .fill(k.c.surface_raised)
+        .border(1.0, k.c.border_focus)
+        .child(head)
+        .child(body)
 }

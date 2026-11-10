@@ -2,6 +2,7 @@ mod account;
 mod api;
 mod app;
 mod cron;
+mod defs;
 mod dnd;
 mod export;
 mod fleet;
@@ -79,8 +80,20 @@ fn on_key(s: &mut Hooked, ev: &KeyEvent, tx: &mut Tx) -> bool {
         tx.quit();
         return true;
     }
-    if s.page == Page::Session && s.lens == Lens::Review && s.lens_data.diff.key(ev, tx) {
-        return true;
+    if s.page == Page::Session && s.lens == Lens::Review {
+        if ev.key == Key::Escape && s.lens_data.def.is_some() {
+            s.close_def();
+            return true;
+        }
+        if ev.key == Key::Function(12)
+            && let Some(word) = tx.text_selection().map(|t| t.text().trim().to_string())
+        {
+            s.def_selected(&word);
+            return true;
+        }
+        if s.lens_data.diff.key(ev, tx) {
+            return true;
+        }
     }
     if matches!(s.picker, Some(organize::Picker::Image { .. })) {
         match ev.key {

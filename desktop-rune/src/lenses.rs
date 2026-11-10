@@ -26,6 +26,7 @@ pub struct LensData {
     pub full: HashMap<String, Option<Change>>,
     pub blame: HashMap<(String, String), Option<Value>>,
     pub blame_at: Option<(usize, Side, u32)>,
+    pub def: Option<crate::defs::DefPeek>,
     pub rendered: bool,
     pub branches: Option<Value>,
     pub branches_loading: bool,
@@ -74,6 +75,7 @@ impl Default for LensData {
             full: HashMap::new(),
             blame: HashMap::new(),
             blame_at: None,
+            def: None,
             rendered: false,
             branches: None,
             branches_loading: false,
@@ -578,7 +580,7 @@ impl Hooked {
     }
 
     /// Which revision a side of diff `file` comes from, when its line numbers are the file's.
-    fn blame_rev(&self, file: usize, side: Side) -> Option<(String, String)> {
+    pub(crate) fn blame_rev(&self, file: usize, side: Side) -> Option<(String, String)> {
         let (path, key) = self.lens_data.anchors.get(file)?;
         let rev = match (self.lens_data.review_source, side) {
             (ReviewSource::Tree, Side::Old) => "HEAD",
@@ -1052,6 +1054,9 @@ impl Hooked {
                 range.start
             };
             notes.push(Annotation::new(range.file, end, "draft"));
+        }
+        if let Some(d) = ld.def.as_ref() {
+            notes.push(Annotation::new(d.file, LineRef::new(d.side, d.line), "def"));
         }
         ld.diff.set_annotations(notes);
     }
