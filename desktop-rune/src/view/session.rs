@@ -808,8 +808,31 @@ pub(super) fn bubble_version(s: &Hooked, m: &Message, k: &Kit) -> u64 {
         .as_ref()
         .and_then(|u| s.full_texts.get(u))
         .map(Option::is_some);
+    let pty = (m.role == "user")
+        .then(|| crate::terminal::pty_fence(&m.text))
+        .flatten()
+        .map(|f| match s.ptys.terms.iter().find(|t| t.id == f.id) {
+            Some(t) => (
+                1u8,
+                t.exited,
+                t.vt.lines
+                    .iter()
+                    .map(|l| l.version)
+                    .fold(0u64, u64::wrapping_add),
+                t.vt.cursor.map(|c| (c.x, c.y)),
+                t.vt.size(),
+            ),
+            None => (
+                u8::from(s.ptys.dead.contains(&f.id)) + 2,
+                false,
+                0,
+                None,
+                (0, 0),
+            ),
+        });
     hash_of((
         &m.text,
+        pty,
         full,
         pictures,
         m.tools.len(),
@@ -822,6 +845,9 @@ pub(super) fn bubble_version(s: &Hooked, m: &Message, k: &Kit) -> u64 {
 
 pub(super) fn bubble(s: &Hooked, session: &str, m: &Message, k: &Kit, i: usize) -> El {
     let user = m.role == "user";
+    if user && let Some(f) = crate::terminal::pty_fence(&m.text) {
+        return super::terminal::pty_block(s, k, &f);
+    }
     if m.role == "system" {
         return row().w_full().justify_center().child(
             text(fmt::first_line(&m.text, 160))

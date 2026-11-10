@@ -178,6 +178,7 @@ pub struct Hooked {
     pub attachments: Vec<Attachment>,
     pub splits: Vec<SplitPane>,
     pub term: crate::terminal::TermPanel,
+    pub ptys: crate::terminal::Ptys,
     pub attach_seq: u64,
     pub queued: Vec<String>,
     pub sending: bool,
@@ -408,6 +409,7 @@ impl Hooked {
             attachments: Vec::new(),
             splits: Vec::new(),
             term: crate::terminal::TermPanel::default(),
+            ptys: Default::default(),
             attach_seq: 0,
             queued: Vec::new(),
             sending: false,
@@ -551,6 +553,10 @@ impl Hooked {
         }
         if args.iter().any(|a| a == "--sort-menu") {
             s.popup = Some(Popup::Sort);
+        }
+        if let Some(i) = args.iter().position(|a| a == "--pty") {
+            let id = args.get(i + 1).cloned().unwrap_or_default();
+            s.preload_pty(&id, args.get(i + 2).map_or("/tmp", String::as_str));
         }
         if args.iter().any(|a| a == "--term") {
             s.preload_terms();

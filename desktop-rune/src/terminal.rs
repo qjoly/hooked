@@ -105,7 +105,7 @@ fn follow(id: String, alive: Arc<AtomicBool>, h: Option<AppHandle<Hooked>>) {
             if r.is_ok() {
                 let id = id.clone();
                 h.update(move |s, _| {
-                    if let Some(t) = s.term.terms.iter_mut().find(|t| t.id == id) {
+                    if let Some(t) = s.term_mut(&id) {
                         t.exited = true;
                     }
                 });
@@ -162,7 +162,7 @@ impl Hooked {
 
     /// Shell output lands in its terminal; whatever the terminal answers goes back to that shell.
     pub fn term_output(&mut self, id: &str, bytes: &[u8]) {
-        let Some(t) = self.term.terms.iter_mut().find(|t| t.id == id) else {
+        let Some(t) = self.term_mut(id) else {
             return;
         };
         let reply = t.vt.write(bytes);
@@ -226,6 +226,36 @@ impl Hooked {
             }
             self.term_search_changed();
         }
+    }
+
+    /// Headless renders: a `!!` block on the open conversation, its screen replayed in place.
+    pub fn preload_pty(&mut self, id: &str, command: &str) {
+        let fence = format!("```pty id={id} cwd=/tmp\n$ {command}\n```");
+        let Ok(m) = serde_json::from_value(json!({ "role": "user", "text": fence })) else {
+            return;
+        };
+        if let Some(d) = self.detail.as_mut() {
+            d.messages.push(m);
+            self.ptys.seen = (d.session.id.clone(), d.messages.len());
+        }
+        let Some(mut vt) = Vt::new(100, PTY_ROWS) else {
+            return;
+        };
+        let _ = api::follow(
+            &format!("/api/terminal/stream?id={}", urlencode(id)),
+            |payload| {
+                if let Some(bytes) = decode(payload) {
+                    vt.write(&bytes);
+                }
+                false
+            },
+        );
+        self.ptys.terms.push(Term {
+            id: id.to_string(),
+            vt,
+            exited: false,
+            alive: Arc::new(AtomicBool::new(false)),
+        });
     }
 
     pub fn load_terms(&mut self) {
@@ -658,5 +688,208 @@ impl Hooked {
             t.vt.scroll(-lines);
             self.term.sel = None;
         }
+    }
+}
+
+pub const PTY_ROWS: u16 = 18;
+
+#[derive(Default)]
+pub struct Ptys {
+    pub terms: Vec<Term>,
+    pub dead: std::collections::HashSet<String>,
+    pub checking: bool,
+    pub seen: (String, usize),
+}
+
+pub struct PtyFence {
+    pub id: String,
+    pub cwd: String,
+    pub command: String,
+}
+
+/// The fence `!!command` leaves in the transcript (`formatInteractiveCommand` in server/agent.js).
+pub fn pty_fence(text: &str) -> Option<PtyFence> {
+    let mut lines = text.trim().lines();
+    let info = lines.next()?.strip_prefix("```pty")?;
+    let (mut id, mut cwd) = (String::new(), String::new());
+    if let Some(i) = info.find(" id=") {
+        id = info[i + 4..].split_whitespace().next()?.to_string();
+    }
+    if let Some(i) = info.find(" cwd=") {
+        cwd = info[i + 5..].to_string();
+    }
+    let first = lines.next().unwrap_or("");
+    let command = first.strip_prefix("$ ").unwrap_or(first).to_string();
+    (!id.is_empty()).then_some(PtyFence { id, cwd, command })
+}
+
+impl Hooked {
+    pub fn term_mut(&mut self, id: &str) -> Option<&mut Term> {
+        self.term
+            .terms
+            .iter_mut()
+            .chain(self.ptys.terms.iter_mut())
+            .find(|t| t.id == id)
+    }
+
+    /// Attaches the live `!!` terminals the open conversation shows; called from `poll`.
+    pub fn sync_ptys(&mut self) {
+        let Some(d) = self.detail.as_ref() else {
+            return;
+        };
+        let key = (d.session.id.clone(), d.messages.len());
+        if self.ptys.checking || self.ptys.seen == key {
+            return;
+        }
+        let wanted: Vec<String> = d
+            .messages
+            .iter()
+            .filter(|m| m.role == "user")
+            .filter_map(|m| pty_fence(&m.text))
+            .map(|f| f.id)
+            .filter(|id| {
+                !self.ptys.dead.contains(id) && !self.ptys.terms.iter().any(|t| t.id == *id)
+            })
+            .collect();
+        self.ptys.seen = key.clone();
+        if wanted.is_empty() {
+            return;
+        }
+        self.ptys.checking = true;
+        let sid = key.0;
+        self.spawn(
+            move || api::get(&format!("/api/terminal?sessionId={}", urlencode(&sid))),
+            move |s, r, _| {
+                s.ptys.checking = false;
+                let Ok(v) = r else {
+                    s.ptys.seen = Default::default();
+                    return;
+                };
+                let list = v["terminals"].as_array().cloned().unwrap_or_default();
+                let cell = s.term_cell();
+                for id in wanted {
+                    let live = list.iter().any(|t| {
+                        t["id"].as_str() == Some(id.as_str()) && t["exited"].as_bool() != Some(true)
+                    });
+                    match live
+                        .then(|| attach(s.handle.clone(), id.clone(), false, (100, PTY_ROWS), cell))
+                        .flatten()
+                    {
+                        Some(t) => s.ptys.terms.push(t),
+                        None => {
+                            s.ptys.dead.insert(id);
+                        }
+                    }
+                }
+            },
+        );
+    }
+
+    pub fn pty_key(
+        &mut self,
+        id: &str,
+        ev: &rune::KeyEvent,
+        physical: Option<rune::PhysicalKeyCode>,
+    ) -> bool {
+        let Some(t) = self.ptys.terms.iter_mut().find(|t| t.id == id) else {
+            return false;
+        };
+        let bytes = if ev.mods.cmd {
+            match ev.key {
+                rune::Key::Left => b"\x01".to_vec(),
+                rune::Key::Right => b"\x05".to_vec(),
+                rune::Key::Backspace => b"\x15".to_vec(),
+                _ => return false,
+            }
+        } else {
+            let Some(b) = t.vt.encode_key(ev, physical) else {
+                return false;
+            };
+            b
+        };
+        if !t.exited {
+            t.vt.scroll_to_bottom();
+            post_input(t.id.clone(), &bytes);
+        }
+        true
+    }
+
+    pub fn pty_paste(&mut self, id: &str, text: &str) {
+        let Some(t) = self.ptys.terms.iter_mut().find(|t| t.id == id && !t.exited) else {
+            return;
+        };
+        let bytes = t.vt.encode_paste(text);
+        t.vt.scroll_to_bottom();
+        post_input(t.id.clone(), &bytes);
+    }
+
+    pub fn pty_wheel(&mut self, id: &str, dy: f32, x: f32, y: f32) {
+        let Some(t) = self.ptys.terms.iter_mut().find(|t| t.id == id) else {
+            return;
+        };
+        let lines = (dy / t.vt.cell.1).round() as isize;
+        if lines == 0 {
+            return;
+        }
+        if t.vt.mouse_tracking() {
+            let out: Vec<u8> = (0..lines.unsigned_abs().min(10))
+                .filter_map(|_| t.vt.encode_wheel(lines > 0, x, y))
+                .flatten()
+                .collect();
+            if !out.is_empty() && !t.exited {
+                post_input(t.id.clone(), &out);
+            }
+        } else {
+            t.vt.scroll(-lines);
+        }
+    }
+
+    pub fn pty_fit(&mut self, id: &str, w: f32) {
+        let cell = self.term_cell();
+        let cols = ((w - 2.0 * PAD) / cell.0).floor().clamp(20.0, 500.0) as u16;
+        let Some(t) = self.ptys.terms.iter_mut().find(|t| t.id == id) else {
+            return;
+        };
+        if t.vt.size() == (cols, PTY_ROWS) && t.vt.cell == cell {
+            return;
+        }
+        t.vt.resize(cols, PTY_ROWS, cell);
+        if t.exited {
+            return;
+        }
+        let id = id.to_string();
+        self.spawn(
+            move || {
+                api::post(
+                    "/api/terminal/resize",
+                    json!({ "id": id, "cols": cols, "rows": PTY_ROWS }),
+                )
+            },
+            |_, _, _| {},
+        );
+    }
+
+    pub fn close_pty(&mut self, id: String) {
+        self.ptys.terms.retain(|t| t.id != id);
+        self.ptys.dead.insert(id.clone());
+        self.spawn(
+            move || api::post("/api/terminal/kill", json!({ "id": id })),
+            |_, _, _| {},
+        );
+    }
+}
+
+#[cfg(test)]
+mod pty_tests {
+    use super::*;
+
+    #[test]
+    fn reads_the_interactive_fence() {
+        let f =
+            pty_fence("```pty id=t-12 cwd=/Users/me/my repo\n$ claude mcp login x\n```").unwrap();
+        assert_eq!(f.id, "t-12");
+        assert_eq!(f.cwd, "/Users/me/my repo");
+        assert_eq!(f.command, "claude mcp login x");
+        assert!(pty_fence("```console exit=0\n$ ls\n```").is_none());
     }
 }

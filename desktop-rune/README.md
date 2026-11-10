@@ -43,7 +43,8 @@ session states coloured by how much they need you.
   editor or web, copy resume command, expand tool calls, restart, trash).
   - **Converse (1)**: transcript with markdown, Mermaid diagrams and collapsible tool calls,
     Edit / Write calls as inline diffs, pasted images, files sent with SendUserFile and
-    `show_image` cards, the full text of long messages on demand, live streaming text, working
+    `show_image` cards, `!!command` as a live terminal you can type into, the full text of long
+    messages on demand, live streaming text, working
     indicator, question / permission / plan cards, composer (Enter sends, Shift+Enter new line,
     Esc interrupts, paste or drop images, `@` file and `/` command completion, a draft kept per
     session) with the follow-up suggestion.
@@ -97,7 +98,8 @@ session states coloured by how much they need you.
   for emoji drawn from fallback fonts, font and size settings, zoom.
 - Behaviour: focus reporting, key releases and repeats for
   the full kitty keyboard protocol, batching redraws under heavy output.
-- hooked: `!!command` output inline in the conversation, terminals in their own window or split.
+- hooked: terminals in their own window or split; inline `!!` terminals take no IME composition
+  or mouse selection.
 
 ## Checking it headless
 

@@ -142,6 +142,7 @@ fn poll(s: &mut Hooked, _clock: f64, tx: &mut Tx) -> bool {
     }
     changed |= s.ensure_lens();
     changed |= s.ensure_page();
+    s.sync_ptys();
     if let Some(wait) = s.flush_term_size(now) {
         tx.wake_after(wait);
     }

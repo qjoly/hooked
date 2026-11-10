@@ -42,7 +42,7 @@ fn painted(line: &Line, marks: &[(u16, u16, Color)]) -> (String, Vec<Span>) {
     (text, spans)
 }
 
-fn screen(s: &Hooked, k: &Kit, t: &Term) -> El {
+fn screen(s: &Hooked, k: &Kit, t: &Term, panel: bool) -> El {
     let vt = &t.vt;
     let (cw, ch) = vt.cell;
     let fg = crate::ghostty::color(crate::ghostty::FG);
@@ -53,19 +53,21 @@ fn screen(s: &Hooked, k: &Kit, t: &Term) -> El {
     for (i, line) in vt.lines.iter().enumerate() {
         let row = i as u16;
         let mut marks: Vec<(u16, u16, Option<Color>, Color)> = Vec::new();
-        if let Some((a, b)) = s.term.sel.and_then(|sel| sel.row_range(row, cols)) {
+        let sel = s.term.sel.filter(|_| panel);
+        if let Some((a, b)) = sel.and_then(|sel| sel.row_range(row, cols)) {
             marks.push((a, b, None, selection));
         }
         let needle = s
             .term
             .search
             .as_ref()
+            .filter(|_| panel)
             .map(|(e, _)| e.text.clone())
             .unwrap_or_default();
         for (a, b) in crate::ghostty::matches(line, &needle) {
             marks.push((a, b, None, k.c.warning.icon.alpha(0.45)));
         }
-        let cur = cursor.filter(|c| c.y == row && s.term.preedit.is_empty());
+        let cur = cursor.filter(|c| c.y == row && (!panel || s.term.preedit.is_empty()));
         if let Some(c) = cur {
             match c.shape {
                 CursorShape::Block => marks.push((c.x, c.x + 1, Some(vt.background), c.color)),
@@ -75,7 +77,7 @@ fn screen(s: &Hooked, k: &Kit, t: &Term) -> El {
         let version = (
             line.version,
             needle.clone(),
-            s.term.sel.and_then(|sel| sel.row_range(row, cols)),
+            sel.and_then(|sel| sel.row_range(row, cols)),
             cur.map(|c| (c.x, c.shape == CursorShape::Block)),
             k.dark,
             (cw * 100.0) as i32,
@@ -119,6 +121,9 @@ fn screen(s: &Hooked, k: &Kit, t: &Term) -> El {
                     .h(ch),
             )
         }));
+    }
+    if !panel {
+        return lines;
     }
     if let Some(c) = cursor {
         let (x, y) = (f32::from(c.x) * cw, f32::from(c.y) * ch);
@@ -353,7 +358,7 @@ pub fn panel(s: &Hooked, k: &Kit) -> El {
                 .key("term-hide"),
         );
     let body = match p.terms.get(p.active) {
-        Some(t) => screen(s, k, t),
+        Some(t) => screen(s, k, t, true),
         None => el(),
     };
     let bell = crate::fmt::now_ms() - p.bell_at < 250;
@@ -483,4 +488,141 @@ pub fn panel(s: &Hooked, k: &Kit) -> El {
         .child(grip)
         .child(bar)
         .child(term)
+}
+
+pub fn pty_block(s: &Hooked, k: &Kit, f: &crate::terminal::PtyFence) -> El {
+    let live = s.ptys.terms.iter().find(|t| t.id == f.id);
+    let dead = live.is_none() && s.ptys.dead.contains(&f.id);
+    let short_cwd = match f.cwd.strip_prefix("/Users/") {
+        Some(rest) => rest
+            .find('/')
+            .map_or("~".to_string(), |i| format!("~{}", &rest[i..])),
+        None => f.cwd.clone(),
+    };
+    let mono_bold = {
+        let mut m = k.ty.mono;
+        m.weight = 600.0;
+        m
+    };
+    let mut head = row()
+        .w_full()
+        .h(30.0)
+        .pl(10.0)
+        .pr(6.0)
+        .gap(7.0)
+        .center_y()
+        .fill(k.c.layer_02)
+        .border_sides([0.0, 0.0, 1.0, 0.0], k.c.border_weak)
+        .child(glyph(&icons::TERMINAL, 12.0, k.c.icon_muted))
+        .child(text("$").font(mono_bold).color(k.c.text_accent))
+        .child(
+            text(f.command.clone())
+                .font(mono_bold)
+                .color(k.c.text_base)
+                .truncate()
+                .grow(1.0)
+                .min_w(0.0),
+        );
+    if !short_cwd.is_empty() {
+        head = head.child(
+            text(short_cwd)
+                .font(k.ty.text_xsmall)
+                .color(k.c.text_faint)
+                .truncate()
+                .max_w(220.0)
+                .help(f.cwd.clone()),
+        );
+    }
+    let tag = |label: &str, fg: Color, bg: Color| {
+        row().h(18.0).px(5.0).center_y().radius(4.0).fill(bg).child(
+            text(label.to_string())
+                .font(k.ty.text_xsmall_medium)
+                .color(fg),
+        )
+    };
+    let mut c = col()
+        .key(format!("pty-{}", f.id))
+        .w_full()
+        .radius(k.radius.md)
+        .clip_rounded(k.radius.md)
+        .border(
+            1.0,
+            if live.is_some() {
+                k.c.text_accent.alpha(0.55)
+            } else {
+                k.c.border_weak
+            },
+        );
+    match live {
+        Some(t) => {
+            let id = f.id.clone();
+            head = head
+                .child(if t.exited {
+                    tag("exited", k.c.text_muted, k.c.layer_01)
+                } else {
+                    tag("interactive", k.c.success.fg, k.c.success.bg)
+                })
+                .child(
+                    IconButton::new(&icons::CLOSE)
+                        .variant(IconButtonVariant::GhostMuted)
+                        .control_size(rune_kit::ControlSize::Small)
+                        .label("Close this terminal")
+                        .on_press(move |s: &mut Hooked| s.close_pty(id.clone()))
+                        .build(k),
+                );
+            let (ka, kb, kc, kd) = (f.id.clone(), f.id.clone(), f.id.clone(), f.id.clone());
+            let screen_el = col()
+                .key(format!("pty-screen-{}", f.id))
+                .instant_changes()
+                .role("textbox")
+                .label("Interactive terminal")
+                .focusable(true)
+                .w_full()
+                .h(f32::from(crate::terminal::PTY_ROWS) * t.vt.cell.1 + 2.0 * crate::terminal::PAD)
+                .padding(crate::terminal::PAD)
+                .clip_rounded(0.0)
+                .fill(t.vt.background)
+                .cursor(Cursor::Text)
+                .on_key(
+                    move |s: &mut Hooked, ev: &rune::KeyEvent, tx: &mut rune::Tx| {
+                        tx.instant();
+                        s.pty_key(&ka, ev, tx.physical_key())
+                    },
+                )
+                .on_wheel(
+                    move |s: &mut Hooked, e: rune::WheelEvent, tx: &mut rune::Tx| {
+                        tx.instant();
+                        s.pty_wheel(&kb, e.dy, e.x, e.y);
+                        true
+                    },
+                )
+                .on_paste_content(
+                    move |s: &mut Hooked, c: &rune::ClipboardContent, tx: &mut rune::Tx| {
+                        tx.instant();
+                        s.pty_paste(&kc, c.text());
+                    },
+                )
+                .on_layout(move |s: &mut Hooked, r: [f32; 4]| s.pty_fit(&kd, r[2]))
+                .child(screen(s, k, t, false));
+            c = c.child(head).child(screen_el);
+        }
+        None => {
+            head = head.child(if dead {
+                tag("closed", k.c.text_muted, k.c.layer_01)
+            } else {
+                tag("…", k.c.text_muted, k.c.layer_01)
+            });
+            c = c.child(head);
+            if dead {
+                c = c.child(
+                    row().w_full().px(10.0).py(7.0).child(
+                        text("this terminal is gone: hooked restarted since, or it was closed")
+                            .font(k.ty.text_xsmall)
+                            .color(k.c.text_faint),
+                    ),
+                );
+            }
+        }
+    }
+    c
 }
