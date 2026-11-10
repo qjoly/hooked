@@ -43,7 +43,8 @@ session states coloured by how much they need you.
   editor or web, copy resume command, expand tool calls, restart, trash).
   - **Converse (1)**: transcript with markdown, Mermaid diagrams and collapsible tool calls,
     Edit / Write calls as inline diffs, pasted images, files sent with SendUserFile and
-    `show_image` cards, `!!command` as a live terminal you can type into, the full text of long
+    `show_image` cards, `show_video` / `show_audio` clips played in place (play, seek, sound,
+    before and after side by side, the system player as a fallback), `!!command` as a live terminal you can type into, the full text of long
     messages on demand, live streaming text, working
     indicator, question / permission / plan cards, composer (Enter sends, Shift+Enter new line,
     Esc interrupts, paste or drop images, `@` file and `/` command completion, a draft kept per
@@ -89,7 +90,6 @@ session states coloured by how much they need you.
 - Dragging a session onto another to group it: the group tabs and the ⋯ menu do it instead.
 - Review: go-to-definition. Blame shows for the clicked line, not on hover (rune-kit's diff
   view reports no hovered line).
-- Conversation: video and audio open in the system player.
 
 ## Terminal: what is still missing
 

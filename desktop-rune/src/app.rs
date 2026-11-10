@@ -166,6 +166,7 @@ pub struct Hooked {
     pub deck_plans: HashMap<String, (String, Option<String>)>,
     pub fleet: crate::fleet::Fleet,
     pub deck_w: f32,
+    pub players: crate::media::Players,
     pub plan_comments: Vec<(String, String)>,
     pub job_gen: Arc<AtomicU64>,
     pub full_texts: HashMap<String, Option<String>>,
@@ -402,6 +403,7 @@ impl Hooked {
             deck_plans: HashMap::new(),
             fleet: crate::fleet::Fleet::new(deck_grid),
             deck_w: 1140.0,
+            players: Default::default(),
             plan_comments: Vec::new(),
             job_gen: Arc::new(AtomicU64::new(0)),
             full_texts: HashMap::new(),
@@ -567,6 +569,24 @@ impl Hooked {
         }
         if args.iter().any(|a| a == "--sort-menu") {
             s.popup = Some(Popup::Sort);
+        }
+        if let Some(i) = args.iter().position(|a| a == "--media") {
+            let path = args.get(i + 1).cloned().unwrap_or_default();
+            let kind = args.get(i + 2).cloned().unwrap_or_else(|| "video".into());
+            let m = serde_json::json!({
+                "role": "assistant",
+                "parts": [{
+                    "type": "tool",
+                    "tool": { "id": "media-test", "name": format!("mcp__hooked__show_{kind}"), "result": "shown" },
+                    "show": { "kind": kind, "path": path, "title": "Media check" }
+                }]
+            });
+            if let (Some(d), Ok(m)) = (s.detail.as_mut(), serde_json::from_value(m)) {
+                d.messages.push(m);
+            }
+            if args.iter().any(|a| a == "--media-play") {
+                s.players.get(&path, kind == "audio").play();
+            }
         }
         if let Some(i) = args.iter().position(|a| a == "--pty") {
             let id = args.get(i + 1).cloned().unwrap_or_default();
@@ -1194,6 +1214,7 @@ impl Hooked {
             return;
         }
         self.stash_draft();
+        self.players.clear();
         self.set_term_focus(None);
         self.term_claimed = false;
         self.selected = Some(id.to_string());

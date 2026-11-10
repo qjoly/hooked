@@ -12,6 +12,7 @@ mod icons;
 mod lenses;
 mod logo;
 mod mddiff;
+mod media;
 mod organize;
 mod pages;
 mod querywin;
@@ -171,6 +172,10 @@ fn poll(s: &mut Hooked, _clock: f64, tx: &mut Tx) -> bool {
         tx.wake_after(Duration::from_millis(300));
     }
     tray::sync(s);
+    if s.players.any_playing() {
+        changed = true;
+        tx.wake_after(Duration::from_millis(250));
+    }
     tx.wake_after(Duration::from_millis(if working { 1000 } else { 5000 }));
     changed
 }

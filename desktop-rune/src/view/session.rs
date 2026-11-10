@@ -844,9 +844,19 @@ pub(super) fn bubble_version(s: &Hooked, m: &Message, k: &Kit) -> u64 {
                 0,
             ),
         });
+    let media: Vec<_> = m
+        .render_parts()
+        .into_iter()
+        .filter_map(|p| if let Part::Tool(t) = p { t.show } else { None })
+        .filter(|show| show["kind"] == "video" || show["kind"] == "audio")
+        .flat_map(|show| {
+            ["path", "compare"].map(|f| show[f].as_str().and_then(|p| s.players.look(p)))
+        })
+        .collect();
     hash_of((
         &m.text,
         pty,
+        media,
         full,
         pictures,
         m.tools.len(),
@@ -1203,6 +1213,126 @@ fn sent_files(s: &Hooked, k: &Kit, send: &serde_json::Value) -> El {
     c.child(pics).child(others)
 }
 
+/// A clip played in place: the video itself (or a strip for audio), play / pause, a bar to seek,
+/// the time, sound for video, and the system player as a fallback.
+fn media_player(s: &Hooked, k: &Kit, path: &str, audio: bool, label: Option<&str>) -> El {
+    let p = s.players.get(path, audio);
+    let (time, dur) = (p.time(), p.duration());
+    let frac = dur.filter(|d| *d > 0.0).map_or(0.0, |d| (time / d) as f32);
+    let playing = p.is_playing();
+    let key = path.to_string();
+    let mut c = col().key(format!("media-{path}")).gap(6.0);
+    if let Some(l) = label {
+        c = c.child(
+            text(l.to_string())
+                .font(k.ty.text_xsmall_medium)
+                .color(k.c.text_faint),
+        );
+    }
+    if !audio {
+        let (nw, nh) = p.natural_size().unwrap_or((16, 9));
+        let mut w = 520.0f32;
+        let mut h = w * nh as f32 / nw.max(1) as f32;
+        if h > 380.0 {
+            w *= 380.0 / h;
+            h = 380.0;
+        }
+        let k2 = key.clone();
+        c = c.child(
+            k.interactive(
+                el().w(w)
+                    .h(h)
+                    .radius(k.radius.md)
+                    .clip_rounded(k.radius.md)
+                    .fill(Color::BLACK)
+                    .cursor(Cursor::Pointer)
+                    .video(&p, rune::SurfaceFit::Fit),
+            )
+            .on_press(move |s: &mut Hooked| s.toggle_play(&k2)),
+        );
+    }
+    let (kp, ks, km, ko) = (key.clone(), key.clone(), key.clone(), key.clone());
+    let bar = el()
+        .grow(1.0)
+        .min_w(80.0)
+        .h(16.0)
+        .cursor(Cursor::Pointer)
+        .on_drag(move |s: &mut Hooked, d: &mut rune::Drag, _| {
+            if d.w > 0.0 {
+                s.seek_media(&ks, d.x / d.w);
+            }
+        })
+        .child(
+            el().absolute(0.0, 6.0)
+                .w_full()
+                .h(4.0)
+                .radius(2.0)
+                .fill(k.c.layer_03)
+                .child(
+                    el().w_frac(frac.clamp(0.0, 1.0))
+                        .h(4.0)
+                        .radius(2.0)
+                        .fill(k.c.text_accent),
+                ),
+        );
+    let mut controls = row()
+        .w(if audio { 420.0 } else { 520.0 })
+        .gap(8.0)
+        .center_y()
+        .child(
+            rune_kit::IconButton::new(if playing { &icons::PAUSE } else { &icons::PLAY })
+                .label(if playing { "Pause" } else { "Play" })
+                .control_size(ControlSize::Small)
+                .on_press(move |s: &mut Hooked| s.toggle_play(&kp))
+                .build(k),
+        );
+    if audio {
+        controls = controls.child(glyph(&icons::MUSIC, 13.0, k.c.icon_muted));
+    }
+    controls = controls.child(bar).child(
+        text(format!(
+            "{} / {}",
+            crate::media::clock(time),
+            dur.map_or("–:––".to_string(), crate::media::clock)
+        ))
+        .font(k.ty.text_xsmall)
+        .color(k.c.text_faint),
+    );
+    if !audio {
+        controls = controls.child(
+            rune_kit::IconButton::new(if p.muted() {
+                &icons::MUTED
+            } else {
+                &icons::VOLUME
+            })
+            .label(if p.muted() { "Sound on" } else { "Mute" })
+            .control_size(ControlSize::Small)
+            .on_press(move |s: &mut Hooked| s.toggle_mute(&km))
+            .build(k),
+        );
+    }
+    let url = format!("file://{ko}");
+    controls = controls.child(
+        rune_kit::IconButton::new(&icons::LINK)
+            .label("Open in the system player")
+            .control_size(ControlSize::Small)
+            .on_press_tx(move |_: &mut Hooked, tx| {
+                let _ = tx.open_url(&url);
+            })
+            .build(k),
+    );
+    c = c.child(controls);
+    if let Some(e) = crate::media::failed(&p) {
+        c = c.child(
+            text(format!("{}: {e}", file_name(path)))
+                .font(k.ty.text_xsmall)
+                .color(k.c.danger.fg)
+                .wrap(),
+        );
+    }
+    c
+}
+
 fn show_work(s: &Hooked, k: &Kit, show: &serde_json::Value) -> El {
     let str_of = |key: &str| show[key].as_str().unwrap_or("").to_string();
     let title = Some(str_of("title"))
@@ -1239,30 +1369,19 @@ fn show_work(s: &Hooked, k: &Kit, show: &serde_json::Value) -> El {
     let before = str_of("compare");
     let timed = show["kind"] != "image";
     if timed {
-        let play = |label: String, p: &str| {
-            let url = format!("file://{p}");
-            Button::new(label)
-                .icon(&icons::PLAY)
-                .variant(ButtonVariant::Outline)
-                .control_size(ControlSize::Small)
-                .help("Opens in the system player")
-                .on_press_tx(move |_: &mut Hooked, tx| {
-                    let _ = tx.open_url(&url);
-                })
-                .build(k)
-        };
-        let mut r = row().gap(8.0).child(play(
-            if before.is_empty() {
-                format!("Play {}", file_name(&path))
-            } else {
-                "Play after".to_string()
-            },
-            &path,
-        ));
-        if !before.is_empty() {
-            r = r.child(play("Play before".into(), &before));
+        let audio = show["kind"] == "audio";
+        if before.is_empty() {
+            c = c.child(media_player(s, k, &path, audio, None));
+        } else {
+            c = c.child(
+                row()
+                    .gap(10.0)
+                    .items_start()
+                    .flex_wrap()
+                    .child(media_player(s, k, &before, audio, Some("Before")))
+                    .child(media_player(s, k, &path, audio, Some("After"))),
+            );
         }
-        c = c.child(r);
     }
     let figure = |label: &str, p: &str, w: f32| {
         col()
