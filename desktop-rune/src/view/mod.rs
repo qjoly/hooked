@@ -917,37 +917,29 @@ fn sidebar(s: &Hooked, k: &Kit, layer: &mut Vec<El>) -> El {
             .flex_wrap()
             .children(known.into_iter().map(|(t, n)| {
                 let on = s.tag_filter.contains(&t);
+                let c = s.tag_color(k.dark, &t);
                 let tag = t.clone();
-                k.interactive(
+                k.interactive_with(
                     row()
                         .key(format!("tf-{t}"))
                         .role("checkbox")
                         .checked(on)
                         .h(20.0)
-                        .px(7.0)
+                        .px(8.0)
                         .gap(4.0)
                         .center_y()
                         .radius(10.0)
                         .cursor(Cursor::Pointer)
-                        .fill(if on { k.c.layer_03 } else { k.c.layer_01 })
-                        .border(
-                            1.0,
-                            if on {
-                                k.c.border_strong
-                            } else {
-                                k.c.border_weak
-                            },
-                        )
-                        .child(
-                            text(format!("#{t}"))
-                                .font(k.ty.text_xsmall_medium)
-                                .color(s.tag_color(k.dark, &t)),
-                        )
-                        .child(
-                            text(n.to_string())
-                                .font(k.ty.text_xsmall)
-                                .color(k.c.text_faint),
-                        ),
+                        .fill(if on {
+                            c.alpha(0.22)
+                        } else {
+                            Color::TRANSPARENT
+                        })
+                        .border(1.0, if on { c } else { c.alpha(0.4) })
+                        .child(text(format!("#{t}")).font(tag_font(k)).color(c))
+                        .child(text(n.to_string()).font(tag_font(k)).color(c.alpha(0.6))),
+                    c.alpha(0.12),
+                    c.alpha(0.2),
                 )
                 .help(format!("Show only #{t} (combines with other tags)"))
                 .on_press(move |s: &mut Hooked| s.toggle_tag_filter(tag.clone()))
@@ -1305,19 +1297,23 @@ pub fn md_code(src: impl Into<String>, k: &Kit, session: Option<String>) -> rune
     })
 }
 
+pub fn tag_font(k: &Kit) -> rune::TextStyle {
+    let mut f = k.ty.text_xsmall_medium;
+    f.size = 10.5;
+    f.weight = 650.0;
+    f.line_height = 17.0;
+    f
+}
+
 pub fn tag_pill(s: &Hooked, k: &Kit, name: &str) -> El {
     let c = s.tag_color(k.dark, name);
     row()
-        .h(18.0)
-        .px(6.0)
+        .h(17.0)
+        .px(7.0)
         .center_y()
-        .radius(k.radius.sm)
+        .radius(8.5)
         .fill(c.alpha(0.14))
-        .child(
-            text(format!("#{name}"))
-                .font(k.ty.text_xsmall_medium)
-                .color(c),
-        )
+        .child(text(format!("#{name}")).font(tag_font(k)).color(c))
 }
 
 pub fn pill(k: &Kit, label: impl Into<String>, fg: Color, bg: Color) -> El {
