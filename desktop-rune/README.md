@@ -6,12 +6,20 @@ talks to the hooked service on `localhost:4123` (`HOOKED_URL` overrides it) thro
 and event streams the web dashboard and the iOS app use.
 
 ```sh
-mise run desktop-rune-dev   # run from source
+mise run desktop-rune-dev   # run from source with live editing
+mise run desktop-rune-run   # run from source once, no live editing
 mise run desktop-rune       # build, install "/Applications/hooked (Rune).app" and relaunch it
 ```
 
 Ghostty's terminal core (`libghostty-vt`) is built from source with Zig; the mise tasks pull Zig
-0.17.1 along with Rust, so there is nothing to install by hand.
+0.17.1 along with Rust.
+
+`desktop-rune-dev` goes through Rune's live-editing tool (`scripts/rune-dev` in the pinned rune
+checkout, driving `dx serve --hot-patch`): saving a file whose edits stay inside function bodies
+patches the running app in place, state and window included; any other edit (a struct, a
+signature, `Cargo.toml`) rebuilds and relaunches it. It needs the Dioxus CLI once:
+`cargo install dioxus-cli --version 0.7.10 --locked`. The first run builds everything again under
+the `rune-hot` profile, in its own target directory.
 
 The installed app has its own bundle id (`dev.qjoly.hooked-rune`), so it sits next to the Tauri app.
 

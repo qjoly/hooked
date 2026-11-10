@@ -323,7 +323,13 @@ open "/Applications/hooked (Rune).app"
 """
 
 [tasks.desktop-rune-dev]
-description = "Run the native Rune app from source (no bundle: system notifications stay off)"
+description = "Run the native Rune app from source with live editing: body edits patch it in place, others rebuild and relaunch"
+dir = "desktop-rune"
+tools = { rust = "1.99.1", zig = "0.17.1", python = "3.13" }
+run = "scripts/dev"
+
+[tasks.desktop-rune-run]
+description = "Run the native Rune app from source once, without live editing"
 dir = "desktop-rune"
 tools = { rust = "1.99.1", zig = "0.17.1" }
 run = "cargo run"

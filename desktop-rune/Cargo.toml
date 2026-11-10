@@ -15,6 +15,9 @@ base64 = "0.22"
 libc = "0.2"
 libghostty-vt = { git = "https://github.com/Uzaaft/libghostty-rs", rev = "9b598d6528c08c013407052767bb2e885ba869ba" }
 
+[features]
+hot = ["rune/hot"]
+
 [target.'cfg(target_os = "macos")'.dependencies]
 tray-icon = "0.21"
 

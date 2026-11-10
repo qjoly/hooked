@@ -1,0 +1,13 @@
+#!/bin/sh
+# Live editing through Rune's own tool (scripts/rune-dev in the rune checkout cargo pinned):
+# function-body edits patch the running app, any other edit rebuilds and relaunches it.
+# Needs dioxus-cli 0.7.10 (`cargo install dioxus-cli --version 0.7.10 --locked`).
+set -eu
+cd "$(dirname "$0")/.."
+rune_manifest=$(cargo metadata --format-version 1 \
+  | python3 -c 'import json,sys; print(next(p["manifest_path"] for p in json.load(sys.stdin)["packages"] if p["name"] == "rune"))')
+rune_root=$(dirname "$(dirname "$(dirname "$rune_manifest")")")
+exec python3 "$rune_root/scripts/rune-dev" --local \
+  --manifest-path "$PWD/Cargo.toml" \
+  --patch 'src/**/*.rs' \
+  -- --hot "$@"
