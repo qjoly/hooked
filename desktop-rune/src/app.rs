@@ -573,9 +573,10 @@ impl Hooked {
                 s.term.open = false;
             }
             if args.iter().any(|a| a == "--term-sel") {
+                let top = s.term.terms.first().map_or(0, |t| t.vt.viewport_top());
                 s.term.sel = Some(crate::terminal::Sel {
-                    anchor: (2, 1),
-                    head: (12, 2),
+                    anchor: (2, top + 1),
+                    head: (12, top + 2),
                 });
             }
         }

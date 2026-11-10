@@ -59,7 +59,9 @@ session states coloured by how much they need you.
     scrollback on the wheel, every underline style, overline and strikethrough, OSC 8 and plain
     links (⌘-click), a blinking cursor, a light palette in the light theme, ⌘+ / ⌘- / ⌘0 zoom,
     focus reports, mouse clicks, drags and wheel for programs that track the mouse,
-    drag to select and ⌘C to copy, and input-method composition (dead keys, CJK, emoji picker).
+    drag to select (past an edge it scrolls the scrollback; Shift selects inside programs that
+    track the mouse) and ⌘C to copy, middle-click pastes the selection, programs can set the
+    clipboard (OSC 52) and hear the middle and right buttons and bare pointer motion, and input-method composition (dead keys, CJK, emoji picker).
   - **Split (⌘⇧S)**: the most recent other session beside the current one, with its own reply box.
 - **Context panel**: tasks, changes, agents, sub-sessions, linked PRs and issues; Details opens
   the full panel (summary, checks with Fix in this thread, comments, timeline, per-file diff),
@@ -91,9 +93,6 @@ session states coloured by how much they need you.
 
 ## Terminal: what is still missing
 
-- Selection: selecting into the scrollback, Shift to select inside mouse-tracking programs
-  (Rune reports no modifiers during a drag), OSC 52 clipboard, right- and middle-click.
-- Mouse: only the left button reaches programs; no motion without a button held.
 - Rendering: images (kitty graphics, sixel), exact widths for emoji drawn from fallback fonts,
   a choice of font family.
 - Behaviour: key releases and repeats for

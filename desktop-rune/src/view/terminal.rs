@@ -47,6 +47,7 @@ fn screen(s: &Hooked, k: &Kit, t: &Term, panel: bool) -> El {
     let (cw, ch) = vt.cell;
     let fg = vt.foreground;
     let cols = vt.size().0;
+    let top = vt.viewport_top();
     let has_focus = match s.term_focus.as_ref() {
         Some(crate::terminal::TermFocus::Panel) => panel,
         Some(crate::terminal::TermFocus::Pty(id)) => !panel && *id == t.id,
@@ -67,7 +68,8 @@ fn screen(s: &Hooked, k: &Kit, t: &Term, panel: bool) -> El {
         let row = i as u16;
         let mut marks: Vec<(u16, u16, Option<Color>, Color)> = Vec::new();
         let sel = s.term.sel.filter(|_| panel);
-        if let Some((a, b)) = sel.and_then(|sel| sel.row_range(row, cols)) {
+        let screen_row = top + u64::from(row);
+        if let Some((a, b)) = sel.and_then(|sel| sel.row_range(screen_row, cols)) {
             marks.push((a, b, None, selection));
         }
         let needle = s
@@ -90,7 +92,7 @@ fn screen(s: &Hooked, k: &Kit, t: &Term, panel: bool) -> El {
         let version = (
             line.version,
             needle.clone(),
-            sel.and_then(|sel| sel.row_range(row, cols)),
+            sel.and_then(|sel| sel.row_range(screen_row, cols)),
             cur.map(|c| (c.x, c.shape == CursorShape::Block)),
             k.dark,
             (cw * 100.0) as i32,
@@ -514,12 +516,24 @@ pub fn panel(s: &Hooked, k: &Kit) -> El {
             if d.phase == rune::Phase::Down {
                 s.set_term_focus(Some(crate::terminal::TermFocus::Panel));
                 s.term_claimed = false;
+                s.term.shift_drag = tx.mods().shift;
             }
-            if d.phase == rune::Phase::Down && tx.mods().cmd && s.term_open_link(d.x, d.y, tx) {
+            if d.phase == rune::Phase::Down
+                && tx.button() == rune::PointerButton::Primary
+                && tx.mods().cmd
+                && s.term_open_link(d.x, d.y, tx)
+            {
                 return;
             }
-            s.term_drag(d, false)
+            let shift = s.term.shift_drag;
+            s.term_drag(d, tx.button(), shift)
         })
+        .pointer_buttons([rune::PointerButton::Middle])
+        .on_secondary_press_local(|s: &mut Hooked, p: rune::PointerEvent, tx: &mut rune::Tx| {
+            tx.instant();
+            s.term_right_click(p.x, p.y);
+        })
+        .on_pointer_move_local(|s: &mut Hooked, p: rune::PointerEvent, _| s.term_hover(p.x, p.y))
         .on_wheel(|s: &mut Hooked, e: rune::WheelEvent, tx: &mut rune::Tx| {
             tx.instant();
             s.term_wheel(e.dy, e.x, e.y);

@@ -127,6 +127,7 @@ pub struct Vt {
     cell_iter: CellIterator<'static>,
     replies: Rc<RefCell<Vec<u8>>>,
     bells: Rc<std::cell::Cell<u32>>,
+    clips: Rc<RefCell<Vec<String>>>,
     keys: key::Encoder<'static>,
     pub lines: Vec<Line>,
     pub cursor: Option<CursorAt>,
@@ -147,7 +148,19 @@ impl Vt {
     pub fn new(cols: u16, rows: u16) -> Option<Vt> {
         let replies = Rc::new(RefCell::new(Vec::new()));
         let bells = Rc::new(std::cell::Cell::new(0));
+        let clips = Rc::new(RefCell::new(Vec::new()));
         let mut terminal = Terminal::new(cols, rows).ok()?;
+        terminal
+            .on_clipboard_write({
+                let clips = Rc::clone(&clips);
+                move |_, w| {
+                    if let Some(text) = clipboard_text(&w) {
+                        clips.borrow_mut().push(text);
+                    }
+                    w.reply(Ok(()), false);
+                }
+            })
+            .ok()?;
         terminal
             .on_bell({
                 let bells = Rc::clone(&bells);
@@ -171,6 +184,7 @@ impl Vt {
             cell_iter: CellIterator::new().ok()?,
             replies,
             bells,
+            clips,
             keys: key::Encoder::new().ok()?,
             lines: Vec::new(),
             cursor: None,
@@ -242,6 +256,45 @@ impl Vt {
     }
 
     /// Bells rung since the last call.
+    /// The last text a program put on the clipboard (OSC 52) since the previous call.
+    pub fn take_clipboard(&mut self) -> Option<String> {
+        self.clips.borrow_mut().drain(..).last()
+    }
+
+    /// The screen row at the top of the viewport.
+    pub fn viewport_top(&self) -> u64 {
+        self.scroll_position().map_or(0, |(offset, _, _)| offset)
+    }
+
+    /// The text from one screen cell to another, inclusive, across the scrollback.
+    pub fn text_between(&self, a: (u16, u64), b: (u16, u64)) -> Option<String> {
+        use libghostty_vt::fmt::{Format, Formatter};
+        use libghostty_vt::selection::Selection;
+        let at = |(x, y): (u16, u64)| {
+            self.terminal.grid_ref(Point::Screen(PointCoordinate {
+                x,
+                y: u32::try_from(y).unwrap_or(u32::MAX),
+            }))
+        };
+        let sel = Selection::new(at(a).ok()?, at(b).ok()?, false);
+        self.terminal.set_selection(Some(&sel)).ok()?;
+        let text = Formatter::new_selection(&self.terminal)
+            .ok()
+            .flatten()
+            .and_then(|mut f| {
+                f.set_format(Format::Plain)
+                    .ok()?
+                    .set_unwrap(true)
+                    .ok()?
+                    .set_trim(true)
+                    .ok()?;
+                let bytes = f.format_alloc(None).ok()?;
+                Some(String::from_utf8_lossy(&bytes).into_owned())
+            });
+        let _ = self.terminal.set_selection(None);
+        text
+    }
+
     /// The OSC 8 target under a viewport cell.
     pub fn hyperlink_at(&self, x: u16, y: u16) -> Option<String> {
         let r = self
@@ -663,6 +716,33 @@ impl Vt {
     }
 }
 
+fn clipboard_text(w: &libghostty_vt::terminal::ClipboardWrite<'_>) -> Option<String> {
+    // libghostty-rs exposes no accessor for the written contents; the wrapper is a lone raw
+    // pointer to the C request, so read it through that pointer.
+    const _: () = assert!(
+        std::mem::size_of::<libghostty_vt::terminal::ClipboardWrite<'static>>()
+            == std::mem::size_of::<*const libghostty_vt::ffi::ClipboardWrite>()
+    );
+    let raw: *const libghostty_vt::ffi::ClipboardWrite = unsafe { std::mem::transmute_copy(w) };
+    let req = unsafe { raw.as_ref()? };
+    if req.contents.is_null() {
+        return None;
+    }
+    let contents = unsafe { std::slice::from_raw_parts(req.contents, req.contents_len) };
+    let bytes = |s: &libghostty_vt::ffi::String| {
+        if s.ptr.is_null() {
+            &[][..]
+        } else {
+            unsafe { std::slice::from_raw_parts(s.ptr, s.len) }
+        }
+    };
+    contents
+        .iter()
+        .find(|c| bytes(&c.mime).starts_with(b"text/plain"))
+        .or(contents.first())
+        .map(|c| String::from_utf8_lossy(bytes(&c.data)).into_owned())
+}
+
 fn same_look(a: &Span, b: &Span) -> bool {
     a.underline == b.underline && same_ink(a, b)
 }
@@ -829,6 +909,22 @@ mod tests {
         let (n, _) = vt.search("NEEDLE");
         assert_eq!(n, 1);
         assert!(vt.lines.iter().any(|l| matches(l, "needle") == [(0, 6)]));
+    }
+
+    #[test]
+    fn osc52_and_text_across_the_scrollback() {
+        let mut vt = Vt::new(10, 3).expect("terminal");
+        vt.write(b"\x1b]52;c;aGVsbG8=\x07");
+        assert_eq!(vt.take_clipboard().as_deref(), Some("hello"));
+        assert_eq!(vt.take_clipboard(), None);
+        vt.write(b"one\r\ntwo\r\nthree\r\nfour\r\nfive");
+        let top = vt.viewport_top();
+        assert_eq!(top, 2);
+        assert_eq!(vt.text_between((0, 0), (2, 1)).as_deref(), Some("one\ntwo"));
+        assert_eq!(
+            vt.text_between((1, 1), (3, 4)).as_deref(),
+            Some("wo\nthree\nfour\nfive")
+        );
     }
 
     #[test]

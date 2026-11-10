@@ -47,13 +47,13 @@ pub fn blink_due() -> u64 {
 /// A selection in viewport cells, from where the drag started to where it is.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
 pub struct Sel {
-    pub anchor: (u16, u16),
-    pub head: (u16, u16),
+    pub anchor: (u16, u64),
+    pub head: (u16, u64),
 }
 
 impl Sel {
-    fn ordered(&self) -> ((u16, u16), (u16, u16)) {
-        let key = |p: (u16, u16)| (p.1, p.0);
+    pub fn ordered(&self) -> ((u16, u64), (u16, u64)) {
+        let key = |p: (u16, u64)| (p.1, p.0);
         if key(self.anchor) <= key(self.head) {
             (self.anchor, self.head)
         } else {
@@ -61,8 +61,8 @@ impl Sel {
         }
     }
 
-    /// The columns `a..b` of `row` the selection covers, as a reading-order range.
-    pub fn row_range(&self, row: u16, cols: u16) -> Option<(u16, u16)> {
+    /// The columns `a..b` of screen row `row` the selection covers, as a reading-order range.
+    pub fn row_range(&self, row: u64, cols: u16) -> Option<(u16, u16)> {
         let ((c0, r0), (c1, r1)) = self.ordered();
         if row < r0 || row > r1 {
             return None;
@@ -92,6 +92,8 @@ pub struct TermPanel {
     pub busy: bool,
     pub bell_at: i64,
     pub search: Option<(rune::TextEdit, (usize, Option<usize>))>,
+    pub shift_drag: bool,
+    pub motion_cell: Option<(u16, u16)>,
 }
 
 fn decode(payload: &str) -> Option<Vec<u8>> {
@@ -115,7 +117,9 @@ fn follow(id: String, alive: Arc<AtomicBool>, h: Option<AppHandle<Hooked>>) {
                     let id = id.clone();
                     h.update(move |s, tx| {
                         tx.instant();
-                        s.term_output(&id, &bytes)
+                        if let Some(text) = s.term_output(&id, &bytes) {
+                            tx.copy(text);
+                        }
                     });
                 }
                 true
@@ -180,17 +184,18 @@ impl Hooked {
     }
 
     /// Shell output lands in its terminal; whatever the terminal answers goes back to that shell.
-    pub fn term_output(&mut self, id: &str, bytes: &[u8]) {
-        let Some(t) = self.term_mut(id) else {
-            return;
-        };
+    /// Returns what the program put on the clipboard (OSC 52), for the caller to copy.
+    pub fn term_output(&mut self, id: &str, bytes: &[u8]) -> Option<String> {
+        let t = self.term_mut(id)?;
         let reply = t.vt.write(bytes);
+        let clip = t.vt.take_clipboard();
         if !reply.is_empty() && !t.exited {
             post_input(id.to_string(), &reply);
         }
         if t.vt.take_bells() > 0 {
             self.term.bell_at = crate::fmt::now_ms();
         }
+        clip
     }
 
     /// Headless renders: attach the session's first shell and replay its scrollback in place.
@@ -603,27 +608,55 @@ impl Hooked {
     }
 
     /// A press, drag and release on the screen: forwarded to a program that tracks the mouse
-    /// (Shift bypasses it, as in Ghostty), otherwise a text selection.
-    pub fn term_drag(&mut self, d: &rune::Drag, shift: bool) {
+    /// (Shift bypasses it, as in Ghostty), otherwise a text selection, which scrolls the
+    /// scrollback when dragged past the top or bottom edge. The middle button pastes the
+    /// selection when no program takes it.
+    pub fn term_drag(&mut self, d: &rune::Drag, button: rune::PointerButton, shift: bool) {
         use libghostty_vt::mouse::{Action, Button};
-        let cell = self.cell_at(d.x, d.y);
-        let Some(t) = self.term.terms.get(self.term.active) else {
+        let (col, vrow) = self.cell_at(d.x, d.y);
+        let (_, ch) = self.term_cell();
+        let Some(t) = self.term.terms.get_mut(self.term.active) else {
             return;
         };
-        if !shift && t.vt.mouse_tracking() && !t.exited {
-            let (action, button) = match d.phase {
-                rune::Phase::Down => (Action::Press, Some(Button::Left)),
-                rune::Phase::Move => (Action::Motion, Some(Button::Left)),
-                rune::Phase::Up => (Action::Release, Some(Button::Left)),
-            };
+        let rows = t.vt.size().1;
+        let tracking = t.vt.mouse_tracking() && !t.exited;
+        let action = match d.phase {
+            rune::Phase::Down => Action::Press,
+            rune::Phase::Move => Action::Motion,
+            rune::Phase::Up => Action::Release,
+        };
+        if button == rune::PointerButton::Middle {
+            if tracking {
+                if let Some(bytes) =
+                    t.vt.encode_mouse(action, Some(Button::Middle), d.x - PAD, d.y - PAD, shift)
+                {
+                    post_input(t.id.clone(), &bytes);
+                }
+            } else if d.phase == rune::Phase::Down
+                && let Some(text) = self.selection_text()
+            {
+                self.term_paste(&text);
+            }
+            return;
+        }
+        if !shift && tracking {
             if let Some(bytes) =
-                t.vt.encode_mouse(action, button, d.x - PAD, d.y - PAD, false)
+                t.vt.encode_mouse(action, Some(Button::Left), d.x - PAD, d.y - PAD, false)
             {
                 post_input(t.id.clone(), &bytes);
             }
             self.term.sel = None;
             return;
         }
+        if d.phase == rune::Phase::Move && self.term.sel.is_some() {
+            if d.y < PAD {
+                t.vt.scroll(-1);
+            } else if d.y > PAD + f32::from(rows) * ch {
+                t.vt.scroll(1);
+            }
+        }
+        let top = t.vt.viewport_top();
+        let cell = (col, top + u64::from(vrow));
         match d.phase {
             rune::Phase::Down if d.clicks >= 3 => {
                 let cols = t.vt.size().0;
@@ -633,7 +666,7 @@ impl Hooked {
                 });
             }
             rune::Phase::Down if d.clicks == 2 => {
-                let Some(line) = t.vt.lines.get(usize::from(cell.1)) else {
+                let Some(line) = t.vt.lines.get(usize::from(vrow)) else {
                     return;
                 };
                 let cols = t.vt.size().0;
@@ -643,11 +676,11 @@ impl Hooked {
                         .next()
                         .is_some_and(|ch| !ch.is_whitespace() && !"\"'`()[]{}<>|;,".contains(ch))
                 };
-                if !word(cell.0) {
+                if !word(col) {
                     self.term.sel = None;
                     return;
                 }
-                let (mut a, mut b) = (cell.0, cell.0);
+                let (mut a, mut b) = (col, col);
                 while a > 0 && word(a - 1) {
                     a -= 1;
                 }
@@ -679,20 +712,44 @@ impl Hooked {
         }
     }
 
+    /// The right button goes to a program that tracks the mouse, as a press and a release.
+    pub fn term_right_click(&mut self, x: f32, y: f32) {
+        use libghostty_vt::mouse::{Action, Button};
+        let Some(t) = self.term.terms.get(self.term.active).filter(|t| !t.exited) else {
+            return;
+        };
+        for action in [Action::Press, Action::Release] {
+            if let Some(bytes) =
+                t.vt.encode_mouse(action, Some(Button::Right), x - PAD, y - PAD, false)
+            {
+                post_input(t.id.clone(), &bytes);
+            }
+        }
+    }
+
+    /// Pointer motion with no button held, for programs that asked for every motion (1003).
+    pub fn term_hover(&mut self, x: f32, y: f32) {
+        use libghostty_vt::mouse::Action;
+        let cell = self.cell_at(x, y);
+        if self.term.motion_cell == Some(cell) {
+            return;
+        }
+        self.term.motion_cell = Some(cell);
+        let Some(t) = self.term.terms.get(self.term.active).filter(|t| !t.exited) else {
+            return;
+        };
+        if let Some(bytes) =
+            t.vt.encode_mouse(Action::Motion, None, x - PAD, y - PAD, false)
+        {
+            post_input(t.id.clone(), &bytes);
+        }
+    }
+
     pub fn selection_text(&self) -> Option<String> {
         let sel = self.term.sel?;
         let t = self.term.terms.get(self.term.active)?;
-        let cols = t.vt.size().0;
-        let rows: Vec<String> =
-            t.vt.lines
-                .iter()
-                .enumerate()
-                .filter_map(|(i, l)| {
-                    sel.row_range(i as u16, cols)
-                        .map(|(a, b)| l.slice(a, b).trim_end().to_string())
-                })
-                .collect();
-        (!rows.is_empty()).then(|| rows.join("\n"))
+        let (a, b) = sel.ordered();
+        t.vt.text_between(a, b).filter(|t| !t.is_empty())
     }
 
     /// Input-method text for the focused terminal: the composition is drawn at the cursor,
