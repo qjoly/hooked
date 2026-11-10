@@ -611,7 +611,6 @@ fn session_row(s: &Hooked, x: &Session, k: &Kit, depth: u8, group: Option<usize>
             .help(label.to_string())
             .on_press(move |s: &mut Hooked| f(s))
             .build(k)
-            .hover_alone()
     };
     let incog = s.meta.get(&x.id).is_some_and(|m| m.incognito);
     let pinned = s.is_pinned(&x.id);
