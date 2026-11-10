@@ -14,7 +14,7 @@ mod terminal;
 use std::collections::BTreeMap;
 
 use rune::{Color, Cursor, Cx, El, Icon, Phase, col, el, icon, row, text};
-use rune_kit::shell::{RowStatus, Sidebar, SidebarRow, SidebarSection};
+use rune_kit::shell::{Sidebar, SidebarSection};
 use rune_kit::{
     Button, ButtonVariant, ControlSize, IconButton, IconButtonVariant, Kit, Menu, MenuItem,
 };
@@ -501,16 +501,6 @@ fn gauge(k: &Kit, label: &str, pct: Option<f64>) -> El {
         )
 }
 
-fn status(k: &Kit, s: &Session) -> Option<RowStatus> {
-    match s.state.as_str() {
-        "working" => Some(RowStatus::Busy),
-        "attention" | "waiting" => Some(RowStatus::Attention),
-        _ if s.has_question || s.has_plan => Some(RowStatus::Attention),
-        "background" => Some(RowStatus::Other(dot(k, "background", 7.0))),
-        _ => Some(RowStatus::Other(dot(k, &s.state, 6.0))),
-    }
-}
-
 fn unit_rows(s: &Hooked, u: crate::organize::Unit<'_>, k: &Kit) -> Vec<El> {
     let n = u.children.len();
     let mut out = vec![session_row(s, u.mother, k, 0, (n > 0).then_some(n + 1))];
@@ -556,67 +546,194 @@ fn session_row(s: &Hooked, x: &Session, k: &Kit, depth: u8, group: Option<usize>
     } else {
         s.title_of(x)
     };
-    let mut r = SidebarRow::new(label)
-        .height(44.0)
-        .depth(depth)
-        .subtitle(subtitle)
-        .detail(detail)
-        .selected(s.page == Page::Session && s.selected.as_deref() == Some(x.id.as_str()))
-        .on_select({
-            let id = id.clone();
-            move |s: &mut Hooked, _| s.open_session(&id)
-        })
-        .on_close({
-            let id = id.clone();
-            move |s: &mut Hooked, _| s.toggle_archive(&id)
-        })
-        .on_double_click({
-            let id = id.clone();
-            move |s: &mut Hooked, _| s.start_rename(&id)
-        });
+    let selected = s.page == Page::Session && s.selected.as_deref() == Some(x.id.as_str());
+    let renaming = s.renaming.as_ref().filter(|(rid, _)| *rid == x.id);
+    let title: El = match renaming {
+        Some((_, edit)) => rune_kit::TextInput::new(edit)
+            .width(None)
+            .on_edit(|s: &mut Hooked| &mut s.renaming.as_mut().expect("renaming").1)
+            .on_submit(|s: &mut Hooked, _| s.commit_rename())
+            .on_key(|s: &mut Hooked, ev: &rune::KeyEvent, _| {
+                if ev.key == rune::Key::Escape {
+                    s.renaming = None;
+                    return true;
+                }
+                false
+            })
+            .build(k)
+            .key("rename")
+            .grow(1.0)
+            .min_w(0.0),
+        None => text(label)
+            .font(k.ty.text_small_medium)
+            .color(k.c.text_base)
+            .truncate()
+            .grow(1.0)
+            .min_w(0.0),
+    };
+    let mut line1 = row().w_full().gap(6.0).center_y();
     if s.is_pinned(&x.id) {
-        r = r.icon(&icons::PIN);
+        line1 = line1.child(glyph(&icons::PIN, 12.0, k.c.icon_muted));
     }
+    line1 = line1.child(title);
     if let Some(n) = group {
-        r = r.badge(if s.folded_groups.contains(&x.id) {
+        let badge = if s.folded_groups.contains(&x.id) {
             format!("+{}", n - 1)
         } else {
             n.to_string()
-        });
+        };
+        line1 = line1.child(pill(k, badge, k.c.text_muted, k.c.layer_02));
     }
-    if let Some((_, edit)) = s.renaming.as_ref().filter(|(rid, _)| *rid == x.id) {
-        r = r.renaming(
-            edit,
-            |s: &mut Hooked| &mut s.renaming.as_mut().expect("renaming").1,
-            |s: &mut Hooked, _| s.commit_rename(),
-            |s: &mut Hooked, _| s.renaming = None,
-        );
-    }
-    if !archived && let Some(st) = status(k, x) {
-        r = r.status(st);
-    }
-    let menu_id = id.clone();
-    let tags = s.session_tags(&x.id);
-    let built = r.build(k);
-    let built = if tags.is_empty() {
-        built
+    let mark: El = if archived {
+        el()
+    } else if x.state == "working" {
+        rune_kit::Spinner::new().build(k).size(12.0, 12.0)
+    } else if x.needs_you() {
+        dot(k, "waiting", 7.0)
     } else {
-        col().w_full().child(built).child(
+        dot(k, &x.state, 6.0)
+    };
+    let resting = row()
+        .gap(8.0)
+        .center_y()
+        .group_opacity(1.0, 0.0)
+        .child(text(detail).font(k.ty.text_xsmall).color(k.c.text_faint))
+        .child(row().w(14.0).center().child(mark));
+    let act = |icon: &'static rune::Icon, label: &str, on: bool, f: Box<dyn Fn(&mut Hooked)>| {
+        IconButton::new(icon)
+            .variant(if on {
+                IconButtonVariant::Ghost
+            } else {
+                IconButtonVariant::GhostMuted
+            })
+            .control_size(rune_kit::ControlSize::Small)
+            .label(label.to_string())
+            .help(label.to_string())
+            .on_press(move |s: &mut Hooked| f(s))
+            .build(k)
+            .hover_alone()
+    };
+    let incog = s.meta.get(&x.id).is_some_and(|m| m.incognito);
+    let pinned = s.is_pinned(&x.id);
+    let (g, t, p, i, sp, ar) = (
+        id.clone(),
+        id.clone(),
+        id.clone(),
+        id.clone(),
+        id.clone(),
+        id.clone(),
+    );
+    let mut actions = row()
+        .gap(0.0)
+        .center_y()
+        .padding(2.0)
+        .radius(k.radius.sm)
+        .fill(k.c.layer_02)
+        .group_opacity(0.0, 1.0)
+        .child(act(
+            &icons::LIST,
+            "Move to group…",
+            false,
+            Box::new(move |s| s.open_group_picker(g.clone())),
+        ))
+        .child(act(
+            &icons::TAG,
+            "Edit tags",
+            false,
+            Box::new(move |s| s.open_tags(t.clone())),
+        ))
+        .child(act(
+            &icons::PIN,
+            if pinned { "Unpin" } else { "Pin" },
+            pinned,
+            Box::new(move |s| s.toggle_pin(&p)),
+        ))
+        .child(act(
+            if incog { &icons::EYE_OFF } else { &icons::EYE },
+            if incog {
+                "Remove from incognito"
+            } else {
+                "Mark incognito: keep it visible in incognito mode"
+            },
+            incog,
+            Box::new(move |s| s.toggle_incognito(&i)),
+        ));
+    if !archived && s.page == Page::Session && !selected && !s.splits.iter().any(|p| p.id == x.id) {
+        actions = actions.child(act(
+            &icons::SPLIT,
+            "Split beside the current session",
+            false,
+            Box::new(move |s| s.open_split(sp.clone())),
+        ));
+    }
+    actions = actions.child(act(
+        if archived {
+            &icons::UNARCHIVE
+        } else {
+            &icons::ARCHIVE
+        },
+        if archived { "Unarchive" } else { "Archive" },
+        false,
+        Box::new(move |s| s.toggle_archive(&ar)),
+    ));
+    let trailing = resting;
+    let line2 = text(subtitle)
+        .font(k.ty.text_xsmall)
+        .color(k.c.text_faint)
+        .truncate()
+        .w_full();
+    let tags = s.session_tags(&x.id);
+    let mut body = col()
+        .grow(1.0)
+        .min_w(0.0)
+        .gap(2.0)
+        .child(
             row()
                 .w_full()
-                .pl(10.0 + f32::from(depth) * 16.0)
-                .pb(4.0)
+                .gap(8.0)
+                .center_y()
+                .child(line1)
+                .child(trailing),
+        )
+        .child(line2);
+    if !tags.is_empty() {
+        body = body.child(
+            row()
+                .w_full()
+                .pt(4.0)
                 .gap(4.0)
                 .flex_wrap()
                 .children(tags.iter().map(|t| tag_pill(s, k, t))),
-        )
-    };
-    built
+        );
+    }
+    let menu_id = id.clone();
+    let (open, rename) = (id.clone(), id.clone());
+    let mut r = row()
         .key(format!("row-{}", x.id))
+        .role("button")
+        .checked(selected)
+        .label(s.title_of(x))
+        .w_full()
+        .pl(10.0 + f32::from(depth) * 16.0)
+        .pr(8.0)
+        .py(6.0)
+        .radius(k.radius.md)
+        .cursor(Cursor::Pointer)
+        .hover_group()
+        .hover_motion(rune::Anim::INSTANT, rune::Anim::INSTANT)
+        .opacity(if archived { 0.7 } else { 1.0 })
+        .child(body)
+        .child(actions.pin(None, Some(4.0), Some(6.0), None));
+    if selected {
+        r = r.fill(k.c.pressed);
+    }
+    k.interactive(r)
+        .on_press(move |s: &mut Hooked| s.open_session(&open))
+        .on_double_press(move |s: &mut Hooked| s.start_rename(&rename))
         .help(if archived {
-            "Click × to unarchive · right-click for more"
+            "Hover for actions · right-click for more"
         } else {
-            "× archives · double-click renames · right-click for more"
+            "Hover for actions · double-click renames · right-click for more"
         })
         .on_secondary_press(move |s: &mut Hooked, p, _| s.row_menu = Some((menu_id.clone(), p)))
 }

@@ -28,7 +28,7 @@ session states coloured by how much they need you.
 - **Shortcuts**: ⌥1 Deck, ⌥2 Sessions, ⌥4–7 Stats / Digest / Memory / GitHub, ⌘J terminal,
   ⌘⇧J new terminal, ⌘⇧D context panel, ⌘⇧F focus mode, ⌘⇧T theme, ⌘⇧S split, ⌘B sidebar.
 - **Sidebar**: Sessions / Archived tabs with counts, last-24h filter, group by project
-  (collapsible sections with a `+` each), cache countdown or age per row, × on hover to archive,
+  (collapsible sections with a `+` each), cache countdown or age per row, hover actions (group, tags, pin, incognito, split, archive),
   resizable, folds to a rail (⌘B).
 - **Session**: title, repo · branch, state, context gauge, prompt-cache badge, Resume, Archive,
   split, context panel, and a ⋯ menu (model, effort, permission mode, auto-approve, cost, open in
