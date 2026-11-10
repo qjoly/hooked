@@ -258,7 +258,10 @@ impl Vt {
     /// Bells rung since the last call.
     /// The last text a program put on the clipboard (OSC 52) since the previous call.
     pub fn take_clipboard(&mut self) -> Option<String> {
-        self.clips.borrow_mut().drain(..).last()
+        let mut clips = self.clips.borrow_mut();
+        let last = clips.pop();
+        clips.clear();
+        last
     }
 
     /// The screen row at the top of the viewport.
