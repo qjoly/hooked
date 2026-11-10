@@ -4,6 +4,7 @@ use std::rc::Rc;
 use libghostty_vt::key::{self, Key as GKey, Mods};
 use libghostty_vt::render::{CellIterator, CursorVisualStyle, Dirty, RowIterator};
 use libghostty_vt::screen::CellWide;
+use libghostty_vt::search::Search;
 use libghostty_vt::style::RgbColor;
 use libghostty_vt::terminal::{Mode, ScrollViewport};
 use libghostty_vt::{RenderState, Terminal, mouse, paste};
@@ -81,6 +82,7 @@ pub struct CursorAt {
 
 /// One shell's screen, parsed by Ghostty's VT core and kept as styled lines for Rune.
 pub struct Vt {
+    search: Option<Search<'static, 'static>>,
     terminal: Terminal<'static, 'static>,
     render: RenderState<'static>,
     row_iter: RowIterator<'static>,
@@ -121,6 +123,7 @@ impl Vt {
         terminal.set_default_fg_color(Some(FG)).ok()?;
         terminal.set_default_bg_color(Some(BG)).ok()?;
         let mut vt = Vt {
+            search: None,
             terminal,
             render: RenderState::new().ok()?,
             row_iter: RowIterator::new().ok()?,
@@ -145,6 +148,53 @@ impl Vt {
         self.terminal.vt_write(bytes);
         self.refresh();
         std::mem::take(&mut *self.replies.borrow_mut())
+    }
+
+    /// Looks for `needle` across the scrollback and selects the newest match; returns
+    /// `(matches, selected index)`.
+    pub fn search(&mut self, needle: &str) -> (usize, Option<usize>) {
+        if needle.is_empty() {
+            self.end_search();
+            return (0, None);
+        }
+        if self.search.is_none() {
+            self.search = Search::new(&mut self.terminal).ok();
+        }
+        let Some(search) = self.search.as_mut() else {
+            return (0, None);
+        };
+        let _ = search.set_needle(&mut self.terminal, needle.as_bytes());
+        let _ = search.run(&mut self.terminal);
+        let _ = search.select_next(&mut self.terminal);
+        let found = (
+            search.total_matches().unwrap_or(0),
+            search.selected_index().ok().flatten(),
+        );
+        self.refresh();
+        found
+    }
+
+    /// The next match toward older output (`older`) or newer, scrolling to it.
+    pub fn search_step(&mut self, older: bool) -> (usize, Option<usize>) {
+        let Some(search) = self.search.as_mut() else {
+            return (0, None);
+        };
+        let _ = search.run(&mut self.terminal);
+        let _ = if older {
+            search.select_next(&mut self.terminal)
+        } else {
+            search.select_prev(&mut self.terminal)
+        };
+        let found = (
+            search.total_matches().unwrap_or(0),
+            search.selected_index().ok().flatten(),
+        );
+        self.refresh();
+        found
+    }
+
+    pub fn end_search(&mut self) {
+        self.search = None;
     }
 
     /// Bells rung since the last call.
@@ -624,6 +674,24 @@ mod tests {
     }
 
     #[test]
+    fn links_and_search_reach_the_scrollback() {
+        let mut vt = Vt::new(40, 3).expect("terminal");
+        vt.write(b"see https://example.com/a?b=1). ok\r\n");
+        let l = links(&vt.lines[0]);
+        assert_eq!(l.len(), 1);
+        assert_eq!(l[0].2, "https://example.com/a?b=1");
+        assert_eq!((l[0].0, l[0].1), (4, 29));
+        vt.write(b"needle here\r\n");
+        for i in 0..20 {
+            vt.write(format!("line {i}\r\n").as_bytes());
+        }
+        assert!(vt.lines.iter().all(|l| matches(l, "needle").is_empty()));
+        let (n, _) = vt.search("NEEDLE");
+        assert_eq!(n, 1);
+        assert!(vt.lines.iter().any(|l| matches(l, "needle") == [(0, 6)]));
+    }
+
+    #[test]
     fn output_becomes_styled_lines() {
         let mut vt = Vt::new(20, 3).expect("terminal");
         vt.write(b"hi \x1b[1;31mred\x1b[0m\r\nnext");
@@ -736,4 +804,58 @@ mod tests {
         vt.write(b"\x1b[?2004h");
         assert_eq!(vt.encode_paste("ls"), b"\x1b[200~ls\x1b[201~");
     }
+}
+
+fn col_of(line: &Line, byte: usize) -> u16 {
+    line.cols
+        .iter()
+        .position(|&o| o >= byte)
+        .unwrap_or(line.cols.len()) as u16
+}
+
+/// Plain `http(s)://` URLs on a line, as column ranges `[a, b)` with the URL.
+pub fn links(line: &Line) -> Vec<(u16, u16, String)> {
+    let t = &line.text;
+    let mut out = Vec::new();
+    let mut from = 0;
+    while let Some(i) = ["https://", "http://"]
+        .iter()
+        .filter_map(|p| t[from..].find(p).map(|i| from + i))
+        .min()
+    {
+        let rest = &t[i..];
+        let mut end = rest
+            .find(|c: char| c.is_whitespace() || "\"'<>`|".contains(c))
+            .unwrap_or(rest.len());
+        while end > 0 && rest[..end].ends_with(['.', ',', ';', ':', ')', ']', '}', '!', '?']) {
+            if rest[..end].ends_with(')') && rest[..end].contains('(') {
+                break;
+            }
+            end -= 1;
+        }
+        if end > "http://".len() {
+            out.push((
+                col_of(line, i),
+                col_of(line, i + end),
+                rest[..end].to_string(),
+            ));
+        }
+        from = i + end.max(1);
+    }
+    out
+}
+
+/// Occurrences of `needle` on a line, ignoring case, as column ranges `[a, b)`.
+pub fn matches(line: &Line, needle: &str) -> Vec<(u16, u16)> {
+    if needle.is_empty() {
+        return Vec::new();
+    }
+    let hay = line.text.to_lowercase();
+    let n = needle.to_lowercase();
+    if hay.len() != line.text.len() {
+        return Vec::new();
+    }
+    hay.match_indices(&n)
+        .map(|(i, m)| (col_of(line, i), col_of(line, i + m.len())))
+        .collect()
 }

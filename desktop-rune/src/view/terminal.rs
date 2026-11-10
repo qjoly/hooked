@@ -56,6 +56,15 @@ fn screen(s: &Hooked, k: &Kit, t: &Term) -> El {
         if let Some((a, b)) = s.term.sel.and_then(|sel| sel.row_range(row, cols)) {
             marks.push((a, b, None, selection));
         }
+        let needle = s
+            .term
+            .search
+            .as_ref()
+            .map(|(e, _)| e.text.clone())
+            .unwrap_or_default();
+        for (a, b) in crate::ghostty::matches(line, &needle) {
+            marks.push((a, b, None, k.c.warning.icon.alpha(0.45)));
+        }
         let cur = cursor.filter(|c| c.y == row && s.term.preedit.is_empty());
         if let Some(c) = cur {
             match c.shape {
@@ -65,6 +74,7 @@ fn screen(s: &Hooked, k: &Kit, t: &Term) -> El {
         }
         let version = (
             line.version,
+            needle.clone(),
             s.term.sel.and_then(|sel| sel.row_range(row, cols)),
             cur.map(|c| (c.x, c.shape == CursorShape::Block)),
             k.dark,
@@ -75,11 +85,17 @@ fn screen(s: &Hooked, k: &Kit, t: &Term) -> El {
             .iter()
             .filter_map(|&(a, b, ink, _)| Some((a, b, ink?)))
             .collect();
-        let built = if inked.is_empty() {
+        let mut built = if inked.is_empty() {
             (line.text.clone(), line.spans.clone())
         } else {
             painted(line, &inked)
         };
+        for (a, b, _) in crate::ghostty::links(line) {
+            let (x, y) = line.byte_range(a, b);
+            built
+                .1
+                .push(Span::new(x, y.min(built.0.len())).underline(fg.alpha(0.6)));
+        }
         let fills: Vec<(u16, u16, Color)> = line
             .bgs
             .iter()
@@ -266,11 +282,66 @@ pub fn panel(s: &Hooked, k: &Kit) -> El {
                 .key("term-new"),
         )
         .child(el().grow(1.0))
-        .child(
-            text("click to type · ⌘V pastes")
-                .font(k.ty.text_xsmall)
-                .color(k.c.text_faint),
-        )
+        .child(match p.search.as_ref() {
+            Some((edit, (n, sel))) => row()
+                .gap(6.0)
+                .center_y()
+                .child(
+                    rune_kit::TextInput::new(edit)
+                        .placeholder("Search the scrollback…")
+                        .width(Some(220.0))
+                        .on_edit(|s: &mut Hooked| &mut s.term.search.as_mut().expect("search").0)
+                        .on_change(|s: &mut Hooked, _| s.term_search_changed())
+                        .on_key(|s: &mut Hooked, ev: &rune::KeyEvent, _| match ev.key {
+                            rune::Key::Enter => {
+                                s.term_search_step(!ev.mods.shift);
+                                true
+                            }
+                            rune::Key::Escape => {
+                                s.close_term_search();
+                                true
+                            }
+                            _ => false,
+                        })
+                        .build(k)
+                        .key("term-search"),
+                )
+                .child(
+                    text(match (n, sel) {
+                        (0, _) if edit.text.is_empty() => String::new(),
+                        (0, _) => "no match".to_string(),
+                        (n, Some(i)) => format!("{}/{n}", i + 1),
+                        (n, None) => n.to_string(),
+                    })
+                    .font(k.ty.text_xsmall)
+                    .color(k.c.text_faint),
+                )
+                .child(
+                    IconButton::new(&icons::CLOSE)
+                        .variant(IconButtonVariant::GhostMuted)
+                        .control_size(rune_kit::ControlSize::Small)
+                        .label("Close the search")
+                        .on_press(|s: &mut Hooked| s.close_term_search())
+                        .build(k),
+                ),
+            None => row()
+                .gap(6.0)
+                .center_y()
+                .child(
+                    text("⌘F searches · ⌘-click opens links · ⌘V pastes")
+                        .font(k.ty.text_xsmall)
+                        .color(k.c.text_faint),
+                )
+                .child(
+                    IconButton::new(&icons::SEARCH)
+                        .variant(IconButtonVariant::GhostMuted)
+                        .control_size(rune_kit::ControlSize::Small)
+                        .label("Search the scrollback")
+                        .help("Search the scrollback (⌘F)")
+                        .on_press(|s: &mut Hooked| s.open_term_search())
+                        .build(k),
+                ),
+        })
         .child(
             IconButton::new(&icons::CHEVRON_DOWN)
                 .variant(IconButtonVariant::GhostMuted)
@@ -320,6 +391,10 @@ pub fn panel(s: &Hooked, k: &Kit) -> El {
                 }
                 return false;
             }
+            if ev.is_command('f') {
+                s.open_term_search();
+                return true;
+            }
             if ev.mods.cmd {
                 tx.instant();
                 return s.term_cmd_key(&ev.key);
@@ -329,6 +404,9 @@ pub fn panel(s: &Hooked, k: &Kit) -> El {
         })
         .on_drag(|s: &mut Hooked, d: &mut rune::Drag, tx: &mut rune::Tx| {
             tx.instant();
+            if d.phase == rune::Phase::Down && tx.mods().cmd && s.term_open_link(d.x, d.y, tx) {
+                return;
+            }
             s.term_drag(d, false)
         })
         .on_wheel(|s: &mut Hooked, e: rune::WheelEvent, tx: &mut rune::Tx| {

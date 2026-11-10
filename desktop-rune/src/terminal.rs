@@ -73,6 +73,7 @@ pub struct TermPanel {
     pub active: usize,
     pub busy: bool,
     pub bell_at: i64,
+    pub search: Option<(rune::TextEdit, (usize, Option<usize>))>,
 }
 
 fn decode(payload: &str) -> Option<Vec<u8>> {
@@ -214,6 +215,17 @@ impl Hooked {
             alive: Arc::new(AtomicBool::new(false)),
         });
         self.term.open = true;
+        if let Some(needle) = args
+            .iter()
+            .position(|a| a == "--term-search")
+            .and_then(|i| args.get(i + 1))
+        {
+            self.open_term_search();
+            if let Some((e, _)) = self.term.search.as_mut() {
+                *e = rune::TextEdit::new(needle.clone());
+            }
+            self.term_search_changed();
+        }
     }
 
     pub fn load_terms(&mut self) {
@@ -420,6 +432,64 @@ impl Hooked {
             })
             .collect();
         self.term_paste(&format!("{} ", quoted.join(" ")));
+    }
+
+    pub fn open_term_search(&mut self) {
+        let mut e = rune::TextEdit::new("");
+        e.focused = true;
+        self.term.search = Some((e, (0, None)));
+    }
+
+    pub fn close_term_search(&mut self) {
+        self.term.search = None;
+        if let Some(t) = self.term.terms.get_mut(self.term.active) {
+            t.vt.end_search();
+            t.vt.scroll_to_bottom();
+        }
+    }
+
+    pub fn term_search_changed(&mut self) {
+        let Some(needle) = self.term.search.as_ref().map(|(e, _)| e.text.clone()) else {
+            return;
+        };
+        if let Some(t) = self.term.terms.get_mut(self.term.active) {
+            let found = t.vt.search(&needle);
+            if let Some((_, f)) = self.term.search.as_mut() {
+                *f = found;
+            }
+        }
+    }
+
+    pub fn term_search_step(&mut self, older: bool) {
+        if let Some(t) = self.term.terms.get_mut(self.term.active) {
+            let found = t.vt.search_step(older);
+            if let Some((_, f)) = self.term.search.as_mut() {
+                *f = found;
+            }
+        }
+    }
+
+    /// ⌘-click on a URL opens it; true when the press landed on one.
+    pub fn term_open_link(&mut self, x: f32, y: f32, tx: &mut rune::Tx) -> bool {
+        let (col, row) = self.cell_at(x, y);
+        let Some(line) = self
+            .term
+            .terms
+            .get(self.term.active)
+            .and_then(|t| t.vt.lines.get(usize::from(row)))
+        else {
+            return false;
+        };
+        match crate::ghostty::links(line)
+            .into_iter()
+            .find(|(a, b, _)| (*a..*b).contains(&col))
+        {
+            Some((_, _, url)) => {
+                let _ = tx.open_url(&url);
+                true
+            }
+            None => false,
+        }
     }
 
     pub fn restart_term(&mut self, i: usize) {

@@ -91,10 +91,10 @@ session states coloured by how much they need you.
 - Selection: selecting into the scrollback, Shift to select inside mouse-tracking programs
   (Rune reports no modifiers during a drag), OSC 52 clipboard, right- and middle-click.
 - Mouse: only the left button reaches programs; no motion without a button held.
-- Rendering: cursor blink, strikethrough / overline / curly and coloured underlines, clickable
-  links (OSC 8 and plain URLs), images (kitty graphics, sixel), a light palette, exact widths
+- Rendering: cursor blink, strikethrough / overline / curly and coloured underlines, OSC 8
+  hyperlinks (plain URLs are underlined and open with ⌘-click), images (kitty graphics, sixel), a light palette, exact widths
   for emoji drawn from fallback fonts, font and size settings, zoom.
-- Behaviour: search in the scrollback, focus reporting, key releases and repeats for
+- Behaviour: focus reporting, key releases and repeats for
   the full kitty keyboard protocol, batching redraws under heavy output.
 - hooked: `!!command` output inline in the conversation, terminals in their own window or split.
 
