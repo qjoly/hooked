@@ -382,6 +382,32 @@ pub fn run(s: &mut Hooked, index: usize, tx: &mut Tx) {
     }
 }
 
+/// The keys a command's default hint names, as the user has bound them now (Settings → shortcuts).
+fn live_keys(s: &Hooked, hint: &str) -> String {
+    let id = match hint {
+        "⌥1" => "go-sessions",
+        "⌥2" => "go-board",
+        "⌥4" => "go-stats",
+        "⌥5" => "go-digest",
+        "⌥6" => "go-memory",
+        "⌥7" => "go-github",
+        "⌘N" => "new-session",
+        "⌘," => "settings",
+        "⌘⇧T" => "theme-cycle",
+        "⌘⇧F" => "focus-mode",
+        "⌘B" => "toggle-sidebar",
+        "⌘⇧D" => "toggle-dock",
+        "⌘J" => "open-terminal",
+        "⌘⇧J" => "new-terminal",
+        "⌘⇧S" => "split-session",
+        _ => return hint.to_string(),
+    };
+    match s.shortcuts.get(id).and_then(|r| r.shortcut()) {
+        Some(sc) => sc.keycaps().concat(),
+        None => String::new(),
+    }
+}
+
 fn snippet_line(s: &str) -> String {
     let flat = s.replace("<mark>", "").replace("</mark>", "");
     fmt::first_line(&flat.split_whitespace().collect::<Vec<_>>().join(" "), 140)
@@ -411,7 +437,7 @@ fn row_for(s: &Hooked, k: &Kit, h: &Hit) -> (El, String, String) {
             if c.keys.is_empty() {
                 c.section.to_string()
             } else {
-                c.keys.to_string()
+                live_keys(s, c.keys)
             },
         ),
         Hit::Citation { id, snippet } => (

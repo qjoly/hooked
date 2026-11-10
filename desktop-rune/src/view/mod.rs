@@ -614,6 +614,7 @@ fn session_row(s: &Hooked, x: &Session, k: &Kit, depth: u8, group: Option<usize>
             .help(label.to_string())
             .on_press(move |s: &mut Hooked| f(s))
             .build(k)
+            .focusable(false)
     };
     let incog = s.meta.get(&x.id).is_some_and(|m| m.incognito);
     let pinned = s.is_pinned(&x.id);
@@ -723,6 +724,8 @@ fn session_row(s: &Hooked, x: &Session, k: &Kit, depth: u8, group: Option<usize>
         .cursor(Cursor::Pointer)
         .hover_group()
         .hover_motion(rune::Anim::INSTANT, rune::Anim::INSTANT)
+        .focusable(true)
+        .focus_selected(selected)
         .opacity(if archived { 0.7 } else { 1.0 })
         .child(body)
         .child(actions.pin(None, Some(4.0), Some(6.0), None));
