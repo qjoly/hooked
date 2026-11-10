@@ -898,7 +898,7 @@ pub(super) fn bubble(s: &Hooked, session: &str, m: &Message, k: &Kit, i: usize) 
                 .selectable(true)
                 .build(k)
                 .key(format!("md-{i}-{pi}")),
-            Part::Tool(t) => tool_chip(s, &t, k, format!("tool-{i}-{pi}")),
+            Part::Tool(t) => tool_chip(s, session, &t, k, format!("tool-{i}-{pi}")),
         });
     }
     if user
@@ -1468,7 +1468,7 @@ fn inline_diff(k: &Kit, diff: &serde_json::Value, split: bool) -> El {
     c
 }
 
-fn tool_chip(s: &Hooked, t: &Tool, k: &Kit, key: String) -> El {
+fn tool_chip(s: &Hooked, session: &str, t: &Tool, k: &Kit, key: String) -> El {
     let id = t.id.clone().unwrap_or_else(|| key.clone());
     let open = s.all_tools_open || s.tools_open.contains(&id);
     let detail = t.detail.clone().unwrap_or_default();
@@ -1524,6 +1524,24 @@ fn tool_chip(s: &Hooked, t: &Tool, k: &Kit, key: String) -> El {
         .border(1.0, k.c.border_weak)
         .fill(k.c.layer_01)
         .child(head);
+    if crate::querywin::is_query_tool(&t.name)
+        && let Some(tid) = t.id.clone().filter(|_| t.result.is_some())
+    {
+        let session = session.to_string();
+        chip = chip.child(
+            row().px(8.0).pb(6.0).child(
+                Button::new("View the result")
+                    .icon(&icons::CHART)
+                    .variant(ButtonVariant::Outline)
+                    .control_size(ControlSize::Small)
+                    .help("Draw the result, then re-run it live through mcp-gateway")
+                    .on_press(move |s: &mut Hooked| {
+                        s.open_query_result(session.clone(), tid.clone())
+                    })
+                    .build(k),
+            ),
+        );
+    }
     if let Some(diff) = t.diff.as_ref() {
         if !big || open {
             chip = chip.child(inline_diff(

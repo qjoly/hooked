@@ -148,6 +148,7 @@ pub struct Hooked {
     pub reviewed: HashMap<String, Vec<String>>,
     pub job_log: Option<(String, String)>,
     pub run_win: Option<crate::ghrun::RunWin>,
+    pub query_win: Option<crate::querywin::QueryWin>,
     pub gh_checks: HashMap<String, Vec<serde_json::Value>>,
     pub plan_quote: Option<String>,
     pub new_group: Option<String>,
@@ -371,6 +372,7 @@ impl Hooked {
             reviewed,
             job_log: None,
             run_win: None,
+            query_win: None,
             gh_checks: HashMap::new(),
             plan_quote: None,
             new_group: None,
@@ -683,6 +685,27 @@ impl Hooked {
         }
         if args.iter().any(|a| a == "--side-by-side") {
             s.lens_data.diff.set_mode(rune_kit::diff::DiffMode::Split);
+        }
+        if let Some(i) = args.iter().position(|a| a == "--query") {
+            let (session, id) = (
+                args.get(i + 1).cloned().unwrap_or_default(),
+                args.get(i + 2).cloned().unwrap_or_default(),
+            );
+            let v = api::get(&format!(
+                "/api/query-result?session={}&agent=&id={}",
+                api::enc(&session),
+                api::enc(&id)
+            ))
+            .unwrap_or_default();
+            s.query_win = Some(crate::querywin::QueryWin {
+                spec: Some(crate::querywin::live_spec(
+                    v["tool"].as_str().unwrap_or(""),
+                    &v["input"],
+                )),
+                data: Some(v["data"].clone()),
+                refresh: 0,
+                ..Default::default()
+            });
         }
         if args.iter().any(|a| a == "--branch") {
             s.lens_data.review_source = crate::lenses::ReviewSource::Branch;
@@ -2353,7 +2376,15 @@ pub fn start_workers(h: Option<AppHandle<Hooked>>) {
     std::thread::spawn(move || {
         let mut last = Instant::now() - Duration::from_secs(10);
         loop {
-            let r = api::follow("/api/stream", |_| {
+            let r = api::follow("/api/stream", |payload| {
+                if payload.contains("\"spec\"")
+                    && let Ok(v) = serde_json::from_str::<serde_json::Value>(payload)
+                    && v["spec"]["query"].is_string()
+                {
+                    let spec = v["spec"].clone();
+                    h.update(move |s, _| s.open_query_spec(spec));
+                    return true;
+                }
                 if last.elapsed() > Duration::from_millis(400) {
                     last = Instant::now();
                     if let (Ok(list), meta, tags) =

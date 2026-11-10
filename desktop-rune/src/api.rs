@@ -43,6 +43,15 @@ pub fn bytes(path: &str) -> Result<Vec<u8>, String> {
     Ok(out)
 }
 
+/// The JSON body whatever the status, for endpoints that explain a refusal in it.
+pub fn post_any(path: &str, body: Value) -> Result<Value, String> {
+    match agent().post(&format!("{}{path}", base())).send_json(body) {
+        Ok(resp) => resp.into_json().map_err(|e| e.to_string()),
+        Err(ureq::Error::Status(_, resp)) => resp.into_json().map_err(|e| e.to_string()),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
 pub fn post(path: &str, body: Value) -> Result<Value, String> {
     let r = agent().post(&format!("{}{path}", base())).send_json(body);
     read(r)

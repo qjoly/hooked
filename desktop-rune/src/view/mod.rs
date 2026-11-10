@@ -6,6 +6,7 @@ mod new_session;
 mod organize;
 mod pages;
 mod palette;
+mod querywin;
 mod session;
 mod settings;
 mod split;
@@ -124,6 +125,9 @@ pub fn view(s: &Hooked, cx: &mut Cx<Hooked>) -> El {
         .child(body);
     if let Some(w) = s.run_win.as_ref() {
         layer.push(ghrun::view(s, w, &k));
+    }
+    if let Some(w) = s.query_win.as_ref() {
+        layer.push(querywin::view(s, w, &k));
     }
     if s.palette_open {
         layer.push(palette::view(s, &k));

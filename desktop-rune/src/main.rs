@@ -11,6 +11,7 @@ mod lenses;
 mod logo;
 mod organize;
 mod pages;
+mod querywin;
 mod quick;
 mod shortcuts;
 mod terminal;
@@ -125,6 +126,7 @@ fn poll(s: &mut Hooked, _clock: f64, tx: &mut Tx) -> bool {
     s.stash_draft();
     s.refresh_logo();
     s.poll_run(now);
+    s.poll_query(now);
     s.poll_account(now);
     let working = s.page == Page::Session && s.working_since.is_some();
     let step = if working { 1000 } else { 30_000 };

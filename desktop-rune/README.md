@@ -81,7 +81,7 @@ session states coloured by how much they need you.
 - Review: the branch scope (a branch against its base, a range of its commits) and
   go-to-definition. Blame shows for the clicked line, not on hover. Markdown renders beside
   its diff without the per-block tint.
-- Conversation: the Grafana query window; video and audio open in the system player.
+- Conversation: video and audio open in the system player.
 - Deck: the fleet grouped by repo with search and filters.
 - GitHub: the full pull-request panel (summary, timeline, code); the context panel shows the
   PR's state and checks, which open the Actions run window.
