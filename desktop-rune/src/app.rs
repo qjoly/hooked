@@ -182,6 +182,7 @@ pub struct Hooked {
     pub ptys: crate::terminal::Ptys,
     pub term_focus: Option<crate::terminal::TermFocus>,
     pub term_claimed: bool,
+    pub theme_dark: std::cell::Cell<bool>,
     pub attach_seq: u64,
     pub queued: Vec<String>,
     pub sending: bool,
@@ -416,6 +417,7 @@ impl Hooked {
             ptys: Default::default(),
             term_focus: None,
             term_claimed: false,
+            theme_dark: std::cell::Cell::new(true),
             attach_seq: 0,
             queued: Vec::new(),
             sending: false,
@@ -498,6 +500,7 @@ impl Hooked {
             .collect();
         let args = rune::extra_args();
         s.term.height = s.prefs.get("termHeight");
+        s.term.font = s.prefs.get("termFont").unwrap_or(0.0);
         if let Some(i) = args.iter().position(|a| a == "--session")
             && let Some(id) = args.get(i + 1)
         {
@@ -1185,7 +1188,7 @@ impl Hooked {
             return;
         }
         self.stash_draft();
-        self.term_focus = None;
+        self.set_term_focus(None);
         self.term_claimed = false;
         self.selected = Some(id.to_string());
         self.detail = None;

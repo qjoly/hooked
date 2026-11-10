@@ -56,7 +56,9 @@ session states coloured by how much they need you.
   - **Terminal (2)**: the session's shells over hooked's PTYs, one tab each, sized to the panel,
     emulated by Ghostty's VT core: its colours and styles, cursor shapes, window title, query
     replies, key encoding (application cursor keys, kitty keyboard protocol), bracketed paste,
-    scrollback on the wheel, mouse clicks, drags and wheel for programs that track the mouse,
+    scrollback on the wheel, every underline style, overline and strikethrough, OSC 8 and plain
+    links (⌘-click), a blinking cursor, a light palette in the light theme, ⌘+ / ⌘- / ⌘0 zoom,
+    focus reports, mouse clicks, drags and wheel for programs that track the mouse,
     drag to select and ⌘C to copy, and input-method composition (dead keys, CJK, emoji picker).
   - **Split (⌘⇧S)**: the most recent other session beside the current one, with its own reply box.
 - **Context panel**: tasks, changes, agents, sub-sessions, linked PRs and issues; Details opens
@@ -92,10 +94,9 @@ session states coloured by how much they need you.
 - Selection: selecting into the scrollback, Shift to select inside mouse-tracking programs
   (Rune reports no modifiers during a drag), OSC 52 clipboard, right- and middle-click.
 - Mouse: only the left button reaches programs; no motion without a button held.
-- Rendering: cursor blink, strikethrough / overline / curly and coloured underlines, OSC 8
-  hyperlinks (plain URLs are underlined and open with ⌘-click), images (kitty graphics, sixel), a light palette, exact widths
-  for emoji drawn from fallback fonts, font and size settings, zoom.
-- Behaviour: focus reporting, key releases and repeats for
+- Rendering: images (kitty graphics, sixel), exact widths for emoji drawn from fallback fonts,
+  a choice of font family.
+- Behaviour: key releases and repeats for
   the full kitty keyboard protocol, batching redraws under heavy output.
 - hooked: terminals in their own window or split; inline `!!` terminals take no IME composition
   or mouse selection.

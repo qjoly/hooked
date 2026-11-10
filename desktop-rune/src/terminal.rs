@@ -28,6 +28,22 @@ impl Drop for Term {
 
 pub const PAD: f32 = 8.0;
 
+thread_local! {
+    static BLINK_RESET: std::cell::Cell<i64> = const { std::cell::Cell::new(0) };
+}
+
+/// Whether a blinking cursor shows now: on for the first half of each period after the last key.
+pub fn blink_on() -> bool {
+    let since = crate::fmt::now_ms() - BLINK_RESET.with(std::cell::Cell::get);
+    (since / BLINK_MS) % 2 == 0
+}
+
+/// Milliseconds until the cursor next blinks.
+pub fn blink_due() -> u64 {
+    let since = crate::fmt::now_ms() - BLINK_RESET.with(std::cell::Cell::get);
+    (BLINK_MS - since.rem_euclid(BLINK_MS)).max(1) as u64
+}
+
 /// A selection in viewport cells, from where the drag started to where it is.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
 pub struct Sel {
@@ -61,6 +77,8 @@ impl Sel {
 pub struct TermPanel {
     /// Panel height in points; None until the user drags it (a third of the window then).
     pub height: Option<f32>,
+    /// Font size in points; 0 until loaded (the kit's mono size then).
+    pub font: f32,
     pub screen: (f32, f32),
     /// The size the PTYs still have to be told about, and when (debounced like the web's fit).
     pub pending: Option<((u16, u16), i64)>,
@@ -147,6 +165,7 @@ fn attach(
 }
 
 fn post_input(id: String, bytes: &[u8]) {
+    BLINK_RESET.with(|c| c.set(crate::fmt::now_ms()));
     let data = String::from_utf8_lossy(bytes).into_owned();
     std::thread::spawn(move || api::post("/api/terminal/input", json!({ "id": id, "data": data })));
 }
@@ -346,7 +365,7 @@ impl Hooked {
     /// Hands the keyboard to the panel's shell when it opens or a tab is picked: rune focuses
     /// only text fields from code, so the window routes keys to it until something else has focus.
     pub fn claim_term(&mut self) {
-        self.term_focus = Some(TermFocus::Panel);
+        self.set_term_focus(Some(TermFocus::Panel));
         self.term_claimed = true;
         self.composer.focused = false;
     }
@@ -419,7 +438,7 @@ impl Hooked {
         if (self.term.cell.0 - cw).abs() < 0.01 {
             return;
         }
-        self.term.cell = (cw, 18.0);
+        self.term.cell = (cw, line_height(self.term_font()));
         self.term.size = None;
         let (w, h) = self.term.screen;
         if w > 0.0 {
@@ -521,6 +540,15 @@ impl Hooked {
     /// ⌘-click on a URL opens it; true when the press landed on one.
     pub fn term_open_link(&mut self, x: f32, y: f32, tx: &mut rune::Tx) -> bool {
         let (col, row) = self.cell_at(x, y);
+        if let Some(url) = self
+            .term
+            .terms
+            .get(self.term.active)
+            .and_then(|t| t.vt.hyperlink_at(col, row))
+        {
+            let _ = tx.open_url(&url);
+            return true;
+        }
         let Some(line) = self
             .term
             .terms
@@ -711,6 +739,12 @@ impl Hooked {
 }
 
 pub const PTY_ROWS: u16 = 18;
+pub const FONT: f32 = 12.0;
+pub const BLINK_MS: i64 = 530;
+
+pub fn line_height(font: f32) -> f32 {
+    (font * 1.5).round()
+}
 
 /// Which terminal holds the keyboard. Rune reports focus only to key handlers, while input-method
 /// events and pastes reach the app without it, so presses and keys on a terminal record it here.
@@ -843,6 +877,73 @@ impl Hooked {
             post_input(t.id.clone(), &bytes);
         }
         true
+    }
+
+    pub fn term_font(&self) -> f32 {
+        if self.term.font > 0.0 {
+            self.term.font
+        } else {
+            FONT
+        }
+    }
+
+    pub fn zoom_term(&mut self, step: i32) {
+        let f = if step == 0 {
+            FONT
+        } else {
+            (self.term_font() + step as f32).clamp(8.0, 28.0)
+        };
+        self.term.font = f;
+        self.save_pref("termFont", &f);
+        self.term.cell = (0.0, line_height(f));
+    }
+
+    pub fn set_term_focus(&mut self, next: Option<TermFocus>) {
+        if self.term_focus == next {
+            return;
+        }
+        let prev = std::mem::replace(&mut self.term_focus, next.clone());
+        if let Some(p) = prev {
+            self.report_focus(&p, false);
+        }
+        if let Some(n) = next {
+            self.report_focus(&n, true);
+        }
+    }
+
+    /// The window gaining or losing focus reaches the shell that holds the keyboard.
+    pub fn window_focus(&mut self, gained: bool) {
+        if let Some(f) = self.term_focus.clone() {
+            self.report_focus(&f, gained);
+        }
+    }
+
+    fn report_focus(&mut self, f: &TermFocus, gained: bool) {
+        let t = match f {
+            TermFocus::Panel => self.term.terms.get(self.term.active),
+            TermFocus::Pty(id) => self.ptys.terms.iter().find(|t| t.id == *id),
+        };
+        if let Some(t) = t.filter(|t| !t.exited)
+            && let Some(bytes) = t.vt.focus_report(gained)
+        {
+            post_input(t.id.clone(), &bytes);
+        }
+    }
+
+    pub fn term_cursor_blinks(&self) -> bool {
+        let t = match self.term_focus.as_ref() {
+            Some(TermFocus::Panel) => self.term.terms.get(self.term.active),
+            Some(TermFocus::Pty(id)) => self.ptys.terms.iter().find(|t| t.id == *id),
+            None => None,
+        };
+        t.and_then(|t| t.vt.cursor).is_some_and(|c| c.blinking)
+    }
+
+    pub fn sync_term_theme(&mut self) {
+        let dark = self.theme_dark.get();
+        for t in self.term.terms.iter_mut().chain(self.ptys.terms.iter_mut()) {
+            t.vt.set_dark(dark);
+        }
     }
 
     pub fn focused_paste(&mut self, text: &str) -> bool {

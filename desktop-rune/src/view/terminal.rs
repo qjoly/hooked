@@ -45,9 +45,22 @@ fn painted(line: &Line, marks: &[(u16, u16, Color)]) -> (String, Vec<Span>) {
 fn screen(s: &Hooked, k: &Kit, t: &Term, panel: bool) -> El {
     let vt = &t.vt;
     let (cw, ch) = vt.cell;
-    let fg = crate::ghostty::color(crate::ghostty::FG);
+    let fg = vt.foreground;
     let cols = vt.size().0;
-    let cursor = vt.cursor.filter(|_| !t.exited);
+    let has_focus = match s.term_focus.as_ref() {
+        Some(crate::terminal::TermFocus::Panel) => panel,
+        Some(crate::terminal::TermFocus::Pty(id)) => !panel && *id == t.id,
+        None => false,
+    };
+    let cursor = vt
+        .cursor
+        .filter(|c| !t.exited && (!c.blinking || !has_focus || crate::terminal::blink_on()));
+    let mono = {
+        let mut f = k.ty.mono;
+        f.size = s.term_font();
+        f.line_height = crate::terminal::line_height(f.size);
+        f
+    };
     let selection = k.selection();
     let mut lines = col().key(format!("term-lines-{}", t.id)).w_full().gap(0.0);
     for (i, line) in vt.lines.iter().enumerate() {
@@ -81,8 +94,8 @@ fn screen(s: &Hooked, k: &Kit, t: &Term, panel: bool) -> El {
             cur.map(|c| (c.x, c.shape == CursorShape::Block)),
             k.dark,
             (cw * 100.0) as i32,
+            (ch * 100.0) as i32,
         );
-        let mono = k.ty.mono;
         let inked: Vec<(u16, u16, Color)> = marks
             .iter()
             .filter_map(|&(a, b, ink, _)| Some((a, b, ink?)))
@@ -104,6 +117,32 @@ fn screen(s: &Hooked, k: &Kit, t: &Term, panel: bool) -> El {
             .copied()
             .chain(marks.iter().map(|&(a, b, _, c)| (a, b, c)))
             .collect();
+        let strikes: Vec<(usize, usize, Option<Color>)> = line
+            .decos
+            .iter()
+            .filter(|d| d.kind == crate::ghostty::DecoKind::Strike)
+            .map(|d| {
+                let (x, y) = line.byte_range(d.a, d.b);
+                (x, y.min(built.0.len()), Some(d.color))
+            })
+            .filter(|(x, y, _)| x < y)
+            .collect();
+        let mut rules: Vec<(f32, f32, f32, f32, Color)> = Vec::new();
+        for d in &line.decos {
+            rules.extend(deco_rects(d, cw, ch));
+        }
+        for &(a, b) in &line.links {
+            rules.extend(deco_rects(
+                &crate::ghostty::Deco {
+                    a,
+                    b,
+                    kind: crate::ghostty::DecoKind::Dotted,
+                    color: fg.alpha(0.5),
+                },
+                cw,
+                ch,
+            ));
+        }
         lines = lines.child(memo(format!("tl-{}-{i}", t.id), version, move || {
             let mut r = el().w_full().h(ch);
             for (a, b, c) in fills {
@@ -113,11 +152,15 @@ fn screen(s: &Hooked, k: &Kit, t: &Term, panel: bool) -> El {
                         .fill(c),
                 );
             }
+            for (x, y, w, h, c) in rules {
+                r = r.child(el().absolute(x, y).size(w, h).fill(c));
+            }
             r.child(
                 rich(built.0, built.1)
                     .font(mono)
                     .color(fg)
                     .single_line()
+                    .strikes(strikes)
                     .h(ch),
             )
         }));
@@ -134,7 +177,7 @@ fn screen(s: &Hooked, k: &Kit, t: &Term, panel: bool) -> El {
                     s.term.preedit.clone(),
                     vec![Span::new(0, s.term.preedit.len()).color(fg)],
                 )
-                .font(k.ty.mono)
+                .font(mono)
                 .single_line(),
             );
             caret = caret.border_sides([0.0, 0.0, 1.0, 0.0], fg);
@@ -146,12 +189,57 @@ fn screen(s: &Hooked, k: &Kit, t: &Term, panel: bool) -> El {
     lines.child(
         text("MMMMMMMMMM")
             .key("term-measure")
-            .font(k.ty.mono)
+            .font(mono)
             .single_line()
             .absolute(0.0, 0.0)
             .opacity(0.0)
             .on_layout(|s: &mut Hooked, r: [f32; 4]| s.set_cell((r[2] / 10.0).max(1.0))),
     )
+}
+
+/// Rectangles for an underline, overline or dotted link mark across columns `a..b`.
+fn deco_rects(d: &crate::ghostty::Deco, cw: f32, ch: f32) -> Vec<(f32, f32, f32, f32, Color)> {
+    use crate::ghostty::DecoKind;
+    let (x0, x1) = (f32::from(d.a) * cw, f32::from(d.b) * cw);
+    let base = ch - 3.0;
+    let c = d.color;
+    let dashes = |on: f32, off: f32, y: f32| {
+        let mut v = Vec::new();
+        let mut x = x0;
+        while x < x1 {
+            v.push((x, y, on.min(x1 - x), 1.0, c));
+            x += on + off;
+        }
+        v
+    };
+    match d.kind {
+        DecoKind::Strike => Vec::new(),
+        DecoKind::Single => vec![(x0, base, x1 - x0, 1.0, c)],
+        DecoKind::Double => vec![
+            (x0, base - 1.0, x1 - x0, 1.0, c),
+            (x0, base + 1.0, x1 - x0, 1.0, c),
+        ],
+        DecoKind::Over => vec![(x0, 0.0, x1 - x0, 1.0, c)],
+        DecoKind::Dotted => dashes(1.0, 1.0, base),
+        DecoKind::Dashed => dashes(3.0, 2.0, base),
+        DecoKind::Curly => {
+            let mut v = Vec::new();
+            let mut x = x0;
+            let mut up = true;
+            while x < x1 {
+                v.push((
+                    x,
+                    if up { base - 1.0 } else { base + 1.0 },
+                    2.0f32.min(x1 - x),
+                    1.0,
+                    c,
+                ));
+                x += 2.0;
+                up = !up;
+            }
+            v
+        }
+    }
 }
 
 pub fn panel(s: &Hooked, k: &Kit) -> El {
@@ -388,7 +476,7 @@ pub fn panel(s: &Hooked, k: &Kit) -> El {
             },
         )
         .on_key(|s: &mut Hooked, ev: &rune::KeyEvent, tx: &mut rune::Tx| {
-            s.term_focus = Some(crate::terminal::TermFocus::Panel);
+            s.set_term_focus(Some(crate::terminal::TermFocus::Panel));
             s.term_claimed = false;
             if ev.is_command('c') {
                 if let Some(text) = s.selection_text() {
@@ -402,6 +490,18 @@ pub fn panel(s: &Hooked, k: &Kit) -> El {
                 s.open_term_search();
                 return true;
             }
+            if ev.is_command('=') || ev.is_command('+') {
+                s.zoom_term(1);
+                return true;
+            }
+            if ev.is_command('-') {
+                s.zoom_term(-1);
+                return true;
+            }
+            if ev.is_command('0') {
+                s.zoom_term(0);
+                return true;
+            }
             if ev.mods.cmd {
                 tx.instant();
                 return s.term_cmd_key(&ev.key);
@@ -412,7 +512,7 @@ pub fn panel(s: &Hooked, k: &Kit) -> El {
         .on_drag(|s: &mut Hooked, d: &mut rune::Drag, tx: &mut rune::Tx| {
             tx.instant();
             if d.phase == rune::Phase::Down {
-                s.term_focus = Some(crate::terminal::TermFocus::Panel);
+                s.set_term_focus(Some(crate::terminal::TermFocus::Panel));
                 s.term_claimed = false;
             }
             if d.phase == rune::Phase::Down && tx.mods().cmd && s.term_open_link(d.x, d.y, tx) {
@@ -438,7 +538,12 @@ pub fn panel(s: &Hooked, k: &Kit) -> El {
                     el().absolute(p.screen.0 - 6.0, 8.0 + top)
                         .size(3.0, size)
                         .radius(1.5)
-                        .fill(crate::ghostty::color(crate::ghostty::FG).alpha(0.35)),
+                        .fill(
+                            p.terms
+                                .get(p.active)
+                                .map_or(Color::WHITE, |t| t.vt.foreground)
+                                .alpha(0.35),
+                        ),
                 );
                 if below > 0 {
                     layer = layer.child(
@@ -586,7 +691,7 @@ pub fn pty_block(s: &Hooked, k: &Kit, f: &crate::terminal::PtyFence) -> El {
                 .on_key(
                     move |s: &mut Hooked, ev: &rune::KeyEvent, tx: &mut rune::Tx| {
                         tx.instant();
-                        s.term_focus = Some(crate::terminal::TermFocus::Pty(ka.clone()));
+                        s.set_term_focus(Some(crate::terminal::TermFocus::Pty(ka.clone())));
                         s.pty_key(&ka, ev, tx.physical_key())
                     },
                 )
@@ -599,7 +704,7 @@ pub fn pty_block(s: &Hooked, k: &Kit, f: &crate::terminal::PtyFence) -> El {
                 )
                 .on_drag(move |s: &mut Hooked, d: &mut rune::Drag, _| {
                     if d.phase == rune::Phase::Down {
-                        s.term_focus = Some(crate::terminal::TermFocus::Pty(kc.clone()));
+                        s.set_term_focus(Some(crate::terminal::TermFocus::Pty(kc.clone())));
                     }
                 })
                 .on_layout(move |s: &mut Hooked, r: [f32; 4]| s.pty_fit(&kd, r[2]))

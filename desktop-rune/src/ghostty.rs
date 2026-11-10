@@ -5,8 +5,8 @@ use libghostty_vt::key::{self, Key as GKey, Mods};
 use libghostty_vt::render::{CellIterator, CursorVisualStyle, Dirty, RowIterator};
 use libghostty_vt::screen::CellWide;
 use libghostty_vt::search::Search;
-use libghostty_vt::style::RgbColor;
-use libghostty_vt::terminal::{Mode, ScrollViewport};
+use libghostty_vt::style::{Palette, RgbColor, StyleColor, Underline};
+use libghostty_vt::terminal::{Mode, Point, PointCoordinate, ScrollViewport};
 use libghostty_vt::{RenderState, Terminal, mouse, paste};
 use rune::{Color, Key, KeyEvent, PhysicalKeyCode, Span};
 
@@ -22,6 +22,40 @@ pub const BG: RgbColor = RgbColor {
 };
 const SCROLLBACK: usize = 10_000;
 
+const fn rgb(v: u32) -> RgbColor {
+    RgbColor {
+        r: (v >> 16) as u8,
+        g: (v >> 8) as u8,
+        b: v as u8,
+    }
+}
+
+pub const FG_LIGHT: RgbColor = rgb(0x1f2328);
+pub const BG_LIGHT: RgbColor = rgb(0xffffff);
+const LIGHT_ANSI: [u32; 16] = [
+    0x24292f, 0xcf222e, 0x116329, 0x4d2d00, 0x0969da, 0x8250df, 0x1b7c83, 0x6e7781, 0x57606a,
+    0xa40e26, 0x1a7f37, 0x633c01, 0x218bff, 0xa475f9, 0x3192aa, 0x8c959f,
+];
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum DecoKind {
+    Single,
+    Double,
+    Curly,
+    Dotted,
+    Dashed,
+    Over,
+    Strike,
+}
+
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub struct Deco {
+    pub a: u16,
+    pub b: u16,
+    pub kind: DecoKind,
+    pub color: Color,
+}
+
 #[derive(Clone, Default)]
 pub struct Line {
     pub text: String,
@@ -29,6 +63,9 @@ pub struct Line {
     /// Cell backgrounds as column runs `[start, end)`, painted as full-height rectangles: a span
     /// background only covers the glyphs' ascent and descent, which leaves a gap between rows.
     pub bgs: Vec<(u16, u16, Color)>,
+    pub decos: Vec<Deco>,
+    /// Column runs carrying an OSC 8 hyperlink.
+    pub links: Vec<(u16, u16)>,
     /// Byte offset in `text` where each terminal column starts (a wide glyph's tail column
     /// repeats its head's offset); columns past the trimmed end fall beyond `text.len()`.
     pub cols: Vec<usize>,
@@ -78,6 +115,7 @@ pub struct CursorAt {
     pub y: u16,
     pub shape: CursorShape,
     pub color: Color,
+    pub blinking: bool,
 }
 
 /// One shell's screen, parsed by Ghostty's VT core and kept as styled lines for Rune.
@@ -93,9 +131,12 @@ pub struct Vt {
     pub lines: Vec<Line>,
     pub cursor: Option<CursorAt>,
     pub background: Color,
+    pub foreground: Color,
     pub title: String,
     pub cell: (f32, f32),
     version: u64,
+    dark: bool,
+    dark_palette: Option<Palette>,
 }
 
 pub fn color(c: RgbColor) -> Color {
@@ -134,9 +175,12 @@ impl Vt {
             lines: Vec::new(),
             cursor: None,
             background: color(BG),
+            foreground: color(FG),
             title: String::new(),
             cell: (7.2, 18.0),
             version: 0,
+            dark: true,
+            dark_palette: None,
         };
         vt.refresh();
         Some(vt)
@@ -198,6 +242,59 @@ impl Vt {
     }
 
     /// Bells rung since the last call.
+    /// The OSC 8 target under a viewport cell.
+    pub fn hyperlink_at(&self, x: u16, y: u16) -> Option<String> {
+        let r = self
+            .terminal
+            .grid_ref(Point::Viewport(PointCoordinate { x, y: u32::from(y) }))
+            .ok()?;
+        let mut buf = vec![0u8; 2048];
+        let n = r.hyperlink_uri(&mut buf).ok()?;
+        (n > 0).then(|| String::from_utf8_lossy(&buf[..n]).into_owned())
+    }
+
+    /// CSI I / CSI O for a program that asked to hear focus changes (mode 1004).
+    pub fn focus_report(&self, gained: bool) -> Option<Vec<u8>> {
+        if !self.terminal.mode(Mode::FOCUS_EVENT).unwrap_or(false) {
+            return None;
+        }
+        let ev = if gained {
+            libghostty_vt::focus::Event::Gained
+        } else {
+            libghostty_vt::focus::Event::Lost
+        };
+        let mut buf = [0u8; 8];
+        let n = ev.encode(&mut buf).ok()?;
+        Some(buf[..n].to_vec())
+    }
+
+    /// Default colours for the app's theme: a light ground and ANSI colours readable on it.
+    pub fn set_dark(&mut self, dark: bool) {
+        if self.dark == dark {
+            return;
+        }
+        self.dark = dark;
+        if self.dark_palette.is_none() {
+            self.dark_palette = self.terminal.default_color_palette().ok();
+        }
+        let (fg, bg) = if dark { (FG, BG) } else { (FG_LIGHT, BG_LIGHT) };
+        let _ = self.terminal.set_default_fg_color(Some(fg));
+        let _ = self.terminal.set_default_bg_color(Some(bg));
+        let palette = if dark {
+            self.dark_palette
+        } else {
+            self.dark_palette.map(|Palette(mut p)| {
+                for (i, v) in LIGHT_ANSI.iter().enumerate() {
+                    p[i] = rgb(*v);
+                }
+                Palette(p)
+            })
+        };
+        let _ = self.terminal.set_default_color_palette(palette);
+        self.lines.clear();
+        self.refresh();
+    }
+
     pub fn take_bells(&mut self) -> u32 {
         self.bells.replace(0)
     }
@@ -254,6 +351,7 @@ impl Vt {
             .as_ref()
             .map_or((FG, BG), |c| (c.foreground, c.background));
         self.background = color(bg);
+        self.foreground = color(fg);
         self.cursor = None;
         if snapshot.cursor_visible().unwrap_or(false)
             && let Ok(Some(at)) = snapshot.cursor_viewport()
@@ -273,6 +371,7 @@ impl Vt {
                 y: at.y,
                 shape,
                 color: color(c),
+                blinking: snapshot.cursor_blinking().unwrap_or(false),
             });
         }
         if dirty == Dirty::Clean && !full {
@@ -294,6 +393,8 @@ impl Vt {
             let mut spans: Vec<Span> = Vec::new();
             let mut cols: Vec<usize> = Vec::new();
             let mut bgs: Vec<(u16, u16, Color)> = Vec::new();
+            let mut decos: Vec<Deco> = Vec::new();
+            let mut links: Vec<(u16, u16)> = Vec::new();
             if let Ok(mut cells) = self.cell_iter.update(row) {
                 let mut graphemes = String::new();
                 while let Some(cell) = cells.next() {
@@ -323,20 +424,60 @@ impl Vt {
                     let style = cell.style().ok();
                     let mut cfg = cell.fg_color().ok().flatten();
                     let mut cbg = cell.bg_color().ok().flatten();
-                    let (bold, italic, faint, underline, inverse) =
-                        style
-                            .as_ref()
-                            .map_or((false, false, false, false, false), |s| {
-                                (
-                                    s.bold,
-                                    s.italic,
-                                    s.faint,
-                                    !matches!(s.underline, libghostty_vt::style::Underline::None),
-                                    s.inverse,
-                                )
-                            });
+                    if cell
+                        .raw_cell()
+                        .and_then(|r| r.has_hyperlink())
+                        .unwrap_or(false)
+                    {
+                        match links.last_mut() {
+                            Some(run) if run.1 == col => run.1 = col + 1,
+                            _ => links.push((col, col + 1)),
+                        }
+                    }
+                    let (bold, italic, faint, inverse) =
+                        style.as_ref().map_or((false, false, false, false), |s| {
+                            (s.bold, s.italic, s.faint, s.inverse)
+                        });
                     if inverse {
                         (cfg, cbg) = (Some(cbg.unwrap_or(bg)), Some(cfg.unwrap_or(fg)));
+                    }
+                    if let Some(st) = style.as_ref() {
+                        let ink = color(cfg.unwrap_or(fg));
+                        let under = match st.underline_color {
+                            StyleColor::Rgb(c) => color(c),
+                            StyleColor::Palette(i) => colors
+                                .as_ref()
+                                .map_or(ink, |c| color(c.palette[i.0 as usize])),
+                            StyleColor::None => ink,
+                        };
+                        let kind = match st.underline {
+                            Underline::Single => Some(DecoKind::Single),
+                            Underline::Double => Some(DecoKind::Double),
+                            Underline::Curly => Some(DecoKind::Curly),
+                            Underline::Dotted => Some(DecoKind::Dotted),
+                            Underline::Dashed => Some(DecoKind::Dashed),
+                            _ => None,
+                        };
+                        let marks = [
+                            kind.map(|k| (k, under)),
+                            st.overline.then_some((DecoKind::Over, ink)),
+                            st.strikethrough.then_some((DecoKind::Strike, ink)),
+                        ];
+                        for (kind, c) in marks.into_iter().flatten() {
+                            match decos
+                                .iter_mut()
+                                .rev()
+                                .find(|d| d.kind == kind && d.b == col && d.color == c)
+                            {
+                                Some(d) => d.b = col + 1,
+                                None => decos.push(Deco {
+                                    a: col,
+                                    b: col + 1,
+                                    kind,
+                                    color: c,
+                                }),
+                            }
+                        }
                     }
                     if let Some(b) = cbg.map(color) {
                         match bgs.last_mut() {
@@ -344,7 +485,7 @@ impl Vt {
                             _ => bgs.push((col, col + 1, b)),
                         }
                     }
-                    if cfg.is_none() && !bold && !italic && !faint && !underline {
+                    if cfg.is_none() && !bold && !italic && !faint {
                         continue;
                     }
                     let mut sp = Span::new(start, end);
@@ -357,9 +498,6 @@ impl Vt {
                     }
                     if italic {
                         sp = sp.italic();
-                    }
-                    if underline {
-                        sp.underline = Some(ink);
                     }
                     match spans.last_mut() {
                         Some(last) if last.end as usize == start && same_look(last, &sp) => {
@@ -379,6 +517,8 @@ impl Vt {
                 text,
                 spans,
                 bgs,
+                decos,
+                links,
                 cols,
                 version: self.version,
             };
@@ -524,11 +664,11 @@ impl Vt {
 }
 
 fn same_look(a: &Span, b: &Span) -> bool {
-    a.color == b.color
-        && a.bg == b.bg
-        && a.weight == b.weight
-        && a.italic == b.italic
-        && a.underline == b.underline
+    a.underline == b.underline && same_ink(a, b)
+}
+
+fn same_ink(a: &Span, b: &Span) -> bool {
+    a.color == b.color && a.bg == b.bg && a.weight == b.weight && a.italic == b.italic
 }
 
 fn unshifted(k: GKey) -> Option<char> {
@@ -689,6 +829,25 @@ mod tests {
         let (n, _) = vt.search("NEEDLE");
         assert_eq!(n, 1);
         assert!(vt.lines.iter().any(|l| matches(l, "needle") == [(0, 6)]));
+    }
+
+    #[test]
+    fn decorations_links_and_focus_reports() {
+        let mut vt = Vt::new(40, 3).expect("terminal");
+        vt.write(b"\x1b[4:3mab\x1b[0m \x1b[9mcd\x1b[0m \x1b]8;;https://x.y\x1b\\go\x1b]8;;\x1b\\");
+        let kinds: Vec<(DecoKind, u16, u16)> = vt.lines[0]
+            .decos
+            .iter()
+            .map(|d| (d.kind, d.a, d.b))
+            .collect();
+        assert_eq!(kinds, [(DecoKind::Curly, 0, 2), (DecoKind::Strike, 3, 5)]);
+        assert_eq!(vt.lines[0].links, [(6, 8)]);
+        assert_eq!(vt.hyperlink_at(6, 0).as_deref(), Some("https://x.y"));
+        assert_eq!(vt.hyperlink_at(0, 0), None);
+        assert_eq!(vt.focus_report(true), None);
+        vt.write(b"\x1b[?1004h");
+        assert_eq!(vt.focus_report(true).as_deref(), Some(&b"\x1b[I"[..]));
+        assert_eq!(vt.focus_report(false).as_deref(), Some(&b"\x1b[O"[..]));
     }
 
     #[test]

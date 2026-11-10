@@ -29,7 +29,9 @@ use crate::{fmt, icons};
 pub const SIDEBAR_W: f32 = 300.0;
 
 pub fn kit(s: &Hooked, cx: &Cx<Hooked>) -> Kit {
-    crate::theme::kit(s.dark(cx.system_dark()))
+    let dark = s.dark(cx.system_dark());
+    s.theme_dark.set(dark);
+    crate::theme::kit(dark)
 }
 
 pub fn state_color(k: &Kit, state: &str) -> Color {
@@ -131,18 +133,20 @@ pub fn view(s: &Hooked, cx: &mut Cx<Hooked>) -> El {
     if s.picker.is_some() {
         layer.push(organize::view(s, &k));
     }
-    rune_kit::root(base, layer).on_paste_content(
-        |s: &mut Hooked, c: &rune::ClipboardContent, tx: &mut rune::Tx| {
-            if !c.text().is_empty() && s.focused_paste(c.text()) {
-                tx.instant();
-                return;
-            }
-            if let Some(img) = c.image() {
-                let n = s.attach_seq + 1;
-                s.attach(format!("pasted-{n}.png"), "image/png", img.png().to_vec());
-            }
-        },
-    )
+    rune_kit::root(base, layer)
+        .on_window_focus(|s: &mut Hooked, gained: bool, _| s.window_focus(gained))
+        .on_paste_content(
+            |s: &mut Hooked, c: &rune::ClipboardContent, tx: &mut rune::Tx| {
+                if !c.text().is_empty() && s.focused_paste(c.text()) {
+                    tx.instant();
+                    return;
+                }
+                if let Some(img) = c.image() {
+                    let n = s.attach_seq + 1;
+                    s.attach(format!("pasted-{n}.png"), "image/png", img.png().to_vec());
+                }
+            },
+        )
 }
 
 fn flash(k: &Kit, msg: &str, error: bool) -> El {

@@ -44,7 +44,7 @@ fn on_key(s: &mut Hooked, ev: &KeyEvent, tx: &mut Tx) -> bool {
             return true;
         }
     } else if !focused.is_some_and(terminal::is_term_key) {
-        s.term_focus = None;
+        s.set_term_focus(None);
         s.term_claimed = false;
     }
     if s.shortcuts.values().any(|r| r.is_recording()) {
@@ -159,6 +159,10 @@ fn poll(s: &mut Hooked, _clock: f64, tx: &mut Tx) -> bool {
     changed |= s.ensure_lens();
     changed |= s.ensure_page();
     s.sync_ptys();
+    s.sync_term_theme();
+    if s.term_focus.is_some() && s.term_cursor_blinks() {
+        tx.wake_after(Duration::from_millis(terminal::blink_due()));
+    }
     if let Some(wait) = s.flush_term_size(now) {
         tx.wake_after(wait);
     }
