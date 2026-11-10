@@ -22,7 +22,7 @@ fn kind(x: &Session) -> (&'static str, bool) {
     }
 }
 
-fn decision_card(s: &Hooked, x: &Session, k: &Kit) -> El {
+fn decision_card(s: &Hooked, x: &Session, k: &Kit, wide: bool) -> El {
     let (label, urgent) = kind(x);
     let (fg, bg) = if urgent {
         (k.c.danger.fg, k.c.danger.bg)
@@ -45,7 +45,8 @@ fn decision_card(s: &Hooked, x: &Session, k: &Kit) -> El {
         .min_w(0.0);
     let mut c = col()
         .key(format!("dcard-{}", x.id))
-        .w(400.0)
+        .w(if wide { 400.0 } else { 0.0 })
+        .grow(if wide { 0.0 } else { 1.0 })
         .padding(14.0)
         .gap(10.0)
         .radius(k.radius.lg)
@@ -264,7 +265,7 @@ fn decision_card(s: &Hooked, x: &Session, k: &Kit) -> El {
     )
 }
 
-fn decide_lane(s: &Hooked, k: &Kit, items: &[&Session], snoozed: usize) -> El {
+fn decide_lane(s: &Hooked, k: &Kit, items: &[&Session], snoozed: usize, wide: bool) -> El {
     if items.is_empty() && snoozed == 0 {
         return el();
     }
@@ -299,14 +300,20 @@ fn decide_lane(s: &Hooked, k: &Kit, items: &[&Session], snoozed: usize) -> El {
         .w_full()
         .gap(10.0)
         .child(head)
-        .child(
+        .child(if wide {
             row()
                 .w_full()
                 .gap(12.0)
                 .flex_wrap()
                 .items_start()
-                .children(items.iter().map(|x| decision_card(s, x, k))),
-        )
+                .children(items.iter().map(|x| decision_card(s, x, k, true)))
+        } else {
+            col().w_full().gap(12.0).children(
+                items
+                    .iter()
+                    .map(|x| row().w_full().child(decision_card(s, x, k, false))),
+            )
+        })
 }
 
 pub fn view(s: &Hooked, k: &Kit) -> El {
@@ -324,16 +331,18 @@ pub fn view(s: &Hooked, k: &Kit) -> El {
         .iter()
         .filter(|x| x.needs_you() && s.snoozed(&x.id))
         .count();
-    let mut body = col().key("deck").w_full().padding(24.0).gap(26.0);
+    let inner = (s.deck_w - 48.0).max(320.0);
+    let two = inner >= 1080.0;
+    let mut decide_col = col().key("deck-decide").w_full().gap(26.0);
     if !s.connected {
-        body = body.child(
+        decide_col = decide_col.child(
             text("hooked is not answering on localhost:4123. Start it with `mise run start`.")
                 .font(k.ty.body)
                 .color(k.c.danger.fg),
         );
     }
     if decide.is_empty() {
-        body = body.child(
+        decide_col = decide_col.child(
             row()
                 .key("deck-calm")
                 .gap(8.0)
@@ -346,13 +355,40 @@ pub fn view(s: &Hooked, k: &Kit) -> El {
                 ),
         );
     }
-    body = body
-        .child(decide_lane(s, k, &decide, snoozed))
-        .child(super::fleet::view(s, k, decide.len()));
+    decide_col = decide_col.child(decide_lane(s, k, &decide, snoozed, !two));
+    let body = if two {
+        let left = (inner - 22.0) * 1.15 / 2.05;
+        let right = inner - 22.0 - left;
+        row()
+            .key("deck")
+            .w_full()
+            .padding(24.0)
+            .gap(22.0)
+            .items_start()
+            .child(col().w(left).child(decide_col))
+            .child(
+                col()
+                    .w(right)
+                    .child(super::fleet::view(s, k, decide.len(), right)),
+            )
+    } else {
+        col()
+            .key("deck")
+            .w_full()
+            .padding(24.0)
+            .gap(26.0)
+            .child(decide_col)
+            .child(super::fleet::view(s, k, decide.len(), inner))
+    };
     col()
         .key("deck-scroll")
         .w_full()
         .h_full()
+        .on_layout(|s: &mut Hooked, r: [f32; 4]| {
+            if (s.deck_w - r[2]).abs() > 0.5 {
+                s.deck_w = r[2];
+            }
+        })
         .scroll(ScrollSpec {
             stick_bottom: false,
         })

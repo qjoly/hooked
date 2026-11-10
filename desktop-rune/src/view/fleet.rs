@@ -10,6 +10,17 @@ use crate::fleet::{
 use crate::organize::Unit;
 use crate::{fmt, icons};
 
+const CARD_MIN: f32 = 210.0;
+const CARD_GAP: f32 = 8.0;
+
+/// The web's `repeat(auto-fill, minmax(210px, 1fr))`: as many columns as fit, sharing the width.
+fn card_width(width: f32) -> f32 {
+    let cols = ((width + CARD_GAP) / (CARD_MIN + CARD_GAP))
+        .floor()
+        .max(1.0);
+    ((width - CARD_GAP * (cols - 1.0)) / cols).floor()
+}
+
 fn unit_live(u: &Unit) -> bool {
     is_live(u.mother) || u.children.iter().any(|c| is_live(c))
 }
@@ -36,7 +47,8 @@ fn snippet(x: &Session) -> Option<(&'static str, String)> {
     None
 }
 
-pub fn view(s: &Hooked, k: &Kit, decisions: usize) -> El {
+pub fn view(s: &Hooked, k: &Kit, decisions: usize, width: f32) -> El {
+    let card_w = card_width(width);
     let mut live: Vec<&Session> = s
         .sessions
         .iter()
@@ -186,7 +198,7 @@ pub fn view(s: &Hooked, k: &Kit, decisions: usize) -> El {
                             .group_opacity(0.0, 1.0),
                     ),
             )
-            .child(units_block(s, k, &units[..shown], grid));
+            .child(units_block(s, k, &units[..shown], grid, card_w));
         if shown < units.len() {
             let n = units.len() - shown;
             let key = repo.clone();
@@ -248,7 +260,7 @@ pub fn view(s: &Hooked, k: &Kit, decisions: usize) -> El {
             .on_press(|s: &mut Hooked| s.fleet.archived_open = !s.fleet.archived_open),
         );
         if open {
-            g = g.child(units_block(s, k, &archived, grid));
+            g = g.child(units_block(s, k, &archived, grid, card_w));
         }
         c = c.child(g);
     }
@@ -413,14 +425,14 @@ fn wheel_card(s: &Hooked, k: &Kit, list: &[(&Session, bool)], decisions: usize) 
         .child(legend)
 }
 
-fn units_block(s: &Hooked, k: &Kit, units: &[Unit], grid: bool) -> El {
+fn units_block(s: &Hooked, k: &Kit, units: &[Unit], grid: bool, card_w: f32) -> El {
     if grid {
         return row()
             .w_full()
             .gap(8.0)
             .flex_wrap()
             .items_start()
-            .children(units.iter().map(|u| card(s, k, u)));
+            .children(units.iter().map(|u| card(s, k, u, card_w)));
     }
     let head = row()
         .w_full()
@@ -623,7 +635,7 @@ fn kids(s: &Hooked, k: &Kit, u: &Unit) -> El {
     c
 }
 
-fn card(s: &Hooked, k: &Kit, u: &Unit) -> El {
+fn card(s: &Hooked, k: &Kit, u: &Unit, w: f32) -> El {
     let x = u.mother;
     let id = x.id.clone();
     let dim = !unit_live(u);
@@ -661,7 +673,7 @@ fn card(s: &Hooked, k: &Kit, u: &Unit) -> El {
         .key(format!("fcard-{}", x.id))
         .role("button")
         .label(s.title_of(x))
-        .w(250.0)
+        .w(w)
         .padding(12.0)
         .gap(6.0)
         .radius(k.radius.lg)
