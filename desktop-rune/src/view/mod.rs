@@ -65,6 +65,7 @@ pub const TOPBAR_H: f32 = 52.0;
 
 pub fn view(s: &Hooked, cx: &mut Cx<Hooked>) -> El {
     let k = kit(s, cx);
+    s.drop_live.borrow_mut().clear();
     let mut layer = Vec::new();
     let main = match s.page {
         Page::Deck => deck::view(s, &k),
@@ -126,6 +127,9 @@ pub fn view(s: &Hooked, cx: &mut Cx<Hooked>) -> El {
     }
     if let Some(w) = s.query_win.as_ref() {
         layer.push(querywin::view(s, w, &k));
+    }
+    if let Some(d) = s.dnd.as_ref() {
+        layer.push(drag_ghost(s, &k, d));
     }
     if s.palette_open {
         layer.push(palette::view(s, &k));
@@ -747,8 +751,11 @@ fn session_row(s: &Hooked, x: &Session, k: &Kit, depth: u8, group: Option<usize>
     if selected {
         r = r.fill(k.c.pressed);
     }
+    let drag = id.clone();
+    let r = s.drop_target(k, format!("sb:{}", x.id), r);
     k.interactive(r)
         .on_press(move |s: &mut Hooked| s.open_session(&open))
+        .on_drag(move |s: &mut Hooked, d: &mut rune::Drag, _| s.drag_session(&drag, d))
         .on_double_press(move |s: &mut Hooked| s.start_rename(&rename))
         .help(if archived {
             "Hover for actions · right-click for more"
@@ -756,6 +763,57 @@ fn session_row(s: &Hooked, x: &Session, k: &Kit, depth: u8, group: Option<usize>
             "Hover for actions · double-click renames · right-click for more"
         })
         .on_secondary_press(move |s: &mut Hooked, p, _| s.row_menu = Some((menu_id.clone(), p)))
+}
+
+fn drag_ghost(s: &Hooked, k: &Kit, d: &crate::dnd::Dnd) -> El {
+    let hint = match &d.over {
+        Some(crate::dnd::Drop::Session(t)) => {
+            let lead = s.group_of(t).unwrap_or(t);
+            let name = s
+                .sessions
+                .iter()
+                .find(|x| x.id == lead)
+                .map(|x| s.group_label(x))
+                .unwrap_or_default();
+            format!("Group with {name}")
+        }
+        Some(crate::dnd::Drop::Detach) => "Take out of its group".to_string(),
+        None => "Drop on a session to group them".to_string(),
+    };
+    col()
+        .key("drag-ghost")
+        .absolute(d.at.0 + 14.0, d.at.1 + 10.0)
+        .max_w(320.0)
+        .px(10.0)
+        .py(6.0)
+        .gap(2.0)
+        .radius(k.radius.md)
+        .fill(k.c.surface_raised)
+        .border(
+            1.0,
+            if d.over.is_some() {
+                k.c.text_accent
+            } else {
+                k.c.border_strong
+            },
+        )
+        .box_shadows(&k.elevation.overlay)
+        .child(
+            text(d.label.clone())
+                .font(k.ty.text_small_medium)
+                .color(k.c.text_base)
+                .truncate(),
+        )
+        .child(
+            text(hint)
+                .font(k.ty.text_xsmall)
+                .color(if d.over.is_some() {
+                    k.c.text_accent
+                } else {
+                    k.c.text_faint
+                })
+                .truncate(),
+        )
 }
 
 fn sidebar(s: &Hooked, k: &Kit, layer: &mut Vec<El>) -> El {

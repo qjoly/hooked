@@ -180,23 +180,29 @@ pub fn view(s: &Hooked, k: &Kit, decisions: usize, width: f32) -> El {
             .w_full()
             .gap(6.0)
             .child(
-                row()
-                    .w_full()
-                    .gap(6.0)
-                    .center_y()
-                    .hover_group()
-                    .child(text(repo.clone()).font(k.ty.ui_medium).color(k.c.text_base))
-                    .child(
-                        text(units.len().to_string())
-                            .font(k.ty.text_xsmall)
-                            .color(k.c.text_faint),
-                    )
-                    .child(
-                        small_icon_button(&icons::PLUS, "New session in this project", false)
-                            .on_press(move |s: &mut Hooked| s.go_new(project.clone()))
-                            .build(k)
-                            .group_opacity(0.0, 1.0),
-                    ),
+                s.drop_target(
+                    k,
+                    format!("repo:{repo}"),
+                    row()
+                        .w_full()
+                        .px(4.0)
+                        .radius(k.radius.sm)
+                        .gap(6.0)
+                        .center_y()
+                        .hover_group()
+                        .child(text(repo.clone()).font(k.ty.ui_medium).color(k.c.text_base))
+                        .child(
+                            text(units.len().to_string())
+                                .font(k.ty.text_xsmall)
+                                .color(k.c.text_faint),
+                        )
+                        .child(
+                            small_icon_button(&icons::PLUS, "New session in this project", false)
+                                .on_press(move |s: &mut Hooked| s.go_new(project.clone()))
+                                .build(k)
+                                .group_opacity(0.0, 1.0),
+                        ),
+                ),
             )
             .child(units_block(s, k, &units[..shown], grid, card_w));
         if shown < units.len() {
@@ -523,8 +529,15 @@ fn table_row(s: &Hooked, k: &Kit, u: &Unit, i: usize) -> El {
     if !u.children.is_empty() {
         c = c.child(col().w_full().pl(13.0).pb(4.0).child(kids(s, k, u)));
     }
-    k.interactive(c.role("button").cursor(Cursor::Pointer))
+    let drag = id.clone();
+    let c = s.drop_target(
+        k,
+        format!("fl:{}", x.id),
+        c.role("button").cursor(Cursor::Pointer),
+    );
+    k.interactive(c)
         .on_press(move |s: &mut Hooked| s.open_session(&id))
+        .on_drag(move |s: &mut Hooked, d: &mut rune::Drag, _| s.drag_session(&drag, d))
 }
 
 fn archive_action(s: &Hooked, k: &Kit, x: &Session) -> El {
@@ -757,6 +770,9 @@ fn card(s: &Hooked, k: &Kit, u: &Unit, w: f32) -> El {
         );
     }
     c = c.child(archive_action(s, k, x).pin(None, Some(6.0), Some(6.0), None));
+    let drag = id.clone();
+    let c = s.drop_target(k, format!("fl:{}", x.id), c);
     k.interactive(c)
         .on_press(move |s: &mut Hooked| s.open_session(&id))
+        .on_drag(move |s: &mut Hooked, d: &mut rune::Drag, _| s.drag_session(&drag, d))
 }

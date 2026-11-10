@@ -2,6 +2,7 @@ mod account;
 mod api;
 mod app;
 mod cron;
+mod dnd;
 mod export;
 mod fleet;
 mod fmt;

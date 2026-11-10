@@ -73,7 +73,8 @@ session states coloured by how much they need you.
   New session, Stats, Digest (generate and
   regenerate), Memory, Cron (create, edit, pause, run, delete), GitHub, Skills, Settings (theme,
   notifications, new-session defaults, digest, auto-compact, tags, git sync).
-- **Organizing**: tags on rows and in the header, a tag filter in the sidebar, groups under their
+- **Organizing**: drag a session (sidebar row or fleet card) onto another to group them, or onto
+  a fleet repo header to take it out of its group; tags on rows and in the header, a tag filter in the sidebar, groups under their
   lead session with a tab strip (switch, make lead, leave, rename, new session in the group),
   incognito mode for screen sharing, Fork from any message with model, effort, mode and a first
   message, cost breakdown, copy as Markdown, focus mode, and up to four split panes.
@@ -87,7 +88,6 @@ session states coloured by how much they need you.
 ## Not done yet
 
 - Dictation (not planned), the companion (decorative).
-- Dragging a session onto another to group it: the group tabs and the ⋯ menu do it instead.
 - Review: go-to-definition. Blame shows for the clicked line, not on hover (rune-kit's diff
   view reports no hovered line).
 
