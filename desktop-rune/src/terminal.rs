@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
@@ -102,6 +103,8 @@ pub struct TermPanel {
     pub motion_cell: Option<(u16, u16)>,
     /// The terminal the selection belongs to: the panel or an inline `!!` one.
     pub sel_owner: Option<TermFocus>,
+    /// Rune images for kitty graphics, by terminal and pixel key, so frames don't re-hash pixels.
+    pub image_cache: std::cell::RefCell<HashMap<(String, crate::ghostty::ImageKey), rune::Image>>,
 }
 
 fn decode(payload: &str) -> Option<Vec<u8>> {
@@ -174,7 +177,7 @@ fn attach(
     cell: (f32, f32),
 ) -> Option<Term> {
     let mut vt = Vt::new(cols, rows)?;
-    vt.cell = cell;
+    vt.resize(cols, rows, cell);
     let alive = Arc::new(AtomicBool::new(true));
     if !exited {
         follow(id.clone(), alive.clone(), h);

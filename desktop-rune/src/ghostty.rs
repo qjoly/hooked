@@ -2,7 +2,10 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use libghostty_vt::key::{self, Key as GKey, Mods};
-use libghostty_vt::render::{CellIterator, CursorVisualStyle, Dirty, RowIterator};
+use libghostty_vt::kitty::graphics::{self, ImageFormat};
+use libghostty_vt::render::{
+    CellIterator, CursorVisualStyle, Dirty, ImageIterator, ImageLayer, ImageProtocol, RowIterator,
+};
 use libghostty_vt::screen::CellWide;
 use libghostty_vt::search::Search;
 use libghostty_vt::style::{Palette, RgbColor, StyleColor, Underline};
@@ -21,6 +24,63 @@ pub const BG: RgbColor = RgbColor {
     b: 0x13,
 };
 const SCROLLBACK: usize = 10_000;
+const IMAGE_STORAGE: u64 = 64 * 1024 * 1024;
+const CELL_PX: (u32, u32) = (7, 18);
+
+pub type ImageKey = (u32, u64, [u32; 4]);
+
+/// A kitty graphics image on screen, in the terminal's cell pixels.
+#[derive(Clone)]
+pub struct Placement {
+    /// Image id, pixel generation and source rectangle: what the pixels depend on.
+    pub key: ImageKey,
+    pub col: i32,
+    pub row: i32,
+    pub offset: (u32, u32),
+    pub size: (u32, u32),
+    pub above_text: bool,
+    pub z: i32,
+    pub width: u32,
+    pub height: u32,
+    pub rgba: std::sync::Arc<[u8]>,
+}
+
+fn to_rgba(format: ImageFormat, w: u32, h: u32, data: &[u8]) -> Option<Vec<u8>> {
+    let n = (w as usize) * (h as usize);
+    let px: Vec<u8> = match format {
+        ImageFormat::Rgba => data.get(..n * 4)?.to_vec(),
+        ImageFormat::Rgb => data
+            .get(..n * 3)?
+            .chunks(3)
+            .flat_map(|p| [p[0], p[1], p[2], 255])
+            .collect(),
+        ImageFormat::Gray => data
+            .get(..n)?
+            .iter()
+            .flat_map(|&g| [g, g, g, 255])
+            .collect(),
+        ImageFormat::GrayAlpha => data
+            .get(..n * 2)?
+            .chunks(2)
+            .flat_map(|p| [p[0], p[0], p[0], p[1]])
+            .collect(),
+        _ => return None,
+    };
+    Some(px)
+}
+
+fn crop(rgba: &[u8], w: u32, [x, y, cw, ch]: [u32; 4]) -> Vec<u8> {
+    let (w, x, cw) = (w as usize, x as usize, cw as usize);
+    (y as usize..(y + ch) as usize)
+        .flat_map(|row| {
+            rgba[(row * w + x) * 4..(row * w + x + cw) * 4]
+                .iter()
+                .copied()
+        })
+        .collect()
+}
+
+static PNG_DECODER: std::sync::Once = std::sync::Once::new();
 
 const fn rgb(v: u32) -> RgbColor {
     RgbColor {
@@ -199,6 +259,10 @@ pub struct Vt {
     clips: Rc<RefCell<Vec<String>>>,
     keys: key::Encoder<'static>,
     pub lines: Vec<Line>,
+    pub images: Vec<Placement>,
+    image_iter: ImageIterator<'static>,
+    image_gen: Option<u64>,
+    image_pixels: std::collections::HashMap<ImageKey, std::sync::Arc<[u8]>>,
     pub cursor: Option<CursorAt>,
     pub background: Color,
     pub foreground: Color,
@@ -218,7 +282,15 @@ impl Vt {
         let replies = Rc::new(RefCell::new(Vec::new()));
         let bells = Rc::new(std::cell::Cell::new(0));
         let clips = Rc::new(RefCell::new(Vec::new()));
+        PNG_DECODER.call_once(|| {
+            // SAFETY: set once, before any terminal decodes an image.
+            let _ = unsafe {
+                graphics::set_png_decoder(Some(Box::new(graphics::RustPngDecoder::new())))
+            };
+        });
         let mut terminal = Terminal::new(cols, rows).ok()?;
+        terminal.resize(cols, rows, CELL_PX.0, CELL_PX.1).ok()?;
+        terminal.set_kitty_image_storage_limit(IMAGE_STORAGE).ok()?;
         terminal
             .on_clipboard_write({
                 let clips = Rc::clone(&clips);
@@ -256,6 +328,10 @@ impl Vt {
             clips,
             keys: key::Encoder::new().ok()?,
             lines: Vec::new(),
+            images: Vec::new(),
+            image_iter: ImageIterator::new().ok()?,
+            image_gen: None,
+            image_pixels: std::collections::HashMap::new(),
             cursor: None,
             background: color(BG),
             foreground: color(FG),
@@ -331,6 +407,10 @@ impl Vt {
         let last = clips.pop();
         clips.clear();
         last
+    }
+
+    pub fn image_generation(&self) -> u64 {
+        self.image_gen.unwrap_or(0)
     }
 
     /// The screen row at the top of the viewport.
@@ -439,9 +519,12 @@ impl Vt {
 
     pub fn resize(&mut self, cols: u16, rows: u16, cell: (f32, f32)) {
         self.cell = cell;
-        let _ = self
-            .terminal
-            .resize(cols, rows, cell.0.round() as u32, cell.1.round() as u32);
+        let _ = self.terminal.resize(
+            cols,
+            rows,
+            (cell.0.round() as u32).max(1),
+            (cell.1.round() as u32).max(1),
+        );
         self.refresh();
     }
 
@@ -498,6 +581,83 @@ impl Vt {
                 color: color(c),
                 blinking: snapshot.cursor_blinking().unwrap_or(false),
             });
+        }
+        let image_gen = snapshot.image_placements_generation().ok();
+        if image_gen != self.image_gen {
+            self.image_gen = image_gen;
+            let mut images = Vec::new();
+            let mut keep = std::collections::HashSet::new();
+            if let (Ok(mut list), Ok(Some(store))) = (
+                self.image_iter.update(&snapshot),
+                self.terminal.kitty_graphics(),
+            ) {
+                while let Some(p) = list.next() {
+                    if !matches!(p.protocol(), Ok(ImageProtocol::Kitty)) {
+                        continue;
+                    }
+                    let (Ok(id), Ok(generation)) = (p.image_id(), p.image_generation()) else {
+                        continue;
+                    };
+                    let src = [
+                        p.source_x().unwrap_or(0),
+                        p.source_y().unwrap_or(0),
+                        p.source_width().unwrap_or(0),
+                        p.source_height().unwrap_or(0),
+                    ];
+                    let key = (id, generation, src);
+                    let rgba = match self.image_pixels.get(&key) {
+                        Some(px) => px.clone(),
+                        None => {
+                            let Some(img) = store.image(id) else {
+                                continue;
+                            };
+                            let (Ok(w), Ok(h), Ok(fmt)) = (img.width(), img.height(), img.format())
+                            else {
+                                continue;
+                            };
+                            let Some(full) = img
+                                .data()
+                                .ok()
+                                .flatten()
+                                .and_then(|d| to_rgba(fmt, w, h, d))
+                            else {
+                                continue;
+                            };
+                            let fits = src[2] > 0
+                                && src[3] > 0
+                                && src[0] + src[2] <= w
+                                && src[1] + src[3] <= h;
+                            let px: std::sync::Arc<[u8]> = if fits && src != [0, 0, w, h] {
+                                crop(&full, w, src).into()
+                            } else {
+                                full.into()
+                            };
+                            self.image_pixels.insert(key, px.clone());
+                            px
+                        }
+                    };
+                    keep.insert(key);
+                    images.push(Placement {
+                        key,
+                        col: p.viewport_col().unwrap_or(0),
+                        row: p.viewport_row().unwrap_or(0),
+                        offset: (
+                            p.cell_offset_x().unwrap_or(0),
+                            p.cell_offset_y().unwrap_or(0),
+                        ),
+                        size: (p.pixel_width().unwrap_or(0), p.pixel_height().unwrap_or(0)),
+                        above_text: matches!(p.layer(), Ok(ImageLayer::AboveText)),
+                        z: p.z().unwrap_or(0),
+                        width: src[2],
+                        height: src[3],
+                        rgba,
+                    });
+                }
+            }
+            images.sort_by_key(|p| p.z);
+            self.image_pixels.retain(|k, _| keep.contains(k));
+            self.images = images;
+            self.version += 1;
         }
         if dirty == Dirty::Clean && !full {
             return;
@@ -1003,6 +1163,21 @@ mod tests {
         let (n, _) = vt.search("NEEDLE");
         assert_eq!(n, 1);
         assert!(vt.lines.iter().any(|l| matches(l, "needle") == [(0, 6)]));
+    }
+
+    #[test]
+    fn kitty_images_become_placements() {
+        let mut vt = Vt::new(20, 5).expect("terminal");
+        vt.write(b"\x1b[2;3H\x1b_Ga=T,f=32,s=2,v=1,q=2;/wAA//8AAP8=\x1b\\");
+        let p = vt.images.first().expect("placement");
+        assert_eq!((p.col, p.row), (2, 1));
+        assert_eq!((p.width, p.height), (2, 1));
+        assert_eq!(&p.rgba[..], [255, 0, 0, 255, 255, 0, 0, 255]);
+        assert!(p.above_text);
+        vt.write(b"\x1b_Ga=T,f=100,q=2;iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==\x1b\\");
+        assert_eq!(vt.images.len(), 2);
+        vt.write(b"\x1b_Ga=d,q=2\x1b\\");
+        assert!(vt.images.is_empty());
     }
 
     #[test]

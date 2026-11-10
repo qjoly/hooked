@@ -59,6 +59,8 @@ fn screen(s: &Hooked, k: &Kit, t: &Term, panel: bool) -> El {
     let mono = s.term_style(k.ty.mono);
     let selection = k.selection();
     let mut lines = col().key(format!("term-lines-{}", t.id)).w_full().gap(0.0);
+    let images = |above: bool| image_els(s, t, above);
+    lines = lines.children(images(false));
     for (i, line) in vt.lines.iter().enumerate() {
         let row = i as u16;
         let mut marks: Vec<(u16, u16, Option<Color>, Color)> = Vec::new();
@@ -215,6 +217,7 @@ fn screen(s: &Hooked, k: &Kit, t: &Term, panel: bool) -> El {
             r
         }));
     }
+    lines = lines.children(images(true));
     let caret_here = if panel {
         !matches!(s.term_focus, Some(crate::terminal::TermFocus::Pty(_)))
     } else {
@@ -250,6 +253,35 @@ fn screen(s: &Hooked, k: &Kit, t: &Term, panel: bool) -> El {
             .opacity(0.0)
             .on_layout(|s: &mut Hooked, r: [f32; 4]| s.set_cell((r[2] / 10.0).max(1.0))),
     )
+}
+
+/// The terminal's kitty graphics images on one side of the text, placed on their cells.
+fn image_els(s: &Hooked, t: &Term, above: bool) -> Vec<El> {
+    let Some(cache) = s.images.as_ref() else {
+        return Vec::new();
+    };
+    let (cw, ch) = t.vt.cell;
+    let (sx, sy) = (cw / cw.round().max(1.0), ch / ch.round().max(1.0));
+    let mut known = s.term.image_cache.borrow_mut();
+    if known.len() > 256 {
+        known.clear();
+    }
+    t.vt.images
+        .iter()
+        .filter(|p| p.above_text == above && p.width > 0 && p.height > 0)
+        .map(|p| {
+            let img = known
+                .entry((t.id.clone(), p.key))
+                .or_insert_with(|| cache.rgba(p.width, p.height, p.rgba.clone()))
+                .clone();
+            el().absolute(
+                p.col as f32 * cw + p.offset.0 as f32 * sx,
+                p.row as f32 * ch + p.offset.1 as f32 * sy,
+            )
+            .size(p.size.0 as f32 * sx, p.size.1 as f32 * sy)
+            .pixels(img.pixels())
+        })
+        .collect()
 }
 
 /// Rectangles for an underline, overline or dotted link mark across columns `a..b`.

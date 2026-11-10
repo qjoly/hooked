@@ -849,7 +849,7 @@ pub(super) fn bubble_version(s: &Hooked, m: &Message, k: &Kit) -> u64 {
                     t.vt.size(),
                     sel.map(|s| (s.anchor, s.head)),
                     focused.then(|| (crate::terminal::blink_on(), s.term.preedit.clone())),
-                    t.vt.viewport_top(),
+                    (t.vt.viewport_top(), t.vt.image_generation()),
                 )
             }
             None => (
@@ -860,7 +860,7 @@ pub(super) fn bubble_version(s: &Hooked, m: &Message, k: &Kit) -> u64 {
                 (0, 0),
                 None,
                 None,
-                0,
+                (0, 0),
             ),
         });
     let media: Vec<_> = m
