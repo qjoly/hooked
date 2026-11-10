@@ -523,7 +523,10 @@ pub fn panel(s: &Hooked, k: &Kit) -> El {
                 return s.term_cmd_key(&ev.key);
             }
             tx.instant();
-            s.term_key(ev, tx.physical_key())
+            s.term_key(ev, tx.physical_key(), tx.key_repeat())
+        })
+        .on_key_up(|s: &mut Hooked, ev: &rune::KeyEvent, tx: &mut rune::Tx| {
+            s.term_key_up(&crate::terminal::TermFocus::Panel, ev, tx.physical_key())
         })
         .on_drag(|s: &mut Hooked, d: &mut rune::Drag, tx: &mut rune::Tx| {
             tx.instant();
@@ -732,9 +735,15 @@ pub fn pty_block(s: &Hooked, k: &Kit, f: &crate::terminal::PtyFence) -> El {
                             }
                             return false;
                         }
-                        s.pty_key(&ka, ev, tx.physical_key())
+                        s.pty_key(&ka, ev, tx.physical_key(), tx.key_repeat())
                     },
                 )
+                .on_key_up({
+                    let me = me.clone();
+                    move |s: &mut Hooked, ev: &rune::KeyEvent, tx: &mut rune::Tx| {
+                        s.term_key_up(&me, ev, tx.physical_key())
+                    }
+                })
                 .on_wheel(
                     move |s: &mut Hooked, e: rune::WheelEvent, tx: &mut rune::Tx| {
                         tx.instant();

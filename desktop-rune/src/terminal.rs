@@ -468,11 +468,17 @@ impl Hooked {
         &mut self,
         ev: &rune::KeyEvent,
         physical: Option<rune::PhysicalKeyCode>,
+        repeat: bool,
     ) -> bool {
         let Some(t) = self.term.terms.get_mut(self.term.active) else {
             return false;
         };
-        let Some(bytes) = t.vt.encode_key(ev, physical) else {
+        let action = if repeat {
+            libghostty_vt::key::Action::Repeat
+        } else {
+            libghostty_vt::key::Action::Press
+        };
+        let Some(bytes) = t.vt.encode_key_action(ev, physical, action) else {
             return false;
         };
         if !t.exited {
@@ -480,6 +486,28 @@ impl Hooked {
             post_input(t.id.clone(), &bytes);
         }
         true
+    }
+
+    /// A key release, for programs that asked to hear them (kitty keyboard protocol).
+    pub fn term_key_up(
+        &mut self,
+        f: &TermFocus,
+        ev: &rune::KeyEvent,
+        physical: Option<rune::PhysicalKeyCode>,
+    ) -> bool {
+        let Some(t) = self.target_mut(f).filter(|t| !t.exited) else {
+            return false;
+        };
+        match t
+            .vt
+            .encode_key_action(ev, physical, libghostty_vt::key::Action::Release)
+        {
+            Some(bytes) => {
+                post_input(t.id.clone(), &bytes);
+                true
+            }
+            None => false,
+        }
     }
 
     /// What a Mac terminal sends for ⌘←, ⌘→ and ⌘⌫: start of line, end of line, kill line.
@@ -948,6 +976,7 @@ impl Hooked {
         id: &str,
         ev: &rune::KeyEvent,
         physical: Option<rune::PhysicalKeyCode>,
+        repeat: bool,
     ) -> bool {
         let Some(t) = self.ptys.terms.iter_mut().find(|t| t.id == id) else {
             return false;
@@ -960,7 +989,12 @@ impl Hooked {
                 _ => return false,
             }
         } else {
-            let Some(b) = t.vt.encode_key(ev, physical) else {
+            let action = if repeat {
+                libghostty_vt::key::Action::Repeat
+            } else {
+                libghostty_vt::key::Action::Press
+            };
+            let Some(b) = t.vt.encode_key_action(ev, physical, action) else {
                 return false;
             };
             b

@@ -37,7 +37,7 @@ fn on_key(s: &mut Hooked, ev: &KeyEvent, tx: &mut Tx) -> bool {
         let handled = if ev.mods.cmd {
             s.term_cmd_key(&ev.key)
         } else {
-            s.term_key(ev, tx.physical_key())
+            s.term_key(ev, tx.physical_key(), tx.key_repeat())
         };
         if handled {
             tx.instant();

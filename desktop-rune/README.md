@@ -55,7 +55,7 @@ session states coloured by how much they need you.
   - **Trace (5)**: each turn's tool calls as a timed waterfall, input and output on click.
   - **Terminal (2)**: the session's shells over hooked's PTYs, one tab each, sized to the panel,
     emulated by Ghostty's VT core: its colours and styles, cursor shapes, window title, query
-    replies, key encoding (application cursor keys, kitty keyboard protocol), bracketed paste,
+    replies, key encoding (application cursor keys, the kitty keyboard protocol with repeats and releases), bracketed paste,
     scrollback on the wheel, every underline style, overline and strikethrough, OSC 8 and plain
     links (⌘-click), a blinking cursor, a light palette in the light theme, ⌘+ / ⌘- / ⌘0 zoom,
     focus reports, mouse clicks, drags and wheel for programs that track the mouse,
@@ -95,8 +95,6 @@ session states coloured by how much they need you.
 
 - Rendering: images (kitty graphics, sixel), exact widths for emoji drawn from fallback fonts,
   a choice of font family.
-- Behaviour: key releases and repeats for
-  the full kitty keyboard protocol.
 - hooked: terminals in their own window or split.
 
 ## Checking it headless

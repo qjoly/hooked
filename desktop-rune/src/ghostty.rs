@@ -586,10 +586,22 @@ impl Vt {
     }
 
     /// Encodes a key the way Ghostty would for this terminal's current modes.
+    #[cfg(test)]
     pub fn encode_key(
         &mut self,
         ev: &KeyEvent,
         physical: Option<PhysicalKeyCode>,
+    ) -> Option<Vec<u8>> {
+        self.encode_key_action(ev, physical, key::Action::Press)
+    }
+
+    /// A press, repeat or release; releases and repeats only reach programs that asked for
+    /// them through the kitty keyboard protocol, the encoder drops them otherwise.
+    pub fn encode_key_action(
+        &mut self,
+        ev: &KeyEvent,
+        physical: Option<PhysicalKeyCode>,
+        action: key::Action,
     ) -> Option<Vec<u8>> {
         let gkey = physical
             .map(physical_to_ghostty)
@@ -610,7 +622,13 @@ impl Vt {
             mods |= Mods::CTRL;
         }
         let text = match &ev.key {
-            Key::Text(t) if !ev.mods.ctrl && !t.chars().any(char::is_control) => Some(t.clone()),
+            Key::Text(t)
+                if action != key::Action::Release
+                    && !ev.mods.ctrl
+                    && !t.chars().any(char::is_control) =>
+            {
+                Some(t.clone())
+            }
             _ => None,
         };
         if gkey == GKey::Unidentified && text.is_none() {
@@ -618,11 +636,15 @@ impl Vt {
         }
         let mut event = key::Event::new().ok()?;
         event
-            .set_action(key::Action::Press)
+            .set_action(action)
             .set_key(gkey)
             .set_mods(mods)
             .set_utf8(text.clone());
-        if let Some(c) = text.as_deref().and_then(|t| t.chars().next()) {
+        let typed = match &ev.key {
+            Key::Text(t) => t.chars().next().filter(|c| !c.is_control()),
+            _ => None,
+        };
+        if let Some(c) = typed {
             event.set_unshifted_codepoint(c.to_ascii_lowercase());
         } else if let Some(c) = unshifted(gkey) {
             event.set_unshifted_codepoint(c);
@@ -912,6 +934,27 @@ mod tests {
         let (n, _) = vt.search("NEEDLE");
         assert_eq!(n, 1);
         assert!(vt.lines.iter().any(|l| matches(l, "needle") == [(0, 6)]));
+    }
+
+    #[test]
+    fn releases_and_repeats_only_reach_kitty_programs() {
+        let mut vt = Vt::new(20, 3).expect("terminal");
+        let a = KeyEvent {
+            key: Key::Text("a".into()),
+            mods: rune::Mods::default(),
+        };
+        let k = Some(PhysicalKeyCode::KeyA);
+        let up = vt.encode_key_action(&a, k, key::Action::Release);
+        assert_eq!(up, None);
+        vt.write(b"\x1b[>11u");
+        let up = vt
+            .encode_key_action(&a, k, key::Action::Release)
+            .expect("release");
+        assert!(String::from_utf8_lossy(&up).ends_with(":3u"), "{up:?}");
+        let rep = vt
+            .encode_key_action(&a, k, key::Action::Repeat)
+            .expect("repeat");
+        assert!(String::from_utf8_lossy(&rep).contains(":2"), "{rep:?}");
     }
 
     #[test]
