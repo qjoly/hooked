@@ -3,13 +3,16 @@
  * importé côté client (liens `ch-open` / `sd-editor` de la lentille Ship, page Réglages) ET
  * côté serveur (server/editor.js, qui ouvre le dossier projet via la CLI de l'éditeur).
  *
- * Ajouter un éditeur = ajouter une entrée ici, rien d'autre :
+ * Ajouter un éditeur = ajouter une entrée ici :
  *   key       identifiant stable persisté dans settings.json (`editor`)
  *   label     nom affiché
  *   icon      clé d'Icon.svelte (défaut : 'vscode', le glyphe générique `</>`)
  *   fileUrl   URL cliquable qui ouvre UN fichier (le navigateur délègue à l'OS) ; `line` optionnel
  *   cli       exécutable en PATH qui ouvre UN DOSSIER (appelé par le serveur via execFile)
  *   cliArgs   arguments passés à `cli` pour le dossier
+ *
+ * The desktop app only lets out the `fileUrl` forms listed in EDITOR_LINKS
+ * (desktop/src-tauri/src/main.rs): a new editor also needs its (scheme, host) pair there.
  */
 
 const EDITORS = [

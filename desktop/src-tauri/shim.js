@@ -1,5 +1,5 @@
 // Injected into every page the window loads. It gives the dashboard back the
-// two browser behaviours WKWebView does not provide on its own.
+// notifications WKWebView does not provide on its own.
 (() => {
   // Resolved on each use: this script runs before the app has installed its
   // API, so a value captured now would always be empty.
@@ -89,13 +89,4 @@
       report('no tauri api on this page');
     }
   })();
-
-  // A link to another site has to leave the app: the window has no back button
-  // and no address bar. Stripping the target turns it into an ordinary
-  // navigation, which the app catches and hands to the browser. Capture phase,
-  // so the attribute is gone before the link is followed.
-  document.addEventListener('click', (e) => {
-    const a = e.target && e.target.closest && e.target.closest('a[target="_blank"]');
-    if (a) a.removeAttribute('target');
-  }, true);
 })();

@@ -88,10 +88,36 @@ fn waiting_on_you(s: &Session) -> bool {
     s.has_question || s.state == "attention" || s.state == "waiting"
 }
 
-// Links can come from a transcript, so only ordinary web URLs leave the app.
-fn open_externally(url: &str) {
-    if url.starts_with("http://") || url.starts_with("https://") {
-        let _ = std::process::Command::new("open").arg(url).spawn();
+// The "open in editor" links the dashboard builds, as (scheme, host): mirrors
+// `fileUrl` in src/lib/editors.js, so an editor added there needs its pair
+// here. The host is pinned because an editor's other URL handlers drive its
+// extensions (vscode://vscode.git/clone?url=…).
+const EDITOR_LINKS: [(&str, &str); 6] = [
+    ("vscode", "file"),
+    ("cursor", "file"),
+    ("windsurf", "file"),
+    ("zed", "file"),
+    ("subl", "open"),
+    ("idea", "open"),
+];
+
+fn is_web(url: &tauri::Url) -> bool {
+    matches!(url.scheme(), "http" | "https")
+}
+
+// Links can come from a transcript, so only web pages and the dashboard's own
+// editor links are handed to macOS.
+fn may_open_externally(url: &tauri::Url) -> bool {
+    is_web(url)
+        || EDITOR_LINKS
+            .iter()
+            .any(|&(scheme, host)| url.scheme() == scheme && url.host_str() == Some(host))
+}
+
+fn open_externally(url: &tauri::Url) {
+    if may_open_externally(url) {
+        eprintln!("handing {url} to macOS");
+        let _ = std::process::Command::new("open").arg(url.as_str()).spawn();
     }
 }
 
@@ -207,15 +233,19 @@ fn toggle_quick(app: &AppHandle) {
     }
 }
 
-// Anything that is not the page the window was built for goes to the browser.
-// The quick window hosts no dashboard, so the dashboard is foreign to it too.
+// Anything that is not the page the window was built for leaves it: web pages
+// for the browser, editor links for the editor (the webview cannot load those
+// at all). The quick window hosts no dashboard, so the dashboard is foreign to
+// it too.
+fn leaves_window(url: &tauri::Url, dashboard_allowed: bool) -> bool {
+    let dashboard = is_web(url) && url.port() == Some(4123);
+    may_open_externally(url) && !(dashboard && dashboard_allowed)
+}
+
 fn route_navigation(url: &tauri::Url, dashboard_allowed: bool) -> bool {
-    let is_web = matches!(url.scheme(), "http" | "https");
-    let dashboard = url.port() == Some(4123);
-    let leaving = is_web && !(dashboard && dashboard_allowed);
+    let leaving = leaves_window(url, dashboard_allowed);
     if leaving {
-        eprintln!("handing {url} to the browser");
-        open_externally(url.as_str());
+        open_externally(url);
     }
     !leaving
 }
@@ -553,9 +583,15 @@ fn main() {
                 .inner_size(1280.0, 860.0)
                 .min_inner_size(480.0, 520.0)
                 .initialization_script(SHIM)
-                // Catches what the click handler cannot: anything that
-                // navigates the window somewhere other than the dashboard.
                 .on_navigation(|url| route_navigation(url, true))
+                // The app has no tabs, so a link asking for one goes to the
+                // browser, the dashboard's own pages included (a rendered
+                // document, a sent file): loaded here, they would replace the
+                // dashboard in a window with no back button.
+                .on_new_window(|url, _| {
+                    open_externally(&url);
+                    tauri::webview::NewWindowResponse::Deny
+                })
                 .build()?;
 
             // Closing hides the window instead of destroying it: the page keeps
@@ -671,4 +707,52 @@ fn main() {
         })
         .run(tauri::generate_context!())
         .expect("failed to start the hooked window");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn url(s: &str) -> tauri::Url {
+        s.parse().unwrap()
+    }
+
+    #[test]
+    fn editor_links_leave_every_window() {
+        // Built the way src/lib/editors.js builds them.
+        for link in [
+            "vscode://file/Users/me/app/main.rs:12",
+            "cursor://file/Users/me/app/main.rs:12",
+            "windsurf://file/Users/me/app/main.rs",
+            "zed://file/Users/me/app/main.rs:12",
+            "subl://open?url=file://%2FUsers%2Fme%2Fapp%2Fmain.rs&line=12",
+            "idea://open?file=%2FUsers%2Fme%2Fapp%2Fmain.rs&line=12",
+        ] {
+            assert!(leaves_window(&url(link), true), "{link}");
+            assert!(leaves_window(&url(link), false), "{link}");
+        }
+    }
+
+    #[test]
+    fn other_app_links_are_never_handed_over() {
+        for link in [
+            "vscode://vscode.git/clone?url=https://example.com/repo.git",
+            "file:///System/Applications/Calculator.app",
+            "smb://host/share",
+        ] {
+            assert!(!may_open_externally(&url(link)), "{link}");
+        }
+    }
+
+    #[test]
+    fn dashboard_stays_in_the_main_window_only() {
+        let page = url("http://localhost:4123/session/abc");
+        assert!(!leaves_window(&page, true));
+        assert!(leaves_window(&page, false));
+    }
+
+    #[test]
+    fn other_sites_leave() {
+        assert!(leaves_window(&url("https://github.com/qjoly/hooked/pull/73"), true));
+    }
 }
