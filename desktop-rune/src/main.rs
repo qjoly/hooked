@@ -8,6 +8,7 @@ mod ghostty;
 mod ghrun;
 mod icons;
 mod lenses;
+mod logo;
 mod organize;
 mod pages;
 mod quick;
@@ -122,6 +123,7 @@ fn poll(s: &mut Hooked, _clock: f64, tx: &mut Tx) -> bool {
     let now = fmt::now_ms();
     let mut changed = false;
     s.stash_draft();
+    s.refresh_logo();
     s.poll_run(now);
     s.poll_account(now);
     let working = s.page == Page::Session && s.working_since.is_some();
@@ -153,6 +155,7 @@ fn setup(s: &mut Hooked, waker: rune::Waker) {
         s.want_media(&d, true);
     }
     s.tray_dirty = true;
+    s.refresh_logo();
     app::start_workers();
 }
 

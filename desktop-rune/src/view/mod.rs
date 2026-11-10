@@ -405,7 +405,12 @@ fn topbar(s: &Hooked, k: &Kit, inset: f32, _layer: &mut Vec<El>) -> El {
                 .gap(6.0)
                 .center_y()
                 .help("hooked")
-                .child(glyph(&icons::CIRCLE_DOT, 16.0, k.c.text_base)),
+                .child(match s.logo.as_ref() {
+                    Some((_, imgs)) => el()
+                        .size(26.0, 26.0)
+                        .pixels(imgs[usize::from(k.dark)].pixels()),
+                    None => glyph(&icons::CIRCLE_DOT, 16.0, k.c.text_base),
+                }),
         )
         .child(
             row()
