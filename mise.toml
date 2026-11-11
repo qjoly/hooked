@@ -299,3 +299,37 @@ rm -rf /Applications/hooked.app
 ditto target/release/bundle/macos/hooked.app /Applications/hooked.app
 open /Applications/hooked.app
 """
+
+# Experimental native client (Rune, no webview). Installed next to the Tauri app
+# under its own bundle id, so both can be compared side by side.
+[tasks.desktop-rune]
+description = "Build the native Rune app, install it in /Applications and relaunch it"
+dir = "desktop-rune"
+tools = { rust = "1.99.1", zig = "0.17.1" }
+run = """
+set -e
+cargo build --release
+APP="target/hooked (Rune).app"
+rm -rf "$APP"
+mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
+cp target/release/hooked-rune "$APP/Contents/MacOS/"
+cp Info.plist "$APP/Contents/"
+cp ../desktop/src-tauri/icons/icon.icns "$APP/Contents/Resources/"
+osascript -e 'quit app id "dev.qjoly.hooked-rune"' 2>/dev/null || true
+sleep 1
+rm -rf "/Applications/hooked (Rune).app"
+ditto "$APP" "/Applications/hooked (Rune).app"
+open "/Applications/hooked (Rune).app"
+"""
+
+[tasks.desktop-rune-dev]
+description = "Run the native Rune app from source with live editing: body edits patch it in place, others rebuild and relaunch"
+dir = "desktop-rune"
+tools = { rust = "1.99.1", zig = "0.17.1", python = "3.13" }
+run = "scripts/dev"
+
+[tasks.desktop-rune-run]
+description = "Run the native Rune app from source once, without live editing"
+dir = "desktop-rune"
+tools = { rust = "1.99.1", zig = "0.17.1" }
+run = "cargo run"

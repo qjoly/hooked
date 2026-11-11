@@ -302,10 +302,16 @@ export function cleanJobLog(text) {
 export async function githubJobLog(url) {
   const { repo, job } = runRef(url);
   if (!job) throw new Error('Not a GitHub Actions job URL');
+  const path = `repos/${repo}/actions/jobs/${job}/logs`;
   try {
-    return { log: cleanJobLog(await gh(['api', `repos/${repo}/actions/jobs/${job}/logs`], { raw: true })) };
+    return { log: cleanJobLog(await gh(['api', path], { raw: true })) };
   } catch (e) {
     if (/HTTP 404/.test(e.message)) return { log: null };
+    // gh ≥ 2.10x refuses raw output holding escape sequences (job logs are coloured) unless told
+    // to; older gh doesn't know the flag, hence asking only once it has refused.
+    if (/--allow-escape-sequences/.test(e.message)) {
+      return { log: cleanJobLog(await gh(['api', '--allow-escape-sequences', path], { raw: true })) };
+    }
     throw e;
   }
 }
