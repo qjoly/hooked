@@ -2470,15 +2470,43 @@ impl Hooked {
     }
 }
 
-/// Follows `/api/stream` (a tick per hook event and transcript write, plus a heartbeat) and
-/// rereads the session list, at most a few times a second.
+const LIST_DEBOUNCE: Duration = Duration::from_millis(250);
+const LIST_MIN_GAP: Duration = Duration::from_secs(1);
+
+/// Rereads the session list after `/api/stream` ticks, like the web's `scheduleRefresh`: a burst
+/// becomes one fetch, at most one a second, and a tick that lands mid-fetch still gets one after.
+fn refresh_on_ticks(h: AppHandle<Hooked>, ticks: std::sync::mpsc::Receiver<()>) {
+    let mut last: Option<Instant> = None;
+    while ticks.recv().is_ok() {
+        let gap = last.map_or(Duration::ZERO, |t| LIST_MIN_GAP.saturating_sub(t.elapsed()));
+        std::thread::sleep(LIST_DEBOUNCE.max(gap));
+        while ticks.try_recv().is_ok() {}
+        last = Some(Instant::now());
+        if let (Ok(list), meta, tags) =
+            (api::sessions(), api::session_meta().ok(), api::tags().ok())
+        {
+            h.update(move |s, _| {
+                if let Some(t) = tags {
+                    s.tags = t;
+                }
+                s.apply_sessions(list, meta)
+            });
+        }
+    }
+}
+
+/// Follows `/api/stream` (a tick per hook event and transcript write, plus a heartbeat).
 pub fn start_workers(h: Option<AppHandle<Hooked>>) {
     let Some(h) = h else {
         return;
     };
     let h2 = h.clone();
+    let (tick, ticks) = std::sync::mpsc::channel();
+    {
+        let h = h.clone();
+        std::thread::spawn(move || refresh_on_ticks(h, ticks));
+    }
     std::thread::spawn(move || {
-        let mut last = Instant::now() - Duration::from_secs(10);
         loop {
             let r = api::follow("/api/stream", |payload| {
                 if payload.contains("\"spec\"")
@@ -2489,19 +2517,7 @@ pub fn start_workers(h: Option<AppHandle<Hooked>>) {
                     h.update(move |s, _| s.open_query_spec(spec));
                     return true;
                 }
-                if last.elapsed() > Duration::from_millis(400) {
-                    last = Instant::now();
-                    if let (Ok(list), meta, tags) =
-                        (api::sessions(), api::session_meta().ok(), api::tags().ok())
-                    {
-                        h.update(move |s, _| {
-                            if let Some(t) = tags {
-                                s.tags = t;
-                            }
-                            s.apply_sessions(list, meta)
-                        });
-                    }
-                }
+                let _ = tick.send(());
                 true
             });
             if r.is_err() {

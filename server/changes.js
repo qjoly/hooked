@@ -41,6 +41,7 @@ import { execFileSync } from 'node:child_process';
 import { HOOKED_DIR } from './config.js';
 import { agentTranscriptPath } from './transcript.js';
 import { buildSubagents } from './subagents.js';
+import { transcriptRows } from './transcriptCache.js';
 
 // Default caps keep the session-detail payload lean. A file that overflows them is flagged
 // `truncated` and the Ship lens offers to load the FULL diff on demand (buildFileChangeFull).
@@ -104,13 +105,10 @@ function diskTooBig(file, mergeMax) {
 // state it overwrote lives on the RESULT line (`toolUseResult.originalFile`, non-empty only when
 // the file already existed). Without it, a full rewrite reconstructs as "file created" and the
 // whole file reads as added instead of showing the real diff.
-function writeOriginals(lines) {
+function writeOriginals(rows) {
   const out = new Map();
-  for (const line of lines) {
-    if (!line || !line.includes('originalFile')) continue; // pré-filtre : évite N parses inutiles
-    let j;
-    try { j = JSON.parse(line); } catch (_) { continue; }
-    const r = j && j.toolUseResult;
+  for (const j of rows) {
+    const r = j.toolUseResult;
     if (!r || typeof r !== 'object' || typeof r.originalFile !== 'string' || !r.originalFile) continue;
     const content = j.message && j.message.content;
     if (!Array.isArray(content)) continue;
@@ -124,15 +122,11 @@ function writeOriginals(lines) {
 // Scan a transcript into per-file ops (full, untruncated). One place both the capped list and the
 // on-demand full builder go through.
 function scanOps(fp) {
-  let data;
-  try { data = fs.readFileSync(fp, 'utf8'); } catch (_) { return new Map(); }
-  const lines = data.split('\n');
-  const originals = writeOriginals(lines);
+  const rows = transcriptRows(fp);
+  if (!rows) return new Map();
+  const originals = writeOriginals(rows);
   const byFile = new Map(); // path -> { file, name, tool, ops: [...], count, lastTs }
-  for (const line of lines) {
-    if (!line) continue;
-    let j;
-    try { j = JSON.parse(line); } catch (_) { continue; }
+  for (const j of rows) {
     if (j.type !== 'assistant' || !j.message || !Array.isArray(j.message.content)) continue;
     const ts = j.timestamp || null;
     for (const b of j.message.content) {

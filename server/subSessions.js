@@ -9,8 +9,8 @@
  * Union dédupliquée par id, dans l'ordre de PREMIÈRE apparition ; l'id de la session courante
  * est toujours exclu (une conversation ne se liste jamais elle-même).
  */
-import fs from 'node:fs';
 import { toolResultText } from './util.js';
+import { transcriptRows } from './transcriptCache.js';
 
 // `[label](/session/<id>)` — 1 = label, 2 = id (ni /, ?, #, ) ni espace dans l'id).
 const MD_SESSION_LINK = /\[([^\]]*)\]\(\/session\/([^/?#)\s]+)\)/g;
@@ -27,15 +27,11 @@ function decodeId(raw) {
 }
 
 function buildSubSessions(fp, selfId) {
-  let data;
-  try { data = fs.readFileSync(fp, 'utf8'); } catch (_) { return []; }
-  const lines = data.split('\n');
+  const rows = transcriptRows(fp);
+  if (!rows) return [];
   // passe 1 : index des résultats d'outils par tool_use_id (texte concaténé, comme la conversation).
   const results = new Map();
-  for (const line of lines) {
-    if (!line) continue;
-    let j;
-    try { j = JSON.parse(line); } catch (_) { continue; }
+  for (const j of rows) {
     if (j.type === 'user' && j.message && Array.isArray(j.message.content)) {
       for (const b of j.message.content) {
         if (b && b.type === 'tool_result' && b.tool_use_id) results.set(b.tool_use_id, toolResultText(b.content));
@@ -55,10 +51,7 @@ function buildSubSessions(fp, selfId) {
   const scanText = (text) => {
     for (const m of String(text).matchAll(MD_SESSION_LINK)) add(m[2], m[1], 'referenced');
   };
-  for (const line of lines) {
-    if (!line) continue;
-    let j;
-    try { j = JSON.parse(line); } catch (_) { continue; }
+  for (const j of rows) {
     if (j.isSidechain) continue; // le transcript principal seulement (cf. buildConversation)
     if (j.type === 'assistant' && j.message && Array.isArray(j.message.content)) {
       for (const b of j.message.content) {

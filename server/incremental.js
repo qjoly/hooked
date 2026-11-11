@@ -23,6 +23,7 @@
  */
 import fs from 'node:fs';
 import { statSafe } from './util.js';
+import { sharedLines } from './transcriptCache.js';
 
 // Lit la plage d'octets [start, end) du fichier en Buffer brut. Le découpage utf8/lignes est fait
 // par l'appelant, borné à une frontière de '\n' (donc jamais de multi-octets tronqué).
@@ -53,7 +54,9 @@ function foldCommitted(buf, acc, fold) {
 // `fold(acc, line)` replie une ligne validée ; `finalize(acc)` en dérive la valeur retournée.
 // `empty` est retourné quand le fichier est absent/illisible. Les args supplémentaires passés à
 // read() sont transmis à init() (p. ex. le sessionId d'un transcript).
-function incrementalReader({ init, fold, finalize, empty = null }) {
+// `shared`: a full read reuses the bytes already read for this file in the current
+// `withSharedRows` scope (cf. transcriptCache.js) instead of reading it once more.
+function incrementalReader({ init, fold, finalize, empty = null, shared = false }) {
   const cache = new Map(); // path -> { ino, size, mtimeMs, offset, acc, value }
   return function read(fp, ...args) {
     const st = fp ? statSafe(fp) : null;
@@ -75,6 +78,18 @@ function incrementalReader({ init, fold, finalize, empty = null }) {
       }
     }
     // repli complet (fichier neuf, tronqué, roté, réécrit, ou lecture partielle en échec)
+    const raw = shared ? sharedLines(fp) : null;
+    if (raw) {
+      const acc = init(fp, ...args);
+      if (raw.committed) {
+        for (let i = 0; i < raw.lines.length - 1; i++) fold(acc, raw.lines[i]);
+        fold(acc, '');
+      }
+      const value = finalize(acc);
+      // The bytes may predate `st`: a smaller size sends the next read down the append path.
+      cache.set(fp, { ino: st.ino, size: Math.min(st.size, raw.bytes), mtimeMs: st.mtimeMs, offset: raw.committed, acc, value });
+      return value;
+    }
     let buf;
     try { buf = fs.readFileSync(fp); } catch (_) { return empty; }
     const acc = init(fp, ...args);

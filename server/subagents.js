@@ -6,16 +6,14 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { costForUsage } from './pricing.js';
+import { transcriptRows, memoByFile } from './transcriptCache.js';
 
-function buildSubagents(fp) {
-  let data;
-  try { data = fs.readFileSync(fp, 'utf8'); } catch (_) { return []; }
+const declaredSubagents = memoByFile((fp) => {
+  const rows = transcriptRows(fp);
+  if (!rows) return null;
   const calls = []; // ordre d'apparition
   const byId = new Map();
-  for (const line of data.split('\n')) {
-    if (!line) continue;
-    let j;
-    try { j = JSON.parse(line); } catch (_) { continue; }
+  for (const j of rows) {
     if (j.type === 'assistant' && j.message && Array.isArray(j.message.content)) {
       for (const b of j.message.content) {
         if (b.type === 'tool_use' && (b.name === 'Agent' || b.name === 'Task') && b.id) {
@@ -57,9 +55,14 @@ function buildSubagents(fp) {
       }
     }
   }
-  const known = new Set(calls.map((c) => c.agentId).filter(Boolean));
-  calls.push(...discoverRunningSubagents(fp, known));
   return calls;
+});
+
+function buildSubagents(fp) {
+  const calls = declaredSubagents(fp);
+  if (!calls) return [];
+  const known = new Set(calls.map((c) => c.agentId).filter(Boolean));
+  return [...calls, ...discoverRunningSubagents(fp, known)];
 }
 
 /*
