@@ -1,11 +1,12 @@
 # 🪝 hooked
 
 > [!NOTE]
-> hooked is an initiative of its four maintainers:
+> hooked is an initiative of its five maintainers:
 > [@briangtn](https://github.com/briangtn),
 > [@NahisWayard](https://github.com/NahisWayard),
-> [@comeChaslerie](https://github.com/comeChaslerie) and
-> [@GitBluub](https://github.com/GitBluub).
+> [@comeChaslerie](https://github.com/comeChaslerie),
+> [@GitBluub](https://github.com/GitBluub) and
+> [@qjoly](https://github.com/qjoly).
 
 **A local cockpit for your Claude Code sessions.** See which session needs you, answer it, review
 what it changed, and launch the next one, all from the browser.
