@@ -49,9 +49,10 @@ session states coloured by how much they need you.
     indicator, question / permission / plan cards, composer (Enter sends, Shift+Enter new line,
     Esc interrupts, paste or drop images, `@` file and `/` command completion, a draft kept per
     session) with the follow-up suggestion.
-  - **Review (3)**: Claude's edits or the working tree as a diff, unified or split, j/k between
-    hunks and [ / ] between files; + on a line opens a comment thread, and the pending ones go to
-    Claude in one message. Threads are shared with the web lens.
+  - **Review (3)**: Claude's edits, the worktree since it forked from its base, the working tree or
+    a branch as a diff, unified or split, j/k between hunks and [ / ] between files; + on a line
+    opens a comment thread, and the pending ones go to Claude in one message. Threads are shared
+    with the web lens.
   - **MCP (4)**: the project's servers with their health, details, re-authenticate, log out.
   - **Trace (5)**: each turn's tool calls as a timed waterfall, input and output on click.
   - **Terminal (2)**: the session's shells over hooked's PTYs, one tab each, sized to the panel,

@@ -11,6 +11,7 @@ use crate::fmt;
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
 pub enum ReviewSource {
     Claude,
+    Worktree,
     Tree,
     Branch,
 }
@@ -33,6 +34,7 @@ pub struct LensData {
     pub branch: Option<String>,
     pub base: Option<String>,
     pub branch_root: Option<String>,
+    pub worktree: Option<api::BaseDiff>,
     pub commits: Vec<Value>,
     pub picked: Vec<String>,
     pub branch_open: bool,
@@ -82,6 +84,7 @@ impl Default for LensData {
             branch: None,
             base: None,
             branch_root: None,
+            worktree: None,
             commits: Vec::new(),
             picked: Vec::new(),
             branch_open: false,
@@ -244,6 +247,14 @@ pub fn file_diffs(
     (out, anchors)
 }
 
+/// The web's `'wtb:' + wtd.base`, so threads land on the same sections from either client.
+fn worktree_key(wt: Option<&api::BaseDiff>) -> String {
+    format!(
+        "wtb:{}",
+        wt.and_then(|w| w.base.as_deref()).unwrap_or_default()
+    )
+}
+
 /// What a reviewed tick signs off: the file's diff as shown, so a later edit clears it.
 pub fn fingerprint(f: &FileDiff) -> String {
     let mut h: u32 = 0x811c_9dc5;
@@ -336,6 +347,7 @@ impl Hooked {
         match self.lens_data.review_source {
             ReviewSource::Claude if self.lens_data.turns.is_empty() => "full".into(),
             ReviewSource::Claude => turns_key(&self.lens_data.turns),
+            ReviewSource::Worktree => worktree_key(self.lens_data.worktree.as_ref()),
             ReviewSource::Tree => "vcs:wt".into(),
             ReviewSource::Branch => format!("br:{}", self.branch_key().unwrap_or_default()),
         }
@@ -399,6 +411,16 @@ impl Hooked {
                     ),
                 }
             }
+            ReviewSource::Worktree => (
+                format!(
+                    "everything this worktree changed since it forked from `{}` (commits and uncommitted edits)",
+                    ld.worktree
+                        .as_ref()
+                        .and_then(|w| w.base.as_deref())
+                        .unwrap_or_default()
+                ),
+                None,
+            ),
             ReviewSource::Tree => ("the uncommitted changes in the working tree".into(), None),
             ReviewSource::Claude if !ld.turns.is_empty() => {
                 let labels: Vec<String> = ld.turns.iter().map(|t| format!("P{}", t + 1)).collect();
@@ -584,7 +606,10 @@ impl Hooked {
         let (path, key) = self.lens_data.anchors.get(file)?;
         let rev = match (self.lens_data.review_source, side) {
             (ReviewSource::Tree, Side::Old) => "HEAD",
-            (ReviewSource::Tree, Side::New) => "",
+            (ReviewSource::Tree | ReviewSource::Worktree, Side::New) => "",
+            (ReviewSource::Worktree, Side::Old) => {
+                self.lens_data.worktree.as_ref()?.merge_base.as_deref()?
+            }
             (ReviewSource::Claude, Side::Old) | (ReviewSource::Branch, _) => return None,
             (ReviewSource::Claude, Side::New) => {
                 let j: usize = key.strip_prefix("full:")?.parse().ok()?;
@@ -814,6 +839,15 @@ impl Hooked {
         if self.page != Page::Session {
             return false;
         }
+        if self.lens == Lens::Review
+            && self.lens_data.review_source == ReviewSource::Worktree
+            && self
+                .detail
+                .as_ref()
+                .is_some_and(|d| d.session.worktree_of.is_none())
+        {
+            self.set_review_source(ReviewSource::Claude);
+        }
         let Some(d) = self.detail.as_ref() else {
             return false;
         };
@@ -833,6 +867,7 @@ impl Hooked {
                             ld.full.values().filter(|c| c.is_some()).count()
                         )
                     }
+                    ReviewSource::Worktree => format!("{id}|worktree|{activity}"),
                     ReviewSource::Tree => format!("{id}|tree|{activity}"),
                     ReviewSource::Branch => match self.branch_key() {
                         Some(key) => format!("{id}|branch|{key}|{activity}"),
@@ -893,6 +928,33 @@ impl Hooked {
                                         s.load_threads();
                                     }
                                     Err(e) => s.flash(format!("✗ Working tree: {e}"), true),
+                                }
+                            },
+                        );
+                        true
+                    }
+                    ReviewSource::Worktree => {
+                        self.lens_data.diff_loading = true;
+                        self.spawn(
+                            move || api::vcs_base_diff(&id),
+                            move |s, r, _| {
+                                s.lens_data.diff_loading = false;
+                                s.lens_data.diff_sig = Some(sig);
+                                match r {
+                                    Ok(wt) => {
+                                        s.lens_data.diff_count = wt.changes.len();
+                                        let (files, anchors) = file_diffs(
+                                            &wt.changes,
+                                            wt.root.as_deref(),
+                                            &worktree_key(Some(&wt)),
+                                        );
+                                        s.lens_data.worktree = Some(wt);
+                                        s.lens_data.diff.set_files(files);
+                                        s.lens_data.anchors = anchors;
+                                        s.annotate();
+                                        s.load_threads();
+                                    }
+                                    Err(e) => s.flash(format!("✗ Worktree: {e}"), true),
                                 }
                             },
                         );

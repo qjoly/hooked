@@ -8,6 +8,7 @@ use rune::{AppHandle, TextEdit, Tx};
 
 use crate::api::{self, Capabilities, Detail, Gauge, LiveSnapshot, Meta, Session};
 use crate::fmt;
+use crate::lenses::ReviewSource;
 
 pub static HANDLE: OnceLock<AppHandle<Hooked>> = OnceLock::new();
 
@@ -803,7 +804,7 @@ impl Hooked {
             s.fleet.archived_open = true;
         }
         if args.iter().any(|a| a == "--branch") {
-            s.lens_data.review_source = crate::lenses::ReviewSource::Branch;
+            s.lens_data.review_source = ReviewSource::Branch;
             s.lens_data.branch_open = true;
         }
         if args.iter().any(|a| a == "--rendered") {
@@ -1230,7 +1231,15 @@ impl Hooked {
         self.queued.clear();
         self.attachments.clear();
         self.tools_open.clear();
-        let source = self.lens_data.review_source;
+        let in_worktree = self
+            .sessions
+            .iter()
+            .any(|x| x.id == id && x.worktree_of.is_some());
+        let source = match (self.lens_data.review_source, in_worktree) {
+            (ReviewSource::Claude, true) => ReviewSource::Worktree,
+            (ReviewSource::Worktree, false) => ReviewSource::Claude,
+            (src, _) => src,
+        };
         let mode = self.lens_data.diff.mode();
         self.lens_data = crate::lenses::LensData {
             review_source: source,
