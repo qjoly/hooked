@@ -76,7 +76,8 @@ session states coloured by how much they need you.
   from the legend, search, and archived groups folded at the bottom),
   New session, Stats, Digest (generate and
   regenerate), Memory, Cron (create, edit, pause, run, delete), GitHub, Skills, Settings (theme,
-  notifications, new-session defaults, digest, auto-compact, tags, git sync).
+  notifications, default page, new-session defaults, digest, auto-compact, tags, git sync, with a
+  table of contents in place of the session list).
 - **Organizing**: drag a session (sidebar row or fleet card) onto another to group them, or onto
   a fleet repo header to take it out of its group; tags on rows and in the header, a tag filter in the sidebar, groups under their
   lead session with a tab strip (switch, make lead, leave, rename, new session in the group),

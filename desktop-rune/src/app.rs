@@ -471,6 +471,7 @@ impl Hooked {
         if let Ok(v) = api::get("/api/settings") {
             s.apply_settings(v);
             s.page = match s.setting("defaultPage").as_str().unwrap_or("deck") {
+                "sessions" => Page::Session,
                 "stats" => Page::Stats,
                 "digest" => Page::Digest,
                 "memory" => Page::Memory,
@@ -511,13 +512,22 @@ impl Hooked {
         if !family.is_empty() {
             s.term.family_name = Some(Box::leak(family.into_boxed_str()));
         }
-        if let Some(i) = args.iter().position(|a| a == "--session")
-            && let Some(id) = args.get(i + 1)
-        {
-            s.selected = Some(id.clone());
+        let start = args
+            .iter()
+            .position(|a| a == "--session")
+            .and_then(|i| args.get(i + 1).cloned())
+            .or_else(|| {
+                (s.page == Page::Session)
+                    .then(|| s.last_session())
+                    .flatten()
+            });
+        if let Some(id) = start {
             s.page = Page::Session;
-            s.detail = api::detail(id).ok();
+            s.detail = api::detail(&id).ok();
+            s.selected = Some(id);
             s.reset_question();
+        } else if s.page == Page::Session {
+            s.page = Page::Deck;
         }
         if let Some(i) = args.iter().position(|a| a == "--lens") {
             s.lens = match args.get(i + 1).map(String::as_str) {
@@ -901,6 +911,18 @@ impl Hooked {
         );
     }
 
+    fn last_session(&self) -> Option<String> {
+        let last: Option<String> = self.prefs.get("lastSession");
+        last.filter(|id| self.sessions.iter().any(|x| &x.id == id))
+            .or_else(|| {
+                self.sessions
+                    .iter()
+                    .filter(|x| !self.is_archived(x) && self.visible(x))
+                    .max_by(|a, b| a.last_activity.cmp(&b.last_activity))
+                    .map(|x| x.id.clone())
+            })
+    }
+
     pub fn open_sessions(&mut self) {
         if let Some(id) = self
             .selected
@@ -1220,6 +1242,7 @@ impl Hooked {
             return;
         }
         self.stash_draft();
+        self.save_pref("lastSession", &id);
         self.players.clear();
         self.set_term_focus(None);
         self.term_claimed = false;

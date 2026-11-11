@@ -140,6 +140,10 @@ pub struct PageData {
     pub settings_stale: bool,
     pub settings_loading: bool,
     pub settings_project: Option<TextEdit>,
+    pub settings_tops: Vec<f32>,
+    pub settings_last_h: f32,
+    pub settings_view: [f32; 2],
+    pub settings_active: usize,
 }
 
 impl Hooked {

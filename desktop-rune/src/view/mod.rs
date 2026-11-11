@@ -83,6 +83,8 @@ pub fn view(s: &Hooked, cx: &mut Cx<Hooked>) -> El {
     let mut body = row().key("body").w_full().grow(1.0).min_h(0.0);
     body = if s.focus {
         body
+    } else if s.page == Page::Settings {
+        body.child(settings::toc(s, &k))
     } else if s.sidebar_open {
         body.child(sidebar(s, &k, &mut layer))
     } else {
