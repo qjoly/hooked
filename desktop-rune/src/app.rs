@@ -8,6 +8,7 @@ use rune::{AppHandle, TextEdit, Tx};
 
 use crate::api::{self, Capabilities, Detail, Gauge, LiveSnapshot, Meta, Session};
 use crate::fmt;
+use crate::lenses::ReviewSource;
 
 pub static HANDLE: OnceLock<AppHandle<Hooked>> = OnceLock::new();
 
@@ -220,7 +221,7 @@ pub struct Hooked {
 
     pub lens_data: crate::lenses::LensData,
     pub pages: crate::pages::PageData,
-    pub announced: HashSet<String>,
+    pub announced: Option<HashSet<String>>,
     pub tray_dirty: bool,
 }
 
@@ -454,7 +455,7 @@ impl Hooked {
             focus: false,
             lens_data: crate::lenses::LensData::default(),
             pages: crate::pages::PageData::default(),
-            announced: HashSet::new(),
+            announced: None,
             tray_dirty: true,
         };
         // A synchronous first read: headless snapshots and the first frame show real data.
@@ -470,6 +471,7 @@ impl Hooked {
         if let Ok(v) = api::get("/api/settings") {
             s.apply_settings(v);
             s.page = match s.setting("defaultPage").as_str().unwrap_or("deck") {
+                "sessions" => Page::Session,
                 "stats" => Page::Stats,
                 "digest" => Page::Digest,
                 "memory" => Page::Memory,
@@ -500,12 +502,6 @@ impl Hooked {
             s.gauges = g;
             s.usage = Some(raw);
         }
-        s.announced = s
-            .sessions
-            .iter()
-            .filter(|x| x.needs_you())
-            .map(|x| x.id.clone())
-            .collect();
         let args = rune::extra_args();
         s.term.height = s.prefs.get("termHeight");
         s.term.side = s.prefs.get("termSide").unwrap_or(false);
@@ -516,13 +512,22 @@ impl Hooked {
         if !family.is_empty() {
             s.term.family_name = Some(Box::leak(family.into_boxed_str()));
         }
-        if let Some(i) = args.iter().position(|a| a == "--session")
-            && let Some(id) = args.get(i + 1)
-        {
-            s.selected = Some(id.clone());
+        let start = args
+            .iter()
+            .position(|a| a == "--session")
+            .and_then(|i| args.get(i + 1).cloned())
+            .or_else(|| {
+                (s.page == Page::Session)
+                    .then(|| s.last_session())
+                    .flatten()
+            });
+        if let Some(id) = start {
             s.page = Page::Session;
-            s.detail = api::detail(id).ok();
+            s.detail = api::detail(&id).ok();
+            s.selected = Some(id);
             s.reset_question();
+        } else if s.page == Page::Session {
+            s.page = Page::Deck;
         }
         if let Some(i) = args.iter().position(|a| a == "--lens") {
             s.lens = match args.get(i + 1).map(String::as_str) {
@@ -809,7 +814,7 @@ impl Hooked {
             s.fleet.archived_open = true;
         }
         if args.iter().any(|a| a == "--branch") {
-            s.lens_data.review_source = crate::lenses::ReviewSource::Branch;
+            s.lens_data.review_source = ReviewSource::Branch;
             s.lens_data.branch_open = true;
         }
         if args.iter().any(|a| a == "--rendered") {
@@ -904,6 +909,18 @@ impl Hooked {
                 s.palette_cites_for = q;
             },
         );
+    }
+
+    fn last_session(&self) -> Option<String> {
+        let last: Option<String> = self.prefs.get("lastSession");
+        last.filter(|id| self.sessions.iter().any(|x| &x.id == id))
+            .or_else(|| {
+                self.sessions
+                    .iter()
+                    .filter(|x| !self.is_archived(x) && self.visible(x))
+                    .max_by(|a, b| a.last_activity.cmp(&b.last_activity))
+                    .map(|x| x.id.clone())
+            })
     }
 
     pub fn open_sessions(&mut self) {
@@ -1225,6 +1242,7 @@ impl Hooked {
             return;
         }
         self.stash_draft();
+        self.save_pref("lastSession", &id);
         self.players.clear();
         self.set_term_focus(None);
         self.term_claimed = false;
@@ -1236,7 +1254,15 @@ impl Hooked {
         self.queued.clear();
         self.attachments.clear();
         self.tools_open.clear();
-        let source = self.lens_data.review_source;
+        let in_worktree = self
+            .sessions
+            .iter()
+            .any(|x| x.id == id && x.worktree_of.is_some());
+        let source = match (self.lens_data.review_source, in_worktree) {
+            (ReviewSource::Claude, true) => ReviewSource::Worktree,
+            (ReviewSource::Worktree, false) => ReviewSource::Claude,
+            (src, _) => src,
+        };
         let mode = self.lens_data.diff.mode();
         self.lens_data = crate::lenses::LensData {
             review_source: source,
@@ -1439,10 +1465,27 @@ impl Hooked {
         let generation = self.detail_gen.fetch_add(1, Ordering::SeqCst) + 1;
         self.detail_loading = true;
         let gen_ref = self.detail_gen.clone();
+        let worker_gen = gen_ref.clone();
         self.spawn(
             {
                 let id = id.clone();
-                move || api::detail(&id)
+                // A freshly launched session is not served until its transcript or first hook
+                // event lands, which can trail /api/launch's reply.
+                move || {
+                    let mut tries = 0;
+                    loop {
+                        let r = api::detail(&id);
+                        let missing = matches!(&r, Err(e) if e == "HTTP 404");
+                        if !missing
+                            || tries >= 20
+                            || worker_gen.load(Ordering::SeqCst) != generation
+                        {
+                            return r;
+                        }
+                        tries += 1;
+                        std::thread::sleep(Duration::from_millis(400));
+                    }
+                }
             },
             move |s, r, _| {
                 if gen_ref.load(Ordering::SeqCst) != generation {
@@ -1675,16 +1718,20 @@ impl Hooked {
 
     fn announce(&mut self) {
         let waiting: HashSet<String> = self.waiting().into_iter().map(|s| s.id.clone()).collect();
-        let fresh: Vec<Session> = self
-            .sessions
-            .iter()
-            .filter(|s| waiting.contains(&s.id) && !self.announced.contains(&s.id))
-            .cloned()
-            .collect();
-        self.announced = waiting;
+        let Some(seen) = self.announced.replace(waiting.clone()) else {
+            return;
+        };
         if !self.notify || rune_notify::app_focused() {
             return;
         }
+        let now = fmt::now_ms();
+        let fresh: Vec<Session> = self
+            .sessions
+            .iter()
+            .filter(|s| waiting.contains(&s.id) && !seen.contains(&s.id))
+            .filter(|s| !self.snoozed(&s.id) && recently_active(s, now))
+            .cloned()
+            .collect();
         for s in fresh {
             let body = match s.question.as_ref().and_then(|q| q.as_str()) {
                 Some(q) => q.to_string(),
@@ -2410,6 +2457,14 @@ pub fn open_link(s: &mut Hooked, url: &str, tx: &mut Tx) {
     }
 }
 
+const ANNOUNCE_WINDOW_MS: i64 = 10 * 60_000;
+
+/// `lastActivity` ignores SessionStart/SessionEnd, so a session that hooked only
+/// restarted and resumed keeps its old timestamp and is not re-announced.
+fn recently_active(s: &Session, now: i64) -> bool {
+    fmt::age_ms(s.last_activity.as_deref(), now).is_some_and(|age| age < ANNOUNCE_WINDOW_MS)
+}
+
 #[cfg(test)]
 mod link_tests {
     use super::*;
@@ -2448,6 +2503,18 @@ mod link_tests {
             matches!(link_target("example.com"), LinkTarget::Open(u) if u == "https://example.com")
         );
     }
+
+    #[test]
+    fn only_recent_activity_is_announced() {
+        let now = fmt::parse_ts("2026-11-11T12:00:00Z").unwrap();
+        let at = |ts: Option<&str>| Session {
+            last_activity: ts.map(str::to_string),
+            ..Default::default()
+        };
+        assert!(recently_active(&at(Some("2026-11-11T11:58:00Z")), now));
+        assert!(!recently_active(&at(Some("2026-11-08T09:00:00Z")), now));
+        assert!(!recently_active(&at(None), now));
+    }
 }
 
 impl Hooked {
@@ -2470,15 +2537,43 @@ impl Hooked {
     }
 }
 
-/// Follows `/api/stream` (a tick per hook event and transcript write, plus a heartbeat) and
-/// rereads the session list, at most a few times a second.
+const LIST_DEBOUNCE: Duration = Duration::from_millis(250);
+const LIST_MIN_GAP: Duration = Duration::from_secs(1);
+
+/// Rereads the session list after `/api/stream` ticks, like the web's `scheduleRefresh`: a burst
+/// becomes one fetch, at most one a second, and a tick that lands mid-fetch still gets one after.
+fn refresh_on_ticks(h: AppHandle<Hooked>, ticks: std::sync::mpsc::Receiver<()>) {
+    let mut last: Option<Instant> = None;
+    while ticks.recv().is_ok() {
+        let gap = last.map_or(Duration::ZERO, |t| LIST_MIN_GAP.saturating_sub(t.elapsed()));
+        std::thread::sleep(LIST_DEBOUNCE.max(gap));
+        while ticks.try_recv().is_ok() {}
+        last = Some(Instant::now());
+        if let (Ok(list), meta, tags) =
+            (api::sessions(), api::session_meta().ok(), api::tags().ok())
+        {
+            h.update(move |s, _| {
+                if let Some(t) = tags {
+                    s.tags = t;
+                }
+                s.apply_sessions(list, meta)
+            });
+        }
+    }
+}
+
+/// Follows `/api/stream` (a tick per hook event and transcript write, plus a heartbeat).
 pub fn start_workers(h: Option<AppHandle<Hooked>>) {
     let Some(h) = h else {
         return;
     };
     let h2 = h.clone();
+    let (tick, ticks) = std::sync::mpsc::channel();
+    {
+        let h = h.clone();
+        std::thread::spawn(move || refresh_on_ticks(h, ticks));
+    }
     std::thread::spawn(move || {
-        let mut last = Instant::now() - Duration::from_secs(10);
         loop {
             let r = api::follow("/api/stream", |payload| {
                 if payload.contains("\"spec\"")
@@ -2489,19 +2584,7 @@ pub fn start_workers(h: Option<AppHandle<Hooked>>) {
                     h.update(move |s, _| s.open_query_spec(spec));
                     return true;
                 }
-                if last.elapsed() > Duration::from_millis(400) {
-                    last = Instant::now();
-                    if let (Ok(list), meta, tags) =
-                        (api::sessions(), api::session_meta().ok(), api::tags().ok())
-                    {
-                        h.update(move |s, _| {
-                            if let Some(t) = tags {
-                                s.tags = t;
-                            }
-                            s.apply_sessions(list, meta)
-                        });
-                    }
-                }
+                let _ = tick.send(());
                 true
             });
             if r.is_err() {

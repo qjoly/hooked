@@ -338,12 +338,19 @@ function distinguishingLines(prompts) {
 // scan du transcript : lancements + complétions
 // ————————————————————————————————————————————————————————————————————————
 
+function mayConcernWorkflows(acc, line) {
+  if (line.includes('"Workflow"')) return true;
+  if (acc.byToolUse.size && line.includes('status>')) return true;
+  for (const id of acc.pending) if (line.includes(id)) return true;
+  return false;
+}
+
 // Replie le transcript principal pour y trouver les lancements de Workflow et leurs notifications
 // de complétion. Incrémental/caché : appelé pour la session ouverte à chaque poll.
 const scanLaunches = incrementalReader({
   init: () => ({ runs: [], byToolUse: new Map(), byTask: new Map(), pending: new Set() }),
   fold: (acc, line) => {
-    if (!line) return;
+    if (!line || !mayConcernWorkflows(acc, line)) return;
     let j;
     try { j = JSON.parse(line); } catch (_) { return; }
     // La notification est cherchée sur TOUS les porteurs, avant tout aiguillage par type : le plus
@@ -385,6 +392,7 @@ const scanLaunches = incrementalReader({
   },
   finalize: (acc) => acc,
   empty: null,
+  shared: true,
 });
 
 // Applique une <task-notification> au run qu'elle concerne (corrélation par tool-use-id, à défaut

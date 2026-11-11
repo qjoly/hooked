@@ -10,6 +10,7 @@
  */
 import fs from 'node:fs';
 import { chatText, toolDetail, toolDiffOps, toolInputText, toolResultText, toolSendFiles, toolShowWork } from './util.js';
+import { transcriptRows } from './transcriptCache.js';
 
 // Plafond par message dans la charge utile de la conversation : une session porte des centaines
 // de messages et la liste entière repart à chaque rafraîchissement. Au-delà, le texte est coupé
@@ -51,9 +52,8 @@ function unframeReport(body) {
 
 // includeSidechain : pour un transcript de sous-agent (tout est isSidechain), on garde tout.
 function buildConversation(fp, includeSidechain) {
-  let data;
-  try { data = fs.readFileSync(fp, 'utf8'); } catch (_) { return []; }
-  const lines = data.split('\n');
+  const rows = transcriptRows(fp);
+  if (!rows) return [];
   // passe 1 : indexe les résultats d'outils par tool_use_id
   // + collecte les textes des vrais tours user (pour dédup des queue-operations traitées)
   const results = new Map();
@@ -69,10 +69,7 @@ function buildConversation(fp, includeSidechain) {
   // clé de dédup queue-op ↔ tour user : on collapse TOUT le whitespace (pas seulement `[ \t]+`
   // comme chatText) pour qu'un collage multi-espaces (table alignée) ou multi-lignes matche.
   const dedupKey = (t) => chatText(t).replace(/\s+/g, ' ').trim();
-  for (const line of lines) {
-    if (!line) continue;
-    let j;
-    try { j = JSON.parse(line); } catch (_) { continue; }
+  for (const j of rows) {
     const am = agentMessage(j);
     if (am) {
       const bodies = agentMessages.get(am.from) || [];
@@ -109,10 +106,7 @@ function buildConversation(fp, includeSidechain) {
   const delegatedAgents = new Set(agentOfToolUse.values());
   const msgs = [];
   const seenNotes = new Set(); // dédup des <task-notification> (mêmes notifs sur plusieurs porteurs)
-  for (const line of lines) {
-    if (!line) continue;
-    let j;
-    try { j = JSON.parse(line); } catch (_) { continue; }
+  for (const j of rows) {
     if (!includeSidechain && j.isSidechain) continue;
     // A message from a subagent of this session is shown as the result of its Agent call (see
     // agentReport), not as a bubble: it is model output, not something the user typed.

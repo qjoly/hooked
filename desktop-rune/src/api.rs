@@ -145,6 +145,7 @@ pub struct Session {
     pub project_name: Option<String>,
     pub repo: Option<String>,
     pub git_branch: Option<String>,
+    pub worktree_of: Option<String>,
     pub state: String,
     pub live: bool,
     pub activity: Option<String>,
@@ -813,6 +814,22 @@ pub fn vcs_changes(id: &str) -> Result<Vec<Change>, String> {
             .cloned()
             .unwrap_or(Value::Array(Vec::new())),
     )
+}
+
+#[derive(Clone, Debug, Default, Deserialize, PartialEq)]
+#[serde(default, rename_all = "camelCase")]
+pub struct BaseDiff {
+    pub root: Option<String>,
+    pub base: Option<String>,
+    pub merge_base: Option<String>,
+    pub branch: Option<String>,
+    pub commits: u32,
+    pub changes: Vec<Change>,
+    pub truncated: bool,
+}
+
+pub fn vcs_base_diff(id: &str) -> Result<BaseDiff, String> {
+    decode(get(&format!("/api/session/vcs-base-diff?id={}", enc(id)))?)
 }
 
 #[derive(Clone, Debug, Default, Deserialize, PartialEq)]

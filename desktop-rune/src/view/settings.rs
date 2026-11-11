@@ -1,4 +1,5 @@
-use rune::{Color, Cursor, El, col, el, row, text};
+use rune::{Color, Cursor, El, Icon, Tx, col, el, row, text};
+use rune_kit::shell::{Sidebar, SidebarRow};
 use rune_kit::{
     Button, ButtonVariant, ControlSize, IconButton, IconButtonVariant, Kit, Switch, TextInput,
 };
@@ -28,6 +29,20 @@ const EDITORS: [(&str, &str); 6] = [
     ("jetbrains", "JetBrains"),
 ];
 const DAYS: [&str; 7] = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+static SECTIONS: [(&str, &str, &Icon); 9] = [
+    ("set-app", "This app", &icons::MONITOR),
+    ("set-sessions", "New sessions", &icons::PLUS),
+    ("set-display", "Sidebar and session", &icons::SIDEBAR),
+    ("set-service", "hooked service", &icons::ACTIVITY),
+    ("set-tags", "Tags", &icons::TAG),
+    ("set-rc", "Remote control", &icons::PLUG),
+    ("set-term", "Terminal", &icons::TERMINAL),
+    ("set-keys", "Keyboard shortcuts", &icons::ZAP),
+    ("set-maint", "Maintenance", &icons::TOOL),
+];
+const ACTIVE_BAND: f32 = 64.0;
+const PAD: f32 = 24.0;
+const GAP: f32 = 18.0;
 const MENU: [(&str, &str); 2] = [
     ("modelEffort", "Model and effort"),
     ("permissionMode", "Permission mode"),
@@ -222,7 +237,7 @@ fn app_card(s: &Hooked, k: &Kit, v: &Value) -> El {
             "Where the app opens.",
             chips(
                 std::iter::once(("deck", "Deck"))
-                    .chain(NAV.iter().copied().filter(|(key, _)| *key != "sessions"))
+                    .chain(NAV.iter().copied())
                     .map(|(key, label)| chip(k, format!("home-{key}"), label.into(), home == key, move |s| s.save_setting("defaultPage", json!(key))))
                     .collect(),
             ),
@@ -891,23 +906,101 @@ pub fn view(s: &Hooked, k: &Kit) -> El {
         })
         .build(k)
         .key("set-web");
+    let cards = [
+        app_card(s, k, v),
+        sessions_card(s, k, v),
+        sidebar_card(k, v),
+        service_card(s, k, v),
+        tags_card(s, k, v),
+        remote_card(s, k, v),
+        terminal_card(s, k),
+        shortcuts_card(s, k),
+        maintenance_card(s, k, v),
+    ];
+    let [_, view_h] = s.pages.settings_view;
+    let tail = (view_h - s.pages.settings_last_h - 2.0 * PAD - GAP).max(0.0);
     let body = col()
         .key("set-inner")
         .w_full()
         .max_w(860.0)
         .self_center()
-        .padding(24.0)
-        .gap(18.0)
-        .child(app_card(s, k, v))
-        .child(sessions_card(s, k, v))
-        .child(sidebar_card(k, v))
-        .child(service_card(s, k, v))
-        .child(tags_card(s, k, v))
-        .child(remote_card(s, k, v))
-        .child(terminal_card(s, k))
-        .child(shortcuts_card(s, k))
-        .child(maintenance_card(s, k, v));
-    page(k, "settings", "Settings", more, scroll("set-scroll", body))
+        .padding(PAD)
+        .gap(GAP)
+        .children(
+            cards
+                .into_iter()
+                .enumerate()
+                .map(|(i, c)| c.on_layout_tx(move |s: &mut Hooked, r, tx| card_moved(s, i, r, tx))),
+        )
+        .child(el().key("set-tail").h(tail));
+    let viewport = scroll("set-scroll", body).on_layout_tx(|s: &mut Hooked, r, tx| {
+        let v = [r[1], r[3]];
+        if s.pages.settings_view == v {
+            tx.live_only();
+        } else {
+            s.pages.settings_view = v;
+        }
+    });
+    page(k, "settings", "Settings", more, viewport)
+}
+
+fn card_moved(s: &mut Hooked, i: usize, r: [f32; 4], tx: &mut Tx) {
+    let p = &mut s.pages;
+    if p.settings_tops.len() != SECTIONS.len() {
+        p.settings_tops = vec![f32::MAX; SECTIONS.len()];
+    }
+    p.settings_tops[i] = r[1];
+    let resized = i + 1 == SECTIONS.len() && (p.settings_last_h - r[3]).abs() > 0.5;
+    if resized {
+        p.settings_last_h = r[3];
+    }
+    let band = p.settings_view[0] + ACTIVE_BAND;
+    let active = p
+        .settings_tops
+        .iter()
+        .rposition(|&t| t <= band)
+        .unwrap_or(0);
+    if active == p.settings_active && !resized {
+        tx.live_only();
+    } else {
+        p.settings_active = active;
+    }
+}
+
+pub fn toc(s: &Hooked, k: &Kit) -> El {
+    let mut sb = Sidebar::new()
+        .label("Settings sections")
+        .inset(8.0)
+        .header_padding(10.0, 6.0)
+        .row_gap(2.0)
+        .header(
+            row()
+                .key("toc-head")
+                .h(26.0)
+                .px(8.0)
+                .center_y()
+                .child(section_title(k, "ON THIS PAGE")),
+        );
+    for (i, &(key, label, icon)) in SECTIONS.iter().enumerate() {
+        sb = sb.child(
+            SidebarRow::new(label)
+                .icon(icon)
+                .selected(s.pages.settings_active == i)
+                .on_select(move |s: &mut Hooked, tx: &mut Tx| {
+                    s.pages.settings_active = i;
+                    tx.scroll_key_to(key, PAD);
+                })
+                .build(k)
+                .key(format!("toc-{key}")),
+        );
+    }
+    col()
+        .key("settings-toc")
+        .w(220.0)
+        .h_full()
+        .fill(k.c.bg_deep)
+        .border_sides([0.0, 1.0, 0.0, 0.0], k.c.border_weak)
+        .child(sb.build(k))
 }
 
 fn branches(s: &Hooked, k: &Kit) -> El {

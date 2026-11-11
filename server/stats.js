@@ -21,6 +21,10 @@ import { latestTodos, todoSummary } from './todos.js';
 import { buildBackgroundJobs, jobStatus, jobLabel } from './background.js';
 import { readSessionMeta, groupInfo } from './sessionMeta.js';
 import { DIGEST_PROMPT_PREFIX } from './digests.js';
+import { withSharedRows, memoByFile } from './transcriptCache.js';
+
+const conversationOf = memoByFile(buildConversation);
+const subSessionsOf = memoByFile(buildSubSessions);
 
 // Sessions « live-only » : présentes dans les évènements de hooks mais pas encore
 // dans un transcript (Claude Code n'écrit le .jsonl qu'au premier message de
@@ -340,6 +344,10 @@ function sessionCache(s, live) {
 }
 
 function sessionDetail(id) {
+  return withSharedRows(() => buildSessionDetail(id));
+}
+
+function buildSessionDetail(id) {
   const sessions = scanSessions();
   let s = sessions.find((x) => x.id === id);
   // session tout juste lancée : pas encore de transcript → on la sert depuis les hooks.
@@ -349,15 +357,15 @@ function sessionDetail(id) {
   s.worktreeOf = worktreeOf(s.project);
   const ev = readEvents().filter((e) => e.session_id === id).slice(-60);
   const last = ev.length ? liveStateFor(ev[ev.length - 1]) : null;
-  const messages = buildConversation(s.file);
+  let messages = conversationOf(s.file);
   // Le transcript ne porte pas encore le prompt (subagent foreground en cours, cf. fillFromEvents) :
   // les hooks, eux, l'ont capté. Sans ça la conversation reste « Empty conversation » pendant tout
   // le travail de la session.
   if (!messages.length && s.firstPrompt) {
-    messages.push({ role: 'user', ts: s.startTs || null, text: s.firstPrompt, tools: [], fromHooks: true });
+    messages = [{ role: 'user', ts: s.startTs || null, text: s.firstPrompt, tools: [], fromHooks: true }];
   }
   // sessions sœurs créées / référencées par cette conversation (cartes vivantes du sous-onglet).
-  const subSessions = buildSubSessions(s.file, id);
+  const subSessions = subSessionsOf(s.file, id);
   const changes = buildFileChanges(s.file, id);
   // Tours (prompts) de la conversation, pour filtrer les changements par prompt dans la lentille
   // Ship. On exclut les tours auto (wakeups SDK) ; l'attribution op→tour se fait par timestamp.

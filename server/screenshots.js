@@ -29,7 +29,7 @@ const isImagePath = (p) => IMG_EXT.has(path.extname(p || '').toLowerCase());
 // Replie une ligne de transcript : tout tool_use Read/Write dont le file_path est une image.
 // Le test textuel préalable évite le JSON.parse sur l'immense majorité des lignes.
 function foldLine(acc, line) {
-  if (!line || !/\.(png|jpe?g|webp|gif)/i.test(line)) return;
+  if (!line || !line.includes('"file_path"') || !/\.(png|jpe?g|webp|gif)/i.test(line)) return;
   let j;
   try { j = JSON.parse(line); } catch (_) { return; }
   const c = j && j.message && j.message.content;
@@ -64,6 +64,7 @@ const readShots = incrementalReader({
   fold: foldLine,
   finalize: finalizeShots,
   empty: [],
+  shared: true,
 });
 
 // Transcripts de sous-agents d'une session : `<proj>/<session>/subagents/agent-*.jsonl` et, pour

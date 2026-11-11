@@ -737,33 +737,38 @@ fn files_rail(s: &Hooked, k: &Kit) -> El {
 
 pub fn review(s: &Hooked, d: &Detail, k: &Kit) -> El {
     let ld = &s.lens_data;
-    let src = match ld.review_source {
-        ReviewSource::Claude => 0,
-        ReviewSource::Tree => 1,
-        ReviewSource::Branch => 2,
-    };
+    let sources: Vec<ReviewSource> = [
+        ReviewSource::Claude,
+        ReviewSource::Worktree,
+        ReviewSource::Tree,
+        ReviewSource::Branch,
+    ]
+    .into_iter()
+    .filter(|&x| x != ReviewSource::Worktree || d.session.worktree_of.is_some())
+    .collect();
+    let labels: Vec<String> = sources
+        .iter()
+        .map(|x| match x {
+            ReviewSource::Claude => format!("Claude's edits · {}", d.changes.len()),
+            ReviewSource::Worktree => "Worktree".to_string(),
+            ReviewSource::Tree => "Working tree".to_string(),
+            ReviewSource::Branch => "Branch".to_string(),
+        })
+        .collect();
+    let src = sources.iter().position(|&x| x == ld.review_source);
     let split = ld.diff.mode() == DiffMode::Split;
     let mut top = bar(k, "review-bar")
         .child(
-            SegmentedControl::new(
-                &[
-                    format!("Claude's edits · {}", d.changes.len()),
-                    "Working tree".to_string(),
-                    "Branch".to_string(),
-                ],
-                Some(src),
-            )
-            .label("Diff source")
-            .fit()
-            .on_pick(|s: &mut Hooked, i, _| {
-                s.set_review_source(match i {
-                    0 => ReviewSource::Claude,
-                    1 => ReviewSource::Tree,
-                    _ => ReviewSource::Branch,
+            SegmentedControl::new(&labels, src)
+                .label("Diff source")
+                .fit()
+                .on_pick(move |s: &mut Hooked, i, _| {
+                    if let Some(&x) = sources.get(i) {
+                        s.set_review_source(x)
+                    }
                 })
-            })
-            .build(k)
-            .key("review-source"),
+                .build(k)
+                .key("review-source"),
         )
         .child(
             text(format!(
@@ -808,6 +813,28 @@ pub fn review(s: &Hooked, d: &Detail, k: &Kit) -> El {
                 .on_press(|s: &mut Hooked| s.lens_data.branch_open = !s.lens_data.branch_open)
                 .build(k)
                 .key("review-branch-toggle"),
+        );
+    }
+    if ld.review_source == ReviewSource::Worktree
+        && let Some(wt) = ld.worktree.as_ref().filter(|w| w.merge_base.is_some())
+    {
+        top = top.child(
+            row()
+                .gap(6.0)
+                .center_y()
+                .child(glyph(&icons::GIT_BRANCH, 12.0, k.c.icon_muted))
+                .child(
+                    text(format!(
+                        "{} vs {} · {} commit{} + uncommitted{}",
+                        wt.branch.as_deref().unwrap_or("HEAD"),
+                        wt.base.as_deref().unwrap_or_default(),
+                        wt.commits,
+                        if wt.commits == 1 { "" } else { "s" },
+                        if wt.truncated { " · truncated" } else { "" }
+                    ))
+                    .font(k.ty.text_small)
+                    .color(k.c.text_muted),
+                ),
         );
     }
     if ld.review_source == ReviewSource::Claude && !d.change_turns.is_empty() {
@@ -917,6 +944,15 @@ pub fn review(s: &Hooked, d: &Detail, k: &Kit) -> El {
             }
         } else if ld.review_source == ReviewSource::Tree {
             "The working tree is clean."
+        } else if ld.review_source == ReviewSource::Worktree {
+            match ld.worktree.as_ref() {
+                None => "Reading the worktree…",
+                Some(w) if w.base.is_none() => "No base recorded for this worktree.",
+                Some(w) if w.merge_base.is_none() => {
+                    "No common history with the base to compare against."
+                }
+                Some(_) => "Nothing changed since this worktree forked from its base.",
+            }
         } else {
             "No file changes in this session yet."
         };
