@@ -1950,6 +1950,10 @@ code.path { color: var(--muted); font-size: var(--t-micro); word-break: break-al
 .ns-prompts-edit:hover { color: var(--accent-d); }
 .ns-worktree input { margin: 0 2px 0 0; cursor: pointer; accent-color: var(--accent-d); }
 .ns-worktree:has(input:checked) { color: var(--text); border-color: var(--accent-d); }
+.ns-wt-row { display: flex; gap: 10px; flex-wrap: wrap; margin: 10px 4px 0; }
+.ns-wt-field { display: flex; align-items: center; gap: 6px; flex: 1 1 220px; font-size: var(--t-meta); color: var(--muted); white-space: nowrap; }
+.ns-wt-field .lf-input { font-family: var(--mono); font-size: var(--t-ui); padding: 5px 8px; }
+.ns-wt-err { display: flex; align-items: center; gap: 6px; margin: 6px 4px 0; font-size: var(--t-meta); color: var(--warn); }
 
 /* ---------- images collées (tray du composer) ---------- */
 .img-tray { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }

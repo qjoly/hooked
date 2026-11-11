@@ -2,7 +2,7 @@
   import { untrack, onMount } from 'svelte';
   import { data, ui, settings, updateSettings, setTheme, setScheme, setCorners, loadSessions, allTags, tagUsage, deleteTag } from '$lib/state.svelte.js';
   import { tagColor } from '$lib/format.js';
-  import { resync, getGit, checkoutBranch, dismissRestartNotice, getClaudeVersion, upgradeClaude, restartClaudeSession, pickFolder, getRemoteControl, getCapabilities, getWarmup, runWarmup } from '$lib/api.js';
+  import { resync, getGit, checkoutBranch, dismissRestartNotice, getClaudeVersion, upgradeClaude, restartClaudeSession, pickFolder, getRemoteControl, getCapabilities, getWarmup, runWarmup, listWorktrees, removeWorktree } from '$lib/api.js';
   import { COMPACT_LEAD_MS, CACHED_READ_SHARE } from '$lib/promptCache.js';
   import { isHideableModel } from '$lib/models.js';
   import { getAllBindings, setBinding, resetBinding, resetAll as resetAllShortcuts, formatKeys, keysFromEvent } from '$lib/shortcuts.js';
@@ -31,6 +31,7 @@
     { id: 'pset-live', label: 'Live state' },
     { id: 'pset-claude', label: 'Claude Code' },
     { id: 'pset-git', label: 'Git' },
+    { id: 'pset-worktrees', label: 'Worktrees' },
     { id: 'pset-tags', label: 'Tags' },
     { id: 'pset-shortcuts', label: 'Keyboard shortcuts' },
     { id: 'pset-interface', label: 'Interface' },
@@ -61,6 +62,29 @@
   // Auto-compact (cf. server/agent.js → shouldAutoCompact); the figures come from the cache model.
   const ac = $derived(settings.autoCompact || {});
   const saveAutoCompact = (patch) => updateSettings({ autoCompact: { ...settings.autoCompact, ...patch } });
+  const wtSet = $derived(settings.worktrees || {});
+  const saveWorktrees = (patch) => updateSettings({ worktrees: { ...settings.worktrees, ...patch } });
+  let wtList = $state(null);
+  let wtLocation = $state('');
+  let wtScanning = $state(false);
+  let wtBusy = $state(null);
+  let wtStatus = $state('');
+  async function scanWorktrees() {
+    wtScanning = true;
+    try { const r = await listWorktrees(); wtList = r.worktrees; wtLocation = r.location; }
+    catch (e) { wtStatus = '✗ ' + e.message; }
+    wtScanning = false;
+  }
+  async function dropWorktree(w, force = false) {
+    if (!force && !confirm(`Remove ${w.path}?` + (w.merged ? '' : `\nBranch ${w.branch || '(detached)'} has commits the base does not; it is kept.`))) return;
+    wtBusy = w.path;
+    const res = await removeWorktree(w.path, force).catch((e) => ({ ok: false, data: { error: e.message } }));
+    wtBusy = null;
+    if (res.ok) { wtList = wtList.filter((x) => x.path !== w.path); wtStatus = '✓ removed ' + w.path + (res.data.branchDeleted ? ' and its branch' : ''); }
+    else if (res.data.dirty) { if (confirm(`${res.data.error}. Discard them and remove?`)) dropWorktree(w, true); }
+    else wtStatus = '✗ ' + (res.data.error || 'failed');
+  }
+  const wtShort = (p) => p.replace(/^\/Users\/[^/]+|^\/home\/[^/]+/, '~');
   const saveSidebarCache = (patch) => updateSettings({ sidebarCache: { ...settings.sidebarCache, ...patch } });
   const AC_LEAD_MIN = Math.round(COMPACT_LEAD_MS / 60000);
   const AC_READ_PCT = Math.round(CACHED_READ_SHARE * 100);
@@ -978,6 +1002,54 @@
       </label>
     </div>
 
+    <div class="card" id="pset-worktrees" data-sec>
+      <h2>Worktrees</h2>
+      <p class="hint">The <strong>worktree</strong> option of a new session creates a git worktree on a new branch, then launches the session in it. The branch has no upstream: push it with <code>git push -u origin HEAD</code>.</p>
+      <div class="cmd-row">
+        <input class="cmd-input" placeholder="~/.claude/hooked/worktrees" value={wtSet.location || ''} spellcheck="false"
+               onchange={(e) => saveWorktrees({ location: e.currentTarget.value.trim() })} />
+      </div>
+      <p class="hint" style="margin:6px 0 12px">Folder new worktrees go into (absolute or <code>~/…</code>). Existing worktrees stay where they are.</p>
+      <label class="check">
+        <input type="checkbox" checked={wtSet.autoName !== false} onchange={(e) => saveWorktrees({ autoName: e.currentTarget.checked })} />
+        <span>Name the branch from the first prompt (one Haiku call, e.g. <code>feat/dark-mode-toggle</code>). The session starts on a temporary <code>hooked/…</code> branch, renamed a few seconds later.</span>
+      </label>
+      <textarea class="cmd-input wt-instr" rows="2" placeholder="Extra naming instructions, e.g. “prefix with the Jira key when the prompt has one”" disabled={wtSet.autoName === false}
+                value={wtSet.nameInstructions || ''} onchange={(e) => saveWorktrees({ nameInstructions: e.currentTarget.value })}></textarea>
+
+      <div class="cmd-row" style="margin-top:14px">
+        <button class="save" onclick={scanWorktrees} disabled={wtScanning}>{#if wtScanning}<Icon name="queued" size={14} />{:else}<Icon name="search" size={14} />{/if} {wtList ? 'Rescan' : 'Scan worktrees'}</button>
+        {#if wtStatus}<span class="status">{wtStatus}</span>{/if}
+      </div>
+      {#if wtList}
+        {#if wtList.length}
+          <ul class="rc-list">
+            {#each wtList as w (w.path)}
+              <li class="rc-row wt-row">
+                <span class="rc-dot" class:on={w.live.length} title={w.live.length ? 'A running session uses it' : ''}></span>
+                <span class="rc-path" title={w.path}>{wtShort(w.path)}<span class="wt-branch">{w.branch || '(detached)'}</span></span>
+                <span class="rc-state">
+                  {#if w.missing}<span class="badge dirty">missing</span>
+                  {:else}
+                    {#if w.managed}<span class="badge">hooked</span>{/if}
+                    {#if w.dirtyFiles}<span class="badge dirty">{w.dirtyFiles} uncommitted</span>{/if}
+                    {#if w.pr}<a class="badge" href={w.pr.url} target="_blank" rel="noopener">#{w.pr.number} {w.pr.state.toLowerCase()}</a>{/if}
+                    {#if w.merged}<span class="badge">{w.unique === 0 ? 'nothing beyond ' + w.base : 'merged'}</span>
+                    {:else if w.unique}<span class="badge">{w.unique} commit{w.unique > 1 ? 's' : ''} ahead</span>{/if}
+                    {#if w.sessions.length}<span class="badge">{w.sessions.length} session{w.sessions.length > 1 ? 's' : ''}</span>{/if}
+                  {/if}
+                </span>
+                <button class="rc-rm" disabled={wtBusy === w.path || w.live.length > 0} onclick={() => dropWorktree(w)}
+                        title={w.live.length ? 'A running session uses it — archive it first' : 'Remove the worktree'} aria-label="Remove the worktree">{#if wtBusy === w.path}<Icon name="queued" size={13} />{:else}<Icon name="trash" size={13} />{/if}</button>
+              </li>
+            {/each}
+          </ul>
+        {:else}
+          <p class="hint" style="margin-top:8px">No linked worktree in the repositories of your sessions.</p>
+        {/if}
+      {/if}
+    </div>
+
     <div class="card">
       <h2>Conversation diffs</h2>
       <p class="hint">How file edits render inline in the conversation. (Per-browser preference.)</p>
@@ -1126,6 +1198,11 @@
   .rc-state { flex: 0 0 auto; color: var(--muted); font-size: var(--t-meta); }
   .rc-rm { flex: 0 0 auto; background: var(--surface); border: 1px solid var(--border); color: var(--muted); border-radius: 6px; width: 26px; height: 24px; cursor: pointer; font-size: var(--t-micro); }
   .rc-rm:hover { border-color: #f04438; color: #f04438; }
+  .wt-row { flex-wrap: wrap; }
+  .wt-row .rc-state { display: flex; flex-wrap: wrap; gap: 4px; }
+  .wt-row .badge { margin-left: 0; text-decoration: none; }
+  .wt-branch { margin-left: 10px; color: var(--muted); }
+  .wt-instr { width: 100%; box-sizing: border-box; resize: vertical; font-family: inherit; margin-top: 2px; }
   .badge { display: inline-block; margin-left: 6px; padding: 1px 8px; border-radius: 20px; font-size: var(--t-micro); font-weight: 600; background: var(--bg3); border: 1px solid var(--border); color: var(--muted); vertical-align: middle; }
   .badge.dirty { color: var(--accent-d); border-color: var(--accent); background: var(--accent-soft); }
   .chip.danger { color: #b42318; border-color: #f0a99f; background: #fef3f2; }

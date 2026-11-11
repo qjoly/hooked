@@ -167,7 +167,9 @@ const TOOLS = [
         model: { type: 'string', description: 'modèle optionnel : alias de famille (opus/sonnet/haiku/fable) ou version complète (ex. claude-opus-4-8). Valeurs valides = install claude locale ; une valeur inconnue est rejetée par le serveur.' },
         effort: { type: 'string', description: 'niveau d\'effort optionnel (low/medium/high/xhigh/max, + ultracode si claude ≥ 2.1.203). Validé par le serveur.' },
         resumeId: { type: 'string', description: 'id d\'une session existante à reprendre' },
-        worktree: { type: 'boolean', description: 'démarrer dans un git worktree dédié (session neuve uniquement)' },
+        worktree: { type: 'boolean', description: 'new session only: create a git worktree on a new branch and start the session in it' },
+        worktreeBase: { type: 'string', description: 'with worktree: branch or ref the worktree starts from (default: the remote default branch, e.g. origin/main)' },
+        worktreeBranch: { type: 'string', description: 'with worktree: name of the new branch (default: named from the prompt)' },
         ephemeral: { type: 'boolean', description: 'the session archives itself once its task is done, when it is confident nothing is left to check (new session with a prompt only)' },
         group: { type: 'boolean', description: 'false pour lancer une session indépendante, hors du groupe de la session appelante (défaut : true)' },
       },
@@ -175,7 +177,10 @@ const TOOLS = [
     },
     // HOOKED_LAUNCH_KEY est injecté par hooked dans l'env de ce proxy (cf. hookedMcpServer) : il
     // désigne la session appelante, que la nouvelle session rejoint dans son groupe.
-    run: (a) => httpRequest('POST', '/api/launch', process.env.HOOKED_LAUNCH_KEY ? { ...a, parentKey: process.env.HOOKED_LAUNCH_KEY } : a),
+    run: ({ worktreeBase, worktreeBranch, ...a }) => {
+      if (a.worktree) a.worktree = { base: worktreeBase, branch: worktreeBranch };
+      return httpRequest('POST', '/api/launch', process.env.HOOKED_LAUNCH_KEY ? { ...a, parentKey: process.env.HOOKED_LAUNCH_KEY } : a);
+    },
   },
   {
     name: 'group_sessions',

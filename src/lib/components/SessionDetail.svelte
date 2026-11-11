@@ -11,7 +11,7 @@
   import { onMount, onDestroy, tick, untrack } from 'svelte';
   import { goto } from '$app/navigation';
   import { ui, data, settings, loadSessions, openModal, sessionTitle, sessionTags, renameSession, toggleFocus, splitWithMostRecent, canSplit, toggleArchive, isArchived, unarchive } from '$lib/state.svelte.js';
-  import { getSession, setMode, setModelEffort, setAutoApprove, openInEditor, openInGhostty, fork, launch, deleteSession, restartClaudeSession, connectSessionStream, listTerminals, openTerminal, killTerminal } from '$lib/api.js';
+  import { getSession, setMode, setModelEffort, setAutoApprove, openInEditor, openInGhostty, fork, launch, deleteSession, removeWorktree, restartClaudeSession, connectSessionStream, listTerminals, openTerminal, killTerminal } from '$lib/api.js';
   import { promptCacheState } from '$lib/promptCache.js';
   import { STATE_LABEL, fmtCost, fmtTokens, shortModel, PERMISSION_MODES, modeLabel, modeMeta, modelAlias, tagColor, lotColor, resumeCommand, parseBang, isBlockForCommand } from '$lib/format.js';
   import { page } from '$app/state';
@@ -580,6 +580,29 @@
     if (res.ok) { loadSessions(); ui.tick++; }
     else { deleting = false; alert('✗ ' + (res.data.error || 'failed')); }
   }
+  let wtRemoving = $state(false);
+  function removeSessionWorktree() {
+    openModal('confirm', {
+      title: 'Remove this worktree?',
+      message: `Deletes ${s.project} from disk. Its branch is deleted too when the base already has all of its commits; otherwise the branch stays. The session itself stays in the dashboard.`,
+      confirmLabel: 'Remove worktree', confirmIcon: 'trash', danger: true, onConfirm: () => doRemoveWorktree(false),
+    });
+  }
+  async function doRemoveWorktree(force) {
+    wtRemoving = true;
+    const res = await removeWorktree(s.project, force).catch((e) => ({ ok: false, data: { error: e.message } }));
+    wtRemoving = false;
+    if (res.ok) {
+      alert('✓ Worktree removed' + (res.data.keptBranch ? ` — branch ${res.data.branch} kept (it has commits the base does not)` : ''));
+      loadSessions(); ui.tick++;
+    } else if (res.data.dirty) {
+      openModal('confirm', {
+        title: 'Discard local changes?',
+        message: `${res.data.error}. Removing the worktree loses them for good.`,
+        confirmLabel: 'Discard and remove', confirmIcon: 'trash', danger: true, onConfirm: () => doRemoveWorktree(true),
+      });
+    } else alert('✗ ' + (res.data.error || 'failed'));
+  }
   let restarting = $state(false);
   function restart() {
     openModal('confirm', {
@@ -841,6 +864,12 @@
                       ? 'Copy `claude --resume` for this session — WARNING: hooked is driving it right now, running the command too would fight over the session lock'
                       : 'Copy `claude --resume` for this session, to reopen it in your own terminal'}>{#if cmdCopied}<Icon name="check" size={14} /> copied{:else}<Icon name="shell" size={14} /> Copy resume command{/if}</button>
             <button class="vscode-btn" onclick={copyExport} title="Copy the conversation as Markdown to the clipboard">{#if exportCopied}<Icon name="check" size={14} /> copied{:else}<Icon name="copy" size={14} /> Copy as Markdown{/if}</button>
+            {#if s.worktreeOf}
+              <div class="hdr-div"></div>
+              <button class="vscode-btn" onclick={() => goto('/new?project=' + encodeURIComponent(s.project))} title="Start another session in this git worktree ({s.gitBranch || s.project})"><Icon name="git-branch" size={14} /> New session in this worktree</button>
+              <button class="vscode-btn del-btn" disabled={wtRemoving} onclick={removeSessionWorktree} title="Delete this git worktree from disk (refused while a session runs in it)">{#if wtRemoving}<Icon name="queued" size={14} tint={false} />{:else}<Icon name="trash" size={14} tint={false} />{/if} Remove worktree</button>
+              <div class="hdr-div"></div>
+            {/if}
             <button class="vscode-btn" onclick={() => openModal('editTags', { sessionId: id })} title="Add or remove tags on this session (PR review tags are automatic)"><Icon name="tag" size={14} /> Edit tags</button>
             {#if sb.focusBtn !== false}<button class="vscode-btn" class:on={ui.focus} onclick={toggleFocus} title="Focus mode: full-screen conversation"><Icon name="maximize" size={14} /> {ui.focus ? 'Exit focus' : 'Focus'}</button>{/if}
             <button class="vscode-btn" class:on={ui.toolsOpen} onclick={() => (ui.toolsOpen = !ui.toolsOpen)} title="Expand every tool call's input/result inline (this session only, off on reload)"><Icon name="tool" size={14} /> {ui.toolsOpen ? 'Collapse tool details' : 'Expand tool details'}</button>

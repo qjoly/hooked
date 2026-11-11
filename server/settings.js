@@ -104,6 +104,8 @@ const DEFAULTS = {
   // Prompt-cache countdown on the session sidebar rows. `display`: 'badge' = beside the elapsed
   // time, 'replace' = in its place. `windowMin`: shown only in the cache's last N minutes, 0 = always.
   sidebarCache: { display: 'badge', windowMin: 15 },
+  // New-worktree launches (server/worktrees.js). location '' = HOOKED_DIR/worktrees.
+  worktrees: { location: '', autoName: true, nameInstructions: '' },
 };
 
 const NAV_PAGES = ['sessions', 'stats', 'digest', 'memory', 'github', 'skills', 'cron', 'prompts'];
@@ -196,6 +198,13 @@ function sanitize(raw) {
       ? rawSc.windowMin
       : DEFAULTS.sidebarCache.windowMin,
   };
+  const rawWt = o.worktrees && typeof o.worktrees === 'object' ? o.worktrees : {};
+  const wtLoc = typeof rawWt.location === 'string' ? rawWt.location.trim() : '';
+  const worktrees = {
+    location: /^(\/|~\/|~$)/.test(wtLoc) ? wtLoc.slice(0, 4096) : '',
+    autoName: rawWt.autoName === undefined ? true : !!rawWt.autoName,
+    nameInstructions: typeof rawWt.nameInstructions === 'string' ? rawWt.nameInstructions.slice(0, 2000) : '',
+  };
   return {
     autoGitSync: !!o.autoGitSync,
     autoPrReviewTag: o.autoPrReviewTag === undefined ? true : !!o.autoPrReviewTag,
@@ -215,6 +224,7 @@ function sanitize(raw) {
     warmup,
     autoCompact,
     sidebarCache,
+    worktrees,
     speechLang,
     speechEnabled: o.speechEnabled === undefined ? true : !!o.speechEnabled,
     showWork: o.showWork === undefined ? true : !!o.showWork,

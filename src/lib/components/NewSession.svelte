@@ -3,24 +3,22 @@
   import { goto } from '$app/navigation';
   import { page } from '$app/state';
   import { data, ui, settings, updateSettings, groupName } from '$lib/state.svelte.js';
-  import { getDefaults, pickFolder, getUsage } from '$lib/api.js';
+  import { getDefaults, pickFolder, getUsage, getWorktreeBases } from '$lib/api.js';
   import Composer from './Composer.svelte';
   import ModelEffort from './ModelEffort.svelte';
   import Icon from '$lib/components/Icon.svelte';
   import { defaultModelForQuota, isFableModel, isQuotaExhausted } from '$lib/models.js';
 
   // projets uniques triés favoris d'abord, puis par activité la plus récente (puis nb de sessions).
-  // [[cwd, name, fav], …]. Quand `collapseWorktrees` est actif, un worktree
-  // `<projet>/.claude/worktrees/<nom>` est replié sur son projet parent (`<projet>`) : on ne veut pas
-  // polluer le sélecteur avec les worktrees éphémères de `claude --worktree`, le projet racine suffit.
+  // [[cwd, name, fav], …]. With `collapseWorktrees`, a session in a linked git worktree counts for
+  // its main checkout (`worktreeOf`).
   const projs = $derived.by(() => {
     const collapse = ui.collapseWorktrees;
     const fav = new Set(settings.favoriteProjects || []);
     const m = new Map();
     for (const s of data.sessions) {
       if (!s.project) continue;
-      const wt = collapse ? s.project.indexOf('/.claude/worktrees/') : -1;
-      const cwd = wt > 0 ? s.project.slice(0, wt) : s.project;
+      const cwd = collapse && s.worktreeOf ? s.worktreeOf : s.project;
       const native = cwd === s.project; // pas un worktree replié → source fiable pour le nom
       const e = m.get(cwd) || { name: native ? (s.projectName || cwd) : (cwd.split('/').pop() || cwd), count: 0, last: '', native: false };
       e.count++;
@@ -72,7 +70,10 @@
   let model = $state('opus');
   let effort = $state('high');
   let mode = $state('default'); // mode de permission au lancement (claude --permission-mode)
-  let worktree = $state(false); // lance `claude --worktree` (git worktree isolé)
+  let worktree = $state(false);
+  let wtBase = $state('');
+  let wtBranch = $state('');
+  let bases = $state(null);
   let ephemeral = $state(false);
 
   // Défauts de la config Claude Code (~/.claude), chargés au montage. Les défauts hooked (settings)
@@ -120,13 +121,26 @@
   $effect(() => {
     if (selected === null) {
       const preset = page.url.searchParams.get('project');
-      if (preset) selected = preset;
+      if (preset && !projs.some(([c]) => c === preset)) { customCwd = preset; selected = '__custom'; }
+      else if (preset) selected = preset;
       else selected = projs.length ? projs[0][0] : '__custom';
     }
     if (selected !== '__custom' && !hits.some(([c]) => c === selected)) selected = hits.length ? hits[0][0] : '__custom';
   });
 
   const cwd = $derived(selected === '__custom' ? customCwd.trim() : selected);
+
+  $effect(() => {
+    const dir = cwd, on = worktree;
+    untrack(() => { bases = null; wtBase = ''; });
+    if (!on || !dir || !dir.startsWith('/')) return;
+    let stale = false;
+    getWorktreeBases(dir)
+      .then((b) => { if (!stale) bases = b; })
+      .catch(() => { if (!stale) bases = { error: 'not a git repository' }; });
+    return () => { stale = true; };
+  });
+  const worktreeSpec = $derived(worktree ? { base: wtBase.trim() || undefined, branch: wtBranch.trim() || undefined } : false);
   // `?group=<id>` (a group's « + ») : the new session joins that group.
   const groupWith = $derived(page.url.searchParams.get('group') || null);
 
@@ -183,7 +197,7 @@
         <a class="ns-prompts-edit" href="/prompts" title="Manage the prompt library"><Icon name="pencil" size={13} /></a>
       </div>
     {/if}
-    <Composer bind:this={composer} newSession project={cwd} {model} {effort} {mode} {worktree} {ephemeral} {onLaunched} {groupWith} />
+    <Composer bind:this={composer} newSession project={cwd} {model} {effort} {mode} worktree={worktreeSpec} {ephemeral} {onLaunched} {groupWith} />
 
     {#if fableFallback}
       <div class="ns-quota" role="status">
@@ -196,7 +210,7 @@
 
     <div class="ns-controls">
       <ModelEffort compact showMode bind:model bind:effort bind:mode onchange={() => (picked = true)} />
-      <label class="me-pill ns-worktree" title="Launch the session in a dedicated git worktree (claude --worktree)">
+      <label class="me-pill ns-worktree" title="Create a git worktree on a new branch and launch the session in it">
         <input type="checkbox" bind:checked={worktree} />
         <span class="me-ico"><Icon name="git-branch" size={14} /></span> worktree
       </label>
@@ -206,9 +220,24 @@
       </label>
     </div>
 
+    {#if worktree}
+      <div class="ns-wt-row">
+        <label class="ns-wt-field">from
+          <input class="lf-input" list="ns-wt-bases" bind:value={wtBase} spellcheck="false"
+                 placeholder={bases?.defaultBase || 'default branch'} />
+        </label>
+        <label class="ns-wt-field">branch
+          <input class="lf-input" bind:value={wtBranch} spellcheck="false"
+                 placeholder={settings.worktrees?.autoName === false ? 'hooked/<random hex>' : 'named from the prompt'} />
+        </label>
+        <datalist id="ns-wt-bases">{#each bases?.branches || [] as b (b)}<option value={b}></option>{/each}</datalist>
+      </div>
+      {#if bases?.error}<div class="ns-wt-err"><Icon name="warning" size={13} /> {bases.error}</div>{/if}
+    {/if}
+
     <div class="ns-proj-head">
       <label class="lf-label">Project</label>
-      <label class="ns-wt-toggle" title="Hide git worktrees nested in .claude/worktrees/ — list their parent project instead">
+      <label class="ns-wt-toggle" title="Hide git worktrees — list their main checkout instead">
         <input type="checkbox" bind:checked={ui.collapseWorktrees} />
         <span>Collapse worktrees</span>
       </label>
