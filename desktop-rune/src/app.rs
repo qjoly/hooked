@@ -1439,10 +1439,27 @@ impl Hooked {
         let generation = self.detail_gen.fetch_add(1, Ordering::SeqCst) + 1;
         self.detail_loading = true;
         let gen_ref = self.detail_gen.clone();
+        let worker_gen = gen_ref.clone();
         self.spawn(
             {
                 let id = id.clone();
-                move || api::detail(&id)
+                // A freshly launched session is not served until its transcript or first hook
+                // event lands, which can trail /api/launch's reply.
+                move || {
+                    let mut tries = 0;
+                    loop {
+                        let r = api::detail(&id);
+                        let missing = matches!(&r, Err(e) if e == "HTTP 404");
+                        if !missing
+                            || tries >= 20
+                            || worker_gen.load(Ordering::SeqCst) != generation
+                        {
+                            return r;
+                        }
+                        tries += 1;
+                        std::thread::sleep(Duration::from_millis(400));
+                    }
+                }
             },
             move |s, r, _| {
                 if gen_ref.load(Ordering::SeqCst) != generation {
