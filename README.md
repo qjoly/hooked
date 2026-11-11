@@ -67,8 +67,12 @@ waiting for you, working, background, paused, ended.
 
 ![New session: describe the task, pick the model, effort, mode and project](docs/screenshots/new.jpg)
 
-- Start a session from any project with its model, effort, permission mode and an optional git
-  worktree. Favorite projects are pinned at the top.
+- Start a session from any project with its model, effort and permission mode. Favorite projects
+  are pinned at the top.
+- **Worktrees**: start a session in a fresh git worktree from the base branch of your choice. The
+  branch is named from your prompt (`feat/…`, `fix/…`), and the folder where worktrees go is
+  configurable. Open another session in the same worktree, and remove worktrees from the session
+  menu or from Settings, which also shows which ones are merged or still hold work.
 - **Resume** any past session in one click, **fork** it, or stop it.
 - Sessions survive a hooked restart: they are relaunched from the last snapshot, and a session cut
   off mid-turn picks up where it stopped.

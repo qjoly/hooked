@@ -34,12 +34,11 @@ describe('readLoop — session id', () => {
     ]);
     const seen = [];
     st.onId = (s) => seen.push(['id', s.id]);
-    st.onInit = (s) => seen.push(['init', s.model]);
 
     await readLoop(st);
 
     expect(st.id).toBe(SESSION);
-    expect(seen).toEqual([['id', SESSION], ['init', 'opus']]);
+    expect(seen).toEqual([['id', SESSION]]);
   });
 
   it('makes the session drivable from that first message on', async () => {

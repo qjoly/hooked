@@ -5,7 +5,7 @@
 import path from 'node:path';
 import { statSafe, truncTitle } from './util.js';
 import { scanSessions, blankSummary } from './transcript.js';
-import { repoSlug } from './git.js';
+import { repoSlug, worktreeOf } from './git.js';
 import { readEvents, lastEventBySession, lastActivityEventBySession, modeForSession, liveQuestionForSession, liveQuestionBySession, livePlanForSession, livePlanBySession, eventSessionMeta, rcSessionIdsFromEvents } from './events.js';
 import { liveStateFor } from './live.js';
 import { resolveLaunchForSession, agentAlive, agentSession, agentMode, agentAutoApprove, agentBusy, agentActivity, agentFollowup, agentLastProse, agentPendingAsk, agentCacheInfo } from './agent.js';
@@ -154,6 +154,7 @@ function buildSessions() {
     s.group = groupInfo(s.id, meta);
     // dépôt GitHub (owner/repo) pour le regroupement sidebar ; null hors dépôt git.
     s.repo = repoSlug(s.project);
+    s.worktreeOf = worktreeOf(s.project);
     const ev = last.get(s.id);
     const live = liveStateFor(ev);
     if (live) {
@@ -345,6 +346,7 @@ function sessionDetail(id) {
   if (!s) s = eventOnlySessions(new Set(sessions.map((x) => x.id))).find((x) => x.id === id);
   if (!s) return null;
   fillFromEvents(s, eventSessionMeta().get(id));
+  s.worktreeOf = worktreeOf(s.project);
   const ev = readEvents().filter((e) => e.session_id === id).slice(-60);
   const last = ev.length ? liveStateFor(ev[ev.length - 1]) : null;
   const messages = buildConversation(s.file);

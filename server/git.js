@@ -82,4 +82,35 @@ function repoSlug(cwd) {
   return slug;
 }
 
-export { repoSlug, slugFromUrl, findGitConfig, parseOriginUrl };
+const worktreeOfCache = new Map();
+
+// Main checkout of the repository when `cwd` sits in a linked git worktree, else null. The nearest
+// `.git` decides: a file means a linked worktree, a directory the main checkout itself.
+function worktreeOf(cwd) {
+  if (!cwd) return null;
+  if (worktreeOfCache.has(cwd)) return worktreeOfCache.get(cwd);
+  let out = null;
+  let dir = cwd;
+  for (let i = 0; i < 40 && dir; i++) {
+    const st = statSafe(path.join(dir, '.git'));
+    if (st && st.isDirectory()) break;
+    if (st && st.isFile()) {
+      try {
+        const m = fs.readFileSync(path.join(dir, '.git'), 'utf8').match(/gitdir:\s*(.+)/);
+        if (m) {
+          const gd = path.resolve(dir, m[1].trim());
+          const common = path.resolve(gd, fs.readFileSync(path.join(gd, 'commondir'), 'utf8').trim());
+          if (path.basename(common) === '.git') out = path.dirname(common);
+        }
+      } catch (_) {}
+      break;
+    }
+    const parent = path.dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  worktreeOfCache.set(cwd, out);
+  return out;
+}
+
+export { repoSlug, slugFromUrl, findGitConfig, parseOriginUrl, worktreeOf };

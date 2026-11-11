@@ -1,13 +1,15 @@
 <script module>
   // The scope a session's review was left on, remembered across remounts — display memory, like
   // SessionDetail's `lastLens`; the draft below is what persists the place across reloads.
-  const lastScope = new Map(); // session id → 'session' | 'tree' | 'branch'
+  const lastScope = new Map(); // session id → 'session' | 'worktree' | 'tree' | 'branch'
 </script>
 
 <script>
   // Review lens — one surface for every diff worth reviewing, in three SCOPES:
   //   • session       — Claude's edits reconstructed from the transcript (net original → final,
   //                     filterable per prompt);
+  //   • worktree      — a linked git worktree vs its base: fork point → disk, commits and
+  //                     uncommitted edits together (the default in a worktree session);
   //   • working tree  — the uncommitted changes as git / jj sees them, every detected repo in;
   //   • branch        — the full diff of a branch vs a base (merge-base → head), narrowable to a
   //                     contiguous slice of its commits.
@@ -28,7 +30,7 @@
   import { toSegments, countStats, applyOp, langFromName } from '$lib/difflines.js';
   import { mdBlockDiff } from '$lib/mdDiff.js';
   import { fmtCost } from '$lib/format.js';
-  import { getFileChangeFull, getVcsDiff, getVcsBranches, getVcsBranchDiff, getVcsBlame, getSymbolDefs,
+  import { getFileChangeFull, getVcsDiff, getVcsBaseDiff, getVcsBranches, getVcsBranchDiff, getVcsBlame, getSymbolDefs,
            getReviewThreads, postReviewComment, editReviewThread, deleteReviewThread,
            replyReviewThread, archiveReviewThread, markReviewSent, startClaudeReview, reply as sendToSession } from '$lib/api.js';
   import { settings, ui, openModal } from '$lib/state.svelte.js';
@@ -50,14 +52,18 @@
   const draft = loadDraft(draftKey);
   const saved = draft.view || {};
 
-  const SCOPES = [
+  const ALL_SCOPES = [
     { key: 'session', label: 'Session', icon: 'diff', title: "Claude's edits, reconstructed from the transcript" },
+    { key: 'worktree', label: 'Worktree', icon: 'git-branch', title: 'Everything this worktree changed since it forked from its base: commits and uncommitted edits' },
     { key: 'tree', label: 'Working tree', icon: 'git', title: 'The uncommitted changes, as the version control system sees them' },
     { key: 'branch', label: 'Branch', icon: 'git-branch', title: 'The full diff of a branch against a base' },
   ];
+  const inWorktree = $derived(!!s?.worktreeOf);
+  const SCOPES = $derived(ALL_SCOPES.filter((sc) => sc.key !== 'worktree' || inWorktree));
   // svelte-ignore state_referenced_locally
-  let scope = $state(lastScope.get(id) || saved.scope || 'session');
+  let scope = $state(lastScope.get(id) || saved.scope || (s?.worktreeOf ? 'worktree' : 'session'));
   $effect(() => { const sc = scope; untrack(() => lastScope.set(id, sc)); });
+  $effect(() => { if (scope === 'worktree' && !inWorktree) untrack(() => setScope('session')); });
   function setScope(k) { if (scope === k) return; scope = k; activeIdx = 0; }
 
   // ── session scope: Claude's edits ───────────────────────────────────────────────────────────
@@ -127,6 +133,23 @@
       if (!quiet) vcs = { ...vcs, loading: false, loaded: true, error: 'Failed to load the working-tree diff.' };
     } finally {
       vcsRefreshing = false;
+    }
+  }
+
+  // ── worktree scope: fork point with the base → disk ─────────────────────────────────────────
+  let wtd = $state({ loaded: false, loading: false, error: null, vcs: null, base: null, mergeBase: null, branch: null, commits: 0, changes: [], truncated: false });
+  let wtdRefreshing = false;
+  async function loadWtd(force = false, quiet = false) {
+    if (!id || wtd.loading || wtdRefreshing || (wtd.loaded && !force && !quiet)) return;
+    if (quiet) wtdRefreshing = true;
+    else wtd = { ...wtd, loading: true, error: null };
+    try {
+      const r = await getVcsBaseDiff(id);
+      wtd = { loaded: true, loading: false, error: null, vcs: r.vcs, base: r.base, mergeBase: r.mergeBase, branch: r.branch, commits: r.commits || 0, changes: r.changes || [], truncated: !!r.truncated };
+    } catch (_) {
+      if (!quiet) wtd = { ...wtd, loading: false, loaded: true, error: 'Failed to load the worktree diff.' };
+    } finally {
+      wtdRefreshing = false;
     }
   }
 
@@ -270,6 +293,7 @@
   // Movements seen while a scope is off screen only mark it stale — coming back reloads once.
   const opCount = $derived(allChanges.reduce((n, c) => n + (c.rawOps || c.ops || []).length, 0));
   let treeStale = $state(false);
+  let wtdStale = $state(false);
   let branchStale = $state(false);
   let lastOps = null, wasWorking = false, lastQuietAt = 0;
   const QUIET_EVERY_MS = 5000;
@@ -286,6 +310,10 @@
         if (scope !== 'tree' || !active) treeStale = true;
         else if (!throttled) { lastQuietAt = Date.now(); treeStale = false; loadVcs(false, true); }
       }
+      if (wtd.loaded) {
+        if (scope !== 'worktree' || !active) wtdStale = true;
+        else if (!throttled) { lastQuietAt = Date.now(); wtdStale = false; loadWtd(false, true); }
+      }
       if (meta.loaded) {
         if (scope !== 'branch' || !active) branchStale = true;
         else if (!throttled) { lastQuietAt = Date.now(); branchStale = false; refreshQuiet(); }
@@ -301,6 +329,14 @@
     } else loadVcs(false);
   });
   $effect(() => {
+    const sc = scope, a = active, stale = wtdStale; // deps BEFORE guards (Svelte 5 trap)
+    if (sc !== 'worktree') return;
+    if (a && stale) {
+      untrack(() => { wtdStale = false; lastQuietAt = Date.now(); });
+      loadWtd(false, true);
+    } else loadWtd(false);
+  });
+  $effect(() => {
     const sc = scope, a = active, stale = branchStale; // deps BEFORE guards (Svelte 5 trap)
     if (sc !== 'branch' || !a) return;
     if (stale) untrack(() => { branchStale = false; lastQuietAt = Date.now(); refreshQuiet(); });
@@ -311,6 +347,7 @@
   const changes = $derived(
     scope === 'branch' ? (diffKey ? (diffCache[diffKey]?.changes || []) : [])
     : scope === 'tree' ? vcs.workChanges
+    : scope === 'worktree' ? wtd.changes
     : !filtering ? allChanges
     : allChanges.filter((c) => [...fileTurns(c)].some((t) => selected.has(t)))
   );
@@ -324,6 +361,7 @@
   function fileDiffs(c) {
     if (scope === 'branch') return (c.ops || []).map((o, j) => ({ oldStr: o.old || '', newStr: o.new || '', opIndex: 'br:' + diffKey + ':' + j, label: null, wholeFile: true }));
     if (scope === 'tree') return (c.ops || []).map((o, j) => ({ oldStr: o.old || '', newStr: o.new || '', opIndex: 'vcs:wt:' + j, label: null, wholeFile: true }));
+    if (scope === 'worktree') return (c.ops || []).map((o, j) => ({ oldStr: o.old || '', newStr: o.new || '', opIndex: 'wtb:' + wtd.base + ':' + j, label: null, wholeFile: true }));
     if (!filtering) {
       const ops = c.ops || [];
       return ops.map((o, j) => {
@@ -391,6 +429,7 @@
       if (meta.vcs === 'jj') return null;
       return { file: activeFile.file, old: diffRange ? diffRange.parent : (mergeBase || base || null), new: branchNewRev, load };
     }
+    if (scope === 'worktree') return { file: activeFile.file, old: wtd.mergeBase, new: '', load };
     return { file: activeFile.file, old: scope === 'tree' ? 'HEAD' : null, new: '', load };
   });
 
@@ -425,7 +464,7 @@
   function fileFp(c) {
     if (scope === 'branch') return fingerprint((c.ops || []).flatMap((o) => [o.old || '', o.new || '']));
     const ops = (o) => o.flatMap((x) => [x.content || '', x.old || '', x.new || '']);
-    if (scope === 'tree' || !filtering) return fingerprint(ops(c.ops || []));
+    if (scope === 'tree' || scope === 'worktree' || !filtering) return fingerprint(ops(c.ops || []));
     return fingerprint([c.original || '', ...ops((c.rawOps || []).filter(opSelected))]);
   }
 
@@ -559,6 +598,7 @@
   const keyBase = $derived(
     scope === 'branch' ? 'br:' + diffKey
     : scope === 'tree' ? 'vcs:wt'
+    : scope === 'worktree' ? 'wtb:' + wtd.base
     : filtering ? 'sel:' + [...selected].sort().join(',')
     : 'full'
   );
@@ -596,6 +636,7 @@
   //   full:<j>                                — session, no prompt filter
   //   sel:<turns>[:<j>]                       — session, restricted to those prompts
   //   vcs:wt:<j>                              — the working tree
+  //   wtb:<base>:<j>                          — the worktree vs its base
   //   br:<repo>:<base>:<branch>[:@from..to]:<j> — a branch pair, optionally a commit slice
   //   vcs:<repo>:<rev>:<j>                    — the retired per-commit view: nothing shows it
   //   <any of the above, section index `*`>   — a thread Claude opened, in any section of that scope
@@ -617,6 +658,7 @@
       return root && bs && br ? { scope: 'branch', root, base: bs, branch: br, range } : null;
     }
     if (key === 'vcs:wt' || key.startsWith('vcs:wt:')) return { scope: 'tree' };
+    if (key.startsWith('wtb:')) return inWorktree ? { scope: 'worktree' } : null;
     if (key.startsWith('full:')) return { scope: 'session', turns: [] };
     const m = /^sel:([\d,]*)/.exec(key);
     if (m) return { scope: 'session', turns: m[1] ? m[1].split(',').map(Number).filter(Number.isFinite) : [] };
@@ -645,6 +687,11 @@
     if (ctx.scope === 'tree') {
       await loadVcs(false);
       if (scope !== 'tree') setScope('tree');
+      return;
+    }
+    if (ctx.scope === 'worktree') {
+      await loadWtd(false);
+      if (scope !== 'worktree') setScope('worktree');
       return;
     }
     if (!sameTurns(ctx.turns, selected)) selected = new Set(ctx.turns);
@@ -738,6 +785,7 @@
           ? `commits \`${shortRev(selRange.from)}\`…\`${shortRev(selRange.to)}\` of branch \`${branch}\` (based on \`${base}\`)`
           : `the full diff of branch \`${branch}\` against \`${base}\``)
     : scope === 'tree' ? 'the uncommitted changes in the working tree'
+    : scope === 'worktree' ? `everything this worktree changed since it forked from \`${wtd.base}\` (commits and uncommitted edits)`
     : filtering ? `your changes for prompt${selected.size > 1 ? 's' : ''} ${promptLabels}`
     : 'your changes');
   const anchorLabel = (c) => {
@@ -916,6 +964,13 @@
       <button class="st-refresh" title="Reload the working-tree diff" onclick={() => loadVcs(true)}>
         <Icon name="rotate-cw" size={12} />
       </button>
+    {:else if scope === 'worktree'}
+      {#if wtd.loaded && !wtd.error && wtd.vcs}
+        <span class="st-one st-right"><span class="st-mono">{wtd.branch || 'HEAD'}</span> vs <span class="st-mono">{wtd.base}</span> · {wtd.commits} commit{wtd.commits === 1 ? '' : 's'} + uncommitted</span>
+      {/if}
+      <button class="st-refresh" title="Reload the worktree diff" onclick={() => loadWtd(true)}>
+        <Icon name="rotate-cw" size={12} />
+      </button>
     {:else}
       <span class="st-label">Branch</span>
       {#if !meta.loaded}
@@ -948,6 +1003,14 @@
     <div class="ship-empty">This project is not in a git or jj repository.</div>
   {:else if scope === 'tree' && !changes.length}
     <div class="ship-empty">No uncommitted changes in the working tree.</div>
+  {:else if scope === 'worktree' && (wtd.loading || !wtd.loaded)}
+    <div class="ship-empty">Loading the worktree diff…</div>
+  {:else if scope === 'worktree' && wtd.error}
+    <div class="ship-empty">{wtd.error}</div>
+  {:else if scope === 'worktree' && !wtd.mergeBase}
+    <div class="ship-empty">No common history with <b>{wtd.base || 'the base'}</b> to compare against.</div>
+  {:else if scope === 'worktree' && !changes.length}
+    <div class="ship-empty">Nothing changed since this worktree forked from <b>{wtd.base}</b>.</div>
   {:else if scope === 'branch' && meta.error}
     <div class="ship-empty">{meta.error}</div>
   {:else if scope === 'branch' && !meta.loaded}
@@ -999,7 +1062,7 @@
             </span>
           </button>
         {/each}
-        {#if scope === 'tree' && vcs.truncated}
+        {#if (scope === 'tree' && vcs.truncated) || (scope === 'worktree' && wtd.truncated)}
           <div class="sf-truncnote">File limit reached — some repositories are truncated.</div>
         {/if}
       </div>
@@ -1101,6 +1164,9 @@
           <div class="sp-check"><span class="sp-ico"><Icon name="converse" size={14} /></span> {filtering ? `prompt${selected.size > 1 ? 's' : ''} ${promptLabels}` : 'whole conversation'}</div>
         {:else if scope === 'tree'}
           <div class="sp-check"><span class="sp-ico"><Icon name="git-branch" size={14} /></span> {#if s?.gitBranch}<span class="sp-mono">{s.gitBranch}</span> · {/if}uncommitted</div>
+        {:else if scope === 'worktree'}
+          <div class="sp-check"><span class="sp-ico"><Icon name="git-branch" size={14} /></span> <span class="sp-mono">{wtd.branch || 'HEAD'} vs {wtd.base}</span></div>
+          <div class="sp-check"><span class="sp-ico"><Icon name="git" size={14} /></span> {wtd.commits} commit{wtd.commits === 1 ? '' : 's'} + uncommitted</div>
         {:else}
           <div class="sp-check"><span class="sp-ico"><Icon name="git-branch" size={14} /></span> <span class="sp-mono">{branch} → {base}</span></div>
           {#if commits.length}

@@ -21,6 +21,7 @@ export const getStats = (range) => jget('/api/stats?range=' + encodeURIComponent
 // Diff du working tree (git/jj) du projet de la session, dépôts imbriqués compris.
 // { vcs:'git'|'jj'|null, root, changes, truncated, repos:[{ kind, root, label, primary, changes }] }.
 export const getVcsDiff = (id) => jget('/api/session/vcs-diff?id=' + encodeURIComponent(id));
+export const getVcsBaseDiff = (id) => jget('/api/session/vcs-base-diff?id=' + encodeURIComponent(id));
 // Branches locales (git) / bookmarks (jj) d'un dépôt du projet — sélecteur de la lentille Branch.
 // { vcs, root, branches:[{ name, current }], default, repos:[{ kind, root, label, primary }] }.
 export const getVcsBranches = (id, root = null) =>
@@ -189,6 +190,9 @@ export const setMode = (id, mode) => jpost('/api/mode', { id, mode });
 // `force` confirms a model switch the server held because the prompt cache was still warm.
 export const setModelEffort = (id, model, effort, force = false) => jpost('/api/model', { id, model, effort, force });
 export const launch = (payload) => jpost('/api/launch', payload);
+export const getWorktreeBases = (cwd) => jget('/api/worktrees/bases?cwd=' + encodeURIComponent(cwd));
+export const listWorktrees = ({ pr = true } = {}) => jget('/api/worktrees' + (pr ? '' : '?pr=0'));
+export const removeWorktree = (path, force = false) => jpost('/api/worktrees', { action: 'remove', path, force });
 // Ouvre le sélecteur de dossier natif de l'OS (macOS) ; renvoie { dir } ou { canceled }.
 export const pickFolder = (start) => jpost('/api/pick-folder', start ? { start } : {});
 // Fork d'une session à partir d'un message (uuid de la bulle) : crée une branche

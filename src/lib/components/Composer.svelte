@@ -7,7 +7,7 @@
 
   // `newSession` : pas d'id encore — l'envoi LANCE une session neuve dans `project` (cwd) avec
   // le `model`/`effort` choisis ; `onLaunched(cwd)` est notifié pour ouvrir la session créée.
-  // `worktree` : ne vaut que pour une session neuve — lance `claude --worktree` (dossier isolé).
+  // `worktree`: new session only — false, or { base, branch } for a fresh git worktree.
   // `followup` : suggestion de prompt suivant (déjà filtrée par l'appelant — texte à montrer, ou
   // null). La carte vit ICI, dans le socle, et non dans la conversation : elle propose ce qu'on
   // pourrait envoyer, donc elle est solidaire de la saisie et ne défile pas avec le transcript.
@@ -311,9 +311,9 @@
       }
       // file d'attente + scroll auto : on signale au parent le message tout juste envoyé.
       if (!newSession && onSent) onSent(full);
-      if (newSession && onLaunched) onLaunched(project);
+      if (newSession && onLaunched) onLaunched(res.data.cwd || project);
       const short = (res.data.sessionId || '').slice(0, 8);
-      status = { text: newSession ? ('✓ session launched' + (short ? ' (' + short + ')' : '') + (res.data.worktree ? ' · worktree' : '')) : '✓ sent', cls: 'ok' };
+      status = { text: newSession ? ('✓ session launched' + (short ? ' (' + short + ')' : '') + (res.data.worktree ? ' · ' + res.data.worktree.branch : '')) : '✓ sent', cls: 'ok' };
       setTimeout(() => { status = { text: '', cls: '' }; }, 3000);
       setTimeout(() => { loadSessions(); ui.tick++; }, 600);
     } else {

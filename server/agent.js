@@ -32,6 +32,7 @@ import { readSettings } from './settings.js';
 import { refreshAgentStatus } from './agent-status.js';
 import { contextFromUsage, compactDue } from '../src/lib/promptCache.js';
 import { joinGroup, setSessionMeta, isIncognitoSession } from './sessionMeta.js';
+import { createWorktree, removeWorktree, attachWorktreeSession, autoNameBranch } from './worktrees.js';
 
 function err400(msg) { const e = new Error(msg); e.code = 400; return e; }
 
@@ -49,10 +50,6 @@ const PENDING = Symbol.for('hooked.agent.pending');
 const pending = globalThis[PENDING] || (globalThis[PENDING] = new Map());
 
 const INIT_TIMEOUT = 30000; // attente max de l'id de session au lancement
-// Le `system/init` d'une session worktree peut arriver bien plus tard : quand le prompt est une
-// commande slash, le CLI ne l'émet qu'une fois la commande traitée (minutes pour un /code-review
-// sur une PR). Abandonner à 30 s laissait un CLI qui travaillait et un lancement en erreur.
-const WORKTREE_INIT_TIMEOUT = 300000;
 
 // ── Abonnés au flux d'une session (streaming temps réel vers l'UI) ───────────────────────────────
 // Le SSE global (`/api/stream`) ne pousse qu'un « tick » : le client refetch alors tout le détail de
@@ -485,7 +482,7 @@ function sessionIdForLaunchKey(launchKey) {
 // hooks globaux de ~/.claude/settings.json — donc hook.cjs, donc events.jsonl — continuent de
 // s'exécuter pour les sessions lancées par hooked, exactement comme pour le CLI interactif. Sans ça
 // on perdrait d'un coup les questions/plans en attente, les todos, les jobs de fond, la statusline…
-function sdkOptions({ cwd, model, effort, permissionMode, resumeId, worktree, input, st, env }) {
+function sdkOptions({ cwd, model, effort, permissionMode, resumeId, input, st, env }) {
   const opts = {
     cwd,
     env,
@@ -513,7 +510,6 @@ function sdkOptions({ cwd, model, effort, permissionMode, resumeId, worktree, in
   // Outils hooked (reply/resolve review comment…) même hors de ce repo — cf. hookedMcpServer().
   const hookedMcp = hookedMcpServer(st.launchKey);
   if (hookedMcp) opts.mcpServers = { hooked: hookedMcp };
-  if (worktree) opts.extraArgs = { worktree: null }; // `--worktree` : git worktree dédié
   return opts;
 }
 
@@ -605,12 +601,10 @@ function whenReady(st) {
   });
 }
 
-// Un lancement attend soit l'id (cas courant), soit l'init (worktree : le CLI seul connaît le
-// répertoire final). Les deux doivent être relâchés quand la session meurt, sinon l'appelant HTTP
-// reste pendu jusqu'à son propre délai.
+// A launch waits for the session id; it must be released when the session dies, or the HTTP
+// caller hangs until its own timeout.
 function releaseLaunchWaiters(st) {
   if (st.onId) { const f = st.onId; st.onId = null; f(st); }
-  if (st.onInit) { const f = st.onInit; st.onInit = null; f(st); }
 }
 
 // Démolit une entrée qui n'a jamais réussi à démarrer. Même nettoyage que le `finally` de readLoop,
@@ -652,11 +646,6 @@ async function readLoop(st) {
       }
       if (!st.sawMsg) { st.sawMsg = true; clearTimeout(st.watchdog); settleReady(st, true); }
       const changed = applyMessage(st, msg);
-      // Après applyMessage : ce que l'init apporte (le cwd réel d'un worktree) doit être posé
-      // avant que le lancement ne rende la main.
-      if (msg.type === 'system' && msg.subtype === 'init' && st.onInit) {
-        const f = st.onInit; st.onInit = null; f(st);
-      }
       st.lastMsgAt = Date.now();
       if (isRequestStart(msg)) st.lastRequestAt = Date.now();
       // On ne pousse aux abonnés que quand l'état visible a bougé. Les deltas de texte passent par
@@ -749,9 +738,11 @@ function closeAfterTurn(launchKey, cb) {
   cb(null, { sessionId: id });
 }
 
-// Lance `claude` via l'Agent SDK. `resumeId` reprend une session existante ; `worktree` ne vaut que
-// pour une session neuve (une reprise rouvre la session dans son dossier d'origine).
-function launchSession({ resumeId, cwd, prompt, model, effort, worktree, permissionMode, autoApprove, parentKey, groupWith, group, incognito, ephemeral }, cb) {
+// Lance `claude` via l'Agent SDK. `resumeId` reprend une session existante. `worktree` (true or
+// { base, branch }) only applies to a new session: hooked creates the git worktree first, then
+// launches in it.
+function launchSession(opts, cb) {
+  const { resumeId, cwd, prompt, model, effort, worktree, permissionMode, autoApprove, parentKey, groupWith, group, incognito, ephemeral } = opts;
   let dir = cwd && typeof cwd === 'string' ? cwd : null;
   let id = null;
   if (resumeId) {
@@ -775,7 +766,8 @@ function launchSession({ resumeId, cwd, prompt, model, effort, worktree, permiss
   if (effort && !isValidEffort(effort)) return cb(err400('unknown effort: ' + effort));
   if (permissionMode && !LAUNCH_PERMISSION_MODES.includes(permissionMode)) return cb(err400('unknown permission mode: ' + permissionMode));
   if (id && live.has(id)) return cb(err400('session already running'));
-  const useWorktree = !!worktree && !id;
+  if (worktree && !id) return launchInNewWorktree({ ...opts, cwd: dir }, cb);
+  const wt = opts[MANAGED_WORKTREE] || null;
 
   const input = makeInputQueue();
   const st = {
@@ -789,7 +781,7 @@ function launchSession({ resumeId, cwd, prompt, model, effort, worktree, permiss
     model: model || null,
     effort: effort || null,
     permissionMode: permissionMode || 'default',
-    worktree: useWorktree,
+    worktree: wt ? wt.path : null,
     busy: false,
     sdkState: 'idle',
     activity: null,
@@ -842,7 +834,7 @@ function launchSession({ resumeId, cwd, prompt, model, effort, worktree, permiss
   loginEnv().then((env) => {
     if (st.abort.signal.aborted) return; // tuée pendant le démarrage
     try {
-      st.q = query({ prompt: input, options: sdkOptions({ cwd: dir, model, effort, permissionMode, resumeId: id, worktree: useWorktree, input, st, env }) });
+      st.q = query({ prompt: input, options: sdkOptions({ cwd: dir, model, effort, permissionMode, resumeId: id, input, st, env }) });
     } catch (e) {
       st.error = 'agent sdk query failed: ' + ((e && e.message) || e);
       failStartup(st);
@@ -883,14 +875,14 @@ function launchSession({ resumeId, cwd, prompt, model, effort, worktree, permiss
     try {
       fs.appendFileSync(LAUNCHES_FILE, JSON.stringify({
         ts: new Date().toISOString(), session_id: finalSt.id, cwd: finalSt.cwd,
-        model: model || null, effort: effort || null, worktree: useWorktree,
+        model: model || null, effort: effort || null, worktree: wt ? { path: wt.path, branch: wt.branch, base: wt.base } : false,
       }) + '\n');
     } catch (_) {}
     cb(null, {
       sessionId: finalSt.id,
       cwd: finalSt.cwd,
       resume: id,
-      worktree: useWorktree,
+      worktree: wt ? { path: wt.path, branch: wt.branch, base: wt.base } : false,
       link: '/session/' + encodeURIComponent(finalSt.id),
     });
   };
@@ -900,26 +892,43 @@ function launchSession({ resumeId, cwd, prompt, model, effort, worktree, permiss
     persistLaunch(st.id, model, effort);
     return done(st);
   }
-  // Session neuve : on attend de connaître le session_id pour rendre le deep-link. `--worktree` est
-  // le seul cas qui attend le `system/init` : le répertoire final est choisi par le CLI, et le
-  // renvoyer faux serait pire que le renvoyer tard.
+  // Session neuve : on attend de connaître le session_id pour rendre le deep-link.
   let settled = false;
-  const wait = useWorktree ? WORKTREE_INIT_TIMEOUT : INIT_TIMEOUT;
   const timer = setTimeout(() => {
     if (settled) return;
     settled = true;
     st.onId = null;
-    st.onInit = null;
-    cb(new Error(`agent sdk session did not start within ${wait / 1000}s`));
-  }, wait);
+    cb(new Error(`agent sdk session did not start within ${INIT_TIMEOUT / 1000}s`));
+  }, INIT_TIMEOUT);
   const settle = (finalSt) => {
     if (settled) return;
     settled = true;
     clearTimeout(timer);
     done(finalSt);
   };
-  if (useWorktree) st.onInit = settle;
-  else st.onId = settle;
+  st.onId = settle;
+}
+
+// A Symbol key, so a JSON body posted to /api/launch can never claim a worktree.
+const MANAGED_WORKTREE = Symbol('managedWorktree');
+
+// A worktree that never got its session is removed again: it holds nothing yet.
+function launchInNewWorktree(opts, cb) {
+  const spec = opts.worktree && typeof opts.worktree === 'object' ? opts.worktree : {};
+  const seed = typeof opts.prompt === 'string' ? opts.prompt.trim() : '';
+  createWorktree({ cwd: opts.cwd, base: spec.base, branch: spec.branch }).then((wt) => {
+    launchSession({ ...opts, cwd: wt.path, worktree: null, [MANAGED_WORKTREE]: wt }, (err, info) => {
+      if (err) {
+        removeWorktree(wt.path, { force: true }).catch(() => {});
+        return cb(err);
+      }
+      try { attachWorktreeSession(wt.path, info.sessionId); } catch (_) {}
+      if (wt.autoName && seed) {
+        autoNameBranch(wt.path, seed).catch((e) => console.warn(`[hooked] worktree branch naming: ${e.message || e}`));
+      }
+      cb(null, info);
+    });
+  }, (e) => cb(err400((e && e.message) || String(e))));
 }
 
 // La session est-elle vivante dans CE processus ? (remplace tmuxAlive)
@@ -947,6 +956,12 @@ function agentSession(id) {
 function liveSessionIds() {
   const out = [];
   for (const [id, st] of live) if (!st.ended) out.push(id);
+  return out;
+}
+
+function liveSessionCwds() {
+  const out = [];
+  for (const st of [...live.values(), ...pending.values()]) if (!st.ended && st.cwd) out.push(st.cwd);
   return out;
 }
 
@@ -1639,7 +1654,7 @@ function clearAgentState() {
 }
 
 export {
-  agentAlive, agentSession, liveSessionIds,
+  agentAlive, agentSession, liveSessionIds, liveSessionCwds,
   agentBusy, agentActivity, agentFollowup, agentLastProse, agentMode, agentAutoApprove, agentPendingAsk,
   agentSupportedCommands,
   applyMessage, readLoop, permissionQuestion, handleToolPermission, makeInputQueue, userMessage, parseEnvBlock, loginEnv, withoutServerEnv, hookedMcpServer, sessionIdForLaunchKey,

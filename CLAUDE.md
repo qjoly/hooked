@@ -210,6 +210,31 @@ follows you from one browser to another.
 - **Out of scope:** Stats and Digest, which aggregate every session without going through
   `data.sessions`.
 
+## Worktrees (`server/worktrees.js`)
+
+hooked creates the worktree itself (`git worktree add --no-track -b <branch> <dir> <base>`), then
+launches the session in it with a plain `cwd`. It no longer passes `claude --worktree`: with that
+flag the CLI picked the path, hooked only learned it from `system/init`, and so it could not reuse,
+list or clean up the worktree.
+
+- **`--no-track` is deliberate.** A branch started from `origin/main` would otherwise track `main`,
+  and with `push.default=upstream` a bare `git push` would land on `main`.
+- **Branch naming happens after the launch.** The session starts at once on a temporary
+  `hooked/<8 hex>` branch, in a folder named after the hex. A Haiku call (same headless, traceless `claude -p` as
+  `autoTags.js`) then suggests `<type>/<slug>`, and `git branch -m` renames the branch under the
+  running agent. The directory keeps its first name, since the session's cwd (and transcript
+  folder) is bound to it.
+- `worktrees.json` records what hooked created (`base`, `branch`, sessions). Listing also finds
+  worktrees hooked did not create, through the repositories of known sessions. Removal is refused
+  while a driven session runs inside, and needs `force` with local changes. The branch is deleted
+  only when the base already has all of its commits (`base..HEAD` empty, or its PR was
+  squash-merged while the worktree still sits on the PR's last commit).
+- Sessions carry `worktreeOf` (the main checkout, read from `.git` files with no subprocess). It
+  drives "Collapse worktrees" in the project picker, the worktree actions of the session menu,
+  and the Review lens's **Worktree** scope (the default there): `merge-base(base, HEAD)` → disk,
+  commits and uncommitted edits as one diff per file (`buildVcsBaseChanges`). The base is the one
+  recorded at creation, else `origin/HEAD`, so a stale local `main` never leaks upstream commits in.
+
 ## What the move away from tmux removed
 
 These were removed because they were tmux-specific and have no equivalent: the Terminal tab (an xterm mirror of a pane), the MCP tool `show_in_pane`, `Copy attach` / `tmux attach`, the tmux sidebar (`tmux/`), and driving a session started outside hooked (that relied on `send-keys`). The remote-control daemons are kept. They are now detached processes supervised through a PID file (`rc-daemons.json`) and recognized in the dashboard through `HOOKED_RC=1`, which `hook.cjs` copies into an `rc` flag.

@@ -189,11 +189,12 @@ function parseNameStatusZ(buf) {
   return specs;
 }
 
-// The uncommitted files of a git repo, content not read yet: [{ code, oldp, newp }].
-async function gitChangeSpecs(root) {
+// The files that differ between `from` and the working tree (untracked included), content not
+// read yet: [{ code, oldp, newp }].
+async function gitChangeSpecs(root, from = 'HEAD') {
   const specs = [];
   const [ns, un] = await Promise.all([
-    run('git', ['-C', root, 'diff', '--name-status', '-z', 'HEAD'], root),
+    run('git', ['-C', root, 'diff', '--name-status', '-z', from], root),
     run('git', ['-C', root, 'ls-files', '--others', '--exclude-standard', '-z'], root),
   ]);
   if (!ns.failed) specs.push(...parseNameStatusZ(ns.stdout));
@@ -209,10 +210,10 @@ async function gitChangeSpecs(root) {
   });
 }
 
-// gitChangeSpecs entries → change entries, HEAD side vs disk side.
-function gitReadChanges(root, specs) {
+// gitChangeSpecs entries → change entries, `from` side vs disk side.
+function gitReadChanges(root, specs, from = 'HEAD') {
   return Promise.all(specs.map(async ({ code, oldp, newp }) => {
-    const oldBuf = code === 'A' || code === '?' ? Buffer.alloc(0) : await gitShowAt(root, 'HEAD', oldp);
+    const oldBuf = code === 'A' || code === '?' ? Buffer.alloc(0) : await gitShowAt(root, from, oldp);
     const newBuf = code === 'D' ? Buffer.alloc(0) : readDisk(path.join(root, newp));
     return makeEntry(root, code === 'D' ? oldp : newp, GIT_STATUS[code] || 'changed', textOrNull(oldBuf), textOrNull(newBuf));
   }));
@@ -560,4 +561,30 @@ async function buildVcsBranchChanges(cwd, branch, baseBranch = null, repoRoot = 
   return { vcs, root, branch, base, mergeBase, merged, commits, range: picked, changes };
 }
 
-export { detectVcs, detectRepos, scanSubRepos, buildVcsChanges, listVcsBranches, buildVcsBranchChanges };
+// Everything the checkout changed since it forked from `base`: its commits and its uncommitted
+// edits together, as one fork-point → disk diff per file. Primary git repo only.
+async function buildVcsBaseChanges(cwd, base) {
+  const empty = { vcs: null, root: null, base: null, mergeBase: null, branch: null, commits: 0, changes: [], truncated: false };
+  if (!cwd || typeof base !== 'string' || !BRANCH_RE.test(base)) return empty;
+  const { list } = await detectRepos(cwd);
+  const repo = list.find((r) => r.primary);
+  if (!repo || repo.mechanism !== 'git') return empty;
+  const { root } = repo;
+  const mb = await run('git', ['-C', root, 'merge-base', base, 'HEAD'], root);
+  const mergeBase = mb.failed ? null : mb.stdout.toString('utf8').trim() || null;
+  if (!mergeBase) return { ...empty, vcs: 'git', root, base };
+  const [count, cur, specs] = await Promise.all([
+    run('git', ['-C', root, 'rev-list', '--count', mergeBase + '..HEAD'], root),
+    run('git', ['-C', root, 'branch', '--show-current'], root),
+    gitChangeSpecs(root, mergeBase),
+  ]);
+  return {
+    vcs: 'git', root, base, mergeBase,
+    branch: cur.failed ? null : cur.stdout.toString('utf8').trim() || null,
+    commits: count.failed ? 0 : parseInt(count.stdout.toString('utf8'), 10) || 0,
+    changes: await gitReadChanges(root, specs.slice(0, MAX_FILES), mergeBase),
+    truncated: specs.length > MAX_FILES,
+  };
+}
+
+export { detectVcs, detectRepos, scanSubRepos, buildVcsChanges, listVcsBranches, buildVcsBranchChanges, buildVcsBaseChanges };
