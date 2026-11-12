@@ -41,7 +41,8 @@ session states coloured by how much they need you.
 - **Session**: title, repo · branch, state, context gauge, prompt-cache badge, Resume, Archive,
   split, context panel, and a ⋯ menu (model, effort, permission mode, auto-approve, cost, open in
   editor or web, copy resume command, expand tool calls, restart, trash).
-  - **Converse (1)**: transcript with markdown, Mermaid diagrams and collapsible tool calls,
+  - **Converse (1)**: a full-width chat, your messages in accent bubbles on the right and
+    Claude's on the left, with markdown, Mermaid diagrams and collapsible tool calls,
     Edit / Write calls as inline diffs, pasted images, files sent with SendUserFile and
     `show_image` cards, `show_video` / `show_audio` clips played in place (play, seek, sound,
     before and after side by side, the system player as a fallback), `!!command` as a live terminal you can type into, the full text of long
