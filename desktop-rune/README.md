@@ -25,9 +25,9 @@ The installed app has its own bundle id (`dev.qjoly.hooked-rune`), so it sits ne
 
 ## What is there
 
-The layout follows the web dashboard; the look is hooked's datadog scheme as a rune-kit theme
-(`src/theme.rs`): flat cool surfaces held apart by borders, 3 pt corners, a violet accent, and
-session states coloured by how much they need you.
+The layout follows the web dashboard; the look is the web's colour schemes as rune-kit themes
+(`src/theme.rs`): Coffee (the default), Indigo, Legacy, Datadog, Gruvbox and Claude, each in light
+and dark, with rounded or square corners, picked in Settings or the palette.
 
 - **Top bar**: Deck, Sessions, Stats, Digest, Memory, Cron and GitHub, the palette (⌘K / ⌘P;
   ⌘⇧P or a leading `>` for commands only) with sessions, about 35 commands and full-text search
@@ -78,8 +78,8 @@ session states coloured by how much they need you.
   from the legend, search, and archived groups folded at the bottom),
   New session, Stats, Digest (generate and
   regenerate), Memory, Cron (create, edit, pause, run, delete), GitHub, Skills, Settings (theme,
-  notifications, default page, new-session defaults, digest, auto-compact, tags, git sync, with a
-  table of contents in place of the session list).
+  color scheme, corners, notifications, default page, new-session defaults, digest, auto-compact,
+  tags, git sync, with a table of contents in place of the session list).
 - **Organizing**: drag a session (sidebar row or fleet card) onto another to group them, or onto
   a fleet repo header to take it out of its group; tags on rows and in the header, groups under their
   lead session with a tab strip (switch, make lead, leave, rename, new session in the group),
