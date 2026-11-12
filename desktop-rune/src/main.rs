@@ -11,6 +11,7 @@ mod ghdetail;
 mod ghostty;
 mod ghrun;
 mod icons;
+mod knobs;
 mod lenses;
 mod logo;
 mod mddiff;
@@ -36,6 +37,11 @@ use app::{HANDLE, Hooked, Lens, Page};
 pub const MONO: &str = "ui-monospace, Menlo, monospace";
 
 fn on_key(s: &mut Hooked, ev: &KeyEvent, tx: &mut Tx) -> bool {
+    #[cfg(feature = "knobs")]
+    if rune_knobs::key(&mut s.knobs, ev) {
+        tx.motion(s.knobs.slide());
+        return true;
+    }
     let focused = tx.focused();
     let on_chrome = focused.is_none_or(|f| f.starts_with("term-"));
     if s.term_claimed && on_chrome && s.term.open && s.page == app::Page::Session {

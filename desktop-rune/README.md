@@ -107,6 +107,25 @@ and dark, with rounded or square corners, picked in Settings or the palette.
 - A terminal in its own window: rune gives each window its own app state, so it would need a
   second copy of the terminal's input handling; the side layout covers the use.
 
+## Tuning layout and motion (⌘⇧K)
+
+`desktop-rune-dev` and `desktop-rune-run` build with the `knobs` feature, which adds
+[rune-knobs](https://github.com/anomalyco/rune/tree/main/crates/rune-knobs)' side panel: ⌘⇧K
+opens it, and it tunes sidebar rows, the conversation's spacing and bubbles, the theme's radii,
+font sizes and springs, and the terminal's padding while the app runs. `cargo build --release`
+(so `mise run desktop-rune`) leaves it out, and every knob reads its default.
+
+Each component declares its knobs beside the code that reads them, with `knobs!` (`src/knobs.rs`),
+which registers the group through `rune-register`. A knob is named after its constant, so a
+group's Copy gives lines like `BUBBLE_PAD = 10` that replace the matching `BUBBLE_PAD = 12.0`
+line as is: paste them over the declaration to make them the new defaults.
+
+`--knobs` opens the panel at launch, `--knobs <group>` on one group (for `--snap`):
+
+```sh
+cargo run --features knobs -- --snap /tmp/knobs.png --size 1440x900 -- --session <id> --knobs Bubble
+```
+
 ## Checking it headless
 
 Rune renders any app without a window, which is how the layout was checked:

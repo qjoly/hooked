@@ -10,4 +10,5 @@ rune_root=$(dirname "$(dirname "$(dirname "$rune_manifest")")")
 exec python3 "$rune_root/scripts/rune-dev" --local \
   --manifest-path "$PWD/Cargo.toml" \
   --patch 'src/**/*.rs' \
+  --features knobs \
   -- --hot "$@"

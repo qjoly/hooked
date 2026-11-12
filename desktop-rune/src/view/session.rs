@@ -9,7 +9,24 @@ use rune_kit::{
 use super::{Shadows, dot, glyph, pill, state_color};
 use crate::api::{Detail, Message, Part, PendingPlan, PendingQuestion, Tool};
 use crate::app::{Hooked, Lens, Popup};
+use crate::knobs::{get, knobs};
 use crate::{fmt, icons};
+
+knobs! {
+    "Chat" at "chat" under "Conversation";
+    CHAT_PAD_X = 20.0, 0.0..=64.0, "Padding left and right", step 1.0;
+    CHAT_PAD_Y = 16.0, 0.0..=64.0, "Padding top and bottom", step 1.0;
+    CHAT_MESSAGE_GAP = 14.0, 0.0..=48.0, "Gap between messages", step 1.0;
+}
+
+knobs! {
+    "Bubble" at "transcript" under "Conversation";
+    BUBBLE_MAX_W_PCT = 85.0, 40.0..=100.0, "Max width (% of the chat)", step 1.0;
+    BUBBLE_PAD = 12.0, 0.0..=32.0, "Padding", step 0.5;
+    BUBBLE_GAP = 8.0, 0.0..=24.0, "Gap between header and parts", step 0.5;
+    BUBBLE_RADIUS = 14.0, 0.0..=32.0, "Corner radius", step 0.5;
+    BUBBLE_TAIL_RADIUS = 4.0, 0.0..=32.0, "Corner radius on the speaker's side", step 0.5;
+}
 
 pub fn view(s: &Hooked, k: &Kit, layer: &mut Vec<El>) -> El {
     let Some(d) = s.detail.as_ref() else {
@@ -635,7 +652,12 @@ pub(super) fn hash_of(v: impl Hash) -> u64 {
 fn converse(s: &Hooked, d: &Detail, k: &Kit) -> El {
     let n = d.messages.len();
     let start = n.saturating_sub(s.visible);
-    let mut chat = col().key("chat").w_full().px(20.0).py(16.0).gap(14.0);
+    let mut chat = col()
+        .key("chat")
+        .w_full()
+        .px(get(&CHAT_PAD_X))
+        .py(get(&CHAT_PAD_Y))
+        .gap(get(&CHAT_MESSAGE_GAP));
     if start > 0 {
         chat = chat.child(
             Button::new(format!("Show earlier messages · {start} hidden"))
@@ -666,8 +688,8 @@ fn converse(s: &Hooked, d: &Detail, k: &Kit) -> El {
                 true,
                 col()
                     .gap(6.0)
-                    .padding(12.0)
-                    .corners(BUBBLE_USER)
+                    .padding(get(&BUBBLE_PAD))
+                    .corners(bubble_corners(true))
                     .fill(k.c.warning.bg)
                     .border(1.0, k.c.warning.fg)
                     .border_dash(4.0, 3.0)
@@ -778,11 +800,17 @@ fn converse(s: &Hooked, d: &Detail, k: &Kit) -> El {
     out
 }
 
-const BUBBLE_USER: [f32; 4] = [14.0, 14.0, 4.0, 14.0];
-const BUBBLE_ASSISTANT: [f32; 4] = [14.0, 14.0, 14.0, 4.0];
+fn bubble_corners(user: bool) -> [f32; 4] {
+    let (r, tail) = (get(&BUBBLE_RADIUS), get(&BUBBLE_TAIL_RADIUS));
+    if user {
+        [r, r, tail, r]
+    } else {
+        [r, r, r, tail]
+    }
+}
 
 fn lane(user: bool, bubble: El) -> El {
-    let gutter = el().w_frac(0.15);
+    let gutter = el().w_frac((100.0 - get(&BUBBLE_MAX_W_PCT)) / 100.0);
     let bubble = bubble.shrink();
     if user {
         row().w_full().justify_end().child(gutter).child(bubble)
@@ -805,8 +833,8 @@ fn on_accent(k: &Kit) -> Kit {
 }
 
 fn assistant_skin(b: El, k: &Kit) -> El {
-    b.padding(12.0)
-        .corners(BUBBLE_ASSISTANT)
+    b.padding(get(&BUBBLE_PAD))
+        .corners(bubble_corners(false))
         .fill(k.c.surface_raised)
         .border(1.0, k.c.border_weak)
 }
@@ -912,6 +940,7 @@ pub(super) fn bubble_version(s: &Hooked, m: &Message, k: &Kit) -> u64 {
         k.dark,
         s.all_tools_open,
         open_ids,
+        crate::knobs::generation(),
     ))
 }
 
@@ -966,7 +995,7 @@ pub(super) fn bubble(s: &Hooked, session: &str, m: &Message, k: &Kit, i: usize) 
                     .build(ck),
             );
     }
-    let mut b = col().gap(8.0).child(head);
+    let mut b = col().gap(get(&BUBBLE_GAP)).child(head);
     let full = m
         .fork_uuid
         .as_ref()
@@ -1027,8 +1056,8 @@ pub(super) fn bubble(s: &Hooked, session: &str, m: &Message, k: &Kit, i: usize) 
         );
     }
     let b = if user {
-        b.padding(12.0)
-            .corners(BUBBLE_USER)
+        b.padding(get(&BUBBLE_PAD))
+            .corners(bubble_corners(true))
             .fill(if m.auto { k.c.info.fg } else { k.c.bg_accent })
     } else {
         assistant_skin(b, k)

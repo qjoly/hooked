@@ -332,4 +332,4 @@ run = "scripts/dev"
 description = "Run the native Rune app from source once, without live editing"
 dir = "desktop-rune"
 tools = { rust = "1.99.1", zig = "0.17.1" }
-run = "cargo run"
+run = "cargo run --features knobs"
