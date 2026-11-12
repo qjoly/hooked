@@ -193,6 +193,8 @@ export const launch = (payload) => jpost('/api/launch', payload);
 export const getWorktreeBases = (cwd) => jget('/api/worktrees/bases?cwd=' + encodeURIComponent(cwd));
 export const listWorktrees = ({ pr = true } = {}) => jget('/api/worktrees' + (pr ? '' : '?pr=0'));
 export const removeWorktree = (path, force = false) => jpost('/api/worktrees', { action: 'remove', path, force });
+export const cleanupWorktrees = () => jpost('/api/worktrees', { action: 'cleanup' });
+export const pullCheckouts = () => jpost('/api/worktrees', { action: 'pull' });
 // Ouvre le sélecteur de dossier natif de l'OS (macOS) ; renvoie { dir } ou { canceled }.
 export const pickFolder = (start) => jpost('/api/pick-folder', start ? { start } : {});
 // Fork d'une session à partir d'un message (uuid de la bulle) : crée une branche
