@@ -147,9 +147,12 @@ fn follow(id: String, alive: Arc<AtomicBool>, h: Option<AppHandle<Hooked>>) {
                 true
             });
             if r.is_ok() {
-                let id = id.clone();
+                let (id, alive) = (id.clone(), alive.clone());
+                // Leaving and reopening the session attaches a fresh Term with the same id while
+                // this thread is still blocked on the old stream; it only notices it was dropped
+                // on the next output, and must not mark its successor exited.
                 h.update(move |s, _| {
-                    if let Some(t) = s.term_mut(&id) {
+                    if let Some(t) = s.term_mut(&id).filter(|t| Arc::ptr_eq(&t.alive, &alive)) {
                         t.exited = true;
                     }
                 });
