@@ -15,8 +15,8 @@
   const html = $derived(highlight(code, lang));
   const label = $derived(langLabel(lang));
 
-  // A shell block in a session's conversation runs as a composer `!command`: in the session's
-  // folder, its output lands in the thread (and in Claude's context) like any typed one.
+  // A shell block in a session's conversation runs as a composer `!command`, except that Claude
+  // proposed it, so its output starts a turn instead of waiting silently in the context.
   const sessionOf = getContext('hooked.session');
   const session = $derived(sessionOf?.() || null);
   const runnable = $derived(!!session && /^(sh|bash|shell|zsh)$/i.test(lang) && !!code.trim());
@@ -24,7 +24,7 @@
 
   async function runIt() {
     run = 'busy';
-    const r = await reply(session, '!' + code.trim());
+    const r = await reply(session, '!' + code.trim(), { respond: true });
     run = r.ok ? 'done' : (r.data?.error || `HTTP ${r.status}`);
   }
 
@@ -44,7 +44,7 @@
     <div class="mmd-actions">
       {#if runnable}
         <button class="cb-copy" class:done={run === 'done'} class:err={run && run !== 'busy' && run !== 'done'} onclick={runIt} disabled={run === 'busy'}
-          title={run && run !== 'busy' && run !== 'done' ? run : 'Run in the session folder — output goes to the conversation'}>
+          title={run && run !== 'busy' && run !== 'done' ? run : 'Run in the session folder — Claude gets the output and continues'}>
           <Icon name={run === 'done' ? 'check' : 'shell'} size={13} /> {run === 'busy' ? 'Running…' : run === 'done' ? 'Ran' : run ? 'Failed' : 'Run'}
         </button>
       {/if}

@@ -48,7 +48,7 @@ export async function POST({ request }) {
     if (err) return fail(err.code === 400 ? 400 : 502, err.message || String(err));
     return ok(info);
   }
-  const { err, info } = await toPromise((cb) => deliverReply(id, text, cb));
+  const { err, info } = await toPromise((cb) => deliverReply(id, text, cb, { respond: body.respond === true }));
   if (err) return fail(err.code === 400 ? 400 : 502, err.message || String(err));
   return ok(info);
 }
