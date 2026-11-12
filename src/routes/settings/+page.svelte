@@ -2,7 +2,7 @@
   import { untrack, onMount } from 'svelte';
   import { data, ui, settings, updateSettings, setTheme, setScheme, setCorners, loadSessions, allTags, tagUsage, deleteTag } from '$lib/state.svelte.js';
   import { tagColor } from '$lib/format.js';
-  import { resync, getGit, checkoutBranch, dismissRestartNotice, getClaudeVersion, upgradeClaude, restartClaudeSession, pickFolder, getRemoteControl, getCapabilities, getWarmup, runWarmup, listWorktrees, removeWorktree, cleanupWorktrees } from '$lib/api.js';
+  import { resync, getGit, checkoutBranch, dismissRestartNotice, getClaudeVersion, upgradeClaude, restartClaudeSession, pickFolder, getRemoteControl, getCapabilities, getWarmup, runWarmup, listWorktrees, removeWorktree, cleanupWorktrees, pullCheckouts } from '$lib/api.js';
   import { COMPACT_LEAD_MS, CACHED_READ_SHARE } from '$lib/promptCache.js';
   import { isHideableModel } from '$lib/models.js';
   import { knownProjects } from '$lib/projects.js';
@@ -74,7 +74,7 @@
   let wtStatus = $state('');
   async function scanWorktrees() {
     wtScanning = true;
-    try { const r = await listWorktrees(); wtList = r.worktrees; wtLocation = r.location; wtReport ??= r.cleanup; }
+    try { const r = await listWorktrees(); wtList = r.worktrees; wtLocation = r.location; wtReport ??= r.cleanup; pullReport ??= r.autoPull; }
     catch (e) { wtStatus = '✗ ' + e.message; }
     wtScanning = false;
   }
@@ -100,6 +100,16 @@
     if (!res.ok) { wtStatus = '✗ ' + (res.data.error || 'failed'); return; }
     wtReport = res.data;
     if (wtList) scanWorktrees();
+  }
+  let pulling = $state(false);
+  let pullReport = $state(null);
+  const pullShown = $derived(pullReport ? pullReport.checkouts.filter((c) => c.result !== 'up to date') : []);
+  async function runPull() {
+    pulling = true;
+    const res = await pullCheckouts().catch((e) => ({ ok: false, data: { error: e.message } }));
+    pulling = false;
+    if (res.ok) pullReport = res.data;
+    else wtStatus = '✗ ' + (res.data.error || 'failed');
   }
   const saveSidebarCache = (patch) => updateSettings({ sidebarCache: { ...settings.sidebarCache, ...patch } });
   const AC_LEAD_MIN = Math.round(COMPACT_LEAD_MS / 60000);
@@ -1062,6 +1072,29 @@
                 <span class="rc-state"><span class="badge dirty">failed · {x.error}</span></span></li>
             {/each}
           </ul>
+        {/if}
+      {/if}
+
+      <h3 class="sc-section" style="margin-top:16px">Main checkouts</h3>
+      <label class="check">
+        <input type="checkbox" checked={!!settings.autoPullProjects} onchange={(e) => updateSettings({ autoPullProjects: e.currentTarget.checked })} />
+        <span>Keep the main checkout of each repository up to date (fast-forward from its upstream every 10 minutes)</span>
+      </label>
+      <div class="cmd-row">
+        <button class="save" onclick={runPull} disabled={pulling}>{#if pulling}<Icon name="queued" size={14} />{:else}<Icon name="git-branch" size={14} />{/if} Pull now</button>
+      </div>
+      <p class="hint" style="margin:6px 0 0">Repositories of the sessions of the last 30 days. Only a checkout on its default branch with no changed or untracked file, no local commit and no running session is pulled; anything else is left alone.</p>
+      {#if pullReport}
+        {#if !pullShown.length}
+          <p class="hint" style="margin-top:8px">{pullReport.checkouts.length} checkout{pullReport.checkouts.length === 1 ? '' : 's'} up to date.</p>
+        {:else}
+          <ul class="rc-list">
+            {#each pullShown as c (c.path)}
+              <li class="rc-row wt-row"><span class="rc-path" title={c.path}>{wtShort(c.path)}<span class="wt-branch">{c.branch || ''}</span></span>
+                <span class="rc-state"><span class="badge" class:dirty={c.result !== 'pulled'}>{c.result === 'pulled' ? `pulled ${c.commits} commit${c.commits === 1 ? '' : 's'}` : `${c.result} · ${c.why}`}</span></span></li>
+            {/each}
+          </ul>
+          {#if pullReport.checkouts.length > pullShown.length}<p class="hint" style="margin-top:4px">{pullReport.checkouts.length - pullShown.length} more up to date.</p>{/if}
         {/if}
       {/if}
 

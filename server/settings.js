@@ -38,6 +38,7 @@ const DEFAULTS = {
   speechEnabled: true,
   // Synchro git du dépôt du serveur (cf. server/gitOps.js) : boucle de fond fetch + pull --ff-only.
   autoGitSync: false,
+  autoPullProjects: false,
   // Boucle de fond (cf. server/prReviewTags.js) : tague une session `pr-approved` /
   // `pr-changes-requested` quand la review GitHub de sa PR la plus récente tombe. Lecture seule,
   // défaut activé.
@@ -228,6 +229,7 @@ function sanitize(raw) {
   const featureFlags = Object.fromEntries(FEATURE_FLAGS.map((k) => [k, rawFf[k] === true]));
   return {
     autoGitSync: !!o.autoGitSync,
+    autoPullProjects: !!o.autoPullProjects,
     autoPrReviewTag: o.autoPrReviewTag === undefined ? true : !!o.autoPrReviewTag,
     autoPrWatch: !!o.autoPrWatch,
     autoTags: o.autoTags === undefined ? true : !!o.autoTags,

@@ -264,6 +264,11 @@ list or clean up the worktree.
   (`onSessionArchived` in `sessionMeta.js` covers every archive path), and from "Clean up now".
   Dirty or live worktrees are kept; ignored files are not protected. Started with the other
   service-only loops, so a bare `npm run live` never removes anything on its own.
+- **Auto-pull** (`server/autoPull.js`, `autoPullProjects` setting, off by default) fast-forwards
+  the main checkout behind each session of the last 30 days, every 10 min. Only on the default
+  branch (local name and upstream both match `<remote>/HEAD`), with no changed or untracked file,
+  no local commit and no live session in that checkout. Not to be confused with `autoGitSync`,
+  which only updates hooked's own checkout.
 - Sessions carry `worktreeOf` (the main checkout, read from `.git` files with no subprocess). It
   drives "Collapse worktrees" in the project picker, the worktree actions of the session menu,
   and the Review lens's **Worktree** scope (the default there): `merge-base(base, HEAD)` → disk,

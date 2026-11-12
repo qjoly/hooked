@@ -246,3 +246,10 @@ describe('worktrees.cleanup', () => {
     expect(writeSettings({ worktrees: { cleanup: { inactiveDays: 1.5 } } }).worktrees.cleanup.inactiveDays).toBe(0);
   });
 });
+
+describe('autoPullProjects', () => {
+  it('is off by default and stores a boolean', () => {
+    expect(readSettings().autoPullProjects).toBe(false);
+    expect(writeSettings({ autoPullProjects: 'yes' }).autoPullProjects).toBe(true);
+  });
+});
