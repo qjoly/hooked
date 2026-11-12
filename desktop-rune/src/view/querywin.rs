@@ -2,7 +2,7 @@ use rune::{Color, El, ScrollSpec, col, el, row, text};
 use rune_kit::{Button, ButtonVariant, ControlSize, Kit, SegmentedControl};
 use serde_json::Value;
 
-use super::{Shadows, pill};
+use super::pill;
 use crate::app::Hooked;
 use crate::fmt;
 use crate::querywin::{QueryWin, REFRESH};
@@ -382,34 +382,20 @@ pub fn view(s: &Hooked, w: &QueryWin, k: &Kit) -> El {
                 .on_press(|s: &mut Hooked| s.query_win = None)
                 .build(k),
         );
-    el().key("query-win-layer")
-        .absolute(0.0, 0.0)
-        .w_full()
-        .h_full()
-        .items_end()
-        .justify_end()
-        .padding(16.0)
-        .child(
-            col()
-                .key("query-win")
-                .w(760.0)
-                .h((s.window_h * 0.7).max(320.0))
-                .radius(k.radius.lg)
-                .fill(k.c.bg_base)
-                .border(1.0, k.c.border_base)
-                .box_shadows(&k.elevation.overlay)
-                .child(head)
-                .child(
-                    col()
-                        .w_full()
-                        .grow(1.0)
-                        .min_h(0.0)
-                        .scroll(ScrollSpec {
-                            stick_bottom: false,
-                        })
-                        .child(body(s, w, k)),
-                ),
-        )
+    super::floating(
+        s,
+        k,
+        "query-win",
+        head,
+        col()
+            .w_full()
+            .grow(1.0)
+            .min_h(0.0)
+            .scroll(ScrollSpec {
+                stick_bottom: false,
+            })
+            .child(body(s, w, k)),
+    )
 }
 
 fn ms_to_iso(ms: i64) -> String {
