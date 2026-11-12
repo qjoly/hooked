@@ -1110,7 +1110,7 @@ function runInteractiveCommand(id, command, cb) {
   }).catch((e) => cb(new Error('failed to open an interactive terminal: ' + ((e && e.message) || e))));
 }
 
-function runLocalCommand(id, command, cb) {
+function runLocalCommand(id, command, cb, { respond = false } = {}) {
   const st = agentSession(id);
   if (!st) return cb(err400('no live agent session for this id'));
   if (!command) return cb(err400('command required'));
@@ -1138,7 +1138,14 @@ function runLocalCommand(id, command, cb) {
       const output = truncated ? out.slice(0, LOCAL_CMD_MAX_OUTPUT) : out;
       // `shouldQuery: false` : la sortie rejoint le contexte SANS déclencher de tour modèle —
       // exactement le comportement du mode bash du TUI. Sans ça, chaque `!ls` ferait répondre Claude.
-      st.input.push({ ...userMessage(formatLocalCommand(command, code, output, truncated, st.cwd)), shouldQuery: false });
+      // `respond` (Run on a command Claude proposed) is the exception: Claude asked for that output.
+      const msg = userMessage(formatLocalCommand(command, code, output, truncated, st.cwd));
+      if (respond) {
+        if (!st.input.push(msg)) return cb(new Error('session input closed'));
+        markReplied(st);
+      } else {
+        st.input.push({ ...msg, shouldQuery: false });
+      }
       cb(null, {
         sessionId: id,
         localCommand: { command, code, output, truncated, durationMs: Date.now() - startedAt, cwd: st.cwd },
@@ -1152,20 +1159,26 @@ function runLocalCommand(id, command, cb) {
 // Mais refuser SÈCHEMENT était trop brutal — juste après un redémarrage, les sessions reprises
 // mettent quelques secondes à parler et tout envoi se soldait par une erreur rouge. On attend donc
 // qu'elle soit prête, et on ne refuse que si elle ne l'est jamais devenue.
-function deliverReply(id, text, cb) {
+function deliverReply(id, text, cb, opts = {}) {
   const st = agentSession(id);
   if (!st) return cb(err400('no live agent session for this id'));
-  if (st.sawMsg) return pushReply(st, id, text, cb);
+  if (st.sawMsg) return pushReply(st, id, text, cb, opts);
   whenReady(st).then((ready) => {
     if (!ready) return cb(err400('session never finished starting — use Restart'));
     // la session a pu disparaître pendant l'attente
     const cur = agentSession(id);
     if (!cur) return cb(err400('no live agent session for this id'));
-    pushReply(cur, id, text, cb);
+    pushReply(cur, id, text, cb, opts);
   });
 }
 
-function pushReply(st, id, text, cb) {
+function markReplied(st) {
+  st.busy = true;
+  st.followup = null; // la suggestion précédente n'a plus de sens
+  st.dropNextSuggestion = false; // a real turn: its suggestion is wanted again
+}
+
+function pushReply(st, id, text, cb, { respond = false } = {}) {
   const parts = (Array.isArray(text) ? text : [text])
     .map((s) => (typeof s === 'string' ? s.trim() : ''))
     .filter(Boolean);
@@ -1177,15 +1190,13 @@ function pushReply(st, id, text, cb) {
     if (bang) {
       return bang.interactive
         ? runInteractiveCommand(id, bang.command, cb)
-        : runLocalCommand(id, bang.command, cb);
+        : runLocalCommand(id, bang.command, cb, { respond });
     }
   }
   for (const p of parts) {
     if (!st.input.push(userMessage(p))) return cb(new Error('session input closed'));
   }
-  st.busy = true;
-  st.followup = null; // la suggestion précédente n'a plus de sens
-  st.dropNextSuggestion = false; // a real turn: its suggestion is wanted again
+  markReplied(st);
   cb(null, { sessionId: id, sent: parts.length });
 }
 
