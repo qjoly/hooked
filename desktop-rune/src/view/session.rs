@@ -1879,7 +1879,7 @@ fn question(s: &Hooked, q: &PendingQuestion, k: &Kit) -> El {
                     ),
             );
     }
-    let mut c = card(k, "question", k.c.warning.border).child(
+    let c = card(k, "question", k.c.warning.border).child(
         row()
             .gap(8.0)
             .center_y()
@@ -1890,6 +1890,14 @@ fn question(s: &Hooked, q: &PendingQuestion, k: &Kit) -> El {
                     .color(k.c.text_base),
             ),
     );
+    let mut body = col()
+        .key("q-body")
+        .w_full()
+        .gap(10.0)
+        .max_h((s.window_h * 0.45).max(200.0))
+        .scroll(ScrollSpec {
+            stick_bottom: false,
+        });
     for (qi, qq) in q.questions.iter().enumerate() {
         let mut block = col().key(format!("q-{qi}")).w_full().gap(6.0);
         if let Some(h) = qq.header.as_ref() {
@@ -1950,26 +1958,27 @@ fn question(s: &Hooked, q: &PendingQuestion, k: &Kit) -> El {
                 .on_press(move |s: &mut Hooked| s.pick_option(qi, oi)),
             );
         }
-        c = c.child(block);
+        body = body.child(block);
     }
-    c.child(
-        TextInput::new(&s.q_other)
-            .placeholder("Other: type your own answer…")
-            .width(None)
-            .on_edit(|s: &mut Hooked| &mut s.q_other)
-            .on_submit(|s: &mut Hooked, _| s.answer())
-            .build(k)
-            .key("q-other"),
-    )
-    .child(
-        row().justify_end().child(
-            Button::new("Answer")
-                .variant(ButtonVariant::Contrast)
-                .on_press(|s: &mut Hooked| s.answer())
+    c.child(body)
+        .child(
+            TextInput::new(&s.q_other)
+                .placeholder("Other: type your own answer…")
+                .width(None)
+                .on_edit(|s: &mut Hooked| &mut s.q_other)
+                .on_submit(|s: &mut Hooked, _| s.answer())
                 .build(k)
-                .key("q-answer"),
-        ),
-    )
+                .key("q-other"),
+        )
+        .child(
+            row().justify_end().child(
+                Button::new("Answer")
+                    .variant(ButtonVariant::Contrast)
+                    .on_press(|s: &mut Hooked| s.answer())
+                    .build(k)
+                    .key("q-answer"),
+            ),
+        )
 }
 
 fn plan_comments(s: &Hooked, k: &Kit) -> El {
