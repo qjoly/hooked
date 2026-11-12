@@ -315,6 +315,16 @@ fn app_card(s: &Hooked, k: &Kit, v: &Value) -> El {
                 s.save_pref("notify", &n);
             }),
         ))
+        .child(line(
+            k,
+            "Performance diagnostics",
+            "Records frame timings, allocations and memory to a bounded local folder (Application Support/dev.qjoly.hooked-rune/perf). HOOKED_PERF=1 or 0 overrides this.",
+            toggle(k, "set-perf", crate::perf::enabled(), |s| {
+                let on = !crate::perf::enabled();
+                crate::perf::set_enabled(on);
+                s.save_pref("perfDiagnostics", &on);
+            }),
+        ))
         .child(block(
             k,
             "Navigation",

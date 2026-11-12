@@ -30,6 +30,8 @@ use crate::{fmt, icons};
 
 pub const SIDEBAR_W: f32 = 300.0;
 pub const DOCK_W: f32 = 300.0;
+pub const SHOTS_FOLDED: usize = 4;
+pub const SHOTS_OPEN: usize = 60;
 
 pub fn kit(s: &Hooked, cx: &Cx<Hooked>) -> Kit {
     let dark = s.dark(cx.system_dark());
@@ -1009,7 +1011,7 @@ fn section_dock(
         .expanded(!folded)
         .on_press(move |s: &mut Hooked| s.toggle_section(sec));
     let mut dock = col()
-        .key("dock")
+        .key(format!("dock-{}", sec.label()))
         .w_full()
         .gap(2.0)
         .pt(4.0)

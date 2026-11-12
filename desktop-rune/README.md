@@ -107,6 +107,26 @@ and dark, with rounded or square corners, picked in Settings or the palette.
 - A terminal in its own window: rune gives each window its own app state, so it would need a
   second copy of the terminal's input handling; the side layout covers the use.
 
+## Performance diagnostics
+
+Off by default. Settings → *Performance diagnostics*, or `HOOKED_PERF=1` (`=0` forces it off),
+records each frame's update and encode time, the bytes the UI thread allocated, input-to-encode
+latency and the process footprint with [`rune-perf`](https://github.com/anomalyco/rune/tree/main/crates/rune-perf):
+a bounded, local folder (`~/Library/Application Support/dev.qjoly.hooked-rune/perf`, `perf-headless`
+for scripted runs, or `HOOKED_PERF_DIR`). `perf.json` is a snapshot of the last 60 s rewritten
+every 2 s; `perf.log` and `perf-incident-NN.json` keep long and stalled frames.
+`HOOKED_PERF_PORT=N` also serves procwatch's snapshot (per-thread CPU, live heap) on
+`127.0.0.1:N`.
+
+```sh
+cargo build --release --features frame-profile   # adds per-phase CPU (view, commit, layout, paint)
+HOOKED_PERF_SELF=<your session id> scripts/perf/run --runs 3   # idle-deck conv-scroll review-scroll terminal-busy sidebar-many
+```
+
+`scripts/perf/run` replays each scenario headless and prints frame time, thread CPU (with
+`frame-profile`), view rebuilds, allocations and memory. Wall times follow machine load; compare
+the CPU columns.
+
 ## Checking it headless
 
 Rune renders any app without a window, which is how the layout was checked:

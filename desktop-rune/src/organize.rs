@@ -329,6 +329,9 @@ impl Hooked {
     }
 
     pub fn open_image(&mut self, paths: Vec<String>, index: usize) {
+        if let Some(p) = paths.get(index) {
+            self.want_image(&p.clone());
+        }
         self.picker = Some(Picker::Image { paths, index });
     }
 
@@ -338,6 +341,9 @@ impl Hooked {
         };
         let n = paths.len() as isize;
         *index = ((*index as isize + delta).rem_euclid(n.max(1))) as usize;
+        if let Some(p) = paths.get(*index).cloned() {
+            self.want_image(&p);
+        }
         true
     }
 

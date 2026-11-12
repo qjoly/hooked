@@ -64,7 +64,7 @@ impl Quick {
         done: impl FnOnce(&mut Quick, T) + Send + 'static,
     ) {
         let Some(me) = self.me.clone() else { return };
-        std::thread::spawn(move || {
+        crate::app::spawn_named("hooked-quick", move || {
             let r = work();
             me.update(move |s, _| done(s, r));
         });
@@ -193,6 +193,7 @@ impl Quick {
 }
 
 fn on_key(s: &mut Quick, ev: &rune::KeyEvent, tx: &mut Tx) -> bool {
+    crate::perf::input(crate::perf::QUICK, tx);
     match ev.key {
         Key::Escape => tx.close_window(),
         Key::Down if !s.items.is_empty() => {
@@ -396,7 +397,9 @@ pub fn app() -> rune::App<Quick> {
             view,
         )
     };
-    let quick = rune::App::new(spec).windowless();
+    let quick = rune::App::new(spec)
+        .windowless()
+        .on_frame_encoded(crate::perf::frame_hook(crate::perf::QUICK));
     let me = quick.handle();
     let _ = QUICK.set(me.clone());
     let main = HANDLE.get().cloned();

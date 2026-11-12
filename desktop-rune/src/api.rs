@@ -391,7 +391,8 @@ pub fn split_message_images(text: &str) -> (Vec<String>, String) {
     (images, rest.trim().to_string())
 }
 
-pub fn media_refs(d: &Detail) -> Vec<(String, String)> {
+/// `shots` caps the screenshots to the newest ones, as the dock shows them.
+pub fn media_refs(d: &Detail, shots: usize) -> Vec<(String, String)> {
     let user_file = |p: &str| {
         format!(
             "/api/user-file?session={}&agent=&path={}",
@@ -413,7 +414,9 @@ pub fn media_refs(d: &Detail) -> Vec<(String, String)> {
             }
         }
     }
-    for shot in &d.screenshots {
+    let mut newest: Vec<&Value> = d.screenshots.iter().collect();
+    newest.sort_by(|a, b| b["ts"].as_str().unwrap_or("").cmp(a["ts"].as_str().unwrap_or("")));
+    for shot in newest.into_iter().take(shots) {
         if let Some(p) = shot["path"].as_str() {
             out.push((
                 p.to_string(),
