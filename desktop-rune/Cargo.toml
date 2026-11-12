@@ -22,8 +22,11 @@ hot = ["rune/hot"]
 [target.'cfg(target_os = "macos")'.dependencies]
 tray-icon = "0.21"
 
+[profile.dev]
+debug = "line-tables-only"
+
 [profile.dev.package."*"]
-opt-level = 2
+opt-level = 1
 debug = false
 
 [profile.release]
