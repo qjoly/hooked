@@ -30,11 +30,12 @@ const EDITORS: [(&str, &str); 6] = [
     ("jetbrains", "JetBrains"),
 ];
 const DAYS: [&str; 7] = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-static SECTIONS: [(&str, &str, &Icon); 10] = [
+static SECTIONS: [(&str, &str, &Icon); 11] = [
     ("set-app", "This app", &icons::MONITOR),
     ("set-sessions", "New sessions", &icons::PLUS),
     ("set-display", "Sidebar and session", &icons::SIDEBAR),
     ("set-service", "hooked service", &icons::ACTIVITY),
+    ("set-worktrees", "Worktrees", &icons::GIT_BRANCH),
     ("set-tags", "Tags", &icons::TAG),
     ("set-rc", "Remote control", &icons::PLUG),
     ("set-term", "Terminal", &icons::TERMINAL),
@@ -993,6 +994,182 @@ fn maintenance_card(s: &Hooked, k: &Kit, v: &Value) -> El {
         ))
 }
 
+const IDLE_DAYS: [i64; 6] = [0, 3, 7, 14, 30, 90];
+
+fn tilde(p: &str) -> String {
+    match std::env::var("HOME") {
+        Ok(h) if !h.is_empty() && p.starts_with(&h) => format!("~{}", &p[h.len()..]),
+        _ => p.to_string(),
+    }
+}
+
+fn report(k: &Kit, key: &str, lines: Vec<(String, bool)>) -> El {
+    col()
+        .key(key.to_string())
+        .w_full()
+        .gap(4.0)
+        .pb(8.0)
+        .children(lines.into_iter().map(|(t, warn)| {
+            text(t)
+                .font(k.ty.text_small)
+                .color(if warn { k.c.warning.fg } else { k.c.text_muted })
+                .wrap()
+        }))
+}
+
+fn cleanup_report(s: &Hooked, k: &Kit) -> El {
+    let Some(r) = s.pages.wt_cleanup.as_ref() else {
+        return el();
+    };
+    let list = |key: &str| r[key].as_array().cloned().unwrap_or_default();
+    let name = |x: &Value| {
+        let branch = x["branch"].as_str().map(|b| format!(" ({b})")).unwrap_or_default();
+        format!("{}{branch}", tilde(x["path"].as_str().unwrap_or("")))
+    };
+    let mut lines: Vec<(String, bool)> = Vec::new();
+    for x in list("removed") {
+        let gone = if x["branchDeleted"] == true { ", branch deleted" } else { "" };
+        lines.push((format!("Removed {} · {}{gone}", name(&x), x["reason"].as_str().unwrap_or("")), false));
+    }
+    for x in list("kept") {
+        lines.push((format!("Kept {} · {}", name(&x), x["why"].as_str().unwrap_or("")), true));
+    }
+    for x in list("failed") {
+        lines.push((format!("Failed {} · {}", name(&x), x["error"].as_str().unwrap_or("")), true));
+    }
+    if lines.is_empty() {
+        lines.push(("Nothing to clean up.".into(), false));
+    }
+    report(k, "set-wt-cleanup-report", lines)
+}
+
+fn pull_report(s: &Hooked, k: &Kit) -> El {
+    let Some(r) = s.pages.wt_pull.as_ref() else {
+        return el();
+    };
+    let all = r["checkouts"].as_array().cloned().unwrap_or_default();
+    let mut lines: Vec<(String, bool)> = Vec::new();
+    let mut fresh = 0;
+    for c in &all {
+        let at = format!(
+            "{}{}",
+            tilde(c["path"].as_str().unwrap_or("")),
+            c["branch"].as_str().map(|b| format!(" ({b})")).unwrap_or_default()
+        );
+        match c["result"].as_str().unwrap_or("") {
+            "pulled" => {
+                let n = c["commits"].as_i64().unwrap_or(0);
+                lines.push((format!("Pulled {n} commit{} into {at}", if n == 1 { "" } else { "s" }), false));
+            }
+            "up to date" => fresh += 1,
+            "failed" => lines.push((format!("Failed {at} · {}", c["why"].as_str().unwrap_or("")), true)),
+            _ => lines.push((format!("Skipped {at} · {}", c["why"].as_str().unwrap_or("")), false)),
+        }
+    }
+    if fresh > 0 || all.is_empty() {
+        lines.push((format!("{fresh} checkout{} up to date.", if fresh == 1 { "" } else { "s" }), false));
+    }
+    report(k, "set-wt-pull-report", lines)
+}
+
+fn worktrees_card(s: &Hooked, k: &Kit, v: &Value) -> El {
+    let wt = &v["worktrees"];
+    let auto_name = wt["autoName"].as_bool().unwrap_or(true);
+    let on_archive = wt["cleanup"]["onArchive"].as_bool().unwrap_or(false);
+    let idle = wt["cleanup"]["inactiveDays"].as_i64().unwrap_or(0);
+    let busy = s.pages.busy.is_some();
+    let input = |edit: &Option<rune::TextEdit>, field: &'static str, placeholder: &str, key: &str| {
+        edit.as_ref().map_or_else(el, |e| {
+            TextInput::new(e)
+                .width(Some(320.0))
+                .placeholder(placeholder.to_string())
+                .on_edit(move |s: &mut Hooked| match field {
+                    "location" => s.pages.wt_location.as_mut().expect("loaded"),
+                    _ => s.pages.wt_names.as_mut().expect("loaded"),
+                })
+                .on_submit(move |s: &mut Hooked, _| s.save_wt_text(field))
+                .build(k)
+                .key(key.to_string())
+        })
+    };
+    let days: Vec<El> = IDLE_DAYS
+        .iter()
+        .map(|&d| {
+            let label = if d == 0 { "Never".to_string() } else { format!("{d} days") };
+            chip(k, format!("wt-idle-{d}"), label, idle == d, move |s| s.save_wt_cleanup("inactiveDays", json!(d)))
+        })
+        .collect();
+    card(k, "set-worktrees", "WORKTREES")
+        .child(line(
+            k,
+            "Folder",
+            "Where new worktrees go: an absolute path or ~/path. Existing worktrees stay where they are.",
+            input(&s.pages.wt_location, "location", "~/.claude/hooked/worktrees", "set-wt-location"),
+        ))
+        .child(line(
+            k,
+            "Name branches from the first prompt",
+            "One Haiku call, e.g. feat/dark-mode-toggle. The session starts on a temporary hooked/… branch, renamed a few seconds later.",
+            toggle(k, "set-wt-autoname", auto_name, |s| {
+                let on = s.setting("worktrees")["autoName"].as_bool().unwrap_or(true);
+                s.save_nested("worktrees", "autoName", json!(!on));
+            }),
+        ))
+        .child(line(
+            k,
+            "Naming instructions",
+            "Added to the naming prompt, e.g. prefix with the Jira key when the prompt has one.",
+            input(&s.pages.wt_names, "nameInstructions", "Extra instructions", "set-wt-names"),
+        ))
+        .child(line(
+            k,
+            "Remove once archived",
+            "Removes a worktree hooked created once every session in it is archived, a few seconds after the archive. A worktree with uncommitted or untracked files, or a running session, is kept; ignored files (.env, build output) go with it. The branch stays, and resuming a session checks its worktree out again.",
+            toggle(k, "set-wt-onarchive", on_archive, |s| {
+                let on = s.setting("worktrees")["cleanup"]["onArchive"].as_bool().unwrap_or(false);
+                s.save_wt_cleanup("onArchive", json!(!on));
+            }),
+        ))
+        .child(block(k, "Remove idle worktrees", "After this long without activity in any of its sessions. Checked hourly.", chips(days)))
+        .child(line(
+            k,
+            "Clean up now",
+            "Runs the rules above once.",
+            Button::new("Clean up")
+                .icon(&icons::TRASH)
+                .variant(ButtonVariant::Outline)
+                .control_size(ControlSize::Small)
+                .disabled(busy || !(on_archive || idle > 0))
+                .on_press(|s: &mut Hooked| s.cleanup_worktrees_now())
+                .build(k)
+                .key("set-wt-cleanup"),
+        ))
+        .child(cleanup_report(s, k))
+        .child(line(
+            k,
+            "Keep main checkouts up to date",
+            "Every 10 minutes, fast-forwards the main checkout of each repository used in the last 30 days. Only on its default branch, with no changed or untracked file, no local commit and no running session.",
+            toggle(k, "set-wt-autopull", flag(v, "autoPullProjects"), |s| {
+                let on = s.setting("autoPullProjects").as_bool().unwrap_or(false);
+                s.save_setting("autoPullProjects", json!(!on));
+            }),
+        ))
+        .child(line(
+            k,
+            "Pull now",
+            "Runs the pass once, whether the setting is on or not.",
+            Button::new("Pull")
+                .icon(&icons::GIT_BRANCH)
+                .variant(ButtonVariant::Outline)
+                .control_size(ControlSize::Small)
+                .disabled(busy)
+                .on_press(|s: &mut Hooked| s.pull_checkouts_now())
+                .build(k)
+                .key("set-wt-pull"),
+        ))
+        .child(pull_report(s, k))
+}
+
 pub fn view(s: &Hooked, k: &Kit) -> El {
     let Some(v) = s.pages.settings.as_ref() else {
         return page(k, "settings", "Settings", el(), loading(k));
@@ -1011,6 +1188,7 @@ pub fn view(s: &Hooked, k: &Kit) -> El {
         sessions_card(s, k, v),
         sidebar_card(k, v),
         service_card(s, k, v),
+        worktrees_card(s, k, v),
         tags_card(s, k, v),
         remote_card(s, k, v),
         terminal_card(s, k),

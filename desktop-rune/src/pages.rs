@@ -140,6 +140,10 @@ pub struct PageData {
     pub settings_stale: bool,
     pub settings_loading: bool,
     pub settings_project: Option<TextEdit>,
+    pub wt_location: Option<TextEdit>,
+    pub wt_names: Option<TextEdit>,
+    pub wt_cleanup: Option<Value>,
+    pub wt_pull: Option<Value>,
     pub settings_tops: Vec<f32>,
     pub settings_last_h: f32,
     pub settings_view: [f32; 2],
@@ -618,6 +622,8 @@ impl Hooked {
             .filter_map(|p| Some(format!("{}-{}", p.get(0)?.as_str()?, p.get(1)?.as_str()?)))
             .collect();
         self.pages.hours = Some(TextEdit::new(hours.join(", ")));
+        self.pages.wt_location = Some(TextEdit::new(v["worktrees"]["location"].as_str().unwrap_or("")));
+        self.pages.wt_names = Some(TextEdit::new(v["worktrees"]["nameInstructions"].as_str().unwrap_or("")));
         self.pages.settings = Some(v);
     }
 
@@ -751,6 +757,61 @@ impl Hooked {
                     Err(e) => s.flash(format!("✗ {label}: {e}"), true),
                 }
                 s.load_settings_extras();
+            },
+        );
+    }
+
+    pub fn save_wt_cleanup(&mut self, field: &str, value: Value) {
+        let mut rules = self.setting("worktrees")["cleanup"].clone();
+        if !rules.is_object() {
+            rules = json!({});
+        }
+        rules[field] = value;
+        self.save_nested("worktrees", "cleanup", rules);
+    }
+
+    pub fn save_wt_text(&mut self, field: &'static str) {
+        let edit = match field {
+            "location" => &self.pages.wt_location,
+            _ => &self.pages.wt_names,
+        };
+        let text = edit.as_ref().map(|e| e.text.trim().to_string()).unwrap_or_default();
+        self.save_nested("worktrees", field, json!(text));
+        self.flash("✓ Saved", false);
+    }
+
+    pub fn cleanup_worktrees_now(&mut self) {
+        self.pages.busy = Some("wt-cleanup");
+        self.spawn(
+            || api::post("/api/worktrees", json!({ "action": "cleanup" })),
+            |s, r, _| {
+                s.pages.busy = None;
+                match r {
+                    Ok(v) => {
+                        let n = v["removed"].as_array().map_or(0, Vec::len);
+                        s.flash(format!("✓ {n} worktree{} removed", if n == 1 { "" } else { "s" }), false);
+                        s.pages.wt_cleanup = Some(v);
+                    }
+                    Err(e) => s.flash(format!("✗ Cleanup: {e}"), true),
+                }
+            },
+        );
+    }
+
+    pub fn pull_checkouts_now(&mut self) {
+        self.pages.busy = Some("wt-pull");
+        self.spawn(
+            || api::post("/api/worktrees", json!({ "action": "pull" })),
+            |s, r, _| {
+                s.pages.busy = None;
+                match r {
+                    Ok(v) => {
+                        let n = v["checkouts"].as_array().map_or(0, |l| l.iter().filter(|c| c["result"] == "pulled").count());
+                        s.flash(format!("✓ {n} checkout{} pulled", if n == 1 { "" } else { "s" }), false);
+                        s.pages.wt_pull = Some(v);
+                    }
+                    Err(e) => s.flash(format!("✗ Pull: {e}"), true),
+                }
             },
         );
     }

@@ -79,7 +79,8 @@ and dark, with rounded or square corners, picked in Settings or the palette.
   New session, Stats, Digest (generate and
   regenerate), Memory, Cron (create, edit, pause, run, delete), GitHub, Skills, Settings (theme,
   color scheme, corners, notifications, default page, new-session defaults, digest, auto-compact,
-  tags, git sync, with a table of contents in place of the session list).
+  worktrees (folder, branch naming, cleanup, auto-pull of main checkouts), tags, git sync, with a
+  table of contents in place of the session list).
 - **Organizing**: drag a session (sidebar row or fleet card) onto another to group them, or onto
   a fleet repo header to take it out of its group; tags on rows and in the header, groups under their
   lead session with a tab strip (switch, make lead, leave, rename, new session in the group),
