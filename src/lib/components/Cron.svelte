@@ -2,6 +2,7 @@
   import { getCronTasks, cronOp } from '$lib/api.js';
   import { data } from '$lib/state.svelte.js';
   import { nextRuns } from '$lib/cron.js';
+  import { knownProjects } from '$lib/projects.js';
   import { fmtSpan, ago } from '$lib/format.js';
   import ModelEffort from './ModelEffort.svelte';
   import Icon from './Icon.svelte';
@@ -33,7 +34,7 @@
   });
 
   const selected = $derived(tasks?.find((t) => t.id === selectedId) || null);
-  const projects = $derived([...new Set(data.sessions.map((s) => s.project).filter(Boolean))].sort());
+  const projects = $derived(knownProjects(data.sessions).map(([cwd]) => cwd).sort());
   const preview = $derived.by(() => {
     try { return { runs: nextRuns(form.schedule, 3, now) }; } catch (e) { return { error: e.message }; }
   });
