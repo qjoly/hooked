@@ -1,4 +1,4 @@
-use rune::{Color, El, ScrollSpec, col, el, row, text};
+use rune::{Color, El, LineCap, ScrollSpec, Shape, canvas, col, el, row, text};
 use rune_kit::{Button, ButtonVariant, ControlSize, Kit, SegmentedControl};
 use serde_json::Value;
 
@@ -31,6 +31,10 @@ fn compact(v: f64) -> String {
     } else {
         format!("{v:.3}")
     }
+}
+
+fn series_color(palette: [&str; 8], i: usize) -> Color {
+    rune::color::hex(palette.get(i).copied().unwrap_or("#8a8a99")).unwrap_or(Color::WHITE)
 }
 
 fn hhmm(ms: f64) -> String {
@@ -86,7 +90,7 @@ fn series(data: &Value) -> Vec<Series> {
     out
 }
 
-fn chart(s: &Hooked, k: &Kit, list: &[Series]) -> El {
+fn chart(k: &Kit, list: &[Series]) -> El {
     let (mut t0, mut t1, mut lo, mut hi) = (f64::MAX, f64::MIN, f64::MAX, f64::MIN);
     for p in list.iter().flat_map(|s| &s.points) {
         t0 = t0.min(p.0);
@@ -106,36 +110,25 @@ fn chart(s: &Hooked, k: &Kit, list: &[Series]) -> El {
         hi = lo + 1.0;
     }
     let palette = if k.dark { DARK } else { LIGHT };
-    let grid = k.c.border_weak.hex().chars().take(7).collect::<String>();
-    let mut svg = format!(r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {W} {H}">"#);
+    let mut shape = Shape::new();
     for i in 0..=3 {
         let y = H * i as f32 / 3.0;
-        svg.push_str(&format!(
-            r#"<line x1="0" x2="{W}" y1="{y:.1}" y2="{y:.1}" stroke="{grid}" stroke-width="1"/>"#
-        ));
+        shape = shape.line([0.0, y], [W, y], 1.0, LineCap::Butt, k.c.border_weak);
     }
     for (i, se) in list.iter().enumerate().rev() {
-        let color = palette.get(i).copied().unwrap_or("#8a8a99");
-        let pts: Vec<String> = se
+        let color = series_color(palette, i);
+        let pts: Vec<[f32; 2]> = se
             .points
             .iter()
             .map(|(t, v)| {
                 let x = ((t - t0) / (t1 - t0)) as f32 * W;
                 let y = H - ((v - lo) / (hi - lo)) as f32 * (H - 4.0) - 2.0;
-                format!("{x:.1},{y:.1}")
+                [x, y]
             })
             .collect();
-        svg.push_str(&format!(
-            r#"<polyline fill="none" stroke="{color}" stroke-width="1.6" stroke-linejoin="round" points="{}"/>"#,
-            pts.join(" ")
-        ));
+        shape = shape.stroke(pts, 1.6, color);
     }
-    svg.push_str("</svg>");
-    let img = s.images.as_ref().map(|c| c.svg(svg.into_bytes(), W, 2.0));
-    let plot = match img {
-        Some(img) => el().size(W, H).pixels(img.pixels()),
-        None => el().size(W, H),
-    };
+    let plot = canvas(shape).size(W, H);
     let axis = |v: f64| {
         text(compact(v))
             .font(k.ty.text_xsmall)
@@ -169,7 +162,7 @@ fn chart(s: &Hooked, k: &Kit, list: &[Series]) -> El {
         )
 }
 
-fn body(s: &Hooked, w: &QueryWin, k: &Kit) -> El {
+fn body(w: &QueryWin, k: &Kit) -> El {
     if w.login {
         return col()
             .gap(10.0)
@@ -213,7 +206,7 @@ fn body(s: &Hooked, w: &QueryWin, k: &Kit) -> El {
         "series" => {
             let list = series(d);
             let palette = if k.dark { DARK } else { LIGHT };
-            c = c.child(chart(s, k, &list));
+            c = c.child(chart(k, &list));
             let mut legend = col().w_full().gap(2.0).child(
                 row().w_full().gap(8.0).child(el().grow(1.0)).children(
                     ["last", "max", "mean"].map(|h| {
@@ -225,8 +218,7 @@ fn body(s: &Hooked, w: &QueryWin, k: &Kit) -> El {
                 ),
             );
             for (i, se) in list.iter().enumerate().take(30) {
-                let color = rune::color::hex(palette.get(i).copied().unwrap_or("#8a8a99"))
-                    .unwrap_or(Color::WHITE);
+                let color = series_color(palette, i);
                 legend = legend.child(
                     row()
                         .w_full()
@@ -394,7 +386,7 @@ pub fn view(s: &Hooked, w: &QueryWin, k: &Kit) -> El {
             .scroll(ScrollSpec {
                 stick_bottom: false,
             })
-            .child(body(s, w, k)),
+            .child(body(w, k)),
     )
 }
 
