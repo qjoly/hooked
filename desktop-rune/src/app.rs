@@ -120,6 +120,8 @@ pub struct Hooked {
 
     pub sidebar_open: bool,
     pub sidebar_w: f32,
+    pub dock_w: f32,
+    pub dock_gh_w: Option<f32>,
     pub window_h: f32,
     pub window_w: f32,
     pub show_archived: bool,
@@ -155,6 +157,8 @@ pub struct Hooked {
     pub job_log: Option<(String, String)>,
     pub run_win: Option<crate::ghrun::RunWin>,
     pub query_win: Option<crate::querywin::QueryWin>,
+    pub float_at: HashMap<&'static str, [f32; 2]>,
+    pub float_grab: [f32; 2],
     pub gh_checks: HashMap<String, Vec<serde_json::Value>>,
     pub gh_details: HashMap<String, Result<serde_json::Value, String>>,
     pub gh_diffs: HashMap<String, Result<serde_json::Value, String>>,
@@ -347,6 +351,8 @@ impl Hooked {
             .unwrap_or_else(|| "status".to_string());
         let dock_open = prefs.get("dockOpen").unwrap_or(true);
         let prefs_w = prefs.get("sidebarW").unwrap_or(crate::view::SIDEBAR_W);
+        let dock_w = prefs.get("dockW").unwrap_or(crate::view::DOCK_W);
+        let dock_gh_w = prefs.get("dockGhW");
         let mut s = Hooked {
             prefs,
             sessions: Vec::new(),
@@ -368,6 +374,8 @@ impl Hooked {
             notify,
             sidebar_open,
             sidebar_w: prefs_w,
+            dock_w,
+            dock_gh_w,
             window_h: 860.0,
             window_w: 1320.0,
             show_archived: false,
@@ -401,6 +409,8 @@ impl Hooked {
             job_log: None,
             run_win: None,
             query_win: None,
+            float_at: HashMap::new(),
+            float_grab: [0.0; 2],
             gh_checks: HashMap::new(),
             gh_details: HashMap::new(),
             gh_diffs: HashMap::new(),
@@ -1880,9 +1890,26 @@ impl Hooked {
         }
     }
 
+    pub fn followup(&self) -> Option<String> {
+        let d = self.detail.as_ref()?;
+        d.followup_suggestion.clone().filter(|f| {
+            !f.is_empty()
+                && d.pending_question.is_none()
+                && d.pending_plan.is_none()
+                && self.queued.is_empty()
+        })
+    }
+
     pub fn use_followup(&mut self, text: String) {
         self.composer = TextEdit::new(text);
         self.composer.focused = true;
+    }
+
+    pub fn send_suggestion(&mut self, text: String) {
+        if self.sending {
+            return;
+        }
+        self.send_prompt(text);
     }
 
     pub fn interrupt(&mut self) {

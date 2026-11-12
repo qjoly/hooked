@@ -2169,6 +2169,13 @@ fn composer_field(s: &Hooked, k: &Kit, placeholder: &str) -> El {
                 s.ac = None;
                 true
             }
+            Key::Tab if !ev.mods.shift && s.composer.text.trim().is_empty() => match s.followup() {
+                Some(f) => {
+                    s.use_followup(f);
+                    true
+                }
+                None => false,
+            },
             Key::Enter if !ev.mods.shift && !ev.mods.alt => {
                 s.send();
                 true
@@ -2277,13 +2284,7 @@ fn composer(s: &Hooked, d: &Detail, k: &Kit, busy: bool) -> El {
         .pb(14.0)
         .pt(6.0)
         .gap(8.0);
-    let follow = d.followup_suggestion.clone().filter(|f| {
-        !f.is_empty()
-            && d.pending_question.is_none()
-            && d.pending_plan.is_none()
-            && s.queued.is_empty()
-    });
-    if let Some(f) = follow {
+    if let Some(f) = s.followup() {
         let use_it = f.clone();
         c = c.child(
             k.interactive(
@@ -2308,13 +2309,13 @@ fn composer(s: &Hooked, d: &Detail, k: &Kit, busy: bool) -> El {
                             .min_w(0.0),
                     )
                     .child(
-                        text("Tab ↹ to use")
+                        text("Click to send · Tab ↹ to edit")
                             .font(k.ty.text_xsmall)
                             .color(k.c.text_faint),
                     ),
             )
-            .help("Suggested follow-up: click to put it in the box")
-            .on_press(move |s: &mut Hooked| s.use_followup(use_it.clone())),
+            .help("Suggested follow-up: click to send it, or press Tab to edit it first")
+            .on_press(move |s: &mut Hooked| s.send_suggestion(use_it.clone())),
         );
     }
     if s.ac.is_some() {

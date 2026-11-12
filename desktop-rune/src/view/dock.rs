@@ -786,29 +786,78 @@ pub fn view(s: &Hooked, d: &Detail, k: &Kit) -> El {
     if !d.screenshots.is_empty() {
         cards = cards.child(screenshots(s, d, k));
     }
-    col()
-        .key("dock")
-        .w(300.0)
+    resizable(
+        k,
+        s.dock_w.min((s.window_w * 0.6).max(240.0)),
+        |s| s.dock_w,
+        |s, w| s.dock_w = w,
+        |s, w| s.save_pref("dockW", &w),
+        col()
+            .key("dock")
+            .grow(1.0)
+            .min_w(0.0)
+            .h_full()
+            .child(
+                row()
+                    .w_full()
+                    .px(14.0)
+                    .pt(12.0)
+                    .child(section_title(k, "SESSION CONTEXT")),
+            )
+            .child(
+                col()
+                    .w_full()
+                    .grow(1.0)
+                    .min_h(0.0)
+                    .scroll(ScrollSpec {
+                        stick_bottom: false,
+                    })
+                    .child(cards),
+            ),
+    )
+}
+
+fn gh_width(s: &Hooked) -> f32 {
+    s.dock_gh_w
+        .unwrap_or_else(|| (s.window_w * 0.42).clamp(420.0, 720.0))
+}
+
+fn resizable(
+    k: &Kit,
+    width: f32,
+    get: fn(&Hooked) -> f32,
+    set: fn(&mut Hooked, f32),
+    save: fn(&mut Hooked, f32),
+    content: El,
+) -> El {
+    let grip = el()
+        .key("dock-resize")
+        .w(6.0)
+        .h_full()
+        .cursor(Cursor::ResizeColumn)
+        .help("Drag to resize")
+        .on_drag(move |s: &mut Hooked, d: &mut rune::Drag, _| {
+            if d.phase == rune::Phase::Down {
+                d.data = get(s);
+            }
+            if d.cancelled() {
+                set(s, d.data);
+                return;
+            }
+            let w = (d.data - d.dx).clamp(240.0, (s.window_w * 0.6).max(240.0));
+            set(s, w);
+            if d.phase == rune::Phase::Up {
+                save(s, w);
+            }
+        });
+    row()
+        .key("dock-wrap")
+        .w(width)
         .h_full()
         .fill(k.c.bg_deep)
         .border_sides([0.0, 0.0, 0.0, 1.0], k.c.border_weak)
-        .child(
-            row()
-                .w_full()
-                .px(14.0)
-                .pt(12.0)
-                .child(section_title(k, "SESSION CONTEXT")),
-        )
-        .child(
-            col()
-                .w_full()
-                .grow(1.0)
-                .min_h(0.0)
-                .scroll(ScrollSpec {
-                    stick_bottom: false,
-                })
-                .child(cards),
-        )
+        .child(grip)
+        .child(content)
 }
 
 fn gh_full(s: &Hooked, d: &Detail, k: &Kit, open: &str) -> El {
@@ -864,17 +913,23 @@ fn gh_full(s: &Hooked, d: &Detail, k: &Kit, open: &str) -> El {
             .on_press(move |s: &mut Hooked| s.open_gh_full(url.clone())),
         );
     }
-    col()
-        .key("dock")
-        .w((s.window_w * 0.42).clamp(420.0, 720.0))
-        .h_full()
-        .fill(k.c.bg_deep)
-        .border_sides([0.0, 0.0, 0.0, 1.0], k.c.border_weak)
-        .child(nav)
-        .child(super::ghdetail::panel(
-            s,
-            k,
-            crate::ghdetail::GhSlot::Dock,
-            el(),
-        ))
+    resizable(
+        k,
+        gh_width(s).min((s.window_w * 0.6).max(240.0)),
+        gh_width,
+        |s, w| s.dock_gh_w = Some(w),
+        |s, w| s.save_pref("dockGhW", &w),
+        col()
+            .key("dock")
+            .grow(1.0)
+            .min_w(0.0)
+            .h_full()
+            .child(nav)
+            .child(super::ghdetail::panel(
+                s,
+                k,
+                crate::ghdetail::GhSlot::Dock,
+                el(),
+            )),
+    )
 }

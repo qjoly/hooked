@@ -1,8 +1,8 @@
-use rune::{Color, Cursor, El, ScrollSpec, col, el, row, text};
+use rune::{Color, Cursor, El, ScrollSpec, col, row, text};
 use rune_kit::{Button, ButtonVariant, ControlSize, Kit};
 use serde_json::Value;
 
-use super::{Shadows, dot, glyph, section_title};
+use super::{dot, glyph, section_title};
 use crate::app::Hooked;
 use crate::ghrun::{MAX_LINES, RunWin};
 use crate::{fmt, icons};
@@ -228,23 +228,5 @@ pub fn view(s: &Hooked, w: &RunWin, k: &Kit) -> El {
                 ),
         );
     }
-    el().key("run-win-layer")
-        .absolute(0.0, 0.0)
-        .w_full()
-        .h_full()
-        .items_end()
-        .justify_end()
-        .padding(16.0)
-        .child(
-            col()
-                .key("run-win")
-                .w(760.0)
-                .h((s.window_h * 0.7).max(320.0))
-                .radius(k.radius.lg)
-                .fill(k.c.bg_base)
-                .border(1.0, k.c.border_base)
-                .box_shadows(&k.elevation.overlay)
-                .child(head)
-                .child(body),
-        )
+    super::floating(s, k, "run-win", head, body)
 }

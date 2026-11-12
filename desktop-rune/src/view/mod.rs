@@ -28,6 +28,7 @@ use crate::sections::{Section, clock, section_of, snooze_presets, wake_label};
 use crate::{fmt, icons};
 
 pub const SIDEBAR_W: f32 = 300.0;
+pub const DOCK_W: f32 = 300.0;
 
 pub fn kit(s: &Hooked, cx: &Cx<Hooked>) -> Kit {
     let dark = s.dark(cx.system_dark());
@@ -1602,12 +1603,59 @@ pub fn md(src: impl Into<String>) -> rune_kit::Markdown {
     rune_kit::Markdown::new(src).on_link_tx(crate::app::open_link)
 }
 
+pub(super) fn floating(s: &Hooked, k: &Kit, key: &'static str, head: El, body: El) -> El {
+    const W: f32 = 760.0;
+    const MARGIN: f32 = 16.0;
+    let h = (s.window_h * 0.7).max(320.0);
+    let clamp = move |s: &Hooked, [r, b]: [f32; 2]| {
+        [
+            r.clamp(0.0, (s.window_w - W).max(0.0)),
+            b.clamp(0.0, (s.window_h - h).max(0.0)),
+        ]
+    };
+    let [right, bottom] = clamp(s, s.float_at.get(key).copied().unwrap_or([MARGIN; 2]));
+    let head = head
+        .cursor(Cursor::Move)
+        .on_drag(move |s: &mut Hooked, d: &mut rune::Drag, _| {
+            if d.phase == Phase::Down {
+                s.float_grab = clamp(s, s.float_at.get(key).copied().unwrap_or([MARGIN; 2]));
+            }
+            let [r, b] = s.float_grab;
+            let at = if d.cancelled() {
+                s.float_grab
+            } else {
+                clamp(s, [r - d.dx, b - d.dy])
+            };
+            s.float_at.insert(key, at);
+        });
+    el().key(format!("{key}-layer"))
+        .absolute(0.0, 0.0)
+        .w_full()
+        .h_full()
+        .child(
+            col()
+                .key(key)
+                .pin(None, None, Some(right), Some(bottom))
+                .w(W)
+                .h(h)
+                .radius(k.radius.lg)
+                .fill(k.c.bg_base)
+                .border(1.0, k.c.border_base)
+                .box_shadows(&k.elevation.overlay)
+                .child(head)
+                .child(body),
+        )
+}
+
 /// Markdown whose code blocks carry Copy, and Run for shell blocks of a session.
 pub fn md_code(src: impl Into<String>, k: &Kit, session: Option<String>) -> rune_kit::Markdown {
     let k = k.clone();
+    let src: String = src.into();
+    let doc: std::rc::Rc<str> = src.as_str().into();
     md(src).code_frame(move |card, c| {
         let code = c.source.to_string();
         let lang = c.language.unwrap_or("").to_string();
+        let query = matches!(lang.to_lowercase().as_str(), "promql" | "logql") && !c.open;
         let shell = matches!(
             lang.to_lowercase().as_str(),
             "sh" | "bash" | "shell" | "zsh"
@@ -1634,6 +1682,28 @@ pub fn md_code(src: impl Into<String>, k: &Kit, session: Option<String>) -> rune
                     .control_size(ControlSize::Small)
                     .help("Run in the session folder; the output goes to the conversation")
                     .on_press(move |s: &mut Hooked| s.run_code(id.clone(), run.clone()))
+                    .build(&k),
+            );
+        }
+        if query {
+            let spec = crate::querywin::fence_info(&doc, &code)
+                .and_then(|info| crate::querywin::fence_query(&info, &code));
+            bar = bar.child(
+                Button::new("View")
+                    .icon(&icons::CHART)
+                    .variant(ButtonVariant::GhostMuted)
+                    .control_size(ControlSize::Small)
+                    .help(if spec.is_some() {
+                        "Open a live chart of this query"
+                    } else {
+                        "Add datasource=… after the language to view it"
+                    })
+                    .disabled(spec.is_none())
+                    .on_press(move |s: &mut Hooked| {
+                        if let Some(spec) = spec.clone() {
+                            s.open_query_spec(spec);
+                        }
+                    })
                     .build(&k),
             );
         }

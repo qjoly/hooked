@@ -44,6 +44,66 @@ pub fn live_spec(tool: &str, input: &Value) -> Value {
     s
 }
 
+/// ```promql datasource=mimir-prod range=6h step=5m refresh=30 (same syntax as the web's `fenceQuery`).
+pub fn fence_query(info: &str, code: &str) -> Option<Value> {
+    let mut words = info.split_whitespace();
+    let tool = match words.next()?.to_lowercase().as_str() {
+        "promql" => "prometheus",
+        "logql" => "loki",
+        _ => return None,
+    };
+    let meta: std::collections::HashMap<&str, &str> = words
+        .filter_map(|w| w.split_once('=').filter(|(k, _)| !k.is_empty()))
+        .collect();
+    let datasource = meta.get("datasource").or_else(|| meta.get("ds"))?;
+    let query = code.trim();
+    if datasource.is_empty() || query.is_empty() {
+        return None;
+    }
+    let mut spec = json!({
+        "tool": tool,
+        "datasource": datasource,
+        "query": query,
+        "range": meta.get("range").copied().unwrap_or("1h"),
+        "refresh": meta.get("refresh").and_then(|r| r.parse::<u64>().ok()).unwrap_or(30),
+    });
+    if let Some(step) = meta.get("step") {
+        spec["step"] = json!(step);
+    }
+    if let Some(limit) = meta.get("limit").and_then(|l| l.parse::<u64>().ok()) {
+        spec["limit"] = json!(limit);
+    }
+    Some(spec)
+}
+
+/// rune-kit hands a code frame only the info string's first word, so the options come from the
+/// fence in the source whose body is `code`.
+pub fn fence_info(markdown: &str, code: &str) -> Option<String> {
+    use pulldown_cmark::{CodeBlockKind, Event, Parser, Tag, TagEnd};
+    let mut cur: Option<(String, String)> = None;
+    for ev in Parser::new(markdown) {
+        match ev {
+            Event::Start(Tag::CodeBlock(CodeBlockKind::Fenced(info))) => {
+                cur = Some((info.to_string(), String::new()));
+            }
+            Event::Text(t) => {
+                if let Some((_, body)) = cur.as_mut() {
+                    body.push_str(&t);
+                }
+            }
+            Event::End(TagEnd::CodeBlock) => {
+                if let Some((info, body)) = cur.take()
+                    && body.trim() == code.trim()
+                {
+                    return Some(info);
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
 pub fn is_query_tool(name: &str) -> bool {
     name.ends_with("__grafana_query_prometheus")
         || name.ends_with("__grafana_query_loki")
@@ -194,5 +254,24 @@ mod tests {
         assert!(s.get("start").is_none());
         assert_eq!(s["tool"], "prometheus");
         assert!(is_query_tool("mcp__mcp-gateway__grafana_query_loki"));
+    }
+
+    #[test]
+    fn query_fences_carry_their_options() {
+        let md = "Look:\n\n```promql datasource=mimir-prod range=6h step=5m refresh=10\nsum(rate(x[5m]))\n```\n\n```promql\nup\n```\n";
+        let info = fence_info(md, "sum(rate(x[5m]))\n").unwrap();
+        let spec = fence_query(&info, "sum(rate(x[5m]))\n").unwrap();
+        assert_eq!(spec["tool"], "prometheus");
+        assert_eq!(spec["datasource"], "mimir-prod");
+        assert_eq!(spec["query"], "sum(rate(x[5m]))");
+        assert_eq!(spec["range"], "6h");
+        assert_eq!(spec["step"], "5m");
+        assert_eq!(spec["refresh"], 10);
+        assert!(fence_query(&fence_info(md, "up").unwrap(), "up").is_none());
+        let loki = fence_query("LogQL ds=loki-prod", "{app=\"x\"}").unwrap();
+        assert_eq!(loki["tool"], "loki");
+        assert_eq!(loki["range"], "1h");
+        assert_eq!(loki["refresh"], 30);
+        assert!(fence_query("sql datasource=x", "select 1").is_none());
     }
 }
