@@ -104,7 +104,7 @@ describe('listWorktrees / removeWorktree', () => {
     expect(res).toMatchObject({ removed: true, branch: 'feat/explicit', branchDeleted: true });
     expect(fs.existsSync(p)).toBe(false);
     expect(() => git(REPO, 'rev-parse', '--verify', 'refs/heads/feat/explicit')).toThrow();
-    expect(wt.readWorktreeRegistry()[p]).toBeUndefined();
+    expect(wt.readWorktreeRegistry()[p]).toMatchObject({ branch: 'feat/explicit', removedAt: expect.any(String), head: expect.stringMatching(/^[0-9a-f]{40}$/) });
   });
 
   it('protects local changes and keeps a branch with its own commits', async () => {
@@ -149,5 +149,104 @@ describe('review against the base', () => {
     expect(d.mergeBase).toBe(git(res.path, 'rev-parse', 'HEAD~1'));
     expect(d.changes.map((c) => path.relative(res.path, c.file)).sort()).toEqual(['a.txt', 'committed.txt', 'untracked.txt']);
     await wt.removeWorktree(res.path, { force: true });
+  });
+});
+
+describe('restoreWorktree', () => {
+  it('checks a removed worktree out again from its kept branch', async () => {
+    const res = await wt.createWorktree({ cwd: REPO, base: 'main', branch: 'feat/restore' });
+    fs.writeFileSync(path.join(res.path, 'r.txt'), 'r\n');
+    git(res.path, 'add', '.');
+    git(res.path, 'commit', '-qm', 'restore me');
+    const head = git(res.path, 'rev-parse', 'HEAD');
+    await wt.removeWorktree(res.path);
+    expect(fs.existsSync(res.path)).toBe(false);
+
+    expect(await wt.restoreWorktree(path.join(res.path, 'sub'))).toEqual({ path: res.path, branch: 'feat/restore' });
+    expect(git(res.path, 'rev-parse', 'HEAD')).toBe(head);
+    expect(wt.readWorktreeRegistry()[res.path].removedAt).toBeUndefined();
+    await wt.removeWorktree(res.path, { forget: true });
+    expect(wt.readWorktreeRegistry()[res.path]).toBeUndefined();
+  });
+
+  it('recreates a deleted merged branch at the commit it was removed at', async () => {
+    const res = await wt.createWorktree({ cwd: REPO, base: 'main', branch: 'feat/gone' });
+    const head = git(res.path, 'rev-parse', 'HEAD');
+    expect(await wt.removeWorktree(res.path)).toMatchObject({ branchDeleted: true });
+    await wt.restoreWorktree(res.path);
+    expect(git(res.path, 'branch', '--show-current')).toBe('feat/gone');
+    expect(git(res.path, 'rev-parse', 'HEAD')).toBe(head);
+    await wt.removeWorktree(res.path, { forget: true });
+  });
+
+  it('ignores a path hooked never removed', async () => {
+    expect(await wt.restoreWorktree(path.join(TMP, 'nowhere'))).toBeNull();
+  });
+
+  it('does not hand a removed worktree path to a new worktree', async () => {
+    const a = await wt.createWorktree({ cwd: REPO, base: 'main', branch: 'feat/slot' });
+    await wt.removeWorktree(a.path);
+    const b = await wt.createWorktree({ cwd: REPO, base: 'main', branch: 'feat/slot' });
+    expect(b.path).toBe(a.path + '-2');
+    await wt.removeWorktree(b.path, { forget: true });
+  });
+});
+
+describe('worktree cleanup', () => {
+  const DAY = 86_400_000;
+  const NOW = Date.parse('2026-11-13T12:00:00Z');
+  const rules = { onArchive: true, inactiveDays: 0 };
+  const plan = (o) => cleanup.planWorktreeCleanup({ registry: {}, sessions: [], meta: {}, liveCwds: [], rules, now: NOW, ...o });
+  let cleanup;
+  beforeAll(async () => { cleanup = await import('../server/worktreeCleanup.js'); });
+
+  it('picks a worktree once every session in it is archived', () => {
+    const registry = { '/w/a': { branch: 'feat/a', createdAt: '2026-11-10T00:00:00Z', sessions: ['s1', 's2'] } };
+    const sessions = [{ id: 's1', project: '/w/a' }, { id: 's2', project: '/w/a/sub' }, { id: 's3', project: '/w/ab' }];
+    expect(plan({ registry, sessions, meta: { s1: { archived: true } } })).toEqual([]);
+    expect(plan({ registry, sessions, meta: { s1: { archived: true }, s2: { archived: true } } }))
+      .toEqual([{ path: '/w/a', branch: 'feat/a', reason: 'archived', live: false }]);
+  });
+
+  it('picks a worktree whose sessions are all gone, after a grace period', () => {
+    const registry = { '/w/a': { createdAt: new Date(NOW - 10 * 60_000).toISOString(), sessions: ['s1'] } };
+    expect(plan({ registry })).toEqual([]);
+    registry['/w/a'].createdAt = new Date(NOW - 2 * 3_600_000).toISOString();
+    expect(plan({ registry })).toMatchObject([{ reason: 'sessions deleted' }]);
+    expect(plan({ registry: { '/w/b': { createdAt: '2020-01-01T00:00:00Z', sessions: [] } } })).toEqual([]);
+  });
+
+  it('picks an idle worktree by its last session activity', () => {
+    const registry = { '/w/a': { createdAt: new Date(NOW - 30 * DAY).toISOString() } };
+    const idle = { onArchive: false, inactiveDays: 7 };
+    expect(plan({ registry, rules: idle, sessions: [{ id: 's', project: '/w/a', lastTs: new Date(NOW - 2 * DAY).toISOString() }] })).toEqual([]);
+    expect(plan({ registry, rules: idle, sessions: [{ id: 's', project: '/w/a', lastTs: new Date(NOW - 8 * DAY).toISOString() }] }))
+      .toMatchObject([{ reason: 'inactive for 7 days' }]);
+  });
+
+  it('flags live worktrees, skips removed ones, and does nothing with every rule off', () => {
+    const registry = { '/w/a': { createdAt: '2020-01-01T00:00:00Z' }, '/w/b': { removedAt: '2026-11-01T00:00:00Z' } };
+    const idle = { onArchive: false, inactiveDays: 1 };
+    expect(plan({ registry, rules: idle, liveCwds: ['/w/a/x'] })).toMatchObject([{ path: '/w/a', live: true }]);
+    expect(plan({ registry, rules: { onArchive: false, inactiveDays: 0 } })).toEqual([]);
+  });
+
+  it('removes archived worktrees, keeps dirty and live ones', async () => {
+    const clean = await wt.createWorktree({ cwd: REPO, base: 'main', branch: 'feat/archived' });
+    const dirty = await wt.createWorktree({ cwd: REPO, base: 'main', branch: 'feat/dirty' });
+    const busy = await wt.createWorktree({ cwd: REPO, base: 'main', branch: 'feat/busy' });
+    fs.writeFileSync(path.join(dirty.path, 'wip.txt'), 'wip\n');
+    const sessions = [{ id: 'a', project: clean.path }, { id: 'd', project: dirty.path }, { id: 'b', project: busy.path }];
+    const meta = { a: { archived: true }, d: { archived: true }, b: { archived: true } };
+
+    const report = await cleanup.runWorktreeCleanup({ rules, sessions, meta, liveCwds: [busy.path] });
+    expect(report.removed).toMatchObject([{ path: clean.path, reason: 'archived' }]);
+    expect(report.kept.map((k) => k.path).sort()).toEqual([busy.path, dirty.path].sort());
+    expect(report.failed).toEqual([]);
+    expect(fs.existsSync(clean.path)).toBe(false);
+    expect(fs.existsSync(dirty.path)).toBe(true);
+    expect(wt.readWorktreeRegistry()[clean.path].removedAt).toEqual(expect.any(String));
+
+    for (const p of [dirty.path, busy.path]) await wt.removeWorktree(p, { force: true, forget: true });
   });
 });

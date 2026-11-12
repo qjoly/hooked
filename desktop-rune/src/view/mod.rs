@@ -8,6 +8,7 @@ mod new_session;
 mod organize;
 mod pages;
 mod palette;
+mod panel;
 mod querywin;
 mod session;
 mod settings;
@@ -40,6 +41,8 @@ crate::knobs::knobs! {
     SIDEBAR_ROW_INDENT = 16.0, 0.0..=40.0, "Indent per group level", step 1.0;
 }
 pub const DOCK_W: f32 = 300.0;
+pub const SHOTS_FOLDED: usize = 4;
+pub const SHOTS_OPEN: usize = 60;
 
 pub fn kit(s: &Hooked, cx: &Cx<Hooked>) -> Kit {
     let dark = s.dark(cx.system_dark());
@@ -120,7 +123,7 @@ pub fn view(s: &Hooked, cx: &mut Cx<Hooked>) -> El {
                 body = body.child(split::view(s, p, &k));
             }
         } else if let Some(d) = s.detail.as_ref() {
-            body = body.child(dock::view(s, d, &k));
+            body = body.child(dock::view(s, d, &k, &mut layer));
         }
     }
     let mut base = col()
@@ -147,6 +150,9 @@ pub fn view(s: &Hooked, cx: &mut Cx<Hooked>) -> El {
     }
     if let Some(w) = s.query_win.as_ref() {
         layer.push(querywin::view(s, w, &k));
+    }
+    if let Some(w) = s.panel_win.as_ref() {
+        layer.push(panel::view(s, w, &k, cx));
     }
     if let Some(d) = s.dnd.as_ref() {
         layer.push(drag_ghost(s, &k, d));
@@ -561,14 +567,23 @@ fn unit_rows(s: &Hooked, u: &crate::organize::Unit<'_>, k: &Kit, layer: &mut Vec
     out
 }
 
-fn snooze_menu(s: &Hooked, x: &Session, k: &Kit, layer: &mut Vec<El>, trigger: El) -> El {
-    let mut m = Menu::new(format!("snooze-{}", x.id))
+/// `slot` is the `s.snooze_menu` value that opens this menu: the session id for a sidebar row,
+/// something else for another trigger of the same session, so only one of them opens.
+pub(super) fn snooze_menu(
+    s: &Hooked,
+    session: &str,
+    slot: &str,
+    k: &Kit,
+    layer: &mut Vec<El>,
+    trigger: El,
+) -> El {
+    let mut m = Menu::new(format!("snooze-{slot}"))
         .trigger(trigger)
-        .open(s.snooze_menu.as_deref() == Some(x.id.as_str()))
+        .open(s.snooze_menu.as_deref() == Some(slot))
         .min_width(200.0)
         .on_close(|s: &mut Hooked| s.snooze_menu = None);
-    if let Some(w) = s.snoozed_until(&x.id) {
-        let id = x.id.clone();
+    if let Some(w) = s.snoozed_until(session) {
+        let id = session.to_string();
         m = m
             .item(
                 MenuItem::new("Wake now")
@@ -582,7 +597,7 @@ fn snooze_menu(s: &Hooked, x: &Session, k: &Kit, layer: &mut Vec<El>, trigger: E
             .separator();
     }
     for (label, until) in snooze_presets(s.now) {
-        let id = x.id.clone();
+        let id = session.to_string();
         m = m.item(
             MenuItem::new(label)
                 .shortcut(clock(until))
@@ -774,7 +789,7 @@ fn session_row(
                 }
             }),
         );
-        actions = actions.child(snooze_menu(s, x, k, layer, trigger));
+        actions = actions.child(snooze_menu(s, &x.id, &x.id, k, layer, trigger));
     }
     if !archived && s.page == Page::Session && !selected && !s.splits.iter().any(|p| p.id == x.id) {
         actions = actions.child(act(
@@ -1015,7 +1030,7 @@ fn section_dock(
         .expanded(!folded)
         .on_press(move |s: &mut Hooked| s.toggle_section(sec));
     let mut dock = col()
-        .key("dock")
+        .key(format!("dock-{}", sec.label()))
         .w_full()
         .gap(2.0)
         .pt(4.0)
@@ -1623,12 +1638,24 @@ pub fn md(src: impl Into<String>) -> rune_kit::Markdown {
 }
 
 pub(super) fn floating(s: &Hooked, k: &Kit, key: &'static str, head: El, body: El) -> El {
-    const W: f32 = 760.0;
+    floating_sized(s, k, key, 760.0, (s.window_h * 0.7).max(320.0), None, head, body)
+}
+
+pub(super) fn floating_sized(
+    s: &Hooked,
+    k: &Kit,
+    key: &'static str,
+    w: f32,
+    h: f32,
+    frame: Option<Color>,
+    head: El,
+    body: El,
+) -> El {
     const MARGIN: f32 = 16.0;
-    let h = (s.window_h * 0.7).max(320.0);
+    let (w, h) = (w.min(s.window_w), h.min(s.window_h));
     let clamp = move |s: &Hooked, [r, b]: [f32; 2]| {
         [
-            r.clamp(0.0, (s.window_w - W).max(0.0)),
+            r.clamp(0.0, (s.window_w - w).max(0.0)),
             b.clamp(0.0, (s.window_h - h).max(0.0)),
         ]
     };
@@ -1655,11 +1682,11 @@ pub(super) fn floating(s: &Hooked, k: &Kit, key: &'static str, head: El, body: E
             col()
                 .key(key)
                 .pin(None, None, Some(right), Some(bottom))
-                .w(W)
+                .w(w)
                 .h(h)
                 .radius(k.radius.lg)
                 .fill(k.c.bg_base)
-                .border(1.0, k.c.border_base)
+                .border(frame.map_or(1.0, |_| 2.0), frame.unwrap_or(k.c.border_base))
                 .box_shadows(&k.elevation.overlay)
                 .child(head)
                 .child(body),

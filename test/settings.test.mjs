@@ -211,3 +211,45 @@ describe('sidebarCache', () => {
     expect(writeSettings({ sidebarCache: 'badge' }).sidebarCache).toEqual({ display: 'badge', windowMin: 15 });
   });
 });
+
+describe('featureFlags', () => {
+  it('defaults every flag to off', () => {
+    expect(readSettings().featureFlags).toEqual({ dockActions: false, showPanels: false });
+  });
+
+  it('round-trips a flag switched on', () => {
+    expect(writeSettings({ featureFlags: { dockActions: true } }).featureFlags).toEqual({ dockActions: true, showPanels: false });
+    expect(readSettings().featureFlags).toEqual({ dockActions: true, showPanels: false });
+  });
+
+  it('drops unknown flags and treats anything but true as off', () => {
+    expect(writeSettings({ featureFlags: { dockActions: 'yes', bogus: true } }).featureFlags).toEqual({ dockActions: false, showPanels: false });
+    expect(writeSettings({ featureFlags: 'on' }).featureFlags).toEqual({ dockActions: false, showPanels: false });
+  });
+});
+
+describe('showPanels feature flag', () => {
+  it('turns on alone', () => {
+    expect(writeSettings({ featureFlags: { showPanels: true } }).featureFlags).toEqual({ dockActions: false, showPanels: true });
+    expect(writeSettings({ featureFlags: { showPanels: false } }).featureFlags.showPanels).toBe(false);
+  });
+});
+
+describe('worktrees.cleanup', () => {
+  it('is off by default', () => {
+    expect(readSettings().worktrees.cleanup).toEqual({ onArchive: false, inactiveDays: 0 });
+  });
+
+  it('keeps valid rules and drops bad day counts', () => {
+    expect(writeSettings({ worktrees: { cleanup: { onArchive: true, inactiveDays: 14 } } }).worktrees.cleanup).toEqual({ onArchive: true, inactiveDays: 14 });
+    expect(writeSettings({ worktrees: { cleanup: { inactiveDays: -3 } } }).worktrees.cleanup).toEqual({ onArchive: false, inactiveDays: 0 });
+    expect(writeSettings({ worktrees: { cleanup: { inactiveDays: 1.5 } } }).worktrees.cleanup.inactiveDays).toBe(0);
+  });
+});
+
+describe('autoPullProjects', () => {
+  it('is off by default and stores a boolean', () => {
+    expect(readSettings().autoPullProjects).toBe(false);
+    expect(writeSettings({ autoPullProjects: 'yes' }).autoPullProjects).toBe(true);
+  });
+});

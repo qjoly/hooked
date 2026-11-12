@@ -6,6 +6,10 @@
  * Managed worktrees are recorded in worktrees.json ({ [path]: { root, base, branch, autoName,
  * createdAt, sessions } }). Listing and removal also cover linked worktrees hooked did not create
  * (`claude --worktree`, made by hand), found through the repositories of known sessions.
+ *
+ * Removing a managed worktree keeps its entry with `removedAt` and the last `head`: the branch
+ * outlives the checkout, so resuming one of its sessions can check it out again at the same path
+ * (the transcript's cwd).
  */
 import fs from 'node:fs';
 import os from 'node:os';
@@ -17,8 +21,7 @@ import { readSettings } from './settings.js';
 import { isValidBranchName } from './gitOps.js';
 import { runClaude } from './mcp.js';
 import { modelJson } from './claudeJson.js';
-import { resolveGh } from './ghMeta.js';
-import { loginEnv } from './agent.js';
+import { ghGraphql, parseGithubRemote } from './ghClient.js';
 
 const REGISTRY_FILE = () => path.join(HOOKED_DIR, 'worktrees.json');
 const DEFAULT_LOCATION = () => path.join(HOOKED_DIR, 'worktrees');
@@ -26,6 +29,7 @@ const ADD_TIMEOUT = 5 * 60_000;
 const GIT_TIMEOUT = 60_000;
 const NAME_TIMEOUT = 90_000;
 const TEMP_PREFIX = 'hooked/';
+const RECORD_TTL_MS = 180 * 86_400_000;
 
 function git(cwd, args, timeout = GIT_TIMEOUT) {
   return new Promise((resolve) => {
@@ -140,9 +144,10 @@ async function uniqueBranch(root, wanted) {
 }
 
 function uniqueDir(location, name) {
+  const registry = readRegistry();
   for (let i = 1; i < 100; i++) {
     const p = path.join(location, i === 1 ? name : `${name}-${i}`);
-    if (!fs.existsSync(p)) return p;
+    if (!fs.existsSync(p) && !registry[p]) return p;
   }
   return null;
 }
@@ -243,16 +248,30 @@ function isInside(child, parent) {
   return child === parent || child.startsWith(parent.endsWith('/') ? parent : parent + '/');
 }
 
+const PR_FOR_BRANCH = `query($owner: String!, $name: String!, $head: String!) {
+  repository(owner: $owner, name: $name) {
+    pullRequests(headRefName: $head, first: 1, orderBy: { field: CREATED_AT, direction: DESC }) {
+      nodes { number state url headRefOid baseRefName }
+    }
+  }
+}`;
+
+// A fork's PR lives on `upstream`, so that remote is asked first.
+async function githubRepoOf(cwd) {
+  for (const remote of ['upstream', 'origin']) {
+    const r = await git(cwd, ['remote', 'get-url', remote]);
+    const repo = r.ok && parseGithubRemote(r.out);
+    if (repo) return repo;
+  }
+  return null;
+}
+
 async function prFor(wtPath, branch) {
   try {
-    const [bin, env] = await Promise.all([resolveGh(), loginEnv()]);
-    if (!bin) return null;
-    return await new Promise((resolve) => {
-      execFile(bin, ['pr', 'view', branch, '--json', 'number,state,url,headRefOid,baseRefName'], { cwd: wtPath, env, timeout: 20_000 }, (err, stdout) => {
-        if (err) return resolve(null);
-        try { resolve(JSON.parse(stdout)); } catch (_) { resolve(null); }
-      });
-    });
+    const repo = await githubRepoOf(wtPath);
+    if (!repo) return null;
+    const data = await ghGraphql(PR_FOR_BRANCH, { ...repo, head: branch });
+    return data.repository?.pullRequests?.nodes?.[0] || null;
   } catch (_) { return null; }
 }
 
@@ -311,7 +330,9 @@ async function listWorktrees({ projects = [], sessions = [], withPr = true } = {
   });
 
   const known = new Set(rows.map((r) => r.path));
-  const stale = Object.keys(registry).filter((p) => !known.has(p) && !fs.existsSync(p));
+  const now = Date.now();
+  const stale = Object.keys(registry).filter((p) => !known.has(p) && !fs.existsSync(p)
+    && (!registry[p].removedAt || now - Date.parse(registry[p].removedAt) > RECORD_TTL_MS));
   if (stale.length) { const map = readRegistry(); for (const p of stale) delete map[p]; writeRegistry(map); }
 
   const defaults = new Map();
@@ -349,12 +370,15 @@ async function findLinkedWorktree(anyPath) {
   return wt && main ? { ...wt, root: main.path } : null;
 }
 
-async function removeWorktree(target, { force = false, liveCwds = [] } = {}) {
+async function removeWorktree(target, { force = false, liveCwds = [], forget = false } = {}) {
   if (typeof target !== 'string' || !path.isAbsolute(target)) throw new Error('absolute worktree path required');
   const registry = readRegistry();
   const wt = await findLinkedWorktree(target);
   if (!wt) {
-    if (registry[target] && !fs.existsSync(target)) { updateEntry(target, null); return { removed: true, branchDeleted: false }; }
+    if (registry[target] && !fs.existsSync(target)) {
+      if (forget || !registry[target].removedAt) updateEntry(target, null);
+      return { removed: true, branchDeleted: false };
+    }
     throw new Error('not a linked git worktree: ' + target);
   }
   const wtPath = wt.path;
@@ -372,8 +396,37 @@ async function removeWorktree(target, { force = false, liveCwds = [] } = {}) {
   if (wt.branch && status.merged) {
     branchDeleted = (await git(wt.root, ['branch', '-D', wt.branch])).ok;
   }
-  if (registry[wtPath]) updateEntry(wtPath, null);
+  if (registry[wtPath]) {
+    updateEntry(wtPath, forget ? null : { removedAt: new Date().toISOString(), head: wt.head, branch: wt.branch || registry[wtPath].branch });
+  }
   return { removed: true, branch: wt.branch, branchDeleted, keptBranch: !!wt.branch && !branchDeleted };
+}
+
+function removedRecordFor(dir) {
+  const registry = readRegistry();
+  const hit = Object.keys(registry).find((p) => registry[p].removedAt && isInside(dir, p));
+  return hit ? { path: hit, ...registry[hit] } : null;
+}
+
+// Checks a removed managed worktree out again, from its branch when it still exists, else from
+// the commit it was removed at. Returns null when hooked never removed anything there.
+async function restoreWorktree(dir) {
+  const rec = typeof dir === 'string' ? removedRecordFor(dir) : null;
+  if (!rec) return null;
+  if (fs.existsSync(rec.path)) throw new Error(`${rec.path} exists but is not the removed worktree`);
+  if (!rec.root || !fs.existsSync(rec.root)) throw new Error('repository is gone: ' + rec.root);
+  const hasBranch = !!rec.branch && await refExists(rec.root, 'refs/heads/' + rec.branch);
+  if (!hasBranch && !rec.head) throw new Error(`branch ${rec.branch} no longer exists`);
+  const args = hasBranch
+    ? ['worktree', 'add', rec.path, rec.branch]
+    : ['worktree', 'add', '--no-track', '-b', rec.branch, rec.path, rec.head];
+  const add = await git(rec.root, args, ADD_TIMEOUT);
+  if (!add.ok) throw new Error('git worktree add failed: ' + add.err.split('\n').pop());
+  const map = readRegistry();
+  const { removedAt: _r, head: _h, ...rest } = map[rec.path] || {};
+  map[rec.path] = { ...rest, restoredAt: new Date().toISOString() };
+  writeRegistry(map);
+  return { path: rec.path, branch: rec.branch };
 }
 
 export {
@@ -390,5 +443,8 @@ export {
   autoNameBranch,
   listWorktrees,
   removeWorktree,
+  restoreWorktree,
+  worktreeStatus,
+  isInside as isInsidePath,
   readRegistry as readWorktreeRegistry,
 };

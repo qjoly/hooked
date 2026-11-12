@@ -333,3 +333,25 @@ description = "Run the native Rune app from source once, without live editing"
 dir = "desktop-rune"
 tools = { rust = "1.99.1", zig = "0.17.1" }
 run = "cargo run --features knobs"
+
+# The Android SDK comes from Android Studio or the command-line tools, not from mise.
+[tasks.android]
+description = "Build the Android tablet app and install it on the device adb sees"
+dir = "android"
+tools = { java = "temurin-21" }
+run = """
+set -e
+if [ -z "$ANDROID_HOME" ]; then
+  for d in "$HOME/Library/Android/sdk" "$HOME/Android/Sdk"; do
+    [ -d "$d" ] && export ANDROID_HOME="$d" && break
+  done
+fi
+./gradlew --quiet assembleRelease
+APK="$PWD/app/build/outputs/apk/release/app-release.apk"
+if adb get-state >/dev/null 2>&1; then
+  adb install -r "$APK"
+  adb shell am start -n dev.qjoly.hooked.android/dev.qjoly.hooked.MainActivity
+else
+  echo "No device on adb (USB, or adb connect <ip>:<port>). APK: $APK"
+fi
+"""

@@ -1,0 +1,251 @@
+#!/usr/bin/env python3
+"""Repeatable headless perf scenarios for the Rune app.
+
+  scripts/perf/run [--bin target/release/hooked-rune] [--out /tmp/hooked-perf] [--runs 3] [scenario ...]
+
+Scenarios: idle-deck, conv-scroll, review-scroll, terminal-busy, sidebar-many (see SCENARIOS).
+terminal-busy opens a throwaway shell tagged to HOOKED_PERF_SELF (skipped when unset),
+fills 200k lines of scrollback, replays and scrolls it headless, then kills the shell. Headless
+runs replay a terminal's scrollback; live streaming only happens in a window.
+sidebar-many serves 6x the real session list through a local proxy.
+Each run records rune-perf (HOOKED_PERF=1) into its own scratch folder. A binary built with
+`--features frame-profile` also writes RUNE_FRAME_LOG, which splits each frame into phases.
+Sessions come from the hooked service on :4123; override them with HOOKED_PERF_<NAME>=<id>.
+"""
+
+import argparse
+import http.server
+import json
+import os
+import re
+import statistics
+import subprocess
+import sys
+import threading
+import time
+import urllib.request
+
+API = os.environ.get("HOOKED_URL", "http://127.0.0.1:4123")
+SIZE = "1440x900"
+FPS = 60
+
+
+def api(path, body=None):
+    req = urllib.request.Request(API + path, data=json.dumps(body).encode() if body is not None else None,
+                                 headers={"content-type": "application/json"})
+    with urllib.request.urlopen(req, timeout=60) as r:
+        return json.load(r)
+
+
+def sessions():
+    return api("/api/sessions")["sessions"]
+
+
+def pick(name, choose):
+    return os.environ.get(f"HOOKED_PERF_{name.upper()}") or choose(sessions())
+
+
+def longest(ss):
+    return max(ss, key=lambda s: s.get("assistantTurns") or 0)["id"]
+
+
+def wheel(x, y, dy, seconds, start=0.3):
+    return [{"t": round(start + i / FPS, 4), "type": "wheel", "x": x, "y": y, "dx": 0, "dy": dy}
+            for i in range(int(seconds * FPS))]
+
+
+def largest_diff(ss):
+    best, size = None, -1
+    recent = sorted(ss, key=lambda s: s.get("lastTs") or "", reverse=True)[:25]
+    for s in recent:
+        try:
+            d = api(f"/api/session?id={s['id']}")
+        except Exception:
+            continue
+        n = sum(len(json.dumps(c)) for c in d.get("changes", []))
+        if n > size:
+            best, size = s["id"], n
+    return best
+
+
+class Proxy(http.server.BaseHTTPRequestHandler):
+    copies = 6
+
+    def log_message(self, *a):
+        pass
+
+    def do_GET(self):
+        if "stream" in self.path:
+            self.send_error(404)
+            return
+        with urllib.request.urlopen(API + self.path, timeout=60) as r:
+            body = r.read()
+        if self.path.startswith("/api/sessions"):
+            data = json.loads(body)
+            out = []
+            for k in range(self.copies):
+                for s in data["sessions"]:
+                    c = dict(s)
+                    if k:
+                        c["id"] = f"{s['id'][:-4]}{k:04d}"
+                        c["title"] = f"{s.get('title') or ''} #{k}"
+                    out.append(c)
+            data["sessions"] = out
+            body = json.dumps(data).encode()
+        self.send_response(200)
+        self.send_header("content-type", "application/json")
+        self.send_header("content-length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+
+def proxy():
+    srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Proxy)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    return srv
+
+
+def busy_terminal(sid):
+    info = api("/api/terminal", {"cwd": "/tmp", "sessionId": sid, "cols": 160, "rows": 40})
+    tid = info.get("id") or info.get("terminal", {}).get("id")
+    loop = 'for i in $(seq 1 200000); do echo "line $i $RANDOM $RANDOM \\033[3$((i%8))mcolour\\033[0m"; done\r'
+    api("/api/terminal/input", {"id": tid, "data": loop})
+    time.sleep(15.0)
+    return tid
+
+
+def kill_terminal(tid):
+    try:
+        api("/api/terminal/kill", {"id": tid})
+    except Exception as e:
+        print(f"  could not kill {tid}: {e}", file=sys.stderr)
+
+
+def SCENARIOS():
+    me = os.environ.get("HOOKED_PERF_SELF")
+    return {
+        "idle-deck": dict(args=[], frames=240),
+        "conv-scroll": dict(args=lambda: ["--session", pick("conv", longest)],
+                            script=wheel(760, 470, 80, 4.0)),
+        "review-scroll": dict(args=lambda: ["--session", pick("review", largest_diff), "--lens", "review"],
+                              script=[{"t": 1.5, "type": "move", "x": 1080, "y": 580}] + wheel(1080, 580, -80, 4.0, start=1.6)),
+        "terminal-busy": dict(args=None, terminal=me, size="1440x1200", script=wheel(1000, 1050, 80, 3.0)),
+        "sidebar-many": dict(args=["--open-section", "archived"], script=wheel(240, 600, -60, 4.0), proxy=True),
+    }
+
+
+def pct(v, p):
+    v = sorted(v)
+    return v[min(len(v) - 1, int(round((len(v) - 1) * p)))] if v else None
+
+
+def run_one(binary, out, name, sc, k):
+    folder = os.path.join(out, f"{name}-{k}")
+    os.makedirs(folder, exist_ok=True)
+    env = dict(os.environ, HOOKED_PERF="1", HOOKED_PERF_DIR=os.path.join(folder, "perf"),
+               RUNE_FRAME_LOG=os.path.join(folder, "frames.jsonl"))
+    cleanup = []
+    args = sc.get("args")
+    args = args() if callable(args) else list(args or [])
+    if name == "terminal-busy":
+        sid = sc.get("terminal")
+        if not sid:
+            return {"scenario": name, "run": k, "error": "set HOOKED_PERF_SELF to the session the throwaway shell is tagged to"}
+        tid = busy_terminal(sid)
+        cleanup.append(lambda: kill_terminal(tid))
+        args = ["--session", sid, "--term", tid]
+    srv = None
+    if sc.get("proxy"):
+        srv = proxy()
+        env["HOOKED_URL"] = f"http://127.0.0.1:{srv.server_address[1]}"
+    cmd = [binary, "--size", sc.get("size", SIZE)]
+    if sc.get("script"):
+        path = os.path.join(folder, "script.json")
+        with open(path, "w") as f:
+            json.dump(sc["script"], f)
+        cmd += ["--script", path, "--duration", "auto"]
+    else:
+        cmd += ["--frames", str(sc.get("frames", 120))]
+    cmd += ["--"] + args
+    t0 = time.time()
+    try:
+        p = subprocess.run(cmd, env=env, capture_output=True, text=True, cwd=folder, timeout=600)
+    finally:
+        for c in cleanup:
+            c()
+        if srv:
+            srv.shutdown()
+    wall = time.time() - t0
+    err = p.stderr
+    row = {"scenario": name, "run": k, "wall_s": round(wall, 1)}
+    m = re.search(r"first frame ([\d.]+) ms, frame cpu mean ([\d.]+) ms p50 ([\d.]+) p95 ([\d.]+) max ([\d.]+)", err)
+    if m:
+        row.update(first_ms=float(m[1]), mean_ms=float(m[2]), p50_ms=float(m[3]), p95_ms=float(m[4]), max_ms=float(m[5]))
+    m = re.search(r"layout nodes (\d+), glyphs (\d+)", err)
+    if m:
+        row.update(layout_nodes=int(m[1]), glyphs=int(m[2]))
+    try:
+        with open(os.path.join(folder, "perf", "perf.json")) as f:
+            pj = json.load(f)
+        fr = pj["frames"]
+        row.update(alloc_p50=fr["ui_allocated_bytes"]["p50"], alloc_p95=fr["ui_allocated_bytes"]["p95"],
+                   footprint_mb=round(pj["memory"]["footprint_bytes"] / 2**20),
+                   peak_mb=round(pj["memory"]["peak_footprint_bytes"] / 2**20))
+    except (OSError, KeyError, TypeError, ValueError):
+        pass
+    try:
+        lines = [json.loads(l) for l in open(os.path.join(folder, "frames.jsonl"))]
+        end = next((l for l in lines if l.get("end")), {})
+        if end.get("heap_live") is not None:
+            row["heap_live_mb"] = round(end["heap_live"] / 2**20)
+        frames = [l for l in lines if "k" in l][2:]
+        if frames:
+            cpu = [f.get("cpu_ms") or 0 for f in frames]
+            row.update(cpu_p50=round(pct(cpu, 0.5), 2), cpu_p95=round(pct(cpu, 0.95), 2), cpu_max=round(max(cpu), 2),
+                       rebuilds=sum(1 for f in frames if f.get("commits")))
+            for key in ("view_cpu", "commit_cpu", "layout_cpu", "text_cpu", "paint_cpu", "apply_cpu", "encode_ms", "allocations", "shaped"):
+                vals = [f.get(key) or 0 for f in frames]
+                row[f"{key}_mean"] = round(statistics.mean(vals), 3)
+                row[f"{key}_p95"] = round(pct(vals, 0.95), 3)
+    except OSError:
+        pass
+    if p.returncode != 0:
+        row["error"] = err.strip().splitlines()[-1:] if err else p.returncode
+    with open(os.path.join(folder, "stderr.txt"), "w") as f:
+        f.write(err)
+    return row
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--bin", default="target/release/hooked-rune")
+    ap.add_argument("--out", default="/tmp/hooked-perf")
+    ap.add_argument("--runs", type=int, default=3)
+    ap.add_argument("scenarios", nargs="*")
+    a = ap.parse_args()
+    binary = os.path.abspath(a.bin)
+    sc = SCENARIOS()
+    names = a.scenarios or list(sc)
+    rows = []
+    for name in names:
+        for k in range(a.runs):
+            r = run_one(binary, a.out, name, sc[name], k)
+            print(json.dumps(r), flush=True)
+            rows.append(r)
+    with open(os.path.join(a.out, "results.jsonl"), "a") as f:
+        for r in rows:
+            f.write(json.dumps(dict(r, bin=binary)) + "\n")
+    print("\nwall ms are skewed by machine load; cpu ms (frame-profile builds) are the thread's own CPU")
+    print("scenario         p50 ms  p95 ms  max ms  first ms  cpu p50  cpu p95  rebuilds  alloc p50  footprint/peak/heap MB")
+    for name in names:
+        rs = [r for r in rows if r["scenario"] == name and "p50_ms" in r]
+        if not rs:
+            continue
+        med = lambda key: statistics.median(r.get(key) or 0 for r in rs)
+        print(f"{name:15} {med('p50_ms'):7.2f} {med('p95_ms'):7.2f} {med('max_ms'):7.1f} {med('first_ms'):9.1f}"
+              f" {med('cpu_p50'):8.2f} {med('cpu_p95'):8.2f} {med('rebuilds'):9.0f}"
+              f" {med('alloc_p50') / 1024:8.0f}K  {med('footprint_mb'):.0f}/{med('peak_mb'):.0f}/{med('heap_live_mb'):.0f}")
+
+
+if __name__ == "__main__":
+    main()

@@ -106,10 +106,24 @@ function writeSessionMeta(map) {
 // Merges a patch ({ archived?, snoozeUntil? }) into one session's entry; returns the full
 // updated map. `archived: false`/`snoozeUntil: null` clear the corresponding fact; an entry
 // with nothing left is removed.
+// Keyed by name and pinned on globalThis: Vite re-executing a listener's module re-registers
+// it instead of stacking a second copy.
+const ARCHIVE_LISTENERS = Symbol.for('hooked.sessionMeta.archiveListeners');
+function onSessionArchived(name, fn) {
+  globalThis[ARCHIVE_LISTENERS] ??= new Map();
+  globalThis[ARCHIVE_LISTENERS].set(name, fn);
+}
+function emitArchived(id) {
+  for (const fn of globalThis[ARCHIVE_LISTENERS]?.values() || []) {
+    try { fn(id); } catch (e) { console.warn('[hooked] archive listener:', e?.message || e); }
+  }
+}
+
 function setSessionMeta(id, patch) {
   if (typeof id !== 'string' || !id) throw new Error('invalid session id');
   const p = patch && typeof patch === 'object' ? patch : {};
   const map = readSessionMeta();
+  const wasArchived = !!map[id]?.archived;
   const merged = { ...map[id] };
   if ('archived' in p) {
     if (p.archived === true) merged.archived = true;
@@ -126,7 +140,9 @@ function setSessionMeta(id, patch) {
   const clean = cleanEntry(merged, Date.now());
   if (clean) map[id] = clean;
   else delete map[id];
-  return writeSessionMeta(map);
+  const written = writeSessionMeta(map);
+  if (!wasArchived && written[id]?.archived) emitArchived(id);
+  return written;
 }
 
 // ─── Session groups ───────────────────────────────────────────────────────────────────────────
@@ -222,6 +238,6 @@ function renameGroup(id, name) {
 }
 
 export {
-  SESSION_META_FILE, readSessionMeta, writeSessionMeta, setSessionMeta, isIncognitoSession,
+  SESSION_META_FILE, readSessionMeta, writeSessionMeta, setSessionMeta, onSessionArchived, isIncognitoSession,
   groupMotherOf, groupInfo, joinGroup, leaveGroup, setGroupMother, renameGroup,
 };

@@ -124,7 +124,7 @@ fn follow(id: String, alive: Arc<AtomicBool>, h: Option<AppHandle<Hooked>>) {
     let Some(h) = h else {
         return;
     };
-    std::thread::spawn(move || {
+    crate::app::spawn_named("hooked-term-stream", move || {
         let path = format!("/api/terminal/stream?id={}", urlencode(&id));
         while alive.load(Ordering::SeqCst) {
             let pending: Arc<std::sync::Mutex<Vec<u8>>> = Arc::default();
@@ -203,7 +203,9 @@ fn attach(
 fn post_input(id: String, bytes: &[u8]) {
     BLINK_RESET.with(|c| c.set(crate::fmt::now_ms()));
     let data = String::from_utf8_lossy(bytes).into_owned();
-    std::thread::spawn(move || api::post("/api/terminal/input", json!({ "id": id, "data": data })));
+    crate::app::spawn_named("hooked-term-input", move || {
+        let _ = api::post("/api/terminal/input", json!({ "id": id, "data": data }));
+    });
 }
 
 impl Hooked {

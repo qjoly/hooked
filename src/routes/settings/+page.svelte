@@ -2,7 +2,7 @@
   import { untrack, onMount } from 'svelte';
   import { data, ui, settings, updateSettings, setTheme, setScheme, setCorners, loadSessions, allTags, tagUsage, deleteTag } from '$lib/state.svelte.js';
   import { tagColor } from '$lib/format.js';
-  import { resync, getGit, checkoutBranch, dismissRestartNotice, getClaudeVersion, upgradeClaude, restartClaudeSession, pickFolder, getRemoteControl, getCapabilities, getWarmup, runWarmup, listWorktrees, removeWorktree } from '$lib/api.js';
+  import { resync, getGit, checkoutBranch, dismissRestartNotice, getClaudeVersion, upgradeClaude, restartClaudeSession, pickFolder, getRemoteControl, getCapabilities, getWarmup, runWarmup, listWorktrees, removeWorktree, cleanupWorktrees, pullCheckouts } from '$lib/api.js';
   import { COMPACT_LEAD_MS, CACHED_READ_SHARE } from '$lib/promptCache.js';
   import { isHideableModel } from '$lib/models.js';
   import { knownProjects } from '$lib/projects.js';
@@ -29,6 +29,7 @@
     { id: 'pset-digest', label: 'Daily digest' },
     { id: 'pset-warmup', label: '5-hour window' },
     { id: 'pset-autocompact', label: 'Auto-compact' },
+    { id: 'pset-prwatch', label: 'Pull request watch' },
     { id: 'pset-live', label: 'Live state' },
     { id: 'pset-claude', label: 'Claude Code' },
     { id: 'pset-git', label: 'Git' },
@@ -36,6 +37,7 @@
     { id: 'pset-tags', label: 'Tags' },
     { id: 'pset-shortcuts', label: 'Keyboard shortcuts' },
     { id: 'pset-interface', label: 'Interface' },
+    { id: 'pset-flags', label: 'Feature flags' },
   ];
   // Locales offered for voice dictation (Web Speech API). Recognition quality depends on the
   // browser's own support for the chosen language.
@@ -72,7 +74,7 @@
   let wtStatus = $state('');
   async function scanWorktrees() {
     wtScanning = true;
-    try { const r = await listWorktrees(); wtList = r.worktrees; wtLocation = r.location; }
+    try { const r = await listWorktrees(); wtList = r.worktrees; wtLocation = r.location; wtReport ??= r.cleanup; pullReport ??= r.autoPull; }
     catch (e) { wtStatus = '✗ ' + e.message; }
     wtScanning = false;
   }
@@ -86,6 +88,29 @@
     else wtStatus = '✗ ' + (res.data.error || 'failed');
   }
   const wtShort = (p) => p.replace(/^\/Users\/[^/]+|^\/home\/[^/]+/, '~');
+  const wtClean = $derived(wtSet.cleanup || {});
+  const wtCleanOn = $derived(!!wtClean.onArchive || wtClean.inactiveDays > 0);
+  const saveCleanup = (patch) => saveWorktrees({ cleanup: { ...wtSet.cleanup, ...patch } });
+  let wtCleaning = $state(false);
+  let wtReport = $state(null);
+  async function runCleanup() {
+    wtCleaning = true;
+    const res = await cleanupWorktrees().catch((e) => ({ ok: false, data: { error: e.message } }));
+    wtCleaning = false;
+    if (!res.ok) { wtStatus = '✗ ' + (res.data.error || 'failed'); return; }
+    wtReport = res.data;
+    if (wtList) scanWorktrees();
+  }
+  let pulling = $state(false);
+  let pullReport = $state(null);
+  const pullShown = $derived(pullReport ? pullReport.checkouts.filter((c) => c.result !== 'up to date') : []);
+  async function runPull() {
+    pulling = true;
+    const res = await pullCheckouts().catch((e) => ({ ok: false, data: { error: e.message } }));
+    pulling = false;
+    if (res.ok) pullReport = res.data;
+    else wtStatus = '✗ ' + (res.data.error || 'failed');
+  }
   const saveSidebarCache = (patch) => updateSettings({ sidebarCache: { ...settings.sidebarCache, ...patch } });
   const AC_LEAD_MIN = Math.round(COMPACT_LEAD_MS / 60000);
   const AC_READ_PCT = Math.round(CACHED_READ_SHARE * 100);
@@ -856,6 +881,16 @@
       <p class="hint" style="margin:8px 0 0"><strong>It is lossy</strong>: exact outputs, file contents and reasoning of earlier turns give way to a summary, and Claude may re-read files to pick the thread back up. Worth it if you often leave sessions for more than an hour; skip it if you usually come back within the hour — the cache is still warm then. Below the size threshold a cold resume is cheap anyway, so nothing is compacted.</p>
     </div>
 
+    <div class="card" id="pset-prwatch" data-sec>
+      <h2>Pull request watch</h2>
+      <p class="hint">A watched pull request wakes its session with a message when checks fail or all pass, a merge conflict appears, no check reports 15 min after a push, or someone else comments. A session can always watch one itself through the <code>watch_pull_request</code> tool. hooked stops after the PR is merged or closed, or after 10 comment-only wakes in a row.</p>
+      <label class="check">
+        <input type="checkbox" checked={!!settings.autoPrWatch}
+               onchange={(e) => updateSettings({ autoPrWatch: e.currentTarget.checked })} />
+        <span>Watch the open PR you authored that a driven session links last (each wake is a turn)</span>
+      </label>
+    </div>
+
     <div class="card" id="pset-live" data-sec>
       <h2>Live state</h2>
       <p class="hint">Recomputes every session's live state now to fix a stale status — e.g. a session stuck on “working” after it finished.</p>
@@ -1005,6 +1040,64 @@
       <textarea class="cmd-input wt-instr" rows="2" placeholder="Extra naming instructions, e.g. “prefix with the Jira key when the prompt has one”" disabled={wtSet.autoName === false}
                 value={wtSet.nameInstructions || ''} onchange={(e) => saveWorktrees({ nameInstructions: e.currentTarget.value })}></textarea>
 
+      <h3 class="sc-section" style="margin-top:16px">Automatic cleanup</h3>
+      <label class="check">
+        <input type="checkbox" checked={!!wtClean.onArchive} onchange={(e) => saveCleanup({ onArchive: e.currentTarget.checked })} />
+        <span>Remove a worktree once every session in it is archived (checked a few seconds after you archive one, then hourly)</span>
+      </label>
+      <div class="cmd-row">
+        <label class="dg-field">Also remove worktrees idle for
+          <select class="dg-sel" value={String(wtClean.inactiveDays || 0)} onchange={(e) => saveCleanup({ inactiveDays: parseInt(e.currentTarget.value, 10) })}>
+            {#each [0, 3, 7, 14, 30, 90] as d}<option value={String(d)}>{d === 0 ? 'never' : d + ' days'}</option>{/each}
+          </select>
+        </label>
+        <button class="save" onclick={runCleanup} disabled={wtCleaning || !wtCleanOn}>{#if wtCleaning}<Icon name="queued" size={14} />{:else}<Icon name="trash" size={14} />{/if} Clean up now</button>
+      </div>
+      <p class="hint" style="margin:6px 0 0">Only worktrees hooked created. A worktree with uncommitted or untracked files, or with a running session, is kept; ignored files (<code>.env</code>, build output) go with it. The branch stays unless it is merged, and resuming one of its sessions checks the worktree out again.</p>
+      {#if wtReport}
+        {#if !wtReport.removed.length && !wtReport.kept.length && !wtReport.failed.length}
+          <p class="hint" style="margin-top:8px">Nothing to clean up.</p>
+        {:else}
+          <ul class="rc-list">
+            {#each wtReport.removed as x (x.path)}
+              <li class="rc-row wt-row"><span class="rc-path" title={x.path}>{wtShort(x.path)}<span class="wt-branch">{x.branch || ''}</span></span>
+                <span class="rc-state"><span class="badge">removed · {x.reason}</span>{#if x.branchDeleted}<span class="badge">branch deleted</span>{/if}</span></li>
+            {/each}
+            {#each wtReport.kept as x (x.path)}
+              <li class="rc-row wt-row"><span class="rc-path" title={x.path}>{wtShort(x.path)}<span class="wt-branch">{x.branch || ''}</span></span>
+                <span class="rc-state"><span class="badge dirty">kept · {x.why}</span></span></li>
+            {/each}
+            {#each wtReport.failed as x (x.path)}
+              <li class="rc-row wt-row"><span class="rc-path" title={x.path}>{wtShort(x.path)}<span class="wt-branch">{x.branch || ''}</span></span>
+                <span class="rc-state"><span class="badge dirty">failed · {x.error}</span></span></li>
+            {/each}
+          </ul>
+        {/if}
+      {/if}
+
+      <h3 class="sc-section" style="margin-top:16px">Main checkouts</h3>
+      <label class="check">
+        <input type="checkbox" checked={!!settings.autoPullProjects} onchange={(e) => updateSettings({ autoPullProjects: e.currentTarget.checked })} />
+        <span>Keep the main checkout of each repository up to date (fast-forward from its upstream every 10 minutes)</span>
+      </label>
+      <div class="cmd-row">
+        <button class="save" onclick={runPull} disabled={pulling}>{#if pulling}<Icon name="queued" size={14} />{:else}<Icon name="git-branch" size={14} />{/if} Pull now</button>
+      </div>
+      <p class="hint" style="margin:6px 0 0">Repositories of the sessions of the last 30 days. Only a checkout on its default branch with no changed or untracked file, no local commit and no running session is pulled; anything else is left alone.</p>
+      {#if pullReport}
+        {#if !pullShown.length}
+          <p class="hint" style="margin-top:8px">{pullReport.checkouts.length} checkout{pullReport.checkouts.length === 1 ? '' : 's'} up to date.</p>
+        {:else}
+          <ul class="rc-list">
+            {#each pullShown as c (c.path)}
+              <li class="rc-row wt-row"><span class="rc-path" title={c.path}>{wtShort(c.path)}<span class="wt-branch">{c.branch || ''}</span></span>
+                <span class="rc-state"><span class="badge" class:dirty={c.result !== 'pulled'}>{c.result === 'pulled' ? `pulled ${c.commits} commit${c.commits === 1 ? '' : 's'}` : `${c.result} · ${c.why}`}</span></span></li>
+            {/each}
+          </ul>
+          {#if pullReport.checkouts.length > pullShown.length}<p class="hint" style="margin-top:4px">{pullReport.checkouts.length - pullShown.length} more up to date.</p>{/if}
+        {/if}
+      {/if}
+
       <div class="cmd-row" style="margin-top:14px">
         <button class="save" onclick={scanWorktrees} disabled={wtScanning}>{#if wtScanning}<Icon name="queued" size={14} />{:else}<Icon name="search" size={14} />{/if} {wtList ? 'Rescan' : 'Scan worktrees'}</button>
         {#if wtStatus}<span class="status">{wtStatus}</span>{/if}
@@ -1051,7 +1144,7 @@
       <h2>Tags</h2>
       <label class="check">
         <input type="checkbox" checked={settings.autoPrReviewTag} onchange={(e) => updateSettings({ autoPrReviewTag: e.currentTarget.checked })} />
-        <span>Auto-tag a session <code>pr-approved</code> / <code>pr-changes-requested</code> when its most recent linked PR gets reviewed on GitHub (checked every 5 min via <code>gh</code>, read-only)</span>
+        <span>Auto-tag a session <code>pr-approved</code> / <code>pr-changes-requested</code> when its most recent linked PR gets reviewed on GitHub (read-only, checked every minute for active PRs and less often for quiet ones)</span>
       </label>
       <label class="check">
         <input type="checkbox" checked={settings.autoTags} onchange={(e) => updateSettings({ autoTags: e.currentTarget.checked })} />
@@ -1127,6 +1220,21 @@
           </li>
         {/each}
       </ul>
+    </div>
+
+    <div class="card" id="pset-flags" data-sec>
+      <h2>Feature flags</h2>
+      <p class="hint">Features still being tried out. Off unless you switch them on here; shared with the desktop app.</p>
+      <label class="check">
+        <input type="checkbox" checked={!!settings.featureFlags?.dockActions}
+               onchange={(e) => updateSettings({ featureFlags: { ...settings.featureFlags, dockActions: e.currentTarget.checked } })} />
+        <span>Session actions in the context panel: group, tags, pin, incognito, snooze and archive as large buttons at the bottom right</span>
+      </label>
+      <label class="check">
+        <input type="checkbox" checked={!!settings.featureFlags?.showPanels}
+               onchange={(e) => updateSettings({ featureFlags: { ...settings.featureFlags, showPanels: e.currentTarget.checked } })} />
+        <span>Interactive panels: Claude gets the <code>show_panel</code> tool and draws small sandboxed Luau panels in the desktop app (Rune). Applies from the next launch or resume.</span>
+      </label>
     </div>
     </div>
 

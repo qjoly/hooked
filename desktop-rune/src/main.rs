@@ -18,6 +18,8 @@ mod mddiff;
 mod media;
 mod organize;
 mod pages;
+mod panel;
+mod perf;
 mod querywin;
 mod quick;
 mod sections;
@@ -33,10 +35,14 @@ use rune::{AppSpec, Chrome, Key, KeyEvent, Tx};
 
 use app::{HANDLE, Hooked, Lens, Page};
 
+#[global_allocator]
+static ALLOCATOR: procwatch::alloc::Counting = procwatch::alloc::Counting::system();
+
 /// Rune's default mono family is Inter; terminals and code need a real fixed-width face.
 pub const MONO: &str = "ui-monospace, Menlo, monospace";
 
 fn on_key(s: &mut Hooked, ev: &KeyEvent, tx: &mut Tx) -> bool {
+    perf::input(perf::MAIN, tx);
     #[cfg(feature = "knobs")]
     if rune_knobs::key(&mut s.knobs, ev) {
         tx.motion(s.knobs.slide());
@@ -161,9 +167,9 @@ fn on_key(s: &mut Hooked, ev: &KeyEvent, tx: &mut Tx) -> bool {
     false
 }
 
-fn poll(s: &mut Hooked, _clock: f64, tx: &mut Tx) -> bool {
+fn poll(s: &mut Hooked, clock: f64, tx: &mut Tx) -> bool {
     let now = fmt::now_ms();
-    let mut changed = false;
+    let mut changed = s.poll_panel(clock, tx);
     s.stash_draft();
     s.refresh_logo();
     s.poll_run(now);
@@ -217,6 +223,7 @@ fn on_close(s: &mut Hooked, _: &mut Tx) {
 }
 
 fn on_ime(s: &mut Hooked, ime: &rune::Ime, tx: &mut Tx) -> bool {
+    perf::input(perf::MAIN, tx);
     tx.instant();
     s.focused_ime(ime)
 }
@@ -246,7 +253,8 @@ fn main() {
         .chrome(chrome)
         .keep_running()
         .on_close(on_close)
-        .on_ime(on_ime);
+        .on_ime(on_ime)
+        .on_frame_encoded(perf::frame_hook(perf::MAIN));
     let _ = HANDLE.set(app.handle());
     tray::init_notifications();
     let quick = quick::app();
@@ -261,4 +269,5 @@ fn main() {
         ];
         windows
     });
+    perf::shutdown();
 }

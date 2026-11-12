@@ -262,6 +262,43 @@ const TOOLS = [
       : Promise.resolve({ error: 'this session is not driven by hooked, it cannot archive itself' }),
   },
   {
+    name: 'watch_pull_request',
+    description:
+      'Watches a GitHub pull request for you. hooked then messages this session when its checks fail or all ' +
+      'pass, a merge conflict appears, no check has reported 15 minutes after a push, or someone else comments. ' +
+      'Call it after opening or pushing to a PR when you should follow up on CI or review feedback. Each update ' +
+      'arrives as a new user message; watching stops on its own once the PR is merged or closed.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        url: { type: 'string', description: 'Pull request URL. Defaults to the last PR linked in this session.' },
+      },
+      additionalProperties: false,
+    },
+    run: async (a) => {
+      if (!process.env.HOOKED_LAUNCH_KEY) return { error: 'this session is not driven by hooked, it cannot watch a pull request' };
+      const r = await httpRequest('POST', '/api/pr-watch', { op: 'watch', launchKey: process.env.HOOKED_LAUNCH_KEY, url: a.url });
+      if (!r.ok) return r;
+      return { ok: true, data: `Watching pull request #${r.data.number} (${r.data.url}). You will get a message here when there is news.` };
+    },
+  },
+  {
+    name: 'unwatch_pull_request',
+    description: 'Stops watching a pull request started with watch_pull_request (all of this session\'s watches when no url is given).',
+    inputSchema: {
+      type: 'object',
+      properties: { url: { type: 'string', description: 'Pull request URL to stop watching' } },
+      additionalProperties: false,
+    },
+    run: async (a) => {
+      if (!process.env.HOOKED_LAUNCH_KEY) return { error: 'this session is not driven by hooked' };
+      const r = await httpRequest('POST', '/api/pr-watch', { op: 'unwatch', launchKey: process.env.HOOKED_LAUNCH_KEY, url: a.url });
+      if (!r.ok) return r;
+      const removed = r.data.removed || [];
+      return { ok: true, data: removed.length ? `Stopped watching ${removed.join(', ')}.` : 'Nothing was being watched.' };
+    },
+  },
+  {
     name: 'reply_to_session',
     description:
       'Envoie un message texte à une session live (comme une saisie au clavier). Si une question ' +
@@ -602,6 +639,91 @@ TOOLS.push({
     return { ok: true, data: `Shown to the user in hooked as a live view (last ${spec.range}, refreshed every ${spec.refresh || 'never'}${spec.refresh ? ' s' : ''}). You do not see it.` };
   },
 });
+
+const PANEL_EXAMPLE = [
+  'local ui = require("@rune/ui")',
+  'local hooked = require("@hooked")',
+  'local state = hooked.state',
+  'hooked.changed:Connect(function(s) state = s end)',
+  'local picked = {}',
+  'return {',
+  '  render = function(view)',
+  '    local rows = {}',
+  '    for i, item in state.items do',
+  '      table.insert(rows, ui.row({ key = `item-{i}`, px = 8, py = 6, gap = 8, radius = 6,',
+  '        fill = if picked[i] then "hover" else nil, hover = "hover",',
+  '        onPress = function() picked[i] = not picked[i] end }, {',
+  '        ui.text(if item.done then "✓" else "○", { color = if item.done then "success" else "text-faint" }),',
+  '        ui.text(item.title, { size = 13, color = "text" }),',
+  '      }))',
+  '    end',
+  '    return ui.col({ w = "full", pad = 16, gap = 8 }, {',
+  '      ui.text(state.goal, { size = 15, weight = "semibold", color = "text" }),',
+  '      ui.col({ w = "full", gap = 2 }, rows),',
+  '    })',
+  '  end,',
+  '  actions = function()',
+  '    local list = {}',
+  '    for i, on in picked do if on then table.insert(list, state.items[i].title) end end',
+  '    return { { label = "Looks good", send = { action = "approve" } },',
+  '      if #list > 0 then { label = "Redo picked", send = { action = "redo", items = list } } else nil }',
+  '  end,',
+  '}',
+].join('\n');
+
+const SHOW_PANEL = {
+  name: 'show_panel',
+  description:
+    'Opens a small interactive panel in a floating window of the hooked desktop app (Rune), built by a sandboxed ' +
+    'Luau script you write: a progress board, a checklist, a small chart, a few buttons. Use it for live status of ' +
+    'long work or when the user should pick or confirm something visually.\n\n' +
+    'The script is `init.luau` (pass it as `source`, or several modules as `files`, required with ' +
+    '`require("@self/name")`). It returns a module whose `render(view)` builds nodes with `local ui = require("@rune/ui")`: ' +
+    '`ui.col/row/box(props, children)` (a string child is text, nil children are skipped), `ui.text(str, props)`, ' +
+    '`ui.spacer()`. Props: key, w/h (points or "full"), minW/maxW/minH/maxH, grow, shrink, pad, px, py, pt/pr/pb/pl, ' +
+    'gap, align, justify, center, wrap, fill, hover, press, border, borderWidth, radius, clip, scrollY, opacity, onPress; ' +
+    'for text: size, weight ("regular", "medium", "semibold", "bold"), color, mono, tabular, truncate, noWrap. ' +
+    'An onPress handler changes local variables and the panel re-renders. `task.wait(s)` / `task.delay(s, fn)` animate.\n\n' +
+    'Colours follow the user\'s hooked theme: text, text-muted, text-faint, text-accent, bg, bg-deep, surface, accent, ' +
+    'border, border-weak, border-strong, hover, press, control-off, success, warning, danger, info, and the tinted ' +
+    'backgrounds success-bg, warning-bg, danger-bg, info-bg; ui.hex("#rrggbb") for anything else.\n\n' +
+    'Buttons that answer you are drawn by hooked in its own footer, never by your script: export `actions()` returning ' +
+    '{ label, send } entries (4 at most). hooked reads it again whenever your script ran, so labels and `send` follow ' +
+    'the panel\'s state. Only a real click on one reaches you, as a message saying the user clicked that button in this ' +
+    'panel and what it sent (at most one every 2 s). There is no other way for a script to send anything.\n\n' +
+    '`local hooked = require("@hooked")` gives `hooked.state` (the `state` you passed) and ' +
+    '`hooked.changed:Connect(function(state) ... end)`, which fires when you call show_panel again with the same `id` ' +
+    'and only a new `state`: update live status that way rather than resending the source.\n\n' +
+    'hooked frames the window with its own header naming your session, so the panel cannot pass for hooked\'s own ' +
+    'cards; do not draw permission or approval prompts that imitate them.\n\n' +
+    'Sandbox: no files, network, os or require outside the script; each call into the script stops after 250 ms; heap ' +
+    'limited to 16 MB. You do not see the panel. If the script fails to compile, render or run a handler, the user ' +
+    'sees an error card and the result of your next show_panel call for this id says what failed.\n\n' +
+    'Example (state = { goal = "...", items = { { title = "...", done = true }, ... } }):\n```luau\n' + PANEL_EXAMPLE + '\n```',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      id: { type: 'string', description: 'Panel id, [A-Za-z0-9_-] (default "panel"). Call again with the same id to update it.' },
+      title: { type: 'string', description: 'Window title' },
+      source: { type: 'string', description: 'init.luau source. Omit on an update that only changes `state`.' },
+      files: { type: 'object', additionalProperties: { type: 'string' }, description: 'Several modules: relative path → Luau source, with an init.luau' },
+      state: { description: 'JSON the script reads as hooked.state (32 KB max)' },
+      close: { type: 'boolean', description: 'Close the panel with this id' },
+    },
+    additionalProperties: false,
+  },
+  run: async (a) => {
+    const launchKey = process.env.HOOKED_LAUNCH_KEY || '';
+    if (a.close) return httpRequest('POST', '/api/panel', { op: 'close', id: a.id || 'panel', launchKey });
+    const r = await httpRequest('POST', '/api/panel', { op: 'show', input: a, launchKey });
+    if (!r.ok) return r;
+    const note = r.data.session ? '' : ' This session is not driven by hooked, so clicks on send buttons have nowhere to go.';
+    const prev = r.data.previousError;
+    const failed = prev ? `\n\nThe previous version (rev ${prev.rev}) failed in the app: ${prev.message}` : '';
+    return { ok: true, data: `Panel "${r.data.id}" shown in the hooked desktop app (rev ${r.data.rev}). You do not see it.${note}${failed}` };
+  },
+};
+if (process.env.HOOKED_SHOW_PANELS === '1') TOOLS.push(SHOW_PANEL);
 
 const TOOL_BY_NAME = new Map(TOOLS.map((t) => [t.name, t]));
 

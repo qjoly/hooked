@@ -35,7 +35,6 @@ const terms = globalThis[REGISTRY] || (globalThis[REGISTRY] = new Map());
 // « rouvre » un shell vide alors que la commande tourne toujours. On garde les derniers octets
 // BRUTS, séquences ANSI comprises : xterm les rejoue et reconstitue l'écran exact.
 const SCROLLBACK_BYTES = 256 * 1024;
-const MAX_TERMINALS = 8;          // garde-fou : un PTY = un process, on ne les laisse pas proliférer
 const DEFAULT_COLS = 120;
 const DEFAULT_ROWS = 32;
 
@@ -181,7 +180,6 @@ function openTerminal({ cwd, sessionId, cols, rows, inline } = {}, cb) {
   const dir = typeof cwd === 'string' ? cwd : null;
   if (!dir) return cb(err400('cwd required'));
   if (!statDir(dir)) return cb(err400('invalid cwd: ' + dir));
-  if (terms.size >= MAX_TERMINALS) return cb(err400(`too many open terminals (max ${MAX_TERMINALS}) — close one first`));
 
   const c = Number.isInteger(cols) && cols > 0 && cols <= 500 ? cols : DEFAULT_COLS;
   const r = Number.isInteger(rows) && rows > 0 && rows <= 300 ? rows : DEFAULT_ROWS;
@@ -276,5 +274,4 @@ export {
   openTerminal, writeTerminal, resizeTerminal, killTerminal, closeTerminalsFor,
   subscribeTerminal, listTerminals, getTerminal, terminalScrollback,
   defaultShell, shellArgs, ptyEnv,
-  MAX_TERMINALS,
 };

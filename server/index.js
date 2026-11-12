@@ -16,6 +16,7 @@ export * from './util.js';
 export * from './git.js';
 export * from './gitOps.js';
 export * from './prReviewTags.js';
+export * from './prWatch.js';
 export * from './autoTags.js';
 export * from './pricing.js';
 export * from './transcript.js';
@@ -54,6 +55,9 @@ export * from './claudeUpdate.js';
 export * from './editor.js';
 export * from './trash.js';
 export * from './worktrees.js';
+export * from './panels.js';
+export * from './worktreeCleanup.js';
+export * from './autoPull.js';
 export * as searchIndex from './searchIndex.js';
 // Namespacé pour la même raison que searchIndex : `lookup`, `partition`, `readSlice` sont des
 // noms trop génériques pour un `export *`, où une collision fait disparaître un symbole SANS

@@ -579,6 +579,7 @@ export const settings = $state({
   },
   autoCompact: { enabled: false, minContextK: 100 }, // cf. server/settings.js
   sidebarCache: { display: 'badge', windowMin: 15 }, // cf. server/settings.js
+  featureFlags: { dockActions: false, showPanels: false },
   editor: 'vscode', // éditeur préféré (clé de src/lib/editors.js) pour les liens « open in editor »
   defaultPage: 'deck',
   navTabs: ['sessions', 'stats', 'digest', 'memory', 'github'], // onglets de nav visibles (paramétrable)

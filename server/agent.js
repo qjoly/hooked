@@ -32,7 +32,7 @@ import { readSettings } from './settings.js';
 import { refreshAgentStatus } from './agent-status.js';
 import { contextFromUsage, compactDue } from '../src/lib/promptCache.js';
 import { joinGroup, setSessionMeta, isIncognitoSession } from './sessionMeta.js';
-import { createWorktree, removeWorktree, attachWorktreeSession, autoNameBranch } from './worktrees.js';
+import { createWorktree, removeWorktree, restoreWorktree, attachWorktreeSession, autoNameBranch } from './worktrees.js';
 
 function err400(msg) { const e = new Error(msg); e.code = 400; return e; }
 
@@ -468,6 +468,7 @@ function hookedMcpServer(launchKey) {
   const env = { HOOKED_PORT: String(PORT) };
   if (launchKey) env.HOOKED_LAUNCH_KEY = launchKey;
   if (readSettings().showWork) env.HOOKED_SHOW_WORK = '1';
+  if (readSettings().featureFlags?.showPanels) env.HOOKED_SHOW_PANELS = '1';
   return { command: 'node', args: [server], env };
 }
 
@@ -760,6 +761,12 @@ function launchSession(opts, cb) {
   }
   if (!dir) return cb(err400('directory (cwd) required'));
   const stDir = statSafe(dir);
+  if (!stDir && id && !opts[RESTORED_WORKTREE]) {
+    return restoreWorktree(dir).then(
+      (r) => (r ? launchSession({ ...opts, [RESTORED_WORKTREE]: true }, cb) : cb(err400('invalid cwd: ' + dir))),
+      (e) => cb(err400('could not recreate the worktree: ' + ((e && e.message) || e))),
+    );
+  }
   if (!stDir || !stDir.isDirectory()) return cb(err400('invalid cwd: ' + dir));
 
   if (model && !isValidModelArg(model)) return cb(err400('unknown model: ' + model));
@@ -911,6 +918,7 @@ function launchSession(opts, cb) {
 
 // A Symbol key, so a JSON body posted to /api/launch can never claim a worktree.
 const MANAGED_WORKTREE = Symbol('managedWorktree');
+const RESTORED_WORKTREE = Symbol('restoredWorktree');
 
 // A worktree that never got its session is removed again: it holds nothing yet.
 function launchInNewWorktree(opts, cb) {
@@ -919,7 +927,7 @@ function launchInNewWorktree(opts, cb) {
   createWorktree({ cwd: opts.cwd, base: spec.base, branch: spec.branch }).then((wt) => {
     launchSession({ ...opts, cwd: wt.path, worktree: null, [MANAGED_WORKTREE]: wt }, (err, info) => {
       if (err) {
-        removeWorktree(wt.path, { force: true }).catch(() => {});
+        removeWorktree(wt.path, { force: true, forget: true }).catch(() => {});
         return cb(err);
       }
       try { attachWorktreeSession(wt.path, info.sessionId); } catch (_) {}

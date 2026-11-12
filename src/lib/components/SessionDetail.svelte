@@ -87,6 +87,7 @@
     (s.subSessions || []).length || (s.bgJobs || []).length ||
     (s.prLinks || []).length || (s.issueLinks || []).length || (s.screenshots || []).length
   ));
+  const showDock = $derived(!!s && (dockHasContent || !!settings.featureFlags?.dockActions));
 
   // Lentilles du workspace : Converse, Ship, Branch et MCP. Le panneau Shell (mirroir xterm d'un
   // pane tmux) a disparu avec la migration hors tmux : il n'y a plus de terminal à mirrorer, la
@@ -388,7 +389,7 @@
       return;
     }
     if (matchesEvent(getBinding('toggle-dock'), e)) {
-      if (dockHasContent) { e.preventDefault(); ui.dockHidden = !ui.dockHidden; }
+      if (showDock) { e.preventDefault(); ui.dockHidden = !ui.dockHidden; }
       return;
     }
     const t = e.target;
@@ -1000,7 +1001,7 @@
   <!-- dock contextuel (lentille Converse) : tasks / changements / agents / jobs / liens.
        Masquable par l'utilisateur (persisté ui.dockHidden) → rail fin pour le rouvrir.
        Pas rendu du tout (ni le rail) quand la session n'a AUCUN contenu contextuel. -->
-  {#if tab === 'chat' && dockHasContent && !(inSplit && ui.splitCompact)}
+  {#if tab === 'chat' && showDock && !(inSplit && ui.splitCompact)}
     {#if ui.dockHidden}
       <button class="dock-reopen" onclick={() => (ui.dockHidden = false)} title="Show the context panel" aria-label="Show the context panel"><Icon name="arrow-left" size={14} /></button>
     {:else}

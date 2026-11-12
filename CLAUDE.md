@@ -210,6 +210,31 @@ follows you from one browser to another.
 - **Out of scope:** Stats and Digest, which aggregate every session without going through
   `data.sessions`.
 
+## GitHub calls (`server/ghClient.js`, `server/prWatch.js`)
+
+Every GitHub read and write goes through `ghRest` / `ghGraphql`, never through a spawned `gh`
+subcommand. `gh` only hands over the token (`gh auth token`, cached 5 min, dropped on a 401);
+`GH_TOKEN` / `GITHUB_TOKEN` from the login env win over it, as they did for `gh` itself. The design
+follows T3 Code's (MIT, pingdotgg/t3code).
+
+- **One request policy for the whole process**, pinned on `globalThis`: at most 8 requests in
+  flight (bursts trip GitHub's secondary rate limit), quotas read from `x-ratelimit-*`, and a host-wide
+  pause on a 429 / limit-naming 403 / GraphQL `RATE_LIMITED` (which arrives as HTTP 200), until
+  `Retry-After` or the reset, else backoff from 30 s to 15 min.
+- **Pass `background: true` for anything nobody is waiting on** (pollers). Background reads yield to
+  the pause and stop at 10% of the quota, so a click in the UI still goes through.
+- **`etag: true` on REST reads that get polled** (notifications, runs, diffs): a 304 costs no quota.
+- A cross-origin redirect (job logs on blob storage) is followed without the token.
+- `ghMeta.ghViewMany` batches link summaries into one aliased GraphQL query, and its cache TTL
+  follows activity: 1 min for a PR updated in the last 30 min, 5 min when quiet, 30 min after a
+  day, never again once merged/closed. `prReviewTags` ticks every minute on top of it.
+- **PR watch** (`watch_pull_request` MCP tool, or the `autoPrWatch` setting for the viewer's open
+  PR a driven session links last) wakes the session with one message about failed/passed checks, no
+  check 15 min after a push, a merge conflict, or comments from anyone but the viewer. News is held
+  while the session works or waits on a question, so the state only advances once it was delivered.
+  A watch ends on merge/close, on `unwatch_pull_request`, or after 10 comment-only wakes in a row
+  (bot loops). Watches live in `pr-watches.json`; a process only polls the sessions it drives.
+
 ## Worktrees (`server/worktrees.js`)
 
 hooked creates the worktree itself (`git worktree add --no-track -b <branch> <dir> <base>`), then
@@ -229,6 +254,21 @@ list or clean up the worktree.
   while a driven session runs inside, and needs `force` with local changes. The branch is deleted
   only when the base already has all of its commits (`base..HEAD` empty, or its PR was
   squash-merged while the worktree still sits on the PR's last commit).
+- **Removing a managed worktree leaves a record** (`removedAt` + last `head` in `worktrees.json`,
+  pruned after 180 days). Resuming a session whose cwd is gone calls `restoreWorktree()`, which
+  checks the branch (or that commit) out again at the same path, since the transcript is bound to
+  it. `uniqueDir` never hands a recorded path to a new worktree.
+- **Automatic cleanup** (`server/worktreeCleanup.js`, `worktrees.cleanup` setting, off by default)
+  removes managed worktrees once every session in them is archived, or after N idle days. It runs
+  hourly (first pass 5 min after boot, so resumed sessions count as live), 20 s after any archive
+  (`onSessionArchived` in `sessionMeta.js` covers every archive path), and from "Clean up now".
+  Dirty or live worktrees are kept; ignored files are not protected. Started with the other
+  service-only loops, so a bare `npm run live` never removes anything on its own.
+- **Auto-pull** (`server/autoPull.js`, `autoPullProjects` setting, off by default) fast-forwards
+  the main checkout behind each session of the last 30 days, every 10 min. Only on the default
+  branch (local name and upstream both match `<remote>/HEAD`), with no changed or untracked file,
+  no local commit and no live session in that checkout. Not to be confused with `autoGitSync`,
+  which only updates hooked's own checkout.
 - Sessions carry `worktreeOf` (the main checkout, read from `.git` files with no subprocess). It
   drives "Collapse worktrees" in the project picker, the worktree actions of the session menu,
   and the Review lens's **Worktree** scope (the default there): `merge-base(base, HEAD)` → disk,

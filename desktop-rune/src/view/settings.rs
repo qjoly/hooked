@@ -30,7 +30,7 @@ const EDITORS: [(&str, &str); 6] = [
     ("jetbrains", "JetBrains"),
 ];
 const DAYS: [&str; 7] = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-static SECTIONS: [(&str, &str, &Icon); 9] = [
+static SECTIONS: [(&str, &str, &Icon); 10] = [
     ("set-app", "This app", &icons::MONITOR),
     ("set-sessions", "New sessions", &icons::PLUS),
     ("set-display", "Sidebar and session", &icons::SIDEBAR),
@@ -40,6 +40,19 @@ static SECTIONS: [(&str, &str, &Icon); 9] = [
     ("set-term", "Terminal", &icons::TERMINAL),
     ("set-keys", "Keyboard shortcuts", &icons::ZAP),
     ("set-maint", "Maintenance", &icons::TOOL),
+    ("set-flags", "Feature flags", &icons::SPARKLE),
+];
+const FEATURE_FLAGS: [(&str, &str, &str); 2] = [
+    (
+        "dockActions",
+        "Session actions in the context panel",
+        "Group, tags, pin, incognito, snooze and archive as large buttons at the bottom of the context panel, which then shows even when the session has nothing else in it.",
+    ),
+    (
+        "showPanels",
+        "Interactive panels",
+        "Claude gets the show_panel tool and draws small sandboxed Luau panels in a window here. Applies from the next launch or resume.",
+    ),
 ];
 const ACTIVE_BAND: f32 = 64.0;
 const PAD: f32 = 24.0;
@@ -221,6 +234,20 @@ fn flag(v: &Value, key: &str) -> bool {
     v[key].as_bool().unwrap_or(false)
 }
 
+fn flags_card(k: &Kit, v: &Value) -> El {
+    let mut c = card(k, "set-flags", "FEATURE FLAGS");
+    for &(key, title, hint) in &FEATURE_FLAGS {
+        let on = v["featureFlags"][key].as_bool().unwrap_or(false);
+        c = c.child(line(
+            k,
+            title,
+            hint,
+            toggle(k, key, on, move |s| s.save_nested("featureFlags", key, json!(!on))),
+        ));
+    }
+    c
+}
+
 fn strs(v: &Value) -> Vec<String> {
     v.as_array()
         .into_iter()
@@ -286,6 +313,16 @@ fn app_card(s: &Hooked, k: &Kit, v: &Value) -> El {
                 s.notify = !s.notify;
                 let n = s.notify;
                 s.save_pref("notify", &n);
+            }),
+        ))
+        .child(line(
+            k,
+            "Performance diagnostics",
+            "Records frame timings, allocations and memory to a bounded local folder (Application Support/dev.qjoly.hooked-rune/perf). HOOKED_PERF=1 or 0 overrides this.",
+            toggle(k, "set-perf", crate::perf::enabled(), |s| {
+                let on = !crate::perf::enabled();
+                crate::perf::set_enabled(on);
+                s.save_pref("perfDiagnostics", &on);
             }),
         ))
         .child(block(
@@ -979,6 +1016,7 @@ pub fn view(s: &Hooked, k: &Kit) -> El {
         terminal_card(s, k),
         shortcuts_card(s, k),
         maintenance_card(s, k, v),
+        flags_card(k, v),
     ];
     let [_, view_h] = s.pages.settings_view;
     let tail = (view_h - s.pages.settings_last_h - 2.0 * PAD - GAP).max(0.0);

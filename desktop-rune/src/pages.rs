@@ -694,6 +694,10 @@ impl Hooked {
             .map_or(&Value::Null, |v| &v[key])
     }
 
+    pub fn feature(&self, flag: &str) -> bool {
+        self.setting("featureFlags")[flag].as_bool().unwrap_or(false)
+    }
+
     pub fn toggle_in_list(&mut self, key: &str, item: &str) {
         let mut list: Vec<String> = self
             .setting(key)

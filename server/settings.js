@@ -23,6 +23,13 @@ const STATUS_BAR_KEYS = [
   'focusBtn',       // Focus button
 ];
 
+// Opt-in UI under test, so a half-finished feature can land on main without reaching anyone
+// who has not switched it on. Each key is a boolean, false when missing.
+const FEATURE_FLAGS = [
+  'dockActions', // session actions (group, tags, pin, incognito, snooze, archive) at the bottom of the context panel
+  'showPanels', // show_panel MCP tool: sandboxed Luau panels in the Rune desktop app; applies from the next launch or resume
+];
+
 const DEFAULTS = {
   // Locale (BCP-47) used by the composer's voice dictation (Web Speech API). E.g. fr-FR, en-US.
   speechLang: 'fr-FR',
@@ -31,10 +38,15 @@ const DEFAULTS = {
   speechEnabled: true,
   // Synchro git du dépôt du serveur (cf. server/gitOps.js) : boucle de fond fetch + pull --ff-only.
   autoGitSync: false,
+  autoPullProjects: false,
   // Boucle de fond (cf. server/prReviewTags.js) : tague une session `pr-approved` /
-  // `pr-changes-requested` quand la review GitHub de sa PR la plus récente tombe. Lecture seule
-  // (gh pr view), défaut activé.
+  // `pr-changes-requested` quand la review GitHub de sa PR la plus récente tombe. Lecture seule,
+  // défaut activé.
   autoPrReviewTag: true,
+  // server/prWatch.js: every driven session whose latest PR link is an open PR of yours gets
+  // watched, and is woken when its checks fail or pass, a conflict appears or someone comments.
+  // Off by default: each wake is a turn.
+  autoPrWatch: false,
   // Background loop (server/autoTags.js): one Haiku call per new session suggests 1-3 tags, merged once.
   autoTags: true,
   // Après un pull qui change package-lock.json : redémarrer le service (→ run-dev.sh relance npm ci).
@@ -105,7 +117,9 @@ const DEFAULTS = {
   // time, 'replace' = in its place. `windowMin`: shown only in the cache's last N minutes, 0 = always.
   sidebarCache: { display: 'badge', windowMin: 15 },
   // New-worktree launches (server/worktrees.js). location '' = HOOKED_DIR/worktrees.
-  worktrees: { location: '', autoName: true, nameInstructions: '' },
+  // cleanup.inactiveDays 0 = never (server/worktreeCleanup.js).
+  worktrees: { location: '', autoName: true, nameInstructions: '', cleanup: { onArchive: false, inactiveDays: 0 } },
+  featureFlags: Object.fromEntries(FEATURE_FLAGS.map((k) => [k, false])),
 };
 
 const NAV_PAGES = ['sessions', 'stats', 'digest', 'memory', 'github', 'skills', 'cron', 'prompts'];
@@ -204,10 +218,20 @@ function sanitize(raw) {
     location: /^(\/|~\/|~$)/.test(wtLoc) ? wtLoc.slice(0, 4096) : '',
     autoName: rawWt.autoName === undefined ? true : !!rawWt.autoName,
     nameInstructions: typeof rawWt.nameInstructions === 'string' ? rawWt.nameInstructions.slice(0, 2000) : '',
+    cleanup: {
+      onArchive: !!rawWt.cleanup?.onArchive,
+      inactiveDays: Number.isInteger(rawWt.cleanup?.inactiveDays) && rawWt.cleanup.inactiveDays > 0
+        ? Math.min(rawWt.cleanup.inactiveDays, 3650)
+        : 0,
+    },
   };
+  const rawFf = o.featureFlags && typeof o.featureFlags === 'object' ? o.featureFlags : {};
+  const featureFlags = Object.fromEntries(FEATURE_FLAGS.map((k) => [k, rawFf[k] === true]));
   return {
     autoGitSync: !!o.autoGitSync,
+    autoPullProjects: !!o.autoPullProjects,
     autoPrReviewTag: o.autoPrReviewTag === undefined ? true : !!o.autoPrReviewTag,
+    autoPrWatch: !!o.autoPrWatch,
     autoTags: o.autoTags === undefined ? true : !!o.autoTags,
     gitAutoRestartOnLock: !!o.gitAutoRestartOnLock,
     // Défaut à true : une config antérieure à cette clé ne doit pas la forcer à false.
@@ -225,6 +249,7 @@ function sanitize(raw) {
     autoCompact,
     sidebarCache,
     worktrees,
+    featureFlags,
     speechLang,
     speechEnabled: o.speechEnabled === undefined ? true : !!o.speechEnabled,
     showWork: o.showWork === undefined ? true : !!o.showWork,

@@ -1,6 +1,6 @@
 /*
  * Auto-tag scheduler (server/prReviewTags.js) — prReviewTick() only, unit-level: scanSessions
- * and ghView are mocked, tags.js runs for real against a throwaway HOOKED_DATA_DIR.
+ * and ghViewMany are mocked, tags.js runs for real against a throwaway HOOKED_DATA_DIR.
  */
 import { describe, it, expect, beforeAll, vi } from 'vitest';
 import fs from 'node:fs';
@@ -14,7 +14,7 @@ let sessions = [];
 let reviewByUrl = {};
 
 vi.mock('../server/transcript.js', () => ({ scanSessions: () => sessions }));
-vi.mock('../server/ghMeta.js', () => ({ ghView: async (url) => reviewByUrl[url] || null }));
+vi.mock('../server/ghMeta.js', () => ({ ghViewMany: async (urls) => new Map(urls.map((u) => [u, reviewByUrl[u] || null])) }));
 
 let prReviewTick, readTags, setTags;
 beforeAll(async () => {
