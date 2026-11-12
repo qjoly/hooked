@@ -159,6 +159,7 @@ pub struct Hooked {
     pub job_log: Option<(String, String)>,
     pub run_win: Option<crate::ghrun::RunWin>,
     pub query_win: Option<crate::querywin::QueryWin>,
+    pub panel_win: Option<crate::panel::PanelWin>,
     pub float_at: HashMap<&'static str, [f32; 2]>,
     pub float_grab: [f32; 2],
     pub gh_checks: HashMap<String, Vec<serde_json::Value>>,
@@ -416,6 +417,7 @@ impl Hooked {
             job_log: None,
             run_win: None,
             query_win: None,
+            panel_win: None,
             float_at: HashMap::new(),
             float_grab: [0.0; 2],
             gh_checks: HashMap::new(),
@@ -824,6 +826,18 @@ impl Hooked {
                 refresh: 0,
                 ..Default::default()
             });
+        }
+        if let Some(dir) = args
+            .iter()
+            .position(|a| a == "--panel")
+            .and_then(|i| args.get(i + 1))
+        {
+            let mut w = crate::panel::PanelWin::new(&crate::panel::panel_from_dir(dir), true);
+            if args.iter().any(|a| a == "--panel-minimized") {
+                w.set_minimized(true);
+                w.unseen = true;
+            }
+            s.panel_win = Some(w);
         }
         if let Some(i) = args.iter().position(|a| a == "--gh") {
             let url = args.get(i + 1).cloned().unwrap_or_default();
@@ -2644,6 +2658,18 @@ pub fn start_workers(h: Option<AppHandle<Hooked>>) {
     std::thread::spawn(move || {
         loop {
             let r = api::follow("/api/stream", |payload| {
+                if payload.starts_with("{\"panel\"")
+                    && let Ok(mut v) = serde_json::from_str::<serde_json::Value>(payload)
+                    && v["panel"]["id"].is_string()
+                {
+                    let panel = v["panel"].take();
+                    if panel["closed"] == true {
+                        h.update(move |s, _| s.closed_panel(&panel));
+                    } else {
+                        h.update(move |s, _| s.show_panel(panel));
+                    }
+                    return true;
+                }
                 if payload.contains("\"spec\"")
                     && let Ok(v) = serde_json::from_str::<serde_json::Value>(payload)
                     && v["spec"]["query"].is_string()

@@ -55,6 +55,7 @@ export * from './claudeUpdate.js';
 export * from './editor.js';
 export * from './trash.js';
 export * from './worktrees.js';
+export * from './panels.js';
 export * as searchIndex from './searchIndex.js';
 // Namespacé pour la même raison que searchIndex : `lookup`, `partition`, `readSlice` sont des
 // noms trop génériques pour un `export *`, où une collision fait disparaître un symbole SANS

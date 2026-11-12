@@ -1149,6 +1149,11 @@
                onchange={(e) => updateSettings({ featureFlags: { ...settings.featureFlags, dockActions: e.currentTarget.checked } })} />
         <span>Session actions in the context panel: group, tags, pin, incognito, snooze and archive as large buttons at the bottom right</span>
       </label>
+      <label class="check">
+        <input type="checkbox" checked={!!settings.featureFlags?.showPanels}
+               onchange={(e) => updateSettings({ featureFlags: { ...settings.featureFlags, showPanels: e.currentTarget.checked } })} />
+        <span>Interactive panels: Claude gets the <code>show_panel</code> tool and draws small sandboxed Luau panels in the desktop app (Rune). Applies from the next launch or resume.</span>
+      </label>
     </div>
     </div>
 

@@ -27,6 +27,7 @@ const STATUS_BAR_KEYS = [
 // who has not switched it on. Each key is a boolean, false when missing.
 const FEATURE_FLAGS = [
   'dockActions', // session actions (group, tags, pin, incognito, snooze, archive) at the bottom of the context panel
+  'showPanels', // show_panel MCP tool: sandboxed Luau panels in the Rune desktop app; applies from the next launch or resume
 ];
 
 const DEFAULTS = {

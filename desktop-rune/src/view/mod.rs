@@ -8,6 +8,7 @@ mod new_session;
 mod organize;
 mod pages;
 mod palette;
+mod panel;
 mod querywin;
 mod session;
 mod settings;
@@ -131,6 +132,9 @@ pub fn view(s: &Hooked, cx: &mut Cx<Hooked>) -> El {
     }
     if let Some(w) = s.query_win.as_ref() {
         layer.push(querywin::view(s, w, &k));
+    }
+    if let Some(w) = s.panel_win.as_ref() {
+        layer.push(panel::view(s, w, &k, cx));
     }
     if let Some(d) = s.dnd.as_ref() {
         layer.push(drag_ghost(s, &k, d));
@@ -1613,12 +1617,24 @@ pub fn md(src: impl Into<String>) -> rune_kit::Markdown {
 }
 
 pub(super) fn floating(s: &Hooked, k: &Kit, key: &'static str, head: El, body: El) -> El {
-    const W: f32 = 760.0;
+    floating_sized(s, k, key, 760.0, (s.window_h * 0.7).max(320.0), None, head, body)
+}
+
+pub(super) fn floating_sized(
+    s: &Hooked,
+    k: &Kit,
+    key: &'static str,
+    w: f32,
+    h: f32,
+    frame: Option<Color>,
+    head: El,
+    body: El,
+) -> El {
     const MARGIN: f32 = 16.0;
-    let h = (s.window_h * 0.7).max(320.0);
+    let (w, h) = (w.min(s.window_w), h.min(s.window_h));
     let clamp = move |s: &Hooked, [r, b]: [f32; 2]| {
         [
-            r.clamp(0.0, (s.window_w - W).max(0.0)),
+            r.clamp(0.0, (s.window_w - w).max(0.0)),
             b.clamp(0.0, (s.window_h - h).max(0.0)),
         ]
     };
@@ -1645,11 +1661,11 @@ pub(super) fn floating(s: &Hooked, k: &Kit, key: &'static str, head: El, body: E
             col()
                 .key(key)
                 .pin(None, None, Some(right), Some(bottom))
-                .w(W)
+                .w(w)
                 .h(h)
                 .radius(k.radius.lg)
                 .fill(k.c.bg_base)
-                .border(1.0, k.c.border_base)
+                .border(frame.map_or(1.0, |_| 2.0), frame.unwrap_or(k.c.border_base))
                 .box_shadows(&k.elevation.overlay)
                 .child(head)
                 .child(body),
