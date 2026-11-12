@@ -234,3 +234,15 @@ describe('showPanels feature flag', () => {
     expect(writeSettings({ featureFlags: { showPanels: false } }).featureFlags.showPanels).toBe(false);
   });
 });
+
+describe('worktrees.cleanup', () => {
+  it('is off by default', () => {
+    expect(readSettings().worktrees.cleanup).toEqual({ onArchive: false, inactiveDays: 0 });
+  });
+
+  it('keeps valid rules and drops bad day counts', () => {
+    expect(writeSettings({ worktrees: { cleanup: { onArchive: true, inactiveDays: 14 } } }).worktrees.cleanup).toEqual({ onArchive: true, inactiveDays: 14 });
+    expect(writeSettings({ worktrees: { cleanup: { inactiveDays: -3 } } }).worktrees.cleanup).toEqual({ onArchive: false, inactiveDays: 0 });
+    expect(writeSettings({ worktrees: { cleanup: { inactiveDays: 1.5 } } }).worktrees.cleanup.inactiveDays).toBe(0);
+  });
+});

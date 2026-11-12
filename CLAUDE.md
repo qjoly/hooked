@@ -254,6 +254,16 @@ list or clean up the worktree.
   while a driven session runs inside, and needs `force` with local changes. The branch is deleted
   only when the base already has all of its commits (`base..HEAD` empty, or its PR was
   squash-merged while the worktree still sits on the PR's last commit).
+- **Removing a managed worktree leaves a record** (`removedAt` + last `head` in `worktrees.json`,
+  pruned after 180 days). Resuming a session whose cwd is gone calls `restoreWorktree()`, which
+  checks the branch (or that commit) out again at the same path, since the transcript is bound to
+  it. `uniqueDir` never hands a recorded path to a new worktree.
+- **Automatic cleanup** (`server/worktreeCleanup.js`, `worktrees.cleanup` setting, off by default)
+  removes managed worktrees once every session in them is archived, or after N idle days. It runs
+  hourly (first pass 5 min after boot, so resumed sessions count as live), 20 s after any archive
+  (`onSessionArchived` in `sessionMeta.js` covers every archive path), and from "Clean up now".
+  Dirty or live worktrees are kept; ignored files are not protected. Started with the other
+  service-only loops, so a bare `npm run live` never removes anything on its own.
 - Sessions carry `worktreeOf` (the main checkout, read from `.git` files with no subprocess). It
   drives "Collapse worktrees" in the project picker, the worktree actions of the session menu,
   and the Review lens's **Worktree** scope (the default there): `merge-base(base, HEAD)` → disk,

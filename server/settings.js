@@ -116,7 +116,8 @@ const DEFAULTS = {
   // time, 'replace' = in its place. `windowMin`: shown only in the cache's last N minutes, 0 = always.
   sidebarCache: { display: 'badge', windowMin: 15 },
   // New-worktree launches (server/worktrees.js). location '' = HOOKED_DIR/worktrees.
-  worktrees: { location: '', autoName: true, nameInstructions: '' },
+  // cleanup.inactiveDays 0 = never (server/worktreeCleanup.js).
+  worktrees: { location: '', autoName: true, nameInstructions: '', cleanup: { onArchive: false, inactiveDays: 0 } },
   featureFlags: Object.fromEntries(FEATURE_FLAGS.map((k) => [k, false])),
 };
 
@@ -216,6 +217,12 @@ function sanitize(raw) {
     location: /^(\/|~\/|~$)/.test(wtLoc) ? wtLoc.slice(0, 4096) : '',
     autoName: rawWt.autoName === undefined ? true : !!rawWt.autoName,
     nameInstructions: typeof rawWt.nameInstructions === 'string' ? rawWt.nameInstructions.slice(0, 2000) : '',
+    cleanup: {
+      onArchive: !!rawWt.cleanup?.onArchive,
+      inactiveDays: Number.isInteger(rawWt.cleanup?.inactiveDays) && rawWt.cleanup.inactiveDays > 0
+        ? Math.min(rawWt.cleanup.inactiveDays, 3650)
+        : 0,
+    },
   };
   const rawFf = o.featureFlags && typeof o.featureFlags === 'object' ? o.featureFlags : {};
   const featureFlags = Object.fromEntries(FEATURE_FLAGS.map((k) => [k, rawFf[k] === true]));

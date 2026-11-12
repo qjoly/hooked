@@ -1,5 +1,5 @@
 import { dev } from '$app/environment';
-import { startDigestScheduler, startCronScheduler, startRemoteControl, readSettings, resumeDrivenSessions, startDrivenSnapshot, installShutdownHook, startWarmupScheduler, startAutoCompactScheduler, applyGitSyncSetting, applyPrReviewTagSetting, applyAutoTagSetting, startPrWatch } from '$lib/server/core.js';
+import { startDigestScheduler, startCronScheduler, startRemoteControl, readSettings, resumeDrivenSessions, startDrivenSnapshot, installShutdownHook, startWarmupScheduler, startAutoCompactScheduler, applyGitSyncSetting, applyPrReviewTagSetting, applyAutoTagSetting, startPrWatch, startWorktreeCleanup } from '$lib/server/core.js';
 
 // Ctrl+C has to actually stop the process. adapter-node closes the HTTP listener on SIGINT but
 // never exits, so any handle left behind (fs watchers, driven subprocesses, PTYs) keeps hooked
@@ -30,6 +30,7 @@ if (!dev || process.env.HOOKED_MODE) {
   // driven when we last stopped, then keep the snapshot current for the next restart.
   resumeDrivenSessions();
   startDrivenSnapshot();
+  startWorktreeCleanup();
 }
 
 // The 5h-window scheduler runs whatever the deployment (an ad hoc `npm run live` included): it is

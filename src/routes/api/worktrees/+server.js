@@ -1,5 +1,5 @@
 import { json } from '@sveltejs/kit';
-import { listWorktrees, removeWorktree, worktreeLocation, scanSessions, agentAlive, liveSessionCwds } from '$lib/server/core.js';
+import { listWorktrees, removeWorktree, worktreeLocation, scanSessions, agentAlive, liveSessionCwds, cleanupWorktreesNow, lastWorktreeCleanup } from '$lib/server/core.js';
 import { ok, fail, readJson } from '$lib/server/respond.js';
 
 export async function GET({ url }) {
@@ -9,11 +9,15 @@ export async function GET({ url }) {
     sessions,
     withPr: url.searchParams.get('pr') !== '0',
   });
-  return json({ location: worktreeLocation(), worktrees });
+  return json({ location: worktreeLocation(), worktrees, cleanup: lastWorktreeCleanup() });
 }
 
 export async function POST({ request }) {
   const body = await readJson(request);
+  if (body?.action === 'cleanup') {
+    try { return ok(await cleanupWorktreesNow()); }
+    catch (e) { return fail(500, e.message || String(e)); }
+  }
   if (!body || body.action !== 'remove') return fail(400, 'unknown action');
   try {
     return ok(await removeWorktree(body.path, { force: body.force === true, liveCwds: liveSessionCwds() }));

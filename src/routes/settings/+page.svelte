@@ -2,7 +2,7 @@
   import { untrack, onMount } from 'svelte';
   import { data, ui, settings, updateSettings, setTheme, setScheme, setCorners, loadSessions, allTags, tagUsage, deleteTag } from '$lib/state.svelte.js';
   import { tagColor } from '$lib/format.js';
-  import { resync, getGit, checkoutBranch, dismissRestartNotice, getClaudeVersion, upgradeClaude, restartClaudeSession, pickFolder, getRemoteControl, getCapabilities, getWarmup, runWarmup, listWorktrees, removeWorktree } from '$lib/api.js';
+  import { resync, getGit, checkoutBranch, dismissRestartNotice, getClaudeVersion, upgradeClaude, restartClaudeSession, pickFolder, getRemoteControl, getCapabilities, getWarmup, runWarmup, listWorktrees, removeWorktree, cleanupWorktrees } from '$lib/api.js';
   import { COMPACT_LEAD_MS, CACHED_READ_SHARE } from '$lib/promptCache.js';
   import { isHideableModel } from '$lib/models.js';
   import { knownProjects } from '$lib/projects.js';
@@ -74,7 +74,7 @@
   let wtStatus = $state('');
   async function scanWorktrees() {
     wtScanning = true;
-    try { const r = await listWorktrees(); wtList = r.worktrees; wtLocation = r.location; }
+    try { const r = await listWorktrees(); wtList = r.worktrees; wtLocation = r.location; wtReport ??= r.cleanup; }
     catch (e) { wtStatus = '✗ ' + e.message; }
     wtScanning = false;
   }
@@ -88,6 +88,19 @@
     else wtStatus = '✗ ' + (res.data.error || 'failed');
   }
   const wtShort = (p) => p.replace(/^\/Users\/[^/]+|^\/home\/[^/]+/, '~');
+  const wtClean = $derived(wtSet.cleanup || {});
+  const wtCleanOn = $derived(!!wtClean.onArchive || wtClean.inactiveDays > 0);
+  const saveCleanup = (patch) => saveWorktrees({ cleanup: { ...wtSet.cleanup, ...patch } });
+  let wtCleaning = $state(false);
+  let wtReport = $state(null);
+  async function runCleanup() {
+    wtCleaning = true;
+    const res = await cleanupWorktrees().catch((e) => ({ ok: false, data: { error: e.message } }));
+    wtCleaning = false;
+    if (!res.ok) { wtStatus = '✗ ' + (res.data.error || 'failed'); return; }
+    wtReport = res.data;
+    if (wtList) scanWorktrees();
+  }
   const saveSidebarCache = (patch) => updateSettings({ sidebarCache: { ...settings.sidebarCache, ...patch } });
   const AC_LEAD_MIN = Math.round(COMPACT_LEAD_MS / 60000);
   const AC_READ_PCT = Math.round(CACHED_READ_SHARE * 100);
@@ -1016,6 +1029,41 @@
       </label>
       <textarea class="cmd-input wt-instr" rows="2" placeholder="Extra naming instructions, e.g. “prefix with the Jira key when the prompt has one”" disabled={wtSet.autoName === false}
                 value={wtSet.nameInstructions || ''} onchange={(e) => saveWorktrees({ nameInstructions: e.currentTarget.value })}></textarea>
+
+      <h3 class="sc-section" style="margin-top:16px">Automatic cleanup</h3>
+      <label class="check">
+        <input type="checkbox" checked={!!wtClean.onArchive} onchange={(e) => saveCleanup({ onArchive: e.currentTarget.checked })} />
+        <span>Remove a worktree once every session in it is archived (checked a few seconds after you archive one, then hourly)</span>
+      </label>
+      <div class="cmd-row">
+        <label class="dg-field">Also remove worktrees idle for
+          <select class="dg-sel" value={String(wtClean.inactiveDays || 0)} onchange={(e) => saveCleanup({ inactiveDays: parseInt(e.currentTarget.value, 10) })}>
+            {#each [0, 3, 7, 14, 30, 90] as d}<option value={String(d)}>{d === 0 ? 'never' : d + ' days'}</option>{/each}
+          </select>
+        </label>
+        <button class="save" onclick={runCleanup} disabled={wtCleaning || !wtCleanOn}>{#if wtCleaning}<Icon name="queued" size={14} />{:else}<Icon name="trash" size={14} />{/if} Clean up now</button>
+      </div>
+      <p class="hint" style="margin:6px 0 0">Only worktrees hooked created. A worktree with uncommitted or untracked files, or with a running session, is kept; ignored files (<code>.env</code>, build output) go with it. The branch stays unless it is merged, and resuming one of its sessions checks the worktree out again.</p>
+      {#if wtReport}
+        {#if !wtReport.removed.length && !wtReport.kept.length && !wtReport.failed.length}
+          <p class="hint" style="margin-top:8px">Nothing to clean up.</p>
+        {:else}
+          <ul class="rc-list">
+            {#each wtReport.removed as x (x.path)}
+              <li class="rc-row wt-row"><span class="rc-path" title={x.path}>{wtShort(x.path)}<span class="wt-branch">{x.branch || ''}</span></span>
+                <span class="rc-state"><span class="badge">removed · {x.reason}</span>{#if x.branchDeleted}<span class="badge">branch deleted</span>{/if}</span></li>
+            {/each}
+            {#each wtReport.kept as x (x.path)}
+              <li class="rc-row wt-row"><span class="rc-path" title={x.path}>{wtShort(x.path)}<span class="wt-branch">{x.branch || ''}</span></span>
+                <span class="rc-state"><span class="badge dirty">kept · {x.why}</span></span></li>
+            {/each}
+            {#each wtReport.failed as x (x.path)}
+              <li class="rc-row wt-row"><span class="rc-path" title={x.path}>{wtShort(x.path)}<span class="wt-branch">{x.branch || ''}</span></span>
+                <span class="rc-state"><span class="badge dirty">failed · {x.error}</span></span></li>
+            {/each}
+          </ul>
+        {/if}
+      {/if}
 
       <div class="cmd-row" style="margin-top:14px">
         <button class="save" onclick={scanWorktrees} disabled={wtScanning}>{#if wtScanning}<Icon name="queued" size={14} />{:else}<Icon name="search" size={14} />{/if} {wtList ? 'Rescan' : 'Scan worktrees'}</button>
