@@ -19,6 +19,7 @@ mod organize;
 mod pages;
 mod querywin;
 mod quick;
+mod sections;
 mod shortcuts;
 mod terminal;
 mod theme;

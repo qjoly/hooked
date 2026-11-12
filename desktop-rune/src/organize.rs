@@ -15,6 +15,10 @@ pub enum Picker {
         id: String,
         query: TextEdit,
     },
+    Filter {
+        repos: bool,
+        query: TextEdit,
+    },
     RenameGroup {
         id: String,
         edit: TextEdit,
@@ -141,6 +145,7 @@ impl Hooked {
         let v = self.incognito;
         self.save_pref("incognito", &v);
         self.tag_filter.clear();
+        self.repo_filter.clear();
         self.tray_dirty = true;
     }
 
@@ -209,6 +214,66 @@ impl Hooked {
             self.tag_filter.remove(i);
         } else {
             self.tag_filter.push(tag);
+        }
+    }
+
+    pub fn open_filter_picker(&mut self, repos: bool) {
+        let mut query = TextEdit::new("");
+        query.focused = true;
+        self.popup = None;
+        self.picker = Some(Picker::Filter { repos, query });
+    }
+
+    pub fn filter_options(&self, repos: bool, query: &str) -> Vec<(String, usize)> {
+        let picked = if repos {
+            &self.repo_filter
+        } else {
+            &self.tag_filter
+        };
+        let mut counts: std::collections::BTreeMap<String, usize> =
+            picked.iter().map(|k| (k.clone(), 0)).collect();
+        for x in self.sessions.iter().filter(|x| {
+            self.visible(x)
+                && (self.layout == "status" || self.is_archived(x) == self.show_archived)
+        }) {
+            let keys = if repos {
+                vec![x.project_label()]
+            } else {
+                self.session_tags(&x.id).to_vec()
+            };
+            for k in keys {
+                *counts.entry(k).or_default() += 1;
+            }
+        }
+        let q = query.trim().trim_start_matches('#').to_lowercase();
+        let mut out: Vec<(String, usize)> = counts
+            .into_iter()
+            .filter(|(k, _)| q.is_empty() || k.to_lowercase().contains(&q))
+            .collect();
+        let rank = |n: usize| if repos { n } else { 0 };
+        out.sort_by_key(|(k, n)| {
+            (
+                !picked.contains(k),
+                std::cmp::Reverse(rank(*n)),
+                k.to_lowercase(),
+            )
+        });
+        out
+    }
+
+    pub fn toggle_filter(&mut self, repos: bool, value: String) {
+        if repos {
+            self.toggle_repo_filter(value);
+        } else {
+            self.toggle_tag_filter(value);
+        }
+    }
+
+    pub fn toggle_repo_filter(&mut self, repo: String) {
+        if let Some(i) = self.repo_filter.iter().position(|r| *r == repo) {
+            self.repo_filter.remove(i);
+        } else {
+            self.repo_filter.push(repo);
         }
     }
 

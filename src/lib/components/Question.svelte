@@ -1,6 +1,6 @@
 <script>
   import { replyQuestion } from '$lib/api.js';
-  import { loadSessions, ui } from '$lib/state.svelte.js';
+  import { loadSessions, ui, wakeSession } from '$lib/state.svelte.js';
   import Icon from '$lib/components/Icon.svelte';
 
   let { id, pq } = $props();
@@ -146,6 +146,7 @@
     const res = await replyQuestion(id, selections, anyNote ? composeNotes() : '')
       .catch((e) => ({ ok: false, data: { error: e.message } }));
     if (res.ok) {
+      wakeSession(id);
       sent = true;
       recap = { text: '✓ sent: ' + labels.join('  ·  ') + (anyNote ? '  (+ notes)' : ''), cls: 'ok' };
       setTimeout(() => { loadSessions(); ui.tick++; }, 600);

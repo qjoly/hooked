@@ -24,6 +24,7 @@ use rune_kit::{
 
 use crate::api::Session;
 use crate::app::{Hooked, Page, Popup, Theme};
+use crate::sections::{Section, clock, section_of, snooze_presets, wake_label};
 use crate::{fmt, icons};
 
 pub const SIDEBAR_W: f32 = 300.0;
@@ -525,17 +526,68 @@ fn gauge(k: &Kit, label: &str, pct: Option<f64>) -> El {
         )
 }
 
-fn unit_rows(s: &Hooked, u: crate::organize::Unit<'_>, k: &Kit) -> Vec<El> {
+fn unit_rows(s: &Hooked, u: &crate::organize::Unit<'_>, k: &Kit, layer: &mut Vec<El>) -> Vec<El> {
     let n = u.children.len();
-    let mut out = vec![session_row(s, u.mother, k, 0, (n > 0).then_some(n + 1))];
+    let mut out = vec![session_row(
+        s,
+        u.mother,
+        k,
+        0,
+        (n > 0).then_some(n + 1),
+        layer,
+    )];
     if !s.folded_groups.contains(&u.mother.id) {
-        out.extend(u.children.iter().map(|c| session_row(s, c, k, 1, None)));
+        for c in &u.children {
+            out.push(session_row(s, c, k, 1, None, layer));
+        }
     }
     out
 }
 
-fn session_row(s: &Hooked, x: &Session, k: &Kit, depth: u8, group: Option<usize>) -> El {
+fn snooze_menu(s: &Hooked, x: &Session, k: &Kit, layer: &mut Vec<El>, trigger: El) -> El {
+    let mut m = Menu::new(format!("snooze-{}", x.id))
+        .trigger(trigger)
+        .open(s.snooze_menu.as_deref() == Some(x.id.as_str()))
+        .min_width(200.0)
+        .on_close(|s: &mut Hooked| s.snooze_menu = None);
+    if let Some(w) = s.snoozed_until(&x.id) {
+        let id = x.id.clone();
+        m = m
+            .item(
+                MenuItem::new("Wake now")
+                    .icon(&icons::BELL)
+                    .description(format!("Snoozed until {}", wake_label(w, s.now)))
+                    .on_select(move |s: &mut Hooked| {
+                        s.snooze_menu = None;
+                        s.wake(&id);
+                    }),
+            )
+            .separator();
+    }
+    for (label, until) in snooze_presets(s.now) {
+        let id = x.id.clone();
+        m = m.item(
+            MenuItem::new(label)
+                .shortcut(clock(until))
+                .on_select(move |s: &mut Hooked| {
+                    s.snooze_menu = None;
+                    s.snooze_until(vec![id.clone()], until);
+                }),
+        );
+    }
+    m.build(k, layer)
+}
+
+fn session_row(
+    s: &Hooked,
+    x: &Session,
+    k: &Kit,
+    depth: u8,
+    group: Option<usize>,
+    layer: &mut Vec<El>,
+) -> El {
     let id = x.id.clone();
+    let wake = s.snoozed_until(&x.id);
     let mut detail = fmt::ago_short(x.last_activity.as_deref(), s.now);
     let window = s.setting("sidebarCache")["windowMin"]
         .as_i64()
@@ -608,8 +660,13 @@ fn session_row(s: &Hooked, x: &Session, k: &Kit, depth: u8, group: Option<usize>
         };
         line1 = line1.child(pill(k, badge, k.c.text_muted, k.c.layer_02));
     }
+    if let Some(w) = wake {
+        detail = wake_label(w, s.now);
+    }
     let mark: El = if archived {
         el()
+    } else if wake.is_some() {
+        glyph(&icons::SNOOZE, 12.0, k.c.icon_muted)
     } else if x.state == "working" {
         rune_kit::Spinner::new().build(k).size(12.0, 12.0)
     } else if x.needs_you() {
@@ -639,7 +696,8 @@ fn session_row(s: &Hooked, x: &Session, k: &Kit, depth: u8, group: Option<usize>
     };
     let incog = s.meta.get(&x.id).is_some_and(|m| m.incognito);
     let pinned = s.is_pinned(&x.id);
-    let (g, t, p, i, sp, ar) = (
+    let (g, t, p, i, sp, ar, sz) = (
+        id.clone(),
         id.clone(),
         id.clone(),
         id.clone(),
@@ -682,6 +740,25 @@ fn session_row(s: &Hooked, x: &Session, k: &Kit, depth: u8, group: Option<usize>
             incog,
             Box::new(move |s| s.toggle_incognito(&i)),
         ));
+    if !archived {
+        let trigger = act(
+            &icons::SNOOZE,
+            if wake.is_some() {
+                "Change or end the snooze"
+            } else {
+                "Snooze…"
+            },
+            wake.is_some(),
+            Box::new(move |s| {
+                s.snooze_menu = if s.snooze_menu.as_deref() == Some(sz.as_str()) {
+                    None
+                } else {
+                    Some(sz.clone())
+                }
+            }),
+        );
+        actions = actions.child(snooze_menu(s, x, k, layer, trigger));
+    }
     if !archived && s.page == Page::Session && !selected && !s.splits.iter().any(|p| p.id == x.id) {
         actions = actions.child(act(
             &icons::SPLIT,
@@ -747,7 +824,7 @@ fn session_row(s: &Hooked, x: &Session, k: &Kit, depth: u8, group: Option<usize>
         .hover_motion(rune::Anim::INSTANT, rune::Anim::INSTANT)
         .focusable(true)
         .focus_selected(selected)
-        .opacity(if archived { 0.7 } else { 1.0 })
+        .opacity(if archived || wake.is_some() { 0.7 } else { 1.0 })
         .child(body)
         .child(actions.pin(None, Some(4.0), Some(6.0), None));
     if selected {
@@ -818,32 +895,164 @@ fn drag_ghost(s: &Hooked, k: &Kit, d: &crate::dnd::Dnd) -> El {
         )
 }
 
+fn section_body(
+    s: &Hooked,
+    sec: Section,
+    units: &[crate::organize::Unit<'_>],
+    k: &Kit,
+    layer: &mut Vec<El>,
+) -> Vec<El> {
+    let cur = units.iter().position(|u| {
+        std::iter::once(u.mother)
+            .chain(u.children.iter().copied())
+            .any(|x| s.selected.as_deref() == Some(x.id.as_str()))
+    });
+    let mut out = Vec::new();
+    if s.section_collapsed(sec) {
+        if let Some(i) = cur {
+            out.extend(unit_rows(s, &units[i], k, layer));
+        }
+        return out;
+    }
+    let open = s.open_sections.contains(sec.label());
+    let take = match sec.window() {
+        Some(w) if !open => w.max(cur.map_or(0, |i| i + 1)),
+        _ => units.len(),
+    };
+    for u in units.iter().take(take) {
+        out.extend(unit_rows(s, u, k, layer));
+    }
+    if sec.window().is_some_and(|w| units.len() > w) && (open || take < units.len()) {
+        let label = if open {
+            "Show less".to_string()
+        } else {
+            format!("{} more", units.len() - take)
+        };
+        out.push(
+            Button::new(label)
+                .icon(if open {
+                    &icons::CHEVRON_DOWN
+                } else {
+                    &icons::PLUS
+                })
+                .variant(ButtonVariant::GhostMuted)
+                .control_size(ControlSize::Small)
+                .on_press(move |s: &mut Hooked| {
+                    if !s.open_sections.remove(sec.label()) {
+                        s.open_sections.insert(sec.label());
+                    }
+                })
+                .build(k)
+                .key(format!("more-{}", sec.label())),
+        );
+    }
+    out
+}
+
+fn section_dock(
+    s: &Hooked,
+    sec: Section,
+    units: &[crate::organize::Unit<'_>],
+    k: &Kit,
+    layer: &mut Vec<El>,
+) -> El {
+    let folded = s.section_collapsed(sec);
+    let body = section_body(s, sec, units, k, layer);
+    let head = k
+        .interactive(
+            row()
+                .key("dock-head")
+                .w_full()
+                .h(28.0)
+                .px(8.0)
+                .gap(4.0)
+                .center_y()
+                .radius(k.radius.md)
+                .cursor(Cursor::Pointer)
+                .child(
+                    text(sec.label())
+                        .font(k.ty.text_xsmall_medium)
+                        .color(k.c.text_muted),
+                )
+                .child(
+                    text(units.len().to_string())
+                        .font(k.ty.text_xsmall_medium)
+                        .color(k.c.text_faint),
+                )
+                .child(el().grow(1.0))
+                .child(glyph(
+                    if folded {
+                        &icons::CHEVRON_UP
+                    } else {
+                        &icons::CHEVRON_DOWN
+                    },
+                    12.0,
+                    k.c.icon_faint,
+                )),
+        )
+        .role("button")
+        .label(sec.label())
+        .expanded(!folded)
+        .on_press(move |s: &mut Hooked| s.toggle_section(sec));
+    let mut dock = col()
+        .key("dock")
+        .w_full()
+        .gap(2.0)
+        .pt(4.0)
+        .border_sides([1.0, 0.0, 0.0, 0.0], k.c.border_weak);
+    if !body.is_empty() {
+        dock = dock.child(
+            col()
+                .key("dock-list")
+                .w_full()
+                .max_h(s.window_h * 0.35)
+                .gap(2.0)
+                .scroll(rune::ScrollSpec {
+                    stick_bottom: false,
+                })
+                .children(body),
+        );
+    }
+    dock.child(head)
+}
+
 fn sidebar(s: &Hooked, k: &Kit, layer: &mut Vec<El>) -> El {
     let (active, archived): (Vec<&Session>, Vec<&Session>) = s
         .sessions
         .iter()
         .filter(|x| s.visible(x))
         .partition(|x| !s.is_archived(x));
-    let mut shown = if s.show_archived {
-        archived.clone()
-    } else {
-        active.clone()
+    let by_status = s.by_status();
+    let recent = |x: &&Session| {
+        x.needs_you()
+            || x.state == "working"
+            || s.selected.as_deref() == Some(x.id.as_str())
+            || fmt::age_ms(x.last_activity.as_deref(), s.now).is_none_or(|a| a < 86_400_000)
     };
-    if s.hide_old && !s.show_archived {
-        shown.retain(|x| {
-            x.needs_you()
-                || x.state == "working"
-                || fmt::age_ms(x.last_activity.as_deref(), s.now).is_none_or(|a| a < 86_400_000)
-        });
+    let tagged = |x: &&Session| {
+        s.tag_filter
+            .iter()
+            .all(|t| s.session_tags(&x.id).contains(t))
+            && (s.repo_filter.is_empty() || s.repo_filter.contains(&x.project_label()))
+    };
+    let mut live = active.clone();
+    if s.hide_old {
+        live.retain(recent);
     }
-    if !s.tag_filter.is_empty() {
-        shown.retain(|x| {
-            s.tag_filter
-                .iter()
-                .all(|t| s.session_tags(&x.id).contains(t))
-        });
-    }
-    let mut shown = s.sorted(shown);
+    live.retain(tagged);
+    let mut gone = archived.clone();
+    gone.retain(tagged);
+    let sections = if by_status {
+        s.status_sections(&s.sorted(live.clone()), &s.sorted(gone.clone()))
+    } else {
+        Vec::new()
+    };
+    let live_units: usize = sections
+        .iter()
+        .filter(|(x, _)| !x.docked())
+        .map(|(_, u)| u.len())
+        .sum();
+    let mut shown = s.sorted(if s.show_archived { gone } else { live });
     const WINDOW: usize = 40;
     let total = shown.len();
     if !s.older_open && total > WINDOW {
@@ -885,12 +1094,11 @@ fn sidebar(s: &Hooked, k: &Kit, layer: &mut Vec<El>) -> El {
                 ),
         )
     };
-    let head = row()
-        .key("ssb-head")
-        .w_full()
-        .gap(2.0)
-        .center_y()
-        .child(
+    let mut head = row().key("ssb-head").w_full().gap(2.0).center_y();
+    head = if by_status {
+        head.child(tab("ssb-active", "Sessions", live_units, true))
+    } else {
+        head.child(
             tab("ssb-active", "Sessions", active.len(), !s.show_archived)
                 .on_press(|s: &mut Hooked| s.show_archived = false),
         )
@@ -898,46 +1106,77 @@ fn sidebar(s: &Hooked, k: &Kit, layer: &mut Vec<El>) -> El {
             tab("ssb-archived", "Archived", archived.len(), s.show_archived)
                 .on_press(|s: &mut Hooked| s.show_archived = true),
         )
-        .child(el().grow(1.0))
-        .child(
-            small_icon_button(&icons::CLOCK, "Show only the last 24h", s.hide_old)
-                .on_press(|s: &mut Hooked| {
-                    s.hide_old = !s.hide_old;
-                    let v = s.hide_old;
-                    s.save_pref("hideOld", &v);
-                })
-                .build(k)
-                .key("ssb-old"),
-        )
-        .child(
-            small_icon_button(
-                if s.group_by_project {
-                    &icons::FOLDER
-                } else {
-                    &icons::LIST
-                },
-                "Group by project on/off",
-                false,
-            )
+    };
+    let head = head.child(el().grow(1.0)).child(
+        small_icon_button(&icons::CLOCK, "Show only the last 24h", s.hide_old)
             .on_press(|s: &mut Hooked| {
-                s.group_by_project = !s.group_by_project;
-                let v = s.group_by_project;
-                s.save_pref("groupByProject", &v);
+                s.hide_old = !s.hide_old;
+                let v = s.hide_old;
+                s.save_pref("hideOld", &v);
             })
             .build(k)
-            .key("ssb-group"),
+            .key("ssb-old"),
+    );
+    let collapse = small_icon_button(&icons::ARROW_LEFT, "Collapse sidebar (⌘B)", false)
+        .on_press(|s: &mut Hooked| {
+            s.sidebar_open = false;
+            s.save_pref("sidebarOpen", &false);
+        })
+        .build(k)
+        .key("ssb-collapse");
+    let picked = s.tag_filter.len() + s.repo_filter.len();
+    let filter_btn = small_icon_button(
+        &icons::FILTER,
+        &if picked > 0 {
+            format!("Filter by tag or repo ({picked} on)")
+        } else {
+            "Filter by tag or repo".to_string()
+        },
+        picked > 0,
+    )
+    .on_press(|s: &mut Hooked| {
+        s.popup = if s.popup == Some(Popup::Filter) {
+            None
+        } else {
+            Some(Popup::Filter)
+        }
+    })
+    .build(k)
+    .key("ssb-filter");
+    let mut filter_menu = Menu::new("ssb-filter-menu")
+        .trigger(filter_btn)
+        .open(s.popup == Some(Popup::Filter))
+        .min_width(220.0)
+        .on_close(|s: &mut Hooked| s.popup = None);
+    let summary = |list: &[String], tag: bool, noun: &str| match list {
+        [] => "Any".to_string(),
+        [one] if tag => format!("#{one}"),
+        [one] => one.clone(),
+        _ => format!("{} {noun}", list.len()),
+    };
+    filter_menu = filter_menu
+        .item(
+            MenuItem::new("Repo")
+                .description(summary(&s.repo_filter, false, "repos"))
+                .on_select(|s: &mut Hooked| s.open_filter_picker(true)),
         )
-        .child(
-            small_icon_button(&icons::ARROW_LEFT, "Collapse sidebar (⌘B)", false)
-                .on_press(|s: &mut Hooked| {
-                    s.sidebar_open = false;
-                    s.save_pref("sidebarOpen", &false);
-                })
-                .build(k)
-                .key("ssb-collapse"),
+        .item(
+            MenuItem::new("Tags")
+                .description(summary(&s.tag_filter, true, "tags"))
+                .on_select(|s: &mut Hooked| s.open_filter_picker(false)),
         );
+    if picked > 0 {
+        filter_menu = filter_menu.separator().item(
+            MenuItem::new("Clear filters")
+                .icon(&icons::CLOSE)
+                .on_select(|s: &mut Hooked| {
+                    s.tag_filter.clear();
+                    s.repo_filter.clear();
+                }),
+        );
+    }
     let sort_open = s.popup == Some(Popup::Sort);
-    let sort_btn = small_icon_button(&icons::SORT, "Sort order", s.sort_mode != "dynamic")
+    let sort_btn = small_icon_button(&icons::SORT, "Group and sort", s.sort_mode != "dynamic")
         .on_press(|s: &mut Hooked| {
             s.popup = if s.popup == Some(Popup::Sort) {
                 None
@@ -951,7 +1190,29 @@ fn sidebar(s: &Hooked, k: &Kit, layer: &mut Vec<El>) -> El {
         .trigger(sort_btn)
         .open(sort_open)
         .min_width(240.0)
-        .on_close(|s: &mut Hooked| s.popup = None);
+        .on_close(|s: &mut Hooked| s.popup = None)
+        .group_label("Group");
+    for (key, label, hint) in [
+        (
+            "status",
+            "By status",
+            "Waiting, working, idle, snoozed, archived",
+        ),
+        ("project", "By project", "One folder per repository"),
+        ("flat", "Flat", "A single list"),
+    ] {
+        sort_menu = sort_menu.item(
+            MenuItem::new(label)
+                .description(hint)
+                .checked(s.layout == key)
+                .on_select(move |s: &mut Hooked| {
+                    s.layout = key.to_string();
+                    s.popup = None;
+                    s.save_pref("sidebarLayout", &key);
+                }),
+        );
+    }
+    sort_menu = sort_menu.separator().group_label("Sort");
     for (key, label, hint) in [
         ("dynamic", "Dynamic", "Awaiting you first, then most recent"),
         ("alpha", "Alphabetical", "Projects and sessions A→Z"),
@@ -961,6 +1222,9 @@ fn sidebar(s: &Hooked, k: &Kit, layer: &mut Vec<El>) -> El {
             "Project headers A→Z, sessions by activity",
         ),
     ] {
+        if key == "alpha-project" && s.layout != "project" {
+            continue;
+        }
         sort_menu = sort_menu.item(
             MenuItem::new(label)
                 .description(hint)
@@ -972,52 +1236,50 @@ fn sidebar(s: &Hooked, k: &Kit, layer: &mut Vec<El>) -> El {
                 }),
         );
     }
-    let head = head.child(sort_menu.build(k, layer));
+    let head = head
+        .child(filter_menu.build(k, layer))
+        .child(sort_menu.build(k, layer))
+        .child(collapse);
     let mut sb = Sidebar::new()
         .label("Sessions")
         .inset(8.0)
         .header_padding(10.0, 6.0)
         .row_gap(2.0)
         .header(head);
-    let known = s.known_tags();
-    if !known.is_empty() {
-        let chips = row()
-            .key("ssb-filters")
-            .w_full()
-            .gap(4.0)
-            .flex_wrap()
-            .children(known.into_iter().map(|(t, n)| {
-                let on = s.tag_filter.contains(&t);
-                let c = s.tag_color(k.dark, &t);
-                let tag = t.clone();
-                k.interactive_with(
-                    row()
-                        .key(format!("tf-{t}"))
-                        .role("checkbox")
-                        .checked(on)
-                        .h(20.0)
-                        .px(8.0)
-                        .gap(4.0)
-                        .center_y()
-                        .radius(10.0)
-                        .cursor(Cursor::Pointer)
-                        .fill(if on {
-                            c.alpha(0.22)
-                        } else {
-                            Color::TRANSPARENT
-                        })
-                        .border(1.0, if on { c } else { c.alpha(0.4) })
-                        .child(text(format!("#{t}")).font(tag_font(k)).color(c))
-                        .child(text(n.to_string()).font(tag_font(k)).color(c.alpha(0.6))),
-                    c.alpha(0.12),
-                    c.alpha(0.2),
-                )
-                .help(format!("Show only #{t} (combines with other tags)"))
-                .on_press(move |s: &mut Hooked| s.toggle_tag_filter(tag.clone()))
-            }));
-        sb = sb.header(chips);
-    }
-    if shown.is_empty() {
+    if by_status {
+        for (sec, units) in sections.iter().filter(|(x, _)| !x.docked()) {
+            let sec = *sec;
+            let folded = s.section_collapsed(sec);
+            let body = section_body(s, sec, units, k, layer);
+            let (rows, after) = if folded {
+                (Vec::new(), body)
+            } else {
+                (body, Vec::new())
+            };
+            sb = sb.section(
+                SidebarSection::new(sec.label())
+                    .key(format!("sec-{}", sec.label()))
+                    .count(units.len())
+                    .collapsed(folded)
+                    .on_toggle(move |s: &mut Hooked, _| s.toggle_section(sec))
+                    .rows(rows),
+            );
+            for r in after {
+                sb = sb.child(r);
+            }
+        }
+        if !sections.iter().any(|(x, _)| !x.docked()) {
+            sb = sb.child(
+                text("No sessions.")
+                    .font(k.ty.ui)
+                    .color(k.c.text_faint)
+                    .key("ssb-empty"),
+            );
+        }
+        for (sec, units) in sections.iter().filter(|(x, _)| x.docked()) {
+            sb = sb.footer(section_dock(s, *sec, units, k, layer));
+        }
+    } else if shown.is_empty() {
         sb = sb.child(
             text(if s.show_archived {
                 "No archived sessions."
@@ -1028,7 +1290,7 @@ fn sidebar(s: &Hooked, k: &Kit, layer: &mut Vec<El>) -> El {
             .color(k.c.text_faint)
             .key("ssb-empty"),
         );
-    } else if s.group_by_project {
+    } else if s.layout == "project" {
         let mut groups: BTreeMap<String, Vec<&Session>> = BTreeMap::new();
         let mut order = Vec::new();
         for x in &shown {
@@ -1065,17 +1327,23 @@ fn sidebar(s: &Hooked, k: &Kit, layer: &mut Vec<El>) -> El {
                             s.collapsed.insert(toggle.clone());
                         }
                     })
-                    .rows(s.units(rows).into_iter().flat_map(|u| unit_rows(s, u, k))),
+                    .rows({
+                        let mut out = Vec::new();
+                        for u in s.units(rows) {
+                            out.extend(unit_rows(s, &u, k, layer));
+                        }
+                        out
+                    }),
             );
         }
     } else {
         for u in s.units(&shown) {
-            for r in unit_rows(s, u, k) {
+            for r in unit_rows(s, &u, k, layer) {
                 sb = sb.child(r);
             }
         }
     }
-    if hidden_older > 0 || s.older_open && total > WINDOW {
+    if !by_status && (hidden_older > 0 || s.older_open && total > WINDOW) {
         let label = if s.older_open {
             "Show less".to_string()
         } else {
@@ -1173,6 +1441,16 @@ fn row_menu(s: &Hooked, k: &Kit, layer: &mut Vec<El>) -> El {
                 .on_select(i(|s, id| s.open_tags(id.to_string()))),
         )
         .item(
+            MenuItem::new(if s.snoozed_until(&id).is_some() {
+                "Change the snooze…"
+            } else {
+                "Snooze…"
+            })
+            .icon(&icons::SNOOZE)
+            .disabled(archived)
+            .on_select(i(|s, id| s.snooze_menu = Some(id.to_string()))),
+        )
+        .item(
             MenuItem::new("Move to group…")
                 .on_select(i(|s, id| s.open_group_picker(id.to_string()))),
         );
@@ -1231,47 +1509,58 @@ fn row_menu(s: &Hooked, k: &Kit, layer: &mut Vec<El>) -> El {
 }
 
 fn rail(s: &Hooked, k: &Kit) -> El {
-    let tiles = s
+    let mut listed: Vec<&Session> = s
         .sessions
         .iter()
         .filter(|x| !s.is_archived(x) && s.visible(x))
-        .take(30)
-        .map(|x| {
-            let id = x.id.clone();
-            let cur = s.selected.as_deref() == Some(x.id.as_str());
-            let abbrev: String = x
-                .display_title()
-                .chars()
-                .filter(|c| c.is_alphanumeric())
-                .take(2)
-                .collect::<String>()
-                .to_uppercase();
-            k.interactive(
-                col()
-                    .key(format!("tile-{}", x.id))
-                    .role("button")
-                    .label(x.display_title())
-                    .w(36.0)
-                    .h(36.0)
-                    .center()
-                    .gap(3.0)
-                    .radius(k.radius.md)
-                    .cursor(Cursor::Pointer)
-                    .fill(if cur {
-                        k.c.layer_02
-                    } else {
-                        Color::TRANSPARENT
-                    })
-                    .help(x.display_title())
-                    .child(
-                        text(abbrev)
-                            .font(k.ty.text_xsmall_medium)
-                            .color(k.c.text_muted),
-                    )
-                    .child(dot(k, &x.state, 5.0)),
-            )
-            .on_press(move |s: &mut Hooked| s.open_session(&id))
-        });
+        .collect();
+    if s.by_status() {
+        let rank = |x: &&Session| {
+            let sec = section_of(
+                &[*x],
+                |y| s.is_archived(y),
+                |y| s.snoozed_until(&y.id).is_some(),
+            );
+            Section::ALL.iter().position(|z| *z == sec)
+        };
+        listed.sort_by_key(rank);
+    }
+    let tiles = listed.into_iter().take(30).map(|x| {
+        let id = x.id.clone();
+        let cur = s.selected.as_deref() == Some(x.id.as_str());
+        let abbrev: String = x
+            .display_title()
+            .chars()
+            .filter(|c| c.is_alphanumeric())
+            .take(2)
+            .collect::<String>()
+            .to_uppercase();
+        k.interactive(
+            col()
+                .key(format!("tile-{}", x.id))
+                .role("button")
+                .label(x.display_title())
+                .w(36.0)
+                .h(36.0)
+                .center()
+                .gap(3.0)
+                .radius(k.radius.md)
+                .cursor(Cursor::Pointer)
+                .fill(if cur {
+                    k.c.layer_02
+                } else {
+                    Color::TRANSPARENT
+                })
+                .help(x.display_title())
+                .child(
+                    text(abbrev)
+                        .font(k.ty.text_xsmall_medium)
+                        .color(k.c.text_muted),
+                )
+                .child(dot(k, &x.state, 5.0)),
+        )
+        .on_press(move |s: &mut Hooked| s.open_session(&id))
+    });
     col()
         .key("rail")
         .w(48.0)

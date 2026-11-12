@@ -201,6 +201,7 @@ pub fn view(s: &Hooked, k: &Kit) -> El {
                 .child(list);
             modal(k, "group-modal", "Move to group", body)
         }
+        Some(Picker::Filter { repos, query }) => filter_picker(s, k, *repos, query),
         Some(Picker::Trash { items, busy }) => trash(s, k, items.as_deref(), busy.as_deref()),
         Some(Picker::Image { paths, index }) => image(s, k, paths, *index),
         Some(Picker::Cost) => cost(s, k),
@@ -254,6 +255,123 @@ pub fn view(s: &Hooked, k: &Kit) -> El {
             modal(k, "rename-modal", "Rename the group", body)
         }
     }
+}
+
+fn filter_picker(s: &Hooked, k: &Kit, repos: bool, query: &rune::TextEdit) -> El {
+    let picked = if repos { &s.repo_filter } else { &s.tag_filter };
+    let options = s.filter_options(repos, &query.text);
+    let list = col()
+        .key("filter-options")
+        .w_full()
+        .max_h(360.0)
+        .gap(2.0)
+        .scroll(rune::ScrollSpec {
+            stick_bottom: false,
+        })
+        .children(options.into_iter().map(|(value, n)| {
+            let on = picked.contains(&value);
+            let label = if repos {
+                value.clone()
+            } else {
+                format!("#{value}")
+            };
+            let color = if repos {
+                k.c.text_base
+            } else {
+                s.tag_color(k.dark, &value)
+            };
+            let v = value.clone();
+            k.interactive(
+                row()
+                    .key(format!("fo-{value}"))
+                    .role("option")
+                    .checked(on)
+                    .w_full()
+                    .h(32.0)
+                    .px(10.0)
+                    .gap(8.0)
+                    .center_y()
+                    .radius(k.radius.md)
+                    .cursor(Cursor::Pointer)
+                    .child(super::glyph(
+                        if on {
+                            &crate::icons::CIRCLE_CHECK
+                        } else {
+                            &crate::icons::CIRCLE
+                        },
+                        14.0,
+                        if on { k.c.text_accent } else { k.c.icon_faint },
+                    ))
+                    .child(
+                        text(label)
+                            .font(k.ty.ui)
+                            .color(color)
+                            .truncate()
+                            .grow(1.0)
+                            .shrink(),
+                    )
+                    .child(
+                        text(n.to_string())
+                            .font(k.ty.text_xsmall)
+                            .color(k.c.text_faint),
+                    ),
+            )
+            .on_press(move |s: &mut Hooked| s.toggle_filter(repos, v.clone()))
+        }));
+    let body = col()
+        .w_full()
+        .gap(10.0)
+        .child(
+            TextInput::new(query)
+                .placeholder(if repos {
+                    "Search repos… (Enter picks the first)"
+                } else {
+                    "Search tags… (Enter picks the first)"
+                })
+                .width(None)
+                .on_edit(|s: &mut Hooked| match s.picker.as_mut() {
+                    Some(Picker::Filter { query, .. }) => query,
+                    _ => unreachable!("filter picker closed while editing"),
+                })
+                .on_submit(move |s: &mut Hooked, _| {
+                    let q = match s.picker.as_ref() {
+                        Some(Picker::Filter { query, .. }) => query.text.clone(),
+                        _ => return,
+                    };
+                    if let Some((first, _)) = s.filter_options(repos, &q).into_iter().next() {
+                        s.toggle_filter(repos, first);
+                    }
+                })
+                .on_key(|s: &mut Hooked, ev: &rune::KeyEvent, _| {
+                    if ev.key == Key::Escape {
+                        s.picker = None;
+                        return true;
+                    }
+                    false
+                })
+                .build(k)
+                .key("filter-query"),
+        )
+        .child(list)
+        .child(
+            row().w_full().justify_end().child(
+                Button::new("Done")
+                    .variant(ButtonVariant::Contrast)
+                    .on_press(|s: &mut Hooked| s.picker = None)
+                    .build(k)
+                    .key("filter-done"),
+            ),
+        );
+    modal(
+        k,
+        "filter-modal",
+        if repos {
+            "Filter by repo · any of"
+        } else {
+            "Filter by tag · all of"
+        },
+        body,
+    )
 }
 
 fn trash(s: &Hooked, k: &Kit, items: Option<&[serde_json::Value]>, busy: Option<&str>) -> El {
