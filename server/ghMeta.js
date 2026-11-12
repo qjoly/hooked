@@ -1,68 +1,104 @@
-import { execFile } from 'node:child_process';
-import fs from 'node:fs';
 import { glabView, parseGitlabUrl } from './gitlab.js';
+import { ghGraphql, parseItemUrl } from './ghClient.js';
 
-// TTL découplé du tick pr-review (5 min) : à TTL == tick, toute entrée expirait pile au passage
-// suivant → le cache ne servait jamais et chaque tick re-frappait l'API GraphQL pour tous les liens.
-const TTL_MS = 15 * 60 * 1000;
-// États terminaux d'une PR/issue : reviewDecision/state n'y bougent plus → cache permanent (aucun
-// re-fetch), ce qui élimine l'essentiel des appels (la plupart des PR suivies sont déjà mergées).
+// Refresh cadence by activity, after T3 Code's PullRequestSyncReactor: a PR someone touched in the
+// last half hour is re-read every minute, a quiet one every 5 min, a dormant one every 30 min. A
+// MERGED/CLOSED item never changes again, so it is never re-read.
+const ACTIVE_TTL_MS = 60 * 1000;
+const QUIET_AFTER_MS = 30 * 60 * 1000;
+const QUIET_TTL_MS = 5 * 60 * 1000;
+const DORMANT_AFTER_MS = 24 * 60 * 60 * 1000;
+const DORMANT_TTL_MS = 30 * 60 * 1000;
+const MISSING_TTL_MS = 15 * 60 * 1000;
+const ERROR_TTL_MS = 5 * 60 * 1000;
 const TERMINAL_STATES = new Set(['MERGED', 'CLOSED']);
-const cache = new Map();
-const GH_URL = /^https?:\/\/github\.com\/[^/]+\/[^/]+\/(pull|issues)\/\d+/;
+const BATCH = 20;
 
-// Résout le binaire `gh` UNE fois. Sous systemd/launchd le PATH du serveur est minimal (cf. la
-// mémoire live-dashboard / CLAUDE.md) → `execFile('gh')` échoue en ENOENT alors que gh est bien
-// installé (brew, ~/.local…). On teste d'abord les emplacements usuels, sinon on demande son
-// chemin à un shell de LOGIN (profils sourcés → PATH complet), sinon on retombe sur 'gh' (marche
-// si le PATH le contient). Résultat mémoïsé (promesse) — coût payé au premier lien enrichi.
-let ghBinPromise = null;
-function resolveGh() {
-  if (ghBinPromise) return ghBinPromise;
-  ghBinPromise = new Promise((resolve) => {
-    const home = process.env.HOME || '';
-    const candidates = [
-      '/home/linuxbrew/.linuxbrew/bin/gh', '/opt/homebrew/bin/gh',
-      '/usr/local/bin/gh', '/usr/bin/gh', `${home}/.local/bin/gh`,
-    ];
-    for (const p of candidates) { try { if (fs.existsSync(p)) return resolve(p); } catch { /* ignore */ } }
-    const shell = process.env.SHELL || '/bin/sh';
-    execFile(shell, ['-l', '-c', 'command -v gh'], { timeout: 4000 }, (err, out) => {
-      const p = String(out || '').trim().split('\n').filter(Boolean).pop();
-      resolve(err || !p ? 'gh' : p);
-    });
-  });
-  return ghBinPromise;
+const CACHE = Symbol.for('hooked.gh.meta.cache');
+const cache = (globalThis[CACHE] ??= new Map());
+
+export function viewTtl(data, now = Date.now()) {
+  if (!data) return MISSING_TTL_MS;
+  if (TERMINAL_STATES.has(String(data.state).toUpperCase())) return Infinity;
+  const quietFor = now - (Date.parse(data.updatedAt) || 0);
+  if (quietFor < QUIET_AFTER_MS) return ACTIVE_TTL_MS;
+  return quietFor < DORMANT_AFTER_MS ? QUIET_TTL_MS : DORMANT_TTL_MS;
 }
 
-function run(bin, args) {
-  return new Promise((resolve) => {
-    execFile(bin, args, { timeout: 6000, maxBuffer: 1 << 20 }, (err, stdout) => {
-      if (err) return resolve(null);
-      try { resolve(JSON.parse(stdout)); } catch { resolve(null); }
-    });
-  });
+const fresh = (hit, now) => hit && now - hit.at < hit.ttl;
+
+const FRAGMENTS = {
+  pr: 'fragment P on PullRequest { number title body state updatedAt reviewDecision author { login } }',
+  issue: 'fragment I on Issue { number title body state updatedAt author { login } }',
+};
+
+// One request for many items: each is an alias, and a missing one only nulls its own alias.
+export function batchQuery(refs) {
+  const parts = refs.map((r, i) => `i${i}: repository(owner: ${JSON.stringify(r.owner)}, name: ${JSON.stringify(r.name)}) { `
+    + `${r.kind === 'pr' ? 'pullRequest' : 'issue'}(number: ${r.number}) { ...${r.kind === 'pr' ? 'P' : 'I'} } }`);
+  const kinds = [...new Set(refs.map((r) => r.kind))];
+  return `query { ${parts.join(' ')} } ${kinds.map((k) => FRAGMENTS[k]).join(' ')}`;
 }
 
-async function ghView(url) {
-  const m = GH_URL.exec(String(url || ''));
-  if (!m && !parseGitlabUrl(url)) return null;
-  const hit = cache.get(url);
-  if (hit && (hit.permanent || Date.now() - hit.at < TTL_MS)) return hit.data;
-  const out = m ? await viaGh(url, m) : await glabView(url);
-  // Une PR/issue en état terminal ne changera plus : on la fige pour ne plus jamais la re-fetcher.
-  const permanent = !!(out && TERMINAL_STATES.has(String(out.state).toUpperCase()));
-  cache.set(url, { at: Date.now(), data: out, permanent });
+export function toView(kind, d) {
+  if (!d) return null;
+  return {
+    kind, number: d.number, title: d.title, state: d.state, updatedAt: d.updatedAt || '',
+    author: d.author?.login || '', body: (d.body || '').slice(0, 4000), reviewDecision: d.reviewDecision || '',
+  };
+}
+
+async function fetchGithub(urls, background) {
+  const refs = urls.map((url) => ({ url, ...parseItemUrl(url) }));
+  const out = new Map();
+  for (let i = 0; i < refs.length; i += BATCH) {
+    const chunk = refs.slice(i, i + BATCH);
+    const data = await ghGraphql(batchQuery(chunk), {}, { background, partial: true });
+    chunk.forEach((r, j) => {
+      const repo = data[`i${j}`];
+      out.set(r.url, toView(r.kind, r.kind === 'pr' ? repo?.pullRequest : repo?.issue));
+    });
+  }
   return out;
 }
 
-async function viaGh(url, m) {
-  const gh = await resolveGh();
-  const kind = m[1] === 'pull' ? 'pr' : 'issue';
-  // reviewDecision n'existe que pour `pr view` (APPROVED/CHANGES_REQUESTED/REVIEW_REQUIRED/'').
-  const fields = kind === 'pr' ? 'title,body,state,author,number,reviewDecision' : 'title,body,state,author,number';
-  const d = await run(gh, [kind, 'view', url, '--json', fields]);
-  return d ? { kind, number: d.number, title: d.title, state: d.state, author: d.author?.login || '', body: (d.body || '').slice(0, 4000), reviewDecision: d.reviewDecision || '' } : null;
+function store(url, data, now) {
+  cache.set(url, { at: now, data, ttl: viewTtl(data, now) });
 }
 
-export { ghView, resolveGh };
+async function ghViewMany(urls, { background = false } = {}) {
+  const now = Date.now();
+  const result = new Map();
+  const dueGithub = [];
+  const dueGitlab = [];
+  for (const url of new Set(urls.filter(Boolean).map(String))) {
+    const hit = cache.get(url);
+    if (fresh(hit, now)) result.set(url, hit.data);
+    else if (parseItemUrl(url)) dueGithub.push(url);
+    else if (parseGitlabUrl(url)) dueGitlab.push(url);
+  }
+  await Promise.all([
+    dueGithub.length && fetchGithub(dueGithub, background).then(
+      (fetched) => { for (const [url, data] of fetched) { store(url, data, now); result.set(url, data); } },
+      () => {
+        for (const url of dueGithub) {
+          const data = cache.get(url)?.data ?? null;
+          cache.set(url, { at: now, data, ttl: ERROR_TTL_MS });
+          result.set(url, data);
+        }
+      }),
+    ...dueGitlab.map(async (url) => {
+      const data = await glabView(url);
+      store(url, data, now);
+      result.set(url, data);
+    }),
+  ]);
+  return result;
+}
+
+async function ghView(url, opts) {
+  if (!parseItemUrl(url) && !parseGitlabUrl(url)) return null;
+  return (await ghViewMany([url], opts)).get(String(url)) ?? null;
+}
+
+export { ghView, ghViewMany };
