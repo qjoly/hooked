@@ -733,7 +733,7 @@ fn screenshots(s: &Hooked, d: &Detail, k: &Kit) -> El {
     let grid = row().w_full().gap(6.0).flex_wrap().children(
         shots
             .into_iter()
-            .take(if open { 60 } else { 4 })
+            .take(if open { super::SHOTS_OPEN } else { super::SHOTS_FOLDED })
             .enumerate()
             .map(|(i, shot)| {
                 let path = str_of(shot, "path").to_string();

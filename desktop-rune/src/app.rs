@@ -25,6 +25,10 @@ impl Hooked {
     }
 }
 
+pub fn spawn_named(name: &str, work: impl FnOnce() + Send + 'static) {
+    let _ = std::thread::Builder::new().name(name.into()).spawn(work);
+}
+
 pub fn spawn_on<T: Send + 'static>(
     handle: Option<&AppHandle<Hooked>>,
     work: impl FnOnce() -> T + Send + 'static,
@@ -33,7 +37,7 @@ pub fn spawn_on<T: Send + 'static>(
     let Some(h) = handle.cloned() else {
         return;
     };
-    std::thread::spawn(move || {
+    crate::app::spawn_named("hooked-task", move || {
         let r = work();
         h.update(move |s, tx| done(s, r, tx));
     });
@@ -349,6 +353,9 @@ impl Hooked {
         let corners: crate::theme::Corners = prefs.get("corners").unwrap_or_default();
         crate::theme::set_look(scheme, corners);
         let notify = prefs.get("notify").unwrap_or(true);
+        crate::perf::set_enabled(
+            crate::perf::env_override().unwrap_or(prefs.get("perfDiagnostics").unwrap_or(false)),
+        );
         let incognito = prefs.get("incognito").unwrap_or(false);
         let sidebar_open = prefs.get("sidebarOpen").unwrap_or(true);
         let hide_old = prefs.get("hideOld").unwrap_or(false);
@@ -684,6 +691,7 @@ impl Hooked {
         }
         if let Some(i) = args.iter().position(|a| a == "--page") {
             s.page = match args.get(i + 1).map(String::as_str) {
+                Some("deck") => Page::Deck,
                 Some("stats") => Page::Stats,
                 Some("digest") => Page::Digest,
                 Some("memory") => Page::Memory,
@@ -1134,7 +1142,7 @@ impl Hooked {
         };
         self.job_log = Some((task.clone(), String::new()));
         let gen_ref = self.job_gen.clone();
-        std::thread::spawn(move || {
+        crate::app::spawn_named("hooked-job-log", move || {
             use base64::Engine;
             let path = format!(
                 "/api/background/stream?id={}&taskId={}",
@@ -1610,6 +1618,9 @@ impl Hooked {
         } else {
             self.working_since = None;
         }
+        if self.detail.as_ref().is_none_or(|x| x.session.id != d.session.id) {
+            self.prune_media(&d);
+        }
         self.want_media(&d, false);
         self.detail = Some(d);
         if had_question != now_question {
@@ -1620,13 +1631,56 @@ impl Hooked {
         }
     }
 
+    fn shots_wanted(&self) -> usize {
+        if self.dock_cards.contains("dock-shots") {
+            crate::view::SHOTS_OPEN
+        } else {
+            crate::view::SHOTS_FOLDED
+        }
+    }
+
+    fn prune_media(&mut self, d: &Detail) {
+        let shots = self.shots_wanted();
+        let mut keep: HashSet<String> = api::media_refs(d, shots).into_iter().map(|(p, _)| p).collect();
+        for p in &self.splits {
+            if let Some(sd) = p.detail.as_ref() {
+                keep.extend(api::media_refs(sd, shots).into_iter().map(|(p, _)| p));
+            }
+        }
+        if let Some(crate::organize::Picker::Image { paths, .. }) = self.picker.as_ref() {
+            keep.extend(paths.iter().cloned());
+        }
+        self.media.retain(|p, _| keep.contains(p));
+    }
+
+    /// The lightbox steps past the screenshots the dock preloaded.
+    pub fn want_image(&mut self, path: &str) {
+        if self.media.contains_key(path) {
+            return;
+        }
+        let Some(d) = self.detail.as_ref() else {
+            return;
+        };
+        let refs: Vec<(String, String)> = api::media_refs(d, usize::MAX)
+            .into_iter()
+            .filter(|(p, _)| p == path)
+            .take(1)
+            .collect();
+        self.load_media(refs, false);
+    }
+
     pub fn want_media(&mut self, d: &Detail, now: bool) {
+        let refs = api::media_refs(d, self.shots_wanted());
+        self.load_media(refs, now);
+    }
+
+    fn load_media(&mut self, refs: Vec<(String, String)>, now: bool) {
         let Some(cache) = self.images.as_ref() else {
             return;
         };
         let handle = self.handle.clone();
         let media = &mut self.media;
-        for (path, url) in api::media_refs(d) {
+        for (path, url) in refs {
             if media.contains_key(&path) {
                 continue;
             }
@@ -1660,7 +1714,7 @@ impl Hooked {
             return;
         };
         let gen_ref = self.detail_gen.clone();
-        std::thread::spawn(move || {
+        crate::app::spawn_named("hooked-session-stream", move || {
             let alive = || gen_ref.load(Ordering::SeqCst) == generation;
             while alive() {
                 let path = api::session_stream_path(&id);
@@ -2401,6 +2455,11 @@ impl Hooked {
         if !self.dock_cards.remove(card) {
             self.dock_cards.insert(card);
         }
+        if card == "dock-shots"
+            && let Some(d) = self.detail.clone()
+        {
+            self.want_media(&d, false);
+        }
     }
 
     pub fn open_gh(&mut self, url: String) {
@@ -2653,9 +2712,9 @@ pub fn start_workers(h: Option<AppHandle<Hooked>>) {
     let (tick, ticks) = std::sync::mpsc::channel();
     {
         let h = h.clone();
-        std::thread::spawn(move || refresh_on_ticks(h, ticks));
+        crate::app::spawn_named("hooked-list-refresh", move || refresh_on_ticks(h, ticks));
     }
-    std::thread::spawn(move || {
+    crate::app::spawn_named("hooked-events", move || {
         loop {
             let r = api::follow("/api/stream", |payload| {
                 if payload.starts_with("{\"panel\"")
@@ -2690,7 +2749,7 @@ pub fn start_workers(h: Option<AppHandle<Hooked>>) {
             std::thread::sleep(Duration::from_secs(3));
         }
     });
-    std::thread::spawn(move || {
+    crate::app::spawn_named("hooked-usage", move || {
         let h = h2;
         if let Ok(caps) = api::capabilities() {
             h.update(move |s, _| s.caps = caps);

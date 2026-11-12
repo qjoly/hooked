@@ -9,6 +9,8 @@ rune = { git = "https://github.com/anomalyco/rune", rev = "a7f276c3630f85a06a023
 rune-kit = { git = "https://github.com/anomalyco/rune", rev = "a7f276c3630f85a06a0230295da4d2bd172d8d3b", features = ["markdown", "mermaid"] }
 rune-notify = { git = "https://github.com/anomalyco/rune", rev = "a7f276c3630f85a06a0230295da4d2bd172d8d3b" }
 rune-luau = { git = "https://github.com/anomalyco/rune", rev = "a7f276c3630f85a06a0230295da4d2bd172d8d3b", features = ["serde"] }
+rune-perf = { git = "https://github.com/anomalyco/rune", rev = "a7f276c3630f85a06a0230295da4d2bd172d8d3b" }
+procwatch = { git = "https://github.com/anomalyco/rune", rev = "a7f276c3630f85a06a0230295da4d2bd172d8d3b" }
 ureq = { version = "2", features = ["json"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -19,6 +21,7 @@ libghostty-vt = { git = "https://github.com/Uzaaft/libghostty-rs", rev = "9b598d
 
 [features]
 hot = ["rune/hot"]
+frame-profile = ["rune/frame-profile", "rune-kit/frame-profile"]
 
 [target.'cfg(target_os = "macos")'.dependencies]
 tray-icon = "0.21"
