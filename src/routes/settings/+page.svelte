@@ -36,6 +36,7 @@
     { id: 'pset-tags', label: 'Tags' },
     { id: 'pset-shortcuts', label: 'Keyboard shortcuts' },
     { id: 'pset-interface', label: 'Interface' },
+    { id: 'pset-flags', label: 'Feature flags' },
   ];
   // Locales offered for voice dictation (Web Speech API). Recognition quality depends on the
   // browser's own support for the chosen language.
@@ -1127,6 +1128,16 @@
           </li>
         {/each}
       </ul>
+    </div>
+
+    <div class="card" id="pset-flags" data-sec>
+      <h2>Feature flags</h2>
+      <p class="hint">Features still being tried out. Off unless you switch them on here; shared with the desktop app.</p>
+      <label class="check">
+        <input type="checkbox" checked={!!settings.featureFlags?.dockActions}
+               onchange={(e) => updateSettings({ featureFlags: { ...settings.featureFlags, dockActions: e.currentTarget.checked } })} />
+        <span>Session actions in the context panel: group, tags, pin, incognito, snooze and archive as large buttons at the bottom right</span>
+      </label>
     </div>
     </div>
 

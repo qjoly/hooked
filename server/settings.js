@@ -23,6 +23,12 @@ const STATUS_BAR_KEYS = [
   'focusBtn',       // Focus button
 ];
 
+// Opt-in UI under test, so a half-finished feature can land on main without reaching anyone
+// who has not switched it on. Each key is a boolean, false when missing.
+const FEATURE_FLAGS = [
+  'dockActions', // session actions (group, tags, pin, incognito, snooze, archive) at the bottom of the context panel
+];
+
 const DEFAULTS = {
   // Locale (BCP-47) used by the composer's voice dictation (Web Speech API). E.g. fr-FR, en-US.
   speechLang: 'fr-FR',
@@ -106,6 +112,7 @@ const DEFAULTS = {
   sidebarCache: { display: 'badge', windowMin: 15 },
   // New-worktree launches (server/worktrees.js). location '' = HOOKED_DIR/worktrees.
   worktrees: { location: '', autoName: true, nameInstructions: '' },
+  featureFlags: Object.fromEntries(FEATURE_FLAGS.map((k) => [k, false])),
 };
 
 const NAV_PAGES = ['sessions', 'stats', 'digest', 'memory', 'github', 'skills', 'cron', 'prompts'];
@@ -205,6 +212,8 @@ function sanitize(raw) {
     autoName: rawWt.autoName === undefined ? true : !!rawWt.autoName,
     nameInstructions: typeof rawWt.nameInstructions === 'string' ? rawWt.nameInstructions.slice(0, 2000) : '',
   };
+  const rawFf = o.featureFlags && typeof o.featureFlags === 'object' ? o.featureFlags : {};
+  const featureFlags = Object.fromEntries(FEATURE_FLAGS.map((k) => [k, rawFf[k] === true]));
   return {
     autoGitSync: !!o.autoGitSync,
     autoPrReviewTag: o.autoPrReviewTag === undefined ? true : !!o.autoPrReviewTag,
@@ -225,6 +234,7 @@ function sanitize(raw) {
     autoCompact,
     sidebarCache,
     worktrees,
+    featureFlags,
     speechLang,
     speechEnabled: o.speechEnabled === undefined ? true : !!o.speechEnabled,
     showWork: o.showWork === undefined ? true : !!o.showWork,

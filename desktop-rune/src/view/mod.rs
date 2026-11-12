@@ -107,7 +107,7 @@ pub fn view(s: &Hooked, cx: &mut Cx<Hooked>) -> El {
                 body = body.child(split::view(s, p, &k));
             }
         } else if let Some(d) = s.detail.as_ref() {
-            body = body.child(dock::view(s, d, &k));
+            body = body.child(dock::view(s, d, &k, &mut layer));
         }
     }
     let base = col()
@@ -545,14 +545,23 @@ fn unit_rows(s: &Hooked, u: &crate::organize::Unit<'_>, k: &Kit, layer: &mut Vec
     out
 }
 
-fn snooze_menu(s: &Hooked, x: &Session, k: &Kit, layer: &mut Vec<El>, trigger: El) -> El {
-    let mut m = Menu::new(format!("snooze-{}", x.id))
+/// `slot` is the `s.snooze_menu` value that opens this menu: the session id for a sidebar row,
+/// something else for another trigger of the same session, so only one of them opens.
+pub(super) fn snooze_menu(
+    s: &Hooked,
+    session: &str,
+    slot: &str,
+    k: &Kit,
+    layer: &mut Vec<El>,
+    trigger: El,
+) -> El {
+    let mut m = Menu::new(format!("snooze-{slot}"))
         .trigger(trigger)
-        .open(s.snooze_menu.as_deref() == Some(x.id.as_str()))
+        .open(s.snooze_menu.as_deref() == Some(slot))
         .min_width(200.0)
         .on_close(|s: &mut Hooked| s.snooze_menu = None);
-    if let Some(w) = s.snoozed_until(&x.id) {
-        let id = x.id.clone();
+    if let Some(w) = s.snoozed_until(session) {
+        let id = session.to_string();
         m = m
             .item(
                 MenuItem::new("Wake now")
@@ -566,7 +575,7 @@ fn snooze_menu(s: &Hooked, x: &Session, k: &Kit, layer: &mut Vec<El>, trigger: E
             .separator();
     }
     for (label, until) in snooze_presets(s.now) {
-        let id = x.id.clone();
+        let id = session.to_string();
         m = m.item(
             MenuItem::new(label)
                 .shortcut(clock(until))
@@ -758,7 +767,7 @@ fn session_row(
                 }
             }),
         );
-        actions = actions.child(snooze_menu(s, x, k, layer, trigger));
+        actions = actions.child(snooze_menu(s, &x.id, &x.id, k, layer, trigger));
     }
     if !archived && s.page == Page::Session && !selected && !s.splits.iter().any(|p| p.id == x.id) {
         actions = actions.child(act(

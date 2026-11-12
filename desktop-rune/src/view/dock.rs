@@ -5,9 +5,10 @@ use serde_json::Value;
 use super::{dot, glyph, pill, section_title};
 use crate::api::Detail;
 use crate::app::{Hooked, Lens};
+use crate::sections::wake_label;
 use crate::{fmt, icons};
 
-pub fn has_content(d: &Detail) -> bool {
+fn has_content(d: &Detail) -> bool {
     !d.todos.is_empty()
         || !d.changes.is_empty()
         || !d.subagents.is_empty()
@@ -754,12 +755,174 @@ fn screenshots(s: &Hooked, d: &Detail, k: &Kit) -> El {
     c.child(grid)
 }
 
-pub fn view(s: &Hooked, d: &Detail, k: &Kit) -> El {
-    if !s.dock_open || s.lens != Lens::Converse || !has_content(d) {
+fn action(
+    k: &Kit,
+    key: &str,
+    icon: &'static rune::Icon,
+    label: String,
+    help: &str,
+    on: bool,
+    danger: bool,
+    f: impl Fn(&mut Hooked) + 'static,
+) -> El {
+    let (fill, border, fg) = if on {
+        (k.c.layer_03, k.c.border_strong, k.c.text_base)
+    } else {
+        (k.c.layer_01, k.c.border_weak, k.c.text_muted)
+    };
+    let tile = col()
+        .key(format!("dock-act-{key}"))
+        .role("button")
+        .label(label.clone())
+        .help(help.to_string())
+        .checked(on)
+        .grow(1.0)
+        .min_w(0.0)
+        .h(56.0)
+        .gap(5.0)
+        .center()
+        .radius(k.radius.md)
+        .fill(fill)
+        .border(1.0, border)
+        .cursor(Cursor::Pointer)
+        .child(glyph(icon, 17.0, if danger { k.c.danger.icon } else { fg }))
+        .child(
+            text(label)
+                .font(k.ty.text_xsmall_medium)
+                .color(if danger { k.c.danger.fg } else { fg })
+                .truncate(),
+        );
+    k.interactive(tile).on_press(f)
+}
+
+fn actions(s: &Hooked, d: &Detail, k: &Kit, layer: &mut Vec<El>) -> El {
+    let id = d.session.id.clone();
+    let pinned = s.is_pinned(&id);
+    let incog = s.meta.get(&id).is_some_and(|m| m.incognito);
+    let archived = s.meta.get(&id).is_some_and(|m| m.archived);
+    let wake = s.snoozed_until(&id);
+    let slot = format!("dock:{id}");
+    let (g, t, p, i, a, sz) = (
+        id.clone(),
+        id.clone(),
+        id.clone(),
+        id.clone(),
+        id.clone(),
+        slot.clone(),
+    );
+    let group = action(
+        k,
+        "group",
+        &icons::LIST,
+        "Group".into(),
+        "Move to group…",
+        false,
+        false,
+        move |s| s.open_group_picker(g.clone()),
+    );
+    let tags = action(
+        k,
+        "tags",
+        &icons::TAG,
+        "Tags".into(),
+        "Edit tags",
+        false,
+        false,
+        move |s| s.open_tags(t.clone()),
+    );
+    let pin = action(
+        k,
+        "pin",
+        &icons::PIN,
+        if pinned { "Pinned" } else { "Pin" }.into(),
+        if pinned {
+            "Unpin"
+        } else {
+            "Pin to the top of the sidebar"
+        },
+        pinned,
+        false,
+        move |s| s.toggle_pin(&p),
+    );
+    let incognito = action(
+        k,
+        "incognito",
+        if incog { &icons::EYE_OFF } else { &icons::EYE },
+        "Incognito".into(),
+        if incog {
+            "Remove from incognito: hidden while incognito mode is on"
+        } else {
+            "Mark incognito: keep it visible in incognito mode"
+        },
+        incog,
+        false,
+        move |s| s.toggle_incognito(&i),
+    );
+    let archive = action(
+        k,
+        "archive",
+        if archived {
+            &icons::UNARCHIVE
+        } else {
+            &icons::ARCHIVE
+        },
+        if archived { "Unarchive" } else { "Archive" }.into(),
+        if archived {
+            "Restore this session to the live fleet"
+        } else {
+            "Stop the session and move it to Archived"
+        },
+        false,
+        !archived,
+        move |s| s.toggle_archive(&a),
+    );
+    let mut second = row().w_full().gap(6.0).child(incognito);
+    if !archived {
+        let trigger = action(
+            k,
+            "snooze",
+            &icons::SNOOZE,
+            wake.map_or_else(|| "Snooze".to_string(), |w| wake_label(w, s.now)),
+            if wake.is_some() {
+                "Change or end the snooze"
+            } else {
+                "Snooze…"
+            },
+            wake.is_some(),
+            false,
+            move |s| {
+                s.snooze_menu = if s.snooze_menu.as_deref() == Some(sz.as_str()) {
+                    None
+                } else {
+                    Some(sz.clone())
+                }
+            },
+        );
+        let menu = super::snooze_menu(s, &id, &slot, k, layer, trigger);
+        second = second.child(menu.grow(1.0).min_w(0.0));
+    }
+    col()
+        .key("dock-actions")
+        .w_full()
+        .padding(10.0)
+        .gap(6.0)
+        .border_sides([1.0, 0.0, 0.0, 0.0], k.c.border_weak)
+        .child(row().w_full().gap(6.0).child(group).child(tags).child(pin))
+        .child(second.child(archive))
+}
+
+pub fn view(s: &Hooked, d: &Detail, k: &Kit, layer: &mut Vec<El>) -> El {
+    let with_actions = s.feature("dockActions");
+    if !s.dock_open || s.lens != Lens::Converse || !(with_actions || has_content(d)) {
         return el();
     }
+    let actions = if with_actions {
+        actions(s, d, k, layer)
+    } else {
+        el()
+    };
     if let Some(v) = s.gh_view(crate::ghdetail::GhSlot::Dock) {
-        return gh_full(s, d, k, &v.url);
+        return gh_full(s, d, k, &v.url, actions);
     }
     let mut cards = col().key("dock-cards").w_full().padding(10.0).gap(10.0);
     if !d.todos.is_empty() {
@@ -813,7 +976,8 @@ pub fn view(s: &Hooked, d: &Detail, k: &Kit) -> El {
                         stick_bottom: false,
                     })
                     .child(cards),
-            ),
+            )
+            .child(actions),
     )
 }
 
@@ -860,7 +1024,7 @@ fn resizable(
         .child(content)
 }
 
-fn gh_full(s: &Hooked, d: &Detail, k: &Kit, open: &str) -> El {
+fn gh_full(s: &Hooked, d: &Detail, k: &Kit, open: &str, actions: El) -> El {
     let mut nav = row()
         .key("ghnav")
         .w_full()
@@ -930,6 +1094,7 @@ fn gh_full(s: &Hooked, d: &Detail, k: &Kit, open: &str) -> El {
                 k,
                 crate::ghdetail::GhSlot::Dock,
                 el(),
-            )),
+            ))
+            .child(actions),
     )
 }

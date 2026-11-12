@@ -11,7 +11,8 @@
   import Icon from '$lib/components/Icon.svelte';
   import { fmtCost, prLabel, issueLabel } from '$lib/format.js';
   import { prState, prStateIcon } from '$lib/prState.svelte.js';
-  import { ui } from '$lib/state.svelte.js';
+  import { ui, settings, openModal, togglePin, toggleArchive, isArchived, isIncognito, toggleIncognito, snoozeUntil, snoozeSessionUntil, wakeSession } from '$lib/state.svelte.js';
+  import { snoozePresets, wakeLabel, hm } from '$lib/sidebarSections.js';
   import { reply } from '$lib/api.js';
 
   let { s, id, onreview } = $props();
@@ -63,6 +64,25 @@
 
   // per-file add/del totals when available on change entries; tolerate absent fields.
   const fileList = $derived(changes.slice(0, 4));
+
+  const pinned = $derived(ui.pinned.includes(id));
+  const incognito = $derived(isIncognito(id));
+  const archived = $derived(isArchived(id));
+  const wake = $derived(snoozeUntil(id) > Date.now() ? snoozeUntil(id) : 0);
+  let snoozeOpen = $state(null);
+  $effect(() => { id; snoozeOpen = null; });
+  $effect(() => {
+    if (!snoozeOpen) return;
+    const away = (e) => { if (!(e.target instanceof Element) || !e.target.closest('.dacts-snooze')) snoozeOpen = null; };
+    const esc = (e) => { if (e.key === 'Escape') snoozeOpen = null; };
+    window.addEventListener('pointerdown', away, true);
+    window.addEventListener('keydown', esc);
+    return () => { window.removeEventListener('pointerdown', away, true); window.removeEventListener('keydown', esc); };
+  });
+  function pickSnooze(until) {
+    if (until) snoozeSessionUntil(id, until); else wakeSession(id);
+    snoozeOpen = null;
+  }
 
   let expanded = $state({}); // cardKey → bool
   const toggle = (k) => { expanded = { ...expanded, [k]: !expanded[k] }; };
@@ -243,6 +263,45 @@
     </div>
   {/if}
   {/if}
+
+  {#if settings.featureFlags?.dockActions}
+  <div class="dacts" aria-label="Session actions">
+    <button class="dact" onclick={() => openModal('groupPicker', { mode: 'move', sessionId: id })} title="Move to group…">
+      <Icon name="sessions" size={16} /><span>Group</span>
+    </button>
+    <button class="dact" onclick={() => openModal('editTags', { sessionId: id })} title="Edit tags">
+      <Icon name="tag" size={16} /><span>Tags</span>
+    </button>
+    <button class="dact" class:on={pinned} aria-pressed={pinned} onclick={() => togglePin(id)} title={pinned ? 'Unpin' : 'Pin to the top of the sidebar'}>
+      <Icon name="pin" size={16} /><span>{pinned ? 'Pinned' : 'Pin'}</span>
+    </button>
+    <button class="dact" class:on={incognito} aria-pressed={incognito} onclick={() => toggleIncognito(id)}
+            title={incognito ? 'Remove from incognito — hidden while incognito mode is on' : 'Mark incognito — keep it visible in incognito mode'}>
+      <Icon name={incognito ? 'eye-off' : 'eye'} size={16} /><span>Incognito</span>
+    </button>
+    <div class="dacts-snooze">
+      <button class="dact" class:on={!!wake} aria-haspopup="menu" aria-expanded={!!snoozeOpen} disabled={archived}
+              onclick={() => (snoozeOpen = snoozeOpen ? null : snoozePresets())}
+              title={wake ? 'Snoozed until ' + wakeLabel(wake) + ' — change or wake' : 'Snooze…'}>
+        <Icon name="snooze" size={16} /><span>{wake ? wakeLabel(wake) : 'Snooze'}</span>
+      </button>
+      {#if snoozeOpen}
+        <div class="dmenu" role="menu" aria-label="Snooze">
+          {#if wake}
+            <button class="dmi" role="menuitem" onclick={() => pickSnooze(null)}><Icon name="bell" size={12} tint={false} /> Wake now</button>
+          {/if}
+          {#each snoozeOpen as p (p.label)}
+            <button class="dmi" role="menuitem" onclick={() => pickSnooze(p.until)}>{p.label}<span class="dmi-hint">{hm(new Date(p.until))}</span></button>
+          {/each}
+        </div>
+      {/if}
+    </div>
+    <button class="dact" class:danger={!archived} onclick={() => toggleArchive(id)}
+            title={archived ? 'Restore this session to the live fleet' : 'Stop the session and move it to Archived'}>
+      <Icon name={archived ? 'unarchive' : 'archive'} size={16} /><span>{archived ? 'Unarchive' : 'Archive'}</span>
+    </button>
+  </div>
+  {/if}
 </aside>
 
 <style>
@@ -312,4 +371,33 @@
   .ghback:hover, .ghtab:hover { color: var(--text); background: var(--bg3); }
   .ghtab.on { color: var(--text); background: var(--bg3); }
   .dfull { max-height: 46vh; overflow-y: auto; padding: 0 8px 8px; }
+
+  .dacts {
+    position: sticky; bottom: 0; z-index: 2; margin-top: auto; flex: none;
+    display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; padding: 10px;
+    background: var(--bg2); border-top: 1px solid var(--border);
+  }
+  .dacts-snooze { position: relative; display: grid; }
+  .dact {
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;
+    min-width: 0; min-height: 52px; padding: 8px 4px; border: 1px solid var(--border2); border-radius: 8px;
+    background: var(--bg); color: var(--muted); font: 600 var(--t-micro) var(--font); cursor: pointer;
+    transition: background .12s, color .12s, border-color .12s;
+  }
+  .dact span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .dact:hover:not(:disabled) { background: var(--accent-soft); border-color: var(--accent); color: var(--accent-d); }
+  .dact.on { color: var(--accent-d); border-color: var(--accent); background: var(--accent-soft); }
+  .dact.danger:hover:not(:disabled) { background: color-mix(in srgb, var(--danger) 12%, transparent); border-color: var(--danger); color: var(--danger); }
+  .dact:disabled { opacity: .45; cursor: default; }
+  .dmenu {
+    position: absolute; bottom: calc(100% + 6px); left: 50%; transform: translateX(-50%); z-index: 5;
+    min-width: 170px; padding: 4px; display: flex; flex-direction: column;
+    background: var(--bg2); border: 1px solid var(--border2); border-radius: 8px; box-shadow: 0 8px 24px rgba(0, 0, 0, .25);
+  }
+  .dmi {
+    display: flex; align-items: center; gap: 6px; padding: 6px 8px; border: none; border-radius: 6px;
+    background: none; color: var(--text); font: inherit; font-size: var(--t-meta); text-align: left; cursor: pointer;
+  }
+  .dmi:hover { background: var(--hover); }
+  .dmi-hint { margin-left: auto; color: var(--muted); font-family: var(--mono); font-size: var(--t-micro); }
 </style>
