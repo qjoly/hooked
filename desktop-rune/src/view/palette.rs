@@ -118,6 +118,21 @@ pub fn commands(s: &Hooked) -> Vec<Cmd> {
             s.set_corners(Corners::Sharp)
         }),
     ];
+    #[cfg(feature = "knobs")]
+    out.push(cmd(
+        "Appearance",
+        &icons::SLIDERS,
+        if s.knobs.open {
+            "Close the knobs panel"
+        } else {
+            "Open the knobs panel (tune layout and motion)"
+        },
+        "⌘⇧K",
+        |s, tx| {
+            s.knobs.toggle();
+            tx.motion(s.knobs.slide());
+        },
+    ));
     let act = "Actions";
     out.extend([
         cmd(

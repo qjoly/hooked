@@ -131,7 +131,7 @@ the CPU columns.
 
 `desktop-rune-dev` and `desktop-rune-run` build with the `knobs` feature, which adds
 [rune-knobs](https://github.com/anomalyco/rune/tree/main/crates/rune-knobs)' side panel: ⌘⇧K
-opens it, and it tunes sidebar rows, the conversation's spacing and bubbles, the theme's radii,
+(or *Open the knobs panel* in the palette) opens it, and it tunes sidebar rows, the conversation's spacing and bubbles, the theme's radii,
 font sizes and springs, and the terminal's padding while the app runs. `cargo build --release`
 (so `mise run desktop-rune`) leaves it out, and every knob reads its default.
 
