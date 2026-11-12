@@ -635,14 +635,7 @@ pub(super) fn hash_of(v: impl Hash) -> u64 {
 fn converse(s: &Hooked, d: &Detail, k: &Kit) -> El {
     let n = d.messages.len();
     let start = n.saturating_sub(s.visible);
-    let mut chat = col()
-        .key("chat")
-        .w_full()
-        .max_w(920.0)
-        .self_center()
-        .px(20.0)
-        .py(16.0)
-        .gap(14.0);
+    let mut chat = col().key("chat").w_full().px(20.0).py(16.0).gap(14.0);
     if start > 0 {
         chat = chat.child(
             Button::new(format!("Show earlier messages · {start} hidden"))
@@ -669,37 +662,40 @@ fn converse(s: &Hooked, d: &Detail, k: &Kit) -> El {
     }
     for (i, q) in s.queued.iter().enumerate() {
         chat = chat.child(
-            col()
-                .key(format!("queued-{i}"))
-                .w_full()
-                .gap(6.0)
-                .padding(12.0)
-                .radius(k.radius.lg)
-                .fill(k.c.layer_01)
-                .border(1.0, k.c.border_weak)
-                .child(who(k, true, "queued"))
-                .child(text(q.clone()).font(k.ty.body).color(k.c.text_muted).wrap()),
+            lane(
+                true,
+                col()
+                    .gap(6.0)
+                    .padding(12.0)
+                    .corners(BUBBLE_USER)
+                    .fill(k.c.warning.bg)
+                    .border(1.0, k.c.warning.fg)
+                    .border_dash(4.0, 3.0)
+                    .child(who(k, true, "queued", k.c.text_muted))
+                    .child(text(q.clone()).font(k.ty.body).color(k.c.text_base).wrap()),
+            )
+            .key(format!("queued-{i}")),
         );
     }
     if let Some(lead) = d.pending_lead_in.as_ref().filter(|t| !t.trim().is_empty()) {
         chat = chat.child(
-            col()
-                .key("leadin")
-                .w_full()
-                .gap(6.0)
-                .child(who(k, false, "live stream"))
-                .child(super::md(lead.clone()).streaming(true).build(k)),
+            lane(
+                false,
+                assistant_skin(col().gap(6.0), k)
+                    .border_dash(4.0, 3.0)
+                    .child(who(k, false, "live stream", k.c.text_muted))
+                    .child(super::md(lead.clone()).streaming(true).build(k)),
+            )
+            .key("leadin"),
         );
     } else if let Some(l) = s
         .live
         .as_ref()
         .filter(|l| !l.text.is_empty() || !l.thinking.is_empty())
     {
-        let mut b = col()
-            .key("streaming")
-            .w_full()
-            .gap(6.0)
-            .child(who(k, false, "live"));
+        let mut b = assistant_skin(col().gap(6.0), k)
+            .border(1.0, k.c.border_focus.alpha(0.6))
+            .child(who(k, false, "live", k.c.text_muted));
         if !l.thinking.is_empty() {
             b = b.child(
                 text(fmt::first_line(&l.thinking, 400))
@@ -711,7 +707,7 @@ fn converse(s: &Hooked, d: &Detail, k: &Kit) -> El {
         if !l.text.is_empty() {
             b = b.child(super::md(l.text.clone()).streaming(true).build(k));
         }
-        chat = chat.child(b);
+        chat = chat.child(lane(false, b).key("streaming"));
     }
     let busy = d.session.state == "working" || s.live.as_ref().is_some_and(|l| l.busy);
     if busy {
@@ -782,25 +778,58 @@ fn converse(s: &Hooked, d: &Detail, k: &Kit) -> El {
     out
 }
 
-fn who(k: &Kit, user: bool, extra: &str) -> El {
+const BUBBLE_USER: [f32; 4] = [14.0, 14.0, 4.0, 14.0];
+const BUBBLE_ASSISTANT: [f32; 4] = [14.0, 14.0, 14.0, 4.0];
+
+fn lane(user: bool, bubble: El) -> El {
+    let gutter = el().w_frac(0.15);
+    let bubble = bubble.shrink();
+    if user {
+        row().w_full().justify_end().child(gutter).child(bubble)
+    } else {
+        row().w_full().child(bubble).child(gutter)
+    }
+}
+
+fn on_accent(k: &Kit) -> Kit {
+    let mut k = k.clone();
+    let ink = k.c.text_contrast;
+    k.c.text_base = ink;
+    k.c.icon_base = ink;
+    k.c.text_muted = ink.alpha(0.85);
+    k.c.icon_muted = ink.alpha(0.85);
+    k.c.text_faint = ink.alpha(0.7);
+    k.c.icon_faint = ink.alpha(0.7);
+    k.c.layer_02 = ink.alpha(0.16);
+    k
+}
+
+fn assistant_skin(b: El, k: &Kit) -> El {
+    b.padding(12.0)
+        .corners(BUBBLE_ASSISTANT)
+        .fill(k.c.surface_raised)
+        .border(1.0, k.c.border_weak)
+}
+
+fn who(k: &Kit, user: bool, extra: &str, ink: Color) -> El {
     let mut r = row()
         .gap(6.0)
         .center_y()
         .child(glyph(
             if user { &icons::USER } else { &icons::BOT },
             13.0,
-            k.c.icon_muted,
+            ink,
         ))
         .child(
             text(if user { "You" } else { "Claude" })
                 .font(k.ty.text_small_medium)
-                .color(k.c.text_muted),
+                .color(ink),
         );
     if !extra.is_empty() {
         r = r.child(
             text(extra.to_string())
                 .font(k.ty.text_xsmall)
-                .color(k.c.text_faint),
+                .color(ink.alpha(0.75)),
         );
     }
     r
@@ -889,7 +918,10 @@ pub(super) fn bubble_version(s: &Hooked, m: &Message, k: &Kit) -> u64 {
 pub(super) fn bubble(s: &Hooked, session: &str, m: &Message, k: &Kit, i: usize) -> El {
     let user = m.role == "user";
     if user && let Some(f) = crate::terminal::pty_fence(&m.text) {
-        return super::terminal::pty_block(s, k, &f);
+        return row()
+            .w_full()
+            .justify_end()
+            .child(super::terminal::pty_block(s, k, &f).w_frac(0.85));
     }
     if m.role == "system" {
         return row().w_full().justify_center().child(
@@ -902,10 +934,15 @@ pub(super) fn bubble(s: &Hooked, session: &str, m: &Message, k: &Kit, i: usize) 
         m.ts.as_deref()
             .map(|t| fmt::ago_short(Some(t), s.now))
             .unwrap_or_default();
-    let mut head = row()
-        .w_full()
-        .center_y()
-        .child(who(k, user, if m.auto { "auto" } else { &ts }));
+    let uk = user.then(|| on_accent(k));
+    let ck = uk.as_ref().unwrap_or(k);
+    let ink = ck.c.text_muted;
+    let mut head = row().w_full().gap(8.0).center_y().child(who(
+        k,
+        user,
+        if m.auto { "auto" } else { &ts },
+        ink,
+    ));
     if let Some(uuid) = m.fork_uuid.clone() {
         let opts = uuid.clone();
         head = head
@@ -917,7 +954,7 @@ pub(super) fn bubble(s: &Hooked, session: &str, m: &Message, k: &Kit, i: usize) 
                     .control_size(ControlSize::Small)
                     .help("Fork here without a message: an independent branch waiting for you")
                     .on_press(move |s: &mut Hooked| s.fork_at(uuid.clone()))
-                    .build(k),
+                    .build(ck),
             )
             .child(
                 IconButton::new(&icons::CHEVRON_DOWN)
@@ -926,10 +963,10 @@ pub(super) fn bubble(s: &Hooked, session: &str, m: &Message, k: &Kit, i: usize) 
                     .label("Fork options")
                     .help("Fork options (model, effort, mode, a first message)")
                     .on_press(move |s: &mut Hooked| s.fork_options(opts.clone()))
-                    .build(k),
+                    .build(ck),
             );
     }
-    let mut b = col().w_full().gap(8.0).child(head);
+    let mut b = col().gap(8.0).child(head);
     let full = m
         .fork_uuid
         .as_ref()
@@ -956,7 +993,7 @@ pub(super) fn bubble(s: &Hooked, session: &str, m: &Message, k: &Kit, i: usize) 
                     c = c.child(
                         text(rest)
                             .font(k.ty.body)
-                            .color(k.c.text_base)
+                            .color(k.c.text_contrast)
                             .wrap()
                             .selectable(true),
                     );
@@ -986,17 +1023,17 @@ pub(super) fn bubble(s: &Hooked, session: &str, m: &Message, k: &Kit, i: usize) 
             .variant(ButtonVariant::GhostMuted)
             .control_size(ControlSize::Small)
             .on_press(move |s: &mut Hooked| s.load_full_text(session.clone(), uuid.clone()))
-            .build(k),
+            .build(ck),
         );
     }
-    if user {
-        b = b
-            .padding(12.0)
-            .radius(k.radius.lg)
-            .fill(k.c.layer_01)
-            .border(1.0, k.c.border_weak);
-    }
-    b
+    let b = if user {
+        b.padding(12.0)
+            .corners(BUBBLE_USER)
+            .fill(if m.auto { k.c.info.fg } else { k.c.bg_accent })
+    } else {
+        assistant_skin(b, k)
+    };
+    lane(user, b)
 }
 
 fn group_tabs(s: &Hooked, id: &str, k: &Kit) -> El {
@@ -1779,9 +1816,7 @@ fn clip(s: &str, max_lines: usize) -> String {
 fn card(k: &Kit, key: &str, accent: Color) -> El {
     col()
         .key(key.to_string())
-        .w_full()
-        .max_w(920.0)
-        .self_center()
+        .self_stretch()
         .mx(20.0)
         .mb(10.0)
         .padding(14.0)
@@ -2229,8 +2264,6 @@ fn composer(s: &Hooked, d: &Detail, k: &Kit, busy: bool) -> El {
     let mut c = col()
         .key("composer")
         .w_full()
-        .max_w(920.0)
-        .self_center()
         .px(20.0)
         .pb(14.0)
         .pt(6.0)
