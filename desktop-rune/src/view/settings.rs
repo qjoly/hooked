@@ -42,11 +42,18 @@ static SECTIONS: [(&str, &str, &Icon); 10] = [
     ("set-maint", "Maintenance", &icons::TOOL),
     ("set-flags", "Feature flags", &icons::SPARKLE),
 ];
-const FEATURE_FLAGS: [(&str, &str, &str); 1] = [(
-    "dockActions",
-    "Session actions in the context panel",
-    "Group, tags, pin, incognito, snooze and archive as large buttons at the bottom of the context panel, which then shows even when the session has nothing else in it.",
-)];
+const FEATURE_FLAGS: [(&str, &str, &str); 2] = [
+    (
+        "dockActions",
+        "Session actions in the context panel",
+        "Group, tags, pin, incognito, snooze and archive as large buttons at the bottom of the context panel, which then shows even when the session has nothing else in it.",
+    ),
+    (
+        "showPanels",
+        "Interactive panels",
+        "Claude gets the show_panel tool and draws small sandboxed Luau panels in a window here. Applies from the next launch or resume.",
+    ),
+];
 const ACTIVE_BAND: f32 = 64.0;
 const PAD: f32 = 24.0;
 const GAP: f32 = 18.0;

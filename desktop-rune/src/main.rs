@@ -17,6 +17,7 @@ mod mddiff;
 mod media;
 mod organize;
 mod pages;
+mod panel;
 mod querywin;
 mod quick;
 mod sections;
@@ -155,9 +156,9 @@ fn on_key(s: &mut Hooked, ev: &KeyEvent, tx: &mut Tx) -> bool {
     false
 }
 
-fn poll(s: &mut Hooked, _clock: f64, tx: &mut Tx) -> bool {
+fn poll(s: &mut Hooked, clock: f64, tx: &mut Tx) -> bool {
     let now = fmt::now_ms();
-    let mut changed = false;
+    let mut changed = s.poll_panel(clock, tx);
     s.stash_draft();
     s.refresh_logo();
     s.poll_run(now);

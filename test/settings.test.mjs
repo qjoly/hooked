@@ -214,16 +214,23 @@ describe('sidebarCache', () => {
 
 describe('featureFlags', () => {
   it('defaults every flag to off', () => {
-    expect(readSettings().featureFlags).toEqual({ dockActions: false });
+    expect(readSettings().featureFlags).toEqual({ dockActions: false, showPanels: false });
   });
 
   it('round-trips a flag switched on', () => {
-    expect(writeSettings({ featureFlags: { dockActions: true } }).featureFlags).toEqual({ dockActions: true });
-    expect(readSettings().featureFlags).toEqual({ dockActions: true });
+    expect(writeSettings({ featureFlags: { dockActions: true } }).featureFlags).toEqual({ dockActions: true, showPanels: false });
+    expect(readSettings().featureFlags).toEqual({ dockActions: true, showPanels: false });
   });
 
   it('drops unknown flags and treats anything but true as off', () => {
-    expect(writeSettings({ featureFlags: { dockActions: 'yes', bogus: true } }).featureFlags).toEqual({ dockActions: false });
-    expect(writeSettings({ featureFlags: 'on' }).featureFlags).toEqual({ dockActions: false });
+    expect(writeSettings({ featureFlags: { dockActions: 'yes', bogus: true } }).featureFlags).toEqual({ dockActions: false, showPanels: false });
+    expect(writeSettings({ featureFlags: 'on' }).featureFlags).toEqual({ dockActions: false, showPanels: false });
+  });
+});
+
+describe('showPanels feature flag', () => {
+  it('turns on alone', () => {
+    expect(writeSettings({ featureFlags: { showPanels: true } }).featureFlags).toEqual({ dockActions: false, showPanels: true });
+    expect(writeSettings({ featureFlags: { showPanels: false } }).featureFlags.showPanels).toBe(false);
   });
 });

@@ -118,6 +118,7 @@ cargo run -- --snap /tmp/new.png --size 1440x900 -- --new
 cargo run -- --snap /tmp/review.png --size 1440x900 -- --session <id> --lens review   # mcp, trace
 cargo run -- --snap /tmp/stats.png --size 1440x900 -- --page stats   # digest, memory, cron, github, settings
 cargo run -- --snap /tmp/split.png --size 1600x900 -- --session <id> --split
+cargo run -- --snap /tmp/panel.png --size 1440x900 -- --panel panels/progress   # a show_panel Luau script, with its state.json (add --panel-minimized for the pill)
 cargo run -- --window quick --snap /tmp/quick.png --size 760x500
 cargo run -- --snap /tmp/sidebar.png --size 1440x900 -- --session <id> --open-section archived   # any section
 cargo run -- --snap /tmp/menus.png --size 1440x900 -- --session <id> --snooze-menu   # --sort-menu, --filter-menu

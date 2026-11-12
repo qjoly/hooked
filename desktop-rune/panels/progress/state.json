@@ -1,0 +1,10 @@
+{
+  "goal": "Migrate auth to OAuth 2.1",
+  "steps": [
+    { "title": "Read the current token flow", "status": "done" },
+    { "title": "Add PKCE to the login route", "status": "done", "detail": "server/auth.js" },
+    { "title": "Rotate refresh tokens", "status": "running", "detail": "3 of 5 tests pass" },
+    { "title": "Drop the implicit grant", "status": "todo" },
+    { "title": "Update the docs", "status": "failed", "detail": "link checker: 2 dead links" }
+  ]
+}
