@@ -45,7 +45,6 @@ export const ui = $state({
   termHeight: persisted.termHeight ?? 0,            // hauteur (px) du panneau terminal bas ; 0 = défaut (1/3 de fenêtre)
   dockHidden: persisted.dockHidden ?? false,        // dock droit masqué par l'utilisateur ? persisté
   lastSessionId: persisted.lastSessionId ?? null,   // dernière session ouverte — l'onglet Sessions y revient
-  collapseWorktrees: persisted.collapseWorktrees ?? true, // new-session: replie les worktrees `.claude/worktrees/*` sur leur projet parent dans le sélecteur
   shipFilesWidth: persisted.shipFilesWidth ?? 232,  // largeur (px) du rail « Files » de la lentille Ship, persistée
   shipPanelWidth: persisted.shipPanelWidth ?? 288,  // largeur (px) du panneau « Ready to ship » de la lentille Ship, persistée
   diffRatio: persisted.diffRatio ?? 0.5,            // part (0..1) de la colonne « old » dans un diff side-by-side (barre déplaçable), persistée
@@ -59,7 +58,7 @@ export const ui = $state({
 if (typeof localStorage !== 'undefined') {
   $effect.root(() => {
     $effect(() => {
-      const snapshot = { hideOld: ui.hideOld, incognito: ui.incognito, collapsed: ui.collapsed, pinned: ui.pinned, names: ui.names, focus: ui.focus, notify: ui.notify, diffSplit: ui.diffSplit, sidebarLayout: ui.sidebarLayout, sortMode: ui.sortMode, sideMenuOpen: ui.sideMenuOpen, sidebarWidth: ui.sidebarWidth, dockWidth: ui.dockWidth, dockHidden: ui.dockHidden, lastSessionId: ui.lastSessionId, termHeight: ui.termHeight, collapseWorktrees: ui.collapseWorktrees, shipFilesWidth: ui.shipFilesWidth, shipPanelWidth: ui.shipPanelWidth, diffRatio: ui.diffRatio, shipDiff: ui.shipDiff, shipCompact: ui.shipCompact, shipRendered: ui.shipRendered, companion: ui.companion, companionPos: ui.companionPos };
+      const snapshot = { hideOld: ui.hideOld, incognito: ui.incognito, collapsed: ui.collapsed, pinned: ui.pinned, names: ui.names, focus: ui.focus, notify: ui.notify, diffSplit: ui.diffSplit, sidebarLayout: ui.sidebarLayout, sortMode: ui.sortMode, sideMenuOpen: ui.sideMenuOpen, sidebarWidth: ui.sidebarWidth, dockWidth: ui.dockWidth, dockHidden: ui.dockHidden, lastSessionId: ui.lastSessionId, termHeight: ui.termHeight, shipFilesWidth: ui.shipFilesWidth, shipPanelWidth: ui.shipPanelWidth, diffRatio: ui.diffRatio, shipDiff: ui.shipDiff, shipCompact: ui.shipCompact, shipRendered: ui.shipRendered, companion: ui.companion, companionPos: ui.companionPos };
       try { localStorage.setItem(LS_KEY, JSON.stringify(snapshot)); } catch {}
     });
   });

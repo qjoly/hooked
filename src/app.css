@@ -2118,9 +2118,6 @@ code.path { color: var(--muted); font-size: var(--t-micro); word-break: break-al
 textarea.lf-input { font-family: inherit; resize: vertical; }
 .ns-proj-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
 .ns-proj-head .lf-label { margin-bottom: 6px; }
-.ns-wt-toggle { display: inline-flex; align-items: center; gap: 5px; cursor: pointer; user-select: none; font-size: var(--t-meta); color: var(--muted); white-space: nowrap; }
-.ns-wt-toggle input { margin: 0; cursor: pointer; accent-color: var(--accent-d); }
-.ns-wt-toggle:has(input:checked) { color: var(--text); }
 .lf-actions { display: flex; align-items: center; gap: 14px; margin-top: 20px; }
 .lf-actions .reply-send { grid-column: auto; }
 .attach-row { display: flex; align-items: center; gap: 10px; background: var(--bg3); border: 1px solid var(--border2); border-radius: 10px; padding: 10px 12px; }

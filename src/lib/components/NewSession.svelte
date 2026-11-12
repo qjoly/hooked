@@ -8,34 +8,9 @@
   import ModelEffort from './ModelEffort.svelte';
   import Icon from '$lib/components/Icon.svelte';
   import { defaultModelForQuota, isFableModel, isQuotaExhausted } from '$lib/models.js';
+  import { knownProjects } from '$lib/projects.js';
 
-  // projets uniques triés favoris d'abord, puis par activité la plus récente (puis nb de sessions).
-  // [[cwd, name, fav], …]. With `collapseWorktrees`, a session in a linked git worktree counts for
-  // its main checkout (`worktreeOf`).
-  const projs = $derived.by(() => {
-    const collapse = ui.collapseWorktrees;
-    const fav = new Set(settings.favoriteProjects || []);
-    const m = new Map();
-    for (const s of data.sessions) {
-      if (!s.project) continue;
-      const cwd = collapse && s.worktreeOf ? s.worktreeOf : s.project;
-      const native = cwd === s.project; // pas un worktree replié → source fiable pour le nom
-      const e = m.get(cwd) || { name: native ? (s.projectName || cwd) : (cwd.split('/').pop() || cwd), count: 0, last: '', native: false };
-      e.count++;
-      // un nom issu d'une session « native » (dépôt racine) prime sur le basename dérivé d'un worktree
-      if (native && !e.native) { e.name = s.projectName || cwd; e.native = true; }
-      const t = s.lastActivity || '';
-      if (t > e.last) e.last = t;
-      m.set(cwd, e);
-    }
-    // un favori sans session enregistrée doit tout de même apparaître (nom = basename du chemin).
-    for (const cwd of fav) if (!m.has(cwd)) m.set(cwd, { name: cwd.split('/').pop() || cwd, count: 0, last: '', native: false });
-    return [...m.entries()]
-      .sort((a, b) =>
-        ((fav.has(b[0]) ? 1 : 0) - (fav.has(a[0]) ? 1 : 0)) ||
-        String(b[1].last).localeCompare(String(a[1].last)) || b[1].count - a[1].count)
-      .map(([cwd, e]) => [cwd, e.name, fav.has(cwd)]);
-  });
+  const projs = $derived(knownProjects(data.sessions, settings.favoriteProjects || []));
 
   // Pastille duotone du picker : teinte déterministe par chemin, pour qu'un projet garde sa
   // couleur d'une visite à l'autre. Jetons uniquement (fonds soft via les triplets --*-rgb),
@@ -237,10 +212,6 @@
 
     <div class="ns-proj-head">
       <label class="lf-label">Project</label>
-      <label class="ns-wt-toggle" title="Hide git worktrees — list their main checkout instead">
-        <input type="checkbox" bind:checked={ui.collapseWorktrees} />
-        <span>Collapse worktrees</span>
-      </label>
     </div>
     <input type="search" class="lf-input" placeholder="Search a project…" bind:value={search} />
     <div class="lf-picklist" role="listbox" aria-label="Projects">

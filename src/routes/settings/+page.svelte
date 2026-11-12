@@ -5,6 +5,7 @@
   import { resync, getGit, checkoutBranch, dismissRestartNotice, getClaudeVersion, upgradeClaude, restartClaudeSession, pickFolder, getRemoteControl, getCapabilities, getWarmup, runWarmup, listWorktrees, removeWorktree } from '$lib/api.js';
   import { COMPACT_LEAD_MS, CACHED_READ_SHARE } from '$lib/promptCache.js';
   import { isHideableModel } from '$lib/models.js';
+  import { knownProjects } from '$lib/projects.js';
   import { getAllBindings, setBinding, resetBinding, resetAll as resetAllShortcuts, formatKeys, keysFromEvent } from '$lib/shortcuts.js';
   import { NAV_TABS } from '$lib/nav.js';
   import ModelEffort from '$lib/components/ModelEffort.svelte';
@@ -282,20 +283,7 @@
   // Projet de démarrage rapide : cwd utilisé quand une session est lancée sans dossier (p.ex. un
   // raccourci macOS qui POST /api/launch avec juste un prompt). Liste = projets connus (comme la
   // Nouvelle session), + « Other folder… » via le sélecteur natif. '' = aucun (cwd requis comme avant).
-  const projs = $derived.by(() => {
-    const m = new Map();
-    for (const s of data.sessions) {
-      if (!s.project) continue;
-      const e = m.get(s.project) || { name: s.projectName || s.project, count: 0, last: '' };
-      e.count++;
-      const t = s.lastActivity || '';
-      if (t > e.last) e.last = t;
-      m.set(s.project, e);
-    }
-    return [...m.entries()]
-      .sort((a, b) => String(b[1].last).localeCompare(String(a[1].last)) || b[1].count - a[1].count)
-      .map(([cwd, e]) => [cwd, e.name]);
-  });
+  const projs = $derived(knownProjects(data.sessions));
   const quickProject = $derived(settings.quickLaunchProject || '');
   let picking = $state(false);
   async function browseQuickProject() {
