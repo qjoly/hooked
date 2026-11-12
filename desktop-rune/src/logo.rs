@@ -11,14 +11,7 @@ fn hex(c: rune::Color) -> String {
 
 pub fn svg(counts: [usize; 6], dark: bool) -> String {
     let s = theme::scheme(dark);
-    let hue = [
-        s.danger.0,
-        s.warn.0,
-        s.success.0,
-        s.info.0,
-        s.idle,
-        s.border2,
-    ];
+    let hue = s.hues();
     let total: usize = counts.iter().sum();
     let mut arcs = String::new();
     if total == 0 {

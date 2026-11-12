@@ -8,6 +8,7 @@ use serde_json::{Value, json};
 use super::pages::{loading, page, scroll};
 use super::section_title;
 use crate::app::{Hooked, Theme};
+use crate::theme::{ColorScheme, Corners};
 use crate::{fmt, icons};
 
 const NAV: [(&str, &str); 8] = [
@@ -143,6 +144,37 @@ pub(super) fn chip(
     .on_press(f)
 }
 
+fn swatch_chip(
+    k: &Kit,
+    key: String,
+    label: String,
+    swatch: Color,
+    on: bool,
+    f: impl Fn(&mut Hooked) + 'static,
+) -> El {
+    k.interactive(
+        row()
+            .key(key)
+            .role("checkbox")
+            .checked(on)
+            .h(26.0)
+            .px(10.0)
+            .gap(6.0)
+            .center_y()
+            .radius(k.radius.sm)
+            .cursor(Cursor::Pointer)
+            .fill(if on { k.c.layer_02 } else { Color::TRANSPARENT })
+            .border(1.0, if on { k.c.border_focus } else { k.c.border_weak })
+            .child(el().size(8.0, 8.0).radius(4.0).fill(swatch))
+            .child(text(label).font(k.ty.text_small_medium).color(if on {
+                k.c.text_base
+            } else {
+                k.c.text_muted
+            })),
+    )
+    .on_press(f)
+}
+
 pub(super) fn chips(items: Vec<El>) -> El {
     row().gap(6.0).flex_wrap().children(items)
 }
@@ -210,11 +242,42 @@ fn app_card(s: &Hooked, k: &Kit, v: &Value) -> El {
             },
         )
     };
+    let scheme = |cs: ColorScheme| {
+        swatch_chip(
+            k,
+            format!("scheme-{}", cs.label()),
+            cs.label().to_string(),
+            cs.swatch(),
+            s.scheme == cs,
+            move |s: &mut Hooked| s.set_scheme(cs),
+        )
+    };
+    let corners = |c: Corners, label: &str| {
+        chip(
+            k,
+            format!("corners-{label}"),
+            label.to_string(),
+            s.corners == c,
+            move |s: &mut Hooked| s.set_corners(c),
+        )
+    };
     let nav_on = strs(&v["navTabs"]);
     let home = v["defaultPage"].as_str().unwrap_or("deck").to_string();
     let review_split = s.lens_data.diff.mode() == rune_kit::diff::DiffMode::Split;
     card(k, "set-app", "THIS APP")
         .child(line(k, "Theme", "Follows the system unless forced.", chips(vec![theme(Theme::System, "System"), theme(Theme::Light, "Light"), theme(Theme::Dark, "Dark")])))
+        .child(line(
+            k,
+            "Color scheme",
+            "Palette used for both light and dark. Coffee is the default; Indigo the previous one; Legacy warm cream and terracotta; Datadog a cool purple console with tight corners; Gruvbox the retro editor palette; Claude the Claude Desktop look.",
+            chips(ColorScheme::ALL.into_iter().map(scheme).collect()),
+        ))
+        .child(line(
+            k,
+            "Corners",
+            "Square removes every rounded corner. Combines with any theme and palette.",
+            chips(vec![corners(Corners::Round, "Rounded"), corners(Corners::Sharp, "Square")]),
+        ))
         .child(line(
             k,
             "Notifications",

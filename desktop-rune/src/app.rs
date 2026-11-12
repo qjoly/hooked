@@ -116,6 +116,8 @@ pub struct Hooked {
     pub selected: Option<String>,
     pub lens: Lens,
     pub theme: Theme,
+    pub scheme: crate::theme::ColorScheme,
+    pub corners: crate::theme::Corners,
     pub notify: bool,
 
     pub sidebar_open: bool,
@@ -342,6 +344,9 @@ impl Hooked {
         let shortcuts = crate::shortcuts::load(&saved_keys);
         let collapse_worktrees: bool = prefs.get("collapseWorktrees").unwrap_or(true);
         let theme = prefs.get("theme").unwrap_or(Theme::System);
+        let scheme: crate::theme::ColorScheme = prefs.get("scheme").unwrap_or_default();
+        let corners: crate::theme::Corners = prefs.get("corners").unwrap_or_default();
+        crate::theme::set_look(scheme, corners);
         let notify = prefs.get("notify").unwrap_or(true);
         let incognito = prefs.get("incognito").unwrap_or(false);
         let sidebar_open = prefs.get("sidebarOpen").unwrap_or(true);
@@ -371,6 +376,8 @@ impl Hooked {
             selected: None,
             lens: Lens::Converse,
             theme,
+            scheme,
+            corners,
             notify,
             sidebar_open,
             sidebar_w: prefs_w,
@@ -909,6 +916,24 @@ impl Hooked {
     pub fn set_theme(&mut self, theme: Theme) {
         self.theme = theme;
         self.save_pref("theme", &theme);
+    }
+
+    pub fn set_scheme(&mut self, scheme: crate::theme::ColorScheme) {
+        self.scheme = scheme;
+        self.save_pref("scheme", &scheme);
+        self.apply_look();
+    }
+
+    pub fn set_corners(&mut self, corners: crate::theme::Corners) {
+        self.corners = corners;
+        self.save_pref("corners", &corners);
+        self.apply_look();
+    }
+
+    fn apply_look(&mut self) {
+        crate::theme::set_look(self.scheme, self.corners);
+        self.logo = None;
+        self.refresh_logo();
     }
 
     pub fn open_palette(&mut self, prefix: &str) {

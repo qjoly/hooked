@@ -3,6 +3,7 @@ use rune_kit::{Kit, TextInput};
 
 use super::{Shadows, dot, glyph};
 use crate::app::{Hooked, Lens, Page, Theme};
+use crate::theme::{ColorScheme, Corners};
 use crate::{fmt, icons};
 
 const CITATIONS_SHOWN: usize = 5;
@@ -92,6 +93,30 @@ pub fn commands(s: &Hooked) -> Vec<Cmd> {
             "⌘⇧T",
             |s, _| s.cycle_theme(),
         ),
+        cmd("Appearance", &icons::CIRCLE, "Color scheme: Coffee", "", |s, _| {
+            s.set_scheme(ColorScheme::Coffee)
+        }),
+        cmd("Appearance", &icons::CIRCLE, "Color scheme: Indigo", "", |s, _| {
+            s.set_scheme(ColorScheme::Indigo)
+        }),
+        cmd("Appearance", &icons::CIRCLE, "Color scheme: Legacy", "", |s, _| {
+            s.set_scheme(ColorScheme::Legacy)
+        }),
+        cmd("Appearance", &icons::CIRCLE, "Color scheme: Datadog", "", |s, _| {
+            s.set_scheme(ColorScheme::Datadog)
+        }),
+        cmd("Appearance", &icons::CIRCLE, "Color scheme: Gruvbox", "", |s, _| {
+            s.set_scheme(ColorScheme::Gruvbox)
+        }),
+        cmd("Appearance", &icons::CIRCLE, "Color scheme: Claude", "", |s, _| {
+            s.set_scheme(ColorScheme::Claude)
+        }),
+        cmd("Appearance", &icons::CIRCLE, "Corners: Rounded", "", |s, _| {
+            s.set_corners(Corners::Round)
+        }),
+        cmd("Appearance", &icons::CIRCLE, "Corners: Square", "", |s, _| {
+            s.set_corners(Corners::Sharp)
+        }),
     ];
     let act = "Actions";
     out.extend([

@@ -42,7 +42,7 @@ pub fn state_color(k: &Kit, state: &str) -> Color {
 
 pub fn dot(k: &Kit, state: &str, size: f32) -> El {
     el().size(size, size)
-        .radius(size / 2.0)
+        .radius(if crate::theme::sharp() { 0.0 } else { size / 2.0 })
         .fill(state_color(k, state))
 }
 

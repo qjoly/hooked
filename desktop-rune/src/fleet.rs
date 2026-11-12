@@ -44,15 +44,7 @@ pub fn is_live(x: &Session) -> bool {
 }
 
 pub fn hues(dark: bool) -> [rune::Color; 6] {
-    let s = theme::scheme(dark);
-    [
-        s.danger.0,
-        s.warn.0,
-        s.success.0,
-        s.info.0,
-        s.idle,
-        s.border2,
-    ]
+    theme::scheme(dark).hues()
 }
 
 fn hex(c: rune::Color) -> String {
