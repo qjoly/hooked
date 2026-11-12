@@ -1,18 +1,18 @@
 /*
  * Auto-tag sessions once their most recent linked PR has been reviewed on GitHub. Mirrors the
  * autoGitSync loop in gitOps.js: setInterval gated by a settings toggle, idempotent via
- * globalThis (survives Vite HMR). Reuses ghMeta.ghView (5 min cache, already fetches
- * reviewDecision) and the existing session-tags store (tags.js) — no new storage.
+ * globalThis (survives Vite HMR). Reuses ghMeta.ghViewMany (one batched read for the PRs whose
+ * adaptive cache has expired) and the existing session-tags store (tags.js) — no new storage.
  */
 import fs from 'node:fs';
 import path from 'node:path';
 import { HOOKED_DIR } from './config.js';
 import { scanSessions } from './transcript.js';
-import { ghView } from './ghMeta.js';
+import { ghViewMany } from './ghMeta.js';
 import { readTags, setTags } from './tags.js';
 
-// Aligned on ghMeta's own cache TTL: no point polling faster than the cached data changes.
-const TICK_INTERVAL = parseInt(process.env.HOOKED_PR_REVIEW_INTERVAL || '300000', 10) || 300000;
+// Matches ghMeta's shortest TTL: each tick only re-reads the PRs that are due.
+const TICK_INTERVAL = parseInt(process.env.HOOKED_PR_REVIEW_INTERVAL || '60000', 10) || 60000;
 
 // Verrou inter-process (best-effort). Plusieurs `node build` peuvent coexister (relances launchd,
 // dev en parallèle…) ; chacun lançait son propre tick → N pollers GitHub simultanés qui vidaient le
@@ -53,10 +53,11 @@ const PR_REVIEW_TAGS = Object.values(TAG_BY_DECISION);
 // already-merged one.
 async function prReviewTick() {
   if (!acquirePollLock()) return; // un autre process poll déjà GitHub → on n'ajoute pas de charge
-  for (const s of scanSessions()) {
-    const url = s.prLinks && s.prLinks[0];
-    if (!url) continue;
-    const meta = await ghView(url);
+  const linked = scanSessions().filter((s) => s.prLinks && s.prLinks[0]);
+  if (!linked.length) return;
+  const views = await ghViewMany(linked.map((s) => s.prLinks[0]), { background: true });
+  for (const s of linked) {
+    const meta = views.get(s.prLinks[0]);
     const tag = meta && TAG_BY_DECISION[meta.reviewDecision];
     if (!tag) continue;
     const current = readTags()[s.id] || [];

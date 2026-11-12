@@ -29,6 +29,7 @@
     { id: 'pset-digest', label: 'Daily digest' },
     { id: 'pset-warmup', label: '5-hour window' },
     { id: 'pset-autocompact', label: 'Auto-compact' },
+    { id: 'pset-prwatch', label: 'Pull request watch' },
     { id: 'pset-live', label: 'Live state' },
     { id: 'pset-claude', label: 'Claude Code' },
     { id: 'pset-git', label: 'Git' },
@@ -856,6 +857,16 @@
       <p class="hint" style="margin:8px 0 0"><strong>It is lossy</strong>: exact outputs, file contents and reasoning of earlier turns give way to a summary, and Claude may re-read files to pick the thread back up. Worth it if you often leave sessions for more than an hour; skip it if you usually come back within the hour — the cache is still warm then. Below the size threshold a cold resume is cheap anyway, so nothing is compacted.</p>
     </div>
 
+    <div class="card" id="pset-prwatch" data-sec>
+      <h2>Pull request watch</h2>
+      <p class="hint">A watched pull request wakes its session with a message when checks fail or all pass, a merge conflict appears, no check reports 15 min after a push, or someone else comments. A session can always watch one itself through the <code>watch_pull_request</code> tool. hooked stops after the PR is merged or closed, or after 10 comment-only wakes in a row.</p>
+      <label class="check">
+        <input type="checkbox" checked={!!settings.autoPrWatch}
+               onchange={(e) => updateSettings({ autoPrWatch: e.currentTarget.checked })} />
+        <span>Watch the open PR you authored that a driven session links last (each wake is a turn)</span>
+      </label>
+    </div>
+
     <div class="card" id="pset-live" data-sec>
       <h2>Live state</h2>
       <p class="hint">Recomputes every session's live state now to fix a stale status — e.g. a session stuck on “working” after it finished.</p>
@@ -1051,7 +1062,7 @@
       <h2>Tags</h2>
       <label class="check">
         <input type="checkbox" checked={settings.autoPrReviewTag} onchange={(e) => updateSettings({ autoPrReviewTag: e.currentTarget.checked })} />
-        <span>Auto-tag a session <code>pr-approved</code> / <code>pr-changes-requested</code> when its most recent linked PR gets reviewed on GitHub (checked every 5 min via <code>gh</code>, read-only)</span>
+        <span>Auto-tag a session <code>pr-approved</code> / <code>pr-changes-requested</code> when its most recent linked PR gets reviewed on GitHub (read-only, checked every minute for active PRs and less often for quiet ones)</span>
       </label>
       <label class="check">
         <input type="checkbox" checked={settings.autoTags} onchange={(e) => updateSettings({ autoTags: e.currentTarget.checked })} />

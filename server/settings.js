@@ -32,9 +32,13 @@ const DEFAULTS = {
   // Synchro git du dépôt du serveur (cf. server/gitOps.js) : boucle de fond fetch + pull --ff-only.
   autoGitSync: false,
   // Boucle de fond (cf. server/prReviewTags.js) : tague une session `pr-approved` /
-  // `pr-changes-requested` quand la review GitHub de sa PR la plus récente tombe. Lecture seule
-  // (gh pr view), défaut activé.
+  // `pr-changes-requested` quand la review GitHub de sa PR la plus récente tombe. Lecture seule,
+  // défaut activé.
   autoPrReviewTag: true,
+  // server/prWatch.js: every driven session whose latest PR link is an open PR of yours gets
+  // watched, and is woken when its checks fail or pass, a conflict appears or someone comments.
+  // Off by default: each wake is a turn.
+  autoPrWatch: false,
   // Background loop (server/autoTags.js): one Haiku call per new session suggests 1-3 tags, merged once.
   autoTags: true,
   // Après un pull qui change package-lock.json : redémarrer le service (→ run-dev.sh relance npm ci).
@@ -208,6 +212,7 @@ function sanitize(raw) {
   return {
     autoGitSync: !!o.autoGitSync,
     autoPrReviewTag: o.autoPrReviewTag === undefined ? true : !!o.autoPrReviewTag,
+    autoPrWatch: !!o.autoPrWatch,
     autoTags: o.autoTags === undefined ? true : !!o.autoTags,
     gitAutoRestartOnLock: !!o.gitAutoRestartOnLock,
     // Défaut à true : une config antérieure à cette clé ne doit pas la forcer à false.

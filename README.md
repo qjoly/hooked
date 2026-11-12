@@ -99,7 +99,7 @@ only. Every shortcut can be rebound in the settings.
 | **Stats** | Estimated cost, sessions, prompts and tokens over today / 7 days / 30 days / all time, broken down by day, model, project and tool. Live 5 h / 7 d rate-limit gauges in the top bar. |
 | **Digest** | An AI recap of the previous day: highlights, then one status line per session. |
 | **Memory** | What Claude remembers about you and your projects (its auto-memory notes), searchable and filtered by type. |
-| **GitHub** | The pull requests and issues your sessions opened or mentioned, with their review state. Sessions get tagged automatically when their PR is reviewed. |
+| **GitHub** | The pull requests and issues your sessions opened or mentioned, with their review state. Sessions get tagged automatically when their PR is reviewed, and can be woken by news on their PR (opt-in). |
 
 ### 🤖 MCP server
 
@@ -107,7 +107,8 @@ hooked ships an MCP server (`mcp/server.cjs`), so a Claude session can drive the
 `list_sessions`, `get_session`, `search_sessions`, `start_session`, `reply_to_session`,
 `interrupt_session`, `stop_session`, `set_mode`, `set_model`, `get_stats`, `get_digest`,
 `reply_review_comment`, plus `show_image` / `show_video` / `show_audio` to display media in the conversation.
-A session started this way lands in its parent's group.
+A session started this way lands in its parent's group. `watch_pull_request` / `unwatch_pull_request` let a
+session follow its PR: hooked messages it when checks fail or pass, a conflict appears or someone comments.
 
 ### 🎨 And also
 

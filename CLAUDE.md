@@ -210,6 +210,31 @@ follows you from one browser to another.
 - **Out of scope:** Stats and Digest, which aggregate every session without going through
   `data.sessions`.
 
+## GitHub calls (`server/ghClient.js`, `server/prWatch.js`)
+
+Every GitHub read and write goes through `ghRest` / `ghGraphql`, never through a spawned `gh`
+subcommand. `gh` only hands over the token (`gh auth token`, cached 5 min, dropped on a 401);
+`GH_TOKEN` / `GITHUB_TOKEN` from the login env win over it, as they did for `gh` itself. The design
+follows T3 Code's (MIT, pingdotgg/t3code).
+
+- **One request policy for the whole process**, pinned on `globalThis`: at most 8 requests in
+  flight (bursts trip GitHub's secondary rate limit), quotas read from `x-ratelimit-*`, and a host-wide
+  pause on a 429 / limit-naming 403 / GraphQL `RATE_LIMITED` (which arrives as HTTP 200), until
+  `Retry-After` or the reset, else backoff from 30 s to 15 min.
+- **Pass `background: true` for anything nobody is waiting on** (pollers). Background reads yield to
+  the pause and stop at 10% of the quota, so a click in the UI still goes through.
+- **`etag: true` on REST reads that get polled** (notifications, runs, diffs): a 304 costs no quota.
+- A cross-origin redirect (job logs on blob storage) is followed without the token.
+- `ghMeta.ghViewMany` batches link summaries into one aliased GraphQL query, and its cache TTL
+  follows activity: 1 min for a PR updated in the last 30 min, 5 min when quiet, 30 min after a
+  day, never again once merged/closed. `prReviewTags` ticks every minute on top of it.
+- **PR watch** (`watch_pull_request` MCP tool, or the `autoPrWatch` setting for the viewer's open
+  PR a driven session links last) wakes the session with one message about failed/passed checks, no
+  check 15 min after a push, a merge conflict, or comments from anyone but the viewer. News is held
+  while the session works or waits on a question, so the state only advances once it was delivered.
+  A watch ends on merge/close, on `unwatch_pull_request`, or after 10 comment-only wakes in a row
+  (bot loops). Watches live in `pr-watches.json`; a process only polls the sessions it drives.
+
 ## Worktrees (`server/worktrees.js`)
 
 hooked creates the worktree itself (`git worktree add --no-track -b <branch> <dir> <base>`), then

@@ -1,5 +1,5 @@
 import { dev } from '$app/environment';
-import { startDigestScheduler, startCronScheduler, startRemoteControl, readSettings, resumeDrivenSessions, startDrivenSnapshot, installShutdownHook, startWarmupScheduler, startAutoCompactScheduler, applyGitSyncSetting, applyPrReviewTagSetting, applyAutoTagSetting } from '$lib/server/core.js';
+import { startDigestScheduler, startCronScheduler, startRemoteControl, readSettings, resumeDrivenSessions, startDrivenSnapshot, installShutdownHook, startWarmupScheduler, startAutoCompactScheduler, applyGitSyncSetting, applyPrReviewTagSetting, applyAutoTagSetting, startPrWatch } from '$lib/server/core.js';
 
 // Ctrl+C has to actually stop the process. adapter-node closes the HTTP listener on SIGINT but
 // never exits, so any handle left behind (fs watchers, driven subprocesses, PTYs) keeps hooked
@@ -38,3 +38,5 @@ if (!dev || process.env.HOOKED_MODE) {
 startWarmupScheduler();
 // Same reasons for auto-compact (settings → autoCompact): every tick reads the setting.
 startAutoCompactScheduler();
+// PR watches only wake sessions driven by this process, and autoPrWatch is read on every tick.
+startPrWatch();

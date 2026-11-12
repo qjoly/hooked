@@ -1,6 +1,4 @@
-import { execFile } from 'node:child_process';
-import { resolveGh } from './ghMeta.js';
-import { loginEnv } from './agent.js';
+import { ghRest, ghGraphql, parseItemUrl } from './ghClient.js';
 import { parseRunUrl } from '../src/lib/ghRun.js';
 
 // GitHub page: unread notifications, assigned issues, open PRs (authored / review requested).
@@ -20,18 +18,6 @@ const PR_FIELDS = `... on PullRequest {
   reviewRequests(first: 10) { nodes { requestedReviewer { ... on User { login } ... on Team { name } } } }
   comments { totalCount }
 }`;
-
-// gh authenticates through GITHUB_TOKEN here, which only the login profile exports (cf. loginEnv).
-async function gh(args, { raw = false } = {}) {
-  const [bin, env] = await Promise.all([resolveGh(), loginEnv()]);
-  return new Promise((resolve, reject) => {
-    execFile(bin, args, { env, timeout: 30_000, maxBuffer: 64 << 20 }, (err, stdout, stderr) => {
-      if (err) return reject(new Error(String(stderr || err.message).trim().split('\n')[0]));
-      if (raw) return resolve(stdout);
-      try { resolve(JSON.parse(stdout)); } catch (e) { reject(e); }
-    });
-  });
-}
 
 export function toPr(n) {
   return {
@@ -56,14 +42,14 @@ export function toPr(n) {
 }
 
 async function searchPrs(q) {
-  const { data } = await gh(['api', 'graphql', '-f', `q=${q}`, '-f',
-    `query=query($q: String!) { search(query: $q, type: ISSUE, first: ${CAP}) { nodes { ... on PullRequest { id } } } }`]);
+  const data = await ghGraphql(
+    `query($q: String!) { search(query: $q, type: ISSUE, first: ${CAP}) { nodes { ... on PullRequest { id } } } }`, { q });
   const ids = data.search.nodes.map((n) => n.id).filter(Boolean);
   const chunks = [];
   for (let i = 0; i < ids.length; i += CHUNK) chunks.push(ids.slice(i, i + CHUNK));
   const pages = await Promise.all(chunks.map((c) =>
-    gh(['api', 'graphql', '-f', `query={ nodes(ids: ${JSON.stringify(c)}) { ${PR_FIELDS} } }`])));
-  return pages.flatMap((p) => p.data.nodes.filter((n) => n?.number).map(toPr));
+    ghGraphql(`query($ids: [ID!]!) { nodes(ids: $ids) { ${PR_FIELDS} } }`, { ids: c }, { partial: true })));
+  return pages.flatMap((p) => p.nodes.filter((n) => n?.number).map(toPr));
 }
 
 // Notifications only carry the API URL of their subject; map it to the page a human opens.
@@ -100,11 +86,11 @@ export function toIssue(n) {
 }
 
 async function searchIssues(q) {
-  const { data } = await gh(['api', 'graphql', '-f', `q=${q}`, '-f', `query=query($q: String!) {
+  const data = await ghGraphql(`query($q: String!) {
     search(query: $q, type: ISSUE, first: ${CAP}) { nodes { ... on Issue {
       number title url updatedAt repository { nameWithOwner } author { login }
       comments { totalCount } labels(first: 5) { nodes { name color } }
-    } } } }`]);
+    } } } }`, { q });
   return data.search.nodes.filter((n) => n.number).map(toIssue);
 }
 
@@ -112,7 +98,7 @@ let cache = null; // { at, promise }
 
 async function fetchOverview() {
   const [notifs, issues, mine, review] = await Promise.all([
-    gh(['api', 'notifications?per_page=50']),
+    ghRest('notifications?per_page=50', { etag: true }),
     searchIssues('is:issue is:open archived:false assignee:@me sort:updated-desc'),
     searchPrs('is:pr is:open archived:false author:@me sort:updated-desc'),
     // ponytail: direct requests only — team requests (review-requested:@me) are ~15x more and mostly bots.
@@ -131,36 +117,58 @@ export async function githubOverview({ refresh = false } = {}) {
 }
 
 // Marks notification threads as done, like the inbox's "Done" (which also marks them read).
-// GitHub has no bulk "done", so it is one call per thread, a chunk at a time to bound the gh
-// processes in flight. A failed thread does not stop the others: the caller gets back the ids
-// that went through, plus the first error.
+// GitHub has no bulk "done", so it is one call per thread. A failed thread does not stop the
+// others: the caller gets back the ids that went through, plus the first error.
 export async function markNotificationsDone(ids) {
   if (!Array.isArray(ids) || !ids.every((id) => /^\d+$/.test(id))) {
     throw new Error('Expected a list of notification thread ids');
   }
   const done = [];
   let error = null;
-  for (let i = 0; i < ids.length; i += CHUNK) {
-    const chunk = ids.slice(i, i + CHUNK);
-    const results = await Promise.allSettled(chunk.map((id) =>
-      gh(['api', '--method', 'DELETE', `notifications/threads/${id}`], { raw: true })));
-    results.forEach((r, j) => {
-      if (r.status === 'fulfilled') done.push(chunk[j]);
-      else error ??= r.reason.message;
-    });
-  }
+  const results = await Promise.allSettled(ids.map((id) =>
+    ghRest(`notifications/threads/${id}`, { method: 'DELETE', raw: true })));
+  results.forEach((r, i) => {
+    if (r.status === 'fulfilled') done.push(ids[i]);
+    else error ??= r.reason.message;
+  });
   if (done.length) cache = null; // the cached overview still lists them
   return { done, error };
 }
 
 // ── Detail panel of a single PR / issue (Summary · Timeline · Code) ──
 
-const DETAIL_URL = /^https:\/\/github\.com\/[^/]+\/[^/]+\/(pull|issues)\/\d+$/;
-const PR_DETAIL_FIELDS = 'number,title,url,state,isDraft,author,createdAt,updatedAt,mergedAt,closedAt,'
-  + 'baseRefName,headRefName,additions,deletions,changedFiles,body,reviewDecision,statusCheckRollup,'
-  + 'comments,reviews,commits,files';
-const ISSUE_DETAIL_FIELDS = 'number,title,url,state,stateReason,author,createdAt,updatedAt,closedAt,'
-  + 'body,labels,assignees,comments';
+const CHECK_CONTEXTS = `contexts(first: 100) { nodes {
+  __typename
+  ... on CheckRun { name status conclusion detailsUrl checkSuite { workflowRun { workflow { name } } } }
+  ... on StatusContext { context state targetUrl }
+} }`;
+const COMMENTS = 'comments(last: 100) { nodes { author { login } body createdAt url } }';
+const FILES_PAGE = 'files(first: 100, after: $after) { pageInfo { hasNextPage endCursor } nodes { path additions deletions changeType } }';
+
+const PR_DETAIL_QUERY = `query($owner: String!, $name: String!, $number: Int!, $after: String) {
+  repository(owner: $owner, name: $name) { pullRequest(number: $number) {
+    number title url state isDraft author { login } createdAt updatedAt mergedAt closedAt
+    baseRefName headRefName additions deletions changedFiles body reviewDecision
+    ${COMMENTS}
+    reviews(last: 100) { nodes { author { login } state body submittedAt } }
+    commits(last: 100) { nodes { commit { oid messageHeadline committedDate authors(first: 1) { nodes { name user { login } } } } } }
+    head: commits(last: 1) { nodes { commit { statusCheckRollup { ${CHECK_CONTEXTS} } } } }
+    ${FILES_PAGE}
+  } }
+}`;
+const PR_FILES_QUERY = `query($owner: String!, $name: String!, $number: Int!, $after: String) {
+  repository(owner: $owner, name: $name) { pullRequest(number: $number) { ${FILES_PAGE} } }
+}`;
+const ISSUE_DETAIL_QUERY = `query($owner: String!, $name: String!, $number: Int!) {
+  repository(owner: $owner, name: $name) { issue(number: $number) {
+    number title url state stateReason author { login } createdAt updatedAt closedAt body
+    labels(first: 20) { nodes { name color } }
+    assignees(first: 20) { nodes { login } }
+    ${COMMENTS}
+  } }
+}`;
+// GitHub caps a pull request's file list at 3000.
+const MAX_FILE_PAGES = 30;
 
 // CheckRun carries status+conclusion, StatusContext a single state: both fold into one vocabulary.
 const CHECK_STATUS = {
@@ -171,13 +179,15 @@ export function toCheck(c) {
   const raw = c.__typename === 'StatusContext' ? c.state : (c.status === 'COMPLETED' ? c.conclusion : 'PENDING');
   return {
     name: c.name || c.context || '',
-    workflow: c.workflowName || '',
+    workflow: c.checkSuite?.workflowRun?.workflow?.name || '',
     status: CHECK_STATUS[raw] || 'pending',
     url: c.detailsUrl || c.targetUrl || '',
   };
 }
 
-// ponytail: gh's comment author has no is_bot flag, so bots are guessed from the login.
+export const headChecks = (pr) => (pr.head?.nodes?.[0]?.commit?.statusCheckRollup?.contexts?.nodes || []).map(toCheck);
+
+// ponytail: a comment author has no is_bot flag here, so bots are guessed from the login.
 export const isBotLogin = (login) => /\[bot\]$|^app\/|bot$|renovate|dependabot/i.test(login || '');
 
 const toComment = (c) => ({
@@ -185,14 +195,15 @@ const toComment = (c) => ({
 });
 
 export function toPrDetail(d) {
-  const comments = (d.comments || []).map(toComment);
+  const comments = (d.comments?.nodes || []).map(toComment);
   const timeline = [
-    ...(d.commits || []).map((c) => ({
-      kind: 'commit', at: c.committedDate, author: c.authors?.[0]?.login || c.authors?.[0]?.name || '',
+    ...(d.commits?.nodes || []).map(({ commit: c }) => ({
+      kind: 'commit', at: c.committedDate,
+      author: c.authors?.nodes?.[0]?.user?.login || c.authors?.nodes?.[0]?.name || '',
       sha: (c.oid || '').slice(0, 7), text: c.messageHeadline || '',
     })),
     // An empty COMMENTED review is the wrapper GitHub creates around inline comments: noise here.
-    ...(d.reviews || []).filter((r) => r.state !== 'COMMENTED' || r.body).map((r) => ({
+    ...(d.reviews?.nodes || []).filter((r) => r.state !== 'COMMENTED' || r.body).map((r) => ({
       kind: 'review', at: r.submittedAt, author: r.author?.login || '', state: r.state, text: r.body || '',
     })),
     ...comments.map((c) => ({ kind: 'comment', ...c, text: c.body })),
@@ -205,37 +216,49 @@ export function toPrDetail(d) {
     base: d.baseRefName || '', head: d.headRefName || '',
     additions: d.additions || 0, deletions: d.deletions || 0, changedFiles: d.changedFiles || 0,
     body: d.body || '', decision: d.reviewDecision || '',
-    checks: (d.statusCheckRollup || []).map(toCheck),
+    checks: headChecks(d),
     comments, timeline,
-    files: (d.files || []).map((f) => ({ path: f.path, additions: f.additions, deletions: f.deletions, change: f.changeType })),
+    files: (d.files?.nodes || []).map((f) => ({ path: f.path, additions: f.additions, deletions: f.deletions, change: f.changeType })),
   };
 }
 
 export function toIssueDetail(d) {
-  const comments = (d.comments || []).map(toComment);
+  const comments = (d.comments?.nodes || []).map(toComment);
   return {
     kind: 'issue',
     number: d.number, title: d.title, url: d.url,
     state: d.state === 'CLOSED' && d.stateReason === 'NOT_PLANNED' ? 'NOT_PLANNED' : d.state,
     author: d.author?.login || '', createdAt: d.createdAt, updatedAt: d.updatedAt,
     body: d.body || '',
-    labels: (d.labels || []).map((l) => ({ name: l.name, color: l.color })),
-    assignees: (d.assignees || []).map((a) => a.login),
+    labels: (d.labels?.nodes || []).map((l) => ({ name: l.name, color: l.color })),
+    assignees: (d.assignees?.nodes || []).map((a) => a.login),
     comments,
     timeline: comments.map((c) => ({ kind: 'comment', ...c, text: c.body })),
   };
 }
 
-function detailKind(url) {
-  const m = DETAIL_URL.exec(String(url || ''));
-  if (!m) throw new Error('Not a GitHub pull request or issue URL');
-  return m[1] === 'pull' ? 'pr' : 'issue';
+function itemRef(url) {
+  const ref = parseItemUrl(url);
+  if (!ref) throw new Error('Not a GitHub pull request or issue URL');
+  return ref;
 }
 
 export async function githubDetail(url) {
-  const kind = detailKind(url);
-  const d = await gh([kind, 'view', url, '--json', kind === 'pr' ? PR_DETAIL_FIELDS : ISSUE_DETAIL_FIELDS]);
-  return kind === 'pr' ? toPrDetail(d) : toIssueDetail(d);
+  const { owner, name, number, kind } = itemRef(url);
+  const vars = { owner, name, number };
+  if (kind === 'issue') {
+    const data = await ghGraphql(ISSUE_DETAIL_QUERY, vars);
+    return toIssueDetail(data.repository.issue);
+  }
+  const pr = (await ghGraphql(PR_DETAIL_QUERY, vars)).repository.pullRequest;
+  const files = [...pr.files.nodes];
+  let page = pr.files.pageInfo;
+  for (let i = 1; page.hasNextPage && i < MAX_FILE_PAGES; i++) {
+    const next = (await ghGraphql(PR_FILES_QUERY, { ...vars, after: page.endCursor })).repository.pullRequest.files;
+    files.push(...next.nodes);
+    page = next.pageInfo;
+  }
+  return toPrDetail({ ...pr, files: { nodes: files } });
 }
 
 // Unified patch split per file, keyed by the new path (the old one for a deletion).
@@ -249,31 +272,31 @@ export function splitPatch(text) {
 }
 
 export async function githubDiff(url) {
-  if (detailKind(url) !== 'pr') throw new Error('Only pull requests have a diff');
-  return splitPatch(await gh(['pr', 'diff', url], { raw: true }));
+  const { owner, name, number, kind } = itemRef(url);
+  if (kind !== 'pr') throw new Error('Only pull requests have a diff');
+  return splitPatch(await ghRest(`repos/${owner}/${name}/pulls/${number}`,
+    { accept: 'application/vnd.github.diff', raw: true, etag: true, timeout: 60_000 }));
 }
 
 // ── GitHub Actions run (live job/step status, logs of finished jobs) ──
 
-const RUN_FIELDS = 'name,displayTitle,workflowName,status,conclusion,url,headBranch,event,createdAt,updatedAt,attempt,jobs';
-
 // Runs, jobs and steps share the check vocabulary of the PR panel.
-// gh reports a step that has not started yet with the zero date.
+// A step that has not started yet may carry the zero date.
 const when = (t) => (t && !t.startsWith('0001-') ? t : '');
 const runStatus = (status, conclusion) =>
   status !== 'completed' ? 'pending' : CHECK_STATUS[String(conclusion || '').toUpperCase()] || 'neutral';
 
-export function toRun(d) {
+export function toRun(r, jobs = []) {
   return {
-    title: d.displayTitle || d.name || '', workflow: d.workflowName || d.name || '',
-    status: runStatus(d.status, d.conclusion), url: d.url,
-    branch: d.headBranch || '', event: d.event || '', attempt: d.attempt || 1,
-    createdAt: d.createdAt, updatedAt: d.updatedAt,
-    jobs: (d.jobs || []).map((j) => ({
-      id: String(j.databaseId), name: j.name, url: j.url,
-      status: runStatus(j.status, j.conclusion), startedAt: when(j.startedAt), completedAt: when(j.completedAt),
+    title: r.display_title || r.name || '', workflow: r.name || '',
+    status: runStatus(r.status, r.conclusion), url: r.html_url,
+    branch: r.head_branch || '', event: r.event || '', attempt: r.run_attempt || 1,
+    createdAt: r.created_at, updatedAt: r.updated_at,
+    jobs: jobs.map((j) => ({
+      id: String(j.id), name: j.name, url: j.html_url,
+      status: runStatus(j.status, j.conclusion), startedAt: when(j.started_at), completedAt: when(j.completed_at),
       steps: (j.steps || []).map((s) => ({
-        name: s.name, status: runStatus(s.status, s.conclusion), startedAt: when(s.startedAt), completedAt: when(s.completedAt),
+        name: s.name, status: runStatus(s.status, s.conclusion), startedAt: when(s.started_at), completedAt: when(s.completed_at),
       })),
     })),
   };
@@ -287,7 +310,11 @@ function runRef(url) {
 
 export async function githubRun(url) {
   const { repo, run } = runRef(url);
-  return toRun(await gh(['run', 'view', run, '-R', repo, '--json', RUN_FIELDS]));
+  const [r, jobs] = await Promise.all([
+    ghRest(`repos/${repo}/actions/runs/${run}`, { etag: true }),
+    ghRest(`repos/${repo}/actions/runs/${run}/jobs?per_page=100`, { etag: true }),
+  ]);
+  return toRun(r, jobs.jobs);
 }
 
 // Drops the BOM, the per-line timestamps, ANSI colours and the group markers of the raw job log.
@@ -302,16 +329,10 @@ export function cleanJobLog(text) {
 export async function githubJobLog(url) {
   const { repo, job } = runRef(url);
   if (!job) throw new Error('Not a GitHub Actions job URL');
-  const path = `repos/${repo}/actions/jobs/${job}/logs`;
   try {
-    return { log: cleanJobLog(await gh(['api', path], { raw: true })) };
+    return { log: cleanJobLog(await ghRest(`repos/${repo}/actions/jobs/${job}/logs`, { raw: true, timeout: 60_000 })) };
   } catch (e) {
-    if (/HTTP 404/.test(e.message)) return { log: null };
-    // gh ≥ 2.10x refuses raw output holding escape sequences (job logs are coloured) unless told
-    // to; older gh doesn't know the flag, hence asking only once it has refused.
-    if (/--allow-escape-sequences/.test(e.message)) {
-      return { log: cleanJobLog(await gh(['api', '--allow-escape-sequences', path], { raw: true })) };
-    }
+    if (e.kind === 'not_found') return { log: null };
     throw e;
   }
 }

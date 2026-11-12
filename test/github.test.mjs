@@ -44,16 +44,22 @@ describe('github detail panel', () => {
   it('builds a dated timeline and flags drafts and bots', () => {
     const d = toPrDetail({
       number: 1, state: 'OPEN', isDraft: true, author: { login: 'me' },
-      commits: [{ committedDate: '2026-01-02', oid: 'abcdef123', messageHeadline: 'fix', authors: [{ login: 'me' }] }],
-      reviews: [
+      commits: { nodes: [{ commit: { committedDate: '2026-01-02', oid: 'abcdef123', messageHeadline: 'fix', authors: { nodes: [{ user: { login: 'me' } }] } } }] },
+      reviews: { nodes: [
         { submittedAt: '2026-01-03', author: { login: 'bob' }, state: 'APPROVED', body: '' },
         { submittedAt: '2026-01-04', author: { login: 'bob' }, state: 'COMMENTED', body: '' },
-      ],
-      comments: [{ createdAt: '2026-01-01', author: { login: 'acme-renovate' }, body: 'hi' }],
+      ] },
+      comments: { nodes: [{ createdAt: '2026-01-01', author: { login: 'acme-renovate' }, body: 'hi' }] },
+      head: { nodes: [{ commit: { statusCheckRollup: { contexts: { nodes: [
+        { __typename: 'CheckRun', name: 'build', status: 'COMPLETED', conclusion: 'SUCCESS', checkSuite: { workflowRun: { workflow: { name: 'CI' } } } },
+      ] } } } }] },
+      files: { nodes: [{ path: 'a.js', additions: 1, deletions: 0, changeType: 'ADDED' }] },
     });
     expect(d.state).toBe('DRAFT');
     expect(d.timeline.map((e) => e.kind)).toEqual(['comment', 'commit', 'review']);
-    expect(d.timeline[1].sha).toBe('abcdef1');
+    expect(d.timeline[1]).toMatchObject({ sha: 'abcdef1', author: 'me' });
+    expect(d.checks).toEqual([{ name: 'build', workflow: 'CI', status: 'passed', url: '' }]);
+    expect(d.files).toEqual([{ path: 'a.js', additions: 1, deletions: 0, change: 'ADDED' }]);
     expect(d.comments[0].bot).toBe(true);
     expect(isBotLogin('alice')).toBe(false);
   });
@@ -75,13 +81,11 @@ describe('github actions run', () => {
   });
 
   it('maps run, job and step states, and drops the zero date', () => {
-    const r = toRun({
-      displayTitle: 't', workflowName: 'CI', status: 'in_progress', conclusion: '', url: 'u', jobs: [{
-        databaseId: 7, name: 'build', status: 'completed', conclusion: 'failure', url: 'ju', startedAt: '2026-01-01T00:00:00Z',
-        steps: [{ name: 'a', status: 'queued', conclusion: '', startedAt: '0001-01-01T00:00:00Z' }],
-      }],
-    });
-    expect(r.status).toBe('pending');
+    const r = toRun({ display_title: 't', name: 'CI', status: 'in_progress', conclusion: null, html_url: 'u' }, [{
+      id: 7, name: 'build', status: 'completed', conclusion: 'failure', html_url: 'ju', started_at: '2026-01-01T00:00:00Z',
+      steps: [{ name: 'a', status: 'queued', conclusion: null, started_at: null }],
+    }]);
+    expect(r).toMatchObject({ title: 't', workflow: 'CI', status: 'pending', url: 'u', attempt: 1 });
     expect(r.jobs[0]).toMatchObject({ id: '7', status: 'failed' });
     expect(r.jobs[0].steps[0]).toMatchObject({ status: 'pending', startedAt: '' });
   });

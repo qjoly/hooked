@@ -17,8 +17,7 @@ import { readSettings } from './settings.js';
 import { isValidBranchName } from './gitOps.js';
 import { runClaude } from './mcp.js';
 import { modelJson } from './claudeJson.js';
-import { resolveGh } from './ghMeta.js';
-import { loginEnv } from './agent.js';
+import { ghGraphql, parseGithubRemote } from './ghClient.js';
 
 const REGISTRY_FILE = () => path.join(HOOKED_DIR, 'worktrees.json');
 const DEFAULT_LOCATION = () => path.join(HOOKED_DIR, 'worktrees');
@@ -243,16 +242,30 @@ function isInside(child, parent) {
   return child === parent || child.startsWith(parent.endsWith('/') ? parent : parent + '/');
 }
 
+const PR_FOR_BRANCH = `query($owner: String!, $name: String!, $head: String!) {
+  repository(owner: $owner, name: $name) {
+    pullRequests(headRefName: $head, first: 1, orderBy: { field: CREATED_AT, direction: DESC }) {
+      nodes { number state url headRefOid baseRefName }
+    }
+  }
+}`;
+
+// A fork's PR lives on `upstream`, so that remote is asked first.
+async function githubRepoOf(cwd) {
+  for (const remote of ['upstream', 'origin']) {
+    const r = await git(cwd, ['remote', 'get-url', remote]);
+    const repo = r.ok && parseGithubRemote(r.out);
+    if (repo) return repo;
+  }
+  return null;
+}
+
 async function prFor(wtPath, branch) {
   try {
-    const [bin, env] = await Promise.all([resolveGh(), loginEnv()]);
-    if (!bin) return null;
-    return await new Promise((resolve) => {
-      execFile(bin, ['pr', 'view', branch, '--json', 'number,state,url,headRefOid,baseRefName'], { cwd: wtPath, env, timeout: 20_000 }, (err, stdout) => {
-        if (err) return resolve(null);
-        try { resolve(JSON.parse(stdout)); } catch (_) { resolve(null); }
-      });
-    });
+    const repo = await githubRepoOf(wtPath);
+    if (!repo) return null;
+    const data = await ghGraphql(PR_FOR_BRANCH, { ...repo, head: branch });
+    return data.repository?.pullRequests?.nodes?.[0] || null;
   } catch (_) { return null; }
 }
 
