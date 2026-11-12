@@ -18,6 +18,7 @@ const persisted = (() => {
 
 export const ui = $state({
   live: false,               // connexion SSE active ?
+  repoFilters: [],
   tagFilters: [],            // tags actifs (transitoire, non persisté) — une session doit porter TOUS ces tags
   hideOld: persisted.hideOld ?? false,
   incognito: persisted.incognito ?? false,  // mode incognito : n'affiche QUE les sessions marquées incognito (screenshare)
@@ -36,7 +37,7 @@ export const ui = $state({
   corners: readCorners(),    // 'round' | 'sharp' — forme des angles, 3e axe orthogonal
   notify: persisted.notify ?? false,    // notifications navigateur (session finie / en attente de toi)
   diffSplit: persisted.diffSplit ?? false, // render conversation diffs side-by-side (split) instead of unified
-  groupByProject: persisted.groupByProject ?? true, // sidebar: regroupe les sessions par projet (dépôt/dossier) au lieu des sections de statut
+  sidebarLayout: persisted.sidebarLayout ?? 'status',
   sortMode: persisted.sortMode ?? 'dynamic',        // sidebar: 'dynamic' | 'alpha' | 'alpha-project' (cf. SORT_MODES)
   sideMenuOpen: persisted.sideMenuOpen ?? true,     // side menu gauche (liste sessions) déplié ? persisté
   sidebarWidth: persisted.sidebarWidth ?? 232,      // largeur (px) du side panel gauche déplié, persistée
@@ -58,7 +59,7 @@ export const ui = $state({
 if (typeof localStorage !== 'undefined') {
   $effect.root(() => {
     $effect(() => {
-      const snapshot = { hideOld: ui.hideOld, incognito: ui.incognito, collapsed: ui.collapsed, pinned: ui.pinned, names: ui.names, focus: ui.focus, notify: ui.notify, diffSplit: ui.diffSplit, groupByProject: ui.groupByProject, sortMode: ui.sortMode, sideMenuOpen: ui.sideMenuOpen, sidebarWidth: ui.sidebarWidth, dockWidth: ui.dockWidth, dockHidden: ui.dockHidden, lastSessionId: ui.lastSessionId, termHeight: ui.termHeight, collapseWorktrees: ui.collapseWorktrees, shipFilesWidth: ui.shipFilesWidth, shipPanelWidth: ui.shipPanelWidth, diffRatio: ui.diffRatio, shipDiff: ui.shipDiff, shipCompact: ui.shipCompact, shipRendered: ui.shipRendered, companion: ui.companion, companionPos: ui.companionPos };
+      const snapshot = { hideOld: ui.hideOld, incognito: ui.incognito, collapsed: ui.collapsed, pinned: ui.pinned, names: ui.names, focus: ui.focus, notify: ui.notify, diffSplit: ui.diffSplit, sidebarLayout: ui.sidebarLayout, sortMode: ui.sortMode, sideMenuOpen: ui.sideMenuOpen, sidebarWidth: ui.sidebarWidth, dockWidth: ui.dockWidth, dockHidden: ui.dockHidden, lastSessionId: ui.lastSessionId, termHeight: ui.termHeight, collapseWorktrees: ui.collapseWorktrees, shipFilesWidth: ui.shipFilesWidth, shipPanelWidth: ui.shipPanelWidth, diffRatio: ui.diffRatio, shipDiff: ui.shipDiff, shipCompact: ui.shipCompact, shipRendered: ui.shipRendered, companion: ui.companion, companionPos: ui.companionPos };
       try { localStorage.setItem(LS_KEY, JSON.stringify(snapshot)); } catch {}
     });
   });
@@ -138,6 +139,7 @@ export function toggleIncognitoMode() {
   // Un filtre de tag actif sur un tag qui vient de disparaître de la barre viderait la sidebar
   // sans rien pour l'expliquer. Les filtres sont transitoires : on repart propre.
   ui.tagFilters = [];
+  ui.repoFilters = [];
 }
 
 // ─── Session groups (stored in session-meta, cf. server/sessionMeta.js) ──────────────────────
@@ -198,8 +200,10 @@ export const renameGroup = (id, name) => applyGroupOp('rename', id, { name });
 
 // snooze a session's decision card for N hours (Deck). Cleared by passing 0/negative hours.
 export function snoozeSession(id, hours = 1) {
-  patchMeta(id, { snoozeUntil: hours > 0 ? Date.now() + hours * 3600_000 : null });
+  snoozeSessionUntil(id, hours > 0 ? Date.now() + hours * 3600_000 : null);
 }
+export function snoozeSessionUntil(id, until) { patchMeta(id, { snoozeUntil: until || null }); }
+export function wakeSession(id) { if (snoozeUntil(id)) patchMeta(id, { snoozeUntil: null }); }
 // epoch ms until which the session's decision is snoozed (0 when not snoozed).
 export function snoozeUntil(id) { return (ui.meta[id] && ui.meta[id].snoozeUntil) || 0; }
 

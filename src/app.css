@@ -1169,7 +1169,8 @@
    them would slide every following cell one column left and break the alignment. */
 
 /* ── Zone 1 — session sidebar: status | pin | name | age, aligned across all rows ───────────── */
-:root[data-scheme="datadog"] .ssb-list {
+:root[data-scheme="datadog"] .ssb-list,
+:root[data-scheme="datadog"] .ssb-dock-list {
   display: grid;
   --dd-ssb-cols: 3px max-content minmax(0, 1fr) max-content;
   grid-template-columns: var(--dd-ssb-cols);
@@ -1178,7 +1179,10 @@
 }
 /* Full-width bands: group headers and the empty state are not table rows. */
 :root[data-scheme="datadog"] .ssb-ghead,
+:root[data-scheme="datadog"] .ssb-sec,
 :root[data-scheme="datadog"] .ssb-empty { grid-column: 1 / -1; }
+:root[data-scheme="datadog"] .ssb-row .ssb-lot { display: none; }
+:root[data-scheme="datadog"] .ssb-wake { grid-column: 4; }
 :root[data-scheme="datadog"] .ssb-row {
   display: grid;
   grid-template-columns: var(--dd-ssb-cols);

@@ -29,7 +29,10 @@ approve come first, each with its own card, so you can **answer without opening 
 Next to it, the fleet view groups every session by project with its state: action required,
 waiting for you, working, background, paused, ended.
 
-- Snooze a session (or all of them) for an hour, archive the ones you're done with.
+- Snooze a session (an hour, this evening, tomorrow, Monday) or all of them, archive the ones
+  you're done with.
+- A session sidebar sorted by status: Waiting, Working and Idle, with Snoozed and Archived
+  folded at the bottom. Filter it by repo or tag, or group it by project instead.
 - Browser notifications when a session starts waiting on you.
 - Tags, session groups, a trash with restore, and an **incognito mode** for screen sharing that
   only shows the sessions you marked.

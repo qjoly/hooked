@@ -2,7 +2,7 @@
   import { onMount, onDestroy } from 'svelte';
   import Icon from '$lib/components/Icon.svelte';
   import { reply, interrupt, launch, getFiles, getCommands, uploadImage } from '$lib/api.js';
-  import { loadSessions, ui, settings } from '$lib/state.svelte.js';
+  import { loadSessions, ui, settings, wakeSession } from '$lib/state.svelte.js';
   import { createSpeechToText } from '$lib/speech.svelte.js';
 
   // `newSession` : pas d'id encore — l'envoi LANCE une session neuve dans `project` (cwd) avec
@@ -296,6 +296,7 @@
       ? await launch({ cwd: project, prompt: full, model, effort, worktree, ephemeral, permissionMode: mode, groupWith: groupWith || undefined, incognito: ui.incognito || undefined }).catch((e) => ({ ok: false, data: { error: e.message } }))
       : await reply(id, full).catch((e) => ({ ok: false, data: { error: e.message } }));
     if (res.ok) {
+      if (!newSession) wakeSession(id);
       text = ''; images = []; autosize();
       // Mode bash (`!commande`, cf. server/agent.js → runLocalCommand) : rien n'est parti au
       // modèle, donc pas de bulle « en file d'attente » — le compte rendu de la commande arrive

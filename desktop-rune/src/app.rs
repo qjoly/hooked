@@ -72,6 +72,7 @@ pub enum Theme {
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Popup {
     Sort,
+    Filter,
     More,
     Model,
     Effort,
@@ -103,6 +104,7 @@ pub struct Hooked {
     pub meta: HashMap<String, Meta>,
     pub tags: HashMap<String, Vec<String>>,
     pub tag_filter: Vec<String>,
+    pub repo_filter: Vec<String>,
     pub incognito: bool,
     pub picker: Option<crate::organize::Picker>,
     pub gauges: Vec<Gauge>,
@@ -122,7 +124,10 @@ pub struct Hooked {
     pub window_w: f32,
     pub show_archived: bool,
     pub hide_old: bool,
-    pub group_by_project: bool,
+    pub layout: String,
+    pub flipped_sections: HashSet<&'static str>,
+    pub open_sections: HashSet<&'static str>,
+    pub snooze_menu: Option<String>,
     pub collapsed: HashSet<String>,
     pub pinned: Vec<String>,
     pub names: HashMap<String, String>,
@@ -337,7 +342,9 @@ impl Hooked {
         let incognito = prefs.get("incognito").unwrap_or(false);
         let sidebar_open = prefs.get("sidebarOpen").unwrap_or(true);
         let hide_old = prefs.get("hideOld").unwrap_or(false);
-        let group_by_project = prefs.get("groupByProject").unwrap_or(true);
+        let layout = prefs
+            .get("sidebarLayout")
+            .unwrap_or_else(|| "status".to_string());
         let dock_open = prefs.get("dockOpen").unwrap_or(true);
         let prefs_w = prefs.get("sidebarW").unwrap_or(crate::view::SIDEBAR_W);
         let mut s = Hooked {
@@ -346,6 +353,7 @@ impl Hooked {
             meta: HashMap::new(),
             tags: HashMap::new(),
             tag_filter: Vec::new(),
+            repo_filter: Vec::new(),
             tag_colors,
             incognito,
             picker: None,
@@ -364,7 +372,10 @@ impl Hooked {
             window_w: 1320.0,
             show_archived: false,
             hide_old,
-            group_by_project,
+            layout,
+            flipped_sections: HashSet::new(),
+            open_sections: HashSet::new(),
+            snooze_menu: None,
             collapsed: HashSet::new(),
             pinned,
             names,
@@ -572,6 +583,8 @@ impl Hooked {
             match args.get(i + 1).map(String::as_str) {
                 Some("tags") => s.open_tags(id),
                 Some("group") => s.open_group_picker(id),
+                Some("filter-repo") => s.open_filter_picker(true),
+                Some("filter-tag") => s.open_filter_picker(false),
                 _ => {}
             }
         }
@@ -579,6 +592,21 @@ impl Hooked {
             && let Some(id) = s.selected.clone()
         {
             s.row_menu = Some((id, rune::PointerPress { x: 220.0, y: 260.0 }));
+        }
+        if let Some(i) = args.iter().position(|a| a == "--open-section") {
+            let label = args.get(i + 1).cloned().unwrap_or_default();
+            if let Some(sec) = crate::sections::Section::ALL
+                .into_iter()
+                .find(|x| x.label().eq_ignore_ascii_case(&label))
+            {
+                s.toggle_section(sec);
+            }
+        }
+        if args.iter().any(|a| a == "--snooze-menu") {
+            s.snooze_menu = s.selected.clone();
+        }
+        if args.iter().any(|a| a == "--filter-menu") {
+            s.popup = Some(Popup::Filter);
         }
         if args.iter().any(|a| a == "--sort-menu") {
             s.popup = Some(Popup::Sort);
@@ -1148,22 +1176,7 @@ impl Hooked {
     }
 
     pub fn snooze(&mut self, ids: Vec<String>, hours: f64) {
-        let until = fmt::now_ms() as f64 + hours * 3_600_000.0;
-        for id in &ids {
-            self.meta.entry(id.clone()).or_default().snooze_until = Some(until);
-        }
-        self.now = fmt::now_ms();
-        self.spawn(
-            move || {
-                ids.iter().try_for_each(|id| {
-                    api::patch_meta(id, serde_json::json!({ "snoozeUntil": until }))
-                })
-            },
-            |s, r, _| match r {
-                Ok(()) => s.flash("✓ Snoozed for an hour", false),
-                Err(e) => s.flash(format!("✗ Snooze: {e}"), true),
-            },
-        );
+        self.snooze_until(ids, fmt::now_ms() + (hours * 3_600_000.0) as i64);
     }
 
     pub fn send_followup(&mut self, id: String, text: String) {
@@ -1367,6 +1380,7 @@ impl Hooked {
         );
         p.sending = true;
         p.composer = TextEdit::new("");
+        self.wake(&sid);
         self.spawn(
             move || {
                 if live {
@@ -1800,6 +1814,7 @@ impl Hooked {
         );
         self.sending = true;
         self.queued.push(text.clone());
+        self.wake(&id);
         self.spawn(
             move || {
                 if live {
@@ -2103,6 +2118,7 @@ impl Hooked {
             })
             .collect();
         let id = d.session.id.clone();
+        self.wake(&id);
         self.act("Answered", move || api::answer(&id, &selections, None));
     }
 

@@ -35,9 +35,10 @@ session states coloured by how much they need you.
   theme, settings (⌘,), `+ Session`, and a connection dot.
 - **Shortcuts**: ⌥1 Deck, ⌥2 Sessions, ⌥4–7 Stats / Digest / Memory / GitHub, ⌘J terminal,
   ⌘⇧J new terminal, ⌘⇧D context panel, ⌘⇧F focus mode, ⌘⇧T theme, ⌘⇧S split, ⌘B sidebar.
-- **Sidebar**: Sessions / Archived tabs with counts, last-24h filter, group by project
-  (collapsible sections with a `+` each), cache countdown or age per row, hover actions (group, tags, pin, incognito, split, archive),
-  resizable, folds to a rail (⌘B).
+- **Sidebar**: sessions by status (Waiting, Working, Idle; Snoozed and Archived at the bottom,
+  opening upward), by project (collapsible sections with a `+` each) or flat; last-24h filter, a
+  repo and tag filter, cache countdown or age per row (wake time when snoozed), hover actions
+  (group, tags, pin, incognito, snooze, split, archive), resizable, folds to a rail (⌘B).
 - **Session**: title, repo · branch, state, context gauge, prompt-cache badge, Resume, Archive,
   split, context panel, and a ⋯ menu (model, effort, permission mode, auto-approve, cost, open in
   editor or web, copy resume command, expand tool calls, restart, trash).
@@ -80,7 +81,7 @@ session states coloured by how much they need you.
   notifications, default page, new-session defaults, digest, auto-compact, tags, git sync, with a
   table of contents in place of the session list).
 - **Organizing**: drag a session (sidebar row or fleet card) onto another to group them, or onto
-  a fleet repo header to take it out of its group; tags on rows and in the header, a tag filter in the sidebar, groups under their
+  a fleet repo header to take it out of its group; tags on rows and in the header, groups under their
   lead session with a tab strip (switch, make lead, leave, rename, new session in the group),
   incognito mode for screen sharing, Fork from any message with model, effort, mode and a first
   message, cost breakdown, copy as Markdown, focus mode, and up to four split panes.
@@ -118,6 +119,9 @@ cargo run -- --snap /tmp/review.png --size 1440x900 -- --session <id> --lens rev
 cargo run -- --snap /tmp/stats.png --size 1440x900 -- --page stats   # digest, memory, cron, github, settings
 cargo run -- --snap /tmp/split.png --size 1600x900 -- --session <id> --split
 cargo run -- --window quick --snap /tmp/quick.png --size 760x500
+cargo run -- --snap /tmp/sidebar.png --size 1440x900 -- --session <id> --open-section archived   # any section
+cargo run -- --snap /tmp/menus.png --size 1440x900 -- --session <id> --snooze-menu   # --sort-menu, --filter-menu
+cargo run -- --snap /tmp/filter.png --size 1440x900 -- --session <id> --picker filter-repo   # filter-tag
 ```
 
 With these flags the app loads the data synchronously before the first frame, so the PNG shows it.

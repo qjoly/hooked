@@ -26,6 +26,17 @@ lucide!(
 );
 lucide!(PLUS, "plus", r#"<path d="M12 5v14M5 12h14"/>"#);
 lucide!(
+    FILTER,
+    "filter",
+    r#"<path d="M10 20a1 1 0 0 0 .553.895l2 1A1 1 0 0 0 14 21v-7a2 2 0 0 1 .517-1.341L21.74 4.67A1 1 0 0 0 21 3H3a1 1 0 0 0-.742 1.67l7.225 7.989A2 2 0 0 1 10 14z"/>"#
+);
+lucide!(CHEVRON_UP, "chevron-up", r#"<path d="m18 15-6-6-6 6"/>"#);
+lucide!(
+    SNOOZE,
+    "snooze",
+    r#"<path d="M3 10h8l-8 11h8"/><path d="M14 14h6l-6 7h6"/><path d="M11 2h5l-5 5h5"/>"#
+);
+lucide!(
     PULL_REQUEST,
     "git-pull-request",
     r#"<circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M13 6h3a2 2 0 0 1 2 2v7"/><path d="M6 9v12"/>"#
