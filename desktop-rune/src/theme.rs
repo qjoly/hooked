@@ -3,8 +3,65 @@
 
 use std::sync::atomic::{AtomicU8, Ordering};
 
-use rune::Color;
+use rune::{Color, Spring, TextStyle};
 use rune_kit::{Kit, PaletteSeed, StateColors};
+
+use crate::knobs::{Knob, get, knobs};
+
+knobs! {
+    "Corners" at "window" under "Theme";
+    RADIUS_XS = 2.0, 0.0..=16.0, "Radius xs", step 0.5;
+    RADIUS_SM = 4.0, 0.0..=16.0, "Radius sm", step 0.5;
+    RADIUS_MD = 6.0, 0.0..=20.0, "Radius md", step 0.5;
+    RADIUS_LG = 8.0, 0.0..=24.0, "Radius lg", step 0.5;
+    RADIUS_XL = 10.0, 0.0..=28.0, "Radius xl", step 0.5;
+}
+
+knobs! {
+    "Type" at "window" under "Theme";
+    FONT_UI = 13.0, 9.0..=18.0, "UI and controls", step 0.5;
+    FONT_SMALL = 11.0, 8.0..=16.0, "Captions", step 0.5;
+    FONT_BODY = 14.0, 10.0..=20.0, "Body (messages)", step 0.5;
+    FONT_TEXT_SMALL = 13.0, 9.0..=18.0, "Text small (titles, rows)", step 0.5;
+    FONT_TEXT_XSMALL = 12.0, 8.0..=16.0, "Text xsmall (subtitles)", step 0.5;
+    FONT_MONO = 12.0, 8.0..=18.0, "Mono (code)", step 0.5;
+}
+
+knobs! {
+    "Motion" at "window" under "Theme";
+    LAYOUT_SPRING_TIME = 0.3, 0.05..=1.5, "Layout spring time", step 0.01;
+    LAYOUT_SPRING_BOUNCE = 0.0, -0.5..=0.9, "Layout spring bounce", step 0.01;
+    CONTROL_SPRING_TIME = 0.25, 0.05..=1.5, "Controls spring time", step 0.01;
+    CONTROL_SPRING_BOUNCE = 0.0, -0.5..=0.9, "Controls spring bounce", step 0.01;
+    OVERLAY_SPRING_TIME = 0.25, 0.05..=1.5, "Menus and popovers spring time", step 0.01;
+    OVERLAY_SPRING_BOUNCE = 0.0, -0.5..=0.9, "Menus and popovers spring bounce", step 0.01;
+    DISCLOSURE_SPRING_TIME = 0.3, 0.05..=1.5, "Disclosure spring time", step 0.01;
+    DISCLOSURE_SPRING_BOUNCE = 0.0, -0.5..=0.9, "Disclosure spring bounce", step 0.01;
+}
+
+fn spring(time: &Knob, bounce: &Knob) -> Spring {
+    Spring::new(get(time), get(bounce))
+}
+
+/// Rune's own default layout spring (`motion::DEFAULT`) is what runs when this is `None`; only
+/// a tuned value is set on the root, so the defaults leave the tree exactly as before.
+pub fn layout_spring() -> Option<Spring> {
+    let tuned = get(&LAYOUT_SPRING_TIME) != LAYOUT_SPRING_TIME.default
+        || get(&LAYOUT_SPRING_BOUNCE) != LAYOUT_SPRING_BOUNCE.default;
+    tuned.then(|| spring(&LAYOUT_SPRING_TIME, &LAYOUT_SPRING_BOUNCE))
+}
+
+fn sized(t: TextStyle, size: &Knob) -> TextStyle {
+    let size = get(size);
+    if size == t.size {
+        return t;
+    }
+    TextStyle {
+        size,
+        line_height: t.line_height * size / t.size,
+        ..t
+    }
+}
 
 fn hex(s: &str) -> Color {
     rune::color::hex(s).unwrap_or(Color::BLACK)
@@ -452,6 +509,31 @@ pub fn kit(dark: bool) -> Kit {
     c.warning = state(s.warn);
     c.success = state(s.success);
     c.danger = state(s.danger);
+    k.radius = rune_kit::Radius {
+        xs: get(&RADIUS_XS),
+        sm: get(&RADIUS_SM),
+        md: get(&RADIUS_MD),
+        lg: get(&RADIUS_LG),
+        xl: get(&RADIUS_XL),
+    };
+    let t = &mut k.ty;
+    t.ui = sized(t.ui, &FONT_UI);
+    t.ui_medium = sized(t.ui_medium, &FONT_UI);
+    t.ui_compact = sized(t.ui_compact, &FONT_UI);
+    t.small = sized(t.small, &FONT_SMALL);
+    t.small_medium = sized(t.small_medium, &FONT_SMALL);
+    t.body = sized(t.body, &FONT_BODY);
+    t.body_medium = sized(t.body_medium, &FONT_BODY);
+    t.text_small = sized(t.text_small, &FONT_TEXT_SMALL);
+    t.text_small_medium = sized(t.text_small_medium, &FONT_TEXT_SMALL);
+    t.text_xsmall = sized(t.text_xsmall, &FONT_TEXT_XSMALL);
+    t.text_xsmall_medium = sized(t.text_xsmall_medium, &FONT_TEXT_XSMALL);
+    t.mono = sized(t.mono, &FONT_MONO);
+    k.motion = rune_kit::Motion {
+        control: spring(&CONTROL_SPRING_TIME, &CONTROL_SPRING_BOUNCE),
+        overlay: spring(&OVERLAY_SPRING_TIME, &OVERLAY_SPRING_BOUNCE),
+        disclosure: spring(&DISCLOSURE_SPRING_TIME, &DISCLOSURE_SPRING_BOUNCE),
+    };
     match cs {
         ColorScheme::Datadog => {
             k.radius.xs = 2.0;
@@ -579,6 +661,26 @@ mod tests {
                 "\"gruvbox\"",
                 "\"claude\"",
             ]
+        );
+    }
+
+    #[test]
+    fn knob_defaults_are_the_kit_defaults() {
+        let base = Kit::from_palette(PaletteSeed {
+            bg: Color::WHITE,
+            fg: Color::BLACK,
+            accent: Color::BLACK,
+        });
+        let ours = kit(false);
+        assert_eq!(format!("{:?}", ours.radius), format!("{:?}", base.radius));
+        assert_eq!(format!("{:?}", ours.ty), format!("{:?}", base.ty));
+        assert_eq!(ours.motion.control, base.motion.control);
+        assert_eq!(ours.motion.overlay, base.motion.overlay);
+        assert_eq!(ours.motion.disclosure, base.motion.disclosure);
+        assert_eq!(layout_spring(), None);
+        assert_eq!(
+            Spring::new(LAYOUT_SPRING_TIME.default, LAYOUT_SPRING_BOUNCE.default),
+            rune::tok::motion::DEFAULT
         );
     }
 

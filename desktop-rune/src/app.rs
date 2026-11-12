@@ -203,6 +203,8 @@ pub struct Hooked {
     pub ptys: crate::terminal::Ptys,
     pub term_focus: Option<crate::terminal::TermFocus>,
     pub term_claimed: bool,
+    #[cfg(feature = "knobs")]
+    pub knobs: rune_knobs::Knobs,
     pub theme_dark: std::cell::Cell<bool>,
     pub attach_seq: u64,
     pub queued: Vec<String>,
@@ -463,6 +465,8 @@ impl Hooked {
             ptys: Default::default(),
             term_focus: None,
             term_claimed: false,
+            #[cfg(feature = "knobs")]
+            knobs: Default::default(),
             theme_dark: std::cell::Cell::new(true),
             attach_seq: 0,
             queued: Vec::new(),
@@ -626,6 +630,17 @@ impl Hooked {
                 .find(|x| x.label().eq_ignore_ascii_case(&label))
             {
                 s.toggle_section(sec);
+            }
+        }
+        #[cfg(feature = "knobs")]
+        if let Some(i) = args.iter().position(|a| a == "--knobs") {
+            s.knobs.show();
+            if let Some(g) = args.get(i + 1).filter(|g| !g.starts_with("--")) {
+                s.knobs.pick(g);
+                s.knobs.set_folded(g, false);
+                if let Some(group) = crate::knobs::groups().iter().find(|x| x.name == g.as_str()) {
+                    s.knobs.set_folded(group.page(), false);
+                }
             }
         }
         if args.iter().any(|a| a == "--snooze-menu") {

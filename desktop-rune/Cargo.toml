@@ -11,6 +11,8 @@ rune-notify = { git = "https://github.com/anomalyco/rune", rev = "a7f276c3630f85
 rune-luau = { git = "https://github.com/anomalyco/rune", rev = "a7f276c3630f85a06a0230295da4d2bd172d8d3b", features = ["serde"] }
 rune-perf = { git = "https://github.com/anomalyco/rune", rev = "a7f276c3630f85a06a0230295da4d2bd172d8d3b" }
 procwatch = { git = "https://github.com/anomalyco/rune", rev = "a7f276c3630f85a06a0230295da4d2bd172d8d3b" }
+rune-knobs = { git = "https://github.com/anomalyco/rune", rev = "a7f276c3630f85a06a0230295da4d2bd172d8d3b" }
+rune-register = { git = "https://github.com/anomalyco/rune", rev = "a7f276c3630f85a06a0230295da4d2bd172d8d3b", optional = true }
 ureq = { version = "2", features = ["json"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -22,6 +24,8 @@ libghostty-vt = { git = "https://github.com/Uzaaft/libghostty-rs", rev = "9b598d
 [features]
 hot = ["rune/hot"]
 frame-profile = ["rune/frame-profile", "rune-kit/frame-profile"]
+# The ⌘⇧K tuning panel. Dev only: `cargo build --release` leaves it out.
+knobs = ["rune-knobs/panel", "dep:rune-register"]
 
 [target.'cfg(target_os = "macos")'.dependencies]
 tray-icon = "0.21"

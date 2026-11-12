@@ -25,10 +25,21 @@ use rune_kit::{
 
 use crate::api::Session;
 use crate::app::{Hooked, Page, Popup, Theme};
+use crate::knobs::get;
 use crate::sections::{Section, clock, section_of, snooze_presets, wake_label};
 use crate::{fmt, icons};
 
 pub const SIDEBAR_W: f32 = 300.0;
+
+crate::knobs::knobs! {
+    "Session row" at "sidebar-wrap" under "Sidebar";
+    SIDEBAR_ROW_PAD_Y = 6.0, 0.0..=20.0, "Padding top and bottom", step 0.5;
+    SIDEBAR_ROW_PAD_L = 10.0, 0.0..=32.0, "Padding left", step 0.5;
+    SIDEBAR_ROW_PAD_R = 8.0, 0.0..=32.0, "Padding right", step 0.5;
+    SIDEBAR_ROW_MIN_H = 0.0, 0.0..=80.0, "Min height (0: fits its lines)", step 1.0;
+    SIDEBAR_ROW_LINE_GAP = 2.0, 0.0..=12.0, "Gap between title and subtitle", step 0.5;
+    SIDEBAR_ROW_INDENT = 16.0, 0.0..=40.0, "Indent per group level", step 1.0;
+}
 pub const DOCK_W: f32 = 300.0;
 pub const SHOTS_FOLDED: usize = 4;
 pub const SHOTS_OPEN: usize = 60;
@@ -69,6 +80,8 @@ pub fn small_icon_button(i: &'static Icon, help: &str, on: bool) -> IconButton {
 pub const TOPBAR_H: f32 = 52.0;
 
 pub fn view(s: &Hooked, cx: &mut Cx<Hooked>) -> El {
+    #[cfg(feature = "knobs")]
+    crate::knobs::sync(&s.knobs);
     let k = kit(s, cx);
     s.drop_live.borrow_mut().clear();
     let mut layer = Vec::new();
@@ -113,7 +126,7 @@ pub fn view(s: &Hooked, cx: &mut Cx<Hooked>) -> El {
             body = body.child(dock::view(s, d, &k, &mut layer));
         }
     }
-    let base = col()
+    let mut base = col()
         .key("window")
         .on_layout(|s: &mut Hooked, r: [f32; 4]| {
             if (s.window_h - r[3]).abs() > 0.5 {
@@ -129,6 +142,9 @@ pub fn view(s: &Hooked, cx: &mut Cx<Hooked>) -> El {
         .fill(k.c.bg_deep)
         .child(topbar(s, &k, cx.titlebar_inset(), &mut layer))
         .child(body);
+    if let Some(spring) = crate::theme::layout_spring() {
+        base = base.token_motion(spring);
+    }
     if let Some(w) = s.run_win.as_ref() {
         layer.push(ghrun::view(s, w, &k));
     }
@@ -147,7 +163,7 @@ pub fn view(s: &Hooked, cx: &mut Cx<Hooked>) -> El {
     if s.picker.is_some() {
         layer.push(organize::view(s, &k));
     }
-    rune_kit::root(base, layer)
+    rune_kit::root(crate::knobs::side(base, s, k.dark), layer)
         .on_window_focus(|s: &mut Hooked, gained: bool, _| s.window_focus(gained))
         .on_paste_content(
             |s: &mut Hooked, c: &rune::ClipboardContent, tx: &mut rune::Tx| {
@@ -803,7 +819,7 @@ fn session_row(
     let mut body = col()
         .grow(1.0)
         .min_w(0.0)
-        .gap(2.0)
+        .gap(get(&SIDEBAR_ROW_LINE_GAP))
         .child(
             row()
                 .w_full()
@@ -831,9 +847,9 @@ fn session_row(
         .checked(selected)
         .label(s.title_of(x))
         .w_full()
-        .pl(10.0 + f32::from(depth) * 16.0)
-        .pr(8.0)
-        .py(6.0)
+        .pl(get(&SIDEBAR_ROW_PAD_L) + f32::from(depth) * get(&SIDEBAR_ROW_INDENT))
+        .pr(get(&SIDEBAR_ROW_PAD_R))
+        .py(get(&SIDEBAR_ROW_PAD_Y))
         .radius(k.radius.md)
         .cursor(Cursor::Pointer)
         .hover_group()
@@ -843,6 +859,9 @@ fn session_row(
         .opacity(if archived || wake.is_some() { 0.7 } else { 1.0 })
         .child(body)
         .child(actions.pin(None, Some(4.0), Some(6.0), None));
+    if get(&SIDEBAR_ROW_MIN_H) > 0.0 {
+        r = r.min_h(get(&SIDEBAR_ROW_MIN_H)).center_y();
+    }
     if selected {
         r = r.fill(k.c.pressed);
     }

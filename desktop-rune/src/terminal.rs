@@ -27,7 +27,14 @@ impl Drop for Term {
     }
 }
 
-pub const PAD: f32 = 8.0;
+crate::knobs::knobs! {
+    "Screen" at "term-screen" under "Terminal";
+    TERM_PAD = 8.0, 0.0..=32.0, "Padding around the cells", step 1.0;
+}
+
+pub fn pad() -> f32 {
+    crate::knobs::get(&TERM_PAD)
+}
 
 thread_local! {
     static BLINK_RESET: std::cell::Cell<i64> = const { std::cell::Cell::new(0) };
@@ -453,8 +460,8 @@ impl Hooked {
     pub fn fit_terms(&mut self, w: f32, h: f32) {
         self.term.screen = (w, h);
         let cell = self.term_cell();
-        let cols = ((w - 2.0 * PAD) / cell.0).floor().clamp(20.0, 500.0) as u16;
-        let rows = ((h - 2.0 * PAD) / cell.1).floor().clamp(3.0, 300.0) as u16;
+        let cols = ((w - 2.0 * pad()) / cell.0).floor().clamp(20.0, 500.0) as u16;
+        let rows = ((h - 2.0 * pad()) / cell.1).floor().clamp(3.0, 300.0) as u16;
         if self.term.size == Some((cols, rows)) {
             return;
         }
@@ -684,10 +691,10 @@ impl Hooked {
     fn cell_at(&self, f: &TermFocus, x: f32, y: f32) -> (u16, u16) {
         let (cw, ch) = self.term_cell();
         let (cols, rows) = self.target(f).map_or((COLS, ROWS), |t| t.vt.size());
-        let col = ((x - PAD) / cw)
+        let col = ((x - pad()) / cw)
             .floor()
             .clamp(0.0, f32::from(cols.saturating_sub(1))) as u16;
-        let row = ((y - PAD) / ch)
+        let row = ((y - pad()) / ch)
             .floor()
             .clamp(0.0, f32::from(rows.saturating_sub(1))) as u16;
         (col, row)
@@ -723,9 +730,13 @@ impl Hooked {
         };
         if button == rune::PointerButton::Middle {
             if tracking {
-                if let Some(bytes) =
-                    t.vt.encode_mouse(action, Some(Button::Middle), d.x - PAD, d.y - PAD, shift)
-                {
+                if let Some(bytes) = t.vt.encode_mouse(
+                    action,
+                    Some(Button::Middle),
+                    d.x - pad(),
+                    d.y - pad(),
+                    shift,
+                ) {
                     post_input(t.id.clone(), &bytes);
                 }
             } else if d.phase == rune::Phase::Down
@@ -740,7 +751,7 @@ impl Hooked {
         }
         if !shift && tracking {
             if let Some(bytes) =
-                t.vt.encode_mouse(action, Some(Button::Left), d.x - PAD, d.y - PAD, false)
+                t.vt.encode_mouse(action, Some(Button::Left), d.x - pad(), d.y - pad(), false)
             {
                 post_input(t.id.clone(), &bytes);
             }
@@ -748,9 +759,9 @@ impl Hooked {
             return;
         }
         if d.phase == rune::Phase::Move && has_sel {
-            if d.y < PAD {
+            if d.y < pad() {
                 t.vt.scroll(-1);
-            } else if d.y > PAD + f32::from(rows) * ch {
+            } else if d.y > pad() + f32::from(rows) * ch {
                 t.vt.scroll(1);
             }
         }
@@ -819,7 +830,7 @@ impl Hooked {
         };
         for action in [Action::Press, Action::Release] {
             if let Some(bytes) =
-                t.vt.encode_mouse(action, Some(Button::Right), x - PAD, y - PAD, false)
+                t.vt.encode_mouse(action, Some(Button::Right), x - pad(), y - pad(), false)
             {
                 post_input(t.id.clone(), &bytes);
             }
@@ -838,7 +849,7 @@ impl Hooked {
             return;
         };
         if let Some(bytes) =
-            t.vt.encode_mouse(Action::Motion, None, x - PAD, y - PAD, false)
+            t.vt.encode_mouse(Action::Motion, None, x - pad(), y - pad(), false)
         {
             post_input(t.id.clone(), &bytes);
         }
@@ -1178,7 +1189,7 @@ impl Hooked {
 
     pub fn pty_fit(&mut self, id: &str, w: f32) {
         let cell = self.term_cell();
-        let cols = ((w - 2.0 * PAD) / cell.0).floor().clamp(20.0, 500.0) as u16;
+        let cols = ((w - 2.0 * pad()) / cell.0).floor().clamp(20.0, 500.0) as u16;
         let Some(t) = self.ptys.terms.iter_mut().find(|t| t.id == id) else {
             return;
         };

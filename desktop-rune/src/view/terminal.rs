@@ -569,7 +569,7 @@ pub fn panel(s: &Hooked, k: &Kit) -> El {
         .w_full()
         .grow(1.0)
         .min_h(0.0)
-        .padding(8.0)
+        .padding(crate::terminal::pad())
         .fill(
             p.terms
                 .get(p.active)
@@ -849,8 +849,9 @@ pub fn pty_block(s: &Hooked, k: &Kit, f: &crate::terminal::PtyFence) -> El {
                 .label("Interactive terminal")
                 .focusable(true)
                 .w_full()
-                .h(f32::from(crate::terminal::PTY_ROWS) * t.vt.cell.1 + 2.0 * crate::terminal::PAD)
-                .padding(crate::terminal::PAD)
+                .h(f32::from(crate::terminal::PTY_ROWS) * t.vt.cell.1
+                    + 2.0 * crate::terminal::pad())
+                .padding(crate::terminal::pad())
                 .clip_rounded(0.0)
                 .fill(t.vt.background)
                 .cursor(Cursor::Text)
