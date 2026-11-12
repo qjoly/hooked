@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Only paints the window before Compose draws; the app colours live in ui/Theme.kt. -->
+    <style name="Theme.Hooked" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:colorAccent">@color/accent</item>
+        <item name="android:colorPrimary">@color/ground</item>
+        <item name="android:colorPrimaryDark">@color/ground</item>
+        <item name="android:windowBackground">@color/ground</item>
+        <item name="android:textColorPrimary">@color/ink</item>
+        <item name="android:textColorSecondary">@color/muted</item>
+    </style>
+</resources>

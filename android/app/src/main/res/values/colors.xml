@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Roast neutral ladder from DESIGN.md, as in the iOS app. -->
+<resources>
+    <color name="ground">#E9EBDF</color>
+    <color name="ink">#18110E</color>
+    <color name="muted">#6E6056</color>
+    <color name="accent">#261B18</color>
+    <color name="icon_background">#1E1512</color>
+</resources>
