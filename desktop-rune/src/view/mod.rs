@@ -41,6 +41,7 @@ crate::knobs::knobs! {
     SIDEBAR_ROW_INDENT = 16.0, 0.0..=40.0, "Indent per group level", step 1.0;
 }
 pub const DOCK_W: f32 = 300.0;
+pub const RENDERED_W: f32 = 460.0;
 pub const SHOTS_FOLDED: usize = 4;
 pub const SHOTS_OPEN: usize = 60;
 
@@ -1807,4 +1808,41 @@ pub fn section_title(k: &Kit, label: &str) -> El {
     text(label.to_string())
         .font(k.ty.text_xsmall_medium)
         .color(k.c.text_faint)
+}
+
+/// The narrowest a right-hand column (the dock, the Review lens's rendered Markdown) gets.
+pub const COLUMN_MIN_W: f32 = 240.0;
+
+/// `w` clamped between [`COLUMN_MIN_W`] and 60% of the window, as [`column_grip`] keeps it.
+pub fn column_width(s: &Hooked, w: f32) -> f32 {
+    w.clamp(COLUMN_MIN_W, (s.window_w * 0.6).max(COLUMN_MIN_W))
+}
+
+/// The grip on a right-hand column's left edge: dragging it left widens the column, Escape puts
+/// the width back, and the release saves it.
+pub fn column_grip(
+    key: &str,
+    get: fn(&Hooked) -> f32,
+    set: fn(&mut Hooked, f32),
+    save: fn(&mut Hooked, f32),
+) -> El {
+    el().key(key.to_string())
+        .w(6.0)
+        .h_full()
+        .cursor(Cursor::ResizeColumn)
+        .help("Drag to resize")
+        .on_drag(move |s: &mut Hooked, d: &mut rune::Drag, _| {
+            if d.phase == Phase::Down {
+                d.data = get(s);
+            }
+            if d.cancelled() {
+                set(s, d.data);
+                return;
+            }
+            let w = column_width(s, d.data - d.dx);
+            set(s, w);
+            if d.phase == Phase::Up {
+                save(s, w);
+            }
+        })
 }
