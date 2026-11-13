@@ -810,13 +810,33 @@ pub fn open_editor(id: &str) -> Result<(), String> {
     post("/api/open-editor", json!({ "id": id })).map(|_| ())
 }
 
-pub fn vcs_changes(id: &str) -> Result<Vec<Change>, String> {
+/// A git / jj repository detected under the session's directory: the one it runs in, or a clone
+/// nested below it. `changes` is only filled by the working-tree diff.
+#[derive(Clone, Debug, Default, Deserialize, PartialEq)]
+#[serde(default, rename_all = "camelCase")]
+pub struct Repo {
+    pub root: String,
+    pub label: String,
+    pub primary: bool,
+    pub changes: Vec<Change>,
+}
+
+impl Repo {
+    /// The server leaves the primary repo's label empty.
+    pub fn name(&self) -> &str {
+        if self.label.is_empty() {
+            self.root.rsplit('/').next().unwrap_or(&self.root)
+        } else {
+            &self.label
+        }
+    }
+}
+
+/// Read from `repos`, not the top-level `changes`: those only mirror the primary repo, which a
+/// session started above several clones does not have.
+pub fn vcs_changes(id: &str) -> Result<Vec<Repo>, String> {
     let v = get(&format!("/api/session/vcs-diff?id={}", enc(id)))?;
-    decode(
-        v.get("changes")
-            .cloned()
-            .unwrap_or(Value::Array(Vec::new())),
-    )
+    decode(v.get("repos").cloned().unwrap_or(Value::Array(Vec::new())))
 }
 
 #[derive(Clone, Debug, Default, Deserialize, PartialEq)]

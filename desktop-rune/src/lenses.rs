@@ -34,6 +34,10 @@ pub struct LensData {
     pub branch: Option<String>,
     pub base: Option<String>,
     pub branch_root: Option<String>,
+    /// The repos the Branch scope can pick from, when the session's directory holds several.
+    pub repos: Vec<api::Repo>,
+    /// Parallel to the diff's files in the Working tree scope; see `TreeDiffs::repos`.
+    pub file_repos: Vec<String>,
     pub worktree: Option<api::BaseDiff>,
     pub commits: Vec<Value>,
     pub picked: Vec<String>,
@@ -84,6 +88,8 @@ impl Default for LensData {
             branch: None,
             base: None,
             branch_root: None,
+            repos: Vec::new(),
+            file_repos: Vec::new(),
             worktree: None,
             commits: Vec::new(),
             picked: Vec::new(),
@@ -245,6 +251,34 @@ pub fn file_diffs(
         }
     }
     (out, anchors)
+}
+
+pub struct TreeDiffs {
+    pub files: Vec<FileDiff>,
+    pub anchors: Vec<(String, String)>,
+    /// The repo of each file, for the rail's headers; empty when there is only one repo.
+    pub repos: Vec<String>,
+}
+
+/// The uncommitted changes of every detected repo, one repo after the other, as the web lens
+/// flattens them.
+pub fn tree_diffs(repos: &[api::Repo], root: Option<&str>) -> TreeDiffs {
+    let several = repos.len() > 1;
+    let mut out = TreeDiffs {
+        files: Vec::new(),
+        anchors: Vec::new(),
+        repos: Vec::new(),
+    };
+    for r in repos {
+        let (files, anchors) = file_diffs(&r.changes, root, "vcs:wt");
+        if several {
+            out.repos
+                .extend(std::iter::repeat_n(r.name().to_string(), files.len()));
+        }
+        out.files.extend(files);
+        out.anchors.extend(anchors);
+    }
+    out
 }
 
 /// The web's `'wtb:' + wtd.base`, so threads land on the same sections from either client.
@@ -437,10 +471,17 @@ impl Hooked {
         }
     }
 
-    fn load_branches(&mut self, id: String) {
+    /// `root` picks one of the detected repos; none means the server's default, the primary one.
+    fn load_branches(&mut self, id: String, root: Option<String>) {
         self.lens_data.branches_loading = true;
         self.spawn(
-            move || api::get(&format!("/api/session/vcs-branches?id={}", api::enc(&id))),
+            move || {
+                let mut path = format!("/api/session/vcs-branches?id={}", api::enc(&id));
+                if let Some(root) = &root {
+                    path.push_str(&format!("&root={}", api::enc(root)));
+                }
+                api::get(&path)
+            },
             |s, r, _| {
                 let ld = &mut s.lens_data;
                 ld.branches_loading = false;
@@ -468,9 +509,26 @@ impl Hooked {
                     ld.base = default;
                 }
                 ld.branch_root = v["root"].as_str().map(str::to_string);
+                ld.repos = serde_json::from_value(v["repos"].clone()).unwrap_or_default();
                 ld.branches = Some(v);
             },
         );
+    }
+
+    /// Branches are listed per repo, so the pair under review starts over in the new one.
+    pub fn select_repo(&mut self, root: String) {
+        let ld = &mut self.lens_data;
+        if ld.branch_root.as_deref() == Some(root.as_str()) {
+            return;
+        }
+        ld.branch_root = Some(root);
+        ld.branches = None;
+        ld.branch = None;
+        ld.base = None;
+        ld.picked.clear();
+        ld.commits.clear();
+        ld.diff_sig = None;
+        ld.diff.set_files(Vec::new());
     }
 
     fn load_branch_diff(&mut self, id: String, sig: String) {
@@ -873,7 +931,8 @@ impl Hooked {
                         Some(key) => format!("{id}|branch|{key}|{activity}"),
                         None => {
                             if ld.branches.is_none() && !ld.branches_loading {
-                                self.load_branches(id);
+                                let root = ld.branch_root.clone();
+                                self.load_branches(id, root);
                                 return true;
                             }
                             return false;
@@ -918,12 +977,13 @@ impl Hooked {
                                 s.lens_data.diff_loading = false;
                                 s.lens_data.diff_sig = Some(sig);
                                 match r {
-                                    Ok(changes) => {
-                                        s.lens_data.diff_count = changes.len();
-                                        let (files, anchors) =
-                                            file_diffs(&changes, project.as_deref(), "vcs:wt");
-                                        s.lens_data.diff.set_files(files);
-                                        s.lens_data.anchors = anchors;
+                                    Ok(repos) => {
+                                        s.lens_data.diff_count =
+                                            repos.iter().map(|r| r.changes.len()).sum();
+                                        let tree = tree_diffs(&repos, project.as_deref());
+                                        s.lens_data.diff.set_files(tree.files);
+                                        s.lens_data.anchors = tree.anchors;
+                                        s.lens_data.file_repos = tree.repos;
                                         s.annotate();
                                         s.load_threads();
                                     }
@@ -1389,6 +1449,7 @@ impl Hooked {
             self.lens_data.review_source = src;
             self.lens_data.diff_sig = None;
             self.lens_data.diff.set_files(Vec::new());
+            self.lens_data.file_repos.clear();
         }
     }
 
@@ -1531,6 +1592,45 @@ mod tests {
         assert_eq!(files[0].path(), "src/a.rs · edit 1/2");
         assert_eq!(files[0].additions(), 1);
         assert_eq!(files[0].deletions(), 1);
+    }
+
+    fn repo(root: &str, label: &str, files: &[&str]) -> api::Repo {
+        serde_json::from_value(json!({
+            "root": root,
+            "label": label,
+            "changes": files.iter().map(|f| json!({ "file": f, "ops": [{ "old": "", "new": "x\n" }] })).collect::<Vec<_>>(),
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn working_tree_spans_every_repo_and_names_them_when_several() {
+        let repos = [
+            repo("/ws/api", "api", &["/ws/api/a.rs"]),
+            repo("/ws/empty", "empty", &[]),
+            repo("/ws/web", "web", &["/ws/web/b.ts", "/ws/web/c.ts"]),
+        ];
+        let tree = tree_diffs(&repos, Some("/ws"));
+        let paths: Vec<&str> = tree.files.iter().map(|f| f.path()).collect();
+        assert_eq!(paths, ["api/a.rs", "web/b.ts", "web/c.ts"]);
+        assert_eq!(tree.repos, ["api", "web", "web"]);
+        assert_eq!(
+            tree.anchors[1],
+            ("/ws/web/b.ts".to_string(), "vcs:wt:0".to_string())
+        );
+    }
+
+    #[test]
+    fn working_tree_of_a_single_repo_has_no_repo_headers() {
+        let tree = tree_diffs(&[repo("/r", "", &["/r/a.rs"])], Some("/r"));
+        assert_eq!(tree.files.len(), 1);
+        assert!(tree.repos.is_empty());
+    }
+
+    #[test]
+    fn primary_repo_is_named_after_its_folder() {
+        assert_eq!(repo("/ws/hooked", "", &[]).name(), "hooked");
+        assert_eq!(repo("/ws/hooked/sub", "sub", &[]).name(), "sub");
     }
 }
 

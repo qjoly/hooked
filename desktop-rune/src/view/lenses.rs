@@ -68,11 +68,36 @@ fn branch_panel(s: &Hooked, k: &Kit) -> El {
             .child(section_title(k, title))
             .child(chips(items))
     };
-    let mut c = col()
-        .w_full()
-        .gap(10.0)
-        .child(row_of("BRANCH", false))
-        .child(row_of("BASE", true));
+    let mut c = col().w_full().gap(10.0);
+    if ld.repos.len() > 1 {
+        let items = ld
+            .repos
+            .iter()
+            .map(|r| {
+                let root = r.root.clone();
+                let label = if r.primary {
+                    format!("{} · primary", r.name())
+                } else {
+                    r.name().to_string()
+                };
+                chip(
+                    k,
+                    format!("br-repo-{}", r.root),
+                    label,
+                    ld.branch_root.as_deref() == Some(r.root.as_str()),
+                    move |s| s.select_repo(root.clone()),
+                )
+            })
+            .collect();
+        c = c.child(
+            col()
+                .w_full()
+                .gap(6.0)
+                .child(section_title(k, "REPOSITORY"))
+                .child(chips(items)),
+        );
+    }
+    c = c.child(row_of("BRANCH", false)).child(row_of("BASE", true));
     if !ld.commits.is_empty() {
         let mut list = col().w_full().gap(1.0).child(
             k.interactive(
@@ -618,7 +643,34 @@ fn files_rail(s: &Hooked, k: &Kit) -> El {
     let visible = ld.diff.visible_file();
     let done = s.reviewed_count();
     let mut list = col().w_full().gap(1.0);
+    // A load still in flight when the source changed would leave the previous tree's repos behind.
+    let repos: &[String] = if ld.review_source == ReviewSource::Tree {
+        &ld.file_repos
+    } else {
+        &[]
+    };
     for (i, f) in files.iter().enumerate() {
+        if let Some(repo) = repos.get(i)
+            && (i == 0 || repos.get(i - 1) != Some(repo))
+        {
+            list = list.child(
+                row()
+                    .key(format!("rf-repo-{i}"))
+                    .w_full()
+                    .h(24.0)
+                    .px(8.0)
+                    .gap(6.0)
+                    .center_y()
+                    .child(glyph(&icons::FOLDER, 11.0, k.c.icon_muted))
+                    .child(
+                        text(repo.clone())
+                            .font(k.ty.text_small_medium)
+                            .color(k.c.text_base)
+                            .truncate()
+                            .min_w(0.0),
+                    ),
+            );
+        }
         let on = i == visible;
         let reviewed = s.is_reviewed(i);
         let path = f.path().to_string();
@@ -800,6 +852,14 @@ pub fn review(s: &Hooked, d: &Detail, k: &Kit) -> El {
             }
             _ => "Loading branches…".to_string(),
         };
+        let label = match ld
+            .repos
+            .iter()
+            .find(|r| ld.branch_root.as_deref() == Some(r.root.as_str()))
+        {
+            Some(r) if ld.repos.len() > 1 => format!("{label} · {}", r.name()),
+            _ => label,
+        };
         top = top.child(
             Button::new(label)
                 .icon(&icons::GIT_BRANCH)
@@ -937,7 +997,13 @@ pub fn review(s: &Hooked, d: &Detail, k: &Kit) -> El {
         let msg = if ld.diff_loading {
             "Reading the working tree…"
         } else if ld.review_source == ReviewSource::Branch {
-            if ld.branch.is_none() {
+            let none_listed = ld
+                .branches
+                .as_ref()
+                .is_some_and(|v| v["branches"].as_array().is_none_or(Vec::is_empty));
+            if none_listed {
+                "No local branches in this repository."
+            } else if ld.branch.is_none() {
                 "Reading the branches…"
             } else {
                 "No difference between the branch and its base."
