@@ -4,10 +4,11 @@ use rune_kit::{
     Button, ButtonVariant, ControlSize, Kit, SegmentedControl, Spinner, TextArea, TextInput,
 };
 
-use super::{glyph, section_title};
+use super::{column_grip, column_width, glyph, section_title};
 use crate::api::{Detail, McpServer, TraceSpan};
 use crate::app::Hooked;
 use crate::lenses::ReviewSource;
+use crate::mddiff::is_markdown;
 use crate::{fmt, icons};
 
 fn bar(k: &Kit, key: &str) -> El {
@@ -475,50 +476,39 @@ fn threads_panel(s: &Hooked, k: &Kit) -> El {
         .child(c)
 }
 
-fn is_markdown(path: &str) -> bool {
-    let p = path.split(" · ").next().unwrap_or(path).to_lowercase();
-    p.ends_with(".md") || p.ends_with(".markdown") || p.ends_with(".mdx")
-}
-
 fn rendered_panel(s: &Hooked, k: &Kit) -> El {
+    use crate::mddiff::{Kind, covered, file_pieces};
     let ld = &s.lens_data;
-    let i = ld.diff.visible_file();
-    let Some(f) = ld.diff.files().get(i).filter(|f| is_markdown(f.path())) else {
+    let file = ld.diff.visible_file();
+    let Some(f) = ld.diff.files().get(file).filter(|f| is_markdown(f.path())) else {
         return el();
     };
-    let side_text = |side: rune_kit::diff::Side| {
-        f.text(side).map(str::to_string).unwrap_or_else(|| {
-            f.hunks
-                .iter()
-                .flat_map(|h| &h.lines)
-                .filter(|l| match side {
-                    rune_kit::diff::Side::New => l.new.is_some(),
-                    rune_kit::diff::Side::Old => l.old.is_some(),
-                })
-                .map(|l| l.text.as_str())
-                .collect::<Vec<_>>()
-                .join("\n")
-        })
-    };
-    let diff = crate::mddiff::block_diff(
-        &side_text(rune_kit::diff::Side::Old),
-        &side_text(rune_kit::diff::Side::New),
-    );
+    let pieces = file_pieces(f);
+    let lit = ld
+        .diff
+        .selection()
+        .filter(|sel| sel.file == file)
+        .and_then(|sel| covered(&pieces, sel));
     let mut doc = col().w_full().gap(2.0);
-    if diff.is_empty() {
+    if pieces.is_empty() {
         doc = doc.child(
             text("Empty document.")
                 .font(k.ty.text_small)
                 .color(k.c.text_faint),
         );
     }
-    for (i, (kind, md)) in diff.into_iter().enumerate() {
-        use crate::mddiff::Kind;
-        let (sign, tint) = match kind {
+    for (i, p) in pieces.into_iter().enumerate() {
+        let (sign, tint) = match p.kind {
             Kind::Add => ("+", Some(k.c.success)),
             Kind::Del => ("−", Some(k.c.danger)),
             Kind::Ctx => ("", None),
         };
+        let fill = if lit.as_ref().is_some_and(|r| r.contains(&i)) {
+            Some(k.c.info)
+        } else {
+            tint
+        };
+        let source = p.source();
         let mut b = row()
             .key(format!("mdd-{i}"))
             .w_full()
@@ -534,43 +524,60 @@ fn rendered_panel(s: &Hooked, k: &Kit) -> El {
                 col()
                     .grow(1.0)
                     .min_w(0.0)
-                    .child(super::md(md).selectable(true).build(k)),
+                    .child(super::md(p.text).selectable(true).build(k)),
             );
-        if let Some(t) = tint {
+        if let Some(t) = fill {
             b = b.fill(t.bg).border_sides([0.0, 0.0, 0.0, 3.0], t.icon);
+        }
+        if let Some((side, lines)) = source {
+            b = b.on_press_tx(move |s: &mut Hooked, tx| {
+                s.show_md_source(file, side, lines.clone(), tx)
+            });
         }
         doc = doc.child(b);
     }
-    col()
+    row()
         .key("review-rendered")
-        .w(460.0)
+        .w(column_width(s, s.rendered_w))
         .h_full()
         .border_sides([0.0, 0.0, 0.0, 1.0], k.c.border_weak)
-        .child(
-            row()
-                .w_full()
-                .h(32.0)
-                .px(12.0)
-                .center_y()
-                .child(section_title(k, "RENDERED"))
-                .child(el().grow(1.0))
-                .child(
-                    text(f.path().rsplit('/').next().unwrap_or("").to_string())
-                        .font(k.ty.text_xsmall)
-                        .color(k.c.text_faint),
-                ),
-        )
+        .child(column_grip(
+            "rendered-resize",
+            |s| s.rendered_w,
+            |s, w| s.rendered_w = w,
+            |s, w| s.save_pref("renderedW", &w),
+        ))
         .child(
             col()
-                .w_full()
                 .grow(1.0)
-                .min_h(0.0)
-                .pr(16.0)
-                .pb(16.0)
-                .scroll(ScrollSpec {
-                    stick_bottom: false,
-                })
-                .child(doc),
+                .min_w(0.0)
+                .h_full()
+                .child(
+                    row()
+                        .w_full()
+                        .h(32.0)
+                        .px(12.0)
+                        .center_y()
+                        .child(section_title(k, "RENDERED"))
+                        .child(el().grow(1.0))
+                        .child(
+                            text(f.path().rsplit('/').next().unwrap_or("").to_string())
+                                .font(k.ty.text_xsmall)
+                                .color(k.c.text_faint),
+                        ),
+                )
+                .child(
+                    col()
+                        .w_full()
+                        .grow(1.0)
+                        .min_h(0.0)
+                        .pr(16.0)
+                        .pb(16.0)
+                        .scroll(ScrollSpec {
+                            stick_bottom: false,
+                        })
+                        .child(doc),
+                ),
         )
 }
 
@@ -1029,6 +1036,9 @@ pub fn review(s: &Hooked, d: &Detail, k: &Kit) -> El {
             .grow(1.0)
             .h_full()
             .min_w(0.0)
+            // A narrow diff (a wide rendered column) would let the sticky file header spill
+            // over the column beside it.
+            .clip_rounded(0.0)
             .child(
                 DiffView::new(
                     |s: &Hooked| &s.lens_data.diff,
@@ -1043,6 +1053,7 @@ pub fn review(s: &Hooked, d: &Detail, k: &Kit) -> El {
                 .on_visible_file(|_: &mut Hooked, _| {})
                 .on_select(|s: &mut Hooked, sel, tx| {
                     s.blame_line(sel);
+                    s.reveal_md_block(sel, tx);
                     if tx.mods().cmd
                         && let Some(r) = sel
                     {

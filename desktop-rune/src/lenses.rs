@@ -683,6 +683,47 @@ impl Hooked {
         Some((path.clone(), rev.to_string()))
     }
 
+    /// A click on a block of the rendered Markdown: select its source lines in the diff and
+    /// scroll to them, as a click on their numbers would.
+    pub fn show_md_source(
+        &mut self,
+        file: usize,
+        side: Side,
+        lines: std::ops::RangeInclusive<u32>,
+        tx: &mut rune::Tx,
+    ) {
+        let start = LineRef::new(side, *lines.start());
+        let sel = LineRange {
+            file,
+            start,
+            end: LineRef::new(side, *lines.end()),
+        };
+        self.lens_data.diff.set_selection(Some(sel));
+        self.lens_data.diff.scroll_to_line(file, start, tx);
+        self.blame_line(Some(sel));
+    }
+
+    /// A click on a line number of the diff: when the rendered Markdown shows that file, centre
+    /// the block the line belongs to.
+    pub fn reveal_md_block(&self, sel: Option<LineRange>, tx: &mut rune::Tx) {
+        let ld = &self.lens_data;
+        let Some(sel) = sel.filter(|sel| ld.rendered && sel.file == ld.diff.visible_file()) else {
+            return;
+        };
+        let Some(f) = ld
+            .diff
+            .files()
+            .get(sel.file)
+            .filter(|f| crate::mddiff::is_markdown(f.path()))
+        else {
+            return;
+        };
+        let pieces = crate::mddiff::file_pieces(f);
+        if let Some(i) = crate::mddiff::piece_at(&pieces, sel.start.side, sel.start.line) {
+            tx.scroll_center_in("review-rendered", format!("mdd-{i}"));
+        }
+    }
+
     pub fn blame_line(&mut self, sel: Option<LineRange>) {
         let Some(r) = sel else {
             self.lens_data.blame_at = None;

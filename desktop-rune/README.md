@@ -89,7 +89,9 @@ and dark, with rounded or square corners, picked in Settings or the palette.
 - **Review**: go to definition (⌘-click a line number to pick one of its names, or double-click
   a name then F12): the declaration opens in a card under the line, with candidates when it is
   ambiguous, more lines on demand and Esc to close; a files rail with reviewed ticks (v), a prompt filter, Review with Claude, a
-  comments panel (edit, archive, restore, jump), blame for the clicked line, rendered Markdown with added and removed blocks tinted,
+  comments panel (edit, archive, restore, jump), blame for the clicked line, rendered Markdown with added and removed blocks tinted (a
+  resizable column: a click on a block selects its lines in the diff, a click on a line number
+  scrolls to its block),
   and the full diff of a truncated change.
 - **Outside the window**: a menu bar item with the waiting count and sessions; closing the window
   keeps the app running; ⌘⇧H (`HOOKED_QUICK_SHORTCUT` overrides it) opens a quick-reply panel on

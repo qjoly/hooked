@@ -2,7 +2,7 @@ use rune::{Color, Cursor, El, ScrollSpec, col, el, row, text};
 use rune_kit::{Button, ButtonVariant, ControlSize, Kit};
 use serde_json::Value;
 
-use super::{dot, glyph, pill, section_title};
+use super::{column_grip, column_width, dot, glyph, pill, section_title};
 use crate::api::Detail;
 use crate::app::{Hooked, Lens};
 use crate::sections::wake_label;
@@ -951,7 +951,7 @@ pub fn view(s: &Hooked, d: &Detail, k: &Kit, layer: &mut Vec<El>) -> El {
     }
     resizable(
         k,
-        s.dock_w.min((s.window_w * 0.6).max(240.0)),
+        column_width(s, s.dock_w),
         |s| s.dock_w,
         |s, w| s.dock_w = w,
         |s, w| s.save_pref("dockW", &w),
@@ -994,33 +994,13 @@ fn resizable(
     save: fn(&mut Hooked, f32),
     content: El,
 ) -> El {
-    let grip = el()
-        .key("dock-resize")
-        .w(6.0)
-        .h_full()
-        .cursor(Cursor::ResizeColumn)
-        .help("Drag to resize")
-        .on_drag(move |s: &mut Hooked, d: &mut rune::Drag, _| {
-            if d.phase == rune::Phase::Down {
-                d.data = get(s);
-            }
-            if d.cancelled() {
-                set(s, d.data);
-                return;
-            }
-            let w = (d.data - d.dx).clamp(240.0, (s.window_w * 0.6).max(240.0));
-            set(s, w);
-            if d.phase == rune::Phase::Up {
-                save(s, w);
-            }
-        });
     row()
         .key("dock-wrap")
         .w(width)
         .h_full()
         .fill(k.c.bg_deep)
         .border_sides([0.0, 0.0, 0.0, 1.0], k.c.border_weak)
-        .child(grip)
+        .child(column_grip("dock-resize", get, set, save))
         .child(content)
 }
 
@@ -1079,7 +1059,7 @@ fn gh_full(s: &Hooked, d: &Detail, k: &Kit, open: &str, actions: El) -> El {
     }
     resizable(
         k,
-        gh_width(s).min((s.window_w * 0.6).max(240.0)),
+        column_width(s, gh_width(s)),
         gh_width,
         |s, w| s.dock_gh_w = Some(w),
         |s, w| s.save_pref("dockGhW", &w),
