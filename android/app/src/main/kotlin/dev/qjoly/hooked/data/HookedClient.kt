@@ -124,9 +124,33 @@ class HookedClient(val config: ServerConfig) {
         post("api/session-meta", body("id" to id, "archived" to true))
     }
 
-    /** Archived and snoozed flags per session id. */
-    suspend fun sessionMeta(): Map<String, JsonObject> =
-        get("api/session-meta")["meta"].obj?.mapNotNull { (k, v) -> v.obj?.let { k to it } }?.toMap().orEmpty()
+    suspend fun sessionMeta(): Map<String, Meta> =
+        get("api/session-meta")["meta"].obj?.mapValues { (_, v) -> Meta.of(v) }.orEmpty()
+
+    /** Merge-patches one session's meta; a null value clears the field. */
+    suspend fun patchMeta(id: String, field: String, value: Any?) {
+        val v = when (value) {
+            null -> JsonNull
+            is Boolean -> JsonPrimitive(value)
+            is Number -> JsonPrimitive(value)
+            else -> JsonPrimitive(value.toString())
+        }
+        post("api/session-meta", JsonObject(mapOf("id" to JsonPrimitive(id), field to v)))
+    }
+
+    /** Group ops: join (target), leave, mother, rename (name). */
+    suspend fun groupOp(op: String, id: String, target: String? = null, name: String? = null) {
+        post("api/session-meta", body("op" to op, "id" to id, "target" to target, "name" to name))
+    }
+
+    suspend fun tags(): Map<String, List<String>> =
+        get("api/tags")["tags"].obj?.mapValues { (_, v) -> v.arr.mapNotNull { it.str } }.orEmpty()
+
+    suspend fun setTags(id: String, tags: List<String>) {
+        post("api/tags", body("id" to id, "tags" to JsonArray(tags.map(::JsonPrimitive))))
+    }
+
+    suspend fun settings(): JsonObject = get("api/settings").obj ?: JsonObject(emptyMap())
 
     suspend fun launch(cwd: String, prompt: String, model: String?, effort: String?, mode: String?): String {
         val r = post("api/launch", body("cwd" to cwd, "prompt" to prompt, "model" to model, "effort" to effort, "permissionMode" to mode), 60_000)

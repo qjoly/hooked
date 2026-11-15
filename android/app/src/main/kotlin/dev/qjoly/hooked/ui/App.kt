@@ -1,6 +1,10 @@
 package dev.qjoly.hooked.ui
 
+import android.app.Activity
 import androidx.activity.compose.BackHandler
+import androidx.compose.runtime.SideEffect
+import androidx.compose.ui.platform.LocalView
+import androidx.core.view.WindowCompat
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -16,6 +20,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.safeDrawingPadding
@@ -80,151 +85,190 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import dev.qjoly.hooked.R
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Density
+import dev.qjoly.hooked.data.arr
+import dev.qjoly.hooked.data.body
+import dev.qjoly.hooked.data.bool
+import dev.qjoly.hooked.data.dbl
+import dev.qjoly.hooked.data.get
+import dev.qjoly.hooked.data.millis
+import dev.qjoly.hooked.data.str
+import dev.qjoly.hooked.data.text
+import dev.qjoly.hooked.state.Page
+import dev.qjoly.hooked.state.agoShort
+import dev.qjoly.hooked.state.costLabel
+import dev.qjoly.hooked.state.projectLabel
+import dev.qjoly.hooked.ui.kit.Appearance
+import dev.qjoly.hooked.ui.kit.Corners
+import dev.qjoly.hooked.ui.kit.Dot
+import dev.qjoly.hooked.ui.kit.KButton
+import dev.qjoly.hooked.ui.kit.KIcon
+import dev.qjoly.hooked.ui.kit.KTextInput
+import dev.qjoly.hooked.ui.kit.Lucide
+import dev.qjoly.hooked.ui.kit.Pressable
+import dev.qjoly.hooked.ui.kit.Scheme
+import dev.qjoly.hooked.ui.kit.SectionTitle
+import dev.qjoly.hooked.ui.kit.Variant
+import dev.qjoly.hooked.ui.kit.k
+import dev.qjoly.hooked.ui.kit.rememberKit
+import kotlinx.serialization.json.JsonElement
 import dev.qjoly.hooked.ServerConfig
 import dev.qjoly.hooked.data.Gauge
 import dev.qjoly.hooked.data.PermissionMode
 import dev.qjoly.hooked.data.SessionState
 import dev.qjoly.hooked.state.AppModel
-import dev.qjoly.hooked.state.Destination
 import kotlinx.coroutines.launch
 
 @Composable
 fun HookedApp(app: AppModel, requestNotifications: () -> Unit) {
-    HookedTheme {
-        Surface(Modifier.fillMaxSize(), color = hooked.ground) {
-            if (app.config == null) ConnectScreen(app) else Shell(app, requestNotifications)
+    val kit = rememberKit(app.prefs.scheme, app.prefs.appearance, app.prefs.corners)
+    val density = LocalDensity.current
+    // The status and navigation bar icons follow the app's appearance, not the system's.
+    val view = LocalView.current
+    SideEffect {
+        (view.context as? Activity)?.window?.let { w ->
+            WindowCompat.getInsetsController(w, view).run {
+                isAppearanceLightStatusBars = !kit.dark
+                isAppearanceLightNavigationBars = !kit.dark
+            }
         }
     }
-}
-
-@Composable
-private fun Logo(size: androidx.compose.ui.unit.Dp) {
-    Box(Modifier.size(size).clip(CircleShape).background(Color(0xFF1E1512)), contentAlignment = Alignment.Center) {
-        Image(painterResource(R.drawable.ic_launcher_foreground), "hooked", Modifier.size(size * 1.5f))
+    // 1 pt on the desktop is 1 dp here; the interface scale enlarges everything for fingers.
+    CompositionLocalProvider(LocalDensity provides Density(density.density * app.prefs.uiScale, density.fontScale)) {
+        HookedTheme(kit) {
+            Surface(Modifier.fillMaxSize(), color = k.c.bg) {
+                if (app.config == null) ConnectScreen(app) else Shell(app, requestNotifications)
+            }
+        }
     }
 }
 
 @Composable
 private fun Shell(app: AppModel, requestNotifications: () -> Unit) {
-    val snackbar = remember { SnackbarHostState() }
-    LaunchedEffect(app.message) {
-        app.message?.let {
-            app.message = null
-            snackbar.showSnackbar(it)
-        }
-    }
-    Scaffold(snackbarHost = { SnackbarHost(snackbar) }, containerColor = hooked.ground, contentWindowInsets = WindowInsets.safeDrawing) { pad ->
-        Row(Modifier.padding(pad).fillMaxSize()) {
-            Rail(app)
-            VerticalDivider(color = hooked.line)
-            Box(Modifier.weight(1f).fillMaxHeight()) {
-                when (app.destination) {
-                    Destination.DECK -> DeckScreen(app)
-                    Destination.SESSIONS -> SessionsScreen(app)
+    var palette by remember { mutableStateOf(false) }
+    var account by remember { mutableStateOf(false) }
+    var trash by remember { mutableStateOf(false) }
+    BackHandler(app.page is Page.Session) { app.openDeck() }
+    BoxWithConstraints(Modifier.fillMaxSize().safeDrawingPadding()) {
+        val wide = maxWidth >= 1150.dp
+        Column(Modifier.fillMaxSize()) {
+            TopBar(app, wide, { palette = true }, { account = true }, { trash = true })
+            Row(Modifier.weight(1f).fillMaxWidth()) {
+                if (app.prefs.sidebarOpen) Sidebar(app) else Rail(app)
+                Box(Modifier.weight(1f).fillMaxHeight()) {
+                    when (val p = app.page) {
+                        Page.Deck -> DeckScreen(app)
+                        is Page.Session -> SessionPane(app, p.id, onBack = null)
+                    }
                 }
             }
         }
     }
     if (app.showNew) NewSessionDialog(app)
     if (app.showSettings) SettingsDialog(app, requestNotifications)
+    if (palette) Palette(app) { palette = false }
+    if (account) AccountModal(app) { account = false }
+    if (trash) TrashModal(app) { trash = false }
+}
+
+/** A first palette: sessions by title, project or branch, and the main commands. */
+@Composable
+private fun Palette(app: AppModel, close: () -> Unit) {
+    val c = k.c
+    var q by remember { mutableStateOf("") }
+    val needle = q.trim().lowercase()
+    val commands = listOf<Pair<String, () -> Unit>>(
+        "New session" to { app.newSessionProject = null; app.showNew = true },
+        "Go to the Deck" to { app.openDeck() },
+        "Settings" to { app.showSettings = true },
+        "Toggle the sidebar" to { app.prefs.sidebarOpen(!app.prefs.sidebarOpen) },
+    ).filter { needle.isEmpty() || needle in it.first.lowercase() }
+    val hits = app.visible.filter { s ->
+        needle.isEmpty() || listOfNotNull(app.title(s), s.projectName, s.repo, s.gitBranch).any { needle in it.lowercase() }
+    }.take(12)
+    KModal(close, "Search, launch, command…", width = 600.dp) {
+        KTextInput(q, { q = it }, "Type to search", Modifier.fillMaxWidth(), onSubmit = {
+            hits.firstOrNull()?.let { app.open(it.id); close() } ?: commands.firstOrNull()?.let { it.second(); close() }
+        }, leading = { KIcon(Lucide.Search, c.muted, 14.dp) })
+        Column(Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            if (hits.isNotEmpty()) SectionTitle("SESSIONS", Modifier.padding(start = 8.dp, top = 4.dp))
+            for (s in hits) {
+                Pressable({ app.open(s.id); close() }, Modifier.fillMaxWidth().height(32.dp), radius = k.r.md) {
+                    Row(Modifier.padding(horizontal = 10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Dot(c.stateColor(s.state.name.lowercase()), 7.dp)
+                        Text(app.title(s), style = k.ty.ui, color = c.fg, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                        Text(projectLabel(s), style = k.ty.textXsmall, color = c.faint, maxLines = 1)
+                    }
+                }
+            }
+            if (commands.isNotEmpty()) SectionTitle("COMMANDS", Modifier.padding(start = 8.dp, top = 4.dp))
+            for ((label, run) in commands) {
+                Pressable({ run(); close() }, Modifier.fillMaxWidth().height(32.dp), radius = k.r.md) {
+                    Text(label, style = k.ty.ui, color = c.fg, modifier = Modifier.padding(horizontal = 10.dp))
+                }
+            }
+        }
+    }
 }
 
 @Composable
-private fun Rail(app: AppModel) {
-    val now = rememberNow()
-    val waiting = app.visible.count { bucket(it, now) == 0 && !app.isSnoozed(it.id, now) }
-    val colors = NavigationRailItemDefaults.colors(indicatorColor = MaterialTheme.colorScheme.secondaryContainer)
-    NavigationRail(
-        containerColor = hooked.panel,
-        windowInsets = WindowInsets(0),
-        header = {
-            Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp), modifier = Modifier.padding(top = 12.dp)) {
-                Logo(44.dp)
-                FloatingActionButton({ app.showNew = true }, containerColor = MaterialTheme.colorScheme.primary) {
-                    Icon(Icons.Rounded.Add, "New session")
-                }
-            }
-        },
-    ) {
-        Spacer(Modifier.height(12.dp))
-        NavigationRailItem(
-            selected = app.destination == Destination.DECK,
-            onClick = { app.destination = Destination.DECK },
-            icon = {
-                BadgedBox(badge = { if (waiting > 0) Badge(containerColor = decisionStyle().hue, contentColor = Color.White) { Text("$waiting") } }) {
-                    Icon(Icons.Outlined.Dashboard, null)
-                }
+private fun AccountModal(app: AppModel, close: () -> Unit) {
+    val c = k.c
+    var info by remember { mutableStateOf<JsonElement?>(null) }
+    LaunchedEffect(Unit) { info = runCatching { app.client?.get("api/account") }.getOrNull() }
+    KModal(close, "Claude account") {
+        val i = info
+        Text(i?.get("displayName").text ?: i?.get("email").text ?: "Loading…", style = k.ty.bodyMedium, color = c.fg)
+        listOfNotNull(i?.get("email").text, i?.get("organizationName").text, i?.get("subscriptionType").text).forEach {
+            Text(it, style = k.ty.textSmall, color = c.muted)
+        }
+        if (i != null && !i["loggedIn"].bool) Text("Not signed in", style = k.ty.textSmall, color = c.warning.fg)
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) { KButton("Close", close, variant = Variant.GHOST_MUTED) }
+    }
+}
+
+/** Deleted sessions: the transcript stays in bin/ and comes back on Restore. */
+@Composable
+private fun TrashModal(app: AppModel, close: () -> Unit) {
+    val c = k.c
+    var items by remember { mutableStateOf<List<JsonElement>?>(null) }
+    var busy by remember { mutableStateOf<String?>(null) }
+    val scope = rememberCoroutineScope()
+    suspend fun load() { items = runCatching { app.client?.get("api/trash")?.get("trashed").arr.distinctBy { it["id"].str } }.getOrNull() ?: emptyList() }
+    LaunchedEffect(Unit) { load() }
+    KModal(close, "Trash") {
+        val list = items
+        Text(
+            when {
+                list == null -> "Loading…"
+                list.isEmpty() -> "Empty. Deleted sessions land here and stay recoverable."
+                else -> "${list.size} session${if (list.size == 1) "" else "s"}: the transcript is kept in bin/, restorable anytime."
             },
-            label = { Text("Deck") },
-            colors = colors,
+            style = k.ty.textSmall, color = c.muted,
         )
-        NavigationRailItem(
-            selected = app.destination == Destination.SESSIONS,
-            onClick = { app.destination = Destination.SESSIONS },
-            icon = { Icon(Icons.Outlined.Forum, null) },
-            label = { Text("Sessions") },
-            colors = colors,
-        )
-        Spacer(Modifier.weight(1f))
-        app.gauges.forEach { RailGauge(it) }
-        Spacer(Modifier.height(8.dp))
-        NavigationRailItem(
-            selected = false,
-            onClick = { app.showSettings = true },
-            icon = { Icon(Icons.Outlined.Settings, null) },
-            label = { Text("Settings") },
-            colors = colors,
-        )
-        Spacer(Modifier.height(12.dp))
-    }
-}
-
-/** The dashboard's 5H / 7D usage gauges, stacked in the rail. */
-@Composable
-private fun RailGauge(g: Gauge) {
-    val hue = when {
-        g.pct >= 90 -> decisionStyle().hue
-        g.pct >= 70 -> stateStyle(SessionState.WAITING).hue
-        else -> stateStyle(SessionState.WORKING).hue
-    }
-    Column(Modifier.width(64.dp).padding(vertical = 6.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            Text(g.label, fontSize = 10.sp, fontWeight = FontWeight.Bold, color = hooked.muted, maxLines = 1, overflow = TextOverflow.Clip)
-            Text("${g.pct}%", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = hooked.ink)
-        }
-        Spacer(Modifier.height(3.dp))
-        LinearProgressIndicator({ g.pct / 100f }, Modifier.fillMaxWidth().height(4.dp), color = hue, trackColor = hooked.line, drawStopIndicator = {})
-    }
-}
-
-@Composable
-private fun SessionsScreen(app: AppModel) {
-    BoxWithConstraints(Modifier.fillMaxSize()) {
-        val selected = app.selected
-        if (maxWidth >= 840.dp) {
-            Row(Modifier.fillMaxSize()) {
-                SessionListPane(app, selected, onOpen = { app.selected = it }, modifier = Modifier.width(360.dp))
-                VerticalDivider(color = hooked.line)
-                Box(Modifier.weight(1f).fillMaxHeight()) {
-                    if (selected != null) SessionPane(app, selected, onBack = null) else EmptyDetail()
+        Column(Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState())) {
+            for (t in list.orEmpty()) {
+                val id = t["id"].str ?: continue
+                Row(Modifier.fillMaxWidth().padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Column(Modifier.weight(1f)) {
+                        Text(t["title"].text?.takeIf { it != "(sans titre)" } ?: t["firstPrompt"].text ?: "(untitled)", style = k.ty.ui, color = c.fg, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        val ago = t["trashedAt"].millis?.let { agoShort(it, app.now) } ?: "—"
+                        Text(listOfNotNull(t["projectName"].text, "deleted $ago ago", t["cost"].dbl?.let { costLabel(it) }).joinToString(" · "), style = k.ty.textXsmall, color = c.faint)
+                    }
+                    KButton(if (busy == id) "Restoring…" else "Restore", {
+                        busy = id
+                        scope.launch {
+                            runCatching { app.client?.post("api/restore", body("id" to id)) }
+                            busy = null
+                            load()
+                            app.refresh()
+                        }
+                    }, variant = Variant.OUTLINE, enabled = busy == null)
                 }
             }
-        } else if (selected != null) {
-            BackHandler { app.selected = null }
-            SessionPane(app, selected, onBack = { app.selected = null })
-        } else {
-            SessionListPane(app, null, onOpen = { app.selected = it })
         }
-    }
-}
-
-@Composable
-private fun EmptyDetail() {
-    Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-        Logo(72.dp)
-        Spacer(Modifier.height(16.dp))
-        Text("Pick a session", style = MaterialTheme.typography.titleLarge, color = hooked.ink)
-        Text("Its conversation opens here.", color = hooked.muted)
     }
 }
 
@@ -276,7 +320,7 @@ private fun ConnectScreen(app: AppModel) {
     Box(Modifier.fillMaxSize().safeDrawingPadding().verticalScroll(rememberScrollState()), contentAlignment = Alignment.Center) {
         Surface(Modifier.widthIn(max = 560.dp).padding(24.dp), shape = MaterialTheme.shapes.large, color = hooked.card, shadowElevation = 2.dp) {
             Column(Modifier.padding(28.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                Logo(64.dp)
+                Logo(emptyList(), 64.dp)
                 Text("Connect to hooked", style = MaterialTheme.typography.headlineMedium, color = hooked.ink)
                 Text("The tablet drives the Claude Code sessions of the machine that runs hooked.", color = hooked.muted)
                 ServerForm(app)
@@ -291,6 +335,7 @@ private fun ConnectScreen(app: AppModel) {
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun SettingsDialog(app: AppModel, requestNotifications: () -> Unit) {
     AlertDialog(
@@ -298,6 +343,21 @@ private fun SettingsDialog(app: AppModel, requestNotifications: () -> Unit) {
         title = { Text("Settings") },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(18.dp)) {
+                Text("APPEARANCE", style = k.ty.textXsmallMedium, color = k.c.faint)
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Scheme.entries.forEach { sc ->
+                        FilterChip(app.prefs.scheme == sc, { app.prefs.scheme(sc) }, { Text(sc.label) }, leadingIcon = { Dot(Color(sc.swatch), 10.dp) })
+                    }
+                }
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Appearance.entries.forEach { ap -> FilterChip(app.prefs.appearance == ap, { app.prefs.appearance(ap) }, { Text(ap.label) }) }
+                    Corners.entries.forEach { co -> FilterChip(app.prefs.corners == co, { app.prefs.corners(co) }, { Text(if (co == Corners.ROUND) "Rounded" else "Square") }) }
+                }
+                Text("Interface scale", style = k.ty.uiMedium, color = k.c.fg)
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf(1f, 1.1f, 1.2f, 1.3f).forEach { sc -> FilterChip(app.prefs.uiScale == sc, { app.prefs.uiScale(sc) }, { Text("${(sc * 100).toInt()} %") }) }
+                }
+                HorizontalDivider(color = hooked.line)
                 Text("SERVER", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = hooked.muted, letterSpacing = 0.6.sp)
                 ServerForm(app) { app.message = "Connected to ${app.config?.base}" }
                 HorizontalDivider(color = hooked.line)
@@ -324,7 +384,7 @@ private fun SettingsDialog(app: AppModel, requestNotifications: () -> Unit) {
 @Composable
 private fun NewSessionDialog(app: AppModel) {
     val scope = rememberCoroutineScope()
-    var cwd by rememberSaveable { mutableStateOf(app.projects.firstOrNull().orEmpty()) }
+    var cwd by rememberSaveable { mutableStateOf(app.newSessionProject ?: app.projects.firstOrNull().orEmpty()) }
     var prompt by rememberSaveable { mutableStateOf("") }
     var model by rememberSaveable { mutableStateOf("") }
     var effort by rememberSaveable { mutableStateOf("") }

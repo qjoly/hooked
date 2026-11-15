@@ -56,12 +56,15 @@ data class Session(
     val title: String?,
     val projectName: String?,
     val project: String?,
+    val repo: String?,
+    val worktreeOf: String?,
     val gitBranch: String?,
     val state: SessionState,
     val live: Boolean,
     val currentTool: String?,
     val activity: String?,
     val lastActivity: Long?,
+    val lastSeenTs: Long?,
     val lastPrompt: String?,
     val lastReply: String?,
     val model: String?,
@@ -94,12 +97,15 @@ data class Session(
                 title = j["title"].text?.takeIf { it != "(sans titre)" },
                 projectName = j["projectName"].text,
                 project = j["project"].text,
+                repo = j["repo"].text,
+                worktreeOf = j["worktreeOf"].text,
                 gitBranch = j["gitBranch"].text,
                 state = SessionState.of(j["state"].str),
                 live = j["live"].bool,
                 currentTool = j["currentTool"].text,
                 activity = j["activity"].text,
                 lastActivity = j["lastActivity"].millis ?: j["lastTs"].millis,
+                lastSeenTs = j["lastSeenTs"].millis,
                 lastPrompt = j["lastPrompt"].text,
                 lastReply = j["lastReply"].text,
                 model = j["model"].text,
@@ -261,8 +267,29 @@ data class Capabilities(val models: List<ModelGroup> = emptyList(), val efforts:
 
 data class Defaults(val model: String?, val effort: String?, val mode: String?)
 
-/** One rate-limit window, as the dashboard's top bar gauges show it. */
-data class Gauge(val label: String, val pct: Int, val resetInMin: Int?)
+/** One rate-limit window, as the dashboard's top bar gauges show it; a null pct reads "—". */
+data class Gauge(val label: String, val pct: Int?, val resetInMin: Int?)
+
+/** A session's entry in session-meta.json. */
+data class Meta(
+    val archived: Boolean = false,
+    val incognito: Boolean = false,
+    val groupOf: String? = null,
+    val groupAt: Long? = null,
+    val groupName: String? = null,
+    val snoozeUntil: Long? = null,
+) {
+    companion object {
+        fun of(j: JsonElement?) = Meta(
+            archived = j["archived"].bool,
+            incognito = j["incognito"].bool,
+            groupOf = j["groupOf"].text,
+            groupAt = j["groupAt"].millis,
+            groupName = j["groupName"].str,
+            snoozeUntil = j["snoozeUntil"].dbl?.toLong(),
+        )
+    }
+}
 
 object PermissionMode {
     val live = listOf("default", "auto", "plan")
@@ -299,10 +326,15 @@ fun shortAge(millis: Long?, now: Long): String {
     }
 }
 
+/** 5H, 7D, then Fable when the account has it, as rune's top bar reads `/api/usage`. */
 fun usageGauges(j: JsonElement?): List<Gauge> {
-    val a = j["account"].obj ?: return emptyList()
-    fun gauge(label: String, g: JsonElement?) = g.obj?.let { o -> o["pct"].int?.let { Gauge(label, it, o["resetInMin"].int) } }
-    return listOfNotNull(gauge("5H", a["fiveHour"]), gauge("7D", a["sevenDay"]), gauge(a["fable"]["label"].text ?: "Fable", a["fable"]))
+    val a = j["account"]
+    fun gauge(label: String, g: JsonElement?) = Gauge(label, g["pct"].dbl?.toInt(), g["resetInMin"].int)
+    return listOfNotNull(
+        gauge("5H", a["fiveHour"]),
+        gauge("7D", a["sevenDay"]),
+        a["fable"].obj?.let { gauge((it["label"].text ?: "Fable").uppercase(), it) },
+    )
 }
 
 /** Compact one-line rendering for values of unknown shape. */

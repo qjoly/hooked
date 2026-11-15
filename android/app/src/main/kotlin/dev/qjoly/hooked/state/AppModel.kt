@@ -12,22 +12,33 @@ import dev.qjoly.hooked.WatchService
 import dev.qjoly.hooked.data.Capabilities
 import dev.qjoly.hooked.data.Gauge
 import dev.qjoly.hooked.data.HookedClient
+import dev.qjoly.hooked.data.Meta
 import dev.qjoly.hooked.data.Session
-import dev.qjoly.hooked.data.bool
-import dev.qjoly.hooked.data.dbl
+import dev.qjoly.hooked.data.arr
+import dev.qjoly.hooked.data.get
+import dev.qjoly.hooked.data.int
 import dev.qjoly.hooked.data.sseFlow
+import dev.qjoly.hooked.data.str
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.conflate
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.serialization.json.JsonObject
 
-enum class Destination { DECK, SESSIONS }
+/** Where the main area is: the Deck, or a session. */
+sealed interface Page {
+    data object Deck : Page
+    data class Session(val id: String) : Page
+}
 
-/** App-wide state: the server, the session list and where the user is. */
+/** App-wide state, as desktop-rune's `Hooked` holds it: the server, the lists, the prefs and the page. */
 class AppModel(app: Application) : AndroidViewModel(app) {
+    val prefs = UiPrefs(app)
+
     var config by mutableStateOf(ServerConfig.load(app))
         private set
     var client by mutableStateOf(config?.let(::HookedClient))
@@ -35,48 +46,95 @@ class AppModel(app: Application) : AndroidViewModel(app) {
 
     var sessions by mutableStateOf<List<Session>>(emptyList())
         private set
-    var archived by mutableStateOf<Set<String>>(emptySet())
+    var meta by mutableStateOf<Map<String, Meta>>(emptyMap())
         private set
-    var snoozed by mutableStateOf<Map<String, Long>>(emptyMap())
+    var tags by mutableStateOf<Map<String, List<String>>>(emptyMap())
+        private set
+    var settings by mutableStateOf(JsonObject(emptyMap()))
         private set
     var loaded by mutableStateOf(false)
         private set
-    var error by mutableStateOf<String?>(null)
+    var connected by mutableStateOf(false)
         private set
     var capabilities by mutableStateOf(Capabilities())
         private set
     var gauges by mutableStateOf<List<Gauge>>(emptyList())
         private set
 
-    var destination by mutableStateOf(Destination.DECK)
-    var selected by mutableStateOf<String?>(null)
+    var page by mutableStateOf<Page>(Page.Deck)
+
+    /** The last open session, so the Sessions tab comes back to it. */
+    var lastSession by mutableStateOf<String?>(null)
+        private set
+
     var showNew by mutableStateOf(false)
+    var newSessionProject by mutableStateOf<String?>(null)
     var showSettings by mutableStateOf(false)
     var notify by mutableStateOf(AppPrefs.notify(app))
         private set
 
-    /** One-off message for the snackbar. */
-    var message by mutableStateOf<String?>(null)
+    /** Transient sidebar filters, cleared when incognito mode flips. */
+    var repoFilter by mutableStateOf<Set<String>>(emptySet())
+    var tagFilter by mutableStateOf<Set<String>>(emptySet())
+
+    /** The top bar's "✓ …" / "✗ …" line, gone after 4 s. */
+    var flash by mutableStateOf<String?>(null)
+        private set
+    private var flashJob: Job? = null
+
+    /** The clock ages and countdowns read; it ticks every 30 s. */
+    var now by mutableStateOf(System.currentTimeMillis())
+        private set
 
     private var streamJob: Job? = null
     private var lastUsage = 0L
-    private val ticks = MutableSharedFlow<Unit>(extraBufferCapacity = 1, onBufferOverflow = BufferOverflow.DROP_OLDEST)
+    private val ticks = MutableSharedFlow<kotlin.Unit>(extraBufferCapacity = 1, onBufferOverflow = BufferOverflow.DROP_OLDEST)
+
+    val selected: String? get() = (page as? Page.Session)?.id
 
     fun session(id: String?) = sessions.firstOrNull { it.id == id }
 
+    fun title(s: Session) = titleOf(s, prefs.names)
+
+    fun tagsOf(id: String) = tags[id].orEmpty()
+
+    /** Visible in the current incognito mode. */
+    val visible: List<Session> get() = sessions.filter { isVisible(it, meta, prefs.incognito) }
+
+    val active: List<Session> get() = visible.filter { !isArchived(it, meta, now) }
+
     /** Distinct project paths, most recently active first. */
-    val projects: List<String> get() = sessions.mapNotNull { it.project }.distinct()
+    val projects: List<String> get() = sessions.mapNotNull { it.worktreeOf ?: it.project }.distinct()
 
-    /** Sessions shown in the lists: archived ones are left to the web dashboard. */
-    val visible: List<Session> get() = sessions.filter { it.id !in archived }
+    // Kept for the screens that still speak the first port's vocabulary.
+    var message: String?
+        get() = flash
+        set(v) { v?.let { say(if (it.startsWith("✓") || it.startsWith("✗")) it else "✗ $it") } }
 
-    fun isSnoozed(id: String, now: Long = System.currentTimeMillis()) = (snoozed[id] ?: 0L) > now
+    fun say(text: String) {
+        flash = text
+        flashJob?.cancel()
+        flashJob = viewModelScope.launch {
+            delay(4_000)
+            flash = null
+        }
+    }
+
+    init {
+        viewModelScope.launch {
+            while (isActive) {
+                delay(30_000)
+                now = System.currentTimeMillis()
+            }
+        }
+    }
 
     fun start() {
         val c = client ?: return
         if (streamJob != null) return
         streamJob = viewModelScope.launch {
             launch { runCatching { capabilities = c.capabilities() } }
+            launch { runCatching { settings = c.settings() } }
             // Ticks come on every hook event and every 4 s: 250 ms debounce, one fetch per second at most.
             launch {
                 ticks.conflate().collect {
@@ -86,7 +144,19 @@ class AppModel(app: Application) : AndroidViewModel(app) {
                 }
             }
             refresh()
-            sseFlow(c.url("api/stream")).collect { ticks.tryEmit(Unit) }
+            while (isActive) {
+                try {
+                    sseFlow(c.url("api/stream")).collect {
+                        connected = true
+                        ticks.tryEmit(kotlin.Unit)
+                    }
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (_: Exception) {
+                }
+                connected = false
+                delay(3_000)
+            }
         }
     }
 
@@ -100,22 +170,24 @@ class AppModel(app: Application) : AndroidViewModel(app) {
         try {
             val list = c.sessions()
             if (list != sessions) sessions = list
-            runCatching { c.sessionMeta() }.getOrNull()?.let { meta ->
-                archived = meta.filterValues { it["archived"].bool }.keys
-                snoozed = meta.mapNotNull { (k, v) -> v["snoozeUntil"].dbl?.let { k to it.toLong() } }.toMap()
-            }
+            runCatching { c.sessionMeta() }.getOrNull()?.let { if (it != meta) meta = it }
+            runCatching { c.tags() }.getOrNull()?.let { if (it != tags) tags = it }
             loaded = true
-            error = null
-            val now = System.currentTimeMillis()
+            connected = true
+            now = System.currentTimeMillis()
             if (now - lastUsage > 60_000) {
                 lastUsage = now
                 runCatching { gauges = c.usage() }
             }
         } catch (e: CancellationException) {
             throw e
-        } catch (e: Exception) {
-            error = e.message
+        } catch (_: Exception) {
+            connected = false
         }
+    }
+
+    fun refreshSoon() {
+        viewModelScope.launch { refresh() }
     }
 
     /** Tests the server, then switches to it. Returns the error, if any. */
@@ -128,8 +200,9 @@ class AppModel(app: Application) : AndroidViewModel(app) {
             config = cfg
             client = c
             sessions = emptyList()
+            meta = emptyMap()
             loaded = false
-            selected = null
+            page = Page.Deck
             WatchService.restart(getApplication())
             start()
             null
@@ -147,30 +220,97 @@ class AppModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun open(id: String) {
-        selected = id
-        destination = Destination.SESSIONS
+        page = Page.Session(id)
+        lastSession = id
     }
 
-    /** Runs a server call, reports a failure in the snackbar, refreshes on success. */
-    fun act(block: suspend (HookedClient) -> Unit) {
+    fun openDeck() {
+        page = Page.Deck
+    }
+
+    /** The Sessions tab: the last open session, else the first one listed. */
+    fun openSessions() {
+        val id = lastSession?.takeIf { session(it) != null } ?: active.firstOrNull()?.id ?: return
+        open(id)
+    }
+
+    /** Runs a server call; a failure lands in the flash, success refreshes. */
+    fun act(failure: String = "Action", success: String? = null, block: suspend (HookedClient) -> kotlin.Unit) {
         val c = client ?: return
         viewModelScope.launch {
             try {
                 block(c)
+                success?.let(::say)
                 refresh()
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                message = e.message
+                say("✗ $failure: ${e.message}")
             }
         }
     }
 
-    fun snooze(id: String, hours: Int) = act { it.snooze(id, System.currentTimeMillis() + hours * 3_600_000L) }
+    private fun patchLocal(id: String, f: (Meta) -> Meta) {
+        meta = meta + (id to f(meta.of(id)))
+    }
 
-    fun archive(id: String) = act {
-        it.archive(id)
-        if (selected == id) selected = null
+    fun snooze(id: String, until: Long?) {
+        patchLocal(id) { it.copy(snoozeUntil = until) }
+        act("Snooze", until?.let { "✓ Snoozed until ${wakeLabel(it, System.currentTimeMillis())}" }) { it.patchMeta(id, "snoozeUntil", until) }
+    }
+
+    fun snoozeAll(ids: List<String>, hours: Int) {
+        val until = System.currentTimeMillis() + hours * 3_600_000L
+        ids.forEach { id -> patchLocal(id) { it.copy(snoozeUntil = until) } }
+        act("Snooze", "✓ Snoozed until ${wakeLabel(until, System.currentTimeMillis())}") { c -> ids.forEach { c.patchMeta(it, "snoozeUntil", until) } }
+    }
+
+    /** A lead with others flips the members that matched its own flag; live sessions are stopped before archiving. */
+    fun toggleArchive(id: String) {
+        val lead = session(id) ?: return
+        val wasArchived = meta.of(id).archived
+        val members = sessions.filter { meta.of(it.id).groupOf == id && it.id != id }
+        val targets = members.filter { meta.of(it.id).archived == wasArchived } + lead
+        targets.forEach { s -> patchLocal(s.id) { it.copy(archived = !wasArchived) } }
+        if (!wasArchived && selected == id) page = Page.Deck
+        act("Archive") { c ->
+            for (s in targets) {
+                if (!wasArchived && s.live) runCatching { c.kill(s.id) }
+                c.patchMeta(s.id, "archived", !wasArchived)
+            }
+        }
+    }
+
+    fun archive(id: String) = toggleArchive(id)
+
+    /** A lead flags its whole group; a child only itself. */
+    fun toggleIncognito(id: String) {
+        val on = !meta.of(id).incognito
+        val isChild = meta.of(id).groupOf.let { it != null && it != id }
+        val targets = if (isChild) listOf(id) else listOf(id) + sessions.filter { meta.of(it.id).groupOf == id }.map { it.id }
+        targets.forEach { t -> patchLocal(t) { it.copy(incognito = on) } }
+        act("Incognito") { c -> targets.forEach { c.patchMeta(it, "incognito", on) } }
+    }
+
+    fun toggleIncognitoMode() {
+        prefs.incognito(!prefs.incognito)
+        repoFilter = emptySet()
+        tagFilter = emptySet()
+    }
+
+    fun groupOp(op: String, id: String, target: String? = null, name: String? = null) {
+        val done = when (op) {
+            "join" -> "✓ Moved to the group"
+            "leave" -> "✓ Left the group"
+            "rename" -> "✓ Group renamed"
+            else -> "✓ New lead session"
+        }
+        act("Group", done) { it.groupOp(op, id, target, name) }
+    }
+
+    fun setTags(id: String, list: List<String>) {
+        tags = tags + (id to list)
+        act("Tags") { it.setTags(id, list) }
     }
 
     suspend fun launch(cwd: String, prompt: String, model: String?, effort: String?, mode: String?): String {
@@ -179,4 +319,11 @@ class AppModel(app: Application) : AndroidViewModel(app) {
         refresh()
         return id
     }
+
+    /** `sidebarCache` from the server settings: badge or replace, and the window in minutes. */
+    val cacheDisplay: String get() = settings["sidebarCache"]["display"].str ?: "badge"
+    val cacheWindowMin: Int get() = settings["sidebarCache"]["windowMin"].int ?: 15
+
+    /** `navTabs` from the server settings; missing means every tab. */
+    val navTabs: Set<String>? get() = settings["navTabs"]?.arr?.mapNotNull { it.str }?.toSet()
 }
