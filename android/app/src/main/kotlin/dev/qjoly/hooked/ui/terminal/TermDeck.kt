@@ -1,5 +1,6 @@
 package dev.qjoly.hooked.ui.terminal
 
+import androidx.compose.runtime.LaunchedEffect
 import android.content.Context
 import android.content.SharedPreferences
 import androidx.compose.runtime.Composable
@@ -275,10 +276,12 @@ class TermDeck internal constructor(val sessionId: String, private val client: H
         if (save) saveFont(font)
     }
 
-    // The font size's only storage, kept apart so the app-wide setting can take its place.
+    /** Writes the size to the app-wide setting the Settings page shows. */
+    var storeFont: (Float) -> Unit = {}
+
     private fun loadFont() = prefs.getFloat("termFont", FONT).coerceIn(FONT_MIN, FONT_MAX)
 
-    private fun saveFont(size: Float) = prefs.edit { putFloat("termFont", size) }
+    private fun saveFont(size: Float) = storeFont(size)
 
     fun saveHeight(dp: Float) {
         height = dp
@@ -461,6 +464,10 @@ internal fun rememberTermDeck(app: AppModel, client: HookedClient, sessionId: St
     TermPalette.install(k.dark)
     val deck = remember(client, sessionId) { DeckHandle(TermDecks.get(client, sessionId, ctx)) }.deck
     deck.say = app::say
+    deck.storeFont = app.prefs::termFont
+    // The Settings page's size, followed live; pinch and ⌘± write it back.
+    val font = app.prefs.termFont
+    LaunchedEffect(deck, font) { deck.setFont(font, save = false) }
     deck.copyText = { copyToClipboard(ctx, it) }
     LifecycleStartEffect(deck) {
         deck.start()
