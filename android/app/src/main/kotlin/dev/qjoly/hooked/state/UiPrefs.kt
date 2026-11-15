@@ -41,6 +41,8 @@ class UiPrefs(ctx: Context) {
     var foldedGroups by mutableStateOf(set("foldedGroups")); private set
     var names by mutableStateOf(strMap("names")); private set
     var tagColors by mutableStateOf(intMap("tagColors")); private set
+    var collapseWorktrees by mutableStateOf(sp.getBoolean("collapseWorktrees", true)); private set
+    var termFont by mutableStateOf(sp.getFloat("termFont", 12f)); private set
 
     fun scheme(v: Scheme) { scheme = v; sp.edit { putString("scheme", v.key) } }
     fun appearance(v: Appearance) { appearance = v; sp.edit { putString("appearance", v.key) } }
@@ -53,6 +55,8 @@ class UiPrefs(ctx: Context) {
     fun sidebarW(v: Float) { sidebarW = v.coerceIn(220f, 560f); sp.edit { putFloat("sidebarW", sidebarW) } }
     fun deckView(v: String) { deckView = v; sp.edit { putString("deckView", v) } }
     fun incognito(v: Boolean) { incognito = v; sp.edit { putBoolean("incognito", v) } }
+    fun collapseWorktrees(v: Boolean) { collapseWorktrees = v; sp.edit { putBoolean("collapseWorktrees", v) } }
+    fun termFont(v: Float) { termFont = v.coerceIn(8f, 28f); sp.edit { putFloat("termFont", termFont) } }
 
     fun togglePin(id: String) {
         pinned = if (id in pinned) pinned - id else pinned + id
