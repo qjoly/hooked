@@ -74,6 +74,17 @@ class TermPainter {
     private val rect = RectF()
 
     fun paint(c: Canvas, t: Term, f: TermFont, s: PaintState, width: Float, height: Float) {
+        // drawColor fills the whole layer otherwise: Compose does not clip a node to its bounds.
+        val saved = c.save()
+        c.clipRect(0f, 0f, width, height)
+        try {
+            paintIn(c, t, f, s, width, height)
+        } finally {
+            c.restoreToCount(saved)
+        }
+    }
+
+    private fun paintIn(c: Canvas, t: Term, f: TermFont, s: PaintState, width: Float, height: Float) {
         val em: TerminalEmulator = t.emulator
         val screen = em.screen
         val pal = em.mColors.mCurrentColors
