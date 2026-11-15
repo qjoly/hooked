@@ -4,9 +4,11 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
+import android.provider.OpenableColumns
 import android.util.Base64
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.ImageBitmap
@@ -16,7 +18,15 @@ import dev.qjoly.hooked.data.HookedClient
 import dev.qjoly.hooked.data.LiveSnapshot
 import dev.qjoly.hooked.data.SessionDetail
 import dev.qjoly.hooked.data.SessionState
+import dev.qjoly.hooked.data.fork
+import dev.qjoly.hooked.data.fullMessage
+import dev.qjoly.hooked.data.openEditor
+import dev.qjoly.hooked.data.projectFiles
+import dev.qjoly.hooked.data.restart
+import dev.qjoly.hooked.data.sessionRaw
+import dev.qjoly.hooked.data.slashCommands
 import dev.qjoly.hooked.data.sseFlow
+import dev.qjoly.hooked.data.trash
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -28,19 +38,31 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import java.io.ByteArrayOutputStream
 
-class Attachment(val key: Long, val thumbnail: ImageBitmap, val path: String? = null, val failed: Boolean = false)
+class Attachment(val key: Long, val thumbnail: ImageBitmap, val path: String? = null, val failed: Boolean = false, val name: String = "image")
 
 /** A model switch the server held because the prompt cache is warm. */
 data class HeldSwitch(val model: String?, val effort: String?, val impact: JsonObject)
+
+/** A message sent but not in the transcript yet; `after` is the message count when it left. */
+data class Queued(val text: String, val after: Int, val id: Long = System.nanoTime())
 
 /** One open conversation: its transcript, the turn in progress and every control. */
 class SessionModel(val id: String, private val client: HookedClient) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
     var detail by mutableStateOf<SessionDetail?>(null)
+        private set
+
+    /** The same fetch read the way rune's conversation view needs it. */
+    var conversation by mutableStateOf<Conversation?>(null)
+        private set
+
+    /** The raw /api/session body, for lenses that read more of it. */
+    var raw by mutableStateOf<JsonElement?>(null)
         private set
     var snapshot by mutableStateOf<LiveSnapshot?>(null)
         private set
@@ -50,11 +72,22 @@ class SessionModel(val id: String, private val client: HookedClient) {
     var sending by mutableStateOf(false)
         private set
 
-    /** Sent text not yet seen in the transcript, shown as a queued bubble. */
-    var outgoing by mutableStateOf<String?>(null)
-        private set
+    val queued = mutableStateListOf<Queued>()
+
+    /** Kept for callers of the first port: the last message still on its way. */
+    val outgoing: String? get() = queued.lastOrNull()?.text
     val attachments = mutableStateListOf<Attachment>()
     var heldSwitch by mutableStateOf<HeldSwitch?>(null)
+
+    /** When the current turn started, for the working line's clock. */
+    var workingSince by mutableStateOf<Long?>(null)
+        private set
+
+    /** Full texts of truncated user messages by fork uuid; null while loading. */
+    val fullTexts = mutableStateMapOf<String, String?>()
+
+    /** Success lines ("✓ …") for the top bar flash. */
+    var say: (String) -> Unit = {}
 
     private var loading = false
     private var reloadAgain = false
@@ -62,7 +95,7 @@ class SessionModel(val id: String, private val client: HookedClient) {
     private var pollJob: Job? = null
 
     val isLive get() = detail?.session?.live ?: false
-    val isBusy get() = snapshot?.busy ?: (detail?.session?.state == SessionState.WORKING)
+    val isBusy get() = snapshot?.busy == true || detail?.session?.state == SessionState.WORKING
 
     fun start() {
         scope.launch { load() }
@@ -70,7 +103,7 @@ class SessionModel(val id: String, private val client: HookedClient) {
         pollJob = scope.launch {
             while (isActive) {
                 delay(5_000)
-                if (isBusy) load()
+                if (isBusy || queued.isNotEmpty()) load()
             }
         }
     }
@@ -96,11 +129,15 @@ class SessionModel(val id: String, private val client: HookedClient) {
             do {
                 reloadAgain = false
                 try {
-                    val d = client.detail(id)
+                    val j = client.sessionRaw(id)
+                    val d = SessionDetail.of(j)
+                    val c = Conversation.of(j)
+                    raw = j
                     if (d != detail) detail = d
+                    if (c != conversation) conversation = c
                     loadError = null
-                    val o = outgoing
-                    if (o != null && d.messages.any { it.role == "user" && it.text.contains(o) }) outgoing = null
+                    settleQueue(c)
+                    syncWorking()
                     if (d.session.live && streamJob == null && pollJob != null) openStream()
                 } catch (e: CancellationException) {
                     throw e
@@ -110,6 +147,21 @@ class SessionModel(val id: String, private val client: HookedClient) {
             } while (reloadAgain)
         } finally {
             loading = false
+        }
+    }
+
+    private fun settleQueue(c: Conversation) {
+        queued.removeAll { q ->
+            val t = q.text.trim()
+            c.turns.drop(q.after).any { it.user && (it.text.trim() == t || it.text.contains(t)) }
+        }
+    }
+
+    private fun syncWorking() {
+        if (isBusy) {
+            if (workingSince == null) workingSince = System.currentTimeMillis()
+        } else {
+            workingSince = null
         }
     }
 
@@ -125,6 +177,7 @@ class SessionModel(val id: String, private val client: HookedClient) {
                     }
                     val prev = snapshot
                     snapshot = snap
+                    syncWorking()
                     // A finished turn or a new pending question lands in the transcript: fetch it.
                     if ((prev?.busy == true && !snap.busy) || (snap.state != prev?.state && snap.state == "requires_action")) {
                         scope.launch { load() }
@@ -149,11 +202,14 @@ class SessionModel(val id: String, private val client: HookedClient) {
         false
     }
 
-    private fun act(busy: Boolean = true, body: suspend () -> Unit) {
+    private fun act(busy: Boolean = true, done: String? = null, body: suspend () -> Unit) {
         scope.launch {
             if (busy) sending = true
             try {
-                if (attempt(body)) load()
+                if (attempt(body)) {
+                    done?.let(say)
+                    load()
+                }
             } finally {
                 if (busy) sending = false
             }
@@ -169,43 +225,120 @@ class SessionModel(val id: String, private val client: HookedClient) {
             actionError = "Wait for the images to finish uploading."
             return false
         }
+        attachments.clear()
+        return sendPrompt(message)
+    }
+
+    /** A message as is: a suggestion, a code block to run. */
+    suspend fun sendPrompt(message: String): Boolean {
+        if (sending) return false
         sending = true
+        val q = Queued(message, conversation?.turns?.size ?: 0)
+        queued += q
         try {
             val live = isLive
             val effort = detail?.session?.effort
             val ok = attempt { if (live) client.reply(id, message) else client.resume(id, message, effort) }
-            if (ok) {
-                attachments.clear()
-                outgoing = message
-                load()
-            }
+            if (!ok) queued.remove(q)
+            load()
             return ok
         } finally {
             sending = false
         }
     }
 
-    fun resume() = act { client.resume(id, "", detail?.session?.effort) }
+    fun sendLater(message: String) {
+        scope.launch { sendPrompt(message) }
+    }
 
-    fun answer(selections: List<HookedClient.Selection>, note: String? = null) = act { client.answer(id, selections, note) }
+    fun resume() = act(done = "✓ Resumed") { client.resume(id, "", detail?.session?.effort) }
 
-    fun plan(action: String, feedback: String? = null) = act { client.plan(id, action, feedback) }
+    fun answer(selections: List<HookedClient.Selection>, note: String? = null, done: String = "✓ Answered") =
+        act(done = done) { client.answer(id, selections, note) }
 
-    fun interrupt() = act(busy = false) { client.interrupt(id) }
+    fun plan(action: String, feedback: String? = null) =
+        act(done = if (action.startsWith("keep")) "✓ Plan rejected" else "✓ Plan approved") { client.plan(id, action, feedback) }
+
+    fun interrupt() = act(busy = false, done = "✓ Interrupted") { client.interrupt(id) }
 
     fun kill() = act(busy = false) { client.kill(id) }
 
-    fun setMode(mode: String) = act(busy = false) { client.setMode(id, mode) }
+    fun setMode(mode: String) = act(busy = false, done = "✓ ${modeLabel(mode)}") { client.setMode(id, mode) }
 
-    fun setAutoApprove(on: Boolean) = act(busy = false) { client.setAutoApprove(id, on) }
+    fun setAutoApprove(on: Boolean) = act(busy = false, done = if (on) "✓ Auto-approve on" else "✓ Auto-approve off") { client.setAutoApprove(id, on) }
 
     fun setModel(model: String?, effort: String?, force: Boolean = false) {
         scope.launch {
             var impact: JsonObject? = null
             if (!attempt { impact = client.setModel(id, model, effort, force) }) return@launch
             val held = impact
-            if (held != null) heldSwitch = HeldSwitch(model, effort, held) else load()
+            if (held != null) {
+                heldSwitch = HeldSwitch(model, effort, held)
+            } else {
+                say("✓ Model updated")
+                load()
+            }
         }
+    }
+
+    fun restart() = act(busy = false, done = "✓ Restarted") { client.restart(id) }
+
+    fun openEditor() = act(busy = false, done = "✓ Opened in editor") { client.openEditor(id) }
+
+    /** Moves the session to the trash, then hands control back. */
+    fun trash(onDone: () -> Unit) {
+        scope.launch {
+            if (attempt { client.trash(id) }) {
+                say("✓ Moved to trash")
+                onDone()
+            }
+        }
+    }
+
+    /** Forks at a message; `onDone` gets the new session id. */
+    fun fork(uuid: String, prompt: String, model: String?, effort: String?, mode: String?, onDone: (String) -> Unit) {
+        say("⑂ Forking…")
+        scope.launch {
+            var newId: String? = null
+            if (attempt { newId = client.fork(id, uuid, prompt, model, effort, mode) }) {
+                say("✓ Forked into a new session")
+                newId?.let(onDone)
+            }
+        }
+    }
+
+    /** A shell block of the conversation, run in the session as a `!` command. */
+    fun runCode(code: String) {
+        scope.launch {
+            if (attempt { client.reply(id, "!" + code.trim()) }) say("✓ Running in the session")
+            load()
+        }
+    }
+
+    fun loadFullText(uuid: String) {
+        if (uuid in fullTexts) return
+        fullTexts[uuid] = null
+        scope.launch {
+            val t = runCatching { client.fullMessage(id, uuid) }.getOrNull()
+            if (t == null) {
+                fullTexts.remove(uuid)
+                actionError = "Could not load the full message"
+            } else {
+                fullTexts[uuid] = t
+            }
+        }
+    }
+
+    /** Completion items for the text before the caret, or empty. */
+    suspend fun complete(q: AcQuery): List<AcItem> = try {
+        when (q) {
+            is AcQuery.Command -> acItems(client.slashCommands(id, q.q), files = false)
+            is AcQuery.File -> acItems(client.projectFiles(id, q.q), files = true)
+        }
+    } catch (e: CancellationException) {
+        throw e
+    } catch (_: Exception) {
+        emptyList()
     }
 
     fun refresh() {
@@ -216,12 +349,13 @@ class SessionModel(val id: String, private val client: HookedClient) {
     fun attach(ctx: Context, uri: Uri) {
         val key = System.nanoTime()
         scope.launch {
+            val name = withContext(Dispatchers.IO) { displayName(ctx, uri) }
             val bitmap = withContext(Dispatchers.IO) { decode(ctx, uri, 2000) } ?: run {
                 actionError = "Could not read that image."
                 return@launch
             }
             val thumb = bitmap.scale(160, (160f * bitmap.height / bitmap.width).toInt().coerceAtLeast(1))
-            attachments += Attachment(key, thumb.asImageBitmap())
+            attachments += Attachment(key, thumb.asImageBitmap(), name = name)
             val path = withContext(Dispatchers.IO) {
                 val out = ByteArrayOutputStream()
                 bitmap.compress(Bitmap.CompressFormat.JPEG, 80, out)
@@ -230,10 +364,16 @@ class SessionModel(val id: String, private val client: HookedClient) {
             }
             val i = attachments.indexOfFirst { it.key == key }
             if (i < 0) return@launch
-            attachments[i] = Attachment(key, attachments[i].thumbnail, path.getOrNull(), path.isFailure)
-            path.exceptionOrNull()?.let { actionError = it.message }
+            attachments[i] = Attachment(key, attachments[i].thumbnail, path.getOrNull(), path.isFailure, name)
+            path.exceptionOrNull()?.let { actionError = "Upload failed: ${it.message}" }
         }
     }
+
+    private fun displayName(ctx: Context, uri: Uri): String = runCatching {
+        ctx.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { c ->
+            if (c.moveToFirst()) c.getString(0) else null
+        }
+    }.getOrNull() ?: uri.lastPathSegment?.substringAfterLast('/') ?: "image"
 
     private fun decode(ctx: Context, uri: Uri, maxSide: Int): Bitmap? {
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
