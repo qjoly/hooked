@@ -153,7 +153,7 @@ fun SessionPane(app: AppModel, id: String, onBack: (() -> Unit)?) {
                         Lens.TRACE -> TraceLens(app, model, Modifier.fillMaxSize())
                     }
                 }
-                TerminalDrawer(app, ui, id, d.session.project, if (ui.termOpen) Modifier.weight(0.8f) else Modifier)
+                TerminalDrawer(app, ui, id, d.session.project)
             }
             if (!ui.focus) {
                 if (ui.splits.isNotEmpty()) {

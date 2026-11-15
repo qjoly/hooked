@@ -8,8 +8,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -41,7 +39,7 @@ import dev.qjoly.hooked.ui.kit.KIconButton
 import dev.qjoly.hooked.ui.kit.Lucide
 import dev.qjoly.hooked.ui.kit.Size
 import dev.qjoly.hooked.ui.kit.k
-import dev.qjoly.hooked.ui.terminal.TerminalPanel
+import dev.qjoly.hooked.ui.terminal.TerminalDock
 
 /** A hairline on one edge, as rune's `border_sides`. */
 fun Modifier.edge(color: Color, top: Boolean = false, bottom: Boolean = false, start: Boolean = false, width: Dp = 1.dp) = drawBehind {
@@ -136,33 +134,5 @@ private fun LensTab(ui: SessionUi, lens: Lens, icon: ImageVector, label: String,
 
 /** view/terminal.rs `panel`: a drawer bar while closed, the shells below the lens once open. */
 @Composable
-fun TerminalDrawer(app: AppModel, ui: SessionUi, id: String, project: String?, modifier: Modifier = Modifier) {
-    val c = k.c
-    if (!ui.termOpen) {
-        Row(
-            modifier.fillMaxWidth().height(28.dp).edge(c.border, top = true).clickable { ui.termOpen = true }.padding(horizontal = 14.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            KIcon(Lucide.Terminal, c.muted, 13.dp)
-            Text("Terminal", style = k.ty.textSmallMedium, color = c.muted)
-            Text("open a shell in this project", style = k.ty.textXsmall, color = c.faint)
-            Spacer(Modifier.weight(1f))
-            Text("open · key 2 ↑", style = k.ty.textXsmall, color = c.faint)
-        }
-        return
-    }
-    Column(modifier.fillMaxWidth()) {
-        Row(
-            Modifier.fillMaxWidth().height(28.dp).edge(c.border, top = true).padding(start = 14.dp, end = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            KIcon(Lucide.Terminal, c.muted, 13.dp)
-            Text("Terminal", style = k.ty.textSmallMedium, color = c.muted)
-            Spacer(Modifier.weight(1f))
-            KIconButton(Lucide.ChevronDown, "Hide the terminal panel", { ui.termOpen = false }, size = Size.SMALL)
-        }
-        TerminalPanel(app, id, project, Modifier.fillMaxSize())
-    }
-}
+fun TerminalDrawer(app: AppModel, ui: SessionUi, id: String, project: String?, modifier: Modifier = Modifier) =
+    TerminalDock(app, id, project, ui.termOpen, { ui.termOpen = it }, modifier)
