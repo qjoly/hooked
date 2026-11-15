@@ -20,7 +20,7 @@
     "postinstall": "node scripts/fix-node-pty.cjs"
   },
   "devDependencies": {
-    "@sveltejs/adapter-node": "^5.5.4",
+    "@sveltejs/adapter-node": "^6.0.0",
     "@sveltejs/kit": "^2.70.2",
     "@sveltejs/vite-plugin-svelte": "^4.0.0",
     "playwright-core": "^1.64.0",
