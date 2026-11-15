@@ -202,6 +202,16 @@ class DockModel : ViewModel() {
         }
     }
 
+    /** The open pane already holds the session body: read the dock from it instead of fetching again. */
+    fun feed(id: String, d: DockData) {
+        if (data[id] != d) data[id] = d
+        touch(id)
+        if (id == session) {
+            wantShots(id, d)
+            prefetchGh(d.prLinks)
+        }
+    }
+
     private fun touch(id: String) {
         recent.remove(id)
         recent.addLast(id)

@@ -49,7 +49,10 @@ import dev.qjoly.hooked.data.dock.checkState
 import dev.qjoly.hooked.data.dock.screenshotUrl
 import dev.qjoly.hooked.data.get
 import dev.qjoly.hooked.state.AppModel
-import dev.qjoly.hooked.ui.MessageRow
+import dev.qjoly.hooked.data.Message
+import dev.qjoly.hooked.data.MessagePart
+import dev.qjoly.hooked.ui.MarkdownBody
+import dev.qjoly.hooked.ui.bubbleShape
 import dev.qjoly.hooked.ui.kit.Dot
 import dev.qjoly.hooked.ui.kit.KButton
 import dev.qjoly.hooked.ui.kit.KIcon
@@ -265,7 +268,30 @@ private fun AgentWindow(app: AppModel, dock: DockModel, v: AgentViewer) {
             msgs == null -> Text("Loading the transcript…", style = k.ty.body, color = c.faint, modifier = Modifier.padding(16.dp))
             msgs.isEmpty() -> Text("This agent left no transcript.", style = k.ty.body, color = c.faint, modifier = Modifier.padding(16.dp))
             else -> LazyColumn(Modifier.fillMaxWidth().weight(1f), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                items(msgs) { MessageRow(it, app.now) }
+                items(msgs) { AgentMessage(it) }
+            }
+        }
+    }
+}
+
+/** One message of a subagent transcript, read-only: rune's bubble look without the session controls. */
+@Composable
+private fun AgentMessage(m: Message) {
+    val c = k.c
+    val user = m.role == "user"
+    Column(Modifier.fillMaxWidth(), horizontalAlignment = if (user) Alignment.End else Alignment.Start) {
+        Text(if (user) "Prompt" else "Agent", style = k.ty.textXsmallMedium, color = c.faint, modifier = Modifier.padding(bottom = 4.dp))
+        Column(
+            Modifier.fillMaxWidth(0.85f).clip(bubbleShape(user)).background(c.surface).border(1.dp, c.border, bubbleShape(user)).padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            for (p in m.renderParts) when (p) {
+                is MessagePart.Text -> MarkdownBody(p.text)
+                is MessagePart.ToolUse -> Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                    KIcon(Lucide.Tool, c.muted, 12.dp)
+                    Text(p.tool.name, style = k.ty.textXsmallMedium, color = c.fg)
+                    p.tool.detail?.let { Text(it, style = k.ty.textXsmall, color = c.muted, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+                }
             }
         }
     }

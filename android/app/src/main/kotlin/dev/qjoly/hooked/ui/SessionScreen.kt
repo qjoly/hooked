@@ -1,5 +1,8 @@
 package dev.qjoly.hooked.ui
 
+import dev.qjoly.hooked.ui.session.DockHost
+import dev.qjoly.hooked.ui.session.LocalDockHost
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -155,8 +158,9 @@ fun SessionPane(app: AppModel, id: String, onBack: (() -> Unit)?) {
                         SplitPane(app, ui, s, id, if (one) Modifier.fillMaxWidth(0.42f) else Modifier.weight(1f), open)
                     }
                 } else if (ui.dockOpen && ui.lens == Lens.CONVERSE && dockFits && model.detail != null) {
-                    Box(Modifier.width(DOCK_W).fillMaxHeight().background(k.c.bg).edge(k.c.border, start = true)) {
-                        ContextDock(app, model, Modifier.fillMaxSize())
+                    // The dock paints its own rule and collapses when it has nothing to show.
+                    CompositionLocalProvider(LocalDockHost provides DockHost { ui.lens = Lens.REVIEW }) {
+                        ContextDock(app, model, Modifier.width(DOCK_W))
                     }
                 }
             }

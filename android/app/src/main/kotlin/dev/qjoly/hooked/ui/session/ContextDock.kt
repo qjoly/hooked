@@ -1,5 +1,7 @@
 package dev.qjoly.hooked.ui.session
 
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.Dispatchers
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -105,7 +107,10 @@ fun ContextDock(app: AppModel, model: SessionModel, modifier: Modifier = Modifie
         onDispose { dock.leave(id) }
     }
     val key = model.detail?.session?.changeKey
-    LaunchedEffect(id, key) { dock.want(id, key) }
+    val raw = model.raw
+    LaunchedEffect(id, key, raw) {
+        if (raw != null) dock.feed(id, withContext(Dispatchers.Default) { DockData.of(raw) }) else dock.want(id, key)
+    }
     DockOverlays(app, dock, id)
     val d = dock.data[id]
     val withActions = app.settings["featureFlags"]["dockActions"].bool
