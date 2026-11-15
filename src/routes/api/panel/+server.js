@@ -1,6 +1,6 @@
 import { json } from '@sveltejs/kit';
-import { broadcastEvent } from '$lib/server/live.js';
-import { closePanel, listPanels, readSettings, reportPanelError, sendFromPanel, sessionIdForLaunchKey, showPanel } from '$lib/server/core.js';
+import { broadcastEvent } from '#lib/server/live.js';
+import { closePanel, listPanels, readSettings, reportPanelError, sendFromPanel, sessionIdForLaunchKey, showPanel } from '#lib/server/core.js';
 
 export function GET() {
   return json({ panels: listPanels() });

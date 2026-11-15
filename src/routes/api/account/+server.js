@@ -2,8 +2,8 @@ import { json } from '@sveltejs/kit';
 import {
   accountInfo, startAccountLogin, accountLoginStatus, sendAccountLoginInput, cancelAccountLogin,
   accountLogout,
-} from '$lib/server/core.js';
-import { fail, readJson } from '$lib/server/respond.js';
+} from '#lib/server/core.js';
+import { fail, readJson } from '#lib/server/respond.js';
 
 // Who is currently signed in (top bar avatar/menu): merged `claude auth status` + ~/.claude.json.
 export async function GET() {

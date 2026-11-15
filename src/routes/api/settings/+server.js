@@ -1,6 +1,6 @@
 import { json } from '@sveltejs/kit';
-import { readSettings, writeSettings, applyGitSyncSetting, applyRemoteControlSetting, applyPrReviewTagSetting, applyAutoTagSetting, applyWarmupSetting } from '$lib/server/core.js';
-import { fail, readJson } from '$lib/server/respond.js';
+import { readSettings, writeSettings, applyGitSyncSetting, applyRemoteControlSetting, applyPrReviewTagSetting, applyAutoTagSetting, applyWarmupSetting } from '#lib/server/core.js';
+import { fail, readJson } from '#lib/server/respond.js';
 
 // Réglages persistants de hooked (settings.json côté serveur). GET renvoie l'objet complet
 // (défauts inclus) ; POST fusionne un patch partiel, valide, persiste et renvoie le résultat.

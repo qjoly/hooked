@@ -1,5 +1,5 @@
 <script>
-  import NewSession from '$lib/components/NewSession.svelte';
+  import NewSession from '#lib/components/NewSession.svelte';
 </script>
 
 <NewSession />

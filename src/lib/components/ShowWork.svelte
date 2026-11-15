@@ -3,8 +3,8 @@
   // Claude made of its work, an optional before/after pair, what changed and the checks it ran. Files are
   // served by /api/user-file (transcript allowlist), like SendUserFile.
   import Lightbox from './Lightbox.svelte';
-  import Icon from '$lib/components/Icon.svelte';
-  import { userFileUrl } from '$lib/api.js';
+  import Icon from '#lib/components/Icon.svelte';
+  import { userFileUrl } from '#lib/api.js';
   let { show, result = '', session = null, agent = null } = $props();
 
   const isVideo = $derived(show.kind === 'video');

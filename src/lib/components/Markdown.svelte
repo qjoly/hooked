@@ -1,5 +1,5 @@
 <script>
-  import { mdSegments, isCommandTranscript } from '$lib/format.js';
+  import { mdSegments, isCommandTranscript } from '#lib/format.js';
   import CodeBlock from './CodeBlock.svelte';
   import Mermaid from './Mermaid.svelte';
   import TerminalBlock from './TerminalBlock.svelte';

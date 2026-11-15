@@ -5,10 +5,10 @@
   import {
     split, ui, data, sessionTitle, isSessionArchived, isIncognito, toggleIncognitoMode,
     splitPanes, anchorSplit, setPaneSession, closePane, splitRight, splitDown, canSplit,
-  } from '$lib/state.svelte.js';
-  import SessionDetail from '$lib/components/SessionDetail.svelte';
-  import GroupTabs from '$lib/components/GroupTabs.svelte';
-  import Icon from '$lib/components/Icon.svelte';
+  } from '#lib/state.svelte.js';
+  import SessionDetail from '#lib/components/SessionDetail.svelte';
+  import GroupTabs from '#lib/components/GroupTabs.svelte';
+  import Icon from '#lib/components/Icon.svelte';
 
   const primary = $derived(page.params.id);
   // The anchor pane (col 0, row 0) always mirrors the route session.

@@ -1,5 +1,5 @@
-import { agentAlive, setModelEffort } from '$lib/server/core.js';
-import { ok, fail, toPromise, readJson } from '$lib/server/respond.js';
+import { agentAlive, setModelEffort } from '#lib/server/core.js';
+import { ok, fail, toPromise, readJson } from '#lib/server/respond.js';
 
 // Change le modèle et/ou l'effort d'une session live via les requêtes de contrôle du SDK
 // (Query.setModel / Query.applyFlagSettings). Avant, il fallait taper `/model` et `/effort` dans le

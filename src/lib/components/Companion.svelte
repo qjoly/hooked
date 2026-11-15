@@ -6,9 +6,9 @@
   // The dance is a spritesheet — equally-sized frames laid out left to right — played by sliding
   // the strip behind a one-frame window with a CSS `steps()` animation: no JS loop, and a PNG
   // strip drops in just as well (update SHEET to match it).
-  import { ui } from '$lib/state.svelte.js';
+  import { ui } from '#lib/state.svelte.js';
   import Icon from './Icon.svelte';
-  import danceSheet from '$lib/assets/companion-dance.svg';
+  import danceSheet from '#lib/assets/companion-dance.svg';
 
   const SHEET = { src: danceSheet, frames: 8, frameWidth: 20, frameHeight: 14, fps: 8 };
   const SCALE = 4;

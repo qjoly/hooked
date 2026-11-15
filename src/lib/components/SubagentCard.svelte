@@ -1,8 +1,8 @@
 <script>
-  import { ago, fmtTokens, fmtCost } from '$lib/format.js';
+  import { ago, fmtTokens, fmtCost } from '#lib/format.js';
   import AgentTrace from './AgentTrace.svelte';
   import Markdown from './Markdown.svelte';
-  import Icon from '$lib/components/Icon.svelte';
+  import Icon from '#lib/components/Icon.svelte';
 
   let { a, session } = $props();
   let open = $state(false);

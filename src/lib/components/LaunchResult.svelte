@@ -1,6 +1,6 @@
 <script>
-  import { copyText } from '$lib/clipboard.js';
-  import Icon from '$lib/components/Icon.svelte';
+  import { copyText } from '#lib/clipboard.js';
+  import Icon from '#lib/components/Icon.svelte';
 
   let { d } = $props();
   let copied = $state(false);

@@ -1,6 +1,6 @@
 import { json } from '@sveltejs/kit';
-import { warmupStatus, runWarmupNow } from '$lib/server/core.js';
-import { fail } from '$lib/server/respond.js';
+import { warmupStatus, runWarmupNow } from '#lib/server/core.js';
+import { fail } from '#lib/server/respond.js';
 
 // 5h-window management (cf. server/warmup.js). GET = the day's planned windows + why the scheduler
 // is (not) about to ping right now. POST = ping immediately, bypassing the "window already open"

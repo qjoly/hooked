@@ -1,6 +1,6 @@
 import { json } from '@sveltejs/kit';
-import { claudeVersionInfo, runUpgrade, restartSession } from '$lib/server/core.js';
-import { ok, fail, toPromise, readJson } from '$lib/server/respond.js';
+import { claudeVersionInfo, runUpgrade, restartSession } from '#lib/server/core.js';
+import { ok, fail, toPromise, readJson } from '#lib/server/respond.js';
 
 // Version claude-code de l'installation locale + sessions live qui tournent une version plus
 // ancienne (cf. server/claudeUpdate.js). Tout est déclenché par l'utilisateur depuis les Réglages.

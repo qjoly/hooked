@@ -1,4 +1,6 @@
 import { sveltekit } from '@sveltejs/kit/vite';
+import adapter from '@sveltejs/adapter-node';
+import { vitePreprocess } from '@sveltejs/vite-plugin-svelte';
 import { defineConfig } from 'vite';
 import { fileURLToPath } from 'node:url';
 
@@ -17,7 +19,11 @@ const pierreWebComponents = fileURLToPath(
 // Front + API dans un seul process : `npm run dev` sert le front (HMR) ET les
 // endpoints /api/* (routes +server.js). Plus de proxy ni de serveur Node séparé.
 export default defineConfig({
-  plugins: [sveltekit()],
+  plugins: [
+    // A long-running Node server: the SSE stream, the fs watchers and the sessions driven through the
+    // Agent SDK all live in this process.
+    sveltekit({ preprocess: vitePreprocess(), adapter: adapter() }),
+  ],
   server: {
     allowedHosts: true,
   },

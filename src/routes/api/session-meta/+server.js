@@ -1,6 +1,6 @@
 import { json } from '@sveltejs/kit';
-import { readSessionMeta, setSessionMeta, writeSessionMeta, joinGroup, leaveGroup, setGroupMother, renameGroup } from '$lib/server/core.js';
-import { fail, readJson } from '$lib/server/respond.js';
+import { readSessionMeta, setSessionMeta, writeSessionMeta, joinGroup, leaveGroup, setGroupMother, renameGroup } from '#lib/server/core.js';
+import { fail, readJson } from '#lib/server/respond.js';
 
 // Per-session Deck metadata persisted server-side (session-meta.json): archived flag +
 // snooze deadline. GET returns { meta: { [id]: { archived?, snoozeUntil? } } }.

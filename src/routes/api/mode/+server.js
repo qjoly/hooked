@@ -1,5 +1,5 @@
-import { agentAlive, setMode } from '$lib/server/core.js';
-import { ok, fail, toPromise, readJson } from '$lib/server/respond.js';
+import { agentAlive, setMode } from '#lib/server/core.js';
+import { ok, fail, toPromise, readJson } from '#lib/server/respond.js';
 
 // Change le mode de permission de Claude (Normal / Auto / Plan). C'est une requête de contrôle de
 // l'Agent SDK (Query.setPermissionMode) : un appel, une confirmation. Avant, il fallait cycler au

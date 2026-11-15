@@ -1,5 +1,5 @@
-import { agentAlive, agentPendingAsk, answerPlan, PLAN_ACTIONS } from '$lib/server/core.js';
-import { ok, fail, toPromise, readJson } from '$lib/server/respond.js';
+import { agentAlive, agentPendingAsk, answerPlan, PLAN_ACTIONS } from '#lib/server/core.js';
+import { ok, fail, toPromise, readJson } from '#lib/server/respond.js';
 
 // Act on a live ExitPlanMode plan from the web UI: approve / approve+auto / keep planning, and
 // keep-feedback (reject + send the reviewer's bundled comments). Resolves the `canUseTool` promise

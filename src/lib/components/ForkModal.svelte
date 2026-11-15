@@ -1,7 +1,7 @@
 <script>
-  import { loadSessions, ui } from '$lib/state.svelte.js';
-  import { fork } from '$lib/api.js';
-  import Icon from '$lib/components/Icon.svelte';
+  import { loadSessions, ui } from '#lib/state.svelte.js';
+  import { fork } from '#lib/api.js';
+  import Icon from '#lib/components/Icon.svelte';
   import ModelEffort from './ModelEffort.svelte';
   import LaunchResult from './LaunchResult.svelte';
 

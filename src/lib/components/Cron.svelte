@@ -1,9 +1,9 @@
 <script>
-  import { getCronTasks, cronOp } from '$lib/api.js';
-  import { data } from '$lib/state.svelte.js';
-  import { nextRuns } from '$lib/cron.js';
-  import { knownProjects } from '$lib/projects.js';
-  import { fmtSpan, ago } from '$lib/format.js';
+  import { getCronTasks, cronOp } from '#lib/api.js';
+  import { data } from '#lib/state.svelte.js';
+  import { nextRuns } from '#lib/cron.js';
+  import { knownProjects } from '#lib/projects.js';
+  import { fmtSpan, ago } from '#lib/format.js';
   import ModelEffort from './ModelEffort.svelte';
   import Icon from './Icon.svelte';
 

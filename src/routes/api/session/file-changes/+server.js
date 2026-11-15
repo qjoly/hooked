@@ -1,6 +1,6 @@
 import { json } from '@sveltejs/kit';
-import { scanSessions, buildFileChanges, buildFileChangeFull } from '$lib/server/core.js';
-import { fail } from '$lib/server/respond.js';
+import { scanSessions, buildFileChanges, buildFileChangeFull } from '#lib/server/core.js';
+import { fail } from '#lib/server/respond.js';
 
 // Full (uncapped) diff for ONE changed file, loaded on demand by the Ship lens when the capped
 // entry was flagged `truncated`. The client never passes a raw arbitrary path blindly: we only

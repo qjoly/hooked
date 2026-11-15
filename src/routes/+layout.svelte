@@ -1,22 +1,22 @@
 <script>
   import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
-  import { ui, data, settings, loadSettings, startLive, toggleFocus, cycleTheme, splitWithMostRecent, isSessionArchived } from '$lib/state.svelte.js';
-  import { wheelModel, faviconSvg } from '$lib/fleetWheel.js';
-  import { themeType } from '$lib/theme.svelte.js';
+  import { ui, data, settings, loadSettings, startLive, toggleFocus, cycleTheme, splitWithMostRecent, isSessionArchived } from '#lib/state.svelte.js';
+  import { wheelModel, faviconSvg } from '#lib/fleetWheel.js';
+  import { themeType } from '#lib/theme.svelte.js';
   import { page } from '$app/state';
-  import { pageHref } from '$lib/nav.js';
-  import { matchShortcut } from '$lib/shortcuts.js';
-  import { trackModifier } from '$lib/peek.svelte.js';
-  import { parseRunUrl } from '$lib/ghRun.js';
-  import Modal from '$lib/components/Modal.svelte';
-  import CommandPalette from '$lib/components/CommandPalette.svelte';
-  import Companion from '$lib/components/Companion.svelte';
-  import GhRunWindow from '$lib/components/GhRunWindow.svelte';
-  import QueryWindow from '$lib/components/QueryWindow.svelte';
-  import { floating } from '$lib/floating.svelte.js';
-  import TopBar from '$lib/components/TopBar.svelte';
-  import Icon from '$lib/components/Icon.svelte';
+  import { pageHref } from '#lib/nav.js';
+  import { matchShortcut } from '#lib/shortcuts.js';
+  import { trackModifier } from '#lib/peek.svelte.js';
+  import { parseRunUrl } from '#lib/ghRun.js';
+  import Modal from '#lib/components/Modal.svelte';
+  import CommandPalette from '#lib/components/CommandPalette.svelte';
+  import Companion from '#lib/components/Companion.svelte';
+  import GhRunWindow from '#lib/components/GhRunWindow.svelte';
+  import QueryWindow from '#lib/components/QueryWindow.svelte';
+  import { floating } from '#lib/floating.svelte.js';
+  import TopBar from '#lib/components/TopBar.svelte';
+  import Icon from '#lib/components/Icon.svelte';
   import '../app.css';
 
   let { children } = $props();

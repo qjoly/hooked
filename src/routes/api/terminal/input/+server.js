@@ -1,5 +1,5 @@
-import { writeTerminal } from '$lib/server/core.js';
-import { ok, fail, toPromise, readJson } from '$lib/server/respond.js';
+import { writeTerminal } from '#lib/server/core.js';
+import { ok, fail, toPromise, readJson } from '#lib/server/respond.js';
 
 // Frappes du navigateur → PTY, transmises TELLES QUELLES (Ctrl-C, flèches, Échap…) : c'est le shell
 // et l'application qui les interprètent. L'écho revient par le flux SSE, pas par cette réponse.

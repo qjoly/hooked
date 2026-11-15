@@ -1,6 +1,6 @@
 <script>
   import { onMount } from 'svelte';
-  import { getMemory } from '$lib/api.js';
+  import { getMemory } from '#lib/api.js';
   import Markdown from './Markdown.svelte';
 
   let data = $state(null);   // { projects, total, byType }

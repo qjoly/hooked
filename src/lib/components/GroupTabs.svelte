@@ -3,14 +3,14 @@
   // rendered for a multi-session group — a lone session looks exactly as before. The group name
   // (double-click to rename), promote-to-mother / detach per tab, and « + » to add an existing
   // session or start a new one inside the group. Tabs are drop targets too.
-  import { sessionDot as dotClass } from '$lib/format.js';
+  import { sessionDot as dotClass } from '#lib/format.js';
   import { goto } from '$app/navigation';
   import {
     groupSessions, groupMotherOf, groupName, renameGroup, setGroupMother, leaveGroup,
     sessionTitle, isSessionArchived, openModal,
-  } from '$lib/state.svelte.js';
-  import { dragSession, dropSession } from '$lib/groupDnd.js';
-  import Icon from '$lib/components/Icon.svelte';
+  } from '#lib/state.svelte.js';
+  import { dragSession, dropSession } from '#lib/groupDnd.js';
+  import Icon from '#lib/components/Icon.svelte';
 
   let { id } = $props();
 

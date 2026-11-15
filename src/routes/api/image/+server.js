@@ -1,4 +1,4 @@
-import { readImage } from '$lib/server/core.js';
+import { readImage } from '#lib/server/core.js';
 
 // Serve an attached image for display in the conversation. `readImage` restricts to hooked's images
 // dir (no arbitrary file read even if the server is bound to 0.0.0.0). Names are unique + immutable.

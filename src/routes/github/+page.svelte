@@ -1,5 +1,5 @@
 <script>
-  import GitHub from '$lib/components/GitHub.svelte';
+  import GitHub from '#lib/components/GitHub.svelte';
 </script>
 
 <div class="page"><GitHub /></div>

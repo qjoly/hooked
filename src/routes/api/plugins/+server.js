@@ -1,6 +1,6 @@
 import { json } from '@sveltejs/kit';
-import { listPlugins, runPluginAction } from '$lib/server/core.js';
-import { fail, readJson } from '$lib/server/respond.js';
+import { listPlugins, runPluginAction } from '#lib/server/core.js';
+import { fail, readJson } from '#lib/server/respond.js';
 
 // Installed plugins + marketplaces of a project. `?available=1` adds the marketplaces' catalog.
 // `cwd` matters: project and local scopes are per-directory.

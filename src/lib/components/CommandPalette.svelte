@@ -1,13 +1,13 @@
 <script>
-  import { copyText } from '$lib/clipboard.js';
+  import { copyText } from '#lib/clipboard.js';
   import { goto } from '$app/navigation';
   import { page } from '$app/state';
-  import { ui, data, settings, sessionTitle, setTheme, toggleFocus, toggleNotify, toggleIncognitoMode, openModal, toggleArchive, isArchived } from '$lib/state.svelte.js';
-  import { editorFor } from '$lib/editors.js';
-  import { interrupt, openInEditor, openInGhostty, resync, searchTranscripts } from '$lib/api.js';
-  import { shortcutForCommand, formatKeys } from '$lib/shortcuts.js';
-  import { ago, isActiveSession } from '$lib/format.js';
-  import Icon from '$lib/components/Icon.svelte';
+  import { ui, data, settings, sessionTitle, setTheme, toggleFocus, toggleNotify, toggleIncognitoMode, openModal, toggleArchive, isArchived } from '#lib/state.svelte.js';
+  import { editorFor } from '#lib/editors.js';
+  import { interrupt, openInEditor, openInGhostty, resync, searchTranscripts } from '#lib/api.js';
+  import { shortcutForCommand, formatKeys } from '#lib/shortcuts.js';
+  import { ago, isActiveSession } from '#lib/format.js';
+  import Icon from '#lib/components/Icon.svelte';
 
   let open = $state(false);
   let query = $state('');

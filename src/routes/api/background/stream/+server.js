@@ -1,4 +1,4 @@
-import { resolveBackgroundOutput, subscribeFileStream } from '$lib/server/core.js';
+import { resolveBackgroundOutput, subscribeFileStream } from '#lib/server/core.js';
 
 // Flux SSE du log (.output) d'un job de fond Bash. Le client passe `id` (session) + `taskId` ;
 // le SERVEUR résout le chemin du fichier depuis les jobs détectés de la session (jamais un chemin

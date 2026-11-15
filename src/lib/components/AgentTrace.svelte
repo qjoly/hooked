@@ -1,9 +1,9 @@
 <script>
   // "View internal trace" drill-in shared by the Agents and Workflows cards: loads the agent's own
   // transcript once (GET /api/agent) and renders it as chat bubbles, toggled in place.
-  import { getAgent } from '$lib/api.js';
+  import { getAgent } from '#lib/api.js';
   import ChatBubble from './ChatBubble.svelte';
-  import Icon from '$lib/components/Icon.svelte';
+  import Icon from '#lib/components/Icon.svelte';
 
   let { session, agentId } = $props();
   let messages = $state(null);

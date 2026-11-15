@@ -1,8 +1,8 @@
 <script>
   import { tick, onDestroy } from 'svelte';
-  import { ago } from '$lib/format.js';
-  import { connectBackgroundLog } from '$lib/api.js';
-  import Icon from '$lib/components/Icon.svelte';
+  import { ago } from '#lib/format.js';
+  import { connectBackgroundLog } from '#lib/api.js';
+  import Icon from '#lib/components/Icon.svelte';
   // Jobs de fond de la session (server/background.js → sessionDetail.bgJobs) : running + historique.
   // { kind:'bash'|'monitor'|'wakeup', taskId, command, description, startTs, outputPath, status }
   let { jobs = [], session } = $props();

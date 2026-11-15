@@ -1,8 +1,8 @@
 import { json } from '@sveltejs/kit';
 import {
   listMcp, getMcp, logoutMcp, startLogin, loginStatus, sendLoginInput, cancelLogin,
-} from '$lib/server/core.js';
-import { fail, readJson } from '$lib/server/respond.js';
+} from '#lib/server/core.js';
+import { fail, readJson } from '#lib/server/respond.js';
 
 // MCP servers of a project: health-checked list + scope + config diagnostics.
 // `cwd` matters — project and local scopes are per-directory (see server/mcp.js).

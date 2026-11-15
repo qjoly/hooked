@@ -1,7 +1,7 @@
 import { json } from '@sveltejs/kit';
 import { listThreads, addThread, deleteThread, editThread, replyThread, archiveThread, markThreadsSent,
-         startReview, addClaudeThread, scanSessions } from '$lib/server/core.js';
-import { fail, readJson } from '$lib/server/respond.js';
+         startReview, addClaudeThread, scanSessions } from '#lib/server/core.js';
+import { fail, readJson } from '#lib/server/respond.js';
 
 // Threads de revue ancrés dans la diff (lentilles Ship / Branch) — la conversation GitHub-style.
 // GET ?id= → { threads } ; POST { id, action, … } :

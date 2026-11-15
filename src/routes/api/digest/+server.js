@@ -1,6 +1,6 @@
 import { json } from '@sveltejs/kit';
-import { listDigests, readDigest, startGeneration, isValidDate, yesterdayLocal } from '$lib/server/core.js';
-import { fail, readJson } from '$lib/server/respond.js';
+import { listDigests, readDigest, startGeneration, isValidDate, yesterdayLocal } from '#lib/server/core.js';
+import { fail, readJson } from '#lib/server/respond.js';
 
 // Daily digests. GET without `date` → history index + latest date. GET with `date` → that digest
 // (or { status: 'absent' } if never generated). POST { date?, force? } → kick off (async)

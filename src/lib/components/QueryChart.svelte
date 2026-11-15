@@ -1,7 +1,7 @@
 <script>
   // Grafana-style time series: 2px lines, crosshair tooltip, and a legend table (last / max / mean)
   // where a click isolates one series.
-  import { themeType } from '$lib/theme.svelte.js';
+  import { themeType } from '#lib/theme.svelte.js';
 
   let { series, unit = '' } = $props();
 

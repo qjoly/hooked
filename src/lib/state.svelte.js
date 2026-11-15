@@ -101,7 +101,7 @@ export function toggleArchive(id) {
   // The sidebar always keeps the open session listed, so archiving it changed nothing on screen.
   if (willArchive && ids.includes(page.params?.id)) {
     const next = pickCandidate();
-    goto(next ? '/session/' + encodeURIComponent(next) : '/', { replaceState: true });
+    goto(next ? '/session/' + encodeURIComponent(next) : '/', { replace: true });
   }
 }
 export function isArchived(id) { return !!(ui.meta[id] && ui.meta[id].archived); }

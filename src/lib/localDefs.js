@@ -12,8 +12,7 @@
 // `function refine(` d'un appel `refine(state)`, on ne résout ni les alias d'import, ni les
 // surcharges, ni les génériques. La ligne, et rien d'autre.
 //
-// server/symbols.js l'importe en RELATIF (`../src/lib/localDefs.js`) : `$lib` est un alias
-// Vite, absent sous Vitest comme sous Node nu. Précédent : server/editor.js.
+// server/symbols.js l'importe en RELATIF (`../src/lib/localDefs.js`), comme avant `#lib`. Précédent : server/editor.js.
 
 // Le symbole est validé en amont (`[A-Za-z_$][\w$]*`) mais `$` reste un métacaractère.
 const escapeRe = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');

@@ -1,5 +1,5 @@
 import { markNotificationsDone } from '../../../../../server/github.js';
-import { ok, fail, readJson } from '$lib/server/respond.js';
+import { ok, fail, readJson } from '#lib/server/respond.js';
 
 // Body { ids: [threadId…] } → { ok, done: [threadId…], error }. A GitHub failure on some threads
 // is reported in `error`, not thrown, so a throw here can only mean malformed ids.

@@ -1,7 +1,7 @@
 <script>
   import { untrack } from 'svelte';
-  import { getTrace, getTraceTool } from '$lib/api.js';
-  import { tagColor } from '$lib/format.js';
+  import { getTrace, getTraceTool } from '#lib/api.js';
+  import { tagColor } from '#lib/format.js';
   import Icon from './Icon.svelte';
 
   // `version` changes whenever the transcript grows; the trace only refetches while visible.

@@ -26,20 +26,20 @@
   import Grip from './Grip.svelte';
   import ReviewComments from './ReviewComments.svelte';
   import DefPeek from './DefPeek.svelte';
-  import Icon from '$lib/components/Icon.svelte';
-  import { toSegments, countStats, applyOp, langFromName } from '$lib/difflines.js';
-  import { mdBlockDiff } from '$lib/mdDiff.js';
-  import { fmtCost } from '$lib/format.js';
+  import Icon from '#lib/components/Icon.svelte';
+  import { toSegments, countStats, applyOp, langFromName } from '#lib/difflines.js';
+  import { mdBlockDiff } from '#lib/mdDiff.js';
+  import { fmtCost } from '#lib/format.js';
   import { getFileChangeFull, getVcsDiff, getVcsBaseDiff, getVcsBranches, getVcsBranchDiff, getVcsBlame, getSymbolDefs,
            getReviewThreads, postReviewComment, editReviewThread, deleteReviewThread,
-           replyReviewThread, archiveReviewThread, markReviewSent, startClaudeReview, reply as sendToSession } from '$lib/api.js';
-  import { settings, ui, openModal } from '$lib/state.svelte.js';
-  import { editorFor } from '$lib/editors.js';
+           replyReviewThread, archiveReviewThread, markReviewSent, startClaudeReview, reply as sendToSession } from '#lib/api.js';
+  import { settings, ui, openModal } from '#lib/state.svelte.js';
+  import { editorFor } from '#lib/editors.js';
   import { fingerprint, isReviewed as hasReview, toggleReviewed as tickReview, nextUnreviewed,
-           toMap as reviewedToMap, toEntries as reviewedToEntries } from '$lib/reviewState.js';
-  import { loadDraft, saveDraft } from '$lib/reviewDraft.js';
-  import { threadInstructions, reviewRequestPrompt } from '$lib/reviewPrompt.js';
-  import { getBinding, matchesEvent, formatKeys } from '$lib/shortcuts.js';
+           toMap as reviewedToMap, toEntries as reviewedToEntries } from '#lib/reviewState.js';
+  import { loadDraft, saveDraft } from '#lib/reviewDraft.js';
+  import { threadInstructions, reviewRequestPrompt } from '#lib/reviewPrompt.js';
+  import { getBinding, matchesEvent, formatKeys } from '#lib/shortcuts.js';
 
   let { s, id, onReview = null, canReview = true, active = false } = $props();
 

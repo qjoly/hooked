@@ -1,5 +1,5 @@
 import { json } from '@sveltejs/kit';
-import { scanSessions, symbols } from '$lib/server/core.js';
+import { scanSessions, symbols } from '#lib/server/core.js';
 
 // Déclaration(s) probables d'un symbole dans le dépôt du projet de la session — le back du
 // « go to definition » (⌘-clic dans un diff de review). `file` est le chemin ABSOLU d'où part

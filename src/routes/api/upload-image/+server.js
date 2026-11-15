@@ -1,5 +1,5 @@
-import { saveImage } from '$lib/server/core.js';
-import { ok, fail, toPromise, readJson } from '$lib/server/respond.js';
+import { saveImage } from '#lib/server/core.js';
+import { ok, fail, toPromise, readJson } from '#lib/server/respond.js';
 
 // image collée dans le composer : on l'écrit sur disque (machine locale) et on renvoie
 // son chemin absolu, que le composer joindra au message (Claude Code lit l'image par chemin).

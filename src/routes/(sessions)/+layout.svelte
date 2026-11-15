@@ -1,6 +1,6 @@
 <script>
   import { page } from '$app/state';
-  import SessionSidebar from '$lib/components/SessionSidebar.svelte';
+  import SessionSidebar from '#lib/components/SessionSidebar.svelte';
 
   let { children } = $props();
   const path = $derived(page.url.pathname);

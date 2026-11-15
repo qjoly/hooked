@@ -1,9 +1,9 @@
 <script>
   import { untrack } from 'svelte';
   import Markdown from './Markdown.svelte';
-  import Icon from '$lib/components/Icon.svelte';
-  import { planAction } from '$lib/api.js';
-  import { loadSessions, ui } from '$lib/state.svelte.js';
+  import Icon from '#lib/components/Icon.svelte';
+  import { planAction } from '#lib/api.js';
+  import { loadSessions, ui } from '#lib/state.svelte.js';
 
   // Plan proposed by Claude via ExitPlanMode, awaiting approval. Captured by the hooks
   // (the tool_use only enters the transcript once approved/rejected), rendered as markdown.

@@ -1,8 +1,8 @@
 <script>
-  import { getTrash, restoreSession } from '$lib/api.js';
-  import Icon from '$lib/components/Icon.svelte';
-  import { loadSessions, ui } from '$lib/state.svelte.js';
-  import { ago, fmtCost } from '$lib/format.js';
+  import { getTrash, restoreSession } from '#lib/api.js';
+  import Icon from '#lib/components/Icon.svelte';
+  import { loadSessions, ui } from '#lib/state.svelte.js';
+  import { ago, fmtCost } from '#lib/format.js';
 
   let items = $state(null); // null = chargement en cours
   let busy = $state(null);  // id en cours de restauration

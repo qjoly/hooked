@@ -1,5 +1,5 @@
-import { openInEditor } from '$lib/server/core.js';
-import { ok, fail, toPromise, readJson } from '$lib/server/respond.js';
+import { openInEditor } from '#lib/server/core.js';
+import { ok, fail, toPromise, readJson } from '#lib/server/respond.js';
 
 // Ouvre le dossier projet de la session dans l'éditeur préféré (réglage `editor`, via sa CLI).
 export async function POST({ request }) {

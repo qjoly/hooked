@@ -146,15 +146,16 @@ export function parseImports(text) {
   return { bySymbol, specifiers };
 }
 
-// Un specifier est-il INTERNE au dépôt ? Relatif, évidemment — mais aussi `$lib/…`, l'alias
-// SvelteKit de `src/lib` : le traiter comme un paquet répondait « vient d'une dépendance »
+// Un specifier est-il INTERNE au dépôt ? Relatif, évidemment — mais aussi `$lib/…` (SvelteKit 2)
+// ou `#lib/…` (SvelteKit 3), l'alias de `src/lib` : le traiter comme un paquet répondait « vient d'une dépendance »
 // pour à peu près tout ce qu'importe un fichier .svelte de ce dépôt. `$app/…` reste externe
 // (runtime SvelteKit), comme les bare specifiers.
-const isInternalSpec = (spec) => spec.startsWith('.') || spec.startsWith('$lib/') || spec === '$lib';
+const LIB_ALIAS = /^[$#]lib(\/|$)/;
+const isInternalSpec = (spec) => spec.startsWith('.') || LIB_ALIAS.test(spec);
 
 // Specifier interne → chemin RELATIF AU DÉPÔT, sans extension résolue.
 function specToRel(clickRel, spec) {
-  if (spec.startsWith('$lib')) return path.posix.normalize('src/lib' + spec.slice(4));
+  if (LIB_ALIAS.test(spec)) return path.posix.normalize('src/lib' + spec.slice(4));
   return path.posix.normalize(path.posix.join(path.posix.dirname(clickRel), spec));
 }
 

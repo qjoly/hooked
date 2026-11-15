@@ -2,8 +2,8 @@
   // A markdown file of the review, rendered on its own (opened in a new tab from the Review lens).
   // The bytes come from /api/session/source, so the same confinement applies (session repos only).
   import { page } from '$app/state';
-  import { getSource } from '$lib/api.js';
-  import Markdown from '$lib/components/Markdown.svelte';
+  import { getSource } from '#lib/api.js';
+  import Markdown from '#lib/components/Markdown.svelte';
 
   const q = page.url.searchParams;
   const id = q.get('id') || '';

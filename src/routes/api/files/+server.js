@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import { json } from '@sveltejs/kit';
-import { scanSessions, matchFiles, projectFiles } from '$lib/server/core.js';
+import { scanSessions, matchFiles, projectFiles } from '#lib/server/core.js';
 
 // auto-complétion @ : fichiers du projet. cwd explicite (nouvelle session, pas encore
 // d'id) prioritaire, sinon dérivé de la session ouverte.

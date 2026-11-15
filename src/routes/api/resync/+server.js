@@ -1,5 +1,5 @@
-import { clearAgentState, buildSessions } from '$lib/server/core.js';
-import { ok } from '$lib/server/respond.js';
+import { clearAgentState, buildSessions } from '#lib/server/core.js';
+import { ok } from '#lib/server/respond.js';
 
 // Force a live-state resync. Drops the volatile per-session bits derived from the SDK stream
 // (current tool, follow-up suggestion) and rebuilds the list, then returns fresh state counts.

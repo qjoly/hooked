@@ -1,5 +1,5 @@
-import { trashSession } from '$lib/server/core.js';
-import { ok, fail, toPromise, readJson } from '$lib/server/respond.js';
+import { trashSession } from '#lib/server/core.js';
+import { ok, fail, toPromise, readJson } from '#lib/server/respond.js';
 
 // Met une session à la corbeille (déplace le transcript dans <projet>/bin/, récupérable).
 // N.B. : ≠ /api/kill (qui termine le process de la session). Ici la session quitte le dashboard,

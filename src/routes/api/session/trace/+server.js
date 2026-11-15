@@ -1,6 +1,6 @@
 import { json } from '@sveltejs/kit';
-import { scanSessions, buildTrace, readToolDetail } from '$lib/server/core.js';
-import { fail } from '$lib/server/respond.js';
+import { scanSessions, buildTrace, readToolDetail } from '#lib/server/core.js';
+import { fail } from '#lib/server/respond.js';
 
 // Trace lens: the span list, or one span's input/result when `tool` (a tool_use_id) is given.
 export function GET({ url }) {

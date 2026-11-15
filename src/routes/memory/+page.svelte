@@ -1,5 +1,5 @@
 <script>
-  import Memory from '$lib/components/Memory.svelte';
+  import Memory from '#lib/components/Memory.svelte';
 </script>
 
 <div class="page-scroll"><Memory /></div>

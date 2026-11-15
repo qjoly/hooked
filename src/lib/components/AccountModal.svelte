@@ -1,9 +1,9 @@
 <script>
-  import { copyText } from '$lib/clipboard.js';
+  import { copyText } from '#lib/clipboard.js';
   import { onDestroy } from 'svelte';
-  import { account, loadAccount } from '$lib/state.svelte.js';
-  import { accountAction } from '$lib/api.js';
-  import { initials } from '$lib/format.js';
+  import { account, loadAccount } from '#lib/state.svelte.js';
+  import { accountAction } from '#lib/api.js';
+  import { initials } from '#lib/format.js';
   import Icon from './Icon.svelte';
 
   let login = $state(null);  // { id, url, done, needsPaste, output, exitCode, starting }

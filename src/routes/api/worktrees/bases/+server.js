@@ -1,6 +1,6 @@
 import { json } from '@sveltejs/kit';
-import { listBases } from '$lib/server/core.js';
-import { fail } from '$lib/server/respond.js';
+import { listBases } from '#lib/server/core.js';
+import { fail } from '#lib/server/respond.js';
 
 export async function GET({ url }) {
   const cwd = url.searchParams.get('cwd');

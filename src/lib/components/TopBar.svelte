@@ -3,12 +3,12 @@
   // gauges (5h / 7d / model-scoped), quick actions (notifications, theme, settings) and the primary
   // "+ Session" button. Replaces the old 14-icon left rail.
   import { page } from '$app/state';
-  import { ui, data, settings, account, cycleTheme, toggleNotify, toggleIncognitoMode, openModal, isArchived, isSessionArchived, snoozeUntil } from '$lib/state.svelte.js';
-  import { getUsage } from '$lib/api.js';
-  import { initials, needsDecision, sessionDot } from '$lib/format.js';
-  import { NAV_TABS, NAV_KEYS, pageHref } from '$lib/nav.js';
-  import Icon from '$lib/components/Icon.svelte';
-  import FleetWheel from '$lib/components/FleetWheel.svelte';
+  import { ui, data, settings, account, cycleTheme, toggleNotify, toggleIncognitoMode, openModal, isArchived, isSessionArchived, snoozeUntil } from '#lib/state.svelte.js';
+  import { getUsage } from '#lib/api.js';
+  import { initials, needsDecision, sessionDot } from '#lib/format.js';
+  import { NAV_TABS, NAV_KEYS, pageHref } from '#lib/nav.js';
+  import Icon from '#lib/components/Icon.svelte';
+  import FleetWheel from '#lib/components/FleetWheel.svelte';
 
   let { onOmnibar } = $props();
 

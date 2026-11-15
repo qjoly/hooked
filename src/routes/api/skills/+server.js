@@ -1,6 +1,6 @@
 import { json } from '@sveltejs/kit';
-import { listSkills, readSkill } from '$lib/server/core.js';
-import { fail } from '$lib/server/respond.js';
+import { listSkills, readSkill } from '#lib/server/core.js';
+import { fail } from '#lib/server/respond.js';
 
 // `?cwd=` (repeatable) adds those projects' skills. `?id=` returns one skill with its body and files.
 export function GET({ url }) {

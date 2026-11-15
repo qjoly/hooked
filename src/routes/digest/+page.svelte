@@ -1,5 +1,5 @@
 <script>
-  import Digest from '$lib/components/Digest.svelte';
+  import Digest from '#lib/components/Digest.svelte';
 </script>
 
 <!-- Digest manages its own two-pane layout + inner scroll (`.digest { height:100% }`). -->

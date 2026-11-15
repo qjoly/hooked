@@ -1,6 +1,6 @@
 <script>
   import Lightbox from './Lightbox.svelte';
-  import { screenshotUrl } from '$lib/api.js';
+  import { screenshotUrl } from '#lib/api.js';
 
   // `shots`: [{ path, name, ts, size }] — images read or written by the session (cf.
   // server/screenshots.js). Thumbnails; clicking one opens a lightbox navigable with ← / →.

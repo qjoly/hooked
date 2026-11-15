@@ -1,5 +1,5 @@
 import { json } from '@sveltejs/kit';
-import { searchIndex } from '$lib/server/core.js';
+import { searchIndex } from '#lib/server/core.js';
 
 export function GET({ url }) {
   const q = url.searchParams.get('q') || '';

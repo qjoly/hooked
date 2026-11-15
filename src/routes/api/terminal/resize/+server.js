@@ -1,5 +1,5 @@
-import { resizeTerminal } from '$lib/server/core.js';
-import { ok, fail, toPromise, readJson } from '$lib/server/respond.js';
+import { resizeTerminal } from '#lib/server/core.js';
+import { ok, fail, toPromise, readJson } from '#lib/server/respond.js';
 
 // Aligne le PTY sur la place réellement dispo dans la vue web. Sans ça le shell garde une largeur
 // figée et tout ce qui met en colonnes (`ls`, `git log --graph`, un TUI) est mal coupé.

@@ -249,6 +249,18 @@ describe('lookup — bout en bout sur un dépôt git', () => {
     expect(r.jump.kind).toBe('function');
   });
 
+  it('résout `#lib/…` (SvelteKit 3) comme src/lib', async () => {
+    fs.mkdirSync(path.join(repo, 'src/lib'), { recursive: true });
+    fs.writeFileSync(path.join(repo, 'src/lib/hone.js'), 'export function hone(x) {\n  return x;\n}\n');
+    fs.writeFileSync(path.join(repo, 'src/kit3.svelte'),
+      "<script>\n  import { hone } from '#lib/hone.js';\n  hone(1);\n</script>\n");
+    await git(repo, 'add', 'src');
+    await git(repo, 'commit', '-q', '-m', 'kit3');
+    const r = await lookup(repo, { symbol: 'hone', file: path.join(repo, 'src/kit3.svelte') });
+    expect(r.origin).toBe(null);
+    expect(r.jump.rel).toBe('src/lib/hone.js');
+  });
+
   it('tranche un nom déclaré dans DEUX fichiers par le contexte du clic', async () => {
     fs.writeFileSync(path.join(repo, 'src/a.js'), 'export function dupe() { return 1; }\ndupe();\n');
     fs.writeFileSync(path.join(repo, 'src/b.js'), 'export function dupe() { return 2; }\n');

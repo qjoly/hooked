@@ -1,5 +1,5 @@
-import { openTerminal, listTerminals } from '$lib/server/core.js';
-import { ok, fail, toPromise, readJson } from '$lib/server/respond.js';
+import { openTerminal, listTerminals } from '#lib/server/core.js';
+import { ok, fail, toPromise, readJson } from '#lib/server/respond.js';
 
 // GET : terminaux ouverts (optionnellement ceux étiquetés d'une session).
 export function GET({ url }) {

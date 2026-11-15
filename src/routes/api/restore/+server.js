@@ -1,5 +1,5 @@
-import { restoreSession } from '$lib/server/core.js';
-import { ok, fail, toPromise, readJson } from '$lib/server/respond.js';
+import { restoreSession } from '#lib/server/core.js';
+import { ok, fail, toPromise, readJson } from '#lib/server/respond.js';
 
 // Restaure une session depuis la corbeille (remonte le transcript hors de bin/).
 export async function POST({ request }) {

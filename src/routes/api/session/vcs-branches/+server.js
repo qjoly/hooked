@@ -1,5 +1,5 @@
 import { json } from '@sveltejs/kit';
-import { scanSessions, listVcsBranches } from '$lib/server/core.js';
+import { scanSessions, listVcsBranches } from '#lib/server/core.js';
 
 // Local branches (git) / bookmarks (jj) of one of the session's repos — the primary one by
 // default, or `root` (re-validated server-side against the detected repos). Feeds the branch

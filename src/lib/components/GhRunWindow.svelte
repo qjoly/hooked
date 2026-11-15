@@ -4,8 +4,8 @@
   import { untrack } from 'svelte';
   import Icon from './Icon.svelte';
   import FloatingWindow from './FloatingWindow.svelte';
-  import { ago, fmtSpan } from '$lib/format.js';
-  import { parseRunUrl, CHECK } from '$lib/ghRun.js';
+  import { ago, fmtSpan } from '#lib/format.js';
+  import { parseRunUrl, CHECK } from '#lib/ghRun.js';
 
   let { url, onclose } = $props();
 

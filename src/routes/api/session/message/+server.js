@@ -1,6 +1,6 @@
 import { json } from '@sveltejs/kit';
-import { scanSessions, agentTranscriptPath, readMessageText } from '$lib/server/core.js';
-import { fail } from '$lib/server/respond.js';
+import { scanSessions, agentTranscriptPath, readMessageText } from '#lib/server/core.js';
+import { fail } from '#lib/server/respond.js';
 
 // Texte COMPLET d'un message user, chargé à la demande quand la bulle a été marquée `truncated`
 // (« Show more » dans le fil). `uuid` est le point de coupe déjà exposé par la conversation

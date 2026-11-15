@@ -1,5 +1,5 @@
 import { json } from '@sveltejs/kit';
-import { scanSessions, buildVcsBaseChanges, worktreeBaseFor } from '$lib/server/core.js';
+import { scanSessions, buildVcsBaseChanges, worktreeBaseFor } from '#lib/server/core.js';
 
 export async function GET({ url }) {
   const s = scanSessions().find((x) => x.id === url.searchParams.get('id'));

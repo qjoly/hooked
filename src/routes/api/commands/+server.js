@@ -1,5 +1,5 @@
 import { json } from '@sveltejs/kit';
-import { scanSessions, matchCommands, slashCommands, agentSupportedCommands, rememberSdkCommands, persistedSdkCommands } from '$lib/server/core.js';
+import { scanSessions, matchCommands, slashCommands, agentSupportedCommands, rememberSdkCommands, persistedSdkCommands } from '#lib/server/core.js';
 
 // auto-complétion « / » : commandes custom (.claude/commands) + built-in (curées, extraites du
 // binaire claude, et celles qu'une session pilotée déclare elle-même — seule source pour les

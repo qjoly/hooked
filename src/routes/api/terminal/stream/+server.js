@@ -1,4 +1,4 @@
-import { subscribeTerminal, getTerminal, terminalScrollback } from '$lib/server/core.js';
+import { subscribeTerminal, getTerminal, terminalScrollback } from '#lib/server/core.js';
 
 // Flux SSE de la sortie d'un terminal.
 //

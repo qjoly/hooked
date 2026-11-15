@@ -26,7 +26,7 @@ const EXIT_GRACE_MS = 3000;
 
 /**
  * Registers a callback to run at shutdown. It exists for handles `server/*` knows nothing about:
- * the fs watchers and SSE clients live in `$lib/server/live.js`, on the SvelteKit side, which
+ * the fs watchers and SSE clients live in `#lib/server/live.js`, on the SvelteKit side, which
  * registers itself rather than being imported here (the other direction would be a backwards
  * dependency). Returns the unregister function.
  */

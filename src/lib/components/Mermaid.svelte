@@ -11,9 +11,9 @@
   // on l'importe DYNAMIQUEMENT (comme xterm / @pierre/diffs) → chunk séparé, chargé à la 1re
   // utilisation, hors du bundle principal. Rendu client uniquement : l'import et `mermaid.render`
   // touchent le DOM, or les $effect ne tournent pas en SSR → aucun garde `browser` nécessaire.
-  import { copyText } from '$lib/clipboard.js';
-  import { themeType } from '$lib/theme.svelte.js';
-  import Icon from '$lib/components/Icon.svelte';
+  import { copyText } from '#lib/clipboard.js';
+  import { themeType } from '#lib/theme.svelte.js';
+  import Icon from '#lib/components/Icon.svelte';
 
   let { code = '' } = $props();
 

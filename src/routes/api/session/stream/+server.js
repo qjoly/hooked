@@ -1,4 +1,4 @@
-import { agentSession, subscribeAgent, streamSnapshot } from '$lib/server/core.js';
+import { agentSession, subscribeAgent, streamSnapshot } from '#lib/server/core.js';
 
 // Flux SSE PAR SESSION : pousse l'avancement d'un tour au fil de l'eau (texte en cours d'écriture,
 // raisonnement, outil courant, état).
