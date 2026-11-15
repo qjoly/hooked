@@ -15,6 +15,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -26,6 +28,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.TextFieldValue
@@ -101,7 +104,7 @@ fun SessionHeader(app: AppModel, model: SessionModel, ui: SessionUi, onBack: () 
                 KIconButton(Lucide.ArrowLeft, "Back to the Deck", onBack)
                 Text(app.title(x), style = k.ty.bodyMedium, color = c.fg, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
                 Row(
-                    Modifier.height(22.dp).clip(RoundedCornerShape(11.dp)).background(c.chip).padding(horizontal = 8.dp),
+                    Modifier.height(22.dp).widthIn(max = 280.dp).clip(RoundedCornerShape(11.dp)).background(c.chip).padding(horizontal = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
@@ -143,23 +146,25 @@ private fun SubLine(app: AppModel, model: SessionModel, open: (PaneModal) -> Uni
     val c = k.c
     val now = rememberNow(15_000)
     Row(Modifier.fillMaxWidth().height(24.dp).padding(start = 54.dp, end = 14.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-        Row(Modifier.weight(1f, fill = false), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
-            Text(projectLabel(x), style = k.ty.ui, color = c.muted, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
-            x.gitBranch?.takeIf { it.isNotEmpty() }?.let { b ->
-                Text("·", style = k.ty.ui, color = c.faint)
-                KIcon(Lucide.GitBranch, c.faint, 12.dp)
-                Text(b, style = k.ty.ui, color = c.muted, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+        Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(Modifier.weight(1f, fill = false), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                Text(projectLabel(x), style = k.ty.ui, color = c.muted, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+                x.gitBranch?.takeIf { it.isNotEmpty() }?.let { b ->
+                    Text("·", style = k.ty.ui, color = c.faint)
+                    KIcon(Lucide.GitBranch, c.faint, 12.dp)
+                    Text(b, style = k.ty.ui, color = c.muted, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+                }
+            }
+            val tags = app.tagsOf(model.id)
+            if (tags.isNotEmpty()) {
+                // Tags past the edge are cut, not squeezed.
+                Box(Modifier.weight(1f, fill = false).clipToBounds().clip(RoundedCornerShape(k.r.sm)).clickable { open(PaneModal.Organize(SidebarModal.Tags(model.id))) }) {
+                    Row(Modifier.wrapContentWidth(Alignment.Start, unbounded = true), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        tags.forEach { TagPill(it, app.prefs.tagColors) }
+                    }
+                }
             }
         }
-        val tags = app.tagsOf(model.id)
-        if (tags.isNotEmpty()) {
-            Row(
-                Modifier.weight(1f, fill = false).clip(RoundedCornerShape(k.r.sm)).clickable { open(PaneModal.Organize(SidebarModal.Tags(model.id))) },
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
-            ) { tags.forEach { TagPill(it, app.prefs.tagColors) } }
-        }
-        Spacer(Modifier.weight(0.01f))
         model.conversation?.contextPct?.let { pct ->
             val p = pct.coerceIn(0.0, 100.0).toFloat()
             val fill = when {
