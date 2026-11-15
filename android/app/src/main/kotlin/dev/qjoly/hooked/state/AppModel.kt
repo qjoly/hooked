@@ -143,7 +143,7 @@ class AppModel(app: Application) : AndroidViewModel(app) {
         if (streamJob != null) return
         streamJob = viewModelScope.launch {
             launch { runCatching { capabilities = c.capabilities() } }
-            launch { runCatching { settings = c.settings() } }
+            val settingsJob = launch { runCatching { settings = c.settings() } }
             // Ticks come on every hook event and every 4 s: 250 ms debounce, one fetch per second at most.
             launch {
                 ticks.conflate().collect {
@@ -153,6 +153,8 @@ class AppModel(app: Application) : AndroidViewModel(app) {
                 }
             }
             refresh()
+            settingsJob.join()
+            landOnDefault()
             while (isActive) {
                 try {
                     sseFlow(c.url("api/stream")).collect {
@@ -166,6 +168,25 @@ class AppModel(app: Application) : AndroidViewModel(app) {
                 connected = false
                 delay(3_000)
             }
+        }
+    }
+
+    private var landed = false
+
+    /** The `defaultPage` setting, once per launch, unless something was opened meanwhile. */
+    private fun landOnDefault() {
+        if (landed) return
+        landed = true
+        if (page != Page.Deck) return
+        when (settings["defaultPage"].str) {
+            "sessions" -> openSessions()
+            "stats" -> page = Page.Stats
+            "digest" -> page = Page.Digest
+            "memory" -> page = Page.Memory
+            "cron" -> page = Page.Cron
+            "github" -> page = Page.Github
+            "skills" -> page = Page.Skills
+            "prompts" -> page = Page.Prompts
         }
     }
 
