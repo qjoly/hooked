@@ -75,6 +75,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.isCtrlPressed
+import androidx.compose.ui.input.key.isMetaPressed
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -158,7 +165,14 @@ private fun Shell(app: AppModel, requestNotifications: () -> Unit) {
     var account by remember { mutableStateOf(false) }
     var trash by remember { mutableStateOf(false) }
     BackHandler(app.page != Page.Deck) { app.openDeck() }
-    BoxWithConstraints(Modifier.fillMaxSize().safeDrawingPadding()) {
+    BoxWithConstraints(
+        Modifier.fillMaxSize().safeDrawingPadding().onPreviewKeyEvent { e ->
+            // ⌘K / Ctrl+K opens the palette from anywhere, as in rune.
+            val hit = e.key == Key.K && (e.isMetaPressed || e.isCtrlPressed)
+            if (hit && e.type == KeyEventType.KeyDown) palette = !palette
+            hit
+        },
+    ) {
         val wide = maxWidth >= 1150.dp
         Column(Modifier.fillMaxSize()) {
             TopBar(app, wide, { palette = true }, { account = true }, { trash = true })
@@ -182,7 +196,7 @@ private fun Shell(app: AppModel, requestNotifications: () -> Unit) {
             }
         }
     }
-    if (palette) Palette(app) { palette = false }
+    if (palette) Palette(app, { trash = true }, requestNotifications) { palette = false }
     if (account) AccountModal(app) { account = false }
     if (trash) TrashModal(app) { trash = false }
 }

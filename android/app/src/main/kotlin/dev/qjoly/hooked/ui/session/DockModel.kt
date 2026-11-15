@@ -390,6 +390,16 @@ class DockModel : ViewModel() {
         ghView = null
     }
 
+    /** The GitHub page's side panel (`ghdetail.rs::peek_gh`): no session to fix checks in, a second press closes. */
+    fun peekGh(url: String) {
+        if (ghView?.url == url) {
+            ghView = null
+            return
+        }
+        loadDetail(url)
+        ghView = GhView(url, null)
+    }
+
     fun ghTab(tab: Int) {
         val v = ghView ?: return
         ghView = v.copy(tab = tab)
