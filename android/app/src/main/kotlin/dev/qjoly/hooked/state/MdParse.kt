@@ -7,7 +7,10 @@ sealed interface Md {
     data class Para(val text: String) : Md
 
     /** `open` while a streamed fence has not closed yet. */
-    data class Code(val lang: String, val code: String, val open: Boolean) : Md
+    data class Code(val lang: String, val code: String, val open: Boolean) : Md {
+        /** The whole info string (`promql datasource=…`); outside the constructor so equality ignores it. */
+        var info: String = lang
+    }
 
     /** `start` is null for bullets. */
     data class ListBlock(val start: Int?, val items: List<ListItem>) : Md
@@ -29,7 +32,7 @@ sealed interface Inl {
     data object Break : Inl
 }
 
-private val FENCE = Regex("""^( {0,3})(`{3,}|~{3,})\s*([^`\s]*).*$""")
+private val FENCE = Regex("""^( {0,3})(`{3,}|~{3,})\s*([^`\s]*)(.*)$""")
 private val HEADING = Regex("""^ {0,3}(#{1,6})(?:[ \t]+(.*?))?[ \t]*#*[ \t]*$""")
 private val RULE = Regex("""^ {0,3}([-*_])(?:[ \t]*\1){2,}[ \t]*$""")
 private val LIST = Regex("""^( *)([-*+]|\d{1,9}[.)])(?:([ \t]+)(.*))?$""")
@@ -87,7 +90,7 @@ private fun blocks(lines: List<String>): List<Md> {
             val body = mutableListOf<String>()
             var j = i + 1
             while (j < lines.size && !close.matches(lines[j])) body += dedent(lines[j++], pad)
-            out += Md.Code(fenceMatch.groupValues[3], body.joinToString("\n"), j >= lines.size)
+            out += Md.Code(fenceMatch.groupValues[3], body.joinToString("\n"), j >= lines.size).also { it.info = (fenceMatch.groupValues[3] + fenceMatch.groupValues[4]).trim() }
             i = j + 1
             continue
         }

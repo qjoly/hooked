@@ -99,7 +99,7 @@ private fun FilterPicker(app: AppModel, tags: Boolean, close: () -> Unit) {
     var q by remember { mutableStateOf("") }
     val counts = mutableMapOf<String, Int>()
     for (s in app.visible) {
-        if (app.prefs.sidebarLayout != "status" && isArchived(s, app.meta, app.now)) continue
+        if (app.prefs.sidebarLayout != "status" && isArchived(s, app.meta, app.now) != SidebarState.showArchived) continue
         if (tags) app.tagsOf(s.id).forEach { counts[it] = (counts[it] ?: 0) + 1 } else projectLabel(s).let { counts[it] = (counts[it] ?: 0) + 1 }
     }
     val picked = if (tags) app.tagFilter else app.repoFilter

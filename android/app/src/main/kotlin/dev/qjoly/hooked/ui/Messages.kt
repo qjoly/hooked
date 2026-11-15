@@ -109,7 +109,7 @@ class ConverseEnv(
     val code = CodeActions(onRun = { model.runCode(it) }, onCopy = {
         copyText(ctx, it)
         app.say("✓ Copied")
-    })
+    }, onView = { app.openQuerySpec(it) })
 
     fun forkHere(uuid: String) {
         val s = model.detail?.session
@@ -330,6 +330,12 @@ fun ToolChip(env: ConverseEnv, t: ToolCall) {
             Text(t.name, style = k.ty.textSmallMedium, color = c.muted, maxLines = 1)
             Text(t.detail.orEmpty(), style = k.ty.mono, color = c.faint, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
             if (big) Text("$changed lines", style = k.ty.textXsmall, color = c.faint)
+        }
+        val qid = t.id
+        if (qid != null && t.result != null && dev.qjoly.hooked.state.isQueryTool(t.name)) {
+            Row(Modifier.padding(start = 8.dp, end = 8.dp, bottom = 6.dp)) {
+                KButton("View the result", { env.app.openQueryResult(env.model.id, qid) }, variant = Variant.OUTLINE, size = Size.SMALL, icon = Lucide.Chart)
+            }
         }
         val diff = t.diff
         if (diff != null) {

@@ -70,10 +70,9 @@ fun TopBar(app: AppModel, wide: Boolean, onPalette: () -> Unit, onAccount: () ->
                 if (tabs == null || key in tabs || app.page == page) Tab(look.first, look.second, app.page == page, wide) { app.page = page }
             }
         }
-        Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
-            val flash = app.flash
-            if (flash != null) FlashToast(flash) else Omni(onPalette, wide)
-        }
+        Box(Modifier.weight(1f), contentAlignment = Alignment.Center) { Omni(onPalette, wide) }
+        // rune shows the flash beside the omni field, not over it.
+        app.flash?.let { FlashToast(it, Modifier.weight(1f, fill = false)) }
         if (wide) Gauges(app.gauges)
         Row(horizontalArrangement = Arrangement.spacedBy(2.dp), verticalAlignment = Alignment.CenterVertically) {
             if (app.prefs.incognito) {
@@ -82,7 +81,7 @@ fun TopBar(app: AppModel, wide: Boolean, onPalette: () -> Unit, onAccount: () ->
                 KIconButton(Lucide.Eye, "Incognito mode", { app.toggleIncognitoMode() })
             }
             KIconButton(Lucide.User, "Claude account", onAccount)
-            KIconButton(Lucide.Trash, "Trash: deleted sessions, recoverable", onTrash)
+            KIconButton(Lucide.Trash, "Trash", onTrash)
             KIconButton(if (app.notify) Lucide.Bell else Lucide.BellOff, if (app.notify) "Notifications: on" else "Notifications: off", { app.changeNotify(!app.notify) })
             val ap = app.prefs.appearance
             KIconButton(

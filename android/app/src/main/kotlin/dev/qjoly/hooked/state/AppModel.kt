@@ -159,7 +159,7 @@ class AppModel(app: Application) : AndroidViewModel(app) {
                 try {
                     sseFlow(c.url("api/stream")).collect {
                         connected = true
-                        ticks.tryEmit(kotlin.Unit)
+                        if (!onStreamEvent(it)) ticks.tryEmit(kotlin.Unit)
                     }
                 } catch (e: CancellationException) {
                     throw e
@@ -356,7 +356,30 @@ class AppModel(app: Application) : AndroidViewModel(app) {
 
     fun setTags(id: String, list: List<String>) {
         tags = tags + (id to list)
-        act("Tags") { it.setTags(id, list) }
+        act("Tags", "✓ Tags saved") { it.setTags(id, list) }
+    }
+
+    /** rune's quick reply window (⌘⇧H). */
+    var quickOpen by mutableStateOf(false)
+
+    /** The floating Grafana query window, open while non-null. */
+    var queryRequest by mutableStateOf<QueryRequest?>(null)
+
+    fun openQuerySpec(spec: JsonObject) {
+        queryRequest = QueryRequest.Spec(spec)
+    }
+
+    fun openQueryResult(session: String, toolId: String) {
+        queryRequest = QueryRequest.Result(session, toolId)
+    }
+
+    /** A `showQuery` event (the MCP `show_query` tool) opens the query window; true when the payload was one. */
+    private fun onStreamEvent(payload: String): Boolean {
+        if (!payload.contains("\"spec\"")) return false
+        val spec = runCatching { kotlinx.serialization.json.Json.parseToJsonElement(payload)["spec"] as? JsonObject }.getOrNull() ?: return false
+        if (spec["query"].str == null) return false
+        openQuerySpec(spec)
+        return true
     }
 
     suspend fun launch(cwd: String, prompt: String, model: String?, effort: String?, mode: String?): String {
