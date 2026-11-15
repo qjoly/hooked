@@ -11,6 +11,10 @@ dependencyResolutionManagement {
     repositories {
         google()
         mavenCentral()
+        // Termux's terminal emulator only ships there.
+        maven("https://jitpack.io") {
+            content { includeGroup("com.github.termux.termux-app") }
+        }
     }
 }
 
