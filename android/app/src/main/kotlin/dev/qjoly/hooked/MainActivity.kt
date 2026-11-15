@@ -62,7 +62,7 @@ class MainActivity : ComponentActivity() {
     private fun handle(intent: Intent?) {
         intent ?: return
         intent.getStringExtra(Notify.EXTRA_SESSION)?.let(app::open)
-        if (intent.action == ACTION_NEW_SESSION) app.showNew = true
+        if (intent.action == ACTION_NEW_SESSION) app.openNew()
         val link = intent.dataString?.let(ServerConfig::fromLink) ?: return
         lifecycleScope.launch { app.pair(link)?.let { app.message = "Pairing with ${link.base} failed: $it" } }
     }

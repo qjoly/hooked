@@ -41,5 +41,7 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.11.0")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.13.0")
     implementation("com.mikepenz:multiplatform-markdown-renderer-m3:0.46.0")
+    // The VT parser and screen model behind the terminal panel (Apache-2.0).
+    implementation("com.github.termux.termux-app:terminal-emulator:v0.118.1")
     testImplementation("junit:junit:4.13.2")
 }

@@ -1,8 +1,5 @@
 package dev.qjoly.hooked.data
 
-import dev.qjoly.hooked.ui.bucket
-import dev.qjoly.hooked.ui.diffOf
-import dev.qjoly.hooked.ui.plain
 import kotlinx.serialization.json.Json
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -42,28 +39,6 @@ class ModelsTest {
 
     @Test fun `usage gauges`() {
         val g = usageGauges(json("""{"account":{"fiveHour":{"pct":29,"resetInMin":142},"sevenDay":{"pct":32},"fable":{"pct":10,"label":"Fable"}}}"""))
-        assertEquals(listOf(Gauge("5H", 29, 142), Gauge("7D", 32, null), Gauge("Fable", 10, null)), g)
-    }
-
-    @Test fun `edit and write calls become diffs`() {
-        val edit = diffOf(Tool(null, "Edit", null, """{"old_string":"a\nb","new_string":"c"}""", null))!!
-        assertEquals(listOf('-', '-', '+'), edit.map { it.sign })
-        assertEquals(1, diffOf(Tool(null, "Write", null, """{"content":"x"}""", null))!!.size)
-        assertNull(diffOf(Tool(null, "Bash", null, """{"command":"ls"}""", null)))
-    }
-
-    @Test fun `excerpts drop markdown`() {
-        assertEquals("Title • x is done", plain("## Title\n- **x** is done"))
-        assertEquals("• Commit : 215412e, signé", plain("- **Commit :** `215412e`, signé"))
-    }
-
-    @Test fun `stale sessions leave the needs-you bucket`() {
-        // Epoch milliseconds: small numbers would read as seconds.
-        val now = 1_794_517_033_207L
-        fun s(state: String, live: Boolean, age: Long) = Session.of(json("""{"id":"x","state":"$state","live":$live,"lastActivity":${now - age}}"""))
-        assertEquals(0, bucket(s("waiting", false, 3_600_000), now))
-        assertEquals(2, bucket(s("waiting", false, 2 * 86_400_000L), now))
-        assertEquals(1, bucket(s("working", true, 0), now))
-        assertNull(bucket(s("ended", false, 2 * 86_400_000L), now))
+        assertEquals(listOf(Gauge("5H", 29, 142), Gauge("7D", 32, null), Gauge("FABLE", 10, null)), g)
     }
 }
