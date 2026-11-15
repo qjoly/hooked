@@ -1,7 +1,7 @@
 <script>
-  import { data } from '$lib/state.svelte.js';
-  import Icon from '$lib/components/Icon.svelte';
-  import { fmtCost, fmtTokens, shortModel } from '$lib/format.js';
+  import { data } from '#lib/state.svelte.js';
+  import Icon from '#lib/components/Icon.svelte';
+  import { fmtCost, fmtTokens, shortModel } from '#lib/format.js';
 
   // `r.sessionId` scopes the breakdown to ONE session (the session header's Cost button); without
   // it the modal aggregates every listed session.

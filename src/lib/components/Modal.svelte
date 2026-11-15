@@ -1,6 +1,6 @@
 <script>
-  import { ui, closeModal } from '$lib/state.svelte.js';
-  import Icon from '$lib/components/Icon.svelte';
+  import { ui, closeModal } from '#lib/state.svelte.js';
+  import Icon from '#lib/components/Icon.svelte';
   import CostModal from './CostModal.svelte';
   import ForkModal from './ForkModal.svelte';
   import TrashModal from './TrashModal.svelte';

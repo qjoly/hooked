@@ -8,10 +8,10 @@
   import Lightbox from './Lightbox.svelte';
   import PierreDiff from './PierreDiff.svelte';
   import ShowWork from './ShowWork.svelte';
-  import Icon from '$lib/components/Icon.svelte';
-  import { ui } from '$lib/state.svelte.js';
-  import { userFileUrl } from '$lib/api.js';
-  import { floating } from '$lib/floating.svelte.js';
+  import Icon from '#lib/components/Icon.svelte';
+  import { ui } from '#lib/state.svelte.js';
+  import { userFileUrl } from '#lib/api.js';
+  import { floating } from '#lib/floating.svelte.js';
   let { t, diff = null, ask = null, send = null, show = null, session = null, agent = null } = $props();
   const hasDiff = $derived(!!(diff && diff.ops && diff.ops.length));
 

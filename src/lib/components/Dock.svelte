@@ -8,12 +8,12 @@
   import Background from './Background.svelte';
   import GhDetail from './GhDetail.svelte';
   import Screenshots from './Screenshots.svelte';
-  import Icon from '$lib/components/Icon.svelte';
-  import { fmtCost, prLabel, issueLabel } from '$lib/format.js';
-  import { prState, prStateIcon } from '$lib/prState.svelte.js';
-  import { ui, settings, openModal, togglePin, toggleArchive, isArchived, isIncognito, toggleIncognito, snoozeUntil, snoozeSessionUntil, wakeSession } from '$lib/state.svelte.js';
-  import { snoozePresets, wakeLabel, hm } from '$lib/sidebarSections.js';
-  import { reply } from '$lib/api.js';
+  import Icon from '#lib/components/Icon.svelte';
+  import { fmtCost, prLabel, issueLabel } from '#lib/format.js';
+  import { prState, prStateIcon } from '#lib/prState.svelte.js';
+  import { ui, settings, openModal, togglePin, toggleArchive, isArchived, isIncognito, toggleIncognito, snoozeUntil, snoozeSessionUntil, wakeSession } from '#lib/state.svelte.js';
+  import { snoozePresets, wakeLabel, hm } from '#lib/sidebarSections.js';
+  import { reply } from '#lib/api.js';
 
   let { s, id, onreview } = $props();
 

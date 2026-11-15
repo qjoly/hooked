@@ -1,5 +1,5 @@
 import { json } from '@sveltejs/kit';
-import { scanSessions, buildVcsChanges } from '$lib/server/core.js';
+import { scanSessions, buildVcsChanges } from '#lib/server/core.js';
 
 // Diff du working tree (git ou jj) du projet de la session. Calcul à la demande (lazy) — pas dans
 // sessionDetail, qui est repoussé à chaque tick SSE : on ne veut pas lancer `git diff` en boucle.

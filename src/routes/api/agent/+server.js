@@ -1,5 +1,5 @@
 import { json } from '@sveltejs/kit';
-import { agentTranscriptPath, buildConversation, buildFileChanges } from '$lib/server/core.js';
+import { agentTranscriptPath, buildConversation, buildFileChanges } from '#lib/server/core.js';
 
 // déroulé interne complet d'un sous-agent (sa propre conversation : tools, reads, edits…)
 export function GET({ url }) {

@@ -1,7 +1,7 @@
 <script>
   import { onMount } from 'svelte';
-  import { ago, ghFilter } from '$lib/format.js';
-  import { markGithubNotificationsDone } from '$lib/api.js';
+  import { ago, ghFilter } from '#lib/format.js';
+  import { markGithubNotificationsDone } from '#lib/api.js';
   import Icon from './Icon.svelte';
   import GhDetail from './GhDetail.svelte';
 

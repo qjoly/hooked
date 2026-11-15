@@ -1,4 +1,4 @@
-import { addClient } from '$lib/server/live.js';
+import { addClient } from '#lib/server/live.js';
 
 // Flux SSE temps réel : pousse « tick » à chaque évènement de hook / update de transcript.
 export function GET() {

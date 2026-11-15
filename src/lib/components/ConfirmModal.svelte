@@ -1,6 +1,6 @@
 <script>
-  import { closeModal } from '$lib/state.svelte.js';
-  import Icon from '$lib/components/Icon.svelte';
+  import { closeModal } from '#lib/state.svelte.js';
+  import Icon from '#lib/components/Icon.svelte';
   // r = { title, message?, confirmLabel?, confirmIcon?, cancelLabel?, danger?, onConfirm }
   let { r } = $props();
   function doConfirm() {

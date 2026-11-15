@@ -1,11 +1,11 @@
 <script>
-  import { ago, splitMessageImages, fmtTokens } from '$lib/format.js';
-  import { getMessageText } from '$lib/api.js';
+  import { ago, splitMessageImages, fmtTokens } from '#lib/format.js';
+  import { getMessageText } from '#lib/api.js';
   import { setContext } from 'svelte';
   import ToolChip from './ToolChip.svelte';
   import Markdown from './Markdown.svelte';
   import MessageImages from './MessageImages.svelte';
-  import Icon from '$lib/components/Icon.svelte';
+  import Icon from '#lib/components/Icon.svelte';
   // Fork (uniquement si le message a un point de coupe `forkUuid`) :
   //   `onfork(m)`         = fork express en 1 clic — aucune saisie, modèle/effort de la
   //                         session, branche indépendante qui attend (pas de modale).

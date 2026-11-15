@@ -1,9 +1,9 @@
 <script>
-  import { MODE_OPTS, shortModel } from '$lib/format.js';
-  import { getCapabilities } from '$lib/api.js';
-  import { settings } from '$lib/state.svelte.js';
-  import { filterModelGroups } from '$lib/models.js';
-  import Icon from '$lib/components/Icon.svelte';
+  import { MODE_OPTS, shortModel } from '#lib/format.js';
+  import { getCapabilities } from '#lib/api.js';
+  import { settings } from '#lib/state.svelte.js';
+  import { filterModelGroups } from '#lib/models.js';
+  import Icon from '#lib/components/Icon.svelte';
   // `compact` : pilules en ligne (sous une chatbox) plutôt que le formulaire des modales.
   // `onchange` : callback appelé à chaque changement (sert au changement à chaud d'une session).
   // `showMode` : ajoute le sélecteur de mode de permission (→ claude --permission-mode) au

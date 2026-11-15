@@ -1,6 +1,6 @@
 import { json } from '@sveltejs/kit';
-import { getGitStatus, listGitBranches, checkoutGitBranch, readGitSyncState, dismissRestartNotice } from '$lib/server/core.js';
-import { fail, readJson, ok } from '$lib/server/respond.js';
+import { getGitStatus, listGitBranches, checkoutGitBranch, readGitSyncState, dismissRestartNotice } from '#lib/server/core.js';
+import { fail, readJson, ok } from '#lib/server/respond.js';
 
 // Git du dépôt DANS LEQUEL tourne le serveur hooked (résolu au runtime, cf. server/gitOps.js).
 // GET  → branche courante + liste des branches + état de synchro (bannière restart).

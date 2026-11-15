@@ -1,8 +1,8 @@
 <script>
   import { onMount } from 'svelte';
-  import { getDigests, getDigest, generateDigest } from '$lib/api.js';
-  import { ui, data } from '$lib/state.svelte.js';
-  import { fmtCost, prLabel, issueLabel } from '$lib/format.js';
+  import { getDigests, getDigest, generateDigest } from '#lib/api.js';
+  import { ui, data } from '#lib/state.svelte.js';
+  import { fmtCost, prLabel, issueLabel } from '#lib/format.js';
   import Markdown from './Markdown.svelte';
 
   let index = $state(null);   // { digests:[{date,status,...}], latest, yesterday }

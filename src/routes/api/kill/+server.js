@@ -1,5 +1,5 @@
-import { killSession, closeAfterTurn } from '$lib/server/core.js';
-import { ok, fail, toPromise, readJson } from '$lib/server/respond.js';
+import { killSession, closeAfterTurn } from '#lib/server/core.js';
+import { ok, fail, toPromise, readJson } from '#lib/server/respond.js';
 
 // { launchKey } comes from a session archiving itself through MCP: it stops once its turn ends.
 export async function POST({ request }) {

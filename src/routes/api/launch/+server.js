@@ -1,5 +1,5 @@
-import { launchSession } from '$lib/server/core.js';
-import { ok, fail, toPromise, readJson } from '$lib/server/respond.js';
+import { launchSession } from '#lib/server/core.js';
+import { ok, fail, toPromise, readJson } from '#lib/server/respond.js';
 
 export async function POST({ request }) {
   const body = await readJson(request);

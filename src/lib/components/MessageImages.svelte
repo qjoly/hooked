@@ -1,6 +1,6 @@
 <script>
   import Lightbox from './Lightbox.svelte';
-  import { imageUrl } from '$lib/api.js';
+  import { imageUrl } from '#lib/api.js';
 
   // `images` : absolute paths of images attached to the message (extracted by splitMessageImages).
   // Rendered as thumbnails; clicking one opens a full-size lightbox (Esc or click closes).

@@ -4,14 +4,14 @@
   // Replaces the old empty-cockpit Overview and the /board kanban.
   import { untrack } from 'svelte';
   import { goto } from '$app/navigation';
-  import { ui, data, sessionTitle, sessionTags, loadSessions, toggleArchive, isArchived, isSessionArchived, snoozeSession, snoozeUntil, groupUnits, isGroupArchived, isGrouped, groupName } from '$lib/state.svelte.js';
-  import { dragSession, dropSession, dropDetach } from '$lib/groupDnd.js';
-  import { getSession, reply } from '$lib/api.js';
-  import { ago, tagColor, lotColor, STATE_LABEL, needsDecision, isActiveSession as isLive, sessionDot as dotClass } from '$lib/format.js';
+  import { ui, data, sessionTitle, sessionTags, loadSessions, toggleArchive, isArchived, isSessionArchived, snoozeSession, snoozeUntil, groupUnits, isGroupArchived, isGrouped, groupName } from '#lib/state.svelte.js';
+  import { dragSession, dropSession, dropDetach } from '#lib/groupDnd.js';
+  import { getSession, reply } from '#lib/api.js';
+  import { ago, tagColor, lotColor, STATE_LABEL, needsDecision, isActiveSession as isLive, sessionDot as dotClass } from '#lib/format.js';
   import Question from './Question.svelte';
   import Plan from './Plan.svelte';
-  import Icon from '$lib/components/Icon.svelte';
-  import FleetWheel from '$lib/components/FleetWheel.svelte';
+  import Icon from '#lib/components/Icon.svelte';
+  import FleetWheel from '#lib/components/FleetWheel.svelte';
 
   const S = $derived(data.sessions);
 

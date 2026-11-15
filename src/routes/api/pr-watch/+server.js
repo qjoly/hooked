@@ -1,5 +1,5 @@
 import { json } from '@sveltejs/kit';
-import { sessionIdForLaunchKey, watchPullRequest, unwatchPullRequest, listPrWatches } from '$lib/server/core.js';
+import { sessionIdForLaunchKey, watchPullRequest, unwatchPullRequest, listPrWatches } from '#lib/server/core.js';
 
 // Called by the hooked MCP server's watch_pull_request / unwatch_pull_request tools.
 export async function POST({ request }) {

@@ -1,5 +1,5 @@
-import { agentAlive, interruptSession } from '$lib/server/core.js';
-import { ok, fail, toPromise, readJson } from '$lib/server/respond.js';
+import { agentAlive, interruptSession } from '#lib/server/core.js';
+import { ok, fail, toPromise, readJson } from '#lib/server/respond.js';
 
 // Interrompt Claude (l'équivalent d'Échap dans le TUI), via Query.interrupt(). Plus besoin
 // d'effacer derrière : le TUI réinjectait le prompt annulé dans sa boîte de saisie et il fallait

@@ -1,5 +1,5 @@
-import { openInGhostty } from '$lib/server/core.js';
-import { ok, fail, toPromise, readJson } from '$lib/server/respond.js';
+import { openInGhostty } from '#lib/server/core.js';
+import { ok, fail, toPromise, readJson } from '#lib/server/respond.js';
 
 // Ouvre le dossier projet de la session dans Ghostty.
 export async function POST({ request }) {

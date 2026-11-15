@@ -1,6 +1,6 @@
 import { json } from '@sveltejs/kit';
-import { readTags, setTags, writeTags, autoTagSession } from '$lib/server/core.js';
-import { fail, readJson } from '$lib/server/respond.js';
+import { readTags, setTags, writeTags, autoTagSession } from '#lib/server/core.js';
+import { fail, readJson } from '#lib/server/respond.js';
 
 // Étiquettes de session persistées côté serveur (tags.json). GET renvoie { tags: { [id]: [] } }.
 // POST accepte soit { id, tags } (remplace/efface les tags d'une session), soit { replace: map }

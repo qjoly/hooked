@@ -1,4 +1,4 @@
-import { readScreenshot } from '$lib/server/core.js';
+import { readScreenshot } from '#lib/server/core.js';
 
 // Serve a screenshot produced during a session (agent-browser capture, UI-diff shot…).
 // `readScreenshot` only serves paths that the session's own transcript (or one of its sub-agents')

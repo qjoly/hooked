@@ -1,5 +1,5 @@
 <script>
-  import { settings, updateSettings } from '$lib/state.svelte.js';
+  import { settings, updateSettings } from '#lib/state.svelte.js';
   import Icon from './Icon.svelte';
 
   // Prompts have no id: they are addressed by their index in the list ('new' = unsaved draft).

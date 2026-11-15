@@ -6,13 +6,13 @@
   // (définition → définition) et résout elle-même un ⌘-clic en son sein — le fichier de
   // contexte devient alors celui qu'elle affiche, ce qui est bien ce qu'il faut pour le
   // classement par imports.
-  import { getSource, getSymbolDefs } from '$lib/api.js';
-  import { editorFor } from '$lib/editors.js';
-  import { settings } from '$lib/state.svelte.js';
-  import { highlight } from '$lib/highlight.js';
-  import { langFromName } from '$lib/difflines.js';
-  import FileView from '$lib/components/FileView.svelte';
-  import Icon from '$lib/components/Icon.svelte';
+  import { getSource, getSymbolDefs } from '#lib/api.js';
+  import { editorFor } from '#lib/editors.js';
+  import { settings } from '#lib/state.svelte.js';
+  import { highlight } from '#lib/highlight.js';
+  import { langFromName } from '#lib/difflines.js';
+  import FileView from '#lib/components/FileView.svelte';
+  import Icon from '#lib/components/Icon.svelte';
 
   let {
     id,                      // session

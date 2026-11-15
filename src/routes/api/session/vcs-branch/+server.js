@@ -1,5 +1,5 @@
 import { json } from '@sveltejs/kit';
-import { scanSessions, buildVcsBranchChanges } from '$lib/server/core.js';
+import { scanSessions, buildVcsBranchChanges } from '#lib/server/core.js';
 
 // Diff of one branch vs a base branch (merge-base → branch head, like a PR's "Files changed"
 // view), narrowed to the commits `from`…`to` when both are given. `branch`, `base` and the two

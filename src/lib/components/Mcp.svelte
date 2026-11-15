@@ -1,7 +1,7 @@
 <script>
-  import { copyText } from '$lib/clipboard.js';
+  import { copyText } from '#lib/clipboard.js';
   import { onDestroy, untrack } from 'svelte';
-  import { getMcpServers, mcpAction } from '$lib/api.js';
+  import { getMcpServers, mcpAction } from '#lib/api.js';
   import Icon from './Icon.svelte';
 
   // MCP scopes are per-directory, so the lens is pinned to the session's own project — there is

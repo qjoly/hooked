@@ -1,8 +1,8 @@
 <script>
   import { untrack } from 'svelte';
-  import { getSkills, getSkill } from '$lib/api.js';
-  import { data } from '$lib/state.svelte.js';
-  import { copyText } from '$lib/clipboard.js';
+  import { getSkills, getSkill } from '#lib/api.js';
+  import { data } from '#lib/state.svelte.js';
+  import { copyText } from '#lib/clipboard.js';
   import Markdown from './Markdown.svelte';
 
   const SOURCES = [

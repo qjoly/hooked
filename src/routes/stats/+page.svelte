@@ -1,5 +1,5 @@
 <script>
-  import Stats from '$lib/components/Stats.svelte';
+  import Stats from '#lib/components/Stats.svelte';
 </script>
 
 <div id="view-stats" class="page-scroll"><Stats /></div>

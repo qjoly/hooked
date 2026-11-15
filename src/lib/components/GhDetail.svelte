@@ -10,8 +10,8 @@
   import Icon from './Icon.svelte';
   import Markdown from './Markdown.svelte';
   import CodeBlock from './CodeBlock.svelte';
-  import { ago } from '$lib/format.js';
-  import { CHECK } from '$lib/ghRun.js';
+  import { ago } from '#lib/format.js';
+  import { CHECK } from '#lib/ghRun.js';
 
   let { url, onfix = null } = $props();
 

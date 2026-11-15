@@ -3,16 +3,16 @@
   // "coming back to Sessions" means resuming where you left off, not starting from a blank canvas.
   // Falls back to the empty state (just the left sidebar) when there's no usable last session.
   import { goto } from '$app/navigation';
-  import { ui, data } from '$lib/state.svelte.js';
-  import Icon from '$lib/components/Icon.svelte';
+  import { ui, data } from '#lib/state.svelte.js';
+  import Icon from '#lib/components/Icon.svelte';
 
   // Redirect once the session list is loaded (so a deleted/stale id doesn't 404 forever):
-  // replaceState keeps Back working (it returns to wherever you came from, not to /sessions).
+  // `replace` keeps Back working (it returns to wherever you came from, not to /sessions).
   $effect(() => {
     const last = ui.lastSessionId;
     if (!last || !data.sessions.length) return;
     if (data.sessions.some((s) => s.id === last)) {
-      goto('/session/' + encodeURIComponent(last), { replaceState: true });
+      goto('/session/' + encodeURIComponent(last), { replace: true });
     }
   });
 </script>

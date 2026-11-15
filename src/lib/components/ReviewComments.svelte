@@ -16,7 +16,7 @@
   // Deleting is two-step (× arms the row, "Delete?" confirms): unlike the inline × this list
   // also drops SENT threads, which may carry Claude's replies — a stray click there loses a
   // conversation, not a draft.
-  import Icon from '$lib/components/Icon.svelte';
+  import Icon from '#lib/components/Icon.svelte';
 
   // canJump: (thread) => bool — a thread carries the diff SECTION it was written on, and the lens
   // restores that scope to reveal it; a key no scope can produce any more (the retired per-commit

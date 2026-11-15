@@ -4,9 +4,9 @@
   // taster's flavour wheel. Segments that need you are pulled out of the ring; hovering one names
   // the session in the centre; a state change sweeps the segment to its new family.
   import { goto } from '$app/navigation';
-  import { sessionTitle } from '$lib/state.svelte.js';
-  import { STATE_LABEL } from '$lib/format.js';
-  import { wheelModel } from '$lib/fleetWheel.js';
+  import { sessionTitle } from '#lib/state.svelte.js';
+  import { STATE_LABEL } from '#lib/format.js';
+  import { wheelModel } from '#lib/fleetWheel.js';
 
   let {
     sessions = [],

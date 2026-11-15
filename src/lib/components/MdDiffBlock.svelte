@@ -1,7 +1,7 @@
 <script>
   // One block of a rendered markdown diff (see mdBlockDiff), tinted and signed like the line diff.
   // `level`: laid beside its source lines, where its first line must start on theirs.
-  import Markdown from '$lib/components/Markdown.svelte';
+  import Markdown from '#lib/components/Markdown.svelte';
 
   let { block, level = false } = $props();
 </script>

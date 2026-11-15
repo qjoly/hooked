@@ -7,10 +7,10 @@
   //   - run EN COURS : ni label ni phase sur disque. On liste les phases DÉCLARÉES par le script,
   //     puis les agents démarrés (rang + consigne qui les distingue + outil en cours). La note
   //     l'explique une fois, plutôt que de laisser croire à un affichage incomplet.
-  import { ago, fmtTokens, fmtCost } from '$lib/format.js';
+  import { ago, fmtTokens, fmtCost } from '#lib/format.js';
   import AgentTrace from './AgentTrace.svelte';
   import Markdown from './Markdown.svelte';
-  import Icon from '$lib/components/Icon.svelte';
+  import Icon from '#lib/components/Icon.svelte';
 
   let { w, session } = $props();
 

@@ -1,6 +1,6 @@
 import { json } from '@sveltejs/kit';
-import { listCronTasks, saveCronTask, deleteCronTask, runCronTask } from '$lib/server/core.js';
-import { ok, fail, toPromise, readJson } from '$lib/server/respond.js';
+import { listCronTasks, saveCronTask, deleteCronTask, runCronTask } from '#lib/server/core.js';
+import { ok, fail, toPromise, readJson } from '#lib/server/respond.js';
 
 export function GET() {
   return json({ tasks: listCronTasks() });

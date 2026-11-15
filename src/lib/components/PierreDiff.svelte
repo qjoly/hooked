@@ -9,7 +9,7 @@
    * `name` infers the highlighting language. `diffStyle`: 'split' or 'unified'.
    */
   import { onMount } from 'svelte';
-  import { themeType } from '$lib/theme.svelte.js';
+  import { themeType } from '#lib/theme.svelte.js';
 
   let { oldStr = '', newStr = '', name = 'file.txt', diffStyle = 'unified' } = $props();
 

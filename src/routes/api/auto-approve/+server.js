@@ -1,5 +1,5 @@
-import { agentAlive, setAutoApprove } from '$lib/server/core.js';
-import { ok, fail, toPromise, readJson } from '$lib/server/respond.js';
+import { agentAlive, setAutoApprove } from '#lib/server/core.js';
+import { ok, fail, toPromise, readJson } from '#lib/server/respond.js';
 
 // Active / coupe l'auto-approbation des demandes de permission d'outil pour une session.
 //

@@ -10,8 +10,8 @@
   // n'est plus un sélecteur : la palette vient des variables `--code-*` de hooked, celles de la
   // surface de code, sombre dans tous les thèmes (cf. readTheme).
   import { onMount, onDestroy } from 'svelte';
-  import { sendTerminalInput, resizeTerminal } from '$lib/api.js';
-  import { getBinding, matchesEvent } from '$lib/shortcuts.js';
+  import { sendTerminalInput, resizeTerminal } from '#lib/api.js';
+  import { getBinding, matchesEvent } from '#lib/shortcuts.js';
 
   let { id, onclosed = null } = $props();
 

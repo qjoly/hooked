@@ -1,5 +1,5 @@
 import { json } from '@sveltejs/kit';
-import { sessionDetailWarm } from '$lib/server/core.js';
+import { sessionDetailWarm } from '#lib/server/core.js';
 
 export async function GET({ url }) {
   const d = await sessionDetailWarm(url.searchParams.get('id'));

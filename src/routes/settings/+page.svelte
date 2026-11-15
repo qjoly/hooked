@@ -1,18 +1,18 @@
 <script>
   import { untrack, onMount } from 'svelte';
-  import { data, ui, settings, updateSettings, setTheme, setScheme, setCorners, loadSessions, allTags, tagUsage, deleteTag } from '$lib/state.svelte.js';
-  import { tagColor } from '$lib/format.js';
-  import { resync, getGit, checkoutBranch, dismissRestartNotice, getClaudeVersion, upgradeClaude, restartClaudeSession, pickFolder, getRemoteControl, getCapabilities, getWarmup, runWarmup, listWorktrees, removeWorktree, cleanupWorktrees, pullCheckouts } from '$lib/api.js';
-  import { COMPACT_LEAD_MS, CACHED_READ_SHARE } from '$lib/promptCache.js';
-  import { isHideableModel } from '$lib/models.js';
-  import { knownProjects } from '$lib/projects.js';
-  import { getAllBindings, setBinding, resetBinding, resetAll as resetAllShortcuts, formatKeys, keysFromEvent } from '$lib/shortcuts.js';
-  import { NAV_TABS } from '$lib/nav.js';
-  import ModelEffort from '$lib/components/ModelEffort.svelte';
-  import Icon from '$lib/components/Icon.svelte';
-  import { EDITORS } from '$lib/editors.js';
-  import { fold, findTermRanges } from '$lib/textMatch.js';
-  import { highlightsSupported } from '$lib/codeHit.js';
+  import { data, ui, settings, updateSettings, setTheme, setScheme, setCorners, loadSessions, allTags, tagUsage, deleteTag } from '#lib/state.svelte.js';
+  import { tagColor } from '#lib/format.js';
+  import { resync, getGit, checkoutBranch, dismissRestartNotice, getClaudeVersion, upgradeClaude, restartClaudeSession, pickFolder, getRemoteControl, getCapabilities, getWarmup, runWarmup, listWorktrees, removeWorktree, cleanupWorktrees, pullCheckouts } from '#lib/api.js';
+  import { COMPACT_LEAD_MS, CACHED_READ_SHARE } from '#lib/promptCache.js';
+  import { isHideableModel } from '#lib/models.js';
+  import { knownProjects } from '#lib/projects.js';
+  import { getAllBindings, setBinding, resetBinding, resetAll as resetAllShortcuts, formatKeys, keysFromEvent } from '#lib/shortcuts.js';
+  import { NAV_TABS } from '#lib/nav.js';
+  import ModelEffort from '#lib/components/ModelEffort.svelte';
+  import Icon from '#lib/components/Icon.svelte';
+  import { EDITORS } from '#lib/editors.js';
+  import { fold, findTermRanges } from '#lib/textMatch.js';
+  import { highlightsSupported } from '#lib/codeHit.js';
 
   // Navigation de section (rail gauche collant). Chaque entrée pointe l'id d'une carte ;
   // les cartes secondaires appartiennent à la section la plus proche au-dessus.

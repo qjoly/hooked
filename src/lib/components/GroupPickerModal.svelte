@@ -6,8 +6,8 @@
   import {
     data, closeModal, sessionTitle, isSessionArchived, groupMotherOf, groupSessions, groupName,
     isGrouped, joinGroup, leaveGroup,
-  } from '$lib/state.svelte.js';
-  import Icon from '$lib/components/Icon.svelte';
+  } from '#lib/state.svelte.js';
+  import Icon from '#lib/components/Icon.svelte';
 
   let { r } = $props(); // { mode: 'move', sessionId } | { mode: 'add', groupId }
 

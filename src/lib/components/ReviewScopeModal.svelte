@@ -4,8 +4,8 @@
   // it is compared against, and the commits the review covers. It edits the lens's state LIVE
   // through `r.picker` — getters onto the lens's state plus its own actions — so the diff, and
   // with it the commit list, follows every pick, exactly as the former inline bars did. Done just closes.
-  import { closeModal } from '$lib/state.svelte.js';
-  import Icon from '$lib/components/Icon.svelte';
+  import { closeModal } from '#lib/state.svelte.js';
+  import Icon from '#lib/components/Icon.svelte';
 
   let { r } = $props(); // { picker }
   const p = $derived(r.picker);

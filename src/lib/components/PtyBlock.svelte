@@ -11,9 +11,9 @@
   // vérifie donc l'existence AVANT de monter xterm, sinon un vieux message afficherait un rectangle
   // noir vide et inexplicable.
   import { onMount } from 'svelte';
-  import Icon from '$lib/components/Icon.svelte';
+  import Icon from '#lib/components/Icon.svelte';
   import Terminal from './Terminal.svelte';
-  import { listTerminals, killTerminal } from '$lib/api.js';
+  import { listTerminals, killTerminal } from '#lib/api.js';
 
   let { code = '', meta = {} } = $props();
 

@@ -1,10 +1,10 @@
 <script>
-  import { copyText } from '$lib/clipboard.js';
-  import Icon from '$lib/components/Icon.svelte';
-  import { highlight, langLabel } from '$lib/highlight.js';
-  import { reply } from '$lib/api.js';
-  import { fenceQuery } from '$lib/format.js';
-  import { floating } from '$lib/floating.svelte.js';
+  import { copyText } from '#lib/clipboard.js';
+  import Icon from '#lib/components/Icon.svelte';
+  import { highlight, langLabel } from '#lib/highlight.js';
+  import { reply } from '#lib/api.js';
+  import { fenceQuery } from '#lib/format.js';
+  import { floating } from '#lib/floating.svelte.js';
   import { getContext } from 'svelte';
 
   let { code = '', lang = '', meta = {} } = $props();

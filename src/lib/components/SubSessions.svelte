@@ -1,6 +1,6 @@
 <script>
   import SessionCard from './SessionCard.svelte';
-  import Icon from '$lib/components/Icon.svelte';
+  import Icon from '#lib/components/Icon.svelte';
 
   // Sessions que cette conversation a créées ou référencées : `[{ id, label, source }]` calculé
   // côté serveur (server/subSessions.js) et transporté dans le détail → reste vivant au tick SSE.

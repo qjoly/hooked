@@ -5,11 +5,11 @@
   //
   // Volontairement muet : il affiche ce qu'on lui donne et signale les intentions. Le
   // chargement, la révision et la pile de navigation appartiennent à DefPeek.
-  import { highlight } from '$lib/highlight.js';
-  import { langFromName } from '$lib/difflines.js';
-  import { symbolUnderPointer, paintSymbol, clearSymbols, highlightsSupported } from '$lib/codeHit.js';
-  import { peek as mod, modHeld } from '$lib/peek.svelte.js';
-  import Icon from '$lib/components/Icon.svelte';
+  import { highlight } from '#lib/highlight.js';
+  import { langFromName } from '#lib/difflines.js';
+  import { symbolUnderPointer, paintSymbol, clearSymbols, highlightsSupported } from '#lib/codeHit.js';
+  import { peek as mod, modHeld } from '#lib/peek.svelte.js';
+  import Icon from '#lib/components/Icon.svelte';
 
   let {
     rel = '', lines = [], from = 1, total = 0,

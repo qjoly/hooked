@@ -3,17 +3,17 @@
   // the app tokens, syntax-highlighted per line via the repo's own highlighter, unified or split,
   // with GitHub-style inline comments. Input is a single (oldStr → newStr) pair; the caller (Ship)
   // passes the NET original→final content so transient add-then-delete never shows.
-  import { toSegments, unifiedRows, splitRows, besideBands, langFromName, EXPAND_STEP } from '$lib/difflines.js';
-  import { highlight } from '$lib/highlight.js';
-  import { ago } from '$lib/format.js';
-  import { reanchor } from '$lib/reviewAnchor.js';
-  import Icon from '$lib/components/Icon.svelte';
-  import Markdown from '$lib/components/Markdown.svelte';
-  import { ui } from '$lib/state.svelte.js';
+  import { toSegments, unifiedRows, splitRows, besideBands, langFromName, EXPAND_STEP } from '#lib/difflines.js';
+  import { highlight } from '#lib/highlight.js';
+  import { ago } from '#lib/format.js';
+  import { reanchor } from '#lib/reviewAnchor.js';
+  import Icon from '#lib/components/Icon.svelte';
+  import Markdown from '#lib/components/Markdown.svelte';
+  import { ui } from '#lib/state.svelte.js';
   import { untrack } from 'svelte';
-  import { symbolUnderPointer, paintSymbol, paintRangeIn, clearSymbols, highlightsSupported } from '$lib/codeHit.js';
-  import { localDeclaration, langOfPath } from '$lib/localDefs.js';
-  import { peek, modHeld } from '$lib/peek.svelte.js';
+  import { symbolUnderPointer, paintSymbol, paintRangeIn, clearSymbols, highlightsSupported } from '#lib/codeHit.js';
+  import { localDeclaration, langOfPath } from '#lib/localDefs.js';
+  import { peek, modHeld } from '#lib/peek.svelte.js';
 
   let {
     oldStr = '', newStr = '', name = 'file.txt', mode = 'split',

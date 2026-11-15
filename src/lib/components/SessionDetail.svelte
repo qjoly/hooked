@@ -7,13 +7,13 @@
 </script>
 
 <script>
-  import { copyText } from '$lib/clipboard.js';
+  import { copyText } from '#lib/clipboard.js';
   import { onMount, onDestroy, tick, untrack } from 'svelte';
   import { goto } from '$app/navigation';
-  import { ui, data, settings, loadSessions, openModal, sessionTitle, sessionTags, renameSession, toggleFocus, splitWithMostRecent, canSplit, toggleArchive, isArchived, unarchive } from '$lib/state.svelte.js';
-  import { getSession, setMode, setModelEffort, setAutoApprove, openInEditor, openInGhostty, fork, launch, deleteSession, removeWorktree, restartClaudeSession, connectSessionStream, listTerminals, openTerminal, killTerminal } from '$lib/api.js';
-  import { promptCacheState } from '$lib/promptCache.js';
-  import { STATE_LABEL, fmtCost, fmtTokens, shortModel, PERMISSION_MODES, modeLabel, modeMeta, modelAlias, tagColor, lotColor, resumeCommand, parseBang, isBlockForCommand } from '$lib/format.js';
+  import { ui, data, settings, loadSessions, openModal, sessionTitle, sessionTags, renameSession, toggleFocus, splitWithMostRecent, canSplit, toggleArchive, isArchived, unarchive } from '#lib/state.svelte.js';
+  import { getSession, setMode, setModelEffort, setAutoApprove, openInEditor, openInGhostty, fork, launch, deleteSession, removeWorktree, restartClaudeSession, connectSessionStream, listTerminals, openTerminal, killTerminal } from '#lib/api.js';
+  import { promptCacheState } from '#lib/promptCache.js';
+  import { STATE_LABEL, fmtCost, fmtTokens, shortModel, PERMISSION_MODES, modeLabel, modeMeta, modelAlias, tagColor, lotColor, resumeCommand, parseBang, isBlockForCommand } from '#lib/format.js';
   import { page } from '$app/state';
   import ModelEffort from './ModelEffort.svelte';
   import ChatBubble from './ChatBubble.svelte';
@@ -25,10 +25,10 @@
   import Terminal from './Terminal.svelte';
   import Mcp from './Mcp.svelte';
   import Trace from './Trace.svelte';
-  import Icon from '$lib/components/Icon.svelte';
-  import { editorFor } from '$lib/editors.js';
-  import { conversationToMarkdown } from '$lib/exportConversation.js';
-  import { getBinding, matchesEvent, formatKeys } from '$lib/shortcuts.js';
+  import Icon from '#lib/components/Icon.svelte';
+  import { editorFor } from '#lib/editors.js';
+  import { conversationToMarkdown } from '#lib/exportConversation.js';
+  import { getBinding, matchesEvent, formatKeys } from '#lib/shortcuts.js';
 
   // `inSplit`/`focused`: rendered as one pane of the split view (several sessions side by side).
   // In split, only the focused pane reacts to the keyboard (lenses, Escape).

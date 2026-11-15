@@ -1,9 +1,9 @@
 <script>
   import { onMount, onDestroy } from 'svelte';
-  import Icon from '$lib/components/Icon.svelte';
-  import { reply, interrupt, launch, getFiles, getCommands, uploadImage } from '$lib/api.js';
-  import { loadSessions, ui, settings, wakeSession } from '$lib/state.svelte.js';
-  import { createSpeechToText } from '$lib/speech.svelte.js';
+  import Icon from '#lib/components/Icon.svelte';
+  import { reply, interrupt, launch, getFiles, getCommands, uploadImage } from '#lib/api.js';
+  import { loadSessions, ui, settings, wakeSession } from '#lib/state.svelte.js';
+  import { createSpeechToText } from '#lib/speech.svelte.js';
 
   // `newSession` : pas d'id encore — l'envoi LANCE une session neuve dans `project` (cwd) avec
   // le `model`/`effort` choisis ; `onLaunched(cwd)` est notifié pour ouvrir la session créée.

@@ -1,8 +1,8 @@
 <script>
-  import { getStats, getUsage } from '$lib/api.js';
-  import Icon from '$lib/components/Icon.svelte';
-  import { fmtCost, fmtTokens, shortModel, fmtDuration, ago, lotColor } from '$lib/format.js';
-  import { ui } from '$lib/state.svelte.js';
+  import { getStats, getUsage } from '#lib/api.js';
+  import Icon from '#lib/components/Icon.svelte';
+  import { fmtCost, fmtTokens, shortModel, fmtDuration, ago, lotColor } from '#lib/format.js';
+  import { ui } from '#lib/state.svelte.js';
   import BarChart from './BarChart.svelte';
 
   const RANGES = [['1', 'Today'], ['7', '7 days'], ['30', '30 days'], ['all', 'All']];

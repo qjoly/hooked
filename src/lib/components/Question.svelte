@@ -1,7 +1,7 @@
 <script>
-  import { replyQuestion } from '$lib/api.js';
-  import { loadSessions, ui, wakeSession } from '$lib/state.svelte.js';
-  import Icon from '$lib/components/Icon.svelte';
+  import { replyQuestion } from '#lib/api.js';
+  import { loadSessions, ui, wakeSession } from '#lib/state.svelte.js';
+  import Icon from '#lib/components/Icon.svelte';
 
   let { id, pq } = $props();
   const questions = $derived(pq.questions || []);

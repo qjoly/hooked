@@ -1,5 +1,5 @@
-import { pickFolder } from '$lib/server/core.js';
-import { ok, fail, toPromise, readJson } from '$lib/server/respond.js';
+import { pickFolder } from '#lib/server/core.js';
+import { ok, fail, toPromise, readJson } from '#lib/server/respond.js';
 
 // Ouvre le sélecteur de dossier natif de l'OS et renvoie le chemin choisi ({ dir } ou { canceled }).
 export async function POST({ request }) {

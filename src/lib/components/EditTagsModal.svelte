@@ -1,6 +1,6 @@
 <script>
-  import { data, closeModal, sessionTitle, sessionTags, setSessionTags, suggestSessionTags, allTags } from '$lib/state.svelte.js';
-  import { tagColor } from '$lib/format.js';
+  import { data, closeModal, sessionTitle, sessionTags, setSessionTags, suggestSessionTags, allTags } from '#lib/state.svelte.js';
+  import { tagColor } from '#lib/format.js';
 
   let { r } = $props(); // { sessionId }
   const session = $derived(data.sessions.find((s) => s.id === r.sessionId) || { id: r.sessionId, title: '(session)' });

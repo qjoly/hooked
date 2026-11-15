@@ -1,4 +1,4 @@
-import { readUserFile } from '$lib/server/core.js';
+import { readUserFile } from '#lib/server/core.js';
 
 // Serve a file delivered by SendUserFile / show_image / show_video / show_audio for display in the
 // conversation. `readUserFile` only serves paths that appear in the (session / sub-agent)

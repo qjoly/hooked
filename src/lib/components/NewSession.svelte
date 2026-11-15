@@ -2,13 +2,13 @@
   import { onMount, untrack } from 'svelte';
   import { goto } from '$app/navigation';
   import { page } from '$app/state';
-  import { data, ui, settings, updateSettings, groupName } from '$lib/state.svelte.js';
-  import { getDefaults, pickFolder, getUsage, getWorktreeBases } from '$lib/api.js';
+  import { data, ui, settings, updateSettings, groupName } from '#lib/state.svelte.js';
+  import { getDefaults, pickFolder, getUsage, getWorktreeBases } from '#lib/api.js';
   import Composer from './Composer.svelte';
   import ModelEffort from './ModelEffort.svelte';
-  import Icon from '$lib/components/Icon.svelte';
-  import { defaultModelForQuota, isFableModel, isQuotaExhausted } from '$lib/models.js';
-  import { knownProjects } from '$lib/projects.js';
+  import Icon from '#lib/components/Icon.svelte';
+  import { defaultModelForQuota, isFableModel, isQuotaExhausted } from '#lib/models.js';
+  import { knownProjects } from '#lib/projects.js';
 
   const projs = $derived(knownProjects(data.sessions, settings.favoriteProjects || []));
 

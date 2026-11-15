@@ -5,13 +5,13 @@
   // and width all live in ui (localStorage). Toggle via the ◀/▶ buttons or ⌘/Ctrl+B.
   import { goto } from '$app/navigation';
   import { page } from '$app/state';
-  import { ui, data, settings, sessionTitle, sessionTags, togglePin, openModal, isSessionArchived, isArchived, toggleArchive, isIncognito, toggleIncognito, addSplit, isInSplit, canSplit, groupUnits, isGroupArchived, groupName, isGrouped, dnd, snoozeUntil, snoozeSessionUntil, wakeSession } from '$lib/state.svelte.js';
-  import { SECTIONS, sectionOf, snoozePresets, wakeLabel, hm } from '$lib/sidebarSections.js';
+  import { ui, data, settings, sessionTitle, sessionTags, togglePin, openModal, isSessionArchived, isArchived, toggleArchive, isIncognito, toggleIncognito, addSplit, isInSplit, canSplit, groupUnits, isGroupArchived, groupName, isGrouped, dnd, snoozeUntil, snoozeSessionUntil, wakeSession } from '#lib/state.svelte.js';
+  import { SECTIONS, sectionOf, snoozePresets, wakeLabel, hm } from '#lib/sidebarSections.js';
   import { onMount } from 'svelte';
-  import { ago, agoShort, fmtSpan, tagColor, lotColor, isActiveSession as isActive, needsDecision, sessionDot as dotClass } from '$lib/format.js';
-  import { cacheCountdown } from '$lib/promptCache.js';
-  import { dragSession, dropSession, dropDetach } from '$lib/groupDnd.js';
-  import Icon from '$lib/components/Icon.svelte';
+  import { ago, agoShort, fmtSpan, tagColor, lotColor, isActiveSession as isActive, needsDecision, sessionDot as dotClass } from '#lib/format.js';
+  import { cacheCountdown } from '#lib/promptCache.js';
+  import { dragSession, dropSession, dropDetach } from '#lib/groupDnd.js';
+  import Icon from '#lib/components/Icon.svelte';
 
   // Local clock: the elapsed time and the cache countdown move between two data refreshes.
   let nowMs = $state(Date.now());
