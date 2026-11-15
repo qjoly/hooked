@@ -29,10 +29,19 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonObject
 
-/** Where the main area is: the Deck, or a session. */
+/** Where the main area is, as rune's top-level pages. */
 sealed interface Page {
     data object Deck : Page
     data class Session(val id: String) : Page
+    data object New : Page
+    data object Stats : Page
+    data object Digest : Page
+    data object Memory : Page
+    data object Cron : Page
+    data object Github : Page
+    data object Skills : Page
+    data object Prompts : Page
+    data object Settings : Page
 }
 
 /** App-wide state, as desktop-rune's `Hooked` holds it: the server, the lists, the prefs and the page. */
@@ -226,6 +235,16 @@ class AppModel(app: Application) : AndroidViewModel(app) {
 
     fun openDeck() {
         page = Page.Deck
+    }
+
+    /** New session, optionally in a project (the sidebar's and the fleet's "+"). */
+    fun openNew(project: String? = null) {
+        newSessionProject = project
+        page = Page.New
+    }
+
+    fun openSettings() {
+        page = Page.Settings
     }
 
     /** The Sessions tab: the last open session, else the first one listed. */

@@ -56,7 +56,19 @@ fun TopBar(app: AppModel, wide: Boolean, onPalette: () -> Unit, onAccount: () ->
         Logo(app.active)
         Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
             Tab("Deck", Lucide.Deck, app.page == Page.Deck, wide) { app.openDeck() }
-            if (app.navTabs?.contains("sessions") != false) Tab("Sessions", Lucide.List, app.page is Page.Session, wide) { app.openSessions() }
+            val tabs = app.navTabs
+            if (tabs?.contains("sessions") != false) Tab("Sessions", Lucide.List, app.page is Page.Session, wide) { app.openSessions() }
+            listOf(
+                Triple("stats", Page.Stats, "Stats" to Lucide.Chart),
+                Triple("digest", Page.Digest, "Digest" to Lucide.Book),
+                Triple("memory", Page.Memory, "Memory" to Lucide.Brain),
+                Triple("cron", Page.Cron, "Cron" to Lucide.Timer),
+                Triple("github", Page.Github, "GitHub" to Lucide.Github),
+                Triple("skills", Page.Skills, "Skills" to Lucide.Sparkle),
+                Triple("prompts", Page.Prompts, "Prompts" to Lucide.Book),
+            ).forEach { (key, page, look) ->
+                if (tabs == null || key in tabs || app.page == page) Tab(look.first, look.second, app.page == page, wide) { app.page = page }
+            }
         }
         Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
             val flash = app.flash
@@ -90,9 +102,9 @@ fun TopBar(app: AppModel, wide: Boolean, onPalette: () -> Unit, onAccount: () ->
                     )
                 },
             )
-            KIconButton(Lucide.Gear, "Settings", { app.showSettings = true }, variant = if (app.showSettings) Variant.NEUTRAL else Variant.GHOST_MUTED)
+            KIconButton(Lucide.Gear, "Settings", { app.openSettings() }, variant = if (app.page == Page.Settings) Variant.NEUTRAL else Variant.GHOST_MUTED)
         }
-        KButton("Session", { app.newSessionProject = null; app.showNew = true }, variant = Variant.CONTRAST, size = Size.REGULAR, icon = Lucide.Plus)
+        KButton("Session", { app.openNew() }, variant = Variant.CONTRAST, size = Size.REGULAR, icon = Lucide.Plus)
         Dot(if (app.connected) c.success.icon else c.danger.icon, 8.dp)
     }
 }

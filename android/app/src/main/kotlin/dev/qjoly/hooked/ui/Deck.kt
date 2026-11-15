@@ -292,8 +292,7 @@ private fun Fleet(app: AppModel, modifier: Modifier, width: Dp, filter: Int?, se
                     Text("${list.size}", style = k.ty.textXsmall, color = c.faint)
                     Spacer(Modifier.weight(1f))
                     KIconButton(Lucide.Plus, "New session in this project", {
-                        app.newSessionProject = list.first().lead.worktreeOf ?: list.first().lead.project
-                        app.showNew = true
+                        app.openNew(list.first().lead.worktreeOf ?: list.first().lead.project)
                     }, size = Size.SMALL)
                 }
                 UnitBlock(app, shown, grid, width)

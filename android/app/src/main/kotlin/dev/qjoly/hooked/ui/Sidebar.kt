@@ -349,8 +349,7 @@ private fun FlatOrProject(app: AppModel, lists: Lists, showArchived: Boolean, mo
                             Triangle(!isFolded)
                             Spacer(Modifier.weight(1f))
                             KIconButton(Lucide.Plus, "New session in $label", {
-                                app.newSessionProject = list.first().worktreeOf ?: list.first().project
-                                app.showNew = true
+                                app.openNew(list.first().worktreeOf ?: list.first().project)
                             }, size = Size.SMALL)
                         }
                     }
