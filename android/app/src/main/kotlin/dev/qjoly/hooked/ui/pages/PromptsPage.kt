@@ -93,7 +93,10 @@ class PromptsModel : PageModel() {
 
     private fun persist(app: AppModel, next: List<SavedPrompt>) {
         list = next
-        call(app, "Settings") { it.saveSetting("promptLibrary", promptLibraryJson(next)) }
+        call(app, "Settings") {
+            it.saveSetting("promptLibrary", promptLibraryJson(next))
+            app.reloadSettings()
+        }
     }
 }
 

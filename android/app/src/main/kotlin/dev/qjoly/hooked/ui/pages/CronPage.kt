@@ -204,7 +204,14 @@ private fun TaskCard(app: AppModel, m: CronModel, t: JsonElement) {
             Spacer(Modifier.weight(1f))
             KButton("Run now", { m.run(app, id) }, variant = Variant.OUTLINE, size = Size.SMALL, icon = Lucide.Play)
             KButton("Edit", { m.edit(app, id) }, variant = Variant.GHOST_MUTED, size = Size.SMALL)
-            KButton("Delete", { m.delete(app, id) }, variant = Variant.GHOST_MUTED, size = Size.SMALL)
+            // Two taps: a stray touch on a tablet must not drop a task.
+            var arming by remember(id) { mutableStateOf(false) }
+            if (arming) {
+                KButton("Confirm delete", { m.delete(app, id) }, variant = Variant.DANGER, size = Size.SMALL)
+                LaunchedEffect(Unit) { kotlinx.coroutines.delay(3_000); arming = false }
+            } else {
+                KButton("Delete", { arming = true }, variant = Variant.GHOST_MUTED, size = Size.SMALL)
+            }
         }
         Text(t["cwd"].str.orEmpty(), style = k.ty.textXsmall, color = k.c.faint)
         Text(firstLine(t["prompt"].str.orEmpty(), 220), style = k.ty.textSmall, color = k.c.muted)

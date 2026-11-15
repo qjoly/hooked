@@ -195,6 +195,12 @@ class AppModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    /** Rereads the server settings after a page wrote one (the prompt library, say). */
+    fun reloadSettings() {
+        val c = client ?: return
+        viewModelScope.launch { runCatching { settings = c.settings() } }
+    }
+
     fun refreshSoon() {
         viewModelScope.launch { refresh() }
     }
