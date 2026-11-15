@@ -1,315 +1,389 @@
 package dev.qjoly.hooked.ui
 
-import androidx.compose.animation.animateContentSize
-import androidx.compose.foundation.BorderStroke
+import android.content.Context
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
-import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.outlined.Notes
-import androidx.compose.material.icons.outlined.Build
-import androidx.compose.material.icons.outlined.ChevronRight
-import androidx.compose.material.icons.outlined.Compress
-import androidx.compose.material.icons.outlined.ExpandMore
-import androidx.compose.material.icons.outlined.Person
-import androidx.compose.material.icons.outlined.SmartToy
-import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshots.SnapshotStateMap
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.text.font.FontStyle
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
-import com.mikepenz.markdown.m3.Markdown
-import com.mikepenz.markdown.m3.markdownColor
-import com.mikepenz.markdown.m3.markdownTypography
-import com.mikepenz.markdown.model.markdownPadding
 import dev.qjoly.hooked.data.LiveSnapshot
-import dev.qjoly.hooked.data.Message
-import dev.qjoly.hooked.data.MessagePart
-import dev.qjoly.hooked.data.SessionState
-import dev.qjoly.hooked.data.Tool
+import dev.qjoly.hooked.data.SessionDetail
 import dev.qjoly.hooked.data.arr
+import dev.qjoly.hooked.data.bool
 import dev.qjoly.hooked.data.get
-import dev.qjoly.hooked.data.shortAge
 import dev.qjoly.hooked.data.str
-import kotlinx.serialization.json.Json
+import dev.qjoly.hooked.state.AppModel
+import dev.qjoly.hooked.state.BIG_DIFF
+import dev.qjoly.hooked.state.Conversation
+import dev.qjoly.hooked.state.LineKind
+import dev.qjoly.hooked.state.Queued
+import dev.qjoly.hooked.state.SessionModel
+import dev.qjoly.hooked.state.SessionUi
+import dev.qjoly.hooked.state.ToolCall
+import dev.qjoly.hooked.state.Turn
+import dev.qjoly.hooked.state.TurnPart
+import dev.qjoly.hooked.state.agoShort
+import dev.qjoly.hooked.state.clipLines
+import dev.qjoly.hooked.state.diffHunks
+import dev.qjoly.hooked.state.diffLineCount
+import dev.qjoly.hooked.state.elapsedLabel
+import dev.qjoly.hooked.state.firstLine
+import dev.qjoly.hooked.state.splitMessageImages
+import dev.qjoly.hooked.ui.kit.KButton
+import dev.qjoly.hooked.ui.kit.KIcon
+import dev.qjoly.hooked.ui.kit.KIconButton
+import dev.qjoly.hooked.ui.kit.Kit
+import dev.qjoly.hooked.ui.kit.KitColors
+import dev.qjoly.hooked.ui.kit.Lucide
+import dev.qjoly.hooked.ui.kit.ProvideKit
+import dev.qjoly.hooked.ui.kit.Size
+import dev.qjoly.hooked.ui.kit.Spinner
+import dev.qjoly.hooked.ui.kit.Variant
+import dev.qjoly.hooked.ui.kit.k
+import dev.qjoly.hooked.ui.session.CodeActions
+import dev.qjoly.hooked.ui.session.MediaEnv
+import dev.qjoly.hooked.ui.session.Picture
+import dev.qjoly.hooked.ui.session.RuneMarkdown
+import dev.qjoly.hooked.ui.session.SentFiles
+import dev.qjoly.hooked.ui.session.ShowWork
+import dev.qjoly.hooked.ui.session.copyText
 
-/** Readable line length on a wide tablet. */
-val ConversationWidth = 920.dp
+/** rune's Markdown, for screens outside the conversation. */
+@Composable
+fun MarkdownBody(text: String, modifier: Modifier = Modifier, color: Color = k.c.fg) = RuneMarkdown(text, modifier, color)
+
+// The Converse lens: session.rs `converse`, `bubble` and `tool_chip`, at rune's sizes.
+
+private const val WINDOW = 40
+private const val STEP = 120
+
+/** What a bubble needs from the pane around it. */
+class ConverseEnv(
+    val app: AppModel,
+    val model: SessionModel,
+    val ui: SessionUi,
+    val media: MediaEnv,
+    val toolsOpen: SnapshotStateMap<String, Boolean>,
+    val ctx: Context,
+    val onForkOptions: (String) -> Unit,
+) {
+    val code = CodeActions(onRun = { model.runCode(it) }, onCopy = {
+        copyText(ctx, it)
+        app.say("✓ Copied")
+    })
+
+    fun forkHere(uuid: String) {
+        val s = model.detail?.session
+        model.fork(uuid, "", s?.model, s?.effort, null) {
+            app.refreshSoon()
+            app.open(it)
+        }
+    }
+}
+
+fun bubbleShape(user: Boolean): Shape =
+    if (user) RoundedCornerShape(14.dp, 14.dp, 4.dp, 14.dp) else RoundedCornerShape(14.dp, 14.dp, 14.dp, 4.dp)
+
+/** The kit with its ink swapped for the accent's, for what sits on a user bubble. */
+@Composable
+fun onAccent(kit: Kit, fill: Color = kit.c.accent): Kit = remember(kit, fill) {
+    val ink = kit.c.accentFg
+    val raw = kit.c.raw.copy(fg = ink, muted = ink.copy(alpha = 0.85f), faint = ink.copy(alpha = 0.7f), chip = ink.copy(alpha = 0.16f), accent = ink)
+    Kit(kit.scheme, KitColors(raw, kit.dark, kit.scheme), kit.r)
+}
+
+fun Modifier.dashedBorder(color: Color, radius: Dp = 14.dp) = drawBehind {
+    drawRoundRect(
+        color = color,
+        cornerRadius = CornerRadius(radius.toPx()),
+        style = Stroke(width = 1.dp.toPx(), pathEffect = PathEffect.dashPathEffect(floatArrayOf(4.dp.toPx(), 3.dp.toPx()))),
+    )
+}
+
+/** Up to 85 % of the chat's width, on the speaker's side. */
+@Composable
+private fun Lane(user: Boolean, content: @Composable () -> Unit) {
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = if (user) Arrangement.End else Arrangement.Start) {
+        Box(Modifier.fillMaxWidth(0.85f), contentAlignment = if (user) Alignment.TopEnd else Alignment.TopStart) { content() }
+    }
+}
 
 @Composable
-fun MarkdownBody(text: String, modifier: Modifier = Modifier, color: Color = hooked.ink) {
-    val t = MaterialTheme.typography
-    val body = t.bodyLarge.copy(fontSize = 15.sp, lineHeight = 22.sp, color = color)
-    Markdown(
-        content = text,
-        colors = markdownColor(text = color, codeBackground = hooked.panel, inlineCodeBackground = hooked.panel, dividerColor = hooked.line),
-        typography = markdownTypography(
-            h1 = t.titleLarge.copy(color = color), h2 = t.titleLarge.copy(fontSize = 19.sp, color = color),
-            h3 = t.titleMedium.copy(fontSize = 17.sp, color = color), h4 = t.titleMedium.copy(color = color),
-            h5 = t.titleSmall.copy(color = color), h6 = t.titleSmall.copy(color = color),
-            text = body, paragraph = body, ordered = body, bullet = body, list = body, table = body.copy(fontSize = 14.sp),
-            code = body.copy(fontFamily = Mono, fontSize = 13.sp, lineHeight = 19.sp),
-            inlineCode = body.copy(fontFamily = Mono, fontSize = 13.5.sp),
-            quote = body.copy(fontStyle = FontStyle.Italic, color = hooked.muted),
-        ),
-        padding = markdownPadding(block = 3.dp),
-        modifier = modifier.fillMaxWidth(),
+private fun AssistantSkin(modifier: Modifier = Modifier, border: Color? = k.c.border, dashed: Boolean = false, content: @Composable ColumnScope.() -> Unit) {
+    val shape = bubbleShape(false)
+    Column(
+        modifier.width(IntrinsicSize.Max).clip(shape).background(k.c.surface)
+            .then(if (dashed) Modifier.dashedBorder(border ?: k.c.border) else if (border != null) Modifier.border(1.dp, border, shape) else Modifier)
+            .padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+        content = content,
     )
 }
 
 @Composable
-fun CodeBlock(text: String, maxLines: Int = Int.MAX_VALUE) {
-    Box(
-        Modifier.fillMaxWidth().background(hooked.code, RoundedCornerShape(10.dp)).horizontalScroll(rememberScrollState()).padding(10.dp),
-    ) {
-        Text(text, fontFamily = Mono, fontSize = 12.sp, lineHeight = 17.sp, color = hooked.codeFg, maxLines = maxLines, overflow = TextOverflow.Ellipsis)
-    }
-}
-
-@Composable
-fun MessageRow(message: Message, now: Long) {
-    when {
-        message.role == "user" && !message.auto -> UserBubble(message.text, message.ts, now, truncated = message.truncated)
-        message.role == "assistant" -> AssistantCard(message.renderParts, message.ts, now, message.truncated)
-        else -> SystemLine(if (message.auto) "Automatic wake-up" else message.text, compact = message.kind == "compact")
-    }
-}
-
-@Composable
-private fun Meta(icon: ImageVector, who: String, ts: Long?, now: Long, color: Color) {
+private fun Who(user: Boolean, extra: String, ink: Color) {
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-        Icon(icon, null, Modifier.size(15.dp), tint = color)
-        Text(who, style = MaterialTheme.typography.labelLarge, color = color)
-        if (ts != null) Text(shortAge(ts, now).let { if (it == "now") "just now" else "$it ago" }, fontSize = 12.sp, color = color.copy(alpha = 0.7f))
+        KIcon(if (user) Lucide.User else Lucide.Bot, ink, 13.dp)
+        Text(if (user) "You" else "Claude", style = k.ty.textSmallMedium, color = ink)
+        if (extra.isNotEmpty()) Text(extra, style = k.ty.textXsmall, color = ink.copy(alpha = ink.alpha * 0.75f))
     }
 }
 
 @Composable
-fun UserBubble(text: String, ts: Long?, now: Long, queued: Boolean = false, truncated: Boolean = false) {
-    val waiting = stateStyle(SessionState.WAITING)
-    Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
-        val shape = RoundedCornerShape(18.dp, 18.dp, 6.dp, 18.dp)
-        Column(
-            Modifier.padding(start = 64.dp).widthIn(max = 720.dp)
-                .background(if (queued) waiting.soft else hooked.userBubble, shape)
-                .then(if (queued) Modifier.border(1.dp, waiting.hue, shape) else Modifier)
-                .padding(horizontal = 16.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
-            horizontalAlignment = Alignment.End,
-        ) {
-            val fg = if (queued) hooked.ink else hooked.userText
-            Meta(Icons.Outlined.Person, "You", ts, now, fg.copy(alpha = 0.85f))
-            SelectionContainer { Text(text, color = fg, style = MaterialTheme.typography.bodyLarge.copy(fontSize = 15.sp, lineHeight = 22.sp)) }
-            if (truncated) TruncatedNote(fg.copy(alpha = 0.7f))
-            if (queued) Text("Sending…", color = waiting.ink, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+fun ConverseTranscript(env: ConverseEnv, conv: Conversation, d: SessionDetail, modifier: Modifier = Modifier) {
+    val model = env.model
+    var visible by remember(model.id) { mutableIntStateOf(WINDOW) }
+    val turns = conv.turns
+    val start = (turns.size - visible).coerceAtLeast(0)
+    val shown = turns.subList(start, turns.size)
+    val snap = model.snapshot
+    val busy = model.isBusy
+    val state = rememberLazyListState()
+    // The list keeps the item it showed when one lands below it: follow the bottom when the reader was there.
+    LaunchedEffect(turns.size, snap?.text?.length, snap?.thinking?.length, busy, model.queued.size, d.pendingLeadIn) {
+        if (state.firstVisibleItemIndex <= 1) state.scrollToItem(0)
+    }
+    LazyColumn(
+        modifier.fillMaxSize(),
+        state = state,
+        reverseLayout = true,
+        contentPadding = PaddingValues(horizontal = 20.dp, vertical = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
+        if (busy) item(key = "working") { WorkingLine(model, snap, d) }
+        val lead = d.pendingLeadIn?.takeIf { it.isNotBlank() }
+        when {
+            lead != null -> item(key = "leadin") {
+                Lane(false) {
+                    AssistantSkin(dashed = true) {
+                        Who(false, "live stream", k.c.muted)
+                        RuneMarkdown(lead)
+                    }
+                }
+            }
+            // A finished turn's text is in the transcript already.
+            snap != null && snap.busy && (snap.text.isNotEmpty() || snap.thinking.isNotEmpty()) -> item(key = "streaming") { Streaming(snap) }
+        }
+        items(model.queued.asReversed(), key = { "q-${it.id}" }) { QueuedBubble(it) }
+        items(shown.asReversed(), key = { "m-${it.index}" }) { Bubble(env, it) }
+        if (turns.isEmpty() && model.queued.isEmpty()) item(key = "empty") { Text("Empty conversation.", style = k.ty.body, color = k.c.faint) }
+        if (start > 0) item(key = "earlier") {
+            KButton("Show earlier messages · $start hidden", { visible += STEP }, variant = Variant.GHOST_MUTED, size = Size.REGULAR, icon = Lucide.ArrowUp)
         }
     }
 }
 
 @Composable
-fun AssistantCard(parts: List<MessagePart>, ts: Long?, now: Long, truncated: Boolean = false) {
-    Surface(
-        Modifier.padding(end = 40.dp).fillMaxWidth(),
-        shape = RoundedCornerShape(18.dp, 18.dp, 18.dp, 6.dp),
-        color = hooked.card,
-        border = BorderStroke(0.5.dp, hooked.line),
-        shadowElevation = 1.dp,
-    ) {
-        Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Meta(Icons.Outlined.SmartToy, "Claude", ts, now, hooked.ink)
-            SelectionContainer {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    parts.forEach { part ->
-                        when (part) {
-                            is MessagePart.Text -> MarkdownBody(part.text)
-                            is MessagePart.ToolUse -> ToolChip(part.tool)
+private fun Streaming(snap: LiveSnapshot) {
+    Lane(false) {
+        AssistantSkin(border = k.c.accent.copy(alpha = 0.6f)) {
+            Who(false, "live", k.c.muted)
+            if (snap.thinking.isNotEmpty()) Text(firstLine(snap.thinking, 400), style = k.ty.textSmall, color = k.c.faint)
+            if (snap.text.isNotEmpty()) RuneMarkdown(snap.text)
+        }
+    }
+}
+
+@Composable
+private fun WorkingLine(model: SessionModel, snap: LiveSnapshot?, d: SessionDetail) {
+    val now = rememberNow(1_000)
+    val verb = snap?.tool ?: d.session.activity ?: "Working"
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Spinner()
+        Text("$verb…", style = k.ty.uiMedium, color = k.c.muted, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+        model.workingSince?.let { Text("· ${elapsedLabel(((now - it) / 1000).coerceAtLeast(0))}", style = k.ty.ui, color = k.c.faint) }
+    }
+}
+
+@Composable
+private fun QueuedBubble(q: Queued) {
+    val c = k.c
+    Lane(true) {
+        Column(
+            Modifier.width(IntrinsicSize.Max).clip(bubbleShape(true)).background(c.warning.bg)
+                .dashedBorder(c.warning.fg).padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Who(true, "queued", c.muted)
+            Text(q.text, style = k.ty.body, color = c.fg)
+        }
+    }
+}
+
+@Composable
+fun Bubble(env: ConverseEnv, m: Turn) {
+    val c = k.c
+    if (m.role == "system") {
+        Text(firstLine(m.text, 160), style = k.ty.textXsmall, color = c.faint, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
+        return
+    }
+    val now = env.app.now
+    val user = m.user
+    val ts = m.ts?.let { agoShort(it, now) }.orEmpty()
+    val base = k
+    val fill = if (m.auto) c.info.fg else c.accent
+    val ck = if (user) onAccent(base, fill) else base
+    Lane(user) {
+        ProvideKit(ck) {
+            val shape = bubbleShape(user)
+            Column(
+                Modifier.width(IntrinsicSize.Max).clip(shape)
+                    .then(if (user) Modifier.background(fill) else Modifier.background(c.surface).border(1.dp, c.border, shape))
+                    .padding(12.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Who(user, if (m.auto) "auto" else ts, k.c.muted)
+                    m.forkUuid?.let { uuid ->
+                        Spacer(Modifier.weight(1f))
+                        KButton("Fork", { env.forkHere(uuid) }, variant = Variant.GHOST_FAINT, size = Size.SMALL, icon = Lucide.Fork)
+                        KIconButton(Lucide.ChevronDown, "Fork options", { env.onForkOptions(uuid) }, size = Size.SMALL)
+                    }
+                }
+                val full = m.forkUuid?.let { env.model.fullTexts[it] }
+                m.parts.forEach { p ->
+                    when (p) {
+                        is TurnPart.Text -> if (user) UserText(env, full ?: p.text) else SelectionContainer { RuneMarkdown(p.text, actions = env.code) }
+                        is TurnPart.Call -> ToolChip(env, p.tool)
+                    }
+                }
+                if (user && m.truncated && full == null) {
+                    m.forkUuid?.let { uuid ->
+                        val loading = uuid in env.model.fullTexts
+                        KButton(if (loading) "Loading…" else "Show the full message", { env.model.loadFullText(uuid) }, variant = Variant.GHOST_MUTED, size = Size.SMALL, icon = Lucide.ChevronDown)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun UserText(env: ConverseEnv, text: String) {
+    val (images, rest) = remember(text) { splitMessageImages(text) }
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        if (images.isNotEmpty()) {
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                images.forEach { Picture(env.media, it, 220.dp, 160.dp, images, pasted = true) }
+            }
+        }
+        if (rest.isNotEmpty()) SelectionContainer { Text(rest, style = k.ty.body, color = k.c.fg) }
+    }
+}
+
+@Composable
+fun ToolChip(env: ConverseEnv, t: ToolCall) {
+    val c = k.c
+    val key = t.id ?: "${t.name}:${t.detail}"
+    val open = env.ui.allToolsOpen || env.toolsOpen[key] == true
+    val changed = remember(t.diff) { t.diff?.let(::diffLineCount) }
+    val big = (changed ?: 0) > BIG_DIFF
+    val shape = RoundedCornerShape(k.r.md)
+    Column(Modifier.fillMaxWidth().clip(shape).border(1.dp, c.border, shape).background(c.surface)) {
+        Row(
+            Modifier.fillMaxWidth().height(28.dp).clip(RoundedCornerShape(k.r.sm))
+                .clickable { env.toolsOpen[key] = !(env.toolsOpen[key] ?: false) }.padding(horizontal = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            KIcon(Lucide.Tool, c.faint, 12.dp)
+            Text(t.name, style = k.ty.textSmallMedium, color = c.muted, maxLines = 1)
+            Text(t.detail.orEmpty(), style = k.ty.mono, color = c.faint, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+            if (big) Text("$changed lines", style = k.ty.textXsmall, color = c.faint)
+        }
+        val diff = t.diff
+        if (diff != null) {
+            if (!big || open) InlineDiff(diff)
+        } else if (open) {
+            t.inputText?.let { MonoSection("Input", it) }
+            t.result?.let { MonoSection("Result", it) }
+        }
+        t.send?.let { SentFiles(env.media, it) }
+        t.show?.let { ShowWork(env.media, it) }
+    }
+}
+
+@Composable
+private fun MonoSection(label: String, body: String) {
+    Column(Modifier.fillMaxWidth().padding(start = 10.dp, end = 10.dp, bottom = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(label, style = k.ty.textXsmallMedium, color = k.c.faint)
+        SelectionContainer { Text(remember(body) { clipLines(body, 60) }, style = k.ty.mono, color = k.c.muted) }
+    }
+}
+
+private const val DIFF_CAP = 400
+
+/** Edit / Write calls as unified hunks with three lines of context, rune's diff colours. */
+@Composable
+fun InlineDiff(diff: kotlinx.serialization.json.JsonObject) {
+    val c = k.c
+    val ops = diff["ops"].arr
+    Column(Modifier.fillMaxWidth().padding(start = 10.dp, end = 10.dp, bottom = 10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        var shown = 0
+        ops.forEach { op ->
+            if (op["all"].bool) Text("replace all occurrences", style = k.ty.textXsmall, color = c.faint)
+            val old = if (op["kind"].str == "notebook") "" else op["old"].str.orEmpty()
+            val new = if (op["kind"].str == "write") op["content"].str.orEmpty() else op["new"].str.orEmpty()
+            val hunks = remember(old, new) { diffHunks(old, new, 3) }
+            val shape = RoundedCornerShape(k.r.sm)
+            Column(Modifier.fillMaxWidth().clip(shape).border(1.dp, c.border, shape)) {
+                hunks.forEachIndexed { hi, h ->
+                    if (hi > 0) Box(Modifier.fillMaxWidth().height(1.dp).background(c.border))
+                    for (l in h.lines) {
+                        if (shown >= DIFF_CAP) break
+                        shown++
+                        val (sign, fill, ink) = when (l.kind) {
+                            LineKind.ADDED -> Triple("+", c.success.bg, c.success.fg)
+                            LineKind.REMOVED -> Triple("-", c.danger.bg, c.danger.fg)
+                            LineKind.CONTEXT -> Triple(" ", Color.Transparent, c.faint)
+                        }
+                        Row(Modifier.fillMaxWidth().background(fill).padding(horizontal = 6.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text(sign, style = k.ty.mono, color = ink, modifier = Modifier.width(10.dp))
+                            Text(l.text.ifEmpty { " " }, style = k.ty.mono, color = if (l.kind == LineKind.CONTEXT) c.muted else c.fg, modifier = Modifier.weight(1f))
                         }
                     }
                 }
             }
-            if (truncated) TruncatedNote(hooked.muted)
         }
     }
-}
-
-@Composable
-private fun TruncatedNote(color: Color) {
-    Text("Message truncated: open it in the web dashboard for the full text.", fontSize = 11.sp, color = color)
-}
-
-@Composable
-fun SystemLine(text: String, compact: Boolean = false) {
-    Row(
-        Modifier.fillMaxWidth().padding(vertical = 2.dp),
-        horizontalArrangement = Arrangement.Center,
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        if (compact) Icon(Icons.Outlined.Compress, null, Modifier.size(14.dp).padding(end = 2.dp), tint = hooked.muted)
-        Text(text, fontSize = 12.sp, color = hooked.muted, textAlign = TextAlign.Center, maxLines = 3, overflow = TextOverflow.Ellipsis)
-    }
-}
-
-private const val RESULT_CAP = 3000
-
-@Composable
-fun ToolChip(tool: Tool) {
-    var open by rememberSaveable(tool.id) { mutableStateOf(false) }
-    val diff = remember(tool) { diffOf(tool) }
-    Column(Modifier.animateContentSize(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Row(
-            Modifier.clip(RoundedCornerShape(10.dp)).background(hooked.crema).clickable { open = !open }.padding(horizontal = 10.dp, vertical = 6.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(7.dp),
-        ) {
-            Icon(Icons.Outlined.Build, null, Modifier.size(14.dp), tint = hooked.ink)
-            Text(tool.name, fontFamily = Mono, fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold, color = hooked.ink)
-            tool.detail?.let {
-                Text(it, fontFamily = Mono, fontSize = 12.5.sp, color = hooked.muted, maxLines = 1, overflow = TextOverflow.MiddleEllipsis, modifier = Modifier.weight(1f, fill = false))
-            }
-            Icon(Icons.Outlined.ChevronRight, null, Modifier.size(16.dp).rotate(if (open) 90f else 0f), tint = hooked.muted)
-        }
-        if (diff != null) DiffView(diff)
-        if (open) {
-            tool.inputText?.takeIf { diff == null }?.let { ToolSection("Input", it) }
-            tool.result?.let { ToolSection("Result", it) }
-            if (tool.inputText == null && tool.result == null) Text("No details", fontSize = 11.sp, color = hooked.muted)
-        }
-    }
-}
-
-@Composable
-private fun ToolSection(title: String, body: String) {
-    Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
-        Text(title.uppercase(), fontSize = 10.sp, fontWeight = FontWeight.Bold, color = hooked.muted, letterSpacing = 0.6.sp)
-        CodeBlock(if (body.length > RESULT_CAP) body.take(RESULT_CAP) + "\n…" else body, maxLines = 40)
-    }
-}
-
-/** A line of an Edit or Write call: '-' removed, '+' added. */
-data class DiffLine(val sign: Char, val text: String)
-
-/** The change an Edit, MultiEdit or Write call makes, read from its input. */
-fun diffOf(tool: Tool): List<DiffLine>? {
-    if (tool.name !in setOf("Edit", "MultiEdit", "Write")) return null
-    val input = runCatching { Json.parseToJsonElement(tool.inputText ?: return null) }.getOrNull() ?: return null
-    fun lines(sign: Char, s: String?) = s?.split('\n')?.map { DiffLine(sign, it) }.orEmpty()
-    return when (tool.name) {
-        "Write" -> lines('+', input["content"].str)
-        "Edit" -> lines('-', input["old_string"].str) + lines('+', input["new_string"].str)
-        else -> input["edits"].arr.flatMapIndexed { i, e ->
-            (if (i > 0) listOf(DiffLine(' ', "…")) else emptyList()) + lines('-', e["old_string"].str) + lines('+', e["new_string"].str)
-        }
-    }.takeIf { it.isNotEmpty() }
-}
-
-private const val DIFF_PREVIEW = 14
-
-@Composable
-private fun DiffView(lines: List<DiffLine>) {
-    var all by remember { mutableStateOf(false) }
-    val shown = if (all) lines else lines.take(DIFF_PREVIEW)
-    val dark = hooked.dark
-    val added = if (dark) Color(0xFF1F3A26) else Color(0xFFE3F3E6)
-    val removed = if (dark) Color(0xFF4A2023) else Color(0xFFFBE3E3)
-    val addedBar = Color(0xFF418D50)
-    val removedBar = Color(0xFFC43D4D)
-    BoxWithConstraints(Modifier.fillMaxWidth().background(hooked.panel, RoundedCornerShape(10.dp)).padding(vertical = 6.dp)) {
-      val full = maxWidth
-      Column {
-        // Rows as wide as the longest line, and never narrower than the card, so the tint spans the line.
-        Column(Modifier.horizontalScroll(rememberScrollState()).width(IntrinsicSize.Max).widthIn(min = full)) {
-            shown.forEach { l ->
-                Row(Modifier.fillMaxWidth().background(if (l.sign == '+') added else if (l.sign == '-') removed else Color.Transparent)) {
-                    Box(Modifier.size(3.dp, 19.dp).background(if (l.sign == '+') addedBar else if (l.sign == '-') removedBar else Color.Transparent))
-                    Text(
-                        "${if (l.sign == ' ') ' ' else l.sign} ${l.text}",
-                        fontFamily = Mono, fontSize = 12.sp, lineHeight = 19.sp, color = hooked.ink, softWrap = false,
-                        modifier = Modifier.padding(horizontal = 10.dp),
-                    )
-                }
-            }
-        }
-        if (lines.size > DIFF_PREVIEW) {
-            TextButton(onClick = { all = !all }, modifier = Modifier.padding(start = 4.dp)) {
-                Icon(Icons.Outlined.ExpandMore, null, Modifier.size(16.dp).rotate(if (all) 180f else 0f))
-                Spacer(Modifier.width(4.dp))
-                Text(if (all) "Show less" else "Show ${lines.size - DIFF_PREVIEW} more lines", fontSize = 12.sp)
-            }
-        }
-      }
-    }
-}
-
-/** The turn in progress, fed by /api/session/stream. */
-@Composable
-fun LiveBubble(snapshot: LiveSnapshot) {
-    val working = stateStyle(SessionState.WORKING)
-    val shape = RoundedCornerShape(18.dp, 18.dp, 18.dp, 6.dp)
-    Column(
-        Modifier.padding(end = 40.dp).fillMaxWidth()
-            .background(hooked.card, shape)
-            .dashedBorder(working.hue.copy(alpha = 0.6f), 18.dp)
-            .padding(horizontal = 16.dp, vertical = 12.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        when {
-            snapshot.text.isNotEmpty() -> MarkdownBody(snapshot.text)
-            snapshot.thinking.isNotEmpty() -> Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                Icon(Icons.AutoMirrored.Outlined.Notes, null, Modifier.size(15.dp), tint = hooked.muted)
-                Text(snapshot.thinking.takeLast(400), fontSize = 13.sp, fontStyle = FontStyle.Italic, color = hooked.muted, maxLines = 4, overflow = TextOverflow.Ellipsis)
-            }
-        }
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-            StateDot(working)
-            val label = snapshot.activity ?: snapshot.tool ?: if (snapshot.text.isEmpty() && snapshot.thinking.isNotEmpty()) "Thinking…" else "Working…"
-            Text(label, fontSize = 12.sp, color = working.ink, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        }
-    }
-}
-
-fun Modifier.dashedBorder(color: Color, radius: Dp) = drawBehind {
-    drawRoundRect(
-        color = color,
-        cornerRadius = CornerRadius(radius.toPx()),
-        style = Stroke(width = 1.dp.toPx(), pathEffect = PathEffect.dashPathEffect(floatArrayOf(8f, 6f))),
-    )
 }
