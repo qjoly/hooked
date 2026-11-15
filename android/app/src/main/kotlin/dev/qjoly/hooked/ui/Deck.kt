@@ -47,6 +47,7 @@ import dev.qjoly.hooked.state.AppModel
 import dev.qjoly.hooked.state.FAMILY_LABELS
 import dev.qjoly.hooked.state.GroupUnit
 import dev.qjoly.hooked.state.agoShort
+import dev.qjoly.hooked.state.groupLabel
 import dev.qjoly.hooked.state.familyOf
 import dev.qjoly.hooked.state.isArchived
 import dev.qjoly.hooked.state.isLive
@@ -73,11 +74,22 @@ import dev.qjoly.hooked.ui.kit.Variant
 import dev.qjoly.hooked.ui.kit.k
 import dev.qjoly.hooked.ui.kit.panel
 
+/** rune's `Fleet` state: kept for the process, so leaving the Deck does not reset the filter or the folds. */
+object FleetState {
+    var state by mutableStateOf<Int?>(null)
+    var query by mutableStateOf("")
+    var hover by mutableStateOf<String?>(null)
+    var archivedOpen by mutableStateOf(false)
+    val expanded = mutableStateMapOf<String, Boolean>()
+    val kids = mutableStateMapOf<String, Boolean>()
+}
+
 /** desktop-rune's Deck: what waits on you, then the fleet. Two columns once the content is 1080 wide. */
 @Composable
 fun DeckScreen(app: AppModel) {
-    var stateFilter by rememberSaveable { mutableStateOf<Int?>(null) }
-    var query by rememberSaveable { mutableStateOf("") }
+    val fs = FleetState
+    val stateFilter = fs.state
+    val query = fs.query
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val inner = maxOf(maxWidth - 48.dp, 320.dp)
         val two = inner >= 1080.dp
@@ -87,12 +99,12 @@ fun DeckScreen(app: AppModel) {
                 val right = inner - 22.dp - left
                 Row(horizontalArrangement = Arrangement.spacedBy(22.dp), verticalAlignment = Alignment.Top) {
                     Decisions(app, Modifier.width(left), wide = false)
-                    Fleet(app, Modifier.width(right), right, stateFilter, { stateFilter = it }, query, { query = it })
+                    Fleet(app, Modifier.width(right), right, stateFilter, { fs.state = it }, query, { fs.query = it })
                 }
             } else {
                 Column(verticalArrangement = Arrangement.spacedBy(26.dp)) {
                     Decisions(app, Modifier.fillMaxWidth(), wide = true)
-                    Fleet(app, Modifier.fillMaxWidth(), inner, stateFilter, { stateFilter = it }, query, { query = it })
+                    Fleet(app, Modifier.fillMaxWidth(), inner, stateFilter, { fs.state = it }, query, { fs.query = it })
                 }
             }
         }
@@ -123,6 +135,8 @@ private fun Decisions(app: AppModel, modifier: Modifier, wide: Boolean) {
                     SectionTitle("AWAITING YOU")
                     Text(if (snoozed > 0) "${decisions.size} · $snoozed snoozed" else "${decisions.size}", style = k.ty.textXsmall, color = c.faint)
                     Spacer(Modifier.weight(1f))
+                    // rune opens quick reply from its tray and ⌘⇧H; a tablet has neither, so the lane offers it.
+                    if (decisions.isNotEmpty()) KButton("Quick reply", { app.quickOpen = true }, variant = Variant.GHOST_MUTED, icon = Lucide.Converse)
                     if (decisions.size > 1) KButton("Snooze all 1h", { app.snoozeAll(decisions.map { it.id }, 1) }, variant = Variant.GHOST_MUTED, icon = Lucide.Clock)
                 }
                 if (wide) {
@@ -191,7 +205,7 @@ private fun DecisionCard(app: AppModel, s: Session, modifier: Modifier) {
                             Text("Suggested follow-up", style = k.ty.textXsmallMedium, color = c.faint)
                             Text(f, style = k.ty.textSmall, color = c.fg, maxLines = 2, overflow = TextOverflow.Ellipsis)
                         }
-                        KButton("Send this", { app.act("Send", "✓ Follow-up sent") { it.reply(s.id, f) } }, variant = Variant.CONTRAST)
+                        KButton("Send this", { app.act("Follow-up", "✓ Follow-up sent") { it.reply(s.id, f) } }, variant = Variant.CONTRAST)
                     }
                 }
             }
@@ -219,7 +233,7 @@ private fun PlanBody(app: AppModel, s: Session) {
         Text("Loading the plan…", style = k.ty.textSmall, color = c.muted)
         return
     }
-    Box(Modifier.fillMaxWidth().heightIn(max = 260.dp).panel(c.surface, c.border, k.r.sm).verticalScroll(rememberScrollState()).padding(8.dp)) {
+    Box(Modifier.fillMaxWidth().heightIn(max = 260.dp).clip(RoundedCornerShape(k.r.sm)).background(c.surface).verticalScroll(rememberScrollState()).padding(8.dp)) {
         MarkdownBody(plan)
     }
     @OptIn(ExperimentalLayoutApi::class)
@@ -249,9 +263,9 @@ private fun Fleet(app: AppModel, modifier: Modifier, width: Dp, filter: Int?, se
         .mapValues { (_, list) -> list.sortedWith(compareBy<GroupUnit>({ u -> u.all.none(::isLive) }, { u -> -(u.all.maxOf { it.lastActivity ?: 0 }) })) }
         .entries.sortedByDescending { e -> e.value.maxOf { u -> u.all.maxOf { it.lastActivity ?: 0 } } }
     val decisions = active.count { it.needsYou && !isSnoozed(it, app.meta, now) }
-    var hovered by remember { mutableStateOf<String?>(null) }
-    val expanded = remember { mutableStateMapOf<String, Boolean>() }
-    var archivedOpen by rememberSaveable { mutableStateOf(false) }
+    val hovered = FleetState.hover
+    val expanded = FleetState.expanded
+    val archivedOpen = FleetState.archivedOpen
     val grid = app.prefs.deckView != "list"
     Column(modifier, verticalArrangement = Arrangement.spacedBy(14.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -263,7 +277,7 @@ private fun Fleet(app: AppModel, modifier: Modifier, width: Dp, filter: Int?, se
             KIconButton(Lucide.List, "List", { app.prefs.deckView("list") }, size = Size.SMALL, on = !grid)
             KIconButton(Lucide.Deck, "Grid", { app.prefs.deckView("grid") }, size = Size.SMALL, on = grid)
         }
-        WheelCard(app, active, decisions, filter, setFilter, hovered) { hovered = it }
+        WheelCard(app, active, decisions, filter, setFilter, hovered) { FleetState.hover = it }
         if (unitsAll.isEmpty()) {
             Column(Modifier.fillMaxWidth().padding(vertical = 24.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text(
@@ -285,9 +299,9 @@ private fun Fleet(app: AppModel, modifier: Modifier, width: Dp, filter: Int?, se
             val live = list.count { u -> u.all.any(::isLive) }
             val cap = maxOf(8, live)
             val shown = if (expanded[repo] == true) list else list.take(cap)
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Row(Modifier.padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    c.lotColor(repo)?.let { Box(Modifier.size(14.dp, 7.dp).clip(RoundedCornerShape(2.dp)).background(it)) }
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                // The repo header takes a dragged session out of its group.
+                Row(Modifier.fillMaxWidth().dropTarget("repo:$repo", k.r.sm).padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text(repo, style = k.ty.uiMedium, color = c.fg)
                     Text("${list.size}", style = k.ty.textXsmall, color = c.faint)
                     Spacer(Modifier.weight(1f))
@@ -311,7 +325,7 @@ private fun Fleet(app: AppModel, modifier: Modifier, width: Dp, filter: Int?, se
         val archived = units(app.visible.filter { isArchived(it, app.meta, now) && matches(it) }.sortedByDescending { it.lastActivity ?: 0 }, app.meta)
             .filter { u -> u.all.all { isArchived(it, app.meta, now) } }
         if (archived.isNotEmpty()) {
-            Pressable({ archivedOpen = !archivedOpen }, Modifier.fillMaxWidth().height(28.dp), radius = k.r.sm) {
+            Pressable({ FleetState.archivedOpen = !archivedOpen }, Modifier.height(28.dp), radius = k.r.sm) {
                 Row(Modifier.padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     KIcon(if (archivedOpen) Lucide.ChevronDown else Lucide.ArrowRight, c.faint, 12.dp)
                     KIcon(Lucide.Archive, c.muted, 13.dp)
@@ -333,7 +347,7 @@ private fun WheelCard(app: AppModel, active: List<Session>, decisions: Int, filt
     Row(Modifier.fillMaxWidth().panel(c.surface, c.border, k.r.lg).padding(16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(22.dp)) {
         FleetWheel(slices, decisions, filter, hovered, setHover, { app.open(it) }, app::title)
         Box(Modifier.weight(1f)) {
-        Column(Modifier.widthIn(max = 520.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Column(Modifier.widthIn(max = 520.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             for (pair in listOf(0 to 1, 2 to 3, 4 to 5)) {
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     for (f in listOf(pair.first, pair.second)) {
@@ -382,7 +396,11 @@ private fun FleetCard(app: AppModel, u: GroupUnit, modifier: Modifier) {
     var menu by remember { mutableStateOf(false) }
     val grouped = u.children.isNotEmpty()
     Box(modifier) {
-        Pressable({ app.open(s.id) }, Modifier.fillMaxWidth().alpha(if (u.all.any(::isLive)) 1f else 0.75f).panel(c.surface, c.border, k.r.lg), onLongClick = { menu = true }, radius = k.r.lg) {
+        SessionPress(
+            app, s.id, { app.open(s.id) }, { menu = true },
+            Modifier.fillMaxWidth().alpha(if (u.all.any(::isLive)) 1f else 0.75f).panel(c.surface, c.border, k.r.lg).dropTarget("fl:${s.id}", k.r.lg),
+            radius = k.r.lg,
+        ) {
             Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
                     Dot(c.stateColor(s.state.name.lowercase()), 8.dp)
@@ -417,10 +435,18 @@ private fun FleetCard(app: AppModel, u: GroupUnit, modifier: Modifier) {
                 }
             }
         }
-        KMenu(menu, { menu = false }) {
-            KMenuItem("Open", { menu = false; app.open(s.id) })
-            KMenuItem(if (app.meta.of(s.id).archived) "Unarchive" else "Archive", { menu = false; app.toggleArchive(s.id) }, icon = if (app.meta.of(s.id).archived) Lucide.Unarchive else Lucide.Archive)
-        }
+        FleetMenu(app, s, menu) { menu = false }
+    }
+}
+
+/** The card's long-press menu: rune's hover archive button, absent for a session that is only cold. */
+@Composable
+private fun FleetMenu(app: AppModel, s: Session, open: Boolean, close: () -> Unit) {
+    val explicit = app.meta.of(s.id).archived
+    val ended = s.state == dev.qjoly.hooked.data.SessionState.ENDED || s.state == dev.qjoly.hooked.data.SessionState.PAST
+    KMenu(open, close) {
+        KMenuItem("Open", { close(); app.open(s.id) })
+        if (explicit || !ended) KMenuItem(if (explicit) "Unarchive" else "Archive", { close(); app.toggleArchive(s.id) }, icon = if (explicit) Lucide.Unarchive else Lucide.Archive)
     }
 }
 
@@ -434,7 +460,7 @@ private fun activity(s: Session): Pair<String, String>? = when {
 @Composable
 private fun Kids(app: AppModel, u: GroupUnit) {
     val c = k.c
-    var all by remember { mutableStateOf(false) }
+    val all = FleetState.kids[u.lead.id] == true
     val kids = u.children.sortedBy { !isLive(it) }
     val shown = if (all || kids.size <= 4) kids else kids.take(3)
     val line = c.border
@@ -450,7 +476,7 @@ private fun Kids(app: AppModel, u: GroupUnit) {
             }
         }
         if (shown.size < kids.size) {
-            Pressable({ all = true }, Modifier.height(22.dp), radius = k.r.sm) {
+            Pressable({ FleetState.kids[u.lead.id] = true }, Modifier.height(22.dp), radius = k.r.sm) {
                 Row(Modifier.padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text("+${kids.size - shown.size}", style = k.ty.textXsmallMedium, color = c.muted)
                     kids.drop(shown.size).forEach { Dot(c.stateColor(it.state.name.lowercase()), 6.dp) }
@@ -474,22 +500,33 @@ private fun FleetTable(app: AppModel, list: List<GroupUnit>) {
             Text("BRANCH", style = k.ty.tableCaption, color = c.faint, modifier = Modifier.weight(1f))
             Text("STATUS", style = k.ty.tableCaption, color = c.faint, modifier = Modifier.width(130.dp))
             Text("AGE", style = k.ty.tableCaption, color = c.faint, modifier = Modifier.width(56.dp), textAlign = TextAlign.End)
+            Spacer(Modifier.width(24.dp))
         }
         list.forEachIndexed { i, u ->
             val s = u.lead
             val live = u.all.any(::isLive)
-            Column(Modifier.fillMaxWidth().background(if (i % 2 == 1) c.surface else Color.Transparent)
-                .drawBehind { drawLine(weak, Offset(0f, size.height - 0.5f), Offset(size.width, size.height - 0.5f), 1.dp.toPx()) }) {
-                Pressable({ app.open(s.id) }, Modifier.fillMaxWidth().heightIn(min = 24.dp), radius = 0.dp) {
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Box(Modifier.size(3.dp, 24.dp).background(c.stateColor(s.state.name.lowercase())))
-                        Text(app.title(s), style = k.ty.textSmallMedium, color = if (live) c.fg else c.muted, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(2f))
-                        Text(s.gitBranch.orEmpty(), style = k.ty.mono.copy(fontSize = androidx.compose.ui.unit.TextUnit(11f, androidx.compose.ui.unit.TextUnitType.Sp)), color = c.faint, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-                        Text(stateLabel(s), style = k.ty.mono.copy(fontSize = androidx.compose.ui.unit.TextUnit(11f, androidx.compose.ui.unit.TextUnitType.Sp)), color = c.faint, maxLines = 1, modifier = Modifier.width(130.dp))
-                        Text(agoShort(s.lastActivity, app.now), style = k.ty.textXsmall, color = c.faint, modifier = Modifier.width(56.dp), textAlign = TextAlign.End)
+            var menu by remember { mutableStateOf(false) }
+            Box {
+                SessionPress(
+                    app, s.id, { app.open(s.id) }, { menu = true },
+                    Modifier.fillMaxWidth().background(if (i % 2 == 1) c.surface else Color.Transparent)
+                        .drawBehind { drawLine(weak, Offset(0f, size.height - 0.5f), Offset(size.width, size.height - 0.5f), 1.dp.toPx()) }
+                        .dropTarget("fl:${s.id}", 0.dp),
+                    radius = 0.dp,
+                ) {
+                    Column(Modifier.fillMaxWidth()) {
+                        Row(Modifier.heightIn(min = 24.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Box(Modifier.size(3.dp, 24.dp).background(c.stateColor(s.state.name.lowercase())))
+                            Text(if (u.children.isEmpty()) app.title(s) else groupLabel(s, app.meta, app.prefs.names), style = k.ty.textSmallMedium, color = if (live) c.fg else c.muted, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(2f))
+                            Text(s.gitBranch.orEmpty(), style = k.ty.mono.copy(fontSize = androidx.compose.ui.unit.TextUnit(11f, androidx.compose.ui.unit.TextUnitType.Sp)), color = c.faint, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                            Text(stateLabel(s), style = k.ty.mono.copy(fontSize = androidx.compose.ui.unit.TextUnit(11f, androidx.compose.ui.unit.TextUnitType.Sp)), color = c.faint, maxLines = 1, modifier = Modifier.width(130.dp))
+                            Text(agoShort(s.lastActivity, app.now), style = k.ty.textXsmall, color = c.faint, modifier = Modifier.width(56.dp), textAlign = TextAlign.End)
+                            Spacer(Modifier.width(24.dp))
+                        }
+                        if (u.children.isNotEmpty()) Box(Modifier.padding(start = 13.dp, bottom = 4.dp)) { Kids(app, u) }
                     }
                 }
-                if (u.children.isNotEmpty()) Box(Modifier.padding(start = 13.dp, bottom = 4.dp)) { Kids(app, u) }
+                FleetMenu(app, s, menu) { menu = false }
             }
         }
     }

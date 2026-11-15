@@ -120,20 +120,146 @@ import dev.qjoly.hooked.data.PermissionMode
 import dev.qjoly.hooked.data.SessionState
 import dev.qjoly.hooked.state.AppModel
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.CancellationException
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
+import dev.qjoly.hooked.data.account
+import dev.qjoly.hooked.data.accountAction
+import dev.qjoly.hooked.data.int
 
+/** rune's account modal (account.rs): who is signed in, switching account through `claude auth login`, signing out. */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun AccountModal(app: AppModel, close: () -> Unit) {
     val c = k.c
+    val client = app.client ?: return
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    val scope = rememberCoroutineScope()
     var info by remember { mutableStateOf<JsonElement?>(null) }
-    LaunchedEffect(Unit) { info = runCatching { app.client?.get("api/account") }.getOrNull() }
+    var login by remember { mutableStateOf<JsonElement?>(null) }
+    var starting by remember { mutableStateOf(false) }
+    var notice by remember { mutableStateOf<String?>(null) }
+    var redirect by remember { mutableStateOf("") }
+    var confirmLogout by remember { mutableStateOf(false) }
+    suspend fun refresh() { info = runCatching { client.account() }.getOrNull() }
+    suspend fun action(name: String, vararg extra: Pair<String, Any?>) {
+        try {
+            val l = client.accountAction(name, *extra)["login"] ?: return
+            if (l is kotlinx.serialization.json.JsonNull) return
+            login = l
+            if (l["done"].bool) {
+                val ok = l["exitCode"].int == 0
+                notice = if (ok) "Signed in." else "The login flow ended before completing."
+                if (ok) refresh()
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            notice = e.message
+        } finally {
+            starting = false
+        }
+    }
+    LaunchedEffect(Unit) { refresh() }
+    // Follows a login flow until the CLI exits, every 1.5 s.
+    val loginId = login?.get("id").str?.takeIf { !login?.get("done").bool }
+    LaunchedEffect(loginId) {
+        val id = loginId ?: return@LaunchedEffect
+        while (true) {
+            delay(1_500)
+            action("login-status", "id" to id)
+            if (login?.get("done").bool || login?.get("id").str != id) break
+        }
+    }
+    fun startLogin(mode: String) {
+        starting = true
+        login = null
+        notice = null
+        scope.launch { action("login", "mode" to mode) }
+    }
+    fun cancelLogin() {
+        val id = login?.get("id").str
+        login = null
+        starting = false
+        if (id != null) scope.launch { runCatching { client.accountAction("login-cancel", "id" to id) } }
+    }
+    fun sendRedirect() {
+        val id = login?.get("id").str ?: return
+        val text = redirect.trim()
+        if (text.isEmpty()) return
+        redirect = ""
+        scope.launch { action("login-input", "id" to id, "text" to text) }
+    }
     KModal(close, "Claude account") {
         val i = info
-        Text(i?.get("displayName").text ?: i?.get("email").text ?: "Loading…", style = k.ty.bodyMedium, color = c.fg)
-        listOfNotNull(i?.get("email").text, i?.get("organizationName").text, i?.get("subscriptionType").text).forEach {
-            Text(it, style = k.ty.textSmall, color = c.muted)
+        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(i?.get("displayName").text ?: i?.get("email").text ?: "Loading…", style = k.ty.uiMedium, color = c.fg)
+            listOfNotNull(i?.get("email").text, i?.get("organizationName").text, i?.get("subscriptionType").text).forEach {
+                Text(it, style = k.ty.textSmall, color = c.muted)
+            }
+            if (i?.get("loggedIn") is kotlinx.serialization.json.JsonPrimitive && !i["loggedIn"].bool) Text("Not signed in", style = k.ty.textSmall, color = c.warning.fg)
         }
-        if (i != null && !i["loggedIn"].bool) Text("Not signed in", style = k.ty.textSmall, color = c.warning.fg)
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) { KButton("Close", close, variant = Variant.GHOST_MUTED) }
+        notice?.let { Text(it, style = k.ty.textSmall, color = c.muted) }
+        val l = login
+        if (l != null || starting) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                val url = l?.get("url").text
+                when {
+                    starting -> Text("Starting the login flow…", style = k.ty.textSmall, color = c.faint)
+                    l != null && l["done"].bool -> Text(
+                        if (l["exitCode"].int == 0) "Signed in." else "The login flow ended before completing.",
+                        style = k.ty.textSmall, color = c.muted,
+                    )
+                    url != null -> {
+                        Text("Open this page to approve the sign-in:", style = k.ty.textSmall, color = c.muted)
+                        androidx.compose.foundation.text.selection.SelectionContainer { Text(url, style = k.ty.textXsmall, color = c.accent) }
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            KButton("Open", { dev.qjoly.hooked.ui.session.openUrl(ctx, url) }, variant = Variant.OUTLINE)
+                            KButton("Copy", { dev.qjoly.hooked.ui.session.copyText(ctx, url); app.say("✓ Copied") }, variant = Variant.GHOST_MUTED)
+                        }
+                        if (l["needsPaste"].bool) {
+                            KTextInput(redirect, { redirect = it }, "Paste the code or redirect URL…", Modifier.fillMaxWidth(), onSubmit = ::sendRedirect)
+                        } else {
+                            Text("Waiting for authorization…", style = k.ty.textSmall, color = c.faint)
+                        }
+                    }
+                    else -> Text("Starting…", style = k.ty.textSmall, color = c.faint)
+                }
+                if (l == null || !l["done"].bool) Row { KButton("Cancel", ::cancelLogin, variant = Variant.GHOST_MUTED) }
+            }
+        } else {
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                KButton("Switch account (Claude subscription)", { startLogin("claudeai") }, variant = Variant.CONTRAST)
+                KButton("Switch to Console / API billing", { startLogin("console") }, variant = Variant.OUTLINE)
+            }
+            Text(
+                "Runs the same sign-in flow as claude auth login. It replaces the credentials the CLI keeps on this machine: every session, not just hooked's, uses the new account afterwards.",
+                style = k.ty.textXsmall, color = c.faint,
+            )
+            if (confirmLogout) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Sign out of Claude on this machine?", style = k.ty.textSmall, color = c.fg)
+                    KButton("Sign out", {
+                        scope.launch {
+                            try {
+                                client.accountAction("logout")
+                                app.say("✓ Signed out")
+                                confirmLogout = false
+                                refresh()
+                            } catch (e: CancellationException) {
+                                throw e
+                            } catch (e: Exception) {
+                                app.say("✗ Sign out: ${e.message}")
+                            }
+                        }
+                    }, variant = Variant.DANGER)
+                    KButton("Cancel", { confirmLogout = false }, variant = Variant.GHOST_MUTED)
+                }
+            } else {
+                Row { KButton("Sign out…", { confirmLogout = true }, variant = Variant.GHOST_MUTED) }
+            }
+        }
     }
 }
 
@@ -144,7 +270,8 @@ internal fun TrashModal(app: AppModel, close: () -> Unit) {
     var items by remember { mutableStateOf<List<JsonElement>?>(null) }
     var busy by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
-    suspend fun load() { items = runCatching { app.client?.get("api/trash")?.get("trashed").arr.distinctBy { it["id"].str } }.getOrNull() ?: emptyList() }
+    val client = app.client ?: return
+    suspend fun load() { items = runCatching { client.get("api/trash")["trashed"].arr.distinctBy { it["id"].str } }.getOrNull() ?: emptyList() }
     LaunchedEffect(Unit) { load() }
     KModal(close, "Trash") {
         val list = items
@@ -156,21 +283,34 @@ internal fun TrashModal(app: AppModel, close: () -> Unit) {
             },
             style = k.ty.textSmall, color = c.muted,
         )
-        Column(Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState())) {
+        val line = c.border
+        Column(Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             for (t in list.orEmpty()) {
                 val id = t["id"].str ?: continue
-                Row(Modifier.fillMaxWidth().padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Column(Modifier.weight(1f)) {
-                        Text(t["title"].text?.takeIf { it != "(sans titre)" } ?: t["firstPrompt"].text ?: "(untitled)", style = k.ty.ui, color = c.fg, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Row(
+                    Modifier.fillMaxWidth().drawBehind { drawLine(line, Offset(0f, size.height - 0.5f), Offset(size.width, size.height - 0.5f), 1.dp.toPx()) }.padding(vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        val title = listOf("title", "firstPrompt").mapNotNull { t[it].text }.firstOrNull { it != "(sans titre)" } ?: "(untitled)"
+                        Text(title, style = k.ty.ui, color = c.fg, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         val ago = t["trashedAt"].millis?.let { agoShort(it, app.now) } ?: "—"
-                        Text(listOfNotNull(t["projectName"].text, "deleted $ago ago", t["cost"].dbl?.let { costLabel(it) }).joinToString(" · "), style = k.ty.textXsmall, color = c.faint)
+                        val cost = t["cost"].dbl?.takeIf { it > 0 }?.let { " · ${costLabel(it)}" }.orEmpty()
+                        Text("${t["projectName"].text ?: "?"} · deleted $ago ago$cost", style = k.ty.textXsmall, color = c.faint)
                     }
                     KButton(if (busy == id) "Restoring…" else "Restore", {
                         busy = id
                         scope.launch {
-                            runCatching { app.client?.post("api/restore", body("id" to id)) }
+                            try {
+                                client.post("api/restore", body("id" to id))
+                                items = items?.filter { it["id"].str != id }
+                                app.say("✓ Restored")
+                            } catch (e: CancellationException) {
+                                throw e
+                            } catch (e: Exception) {
+                                app.say("✗ Restore: ${e.message}")
+                            }
                             busy = null
-                            load()
                             app.refresh()
                         }
                     }, variant = Variant.OUTLINE, enabled = busy == null)

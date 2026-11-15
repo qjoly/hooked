@@ -65,7 +65,7 @@ import dev.qjoly.hooked.ui.kit.k
 // rune-kit's Markdown with hooked's `md_code` frame: rune's sizes, margins collapsed like CSS.
 
 /** Code block actions: Copy always, Run for shell blocks of a session. */
-class CodeActions(val onRun: ((String) -> Unit)? = null, val onCopy: (String) -> Unit)
+class CodeActions(val onRun: ((String) -> Unit)? = null, val onCopy: (String) -> Unit, val onView: ((kotlinx.serialization.json.JsonObject) -> Unit)? = null)
 
 fun copyText(ctx: Context, text: String, label: String = "hooked") {
     ctx.getSystemService(ClipboardManager::class.java)?.setPrimaryClip(ClipData.newPlainText(label, text))
@@ -172,6 +172,7 @@ private fun InlineText(src: String, style: TextStyle, color: Color, modifier: Mo
 }
 
 private val SHELLS = setOf("sh", "bash", "shell", "zsh")
+private val QUERY_LANGS = setOf("promql", "logql")
 
 @Composable
 private fun CodeBlock(b: Md.Code, actions: CodeActions?) {
@@ -184,6 +185,11 @@ private fun CodeBlock(b: Md.Code, actions: CodeActions?) {
                 val run = actions.onRun
                 if (run != null && b.lang.lowercase() in SHELLS && b.code.isNotBlank() && !b.open) {
                     KButton("Run", { run(b.code) }, variant = Variant.GHOST_MUTED, size = Size.SMALL, icon = Lucide.Terminal)
+                }
+                val view = actions.onView
+                if (view != null && b.lang.lowercase() in QUERY_LANGS && !b.open) {
+                    val spec = remember(b.info, b.code) { dev.qjoly.hooked.state.fenceQuery(b.info, b.code) }
+                    KButton("View", { spec?.let(view) }, variant = Variant.GHOST_MUTED, size = Size.SMALL, icon = Lucide.Chart, enabled = spec != null)
                 }
                 KButton("Copy", { actions.onCopy(b.code) }, variant = Variant.GHOST_MUTED, size = Size.SMALL, icon = Lucide.Copy)
             }

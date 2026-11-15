@@ -25,6 +25,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
@@ -35,10 +36,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -47,6 +52,7 @@ import dev.qjoly.hooked.data.SessionState
 import dev.qjoly.hooked.state.AppModel
 import dev.qjoly.hooked.state.GroupUnit
 import dev.qjoly.hooked.state.Section
+import dev.qjoly.hooked.state.SessionUi
 import dev.qjoly.hooked.state.agoShort
 import dev.qjoly.hooked.state.cacheLeft
 import dev.qjoly.hooked.state.isArchived
@@ -58,6 +64,7 @@ import dev.qjoly.hooked.state.sectionOf
 import dev.qjoly.hooked.state.snoozePresets
 import dev.qjoly.hooked.state.sortSessions
 import dev.qjoly.hooked.state.span
+import dev.qjoly.hooked.state.titleOf
 import dev.qjoly.hooked.state.units
 import dev.qjoly.hooked.state.wakeLabel
 import dev.qjoly.hooked.ui.kit.Dot
@@ -84,6 +91,25 @@ sealed interface SidebarModal {
     data class Group(val id: String) : SidebarModal
     data class RenameGroup(val id: String) : SidebarModal
     data class Filter(val tags: Boolean) : SidebarModal
+}
+
+/** What rune keeps in its app state for the sidebar: folds, windows and the Archived tab. Lives as long as the process. */
+object SidebarState {
+    /** Sections whose fold differs from their default (only Waiting starts open). */
+    val flipped = mutableStateMapOf<Section, Boolean>()
+
+    /** Windowed sections opened past their window. */
+    val opened = mutableStateMapOf<Section, Boolean>()
+
+    /** Project folders folded in the project layout. */
+    val foldedProjects = mutableStateMapOf<String, Boolean>()
+    var showArchived by mutableStateOf(false)
+    var older by mutableStateOf(false)
+
+    fun isOpen(s: Section) = (s == Section.WAITING) xor (flipped[s] == true)
+    fun toggle(s: Section) {
+        flipped[s] = flipped[s] != true
+    }
 }
 
 /** Everything the sidebar lists, computed once per frame from the app state (`view/mod.rs::sidebar`). */
@@ -114,7 +140,7 @@ fun Sidebar(app: AppModel, modifier: Modifier = Modifier) {
     val c = k.c
     val lists = Lists(app)
     var modal by remember { mutableStateOf<SidebarModal?>(null) }
-    var showArchived by remember { mutableStateOf(false) }
+    val showArchived = SidebarState.showArchived
     val density = LocalDensity.current
     var width by remember { mutableStateOf(app.prefs.sidebarW) }
     val line = c.border
@@ -123,7 +149,7 @@ fun Sidebar(app: AppModel, modifier: Modifier = Modifier) {
             .drawBehind { drawLine(line, Offset(size.width - 0.5f, 0f), Offset(size.width - 0.5f, size.height), 1.dp.toPx()) },
     ) {
         Column(Modifier.weight(1f).fillMaxHeight()) {
-            Header(app, lists, showArchived, { showArchived = it }) { modal = it }
+            Header(app, lists, showArchived, { SidebarState.showArchived = it }) { modal = it }
             when (app.prefs.sidebarLayout) {
                 "project", "flat" -> FlatOrProject(app, lists, showArchived, Modifier.weight(1f)) { modal = it }
                 else -> ByStatus(app, lists, Modifier.weight(1f)) { modal = it }
@@ -181,7 +207,7 @@ private fun Header(app: AppModel, lists: Lists, showArchived: Boolean, setArchiv
                 sorts.forEach { (key, label, desc) -> KMenuItem(label, { sortMenu = false; app.prefs.sortMode(key) }, description = desc, checked = app.prefs.sortMode == key) }
             }
         }
-        KIconButton(Lucide.ArrowLeft, "Collapse sidebar", { app.prefs.sidebarOpen(false) }, size = Size.SMALL)
+        KIconButton(Lucide.ArrowLeft, "Collapse sidebar (⌘B)", { app.prefs.sidebarOpen(false) }, size = Size.SMALL)
     }
 }
 
@@ -205,23 +231,23 @@ private fun HeadTab(label: String, count: Int, on: Boolean, onClick: () -> Unit)
 /** Waiting, Working and Idle in the list; Snoozed and Archived docked at the bottom, opening upward. */
 @Composable
 private fun ByStatus(app: AppModel, lists: Lists, modifier: Modifier, openModal: (SidebarModal) -> Unit) {
-    val flipped = remember { mutableStateMapOf<Section, Boolean>() }
-    val opened = remember { mutableStateMapOf<Section, Boolean>() }
-    fun isOpen(s: Section) = (s == Section.WAITING) xor (flipped[s] == true)
+    val st = SidebarState
+    val opened = st.opened
+    fun isOpen(s: Section) = st.isOpen(s)
     val inList = listOf(Section.WAITING, Section.WORKING, Section.IDLE).filter { !lists.bySection[it].isNullOrEmpty() }
     Column(modifier) {
         LazyColumn(Modifier.weight(1f).fillMaxWidth(), contentPadding = androidx.compose.foundation.layout.PaddingValues(start = 8.dp, end = 8.dp, bottom = 8.dp)) {
             if (inList.isEmpty()) item { Text("No sessions.", style = k.ty.ui, color = k.c.faint, modifier = Modifier.padding(8.dp)) }
             for (sec in inList) {
                 val units = lists.bySection.getValue(sec)
-                item(key = "h:$sec") { SectionHeader(sec.label, units.size, isOpen(sec)) { flipped[sec] = flipped[sec] != true } }
+                item(key = "h:$sec") { SectionHeader(sec.label, units.size, isOpen(sec)) { st.toggle(sec) } }
                 sectionRows(app, lists, sec, units, isOpen(sec), opened[sec] == true, { opened[sec] = it }, openModal)
             }
         }
         for (sec in listOf(Section.SNOOZED, Section.ARCHIVED)) {
             val units = lists.bySection[sec].orEmpty()
             if (units.isEmpty()) continue
-            Dock(app, lists, sec, units, isOpen(sec), { flipped[sec] = flipped[sec] != true }, opened[sec] == true, { opened[sec] = it }, openModal)
+            Dock(app, lists, sec, units, isOpen(sec), { st.toggle(sec) }, opened[sec] == true, { opened[sec] = it }, openModal)
         }
     }
 }
@@ -329,8 +355,8 @@ private fun Dock(
 @Composable
 private fun FlatOrProject(app: AppModel, lists: Lists, showArchived: Boolean, modifier: Modifier, openModal: (SidebarModal) -> Unit) {
     val shown = if (showArchived) lists.gone else lists.live
-    val folded = remember { mutableStateMapOf<String, Boolean>() }
-    var older by remember { mutableStateOf(false) }
+    val folded = SidebarState.foldedProjects
+    val older = SidebarState.older
     val selected = app.selected
     val keep = shown.withIndex().filter { (i, s) -> older || i < 40 || s.id in app.prefs.pinned || s.needsYou || s.state == SessionState.WORKING || s.id == selected }.map { it.value }
     val hidden = shown.size - keep.size
@@ -342,7 +368,8 @@ private fun FlatOrProject(app: AppModel, lists: Lists, showArchived: Boolean, mo
             for ((label, list) in groups) {
                 val isFolded = folded[label] == true
                 item(key = "p:$label") {
-                    Pressable({ folded[label] = !isFolded }, Modifier.fillMaxWidth().padding(top = 4.dp).height(28.dp), radius = k.r.md) {
+                    // A repo header takes a dragged session out of its group, as the fleet's do.
+                    Pressable({ folded[label] = !isFolded }, Modifier.fillMaxWidth().padding(top = 4.dp).dropTarget("repo:sb:$label").height(28.dp), radius = k.r.md) {
                         Row(Modifier.padding(horizontal = 8.dp).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                             Text(label, style = k.ty.textXsmallMedium, color = k.c.muted, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
                             Text("${list.size}", style = k.ty.textXsmallMedium, color = k.c.faint)
@@ -359,8 +386,8 @@ private fun FlatOrProject(app: AppModel, lists: Lists, showArchived: Boolean, mo
         } else {
             items(units(keep, lists.meta), key = { "u:${it.lead.id}" }) { UnitRows(app, lists, it, openModal) }
         }
-        if (hidden > 0) item { KButton(if (hidden == 1) "1 older session" else "$hidden older sessions", { older = true }, variant = Variant.GHOST_MUTED, icon = Lucide.Plus, modifier = Modifier.padding(4.dp)) }
-        else if (older && shown.size > 40) item { KButton("Show less", { older = false }, variant = Variant.GHOST_MUTED, icon = Lucide.ChevronDown, modifier = Modifier.padding(4.dp)) }
+        if (hidden > 0) item { KButton(if (hidden == 1) "1 older session" else "$hidden older sessions", { SidebarState.older = true }, variant = Variant.GHOST_MUTED, icon = Lucide.Plus, modifier = Modifier.padding(4.dp)) }
+        else if (older && shown.size > 40) item { KButton("Show less", { SidebarState.older = false }, variant = Variant.GHOST_MUTED, icon = Lucide.ChevronDown, modifier = Modifier.padding(4.dp)) }
     }
 }
 
@@ -381,7 +408,8 @@ private fun SessionRow(app: AppModel, lists: Lists, s: Session, depth: Int, grou
     val now = lists.now
     val meta = lists.meta
     val m = meta.of(s.id)
-    val archived = isArchived(s, meta, now)
+    // rune dims and strips the explicitly archived only; a cold session looks like any other.
+    val archived = m.archived
     val snoozed = isSnoozed(s, meta, now)
     val selected = app.selected == s.id
     var menu by remember { mutableStateOf(false) }
@@ -389,11 +417,13 @@ private fun SessionRow(app: AppModel, lists: Lists, s: Session, depth: Int, grou
     var renaming by remember { mutableStateOf<String?>(null) }
     val title = if (isLead && !m.groupName.isNullOrBlank()) m.groupName else app.title(s)
     val tags = app.tagsOf(s.id)
+    val ctx = LocalContext.current
     Box {
-        Pressable(
+        SessionPress(
+            app, s.id,
             { app.open(s.id) },
-            Modifier.fillMaxWidth().alpha(if (archived || snoozed) 0.7f else 1f),
-            onLongClick = { menu = true },
+            { menu = true },
+            Modifier.fillMaxWidth().dropTarget("sb:${s.id}").alpha(if (archived || snoozed) 0.7f else 1f),
             fill = if (selected) c.pressed else Color.Transparent,
             radius = k.r.md,
         ) {
@@ -403,8 +433,14 @@ private fun SessionRow(app: AppModel, lists: Lists, s: Session, depth: Int, grou
                         if (s.id in app.prefs.pinned) KIcon(Lucide.Pin, c.muted, 12.dp)
                         val r = renaming
                         if (r != null) {
-                            KTextInput(r, { renaming = it }, "Name", Modifier.weight(1f), onSubmit = {
-                                app.prefs.rename(s.id, r.trim().takeIf { it.isNotEmpty() && it != (s.title ?: "") })
+                            val focus = remember { FocusRequester() }
+                            var had by remember { mutableStateOf(false) }
+                            LaunchedEffect(Unit) { focus.requestFocus() }
+                            // Leaving the field cancels, as Escape does in rune.
+                            KTextInput(r, { renaming = it }, "Name", Modifier.weight(1f).focusRequester(focus).onFocusChanged {
+                                if (it.isFocused) had = true else if (had) renaming = null
+                            }, onSubmit = {
+                                app.prefs.rename(s.id, r.trim().takeIf { it.isNotEmpty() && it != titleOf(s, emptyMap()) })
                                 renaming = null
                             })
                         } else {
@@ -435,14 +471,20 @@ private fun SessionRow(app: AppModel, lists: Lists, s: Session, depth: Int, grou
         // Long press: the hover bar's actions and the context menu, in one menu.
         KMenu(menu, { menu = false }, minWidth = 220.dp) {
             KMenuItem("Open", { menu = false; app.open(s.id) })
+            KMenuItem("Open in split", {
+                menu = false
+                val main = app.selected
+                if (main == null) app.open(s.id) else SessionUi.of(ctx).openSplit(s.id, main)
+            }, icon = Lucide.Split, enabled = !archived && app.selected != s.id)
             KMenuSeparator()
             KMenuItem("Rename…", { menu = false; renaming = app.title(s) })
             KMenuItem(if (s.id in app.prefs.pinned) "Unpin" else "Pin to the top", { menu = false; app.prefs.togglePin(s.id) }, icon = Lucide.Pin, checked = s.id in app.prefs.pinned)
             KMenuItem("Edit tags…", { menu = false; openModal(SidebarModal.Tags(s.id)) }, icon = Lucide.Tag)
             KMenuItem(if (snoozed) "Change the snooze…" else "Snooze…", { menu = false; snoozeMenu = true }, icon = Lucide.Snooze, enabled = !archived)
             KMenuItem("Move to group…", { menu = false; openModal(SidebarModal.Group(s.id)) }, icon = Lucide.List)
-            if (depth > 0) KMenuItem("Leave the group", { menu = false; app.groupOp("leave", s.id) })
-            if (isLead) {
+            val grouped = m.groupOf.let { it != null && it != s.id }
+            if (grouped) KMenuItem("Leave the group", { menu = false; app.groupOp("leave", s.id) })
+            if (!grouped && app.sessions.any { it.id != s.id && meta.of(it.id).groupOf == s.id }) {
                 KMenuItem(if (s.id in app.prefs.foldedGroups) "Unfold the group" else "Fold the group", { menu = false; app.prefs.toggleFold(s.id) })
                 KMenuItem("Rename the group…", { menu = false; openModal(SidebarModal.RenameGroup(s.id)) })
             }
@@ -497,10 +539,10 @@ fun Rail(app: AppModel) {
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
-        KIconButton(Lucide.ArrowRight, "Expand sidebar", { app.prefs.sidebarOpen(true) })
+        KIconButton(Lucide.ArrowRight, "Expand sidebar (⌘B)", { app.prefs.sidebarOpen(true) })
         Column(Modifier.verticalScroll(rememberScrollState()), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp)) {
             for (s in tiles) {
-                val letters = app.title(s).filter { it.isLetterOrDigit() }.take(2).uppercase()
+                val letters = s.displayTitle.filter { it.isLetterOrDigit() }.take(2).uppercase()
                 Pressable({ app.open(s.id) }, Modifier.size(36.dp), fill = if (app.selected == s.id) c.chip else Color.Transparent, radius = k.r.md) {
                     Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(3.dp, Alignment.CenterVertically)) {
                         Text(letters, style = k.ty.textXsmallMedium, color = c.muted)

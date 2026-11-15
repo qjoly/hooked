@@ -170,7 +170,7 @@ private fun Shell(app: AppModel, requestNotifications: () -> Unit) {
             // ⌘K / Ctrl+K opens the palette from anywhere, as in rune.
             val hit = e.key == Key.K && (e.isMetaPressed || e.isCtrlPressed)
             if (hit && e.type == KeyEventType.KeyDown) palette = !palette
-            hit
+            hit || organizeShortcut(app, e)
         },
     ) {
         val wide = maxWidth >= 1150.dp
@@ -195,7 +195,10 @@ private fun Shell(app: AppModel, requestNotifications: () -> Unit) {
                 }
             }
         }
+        QueryWindow(app)
+        DragGhost(app)
     }
+    if (app.quickOpen) QuickReply(app)
     if (palette) Palette(app, { trash = true }, requestNotifications) { palette = false }
     if (account) AccountModal(app) { account = false }
     if (trash) TrashModal(app) { trash = false }
