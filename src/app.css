@@ -1919,13 +1919,19 @@ code.path { color: var(--muted); font-size: var(--t-micro); word-break: break-al
 
 /* ---------- écran « nouvelle session » (chat plein écran) ---------- */
 .newsession { flex: 1 1 auto; overflow-y: auto; display: flex; justify-content: center; padding: 28px; }
-.ns-inner { width: 100%; max-width: 760px; margin: auto; }
+.ns-inner { width: 100%; max-width: 920px; margin: auto; container-type: inline-size; }
 .ns-title { font-family: var(--font-display); font-size: var(--t-display); line-height: var(--lh-display); font-weight: 750; letter-spacing: -.02em; text-align: center; margin: 0 0 6px; color: var(--text); }
 .ns-sub { color: var(--muted); font-size: var(--t-ui); line-height: 1.6; text-align: center; margin: 0 0 22px; }
 /* Écran « nouvelle session » : pas de transcript derrière → ni dock collé, ni fondu. */
 .newsession .composer-dock { position: relative; bottom: auto; margin-top: 0; background: none; }
 .newsession .composer-dock::before { display: none; }
-.ns-controls { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 12px 4px 0; }
+.ns-grid { display: grid; grid-template-columns: minmax(0, 1fr) 250px; gap: 0 22px; align-items: start; }
+.ns-col { min-width: 0; }
+.ns-options { display: flex; flex-direction: column; gap: 8px; }
+.ns-options .lf-label { margin-bottom: 0; }
+.ns-options .me-inline { flex-direction: column; align-items: stretch; }
+.ns-options .me-pill select { flex: 1 1 auto; min-width: 0; }
+@container (max-width: 640px) { .ns-grid { grid-template-columns: minmax(0, 1fr); } }
 /* "Fable quota spent" banner: the default model was rolled back to Opus (cf.
    defaultModelForQuota) — say so, otherwise the selector would look like it ignores the settings. */
 .ns-quota {
@@ -1954,10 +1960,10 @@ code.path { color: var(--muted); font-size: var(--t-micro); word-break: break-al
 .ns-prompts-edit:hover { color: var(--accent-d); }
 .ns-worktree input { margin: 0 2px 0 0; cursor: pointer; accent-color: var(--accent-d); }
 .ns-worktree:has(input:checked) { color: var(--text); border-color: var(--accent-d); }
-.ns-wt-row { display: flex; gap: 10px; flex-wrap: wrap; margin: 10px 4px 0; }
-.ns-wt-field { display: flex; align-items: center; gap: 6px; flex: 1 1 220px; font-size: var(--t-meta); color: var(--muted); white-space: nowrap; }
+.ns-wt-row { display: flex; flex-direction: column; gap: 6px; padding-left: 10px; }
+.ns-wt-field { display: flex; align-items: center; gap: 6px; font-size: var(--t-meta); color: var(--muted); white-space: nowrap; }
 .ns-wt-field .lf-input { font-family: var(--mono); font-size: var(--t-ui); padding: 5px 8px; }
-.ns-wt-err { display: flex; align-items: center; gap: 6px; margin: 6px 4px 0; font-size: var(--t-meta); color: var(--warn); }
+.ns-wt-err { display: flex; align-items: center; gap: 6px; font-size: var(--t-meta); color: var(--warn); }
 
 /* ---------- images collées (tray du composer) ---------- */
 .img-tray { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
@@ -2116,8 +2122,6 @@ code.path { color: var(--muted); font-size: var(--t-micro); word-break: break-al
 .lf-label { display: block; font-size: var(--t-meta); font-weight: 700; color: var(--muted); margin: 16px 0 6px; text-transform: uppercase; letter-spacing: .05em; }
 .lf-input { width: 100%; box-sizing: border-box; font-size: var(--t-body); }
 textarea.lf-input { font-family: inherit; resize: vertical; }
-.ns-proj-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
-.ns-proj-head .lf-label { margin-bottom: 6px; }
 .lf-actions { display: flex; align-items: center; gap: 14px; margin-top: 20px; }
 .lf-actions .reply-send { grid-column: auto; }
 .attach-row { display: flex; align-items: center; gap: 10px; background: var(--bg3); border: 1px solid var(--border2); border-radius: 10px; padding: 10px 12px; }

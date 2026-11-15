@@ -183,67 +183,69 @@
       </div>
     {/if}
 
-    <div class="ns-controls">
-      <ModelEffort compact showMode bind:model bind:effort bind:mode onchange={() => (picked = true)} />
-      <label class="me-pill ns-worktree" title="Create a git worktree on a new branch and launch the session in it">
-        <input type="checkbox" bind:checked={worktree} />
-        <span class="me-ico"><Icon name="git-branch" size={14} /></span> worktree
-      </label>
-      <label class="me-pill ns-worktree" title="Claude archives the session once the task is done, when it is confident nothing is left to check">
-        <input type="checkbox" bind:checked={ephemeral} />
-        <span class="me-ico"><Icon name="archive" size={14} /></span> ephemeral
-      </label>
-    </div>
-
-    {#if worktree}
-      <div class="ns-wt-row">
-        <label class="ns-wt-field">from
-          <input class="lf-input" list="ns-wt-bases" bind:value={wtBase} spellcheck="false"
-                 placeholder={bases?.defaultBase || 'default branch'} />
-        </label>
-        <label class="ns-wt-field">branch
-          <input class="lf-input" bind:value={wtBranch} spellcheck="false"
-                 placeholder={settings.worktrees?.autoName === false ? 'hooked/<random hex>' : 'named from the prompt'} />
-        </label>
-        <datalist id="ns-wt-bases">{#each bases?.branches || [] as b (b)}<option value={b}></option>{/each}</datalist>
-      </div>
-      {#if bases?.error}<div class="ns-wt-err"><Icon name="warning" size={13} /> {bases.error}</div>{/if}
-    {/if}
-
-    <div class="ns-proj-head">
-      <label class="lf-label">Project</label>
-    </div>
-    <input type="search" class="lf-input" placeholder="Search a project…" bind:value={search} />
-    <div class="lf-picklist" role="listbox" aria-label="Projects">
-      {#if hits.length}
-        {#each hits as [c, name, fav]}
-          {@const [hc, hbg] = hue(c)}
-          <div class="lf-pick" class:sel={selected === c} tabindex="0" role="option" aria-selected={selected === c}
-               onclick={() => (selected = c)}
-               onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); selected = c; } }}>
-            <span class="lf-chip" style="background:{hbg}"><Icon name="folder" size={15} color={hc} /></span>
-            <span class="lf-pick-main"><span class="pn">{name}</span><span class="pp">{c}</span></span>
-            <button class="lf-star" class:on={fav} aria-pressed={fav}
-                    title={fav ? 'Remove from favorites' : 'Add to favorites'}
-                    aria-label={fav ? 'Remove from favorites' : 'Add to favorites'}
-                    onclick={(e) => { e.stopPropagation(); toggleFavorite(c); }}><Icon name="star" size={14} /></button>
+    <div class="ns-grid">
+      <div class="ns-col">
+        <label class="lf-label">Project</label>
+        <input type="search" class="lf-input" placeholder="Search a project…" bind:value={search} />
+        <div class="lf-picklist" role="listbox" aria-label="Projects">
+          {#if hits.length}
+            {#each hits as [c, name, fav]}
+              {@const [hc, hbg] = hue(c)}
+              <div class="lf-pick" class:sel={selected === c} tabindex="0" role="option" aria-selected={selected === c}
+                   onclick={() => (selected = c)}
+                   onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); selected = c; } }}>
+                <span class="lf-chip" style="background:{hbg}"><Icon name="folder" size={15} color={hc} /></span>
+                <span class="lf-pick-main"><span class="pn">{name}</span><span class="pp">{c}</span></span>
+                <button class="lf-star" class:on={fav} aria-pressed={fav}
+                        title={fav ? 'Remove from favorites' : 'Add to favorites'}
+                        aria-label={fav ? 'Remove from favorites' : 'Add to favorites'}
+                        onclick={(e) => { e.stopPropagation(); toggleFavorite(c); }}><Icon name="star" size={14} /></button>
+              </div>
+            {/each}
+          {:else}
+            <div class="lf-empty">No project — use "Other folder…"</div>
+          {/if}
+          <div class="lf-pick custom" class:sel={selected === '__custom'} tabindex="0" role="option" aria-selected={selected === '__custom'}
+               onclick={chooseFolder}
+               onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); chooseFolder(); } }}><span class="lf-chip" style="background:var(--accent-soft)"><Icon name="folder-open" size={15} color="var(--accent)" /></span> Other folder…</div>
+        </div>
+        {#if selected === '__custom'}
+          <div class="ns-custom-row">
+            <input class="lf-input ns-custom" placeholder="/path/to/the/project" bind:value={customCwd} />
+            <button class="ns-browse" onclick={chooseFolder} disabled={picking} title="Pick a folder with the OS file explorer">
+              {#if picking}<Icon name="queued" size={14} />{:else}<Icon name="folder-open" size={14} />{/if} Browse…
+            </button>
           </div>
-        {/each}
-      {:else}
-        <div class="lf-empty">No project — use "Other folder…"</div>
-      {/if}
-      <div class="lf-pick custom" class:sel={selected === '__custom'} tabindex="0" role="option" aria-selected={selected === '__custom'}
-           onclick={chooseFolder}
-           onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); chooseFolder(); } }}><span class="lf-chip" style="background:var(--accent-soft)"><Icon name="folder-open" size={15} color="var(--accent)" /></span> Other folder…</div>
-    </div>
-    {#if selected === '__custom'}
-      <div class="ns-custom-row">
-        <input class="lf-input ns-custom" placeholder="/path/to/the/project" bind:value={customCwd} />
-        <button class="ns-browse" onclick={chooseFolder} disabled={picking} title="Pick a folder with the OS file explorer">
-          {#if picking}<Icon name="queued" size={14} />{:else}<Icon name="folder-open" size={14} />{/if} Browse…
-        </button>
+        {/if}
       </div>
-    {/if}
+
+      <div class="ns-col ns-options">
+        <div class="lf-label">Options</div>
+        <ModelEffort compact showMode bind:model bind:effort bind:mode onchange={() => (picked = true)} />
+        <label class="me-pill ns-worktree" title="Create a git worktree on a new branch and launch the session in it">
+          <input type="checkbox" bind:checked={worktree} />
+          <span class="me-ico"><Icon name="git-branch" size={14} /></span> worktree
+        </label>
+        {#if worktree}
+          <div class="ns-wt-row">
+            <label class="ns-wt-field">from
+              <input class="lf-input" list="ns-wt-bases" bind:value={wtBase} spellcheck="false"
+                     placeholder={bases?.defaultBase || 'default branch'} />
+            </label>
+            <label class="ns-wt-field">branch
+              <input class="lf-input" bind:value={wtBranch} spellcheck="false"
+                     placeholder={settings.worktrees?.autoName === false ? 'hooked/<random hex>' : 'named from the prompt'} />
+            </label>
+            <datalist id="ns-wt-bases">{#each bases?.branches || [] as b (b)}<option value={b}></option>{/each}</datalist>
+          </div>
+          {#if bases?.error}<div class="ns-wt-err"><Icon name="warning" size={13} /> {bases.error}</div>{/if}
+        {/if}
+        <label class="me-pill ns-worktree" title="Claude archives the session once the task is done, when it is confident nothing is left to check">
+          <input type="checkbox" bind:checked={ephemeral} />
+          <span class="me-ico"><Icon name="archive" size={14} /></span> ephemeral
+        </label>
+      </div>
+    </div>
     {#if watching}<div class="ns-watch"><Icon name="queued" size={14} /> session launched — opening on first event…</div>{/if}
   </div>
 </div>

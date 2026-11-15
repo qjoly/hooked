@@ -9,6 +9,9 @@ use super::{glyph, section_title};
 use crate::app::Hooked;
 use crate::{fmt, icons};
 
+const SIDE_BY_SIDE_MIN_W: f32 = 1000.0;
+const OPTIONS_W: f32 = 320.0;
+
 fn controls(s: &Hooked, k: &Kit) -> El {
     let models = std::iter::once(chip(
         k,
@@ -55,17 +58,16 @@ fn controls(s: &Hooked, k: &Kit) -> El {
         })
         .collect();
     let line = |label: &str, body: El| {
-        row()
+        col()
             .w_full()
-            .gap(12.0)
-            .items_start()
-            .child(row().w(80.0).pt(4.0).child(section_title(k, label)))
-            .child(body.grow(1.0).shrink())
+            .gap(6.0)
+            .child(section_title(k, label))
+            .child(body.w_full())
     };
     col()
         .key("new-controls")
         .w_full()
-        .gap(10.0)
+        .gap(14.0)
         .child(line("MODEL", chips(models)))
         .child(line("EFFORT", chips(efforts)))
         .child(line("MODE", chips(modes)))
@@ -364,10 +366,33 @@ pub fn view(s: &Hooked, k: &Kit, _layer: &mut Vec<El>) -> El {
         .on_edit(|s: &mut Hooked| &mut s.new_search)
         .build(k)
         .key("new-search");
+    let project_col = col()
+        .key("new-project-col")
+        .gap(8.0)
+        .child(project_head)
+        .child(search)
+        .child(projects(s, k));
+    let side_by_side = s.window_w >= SIDE_BY_SIDE_MIN_W;
+    let body = if side_by_side {
+        row()
+            .key("new-body")
+            .w_full()
+            .gap(28.0)
+            .items_start()
+            .child(project_col.grow(1.0).shrink())
+            .child(col().w(OPTIONS_W).child(controls(s, k)))
+    } else {
+        col()
+            .key("new-body")
+            .w_full()
+            .gap(18.0)
+            .child(controls(s, k))
+            .child(project_col.w_full())
+    };
     let form = col()
         .key("new-form")
         .w_full()
-        .max_w(820.0)
+        .max_w(if side_by_side { 1080.0 } else { 820.0 })
         .self_center()
         .padding(28.0)
         .gap(18.0)
@@ -375,16 +400,8 @@ pub fn view(s: &Hooked, k: &Kit, _layer: &mut Vec<El>) -> El {
         .child(prompt)
         .child(prompt_pills(s, k))
         .child(fable_notice(s, k))
-        .child(controls(s, k))
         .child(launch_row)
-        .child(
-            col()
-                .w_full()
-                .gap(8.0)
-                .child(project_head)
-                .child(search)
-                .child(projects(s, k)),
-        );
+        .child(body);
     col()
         .key("new-page")
         .w_full()
