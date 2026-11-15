@@ -1,6 +1,7 @@
 package dev.qjoly.hooked.ui.lens
 
 import android.content.Context
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.draggable
@@ -136,3 +137,8 @@ class LensPrefs(context: Context) {
         sp.edit().putString("reviewed", j.toString()).apply()
     }
 }
+
+/** What a lens may ask of the session pane around it. */
+class LensHost(val toConverse: () -> kotlin.Unit)
+
+val LocalLensHost = staticCompositionLocalOf<LensHost?> { null }

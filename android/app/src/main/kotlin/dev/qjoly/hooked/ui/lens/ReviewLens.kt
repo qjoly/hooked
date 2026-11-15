@@ -89,7 +89,7 @@ import androidx.compose.ui.draw.drawBehind
 fun ReviewLens(app: AppModel, model: SessionModel, modifier: Modifier = Modifier) {
     val ctx = LocalContext.current.applicationContext
     val review: ReviewModel = viewModel(key = "review:${model.id}") { ReviewModel(model.id, LensPrefs(ctx)) }
-    review.bind(app, model)
+    review.bind(app, model, LocalLensHost.current)
     val d = model.detail
     if (d == null) {
         Box(modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Spinner() }

@@ -14,8 +14,7 @@ import kotlinx.serialization.json.JsonPrimitive
 
 /** Claude's edits and the prompts they belong to, read from the session detail. */
 suspend fun HookedClient.sessionChanges(id: String): Pair<List<Change>, List<ChangeTurn>> {
-    val j = get("api/session", mapOf("id" to id), 30_000)
-    return j["changes"].arr.map(Change::of) to j["changeTurns"].arr.map(ChangeTurn::of)
+    return changesOf(get("api/session", mapOf("id" to id), 30_000))
 }
 
 /** The uncapped edit list of one file whose capped entry was truncated. */
@@ -81,3 +80,7 @@ suspend fun HookedClient.traceTool(id: String, tool: String): Pair<String, Strin
     return text("input") to text("result")
 }
 
+
+/** `changes` and `changeTurns` of a GET /api/session body. */
+fun changesOf(j: kotlinx.serialization.json.JsonElement?): Pair<List<Change>, List<ChangeTurn>> =
+    j["changes"].arr.map(Change::of) to j["changeTurns"].arr.map(ChangeTurn::of)

@@ -1,5 +1,8 @@
 package dev.qjoly.hooked.ui.lens
 
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.Dispatchers
+import dev.qjoly.hooked.data.lens.changesOf
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
@@ -102,9 +105,12 @@ class ReviewModel(val id: String, private val prefs: LensPrefs) : ViewModel() {
     private val client: HookedClient? get() = app?.client
     private val detail: SessionDetail? get() = session?.detail
 
-    fun bind(app: AppModel, session: SessionModel) {
+    private var host: LensHost? = null
+
+    fun bind(app: AppModel, session: SessionModel, host: LensHost? = null) {
         this.app = app
         this.session = session
+        this.host = host
     }
 
     private fun say(text: String) = app?.say(text)
@@ -324,7 +330,9 @@ class ReviewModel(val id: String, private val prefs: LensPrefs) : ViewModel() {
         changesLoading = true
         viewModelScope.launch {
             try {
-                val (list, ts) = c.sessionChanges(id)
+                // The pane already holds the session body; fetch only when it has none yet.
+                val raw = session?.raw
+                val (list, ts) = if (raw != null) withContext(Dispatchers.Default) { changesOf(raw) } else c.sessionChanges(id)
                 changes = list
                 changeTurns = ts
             } catch (e: CancellationException) {
@@ -661,9 +669,14 @@ class ReviewModel(val id: String, private val prefs: LensPrefs) : ViewModel() {
     }
 
     private suspend fun sendPrompt(c: HookedClient, text: String) {
+        // Through the pane's model, so the prompt shows as a queued bubble in Converse.
+        val s = session
+        if (s != null) {
+            if (!s.sendPrompt(text)) throw IllegalStateException(s.actionError ?: "not sent")
+            return
+        }
         val d = detail ?: return
         if (d.session.live) c.reply(id, text) else c.resume(id, text, d.session.effort)
-        session?.refresh()
     }
 
     private val api get() = reviewApi(app?.config?.base)
@@ -706,6 +719,7 @@ class ReviewModel(val id: String, private val prefs: LensPrefs) : ViewModel() {
                 sendPrompt(c, prompt)
                 c.reviewOp(body("id" to id, "action" to "sent", "ids" to ids))
                 say("✓ Comments sent to Claude")
+                host?.toConverse?.invoke()
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {

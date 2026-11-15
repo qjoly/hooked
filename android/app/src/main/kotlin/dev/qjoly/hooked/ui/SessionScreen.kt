@@ -1,5 +1,7 @@
 package dev.qjoly.hooked.ui
 
+import dev.qjoly.hooked.ui.lens.LensHost
+import dev.qjoly.hooked.ui.lens.LocalLensHost
 import dev.qjoly.hooked.ui.session.DockHost
 import dev.qjoly.hooked.ui.session.LocalDockHost
 import androidx.compose.runtime.CompositionLocalProvider
@@ -144,7 +146,9 @@ fun SessionPane(app: AppModel, id: String, onBack: (() -> Unit)?) {
                 Box(Modifier.weight(1f).fillMaxWidth()) {
                     when (ui.lens) {
                         Lens.CONVERSE -> Converse(env, ui)
-                        Lens.REVIEW -> ReviewLens(app, model, Modifier.fillMaxSize())
+                        Lens.REVIEW -> CompositionLocalProvider(LocalLensHost provides LensHost { ui.lens = Lens.CONVERSE }) {
+                            ReviewLens(app, model, Modifier.fillMaxSize())
+                        }
                         Lens.MCP -> McpLens(app, model, Modifier.fillMaxSize())
                         Lens.TRACE -> TraceLens(app, model, Modifier.fillMaxSize())
                     }
