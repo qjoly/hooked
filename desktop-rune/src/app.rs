@@ -1968,9 +1968,16 @@ impl Hooked {
             path: None,
             failed: false,
         });
+        let bytes: std::sync::Arc<[u8]> = bytes.into();
+        let upload = bytes.clone();
         self.spawn(
-            move || api::upload_image(mime, &bytes),
+            move || api::upload_image(mime, &upload),
             move |s, r, _| {
+                // Seed the media cache from the bytes in hand, keyed by the server path: the
+                // composer chip gets its thumbnail and the sent message its picture at once.
+                if let (Ok(p), Some(cache)) = (&r, s.images.as_ref()) {
+                    s.media.insert(p.clone(), Some(cache.load(bytes)));
+                }
                 let Some(a) = s.attachments.iter_mut().find(|a| a.id == id) else {
                     return;
                 };

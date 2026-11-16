@@ -3,7 +3,7 @@ use std::hash::{Hash, Hasher};
 use rune::{Color, Cursor, El, Key, ScrollSpec, col, el, memo, row, text};
 use rune_kit::{
     Button, ButtonVariant, ControlSize, IconButton, IconButtonVariant, Kit, Menu, MenuItem,
-    Spinner, TextArea, TextInput,
+    Spinner, TextInput,
 };
 
 use super::{Shadows, dot, glyph, pill, state_color};
@@ -2174,14 +2174,46 @@ fn plan(s: &Hooked, p: &PendingPlan, k: &Kit) -> El {
         )
 }
 
+/// The composer, built like rune-kit's `TextArea::auto_grow(1, 10)` but on the bare
+/// `text_input`, because the kit field has no paste hook. A focused field without
+/// `on_input_paste` only hears the clipboard's text (⌘V is taken by the native Paste menu
+/// item before any key handler), and the root's `on_paste_content` never runs while a field
+/// has focus, so a pasted image would be dropped.
 fn composer_field(s: &Hooked, k: &Kit, placeholder: &str) -> El {
-    TextArea::new(&s.composer)
-        .placeholder(placeholder.to_string())
-        .auto_grow(1, 10)
-        .width(None)
+    let c = &k.c;
+    let style = rune::TextStyle {
+        line_height: (13.0f32 * 1.35 * 2.0).round() / 2.0,
+        ..k.ty.ui
+    };
+    let field = rune::text_input(&s.composer, style)
+        .key("input")
+        .w_full()
+        .color(c.text_base)
+        .rich_style(rune::RichStyle {
+            link: c.text_accent,
+            code_fg: None,
+            code_bg: c.layer_03,
+            code_block_bg: c.layer_02,
+            quote_bar: c.border_strong,
+            marker: Some(c.text_muted),
+        })
+        .placeholder(placeholder.to_string(), c.text_faint)
+        .caret(c.text_base, k.selection())
+        .label(placeholder.to_string())
         .on_edit(|s: &mut Hooked| &mut s.composer)
-        .on_change(|s: &mut Hooked, _| s.composer_changed())
-        .on_key(|s: &mut Hooked, ev: &rune::KeyEvent, _| match ev.key {
+        .on_input_change(|s: &mut Hooked, _| s.composer_changed())
+        .on_input_paste(|s: &mut Hooked, c: &rune::ClipboardContent, _| {
+            if !c.text().is_empty() {
+                return false;
+            }
+            let Some(img) = c.image() else {
+                return false;
+            };
+            let n = s.attach_seq + 1;
+            s.attach(format!("pasted-{n}.png"), "image/png", img.png().to_vec());
+            true
+        })
+        .on_input_key(|s: &mut Hooked, ev: &rune::KeyEvent, _| match ev.key {
             Key::Down if s.ac.is_some() => {
                 s.ac_move(1);
                 true
@@ -2222,11 +2254,25 @@ fn composer_field(s: &Hooked, k: &Kit, placeholder: &str) -> El {
                 false
             }
             _ => false,
-        })
-        .build(k)
-        .key("composer-field")
-        .grow(1.0)
-        .min_w(0.0)
+        });
+    // The kit's field shell: padded box, base fill, focus ring, input elevation when at rest.
+    let mut shell = col()
+        .role("textbox")
+        .padding(8.0)
+        .child(rune::auto_grow(field, 1, 10))
+        .w_full()
+        .radius(k.radius.md)
+        .fill(c.bg_base)
+        .token_motion(k.motion.control);
+    if s.composer.focused {
+        shell = shell.outline(1.0, -1.0, c.border_focus);
+    } else {
+        for sh in k.shadow_layers(k.elevation.input()) {
+            shell = shell.box_shadow(sh);
+        }
+        shell = shell.hover(c.hover);
+    }
+    shell.key("composer-field").grow(1.0).min_w(0.0)
 }
 
 fn autocomplete(s: &Hooked, k: &Kit) -> El {
@@ -2364,16 +2410,35 @@ fn composer(s: &Hooked, d: &Detail, k: &Kit, busy: bool) -> El {
                         (Some(_), _) => ("ready", k.c.success.fg),
                         (None, _) => ("uploading…", k.c.text_faint),
                     };
-                    row()
+                    // The uploaded image's thumbnail once it is in the media cache, else the icon.
+                    let thumb = a
+                        .path
+                        .as_ref()
+                        .and_then(|p| s.media.get(p).and_then(Option::as_ref))
+                        .and_then(|img| {
+                            let [w, h] = img.size()?;
+                            let (w, h) = (w.max(1) as f32 / 2.0, h.max(1) as f32 / 2.0);
+                            let scale = (96.0 / w).min(64.0 / h).min(1.0);
+                            Some(
+                                el().size(w * scale, h * scale)
+                                    .pixels(img.pixels())
+                                    .radius(k.radius.sm)
+                                    .clip_rounded(k.radius.sm),
+                            )
+                        });
+                    let has_thumb = thumb.is_some();
+                    let chip = row()
                         .key(format!("att-{id}"))
-                        .h(26.0)
-                        .pl(8.0)
+                        .pl(if has_thumb { 4.0 } else { 8.0 })
                         .pr(2.0)
                         .gap(6.0)
                         .center_y()
                         .radius(k.radius.md)
-                        .fill(k.c.layer_02)
-                        .child(glyph(&icons::IMAGE, 12.0, k.c.icon_muted))
+                        .fill(k.c.layer_02);
+                    let chip = if has_thumb { chip.py(4.0) } else { chip.h(26.0) };
+                    chip.child(
+                        thumb.unwrap_or_else(|| glyph(&icons::IMAGE, 12.0, k.c.icon_muted)),
+                    )
                         .child(
                             text(a.name.clone())
                                 .font(k.ty.text_small)
