@@ -169,6 +169,8 @@ pub struct Hooked {
     pub media: HashMap<String, Option<rune::Image>>,
     pub drafts: HashMap<String, String>,
     pub reviewed: HashMap<String, Vec<String>>,
+    /// Where each session's review was left, by session id.
+    pub review_places: HashMap<String, crate::lenses::ReviewPlace>,
     pub job_log: Option<(String, String)>,
     pub run_win: Option<crate::ghrun::RunWin>,
     pub query_win: Option<crate::querywin::QueryWin>,
@@ -359,6 +361,8 @@ impl Hooked {
         let tag_colors: HashMap<String, usize> = prefs.get("tagColors").unwrap_or_default();
         let drafts: HashMap<String, String> = prefs.get("drafts").unwrap_or_default();
         let reviewed: HashMap<String, Vec<String>> = prefs.get("reviewed").unwrap_or_default();
+        let review_places: HashMap<String, crate::lenses::ReviewPlace> =
+            prefs.get("reviewPlaces").unwrap_or_default();
         let saved_keys: HashMap<String, String> = prefs.get("shortcuts").unwrap_or_default();
         let shortcuts = crate::shortcuts::load(&saved_keys);
         let collapse_worktrees: bool = prefs.get("collapseWorktrees").unwrap_or(true);
@@ -441,6 +445,7 @@ impl Hooked {
             media: HashMap::new(),
             drafts,
             reviewed,
+            review_places,
             job_log: None,
             run_win: None,
             query_win: None,
@@ -584,6 +589,9 @@ impl Hooked {
         if let Some(id) = start {
             s.page = Page::Session;
             s.detail = api::detail(&id).ok();
+            if let Some(place) = s.review_places.get(&id).cloned() {
+                s.lens_data.restore(&place);
+            }
             s.selected = Some(id);
             s.reset_question();
         } else if s.page == Page::Session {
@@ -1372,6 +1380,9 @@ impl Hooked {
             review_source: source,
             ..Default::default()
         };
+        if let Some(place) = self.review_places.get(id) {
+            self.lens_data.restore(place);
+        }
         self.lens_data.diff.set_mode(mode);
         self.ac = None;
         self.job_gen.fetch_add(1, Ordering::SeqCst);

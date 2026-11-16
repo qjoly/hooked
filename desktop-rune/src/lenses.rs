@@ -63,6 +63,80 @@ impl BranchInfo {
     }
 }
 
+impl ReviewSource {
+    fn key(self) -> &'static str {
+        match self {
+            ReviewSource::Claude => "claude",
+            ReviewSource::Worktree => "worktree",
+            ReviewSource::Tree => "tree",
+            ReviewSource::Branch => "branch",
+        }
+    }
+
+    fn from_key(key: &str) -> Option<ReviewSource> {
+        [
+            ReviewSource::Claude,
+            ReviewSource::Worktree,
+            ReviewSource::Tree,
+            ReviewSource::Branch,
+        ]
+        .into_iter()
+        .find(|s| s.key() == key)
+    }
+}
+
+/// Where a session's review was left: its scope and what narrows it. Opening the session
+/// again brings the lens back there, as the web lens does.
+#[derive(Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
+pub struct ReviewPlace {
+    pub source: String,
+    pub turns: Vec<usize>,
+    pub root: Option<String>,
+    pub branch: Option<String>,
+    pub base: Option<String>,
+    pub picked: Vec<String>,
+    /// Write order: past [`PLACES_MAX`] the least recently written place is forgotten.
+    pub seq: u64,
+}
+
+/// How many sessions keep their place: a profile should not pile up every review ever started.
+pub const PLACES_MAX: usize = 20;
+
+/// Records `place` for `session`; false when that is already where it was. Until a branch
+/// pair is known (the branches are still being read), the one remembered is kept: empty
+/// fields would erase it.
+pub fn remember_place(
+    places: &mut HashMap<String, ReviewPlace>,
+    session: &str,
+    mut place: ReviewPlace,
+) -> bool {
+    let old = places.get(session);
+    if let Some(old) = old.filter(|_| place.branch.is_none() || place.base.is_none()) {
+        place.root = old.root.clone();
+        place.branch = old.branch.clone();
+        place.base = old.base.clone();
+        place.picked = old.picked.clone();
+    }
+    place.seq = old.map_or(0, |p| p.seq);
+    if old == Some(&place) {
+        return false;
+    }
+    place.seq = places.values().map(|p| p.seq).max().unwrap_or(0) + 1;
+    places.insert(session.to_string(), place);
+    while places.len() > PLACES_MAX {
+        let Some(oldest) = places
+            .iter()
+            .min_by_key(|(_, p)| p.seq)
+            .map(|(id, _)| id.clone())
+        else {
+            break;
+        };
+        places.remove(&oldest);
+    }
+    true
+}
+
 pub struct LensData {
     pub review_source: ReviewSource,
     pub diff: DiffState,
@@ -194,6 +268,30 @@ impl Default for LensData {
 }
 
 impl LensData {
+    pub fn place(&self) -> ReviewPlace {
+        ReviewPlace {
+            source: self.review_source.key().into(),
+            turns: self.turns.iter().copied().collect(),
+            root: self.branch_root.clone(),
+            branch: self.branch.clone(),
+            base: self.base.clone(),
+            picked: self.picked.clone(),
+            seq: 0,
+        }
+    }
+
+    /// Goes back to where a review was left. The diff itself is read again by `ensure_lens`.
+    pub fn restore(&mut self, place: &ReviewPlace) {
+        if let Some(source) = ReviewSource::from_key(&place.source) {
+            self.review_source = source;
+        }
+        self.turns = place.turns.iter().copied().collect();
+        self.branch_root = place.root.clone();
+        self.branch = place.branch.clone();
+        self.base = place.base.clone();
+        self.picked = place.picked.clone();
+    }
+
     /// Puts a scope's diff on screen. The diff is read again each time the session moves, and
     /// most of the time it has not changed: it is then left as it is, since replacing it
     /// folds every opened range again and drops the line selection.
@@ -852,6 +950,25 @@ impl Hooked {
         self.review_w < NARROW_W
     }
 
+    /// Run on every poll while the lens is open: remembers where this session's review is.
+    pub fn stash_review_place(&mut self) {
+        if self.page != Page::Session || self.lens != Lens::Review {
+            return;
+        }
+        let Some(id) = self.selected.clone() else {
+            return;
+        };
+        // Between two sessions the lens still holds the previous one's state.
+        if self.detail.as_ref().is_none_or(|d| d.session.id != id) {
+            return;
+        }
+        let place = self.lens_data.place();
+        if remember_place(&mut self.review_places, &id, place) {
+            let all = self.review_places.clone();
+            self.save_pref("reviewPlaces", &all);
+        }
+    }
+
     /// Run on every poll. A side-by-side diff in a narrow lens wraps every token onto its own
     /// line, so it is shown unified there, whichever way the layout was asked for; the split
     /// layout comes back once there is room. True when it changed the layout.
@@ -1488,17 +1605,19 @@ impl Hooked {
                     }
                     ReviewSource::Worktree => format!("{id}|worktree|{activity}|{compact}"),
                     ReviewSource::Tree => format!("{id}|tree|{activity}|{compact}"),
-                    ReviewSource::Branch => match self.branch_key() {
-                        Some(key) => format!("{id}|branch|{key}|{activity}|{compact}"),
-                        None => {
-                            if ld.branches.is_none() && !ld.branches_loading {
-                                let root = ld.branch_root.clone();
-                                self.load_branches(id, root);
-                                return true;
-                            }
-                            return false;
+                    ReviewSource::Branch => {
+                        // The list comes first even when the pair is already known (a review
+                        // taken up where it was left): the picker needs it.
+                        if ld.branches.is_none() && !ld.branches_loading {
+                            let root = ld.branch_root.clone();
+                            self.load_branches(id, root);
+                            return true;
                         }
-                    },
+                        match self.branch_key() {
+                            Some(key) => format!("{id}|branch|{key}|{activity}|{compact}"),
+                            None => return false,
+                        }
+                    }
                 };
                 if ld.diff_sig.as_deref() == Some(sig.as_str()) || ld.diff_loading {
                     return false;
@@ -2303,6 +2422,49 @@ mod tests {
         let tree = tree_diffs(&[repo("/r", "", &["/r/a.rs"])], Some("/r"), false);
         assert_eq!(tree.sections.files.len(), 1);
         assert!(tree.repos.is_empty());
+    }
+
+    #[test]
+    fn a_review_comes_back_where_it_was_left() {
+        let mut ld = LensData {
+            review_source: ReviewSource::Branch,
+            branch_root: Some("/repo".into()),
+            branch: Some("feat/a".into()),
+            base: Some("main".into()),
+            picked: vec!["c1".into(), "c3".into()],
+            ..Default::default()
+        };
+        ld.turns.insert(2);
+        let mut places = HashMap::new();
+        assert!(remember_place(&mut places, "s1", ld.place()));
+        // nothing moved: nothing to write
+        assert!(!remember_place(&mut places, "s1", ld.place()));
+
+        let mut back = LensData::default();
+        back.restore(&places["s1"]);
+        assert_eq!(back.place(), ld.place());
+        assert_eq!(back.review_source, ReviewSource::Branch);
+
+        // while the branches are read again the pair is unknown: the one remembered stays
+        let loading = LensData {
+            review_source: ReviewSource::Tree,
+            ..Default::default()
+        };
+        assert!(remember_place(&mut places, "s1", loading.place()));
+        assert_eq!(places["s1"].source, "tree");
+        assert_eq!(places["s1"].branch.as_deref(), Some("feat/a"));
+        assert_eq!(places["s1"].picked, ["c1", "c3"]);
+
+        // the least recently written places are forgotten first
+        for i in 0..PLACES_MAX {
+            remember_place(
+                &mut places,
+                &format!("other-{i}"),
+                LensData::default().place(),
+            );
+        }
+        assert_eq!(places.len(), PLACES_MAX);
+        assert!(!places.contains_key("s1") && places.contains_key("other-0"));
     }
 
     #[test]
