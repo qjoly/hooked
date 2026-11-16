@@ -52,9 +52,11 @@ and dark, with rounded or square corners, picked in Settings or the palette.
     Esc interrupts, paste or drop images, `@` file and `/` command completion, a draft kept per
     session) with the follow-up suggestion.
   - **Review (3)**: Claude's edits, the worktree since it forked from its base, the working tree or
-    a branch as a diff, unified or split, j/k between hunks and [ / ] between files; + on a line
-    opens a comment thread, and the pending ones go to Claude in one message. Threads are shared
-    with the web lens.
+    a branch as a diff, unified or split (unified in a narrow pane), compact or with its context,
+    reloaded on demand, j/k between hunks and [ / ] between files; + on a line opens a comment
+    thread, the pending ones go to Claude in one message and a reply in a thread goes to it at
+    once. Threads are shared with the web lens, follow their code when it moves and say when it is
+    gone. Each session comes back to the scope, prompts, branch pair and commits it was left on.
   - **MCP (4)**: the project's servers with their health, details, re-authenticate, log out.
   - **Trace (5)**: each turn's tool calls as a timed waterfall, input and output on click.
   - **Terminal (2)**: the session's shells over hooked's PTYs, one tab each, sized to the panel,
@@ -88,8 +90,11 @@ and dark, with rounded or square corners, picked in Settings or the palette.
   message, cost breakdown, copy as Markdown, focus mode, and up to four split panes.
 - **Review**: go to definition (⌘-click a line number to pick one of its names, or double-click
   a name then F12): the declaration opens in a card under the line, with candidates when it is
-  ambiguous, more lines on demand and Esc to close; a files rail with reviewed ticks (v), a prompt filter, Review with Claude, a
-  comments panel (edit, archive, restore, jump), blame for the clicked line, rendered Markdown with added and removed blocks tinted (a
+  ambiguous, more lines on demand and Esc to close; a resizable files rail with reviewed ticks (v),
+  binary files and who changed a file (a command, a subagent), a prompt filter, a branch picker
+  (repo, branch and base with a filter, commits), Review with Claude, a resizable
+  comments panel (edit, archive, restore, and a jump that brings back the scope a comment was
+  written on), blame for the clicked line in every scope, rendered Markdown with added and removed blocks tinted (a
   resizable column: a click on a block selects its lines in the diff, a click on a line number
   scrolls to its block),
   and the full diff of a truncated change.

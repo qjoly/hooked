@@ -42,6 +42,9 @@ crate::knobs::knobs! {
 }
 pub const DOCK_W: f32 = 300.0;
 pub const RENDERED_W: f32 = 460.0;
+/// The Review lens's files rail and comments panel, until they are resized.
+pub const REVIEW_FILES_W: f32 = 240.0;
+pub const REVIEW_THREADS_W: f32 = 300.0;
 pub const SHOTS_FOLDED: usize = 4;
 pub const SHOTS_OPEN: usize = 60;
 

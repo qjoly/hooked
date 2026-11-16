@@ -130,6 +130,16 @@ pub struct Hooked {
     pub dock_gh_w: Option<f32>,
     /// The Review lens's rendered Markdown column.
     pub rendered_w: f32,
+    /// The Review lens leaves out the unchanged lines around each change.
+    pub review_compact: bool,
+    /// The Review lens's files rail and comments panel, both resizable.
+    pub review_files_w: f32,
+    pub review_threads_w: f32,
+    /// The Review lens's width, as last laid out.
+    pub review_w: f32,
+    /// The lens is narrow and showed its side-by-side diff unified: it goes back to split
+    /// once there is room.
+    pub review_forced_unified: bool,
     pub window_h: f32,
     pub window_w: f32,
     pub show_archived: bool,
@@ -162,6 +172,8 @@ pub struct Hooked {
     pub media: HashMap<String, Option<rune::Image>>,
     pub drafts: HashMap<String, String>,
     pub reviewed: HashMap<String, Vec<String>>,
+    /// Where each session's review was left, by session id.
+    pub review_places: HashMap<String, crate::lenses::ReviewPlace>,
     pub job_log: Option<(String, String)>,
     pub run_win: Option<crate::ghrun::RunWin>,
     pub query_win: Option<crate::querywin::QueryWin>,
@@ -352,6 +364,8 @@ impl Hooked {
         let tag_colors: HashMap<String, usize> = prefs.get("tagColors").unwrap_or_default();
         let drafts: HashMap<String, String> = prefs.get("drafts").unwrap_or_default();
         let reviewed: HashMap<String, Vec<String>> = prefs.get("reviewed").unwrap_or_default();
+        let review_places: HashMap<String, crate::lenses::ReviewPlace> =
+            prefs.get("reviewPlaces").unwrap_or_default();
         let saved_keys: HashMap<String, String> = prefs.get("shortcuts").unwrap_or_default();
         let shortcuts = crate::shortcuts::load(&saved_keys);
         let collapse_worktrees: bool = prefs.get("collapseWorktrees").unwrap_or(true);
@@ -374,6 +388,13 @@ impl Hooked {
         let dock_w = prefs.get("dockW").unwrap_or(crate::view::DOCK_W);
         let dock_gh_w = prefs.get("dockGhW");
         let rendered_w = prefs.get("renderedW").unwrap_or(crate::view::RENDERED_W);
+        let review_compact = prefs.get("reviewCompact").unwrap_or(false);
+        let review_files_w = prefs
+            .get("reviewFilesW")
+            .unwrap_or(crate::view::REVIEW_FILES_W);
+        let review_threads_w = prefs
+            .get("reviewThreadsW")
+            .unwrap_or(crate::view::REVIEW_THREADS_W);
         let mut s = Hooked {
             prefs,
             sessions: Vec::new(),
@@ -400,6 +421,11 @@ impl Hooked {
             dock_w,
             dock_gh_w,
             rendered_w,
+            review_compact,
+            review_files_w,
+            review_threads_w,
+            review_w: f32::MAX,
+            review_forced_unified: false,
             window_h: 860.0,
             window_w: 1320.0,
             show_archived: false,
@@ -430,6 +456,7 @@ impl Hooked {
             media: HashMap::new(),
             drafts,
             reviewed,
+            review_places,
             job_log: None,
             run_win: None,
             query_win: None,
@@ -573,6 +600,9 @@ impl Hooked {
         if let Some(id) = start {
             s.page = Page::Session;
             s.detail = api::detail(&id).ok();
+            if let Some(place) = s.review_places.get(&id).cloned() {
+                s.lens_data.restore(&place);
+            }
             s.selected = Some(id);
             s.reset_question();
         } else if s.page == Page::Session {
@@ -1361,6 +1391,9 @@ impl Hooked {
             review_source: source,
             ..Default::default()
         };
+        if let Some(place) = self.review_places.get(id) {
+            self.lens_data.restore(place);
+        }
         self.lens_data.diff.set_mode(mode);
         self.ac = None;
         self.job_gen.fetch_add(1, Ordering::SeqCst);

@@ -1,4 +1,4 @@
-use rune::{Color, Cursor, El, ScrollSpec, col, el, row, text};
+use rune::{Color, Cursor, El, Phase, ScrollSpec, col, el, row, text};
 use rune_kit::diff::{Annotation, DiffMode, DiffView};
 use rune_kit::{
     Button, ButtonVariant, ControlSize, Kit, SegmentedControl, Spinner, TextArea, TextInput,
@@ -31,27 +31,42 @@ fn empty(k: &Kit, key: &str, msg: &str) -> El {
         .child(text(msg.to_string()).font(k.ty.body).color(k.c.text_faint))
 }
 
+/// From how many branches the picker offers to filter them, as the web's does.
+const BRANCH_FILTER_FROM: usize = 8;
+
 fn branch_panel(s: &Hooked, k: &Kit) -> El {
     use super::settings::{chip, chips};
     let ld = &s.lens_data;
-    let names: Vec<String> = ld
+    // Each branch with whether it is the one checked out.
+    let all: Vec<(String, bool)> = ld
         .branches
         .as_ref()
         .and_then(|v| v["branches"].as_array())
         .into_iter()
         .flatten()
-        .filter_map(|b| b["name"].as_str().map(str::to_string))
+        .filter_map(|b| Some((b["name"].as_str()?.to_string(), b["current"] == true)))
+        .collect();
+    // A repo with many branches gets a filter; it narrows both rows.
+    let filterable = all.len() > BRANCH_FILTER_FROM;
+    let needle = ld.branch_filter.text.trim().to_lowercase();
+    let names: Vec<&(String, bool)> = all
+        .iter()
+        .filter(|(n, _)| !filterable || needle.is_empty() || n.to_lowercase().contains(&needle))
         .collect();
     let row_of = |title: &str, base: bool| {
         let current = if base { &ld.base } else { &ld.branch };
-        let items = names
+        let items: Vec<El> = names
             .iter()
-            .map(|n| {
+            .map(|(n, checked_out)| {
                 let name = n.clone();
                 chip(
                     k,
                     format!("br-{}-{n}", if base { "base" } else { "head" }),
-                    n.clone(),
+                    if *checked_out && !base {
+                        format!("{n} · current")
+                    } else {
+                        n.clone()
+                    },
                     current.as_deref() == Some(n.as_str()),
                     move |s| {
                         if base {
@@ -63,11 +78,23 @@ fn branch_panel(s: &Hooked, k: &Kit) -> El {
                 )
             })
             .collect();
-        col()
+        let none = items.is_empty();
+        let mut r = col()
             .w_full()
             .gap(6.0)
             .child(section_title(k, title))
-            .child(chips(items))
+            .child(chips(items));
+        if none && !all.is_empty() {
+            r = r.child(
+                text(format!(
+                    "No branch matching “{}”.",
+                    ld.branch_filter.text.trim()
+                ))
+                .font(k.ty.text_small)
+                .color(k.c.text_faint),
+            );
+        }
+        r
     };
     let mut c = col().w_full().gap(10.0);
     if ld.repos.len() > 1 {
@@ -96,6 +123,16 @@ fn branch_panel(s: &Hooked, k: &Kit) -> El {
                 .gap(6.0)
                 .child(section_title(k, "REPOSITORY"))
                 .child(chips(items)),
+        );
+    }
+    if filterable {
+        c = c.child(
+            TextInput::new(&ld.branch_filter)
+                .placeholder("Filter branches…")
+                .width(Some(280.0))
+                .on_edit(|s: &mut Hooked| &mut s.lens_data.branch_filter)
+                .build(k)
+                .key("br-filter"),
         );
     }
     c = c.child(row_of("BRANCH", false)).child(row_of("BASE", true));
@@ -134,11 +171,7 @@ fn branch_panel(s: &Hooked, k: &Kit) -> El {
             )
             .on_press(|s: &mut Hooked| s.pick_commit(None)),
         );
-        let range = s.branch_range();
-        let span = range.as_ref().and_then(|(from, to)| {
-            let at = |r: &str| ld.commits.iter().position(|c| c["rev"].as_str() == Some(r));
-            Some((at(to)?, at(from)?))
-        });
+        let span = s.branch_span();
         for (i, cm) in ld.commits.iter().enumerate() {
             let rev = cm["rev"].as_str().unwrap_or("").to_string();
             let on = ld.picked.contains(&rev);
@@ -183,6 +216,11 @@ fn branch_panel(s: &Hooked, k: &Kit) -> El {
                                 .truncate()
                                 .grow(1.0)
                                 .min_w(0.0),
+                        )
+                        .child(
+                            text(cm["author"].as_str().unwrap_or("").to_string())
+                                .font(k.ty.text_xsmall)
+                                .color(k.c.text_faint),
                         )
                         .child(
                             text(fmt::ago_short(cm["ts"].as_str(), s.now))
@@ -324,75 +362,94 @@ fn turns_panel(s: &Hooked, d: &Detail, k: &Kit) -> El {
 
 fn thread_row(s: &Hooked, k: &Kit, t: &serde_json::Value, archived: bool) -> El {
     let tid = t["id"].as_str().unwrap_or("").to_string();
-    let side = if t["side"] == "old" { "−L" } else { "+L" };
-    let (a, b) = (
-        t["start"].as_u64().unwrap_or(0),
-        t["end"].as_u64().unwrap_or(0),
-    );
-    let anchor = if a == b || b == 0 {
-        format!("{side}{a}")
-    } else {
-        format!("{side}{a}–{b}")
-    };
+    let anchor = crate::lenses::anchor_label(t);
     let first = fmt::first_line(t["messages"][0]["text"].as_str().unwrap_or(""), 90);
     let sent = t["sent"].as_bool() == Some(true);
     let armed = s.lens_data.delete_armed.as_deref() == Some(tid.as_str());
+    let reachable =
+        archived || crate::lenses::thread_context(t["opIndex"].as_str().unwrap_or("")).is_some();
     let (j, d, r) = (tid.clone(), tid.clone(), tid.clone());
-    let mut line = row()
+    let label = col()
+        .grow(1.0)
+        .min_w(0.0)
+        .gap(1.0)
+        .child(
+            row()
+                .gap(6.0)
+                .child(
+                    text(anchor)
+                        .font(k.ty.text_xsmall_medium)
+                        .color(k.c.text_muted),
+                )
+                .child(
+                    text(match (archived, sent) {
+                        (true, true) => "",
+                        (true, false) => "never sent",
+                        (false, true) => "sent",
+                        (false, false) => "pending",
+                    })
+                    .font(k.ty.text_xsmall)
+                    .color(if archived {
+                        k.c.text_faint
+                    } else if sent {
+                        k.c.info.fg
+                    } else {
+                        k.c.warning.fg
+                    }),
+                )
+                .child(if reachable {
+                    el()
+                } else {
+                    text("unreachable")
+                        .font(k.ty.text_xsmall)
+                        .color(k.c.text_faint)
+                })
+                .child(match t["messages"].as_array().map_or(0, Vec::len) {
+                    0 | 1 => el(),
+                    n => text(format!("{n} msg"))
+                        .font(k.ty.text_xsmall)
+                        .color(k.c.text_faint),
+                }),
+        )
+        .child(
+            text(first)
+                .font(k.ty.text_small)
+                .color(k.c.text_base)
+                .truncate(),
+        );
+    // An archived thread is out of the diff, so its row has nowhere to jump to; nor has one
+    // written on a diff no scope produces any more.
+    let label = if archived {
+        label.help("Archived: restore it to see it in the diff again")
+    } else if !reachable {
+        label.help(crate::lenses::UNREACHABLE)
+    } else {
+        k.interactive(label.role("link").cursor(Cursor::Pointer))
+            .on_press_tx(move |s: &mut Hooked, tx| s.jump_to_thread(&j, tx))
+    };
+    let line = row()
         .key(format!("tl-{tid}"))
         .w_full()
         .gap(6.0)
         .center_y()
+        .child(label)
         .child(
-            k.interactive(
-                col()
-                    .role("link")
-                    .grow(1.0)
-                    .min_w(0.0)
-                    .gap(1.0)
-                    .cursor(Cursor::Pointer)
-                    .child(
-                        row()
-                            .gap(6.0)
-                            .child(
-                                text(anchor)
-                                    .font(k.ty.text_xsmall_medium)
-                                    .color(k.c.text_muted),
-                            )
-                            .child(
-                                text(if archived {
-                                    ""
-                                } else if sent {
-                                    "sent"
-                                } else {
-                                    "pending"
-                                })
-                                .font(k.ty.text_xsmall)
-                                .color(if sent {
-                                    k.c.info.fg
-                                } else {
-                                    k.c.warning.fg
-                                }),
-                            ),
-                    )
-                    .child(
-                        text(first)
-                            .font(k.ty.text_small)
-                            .color(k.c.text_base)
-                            .truncate(),
-                    ),
-            )
-            .on_press_tx(move |s: &mut Hooked, tx| s.jump_to_thread(&j, tx)),
+            rune_kit::IconButton::new(if archived {
+                &icons::UNARCHIVE
+            } else {
+                &icons::ARCHIVE
+            })
+            .variant(rune_kit::IconButtonVariant::GhostMuted)
+            .control_size(ControlSize::Small)
+            .label(if archived { "Restore" } else { "Archive" })
+            .help(if archived {
+                "Restore: put it back in the diff"
+            } else {
+                "Archive: take it out of the diff, keep the conversation"
+            })
+            .on_press(move |s: &mut Hooked| s.archive_thread(r.clone(), !archived))
+            .build(k),
         );
-    if archived {
-        line = line.child(
-            Button::new("Restore")
-                .variant(ButtonVariant::GhostMuted)
-                .control_size(ControlSize::Small)
-                .on_press(move |s: &mut Hooked| s.archive_thread(r.clone(), false))
-                .build(k),
-        );
-    }
     line.child(
         Button::new(if armed { "Delete?" } else { "×" })
             .variant(if armed {
@@ -465,15 +522,27 @@ fn threads_panel(s: &Hooked, k: &Kit) -> El {
                 .color(k.c.text_faint),
         );
     }
-    col()
+    row()
         .key("review-threads")
-        .w(300.0)
+        .w(column_width(s, s.review_threads_w))
         .h_full()
         .border_sides([0.0, 0.0, 0.0, 1.0], k.c.border_weak)
-        .scroll(ScrollSpec {
-            stick_bottom: false,
-        })
-        .child(c)
+        .child(column_grip(
+            "threads-resize",
+            |s| s.review_threads_w,
+            |s, w| s.review_threads_w = w,
+            |s, w| s.save_pref("reviewThreadsW", &w),
+        ))
+        .child(
+            col()
+                .grow(1.0)
+                .min_w(0.0)
+                .h_full()
+                .scroll(ScrollSpec {
+                    stick_bottom: false,
+                })
+                .child(c),
+        )
 }
 
 fn rendered_panel(s: &Hooked, k: &Kit) -> El {
@@ -644,7 +713,10 @@ fn reviewed_toggle(s: &Hooked, k: &Kit, i: usize) -> El {
         .build(k)
 }
 
-fn files_rail(s: &Hooked, k: &Kit) -> El {
+/// How narrow and how wide the files rail can be dragged, as on the web.
+const FILES_W: (f32, f32) = (150.0, 520.0);
+
+fn files_rail(s: &Hooked, k: &Kit, width: f32) -> El {
     let ld = &s.lens_data;
     let files = ld.diff.files();
     let visible = ld.diff.visible_file();
@@ -747,26 +819,80 @@ fn files_rail(s: &Hooked, k: &Kit) -> El {
                                     .grow(1.0)
                                     .min_w(0.0),
                             )
-                            .child(
-                                text(format!("+{}", f.additions()))
-                                    .font(k.ty.text_xsmall)
-                                    .color(k.c.success.fg),
-                            )
-                            .child(
-                                text(format!("−{}", f.deletions()))
-                                    .font(k.ty.text_xsmall)
-                                    .color(k.c.danger.fg),
-                            ),
+                            .child(match ld.badges.get(i).copied().unwrap_or_default() {
+                                "" => el(),
+                                badge => row()
+                                    .px(4.0)
+                                    .radius(k.radius.sm)
+                                    .border(1.0, k.c.border_weak)
+                                    .help(if badge == "cmd" {
+                                        "Changed by a shell command, not an edit tool"
+                                    } else {
+                                        "Changed by a subagent"
+                                    })
+                                    .child(
+                                        text(badge).font(k.ty.text_xsmall).color(k.c.text_faint),
+                                    ),
+                            })
+                            .children(if f.binary {
+                                vec![text("bin").font(k.ty.text_xsmall).color(k.c.text_faint)]
+                            } else {
+                                vec![
+                                    text(format!("+{}", f.additions()))
+                                        .font(k.ty.text_xsmall)
+                                        .color(k.c.success.fg),
+                                    text(format!("−{}", f.deletions()))
+                                        .font(k.ty.text_xsmall)
+                                        .color(k.c.danger.fg),
+                                ]
+                            }),
                     )
                     .on_press_tx(move |s: &mut Hooked, tx| s.lens_data.diff.scroll_to_file(i, tx)),
                 ),
         );
     }
-    col()
-        .key("review-files")
-        .w(240.0)
+    let truncated = match ld.review_source {
+        ReviewSource::Tree => ld.tree_truncated,
+        ReviewSource::Worktree => ld.worktree.as_ref().is_some_and(|w| w.truncated),
+        _ => false,
+    };
+    if truncated {
+        list = list.child(
+            text("File limit reached: some files are not listed.")
+                .key("rf-truncated")
+                .font(k.ty.text_xsmall)
+                .color(k.c.text_faint)
+                .wrap()
+                .px(8.0)
+                .py(6.0),
+        );
+    }
+    // The grip on the rail's right edge: dragging it right widens the rail, Escape puts the
+    // width back, and the release saves it.
+    let grip = el()
+        .key("rf-resize")
+        .w(6.0)
         .h_full()
-        .border_sides([0.0, 1.0, 0.0, 0.0], k.c.border_weak)
+        .cursor(Cursor::ResizeColumn)
+        .help("Drag to resize")
+        .on_drag(|s: &mut Hooked, d: &mut rune::Drag, _| {
+            if d.phase == Phase::Down {
+                d.data = s.review_files_w;
+            }
+            if d.cancelled() {
+                s.review_files_w = d.data;
+                return;
+            }
+            s.review_files_w = (d.data + d.dx).clamp(FILES_W.0, FILES_W.1);
+            if d.phase == Phase::Up {
+                let w = s.review_files_w;
+                s.save_pref("reviewFilesW", &w);
+            }
+        });
+    let rail = col()
+        .grow(1.0)
+        .min_w(0.0)
+        .h_full()
         .child(
             row()
                 .w_full()
@@ -792,6 +918,36 @@ fn files_rail(s: &Hooked, k: &Kit) -> El {
                 })
                 .child(list),
         )
+        .child(
+            col()
+                .key("review-files-foot")
+                .w_full()
+                .px(10.0)
+                .py(8.0)
+                .gap(6.0)
+                .border_sides([1.0, 0.0, 0.0, 0.0], k.c.border_weak)
+                .child(
+                    row()
+                        .w_full()
+                        .h(2.0)
+                        .fill(k.c.layer_02)
+                        .child(el().h_full().grow(done as f32).fill(k.c.success.icon))
+                        .child(el().grow(files.len().saturating_sub(done) as f32)),
+                )
+                .child(
+                    text("j/k hunks · [ ] files · v reviewed · + on a line comments")
+                        .font(k.ty.text_xsmall)
+                        .color(k.c.text_faint)
+                        .wrap(),
+                ),
+        );
+    row()
+        .key("review-files")
+        .w(width)
+        .h_full()
+        .border_sides([0.0, 1.0, 0.0, 0.0], k.c.border_weak)
+        .child(rail)
+        .child(grip)
 }
 
 pub fn review(s: &Hooked, d: &Detail, k: &Kit) -> El {
@@ -816,7 +972,18 @@ pub fn review(s: &Hooked, d: &Detail, k: &Kit) -> El {
         .collect();
     let src = sources.iter().position(|&x| x == ld.review_source);
     let split = ld.diff.mode() == DiffMode::Split;
-    let mut top = bar(k, "review-bar")
+    // The bar holds more than a narrow window fits on one line: it wraps rather than push its
+    // last controls (the layout toggle) out of the window.
+    let mut top = row()
+        .key("review-bar")
+        .w_full()
+        .min_h(44.0)
+        .px(16.0)
+        .py(7.0)
+        .gap(10.0)
+        .center_y()
+        .flex_wrap()
+        .border_sides([0.0, 0.0, 1.0, 0.0], k.c.border_weak)
         .child(
             SegmentedControl::new(&labels, src)
                 .label("Diff source")
@@ -839,6 +1006,22 @@ pub fn review(s: &Hooked, d: &Detail, k: &Kit) -> El {
             .font(k.ty.text_small)
             .color(k.c.text_faint),
         )
+        .child(
+            text(format!(
+                "+{}",
+                ld.diff.files().iter().map(|f| f.additions()).sum::<usize>()
+            ))
+            .font(k.ty.text_small)
+            .color(k.c.success.fg),
+        )
+        .child(
+            text(format!(
+                "−{}",
+                ld.diff.files().iter().map(|f| f.deletions()).sum::<usize>()
+            ))
+            .font(k.ty.text_small)
+            .color(k.c.danger.fg),
+        )
         .child(el().grow(1.0));
     if ld.diff_loading {
         top = top.child(Spinner::new().build(k));
@@ -846,14 +1029,13 @@ pub fn review(s: &Hooked, d: &Detail, k: &Kit) -> El {
     if ld.review_source == ReviewSource::Branch {
         let label = match (&ld.branch, &ld.base) {
             (Some(b), Some(base)) => {
-                let commits = if ld.picked.is_empty() {
-                    String::new()
-                } else {
-                    format!(
-                        " · {} commit{}",
-                        ld.picked.len(),
-                        if ld.picked.len() == 1 { "" } else { "s" }
-                    )
+                // The review covers a contiguous slice: every commit between two picks counts.
+                let n = ld.commits.len();
+                let plural = if n == 1 { "" } else { "s" };
+                let commits = match s.branch_span() {
+                    _ if n == 0 => String::new(),
+                    Some((lo, hi)) => format!(" · {} of {n} commit{plural}", hi - lo + 1),
+                    None => format!(" · all {n} commit{plural}"),
                 };
                 format!("{b} vs {base}{commits}")
             }
@@ -902,6 +1084,22 @@ pub fn review(s: &Hooked, d: &Detail, k: &Kit) -> El {
                     .font(k.ty.text_small)
                     .color(k.c.text_muted),
                 ),
+        );
+    }
+    if ld.review_source != ReviewSource::Claude {
+        top = top.child(
+            rune_kit::IconButton::new(&icons::RESTART)
+                .variant(rune_kit::IconButtonVariant::GhostMuted)
+                .label("Reload the diff")
+                .help(match ld.review_source {
+                    ReviewSource::Branch => "Reload the branches and the diff",
+                    ReviewSource::Worktree => "Reload the worktree diff",
+                    _ => "Reload the working-tree diff",
+                })
+                .disabled(ld.diff_loading)
+                .on_press(|s: &mut Hooked| s.reload_review())
+                .build(k)
+                .key("review-reload"),
         );
     }
     if ld.review_source == ReviewSource::Claude && !d.change_turns.is_empty() {
@@ -980,13 +1178,27 @@ pub fn review(s: &Hooked, d: &Detail, k: &Kit) -> El {
             .key("review-send"),
         );
     }
-    top = top
-        .child(
-            text("+ on a line comments · j/k hunks · [/] files · v reviewed")
-                .font(k.ty.text_xsmall)
-                .color(k.c.text_faint),
-        )
-        .child(
+    top = top.child(
+        Button::new("Compact")
+            .variant(if s.review_compact {
+                ButtonVariant::Outline
+            } else {
+                ButtonVariant::GhostMuted
+            })
+            .control_size(ControlSize::Regular)
+            .help("Hide the unchanged lines around each change")
+            .on_press(|s: &mut Hooked| {
+                s.review_compact = !s.review_compact;
+                let on = s.review_compact;
+                s.save_pref("reviewCompact", &on);
+            })
+            .build(k)
+            .key("review-compact"),
+    );
+    // A narrow lens shows its diff unified whatever is picked (see `fit_review`), so the
+    // choice is not offered there.
+    if !s.review_narrow() {
+        top = top.child(
             SegmentedControl::new(&["Unified", "Split"], Some(usize::from(split)))
                 .label("Diff layout")
                 .fit()
@@ -1000,36 +1212,22 @@ pub fn review(s: &Hooked, d: &Detail, k: &Kit) -> El {
                 .build(k)
                 .key("review-mode"),
         );
+    }
     let body = if ld.diff.files().is_empty() {
-        let msg = if ld.diff_loading {
-            "Reading the working tree…"
-        } else if ld.review_source == ReviewSource::Branch {
-            let none_listed = ld
-                .branches
-                .as_ref()
-                .is_some_and(|v| v["branches"].as_array().is_none_or(Vec::is_empty));
-            if none_listed {
-                "No local branches in this repository."
-            } else if ld.branch.is_none() {
-                "Reading the branches…"
-            } else {
-                "No difference between the branch and its base."
-            }
-        } else if ld.review_source == ReviewSource::Tree {
-            "The working tree is clean."
-        } else if ld.review_source == ReviewSource::Worktree {
-            match ld.worktree.as_ref() {
-                None => "Reading the worktree…",
-                Some(w) if w.base.is_none() => "No base recorded for this worktree.",
-                Some(w) if w.merge_base.is_none() => {
-                    "No common history with the base to compare against."
-                }
-                Some(_) => "Nothing changed since this worktree forked from its base.",
-            }
+        let note = empty(k, "review-empty", &crate::lenses::empty_message(ld));
+        // The comments panel stays within reach of an empty diff: a comment written on
+        // another scope is how to get back to it.
+        if ld.threads_open {
+            row()
+                .key("review-body")
+                .w_full()
+                .grow(1.0)
+                .min_h(0.0)
+                .child(col().grow(1.0).min_w(0.0).h_full().child(note))
+                .child(threads_panel(s, k))
         } else {
-            "No file changes in this session yet."
-        };
-        empty(k, "review-empty", msg)
+            note
+        }
     } else {
         let diff = col()
             .key("review-diff")
@@ -1067,13 +1265,17 @@ pub fn review(s: &Hooked, d: &Detail, k: &Kit) -> El {
                 })
                 .build(s, k),
             );
-        let mut body = row()
-            .key("review-body")
-            .w_full()
-            .grow(1.0)
-            .min_h(0.0)
-            .child(files_rail(s, k))
-            .child(diff);
+        // A narrow lens keeps its room for the diff: the rail shrinks, and gives way entirely
+        // to a column opened beside the diff, or when there is no room left for it.
+        let narrow = s.review_narrow();
+        let rail =
+            s.review_w >= crate::lenses::NO_RAIL_W && !(narrow && (ld.rendered || ld.threads_open));
+        let mut body = row().key("review-body").w_full().grow(1.0).min_h(0.0);
+        if rail {
+            let w = s.review_files_w.clamp(FILES_W.0, FILES_W.1);
+            body = body.child(files_rail(s, k, if narrow { w.min(180.0) } else { w }));
+        }
+        body = body.child(diff);
         if ld.rendered {
             body = body.child(rendered_panel(s, k));
         }
@@ -1082,7 +1284,16 @@ pub fn review(s: &Hooked, d: &Detail, k: &Kit) -> El {
         }
         body
     };
-    let mut out = col().key("review").w_full().h_full().child(top);
+    let mut out = col()
+        .key("review")
+        .w_full()
+        .h_full()
+        .on_layout(|s: &mut Hooked, r: [f32; 4]| {
+            if (s.review_w - r[2]).abs() > 0.5 {
+                s.review_w = r[2];
+            }
+        })
+        .child(top);
     if let Some(b) = s.blame_text() {
         out = out.child(
             row()
@@ -1109,6 +1320,34 @@ pub fn review(s: &Hooked, d: &Detail, k: &Kit) -> El {
     }
     if ld.branch_open && ld.review_source == ReviewSource::Branch {
         out = out.child(branch_panel(s, k));
+    }
+    if ld.review_source == ReviewSource::Branch
+        && ld.branch_info.merged
+        && !ld.diff.files().is_empty()
+    {
+        out = out.child(
+            row()
+                .key("review-merged")
+                .w_full()
+                .h(28.0)
+                .px(16.0)
+                .gap(8.0)
+                .center_y()
+                .fill(k.c.success.bg)
+                .border_sides([0.0, 0.0, 1.0, 0.0], k.c.border_weak)
+                .child(glyph(&icons::CIRCLE_CHECK, 12.0, k.c.success.icon))
+                .child(
+                    text(format!(
+                        "Already merged into {}: showing the branch's historical diff, recovered from its merge commit.",
+                        ld.base.as_deref().unwrap_or("its base")
+                    ))
+                    .font(k.ty.text_xsmall)
+                    .color(k.c.text_muted)
+                    .truncate()
+                    .grow(1.0)
+                    .min_w(0.0),
+                ),
+        );
     }
     out.child(body)
 }
@@ -1595,13 +1834,18 @@ fn annotation(s: &Hooked, a: &Annotation, k: &Kit) -> El {
             .border(1.0, k.c.border_base)
     };
     if a.id == "draft" {
-        let Some((_, edit)) = s.lens_data.draft.as_ref() else {
+        let Some((range, edit)) = s.lens_data.draft.as_ref() else {
             return el();
         };
         return shell("draft".into())
             .child(
+                text(crate::lenses::draft_label(range))
+                    .font(k.ty.text_xsmall_medium)
+                    .color(k.c.text_muted),
+            )
+            .child(
                 TextArea::new(edit)
-                    .placeholder("Comment on these lines… (⌘Enter saves)")
+                    .placeholder("Leave a comment… (⌘Enter saves, Esc cancels)")
                     .width(None)
                     .auto_grow(2, 10)
                     .on_edit(|s: &mut Hooked| &mut s.lens_data.draft.as_mut().expect("draft").1)
@@ -1651,23 +1895,40 @@ fn annotation(s: &Hooked, a: &Annotation, k: &Kit) -> El {
     };
     let tid = a.id.clone();
     let sent = t["sent"].as_bool() == Some(true);
-    let archived = t["status"].as_str() == Some("archived");
-    let status = if archived {
-        ("archived", k.c.text_faint)
-    } else if sent {
+    let status = if sent {
         ("sent", k.c.info.fg)
     } else {
         ("pending · not sent yet", k.c.warning.fg)
     };
     let (t1, t2, t3) = (tid.clone(), tid.clone(), tid.clone());
+    let placed = s.lens_data.placed.get(&tid);
+    let outdated = placed.is_some_and(|p| p.outdated);
+    let anchor = placed.map_or_else(|| crate::lenses::anchor_label(t), |p| p.label());
     let mut c = shell(format!("thread-{tid}")).child(
         row()
             .w_full()
             .gap(8.0)
             .center_y()
+            .child(
+                text(if outdated {
+                    format!("was {anchor}")
+                } else {
+                    anchor
+                })
+                .font(k.ty.mono)
+                .color(k.c.text_muted),
+            )
+            .child(if outdated {
+                text("outdated")
+                    .font(k.ty.text_xsmall_medium)
+                    .color(k.c.danger.fg)
+                    .help("The code this comment was anchored to has changed")
+            } else {
+                el()
+            })
             .child(text(status.0).font(k.ty.text_xsmall_medium).color(status.1))
             .child(el().grow(1.0))
-            .child(if !sent && !archived {
+            .child(if !sent {
                 let te = tid.clone();
                 Button::new("Edit")
                     .variant(ButtonVariant::GhostMuted)
@@ -1678,24 +1939,72 @@ fn annotation(s: &Hooked, a: &Annotation, k: &Kit) -> El {
                 el()
             })
             .child(
-                Button::new(if archived { "Reopen" } else { "Archive" })
+                Button::new("Archive")
                     .variant(ButtonVariant::GhostMuted)
                     .control_size(ControlSize::Small)
-                    .on_press(move |s: &mut Hooked| s.archive_thread(t1.clone(), !archived))
+                    .help("Take it out of the diff: it stays in the comments panel, restorable")
+                    .on_press(move |s: &mut Hooked| s.archive_thread(t1.clone(), true))
                     .build(k)
                     .key(format!("th-arch-{tid}")),
             )
-            .child(
-                Button::new("Delete")
-                    .variant(ButtonVariant::GhostMuted)
+            .child({
+                // A sent thread may hold Claude's replies: deleting it takes a second click,
+                // as in the comments panel. A pending one is still a draft.
+                let armed = s.lens_data.delete_armed.as_deref() == Some(tid.as_str());
+                Button::new(if armed { "Delete?" } else { "Delete" })
+                    .variant(if armed {
+                        ButtonVariant::Danger
+                    } else {
+                        ButtonVariant::GhostMuted
+                    })
                     .control_size(ControlSize::Small)
-                    .on_press(move |s: &mut Hooked| s.delete_thread(t2.clone()))
+                    .help(if sent {
+                        "Delete this thread and its replies (click twice)"
+                    } else {
+                        "Delete this comment: it has not been sent yet"
+                    })
+                    .on_press(move |s: &mut Hooked| {
+                        if !sent || s.lens_data.delete_armed.as_deref() == Some(t2.as_str()) {
+                            s.lens_data.delete_armed = None;
+                            s.delete_thread(t2.clone());
+                        } else {
+                            s.lens_data.delete_armed = Some(t2.clone());
+                        }
+                    })
                     .build(k)
-                    .key(format!("th-del-{tid}")),
-            ),
+                    .key(format!("th-del-{tid}"))
+            }),
     );
-    if archived {
-        return c;
+    // An outdated thread sits at the head of its file, so it shows the code it was about.
+    if outdated && let Some(snippet) = t["snippet"].as_str().filter(|x| !x.is_empty()) {
+        const SHOWN: usize = 12;
+        let mut code = col()
+            .w_full()
+            .px(8.0)
+            .py(4.0)
+            .radius(k.radius.sm)
+            .fill(k.c.bg_deep)
+            .border(1.0, k.c.border_weak);
+        for l in snippet.lines().take(SHOWN) {
+            code = code.child(
+                text(if l.is_empty() { " " } else { l }.to_string())
+                    .font(k.ty.mono)
+                    .color(k.c.text_muted)
+                    .single_line(),
+            );
+        }
+        let more = snippet.lines().count().saturating_sub(SHOWN);
+        if more > 0 {
+            code = code.child(
+                text(format!(
+                    "… {more} more line{}",
+                    if more == 1 { "" } else { "s" }
+                ))
+                .font(k.ty.text_xsmall)
+                .color(k.c.text_faint),
+            );
+        }
+        c = c.child(code);
     }
     if let Some((_, edit)) = s.lens_data.editing.as_ref().filter(|(e, _)| *e == tid) {
         return c

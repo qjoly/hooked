@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use rune::TextEdit;
-use rune_kit::diff::{Annotation, DiffState, FileDiff, LineRange, LineRef, Side};
+use rune_kit::diff::{Annotation, DiffMode, DiffState, FileDiff, LineRange, LineRef, Side};
 use serde_json::{Value, json};
 
 use crate::api::{self, Change, ChangeTurn, McpLogin, McpServer, TraceTurn};
@@ -16,11 +16,138 @@ pub enum ReviewSource {
     Branch,
 }
 
+/// What a branch diff says about its pair, beside the changes.
+#[derive(Clone, Debug, Default, serde::Deserialize, PartialEq)]
+#[serde(default, rename_all = "camelCase")]
+pub struct BranchInfo {
+    /// `git` or `jj`.
+    pub vcs: Option<String>,
+    /// Where the branch forked from its base.
+    pub merge_base: Option<String>,
+    /// The branch is already in its base: the diff, when there is one, was recovered from the
+    /// merge commit.
+    pub merged: bool,
+    /// The commits the diff is narrowed to, when some are picked.
+    pub range: Option<BranchSlice>,
+}
+
+/// A contiguous slice of a branch's commits: the diff runs from `parent` to `to`.
+#[derive(Clone, Debug, Default, serde::Deserialize, PartialEq)]
+#[serde(default)]
+pub struct BranchSlice {
+    pub from: String,
+    pub to: String,
+    pub parent: String,
+}
+
+impl BranchInfo {
+    /// The revision a side of the branch diff comes from, for blame and definitions: the fork
+    /// point (else the base branch) to the branch head, or the ends of the reviewed commits.
+    /// None under jj, whose revisions git cannot read.
+    pub fn rev<'a>(
+        &'a self,
+        side: Side,
+        branch: Option<&'a str>,
+        base: Option<&'a str>,
+    ) -> Option<&'a str> {
+        if self.vcs.as_deref() == Some("jj") {
+            return None;
+        }
+        let rev = match (side, self.range.as_ref()) {
+            (Side::Old, Some(r)) => r.parent.as_str(),
+            (Side::New, Some(r)) => r.to.as_str(),
+            (Side::Old, None) => self.merge_base.as_deref().or(base)?,
+            (Side::New, None) => branch?,
+        };
+        (!rev.is_empty()).then_some(rev)
+    }
+}
+
+impl ReviewSource {
+    fn key(self) -> &'static str {
+        match self {
+            ReviewSource::Claude => "claude",
+            ReviewSource::Worktree => "worktree",
+            ReviewSource::Tree => "tree",
+            ReviewSource::Branch => "branch",
+        }
+    }
+
+    fn from_key(key: &str) -> Option<ReviewSource> {
+        [
+            ReviewSource::Claude,
+            ReviewSource::Worktree,
+            ReviewSource::Tree,
+            ReviewSource::Branch,
+        ]
+        .into_iter()
+        .find(|s| s.key() == key)
+    }
+}
+
+/// Where a session's review was left: its scope and what narrows it. Opening the session
+/// again brings the lens back there, as the web lens does.
+#[derive(Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
+pub struct ReviewPlace {
+    pub source: String,
+    pub turns: Vec<usize>,
+    pub root: Option<String>,
+    pub branch: Option<String>,
+    pub base: Option<String>,
+    pub picked: Vec<String>,
+    /// Write order: past [`PLACES_MAX`] the least recently written place is forgotten.
+    pub seq: u64,
+}
+
+/// How many sessions keep their place: a profile should not pile up every review ever started.
+pub const PLACES_MAX: usize = 20;
+
+/// Records `place` for `session`; false when that is already where it was. Until a branch
+/// pair is known (the branches are still being read), the one remembered is kept: empty
+/// fields would erase it.
+pub fn remember_place(
+    places: &mut HashMap<String, ReviewPlace>,
+    session: &str,
+    mut place: ReviewPlace,
+) -> bool {
+    let old = places.get(session);
+    if let Some(old) = old.filter(|_| place.branch.is_none() || place.base.is_none()) {
+        place.root = old.root.clone();
+        place.branch = old.branch.clone();
+        place.base = old.base.clone();
+        place.picked = old.picked.clone();
+    }
+    place.seq = old.map_or(0, |p| p.seq);
+    if old == Some(&place) {
+        return false;
+    }
+    place.seq = places.values().map(|p| p.seq).max().unwrap_or(0) + 1;
+    places.insert(session.to_string(), place);
+    while places.len() > PLACES_MAX {
+        let Some(oldest) = places
+            .iter()
+            .min_by_key(|(_, p)| p.seq)
+            .map(|(id, _)| id.clone())
+        else {
+            break;
+        };
+        places.remove(&oldest);
+    }
+    true
+}
+
 pub struct LensData {
     pub review_source: ReviewSource,
     pub diff: DiffState,
     pub diff_sig: Option<String>,
     pub diff_loading: bool,
+    /// Why the last load failed; shown in place of the diff when there is none on screen.
+    pub diff_error: Option<String>,
+    /// The working-tree diff found no repository under the session's directory.
+    pub no_vcs: bool,
+    /// The working-tree diff hit the file limit, so some files are not listed.
+    pub tree_truncated: bool,
     pub diff_count: usize,
     pub asking: bool,
     pub turns: std::collections::BTreeSet<usize>,
@@ -41,10 +168,21 @@ pub struct LensData {
     pub worktree: Option<api::BaseDiff>,
     pub commits: Vec<Value>,
     pub picked: Vec<String>,
+    pub branch_info: BranchInfo,
+    /// What the branch picker's filter holds.
+    pub branch_filter: TextEdit,
     pub branch_open: bool,
     pub turns_open: bool,
     pub anchors: Vec<(String, String)>,
+    /// What a reviewed tick signs off for each file of the diff; see `Sections::fps`.
+    pub fps: Vec<String>,
+    /// Parallel to the diff's files; see `Sections::badges`.
+    pub badges: Vec<&'static str>,
     pub threads: Vec<Value>,
+    /// Where each live thread shows in the diff on screen, by thread id.
+    pub placed: HashMap<String, Placed>,
+    /// The thread to reveal once the scope it was written on is back on screen.
+    pub jump: Option<String>,
     pub draft: Option<(LineRange, TextEdit)>,
     pub replies: HashMap<String, TextEdit>,
     pub editing: Option<(String, TextEdit)>,
@@ -75,6 +213,9 @@ impl Default for LensData {
             diff: DiffState::new(Vec::new()),
             diff_sig: None,
             diff_loading: false,
+            diff_error: None,
+            no_vcs: false,
+            tree_truncated: false,
             diff_count: 0,
             asking: false,
             turns: Default::default(),
@@ -93,10 +234,16 @@ impl Default for LensData {
             worktree: None,
             commits: Vec::new(),
             picked: Vec::new(),
+            branch_info: BranchInfo::default(),
+            branch_filter: TextEdit::new(""),
             branch_open: false,
             turns_open: false,
             anchors: Vec::new(),
+            fps: Vec::new(),
+            badges: Vec::new(),
             threads: Vec::new(),
+            placed: HashMap::new(),
+            jump: None,
             draft: None,
             replies: HashMap::new(),
             editing: None,
@@ -117,6 +264,52 @@ impl Default for LensData {
             trace_open: None,
             trace_tool: HashMap::new(),
         }
+    }
+}
+
+impl LensData {
+    pub fn place(&self) -> ReviewPlace {
+        ReviewPlace {
+            source: self.review_source.key().into(),
+            turns: self.turns.iter().copied().collect(),
+            root: self.branch_root.clone(),
+            branch: self.branch.clone(),
+            base: self.base.clone(),
+            picked: self.picked.clone(),
+            seq: 0,
+        }
+    }
+
+    /// Goes back to where a review was left. The diff itself is read again by `ensure_lens`.
+    pub fn restore(&mut self, place: &ReviewPlace) {
+        if let Some(source) = ReviewSource::from_key(&place.source) {
+            self.review_source = source;
+        }
+        self.turns = place.turns.iter().copied().collect();
+        self.branch_root = place.root.clone();
+        self.branch = place.branch.clone();
+        self.base = place.base.clone();
+        self.picked = place.picked.clone();
+    }
+
+    /// Puts a scope's diff on screen. The diff is read again each time the session moves, and
+    /// most of the time it has not changed: it is then left as it is, since replacing it
+    /// folds every opened range again and drops the line selection.
+    fn show(&mut self, s: Sections) {
+        let shown = self.diff.files();
+        let same = s.files.len() == shown.len()
+            && s.files.iter().zip(shown).all(|(a, b)| {
+                a.path() == b.path()
+                    && a.hunks == b.hunks
+                    && a.text(Side::Old) == b.text(Side::Old)
+                    && a.text(Side::New) == b.text(Side::New)
+            });
+        if !same {
+            self.diff.set_files(s.files);
+        }
+        self.anchors = s.anchors;
+        self.fps = s.fps;
+        self.badges = s.badges;
     }
 }
 
@@ -171,6 +364,58 @@ pub fn turns_key(selected: &std::collections::BTreeSet<usize>) -> String {
     format!("sel:{}", t.join(","))
 }
 
+/// A scope's diff, ready for the lens: one entry per section, in the rail's order.
+#[derive(Default)]
+pub struct Sections {
+    pub files: Vec<FileDiff>,
+    /// The `(file, opIndex)` the web lens files each section's threads under.
+    pub anchors: Vec<(String, String)>,
+    /// What a reviewed tick signs off for each section; see [`fingerprint`].
+    pub fps: Vec<String>,
+    /// How each section's file was changed, when not by an edit tool of the session itself:
+    /// `cmd` (a shell command), `agent` (a subagent), else empty.
+    pub badges: Vec<&'static str>,
+}
+
+/// The web's rail badge: a file a shell command changed, or one only subagents touched.
+fn badge(c: &Change) -> &'static str {
+    if c.tool.as_deref() == Some("Bash") {
+        "cmd"
+    } else if !c.raw_ops.is_empty() && c.raw_ops.iter().all(|o| !o["agent"].is_null()) {
+        "agent"
+    } else {
+        ""
+    }
+}
+
+impl Sections {
+    /// A section of `c`'s diff, filed under `key`. `compact` leaves out the unchanged lines
+    /// around each change; they stay one click away, in the folded ranges. The fingerprint is
+    /// taken on the usual diff either way, so a reviewed tick holds whichever way the file was
+    /// shown.
+    fn push(
+        &mut self,
+        c: &Change,
+        key: String,
+        label: String,
+        old: &str,
+        new: &str,
+        compact: bool,
+    ) {
+        let mut full = FileDiff::from_texts(label.clone(), old, new);
+        self.fps.push(fingerprint(&full));
+        // A binary file comes with empty texts: say so rather than "no changes".
+        full.binary = c.binary;
+        self.files.push(if compact && !c.binary {
+            FileDiff::from_texts_with_context(label, old, new, 0)
+        } else {
+            full
+        });
+        self.anchors.push((c.file.clone(), key));
+        self.badges.push(badge(c));
+    }
+}
+
 /// Claude's edits restricted to the selected prompts: one section replayed from the original
 /// when the server could rebuild it, else each selected op on its own.
 pub fn filtered_diffs(
@@ -178,9 +423,10 @@ pub fn filtered_diffs(
     turns: &[ChangeTurn],
     selected: &std::collections::BTreeSet<usize>,
     root: Option<&str>,
-) -> (Vec<FileDiff>, Vec<(String, String)>) {
+    compact: bool,
+) -> Sections {
     let key = turns_key(selected);
-    let (mut out, mut anchors) = (Vec::new(), Vec::new());
+    let mut out = Sections::default();
     for c in changes {
         let path = relative(&c.file, root);
         let picked: Vec<usize> = c
@@ -205,32 +451,29 @@ pub fn filtered_diffs(
                     after = text.clone();
                 }
             }
-            out.push(FileDiff::from_texts(path.clone(), &before, &after));
-            anchors.push((c.file.clone(), key.clone()));
+            out.push(c, key.clone(), path.clone(), &before, &after, compact);
         } else {
             for j in picked {
                 let o = &c.raw_ops[j];
                 let old = o["old"].as_str().unwrap_or("");
                 let new = o["new"].as_str().or(o["content"].as_str()).unwrap_or("");
-                out.push(FileDiff::from_texts(
+                out.push(
+                    c,
+                    format!("{key}:{j}"),
                     format!("{path} · edit {}", j + 1),
                     old,
                     new,
-                ));
-                anchors.push((c.file.clone(), format!("{key}:{j}")));
+                    compact,
+                );
             }
         }
     }
-    (out, anchors)
+    out
 }
 
 /// One diff per op, with the `(file, opIndex)` anchor the web lens files review threads under.
-pub fn file_diffs(
-    changes: &[Change],
-    root: Option<&str>,
-    key: &str,
-) -> (Vec<FileDiff>, Vec<(String, String)>) {
-    let (mut out, mut anchors) = (Vec::new(), Vec::new());
+pub fn file_diffs(changes: &[Change], root: Option<&str>, key: &str, compact: bool) -> Sections {
+    let mut out = Sections::default();
     for c in changes {
         let path = relative(&c.file, root);
         let n = c.ops.len();
@@ -246,37 +489,36 @@ pub fn file_diffs(
             } else {
                 path.clone()
             };
-            out.push(FileDiff::from_texts(label, old, new));
-            anchors.push((c.file.clone(), format!("{key}:{i}")));
+            out.push(c, format!("{key}:{i}"), label, old, new, compact);
         }
     }
-    (out, anchors)
+    out
 }
 
 pub struct TreeDiffs {
-    pub files: Vec<FileDiff>,
-    pub anchors: Vec<(String, String)>,
+    pub sections: Sections,
     /// The repo of each file, for the rail's headers; empty when there is only one repo.
     pub repos: Vec<String>,
 }
 
 /// The uncommitted changes of every detected repo, one repo after the other, as the web lens
 /// flattens them.
-pub fn tree_diffs(repos: &[api::Repo], root: Option<&str>) -> TreeDiffs {
+pub fn tree_diffs(repos: &[api::Repo], root: Option<&str>, compact: bool) -> TreeDiffs {
     let several = repos.len() > 1;
     let mut out = TreeDiffs {
-        files: Vec::new(),
-        anchors: Vec::new(),
+        sections: Sections::default(),
         repos: Vec::new(),
     };
     for r in repos {
-        let (files, anchors) = file_diffs(&r.changes, root, "vcs:wt");
+        let s = file_diffs(&r.changes, root, "vcs:wt", compact);
         if several {
             out.repos
-                .extend(std::iter::repeat_n(r.name().to_string(), files.len()));
+                .extend(std::iter::repeat_n(r.name().to_string(), s.files.len()));
         }
-        out.files.extend(files);
-        out.anchors.extend(anchors);
+        out.sections.files.extend(s.files);
+        out.sections.anchors.extend(s.anchors);
+        out.sections.fps.extend(s.fps);
+        out.sections.badges.extend(s.badges);
     }
     out
 }
@@ -305,6 +547,270 @@ pub fn fingerprint(f: &FileDiff) -> String {
 
 const REVIEWED_PER_FILE: usize = 12;
 
+/// Where a review thread shows in the diff on screen.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Placed {
+    pub file: usize,
+    pub side: Side,
+    pub start: u32,
+    pub end: u32,
+    /// Its code changed or is gone, so no line can be trusted: the thread shows at the head of
+    /// the file instead of under a wrong line.
+    pub outdated: bool,
+}
+
+impl Placed {
+    pub fn label(&self) -> String {
+        range_label(self.side == Side::Old, self.start.into(), self.end.into())
+    }
+}
+
+/// The lines of a side as threads number them, without the `\r` of a CRLF file.
+fn side_lines(text: &str) -> Vec<&str> {
+    text.split('\n')
+        .map(|l| l.strip_suffix('\r').unwrap_or(l))
+        .collect()
+}
+
+/// The web's `reanchor`: a thread's anchor is trusted only while the snippet it was written on
+/// is still there. A snippet found once elsewhere takes its thread along; one that is gone, or
+/// found several times, makes the thread outdated. Returns `(start, end, outdated)`.
+pub fn reanchor(start: u32, end: u32, snippet: &str, lines: &[&str]) -> (u32, u32, bool) {
+    if snippet.is_empty() {
+        return (start, end, false);
+    }
+    let snip = side_lines(snippet);
+    let n = snip.len();
+    let matches_at = |i: usize| i + n <= lines.len() && lines[i..i + n] == snip[..];
+    if start >= 1 && matches_at(start as usize - 1) {
+        return (start, start - 1 + n as u32, false);
+    }
+    let mut hits = (0..lines.len().saturating_sub(n - 1)).filter(|&i| matches_at(i));
+    match (hits.next(), hits.next()) {
+        (Some(i), None) => (i as u32 + 1, (i + n) as u32, false),
+        _ => (start, end, true),
+    }
+}
+
+/// The section of the diff a thread belongs to and its lines there, re-anchored on its snippet.
+/// A thread Claude opened is keyed to the whole scope (`…:*`): it goes to the section of its
+/// file whose new side holds its snippet, else to the first.
+pub fn place_thread(t: &Value, anchors: &[(String, String)], files: &[FileDiff]) -> Option<Placed> {
+    let (file, key) = (t["file"].as_str()?, t["opIndex"].as_str()?);
+    let scoped = key.strip_suffix(":*");
+    let snippet = t["snippet"].as_str().unwrap_or("");
+    let mut sections = anchors
+        .iter()
+        .enumerate()
+        .filter(|(_, (f, k))| {
+            f == file
+                && match scoped {
+                    Some(base) => k.starts_with(&format!("{base}:")),
+                    None => k == key,
+                }
+        })
+        .map(|(i, _)| i);
+    let first = sections.next()?;
+    let holds = |i: &usize| {
+        files
+            .get(*i)
+            .and_then(|f| f.text(Side::New))
+            .is_some_and(|text| text.contains(snippet))
+    };
+    let i = if scoped.is_some() && !snippet.is_empty() && !holds(&first) {
+        sections.find(holds).unwrap_or(first)
+    } else {
+        first
+    };
+    let side = if t["side"] == "old" {
+        Side::Old
+    } else {
+        Side::New
+    };
+    let start = t["start"].as_u64().unwrap_or(1) as u32;
+    let end = t["end"].as_u64().map_or(start, |e| e as u32);
+    let (start, end, outdated) = match files.get(i)?.text(side) {
+        Some(text) => reanchor(start, end, snippet, &side_lines(text)),
+        None => (start, end, false),
+    };
+    Some(Placed {
+        file: i,
+        side,
+        start,
+        end,
+        outdated,
+    })
+}
+
+/// Lines `a..=b` of a side of `f`: the snippet a new thread is anchored on. Read from the whole
+/// text, so lines shown by opening a folded range count too.
+pub fn snippet_of(f: &FileDiff, side: Side, a: u32, b: u32) -> String {
+    let Some(text) = f.text(side) else {
+        return f
+            .hunks
+            .iter()
+            .flat_map(|h| h.lines.iter())
+            .filter(|l| l.number(side).is_some_and(|n| n >= a && n <= b))
+            .map(|l| l.text.as_str())
+            .collect::<Vec<_>>()
+            .join("\n");
+    };
+    let lines = side_lines(text);
+    let from = (a.saturating_sub(1) as usize).min(lines.len());
+    let to = (b.max(a) as usize).min(lines.len());
+    lines[from..to].join("\n")
+}
+
+/// What the lens says in place of a diff: that it is loading, why it could not be read, or why
+/// there is nothing to show.
+pub fn empty_message(ld: &LensData) -> String {
+    const NO_VCS: &str = "This project is not in a git or jj repository.";
+    const BRANCHES: &str = "Loading the branches…";
+    let branch = ld.review_source == ReviewSource::Branch;
+    if ld.diff_loading {
+        return match ld.review_source {
+            ReviewSource::Branch => "Loading the branch diff…",
+            ReviewSource::Worktree => "Loading the worktree diff…",
+            _ => "Loading the working-tree diff…",
+        }
+        .into();
+    }
+    if branch && ld.branches_loading {
+        return BRANCHES.into();
+    }
+    if let Some(e) = &ld.diff_error {
+        return e.clone();
+    }
+    match ld.review_source {
+        ReviewSource::Branch => match ld.branches.as_ref() {
+            None => BRANCHES,
+            Some(v) if v["vcs"].is_null() => NO_VCS,
+            Some(v) if v["branches"].as_array().is_none_or(Vec::is_empty) => {
+                "No local branches in this repository."
+            }
+            Some(_) => {
+                let (b, base) = (
+                    ld.branch.as_deref().unwrap_or_default(),
+                    ld.base.as_deref().unwrap_or_default(),
+                );
+                return if b == base {
+                    "The branch and the base are the same: pick another base to compare against."
+                        .into()
+                } else if !ld.picked.is_empty() {
+                    format!(
+                        "The selected {} no file: pick another slice of {b}.",
+                        if ld.picked.len() == 1 {
+                            "commit changes"
+                        } else {
+                            "commits change"
+                        }
+                    )
+                } else if ld.branch_info.merged {
+                    format!(
+                        "Branch {b} is already merged into {base} (squash or fast-forward: no historical diff to recover)."
+                    )
+                } else {
+                    format!(
+                        "No difference between {b} and {base}: the branch has no commits of its own yet."
+                    )
+                };
+            }
+        },
+        ReviewSource::Tree if ld.no_vcs => NO_VCS,
+        ReviewSource::Tree => "No uncommitted changes in the working tree.",
+        ReviewSource::Worktree => match ld.worktree.as_ref() {
+            None => "Loading the worktree diff…",
+            Some(w) if w.base.is_none() => "No base recorded for this worktree.",
+            Some(w) if w.merge_base.is_none() => {
+                "No common history with the base to compare against."
+            }
+            Some(_) => "Nothing changed since this worktree forked from its base.",
+        },
+        ReviewSource::Claude => "No file changes in this session yet.",
+    }
+    .into()
+}
+
+const GONE_FROM_DIFF: &str = "That comment's file is no longer in this diff";
+pub const UNREACHABLE: &str = "Written on a diff no scope can show any more: archive or delete it";
+
+/// The scope a thread was written on. Its `opIndex` is the key of a diff section, so it also
+/// records which scope (and prompt filter, or branch pair and commit slice) produced it:
+/// `full:<j>`, `sel:<turns>[:<j>]`, `vcs:wt:<j>`, `wtb:<base>:<j>`,
+/// `br:<repo>:<base>:<branch>[:@from..to]:<j>`, with `*` for `<j>` on a thread Claude opened.
+#[derive(Clone, Debug, PartialEq)]
+pub enum ThreadContext {
+    Claude {
+        turns: Vec<usize>,
+    },
+    Tree,
+    Worktree,
+    Branch {
+        root: String,
+        base: String,
+        branch: String,
+        range: Option<(String, String)>,
+    },
+}
+
+/// The web's `threadContext`. `None` for a key no scope produces any more.
+pub fn thread_context(op: &str) -> Option<ThreadContext> {
+    if let Some(rest) = op.strip_prefix("br:") {
+        // Read from the right: a repo path may hold a colon, a branch name may not, and the
+        // commit slice is known by the '@' no branch name can carry.
+        let mut parts: Vec<&str> = rest.split(':').collect();
+        let section = parts.pop()?;
+        if section != "*" && (section.is_empty() || !section.bytes().all(|b| b.is_ascii_digit())) {
+            return None;
+        }
+        let range = match parts.last().and_then(|p| p.strip_prefix('@')) {
+            Some(slice) => {
+                parts.pop();
+                let (from, to) = slice.split_once("..")?;
+                if from.is_empty() || to.is_empty() {
+                    return None;
+                }
+                Some((from.to_string(), to.to_string()))
+            }
+            None => None,
+        };
+        let (branch, base) = (parts.pop()?, parts.pop()?);
+        let root = parts.join(":");
+        if root.is_empty() || base.is_empty() || branch.is_empty() {
+            return None;
+        }
+        return Some(ThreadContext::Branch {
+            root,
+            base: base.to_string(),
+            branch: branch.to_string(),
+            range,
+        });
+    }
+    if op == "vcs:wt" || op.starts_with("vcs:wt:") {
+        return Some(ThreadContext::Tree);
+    }
+    if op.starts_with("wtb:") {
+        return Some(ThreadContext::Worktree);
+    }
+    if op.starts_with("full:") {
+        return Some(ThreadContext::Claude { turns: Vec::new() });
+    }
+    let turns = op.strip_prefix("sel:")?.split(':').next()?;
+    Some(ThreadContext::Claude {
+        turns: turns.split(',').filter_map(|t| t.parse().ok()).collect(),
+    })
+}
+
+/// The first line a file's diff shows, where its outdated threads go.
+fn head_line(f: &FileDiff) -> Option<LineRef> {
+    let l = f.hunks.first()?.lines.first()?;
+    match (l.new, l.old) {
+        (Some(n), _) => Some(LineRef::new(Side::New, n)),
+        (None, Some(n)) => Some(LineRef::new(Side::Old, n)),
+        (None, None) => None,
+    }
+}
+
 pub struct ReviewBrief {
     pub file: String,
     pub anchor: String,
@@ -327,6 +833,64 @@ fn brief_list(threads: &[ReviewBrief]) -> String {
         })
         .collect::<Vec<_>>()
         .join("\n")
+}
+
+/// A line range as both lenses label it: `+L12`, `−L3–7`.
+fn range_label(old: bool, a: u64, b: u64) -> String {
+    let side = if old { "−L" } else { "+L" };
+    if a == b || b == 0 {
+        format!("{side}{a}")
+    } else {
+        format!("{side}{a}–{b}")
+    }
+}
+
+/// The title of the comment being written: the lines it covers, as the web's editor names them.
+pub fn draft_label(range: &LineRange) -> String {
+    let (a, b) = (
+        range.start.line.min(range.end.line),
+        range.start.line.max(range.end.line),
+    );
+    let label = range_label(range.end.side == Side::Old, a.into(), b.into());
+    if a == b {
+        format!("Comment on {label}")
+    } else {
+        format!("Comment on {label} · {} lines", b - a + 1)
+    }
+}
+
+/// Where a thread was anchored when it was written.
+pub fn anchor_label(t: &Value) -> String {
+    range_label(
+        t["side"] == "old",
+        t["start"].as_u64().unwrap_or(0),
+        t["end"].as_u64().unwrap_or(0),
+    )
+}
+
+/// The web's `threadInstructions`, word for word: how Claude answers in a review thread.
+pub fn thread_instructions(session: &str) -> String {
+    let api = format!("{}/api/review", api::base());
+    format!(
+        "Reply in the thread with the hooked MCP tool mcp__hooked__reply_review_comment \
+         (id: \"{session}\", thread_id above). Do NOT close the thread — closing is the reviewer's \
+         call, and there is no tool for it. If that MCP tool is unavailable, POST the same reply to \
+         the local hooked API instead: curl -sS -X POST {api} -H 'content-type: application/json' \
+         -d '{{\"id\":\"{session}\",\"action\":\"reply\",\"threadId\":\"<thread_id>\",\"text\":\"<your reply>\",\"author\":\"claude\"}}'. \
+         Keep your chat answer to a one-line summary — the details belong in the thread."
+    )
+}
+
+/// What the session is told when the reviewer answers in a thread, as the web lens words it.
+pub fn follow_up_prompt(session: &str, thread: &Value, text: &str) -> String {
+    format!(
+        "Follow-up on review thread {} — {} ({}):\n> {}\n{}",
+        thread["id"].as_str().unwrap_or(""),
+        thread["file"].as_str().unwrap_or(""),
+        anchor_label(thread),
+        text.replace('\n', "\n> "),
+        thread_instructions(session)
+    )
 }
 
 /// The web's `reviewRequestPrompt`, word for word, so Claude gets the same brief from either client.
@@ -376,7 +940,57 @@ pub fn review_request_prompt(
     out
 }
 
+/// Under this width the lens is in a split pane or a small window: the web's narrow mode.
+pub const NARROW_W: f32 = 760.0;
+/// Under this one there is no room left for the files rail.
+pub const NO_RAIL_W: f32 = 560.0;
+
 impl Hooked {
+    pub fn review_narrow(&self) -> bool {
+        self.review_w < NARROW_W
+    }
+
+    /// Run on every poll while the lens is open: remembers where this session's review is.
+    pub fn stash_review_place(&mut self) {
+        if self.page != Page::Session || self.lens != Lens::Review {
+            return;
+        }
+        let Some(id) = self.selected.clone() else {
+            return;
+        };
+        // Between two sessions the lens still holds the previous one's state.
+        if self.detail.as_ref().is_none_or(|d| d.session.id != id) {
+            return;
+        }
+        let place = self.lens_data.place();
+        if remember_place(&mut self.review_places, &id, place) {
+            let all = self.review_places.clone();
+            self.save_pref("reviewPlaces", &all);
+        }
+    }
+
+    /// Run on every poll. A side-by-side diff in a narrow lens wraps every token onto its own
+    /// line, so it is shown unified there, whichever way the layout was asked for; the split
+    /// layout comes back once there is room. True when it changed the layout.
+    pub fn fit_review(&mut self) -> bool {
+        if self.page != Page::Session || self.lens != Lens::Review {
+            return false;
+        }
+        let diff = &mut self.lens_data.diff;
+        if self.review_w < NARROW_W {
+            if diff.mode() == DiffMode::Split {
+                diff.set_mode(DiffMode::Unified);
+                self.review_forced_unified = true;
+                return true;
+            }
+        } else if self.review_forced_unified {
+            self.review_forced_unified = false;
+            diff.set_mode(DiffMode::Split);
+            return true;
+        }
+        false
+    }
+
     pub fn review_key_base(&self) -> String {
         match self.lens_data.review_source {
             ReviewSource::Claude if self.lens_data.turns.is_empty() => "full".into(),
@@ -388,7 +1002,23 @@ impl Hooked {
     }
 
     /// The picked commits as the range the server diffs, oldest first (`commits` is newest first).
+    /// Until the commit list is in (a comment's scope being restored), the picks are trusted as
+    /// given, so the first fetch is already the narrowed one.
     pub fn branch_range(&self) -> Option<(String, String)> {
+        let ld = &self.lens_data;
+        if ld.commits.is_empty() {
+            return Some((ld.picked.first()?.clone(), ld.picked.last()?.clone()));
+        }
+        let (lo, hi) = self.branch_span()?;
+        Some((
+            ld.commits[hi]["rev"].as_str()?.to_string(),
+            ld.commits[lo]["rev"].as_str()?.to_string(),
+        ))
+    }
+
+    /// The picked commits as a span of `commits`, newest first: everything between the newest
+    /// and the oldest pick is under review, picked or not.
+    pub fn branch_span(&self) -> Option<(usize, usize)> {
         let ld = &self.lens_data;
         let at: Vec<usize> = ld
             .picked
@@ -399,11 +1029,7 @@ impl Hooked {
                     .position(|c| c["rev"].as_str() == Some(r.as_str()))
             })
             .collect();
-        let (lo, hi) = (*at.iter().min()?, *at.iter().max()?);
-        Some((
-            ld.commits[hi]["rev"].as_str()?.to_string(),
-            ld.commits[lo]["rev"].as_str()?.to_string(),
-        ))
+        Some((*at.iter().min()?, *at.iter().max()?))
     }
 
     /// The web's `diffKey`: `root:base:branch`, plus `:@from..to` for a commit range.
@@ -430,6 +1056,9 @@ impl Hooked {
                     ld.branch.clone().unwrap_or_default(),
                     ld.base.clone().unwrap_or_default(),
                 );
+                // Claude reads the new side with `git show <rev>:<path>`, which a jj revision
+                // is not: there it reviews the file on disk.
+                let git = ld.branch_info.vcs.as_deref() != Some("jj");
                 match self.branch_range() {
                     Some((from, to)) => (
                         format!(
@@ -437,11 +1066,11 @@ impl Hooked {
                             &from[..from.len().min(7)],
                             &to[..to.len().min(7)]
                         ),
-                        Some(to),
+                        git.then_some(to),
                     ),
                     None => (
                         format!("the full diff of branch `{b}` against `{base}`"),
-                        Some(b),
+                        git.then_some(b),
                     ),
                 }
             }
@@ -483,6 +1112,9 @@ impl Hooked {
                 api::get(&path)
             },
             |s, r, _| {
+                if let Err(e) = &r {
+                    s.load_failed("the branches", e);
+                }
                 let ld = &mut s.lens_data;
                 ld.branches_loading = false;
                 let v = r.unwrap_or_default();
@@ -528,7 +1160,7 @@ impl Hooked {
         ld.picked.clear();
         ld.commits.clear();
         ld.diff_sig = None;
-        ld.diff.set_files(Vec::new());
+        ld.show(Sections::default());
     }
 
     fn load_branch_diff(&mut self, id: String, sig: String) {
@@ -540,7 +1172,9 @@ impl Hooked {
         };
         let range = self.branch_range();
         let key = self.branch_key().unwrap_or_default();
+        let compact = self.review_compact;
         self.lens_data.diff_loading = true;
+        self.lens_data.branch_info = BranchInfo::default();
         self.spawn(
             move || {
                 let mut path = format!(
@@ -560,23 +1194,32 @@ impl Hooked {
                 s.lens_data.diff_sig = Some(sig);
                 match r {
                     Ok(v) => {
-                        if s.lens_data.picked.is_empty()
-                            && let Some(c) = v["commits"].as_array()
-                        {
-                            s.lens_data.commits = c.clone();
+                        let ld = &mut s.lens_data;
+                        ld.diff_error = None;
+                        ld.branch_info = serde_json::from_value(v.clone()).unwrap_or_default();
+                        // The list is the branch's, whatever slice was asked for: every answer
+                        // refreshes it, and a pick the branch no longer has (rewritten since)
+                        // is dropped.
+                        if let Some(c) = v["commits"].as_array() {
+                            ld.commits = c.clone();
+                            ld.picked.retain(|p| {
+                                c.iter().any(|x| x["rev"].as_str() == Some(p.as_str()))
+                            });
                         }
                         let changes: Vec<Change> =
                             serde_json::from_value(v["changes"].clone()).unwrap_or_default();
                         s.lens_data.diff_count = changes.len();
                         let root = v["root"].as_str().map(str::to_string);
-                        let (files, anchors) =
-                            file_diffs(&changes, root.as_deref(), &format!("br:{key}"));
-                        s.lens_data.diff.set_files(files);
-                        s.lens_data.anchors = anchors;
+                        s.lens_data.show(file_diffs(
+                            &changes,
+                            root.as_deref(),
+                            &format!("br:{key}"),
+                            compact,
+                        ));
                         s.annotate();
                         s.load_threads();
                     }
-                    Err(e) => s.flash(format!("✗ Branch: {e}"), true),
+                    Err(e) => s.load_failed("the branch diff", &e),
                 }
             },
         );
@@ -661,14 +1304,17 @@ impl Hooked {
 
     /// Which revision a side of diff `file` comes from, when its line numbers are the file's.
     pub(crate) fn blame_rev(&self, file: usize, side: Side) -> Option<(String, String)> {
-        let (path, key) = self.lens_data.anchors.get(file)?;
-        let rev = match (self.lens_data.review_source, side) {
+        let ld = &self.lens_data;
+        let (path, key) = ld.anchors.get(file)?;
+        let rev = match (ld.review_source, side) {
             (ReviewSource::Tree, Side::Old) => "HEAD",
             (ReviewSource::Tree | ReviewSource::Worktree, Side::New) => "",
-            (ReviewSource::Worktree, Side::Old) => {
-                self.lens_data.worktree.as_ref()?.merge_base.as_deref()?
+            (ReviewSource::Worktree, Side::Old) => ld.worktree.as_ref()?.merge_base.as_deref()?,
+            (ReviewSource::Branch, side) => {
+                ld.branch_info
+                    .rev(side, ld.branch.as_deref(), ld.base.as_deref())?
             }
-            (ReviewSource::Claude, Side::Old) | (ReviewSource::Branch, _) => return None,
+            (ReviewSource::Claude, Side::Old) => return None,
             (ReviewSource::Claude, Side::New) => {
                 let j: usize = key.strip_prefix("full:")?.parse().ok()?;
                 let c = self
@@ -826,21 +1472,10 @@ impl Hooked {
             return;
         }
         let in_key = |op: &str| op == base || op.starts_with(&format!("{base}:"));
-        let brief = |t: &Value| {
-            let side = if t["side"] == "old" { "−L" } else { "+L" };
-            let (a, b) = (
-                t["start"].as_u64().unwrap_or(0),
-                t["end"].as_u64().unwrap_or(0),
-            );
-            ReviewBrief {
-                file: t["file"].as_str().unwrap_or("").to_string(),
-                anchor: if a == b || b == 0 {
-                    format!("{side}{a}")
-                } else {
-                    format!("{side}{a}–{b}")
-                },
-                text: t["messages"][0]["text"].as_str().unwrap_or("").to_string(),
-            }
+        let brief = |t: &Value| ReviewBrief {
+            file: t["file"].as_str().unwrap_or("").to_string(),
+            anchor: anchor_label(t),
+            text: t["messages"][0]["text"].as_str().unwrap_or("").to_string(),
         };
         let here: Vec<&Value> = self
             .lens_data
@@ -885,9 +1520,10 @@ impl Hooked {
     }
 
     fn review_key(&self, file: usize) -> Option<(String, String)> {
-        let f = self.lens_data.diff.files().get(file)?;
+        let ld = &self.lens_data;
+        let f = ld.diff.files().get(file)?;
         let id = self.selected.as_deref()?;
-        Some((format!("{id}|{}", f.path()), fingerprint(f)))
+        Some((format!("{id}|{}", f.path()), ld.fps.get(file)?.clone()))
     }
 
     pub fn is_reviewed(&self, file: usize) -> bool {
@@ -957,28 +1593,31 @@ impl Hooked {
             Lens::Converse => false,
             Lens::Review => {
                 let ld = &self.lens_data;
+                let compact = self.review_compact;
                 let sig = match ld.review_source {
                     ReviewSource::Claude => {
                         format!(
-                            "{id}|claude|{}|{activity}|{:?}|{}",
+                            "{id}|claude|{}|{activity}|{:?}|{}|{compact}",
                             d.changes.len(),
                             ld.turns,
                             ld.full.values().filter(|c| c.is_some()).count()
                         )
                     }
-                    ReviewSource::Worktree => format!("{id}|worktree|{activity}"),
-                    ReviewSource::Tree => format!("{id}|tree|{activity}"),
-                    ReviewSource::Branch => match self.branch_key() {
-                        Some(key) => format!("{id}|branch|{key}|{activity}"),
-                        None => {
-                            if ld.branches.is_none() && !ld.branches_loading {
-                                let root = ld.branch_root.clone();
-                                self.load_branches(id, root);
-                                return true;
-                            }
-                            return false;
+                    ReviewSource::Worktree => format!("{id}|worktree|{activity}|{compact}"),
+                    ReviewSource::Tree => format!("{id}|tree|{activity}|{compact}"),
+                    ReviewSource::Branch => {
+                        // The list comes first even when the pair is already known (a review
+                        // taken up where it was left): the picker needs it.
+                        if ld.branches.is_none() && !ld.branches_loading {
+                            let root = ld.branch_root.clone();
+                            self.load_branches(id, root);
+                            return true;
                         }
-                    },
+                        match self.branch_key() {
+                            Some(key) => format!("{id}|branch|{key}|{activity}|{compact}"),
+                            None => return false,
+                        }
+                    }
                 };
                 if ld.diff_sig.as_deref() == Some(sig.as_str()) || ld.diff_loading {
                     return false;
@@ -993,14 +1632,19 @@ impl Hooked {
                                 _ => c.clone(),
                             })
                             .collect();
-                        let (files, anchors) = if ld.turns.is_empty() {
-                            file_diffs(&changes, project.as_deref(), "full")
+                        let sections = if ld.turns.is_empty() {
+                            file_diffs(&changes, project.as_deref(), "full", compact)
                         } else {
-                            filtered_diffs(&changes, &d.change_turns, &ld.turns, project.as_deref())
+                            filtered_diffs(
+                                &changes,
+                                &d.change_turns,
+                                &ld.turns,
+                                project.as_deref(),
+                                compact,
+                            )
                         };
                         self.lens_data.diff_count = d.changes.len();
-                        self.lens_data.diff.set_files(files);
-                        self.lens_data.anchors = anchors;
+                        self.lens_data.show(sections);
                         self.annotate();
                         self.lens_data.diff_sig = Some(sig);
                         self.load_threads();
@@ -1018,17 +1662,21 @@ impl Hooked {
                                 s.lens_data.diff_loading = false;
                                 s.lens_data.diff_sig = Some(sig);
                                 match r {
-                                    Ok(repos) => {
-                                        s.lens_data.diff_count =
-                                            repos.iter().map(|r| r.changes.len()).sum();
-                                        let tree = tree_diffs(&repos, project.as_deref());
-                                        s.lens_data.diff.set_files(tree.files);
-                                        s.lens_data.anchors = tree.anchors;
-                                        s.lens_data.file_repos = tree.repos;
+                                    Ok(found) => {
+                                        let ld = &mut s.lens_data;
+                                        ld.diff_error = None;
+                                        ld.no_vcs = found.repos.is_empty();
+                                        ld.tree_truncated = found.truncated;
+                                        ld.diff_count =
+                                            found.repos.iter().map(|r| r.changes.len()).sum();
+                                        let tree =
+                                            tree_diffs(&found.repos, project.as_deref(), compact);
+                                        ld.show(tree.sections);
+                                        ld.file_repos = tree.repos;
                                         s.annotate();
                                         s.load_threads();
                                     }
-                                    Err(e) => s.flash(format!("✗ Working tree: {e}"), true),
+                                    Err(e) => s.load_failed("the working-tree diff", &e),
                                 }
                             },
                         );
@@ -1043,19 +1691,20 @@ impl Hooked {
                                 s.lens_data.diff_sig = Some(sig);
                                 match r {
                                     Ok(wt) => {
+                                        s.lens_data.diff_error = None;
                                         s.lens_data.diff_count = wt.changes.len();
-                                        let (files, anchors) = file_diffs(
+                                        let sections = file_diffs(
                                             &wt.changes,
                                             wt.root.as_deref(),
                                             &worktree_key(Some(&wt)),
+                                            compact,
                                         );
                                         s.lens_data.worktree = Some(wt);
-                                        s.lens_data.diff.set_files(files);
-                                        s.lens_data.anchors = anchors;
+                                        s.lens_data.show(sections);
                                         s.annotate();
                                         s.load_threads();
                                     }
-                                    Err(e) => s.flash(format!("✗ Worktree: {e}"), true),
+                                    Err(e) => s.load_failed("the worktree diff", &e),
                                 }
                             },
                         );
@@ -1180,35 +1829,26 @@ impl Hooked {
     }
 
     /// Puts each thread, and the comment being written, under the diff line it points at.
+    /// Archived threads are out of the diff: they live in the comments panel, restorable.
     pub fn annotate(&mut self) {
         let ld = &mut self.lens_data;
         let mut notes = Vec::new();
-        for t in &ld.threads {
-            let (file, key) = (
-                t["file"].as_str().unwrap_or(""),
-                t["opIndex"].as_str().unwrap_or(""),
-            );
-            let scoped = key.strip_suffix(":*");
-            let Some(i) = ld.anchors.iter().position(|(f, k)| {
-                f == file
-                    && match scoped {
-                        Some(base) => k.starts_with(&format!("{base}:")),
-                        None => k == key,
-                    }
-            }) else {
+        ld.placed.clear();
+        for t in ld.threads.iter().filter(|t| t["status"] != "archived") {
+            let files = ld.diff.files();
+            let Some(p) = place_thread(t, &ld.anchors, files) else {
                 continue;
             };
-            let side = if t["side"].as_str() == Some("old") {
-                Side::Old
+            let at = if p.outdated {
+                head_line(&files[p.file])
             } else {
-                Side::New
+                Some(LineRef::new(p.side, p.end))
             };
-            let line = t["end"].as_u64().or(t["start"].as_u64()).unwrap_or(1) as u32;
-            notes.push(Annotation::new(
-                i,
-                LineRef::new(side, line),
-                t["id"].as_str().unwrap_or(""),
-            ));
+            let (Some(at), Some(id)) = (at, t["id"].as_str()) else {
+                continue;
+            };
+            notes.push(Annotation::new(p.file, at, id));
+            ld.placed.insert(id.to_string(), p);
         }
         if let Some((range, _)) = ld.draft.as_ref() {
             let end = if range.end.line >= range.start.line {
@@ -1256,19 +1896,12 @@ impl Hooked {
             range.start.line.max(range.end.line),
         );
         let side = range.end.side;
-        let snippet: Vec<String> = self
+        let snippet = self
             .lens_data
             .diff
             .files()
             .get(range.file)
-            .map(|f| {
-                f.hunks
-                    .iter()
-                    .flat_map(|h| h.lines.iter())
-                    .filter(|l| l.number(side).is_some_and(|n| n >= a && n <= b))
-                    .map(|l| l.text.clone())
-                    .collect()
-            })
+            .map(|f| snippet_of(f, side, a, b))
             .unwrap_or_default();
         let thread = json!({
             "file": file,
@@ -1277,7 +1910,7 @@ impl Hooked {
             "side": if side == Side::Old { "old" } else { "new" },
             "start": a,
             "end": b,
-            "snippet": snippet.join("\n"),
+            "snippet": snippet,
             "text": text,
         });
         self.review_op(json!({ "id": id, "action": "comment", "thread": thread }));
@@ -1296,19 +1929,52 @@ impl Hooked {
         );
     }
 
+    /// A reply is stored in its thread, then goes to the session at once with the thread's id,
+    /// so Claude answers back into the same thread.
     pub fn reply_thread(&mut self, tid: String) {
-        let Some(id) = self.selected.clone() else {
+        let Some(d) = self.detail.as_ref() else {
             return;
         };
+        let (id, live, effort) = (
+            d.session.id.clone(),
+            d.session.live,
+            d.session.effort.clone(),
+        );
         let text = self
             .lens_data
             .replies
             .remove(&tid)
             .map(|e| e.text.trim().to_string())
             .unwrap_or_default();
-        if !text.is_empty() {
-            self.review_op(json!({ "id": id, "action": "reply", "threadId": tid, "text": text, "author": "user" }));
+        if text.is_empty() {
+            return;
         }
+        let prompt = self
+            .lens_data
+            .threads
+            .iter()
+            .find(|t| t["id"].as_str() == Some(tid.as_str()))
+            .map(|t| follow_up_prompt(&id, t, &text));
+        self.spawn(
+            move || {
+                api::post(
+                    "/api/review",
+                    json!({ "id": id, "action": "reply", "threadId": tid, "text": text, "author": "user" }),
+                )?;
+                match prompt {
+                    Some(p) if live => api::reply(&id, &p),
+                    Some(p) => api::resume(&id, &p, effort.as_deref()),
+                    None => Ok(()),
+                }
+            },
+            |s, r, _| {
+                if let Err(e) = r {
+                    s.flash(format!("✗ Reply: {e}"), true);
+                }
+                s.load_threads();
+                s.refresh_detail();
+            },
+        );
     }
 
     pub fn archive_thread(&mut self, tid: String, archived: bool) {
@@ -1361,40 +2027,120 @@ impl Hooked {
         self.review_op(json!({ "id": id, "action": "edit", "threadId": tid, "text": text }));
     }
 
+    /// Scrolls to a thread of the diff on screen; false when it is not in it.
+    fn reveal_thread(&mut self, tid: &str, tx: &mut rune::Tx) -> bool {
+        let ld = &mut self.lens_data;
+        let Some(p) = ld.placed.get(tid).copied() else {
+            return false;
+        };
+        let at = if p.outdated {
+            ld.diff.files().get(p.file).and_then(head_line)
+        } else {
+            Some(LineRef::new(p.side, p.start))
+        };
+        if let Some(at) = at {
+            ld.diff.scroll_to_line(p.file, at, tx);
+        }
+        true
+    }
+
+    /// A click on a row of the comments panel. A thread written on another scope (or prompt
+    /// filter, or branch pair) is reached by putting that scope back first; `resolve_jump`
+    /// scrolls to it once its diff is on screen.
     pub fn jump_to_thread(&mut self, tid: &str, tx: &mut rune::Tx) {
-        let Some(t) = self
+        if self.reveal_thread(tid, tx) {
+            return;
+        }
+        let Some(op) = self
             .lens_data
             .threads
             .iter()
             .find(|t| t["id"].as_str() == Some(tid))
+            .and_then(|t| t["opIndex"].as_str())
+            .map(str::to_string)
         else {
             return;
         };
-        let file = t["file"].as_str().unwrap_or("");
-        let key = t["opIndex"].as_str().unwrap_or("");
-        let scoped = key.strip_suffix(":*");
-        let Some(i) = self.lens_data.anchors.iter().position(|(f, k)| {
-            f == file
-                && match scoped {
-                    Some(base) => k.starts_with(&format!("{base}:")),
-                    None => k == key,
-                }
-        }) else {
-            self.flash("That thread belongs to another diff source", true);
+        let base = self.review_key_base();
+        if op == base || op.starts_with(&format!("{base}:")) {
+            self.flash(GONE_FROM_DIFF, true);
             return;
-        };
-        let side = if t["side"] == "old" {
-            Side::Old
+        }
+        if thread_context(&op).is_some_and(|ctx| self.restore_context(ctx)) {
+            self.lens_data.jump = Some(tid.to_string());
         } else {
-            Side::New
-        };
-        let line = t["start"].as_u64().unwrap_or(1) as u32;
-        self.lens_data
-            .diff
-            .scroll_to_line(i, LineRef::new(side, line), tx);
+            self.flash(UNREACHABLE, true);
+        }
     }
 
-    /// Sends the unsent comments as one prompt, in the shape the web lens uses.
+    /// Puts back the scope a thread was written on; false when this session cannot show it.
+    fn restore_context(&mut self, ctx: ThreadContext) -> bool {
+        let Some(d) = self.detail.as_ref() else {
+            return false;
+        };
+        let id = d.session.id.clone();
+        let in_worktree = d.session.worktree_of.is_some();
+        match ctx {
+            ThreadContext::Claude { turns } => {
+                self.set_review_source(ReviewSource::Claude);
+                self.lens_data.turns = turns.into_iter().collect();
+            }
+            ThreadContext::Tree => self.set_review_source(ReviewSource::Tree),
+            ThreadContext::Worktree if in_worktree => {
+                self.set_review_source(ReviewSource::Worktree)
+            }
+            ThreadContext::Worktree => return false,
+            ThreadContext::Branch {
+                root,
+                base,
+                branch,
+                range,
+            } => {
+                self.set_review_source(ReviewSource::Branch);
+                let ld = &mut self.lens_data;
+                // The branch list is per repo: another repo, or a scope never opened, reads it.
+                let list =
+                    ld.branches.is_none() || ld.branch_root.as_deref() != Some(root.as_str());
+                ld.branch_root = Some(root.clone());
+                ld.branch = Some(branch);
+                ld.base = Some(base);
+                ld.picked = match range {
+                    Some((from, to)) if from == to => vec![from],
+                    Some((from, to)) => vec![from, to],
+                    None => Vec::new(),
+                };
+                ld.commits.clear();
+                if list {
+                    self.load_branches(id, Some(root));
+                }
+            }
+        }
+        self.lens_data.diff_sig = None;
+        true
+    }
+
+    /// Run on every poll: reveals the thread a jump is waiting on once its scope's diff is in.
+    pub fn resolve_jump(&mut self, tx: &mut rune::Tx) -> bool {
+        let ld = &mut self.lens_data;
+        if ld.jump.is_none() {
+            return false;
+        }
+        if self.page != Page::Session || self.lens != Lens::Review {
+            ld.jump = None;
+            return false;
+        }
+        if ld.diff_loading || ld.branches_loading || ld.diff_sig.is_none() {
+            return false;
+        }
+        let tid = ld.jump.take().unwrap_or_default();
+        if !self.reveal_thread(&tid, tx) {
+            self.flash(GONE_FROM_DIFF, true);
+        }
+        true
+    }
+
+    /// Sends the unsent comments as one prompt, in the shape the web lens uses. The lens stays
+    /// open: Claude's answers land in the threads on screen.
     pub fn send_review(&mut self) {
         let Some(d) = self.detail.as_ref() else {
             return;
@@ -1409,20 +2155,7 @@ impl Hooked {
             .iter()
             .enumerate()
             .map(|(n, t)| {
-                let (a, b) = (
-                    t["start"].as_u64().unwrap_or(1),
-                    t["end"].as_u64().unwrap_or(1),
-                );
-                let p = if t["side"].as_str() == Some("old") {
-                    "−L"
-                } else {
-                    "+L"
-                };
-                let anchor = if a == b {
-                    format!("{p}{b}")
-                } else {
-                    format!("{p}{a}–{b}")
-                };
+                let anchor = anchor_label(t);
                 let body = t["messages"][0]["text"]
                     .as_str()
                     .unwrap_or("")
@@ -1442,14 +2175,9 @@ impl Hooked {
                 )
             })
             .collect();
-        let api_url = format!("{}/api/review", api::base());
         let prompt = format!(
-            "I reviewed {scope} and left the following inline comments. Address each one, then, for each: \
-             Reply in the thread with the hooked MCP tool mcp__hooked__reply_review_comment (id: \"{id}\", thread_id above). \
-             Do NOT close the thread — closing is the reviewer's call, and there is no tool for it. If that MCP tool is \
-             unavailable, POST the same reply to the local hooked API instead: curl -sS -X POST {api_url} -H 'content-type: application/json' \
-             -d '{{\"id\":\"{id}\",\"action\":\"reply\",\"threadId\":\"<thread_id>\",\"text\":\"<your reply>\",\"author\":\"claude\"}}'. \
-             Keep your chat answer to a one-line summary — the details belong in the thread.\n\n{}",
+            "I reviewed {scope} and left the following inline comments. Address each one, then, for each: {}\n\n{}",
+            thread_instructions(&id),
             items.join("\n\n")
         );
         let ids: Vec<String> = pending
@@ -1473,10 +2201,7 @@ impl Hooked {
             },
             |s, r, _| {
                 match r {
-                    Ok(()) => {
-                        s.flash("✓ Comments sent to Claude", false);
-                        s.lens = Lens::Converse;
-                    }
+                    Ok(()) => s.flash("✓ Comments sent to Claude", false),
                     Err(e) => s.flash(format!("✗ Send: {e}"), true),
                 }
                 s.load_threads();
@@ -1485,12 +2210,43 @@ impl Hooked {
         );
     }
 
+    /// Reads the diff on screen again. The working tree, the worktree and the branches are
+    /// snapshots that only follow the session: an edit by hand or a commit from a terminal
+    /// leaves them stale.
+    pub fn reload_review(&mut self) {
+        let Some(id) = self.selected.clone() else {
+            return;
+        };
+        let ld = &mut self.lens_data;
+        ld.diff_sig = None;
+        ld.diff_error = None;
+        if ld.review_source == ReviewSource::Branch && !ld.branches_loading {
+            let root = ld.branch_root.clone();
+            self.load_branches(id, root);
+        }
+    }
+
+    /// A diff (or the branch list) could not be read. With nothing on screen the lens says so
+    /// in place of the diff; a diff already there stays, the failure is only flashed.
+    fn load_failed(&mut self, what: &str, e: &str) {
+        let msg = format!("Could not load {what}: {e}");
+        if !self.lens_data.diff.files().is_empty() {
+            self.flash(format!("✗ {msg}"), true);
+        }
+        self.lens_data.diff_error = Some(msg);
+        self.lens_data.jump = None;
+    }
+
     pub fn set_review_source(&mut self, src: ReviewSource) {
         if self.lens_data.review_source != src {
-            self.lens_data.review_source = src;
-            self.lens_data.diff_sig = None;
-            self.lens_data.diff.set_files(Vec::new());
-            self.lens_data.file_repos.clear();
+            let ld = &mut self.lens_data;
+            ld.review_source = src;
+            ld.diff_sig = None;
+            ld.diff_error = None;
+            ld.no_vcs = false;
+            ld.tree_truncated = false;
+            ld.show(Sections::default());
+            ld.file_repos.clear();
         }
     }
 
@@ -1624,7 +2380,7 @@ mod tests {
             "ops": [{ "old": "a\n", "new": "b\n" }, { "old": "", "new": "c\n" }]
         }))
         .unwrap();
-        let (files, anchors) = file_diffs(&[c], Some("/repo"), "full");
+        let Sections { files, anchors, .. } = file_diffs(&[c], Some("/repo"), "full", false);
         assert_eq!(
             anchors[1],
             ("/repo/src/a.rs".to_string(), "full:1".to_string())
@@ -1651,21 +2407,296 @@ mod tests {
             repo("/ws/empty", "empty", &[]),
             repo("/ws/web", "web", &["/ws/web/b.ts", "/ws/web/c.ts"]),
         ];
-        let tree = tree_diffs(&repos, Some("/ws"));
-        let paths: Vec<&str> = tree.files.iter().map(|f| f.path()).collect();
+        let tree = tree_diffs(&repos, Some("/ws"), false);
+        let paths: Vec<&str> = tree.sections.files.iter().map(|f| f.path()).collect();
         assert_eq!(paths, ["api/a.rs", "web/b.ts", "web/c.ts"]);
         assert_eq!(tree.repos, ["api", "web", "web"]);
         assert_eq!(
-            tree.anchors[1],
+            tree.sections.anchors[1],
             ("/ws/web/b.ts".to_string(), "vcs:wt:0".to_string())
         );
     }
 
     #[test]
     fn working_tree_of_a_single_repo_has_no_repo_headers() {
-        let tree = tree_diffs(&[repo("/r", "", &["/r/a.rs"])], Some("/r"));
-        assert_eq!(tree.files.len(), 1);
+        let tree = tree_diffs(&[repo("/r", "", &["/r/a.rs"])], Some("/r"), false);
+        assert_eq!(tree.sections.files.len(), 1);
         assert!(tree.repos.is_empty());
+    }
+
+    #[test]
+    fn a_review_comes_back_where_it_was_left() {
+        let mut ld = LensData {
+            review_source: ReviewSource::Branch,
+            branch_root: Some("/repo".into()),
+            branch: Some("feat/a".into()),
+            base: Some("main".into()),
+            picked: vec!["c1".into(), "c3".into()],
+            ..Default::default()
+        };
+        ld.turns.insert(2);
+        let mut places = HashMap::new();
+        assert!(remember_place(&mut places, "s1", ld.place()));
+        // nothing moved: nothing to write
+        assert!(!remember_place(&mut places, "s1", ld.place()));
+
+        let mut back = LensData::default();
+        back.restore(&places["s1"]);
+        assert_eq!(back.place(), ld.place());
+        assert_eq!(back.review_source, ReviewSource::Branch);
+
+        // while the branches are read again the pair is unknown: the one remembered stays
+        let loading = LensData {
+            review_source: ReviewSource::Tree,
+            ..Default::default()
+        };
+        assert!(remember_place(&mut places, "s1", loading.place()));
+        assert_eq!(places["s1"].source, "tree");
+        assert_eq!(places["s1"].branch.as_deref(), Some("feat/a"));
+        assert_eq!(places["s1"].picked, ["c1", "c3"]);
+
+        // the least recently written places are forgotten first
+        for i in 0..PLACES_MAX {
+            remember_place(
+                &mut places,
+                &format!("other-{i}"),
+                LensData::default().place(),
+            );
+        }
+        assert_eq!(places.len(), PLACES_MAX);
+        assert!(!places.contains_key("s1") && places.contains_key("other-0"));
+    }
+
+    #[test]
+    fn a_binary_file_and_who_changed_a_file_are_told() {
+        let changes: Vec<Change> = serde_json::from_value(json!([
+            { "file": "/r/logo.png", "binary": true, "ops": [{ "old": "", "new": "" }] },
+            { "file": "/r/gen.rs", "tool": "Bash", "ops": [{ "old": "", "new": "x\n" }] },
+            { "file": "/r/sub.rs", "tool": "Edit", "ops": [{ "old": "", "new": "x\n" }],
+              "rawOps": [{ "kind": "edit", "agent": "a1" }, { "kind": "edit", "agent": "a2" }] },
+            { "file": "/r/mine.rs", "tool": "Edit", "ops": [{ "old": "", "new": "x\n" }],
+              "rawOps": [{ "kind": "edit", "agent": "a1" }, { "kind": "edit" }] },
+        ]))
+        .unwrap();
+        // compact or not, a binary file says it is one instead of "no changes"
+        for compact in [false, true] {
+            let s = file_diffs(&changes, Some("/r"), "full", compact);
+            assert!(s.files[0].binary && !s.files[1].binary);
+            assert_eq!(s.badges, ["", "cmd", "agent", ""]);
+        }
+    }
+
+    #[test]
+    fn compact_drops_the_context_and_keeps_the_reviewed_tick() {
+        let old = "a\nb\nc\nd\ne\nf\ng\nh\n";
+        let new = "a\nb\nc\nd\nE\nf\ng\nh\n";
+        let c: Change = serde_json::from_value(json!({
+            "file": "/r/a.rs", "ops": [{ "old": old, "new": new }]
+        }))
+        .unwrap();
+        let lines = |s: &Sections| {
+            s.files[0]
+                .hunks
+                .iter()
+                .map(|h| h.lines.len())
+                .sum::<usize>()
+        };
+        let usual = file_diffs(std::slice::from_ref(&c), Some("/r"), "full", false);
+        let compact = file_diffs(std::slice::from_ref(&c), Some("/r"), "full", true);
+        // three lines of context each side of the change, or none
+        assert_eq!((lines(&usual), lines(&compact)), (8, 2));
+        // the folded lines can still be opened, and the tick signs off the same change
+        assert!(compact.files[0].expandable());
+        assert_eq!(usual.fps, compact.fps);
+        assert_eq!(usual.anchors, compact.anchors);
+    }
+
+    #[test]
+    fn a_refresh_that_changes_nothing_keeps_the_selection() {
+        let change = |new: &str| -> Change {
+            serde_json::from_value(json!({
+                "file": "/r/a.rs", "ops": [{ "old": "a\nb\n", "new": new }]
+            }))
+            .unwrap()
+        };
+        let sections = |new: &str, compact| file_diffs(&[change(new)], Some("/r"), "full", compact);
+        let at = LineRef::new(Side::New, 2);
+        let mut ld = LensData::default();
+        ld.show(sections("a\nB\n", false));
+        ld.diff.set_selection(Some(LineRange::line(0, at)));
+        // the same diff read again
+        ld.show(sections("a\nB\n", false));
+        assert!(ld.diff.selection().is_some());
+        // an edit, or another way to show it, replaces it
+        ld.show(sections("a\nB\nc\n", false));
+        assert!(ld.diff.selection().is_none());
+        ld.diff.set_selection(Some(LineRange::line(0, at)));
+        ld.show(sections("a\nB\nc\n", true));
+        assert!(ld.diff.selection().is_none());
+        assert_eq!(ld.fps.len(), 1);
+    }
+
+    #[test]
+    fn a_thread_follows_its_snippet_or_turns_outdated() {
+        let lines = ["a", "b", "c", "b", "d"];
+        // still where it was written
+        assert_eq!(reanchor(3, 3, "c", &lines), (3, 3, false));
+        // moved: found once elsewhere, a two-line snippet keeps its length
+        assert_eq!(reanchor(1, 2, "c\nb", &lines), (3, 4, false));
+        // gone, or found several times: no line can be trusted
+        assert_eq!(reanchor(1, 1, "zz", &lines), (1, 1, true));
+        assert_eq!(reanchor(5, 5, "b", &lines), (5, 5, true));
+        // no snippet to check against: the stored anchor stands
+        assert_eq!(reanchor(9, 9, "", &lines), (9, 9, false));
+        // a snippet longer than the side
+        assert_eq!(reanchor(1, 1, "a\nb\nc\nb\nd\ne", &lines), (1, 1, true));
+    }
+
+    #[test]
+    fn threads_are_placed_on_the_section_and_lines_they_belong_to() {
+        let anchors = vec![
+            ("/r/a.rs".to_string(), "full:0".to_string()),
+            ("/r/a.rs".to_string(), "full:1".to_string()),
+            ("/r/b.rs".to_string(), "full:0".to_string()),
+        ];
+        let files = vec![
+            FileDiff::from_texts("a.rs · edit 1/2", "one\n", "one\ntwo\n"),
+            FileDiff::from_texts("a.rs · edit 2/2", "x\r\ny\r\n", "x\r\nnew\r\ny\r\n"),
+            FileDiff::from_texts("b.rs", "", "b\n"),
+        ];
+        let thread = |key: &str, start: u32, snippet: &str| json!({ "file": "/r/a.rs", "opIndex": key, "side": "new", "start": start, "end": start, "snippet": snippet });
+        let at =
+            |t: &Value| place_thread(t, &anchors, &files).map(|p| (p.file, p.start, p.outdated));
+        // its own section, and the line its code moved to (a CRLF file reads the same)
+        assert_eq!(at(&thread("full:1", 2, "y")), Some((1, 3, false)));
+        // a thread Claude opened goes to the section whose new side holds its code
+        assert_eq!(at(&thread("full:*", 2, "new")), Some((1, 2, false)));
+        assert_eq!(at(&thread("full:*", 2, "two")), Some((0, 2, false)));
+        // code that is gone
+        assert_eq!(at(&thread("full:0", 1, "gone")), Some((0, 1, true)));
+        // another scope's thread is not in this diff
+        assert_eq!(at(&thread("vcs:wt:0", 1, "one")), None);
+        assert_eq!(snippet_of(&files[1], Side::New, 2, 3), "new\ny");
+        assert_eq!(head_line(&files[2]), Some(LineRef::new(Side::New, 1)));
+    }
+
+    #[test]
+    fn an_empty_diff_says_why() {
+        let mut ld = LensData {
+            review_source: ReviewSource::Tree,
+            ..Default::default()
+        };
+        assert_eq!(
+            empty_message(&ld),
+            "No uncommitted changes in the working tree."
+        );
+        ld.no_vcs = true;
+        assert_eq!(
+            empty_message(&ld),
+            "This project is not in a git or jj repository."
+        );
+        // a failed load is not a clean tree, and a load in flight comes first
+        ld.diff_error = Some("Could not load the working-tree diff: timeout".into());
+        assert_eq!(
+            empty_message(&ld),
+            "Could not load the working-tree diff: timeout"
+        );
+        ld.diff_loading = true;
+        assert_eq!(empty_message(&ld), "Loading the working-tree diff…");
+
+        let mut ld = LensData {
+            review_source: ReviewSource::Branch,
+            ..Default::default()
+        };
+        assert_eq!(empty_message(&ld), "Loading the branches…");
+        ld.branches = Some(json!({ "vcs": null, "branches": [] }));
+        assert_eq!(
+            empty_message(&ld),
+            "This project is not in a git or jj repository."
+        );
+        ld.branches = Some(json!({ "vcs": "git", "branches": [] }));
+        assert_eq!(empty_message(&ld), "No local branches in this repository.");
+
+        ld.branches = Some(json!({ "vcs": "git", "branches": [{ "name": "main" }] }));
+        (ld.branch, ld.base) = (Some("feat/a".into()), Some("main".into()));
+        assert_eq!(
+            empty_message(&ld),
+            "No difference between feat/a and main: the branch has no commits of its own yet."
+        );
+        ld.branch_info = serde_json::from_value(json!({
+            "vcs": "git", "mergeBase": null, "merged": true, "range": null, "changes": []
+        }))
+        .unwrap();
+        assert!(empty_message(&ld).starts_with("Branch feat/a is already merged into main"));
+        ld.picked = vec!["abc".into()];
+        assert_eq!(
+            empty_message(&ld),
+            "The selected commit changes no file: pick another slice of feat/a."
+        );
+        ld.base = Some("feat/a".into());
+        assert!(empty_message(&ld).starts_with("The branch and the base are the same"));
+    }
+
+    #[test]
+    fn a_branch_diff_names_the_revision_of_each_side() {
+        let info = |v: Value| serde_json::from_value::<BranchInfo>(v).unwrap();
+        let (branch, base) = (Some("feat/a"), Some("main"));
+        // the whole branch: fork point → branch head
+        let whole = info(json!({ "vcs": "git", "mergeBase": "f0", "range": null }));
+        assert_eq!(whole.rev(Side::Old, branch, base), Some("f0"));
+        assert_eq!(whole.rev(Side::New, branch, base), Some("feat/a"));
+        // histories with nothing in common: the base branch itself
+        let unrelated = info(json!({ "vcs": "git", "mergeBase": null }));
+        assert_eq!(unrelated.rev(Side::Old, branch, base), Some("main"));
+        // some commits: the parent of the oldest → the newest
+        let slice = info(json!({
+            "vcs": "git", "mergeBase": "f0", "range": { "from": "c1", "to": "c3", "parent": "c0" }
+        }));
+        assert_eq!(slice.rev(Side::Old, branch, base), Some("c0"));
+        assert_eq!(slice.rev(Side::New, branch, base), Some("c3"));
+        // a jj revision is not one git can blame
+        let jj = info(json!({ "vcs": "jj", "mergeBase": null }));
+        assert_eq!(jj.rev(Side::New, branch, base), None);
+    }
+
+    #[test]
+    fn a_thread_key_names_the_scope_it_was_written_on() {
+        use ThreadContext::*;
+        let claude = |turns: &[usize]| {
+            Some(Claude {
+                turns: turns.to_vec(),
+            })
+        };
+        assert_eq!(thread_context("full:2"), claude(&[]));
+        assert_eq!(thread_context("full:*"), claude(&[]));
+        assert_eq!(thread_context("sel:10,2"), claude(&[10, 2]));
+        assert_eq!(thread_context("sel:3:1"), claude(&[3]));
+        assert_eq!(thread_context("vcs:wt:0"), Some(Tree));
+        assert_eq!(thread_context("wtb:origin/main:4"), Some(Worktree));
+        // read from the right: the repo path may hold a colon
+        assert_eq!(
+            thread_context("br:/r:x/repo:main:feat/a:0"),
+            Some(Branch {
+                root: "/r:x/repo".into(),
+                base: "main".into(),
+                branch: "feat/a".into(),
+                range: None,
+            })
+        );
+        assert_eq!(
+            thread_context("br:/repo:main:feat/a:@abc..def:*"),
+            Some(Branch {
+                root: "/repo".into(),
+                base: "main".into(),
+                branch: "feat/a".into(),
+                range: Some(("abc".into(), "def".into())),
+            })
+        );
+        // the retired per-commit view, and keys cut short
+        assert_eq!(thread_context("vcs:/repo:abc123:0"), None);
+        assert_eq!(thread_context("br:/repo:main:feat/a"), None);
+        assert_eq!(thread_context("br:main:feat/a:0"), None);
+        assert_eq!(thread_context("br:/repo:main:feat/a:@abc:0"), None);
     }
 
     #[test]
@@ -1703,7 +2734,8 @@ mod prompt_tests {
             ..Default::default()
         };
         let sel: std::collections::BTreeSet<usize> = [1].into();
-        let (files, anchors) = filtered_diffs(&[change], &turns, &sel, Some("/r"));
+        let Sections { files, anchors, .. } =
+            filtered_diffs(&[change], &turns, &sel, Some("/r"), false);
         assert_eq!(anchors, [("/r/x".to_string(), "sel:1".to_string())]);
         assert_eq!(files[0].additions(), 1);
         assert_eq!(
@@ -1736,5 +2768,31 @@ mod prompt_tests {
             p.contains("-d '{\"id\":\"abc\",\"action\":\"claude-comment\",\"file\":\"<path>\"")
         );
         assert!(p.ends_with("do not raise them again:\n- /r/a.rs (+L3): off by one"));
+    }
+
+    #[test]
+    fn a_thread_reply_tells_claude_where_to_answer() {
+        let t = json!({ "id": "t9", "file": "/r/a.rs", "side": "old", "start": 3, "end": 5 });
+        let p = follow_up_prompt("abc", &t, "why?\nreally");
+        assert!(p.starts_with(
+            "Follow-up on review thread t9 — /r/a.rs (−L3–5):\n> why?\n> really\nReply in the thread"
+        ));
+        assert!(p.contains("mcp__hooked__reply_review_comment (id: \"abc\", thread_id above)"));
+        assert!(
+            p.contains("-d '{\"id\":\"abc\",\"action\":\"reply\",\"threadId\":\"<thread_id>\"")
+        );
+        assert!(p.ends_with("the details belong in the thread."));
+        assert_eq!(
+            anchor_label(&json!({ "side": "new", "start": 7, "end": 7 })),
+            "+L7"
+        );
+        // a selection dragged upwards reads the same as one dragged down
+        let range = |from, to| LineRange {
+            file: 0,
+            start: LineRef::new(Side::Old, from),
+            end: LineRef::new(Side::Old, to),
+        };
+        assert_eq!(draft_label(&range(4, 4)), "Comment on −L4");
+        assert_eq!(draft_label(&range(9, 6)), "Comment on −L6–9 · 4 lines");
     }
 }
