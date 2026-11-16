@@ -1938,6 +1938,7 @@ fn question(s: &Hooked, q: &PendingQuestion, k: &Kit) -> El {
                 .color(k.c.text_base)
                 .wrap(),
         );
+        let role = if qq.multi_select { "checkbox" } else { "radio" };
         for (oi, o) in qq.options.iter().enumerate() {
             let on = s.q_sel.get(qi).is_some_and(|set| set.contains(&oi));
             let mut opt = col().gap(2.0).child(
@@ -1953,61 +1954,124 @@ fn question(s: &Hooked, q: &PendingQuestion, k: &Kit) -> El {
                         .wrap(),
                 );
             }
+            let noted = s.q_notes.contains_key(&(qi, oi));
+            let choice = q_choice(k, format!("q-{qi}-{oi}"), role, on, opt)
+                .on_press(move |s: &mut Hooked| s.pick_option(qi, oi));
             block = block.child(
-                k.interactive(
-                    row()
-                        .key(format!("q-{qi}-{oi}"))
-                        .role(if qq.multi_select { "checkbox" } else { "radio" })
-                        .checked(on)
-                        .w_full()
-                        .padding(10.0)
-                        .gap(10.0)
-                        .radius(k.radius.md)
-                        .cursor(Cursor::Pointer)
-                        .border(
-                            1.0,
-                            if on {
-                                k.c.border_focus
+                row()
+                    .key(format!("q-{qi}-{oi}-row"))
+                    .w_full()
+                    .gap(4.0)
+                    .center_y()
+                    .child(choice.grow(1.0).min_w(0.0))
+                    .child(
+                        IconButton::new(&icons::PENCIL)
+                            .variant(if noted {
+                                IconButtonVariant::Ghost
                             } else {
-                                k.c.border_weak
-                            },
-                        )
-                        .fill(if on { k.c.layer_02 } else { Color::TRANSPARENT })
-                        .child(glyph(
-                            if on {
-                                &icons::CIRCLE_CHECK
+                                IconButtonVariant::GhostMuted
+                            })
+                            .control_size(ControlSize::Small)
+                            .label(if noted {
+                                "Remove the note"
                             } else {
-                                &icons::CIRCLE
-                            },
-                            16.0,
-                            if on { k.c.icon_base } else { k.c.icon_faint },
-                        ))
-                        .child(opt.grow(1.0).min_w(0.0)),
-                )
-                .on_press(move |s: &mut Hooked| s.pick_option(qi, oi)),
+                                "Take this option and add a note"
+                            })
+                            .help(if noted {
+                                "Remove the note"
+                            } else {
+                                "Take this option and add a note"
+                            })
+                            .on_press(move |s: &mut Hooked| s.toggle_note(qi, oi))
+                            .build(k)
+                            .key(format!("q-{qi}-{oi}-pen")),
+                    ),
+            );
+            if let Some(note) = s.q_notes.get(&(qi, oi)) {
+                block = block.child(
+                    row().w_full().pl(26.0).child(
+                        TextInput::new(note)
+                            .placeholder(format!("Note on «{}»…", o.label))
+                            .width(None)
+                            .on_edit(move |s: &mut Hooked| s.note_edit(qi, oi))
+                            .on_submit(|s: &mut Hooked, _| s.answer())
+                            .build(k)
+                            .key(format!("q-{qi}-{oi}-note")),
+                    ),
+                );
+            }
+        }
+        // The TUI's automatic "Other" choice: every question also takes a typed answer.
+        let other = s.q_other.get(qi).and_then(Option::as_ref);
+        block = block.child(
+            q_choice(
+                k,
+                format!("q-{qi}-other"),
+                role,
+                other.is_some(),
+                col().child(text("Other").font(k.ty.ui_medium).color(k.c.text_base)),
+            )
+            .on_press(move |s: &mut Hooked| s.toggle_other(qi)),
+        );
+        if let Some(t) = other {
+            block = block.child(
+                row().w_full().pl(26.0).child(
+                    TextInput::new(t)
+                        .placeholder("Type your own answer…")
+                        .width(None)
+                        .on_edit(move |s: &mut Hooked| s.other_edit(qi))
+                        .on_submit(|s: &mut Hooked, _| s.answer())
+                        .build(k)
+                        .key(format!("q-{qi}-other-text")),
+                ),
             );
         }
         body = body.child(block);
     }
-    c.child(body)
-        .child(
-            TextInput::new(&s.q_other)
-                .placeholder("Other: type your own answer…")
-                .width(None)
-                .on_edit(|s: &mut Hooked| &mut s.q_other)
-                .on_submit(|s: &mut Hooked, _| s.answer())
+    c.child(body).child(
+        row().justify_end().child(
+            Button::new("Answer")
+                .variant(ButtonVariant::Contrast)
+                .disabled(!s.question_answered())
+                .on_press(|s: &mut Hooked| s.answer())
                 .build(k)
-                .key("q-other"),
-        )
-        .child(
-            row().justify_end().child(
-                Button::new("Answer")
-                    .variant(ButtonVariant::Contrast)
-                    .on_press(|s: &mut Hooked| s.answer())
-                    .build(k)
-                    .key("q-answer"),
-            ),
-        )
+                .key("q-answer"),
+        ),
+    )
+}
+
+/// One choice of a question: a radio or checkbox row, ticked or not.
+fn q_choice(k: &Kit, key: String, role: &'static str, on: bool, content: El) -> El {
+    k.interactive(
+        row()
+            .key(key)
+            .role(role)
+            .checked(on)
+            .w_full()
+            .padding(10.0)
+            .gap(10.0)
+            .radius(k.radius.md)
+            .cursor(Cursor::Pointer)
+            .border(
+                1.0,
+                if on {
+                    k.c.border_focus
+                } else {
+                    k.c.border_weak
+                },
+            )
+            .fill(if on { k.c.layer_02 } else { Color::TRANSPARENT })
+            .child(glyph(
+                if on {
+                    &icons::CIRCLE_CHECK
+                } else {
+                    &icons::CIRCLE
+                },
+                16.0,
+                if on { k.c.icon_base } else { k.c.icon_faint },
+            ))
+            .child(content.grow(1.0).min_w(0.0)),
+    )
 }
 
 fn plan_comments(s: &Hooked, k: &Kit) -> El {

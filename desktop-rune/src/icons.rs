@@ -25,6 +25,11 @@ lucide!(
     r#"<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>"#
 );
 lucide!(PLUS, "plus", r#"<path d="M12 5v14M5 12h14"/>"#);
+lucide!(
+    PENCIL,
+    "pencil",
+    r#"<path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/><path d="m15 5 4 4"/>"#
+);
 #[cfg(feature = "knobs")]
 lucide!(
     SLIDERS,
