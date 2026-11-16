@@ -130,6 +130,8 @@ pub struct Hooked {
     pub dock_gh_w: Option<f32>,
     /// The Review lens's rendered Markdown column.
     pub rendered_w: f32,
+    /// The Review lens leaves out the unchanged lines around each change.
+    pub review_compact: bool,
     pub window_h: f32,
     pub window_w: f32,
     pub show_archived: bool,
@@ -374,6 +376,7 @@ impl Hooked {
         let dock_w = prefs.get("dockW").unwrap_or(crate::view::DOCK_W);
         let dock_gh_w = prefs.get("dockGhW");
         let rendered_w = prefs.get("renderedW").unwrap_or(crate::view::RENDERED_W);
+        let review_compact = prefs.get("reviewCompact").unwrap_or(false);
         let mut s = Hooked {
             prefs,
             sessions: Vec::new(),
@@ -400,6 +403,7 @@ impl Hooked {
             dock_w,
             dock_gh_w,
             rendered_w,
+            review_compact,
             window_h: 860.0,
             window_w: 1320.0,
             show_archived: false,

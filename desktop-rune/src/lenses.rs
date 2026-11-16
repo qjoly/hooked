@@ -98,6 +98,8 @@ pub struct LensData {
     pub branch_open: bool,
     pub turns_open: bool,
     pub anchors: Vec<(String, String)>,
+    /// What a reviewed tick signs off for each file of the diff; see `Sections::fps`.
+    pub fps: Vec<String>,
     pub threads: Vec<Value>,
     /// Where each live thread shows in the diff on screen, by thread id.
     pub placed: HashMap<String, Placed>,
@@ -158,6 +160,7 @@ impl Default for LensData {
             branch_open: false,
             turns_open: false,
             anchors: Vec::new(),
+            fps: Vec::new(),
             threads: Vec::new(),
             placed: HashMap::new(),
             jump: None,
@@ -181,6 +184,15 @@ impl Default for LensData {
             trace_open: None,
             trace_tool: HashMap::new(),
         }
+    }
+}
+
+impl LensData {
+    /// Puts a scope's diff on screen.
+    fn show(&mut self, s: Sections) {
+        self.diff.set_files(s.files);
+        self.anchors = s.anchors;
+        self.fps = s.fps;
     }
 }
 
@@ -235,6 +247,39 @@ pub fn turns_key(selected: &std::collections::BTreeSet<usize>) -> String {
     format!("sel:{}", t.join(","))
 }
 
+/// A scope's diff, ready for the lens: one entry per section, in the rail's order.
+#[derive(Default)]
+pub struct Sections {
+    pub files: Vec<FileDiff>,
+    /// The `(file, opIndex)` the web lens files each section's threads under.
+    pub anchors: Vec<(String, String)>,
+    /// What a reviewed tick signs off for each section; see [`fingerprint`].
+    pub fps: Vec<String>,
+}
+
+impl Sections {
+    /// `compact` leaves out the unchanged lines around each change; they stay one click away,
+    /// in the folded ranges. The fingerprint is taken on the usual diff either way, so a
+    /// reviewed tick holds whichever way the file was shown.
+    fn push(
+        &mut self,
+        anchor: (String, String),
+        label: String,
+        old: &str,
+        new: &str,
+        compact: bool,
+    ) {
+        let full = FileDiff::from_texts(label.clone(), old, new);
+        self.fps.push(fingerprint(&full));
+        self.files.push(if compact {
+            FileDiff::from_texts_with_context(label, old, new, 0)
+        } else {
+            full
+        });
+        self.anchors.push(anchor);
+    }
+}
+
 /// Claude's edits restricted to the selected prompts: one section replayed from the original
 /// when the server could rebuild it, else each selected op on its own.
 pub fn filtered_diffs(
@@ -242,9 +287,10 @@ pub fn filtered_diffs(
     turns: &[ChangeTurn],
     selected: &std::collections::BTreeSet<usize>,
     root: Option<&str>,
-) -> (Vec<FileDiff>, Vec<(String, String)>) {
+    compact: bool,
+) -> Sections {
     let key = turns_key(selected);
-    let (mut out, mut anchors) = (Vec::new(), Vec::new());
+    let mut out = Sections::default();
     for c in changes {
         let path = relative(&c.file, root);
         let picked: Vec<usize> = c
@@ -269,32 +315,34 @@ pub fn filtered_diffs(
                     after = text.clone();
                 }
             }
-            out.push(FileDiff::from_texts(path.clone(), &before, &after));
-            anchors.push((c.file.clone(), key.clone()));
+            out.push(
+                (c.file.clone(), key.clone()),
+                path.clone(),
+                &before,
+                &after,
+                compact,
+            );
         } else {
             for j in picked {
                 let o = &c.raw_ops[j];
                 let old = o["old"].as_str().unwrap_or("");
                 let new = o["new"].as_str().or(o["content"].as_str()).unwrap_or("");
-                out.push(FileDiff::from_texts(
+                out.push(
+                    (c.file.clone(), format!("{key}:{j}")),
                     format!("{path} · edit {}", j + 1),
                     old,
                     new,
-                ));
-                anchors.push((c.file.clone(), format!("{key}:{j}")));
+                    compact,
+                );
             }
         }
     }
-    (out, anchors)
+    out
 }
 
 /// One diff per op, with the `(file, opIndex)` anchor the web lens files review threads under.
-pub fn file_diffs(
-    changes: &[Change],
-    root: Option<&str>,
-    key: &str,
-) -> (Vec<FileDiff>, Vec<(String, String)>) {
-    let (mut out, mut anchors) = (Vec::new(), Vec::new());
+pub fn file_diffs(changes: &[Change], root: Option<&str>, key: &str, compact: bool) -> Sections {
+    let mut out = Sections::default();
     for c in changes {
         let path = relative(&c.file, root);
         let n = c.ops.len();
@@ -310,37 +358,41 @@ pub fn file_diffs(
             } else {
                 path.clone()
             };
-            out.push(FileDiff::from_texts(label, old, new));
-            anchors.push((c.file.clone(), format!("{key}:{i}")));
+            out.push(
+                (c.file.clone(), format!("{key}:{i}")),
+                label,
+                old,
+                new,
+                compact,
+            );
         }
     }
-    (out, anchors)
+    out
 }
 
 pub struct TreeDiffs {
-    pub files: Vec<FileDiff>,
-    pub anchors: Vec<(String, String)>,
+    pub sections: Sections,
     /// The repo of each file, for the rail's headers; empty when there is only one repo.
     pub repos: Vec<String>,
 }
 
 /// The uncommitted changes of every detected repo, one repo after the other, as the web lens
 /// flattens them.
-pub fn tree_diffs(repos: &[api::Repo], root: Option<&str>) -> TreeDiffs {
+pub fn tree_diffs(repos: &[api::Repo], root: Option<&str>, compact: bool) -> TreeDiffs {
     let several = repos.len() > 1;
     let mut out = TreeDiffs {
-        files: Vec::new(),
-        anchors: Vec::new(),
+        sections: Sections::default(),
         repos: Vec::new(),
     };
     for r in repos {
-        let (files, anchors) = file_diffs(&r.changes, root, "vcs:wt");
+        let s = file_diffs(&r.changes, root, "vcs:wt", compact);
         if several {
             out.repos
-                .extend(std::iter::repeat_n(r.name().to_string(), files.len()));
+                .extend(std::iter::repeat_n(r.name().to_string(), s.files.len()));
         }
-        out.files.extend(files);
-        out.anchors.extend(anchors);
+        out.sections.files.extend(s.files);
+        out.sections.anchors.extend(s.anchors);
+        out.sections.fps.extend(s.fps);
     }
     out
 }
@@ -911,7 +963,7 @@ impl Hooked {
         ld.picked.clear();
         ld.commits.clear();
         ld.diff_sig = None;
-        ld.diff.set_files(Vec::new());
+        ld.show(Sections::default());
     }
 
     fn load_branch_diff(&mut self, id: String, sig: String) {
@@ -923,6 +975,7 @@ impl Hooked {
         };
         let range = self.branch_range();
         let key = self.branch_key().unwrap_or_default();
+        let compact = self.review_compact;
         self.lens_data.diff_loading = true;
         self.lens_data.branch_info = BranchInfo::default();
         self.spawn(
@@ -960,10 +1013,12 @@ impl Hooked {
                             serde_json::from_value(v["changes"].clone()).unwrap_or_default();
                         s.lens_data.diff_count = changes.len();
                         let root = v["root"].as_str().map(str::to_string);
-                        let (files, anchors) =
-                            file_diffs(&changes, root.as_deref(), &format!("br:{key}"));
-                        s.lens_data.diff.set_files(files);
-                        s.lens_data.anchors = anchors;
+                        s.lens_data.show(file_diffs(
+                            &changes,
+                            root.as_deref(),
+                            &format!("br:{key}"),
+                            compact,
+                        ));
                         s.annotate();
                         s.load_threads();
                     }
@@ -1268,9 +1323,10 @@ impl Hooked {
     }
 
     fn review_key(&self, file: usize) -> Option<(String, String)> {
-        let f = self.lens_data.diff.files().get(file)?;
+        let ld = &self.lens_data;
+        let f = ld.diff.files().get(file)?;
         let id = self.selected.as_deref()?;
-        Some((format!("{id}|{}", f.path()), fingerprint(f)))
+        Some((format!("{id}|{}", f.path()), ld.fps.get(file)?.clone()))
     }
 
     pub fn is_reviewed(&self, file: usize) -> bool {
@@ -1340,19 +1396,20 @@ impl Hooked {
             Lens::Converse => false,
             Lens::Review => {
                 let ld = &self.lens_data;
+                let compact = self.review_compact;
                 let sig = match ld.review_source {
                     ReviewSource::Claude => {
                         format!(
-                            "{id}|claude|{}|{activity}|{:?}|{}",
+                            "{id}|claude|{}|{activity}|{:?}|{}|{compact}",
                             d.changes.len(),
                             ld.turns,
                             ld.full.values().filter(|c| c.is_some()).count()
                         )
                     }
-                    ReviewSource::Worktree => format!("{id}|worktree|{activity}"),
-                    ReviewSource::Tree => format!("{id}|tree|{activity}"),
+                    ReviewSource::Worktree => format!("{id}|worktree|{activity}|{compact}"),
+                    ReviewSource::Tree => format!("{id}|tree|{activity}|{compact}"),
                     ReviewSource::Branch => match self.branch_key() {
-                        Some(key) => format!("{id}|branch|{key}|{activity}"),
+                        Some(key) => format!("{id}|branch|{key}|{activity}|{compact}"),
                         None => {
                             if ld.branches.is_none() && !ld.branches_loading {
                                 let root = ld.branch_root.clone();
@@ -1376,14 +1433,19 @@ impl Hooked {
                                 _ => c.clone(),
                             })
                             .collect();
-                        let (files, anchors) = if ld.turns.is_empty() {
-                            file_diffs(&changes, project.as_deref(), "full")
+                        let sections = if ld.turns.is_empty() {
+                            file_diffs(&changes, project.as_deref(), "full", compact)
                         } else {
-                            filtered_diffs(&changes, &d.change_turns, &ld.turns, project.as_deref())
+                            filtered_diffs(
+                                &changes,
+                                &d.change_turns,
+                                &ld.turns,
+                                project.as_deref(),
+                                compact,
+                            )
                         };
                         self.lens_data.diff_count = d.changes.len();
-                        self.lens_data.diff.set_files(files);
-                        self.lens_data.anchors = anchors;
+                        self.lens_data.show(sections);
                         self.annotate();
                         self.lens_data.diff_sig = Some(sig);
                         self.load_threads();
@@ -1408,9 +1470,9 @@ impl Hooked {
                                         ld.tree_truncated = found.truncated;
                                         ld.diff_count =
                                             found.repos.iter().map(|r| r.changes.len()).sum();
-                                        let tree = tree_diffs(&found.repos, project.as_deref());
-                                        ld.diff.set_files(tree.files);
-                                        ld.anchors = tree.anchors;
+                                        let tree =
+                                            tree_diffs(&found.repos, project.as_deref(), compact);
+                                        ld.show(tree.sections);
                                         ld.file_repos = tree.repos;
                                         s.annotate();
                                         s.load_threads();
@@ -1432,14 +1494,14 @@ impl Hooked {
                                     Ok(wt) => {
                                         s.lens_data.diff_error = None;
                                         s.lens_data.diff_count = wt.changes.len();
-                                        let (files, anchors) = file_diffs(
+                                        let sections = file_diffs(
                                             &wt.changes,
                                             wt.root.as_deref(),
                                             &worktree_key(Some(&wt)),
+                                            compact,
                                         );
                                         s.lens_data.worktree = Some(wt);
-                                        s.lens_data.diff.set_files(files);
-                                        s.lens_data.anchors = anchors;
+                                        s.lens_data.show(sections);
                                         s.annotate();
                                         s.load_threads();
                                     }
@@ -1984,7 +2046,7 @@ impl Hooked {
             ld.diff_error = None;
             ld.no_vcs = false;
             ld.tree_truncated = false;
-            ld.diff.set_files(Vec::new());
+            ld.show(Sections::default());
             ld.file_repos.clear();
         }
     }
@@ -2119,7 +2181,7 @@ mod tests {
             "ops": [{ "old": "a\n", "new": "b\n" }, { "old": "", "new": "c\n" }]
         }))
         .unwrap();
-        let (files, anchors) = file_diffs(&[c], Some("/repo"), "full");
+        let Sections { files, anchors, .. } = file_diffs(&[c], Some("/repo"), "full", false);
         assert_eq!(
             anchors[1],
             ("/repo/src/a.rs".to_string(), "full:1".to_string())
@@ -2146,21 +2208,46 @@ mod tests {
             repo("/ws/empty", "empty", &[]),
             repo("/ws/web", "web", &["/ws/web/b.ts", "/ws/web/c.ts"]),
         ];
-        let tree = tree_diffs(&repos, Some("/ws"));
-        let paths: Vec<&str> = tree.files.iter().map(|f| f.path()).collect();
+        let tree = tree_diffs(&repos, Some("/ws"), false);
+        let paths: Vec<&str> = tree.sections.files.iter().map(|f| f.path()).collect();
         assert_eq!(paths, ["api/a.rs", "web/b.ts", "web/c.ts"]);
         assert_eq!(tree.repos, ["api", "web", "web"]);
         assert_eq!(
-            tree.anchors[1],
+            tree.sections.anchors[1],
             ("/ws/web/b.ts".to_string(), "vcs:wt:0".to_string())
         );
     }
 
     #[test]
     fn working_tree_of_a_single_repo_has_no_repo_headers() {
-        let tree = tree_diffs(&[repo("/r", "", &["/r/a.rs"])], Some("/r"));
-        assert_eq!(tree.files.len(), 1);
+        let tree = tree_diffs(&[repo("/r", "", &["/r/a.rs"])], Some("/r"), false);
+        assert_eq!(tree.sections.files.len(), 1);
         assert!(tree.repos.is_empty());
+    }
+
+    #[test]
+    fn compact_drops_the_context_and_keeps_the_reviewed_tick() {
+        let old = "a\nb\nc\nd\ne\nf\ng\nh\n";
+        let new = "a\nb\nc\nd\nE\nf\ng\nh\n";
+        let c: Change = serde_json::from_value(json!({
+            "file": "/r/a.rs", "ops": [{ "old": old, "new": new }]
+        }))
+        .unwrap();
+        let lines = |s: &Sections| {
+            s.files[0]
+                .hunks
+                .iter()
+                .map(|h| h.lines.len())
+                .sum::<usize>()
+        };
+        let usual = file_diffs(std::slice::from_ref(&c), Some("/r"), "full", false);
+        let compact = file_diffs(std::slice::from_ref(&c), Some("/r"), "full", true);
+        // three lines of context each side of the change, or none
+        assert_eq!((lines(&usual), lines(&compact)), (8, 2));
+        // the folded lines can still be opened, and the tick signs off the same change
+        assert!(compact.files[0].expandable());
+        assert_eq!(usual.fps, compact.fps);
+        assert_eq!(usual.anchors, compact.anchors);
     }
 
     #[test]
@@ -2361,7 +2448,8 @@ mod prompt_tests {
             ..Default::default()
         };
         let sel: std::collections::BTreeSet<usize> = [1].into();
-        let (files, anchors) = filtered_diffs(&[change], &turns, &sel, Some("/r"));
+        let Sections { files, anchors, .. } =
+            filtered_diffs(&[change], &turns, &sel, Some("/r"), false);
         assert_eq!(anchors, [("/r/x".to_string(), "sel:1".to_string())]);
         assert_eq!(files[0].additions(), 1);
         assert_eq!(

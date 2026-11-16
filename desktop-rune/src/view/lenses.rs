@@ -1059,6 +1059,23 @@ pub fn review(s: &Hooked, d: &Detail, k: &Kit) -> El {
         );
     }
     top = top.child(
+        Button::new("Compact")
+            .variant(if s.review_compact {
+                ButtonVariant::Outline
+            } else {
+                ButtonVariant::GhostMuted
+            })
+            .control_size(ControlSize::Regular)
+            .help("Hide the unchanged lines around each change")
+            .on_press(|s: &mut Hooked| {
+                s.review_compact = !s.review_compact;
+                let on = s.review_compact;
+                s.save_pref("reviewCompact", &on);
+            })
+            .build(k)
+            .key("review-compact"),
+    );
+    top = top.child(
         SegmentedControl::new(&["Unified", "Split"], Some(usize::from(split)))
             .label("Diff layout")
             .fit()
