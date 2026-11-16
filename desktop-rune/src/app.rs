@@ -132,6 +132,9 @@ pub struct Hooked {
     pub rendered_w: f32,
     /// The Review lens leaves out the unchanged lines around each change.
     pub review_compact: bool,
+    /// The Review lens's files rail and comments panel, both resizable.
+    pub review_files_w: f32,
+    pub review_threads_w: f32,
     /// The Review lens's width, as last laid out.
     pub review_w: f32,
     /// The lens is narrow and showed its side-by-side diff unified: it goes back to split
@@ -386,6 +389,12 @@ impl Hooked {
         let dock_gh_w = prefs.get("dockGhW");
         let rendered_w = prefs.get("renderedW").unwrap_or(crate::view::RENDERED_W);
         let review_compact = prefs.get("reviewCompact").unwrap_or(false);
+        let review_files_w = prefs
+            .get("reviewFilesW")
+            .unwrap_or(crate::view::REVIEW_FILES_W);
+        let review_threads_w = prefs
+            .get("reviewThreadsW")
+            .unwrap_or(crate::view::REVIEW_THREADS_W);
         let mut s = Hooked {
             prefs,
             sessions: Vec::new(),
@@ -413,6 +422,8 @@ impl Hooked {
             dock_gh_w,
             rendered_w,
             review_compact,
+            review_files_w,
+            review_threads_w,
             review_w: f32::MAX,
             review_forced_unified: false,
             window_h: 860.0,

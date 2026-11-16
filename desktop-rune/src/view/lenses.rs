@@ -1,4 +1,4 @@
-use rune::{Color, Cursor, El, ScrollSpec, col, el, row, text};
+use rune::{Color, Cursor, El, Phase, ScrollSpec, col, el, row, text};
 use rune_kit::diff::{Annotation, DiffMode, DiffView};
 use rune_kit::{
     Button, ButtonVariant, ControlSize, Kit, SegmentedControl, Spinner, TextArea, TextInput,
@@ -522,15 +522,27 @@ fn threads_panel(s: &Hooked, k: &Kit) -> El {
                 .color(k.c.text_faint),
         );
     }
-    col()
+    row()
         .key("review-threads")
-        .w(300.0)
+        .w(column_width(s, s.review_threads_w))
         .h_full()
         .border_sides([0.0, 0.0, 0.0, 1.0], k.c.border_weak)
-        .scroll(ScrollSpec {
-            stick_bottom: false,
-        })
-        .child(c)
+        .child(column_grip(
+            "threads-resize",
+            |s| s.review_threads_w,
+            |s, w| s.review_threads_w = w,
+            |s, w| s.save_pref("reviewThreadsW", &w),
+        ))
+        .child(
+            col()
+                .grow(1.0)
+                .min_w(0.0)
+                .h_full()
+                .scroll(ScrollSpec {
+                    stick_bottom: false,
+                })
+                .child(c),
+        )
 }
 
 fn rendered_panel(s: &Hooked, k: &Kit) -> El {
@@ -701,6 +713,9 @@ fn reviewed_toggle(s: &Hooked, k: &Kit, i: usize) -> El {
         .build(k)
 }
 
+/// How narrow and how wide the files rail can be dragged, as on the web.
+const FILES_W: (f32, f32) = (150.0, 520.0);
+
 fn files_rail(s: &Hooked, k: &Kit, width: f32) -> El {
     let ld = &s.lens_data;
     let files = ld.diff.files();
@@ -852,11 +867,32 @@ fn files_rail(s: &Hooked, k: &Kit, width: f32) -> El {
                 .py(6.0),
         );
     }
-    col()
-        .key("review-files")
-        .w(width)
+    // The grip on the rail's right edge: dragging it right widens the rail, Escape puts the
+    // width back, and the release saves it.
+    let grip = el()
+        .key("rf-resize")
+        .w(6.0)
         .h_full()
-        .border_sides([0.0, 1.0, 0.0, 0.0], k.c.border_weak)
+        .cursor(Cursor::ResizeColumn)
+        .help("Drag to resize")
+        .on_drag(|s: &mut Hooked, d: &mut rune::Drag, _| {
+            if d.phase == Phase::Down {
+                d.data = s.review_files_w;
+            }
+            if d.cancelled() {
+                s.review_files_w = d.data;
+                return;
+            }
+            s.review_files_w = (d.data + d.dx).clamp(FILES_W.0, FILES_W.1);
+            if d.phase == Phase::Up {
+                let w = s.review_files_w;
+                s.save_pref("reviewFilesW", &w);
+            }
+        });
+    let rail = col()
+        .grow(1.0)
+        .min_w(0.0)
+        .h_full()
         .child(
             row()
                 .w_full()
@@ -904,7 +940,14 @@ fn files_rail(s: &Hooked, k: &Kit, width: f32) -> El {
                         .color(k.c.text_faint)
                         .wrap(),
                 ),
-        )
+        );
+    row()
+        .key("review-files")
+        .w(width)
+        .h_full()
+        .border_sides([0.0, 1.0, 0.0, 0.0], k.c.border_weak)
+        .child(rail)
+        .child(grip)
 }
 
 pub fn review(s: &Hooked, d: &Detail, k: &Kit) -> El {
@@ -1229,7 +1272,8 @@ pub fn review(s: &Hooked, d: &Detail, k: &Kit) -> El {
             s.review_w >= crate::lenses::NO_RAIL_W && !(narrow && (ld.rendered || ld.threads_open));
         let mut body = row().key("review-body").w_full().grow(1.0).min_h(0.0);
         if rail {
-            body = body.child(files_rail(s, k, if narrow { 180.0 } else { 240.0 }));
+            let w = s.review_files_w.clamp(FILES_W.0, FILES_W.1);
+            body = body.child(files_rail(s, k, if narrow { w.min(180.0) } else { w }));
         }
         body = body.child(diff);
         if ld.rendered {
