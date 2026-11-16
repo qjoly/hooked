@@ -2,6 +2,7 @@ mod deck;
 mod dock;
 mod fleet;
 mod ghdetail;
+mod incidents;
 pub(crate) mod ghrun;
 mod lenses;
 mod new_session;
@@ -98,6 +99,7 @@ pub fn view(s: &Hooked, cx: &mut Cx<Hooked>) -> El {
         Page::Memory => pages::memory(s, &k),
         Page::Cron => pages::cron(s, &k),
         Page::GitHub => pages::github(s, &k),
+        Page::Incidents => incidents::view(s, &k),
         Page::Skills => pages::skills(s, &k),
         Page::Settings => settings::view(s, &k),
         Page::Prompts => pages::prompts(s, &k),
@@ -167,6 +169,7 @@ pub fn view(s: &Hooked, cx: &mut Cx<Hooked>) -> El {
     if s.picker.is_some() {
         layer.push(organize::view(s, &k));
     }
+    layer.extend(incidents::modal(s, &k));
     rune_kit::root(crate::knobs::side(base, s, k.dark), layer)
         .on_window_focus(|s: &mut Hooked, gained: bool, _| s.window_focus(gained))
         .on_paste_content(
@@ -494,6 +497,18 @@ fn topbar(s: &Hooked, k: &Kit, inset: f32, _layer: &mut Vec<El>) -> El {
                     .map(|(_, key, label, icon, page)| {
                         space(key, label, icon, s.page == page, None)
                             .on_press(move |s: &mut Hooked| s.go(page))
+                    }),
+                )
+                .children(
+                    (s.incidents_on() || s.page == Page::Incidents).then(|| {
+                        space(
+                            "tb-incidents",
+                            "Incidents",
+                            &icons::SIREN,
+                            s.page == Page::Incidents,
+                            Some(s.inc.mine_open()),
+                        )
+                        .on_press(|s: &mut Hooked| s.go(Page::Incidents))
                     }),
                 ),
         )

@@ -177,6 +177,7 @@ impl Hooked {
             }
             Page::Memory => pd.memory = api::get("/api/memory").ok(),
             Page::GitHub => pd.github = api::get("/api/github").ok(),
+            Page::Incidents => self.preload_incidents(),
             Page::Skills => {
                 pd.skills = api::get("/api/skills")
                     .ok()
@@ -333,6 +334,7 @@ impl Hooked {
                 );
                 true
             }
+            Page::Incidents => self.ensure_incidents(),
             _ => false,
         }
     }
@@ -470,6 +472,7 @@ impl Hooked {
             Page::Memory => self.pages.memory = None,
             Page::Cron => self.pages.cron_loaded = false,
             Page::GitHub => self.pages.github = None,
+            Page::Incidents => self.inc.lists[self.inc.scope].loaded_at = None,
             Page::Skills => self.pages.skills = None,
             Page::Settings => self.pages.settings_stale = true,
             _ => {}

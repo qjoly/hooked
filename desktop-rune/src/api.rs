@@ -115,7 +115,7 @@ fn strip_nulls(v: &mut Value) {
     }
 }
 
-fn decode<T: serde::de::DeserializeOwned>(mut v: Value) -> Result<T, String> {
+pub fn decode<T: serde::de::DeserializeOwned>(mut v: Value) -> Result<T, String> {
     strip_nulls(&mut v);
     serde_json::from_value(v).map_err(|e| e.to_string())
 }

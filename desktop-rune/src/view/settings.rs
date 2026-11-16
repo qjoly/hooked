@@ -75,6 +75,22 @@ fn card(k: &Kit, key: &str, title: &str) -> El {
         .child(row().pb(6.0).child(section_title(k, title)))
 }
 
+/// What the Incidents page is doing, or why there is none.
+fn incidents_hint(s: &Hooked) -> String {
+    use crate::incidents::Avail;
+    let what = "The Incidents page: preview, pin and merge incidents through the incident.io desktop app.";
+    match &s.inc.avail {
+        Avail::Off => "The incident.io desktop app is not installed on this machine, so there is no Incidents page.".into(),
+        Avail::Checking => format!("{what} Checking the connection…"),
+        Avail::Failed(e) => format!("{what} Not available right now ({e}); checked again every five minutes."),
+        Avail::Ready => {
+            let who = s.inc.org.me_name.as_deref().map(|n| format!(" as {n}")).unwrap_or_default();
+            let rights = if s.inc.writable { "" } else { ", read-only" };
+            format!("{what} Connected{who}{rights}.")
+        }
+    }
+}
+
 fn line(k: &Kit, title: &str, hint: &str, control: El) -> El {
     row()
         .w_full()
@@ -314,6 +330,20 @@ fn app_card(s: &Hooked, k: &Kit, v: &Value) -> El {
                 s.notify = !s.notify;
                 let n = s.notify;
                 s.save_pref("notify", &n);
+            }),
+        ))
+        .child(line(
+            k,
+            "incident.io",
+            &incidents_hint(s),
+            toggle(k, "set-incidents", !s.inc.hidden, |s| {
+                s.inc.hidden = !s.inc.hidden;
+                let hidden = s.inc.hidden;
+                s.save_pref("incidentsHidden", &hidden);
+                s.inc.checked_at = 0;
+                if hidden && s.page == crate::app::Page::Incidents {
+                    s.go_deck();
+                }
             }),
         ))
         .child(line(
@@ -1387,6 +1417,9 @@ fn shortcuts_card(s: &Hooked, k: &Kit) -> El {
     use rune_kit::ShortcutRecorder;
     let mut c = card(k, "set-keys", "KEYBOARD SHORTCUTS");
     for (id, label, _) in crate::shortcuts::ACTIONS {
+        if id == "go-incidents" && !s.incidents_on() {
+            continue;
+        }
         let Some(state) = s.shortcuts.get(id) else {
             continue;
         };

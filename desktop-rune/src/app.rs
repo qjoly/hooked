@@ -53,6 +53,7 @@ pub enum Page {
     Memory,
     Cron,
     GitHub,
+    Incidents,
     Skills,
     Prompts,
     Settings,
@@ -256,6 +257,7 @@ pub struct Hooked {
 
     pub lens_data: crate::lenses::LensData,
     pub pages: crate::pages::PageData,
+    pub inc: crate::incidents::Incidents,
     pub announced: Option<HashSet<String>>,
     pub tray_dirty: bool,
 }
@@ -374,6 +376,8 @@ impl Hooked {
         let corners: crate::theme::Corners = prefs.get("corners").unwrap_or_default();
         crate::theme::set_look(scheme, corners);
         let notify = prefs.get("notify").unwrap_or(true);
+        let incidents_hidden = prefs.get("incidentsHidden").unwrap_or(false);
+        let incident_teams: Vec<String> = prefs.get("incidentsTeams").unwrap_or_default();
         crate::perf::set_enabled(
             crate::perf::env_override().unwrap_or(prefs.get("perfDiagnostics").unwrap_or(false)),
         );
@@ -531,6 +535,10 @@ impl Hooked {
             focus: false,
             lens_data: crate::lenses::LensData::default(),
             pages: crate::pages::PageData::default(),
+            inc: crate::incidents::Incidents::new(
+                incidents_hidden,
+                incident_teams.into_iter().collect(),
+            ),
             announced: None,
             tray_dirty: true,
         };
@@ -750,6 +758,7 @@ impl Hooked {
                 Some("memory") => Page::Memory,
                 Some("cron") => Page::Cron,
                 Some("github") => Page::GitHub,
+                Some("incidents") => Page::Incidents,
                 Some("skills") => Page::Skills,
                 Some("settings") => Page::Settings,
                 Some("prompts") => Page::Prompts,

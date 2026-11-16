@@ -29,11 +29,12 @@ The layout follows the web dashboard; the look is the web's colour schemes as ru
 (`src/theme.rs`): Coffee (the default), Indigo, Legacy, Datadog, Gruvbox and Claude, each in light
 and dark, with rounded or square corners, picked in Settings or the palette.
 
-- **Top bar**: Deck, Sessions, Stats, Digest, Memory, Cron and GitHub, the palette (⌘K / ⌘P;
+- **Top bar**: Deck, Sessions, Stats, Digest, Memory, Cron, GitHub and Incidents (when the
+  incident.io desktop app is installed), the palette (⌘K / ⌘P;
   ⌘⇧P or a leading `>` for commands only) with sessions, about 35 commands and full-text search
   over transcripts, 5H / 7D / Fable gauges, trash (restore deleted sessions), notifications,
   theme, settings (⌘,), `+ Session`, and a connection dot.
-- **Shortcuts**: ⌥1 Deck, ⌥2 Sessions, ⌥4–7 Stats / Digest / Memory / GitHub, ⌘J terminal,
+- **Shortcuts**: ⌥1 Deck, ⌥2 Sessions, ⌥4–8 Stats / Digest / Memory / GitHub / Incidents, ⌘J terminal,
   ⌘⇧J new terminal, ⌘⇧D context panel, ⌘⇧F focus mode, ⌘⇧T theme, ⌘⇧S split, ⌘B sidebar.
 - **Sidebar**: sessions by status (Waiting, Working, Idle; Snoozed and Archived at the bottom,
   opening upward), by project (collapsible sections with a `+` each) or flat; last-24h filter, a
@@ -83,6 +84,20 @@ and dark, with rounded or square corners, picked in Settings or the palette.
   color scheme, corners, notifications, default page, new-session defaults, digest, auto-compact,
   worktrees (folder, branch naming, cleanup, auto-pull of main checkouts), tags, git sync, with a
   table of contents in place of the session list).
+- **Incidents** (⌥8): incident.io through the desktop app's own binary, which is why the tab
+  only exists where that app is installed and signed in (Settings → *incident.io* says which,
+  and can turn the tab off; it is also hidden in incognito mode). Open, Mine, Post-incident,
+  Closed and Merged lists with their counts, a text filter, severity chips and a chip per
+  team you belong to (it narrows every list but Mine to that team and its sub-teams, and is
+  remembered); the tab's badge counts the open incidents you take part in. A click previews an incident beside the list
+  (summary, roles, participants, alerts, latest updates, AI investigation, fields), ⌘-click
+  opens it in incident.io. From the preview: join the channel or the call, pin it as "my
+  incident" for the desktop app, take a role, hand it to a new Claude session with a read-only
+  brief. Tick several incidents to merge them into the one to keep (the one already being
+  worked by default, or any reference you type), with what responders will see spelled out
+  before the call and an Undo after it; open incidents whose names look alike are offered as a
+  merge to review; merged incidents can be unmerged, one or several at a time. Each action
+  needs its tool on the server and a connection that may write, else it is not shown.
 - **Organizing**: drag a session (sidebar row or fleet card) onto another to group them, or onto
   a fleet repo header to take it out of its group; tags on rows and in the header, groups under their
   lead session with a tab strip (switch, make lead, leave, rename, new session in the group),
@@ -170,6 +185,11 @@ cargo run -- --window quick --snap /tmp/quick.png --size 760x500
 cargo run -- --snap /tmp/sidebar.png --size 1440x900 -- --session <id> --open-section archived   # any section
 cargo run -- --snap /tmp/menus.png --size 1440x900 -- --session <id> --snooze-menu   # --sort-menu, --filter-menu
 cargo run -- --snap /tmp/filter.png --size 1440x900 -- --session <id> --picker filter-repo   # filter-tag
+HOOKED_INCIDENT_BIN=scripts/fake-incident cargo run -- --snap /tmp/inc.png --size 1440x900 -- --page incidents --incident INC-409   # --scope merged, --team, --merge
 ```
+
+`scripts/fake-incident` stands in for the incident.io binary (`HOOKED_INCIDENT_BIN`; empty turns
+the page off): the same MCP tools over made-up incidents kept in memory, so a merge and its undo
+can be exercised without touching a real incident. `cargo test` runs them against it.
 
 With these flags the app loads the data synchronously before the first frame, so the PNG shows it.
