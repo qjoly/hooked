@@ -213,7 +213,10 @@ pub struct Hooked {
     pub sending: bool,
 
     pub q_sel: Vec<BTreeSet<usize>>,
-    pub q_other: TextEdit,
+    /// Per question, the "Other" write-in: `None` while not chosen.
+    pub q_other: Vec<Option<TextEdit>>,
+    /// Notes on chosen options, by (question, option).
+    pub q_notes: std::collections::BTreeMap<(usize, usize), TextEdit>,
     pub plan_feedback: TextEdit,
 
     pub popup: Option<Popup>,
@@ -476,7 +479,8 @@ impl Hooked {
             queued: Vec::new(),
             sending: false,
             q_sel: Vec::new(),
-            q_other: TextEdit::new(""),
+            q_other: Vec::new(),
+            q_notes: Default::default(),
             plan_feedback: TextEdit::new(""),
             popup: None,
             flash: None,
@@ -1544,7 +1548,8 @@ impl Hooked {
             .and_then(|d| d.pending_question.as_ref())
             .map_or(0, |q| q.questions.len());
         self.q_sel = vec![BTreeSet::new(); n];
-        self.q_other = TextEdit::new("");
+        self.q_other = vec![None; n];
+        self.q_notes.clear();
         self.plan_feedback = TextEdit::new("");
     }
 
@@ -2241,14 +2246,38 @@ impl Hooked {
         self.act("Opened in editor", move || api::open_editor(&id));
     }
 
+    /// Whether every question has an answer: a ticked option or a typed "Other".
+    pub fn question_answered(&self) -> bool {
+        let Some(q) = self
+            .detail
+            .as_ref()
+            .and_then(|d| d.pending_question.as_ref())
+        else {
+            return false;
+        };
+        (0..q.questions.len()).all(|i| {
+            self.q_sel.get(i).is_some_and(|s| !s.is_empty()) || !self.other_text(i).is_empty()
+        })
+    }
+
+    fn other_text(&self, qi: usize) -> String {
+        self.q_other
+            .get(qi)
+            .and_then(Option::as_ref)
+            .map(|t| t.text.trim().to_string())
+            .unwrap_or_default()
+    }
+
     pub fn answer(&mut self) {
+        if !self.question_answered() {
+            return;
+        }
         let Some(d) = self.detail.as_ref() else {
             return;
         };
         let Some(q) = d.pending_question.as_ref() else {
             return;
         };
-        let other = self.q_other.text.trim().to_string();
         let selections: Vec<api::Selection> = q
             .questions
             .iter()
@@ -2260,12 +2289,24 @@ impl Hooked {
                     .get(i)
                     .map(|s| s.iter().copied().collect())
                     .unwrap_or_default(),
-                other: (i == 0 && !other.is_empty()).then(|| other.clone()),
+                other: Some(self.other_text(i)).filter(|o| !o.is_empty()),
             })
             .collect();
+        let notes: Vec<(usize, usize, String)> = self
+            .q_notes
+            .iter()
+            .map(|(&(qi, oi), t)| (qi, oi, t.text.clone()))
+            .collect();
+        let note = compose_notes(&q.questions, &self.q_sel, &notes);
         let id = d.session.id.clone();
         self.wake(&id);
-        self.act("Answered", move || api::answer(&id, &selections, None));
+        self.act("Answered", move || {
+            api::answer(
+                &id,
+                &selections,
+                Some(note.as_str()).filter(|n| !n.is_empty()),
+            )
+        });
     }
 
     /// Permission requests are a three-option question; the order is the server's contract.
@@ -2288,16 +2329,28 @@ impl Hooked {
         });
     }
 
-    pub fn pick_option(&mut self, qi: usize, oi: usize) {
-        let multi = self
-            .detail
+    fn question_multi(&self, qi: usize) -> bool {
+        self.detail
             .as_ref()
             .and_then(|d| d.pending_question.as_ref())
             .and_then(|q| q.questions.get(qi))
-            .is_some_and(|q| q.multi_select);
+            .is_some_and(|q| q.multi_select)
+    }
+
+    fn question_slots(&mut self, qi: usize) {
         if self.q_sel.len() <= qi {
             self.q_sel.resize(qi + 1, BTreeSet::new());
         }
+        if self.q_other.len() <= qi {
+            self.q_other.resize(qi + 1, None);
+        }
+    }
+
+    /// Ticks an option (toggles it on a multi-select). A note only lives on a ticked option,
+    /// and picking a listed option on a single choice drops its "Other" write-in.
+    pub fn pick_option(&mut self, qi: usize, oi: usize) {
+        let multi = self.question_multi(qi);
+        self.question_slots(qi);
         let set = &mut self.q_sel[qi];
         if multi {
             if !set.remove(&oi) {
@@ -2306,7 +2359,48 @@ impl Hooked {
         } else {
             set.clear();
             set.insert(oi);
+            self.q_other[qi] = None;
         }
+        let kept = self.q_sel[qi].clone();
+        self.q_notes
+            .retain(|&(q, o), _| q != qi || kept.contains(&o));
+    }
+
+    /// The ✎ on an option: takes it and opens its own note, or drops the note when open.
+    pub fn toggle_note(&mut self, qi: usize, oi: usize) {
+        if self.q_notes.remove(&(qi, oi)).is_some() {
+            return;
+        }
+        self.question_slots(qi);
+        if !self.q_sel[qi].contains(&oi) {
+            self.pick_option(qi, oi);
+        }
+        self.q_notes.insert((qi, oi), TextEdit::new(""));
+    }
+
+    pub fn note_edit(&mut self, qi: usize, oi: usize) -> &mut TextEdit {
+        self.q_notes
+            .entry((qi, oi))
+            .or_insert_with(|| TextEdit::new(""))
+    }
+
+    /// The "Other" choice: a write-in that replaces the ticked option on a single choice and
+    /// joins the ticked ones on a multi-select.
+    pub fn toggle_other(&mut self, qi: usize) {
+        self.question_slots(qi);
+        if self.q_other[qi].take().is_some() {
+            return;
+        }
+        self.q_other[qi] = Some(TextEdit::new(""));
+        if !self.question_multi(qi) {
+            self.q_sel[qi].clear();
+            self.q_notes.retain(|&(q, _), _| q != qi);
+        }
+    }
+
+    pub fn other_edit(&mut self, qi: usize) -> &mut TextEdit {
+        self.question_slots(qi);
+        self.q_other[qi].get_or_insert_with(|| TextEdit::new(""))
     }
 
     pub fn plan_action(&mut self, action: &'static str) {
@@ -2790,4 +2884,71 @@ pub fn start_workers(h: Option<AppHandle<Hooked>>) {
             }
         }
     });
+}
+
+/// The follow-up message that carries the notes, in the web dashboard's format: one line per
+/// ticked option that has a note (the ticks say what, the note says why).
+pub fn compose_notes(
+    questions: &[api::Question],
+    sel: &[BTreeSet<usize>],
+    notes: &[(usize, usize, String)],
+) -> String {
+    let mut lines = Vec::new();
+    for (qi, q) in questions.iter().enumerate() {
+        let Some(ticked) = sel.get(qi) else { continue };
+        for &oi in ticked {
+            let note = notes
+                .iter()
+                .find(|(nq, no, _)| *nq == qi && *no == oi)
+                .map(|(_, _, t)| t.trim())
+                .unwrap_or("");
+            if note.is_empty() {
+                continue;
+            }
+            let label = q.options.get(oi).map_or("", |o| o.label.as_str());
+            lines.push(format!("- «{label}» — {note}"));
+        }
+    }
+    if lines.is_empty() {
+        String::new()
+    } else {
+        format!("Notes on my selection:\n{}", lines.join("\n"))
+    }
+}
+
+#[cfg(test)]
+mod question_tests {
+    use super::*;
+
+    fn q(labels: &[&str], multi: bool) -> api::Question {
+        api::Question {
+            question: "Q".into(),
+            header: None,
+            multi_select: multi,
+            options: labels
+                .iter()
+                .map(|l| api::QOption {
+                    label: l.to_string(),
+                    ..Default::default()
+                })
+                .collect(),
+        }
+    }
+
+    #[test]
+    fn notes_list_only_ticked_options_with_text() {
+        let qs = [q(&["A", "B", "C"], true), q(&["X", "Y"], false)];
+        let sel = [BTreeSet::from([0, 2]), BTreeSet::from([1])];
+        let notes = [
+            (0, 0, " keep it short ".to_string()),
+            (0, 1, "not ticked".to_string()),
+            (0, 2, "  ".to_string()),
+            (1, 1, "because".to_string()),
+        ];
+        assert_eq!(
+            compose_notes(&qs, &sel, &notes),
+            "Notes on my selection:\n- «A» — keep it short\n- «Y» — because"
+        );
+        assert_eq!(compose_notes(&qs, &sel, &[]), "");
+    }
 }
