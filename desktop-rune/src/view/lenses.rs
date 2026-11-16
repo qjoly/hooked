@@ -820,6 +820,29 @@ fn files_rail(s: &Hooked, k: &Kit) -> El {
                 })
                 .child(list),
         )
+        .child(
+            col()
+                .key("review-files-foot")
+                .w_full()
+                .px(10.0)
+                .py(8.0)
+                .gap(6.0)
+                .border_sides([1.0, 0.0, 0.0, 0.0], k.c.border_weak)
+                .child(
+                    row()
+                        .w_full()
+                        .h(2.0)
+                        .fill(k.c.layer_02)
+                        .child(el().h_full().grow(done as f32).fill(k.c.success.icon))
+                        .child(el().grow(files.len().saturating_sub(done) as f32)),
+                )
+                .child(
+                    text("j/k hunks · [ ] files · v reviewed · + on a line comments")
+                        .font(k.ty.text_xsmall)
+                        .color(k.c.text_faint)
+                        .wrap(),
+                ),
+        )
 }
 
 pub fn review(s: &Hooked, d: &Detail, k: &Kit) -> El {
@@ -844,7 +867,18 @@ pub fn review(s: &Hooked, d: &Detail, k: &Kit) -> El {
         .collect();
     let src = sources.iter().position(|&x| x == ld.review_source);
     let split = ld.diff.mode() == DiffMode::Split;
-    let mut top = bar(k, "review-bar")
+    // The bar holds more than a narrow window fits on one line: it wraps rather than push its
+    // last controls (the layout toggle) out of the window.
+    let mut top = row()
+        .key("review-bar")
+        .w_full()
+        .min_h(44.0)
+        .px(16.0)
+        .py(7.0)
+        .gap(10.0)
+        .center_y()
+        .flex_wrap()
+        .border_sides([0.0, 0.0, 1.0, 0.0], k.c.border_weak)
         .child(
             SegmentedControl::new(&labels, src)
                 .label("Diff source")
@@ -1024,26 +1058,20 @@ pub fn review(s: &Hooked, d: &Detail, k: &Kit) -> El {
             .key("review-send"),
         );
     }
-    top = top
-        .child(
-            text("+ on a line comments · j/k hunks · [/] files · v reviewed")
-                .font(k.ty.text_xsmall)
-                .color(k.c.text_faint),
-        )
-        .child(
-            SegmentedControl::new(&["Unified", "Split"], Some(usize::from(split)))
-                .label("Diff layout")
-                .fit()
-                .on_pick(|s: &mut Hooked, i, _| {
-                    s.lens_data.diff.set_mode(if i == 1 {
-                        DiffMode::Split
-                    } else {
-                        DiffMode::Unified
-                    })
+    top = top.child(
+        SegmentedControl::new(&["Unified", "Split"], Some(usize::from(split)))
+            .label("Diff layout")
+            .fit()
+            .on_pick(|s: &mut Hooked, i, _| {
+                s.lens_data.diff.set_mode(if i == 1 {
+                    DiffMode::Split
+                } else {
+                    DiffMode::Unified
                 })
-                .build(k)
-                .key("review-mode"),
-        );
+            })
+            .build(k)
+            .key("review-mode"),
+    );
     let body = if ld.diff.files().is_empty() {
         empty(k, "review-empty", &crate::lenses::empty_message(ld))
     } else {
