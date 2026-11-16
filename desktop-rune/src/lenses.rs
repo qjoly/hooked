@@ -16,6 +16,19 @@ pub enum ReviewSource {
     Branch,
 }
 
+/// What a branch diff says about its pair, beside the changes.
+#[derive(Clone, Debug, Default, serde::Deserialize, PartialEq)]
+#[serde(default, rename_all = "camelCase")]
+pub struct BranchInfo {
+    /// `git` or `jj`.
+    pub vcs: Option<String>,
+    /// Where the branch forked from its base.
+    pub merge_base: Option<String>,
+    /// The branch is already in its base: the diff, when there is one, was recovered from the
+    /// merge commit.
+    pub merged: bool,
+}
+
 pub struct LensData {
     pub review_source: ReviewSource,
     pub diff: DiffState,
@@ -47,6 +60,7 @@ pub struct LensData {
     pub worktree: Option<api::BaseDiff>,
     pub commits: Vec<Value>,
     pub picked: Vec<String>,
+    pub branch_info: BranchInfo,
     pub branch_open: bool,
     pub turns_open: bool,
     pub anchors: Vec<(String, String)>,
@@ -106,6 +120,7 @@ impl Default for LensData {
             worktree: None,
             commits: Vec::new(),
             picked: Vec::new(),
+            branch_info: BranchInfo::default(),
             branch_open: false,
             turns_open: false,
             anchors: Vec::new(),
@@ -461,7 +476,33 @@ pub fn empty_message(ld: &LensData) -> String {
             Some(v) if v["branches"].as_array().is_none_or(Vec::is_empty) => {
                 "No local branches in this repository."
             }
-            Some(_) => "No difference between the branch and its base.",
+            Some(_) => {
+                let (b, base) = (
+                    ld.branch.as_deref().unwrap_or_default(),
+                    ld.base.as_deref().unwrap_or_default(),
+                );
+                return if b == base {
+                    "The branch and the base are the same: pick another base to compare against."
+                        .into()
+                } else if !ld.picked.is_empty() {
+                    format!(
+                        "The selected {} no file: pick another slice of {b}.",
+                        if ld.picked.len() == 1 {
+                            "commit changes"
+                        } else {
+                            "commits change"
+                        }
+                    )
+                } else if ld.branch_info.merged {
+                    format!(
+                        "Branch {b} is already merged into {base} (squash or fast-forward: no historical diff to recover)."
+                    )
+                } else {
+                    format!(
+                        "No difference between {b} and {base}: the branch has no commits of its own yet."
+                    )
+                };
+            }
         },
         ReviewSource::Tree if ld.no_vcs => NO_VCS,
         ReviewSource::Tree => "No uncommitted changes in the working tree.",
@@ -846,6 +887,7 @@ impl Hooked {
         let range = self.branch_range();
         let key = self.branch_key().unwrap_or_default();
         self.lens_data.diff_loading = true;
+        self.lens_data.branch_info = BranchInfo::default();
         self.spawn(
             move || {
                 let mut path = format!(
@@ -867,6 +909,7 @@ impl Hooked {
                     Ok(v) => {
                         let ld = &mut s.lens_data;
                         ld.diff_error = None;
+                        ld.branch_info = serde_json::from_value(v.clone()).unwrap_or_default();
                         // The list is the branch's, whatever slice was asked for: every answer
                         // refreshes it, and a pick the branch no longer has (rewritten since)
                         // is dropped.
@@ -2160,6 +2203,25 @@ mod tests {
         );
         ld.branches = Some(json!({ "vcs": "git", "branches": [] }));
         assert_eq!(empty_message(&ld), "No local branches in this repository.");
+
+        ld.branches = Some(json!({ "vcs": "git", "branches": [{ "name": "main" }] }));
+        (ld.branch, ld.base) = (Some("feat/a".into()), Some("main".into()));
+        assert_eq!(
+            empty_message(&ld),
+            "No difference between feat/a and main: the branch has no commits of its own yet."
+        );
+        ld.branch_info = serde_json::from_value(json!({
+            "vcs": "git", "mergeBase": null, "merged": true, "range": null, "changes": []
+        }))
+        .unwrap();
+        assert!(empty_message(&ld).starts_with("Branch feat/a is already merged into main"));
+        ld.picked = vec!["abc".into()];
+        assert_eq!(
+            empty_message(&ld),
+            "The selected commit changes no file: pick another slice of feat/a."
+        );
+        ld.base = Some("feat/a".into());
+        assert!(empty_message(&ld).starts_with("The branch and the base are the same"));
     }
 
     #[test]

@@ -1126,6 +1126,34 @@ pub fn review(s: &Hooked, d: &Detail, k: &Kit) -> El {
     if ld.branch_open && ld.review_source == ReviewSource::Branch {
         out = out.child(branch_panel(s, k));
     }
+    if ld.review_source == ReviewSource::Branch
+        && ld.branch_info.merged
+        && !ld.diff.files().is_empty()
+    {
+        out = out.child(
+            row()
+                .key("review-merged")
+                .w_full()
+                .h(28.0)
+                .px(16.0)
+                .gap(8.0)
+                .center_y()
+                .fill(k.c.success.bg)
+                .border_sides([0.0, 0.0, 1.0, 0.0], k.c.border_weak)
+                .child(glyph(&icons::CIRCLE_CHECK, 12.0, k.c.success.icon))
+                .child(
+                    text(format!(
+                        "Already merged into {}: showing the branch's historical diff, recovered from its merge commit.",
+                        ld.base.as_deref().unwrap_or("its base")
+                    ))
+                    .font(k.ty.text_xsmall)
+                    .color(k.c.text_muted)
+                    .truncate()
+                    .grow(1.0)
+                    .min_w(0.0),
+                ),
+        );
+    }
     out.child(body)
 }
 
