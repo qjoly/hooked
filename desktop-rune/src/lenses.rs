@@ -188,9 +188,21 @@ impl Default for LensData {
 }
 
 impl LensData {
-    /// Puts a scope's diff on screen.
+    /// Puts a scope's diff on screen. The diff is read again each time the session moves, and
+    /// most of the time it has not changed: it is then left as it is, since replacing it
+    /// folds every opened range again and drops the line selection.
     fn show(&mut self, s: Sections) {
-        self.diff.set_files(s.files);
+        let shown = self.diff.files();
+        let same = s.files.len() == shown.len()
+            && s.files.iter().zip(shown).all(|(a, b)| {
+                a.path() == b.path()
+                    && a.hunks == b.hunks
+                    && a.text(Side::Old) == b.text(Side::Old)
+                    && a.text(Side::New) == b.text(Side::New)
+            });
+        if !same {
+            self.diff.set_files(s.files);
+        }
         self.anchors = s.anchors;
         self.fps = s.fps;
     }
@@ -2248,6 +2260,31 @@ mod tests {
         assert!(compact.files[0].expandable());
         assert_eq!(usual.fps, compact.fps);
         assert_eq!(usual.anchors, compact.anchors);
+    }
+
+    #[test]
+    fn a_refresh_that_changes_nothing_keeps_the_selection() {
+        let change = |new: &str| -> Change {
+            serde_json::from_value(json!({
+                "file": "/r/a.rs", "ops": [{ "old": "a\nb\n", "new": new }]
+            }))
+            .unwrap()
+        };
+        let sections = |new: &str, compact| file_diffs(&[change(new)], Some("/r"), "full", compact);
+        let at = LineRef::new(Side::New, 2);
+        let mut ld = LensData::default();
+        ld.show(sections("a\nB\n", false));
+        ld.diff.set_selection(Some(LineRange::line(0, at)));
+        // the same diff read again
+        ld.show(sections("a\nB\n", false));
+        assert!(ld.diff.selection().is_some());
+        // an edit, or another way to show it, replaces it
+        ld.show(sections("a\nB\nc\n", false));
+        assert!(ld.diff.selection().is_none());
+        ld.diff.set_selection(Some(LineRange::line(0, at)));
+        ld.show(sections("a\nB\nc\n", true));
+        assert!(ld.diff.selection().is_none());
+        assert_eq!(ld.fps.len(), 1);
     }
 
     #[test]
