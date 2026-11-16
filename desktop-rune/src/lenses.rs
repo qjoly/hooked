@@ -1455,7 +1455,8 @@ impl Hooked {
             .scroll_to_line(i, LineRef::new(side, line), tx);
     }
 
-    /// Sends the unsent comments as one prompt, in the shape the web lens uses.
+    /// Sends the unsent comments as one prompt, in the shape the web lens uses. The lens stays
+    /// open: Claude's answers land in the threads on screen.
     pub fn send_review(&mut self) {
         let Some(d) = self.detail.as_ref() else {
             return;
@@ -1516,10 +1517,7 @@ impl Hooked {
             },
             |s, r, _| {
                 match r {
-                    Ok(()) => {
-                        s.flash("✓ Comments sent to Claude", false);
-                        s.lens = Lens::Converse;
-                    }
+                    Ok(()) => s.flash("✓ Comments sent to Claude", false),
                     Err(e) => s.flash(format!("✗ Send: {e}"), true),
                 }
                 s.load_threads();
