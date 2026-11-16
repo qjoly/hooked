@@ -1208,10 +1208,11 @@ impl Hooked {
     }
 
     /// Puts each thread, and the comment being written, under the diff line it points at.
+    /// Archived threads are out of the diff: they live in the comments panel, restorable.
     pub fn annotate(&mut self) {
         let ld = &mut self.lens_data;
         let mut notes = Vec::new();
-        for t in &ld.threads {
+        for t in ld.threads.iter().filter(|t| t["status"] != "archived") {
             let (file, key) = (
                 t["file"].as_str().unwrap_or(""),
                 t["opIndex"].as_str().unwrap_or(""),

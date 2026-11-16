@@ -329,61 +329,70 @@ fn thread_row(s: &Hooked, k: &Kit, t: &serde_json::Value, archived: bool) -> El 
     let sent = t["sent"].as_bool() == Some(true);
     let armed = s.lens_data.delete_armed.as_deref() == Some(tid.as_str());
     let (j, d, r) = (tid.clone(), tid.clone(), tid.clone());
-    let mut line = row()
+    let label = col()
+        .grow(1.0)
+        .min_w(0.0)
+        .gap(1.0)
+        .child(
+            row()
+                .gap(6.0)
+                .child(
+                    text(anchor)
+                        .font(k.ty.text_xsmall_medium)
+                        .color(k.c.text_muted),
+                )
+                .child(
+                    text(match (archived, sent) {
+                        (true, true) => "",
+                        (true, false) => "never sent",
+                        (false, true) => "sent",
+                        (false, false) => "pending",
+                    })
+                    .font(k.ty.text_xsmall)
+                    .color(if archived {
+                        k.c.text_faint
+                    } else if sent {
+                        k.c.info.fg
+                    } else {
+                        k.c.warning.fg
+                    }),
+                ),
+        )
+        .child(
+            text(first)
+                .font(k.ty.text_small)
+                .color(k.c.text_base)
+                .truncate(),
+        );
+    // An archived thread is out of the diff, so its row has nowhere to jump to.
+    let label = if archived {
+        label.help("Archived: restore it to see it in the diff again")
+    } else {
+        k.interactive(label.role("link").cursor(Cursor::Pointer))
+            .on_press_tx(move |s: &mut Hooked, tx| s.jump_to_thread(&j, tx))
+    };
+    let line = row()
         .key(format!("tl-{tid}"))
         .w_full()
         .gap(6.0)
         .center_y()
+        .child(label)
         .child(
-            k.interactive(
-                col()
-                    .role("link")
-                    .grow(1.0)
-                    .min_w(0.0)
-                    .gap(1.0)
-                    .cursor(Cursor::Pointer)
-                    .child(
-                        row()
-                            .gap(6.0)
-                            .child(
-                                text(anchor)
-                                    .font(k.ty.text_xsmall_medium)
-                                    .color(k.c.text_muted),
-                            )
-                            .child(
-                                text(if archived {
-                                    ""
-                                } else if sent {
-                                    "sent"
-                                } else {
-                                    "pending"
-                                })
-                                .font(k.ty.text_xsmall)
-                                .color(if sent {
-                                    k.c.info.fg
-                                } else {
-                                    k.c.warning.fg
-                                }),
-                            ),
-                    )
-                    .child(
-                        text(first)
-                            .font(k.ty.text_small)
-                            .color(k.c.text_base)
-                            .truncate(),
-                    ),
-            )
-            .on_press_tx(move |s: &mut Hooked, tx| s.jump_to_thread(&j, tx)),
+            rune_kit::IconButton::new(if archived {
+                &icons::UNARCHIVE
+            } else {
+                &icons::ARCHIVE
+            })
+            .variant(rune_kit::IconButtonVariant::GhostMuted)
+            .control_size(ControlSize::Small)
+            .label(if archived {
+                "Restore: put it back in the diff"
+            } else {
+                "Archive: take it out of the diff, keep the conversation"
+            })
+            .on_press(move |s: &mut Hooked| s.archive_thread(r.clone(), !archived))
+            .build(k),
         );
-    if archived {
-        line = line.child(
-            Button::new("Restore")
-                .variant(ButtonVariant::GhostMuted)
-                .control_size(ControlSize::Small)
-                .on_press(move |s: &mut Hooked| s.archive_thread(r.clone(), false))
-                .build(k),
-        );
-    }
     line.child(
         Button::new(if armed { "Delete?" } else { "×" })
             .variant(if armed {
@@ -1642,10 +1651,7 @@ fn annotation(s: &Hooked, a: &Annotation, k: &Kit) -> El {
     };
     let tid = a.id.clone();
     let sent = t["sent"].as_bool() == Some(true);
-    let archived = t["status"].as_str() == Some("archived");
-    let status = if archived {
-        ("archived", k.c.text_faint)
-    } else if sent {
+    let status = if sent {
         ("sent", k.c.info.fg)
     } else {
         ("pending · not sent yet", k.c.warning.fg)
@@ -1658,7 +1664,7 @@ fn annotation(s: &Hooked, a: &Annotation, k: &Kit) -> El {
             .center_y()
             .child(text(status.0).font(k.ty.text_xsmall_medium).color(status.1))
             .child(el().grow(1.0))
-            .child(if !sent && !archived {
+            .child(if !sent {
                 let te = tid.clone();
                 Button::new("Edit")
                     .variant(ButtonVariant::GhostMuted)
@@ -1669,10 +1675,11 @@ fn annotation(s: &Hooked, a: &Annotation, k: &Kit) -> El {
                 el()
             })
             .child(
-                Button::new(if archived { "Reopen" } else { "Archive" })
+                Button::new("Archive")
                     .variant(ButtonVariant::GhostMuted)
                     .control_size(ControlSize::Small)
-                    .on_press(move |s: &mut Hooked| s.archive_thread(t1.clone(), !archived))
+                    .help("Take it out of the diff: it stays in the comments panel, restorable")
+                    .on_press(move |s: &mut Hooked| s.archive_thread(t1.clone(), true))
                     .build(k)
                     .key(format!("th-arch-{tid}")),
             )
@@ -1685,9 +1692,6 @@ fn annotation(s: &Hooked, a: &Annotation, k: &Kit) -> El {
                     .key(format!("th-del-{tid}")),
             ),
     );
-    if archived {
-        return c;
-    }
     if let Some((_, edit)) = s.lens_data.editing.as_ref().filter(|(e, _)| *e == tid) {
         return c
             .child(
