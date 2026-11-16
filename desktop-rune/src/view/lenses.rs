@@ -31,27 +31,42 @@ fn empty(k: &Kit, key: &str, msg: &str) -> El {
         .child(text(msg.to_string()).font(k.ty.body).color(k.c.text_faint))
 }
 
+/// From how many branches the picker offers to filter them, as the web's does.
+const BRANCH_FILTER_FROM: usize = 8;
+
 fn branch_panel(s: &Hooked, k: &Kit) -> El {
     use super::settings::{chip, chips};
     let ld = &s.lens_data;
-    let names: Vec<String> = ld
+    // Each branch with whether it is the one checked out.
+    let all: Vec<(String, bool)> = ld
         .branches
         .as_ref()
         .and_then(|v| v["branches"].as_array())
         .into_iter()
         .flatten()
-        .filter_map(|b| b["name"].as_str().map(str::to_string))
+        .filter_map(|b| Some((b["name"].as_str()?.to_string(), b["current"] == true)))
+        .collect();
+    // A repo with many branches gets a filter; it narrows both rows.
+    let filterable = all.len() > BRANCH_FILTER_FROM;
+    let needle = ld.branch_filter.text.trim().to_lowercase();
+    let names: Vec<&(String, bool)> = all
+        .iter()
+        .filter(|(n, _)| !filterable || needle.is_empty() || n.to_lowercase().contains(&needle))
         .collect();
     let row_of = |title: &str, base: bool| {
         let current = if base { &ld.base } else { &ld.branch };
-        let items = names
+        let items: Vec<El> = names
             .iter()
-            .map(|n| {
+            .map(|(n, checked_out)| {
                 let name = n.clone();
                 chip(
                     k,
                     format!("br-{}-{n}", if base { "base" } else { "head" }),
-                    n.clone(),
+                    if *checked_out && !base {
+                        format!("{n} · current")
+                    } else {
+                        n.clone()
+                    },
                     current.as_deref() == Some(n.as_str()),
                     move |s| {
                         if base {
@@ -63,11 +78,23 @@ fn branch_panel(s: &Hooked, k: &Kit) -> El {
                 )
             })
             .collect();
-        col()
+        let none = items.is_empty();
+        let mut r = col()
             .w_full()
             .gap(6.0)
             .child(section_title(k, title))
-            .child(chips(items))
+            .child(chips(items));
+        if none && !all.is_empty() {
+            r = r.child(
+                text(format!(
+                    "No branch matching “{}”.",
+                    ld.branch_filter.text.trim()
+                ))
+                .font(k.ty.text_small)
+                .color(k.c.text_faint),
+            );
+        }
+        r
     };
     let mut c = col().w_full().gap(10.0);
     if ld.repos.len() > 1 {
@@ -96,6 +123,16 @@ fn branch_panel(s: &Hooked, k: &Kit) -> El {
                 .gap(6.0)
                 .child(section_title(k, "REPOSITORY"))
                 .child(chips(items)),
+        );
+    }
+    if filterable {
+        c = c.child(
+            TextInput::new(&ld.branch_filter)
+                .placeholder("Filter branches…")
+                .width(Some(280.0))
+                .on_edit(|s: &mut Hooked| &mut s.lens_data.branch_filter)
+                .build(k)
+                .key("br-filter"),
         );
     }
     c = c.child(row_of("BRANCH", false)).child(row_of("BASE", true));
@@ -134,11 +171,7 @@ fn branch_panel(s: &Hooked, k: &Kit) -> El {
             )
             .on_press(|s: &mut Hooked| s.pick_commit(None)),
         );
-        let range = s.branch_range();
-        let span = range.as_ref().and_then(|(from, to)| {
-            let at = |r: &str| ld.commits.iter().position(|c| c["rev"].as_str() == Some(r));
-            Some((at(to)?, at(from)?))
-        });
+        let span = s.branch_span();
         for (i, cm) in ld.commits.iter().enumerate() {
             let rev = cm["rev"].as_str().unwrap_or("").to_string();
             let on = ld.picked.contains(&rev);
@@ -183,6 +216,11 @@ fn branch_panel(s: &Hooked, k: &Kit) -> El {
                                 .truncate()
                                 .grow(1.0)
                                 .min_w(0.0),
+                        )
+                        .child(
+                            text(cm["author"].as_str().unwrap_or("").to_string())
+                                .font(k.ty.text_xsmall)
+                                .color(k.c.text_faint),
                         )
                         .child(
                             text(fmt::ago_short(cm["ts"].as_str(), s.now))
@@ -932,14 +970,13 @@ pub fn review(s: &Hooked, d: &Detail, k: &Kit) -> El {
     if ld.review_source == ReviewSource::Branch {
         let label = match (&ld.branch, &ld.base) {
             (Some(b), Some(base)) => {
-                let commits = if ld.picked.is_empty() {
-                    String::new()
-                } else {
-                    format!(
-                        " · {} commit{}",
-                        ld.picked.len(),
-                        if ld.picked.len() == 1 { "" } else { "s" }
-                    )
+                // The review covers a contiguous slice: every commit between two picks counts.
+                let n = ld.commits.len();
+                let plural = if n == 1 { "" } else { "s" };
+                let commits = match s.branch_span() {
+                    _ if n == 0 => String::new(),
+                    Some((lo, hi)) => format!(" · {} of {n} commit{plural}", hi - lo + 1),
+                    None => format!(" · all {n} commit{plural}"),
                 };
                 format!("{b} vs {base}{commits}")
             }

@@ -95,6 +95,8 @@ pub struct LensData {
     pub commits: Vec<Value>,
     pub picked: Vec<String>,
     pub branch_info: BranchInfo,
+    /// What the branch picker's filter holds.
+    pub branch_filter: TextEdit,
     pub branch_open: bool,
     pub turns_open: bool,
     pub anchors: Vec<(String, String)>,
@@ -159,6 +161,7 @@ impl Default for LensData {
             commits: Vec::new(),
             picked: Vec::new(),
             branch_info: BranchInfo::default(),
+            branch_filter: TextEdit::new(""),
             branch_open: false,
             turns_open: false,
             anchors: Vec::new(),
@@ -858,6 +861,17 @@ impl Hooked {
         if ld.commits.is_empty() {
             return Some((ld.picked.first()?.clone(), ld.picked.last()?.clone()));
         }
+        let (lo, hi) = self.branch_span()?;
+        Some((
+            ld.commits[hi]["rev"].as_str()?.to_string(),
+            ld.commits[lo]["rev"].as_str()?.to_string(),
+        ))
+    }
+
+    /// The picked commits as a span of `commits`, newest first: everything between the newest
+    /// and the oldest pick is under review, picked or not.
+    pub fn branch_span(&self) -> Option<(usize, usize)> {
+        let ld = &self.lens_data;
         let at: Vec<usize> = ld
             .picked
             .iter()
@@ -867,11 +881,7 @@ impl Hooked {
                     .position(|c| c["rev"].as_str() == Some(r.as_str()))
             })
             .collect();
-        let (lo, hi) = (*at.iter().min()?, *at.iter().max()?);
-        Some((
-            ld.commits[hi]["rev"].as_str()?.to_string(),
-            ld.commits[lo]["rev"].as_str()?.to_string(),
-        ))
+        Some((*at.iter().min()?, *at.iter().max()?))
     }
 
     /// The web's `diffKey`: `root:base:branch`, plus `:@from..to` for a commit range.
