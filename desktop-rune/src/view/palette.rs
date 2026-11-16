@@ -1,4 +1,4 @@
-use rune::{Color, Cursor, El, Icon, Key, Tx, col, el, row, text};
+use rune::{Color, Cursor, El, Icon, Key, Tx, col, row, text};
 use rune_kit::{Kit, TextInput};
 
 use super::{Shadows, dot, glyph};
@@ -596,13 +596,7 @@ pub fn view(s: &Hooked, k: &Kit) -> El {
         )
         .child(col().key("palette-list").w_full().gap(2.0).children(rows))
         .child(row().px(8.0).pt(2.0).child(footer));
-    el().key("palette-scrim")
-        .absolute(0.0, 0.0)
-        .w_full()
-        .h_full()
-        .fill(k.c.scrim)
-        .items_center()
-        .pt(90.0)
-        .modal(true, |s: &mut Hooked| s.palette_open = false)
-        .child(col().items_center().w_full().child(panel))
+    super::modal_scrim(k, "palette-scrim", 90.0, panel, |s: &mut Hooked| {
+        s.palette_open = false
+    })
 }
