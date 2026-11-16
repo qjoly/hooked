@@ -45,6 +45,8 @@ pub struct LensData {
     pub turns_open: bool,
     pub anchors: Vec<(String, String)>,
     pub threads: Vec<Value>,
+    /// Where each live thread shows in the diff on screen, by thread id.
+    pub placed: HashMap<String, Placed>,
     pub draft: Option<(LineRange, TextEdit)>,
     pub replies: HashMap<String, TextEdit>,
     pub editing: Option<(String, TextEdit)>,
@@ -97,6 +99,7 @@ impl Default for LensData {
             turns_open: false,
             anchors: Vec::new(),
             threads: Vec::new(),
+            placed: HashMap::new(),
             draft: None,
             replies: HashMap::new(),
             editing: None,
@@ -305,6 +308,130 @@ pub fn fingerprint(f: &FileDiff) -> String {
 
 const REVIEWED_PER_FILE: usize = 12;
 
+/// Where a review thread shows in the diff on screen.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Placed {
+    pub file: usize,
+    pub side: Side,
+    pub start: u32,
+    pub end: u32,
+    /// Its code changed or is gone, so no line can be trusted: the thread shows at the head of
+    /// the file instead of under a wrong line.
+    pub outdated: bool,
+}
+
+impl Placed {
+    pub fn label(&self) -> String {
+        range_label(self.side == Side::Old, self.start.into(), self.end.into())
+    }
+}
+
+/// The lines of a side as threads number them, without the `\r` of a CRLF file.
+fn side_lines(text: &str) -> Vec<&str> {
+    text.split('\n')
+        .map(|l| l.strip_suffix('\r').unwrap_or(l))
+        .collect()
+}
+
+/// The web's `reanchor`: a thread's anchor is trusted only while the snippet it was written on
+/// is still there. A snippet found once elsewhere takes its thread along; one that is gone, or
+/// found several times, makes the thread outdated. Returns `(start, end, outdated)`.
+pub fn reanchor(start: u32, end: u32, snippet: &str, lines: &[&str]) -> (u32, u32, bool) {
+    if snippet.is_empty() {
+        return (start, end, false);
+    }
+    let snip = side_lines(snippet);
+    let n = snip.len();
+    let matches_at = |i: usize| i + n <= lines.len() && lines[i..i + n] == snip[..];
+    if start >= 1 && matches_at(start as usize - 1) {
+        return (start, start - 1 + n as u32, false);
+    }
+    let mut hits = (0..lines.len().saturating_sub(n - 1)).filter(|&i| matches_at(i));
+    match (hits.next(), hits.next()) {
+        (Some(i), None) => (i as u32 + 1, (i + n) as u32, false),
+        _ => (start, end, true),
+    }
+}
+
+/// The section of the diff a thread belongs to and its lines there, re-anchored on its snippet.
+/// A thread Claude opened is keyed to the whole scope (`…:*`): it goes to the section of its
+/// file whose new side holds its snippet, else to the first.
+pub fn place_thread(t: &Value, anchors: &[(String, String)], files: &[FileDiff]) -> Option<Placed> {
+    let (file, key) = (t["file"].as_str()?, t["opIndex"].as_str()?);
+    let scoped = key.strip_suffix(":*");
+    let snippet = t["snippet"].as_str().unwrap_or("");
+    let mut sections = anchors
+        .iter()
+        .enumerate()
+        .filter(|(_, (f, k))| {
+            f == file
+                && match scoped {
+                    Some(base) => k.starts_with(&format!("{base}:")),
+                    None => k == key,
+                }
+        })
+        .map(|(i, _)| i);
+    let first = sections.next()?;
+    let holds = |i: &usize| {
+        files
+            .get(*i)
+            .and_then(|f| f.text(Side::New))
+            .is_some_and(|text| text.contains(snippet))
+    };
+    let i = if scoped.is_some() && !snippet.is_empty() && !holds(&first) {
+        sections.find(holds).unwrap_or(first)
+    } else {
+        first
+    };
+    let side = if t["side"] == "old" {
+        Side::Old
+    } else {
+        Side::New
+    };
+    let start = t["start"].as_u64().unwrap_or(1) as u32;
+    let end = t["end"].as_u64().map_or(start, |e| e as u32);
+    let (start, end, outdated) = match files.get(i)?.text(side) {
+        Some(text) => reanchor(start, end, snippet, &side_lines(text)),
+        None => (start, end, false),
+    };
+    Some(Placed {
+        file: i,
+        side,
+        start,
+        end,
+        outdated,
+    })
+}
+
+/// Lines `a..=b` of a side of `f`: the snippet a new thread is anchored on. Read from the whole
+/// text, so lines shown by opening a folded range count too.
+pub fn snippet_of(f: &FileDiff, side: Side, a: u32, b: u32) -> String {
+    let Some(text) = f.text(side) else {
+        return f
+            .hunks
+            .iter()
+            .flat_map(|h| h.lines.iter())
+            .filter(|l| l.number(side).is_some_and(|n| n >= a && n <= b))
+            .map(|l| l.text.as_str())
+            .collect::<Vec<_>>()
+            .join("\n");
+    };
+    let lines = side_lines(text);
+    let from = (a.saturating_sub(1) as usize).min(lines.len());
+    let to = (b.max(a) as usize).min(lines.len());
+    lines[from..to].join("\n")
+}
+
+/// The first line a file's diff shows, where its outdated threads go.
+fn head_line(f: &FileDiff) -> Option<LineRef> {
+    let l = f.hunks.first()?.lines.first()?;
+    match (l.new, l.old) {
+        (Some(n), _) => Some(LineRef::new(Side::New, n)),
+        (None, Some(n)) => Some(LineRef::new(Side::Old, n)),
+        (None, None) => None,
+    }
+}
+
 pub struct ReviewBrief {
     pub file: String,
     pub anchor: String,
@@ -329,18 +456,23 @@ fn brief_list(threads: &[ReviewBrief]) -> String {
         .join("\n")
 }
 
-/// Where a thread is anchored, as both lenses label it: `+L12`, `−L3–7`.
-pub fn anchor_label(t: &Value) -> String {
-    let side = if t["side"] == "old" { "−L" } else { "+L" };
-    let (a, b) = (
-        t["start"].as_u64().unwrap_or(0),
-        t["end"].as_u64().unwrap_or(0),
-    );
+/// A line range as both lenses label it: `+L12`, `−L3–7`.
+fn range_label(old: bool, a: u64, b: u64) -> String {
+    let side = if old { "−L" } else { "+L" };
     if a == b || b == 0 {
         format!("{side}{a}")
     } else {
         format!("{side}{a}–{b}")
     }
+}
+
+/// Where a thread was anchored when it was written.
+pub fn anchor_label(t: &Value) -> String {
+    range_label(
+        t["side"] == "old",
+        t["start"].as_u64().unwrap_or(0),
+        t["end"].as_u64().unwrap_or(0),
+    )
 }
 
 /// The web's `threadInstructions`, word for word: how Claude answers in a review thread.
@@ -1212,32 +1344,22 @@ impl Hooked {
     pub fn annotate(&mut self) {
         let ld = &mut self.lens_data;
         let mut notes = Vec::new();
+        ld.placed.clear();
         for t in ld.threads.iter().filter(|t| t["status"] != "archived") {
-            let (file, key) = (
-                t["file"].as_str().unwrap_or(""),
-                t["opIndex"].as_str().unwrap_or(""),
-            );
-            let scoped = key.strip_suffix(":*");
-            let Some(i) = ld.anchors.iter().position(|(f, k)| {
-                f == file
-                    && match scoped {
-                        Some(base) => k.starts_with(&format!("{base}:")),
-                        None => k == key,
-                    }
-            }) else {
+            let files = ld.diff.files();
+            let Some(p) = place_thread(t, &ld.anchors, files) else {
                 continue;
             };
-            let side = if t["side"].as_str() == Some("old") {
-                Side::Old
+            let at = if p.outdated {
+                head_line(&files[p.file])
             } else {
-                Side::New
+                Some(LineRef::new(p.side, p.end))
             };
-            let line = t["end"].as_u64().or(t["start"].as_u64()).unwrap_or(1) as u32;
-            notes.push(Annotation::new(
-                i,
-                LineRef::new(side, line),
-                t["id"].as_str().unwrap_or(""),
-            ));
+            let (Some(at), Some(id)) = (at, t["id"].as_str()) else {
+                continue;
+            };
+            notes.push(Annotation::new(p.file, at, id));
+            ld.placed.insert(id.to_string(), p);
         }
         if let Some((range, _)) = ld.draft.as_ref() {
             let end = if range.end.line >= range.start.line {
@@ -1285,19 +1407,12 @@ impl Hooked {
             range.start.line.max(range.end.line),
         );
         let side = range.end.side;
-        let snippet: Vec<String> = self
+        let snippet = self
             .lens_data
             .diff
             .files()
             .get(range.file)
-            .map(|f| {
-                f.hunks
-                    .iter()
-                    .flat_map(|h| h.lines.iter())
-                    .filter(|l| l.number(side).is_some_and(|n| n >= a && n <= b))
-                    .map(|l| l.text.clone())
-                    .collect()
-            })
+            .map(|f| snippet_of(f, side, a, b))
             .unwrap_or_default();
         let thread = json!({
             "file": file,
@@ -1306,7 +1421,7 @@ impl Hooked {
             "side": if side == Side::Old { "old" } else { "new" },
             "start": a,
             "end": b,
-            "snippet": snippet.join("\n"),
+            "snippet": snippet,
             "text": text,
         });
         self.review_op(json!({ "id": id, "action": "comment", "thread": thread }));
@@ -1424,36 +1539,19 @@ impl Hooked {
     }
 
     pub fn jump_to_thread(&mut self, tid: &str, tx: &mut rune::Tx) {
-        let Some(t) = self
-            .lens_data
-            .threads
-            .iter()
-            .find(|t| t["id"].as_str() == Some(tid))
-        else {
-            return;
-        };
-        let file = t["file"].as_str().unwrap_or("");
-        let key = t["opIndex"].as_str().unwrap_or("");
-        let scoped = key.strip_suffix(":*");
-        let Some(i) = self.lens_data.anchors.iter().position(|(f, k)| {
-            f == file
-                && match scoped {
-                    Some(base) => k.starts_with(&format!("{base}:")),
-                    None => k == key,
-                }
-        }) else {
+        let ld = &mut self.lens_data;
+        let Some(p) = ld.placed.get(tid).copied() else {
             self.flash("That thread belongs to another diff source", true);
             return;
         };
-        let side = if t["side"] == "old" {
-            Side::Old
+        let at = if p.outdated {
+            ld.diff.files().get(p.file).and_then(head_line)
         } else {
-            Side::New
+            Some(LineRef::new(p.side, p.start))
         };
-        let line = t["start"].as_u64().unwrap_or(1) as u32;
-        self.lens_data
-            .diff
-            .scroll_to_line(i, LineRef::new(side, line), tx);
+        if let Some(at) = at {
+            ld.diff.scroll_to_line(p.file, at, tx);
+        }
     }
 
     /// Sends the unsent comments as one prompt, in the shape the web lens uses. The lens stays
@@ -1708,6 +1806,50 @@ mod tests {
         let tree = tree_diffs(&[repo("/r", "", &["/r/a.rs"])], Some("/r"));
         assert_eq!(tree.files.len(), 1);
         assert!(tree.repos.is_empty());
+    }
+
+    #[test]
+    fn a_thread_follows_its_snippet_or_turns_outdated() {
+        let lines = ["a", "b", "c", "b", "d"];
+        // still where it was written
+        assert_eq!(reanchor(3, 3, "c", &lines), (3, 3, false));
+        // moved: found once elsewhere, a two-line snippet keeps its length
+        assert_eq!(reanchor(1, 2, "c\nb", &lines), (3, 4, false));
+        // gone, or found several times: no line can be trusted
+        assert_eq!(reanchor(1, 1, "zz", &lines), (1, 1, true));
+        assert_eq!(reanchor(5, 5, "b", &lines), (5, 5, true));
+        // no snippet to check against: the stored anchor stands
+        assert_eq!(reanchor(9, 9, "", &lines), (9, 9, false));
+        // a snippet longer than the side
+        assert_eq!(reanchor(1, 1, "a\nb\nc\nb\nd\ne", &lines), (1, 1, true));
+    }
+
+    #[test]
+    fn threads_are_placed_on_the_section_and_lines_they_belong_to() {
+        let anchors = vec![
+            ("/r/a.rs".to_string(), "full:0".to_string()),
+            ("/r/a.rs".to_string(), "full:1".to_string()),
+            ("/r/b.rs".to_string(), "full:0".to_string()),
+        ];
+        let files = vec![
+            FileDiff::from_texts("a.rs · edit 1/2", "one\n", "one\ntwo\n"),
+            FileDiff::from_texts("a.rs · edit 2/2", "x\r\ny\r\n", "x\r\nnew\r\ny\r\n"),
+            FileDiff::from_texts("b.rs", "", "b\n"),
+        ];
+        let thread = |key: &str, start: u32, snippet: &str| json!({ "file": "/r/a.rs", "opIndex": key, "side": "new", "start": start, "end": start, "snippet": snippet });
+        let at =
+            |t: &Value| place_thread(t, &anchors, &files).map(|p| (p.file, p.start, p.outdated));
+        // its own section, and the line its code moved to (a CRLF file reads the same)
+        assert_eq!(at(&thread("full:1", 2, "y")), Some((1, 3, false)));
+        // a thread Claude opened goes to the section whose new side holds its code
+        assert_eq!(at(&thread("full:*", 2, "new")), Some((1, 2, false)));
+        assert_eq!(at(&thread("full:*", 2, "two")), Some((0, 2, false)));
+        // code that is gone
+        assert_eq!(at(&thread("full:0", 1, "gone")), Some((0, 1, true)));
+        // another scope's thread is not in this diff
+        assert_eq!(at(&thread("vcs:wt:0", 1, "one")), None);
+        assert_eq!(snippet_of(&files[1], Side::New, 2, 3), "new\ny");
+        assert_eq!(head_line(&files[2]), Some(LineRef::new(Side::New, 1)));
     }
 
     #[test]

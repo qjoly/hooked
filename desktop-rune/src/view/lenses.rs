@@ -1657,11 +1657,31 @@ fn annotation(s: &Hooked, a: &Annotation, k: &Kit) -> El {
         ("pending · not sent yet", k.c.warning.fg)
     };
     let (t1, t2, t3) = (tid.clone(), tid.clone(), tid.clone());
+    let placed = s.lens_data.placed.get(&tid);
+    let outdated = placed.is_some_and(|p| p.outdated);
+    let anchor = placed.map_or_else(|| crate::lenses::anchor_label(t), |p| p.label());
     let mut c = shell(format!("thread-{tid}")).child(
         row()
             .w_full()
             .gap(8.0)
             .center_y()
+            .child(
+                text(if outdated {
+                    format!("was {anchor}")
+                } else {
+                    anchor
+                })
+                .font(k.ty.mono)
+                .color(k.c.text_muted),
+            )
+            .child(if outdated {
+                text("outdated")
+                    .font(k.ty.text_xsmall_medium)
+                    .color(k.c.danger.fg)
+                    .help("The code this comment was anchored to has changed")
+            } else {
+                el()
+            })
             .child(text(status.0).font(k.ty.text_xsmall_medium).color(status.1))
             .child(el().grow(1.0))
             .child(if !sent {
@@ -1692,6 +1712,37 @@ fn annotation(s: &Hooked, a: &Annotation, k: &Kit) -> El {
                     .key(format!("th-del-{tid}")),
             ),
     );
+    // An outdated thread sits at the head of its file, so it shows the code it was about.
+    if outdated && let Some(snippet) = t["snippet"].as_str().filter(|x| !x.is_empty()) {
+        const SHOWN: usize = 12;
+        let mut code = col()
+            .w_full()
+            .px(8.0)
+            .py(4.0)
+            .radius(k.radius.sm)
+            .fill(k.c.bg_deep)
+            .border(1.0, k.c.border_weak);
+        for l in snippet.lines().take(SHOWN) {
+            code = code.child(
+                text(if l.is_empty() { " " } else { l }.to_string())
+                    .font(k.ty.mono)
+                    .color(k.c.text_muted)
+                    .single_line(),
+            );
+        }
+        let more = snippet.lines().count().saturating_sub(SHOWN);
+        if more > 0 {
+            code = code.child(
+                text(format!(
+                    "… {more} more line{}",
+                    if more == 1 { "" } else { "s" }
+                ))
+                .font(k.ty.text_xsmall)
+                .color(k.c.text_faint),
+            );
+        }
+        c = c.child(code);
+    }
     if let Some((_, edit)) = s.lens_data.editing.as_ref().filter(|(e, _)| *e == tid) {
         return c
             .child(
