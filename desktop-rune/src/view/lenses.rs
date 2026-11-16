@@ -963,6 +963,22 @@ pub fn review(s: &Hooked, d: &Detail, k: &Kit) -> El {
             .font(k.ty.text_small)
             .color(k.c.text_faint),
         )
+        .child(
+            text(format!(
+                "+{}",
+                ld.diff.files().iter().map(|f| f.additions()).sum::<usize>()
+            ))
+            .font(k.ty.text_small)
+            .color(k.c.success.fg),
+        )
+        .child(
+            text(format!(
+                "−{}",
+                ld.diff.files().iter().map(|f| f.deletions()).sum::<usize>()
+            ))
+            .font(k.ty.text_small)
+            .color(k.c.danger.fg),
+        )
         .child(el().grow(1.0));
     if ld.diff_loading {
         top = top.child(Spinner::new().build(k));
