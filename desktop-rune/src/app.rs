@@ -132,6 +132,11 @@ pub struct Hooked {
     pub rendered_w: f32,
     /// The Review lens leaves out the unchanged lines around each change.
     pub review_compact: bool,
+    /// The Review lens's width, as last laid out.
+    pub review_w: f32,
+    /// The lens is narrow and showed its side-by-side diff unified: it goes back to split
+    /// once there is room.
+    pub review_forced_unified: bool,
     pub window_h: f32,
     pub window_w: f32,
     pub show_archived: bool,
@@ -404,6 +409,8 @@ impl Hooked {
             dock_gh_w,
             rendered_w,
             review_compact,
+            review_w: f32::MAX,
+            review_forced_unified: false,
             window_h: 860.0,
             window_w: 1320.0,
             show_archived: false,

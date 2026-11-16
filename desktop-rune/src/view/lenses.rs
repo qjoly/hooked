@@ -701,7 +701,7 @@ fn reviewed_toggle(s: &Hooked, k: &Kit, i: usize) -> El {
         .build(k)
 }
 
-fn files_rail(s: &Hooked, k: &Kit) -> El {
+fn files_rail(s: &Hooked, k: &Kit, width: f32) -> El {
     let ld = &s.lens_data;
     let files = ld.diff.files();
     let visible = ld.diff.visible_file();
@@ -854,7 +854,7 @@ fn files_rail(s: &Hooked, k: &Kit) -> El {
     }
     col()
         .key("review-files")
-        .w(240.0)
+        .w(width)
         .h_full()
         .border_sides([0.0, 1.0, 0.0, 0.0], k.c.border_weak)
         .child(
@@ -1136,20 +1136,24 @@ pub fn review(s: &Hooked, d: &Detail, k: &Kit) -> El {
             .build(k)
             .key("review-compact"),
     );
-    top = top.child(
-        SegmentedControl::new(&["Unified", "Split"], Some(usize::from(split)))
-            .label("Diff layout")
-            .fit()
-            .on_pick(|s: &mut Hooked, i, _| {
-                s.lens_data.diff.set_mode(if i == 1 {
-                    DiffMode::Split
-                } else {
-                    DiffMode::Unified
+    // A narrow lens shows its diff unified whatever is picked (see `fit_review`), so the
+    // choice is not offered there.
+    if !s.review_narrow() {
+        top = top.child(
+            SegmentedControl::new(&["Unified", "Split"], Some(usize::from(split)))
+                .label("Diff layout")
+                .fit()
+                .on_pick(|s: &mut Hooked, i, _| {
+                    s.lens_data.diff.set_mode(if i == 1 {
+                        DiffMode::Split
+                    } else {
+                        DiffMode::Unified
+                    })
                 })
-            })
-            .build(k)
-            .key("review-mode"),
-    );
+                .build(k)
+                .key("review-mode"),
+        );
+    }
     let body = if ld.diff.files().is_empty() {
         empty(k, "review-empty", &crate::lenses::empty_message(ld))
     } else {
@@ -1189,13 +1193,16 @@ pub fn review(s: &Hooked, d: &Detail, k: &Kit) -> El {
                 })
                 .build(s, k),
             );
-        let mut body = row()
-            .key("review-body")
-            .w_full()
-            .grow(1.0)
-            .min_h(0.0)
-            .child(files_rail(s, k))
-            .child(diff);
+        // A narrow lens keeps its room for the diff: the rail shrinks, and gives way entirely
+        // to a column opened beside the diff, or when there is no room left for it.
+        let narrow = s.review_narrow();
+        let rail =
+            s.review_w >= crate::lenses::NO_RAIL_W && !(narrow && (ld.rendered || ld.threads_open));
+        let mut body = row().key("review-body").w_full().grow(1.0).min_h(0.0);
+        if rail {
+            body = body.child(files_rail(s, k, if narrow { 180.0 } else { 240.0 }));
+        }
+        body = body.child(diff);
         if ld.rendered {
             body = body.child(rendered_panel(s, k));
         }
@@ -1204,7 +1211,16 @@ pub fn review(s: &Hooked, d: &Detail, k: &Kit) -> El {
         }
         body
     };
-    let mut out = col().key("review").w_full().h_full().child(top);
+    let mut out = col()
+        .key("review")
+        .w_full()
+        .h_full()
+        .on_layout(|s: &mut Hooked, r: [f32; 4]| {
+            if (s.review_w - r[2]).abs() > 0.5 {
+                s.review_w = r[2];
+            }
+        })
+        .child(top);
     if let Some(b) = s.blame_text() {
         out = out.child(
             row()

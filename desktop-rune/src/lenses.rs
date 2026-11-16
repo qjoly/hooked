@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use rune::TextEdit;
-use rune_kit::diff::{Annotation, DiffState, FileDiff, LineRange, LineRef, Side};
+use rune_kit::diff::{Annotation, DiffMode, DiffState, FileDiff, LineRange, LineRef, Side};
 use serde_json::{Value, json};
 
 use crate::api::{self, Change, ChangeTurn, McpLogin, McpServer, TraceTurn};
@@ -842,7 +842,38 @@ pub fn review_request_prompt(
     out
 }
 
+/// Under this width the lens is in a split pane or a small window: the web's narrow mode.
+pub const NARROW_W: f32 = 760.0;
+/// Under this one there is no room left for the files rail.
+pub const NO_RAIL_W: f32 = 560.0;
+
 impl Hooked {
+    pub fn review_narrow(&self) -> bool {
+        self.review_w < NARROW_W
+    }
+
+    /// Run on every poll. A side-by-side diff in a narrow lens wraps every token onto its own
+    /// line, so it is shown unified there, whichever way the layout was asked for; the split
+    /// layout comes back once there is room. True when it changed the layout.
+    pub fn fit_review(&mut self) -> bool {
+        if self.page != Page::Session || self.lens != Lens::Review {
+            return false;
+        }
+        let diff = &mut self.lens_data.diff;
+        if self.review_w < NARROW_W {
+            if diff.mode() == DiffMode::Split {
+                diff.set_mode(DiffMode::Unified);
+                self.review_forced_unified = true;
+                return true;
+            }
+        } else if self.review_forced_unified {
+            self.review_forced_unified = false;
+            diff.set_mode(DiffMode::Split);
+            return true;
+        }
+        false
+    }
+
     pub fn review_key_base(&self) -> String {
         match self.lens_data.review_source {
             ReviewSource::Claude if self.lens_data.turns.is_empty() => "full".into(),
