@@ -365,6 +365,12 @@ fn thread_row(s: &Hooked, k: &Kit, t: &serde_json::Value, archived: bool) -> El 
                     text("unreachable")
                         .font(k.ty.text_xsmall)
                         .color(k.c.text_faint)
+                })
+                .child(match t["messages"].as_array().map_or(0, Vec::len) {
+                    0 | 1 => el(),
+                    n => text(format!("{n} msg"))
+                        .font(k.ty.text_xsmall)
+                        .color(k.c.text_faint),
                 }),
         )
         .child(
@@ -397,7 +403,8 @@ fn thread_row(s: &Hooked, k: &Kit, t: &serde_json::Value, archived: bool) -> El 
             })
             .variant(rune_kit::IconButtonVariant::GhostMuted)
             .control_size(ControlSize::Small)
-            .label(if archived {
+            .label(if archived { "Restore" } else { "Archive" })
+            .help(if archived {
                 "Restore: put it back in the diff"
             } else {
                 "Archive: take it out of the diff, keep the conversation"
@@ -1701,13 +1708,18 @@ fn annotation(s: &Hooked, a: &Annotation, k: &Kit) -> El {
             .border(1.0, k.c.border_base)
     };
     if a.id == "draft" {
-        let Some((_, edit)) = s.lens_data.draft.as_ref() else {
+        let Some((range, edit)) = s.lens_data.draft.as_ref() else {
             return el();
         };
         return shell("draft".into())
             .child(
+                text(crate::lenses::draft_label(range))
+                    .font(k.ty.text_xsmall_medium)
+                    .color(k.c.text_muted),
+            )
+            .child(
                 TextArea::new(edit)
-                    .placeholder("Comment on these lines… (⌘Enter saves)")
+                    .placeholder("Leave a comment… (⌘Enter saves, Esc cancels)")
                     .width(None)
                     .auto_grow(2, 10)
                     .on_edit(|s: &mut Hooked| &mut s.lens_data.draft.as_mut().expect("draft").1)

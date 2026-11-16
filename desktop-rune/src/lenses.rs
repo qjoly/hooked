@@ -744,6 +744,20 @@ fn range_label(old: bool, a: u64, b: u64) -> String {
     }
 }
 
+/// The title of the comment being written: the lines it covers, as the web's editor names them.
+pub fn draft_label(range: &LineRange) -> String {
+    let (a, b) = (
+        range.start.line.min(range.end.line),
+        range.start.line.max(range.end.line),
+    );
+    let label = range_label(range.end.side == Side::Old, a.into(), b.into());
+    if a == b {
+        format!("Comment on {label}")
+    } else {
+        format!("Comment on {label} · {} lines", b - a + 1)
+    }
+}
+
 /// Where a thread was anchored when it was written.
 pub fn anchor_label(t: &Value) -> String {
     range_label(
@@ -2569,5 +2583,13 @@ mod prompt_tests {
             anchor_label(&json!({ "side": "new", "start": 7, "end": 7 })),
             "+L7"
         );
+        // a selection dragged upwards reads the same as one dragged down
+        let range = |from, to| LineRange {
+            file: 0,
+            start: LineRef::new(Side::Old, from),
+            end: LineRef::new(Side::Old, to),
+        };
+        assert_eq!(draft_label(&range(4, 4)), "Comment on −L4");
+        assert_eq!(draft_label(&range(9, 6)), "Comment on −L6–9 · 4 lines");
     }
 }
