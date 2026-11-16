@@ -118,6 +118,14 @@ pub fn commands(s: &Hooked) -> Vec<Cmd> {
             s.set_corners(Corners::Sharp)
         }),
     ];
+    if s.incidents_on() {
+        out.insert(
+            7,
+            cmd(nav, &icons::SIREN, "Go to Incidents", "⌥8", |s, _| {
+                s.go_incidents()
+            }),
+        );
+    }
     #[cfg(feature = "knobs")]
     out.push(cmd(
         "Appearance",
@@ -438,6 +446,7 @@ fn live_keys(s: &Hooked, hint: &str) -> String {
         "⌥5" => "go-digest",
         "⌥6" => "go-memory",
         "⌥7" => "go-github",
+        "⌥8" => "go-incidents",
         "⌘N" => "new-session",
         "⌘," => "settings",
         "⌘⇧T" => "theme-cycle",
