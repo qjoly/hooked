@@ -47,6 +47,8 @@ pub struct LensData {
     pub threads: Vec<Value>,
     /// Where each live thread shows in the diff on screen, by thread id.
     pub placed: HashMap<String, Placed>,
+    /// The thread to reveal once the scope it was written on is back on screen.
+    pub jump: Option<String>,
     pub draft: Option<(LineRange, TextEdit)>,
     pub replies: HashMap<String, TextEdit>,
     pub editing: Option<(String, TextEdit)>,
@@ -100,6 +102,7 @@ impl Default for LensData {
             anchors: Vec::new(),
             threads: Vec::new(),
             placed: HashMap::new(),
+            jump: None,
             draft: None,
             replies: HashMap::new(),
             editing: None,
@@ -422,6 +425,76 @@ pub fn snippet_of(f: &FileDiff, side: Side, a: u32, b: u32) -> String {
     lines[from..to].join("\n")
 }
 
+const GONE_FROM_DIFF: &str = "That comment's file is no longer in this diff";
+pub const UNREACHABLE: &str = "Written on a diff no scope can show any more: archive or delete it";
+
+/// The scope a thread was written on. Its `opIndex` is the key of a diff section, so it also
+/// records which scope (and prompt filter, or branch pair and commit slice) produced it:
+/// `full:<j>`, `sel:<turns>[:<j>]`, `vcs:wt:<j>`, `wtb:<base>:<j>`,
+/// `br:<repo>:<base>:<branch>[:@from..to]:<j>`, with `*` for `<j>` on a thread Claude opened.
+#[derive(Clone, Debug, PartialEq)]
+pub enum ThreadContext {
+    Claude {
+        turns: Vec<usize>,
+    },
+    Tree,
+    Worktree,
+    Branch {
+        root: String,
+        base: String,
+        branch: String,
+        range: Option<(String, String)>,
+    },
+}
+
+/// The web's `threadContext`. `None` for a key no scope produces any more.
+pub fn thread_context(op: &str) -> Option<ThreadContext> {
+    if let Some(rest) = op.strip_prefix("br:") {
+        // Read from the right: a repo path may hold a colon, a branch name may not, and the
+        // commit slice is known by the '@' no branch name can carry.
+        let mut parts: Vec<&str> = rest.split(':').collect();
+        let section = parts.pop()?;
+        if section != "*" && (section.is_empty() || !section.bytes().all(|b| b.is_ascii_digit())) {
+            return None;
+        }
+        let range = match parts.last().and_then(|p| p.strip_prefix('@')) {
+            Some(slice) => {
+                parts.pop();
+                let (from, to) = slice.split_once("..")?;
+                if from.is_empty() || to.is_empty() {
+                    return None;
+                }
+                Some((from.to_string(), to.to_string()))
+            }
+            None => None,
+        };
+        let (branch, base) = (parts.pop()?, parts.pop()?);
+        let root = parts.join(":");
+        if root.is_empty() || base.is_empty() || branch.is_empty() {
+            return None;
+        }
+        return Some(ThreadContext::Branch {
+            root,
+            base: base.to_string(),
+            branch: branch.to_string(),
+            range,
+        });
+    }
+    if op == "vcs:wt" || op.starts_with("vcs:wt:") {
+        return Some(ThreadContext::Tree);
+    }
+    if op.starts_with("wtb:") {
+        return Some(ThreadContext::Worktree);
+    }
+    if op.starts_with("full:") {
+        return Some(ThreadContext::Claude { turns: Vec::new() });
+    }
+    let turns = op.strip_prefix("sel:")?.split(':').next()?;
+    Some(ThreadContext::Claude {
+        turns: turns.split(',').filter_map(|t| t.parse().ok()).collect(),
+    })
+}
+
 /// The first line a file's diff shows, where its outdated threads go.
 fn head_line(f: &FileDiff) -> Option<LineRef> {
     let l = f.hunks.first()?.lines.first()?;
@@ -559,8 +632,13 @@ impl Hooked {
     }
 
     /// The picked commits as the range the server diffs, oldest first (`commits` is newest first).
+    /// Until the commit list is in (a comment's scope being restored), the picks are trusted as
+    /// given, so the first fetch is already the narrowed one.
     pub fn branch_range(&self) -> Option<(String, String)> {
         let ld = &self.lens_data;
+        if ld.commits.is_empty() {
+            return Some((ld.picked.first()?.clone(), ld.picked.last()?.clone()));
+        }
         let at: Vec<usize> = ld
             .picked
             .iter()
@@ -731,10 +809,15 @@ impl Hooked {
                 s.lens_data.diff_sig = Some(sig);
                 match r {
                     Ok(v) => {
-                        if s.lens_data.picked.is_empty()
+                        let ld = &mut s.lens_data;
+                        if (ld.picked.is_empty() || ld.commits.is_empty())
                             && let Some(c) = v["commits"].as_array()
                         {
-                            s.lens_data.commits = c.clone();
+                            ld.commits = c.clone();
+                            // A pick the branch no longer has (rewritten since) is dropped.
+                            ld.picked.retain(|p| {
+                                c.iter().any(|x| x["rev"].as_str() == Some(p.as_str()))
+                            });
                         }
                         let changes: Vec<Change> =
                             serde_json::from_value(v["changes"].clone()).unwrap_or_default();
@@ -1538,11 +1621,11 @@ impl Hooked {
         self.review_op(json!({ "id": id, "action": "edit", "threadId": tid, "text": text }));
     }
 
-    pub fn jump_to_thread(&mut self, tid: &str, tx: &mut rune::Tx) {
+    /// Scrolls to a thread of the diff on screen; false when it is not in it.
+    fn reveal_thread(&mut self, tid: &str, tx: &mut rune::Tx) -> bool {
         let ld = &mut self.lens_data;
         let Some(p) = ld.placed.get(tid).copied() else {
-            self.flash("That thread belongs to another diff source", true);
-            return;
+            return false;
         };
         let at = if p.outdated {
             ld.diff.files().get(p.file).and_then(head_line)
@@ -1552,6 +1635,102 @@ impl Hooked {
         if let Some(at) = at {
             ld.diff.scroll_to_line(p.file, at, tx);
         }
+        true
+    }
+
+    /// A click on a row of the comments panel. A thread written on another scope (or prompt
+    /// filter, or branch pair) is reached by putting that scope back first; `resolve_jump`
+    /// scrolls to it once its diff is on screen.
+    pub fn jump_to_thread(&mut self, tid: &str, tx: &mut rune::Tx) {
+        if self.reveal_thread(tid, tx) {
+            return;
+        }
+        let Some(op) = self
+            .lens_data
+            .threads
+            .iter()
+            .find(|t| t["id"].as_str() == Some(tid))
+            .and_then(|t| t["opIndex"].as_str())
+            .map(str::to_string)
+        else {
+            return;
+        };
+        let base = self.review_key_base();
+        if op == base || op.starts_with(&format!("{base}:")) {
+            self.flash(GONE_FROM_DIFF, true);
+            return;
+        }
+        if thread_context(&op).is_some_and(|ctx| self.restore_context(ctx)) {
+            self.lens_data.jump = Some(tid.to_string());
+        } else {
+            self.flash(UNREACHABLE, true);
+        }
+    }
+
+    /// Puts back the scope a thread was written on; false when this session cannot show it.
+    fn restore_context(&mut self, ctx: ThreadContext) -> bool {
+        let Some(d) = self.detail.as_ref() else {
+            return false;
+        };
+        let id = d.session.id.clone();
+        let in_worktree = d.session.worktree_of.is_some();
+        match ctx {
+            ThreadContext::Claude { turns } => {
+                self.set_review_source(ReviewSource::Claude);
+                self.lens_data.turns = turns.into_iter().collect();
+            }
+            ThreadContext::Tree => self.set_review_source(ReviewSource::Tree),
+            ThreadContext::Worktree if in_worktree => {
+                self.set_review_source(ReviewSource::Worktree)
+            }
+            ThreadContext::Worktree => return false,
+            ThreadContext::Branch {
+                root,
+                base,
+                branch,
+                range,
+            } => {
+                self.set_review_source(ReviewSource::Branch);
+                let ld = &mut self.lens_data;
+                // The branch list is per repo: another repo, or a scope never opened, reads it.
+                let list =
+                    ld.branches.is_none() || ld.branch_root.as_deref() != Some(root.as_str());
+                ld.branch_root = Some(root.clone());
+                ld.branch = Some(branch);
+                ld.base = Some(base);
+                ld.picked = match range {
+                    Some((from, to)) if from == to => vec![from],
+                    Some((from, to)) => vec![from, to],
+                    None => Vec::new(),
+                };
+                ld.commits.clear();
+                if list {
+                    self.load_branches(id, Some(root));
+                }
+            }
+        }
+        self.lens_data.diff_sig = None;
+        true
+    }
+
+    /// Run on every poll: reveals the thread a jump is waiting on once its scope's diff is in.
+    pub fn resolve_jump(&mut self, tx: &mut rune::Tx) -> bool {
+        let ld = &mut self.lens_data;
+        if ld.jump.is_none() {
+            return false;
+        }
+        if self.page != Page::Session || self.lens != Lens::Review {
+            ld.jump = None;
+            return false;
+        }
+        if ld.diff_loading || ld.branches_loading || ld.diff_sig.is_none() {
+            return false;
+        }
+        let tid = ld.jump.take().unwrap_or_default();
+        if !self.reveal_thread(&tid, tx) {
+            self.flash(GONE_FROM_DIFF, true);
+        }
+        true
     }
 
     /// Sends the unsent comments as one prompt, in the shape the web lens uses. The lens stays
@@ -1850,6 +2029,46 @@ mod tests {
         assert_eq!(at(&thread("vcs:wt:0", 1, "one")), None);
         assert_eq!(snippet_of(&files[1], Side::New, 2, 3), "new\ny");
         assert_eq!(head_line(&files[2]), Some(LineRef::new(Side::New, 1)));
+    }
+
+    #[test]
+    fn a_thread_key_names_the_scope_it_was_written_on() {
+        use ThreadContext::*;
+        let claude = |turns: &[usize]| {
+            Some(Claude {
+                turns: turns.to_vec(),
+            })
+        };
+        assert_eq!(thread_context("full:2"), claude(&[]));
+        assert_eq!(thread_context("full:*"), claude(&[]));
+        assert_eq!(thread_context("sel:10,2"), claude(&[10, 2]));
+        assert_eq!(thread_context("sel:3:1"), claude(&[3]));
+        assert_eq!(thread_context("vcs:wt:0"), Some(Tree));
+        assert_eq!(thread_context("wtb:origin/main:4"), Some(Worktree));
+        // read from the right: the repo path may hold a colon
+        assert_eq!(
+            thread_context("br:/r:x/repo:main:feat/a:0"),
+            Some(Branch {
+                root: "/r:x/repo".into(),
+                base: "main".into(),
+                branch: "feat/a".into(),
+                range: None,
+            })
+        );
+        assert_eq!(
+            thread_context("br:/repo:main:feat/a:@abc..def:*"),
+            Some(Branch {
+                root: "/repo".into(),
+                base: "main".into(),
+                branch: "feat/a".into(),
+                range: Some(("abc".into(), "def".into())),
+            })
+        );
+        // the retired per-commit view, and keys cut short
+        assert_eq!(thread_context("vcs:/repo:abc123:0"), None);
+        assert_eq!(thread_context("br:/repo:main:feat/a"), None);
+        assert_eq!(thread_context("br:main:feat/a:0"), None);
+        assert_eq!(thread_context("br:/repo:main:feat/a:@abc:0"), None);
     }
 
     #[test]

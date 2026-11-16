@@ -328,6 +328,8 @@ fn thread_row(s: &Hooked, k: &Kit, t: &serde_json::Value, archived: bool) -> El 
     let first = fmt::first_line(t["messages"][0]["text"].as_str().unwrap_or(""), 90);
     let sent = t["sent"].as_bool() == Some(true);
     let armed = s.lens_data.delete_armed.as_deref() == Some(tid.as_str());
+    let reachable =
+        archived || crate::lenses::thread_context(t["opIndex"].as_str().unwrap_or("")).is_some();
     let (j, d, r) = (tid.clone(), tid.clone(), tid.clone());
     let label = col()
         .grow(1.0)
@@ -356,7 +358,14 @@ fn thread_row(s: &Hooked, k: &Kit, t: &serde_json::Value, archived: bool) -> El 
                     } else {
                         k.c.warning.fg
                     }),
-                ),
+                )
+                .child(if reachable {
+                    el()
+                } else {
+                    text("unreachable")
+                        .font(k.ty.text_xsmall)
+                        .color(k.c.text_faint)
+                }),
         )
         .child(
             text(first)
@@ -364,9 +373,12 @@ fn thread_row(s: &Hooked, k: &Kit, t: &serde_json::Value, archived: bool) -> El 
                 .color(k.c.text_base)
                 .truncate(),
         );
-    // An archived thread is out of the diff, so its row has nowhere to jump to.
+    // An archived thread is out of the diff, so its row has nowhere to jump to; nor has one
+    // written on a diff no scope produces any more.
     let label = if archived {
         label.help("Archived: restore it to see it in the diff again")
+    } else if !reachable {
+        label.help(crate::lenses::UNREACHABLE)
     } else {
         k.interactive(label.role("link").cursor(Cursor::Pointer))
             .on_press_tx(move |s: &mut Hooked, tx| s.jump_to_thread(&j, tx))

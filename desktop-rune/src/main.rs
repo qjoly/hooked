@@ -186,6 +186,7 @@ fn poll(s: &mut Hooked, clock: f64, tx: &mut Tx) -> bool {
         changed = true;
     }
     changed |= s.ensure_lens();
+    changed |= s.resolve_jump(tx);
     changed |= s.ensure_page();
     s.sync_ptys();
     s.sync_term_theme();
