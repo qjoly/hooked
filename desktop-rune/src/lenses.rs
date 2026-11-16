@@ -100,6 +100,8 @@ pub struct LensData {
     pub anchors: Vec<(String, String)>,
     /// What a reviewed tick signs off for each file of the diff; see `Sections::fps`.
     pub fps: Vec<String>,
+    /// Parallel to the diff's files; see `Sections::badges`.
+    pub badges: Vec<&'static str>,
     pub threads: Vec<Value>,
     /// Where each live thread shows in the diff on screen, by thread id.
     pub placed: HashMap<String, Placed>,
@@ -161,6 +163,7 @@ impl Default for LensData {
             turns_open: false,
             anchors: Vec::new(),
             fps: Vec::new(),
+            badges: Vec::new(),
             threads: Vec::new(),
             placed: HashMap::new(),
             jump: None,
@@ -205,6 +208,7 @@ impl LensData {
         }
         self.anchors = s.anchors;
         self.fps = s.fps;
+        self.badges = s.badges;
     }
 }
 
@@ -267,28 +271,47 @@ pub struct Sections {
     pub anchors: Vec<(String, String)>,
     /// What a reviewed tick signs off for each section; see [`fingerprint`].
     pub fps: Vec<String>,
+    /// How each section's file was changed, when not by an edit tool of the session itself:
+    /// `cmd` (a shell command), `agent` (a subagent), else empty.
+    pub badges: Vec<&'static str>,
+}
+
+/// The web's rail badge: a file a shell command changed, or one only subagents touched.
+fn badge(c: &Change) -> &'static str {
+    if c.tool.as_deref() == Some("Bash") {
+        "cmd"
+    } else if !c.raw_ops.is_empty() && c.raw_ops.iter().all(|o| !o["agent"].is_null()) {
+        "agent"
+    } else {
+        ""
+    }
 }
 
 impl Sections {
-    /// `compact` leaves out the unchanged lines around each change; they stay one click away,
-    /// in the folded ranges. The fingerprint is taken on the usual diff either way, so a
-    /// reviewed tick holds whichever way the file was shown.
+    /// A section of `c`'s diff, filed under `key`. `compact` leaves out the unchanged lines
+    /// around each change; they stay one click away, in the folded ranges. The fingerprint is
+    /// taken on the usual diff either way, so a reviewed tick holds whichever way the file was
+    /// shown.
     fn push(
         &mut self,
-        anchor: (String, String),
+        c: &Change,
+        key: String,
         label: String,
         old: &str,
         new: &str,
         compact: bool,
     ) {
-        let full = FileDiff::from_texts(label.clone(), old, new);
+        let mut full = FileDiff::from_texts(label.clone(), old, new);
         self.fps.push(fingerprint(&full));
-        self.files.push(if compact {
+        // A binary file comes with empty texts: say so rather than "no changes".
+        full.binary = c.binary;
+        self.files.push(if compact && !c.binary {
             FileDiff::from_texts_with_context(label, old, new, 0)
         } else {
             full
         });
-        self.anchors.push(anchor);
+        self.anchors.push((c.file.clone(), key));
+        self.badges.push(badge(c));
     }
 }
 
@@ -327,20 +350,15 @@ pub fn filtered_diffs(
                     after = text.clone();
                 }
             }
-            out.push(
-                (c.file.clone(), key.clone()),
-                path.clone(),
-                &before,
-                &after,
-                compact,
-            );
+            out.push(c, key.clone(), path.clone(), &before, &after, compact);
         } else {
             for j in picked {
                 let o = &c.raw_ops[j];
                 let old = o["old"].as_str().unwrap_or("");
                 let new = o["new"].as_str().or(o["content"].as_str()).unwrap_or("");
                 out.push(
-                    (c.file.clone(), format!("{key}:{j}")),
+                    c,
+                    format!("{key}:{j}"),
                     format!("{path} · edit {}", j + 1),
                     old,
                     new,
@@ -370,13 +388,7 @@ pub fn file_diffs(changes: &[Change], root: Option<&str>, key: &str, compact: bo
             } else {
                 path.clone()
             };
-            out.push(
-                (c.file.clone(), format!("{key}:{i}")),
-                label,
-                old,
-                new,
-                compact,
-            );
+            out.push(c, format!("{key}:{i}"), label, old, new, compact);
         }
     }
     out
@@ -405,6 +417,7 @@ pub fn tree_diffs(repos: &[api::Repo], root: Option<&str>, compact: bool) -> Tre
         out.sections.files.extend(s.files);
         out.sections.anchors.extend(s.anchors);
         out.sections.fps.extend(s.fps);
+        out.sections.badges.extend(s.badges);
     }
     out
 }
@@ -2235,6 +2248,25 @@ mod tests {
         let tree = tree_diffs(&[repo("/r", "", &["/r/a.rs"])], Some("/r"), false);
         assert_eq!(tree.sections.files.len(), 1);
         assert!(tree.repos.is_empty());
+    }
+
+    #[test]
+    fn a_binary_file_and_who_changed_a_file_are_told() {
+        let changes: Vec<Change> = serde_json::from_value(json!([
+            { "file": "/r/logo.png", "binary": true, "ops": [{ "old": "", "new": "" }] },
+            { "file": "/r/gen.rs", "tool": "Bash", "ops": [{ "old": "", "new": "x\n" }] },
+            { "file": "/r/sub.rs", "tool": "Edit", "ops": [{ "old": "", "new": "x\n" }],
+              "rawOps": [{ "kind": "edit", "agent": "a1" }, { "kind": "edit", "agent": "a2" }] },
+            { "file": "/r/mine.rs", "tool": "Edit", "ops": [{ "old": "", "new": "x\n" }],
+              "rawOps": [{ "kind": "edit", "agent": "a1" }, { "kind": "edit" }] },
+        ]))
+        .unwrap();
+        // compact or not, a binary file says it is one instead of "no changes"
+        for compact in [false, true] {
+            let s = file_diffs(&changes, Some("/r"), "full", compact);
+            assert!(s.files[0].binary && !s.files[1].binary);
+            assert_eq!(s.badges, ["", "cmd", "agent", ""]);
+        }
     }
 
     #[test]

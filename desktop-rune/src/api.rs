@@ -504,6 +504,10 @@ pub struct Change {
     pub file: String,
     pub name: Option<String>,
     pub badge: Option<String>,
+    /// The tool that made the change: `Bash` for a file a shell command wrote.
+    pub tool: Option<String>,
+    /// No text to diff on one side or the other.
+    pub binary: bool,
     pub ops: Vec<Value>,
     pub raw_ops: Vec<Value>,
     pub original: Option<String>,

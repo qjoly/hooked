@@ -759,16 +759,33 @@ fn files_rail(s: &Hooked, k: &Kit) -> El {
                                     .grow(1.0)
                                     .min_w(0.0),
                             )
-                            .child(
-                                text(format!("+{}", f.additions()))
-                                    .font(k.ty.text_xsmall)
-                                    .color(k.c.success.fg),
-                            )
-                            .child(
-                                text(format!("−{}", f.deletions()))
-                                    .font(k.ty.text_xsmall)
-                                    .color(k.c.danger.fg),
-                            ),
+                            .child(match ld.badges.get(i).copied().unwrap_or_default() {
+                                "" => el(),
+                                badge => row()
+                                    .px(4.0)
+                                    .radius(k.radius.sm)
+                                    .border(1.0, k.c.border_weak)
+                                    .help(if badge == "cmd" {
+                                        "Changed by a shell command, not an edit tool"
+                                    } else {
+                                        "Changed by a subagent"
+                                    })
+                                    .child(
+                                        text(badge).font(k.ty.text_xsmall).color(k.c.text_faint),
+                                    ),
+                            })
+                            .children(if f.binary {
+                                vec![text("bin").font(k.ty.text_xsmall).color(k.c.text_faint)]
+                            } else {
+                                vec![
+                                    text(format!("+{}", f.additions()))
+                                        .font(k.ty.text_xsmall)
+                                        .color(k.c.success.fg),
+                                    text(format!("−{}", f.deletions()))
+                                        .font(k.ty.text_xsmall)
+                                        .color(k.c.danger.fg),
+                                ]
+                            }),
                     )
                     .on_press_tx(move |s: &mut Hooked, tx| s.lens_data.diff.scroll_to_file(i, tx)),
                 ),
