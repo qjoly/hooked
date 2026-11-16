@@ -1,7 +1,7 @@
 use rune::{Color, Cursor, El, Key, col, el, row, text};
 use rune_kit::{Button, ButtonVariant, Kit, TextInput};
 
-use super::{Shadows, dot};
+use super::{Shadows, dot, modal_scrim};
 use crate::app::Hooked;
 use crate::organize::{Picker, parse_tags};
 
@@ -21,15 +21,7 @@ fn modal(k: &Kit, key: &str, title: &str, body: El) -> El {
                 .color(k.c.text_base),
         )
         .child(body);
-    el().key(key.to_string())
-        .absolute(0.0, 0.0)
-        .w_full()
-        .h_full()
-        .fill(k.c.scrim)
-        .items_center()
-        .pt(120.0)
-        .modal(true, |s: &mut Hooked| s.picker = None)
-        .child(col().items_center().w_full().child(panel))
+    modal_scrim(k, key, 120.0, panel, |s: &mut Hooked| s.picker = None)
 }
 
 pub fn view(s: &Hooked, k: &Kit) -> El {
@@ -616,15 +608,9 @@ fn agent(s: &Hooked, k: &Kit, title: &str, messages: Option<&[crate::api::Messag
                 })
                 .child(list),
         );
-    el().key("agent-modal")
-        .absolute(0.0, 0.0)
-        .w_full()
-        .h_full()
-        .fill(k.c.scrim)
-        .items_center()
-        .pt(60.0)
-        .modal(true, |s: &mut Hooked| s.picker = None)
-        .child(col().items_center().w_full().child(panel))
+    modal_scrim(k, "agent-modal", 60.0, panel, |s: &mut Hooked| {
+        s.picker = None
+    })
 }
 
 fn image(s: &Hooked, k: &Kit, paths: &[String], index: usize) -> El {
@@ -673,22 +659,14 @@ fn image(s: &Hooked, k: &Kit, paths: &[String], index: usize) -> El {
                 .on_press(|s: &mut Hooked| s.picker = None)
                 .build(k),
         );
-    el().key("image-modal")
-        .absolute(0.0, 0.0)
-        .w_full()
-        .h_full()
-        .fill(k.c.scrim)
+    let viewer = col()
         .items_center()
-        .pt(30.0)
-        .modal(true, |s: &mut Hooked| s.picker = None)
-        .child(
-            col()
-                .items_center()
-                .w_full()
-                .gap(10.0)
-                .child(bar)
-                .child(pic.radius(k.radius.md).clip_rounded(k.radius.md)),
-        )
+        .gap(10.0)
+        .child(bar)
+        .child(pic.radius(k.radius.md).clip_rounded(k.radius.md));
+    modal_scrim(k, "image-modal", 30.0, viewer, |s: &mut Hooked| {
+        s.picker = None
+    })
 }
 
 fn tokens(n: f64) -> String {

@@ -1694,6 +1694,31 @@ pub(super) fn floating_sized(
         )
 }
 
+/// A dimmed full-window layer holding `content`, centred `top` points down. `content` is the
+/// modal, not the scrim: Rune dismisses on a press outside the modal, so a full-window modal
+/// would take every press and only Escape could close it.
+pub(super) fn modal_scrim<S: 'static>(
+    k: &Kit,
+    key: &str,
+    top: f32,
+    content: El,
+    dismiss: impl Fn(&mut S) + 'static,
+) -> El {
+    el().key(key.to_string())
+        .absolute(0.0, 0.0)
+        .w_full()
+        .h_full()
+        .fill(k.c.scrim)
+        .items_center()
+        .pt(top)
+        .child(
+            col()
+                .items_center()
+                .w_full()
+                .child(content.modal(true, dismiss)),
+        )
+}
+
 /// Markdown whose code blocks carry Copy, and Run for shell blocks of a session.
 pub fn md_code(src: impl Into<String>, k: &Kit, session: Option<String>) -> rune_kit::Markdown {
     let k = k.clone();
@@ -1845,4 +1870,37 @@ pub fn column_grip(
                 save(s, w);
             }
         })
+}
+
+#[cfg(test)]
+mod tests {
+    use rune::runtime::Runtime;
+    use rune::{Cx, El, Env, col, el};
+
+    struct Open(bool);
+
+    fn view(s: &Open, _: &mut Cx<Open>) -> El {
+        let k = crate::theme::kit(false);
+        let panel = el().key("panel").size(200.0, 100.0);
+        col().w_full().h_full().children(
+            s.0.then(|| super::modal_scrim(&k, "modal", 60.0, panel, |s: &mut Open| s.0 = false)),
+        )
+    }
+
+    fn press(rt: &mut Runtime<Open>, (x, y): (f32, f32)) {
+        rt.pointer_down(x, y);
+        rt.pointer_up(x, y);
+        rt.frame(0.0);
+    }
+
+    #[test]
+    fn a_press_on_the_scrim_closes_the_modal_and_one_on_its_panel_does_not() {
+        let mut rt = Runtime::new(Open(true), view, (800.0, 600.0), Env::new(false, 1.0));
+        rt.frame(0.0);
+        let inside = rt.find("panel").expect("the panel is drawn");
+        press(&mut rt, inside);
+        assert!(rt.state.0, "a press on the panel keeps it open");
+        press(&mut rt, (10.0, 590.0));
+        assert!(!rt.state.0, "a press on the scrim closes it");
+    }
 }
