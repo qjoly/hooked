@@ -810,11 +810,11 @@ impl Hooked {
                 match r {
                     Ok(v) => {
                         let ld = &mut s.lens_data;
-                        if (ld.picked.is_empty() || ld.commits.is_empty())
-                            && let Some(c) = v["commits"].as_array()
-                        {
+                        // The list is the branch's, whatever slice was asked for: every answer
+                        // refreshes it, and a pick the branch no longer has (rewritten since)
+                        // is dropped.
+                        if let Some(c) = v["commits"].as_array() {
                             ld.commits = c.clone();
-                            // A pick the branch no longer has (rewritten since) is dropped.
                             ld.picked.retain(|p| {
                                 c.iter().any(|x| x["rev"].as_str() == Some(p.as_str()))
                             });
@@ -1802,6 +1802,21 @@ impl Hooked {
                 s.refresh_detail();
             },
         );
+    }
+
+    /// Reads the diff on screen again. The working tree, the worktree and the branches are
+    /// snapshots that only follow the session: an edit by hand or a commit from a terminal
+    /// leaves them stale.
+    pub fn reload_review(&mut self) {
+        let Some(id) = self.selected.clone() else {
+            return;
+        };
+        let ld = &mut self.lens_data;
+        ld.diff_sig = None;
+        if ld.review_source == ReviewSource::Branch && !ld.branches_loading {
+            let root = ld.branch_root.clone();
+            self.load_branches(id, root);
+        }
     }
 
     pub fn set_review_source(&mut self, src: ReviewSource) {

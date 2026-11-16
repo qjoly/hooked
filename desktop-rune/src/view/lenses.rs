@@ -916,6 +916,22 @@ pub fn review(s: &Hooked, d: &Detail, k: &Kit) -> El {
                 ),
         );
     }
+    if ld.review_source != ReviewSource::Claude {
+        top = top.child(
+            rune_kit::IconButton::new(&icons::RESTART)
+                .variant(rune_kit::IconButtonVariant::GhostMuted)
+                .label("Reload the diff")
+                .help(match ld.review_source {
+                    ReviewSource::Branch => "Reload the branches and the diff",
+                    ReviewSource::Worktree => "Reload the worktree diff",
+                    _ => "Reload the working-tree diff",
+                })
+                .disabled(ld.diff_loading)
+                .on_press(|s: &mut Hooked| s.reload_review())
+                .build(k)
+                .key("review-reload"),
+        );
+    }
     if ld.review_source == ReviewSource::Claude && !d.change_turns.is_empty() {
         let label = if ld.turns.is_empty() {
             "All prompts".to_string()
