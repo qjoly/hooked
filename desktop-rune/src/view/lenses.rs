@@ -1809,14 +1809,33 @@ fn annotation(s: &Hooked, a: &Annotation, k: &Kit) -> El {
                     .build(k)
                     .key(format!("th-arch-{tid}")),
             )
-            .child(
-                Button::new("Delete")
-                    .variant(ButtonVariant::GhostMuted)
+            .child({
+                // A sent thread may hold Claude's replies: deleting it takes a second click,
+                // as in the comments panel. A pending one is still a draft.
+                let armed = s.lens_data.delete_armed.as_deref() == Some(tid.as_str());
+                Button::new(if armed { "Delete?" } else { "Delete" })
+                    .variant(if armed {
+                        ButtonVariant::Danger
+                    } else {
+                        ButtonVariant::GhostMuted
+                    })
                     .control_size(ControlSize::Small)
-                    .on_press(move |s: &mut Hooked| s.delete_thread(t2.clone()))
+                    .help(if sent {
+                        "Delete this thread and its replies (click twice)"
+                    } else {
+                        "Delete this comment: it has not been sent yet"
+                    })
+                    .on_press(move |s: &mut Hooked| {
+                        if !sent || s.lens_data.delete_armed.as_deref() == Some(t2.as_str()) {
+                            s.lens_data.delete_armed = None;
+                            s.delete_thread(t2.clone());
+                        } else {
+                            s.lens_data.delete_armed = Some(t2.clone());
+                        }
+                    })
                     .build(k)
-                    .key(format!("th-del-{tid}")),
-            ),
+                    .key(format!("th-del-{tid}"))
+            }),
     );
     // An outdated thread sits at the head of its file, so it shows the code it was about.
     if outdated && let Some(snippet) = t["snippet"].as_str().filter(|x| !x.is_empty()) {
