@@ -832,11 +832,20 @@ impl Repo {
     }
 }
 
+/// The uncommitted changes of every repo detected under the session's directory. No repo at all
+/// means the directory is not under version control; `truncated` that the file limit cut some
+/// repos short.
+#[derive(Clone, Debug, Default, Deserialize, PartialEq)]
+#[serde(default)]
+pub struct TreeDiff {
+    pub repos: Vec<Repo>,
+    pub truncated: bool,
+}
+
 /// Read from `repos`, not the top-level `changes`: those only mirror the primary repo, which a
 /// session started above several clones does not have.
-pub fn vcs_changes(id: &str) -> Result<Vec<Repo>, String> {
-    let v = get(&format!("/api/session/vcs-diff?id={}", enc(id)))?;
-    decode(v.get("repos").cloned().unwrap_or(Value::Array(Vec::new())))
+pub fn vcs_changes(id: &str) -> Result<TreeDiff, String> {
+    decode(get(&format!("/api/session/vcs-diff?id={}", enc(id)))?)
 }
 
 #[derive(Clone, Debug, Default, Deserialize, PartialEq)]

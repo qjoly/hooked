@@ -21,6 +21,12 @@ pub struct LensData {
     pub diff: DiffState,
     pub diff_sig: Option<String>,
     pub diff_loading: bool,
+    /// Why the last load failed; shown in place of the diff when there is none on screen.
+    pub diff_error: Option<String>,
+    /// The working-tree diff found no repository under the session's directory.
+    pub no_vcs: bool,
+    /// The working-tree diff hit the file limit, so some files are not listed.
+    pub tree_truncated: bool,
     pub diff_count: usize,
     pub asking: bool,
     pub turns: std::collections::BTreeSet<usize>,
@@ -79,6 +85,9 @@ impl Default for LensData {
             diff: DiffState::new(Vec::new()),
             diff_sig: None,
             diff_loading: false,
+            diff_error: None,
+            no_vcs: false,
+            tree_truncated: false,
             diff_count: 0,
             asking: false,
             turns: Default::default(),
@@ -425,6 +434,50 @@ pub fn snippet_of(f: &FileDiff, side: Side, a: u32, b: u32) -> String {
     lines[from..to].join("\n")
 }
 
+/// What the lens says in place of a diff: that it is loading, why it could not be read, or why
+/// there is nothing to show.
+pub fn empty_message(ld: &LensData) -> String {
+    const NO_VCS: &str = "This project is not in a git or jj repository.";
+    const BRANCHES: &str = "Loading the branches…";
+    let branch = ld.review_source == ReviewSource::Branch;
+    if ld.diff_loading {
+        return match ld.review_source {
+            ReviewSource::Branch => "Loading the branch diff…",
+            ReviewSource::Worktree => "Loading the worktree diff…",
+            _ => "Loading the working-tree diff…",
+        }
+        .into();
+    }
+    if branch && ld.branches_loading {
+        return BRANCHES.into();
+    }
+    if let Some(e) = &ld.diff_error {
+        return e.clone();
+    }
+    match ld.review_source {
+        ReviewSource::Branch => match ld.branches.as_ref() {
+            None => BRANCHES,
+            Some(v) if v["vcs"].is_null() => NO_VCS,
+            Some(v) if v["branches"].as_array().is_none_or(Vec::is_empty) => {
+                "No local branches in this repository."
+            }
+            Some(_) => "No difference between the branch and its base.",
+        },
+        ReviewSource::Tree if ld.no_vcs => NO_VCS,
+        ReviewSource::Tree => "No uncommitted changes in the working tree.",
+        ReviewSource::Worktree => match ld.worktree.as_ref() {
+            None => "Loading the worktree diff…",
+            Some(w) if w.base.is_none() => "No base recorded for this worktree.",
+            Some(w) if w.merge_base.is_none() => {
+                "No common history with the base to compare against."
+            }
+            Some(_) => "Nothing changed since this worktree forked from its base.",
+        },
+        ReviewSource::Claude => "No file changes in this session yet.",
+    }
+    .into()
+}
+
 const GONE_FROM_DIFF: &str = "That comment's file is no longer in this diff";
 pub const UNREACHABLE: &str = "Written on a diff no scope can show any more: archive or delete it";
 
@@ -732,6 +785,9 @@ impl Hooked {
                 api::get(&path)
             },
             |s, r, _| {
+                if let Err(e) = &r {
+                    s.load_failed("the branches", e);
+                }
                 let ld = &mut s.lens_data;
                 ld.branches_loading = false;
                 let v = r.unwrap_or_default();
@@ -810,6 +866,7 @@ impl Hooked {
                 match r {
                     Ok(v) => {
                         let ld = &mut s.lens_data;
+                        ld.diff_error = None;
                         // The list is the branch's, whatever slice was asked for: every answer
                         // refreshes it, and a pick the branch no longer has (rewritten since)
                         // is dropped.
@@ -830,7 +887,7 @@ impl Hooked {
                         s.annotate();
                         s.load_threads();
                     }
-                    Err(e) => s.flash(format!("✗ Branch: {e}"), true),
+                    Err(e) => s.load_failed("the branch diff", &e),
                 }
             },
         );
@@ -1261,17 +1318,21 @@ impl Hooked {
                                 s.lens_data.diff_loading = false;
                                 s.lens_data.diff_sig = Some(sig);
                                 match r {
-                                    Ok(repos) => {
-                                        s.lens_data.diff_count =
-                                            repos.iter().map(|r| r.changes.len()).sum();
-                                        let tree = tree_diffs(&repos, project.as_deref());
-                                        s.lens_data.diff.set_files(tree.files);
-                                        s.lens_data.anchors = tree.anchors;
-                                        s.lens_data.file_repos = tree.repos;
+                                    Ok(found) => {
+                                        let ld = &mut s.lens_data;
+                                        ld.diff_error = None;
+                                        ld.no_vcs = found.repos.is_empty();
+                                        ld.tree_truncated = found.truncated;
+                                        ld.diff_count =
+                                            found.repos.iter().map(|r| r.changes.len()).sum();
+                                        let tree = tree_diffs(&found.repos, project.as_deref());
+                                        ld.diff.set_files(tree.files);
+                                        ld.anchors = tree.anchors;
+                                        ld.file_repos = tree.repos;
                                         s.annotate();
                                         s.load_threads();
                                     }
-                                    Err(e) => s.flash(format!("✗ Working tree: {e}"), true),
+                                    Err(e) => s.load_failed("the working-tree diff", &e),
                                 }
                             },
                         );
@@ -1286,6 +1347,7 @@ impl Hooked {
                                 s.lens_data.diff_sig = Some(sig);
                                 match r {
                                     Ok(wt) => {
+                                        s.lens_data.diff_error = None;
                                         s.lens_data.diff_count = wt.changes.len();
                                         let (files, anchors) = file_diffs(
                                             &wt.changes,
@@ -1298,7 +1360,7 @@ impl Hooked {
                                         s.annotate();
                                         s.load_threads();
                                     }
-                                    Err(e) => s.flash(format!("✗ Worktree: {e}"), true),
+                                    Err(e) => s.load_failed("the worktree diff", &e),
                                 }
                             },
                         );
@@ -1813,18 +1875,34 @@ impl Hooked {
         };
         let ld = &mut self.lens_data;
         ld.diff_sig = None;
+        ld.diff_error = None;
         if ld.review_source == ReviewSource::Branch && !ld.branches_loading {
             let root = ld.branch_root.clone();
             self.load_branches(id, root);
         }
     }
 
+    /// A diff (or the branch list) could not be read. With nothing on screen the lens says so
+    /// in place of the diff; a diff already there stays, the failure is only flashed.
+    fn load_failed(&mut self, what: &str, e: &str) {
+        let msg = format!("Could not load {what}: {e}");
+        if !self.lens_data.diff.files().is_empty() {
+            self.flash(format!("✗ {msg}"), true);
+        }
+        self.lens_data.diff_error = Some(msg);
+        self.lens_data.jump = None;
+    }
+
     pub fn set_review_source(&mut self, src: ReviewSource) {
         if self.lens_data.review_source != src {
-            self.lens_data.review_source = src;
-            self.lens_data.diff_sig = None;
-            self.lens_data.diff.set_files(Vec::new());
-            self.lens_data.file_repos.clear();
+            let ld = &mut self.lens_data;
+            ld.review_source = src;
+            ld.diff_sig = None;
+            ld.diff_error = None;
+            ld.no_vcs = false;
+            ld.tree_truncated = false;
+            ld.diff.set_files(Vec::new());
+            ld.file_repos.clear();
         }
     }
 
@@ -2044,6 +2122,44 @@ mod tests {
         assert_eq!(at(&thread("vcs:wt:0", 1, "one")), None);
         assert_eq!(snippet_of(&files[1], Side::New, 2, 3), "new\ny");
         assert_eq!(head_line(&files[2]), Some(LineRef::new(Side::New, 1)));
+    }
+
+    #[test]
+    fn an_empty_diff_says_why() {
+        let mut ld = LensData {
+            review_source: ReviewSource::Tree,
+            ..Default::default()
+        };
+        assert_eq!(
+            empty_message(&ld),
+            "No uncommitted changes in the working tree."
+        );
+        ld.no_vcs = true;
+        assert_eq!(
+            empty_message(&ld),
+            "This project is not in a git or jj repository."
+        );
+        // a failed load is not a clean tree, and a load in flight comes first
+        ld.diff_error = Some("Could not load the working-tree diff: timeout".into());
+        assert_eq!(
+            empty_message(&ld),
+            "Could not load the working-tree diff: timeout"
+        );
+        ld.diff_loading = true;
+        assert_eq!(empty_message(&ld), "Loading the working-tree diff…");
+
+        let mut ld = LensData {
+            review_source: ReviewSource::Branch,
+            ..Default::default()
+        };
+        assert_eq!(empty_message(&ld), "Loading the branches…");
+        ld.branches = Some(json!({ "vcs": null, "branches": [] }));
+        assert_eq!(
+            empty_message(&ld),
+            "This project is not in a git or jj repository."
+        );
+        ld.branches = Some(json!({ "vcs": "git", "branches": [] }));
+        assert_eq!(empty_message(&ld), "No local branches in this repository.");
     }
 
     #[test]

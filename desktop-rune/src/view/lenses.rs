@@ -774,6 +774,22 @@ fn files_rail(s: &Hooked, k: &Kit) -> El {
                 ),
         );
     }
+    let truncated = match ld.review_source {
+        ReviewSource::Tree => ld.tree_truncated,
+        ReviewSource::Worktree => ld.worktree.as_ref().is_some_and(|w| w.truncated),
+        _ => false,
+    };
+    if truncated {
+        list = list.child(
+            text("File limit reached: some files are not listed.")
+                .key("rf-truncated")
+                .font(k.ty.text_xsmall)
+                .color(k.c.text_faint)
+                .wrap()
+                .px(8.0)
+                .py(6.0),
+        );
+    }
     col()
         .key("review-files")
         .w(240.0)
@@ -1029,35 +1045,7 @@ pub fn review(s: &Hooked, d: &Detail, k: &Kit) -> El {
                 .key("review-mode"),
         );
     let body = if ld.diff.files().is_empty() {
-        let msg = if ld.diff_loading {
-            "Reading the working tree…"
-        } else if ld.review_source == ReviewSource::Branch {
-            let none_listed = ld
-                .branches
-                .as_ref()
-                .is_some_and(|v| v["branches"].as_array().is_none_or(Vec::is_empty));
-            if none_listed {
-                "No local branches in this repository."
-            } else if ld.branch.is_none() {
-                "Reading the branches…"
-            } else {
-                "No difference between the branch and its base."
-            }
-        } else if ld.review_source == ReviewSource::Tree {
-            "The working tree is clean."
-        } else if ld.review_source == ReviewSource::Worktree {
-            match ld.worktree.as_ref() {
-                None => "Reading the worktree…",
-                Some(w) if w.base.is_none() => "No base recorded for this worktree.",
-                Some(w) if w.merge_base.is_none() => {
-                    "No common history with the base to compare against."
-                }
-                Some(_) => "Nothing changed since this worktree forked from its base.",
-            }
-        } else {
-            "No file changes in this session yet."
-        };
-        empty(k, "review-empty", msg)
+        empty(k, "review-empty", &crate::lenses::empty_message(ld))
     } else {
         let diff = col()
             .key("review-diff")
