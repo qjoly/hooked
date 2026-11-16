@@ -1155,7 +1155,20 @@ pub fn review(s: &Hooked, d: &Detail, k: &Kit) -> El {
         );
     }
     let body = if ld.diff.files().is_empty() {
-        empty(k, "review-empty", &crate::lenses::empty_message(ld))
+        let note = empty(k, "review-empty", &crate::lenses::empty_message(ld));
+        // The comments panel stays within reach of an empty diff: a comment written on
+        // another scope is how to get back to it.
+        if ld.threads_open {
+            row()
+                .key("review-body")
+                .w_full()
+                .grow(1.0)
+                .min_h(0.0)
+                .child(col().grow(1.0).min_w(0.0).h_full().child(note))
+                .child(threads_panel(s, k))
+        } else {
+            note
+        }
     } else {
         let diff = col()
             .key("review-diff")
