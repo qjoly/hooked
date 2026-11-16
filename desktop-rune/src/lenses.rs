@@ -27,6 +27,40 @@ pub struct BranchInfo {
     /// The branch is already in its base: the diff, when there is one, was recovered from the
     /// merge commit.
     pub merged: bool,
+    /// The commits the diff is narrowed to, when some are picked.
+    pub range: Option<BranchSlice>,
+}
+
+/// A contiguous slice of a branch's commits: the diff runs from `parent` to `to`.
+#[derive(Clone, Debug, Default, serde::Deserialize, PartialEq)]
+#[serde(default)]
+pub struct BranchSlice {
+    pub from: String,
+    pub to: String,
+    pub parent: String,
+}
+
+impl BranchInfo {
+    /// The revision a side of the branch diff comes from, for blame and definitions: the fork
+    /// point (else the base branch) to the branch head, or the ends of the reviewed commits.
+    /// None under jj, whose revisions git cannot read.
+    pub fn rev<'a>(
+        &'a self,
+        side: Side,
+        branch: Option<&'a str>,
+        base: Option<&'a str>,
+    ) -> Option<&'a str> {
+        if self.vcs.as_deref() == Some("jj") {
+            return None;
+        }
+        let rev = match (side, self.range.as_ref()) {
+            (Side::Old, Some(r)) => r.parent.as_str(),
+            (Side::New, Some(r)) => r.to.as_str(),
+            (Side::Old, None) => self.merge_base.as_deref().or(base)?,
+            (Side::New, None) => branch?,
+        };
+        (!rev.is_empty()).then_some(rev)
+    }
 }
 
 pub struct LensData {
@@ -773,6 +807,9 @@ impl Hooked {
                     ld.branch.clone().unwrap_or_default(),
                     ld.base.clone().unwrap_or_default(),
                 );
+                // Claude reads the new side with `git show <rev>:<path>`, which a jj revision
+                // is not: there it reviews the file on disk.
+                let git = ld.branch_info.vcs.as_deref() != Some("jj");
                 match self.branch_range() {
                     Some((from, to)) => (
                         format!(
@@ -780,11 +817,11 @@ impl Hooked {
                             &from[..from.len().min(7)],
                             &to[..to.len().min(7)]
                         ),
-                        Some(to),
+                        git.then_some(to),
                     ),
                     None => (
                         format!("the full diff of branch `{b}` against `{base}`"),
-                        Some(b),
+                        git.then_some(b),
                     ),
                 }
             }
@@ -1015,14 +1052,17 @@ impl Hooked {
 
     /// Which revision a side of diff `file` comes from, when its line numbers are the file's.
     pub(crate) fn blame_rev(&self, file: usize, side: Side) -> Option<(String, String)> {
-        let (path, key) = self.lens_data.anchors.get(file)?;
-        let rev = match (self.lens_data.review_source, side) {
+        let ld = &self.lens_data;
+        let (path, key) = ld.anchors.get(file)?;
+        let rev = match (ld.review_source, side) {
             (ReviewSource::Tree, Side::Old) => "HEAD",
             (ReviewSource::Tree | ReviewSource::Worktree, Side::New) => "",
-            (ReviewSource::Worktree, Side::Old) => {
-                self.lens_data.worktree.as_ref()?.merge_base.as_deref()?
+            (ReviewSource::Worktree, Side::Old) => ld.worktree.as_ref()?.merge_base.as_deref()?,
+            (ReviewSource::Branch, side) => {
+                ld.branch_info
+                    .rev(side, ld.branch.as_deref(), ld.base.as_deref())?
             }
-            (ReviewSource::Claude, Side::Old) | (ReviewSource::Branch, _) => return None,
+            (ReviewSource::Claude, Side::Old) => return None,
             (ReviewSource::Claude, Side::New) => {
                 let j: usize = key.strip_prefix("full:")?.parse().ok()?;
                 let c = self
@@ -2222,6 +2262,28 @@ mod tests {
         );
         ld.base = Some("feat/a".into());
         assert!(empty_message(&ld).starts_with("The branch and the base are the same"));
+    }
+
+    #[test]
+    fn a_branch_diff_names_the_revision_of_each_side() {
+        let info = |v: Value| serde_json::from_value::<BranchInfo>(v).unwrap();
+        let (branch, base) = (Some("feat/a"), Some("main"));
+        // the whole branch: fork point → branch head
+        let whole = info(json!({ "vcs": "git", "mergeBase": "f0", "range": null }));
+        assert_eq!(whole.rev(Side::Old, branch, base), Some("f0"));
+        assert_eq!(whole.rev(Side::New, branch, base), Some("feat/a"));
+        // histories with nothing in common: the base branch itself
+        let unrelated = info(json!({ "vcs": "git", "mergeBase": null }));
+        assert_eq!(unrelated.rev(Side::Old, branch, base), Some("main"));
+        // some commits: the parent of the oldest → the newest
+        let slice = info(json!({
+            "vcs": "git", "mergeBase": "f0", "range": { "from": "c1", "to": "c3", "parent": "c0" }
+        }));
+        assert_eq!(slice.rev(Side::Old, branch, base), Some("c0"));
+        assert_eq!(slice.rev(Side::New, branch, base), Some("c3"));
+        // a jj revision is not one git can blame
+        let jj = info(json!({ "vcs": "jj", "mergeBase": null }));
+        assert_eq!(jj.rev(Side::New, branch, base), None);
     }
 
     #[test]
