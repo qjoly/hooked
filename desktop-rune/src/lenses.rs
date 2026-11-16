@@ -329,6 +329,45 @@ fn brief_list(threads: &[ReviewBrief]) -> String {
         .join("\n")
 }
 
+/// Where a thread is anchored, as both lenses label it: `+L12`, `−L3–7`.
+pub fn anchor_label(t: &Value) -> String {
+    let side = if t["side"] == "old" { "−L" } else { "+L" };
+    let (a, b) = (
+        t["start"].as_u64().unwrap_or(0),
+        t["end"].as_u64().unwrap_or(0),
+    );
+    if a == b || b == 0 {
+        format!("{side}{a}")
+    } else {
+        format!("{side}{a}–{b}")
+    }
+}
+
+/// The web's `threadInstructions`, word for word: how Claude answers in a review thread.
+pub fn thread_instructions(session: &str) -> String {
+    let api = format!("{}/api/review", api::base());
+    format!(
+        "Reply in the thread with the hooked MCP tool mcp__hooked__reply_review_comment \
+         (id: \"{session}\", thread_id above). Do NOT close the thread — closing is the reviewer's \
+         call, and there is no tool for it. If that MCP tool is unavailable, POST the same reply to \
+         the local hooked API instead: curl -sS -X POST {api} -H 'content-type: application/json' \
+         -d '{{\"id\":\"{session}\",\"action\":\"reply\",\"threadId\":\"<thread_id>\",\"text\":\"<your reply>\",\"author\":\"claude\"}}'. \
+         Keep your chat answer to a one-line summary — the details belong in the thread."
+    )
+}
+
+/// What the session is told when the reviewer answers in a thread, as the web lens words it.
+pub fn follow_up_prompt(session: &str, thread: &Value, text: &str) -> String {
+    format!(
+        "Follow-up on review thread {} — {} ({}):\n> {}\n{}",
+        thread["id"].as_str().unwrap_or(""),
+        thread["file"].as_str().unwrap_or(""),
+        anchor_label(thread),
+        text.replace('\n', "\n> "),
+        thread_instructions(session)
+    )
+}
+
 /// The web's `reviewRequestPrompt`, word for word, so Claude gets the same brief from either client.
 pub fn review_request_prompt(
     session: &str,
@@ -826,21 +865,10 @@ impl Hooked {
             return;
         }
         let in_key = |op: &str| op == base || op.starts_with(&format!("{base}:"));
-        let brief = |t: &Value| {
-            let side = if t["side"] == "old" { "−L" } else { "+L" };
-            let (a, b) = (
-                t["start"].as_u64().unwrap_or(0),
-                t["end"].as_u64().unwrap_or(0),
-            );
-            ReviewBrief {
-                file: t["file"].as_str().unwrap_or("").to_string(),
-                anchor: if a == b || b == 0 {
-                    format!("{side}{a}")
-                } else {
-                    format!("{side}{a}–{b}")
-                },
-                text: t["messages"][0]["text"].as_str().unwrap_or("").to_string(),
-            }
+        let brief = |t: &Value| ReviewBrief {
+            file: t["file"].as_str().unwrap_or("").to_string(),
+            anchor: anchor_label(t),
+            text: t["messages"][0]["text"].as_str().unwrap_or("").to_string(),
         };
         let here: Vec<&Value> = self
             .lens_data
@@ -1296,19 +1324,52 @@ impl Hooked {
         );
     }
 
+    /// A reply is stored in its thread, then goes to the session at once with the thread's id,
+    /// so Claude answers back into the same thread.
     pub fn reply_thread(&mut self, tid: String) {
-        let Some(id) = self.selected.clone() else {
+        let Some(d) = self.detail.as_ref() else {
             return;
         };
+        let (id, live, effort) = (
+            d.session.id.clone(),
+            d.session.live,
+            d.session.effort.clone(),
+        );
         let text = self
             .lens_data
             .replies
             .remove(&tid)
             .map(|e| e.text.trim().to_string())
             .unwrap_or_default();
-        if !text.is_empty() {
-            self.review_op(json!({ "id": id, "action": "reply", "threadId": tid, "text": text, "author": "user" }));
+        if text.is_empty() {
+            return;
         }
+        let prompt = self
+            .lens_data
+            .threads
+            .iter()
+            .find(|t| t["id"].as_str() == Some(tid.as_str()))
+            .map(|t| follow_up_prompt(&id, t, &text));
+        self.spawn(
+            move || {
+                api::post(
+                    "/api/review",
+                    json!({ "id": id, "action": "reply", "threadId": tid, "text": text, "author": "user" }),
+                )?;
+                match prompt {
+                    Some(p) if live => api::reply(&id, &p),
+                    Some(p) => api::resume(&id, &p, effort.as_deref()),
+                    None => Ok(()),
+                }
+            },
+            |s, r, _| {
+                if let Err(e) = r {
+                    s.flash(format!("✗ Reply: {e}"), true);
+                }
+                s.load_threads();
+                s.refresh_detail();
+            },
+        );
     }
 
     pub fn archive_thread(&mut self, tid: String, archived: bool) {
@@ -1409,20 +1470,7 @@ impl Hooked {
             .iter()
             .enumerate()
             .map(|(n, t)| {
-                let (a, b) = (
-                    t["start"].as_u64().unwrap_or(1),
-                    t["end"].as_u64().unwrap_or(1),
-                );
-                let p = if t["side"].as_str() == Some("old") {
-                    "−L"
-                } else {
-                    "+L"
-                };
-                let anchor = if a == b {
-                    format!("{p}{b}")
-                } else {
-                    format!("{p}{a}–{b}")
-                };
+                let anchor = anchor_label(t);
                 let body = t["messages"][0]["text"]
                     .as_str()
                     .unwrap_or("")
@@ -1442,14 +1490,9 @@ impl Hooked {
                 )
             })
             .collect();
-        let api_url = format!("{}/api/review", api::base());
         let prompt = format!(
-            "I reviewed {scope} and left the following inline comments. Address each one, then, for each: \
-             Reply in the thread with the hooked MCP tool mcp__hooked__reply_review_comment (id: \"{id}\", thread_id above). \
-             Do NOT close the thread — closing is the reviewer's call, and there is no tool for it. If that MCP tool is \
-             unavailable, POST the same reply to the local hooked API instead: curl -sS -X POST {api_url} -H 'content-type: application/json' \
-             -d '{{\"id\":\"{id}\",\"action\":\"reply\",\"threadId\":\"<thread_id>\",\"text\":\"<your reply>\",\"author\":\"claude\"}}'. \
-             Keep your chat answer to a one-line summary — the details belong in the thread.\n\n{}",
+            "I reviewed {scope} and left the following inline comments. Address each one, then, for each: {}\n\n{}",
+            thread_instructions(&id),
             items.join("\n\n")
         );
         let ids: Vec<String> = pending
@@ -1736,5 +1779,23 @@ mod prompt_tests {
             p.contains("-d '{\"id\":\"abc\",\"action\":\"claude-comment\",\"file\":\"<path>\"")
         );
         assert!(p.ends_with("do not raise them again:\n- /r/a.rs (+L3): off by one"));
+    }
+
+    #[test]
+    fn a_thread_reply_tells_claude_where_to_answer() {
+        let t = json!({ "id": "t9", "file": "/r/a.rs", "side": "old", "start": 3, "end": 5 });
+        let p = follow_up_prompt("abc", &t, "why?\nreally");
+        assert!(p.starts_with(
+            "Follow-up on review thread t9 — /r/a.rs (−L3–5):\n> why?\n> really\nReply in the thread"
+        ));
+        assert!(p.contains("mcp__hooked__reply_review_comment (id: \"abc\", thread_id above)"));
+        assert!(
+            p.contains("-d '{\"id\":\"abc\",\"action\":\"reply\",\"threadId\":\"<thread_id>\"")
+        );
+        assert!(p.ends_with("the details belong in the thread."));
+        assert_eq!(
+            anchor_label(&json!({ "side": "new", "start": 7, "end": 7 })),
+            "+L7"
+        );
     }
 }

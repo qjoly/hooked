@@ -324,16 +324,7 @@ fn turns_panel(s: &Hooked, d: &Detail, k: &Kit) -> El {
 
 fn thread_row(s: &Hooked, k: &Kit, t: &serde_json::Value, archived: bool) -> El {
     let tid = t["id"].as_str().unwrap_or("").to_string();
-    let side = if t["side"] == "old" { "−L" } else { "+L" };
-    let (a, b) = (
-        t["start"].as_u64().unwrap_or(0),
-        t["end"].as_u64().unwrap_or(0),
-    );
-    let anchor = if a == b || b == 0 {
-        format!("{side}{a}")
-    } else {
-        format!("{side}{a}–{b}")
-    };
+    let anchor = crate::lenses::anchor_label(t);
     let first = fmt::first_line(t["messages"][0]["text"].as_str().unwrap_or(""), 90);
     let sent = t["sent"].as_bool() == Some(true);
     let armed = s.lens_data.delete_armed.as_deref() == Some(tid.as_str());
