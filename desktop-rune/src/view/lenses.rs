@@ -366,8 +366,17 @@ fn thread_row(s: &Hooked, k: &Kit, t: &serde_json::Value, archived: bool) -> El 
     let first = fmt::first_line(t["messages"][0]["text"].as_str().unwrap_or(""), 90);
     let sent = t["sent"].as_bool() == Some(true);
     let armed = s.lens_data.delete_armed.as_deref() == Some(tid.as_str());
-    let reachable =
-        archived || crate::lenses::thread_context(t["opIndex"].as_str().unwrap_or("")).is_some();
+    // No scope shows a retired key any more, nor a worktree's diff outside a worktree.
+    let in_worktree = s
+        .detail
+        .as_ref()
+        .is_some_and(|d| d.session.worktree_of.is_some());
+    let reachable = archived
+        || match crate::lenses::thread_context(t["opIndex"].as_str().unwrap_or("")) {
+            Some(crate::lenses::ThreadContext::Worktree) => in_worktree,
+            Some(_) => true,
+            None => false,
+        };
     let (j, d, r) = (tid.clone(), tid.clone(), tid.clone());
     let label = col()
         .grow(1.0)
@@ -673,6 +682,15 @@ fn file_actions(s: &Hooked, k: &Kit, i: usize) -> El {
                     s.lens_data.rendered = !s.lens_data.rendered;
                     s.lens_data.diff.scroll_to_file(i, tx);
                 })
+                .build(k),
+        );
+        r = r.child(
+            rune_kit::IconButton::new(&icons::LINK)
+                .variant(rune_kit::IconButtonVariant::GhostMuted)
+                .control_size(ControlSize::Small)
+                .label("Open rendered")
+                .help("Open the rendered document in the browser")
+                .on_press_tx(move |s: &mut Hooked, tx| s.open_rendered(i, tx))
                 .build(k),
         );
     }
@@ -1102,7 +1120,8 @@ pub fn review(s: &Hooked, d: &Detail, k: &Kit) -> El {
                 .key("review-reload"),
         );
     }
-    if ld.review_source == ReviewSource::Claude && !d.change_turns.is_empty() {
+    // One prompt leaves nothing to narrow the review to.
+    if ld.review_source == ReviewSource::Claude && d.change_turns.len() > 1 {
         let label = if ld.turns.is_empty() {
             "All prompts".to_string()
         } else {
@@ -1166,10 +1185,15 @@ pub fn review(s: &Hooked, d: &Detail, k: &Kit) -> El {
     let pending = s.pending_threads().len();
     if pending > 0 {
         top = top.child(
-            Button::new(format!(
-                "Send {pending} comment{} to Claude",
-                if pending == 1 { "" } else { "s" }
-            ))
+            Button::new(if ld.sending_review {
+                "Sending…".to_string()
+            } else {
+                format!(
+                    "Send {pending} comment{} to Claude",
+                    if pending == 1 { "" } else { "s" }
+                )
+            })
+            .disabled(ld.sending_review)
             .icon(&icons::ARROW_UP)
             .variant(ButtonVariant::Contrast)
             .control_size(ControlSize::Regular)
@@ -1901,24 +1925,95 @@ fn annotation(s: &Hooked, a: &Annotation, k: &Kit) -> El {
         ("pending · not sent yet", k.c.warning.fg)
     };
     let (t1, t2, t3) = (tid.clone(), tid.clone(), tid.clone());
+    let lit = s.lens_data.flash.as_ref().is_some_and(|(id, _)| *id == tid);
+    let shell = |key: String| {
+        let c = shell(key);
+        if lit {
+            c.fill(k.c.info.bg).border(1.0, k.c.border_focus)
+        } else {
+            c
+        }
+    };
     let placed = s.lens_data.placed.get(&tid);
     let outdated = placed.is_some_and(|p| p.outdated);
+    let lost = placed.is_some_and(|p| p.lost);
     let anchor = placed.map_or_else(|| crate::lenses::anchor_label(t), |p| p.label());
+    // A thread whose file left the diff sits in another file's: it names its own.
+    let anchor = match t["file"].as_str().filter(|_| lost) {
+        Some(file) => format!("{} {anchor}", file.rsplit('/').next().unwrap_or(file)),
+        None => anchor,
+    };
+    let anchor = if outdated {
+        format!("was {anchor}")
+    } else {
+        anchor
+    };
+    if s.lens_data.folded.contains(&tid) {
+        let n = t["messages"].as_array().map_or(0, Vec::len);
+        let first = fmt::first_line(t["messages"][0]["text"].as_str().unwrap_or(""), 160);
+        let tf = tid.clone();
+        return k
+            .interactive(
+                row()
+                    .key(format!("thread-{tid}"))
+                    .role("button")
+                    .w_full()
+                    .max_w(720.0)
+                    .mx(12.0)
+                    .my(6.0)
+                    .h(30.0)
+                    .px(12.0)
+                    .gap(8.0)
+                    .center_y()
+                    .radius(k.radius.md)
+                    .fill(k.c.surface_raised)
+                    .border(1.0, k.c.border_base)
+                    .cursor(Cursor::Pointer)
+                    .help("Open this comment again")
+                    .child(glyph(&icons::CHEVRON_RIGHT, 12.0, k.c.icon_muted))
+                    .child(text(anchor).font(k.ty.mono).color(k.c.text_muted))
+                    .child(
+                        text(format!("{n} message{}", if n == 1 { "" } else { "s" }))
+                            .font(k.ty.text_xsmall)
+                            .color(k.c.text_faint),
+                    )
+                    .child(
+                        text(first)
+                            .font(k.ty.text_small)
+                            .color(k.c.text_muted)
+                            .truncate()
+                            .grow(1.0)
+                            .min_w(0.0),
+                    ),
+            )
+            .on_press(move |s: &mut Hooked| s.toggle_fold(&tf));
+    }
+    let tf = tid.clone();
     let mut c = shell(format!("thread-{tid}")).child(
         row()
             .w_full()
             .gap(8.0)
             .center_y()
             .child(
-                text(if outdated {
-                    format!("was {anchor}")
-                } else {
-                    anchor
-                })
-                .font(k.ty.mono)
-                .color(k.c.text_muted),
+                rune_kit::IconButton::new(&icons::CHEVRON_DOWN)
+                    .variant(rune_kit::IconButtonVariant::GhostMuted)
+                    .control_size(ControlSize::Small)
+                    .label("Collapse")
+                    .help("Collapse this comment to one line")
+                    .on_press(move |s: &mut Hooked| s.toggle_fold(&tf))
+                    .build(k)
+                    .key(format!("th-fold-{tid}")),
             )
-            .child(if outdated {
+            .child(text(anchor).font(k.ty.mono).color(k.c.text_muted))
+            .child(if lost {
+                text("left the diff")
+                    .font(k.ty.text_xsmall_medium)
+                    .color(k.c.danger.fg)
+                    .help(format!(
+                        "{} is no longer in this diff",
+                        t["file"].as_str().unwrap_or("Its file")
+                    ))
+            } else if outdated {
                 text("outdated")
                     .font(k.ty.text_xsmall_medium)
                     .color(k.c.danger.fg)

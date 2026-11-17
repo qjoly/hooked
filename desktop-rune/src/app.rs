@@ -178,6 +178,9 @@ pub struct Hooked {
     pub reviewed: HashMap<String, Vec<String>>,
     /// Where each session's review was left, by session id.
     pub review_places: HashMap<String, crate::lenses::ReviewPlace>,
+    /// `review_places` changed since it was last written, and when that was (ms).
+    pub places_dirty: bool,
+    pub places_saved_at: i64,
     pub job_log: Option<(String, String)>,
     pub run_win: Option<crate::ghrun::RunWin>,
     pub query_win: Option<crate::querywin::QueryWin>,
@@ -475,6 +478,8 @@ impl Hooked {
             drafts,
             reviewed,
             review_places,
+            places_dirty: false,
+            places_saved_at: 0,
             job_log: None,
             run_win: None,
             query_win: None,

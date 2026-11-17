@@ -96,6 +96,8 @@ pub struct ReviewPlace {
     pub branch: Option<String>,
     pub base: Option<String>,
     pub picked: Vec<String>,
+    /// The file at the top of the diff.
+    pub file: Option<String>,
     /// Write order: past [`PLACES_MAX`] the least recently written place is forgotten.
     pub seq: u64,
 }
@@ -117,6 +119,10 @@ pub fn remember_place(
         place.branch = old.branch.clone();
         place.base = old.base.clone();
         place.picked = old.picked.clone();
+    }
+    // Likewise the file, while the diff is not in yet.
+    if place.file.is_none() {
+        place.file = old.and_then(|p| p.file.clone());
     }
     place.seq = old.map_or(0, |p| p.seq);
     if old == Some(&place) {
@@ -142,6 +148,9 @@ pub struct LensData {
     pub diff: DiffState,
     pub diff_sig: Option<String>,
     pub diff_loading: bool,
+    /// `diff_sig` without the session's last activity, and when that diff was asked for (ms).
+    pub diff_stable: Option<String>,
+    pub diff_at: i64,
     /// Why the last load failed; shown in place of the diff when there is none on screen.
     pub diff_error: Option<String>,
     /// The working-tree diff found no repository under the session's directory.
@@ -179,14 +188,27 @@ pub struct LensData {
     /// Parallel to the diff's files; see `Sections::badges`.
     pub badges: Vec<&'static str>,
     pub threads: Vec<Value>,
+    /// When the threads were last asked for (ms).
+    pub threads_at: i64,
     /// Where each live thread shows in the diff on screen, by thread id.
     pub placed: HashMap<String, Placed>,
     /// The thread to reveal once the scope it was written on is back on screen.
     pub jump: Option<String>,
+    /// The file to scroll back to once the diff of a review taken up again is in.
+    pub goto: Option<String>,
+    /// The thread a jump just landed on, lit until that time (ms).
+    pub flash: Option<(String, i64)>,
+    /// The threads folded to one line, by id: a long thread done with is put away by hand, and
+    /// comes back open at the next launch.
+    pub folded: std::collections::HashSet<String>,
     pub draft: Option<(LineRange, TextEdit)>,
+    /// The `(file, opIndex)` section the comment being written was started on.
+    pub draft_at: Option<(String, String)>,
     pub replies: HashMap<String, TextEdit>,
     pub editing: Option<(String, TextEdit)>,
     pub threads_open: bool,
+    /// The pending comments are on their way to Claude: a second click must not send them twice.
+    pub sending_review: bool,
     pub delete_armed: Option<String>,
 
     pub mcp_cwd: Option<String>,
@@ -213,6 +235,8 @@ impl Default for LensData {
             diff: DiffState::new(Vec::new()),
             diff_sig: None,
             diff_loading: false,
+            diff_stable: None,
+            diff_at: 0,
             diff_error: None,
             no_vcs: false,
             tree_truncated: false,
@@ -242,12 +266,18 @@ impl Default for LensData {
             fps: Vec::new(),
             badges: Vec::new(),
             threads: Vec::new(),
+            threads_at: 0,
             placed: HashMap::new(),
             jump: None,
+            goto: None,
+            draft_at: None,
+            flash: None,
+            folded: Default::default(),
             draft: None,
             replies: HashMap::new(),
             editing: None,
             threads_open: false,
+            sending_review: false,
             delete_armed: None,
             mcp_cwd: None,
             mcp: Vec::new(),
@@ -276,6 +306,10 @@ impl LensData {
             branch: self.branch.clone(),
             base: self.base.clone(),
             picked: self.picked.clone(),
+            file: self
+                .anchors
+                .get(self.diff.visible_file())
+                .map(|(f, _)| f.clone()),
             seq: 0,
         }
     }
@@ -290,6 +324,7 @@ impl LensData {
         self.branch = place.branch.clone();
         self.base = place.base.clone();
         self.picked = place.picked.clone();
+        self.goto = place.file.clone();
     }
 
     /// Puts a scope's diff on screen. The diff is read again each time the session moves, and
@@ -306,6 +341,8 @@ impl LensData {
             });
         if !same {
             self.diff.set_files(s.files);
+            // The definition card is placed by section index, which no longer means the same.
+            self.def = None;
         }
         self.anchors = s.anchors;
         self.fps = s.fps;
@@ -557,6 +594,8 @@ pub struct Placed {
     /// Its code changed or is gone, so no line can be trusted: the thread shows at the head of
     /// the file instead of under a wrong line.
     pub outdated: bool,
+    /// Its file is no longer in the diff at all: it shows at the head of the first file.
+    pub lost: bool,
 }
 
 impl Placed {
@@ -639,6 +678,35 @@ pub fn place_thread(t: &Value, anchors: &[(String, String)], files: &[FileDiff])
         start,
         end,
         outdated,
+        lost: false,
+    })
+}
+
+/// A thread of the scope on screen (`key_base`) whose file left its diff, typically because it
+/// was committed since. It would show nowhere, so it goes to the head of the first file, where
+/// it can still be read, archived or deleted. It is never re-anchored: its snippet belongs to
+/// another file, and a match here would be a coincidence.
+pub fn lost_thread(t: &Value, anchors: &[(String, String)], key_base: &str) -> Option<Placed> {
+    let (file, key) = (t["file"].as_str()?, t["opIndex"].as_str()?);
+    let here = key == key_base
+        || key
+            .strip_prefix(key_base)
+            .is_some_and(|rest| rest.starts_with(':'));
+    if !here || anchors.is_empty() || anchors.iter().any(|(f, _)| f == file) {
+        return None;
+    }
+    let start = t["start"].as_u64().unwrap_or(1) as u32;
+    Some(Placed {
+        file: 0,
+        side: if t["side"] == "old" {
+            Side::Old
+        } else {
+            Side::New
+        },
+        start,
+        end: t["end"].as_u64().map_or(start, |e| e as u32),
+        outdated: true,
+        lost: true,
     })
 }
 
@@ -730,6 +798,15 @@ pub fn empty_message(ld: &LensData) -> String {
     }
     .into()
 }
+
+/// The least time between two reloads of a VCS diff while the session works, as on the web.
+const RELOAD_EVERY_MS: i64 = 5000;
+
+/// How often the lens reads its threads again while it is open.
+const THREADS_EVERY_MS: i64 = 4000;
+
+/// How long the thread a jump landed on stays lit.
+const FLASH_MS: i64 = 2000;
 
 const GONE_FROM_DIFF: &str = "That comment's file is no longer in this diff";
 pub const UNREACHABLE: &str = "Written on a diff no scope can show any more: archive or delete it";
@@ -962,10 +1039,42 @@ impl Hooked {
         if self.detail.as_ref().is_none_or(|d| d.session.id != id) {
             return;
         }
+        // Not before the lens is back on the file it was left on: the top of the diff would
+        // be remembered in its place.
+        if self.lens_data.goto.is_some() {
+            return;
+        }
         let place = self.lens_data.place();
         if remember_place(&mut self.review_places, &id, place) {
+            self.places_dirty = true;
+        }
+        // The file at the top changes all along a scroll: written once a second at most.
+        let now = fmt::now_ms();
+        if self.places_dirty && now - self.places_saved_at >= 1000 {
+            self.places_dirty = false;
+            self.places_saved_at = now;
             let all = self.review_places.clone();
             self.save_pref("reviewPlaces", &all);
+        }
+    }
+
+    /// Run on every poll: once the diff of a review taken up again is in, scrolls back to the
+    /// file it was left on.
+    pub fn resolve_goto(&mut self, tx: &mut rune::Tx) -> bool {
+        let ld = &mut self.lens_data;
+        if ld.goto.is_none() || self.page != Page::Session || self.lens != Lens::Review {
+            return false;
+        }
+        if ld.diff_loading || ld.branches_loading || ld.diff_sig.is_none() {
+            return false;
+        }
+        let file = ld.goto.take().unwrap_or_default();
+        match ld.anchors.iter().position(|(f, _)| *f == file) {
+            Some(i) if i > 0 => {
+                ld.diff.scroll_to_file(i, tx);
+                true
+            }
+            _ => false,
         }
     }
 
@@ -1159,6 +1268,7 @@ impl Hooked {
         ld.base = None;
         ld.picked.clear();
         ld.commits.clear();
+        ld.branch_info = BranchInfo::default();
         ld.diff_sig = None;
         ld.show(Sections::default());
     }
@@ -1174,7 +1284,6 @@ impl Hooked {
         let key = self.branch_key().unwrap_or_default();
         let compact = self.review_compact;
         self.lens_data.diff_loading = true;
-        self.lens_data.branch_info = BranchInfo::default();
         self.spawn(
             move || {
                 let mut path = format!(
@@ -1235,6 +1344,15 @@ impl Hooked {
                 } else {
                     ld.picked.push(r);
                 }
+                // Kept oldest first whatever the order of the clicks (`commits` is newest
+                // first): a place taken up later reads its slice from the first and last pick.
+                let at = |rev: &String| {
+                    ld.commits
+                        .iter()
+                        .position(|c| c["rev"].as_str() == Some(rev.as_str()))
+                };
+                ld.picked.retain(|p| at(p).is_some());
+                ld.picked.sort_by_key(|p| std::cmp::Reverse(at(p)));
             }
         }
     }
@@ -1249,6 +1367,9 @@ impl Hooked {
         }
         ld.picked.clear();
         ld.commits.clear();
+        // What was known belongs to the pair being left; a reload of the same pair keeps it,
+        // so the merged banner and the blame revisions hold while the diff is read again.
+        ld.branch_info = BranchInfo::default();
     }
 
     pub fn truncated_at(&self, file: usize) -> Option<String> {
@@ -1316,14 +1437,20 @@ impl Hooked {
             }
             (ReviewSource::Claude, Side::Old) => return None,
             (ReviewSource::Claude, Side::New) => {
-                let j: usize = key.strip_prefix("full:")?.parse().ok()?;
-                let c = self
-                    .detail
-                    .as_ref()?
-                    .changes
-                    .iter()
-                    .find(|c| c.file == *path)?;
-                (c.ops.get(j)?["kind"] == "write").then_some("")?
+                // A prompt filter replayed from the original shows the whole file (its key has
+                // no op index); otherwise only a `write` does.
+                if key.strip_prefix("sel:").is_some_and(|k| !k.contains(':')) {
+                    ""
+                } else {
+                    let j: usize = key.strip_prefix("full:")?.parse().ok()?;
+                    let c = self
+                        .detail
+                        .as_ref()?
+                        .changes
+                        .iter()
+                        .find(|c| c.file == *path)?;
+                    (c.ops.get(j)?["kind"] == "write").then_some("")?
+                }
             }
         };
         Some((path.clone(), rev.to_string()))
@@ -1424,8 +1551,10 @@ impl Hooked {
                 .find(|l| l.number(side) == Some(line))
                 .map(|l| l.text.clone())
         });
+        // The blame is by line number: when the line shown is not the one blamed (the file
+        // moved on since), it says nothing rather than name the wrong commit.
         if entry.is_null() || shown.is_some_and(|t| entry["t"].as_str() != Some(t.as_str())) {
-            return Some(format!("L{line}: not committed yet"));
+            return None;
         }
         let c = &b["commits"][entry["c"].as_u64().unwrap_or(0) as usize];
         if c["uncommitted"] == true {
@@ -1622,7 +1751,28 @@ impl Hooked {
                 if ld.diff_sig.as_deref() == Some(sig.as_str()) || ld.diff_loading {
                     return false;
                 }
-                match ld.review_source {
+                // What is asked for, apart from the session having moved. While Claude works
+                // the session moves several times a second: the working tree, the worktree and
+                // the branch are then read again every few seconds at most, and once more when
+                // the turn ends. That is also when the branch list is read again, for a branch
+                // created or checked out during the turn.
+                let now = fmt::now_ms();
+                let stable = sig.replace(activity.as_str(), "");
+                let moved_only = ld.diff_stable.as_deref() == Some(stable.as_str());
+                let working = self.working_since.is_some();
+                let source = ld.review_source;
+                if source != ReviewSource::Claude
+                    && moved_only
+                    && working
+                    && now - ld.diff_at < RELOAD_EVERY_MS
+                {
+                    return false;
+                }
+                let relist = moved_only && !working && !ld.branches_loading;
+                self.lens_data.diff_stable = Some(stable);
+                self.lens_data.diff_at = now;
+                let ld = &self.lens_data;
+                match source {
                     ReviewSource::Claude => {
                         let changes: Vec<Change> = d
                             .changes
@@ -1643,7 +1793,11 @@ impl Hooked {
                                 compact,
                             )
                         };
-                        self.lens_data.diff_count = d.changes.len();
+                        // Files, not sections, and only those the prompt filter keeps.
+                        let mut shown: Vec<&str> =
+                            sections.anchors.iter().map(|(f, _)| f.as_str()).collect();
+                        shown.dedup();
+                        self.lens_data.diff_count = shown.len();
                         self.lens_data.show(sections);
                         self.annotate();
                         self.lens_data.diff_sig = Some(sig);
@@ -1651,6 +1805,10 @@ impl Hooked {
                         true
                     }
                     ReviewSource::Branch => {
+                        if relist {
+                            let root = ld.branch_root.clone();
+                            self.load_branches(id.clone(), root);
+                        }
                         self.load_branch_diff(id, sig);
                         true
                     }
@@ -1817,26 +1975,54 @@ impl Hooked {
         let Some(id) = self.selected.clone() else {
             return;
         };
+        self.lens_data.threads_at = fmt::now_ms();
         self.spawn(
-            move || api::get(&format!("/api/review?id={id}")),
-            |s, r, _| {
+            {
+                let id = id.clone();
+                move || api::get(&format!("/api/review?id={id}"))
+            },
+            move |s, r, _| {
+                // An answer for the session just left must not land on the one opened since.
+                if s.selected.as_deref() != Some(id.as_str()) {
+                    return;
+                }
                 if let Ok(v) = r {
-                    s.lens_data.threads = v["threads"].as_array().cloned().unwrap_or_default();
-                    s.annotate();
+                    let threads = v["threads"].as_array().cloned().unwrap_or_default();
+                    if threads != s.lens_data.threads {
+                        s.lens_data.threads = threads;
+                        s.annotate();
+                    }
                 }
             },
         );
     }
 
+    /// Run on every poll. Threads change from elsewhere (Claude answering through its tool,
+    /// the web lens, another window), also while the session itself is quiet: they are read
+    /// again every few seconds while the lens is open.
+    pub fn poll_threads(&mut self, now: i64, tx: &mut rune::Tx) {
+        if self.page != Page::Session || self.lens != Lens::Review || self.detail.is_none() {
+            return;
+        }
+        if now - self.lens_data.threads_at < THREADS_EVERY_MS {
+            return;
+        }
+        tx.wake_after(std::time::Duration::from_millis(THREADS_EVERY_MS as u64));
+        self.load_threads();
+    }
+
     /// Puts each thread, and the comment being written, under the diff line it points at.
     /// Archived threads are out of the diff: they live in the comments panel, restorable.
     pub fn annotate(&mut self) {
+        let key_base = self.review_key_base();
         let ld = &mut self.lens_data;
         let mut notes = Vec::new();
         ld.placed.clear();
         for t in ld.threads.iter().filter(|t| t["status"] != "archived") {
             let files = ld.diff.files();
-            let Some(p) = place_thread(t, &ld.anchors, files) else {
+            let Some(p) = place_thread(t, &ld.anchors, files)
+                .or_else(|| lost_thread(t, &ld.anchors, &key_base))
+            else {
                 continue;
             };
             let at = if p.outdated {
@@ -1850,13 +2036,20 @@ impl Hooked {
             notes.push(Annotation::new(p.file, at, id));
             ld.placed.insert(id.to_string(), p);
         }
-        if let Some((range, _)) = ld.draft.as_ref() {
+        // The comment being written follows its section when a refresh moves it in the list
+        // (a file added above it), and waits out of sight while that section is not shown.
+        let section = ld
+            .draft_at
+            .as_ref()
+            .and_then(|at| ld.anchors.iter().position(|a| a == at));
+        if let (Some((range, _)), Some(file)) = (ld.draft.as_mut(), section) {
+            range.file = file;
             let end = if range.end.line >= range.start.line {
                 range.end
             } else {
                 range.start
             };
-            notes.push(Annotation::new(range.file, end, "draft"));
+            notes.push(Annotation::new(file, end, "draft"));
         }
         if let Some(d) = ld.def.as_ref() {
             notes.push(Annotation::new(d.file, LineRef::new(d.side, d.line), "def"));
@@ -1867,11 +2060,13 @@ impl Hooked {
     pub fn start_comment(&mut self, range: LineRange) {
         let mut edit = TextEdit::new("");
         edit.focused = true;
+        self.lens_data.draft_at = self.lens_data.anchors.get(range.file).cloned();
         self.lens_data.draft = Some((range, edit));
         self.annotate();
     }
 
     pub fn cancel_comment(&mut self) {
+        self.lens_data.draft_at = None;
         self.lens_data.draft = None;
         self.annotate();
     }
@@ -1884,7 +2079,15 @@ impl Hooked {
             return;
         };
         let text = edit.text.trim().to_string();
-        let Some((file, key)) = self.lens_data.anchors.get(range.file).cloned() else {
+        // The section it was started on, not whatever sits at that place in the list now.
+        let at = self.lens_data.draft_at.take();
+        let Some((file, key)) = at.filter(|a| self.lens_data.anchors.get(range.file) == Some(a))
+        else {
+            self.flash(
+                "✗ The lines this comment was on are no longer in the diff",
+                true,
+            );
+            self.annotate();
             return;
         };
         if text.is_empty() {
@@ -2027,12 +2230,49 @@ impl Hooked {
         self.review_op(json!({ "id": id, "action": "edit", "threadId": tid, "text": text }));
     }
 
+    /// The web's page for a Markdown file of the diff, rendered whole, at the revision its new
+    /// side comes from when there is one.
+    pub fn rendered_url(&self, file: usize) -> Option<String> {
+        let id = self.selected.as_deref()?;
+        let (path, _) = self.lens_data.anchors.get(file)?;
+        let mut url = format!(
+            "{}/render?id={}&file={}",
+            api::base(),
+            api::enc(id),
+            api::enc(path)
+        );
+        if let Some((_, rev)) = self
+            .blame_rev(file, Side::New)
+            .filter(|(_, rev)| !rev.is_empty())
+        {
+            url.push_str(&format!("&rev={}", api::enc(&rev)));
+        }
+        Some(url)
+    }
+
+    pub fn open_rendered(&mut self, file: usize, tx: &mut rune::Tx) {
+        if let Some(url) = self.rendered_url(file)
+            && tx.open_url(&url).is_err()
+        {
+            self.flash("✗ Could not open the rendered document", true);
+        }
+    }
+
+    pub fn toggle_fold(&mut self, tid: &str) {
+        let folded = &mut self.lens_data.folded;
+        if !folded.remove(tid) {
+            folded.insert(tid.to_string());
+        }
+    }
+
     /// Scrolls to a thread of the diff on screen; false when it is not in it.
     fn reveal_thread(&mut self, tid: &str, tx: &mut rune::Tx) -> bool {
         let ld = &mut self.lens_data;
         let Some(p) = ld.placed.get(tid).copied() else {
             return false;
         };
+        // A folded thread is one line: jumping to it is asking to read it.
+        ld.folded.remove(tid);
         let at = if p.outdated {
             ld.diff.files().get(p.file).and_then(head_line)
         } else {
@@ -2041,6 +2281,10 @@ impl Hooked {
         if let Some(at) = at {
             ld.diff.scroll_to_line(p.file, at, tx);
         }
+        // The scroll alone leaves you looking for the card you were sent to: it is lit for a
+        // moment.
+        ld.flash = Some((tid.to_string(), fmt::now_ms() + FLASH_MS));
+        tx.wake_after(std::time::Duration::from_millis(FLASH_MS as u64 + 50));
         true
     }
 
@@ -2063,7 +2307,31 @@ impl Hooked {
         };
         let base = self.review_key_base();
         if op == base || op.starts_with(&format!("{base}:")) {
-            self.flash(GONE_FROM_DIFF, true);
+            // A capped file is cut into other sections than its full diff: a thread written
+            // on the full one is found again once the whole file is loaded.
+            let capped = self
+                .lens_data
+                .threads
+                .iter()
+                .find(|t| t["id"].as_str() == Some(tid))
+                .and_then(|t| t["file"].as_str())
+                .filter(|f| {
+                    let cut = |c: &Change| c.file == *f && c.truncated;
+                    self.lens_data.review_source == ReviewSource::Claude
+                        && !self.lens_data.full.contains_key(*f)
+                        && self
+                            .detail
+                            .as_ref()
+                            .is_some_and(|d| d.changes.iter().any(cut))
+                })
+                .map(str::to_string);
+            match capped {
+                Some(file) => {
+                    self.load_full_change(file);
+                    self.lens_data.jump = Some(tid.to_string());
+                }
+                None => self.flash(GONE_FROM_DIFF, true),
+            }
             return;
         }
         if thread_context(&op).is_some_and(|ctx| self.restore_context(ctx)) {
@@ -2110,6 +2378,7 @@ impl Hooked {
                     None => Vec::new(),
                 };
                 ld.commits.clear();
+                ld.branch_info = BranchInfo::default();
                 if list {
                     self.load_branches(id, Some(root));
                 }
@@ -2122,6 +2391,14 @@ impl Hooked {
     /// Run on every poll: reveals the thread a jump is waiting on once its scope's diff is in.
     pub fn resolve_jump(&mut self, tx: &mut rune::Tx) -> bool {
         let ld = &mut self.lens_data;
+        if ld
+            .flash
+            .as_ref()
+            .is_some_and(|(_, until)| *until <= fmt::now_ms())
+        {
+            ld.flash = None;
+            return true;
+        }
         if ld.jump.is_none() {
             return false;
         }
@@ -2129,7 +2406,8 @@ impl Hooked {
             ld.jump = None;
             return false;
         }
-        if ld.diff_loading || ld.branches_loading || ld.diff_sig.is_none() {
+        let loading_full = ld.full.values().any(Option::is_none);
+        if ld.diff_loading || ld.branches_loading || loading_full || ld.diff_sig.is_none() {
             return false;
         }
         let tid = ld.jump.take().unwrap_or_default();
@@ -2146,10 +2424,23 @@ impl Hooked {
             return;
         };
         let id = d.session.id.clone();
-        let pending: Vec<Value> = self.pending_threads().into_iter().cloned().collect();
-        if pending.is_empty() {
+        let mut pending: Vec<Value> = self.pending_threads().into_iter().cloned().collect();
+        if pending.is_empty() || self.lens_data.sending_review {
             return;
         }
+        // In the diff's order, as the web lists them: file by file, then down each file.
+        let anchors = &self.lens_data.anchors;
+        pending.sort_by_key(|t| {
+            let file = t["file"].as_str().unwrap_or("");
+            (
+                anchors
+                    .iter()
+                    .position(|(f, _)| f == file)
+                    .unwrap_or(usize::MAX),
+                t["opIndex"].as_str().unwrap_or("").to_string(),
+                t["start"].as_u64().unwrap_or(0),
+            )
+        });
         let (scope, _) = self.review_scope();
         let items: Vec<String> = pending
             .iter()
@@ -2186,6 +2477,7 @@ impl Hooked {
             .collect();
         let live = d.session.live;
         let effort = d.session.effort.clone();
+        self.lens_data.sending_review = true;
         self.spawn(
             move || {
                 if live {
@@ -2200,6 +2492,7 @@ impl Hooked {
                 .map(|_| ())
             },
             |s, r, _| {
+                s.lens_data.sending_review = false;
                 match r {
                     Ok(()) => s.flash("✓ Comments sent to Claude", false),
                     Err(e) => s.flash(format!("✗ Send: {e}"), true),
@@ -2219,6 +2512,7 @@ impl Hooked {
         };
         let ld = &mut self.lens_data;
         ld.diff_sig = None;
+        ld.diff_stable = None;
         ld.diff_error = None;
         if ld.review_source == ReviewSource::Branch && !ld.branches_loading {
             let root = ld.branch_root.clone();
@@ -2245,6 +2539,10 @@ impl Hooked {
             ld.diff_error = None;
             ld.no_vcs = false;
             ld.tree_truncated = false;
+            // A comment being written and an open definition belong to the diff being left.
+            ld.draft = None;
+            ld.draft_at = None;
+            ld.def = None;
             ld.show(Sections::default());
             ld.file_repos.clear();
         }
@@ -2454,6 +2752,10 @@ mod tests {
         assert_eq!(places["s1"].source, "tree");
         assert_eq!(places["s1"].branch.as_deref(), Some("feat/a"));
         assert_eq!(places["s1"].picked, ["c1", "c3"]);
+        // and so does the file, until a diff is on screen to name another
+        places.get_mut("s1").unwrap().file = Some("/repo/a.rs".into());
+        assert!(!remember_place(&mut places, "s1", loading.place()));
+        assert_eq!(places["s1"].file.as_deref(), Some("/repo/a.rs"));
 
         // the least recently written places are forgotten first
         for i in 0..PLACES_MAX {
@@ -2576,6 +2878,19 @@ mod tests {
         assert_eq!(at(&thread("full:0", 1, "gone")), Some((0, 1, true)));
         // another scope's thread is not in this diff
         assert_eq!(at(&thread("vcs:wt:0", 1, "one")), None);
+        // a thread of this scope whose file left the diff goes to the head of the first file
+        let gone = json!({ "file": "/r/gone.rs", "opIndex": "full:0", "side": "old", "start": 4, "end": 6 });
+        assert_eq!(place_thread(&gone, &anchors, &files), None);
+        let lost = lost_thread(&gone, &anchors, "full").expect("lost");
+        assert_eq!((lost.file, lost.lost, lost.outdated), (0, true, true));
+        assert_eq!(lost.label(), "−L4–6");
+        // not one of another scope, nor one whose file is still there
+        assert_eq!(lost_thread(&gone, &anchors, "vcs:wt"), None);
+        assert_eq!(
+            lost_thread(&thread("full:0", 1, "x"), &anchors, "full"),
+            None
+        );
+        assert_eq!(lost_thread(&gone, &[], "full"), None);
         assert_eq!(snippet_of(&files[1], Side::New, 2, 3), "new\ny");
         assert_eq!(head_line(&files[2]), Some(LineRef::new(Side::New, 1)));
     }
