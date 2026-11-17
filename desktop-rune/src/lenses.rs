@@ -179,6 +179,8 @@ pub struct LensData {
     /// Parallel to the diff's files; see `Sections::badges`.
     pub badges: Vec<&'static str>,
     pub threads: Vec<Value>,
+    /// When the threads were last asked for (ms).
+    pub threads_at: i64,
     /// Where each live thread shows in the diff on screen, by thread id.
     pub placed: HashMap<String, Placed>,
     /// The thread to reveal once the scope it was written on is back on screen.
@@ -251,6 +253,7 @@ impl Default for LensData {
             fps: Vec::new(),
             badges: Vec::new(),
             threads: Vec::new(),
+            threads_at: 0,
             placed: HashMap::new(),
             jump: None,
             draft_at: None,
@@ -776,6 +779,9 @@ pub fn empty_message(ld: &LensData) -> String {
     }
     .into()
 }
+
+/// How often the lens reads its threads again while it is open.
+const THREADS_EVERY_MS: i64 = 4000;
 
 /// How long the thread a jump landed on stays lit.
 const FLASH_MS: i64 = 2000;
@@ -1890,15 +1896,40 @@ impl Hooked {
         let Some(id) = self.selected.clone() else {
             return;
         };
+        self.lens_data.threads_at = fmt::now_ms();
         self.spawn(
-            move || api::get(&format!("/api/review?id={id}")),
-            |s, r, _| {
+            {
+                let id = id.clone();
+                move || api::get(&format!("/api/review?id={id}"))
+            },
+            move |s, r, _| {
+                // An answer for the session just left must not land on the one opened since.
+                if s.selected.as_deref() != Some(id.as_str()) {
+                    return;
+                }
                 if let Ok(v) = r {
-                    s.lens_data.threads = v["threads"].as_array().cloned().unwrap_or_default();
-                    s.annotate();
+                    let threads = v["threads"].as_array().cloned().unwrap_or_default();
+                    if threads != s.lens_data.threads {
+                        s.lens_data.threads = threads;
+                        s.annotate();
+                    }
                 }
             },
         );
+    }
+
+    /// Run on every poll. Threads change from elsewhere (Claude answering through its tool,
+    /// the web lens, another window), also while the session itself is quiet: they are read
+    /// again every few seconds while the lens is open.
+    pub fn poll_threads(&mut self, now: i64, tx: &mut rune::Tx) {
+        if self.page != Page::Session || self.lens != Lens::Review || self.detail.is_none() {
+            return;
+        }
+        if now - self.lens_data.threads_at < THREADS_EVERY_MS {
+            return;
+        }
+        tx.wake_after(std::time::Duration::from_millis(THREADS_EVERY_MS as u64));
+        self.load_threads();
     }
 
     /// Puts each thread, and the comment being written, under the diff line it points at.

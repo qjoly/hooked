@@ -191,6 +191,7 @@ fn poll(s: &mut Hooked, clock: f64, tx: &mut Tx) -> bool {
     }
     changed |= s.ensure_lens();
     s.stash_review_place();
+    s.poll_threads(now, tx);
     changed |= s.fit_review();
     changed |= s.resolve_jump(tx);
     changed |= s.ensure_page();
