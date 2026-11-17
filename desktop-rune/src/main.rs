@@ -194,6 +194,7 @@ fn poll(s: &mut Hooked, clock: f64, tx: &mut Tx) -> bool {
     s.poll_threads(now, tx);
     changed |= s.fit_review();
     changed |= s.resolve_jump(tx);
+    changed |= s.resolve_goto(tx);
     changed |= s.ensure_page();
     s.sync_ptys();
     s.sync_term_theme();

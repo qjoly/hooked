@@ -96,6 +96,8 @@ pub struct ReviewPlace {
     pub branch: Option<String>,
     pub base: Option<String>,
     pub picked: Vec<String>,
+    /// The file at the top of the diff.
+    pub file: Option<String>,
     /// Write order: past [`PLACES_MAX`] the least recently written place is forgotten.
     pub seq: u64,
 }
@@ -117,6 +119,10 @@ pub fn remember_place(
         place.branch = old.branch.clone();
         place.base = old.base.clone();
         place.picked = old.picked.clone();
+    }
+    // Likewise the file, while the diff is not in yet.
+    if place.file.is_none() {
+        place.file = old.and_then(|p| p.file.clone());
     }
     place.seq = old.map_or(0, |p| p.seq);
     if old == Some(&place) {
@@ -188,6 +194,8 @@ pub struct LensData {
     pub placed: HashMap<String, Placed>,
     /// The thread to reveal once the scope it was written on is back on screen.
     pub jump: Option<String>,
+    /// The file to scroll back to once the diff of a review taken up again is in.
+    pub goto: Option<String>,
     /// The thread a jump just landed on, lit until that time (ms).
     pub flash: Option<(String, i64)>,
     /// The threads folded to one line, by id: a long thread done with is put away by hand, and
@@ -261,6 +269,7 @@ impl Default for LensData {
             threads_at: 0,
             placed: HashMap::new(),
             jump: None,
+            goto: None,
             draft_at: None,
             flash: None,
             folded: Default::default(),
@@ -297,6 +306,10 @@ impl LensData {
             branch: self.branch.clone(),
             base: self.base.clone(),
             picked: self.picked.clone(),
+            file: self
+                .anchors
+                .get(self.diff.visible_file())
+                .map(|(f, _)| f.clone()),
             seq: 0,
         }
     }
@@ -311,6 +324,7 @@ impl LensData {
         self.branch = place.branch.clone();
         self.base = place.base.clone();
         self.picked = place.picked.clone();
+        self.goto = place.file.clone();
     }
 
     /// Puts a scope's diff on screen. The diff is read again each time the session moves, and
@@ -1025,10 +1039,42 @@ impl Hooked {
         if self.detail.as_ref().is_none_or(|d| d.session.id != id) {
             return;
         }
+        // Not before the lens is back on the file it was left on: the top of the diff would
+        // be remembered in its place.
+        if self.lens_data.goto.is_some() {
+            return;
+        }
         let place = self.lens_data.place();
         if remember_place(&mut self.review_places, &id, place) {
+            self.places_dirty = true;
+        }
+        // The file at the top changes all along a scroll: written once a second at most.
+        let now = fmt::now_ms();
+        if self.places_dirty && now - self.places_saved_at >= 1000 {
+            self.places_dirty = false;
+            self.places_saved_at = now;
             let all = self.review_places.clone();
             self.save_pref("reviewPlaces", &all);
+        }
+    }
+
+    /// Run on every poll: once the diff of a review taken up again is in, scrolls back to the
+    /// file it was left on.
+    pub fn resolve_goto(&mut self, tx: &mut rune::Tx) -> bool {
+        let ld = &mut self.lens_data;
+        if ld.goto.is_none() || self.page != Page::Session || self.lens != Lens::Review {
+            return false;
+        }
+        if ld.diff_loading || ld.branches_loading || ld.diff_sig.is_none() {
+            return false;
+        }
+        let file = ld.goto.take().unwrap_or_default();
+        match ld.anchors.iter().position(|(f, _)| *f == file) {
+            Some(i) if i > 0 => {
+                ld.diff.scroll_to_file(i, tx);
+                true
+            }
+            _ => false,
         }
     }
 
@@ -2706,6 +2752,10 @@ mod tests {
         assert_eq!(places["s1"].source, "tree");
         assert_eq!(places["s1"].branch.as_deref(), Some("feat/a"));
         assert_eq!(places["s1"].picked, ["c1", "c3"]);
+        // and so does the file, until a diff is on screen to name another
+        places.get_mut("s1").unwrap().file = Some("/repo/a.rs".into());
+        assert!(!remember_place(&mut places, "s1", loading.place()));
+        assert_eq!(places["s1"].file.as_deref(), Some("/repo/a.rs"));
 
         // the least recently written places are forgotten first
         for i in 0..PLACES_MAX {
