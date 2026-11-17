@@ -557,6 +557,8 @@ pub struct Placed {
     /// Its code changed or is gone, so no line can be trusted: the thread shows at the head of
     /// the file instead of under a wrong line.
     pub outdated: bool,
+    /// Its file is no longer in the diff at all: it shows at the head of the first file.
+    pub lost: bool,
 }
 
 impl Placed {
@@ -639,6 +641,35 @@ pub fn place_thread(t: &Value, anchors: &[(String, String)], files: &[FileDiff])
         start,
         end,
         outdated,
+        lost: false,
+    })
+}
+
+/// A thread of the scope on screen (`key_base`) whose file left its diff, typically because it
+/// was committed since. It would show nowhere, so it goes to the head of the first file, where
+/// it can still be read, archived or deleted. It is never re-anchored: its snippet belongs to
+/// another file, and a match here would be a coincidence.
+pub fn lost_thread(t: &Value, anchors: &[(String, String)], key_base: &str) -> Option<Placed> {
+    let (file, key) = (t["file"].as_str()?, t["opIndex"].as_str()?);
+    let here = key == key_base
+        || key
+            .strip_prefix(key_base)
+            .is_some_and(|rest| rest.starts_with(':'));
+    if !here || anchors.is_empty() || anchors.iter().any(|(f, _)| f == file) {
+        return None;
+    }
+    let start = t["start"].as_u64().unwrap_or(1) as u32;
+    Some(Placed {
+        file: 0,
+        side: if t["side"] == "old" {
+            Side::Old
+        } else {
+            Side::New
+        },
+        start,
+        end: t["end"].as_u64().map_or(start, |e| e as u32),
+        outdated: true,
+        lost: true,
     })
 }
 
@@ -1831,12 +1862,15 @@ impl Hooked {
     /// Puts each thread, and the comment being written, under the diff line it points at.
     /// Archived threads are out of the diff: they live in the comments panel, restorable.
     pub fn annotate(&mut self) {
+        let key_base = self.review_key_base();
         let ld = &mut self.lens_data;
         let mut notes = Vec::new();
         ld.placed.clear();
         for t in ld.threads.iter().filter(|t| t["status"] != "archived") {
             let files = ld.diff.files();
-            let Some(p) = place_thread(t, &ld.anchors, files) else {
+            let Some(p) = place_thread(t, &ld.anchors, files)
+                .or_else(|| lost_thread(t, &ld.anchors, &key_base))
+            else {
                 continue;
             };
             let at = if p.outdated {
@@ -2576,6 +2610,19 @@ mod tests {
         assert_eq!(at(&thread("full:0", 1, "gone")), Some((0, 1, true)));
         // another scope's thread is not in this diff
         assert_eq!(at(&thread("vcs:wt:0", 1, "one")), None);
+        // a thread of this scope whose file left the diff goes to the head of the first file
+        let gone = json!({ "file": "/r/gone.rs", "opIndex": "full:0", "side": "old", "start": 4, "end": 6 });
+        assert_eq!(place_thread(&gone, &anchors, &files), None);
+        let lost = lost_thread(&gone, &anchors, "full").expect("lost");
+        assert_eq!((lost.file, lost.lost, lost.outdated), (0, true, true));
+        assert_eq!(lost.label(), "−L4–6");
+        // not one of another scope, nor one whose file is still there
+        assert_eq!(lost_thread(&gone, &anchors, "vcs:wt"), None);
+        assert_eq!(
+            lost_thread(&thread("full:0", 1, "x"), &anchors, "full"),
+            None
+        );
+        assert_eq!(lost_thread(&gone, &[], "full"), None);
         assert_eq!(snippet_of(&files[1], Side::New, 2, 3), "new\ny");
         assert_eq!(head_line(&files[2]), Some(LineRef::new(Side::New, 1)));
     }

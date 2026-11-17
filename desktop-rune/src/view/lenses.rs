@@ -1903,7 +1903,13 @@ fn annotation(s: &Hooked, a: &Annotation, k: &Kit) -> El {
     let (t1, t2, t3) = (tid.clone(), tid.clone(), tid.clone());
     let placed = s.lens_data.placed.get(&tid);
     let outdated = placed.is_some_and(|p| p.outdated);
+    let lost = placed.is_some_and(|p| p.lost);
     let anchor = placed.map_or_else(|| crate::lenses::anchor_label(t), |p| p.label());
+    // A thread whose file left the diff sits in another file's: it names its own.
+    let anchor = match t["file"].as_str().filter(|_| lost) {
+        Some(file) => format!("{} {anchor}", file.rsplit('/').next().unwrap_or(file)),
+        None => anchor,
+    };
     let mut c = shell(format!("thread-{tid}")).child(
         row()
             .w_full()
@@ -1918,7 +1924,15 @@ fn annotation(s: &Hooked, a: &Annotation, k: &Kit) -> El {
                 .font(k.ty.mono)
                 .color(k.c.text_muted),
             )
-            .child(if outdated {
+            .child(if lost {
+                text("left the diff")
+                    .font(k.ty.text_xsmall_medium)
+                    .color(k.c.danger.fg)
+                    .help(format!(
+                        "{} is no longer in this diff",
+                        t["file"].as_str().unwrap_or("Its file")
+                    ))
+            } else if outdated {
                 text("outdated")
                     .font(k.ty.text_xsmall_medium)
                     .color(k.c.danger.fg)
