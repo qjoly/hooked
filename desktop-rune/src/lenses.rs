@@ -142,6 +142,9 @@ pub struct LensData {
     pub diff: DiffState,
     pub diff_sig: Option<String>,
     pub diff_loading: bool,
+    /// `diff_sig` without the session's last activity, and when that diff was asked for (ms).
+    pub diff_stable: Option<String>,
+    pub diff_at: i64,
     /// Why the last load failed; shown in place of the diff when there is none on screen.
     pub diff_error: Option<String>,
     /// The working-tree diff found no repository under the session's directory.
@@ -224,6 +227,8 @@ impl Default for LensData {
             diff: DiffState::new(Vec::new()),
             diff_sig: None,
             diff_loading: false,
+            diff_stable: None,
+            diff_at: 0,
             diff_error: None,
             no_vcs: false,
             tree_truncated: false,
@@ -779,6 +784,9 @@ pub fn empty_message(ld: &LensData) -> String {
     }
     .into()
 }
+
+/// The least time between two reloads of a VCS diff while the session works, as on the web.
+const RELOAD_EVERY_MS: i64 = 5000;
 
 /// How often the lens reads its threads again while it is open.
 const THREADS_EVERY_MS: i64 = 4000;
@@ -1697,7 +1705,28 @@ impl Hooked {
                 if ld.diff_sig.as_deref() == Some(sig.as_str()) || ld.diff_loading {
                     return false;
                 }
-                match ld.review_source {
+                // What is asked for, apart from the session having moved. While Claude works
+                // the session moves several times a second: the working tree, the worktree and
+                // the branch are then read again every few seconds at most, and once more when
+                // the turn ends. That is also when the branch list is read again, for a branch
+                // created or checked out during the turn.
+                let now = fmt::now_ms();
+                let stable = sig.replace(activity.as_str(), "");
+                let moved_only = ld.diff_stable.as_deref() == Some(stable.as_str());
+                let working = self.working_since.is_some();
+                let source = ld.review_source;
+                if source != ReviewSource::Claude
+                    && moved_only
+                    && working
+                    && now - ld.diff_at < RELOAD_EVERY_MS
+                {
+                    return false;
+                }
+                let relist = moved_only && !working && !ld.branches_loading;
+                self.lens_data.diff_stable = Some(stable);
+                self.lens_data.diff_at = now;
+                let ld = &self.lens_data;
+                match source {
                     ReviewSource::Claude => {
                         let changes: Vec<Change> = d
                             .changes
@@ -1730,6 +1759,10 @@ impl Hooked {
                         true
                     }
                     ReviewSource::Branch => {
+                        if relist {
+                            let root = ld.branch_root.clone();
+                            self.load_branches(id.clone(), root);
+                        }
                         self.load_branch_diff(id, sig);
                         true
                     }
@@ -2408,6 +2441,7 @@ impl Hooked {
         };
         let ld = &mut self.lens_data;
         ld.diff_sig = None;
+        ld.diff_stable = None;
         ld.diff_error = None;
         if ld.review_source == ReviewSource::Branch && !ld.branches_loading {
             let root = ld.branch_root.clone();
