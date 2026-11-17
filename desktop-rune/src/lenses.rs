@@ -183,6 +183,8 @@ pub struct LensData {
     pub placed: HashMap<String, Placed>,
     /// The thread to reveal once the scope it was written on is back on screen.
     pub jump: Option<String>,
+    /// The thread a jump just landed on, lit until that time (ms).
+    pub flash: Option<(String, i64)>,
     /// The threads folded to one line, by id: a long thread done with is put away by hand, and
     /// comes back open at the next launch.
     pub folded: std::collections::HashSet<String>,
@@ -247,6 +249,7 @@ impl Default for LensData {
             threads: Vec::new(),
             placed: HashMap::new(),
             jump: None,
+            flash: None,
             folded: Default::default(),
             draft: None,
             replies: HashMap::new(),
@@ -765,6 +768,9 @@ pub fn empty_message(ld: &LensData) -> String {
     }
     .into()
 }
+
+/// How long the thread a jump landed on stays lit.
+const FLASH_MS: i64 = 2000;
 
 const GONE_FROM_DIFF: &str = "That comment's file is no longer in this diff";
 pub const UNREACHABLE: &str = "Written on a diff no scope can show any more: archive or delete it";
@@ -2116,6 +2122,10 @@ impl Hooked {
         if let Some(at) = at {
             ld.diff.scroll_to_line(p.file, at, tx);
         }
+        // The scroll alone leaves you looking for the card you were sent to: it is lit for a
+        // moment.
+        ld.flash = Some((tid.to_string(), fmt::now_ms() + FLASH_MS));
+        tx.wake_after(std::time::Duration::from_millis(FLASH_MS as u64 + 50));
         true
     }
 
@@ -2197,6 +2207,14 @@ impl Hooked {
     /// Run on every poll: reveals the thread a jump is waiting on once its scope's diff is in.
     pub fn resolve_jump(&mut self, tx: &mut rune::Tx) -> bool {
         let ld = &mut self.lens_data;
+        if ld
+            .flash
+            .as_ref()
+            .is_some_and(|(_, until)| *until <= fmt::now_ms())
+        {
+            ld.flash = None;
+            return true;
+        }
         if ld.jump.is_none() {
             return false;
         }

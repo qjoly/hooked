@@ -1910,6 +1910,15 @@ fn annotation(s: &Hooked, a: &Annotation, k: &Kit) -> El {
         ("pending · not sent yet", k.c.warning.fg)
     };
     let (t1, t2, t3) = (tid.clone(), tid.clone(), tid.clone());
+    let lit = s.lens_data.flash.as_ref().is_some_and(|(id, _)| *id == tid);
+    let shell = |key: String| {
+        let c = shell(key);
+        if lit {
+            c.fill(k.c.info.bg).border(1.0, k.c.border_focus)
+        } else {
+            c
+        }
+    };
     let placed = s.lens_data.placed.get(&tid);
     let outdated = placed.is_some_and(|p| p.outdated);
     let lost = placed.is_some_and(|p| p.lost);
