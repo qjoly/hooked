@@ -1111,7 +1111,8 @@ pub fn review(s: &Hooked, d: &Detail, k: &Kit) -> El {
                 .key("review-reload"),
         );
     }
-    if ld.review_source == ReviewSource::Claude && !d.change_turns.is_empty() {
+    // One prompt leaves nothing to narrow the review to.
+    if ld.review_source == ReviewSource::Claude && d.change_turns.len() > 1 {
         let label = if ld.turns.is_empty() {
             "All prompts".to_string()
         } else {
