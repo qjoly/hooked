@@ -675,6 +675,15 @@ fn file_actions(s: &Hooked, k: &Kit, i: usize) -> El {
                 })
                 .build(k),
         );
+        r = r.child(
+            rune_kit::IconButton::new(&icons::LINK)
+                .variant(rune_kit::IconButtonVariant::GhostMuted)
+                .control_size(ControlSize::Small)
+                .label("Open rendered")
+                .help("Open the rendered document in the browser")
+                .on_press_tx(move |s: &mut Hooked, tx| s.open_rendered(i, tx))
+                .build(k),
+        );
     }
     if let Some(path) = s.truncated_at(i) {
         let loading = s.lens_data.full.contains_key(&path);

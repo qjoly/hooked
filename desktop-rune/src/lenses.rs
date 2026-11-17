@@ -2065,6 +2065,34 @@ impl Hooked {
         self.review_op(json!({ "id": id, "action": "edit", "threadId": tid, "text": text }));
     }
 
+    /// The web's page for a Markdown file of the diff, rendered whole, at the revision its new
+    /// side comes from when there is one.
+    pub fn rendered_url(&self, file: usize) -> Option<String> {
+        let id = self.selected.as_deref()?;
+        let (path, _) = self.lens_data.anchors.get(file)?;
+        let mut url = format!(
+            "{}/render?id={}&file={}",
+            api::base(),
+            api::enc(id),
+            api::enc(path)
+        );
+        if let Some((_, rev)) = self
+            .blame_rev(file, Side::New)
+            .filter(|(_, rev)| !rev.is_empty())
+        {
+            url.push_str(&format!("&rev={}", api::enc(&rev)));
+        }
+        Some(url)
+    }
+
+    pub fn open_rendered(&mut self, file: usize, tx: &mut rune::Tx) {
+        if let Some(url) = self.rendered_url(file)
+            && tx.open_url(&url).is_err()
+        {
+            self.flash("✗ Could not open the rendered document", true);
+        }
+    }
+
     pub fn toggle_fold(&mut self, tid: &str) {
         let folded = &mut self.lens_data.folded;
         if !folded.remove(tid) {
