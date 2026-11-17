@@ -2105,15 +2105,18 @@ fn annotation(s: &Hooked, a: &Annotation, k: &Kit) -> El {
             } else {
                 el()
             })
-            .child(
+            // Archiving is for a thread Claude has seen: a pending one is edited or deleted.
+            .child(if sent {
                 Button::new("Archive")
                     .variant(ButtonVariant::GhostMuted)
                     .control_size(ControlSize::Small)
                     .help("Take it out of the diff: it stays in the comments panel, restorable")
                     .on_press(move |s: &mut Hooked| s.archive_thread(t1.clone(), true))
                     .build(k)
-                    .key(format!("th-arch-{tid}")),
-            )
+                    .key(format!("th-arch-{tid}"))
+            } else {
+                el()
+            })
             .child({
                 // A sent thread may hold Claude's replies: deleting it takes a second click,
                 // as in the comments panel. A pending one is still a draft.
