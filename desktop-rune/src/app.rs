@@ -144,6 +144,9 @@ pub struct Hooked {
     /// The lens is narrow and showed its side-by-side diff unified: it goes back to split
     /// once there is room.
     pub review_forced_unified: bool,
+    /// The laid-out height of each short diff of the conversation, by tool call: what decides
+    /// whether it needs "Show more".
+    pub tool_diff_h: HashMap<String, f32>,
     pub window_h: f32,
     pub window_w: f32,
     pub show_archived: bool,
@@ -447,6 +450,7 @@ impl Hooked {
             review_threads_w,
             review_w: f32::MAX,
             review_forced_unified: false,
+            tool_diff_h: HashMap::new(),
             window_h: 860.0,
             window_w: 1320.0,
             show_archived: false,
@@ -1439,6 +1443,7 @@ impl Hooked {
             .sessions
             .iter()
             .any(|x| x.id == id && x.worktree_of.is_some());
+        self.tool_diff_h.clear();
         // A session opens on its own review, not on the scope the previous one was left on.
         let source = ReviewSource::default_for(in_worktree);
         let mode = self.lens_data.diff.mode();
