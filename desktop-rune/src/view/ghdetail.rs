@@ -638,10 +638,11 @@ fn code(s: &Hooked, k: &Kit, v: &GhView, d: &Value, slot: GhSlot) -> El {
                     ))
                     .child(text(change).font(k.ty.mono).color(k.c.text_faint).w(10.0))
                     .child(
+                        // Cut from the left: the file name is the part to keep in sight.
                         text(path.clone())
                             .font(k.ty.text_small)
                             .color(k.c.text_base)
-                            .truncate()
+                            .truncate_head()
                             .grow(1.0)
                             .min_w(0.0),
                     )
@@ -716,7 +717,8 @@ fn patch_view(k: &Kit, path: &str, patch: &str) -> El {
                     .color(ink)
                     .wrap_anywhere()
                     .grow(1.0)
-                    .min_w(0.0),
+                    .min_w(0.0)
+                    .selectable(true),
                 ),
         );
     }
