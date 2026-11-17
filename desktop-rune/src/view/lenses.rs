@@ -2182,23 +2182,53 @@ fn annotation(s: &Hooked, a: &Annotation, k: &Kit) -> El {
     if sent {
         let empty = rune::TextEdit::new("");
         let edit = s.lens_data.replies.get(&tid).unwrap_or(&empty);
+        let (send, drop) = (tid.clone(), tid.clone());
         c = c.child(
-            TextInput::new(edit)
-                .placeholder("Reply…")
+            TextArea::new(edit)
+                .placeholder("Reply… (⌘Enter sends to Claude, Esc cancels)")
                 .width(None)
+                .auto_grow(1, 10)
                 .on_edit(move |s: &mut Hooked| {
                     s.lens_data
                         .replies
                         .entry(t3.clone())
                         .or_insert_with(|| rune::TextEdit::new(""))
                 })
-                .on_submit({
-                    let tid = tid.clone();
-                    move |s: &mut Hooked, _| s.reply_thread(tid.clone())
+                .on_key(move |s: &mut Hooked, ev: &rune::KeyEvent, _| match ev.key {
+                    rune::Key::Enter if ev.mods.cmd => {
+                        s.reply_thread(send.clone());
+                        true
+                    }
+                    rune::Key::Escape => s.lens_data.replies.remove(&drop).is_some(),
+                    _ => false,
                 })
                 .build(k)
                 .key(format!("th-reply-{tid}")),
         );
+        if !edit.text.trim().is_empty() {
+            let (send, drop) = (tid.clone(), tid.clone());
+            c = c.child(
+                row()
+                    .gap(8.0)
+                    .justify_end()
+                    .child(
+                        Button::new("Cancel")
+                            .variant(ButtonVariant::GhostMuted)
+                            .control_size(ControlSize::Small)
+                            .on_press(move |s: &mut Hooked| {
+                                s.lens_data.replies.remove(&drop);
+                            })
+                            .build(k),
+                    )
+                    .child(
+                        Button::new("Reply")
+                            .variant(ButtonVariant::Contrast)
+                            .control_size(ControlSize::Small)
+                            .on_press(move |s: &mut Hooked| s.reply_thread(send.clone()))
+                            .build(k),
+                    ),
+            );
+        }
     }
     c
 }
