@@ -1248,13 +1248,7 @@ pub fn review(s: &Hooked, d: &Detail, k: &Kit) -> El {
             SegmentedControl::new(&["Unified", "Split"], Some(usize::from(split)))
                 .label("Diff layout")
                 .fit()
-                .on_pick(|s: &mut Hooked, i, _| {
-                    s.lens_data.diff.set_mode(if i == 1 {
-                        DiffMode::Split
-                    } else {
-                        DiffMode::Unified
-                    })
-                })
+                .on_pick(|s: &mut Hooked, i, _| s.pick_review_mode(i == 1))
                 .build(k)
                 .key("review-mode"),
         );

@@ -224,12 +224,8 @@ pub fn commands(s: &Hooked) -> Vec<Cmd> {
             },
             "",
             |s, _| {
-                let next = if s.lens_data.diff.mode() == rune_kit::diff::DiffMode::Split {
-                    rune_kit::diff::DiffMode::Unified
-                } else {
-                    rune_kit::diff::DiffMode::Split
-                };
-                s.lens_data.diff.set_mode(next);
+                let split = s.lens_data.diff.mode() == rune_kit::diff::DiffMode::Split;
+                s.pick_review_mode(!split);
             },
         ),
         cmd(

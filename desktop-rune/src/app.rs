@@ -570,7 +570,14 @@ impl Hooked {
         }
         s.meta = api::session_meta().unwrap_or_default();
         s.tags = api::tags().unwrap_or_default();
-        if s.prefs.get::<bool>("diffSplit").unwrap_or(false) {
+        // The layout last picked in the lens wins; the Settings default is for a lens whose
+        // layout was never picked.
+        let split = s
+            .prefs
+            .get::<bool>("diffLastSplit")
+            .or_else(|| s.prefs.get::<bool>("diffSplit"))
+            .unwrap_or(false);
+        if split {
             s.lens_data.diff.set_mode(rune_kit::diff::DiffMode::Split);
         }
         if let Ok(v) = api::get("/api/settings") {

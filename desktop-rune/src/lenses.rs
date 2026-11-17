@@ -1099,6 +1099,29 @@ impl Hooked {
     /// Run on every poll. A side-by-side diff in a narrow lens wraps every token onto its own
     /// line, so it is shown unified there, whichever way the layout was asked for; the split
     /// layout comes back once there is room. True when it changed the layout.
+    pub fn pick_review_mode(&mut self, split: bool) {
+        self.review_forced_unified = false;
+        self.lens_data.diff.set_mode(if split {
+            DiffMode::Split
+        } else {
+            DiffMode::Unified
+        });
+        self.save_pref("diffLastSplit", &split);
+    }
+
+    /// The Settings default: the layout of a lens where none was picked yet.
+    pub fn set_review_default(&mut self, split: bool) {
+        self.save_pref("diffSplit", &split);
+        if self.prefs.get::<bool>("diffLastSplit").is_none() {
+            self.review_forced_unified = false;
+            self.lens_data.diff.set_mode(if split {
+                DiffMode::Split
+            } else {
+                DiffMode::Unified
+            });
+        }
+    }
+
     pub fn fit_review(&mut self) -> bool {
         if self.page != Page::Session || self.lens != Lens::Review {
             return false;
