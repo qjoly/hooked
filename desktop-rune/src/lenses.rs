@@ -16,6 +16,18 @@ pub enum ReviewSource {
     Branch,
 }
 
+impl ReviewSource {
+    /// The scope of a session whose review was never left anywhere: the whole worktree for a
+    /// session in one, Claude's own edits otherwise.
+    pub fn default_for(in_worktree: bool) -> Self {
+        if in_worktree {
+            Self::Worktree
+        } else {
+            Self::Claude
+        }
+    }
+}
+
 /// What a branch diff says about its pair, beside the changes.
 #[derive(Clone, Debug, Default, serde::Deserialize, PartialEq)]
 #[serde(default, rename_all = "camelCase")]

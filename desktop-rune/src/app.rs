@@ -636,6 +636,11 @@ impl Hooked {
         if let Some(id) = start {
             s.page = Page::Session;
             s.detail = api::detail(&id).ok();
+            let in_worktree = s
+                .detail
+                .as_ref()
+                .is_some_and(|d| d.session.worktree_of.is_some());
+            s.lens_data.review_source = ReviewSource::default_for(in_worktree);
             if let Some(place) = s.review_places.get(&id).cloned() {
                 s.lens_data.restore(&place);
             }
@@ -1434,11 +1439,8 @@ impl Hooked {
             .sessions
             .iter()
             .any(|x| x.id == id && x.worktree_of.is_some());
-        let source = match (self.lens_data.review_source, in_worktree) {
-            (ReviewSource::Claude, true) => ReviewSource::Worktree,
-            (ReviewSource::Worktree, false) => ReviewSource::Claude,
-            (src, _) => src,
-        };
+        // A session opens on its own review, not on the scope the previous one was left on.
+        let source = ReviewSource::default_for(in_worktree);
         let mode = self.lens_data.diff.mode();
         self.lens_data = crate::lenses::LensData {
             review_source: source,
