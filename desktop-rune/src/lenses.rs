@@ -989,6 +989,13 @@ pub fn follow_up_prompt(session: &str, thread: &Value, text: &str) -> String {
 }
 
 /// The web's `reviewRequestPrompt`, word for word, so Claude gets the same brief from either client.
+/// What "Ask Claude to open the PR" sends, word for word the web's.
+pub const PR_PROMPT: &str = "Open a pull request for the current branch:\n\
+1. push the branch;\n\
+2. write a concise PR description — WHAT it does and HOW to test, not the code details;\n\
+3. add exactly one label: \":bookmark::bug: FIX\" (bugfix), \":hammer: Technical\" (technical only), or \":bookmark::sparkles: Feature\" (new feature);\n\
+4. give me the PR URL when done.";
+
 pub fn review_request_prompt(
     session: &str,
     scope: &str,
@@ -2567,6 +2574,14 @@ impl Hooked {
                 s.refresh_detail();
             },
         );
+    }
+
+    pub fn ask_open_pr(&mut self) {
+        if self.sending || self.detail.is_none() {
+            return;
+        }
+        self.send_prompt(PR_PROMPT.to_string());
+        self.flash("✓ Asked Claude to open the PR", false);
     }
 
     /// Reads the diff on screen again. The working tree, the worktree and the branches are

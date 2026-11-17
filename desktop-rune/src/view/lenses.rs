@@ -531,6 +531,7 @@ fn threads_panel(s: &Hooked, k: &Kit) -> El {
                 .color(k.c.text_faint),
         );
     }
+    c = c.child(pull_request_card(s, k));
     row()
         .key("review-threads")
         .w(column_width(s, s.review_threads_w))
@@ -552,6 +553,61 @@ fn threads_panel(s: &Hooked, k: &Kit) -> El {
                 })
                 .child(c),
         )
+}
+
+fn pull_request_card(s: &Hooked, k: &Kit) -> El {
+    let links = s.detail.as_ref().map_or(&[][..], |d| &d.pr_links[..]);
+    let mut c = col()
+        .key("review-pr")
+        .w_full()
+        .gap(8.0)
+        .pt(8.0)
+        .child(section_title(k, "PULL REQUEST"));
+    for l in links {
+        let url = l.clone();
+        let short = l
+            .split_once("://")
+            .and_then(|(_, rest)| rest.split_once('/'))
+            .map_or(l.as_str(), |(_, path)| path);
+        c = c.child(
+            k.interactive(
+                row()
+                    .key(format!("review-pr-{l}"))
+                    .w_full()
+                    .gap(6.0)
+                    .center_y()
+                    .child(super::glyph(&icons::PULL_REQUEST, 13.0, k.c.text_muted))
+                    .child(
+                        text(short.to_string())
+                            .font(k.ty.text_small)
+                            .color(k.c.text_base)
+                            .truncate_head(),
+                    ),
+            )
+            .on_press_tx(move |s: &mut Hooked, tx| crate::app::open_link(s, &url, tx)),
+        );
+    }
+    if links.is_empty() {
+        c = c.child(
+            text("No PR yet. Let the session push the branch and draft the description.")
+                .font(k.ty.text_small)
+                .color(k.c.text_faint),
+        );
+    }
+    c.child(
+        Button::new(if s.sending {
+            "Asking…"
+        } else {
+            "Ask Claude to open the PR"
+        })
+        .icon(&icons::PULL_REQUEST)
+        .variant(ButtonVariant::Outline)
+        .control_size(ControlSize::Small)
+        .disabled(s.sending || s.detail.is_none())
+        .help("Ask the session to push the branch and open a pull request")
+        .on_press(|s: &mut Hooked| s.ask_open_pr())
+        .build(k),
+    )
 }
 
 fn rendered_panel(s: &Hooked, k: &Kit) -> El {
