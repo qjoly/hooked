@@ -227,6 +227,10 @@ fn setup(s: &mut Hooked, waker: rune::Waker) {
     s.tray_dirty = true;
     s.refresh_logo();
     app::start_workers(s.handle.clone());
+    // `--test-notify` posts a sample notification once the app is up, to check delivery.
+    if std::env::args().any(|a| a == "--test-notify") {
+        tray::test_notification();
+    }
 }
 
 fn on_close(s: &mut Hooked, _: &mut Tx) {

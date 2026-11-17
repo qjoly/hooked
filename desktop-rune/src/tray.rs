@@ -1,6 +1,42 @@
 use crate::app::{HANDLE, Hooked};
 
+/// The last notifications this app posted, newest last, so "I got nothing" can be told apart
+/// from "nothing was posted": macOS keeps its own delivery log out of reach.
+fn journal(title: &str, body: &str, posted: bool) {
+    use std::io::Write;
+    let Some(home) = std::env::var_os("HOME") else {
+        return;
+    };
+    let path = std::path::Path::new(&home)
+        .join("Library/Application Support/dev.qjoly.hooked-rune/notifications.log");
+    // Kept small: once past 64 KB it starts over.
+    let fresh = std::fs::metadata(&path).is_ok_and(|m| m.len() > 64 * 1024);
+    let file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(!fresh)
+        .write(true)
+        .truncate(fresh)
+        .open(&path);
+    if let Ok(mut f) = file {
+        let state = if posted { "posted" } else { "unavailable" };
+        let _ = writeln!(f, "{} {state} {title} — {body}", crate::fmt::now_ms());
+    }
+}
+
+/// Posts a sample notification that opens the GitHub page when clicked: it checks that macOS
+/// lets this app show notifications at all.
+pub fn test_notification() {
+    notify_link(
+        "test",
+        "hooked test notification",
+        "Notifications from hooked show up here",
+        "gh",
+        "https://github.com/qjoly/hooked",
+    );
+}
+
 pub fn notify(id: &str, title: &str, body: &str) {
+    journal(title, body, rune_notify::available());
     if !rune_notify::available() {
         return;
     }
@@ -14,6 +50,7 @@ pub fn notify(id: &str, title: &str, body: &str) {
 /// A notification that is not about a session: `kind` (`gh` or `incident`) and `target` say what
 /// a click opens.
 pub fn notify_link(id: &str, title: &str, body: &str, kind: &str, target: &str) {
+    journal(title, body, rune_notify::available());
     if !rune_notify::available() {
         return;
     }
