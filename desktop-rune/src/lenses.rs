@@ -1208,6 +1208,7 @@ impl Hooked {
         ld.base = None;
         ld.picked.clear();
         ld.commits.clear();
+        ld.branch_info = BranchInfo::default();
         ld.diff_sig = None;
         ld.show(Sections::default());
     }
@@ -1223,7 +1224,6 @@ impl Hooked {
         let key = self.branch_key().unwrap_or_default();
         let compact = self.review_compact;
         self.lens_data.diff_loading = true;
-        self.lens_data.branch_info = BranchInfo::default();
         self.spawn(
             move || {
                 let mut path = format!(
@@ -1307,6 +1307,9 @@ impl Hooked {
         }
         ld.picked.clear();
         ld.commits.clear();
+        // What was known belongs to the pair being left; a reload of the same pair keeps it,
+        // so the merged banner and the blame revisions hold while the diff is read again.
+        ld.branch_info = BranchInfo::default();
     }
 
     pub fn truncated_at(&self, file: usize) -> Option<String> {
@@ -2241,6 +2244,7 @@ impl Hooked {
                     None => Vec::new(),
                 };
                 ld.commits.clear();
+                ld.branch_info = BranchInfo::default();
                 if list {
                     self.load_branches(id, Some(root));
                 }
