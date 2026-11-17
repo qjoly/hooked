@@ -1823,7 +1823,9 @@ fn inline_diff(k: &Kit, diff: &serde_json::Value, split: bool) -> El {
 
 fn tool_chip(s: &Hooked, session: &str, t: &Tool, k: &Kit, key: String) -> El {
     let id = t.id.clone().unwrap_or_else(|| key.clone());
-    let open = s.all_tools_open || s.tools_open.contains(&id);
+    // "Expand all" opens the calls' input and output, not the long diffs: those open one by
+    // one, and a click must be able to close them again.
+    let open = (s.all_tools_open && t.diff.is_none()) || s.tools_open.contains(&id);
     let detail = t.detail.clone().unwrap_or_default();
     let changed = t.diff.as_ref().map(diff_lines);
     let big = changed.is_some_and(|n| n > BIG_DIFF);
@@ -1834,6 +1836,11 @@ fn tool_chip(s: &Hooked, session: &str, t: &Tool, k: &Kit, key: String) -> El {
                 .role("button")
                 .label(format!("{} {}", t.name, detail))
                 .expanded(open)
+                .help(if detail.is_empty() {
+                    t.name.clone()
+                } else {
+                    detail.clone()
+                })
                 .w_full()
                 .h(28.0)
                 .px(8.0)
