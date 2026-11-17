@@ -183,6 +183,9 @@ pub struct LensData {
     pub placed: HashMap<String, Placed>,
     /// The thread to reveal once the scope it was written on is back on screen.
     pub jump: Option<String>,
+    /// The threads folded to one line, by id: a long thread done with is put away by hand, and
+    /// comes back open at the next launch.
+    pub folded: std::collections::HashSet<String>,
     pub draft: Option<(LineRange, TextEdit)>,
     pub replies: HashMap<String, TextEdit>,
     pub editing: Option<(String, TextEdit)>,
@@ -244,6 +247,7 @@ impl Default for LensData {
             threads: Vec::new(),
             placed: HashMap::new(),
             jump: None,
+            folded: Default::default(),
             draft: None,
             replies: HashMap::new(),
             editing: None,
@@ -2061,12 +2065,21 @@ impl Hooked {
         self.review_op(json!({ "id": id, "action": "edit", "threadId": tid, "text": text }));
     }
 
+    pub fn toggle_fold(&mut self, tid: &str) {
+        let folded = &mut self.lens_data.folded;
+        if !folded.remove(tid) {
+            folded.insert(tid.to_string());
+        }
+    }
+
     /// Scrolls to a thread of the diff on screen; false when it is not in it.
     fn reveal_thread(&mut self, tid: &str, tx: &mut rune::Tx) -> bool {
         let ld = &mut self.lens_data;
         let Some(p) = ld.placed.get(tid).copied() else {
             return false;
         };
+        // A folded thread is one line: jumping to it is asking to read it.
+        ld.folded.remove(tid);
         let at = if p.outdated {
             ld.diff.files().get(p.file).and_then(head_line)
         } else {

@@ -1910,20 +1910,68 @@ fn annotation(s: &Hooked, a: &Annotation, k: &Kit) -> El {
         Some(file) => format!("{} {anchor}", file.rsplit('/').next().unwrap_or(file)),
         None => anchor,
     };
+    let anchor = if outdated {
+        format!("was {anchor}")
+    } else {
+        anchor
+    };
+    if s.lens_data.folded.contains(&tid) {
+        let n = t["messages"].as_array().map_or(0, Vec::len);
+        let first = fmt::first_line(t["messages"][0]["text"].as_str().unwrap_or(""), 160);
+        let tf = tid.clone();
+        return k
+            .interactive(
+                row()
+                    .key(format!("thread-{tid}"))
+                    .role("button")
+                    .w_full()
+                    .max_w(720.0)
+                    .mx(12.0)
+                    .my(6.0)
+                    .h(30.0)
+                    .px(12.0)
+                    .gap(8.0)
+                    .center_y()
+                    .radius(k.radius.md)
+                    .fill(k.c.surface_raised)
+                    .border(1.0, k.c.border_base)
+                    .cursor(Cursor::Pointer)
+                    .help("Open this comment again")
+                    .child(glyph(&icons::CHEVRON_RIGHT, 12.0, k.c.icon_muted))
+                    .child(text(anchor).font(k.ty.mono).color(k.c.text_muted))
+                    .child(
+                        text(format!("{n} message{}", if n == 1 { "" } else { "s" }))
+                            .font(k.ty.text_xsmall)
+                            .color(k.c.text_faint),
+                    )
+                    .child(
+                        text(first)
+                            .font(k.ty.text_small)
+                            .color(k.c.text_muted)
+                            .truncate()
+                            .grow(1.0)
+                            .min_w(0.0),
+                    ),
+            )
+            .on_press(move |s: &mut Hooked| s.toggle_fold(&tf));
+    }
+    let tf = tid.clone();
     let mut c = shell(format!("thread-{tid}")).child(
         row()
             .w_full()
             .gap(8.0)
             .center_y()
             .child(
-                text(if outdated {
-                    format!("was {anchor}")
-                } else {
-                    anchor
-                })
-                .font(k.ty.mono)
-                .color(k.c.text_muted),
+                rune_kit::IconButton::new(&icons::CHEVRON_DOWN)
+                    .variant(rune_kit::IconButtonVariant::GhostMuted)
+                    .control_size(ControlSize::Small)
+                    .label("Collapse")
+                    .help("Collapse this comment to one line")
+                    .on_press(move |s: &mut Hooked| s.toggle_fold(&tf))
+                    .build(k)
+                    .key(format!("th-fold-{tid}")),
             )
+            .child(text(anchor).font(k.ty.mono).color(k.c.text_muted))
             .child(if lost {
                 text("left the diff")
                     .font(k.ty.text_xsmall_medium)

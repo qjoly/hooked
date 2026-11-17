@@ -276,6 +276,11 @@ lucide!(
 );
 lucide!(TERMINAL, "terminal", r#"<path d="m4 17 6-6-6-6M12 19h8"/>"#);
 lucide!(CHEVRON_DOWN, "chevron-down", r#"<path d="m6 9 6 6 6-6"/>"#);
+lucide!(
+    CHEVRON_RIGHT,
+    "chevron-right",
+    r#"<path d="m9 18 6-6-6-6"/>"#
+);
 lucide!(ARROW_DOWN, "arrow-down", r#"<path d="M12 5v14"/><path d="m19 12-7 7-7-7"/>"#);
 lucide!(
     EYE,
