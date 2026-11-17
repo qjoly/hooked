@@ -16,6 +16,18 @@ pub enum ReviewSource {
     Branch,
 }
 
+impl ReviewSource {
+    /// The scope of a session whose review was never left anywhere: the whole worktree for a
+    /// session in one, Claude's own edits otherwise.
+    pub fn default_for(in_worktree: bool) -> Self {
+        if in_worktree {
+            Self::Worktree
+        } else {
+            Self::Claude
+        }
+    }
+}
+
 /// What a branch diff says about its pair, beside the changes.
 #[derive(Clone, Debug, Default, serde::Deserialize, PartialEq)]
 #[serde(default, rename_all = "camelCase")]
@@ -634,6 +646,24 @@ pub fn reanchor(start: u32, end: u32, snippet: &str, lines: &[&str]) -> (u32, u3
 /// The section of the diff a thread belongs to and its lines there, re-anchored on its snippet.
 /// A thread Claude opened is keyed to the whole scope (`…:*`): it goes to the section of its
 /// file whose new side holds its snippet, else to the first.
+/// The link an editor opens a file with, as `fileUrl` in src/lib/editors.js. Rune opens web
+/// links only, so these go to the system directly: the scheme and host are fixed here, and the
+/// path is the only part that comes from the diff.
+pub fn editor_file_url(editor: &str, file: &str) -> Option<String> {
+    if !file.starts_with('/') {
+        return None;
+    }
+    let path = || file.split('/').map(api::enc).collect::<Vec<_>>().join("/");
+    Some(match editor {
+        "zed" => format!("zed://file{}", path()),
+        "cursor" => format!("cursor://file{}", path()),
+        "windsurf" => format!("windsurf://file{}", path()),
+        "sublime" => format!("subl://open?url=file://{}", api::enc(file)),
+        "jetbrains" => format!("idea://open?file={}", api::enc(file)),
+        _ => format!("vscode://file{}", path()),
+    })
+}
+
 pub fn place_thread(t: &Value, anchors: &[(String, String)], files: &[FileDiff]) -> Option<Placed> {
     let (file, key) = (t["file"].as_str()?, t["opIndex"].as_str()?);
     let scoped = key.strip_suffix(":*");
@@ -971,6 +1001,13 @@ pub fn follow_up_prompt(session: &str, thread: &Value, text: &str) -> String {
 }
 
 /// The web's `reviewRequestPrompt`, word for word, so Claude gets the same brief from either client.
+/// What "Ask Claude to open the PR" sends, word for word the web's.
+pub const PR_PROMPT: &str = "Open a pull request for the current branch:\n\
+1. push the branch;\n\
+2. write a concise PR description — WHAT it does and HOW to test, not the code details;\n\
+3. add exactly one label: \":bookmark::bug: FIX\" (bugfix), \":hammer: Technical\" (technical only), or \":bookmark::sparkles: Feature\" (new feature);\n\
+4. give me the PR URL when done.";
+
 pub fn review_request_prompt(
     session: &str,
     scope: &str,
@@ -1081,6 +1118,29 @@ impl Hooked {
     /// Run on every poll. A side-by-side diff in a narrow lens wraps every token onto its own
     /// line, so it is shown unified there, whichever way the layout was asked for; the split
     /// layout comes back once there is room. True when it changed the layout.
+    pub fn pick_review_mode(&mut self, split: bool) {
+        self.review_forced_unified = false;
+        self.lens_data.diff.set_mode(if split {
+            DiffMode::Split
+        } else {
+            DiffMode::Unified
+        });
+        self.save_pref("diffLastSplit", &split);
+    }
+
+    /// The Settings default: the layout of a lens where none was picked yet.
+    pub fn set_review_default(&mut self, split: bool) {
+        self.save_pref("diffSplit", &split);
+        if self.prefs.get::<bool>("diffLastSplit").is_none() {
+            self.review_forced_unified = false;
+            self.lens_data.diff.set_mode(if split {
+                DiffMode::Split
+            } else {
+                DiffMode::Unified
+            });
+        }
+    }
+
     pub fn fit_review(&mut self) -> bool {
         if self.page != Page::Session || self.lens != Lens::Review {
             return false;
@@ -2258,6 +2318,31 @@ impl Hooked {
         }
     }
 
+    /// Opens a file of the diff in the editor chosen in Settings.
+    pub fn open_in_editor(&mut self, file: usize) {
+        let editor = self
+            .setting("editor")
+            .as_str()
+            .unwrap_or("vscode")
+            .to_string();
+        let Some(url) = self
+            .lens_data
+            .anchors
+            .get(file)
+            .and_then(|(path, _)| editor_file_url(&editor, path))
+        else {
+            return;
+        };
+        self.spawn(
+            move || crate::incidents::system_open(&url),
+            |s, opened, _| {
+                if !opened {
+                    s.flash("✗ Could not open the editor", true);
+                }
+            },
+        );
+    }
+
     pub fn toggle_fold(&mut self, tid: &str) {
         let folded = &mut self.lens_data.folded;
         if !folded.remove(tid) {
@@ -2501,6 +2586,14 @@ impl Hooked {
                 s.refresh_detail();
             },
         );
+    }
+
+    pub fn ask_open_pr(&mut self) {
+        if self.sending || self.detail.is_none() {
+            return;
+        }
+        self.send_prompt(PR_PROMPT.to_string());
+        self.flash("✓ Asked Claude to open the PR", false);
     }
 
     /// Reads the diff on screen again. The working tree, the worktree and the branches are
@@ -3018,6 +3111,37 @@ mod tests {
     fn primary_repo_is_named_after_its_folder() {
         assert_eq!(repo("/ws/hooked", "", &[]).name(), "hooked");
         assert_eq!(repo("/ws/hooked/sub", "sub", &[]).name(), "sub");
+    }
+}
+
+#[cfg(test)]
+mod editor_tests {
+    use super::*;
+
+    #[test]
+    fn editor_links_match_the_webs() {
+        assert_eq!(
+            editor_file_url("vscode", "/repo/a b/é.rs").as_deref(),
+            Some("vscode://file/repo/a%20b/%C3%A9.rs")
+        );
+        assert_eq!(
+            editor_file_url("zed", "/repo/x.rs").as_deref(),
+            Some("zed://file/repo/x.rs")
+        );
+        assert_eq!(
+            editor_file_url("sublime", "/repo/x.rs").as_deref(),
+            Some("subl://open?url=file://%2Frepo%2Fx.rs")
+        );
+        assert_eq!(
+            editor_file_url("jetbrains", "/repo/x.rs").as_deref(),
+            Some("idea://open?file=%2Frepo%2Fx.rs")
+        );
+        // An unknown editor falls back to the default, as the web does.
+        assert_eq!(
+            editor_file_url("emacs", "/repo/x.rs").as_deref(),
+            Some("vscode://file/repo/x.rs")
+        );
+        assert_eq!(editor_file_url("vscode", "relative/x.rs"), None);
     }
 }
 

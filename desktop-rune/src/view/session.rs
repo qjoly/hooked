@@ -910,6 +910,12 @@ pub(super) fn bubble_version(s: &Hooked, m: &Message, k: &Kit) -> u64 {
         .filter_map(|p| if let Part::Tool(t) = p { t.id } else { None })
         .filter(|id| s.tools_open.contains(id))
         .collect();
+    let tall_ids: Vec<String> = m
+        .render_parts()
+        .into_iter()
+        .filter_map(|p| if let Part::Tool(t) = p { t.id } else { None })
+        .filter(|id| diff_is_tall(s, id))
+        .collect();
     let pictures: Vec<bool> = message_media(m)
         .iter()
         .map(|p| {
@@ -980,6 +986,7 @@ pub(super) fn bubble_version(s: &Hooked, m: &Message, k: &Kit) -> u64 {
         k.dark,
         s.all_tools_open,
         open_ids,
+        tall_ids,
         crate::knobs::generation(),
     ))
 }
@@ -1644,6 +1651,15 @@ fn code_text(k: &Kit, lang: Option<&str>, l: &rune_kit::diff::Line) -> El {
     text(l.text.clone()).spans(spans)
 }
 
+/// The line number of an inline diff's row, right against its sign.
+fn line_no(k: &Kit, n: Option<u32>) -> El {
+    row().w(30.0).justify_end().child(
+        text(n.map(|n| n.to_string()).unwrap_or_default())
+            .font(k.ty.mono)
+            .color(k.c.text_faint),
+    )
+}
+
 fn diff_cell(k: &Kit, lang: Option<&str>, line: Option<&rune_kit::diff::Line>) -> El {
     use rune_kit::diff::LineKind;
     let Some(l) = line else {
@@ -1660,6 +1676,7 @@ fn diff_cell(k: &Kit, lang: Option<&str>, line: Option<&rune_kit::diff::Line>) -
         .px(6.0)
         .gap(6.0)
         .fill(fill)
+        .child(line_no(k, l.new.or(l.old)))
         .child(text(sign).font(k.ty.mono).color(ink).w(10.0))
         .child(
             code_text(k, lang, l)
@@ -1717,10 +1734,21 @@ fn split_rows(k: &Kit, lang: Option<&str>, lines: &[rune_kit::diff::Line]) -> Ve
 /// The most lines an inline diff draws for one edit.
 const INLINE_DIFF_MAX: usize = 400;
 
+/// A short diff shows at a glance in the conversation, up to this height (the web's clamp);
+/// past it the rest is behind "Show more".
+const INLINE_CLAMP_H: f32 = 260.0;
+
+/// A short diff that turned out taller than the clamp once laid out.
+fn diff_is_tall(s: &Hooked, id: &str) -> bool {
+    s.tool_diff_h
+        .get(id)
+        .is_some_and(|h| *h > INLINE_CLAMP_H + 8.0)
+}
+
 fn inline_diff(k: &Kit, diff: &serde_json::Value, split: bool) -> El {
     use rune_kit::diff::{FileDiff, LineKind};
     let name = diff["name"].as_str().unwrap_or("").to_string();
-    let mut c = col().w_full().gap(6.0).px(10.0).pb(10.0);
+    let mut c = col().w_full().gap(6.0);
     for op in diff["ops"].as_array().into_iter().flatten() {
         if op["all"].as_bool() == Some(true) {
             c = c.child(
@@ -1790,6 +1818,7 @@ fn inline_diff(k: &Kit, diff: &serde_json::Value, split: bool) -> El {
                         .px(6.0)
                         .gap(6.0)
                         .fill(fill)
+                        .child(line_no(k, l.new.or(l.old)))
                         .child(text(sign).font(k.ty.mono).color(ink).w(10.0))
                         .child(
                             code_text(k, lang, l)
@@ -1904,11 +1933,57 @@ fn tool_chip(s: &Hooked, session: &str, t: &Tool, k: &Kit, key: String) -> El {
     }
     if let Some(diff) = t.diff.as_ref() {
         if !big || open {
-            chip = chip.child(inline_diff(
+            let id = t.id.clone().unwrap_or_else(|| key.clone());
+            let body = inline_diff(
                 k,
                 diff,
                 s.lens_data.diff.mode() == rune_kit::diff::DiffMode::Split,
-            ));
+            );
+            // A short diff is shown without a click, so it is the one that gets clamped: its
+            // height is only known once laid out (long lines wrap), and "Show more" follows it.
+            let long = !big && diff_is_tall(s, &id);
+            let body = if big {
+                body
+            } else {
+                let measured = id.clone();
+                // Reported on every frame of a scroll: only a new height is a change.
+                let body = body.on_layout_tx(move |s: &mut Hooked, r: [f32; 4], tx| {
+                    let known = s.tool_diff_h.get(&measured).copied().unwrap_or(0.0);
+                    if (known - r[3]).abs() > 0.5 {
+                        s.tool_diff_h.insert(measured.clone(), r[3]);
+                    } else {
+                        tx.live_only();
+                    }
+                });
+                let mut frame = col().w_full();
+                if !open {
+                    frame = frame.max_h(INLINE_CLAMP_H).clip_rounded(k.radius.sm);
+                }
+                frame.child(body)
+            };
+            let mut wrap = col().w_full().gap(4.0).px(10.0).pb(10.0).child(body);
+            if long {
+                wrap = wrap.child(
+                    row().child(
+                        Button::new(if open { "Show less" } else { "Show more" })
+                            .icon(if open {
+                                &icons::ARROW_UP
+                            } else {
+                                &icons::CHEVRON_DOWN
+                            })
+                            .variant(ButtonVariant::GhostMuted)
+                            .control_size(ControlSize::Small)
+                            .on_press(move |s: &mut Hooked| {
+                                if !s.tools_open.remove(&id) {
+                                    s.tools_open.insert(id.clone());
+                                }
+                            })
+                            .build(k)
+                            .key(format!("{key}-more")),
+                    ),
+                );
+            }
+            chip = chip.child(wrap);
         }
     } else if open {
         let mono = |label: &str, body: String| {

@@ -411,7 +411,7 @@ fn app_card(s: &Hooked, k: &Kit, v: &Value) -> El {
     };
     let nav_on = strs(&v["navTabs"]);
     let home = v["defaultPage"].as_str().unwrap_or("deck").to_string();
-    let review_split = s.lens_data.diff.mode() == rune_kit::diff::DiffMode::Split;
+    let review_split = s.prefs.get::<bool>("diffSplit").unwrap_or(false);
     card(k, "set-app", "THIS APP")
         .child(line(k, "Theme", "Follows the system unless forced.", chips(vec![theme(Theme::System, "System"), theme(Theme::Light, "Light"), theme(Theme::Dark, "Dark")])))
         .child(line(
@@ -480,16 +480,10 @@ fn app_card(s: &Hooked, k: &Kit, v: &Value) -> El {
         .child(line(
             k,
             "Review layout",
-            "How the Review lens shows a diff by default.",
+            "How the Review lens shows a diff until a layout is picked in the lens; the lens then keeps the last one picked.",
             chips(vec![
-                chip(k, "rv-unified".into(), "Unified".into(), !review_split, |s| {
-                    s.lens_data.diff.set_mode(rune_kit::diff::DiffMode::Unified);
-                    s.save_pref("diffSplit", &false);
-                }),
-                chip(k, "rv-split".into(), "Side by side".into(), review_split, |s| {
-                    s.lens_data.diff.set_mode(rune_kit::diff::DiffMode::Split);
-                    s.save_pref("diffSplit", &true);
-                }),
+                chip(k, "rv-unified".into(), "Unified".into(), !review_split, |s| s.set_review_default(false)),
+                chip(k, "rv-split".into(), "Side by side".into(), review_split, |s| s.set_review_default(true)),
             ]),
         ))
 }

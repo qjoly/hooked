@@ -144,6 +144,9 @@ pub struct Hooked {
     /// The lens is narrow and showed its side-by-side diff unified: it goes back to split
     /// once there is room.
     pub review_forced_unified: bool,
+    /// The laid-out height of each short diff of the conversation, by tool call: what decides
+    /// whether it needs "Show more".
+    pub tool_diff_h: HashMap<String, f32>,
     pub window_h: f32,
     pub window_w: f32,
     pub show_archived: bool,
@@ -447,6 +450,7 @@ impl Hooked {
             review_threads_w,
             review_w: f32::MAX,
             review_forced_unified: false,
+            tool_diff_h: HashMap::new(),
             window_h: 860.0,
             window_w: 1320.0,
             show_archived: false,
@@ -570,7 +574,14 @@ impl Hooked {
         }
         s.meta = api::session_meta().unwrap_or_default();
         s.tags = api::tags().unwrap_or_default();
-        if s.prefs.get::<bool>("diffSplit").unwrap_or(false) {
+        // The layout last picked in the lens wins; the Settings default is for a lens whose
+        // layout was never picked.
+        let split = s
+            .prefs
+            .get::<bool>("diffLastSplit")
+            .or_else(|| s.prefs.get::<bool>("diffSplit"))
+            .unwrap_or(false);
+        if split {
             s.lens_data.diff.set_mode(rune_kit::diff::DiffMode::Split);
         }
         if let Ok(v) = api::get("/api/settings") {
@@ -629,6 +640,11 @@ impl Hooked {
         if let Some(id) = start {
             s.page = Page::Session;
             s.detail = api::detail(&id).ok();
+            let in_worktree = s
+                .detail
+                .as_ref()
+                .is_some_and(|d| d.session.worktree_of.is_some());
+            s.lens_data.review_source = ReviewSource::default_for(in_worktree);
             if let Some(place) = s.review_places.get(&id).cloned() {
                 s.lens_data.restore(&place);
             }
@@ -1427,11 +1443,9 @@ impl Hooked {
             .sessions
             .iter()
             .any(|x| x.id == id && x.worktree_of.is_some());
-        let source = match (self.lens_data.review_source, in_worktree) {
-            (ReviewSource::Claude, true) => ReviewSource::Worktree,
-            (ReviewSource::Worktree, false) => ReviewSource::Claude,
-            (src, _) => src,
-        };
+        self.tool_diff_h.clear();
+        // A session opens on its own review, not on the scope the previous one was left on.
+        let source = ReviewSource::default_for(in_worktree);
         let mode = self.lens_data.diff.mode();
         self.lens_data = crate::lenses::LensData {
             review_source: source,

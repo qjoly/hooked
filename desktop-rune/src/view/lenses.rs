@@ -531,6 +531,7 @@ fn threads_panel(s: &Hooked, k: &Kit) -> El {
                 .color(k.c.text_faint),
         );
     }
+    c = c.child(pull_request_card(s, k));
     row()
         .key("review-threads")
         .w(column_width(s, s.review_threads_w))
@@ -552,6 +553,61 @@ fn threads_panel(s: &Hooked, k: &Kit) -> El {
                 })
                 .child(c),
         )
+}
+
+fn pull_request_card(s: &Hooked, k: &Kit) -> El {
+    let links = s.detail.as_ref().map_or(&[][..], |d| &d.pr_links[..]);
+    let mut c = col()
+        .key("review-pr")
+        .w_full()
+        .gap(8.0)
+        .pt(8.0)
+        .child(section_title(k, "PULL REQUEST"));
+    for l in links {
+        let url = l.clone();
+        let short = l
+            .split_once("://")
+            .and_then(|(_, rest)| rest.split_once('/'))
+            .map_or(l.as_str(), |(_, path)| path);
+        c = c.child(
+            k.interactive(
+                row()
+                    .key(format!("review-pr-{l}"))
+                    .w_full()
+                    .gap(6.0)
+                    .center_y()
+                    .child(super::glyph(&icons::PULL_REQUEST, 13.0, k.c.text_muted))
+                    .child(
+                        text(short.to_string())
+                            .font(k.ty.text_small)
+                            .color(k.c.text_base)
+                            .truncate_head(),
+                    ),
+            )
+            .on_press_tx(move |s: &mut Hooked, tx| crate::app::open_link(s, &url, tx)),
+        );
+    }
+    if links.is_empty() {
+        c = c.child(
+            text("No PR yet. Let the session push the branch and draft the description.")
+                .font(k.ty.text_small)
+                .color(k.c.text_faint),
+        );
+    }
+    c.child(
+        Button::new(if s.sending {
+            "Asking…"
+        } else {
+            "Ask Claude to open the PR"
+        })
+        .icon(&icons::PULL_REQUEST)
+        .variant(ButtonVariant::Outline)
+        .control_size(ControlSize::Small)
+        .disabled(s.sending || s.detail.is_none())
+        .help("Ask the session to push the branch and open a pull request")
+        .on_press(|s: &mut Hooked| s.ask_open_pr())
+        .build(k),
+    )
 }
 
 fn rendered_panel(s: &Hooked, k: &Kit) -> El {
@@ -691,6 +747,28 @@ fn file_actions(s: &Hooked, k: &Kit, i: usize) -> El {
                 .label("Open rendered")
                 .help("Open the rendered document in the browser")
                 .on_press_tx(move |s: &mut Hooked, tx| s.open_rendered(i, tx))
+                .build(k),
+        );
+    }
+    // An editor would open on this machine: not offered for a remote session's files.
+    let local = s
+        .selected
+        .as_deref()
+        .and_then(|id| s.session(id))
+        .is_none_or(|x| x.remote.is_none());
+    let absolute = s
+        .lens_data
+        .anchors
+        .get(i)
+        .is_some_and(|(path, _)| path.starts_with('/'));
+    if local && absolute {
+        r = r.child(
+            rune_kit::IconButton::new(&icons::CODE)
+                .variant(rune_kit::IconButtonVariant::GhostMuted)
+                .control_size(ControlSize::Small)
+                .label("Open in editor")
+                .help("Open this file in the editor chosen in Settings")
+                .on_press(move |s: &mut Hooked| s.open_in_editor(i))
                 .build(k),
         );
     }
@@ -1226,13 +1304,7 @@ pub fn review(s: &Hooked, d: &Detail, k: &Kit) -> El {
             SegmentedControl::new(&["Unified", "Split"], Some(usize::from(split)))
                 .label("Diff layout")
                 .fit()
-                .on_pick(|s: &mut Hooked, i, _| {
-                    s.lens_data.diff.set_mode(if i == 1 {
-                        DiffMode::Split
-                    } else {
-                        DiffMode::Unified
-                    })
-                })
+                .on_pick(|s: &mut Hooked, i, _| s.pick_review_mode(i == 1))
                 .build(k)
                 .key("review-mode"),
         );
@@ -2033,15 +2105,18 @@ fn annotation(s: &Hooked, a: &Annotation, k: &Kit) -> El {
             } else {
                 el()
             })
-            .child(
+            // Archiving is for a thread Claude has seen: a pending one is edited or deleted.
+            .child(if sent {
                 Button::new("Archive")
                     .variant(ButtonVariant::GhostMuted)
                     .control_size(ControlSize::Small)
                     .help("Take it out of the diff: it stays in the comments panel, restorable")
                     .on_press(move |s: &mut Hooked| s.archive_thread(t1.clone(), true))
                     .build(k)
-                    .key(format!("th-arch-{tid}")),
-            )
+                    .key(format!("th-arch-{tid}"))
+            } else {
+                el()
+            })
             .child({
                 // A sent thread may hold Claude's replies: deleting it takes a second click,
                 // as in the comments panel. A pending one is still a draft.
@@ -2160,23 +2235,53 @@ fn annotation(s: &Hooked, a: &Annotation, k: &Kit) -> El {
     if sent {
         let empty = rune::TextEdit::new("");
         let edit = s.lens_data.replies.get(&tid).unwrap_or(&empty);
+        let (send, drop) = (tid.clone(), tid.clone());
         c = c.child(
-            TextInput::new(edit)
-                .placeholder("Reply…")
+            TextArea::new(edit)
+                .placeholder("Reply… (⌘Enter sends to Claude, Esc cancels)")
                 .width(None)
+                .auto_grow(1, 10)
                 .on_edit(move |s: &mut Hooked| {
                     s.lens_data
                         .replies
                         .entry(t3.clone())
                         .or_insert_with(|| rune::TextEdit::new(""))
                 })
-                .on_submit({
-                    let tid = tid.clone();
-                    move |s: &mut Hooked, _| s.reply_thread(tid.clone())
+                .on_key(move |s: &mut Hooked, ev: &rune::KeyEvent, _| match ev.key {
+                    rune::Key::Enter if ev.mods.cmd => {
+                        s.reply_thread(send.clone());
+                        true
+                    }
+                    rune::Key::Escape => s.lens_data.replies.remove(&drop).is_some(),
+                    _ => false,
                 })
                 .build(k)
                 .key(format!("th-reply-{tid}")),
         );
+        if !edit.text.trim().is_empty() {
+            let (send, drop) = (tid.clone(), tid.clone());
+            c = c.child(
+                row()
+                    .gap(8.0)
+                    .justify_end()
+                    .child(
+                        Button::new("Cancel")
+                            .variant(ButtonVariant::GhostMuted)
+                            .control_size(ControlSize::Small)
+                            .on_press(move |s: &mut Hooked| {
+                                s.lens_data.replies.remove(&drop);
+                            })
+                            .build(k),
+                    )
+                    .child(
+                        Button::new("Reply")
+                            .variant(ButtonVariant::Contrast)
+                            .control_size(ControlSize::Small)
+                            .on_press(move |s: &mut Hooked| s.reply_thread(send.clone()))
+                            .build(k),
+                    ),
+            );
+        }
     }
     c
 }

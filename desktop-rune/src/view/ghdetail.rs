@@ -9,8 +9,6 @@ use crate::ghdetail::{
 };
 use crate::{fmt, icons};
 
-const MAX_PATCH_LINES: usize = 2000;
-
 fn str_of<'a>(v: &'a Value, k: &str) -> &'a str {
     v[k].as_str().unwrap_or("")
 }
@@ -683,7 +681,6 @@ fn note(k: &Kit, msg: &str, c: Color) -> El {
 
 fn patch_view(k: &Kit, path: &str, patch: &str) -> El {
     let lines = patch_lines(patch);
-    let total = lines.len();
     let mut c = col()
         .key(format!("ghd-p-{path}"))
         .w_full()
@@ -692,7 +689,7 @@ fn patch_view(k: &Kit, path: &str, patch: &str) -> El {
         .clip_rounded(k.radius.sm)
         .border(1.0, k.c.border_weak)
         .fill(k.c.bg_deep);
-    for l in lines.into_iter().take(MAX_PATCH_LINES) {
+    for l in lines {
         let (sign, body, fill, ink) = match l {
             PatchLine::Meta(t) => (" ", t, Color::TRANSPARENT, k.c.text_faint),
             PatchLine::Hunk(t) => (" ", t, k.c.info.bg.alpha(0.5), k.c.info.fg),
@@ -721,16 +718,6 @@ fn patch_view(k: &Kit, path: &str, patch: &str) -> El {
                     .selectable(true),
                 ),
         );
-    }
-    if total > MAX_PATCH_LINES {
-        c = c.child(note(
-            k,
-            &format!(
-                "{} more lines: open the pull request on GitHub.",
-                total - MAX_PATCH_LINES
-            ),
-            k.c.text_faint,
-        ));
     }
     c
 }
