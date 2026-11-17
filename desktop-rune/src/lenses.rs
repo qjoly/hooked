@@ -2261,7 +2261,31 @@ impl Hooked {
         };
         let base = self.review_key_base();
         if op == base || op.starts_with(&format!("{base}:")) {
-            self.flash(GONE_FROM_DIFF, true);
+            // A capped file is cut into other sections than its full diff: a thread written
+            // on the full one is found again once the whole file is loaded.
+            let capped = self
+                .lens_data
+                .threads
+                .iter()
+                .find(|t| t["id"].as_str() == Some(tid))
+                .and_then(|t| t["file"].as_str())
+                .filter(|f| {
+                    let cut = |c: &Change| c.file == *f && c.truncated;
+                    self.lens_data.review_source == ReviewSource::Claude
+                        && !self.lens_data.full.contains_key(*f)
+                        && self
+                            .detail
+                            .as_ref()
+                            .is_some_and(|d| d.changes.iter().any(cut))
+                })
+                .map(str::to_string);
+            match capped {
+                Some(file) => {
+                    self.load_full_change(file);
+                    self.lens_data.jump = Some(tid.to_string());
+                }
+                None => self.flash(GONE_FROM_DIFF, true),
+            }
             return;
         }
         if thread_context(&op).is_some_and(|ctx| self.restore_context(ctx)) {
@@ -2336,7 +2360,8 @@ impl Hooked {
             ld.jump = None;
             return false;
         }
-        if ld.diff_loading || ld.branches_loading || ld.diff_sig.is_none() {
+        let loading_full = ld.full.values().any(Option::is_none);
+        if ld.diff_loading || ld.branches_loading || loading_full || ld.diff_sig.is_none() {
             return false;
         }
         let tid = ld.jump.take().unwrap_or_default();
