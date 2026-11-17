@@ -140,6 +140,9 @@ pub struct PageData {
     pub settings_stale: bool,
     pub settings_loading: bool,
     pub settings_project: Option<TextEdit>,
+    /// Settings → Remote instances: the two fields of the add form.
+    pub remote_name: TextEdit,
+    pub remote_url: TextEdit,
     pub wt_location: Option<TextEdit>,
     pub wt_names: Option<TextEdit>,
     pub wt_cleanup: Option<Value>,

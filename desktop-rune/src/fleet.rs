@@ -190,11 +190,18 @@ impl Fleet {
     }
 }
 
+/// A remote session's repo is filed apart (« repo @ instance »), as in the sidebar: see
+/// `Session::project_label`.
 pub fn repo_key(x: &Session) -> String {
-    x.repo
+    let repo = x
+        .repo
         .clone()
         .or_else(|| x.project_name.clone())
-        .unwrap_or_else(|| "—".into())
+        .unwrap_or_else(|| "—".into());
+    match &x.remote {
+        Some(r) => format!("{repo} @ {}", r.name),
+        None => repo,
+    }
 }
 
 impl Hooked {

@@ -24,6 +24,7 @@ mod panel;
 mod perf;
 mod querywin;
 mod quick;
+mod remote;
 mod sections;
 mod shortcuts;
 mod terminal;

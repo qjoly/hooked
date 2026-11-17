@@ -116,6 +116,20 @@ and dark, with rounded or square corners, picked in Settings or the palette.
 - **Outside the window**: a menu bar item with the waiting count and sessions; closing the window
   keeps the app running; ⌘⇧H (`HOOKED_QUICK_SHORTCUT` overrides it) opens a quick-reply panel on
   the sessions waiting on you; system notifications when one starts waiting (bundled app only).
+- **Back to the latest message**: an arrow at the bottom right of the conversation, there only
+  while it is scrolled away from its end.
+- **Remote instances** (Settings → Feature flags, off by default, `src/remote.rs`): the sessions
+  of other hooked services listed next to the local ones. A feature of this app alone: the
+  switch and the instance list (name + URL, four at most) live in its prefs, and the hooked
+  service knows nothing about it. A remote session carries a blue rail, a wash and a badge with
+  its instance's name in the sidebar, the Deck, the fleet and its own header, is filed under
+  `repo @ instance`, and says so in its notification. The app talks to each instance directly: a
+  request that names a remote session (`id`, `session`, `sessionId`, `resumeId`) goes to the
+  instance that owns it, so the conversation, the live stream, replies, questions, plans, tags,
+  archive and Review work as they do locally. What belongs to a machine stays local and is not
+  offered for a remote session: a new session, the shell panel, the MCP lens, open in editor. A
+  group cannot span two instances. hooked has no authentication, so only add an instance
+  reached over a trusted network. Full-text search, Stats and Digest stay local.
 
 ## Not done yet
 

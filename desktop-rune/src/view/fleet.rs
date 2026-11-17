@@ -174,7 +174,7 @@ pub fn view(s: &Hooked, k: &Kit, decisions: usize, width: f32) -> El {
         } else {
             units.len().min(cap)
         };
-        let project = units[0].mother.project.clone();
+        let project = units[0].mother.project.clone().filter(|_| units[0].mother.remote.is_none());
         let mut g = col()
             .key(format!("repo-{repo}"))
             .w_full()
@@ -696,6 +696,12 @@ fn card(s: &Hooked, k: &Kit, u: &Unit, w: f32) -> El {
         .hover_group()
         .opacity(if dim { 0.75 } else { 1.0 })
         .child(head);
+    if let Some(r) = &x.remote {
+        c = c
+            .fill(super::remote_wash(k, false))
+            .border(1.0, crate::theme::remote_color(k.dark).alpha(0.55))
+            .child(row().w_full().child(super::remote_badge(k, r)));
+    }
     if let Some((state, t)) = snippet(x) {
         c = c.child(
             row()

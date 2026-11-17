@@ -251,7 +251,7 @@ fn flag(v: &Value, key: &str) -> bool {
     v[key].as_bool().unwrap_or(false)
 }
 
-fn flags_card(k: &Kit, v: &Value) -> El {
+fn flags_card(s: &Hooked, k: &Kit, v: &Value) -> El {
     let mut c = card(k, "set-flags", "FEATURE FLAGS");
     for &(key, title, hint) in &FEATURE_FLAGS {
         let on = v["featureFlags"][key].as_bool().unwrap_or(false);
@@ -262,7 +262,111 @@ fn flags_card(k: &Kit, v: &Value) -> El {
             toggle(k, key, on, move |s| s.save_nested("featureFlags", key, json!(!on))),
         ));
     }
+    // A flag of this app alone (its prefs, not the service's settings): see `crate::remote`.
+    let on = s.remote_on;
+    c = c.child(line(
+        k,
+        "Remote instances",
+        "Lists the sessions of other hooked instances in this app, marked as remote everywhere, and drives them from here. Kept in this app only.",
+        toggle(k, "remoteInstances", on, move |s| s.set_remote_enabled(!on)),
+    ));
+    if on {
+        c = c.child(remote_instances(s, k));
+    }
     c
+}
+
+/// Feature flags → Remote instances: the configured instances with what the last poll found,
+/// and the form that adds one. Only drawn while the flag is on.
+fn remote_instances(s: &Hooked, k: &Kit) -> El {
+    use crate::remote::Status;
+    let mut list = col().key("ri").w_full().pb(8.0).gap(8.0);
+    for inst in &s.remotes {
+        let status = crate::remote::status(&inst.url);
+        let (label, color) = match &status {
+            Status::Checking => ("checking…".to_string(), k.c.text_faint),
+            Status::Ok(1) => ("1 session".to_string(), k.c.success.fg),
+            Status::Ok(n) => (format!("{n} sessions"), k.c.success.fg),
+            Status::Unreachable(_) => ("unreachable".to_string(), k.c.danger.fg),
+        };
+        // The reason gets a line of its own: on the row it pushed the URL out of sight.
+        let why = match &status {
+            Status::Unreachable(e) if crate::remote::local_network_blocked(e) => Some(format!(
+                "{}. On macOS this usually means this app is not allowed on the local network yet: accept the system prompt, or turn “hooked (Rune)” on in System Settings → Privacy & Security → Local Network.",
+                crate::remote::brief_error(e)
+            )),
+            Status::Unreachable(e) => Some(format!(
+                "{}. Is hooked running there, and listening on more than localhost (HOST=0.0.0.0)?",
+                crate::remote::brief_error(e)
+            )),
+            _ => None,
+        };
+        let url = inst.url.clone();
+        list = list.child(
+            row()
+                .key(format!("ri-{}", inst.url))
+                .w_full()
+                .gap(10.0)
+                .center_y()
+                .child(super::remote_badge(k, inst))
+                .child(
+                    text(inst.url.clone())
+                        .font(k.ty.text_small)
+                        .color(k.c.text_muted)
+                        .truncate()
+                        .grow(1.0)
+                        .min_w(0.0),
+                )
+                .child(text(label).font(k.ty.text_xsmall_medium).color(color))
+                .child(
+                    IconButton::new(&icons::CLOSE)
+                        .variant(IconButtonVariant::GhostMuted)
+                        .control_size(ControlSize::Small)
+                        .label(format!("Remove {}", inst.name))
+                        .help("Remove this instance")
+                        .on_press(move |s: &mut Hooked| s.remove_remote(&url))
+                        .build(k),
+                ),
+        );
+        if let Some(why) = why {
+            list = list.child(
+                text(why)
+                    .key(format!("ri-why-{}", inst.url))
+                    .font(k.ty.text_xsmall)
+                    .color(k.c.danger.fg)
+                    .wrap()
+                    .w_full(),
+            );
+        }
+    }
+    let name = TextInput::new(&s.pages.remote_name)
+        .width(Some(200.0))
+        .placeholder("Name (optional)")
+        .on_edit(|s: &mut Hooked| &mut s.pages.remote_name)
+        .on_submit(|s: &mut Hooked, _| s.add_remote())
+        .build(k)
+        .key("ri-name");
+    let url = TextInput::new(&s.pages.remote_url)
+        .width(Some(280.0))
+        .placeholder("http://host:4123")
+        .on_edit(|s: &mut Hooked| &mut s.pages.remote_url)
+        .on_submit(|s: &mut Hooked, _| s.add_remote())
+        .build(k)
+        .key("ri-url");
+    let add = Button::new("Add instance")
+        .variant(ButtonVariant::Neutral)
+        .control_size(ControlSize::Regular)
+        .on_press(|s: &mut Hooked| s.add_remote())
+        .build(k)
+        .key("ri-add");
+    list.child(row().w_full().gap(8.0).center_y().flex_wrap().child(name).child(url).child(add))
+        .child(
+            text("hooked has no authentication, and a remote session can be replied to and stopped from here: only add an instance you reach over a network you trust (VPN, Tailscale). Launching a new session, shells, the MCP lens and “open in editor” stay on this machine.")
+                .font(k.ty.text_xsmall)
+                .color(k.c.text_faint)
+                .wrap()
+                .w_full(),
+        )
 }
 
 fn strs(v: &Value) -> Vec<String> {
@@ -1224,7 +1328,7 @@ pub fn view(s: &Hooked, k: &Kit) -> El {
         terminal_card(s, k),
         shortcuts_card(s, k),
         maintenance_card(s, k, v),
-        flags_card(k, v),
+        flags_card(s, k, v),
     ];
     let [_, view_h] = s.pages.settings_view;
     let tail = (view_h - s.pages.settings_last_h - 2.0 * PAD - GAP).max(0.0);

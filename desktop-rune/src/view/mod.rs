@@ -848,13 +848,15 @@ fn session_row(
                 .child(trailing),
         )
         .child(line2);
-    if !tags.is_empty() {
+    if x.remote.is_some() || !tags.is_empty() {
+        // A remote session's instance badge leads the line: it is there even without a tag.
         body = body.child(
             row()
                 .w_full()
                 .pt(4.0)
                 .gap(4.0)
                 .flex_wrap()
+                .children(x.remote.iter().map(|r| remote_badge(k, r)))
                 .children(tags.iter().map(|t| tag_pill(s, k, t))),
         );
     }
@@ -883,6 +885,11 @@ fn session_row(
     }
     if selected {
         r = r.fill(k.c.pressed);
+    }
+    if x.remote.is_some() {
+        r = r
+            .fill(remote_wash(k, selected))
+            .border_sides([0.0, 0.0, 0.0, 3.0], crate::theme::remote_color(k.dark));
     }
     let drag = id.clone();
     let r = s.drop_target(k, format!("sb:{}", x.id), r);
@@ -1360,7 +1367,8 @@ fn sidebar(s: &Hooked, k: &Kit, layer: &mut Vec<El>) -> El {
         for g in order {
             let rows = &groups[&g];
             let collapsed = s.collapsed.contains(&g);
-            let project = rows[0].project.clone();
+            // A remote project's folder is on the other machine: its + opens an empty form.
+            let project = rows[0].project.clone().filter(|_| rows[0].remote.is_none());
             let toggle = g.clone();
             let plus = IconButton::new(&icons::PLUS)
                 .variant(IconButtonVariant::GhostMuted)
@@ -1834,6 +1842,30 @@ pub fn tag_pill(s: &Hooked, k: &Kit, name: &str) -> El {
         .radius(8.5)
         .fill(c.alpha(0.14))
         .child(text(format!("#{name}")).font(tag_font(k)).color(c))
+}
+
+/// The mark of a session that runs on another hooked instance (`crate::remote`). One look
+/// everywhere a session is listed or opened: a filled, square-cornered, uppercase label in the
+/// remote hue, which no tag (soft round pill), state (dot) or project uses.
+pub fn remote_badge(k: &Kit, r: &crate::remote::Instance) -> El {
+    let ink = crate::theme::remote_ink(k.dark);
+    let mut f = tag_font(k);
+    f.weight = 700.0;
+    row()
+        .h(17.0)
+        .px(6.0)
+        .gap(4.0)
+        .center_y()
+        .radius(if crate::theme::sharp() { 0.0 } else { 4.0 })
+        .fill(crate::theme::remote_color(k.dark))
+        .help(format!("Remote session: runs on the hooked instance “{}” ({})", r.name, r.url))
+        .child(glyph(&icons::GLOBE, 10.0, ink))
+        .child(text(r.name.to_uppercase()).font(f).color(ink))
+}
+
+/// The wash behind a remote session's row, card or header; stronger when it is the selected one.
+pub fn remote_wash(k: &Kit, strong: bool) -> Color {
+    crate::theme::remote_color(k.dark).alpha(if strong { 0.22 } else { 0.08 })
 }
 
 pub fn pill(k: &Kit, label: impl Into<String>, fg: Color, bg: Color) -> El {
