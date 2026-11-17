@@ -8,6 +8,7 @@ mod export;
 mod fleet;
 mod fmt;
 mod ghdetail;
+mod ghwatch;
 mod ghostty;
 mod ghrun;
 mod icons;
@@ -179,6 +180,7 @@ fn poll(s: &mut Hooked, clock: f64, tx: &mut Tx) -> bool {
     s.poll_query(now);
     s.poll_account(now);
     s.poll_incidents(now);
+    s.poll_gh_watch(now);
     let working = s.page == Page::Session && s.working_since.is_some();
     let step = if working { 1000 } else { 30_000 };
     if now / step != s.now / step {

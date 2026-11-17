@@ -143,6 +143,18 @@ pub const SCOPES: [Scope; 5] = [
     },
 ];
 const MINE: usize = 1;
+const OPEN: usize = 0;
+/// How often the open list is read in the background for the "new incident" notification.
+const NOTIFY_MS: i64 = 2 * 60_000;
+
+/// Open incidents not in the previous read. The first read only seeds: what was open when the
+/// app started is not news.
+pub fn new_incidents<'a>(seen: Option<&HashSet<String>>, items: &'a [Inc]) -> Vec<&'a Inc> {
+    let Some(seen) = seen else {
+        return Vec::new();
+    };
+    items.iter().filter(|i| !seen.contains(&i.id)).collect()
+}
 
 #[derive(Default)]
 pub struct List {
@@ -722,6 +734,8 @@ pub struct Incidents {
     pub dismissed: HashSet<String>,
     pub busy: bool,
     pub checked_at: i64,
+    /// Ids in the open list as last read; `None` until the first read, which only seeds it.
+    pub seen_open: Option<HashSet<String>>,
 }
 
 impl Incidents {
@@ -763,6 +777,7 @@ impl Incidents {
             dismissed: HashSet::new(),
             busy: false,
             checked_at: 0,
+            seen_open: None,
         }
     }
 
@@ -951,6 +966,11 @@ impl Hooked {
         if !mine.loading && mine.loaded_at.is_none_or(|t| now - t > BACKGROUND_MS) {
             self.load_incidents(MINE, false);
         }
+        // The open list feeds the "new incident" notification.
+        let open = &self.inc.lists[OPEN];
+        if !open.loading && open.loaded_at.is_none_or(|t| now - t > NOTIFY_MS) {
+            self.load_incidents(OPEN, false);
+        }
     }
 
     /// Reads the open list again when it is missing or old; true when a load started.
@@ -998,6 +1018,22 @@ impl Hooked {
                         l.error = None;
                         l.total = p.total;
                         l.cursor = p.cursor;
+                        if n == OPEN && !more {
+                            let fresh = new_incidents(s.inc.seen_open.as_ref(), &p.items);
+                            s.inc.seen_open = Some(p.items.iter().map(|i| i.id.clone()).collect());
+                            if s.notify {
+                                for i in fresh {
+                                    let sev = i.severity.as_ref().map(|x| x.name.as_str()).unwrap_or("");
+                                    crate::tray::notify_link(
+                                        &format!("inc-{}", i.id),
+                                        &format!("New incident {}", i.reference),
+                                        &if sev.is_empty() { i.name.clone() } else { format!("{sev} · {}", i.name) },
+                                        "incident",
+                                        &i.id,
+                                    );
+                                }
+                            }
+                        }
                         if more {
                             let known: HashSet<String> =
                                 l.items.iter().map(|i| i.id.clone()).collect();

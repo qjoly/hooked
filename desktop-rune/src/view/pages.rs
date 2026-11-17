@@ -1,12 +1,13 @@
 use rune::{Color, Cursor, El, ScrollSpec, col, el, row, text};
 use rune_kit::{
-    Button, ButtonVariant, ControlSize, Kit, SegmentedControl, Spinner, Switch, TextArea, TextInput,
+    Button, ButtonVariant, ControlSize, Kit, MenuItem, SegmentedControl, Spinner, Switch, TextArea,
+    TextInput,
 };
 use serde_json::Value;
 
 use super::{dot, glyph, pill, section_title};
 use crate::app::Hooked;
-use crate::pages::{GITHUB_TABS, STATS_RANGES};
+use crate::pages::{GITHUB_TABS, STATS_RANGES, gh_tabs};
 use crate::{fmt, icons};
 
 pub(super) fn page(k: &Kit, key: &str, title: &str, actions: El, body: El) -> El {
@@ -1245,30 +1246,38 @@ pub fn cron(s: &Hooked, k: &Kit) -> El {
     )
 }
 
-pub fn github(s: &Hooked, k: &Kit) -> El {
+pub fn github(s: &Hooked, k: &Kit, layer: &mut Vec<El>) -> El {
     let pd = &s.pages;
     let refresh = Button::new("Refresh")
         .icon(&icons::RESTART)
         .variant(ButtonVariant::GhostMuted)
         .control_size(ControlSize::Regular)
         .disabled(pd.github_loading)
-        .on_press(|s: &mut Hooked| s.pages.github = None)
+        .on_press(|s: &mut Hooked| {
+            s.pages.github = None;
+            s.pages.github_force = true;
+            if let Some(r) = s.pages.gh_repo.clone() {
+                s.load_gh_repo(r, true);
+            }
+        })
         .build(k)
         .key("gh-refresh");
     let Some(v) = pd.github.as_ref() else {
         return page(k, "github", "GitHub", refresh, loading(k));
     };
-    let labels: Vec<String> = GITHUB_TABS
+    let tabs_shown = gh_tabs(pd.gh_repo.is_some());
+    let tab = pd.github_tab.min(tabs_shown.len() - 1);
+    let labels: Vec<String> = tabs_shown
         .iter()
         .map(|(key, label)| format!("{label} · {}", s.gh_items(key).len()))
         .collect();
-    let tabs = SegmentedControl::new(&labels, Some(pd.github_tab))
+    let tabs = SegmentedControl::new(&labels, Some(tab))
         .label("List")
         .fit()
         .on_pick(|s: &mut Hooked, i, _| s.pages.github_tab = i)
         .build(k)
         .key("gh-tabs");
-    let key = GITHUB_TABS[pd.github_tab].0;
+    let key = tabs_shown[tab].0;
     let mut list = col()
         .key("gh-list")
         .w_full()
@@ -1299,6 +1308,13 @@ pub fn github(s: &Hooked, k: &Kit) -> El {
         }
     }
     repos.sort_by(|a, b| b.2.cmp(&a.2));
+    // Watched repositories always have a chip, even with nothing in the lists right now.
+    for w in &s.ghw.repos {
+        if !repos.iter().take(16).any(|e| &e.0 == w) {
+            repos.retain(|e| &e.0 != w);
+            repos.insert(0, (w.clone(), 0, String::new()));
+        }
+    }
     let mut rail = row().w_full().gap(6.0).flex_wrap().pb(6.0).child(
         TextInput::new(&pd.gh_query)
             .placeholder("Filter by title or repo, org/ to scope…")
@@ -1333,6 +1349,10 @@ pub fn github(s: &Hooked, k: &Kit) -> El {
                             k.c.border_weak
                         },
                     )
+                    .children(
+                        s.gh_watched(&r)
+                            .then(|| glyph(&icons::BELL, 11.0, k.c.icon_muted)),
+                    )
                     .child(text(name).font(k.ty.text_small).color(k.c.text_base))
                     .child(
                         text(n.to_string())
@@ -1341,11 +1361,9 @@ pub fn github(s: &Hooked, k: &Kit) -> El {
                     ),
             )
             .on_press(move |s: &mut Hooked| {
-                s.pages.gh_repo = if s.pages.gh_repo.as_deref() == Some(pick.as_str()) {
-                    None
-                } else {
-                    Some(pick.clone())
-                };
+                let next =
+                    (s.pages.gh_repo.as_deref() != Some(pick.as_str())).then(|| pick.clone());
+                s.pick_gh_repo(next);
             }),
         );
     }
@@ -1363,7 +1381,40 @@ pub fn github(s: &Hooked, k: &Kit) -> El {
             ),
         );
     }
-    if items.is_empty() {
+    if let (true, Some(repo)) = (key == "repo", pd.gh_repo.clone()) {
+        let on = s.gh_watched(&repo);
+        let r2 = repo.clone();
+        list = list.child(
+            row().pb(4.0).child(
+                Button::new(if on {
+                    "Notifying on new PRs"
+                } else {
+                    "Notify on new PRs"
+                })
+                .icon(if on { &icons::BELL } else { &icons::BELL_OFF })
+                .variant(if on {
+                    ButtonVariant::Outline
+                } else {
+                    ButtonVariant::GhostMuted
+                })
+                .control_size(ControlSize::Small)
+                .help(format!("A native notification for each new pull request in {repo}"))
+                .on_press(move |s: &mut Hooked| s.toggle_gh_watch(r2.clone()))
+                .build(k)
+                .key("gh-watch"),
+            ),
+        );
+    }
+    let repo_state = (key == "repo").then_some(pd.gh_repo_prs.as_ref());
+    if let Some(Some(e)) = repo_state.map(|v| v.and_then(|v| v["error"].as_str())) {
+        list = list.child(
+            text(format!("GitHub: {e}"))
+                .font(k.ty.body)
+                .color(k.c.danger.fg),
+        );
+    } else if repo_state == Some(None) {
+        list = list.child(text("Loading…").font(k.ty.body).color(k.c.text_faint));
+    } else if items.is_empty() {
         list = list.child(text("Nothing here.").font(k.ty.body).color(k.c.text_faint));
     }
     for (i, x) in items.iter().enumerate() {
@@ -1446,18 +1497,34 @@ pub fn github(s: &Hooked, k: &Kit) -> El {
                         .color(k.c.danger.fg),
                 );
         }
+        if matches!(key, "repo" | "mine" | "review") && url.contains("/pull/") {
+            r = r.child(super::ghdetail::pr_actions(
+                s,
+                k,
+                &url,
+                x["author"].as_str().unwrap_or(""),
+                &format!("gh-{key}-{i}"),
+            ));
+        }
         let sel = s.gh_page_view.as_ref().is_some_and(|v| v.url == url);
         if sel {
             r = r.fill(k.c.layer_02).border(1.0, k.c.border_focus);
         }
         let peekable = url.contains("/pull/") || url.contains("/issues/");
-        list = list.child(k.interactive(r).on_press_tx(move |s: &mut Hooked, tx| {
-            if peekable && !tx.mods().cmd {
-                s.peek_gh(url.clone());
-            } else {
-                let _ = tx.open_url(&url);
-            }
-        }));
+        let menu = (url.clone(), x["author"].as_str().unwrap_or("").to_string());
+        list = list.child(
+            k.interactive(r)
+                .on_press_tx(move |s: &mut Hooked, tx| {
+                    if peekable && !tx.mods().cmd {
+                        s.peek_gh(url.clone());
+                    } else {
+                        let _ = tx.open_url(&url);
+                    }
+                })
+                .on_secondary_press(move |s: &mut Hooked, p, _| {
+                    s.pages.gh_menu = Some((menu.0.clone(), menu.1.clone(), p));
+                }),
+        );
     }
     let mut body = row().key("gh-split").w_full().h_full().child(
         col()
@@ -1486,7 +1553,66 @@ pub fn github(s: &Hooked, k: &Kit) -> El {
                 )),
         );
     }
+    let body = body.child(gh_row_menu(s, k, layer));
     page(k, "github", "GitHub", refresh, body)
+}
+
+/// The right-click menu of a GitHub row: open on GitHub, and for a pull request, review in a
+/// session, approve and close.
+fn gh_row_menu(s: &Hooked, k: &Kit, layer: &mut Vec<El>) -> El {
+    let Some((url, author, point)) = s.pages.gh_menu.clone() else {
+        return el();
+    };
+    let is_pr = url.contains("/pull/");
+    let viewer = s
+        .pages
+        .github
+        .as_ref()
+        .and_then(|v| v["viewer"].as_str())
+        .unwrap_or("");
+    let approved = s.pages.gh_acts.get(&url).copied() == Some("approved");
+    let u = url.clone();
+    let mut m = rune_kit::context_menu("gh-row-menu", el().key("gh-row-anchor"), Some(point))
+        .min_width(220.0)
+        .on_close(|s: &mut Hooked| s.pages.gh_menu = None)
+        .item(
+            MenuItem::new("Open on GitHub")
+                .icon(&icons::GITHUB)
+                .on_select_tx(move |s: &mut Hooked, tx| {
+                    s.pages.gh_menu = None;
+                    let _ = tx.open_url(&u);
+                }),
+        );
+    if is_pr {
+        let (u1, u2, u3) = (url.clone(), url.clone(), url.clone());
+        m = m
+            .item(MenuItem::new("Review in session").icon(&icons::EYE).on_select(
+                move |s: &mut Hooked| {
+                    s.pages.gh_menu = None;
+                    s.review_pr_in_session(u1.clone());
+                },
+            ))
+            .item(
+                MenuItem::new(if approved { "Approved" } else { "Approve" })
+                    .icon(&icons::CIRCLE_CHECK)
+                    .disabled(approved || (!viewer.is_empty() && author == viewer))
+                    .on_select(move |s: &mut Hooked| {
+                        s.pages.gh_menu = None;
+                        s.approve_pr(u2.clone());
+                    }),
+            )
+            .separator()
+            .item(
+                MenuItem::new("Close pull request")
+                    .icon(&icons::CLOSE)
+                    .danger(true)
+                    .on_select(move |s: &mut Hooked| {
+                        s.pages.gh_menu = None;
+                        s.close_pr(u3.clone());
+                    }),
+            );
+    }
+    m.build(k, layer)
 }
 
 pub fn skills(s: &Hooked, k: &Kit) -> El {

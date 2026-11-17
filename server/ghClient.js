@@ -221,7 +221,7 @@ function rememberEtag(key, etag, value) {
  * REST call. `etag` revalidates a cached answer: a 304 costs no quota. `background` marks a read
  * nobody is waiting on, which yields to rate-limit pauses and leaves the quota reserve alone.
  */
-export function ghRest(path, { method = 'GET', accept = 'application/vnd.github+json', raw = false, etag = false, background = false, timeout = TIMEOUT_MS } = {}) {
+export function ghRest(path, { method = 'GET', accept = 'application/vnd.github+json', raw = false, etag = false, background = false, timeout = TIMEOUT_MS, body } = {}) {
   const url = `${API}/${String(path).replace(/^\//, '')}`;
   return withSlot(async () => {
     admit('core', background);
@@ -230,7 +230,12 @@ export function ghRest(path, { method = 'GET', accept = 'application/vnd.github+
     const cached = key ? state().etags.get(key) : null;
     const res = await fetchFollowing(url, {
       method,
-      headers: { ...HEADERS, accept, authorization: `Bearer ${tok}`, ...(cached ? { 'if-none-match': cached.etag } : {}) },
+      headers: {
+        ...HEADERS, accept, authorization: `Bearer ${tok}`,
+        ...(cached ? { 'if-none-match': cached.etag } : {}),
+        ...(body !== undefined ? { 'content-type': 'application/json' } : {}),
+      },
+      ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
       signal: AbortSignal.timeout(timeout),
     });
     const headers = Object.fromEntries(res.headers);

@@ -1,7 +1,8 @@
 <script>
-  import { onMount } from 'svelte';
+  import { onMount, untrack } from 'svelte';
   import { ago, ghFilter } from '#lib/format.js';
-  import { markGithubNotificationsDone } from '#lib/api.js';
+  import { goto } from '$app/navigation';
+  import { markGithubNotificationsDone, approvePr, reviewPrInSession } from '#lib/api.js';
   import Icon from './Icon.svelte';
   import GhDetail from './GhDetail.svelte';
 
@@ -12,6 +13,7 @@
   let open = $state(null); // URL shown in the detail panel
   let clearing = $state(false); // notifications being marked as done
   let clearError = $state('');
+  let repoPrs = $state(null); // { repo, total, prs } | { repo, error } for the selected repo
 
   // Plain click opens the panel; a modified click keeps the browser's own behaviour.
   function peek(e, url) {
@@ -20,19 +22,41 @@
     open = open === url ? null : url;
   }
 
+  // The server answers at once with its last overview; a stale one is followed by a second
+  // call that waits for the refresh it started, so the page paints first and updates after.
   async function load(refresh = false) {
     loading = true;
     clearError = '';
     try {
-      const r = await fetch('/api/github' + (refresh ? '?refresh=1' : ''));
-      res = await r.json();
+      const r = await (await fetch('/api/github' + (refresh ? '?refresh=1' : ''))).json();
+      if (!r.error || !res || res.error) res = r;
+      if (r.stale) return await load(true);
     } catch (e) {
-      res = { error: e.message };
+      if (!res || res.error) res = { error: e.message };
     } finally {
       loading = false;
     }
+    if (refresh && repo) loadRepo(repo, true);
   }
   onMount(() => load());
+
+  async function loadRepo(name, refresh = false) {
+    try {
+      const r = await (await fetch(`/api/github/repo?repo=${encodeURIComponent(name)}${refresh ? '&refresh=1' : ''}`)).json();
+      if (repo === name) repoPrs = { ...r, repo: name };
+    } catch (e) {
+      if (repo === name) repoPrs = { repo: name, error: e.message };
+    }
+  }
+  // Every open PR of the selected repo, not only the viewer's own and review requests.
+  $effect(() => {
+    const name = repo;
+    untrack(() => {
+      if (!name) { repoPrs = null; return; }
+      if (repoPrs?.repo !== name) repoPrs = { repo: name, loading: true };
+      loadRepo(name);
+    });
+  });
 
   // Clears what the column shows, filters included: a filtered view clears only its matches.
   async function clearNotifications(items) {
@@ -48,6 +72,18 @@
     } finally {
       clearing = false;
     }
+  }
+
+  // Per-PR action state, keyed by URL: 'approving' | 'approved' | 'reviewing' | error message.
+  let acts = $state({});
+  async function act(pr, kind) {
+    acts[pr.url] = kind === 'approve' ? 'approving' : 'reviewing';
+    const res = await (kind === 'approve' ? approvePr : reviewPrInSession)(pr.url)
+      .catch((e) => ({ ok: false, data: { error: e.message } }));
+    if (!res.ok) { acts[pr.url] = res.data?.error || 'Failed'; return; }
+    if (kind === 'approve') { acts[pr.url] = 'approved'; return; }
+    delete acts[pr.url];
+    if (res.data.link) goto(res.data.link);
   }
 
   const DECISION = {
@@ -95,6 +131,10 @@
   const keep = (x) => (!repo || x.repo === repo) && filter.keep(x);
   const shownRepos = $derived(repos.filter((r) => filter.inScope(r.repo)));
   const cols = $derived([
+    ...(repo ? [{ key: 'repo', label: 'Open pull requests', icon: 'pr', tint: 'var(--accent)',
+      items: (repoPrs?.repo === repo && repoPrs.prs || []).filter(filter.keep),
+      loading: repoPrs?.repo === repo && repoPrs.loading, error: repoPrs?.repo === repo && repoPrs.error,
+      total: repoPrs?.repo === repo ? repoPrs.total : 0 }] : []),
     { key: 'notifications', label: 'Notifications', icon: 'bell', tint: 'var(--warn)', items: lists.notifications.filter(keep) },
     { key: 'issues', label: 'Assigned issues', icon: 'issue', tint: 'var(--success)', items: lists.issues.filter(keep) },
     { key: 'mine', label: 'My pull requests', icon: 'pr', tint: 'var(--accent)', items: lists.mine.filter(keep) },
@@ -130,13 +170,25 @@
     <span class="dim"><span class="add">+{pr.additions}</span> <span class="del">−{pr.deletions}</span></span>
     {#if pr.comments}<span class="dim"><Icon name="comment" size={12} /> {pr.comments}</span>{/if}
   </div>
+  {@const a = acts[pr.url]}
+  <div class="acts">
+    {#if pr.author !== res?.viewer}
+      <button class="act ok" onclick={() => act(pr, 'approve')} disabled={a === 'approving' || a === 'approved'} title="Approve on GitHub">
+        <Icon name={a === 'approving' ? 'busy' : 'circle-check'} size={12} tint={false} /> {a === 'approved' ? 'Approved' : 'Approve'}
+      </button>
+    {/if}
+    <button class="act" onclick={() => act(pr, 'review')} disabled={a === 'reviewing'} title="Review in a new session; nothing is posted to GitHub">
+      <Icon name={a === 'reviewing' ? 'busy' : 'eye'} size={12} tint={false} /> Review in session
+    </button>
+    {#if a && !['approving', 'approved', 'reviewing'].includes(a)}<span class="act-err" title={a}>{a}</span>{/if}
+  </div>
 {/snippet}
 
 <div class="gh">
   <header class="bar">
     <h1>GitHub</h1>
     <input class="search" type="search" placeholder="Filter by title or repo, org/ to scope…" bind:value={query} />
-    {#if res?.fetchedAt}<span class="fetched">fetched {ago(res.fetchedAt)}</span>{/if}
+    {#if res?.fetchedAt}<span class="fetched">{loading ? 'updating…' : `fetched ${ago(res.fetchedAt)}`}</span>{/if}
     <button class="refresh" onclick={() => load(true)} disabled={loading}>
       <Icon name="refresh" size={14} /> {loading ? 'Loading…' : 'Refresh'}
     </button>
@@ -173,7 +225,11 @@
               {#if repo}<a class="ext" href="https://github.com/{repo}" target="_blank" rel="noreferrer" title="Open {repo} on GitHub"><Icon name="external" size={13} /></a>{/if}
             </h2>
             {#if col.key === 'notifications' && clearError}<p class="clear-err">Could not clear every notification: {clearError}</p>{/if}
-            {#if !col.items.length}
+            {#if col.error}
+              <p class="clear-err">{col.error}</p>
+            {:else if col.loading}
+              <p class="none">Loading…</p>
+            {:else if !col.items.length}
               <p class="none">Nothing here.</p>
             {:else}
               <ul>
@@ -208,12 +264,13 @@
                       <a class="title" class:sel={open === x.url} href={x.url} target="_blank" rel="noreferrer" onclick={(e) => peek(e, x.url)}>{x.title}</a>
                       <div class="meta">{#if !repo}<span class="repo">{short(x.repo)}</span>{/if}<span class="num">#{x.number}</span></div>
                     {:else}
-                      {@render prCard(x, col.key === 'review')}
+                      {@render prCard(x, col.key === 'review' || col.key === 'repo')}
                     {/if}
                   </li>
                 {/each}
               </ul>
             {/if}
+            {#if col.total > col.items.length && !query}<p class="more"><a href="https://github.com/{repo}/pulls" target="_blank" rel="noreferrer">{col.total - col.items.length} more on GitHub</a></p>{/if}
           </section>
         {/each}
       </div>
@@ -265,6 +322,9 @@
   .clear + .ext { margin-left: 0; }
   .col h2 .clear :global(svg) { color: inherit; } /* not the column tint */
   .clear-err { flex: none; margin: 0; padding: 8px 12px; color: var(--danger); font-size: var(--t-meta); border-bottom: 1px solid var(--border); }
+  .more { flex: none; margin: 0; padding: 8px 12px; border-top: 1px solid var(--border); font-size: var(--t-meta); text-align: center; }
+  .more a { color: var(--muted); }
+  .more a:hover { color: var(--accent); }
   .none { color: var(--muted); font-size: var(--t-ui); text-align: center; padding: 24px 0; margin: 0; }
   .col ul { flex: 1 1 auto; min-height: 0; overflow-y: auto; list-style: none; margin: 0; padding: 0; }
 
@@ -287,6 +347,13 @@
   .add { color: var(--success); }
   .del { color: var(--danger); }
 
+  .acts { display: flex; align-items: center; gap: 6px; margin-top: 6px; opacity: 0; transition: opacity .12s; }
+  .item:hover .acts, .acts:focus-within, .acts:has(.act-err), .acts:has(:disabled) { opacity: 1; }
+  .act { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border: 1px solid var(--border); border-radius: 7px; background: none; color: var(--muted); font-size: var(--t-micro); font-weight: 600; cursor: pointer; }
+  .act:hover:not(:disabled) { color: var(--accent); border-color: var(--accent); }
+  .act.ok:hover:not(:disabled) { color: var(--success); border-color: var(--success); }
+  .act:disabled { opacity: .7; cursor: default; }
+  .act-err { color: var(--danger); font-size: var(--t-micro); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
   .st { display: inline-flex; flex: none; }
   .tag, .rv, .label { font-size: var(--t-micro); font-weight: 700; padding: 1px 7px; border-radius: 6px; text-decoration: none; white-space: nowrap; }
   .tag { text-transform: uppercase; letter-spacing: .03em; }

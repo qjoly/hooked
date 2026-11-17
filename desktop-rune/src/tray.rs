@@ -11,14 +11,43 @@ pub fn notify(id: &str, title: &str, body: &str) {
     );
 }
 
+/// A notification that is not about a session: `kind` (`gh` or `incident`) and `target` say what
+/// a click opens.
+pub fn notify_link(id: &str, title: &str, body: &str, kind: &str, target: &str) {
+    if !rune_notify::available() {
+        return;
+    }
+    rune_notify::post(
+        &rune_notify::Notification::new(id.to_string(), title)
+            .body(body)
+            .info(kind, target),
+    );
+}
+
 pub fn init_notifications() {
     rune_notify::on_click(|click| {
-        let Some(id) = click.get("session").map(str::to_string) else {
+        let Some(h) = HANDLE.get() else {
             return;
         };
-        if let Some(h) = HANDLE.get() {
+        if let Some(id) = click.get("session").map(str::to_string) {
             h.open();
             h.update(move |s, _| s.open_session(&id));
+        } else if let Some(url) = click.get("gh").map(str::to_string) {
+            h.open();
+            h.update(move |s, _| {
+                s.go(crate::app::Page::GitHub);
+                if s.gh_page_view.as_ref().is_none_or(|v| v.url != url) {
+                    s.peek_gh(url);
+                }
+            });
+        } else if let Some(id) = click.get("incident").map(str::to_string) {
+            h.open();
+            h.update(move |s, _| {
+                s.go(crate::app::Page::Incidents);
+                if s.inc.open.as_deref() != Some(id.as_str()) {
+                    s.peek_incident(id);
+                }
+            });
         }
     });
 }

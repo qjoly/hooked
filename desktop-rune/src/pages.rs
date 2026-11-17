@@ -4,6 +4,30 @@ use serde_json::{Value, json};
 use crate::api;
 use crate::app::{Hooked, Page};
 
+/// The tab listing every open pull request of the selected repository. The page's other lists
+/// only hold the viewer's own PRs and direct review requests, so a picked repo looked empty.
+pub const GITHUB_REPO_TAB: (&str, &str) = ("repo", "Open pull requests");
+
+/// The tabs on screen: the repository one leads while a repository is picked.
+pub fn gh_tabs(repo_picked: bool) -> Vec<(&'static str, &'static str)> {
+    let mut tabs = Vec::with_capacity(GITHUB_TABS.len() + 1);
+    if repo_picked {
+        tabs.push(GITHUB_REPO_TAB);
+    }
+    tabs.extend(GITHUB_TABS);
+    tabs
+}
+
+/// Where the selected tab lands when the repository tab appears or goes away, so the same
+/// list stays selected; picking a first repository jumps to its pull requests.
+pub fn gh_tab_after_pick(tab: usize, was_picked: bool, picked: bool) -> usize {
+    match (was_picked, picked) {
+        (false, true) => 0,
+        (true, false) => tab.saturating_sub(1),
+        _ => tab,
+    }
+}
+
 pub const GITHUB_TABS: [(&str, &str); 5] = [
     ("review", "Review requested"),
     ("mine", "My pull requests"),
@@ -125,6 +149,14 @@ pub struct PageData {
     pub github_tab: usize,
     pub gh_query: TextEdit,
     pub gh_repo: Option<String>,
+    /// `{ repo, total, prs }` (or `{ repo, error }`) for the picked repository.
+    pub gh_repo_prs: Option<Value>,
+    /// The next GitHub load waits for fresh data instead of taking the server's cached copy.
+    pub github_force: bool,
+    /// Pull request actions in flight or done, by URL: "approving", "approved", "reviewing".
+    pub gh_acts: std::collections::HashMap<String, &'static str>,
+    /// The right-click menu of a GitHub row: (url, author, where the click landed).
+    pub gh_menu: Option<(String, String, rune::PointerPress)>,
 
     pub settings: Option<Value>,
     pub claude: Option<Value>,
@@ -301,12 +333,33 @@ impl Hooked {
             }
             Page::GitHub if pd.github.is_none() && !pd.github_loading => {
                 pd.github_loading = true;
+                let path = if std::mem::take(&mut pd.github_force) {
+                    "/api/github?refresh=1"
+                } else {
+                    "/api/github"
+                };
                 self.spawn(
-                    || api::get("/api/github"),
+                    move || api::get(path),
                     |s, r, _| {
                         s.pages.github_loading = false;
                         match r {
-                            Ok(v) => s.pages.github = Some(v),
+                            // The server answers at once with its last copy; a stale one is
+                            // swapped for the refresh it started, without blanking the page.
+                            Ok(v) => {
+                                if v["stale"].as_bool() == Some(true) {
+                                    s.spawn(
+                                        || api::get("/api/github?refresh=1"),
+                                        |s, r, _| {
+                                            if let Ok(v) = r
+                                                && s.pages.github.is_some()
+                                            {
+                                                s.pages.github = Some(v);
+                                            }
+                                        },
+                                    );
+                                }
+                                s.pages.github = Some(v);
+                            }
                             Err(e) => {
                                 s.pages.github = Some(Value::Null);
                                 s.flash(format!("✗ GitHub: {e}"), true)
@@ -408,7 +461,111 @@ impl Hooked {
         self.save_setting("promptLibrary", Value::Array(v));
     }
 
+    /// Approves a pull request on GitHub as the signed-in user.
+    pub fn approve_pr(&mut self, url: String) {
+        self.pages.gh_acts.insert(url.clone(), "approving");
+        let u = url.clone();
+        self.spawn(
+            move || api::post("/api/github/approve", json!({ "url": u })),
+            move |s, r, _| match r {
+                Ok(_) => {
+                    s.pages.gh_acts.insert(url, "approved");
+                    s.flash("✓ Approved", false);
+                }
+                Err(e) => {
+                    s.pages.gh_acts.remove(&url);
+                    s.flash(format!("✗ Approve: {e}"), true);
+                }
+            },
+        );
+    }
+
+    /// Closes a pull request without merging it, and drops it from the lists on screen.
+    pub fn close_pr(&mut self, url: String) {
+        let u = url.clone();
+        self.spawn(
+            move || api::post("/api/github/close", json!({ "url": u })),
+            move |s, r, _| match r {
+                Ok(_) => {
+                    s.flash("✓ Pull request closed", false);
+                    for key in ["mine", "review"] {
+                        if let Some(l) = s.pages.github.as_mut().and_then(|g| g[key].as_array_mut()) {
+                            l.retain(|p| p["url"].as_str() != Some(url.as_str()));
+                        }
+                    }
+                    if let Some(l) = s.pages.gh_repo_prs.as_mut().and_then(|g| g["prs"].as_array_mut()) {
+                        l.retain(|p| p["url"].as_str() != Some(url.as_str()));
+                    }
+                }
+                Err(e) => s.flash(format!("✗ Close: {e}"), true),
+            },
+        );
+    }
+
+    /// Opens a new session that reviews the pull request and reports in its conversation only:
+    /// nothing is posted to GitHub.
+    pub fn review_pr_in_session(&mut self, url: String) {
+        self.pages.gh_acts.insert(url.clone(), "reviewing");
+        let u = url.clone();
+        self.spawn(
+            move || api::post("/api/github/review", json!({ "url": u })),
+            move |s, r, _| {
+                s.pages.gh_acts.remove(&url);
+                match r {
+                    Ok(v) => match v["sessionId"].as_str() {
+                        Some(id) => s.open_session(id),
+                        None => s.flash("✓ Review session launched", false),
+                    },
+                    Err(e) => s.flash(format!("✗ Review: {e}"), true),
+                }
+            },
+        );
+    }
+
+    /// Picks (or clears, with `None`) the repository filter, and loads its open pull requests.
+    pub fn pick_gh_repo(&mut self, repo: Option<String>) {
+        let pd = &mut self.pages;
+        pd.github_tab = gh_tab_after_pick(pd.github_tab, pd.gh_repo.is_some(), repo.is_some());
+        pd.gh_repo = repo.clone();
+        pd.gh_repo_prs = None;
+        if let Some(r) = repo {
+            self.load_gh_repo(r, false);
+        }
+    }
+
+    pub fn load_gh_repo(&self, repo: String, refresh: bool) {
+        let path = format!(
+            "/api/github/repo?repo={}{}",
+            urlenc(&repo),
+            if refresh { "&refresh=1" } else { "" }
+        );
+        self.spawn(
+            move || api::get(&path),
+            move |s, r, _| {
+                if s.pages.gh_repo.as_deref() != Some(repo.as_str()) {
+                    return; // another repository was picked meanwhile
+                }
+                s.pages.gh_repo_prs = Some(match r {
+                    Ok(v) => v,
+                    Err(e) => json!({ "repo": repo, "error": e.to_string() }),
+                });
+            },
+        );
+    }
+
     pub fn gh_items(&self, key: &str) -> Vec<Value> {
+        if key == "repo" {
+            let q = self.pages.gh_query.text.clone();
+            return self
+                .pages
+                .gh_repo_prs
+                .as_ref()
+                .and_then(|v| v["prs"].as_array().cloned())
+                .unwrap_or_default()
+                .into_iter()
+                .filter(|x| gh_keep(&q, x))
+                .collect();
+        }
         let Some(v) = self.pages.github.as_ref() else {
             return Vec::new();
         };
@@ -474,7 +631,10 @@ impl Hooked {
             Page::Digest => self.pages.digests_loaded = false,
             Page::Memory => self.pages.memory = None,
             Page::Cron => self.pages.cron_loaded = false,
-            Page::GitHub => self.pages.github = None,
+            Page::GitHub => {
+                self.pages.github = None;
+                self.pages.gh_menu = None;
+            }
             Page::Incidents => self.inc.lists[self.inc.scope].loaded_at = None,
             Page::Skills => self.pages.skills = None,
             Page::Settings => self.pages.settings_stale = true,
@@ -929,5 +1089,17 @@ mod gh_tests {
         assert!(gh_keep("charts", &x));
         assert!(!gh_keep("gitbluub/ stall", &x));
         assert!(!gh_keep("stall pprof", &x));
+    }
+
+    #[test]
+    fn github_repo_tab_leads_while_a_repo_is_picked() {
+        assert_eq!(gh_tabs(false).len(), GITHUB_TABS.len());
+        assert_eq!(gh_tabs(true)[0], GITHUB_REPO_TAB);
+        assert_eq!(gh_tabs(true)[1], GITHUB_TABS[0]);
+        // A first pick jumps to the repo's pull requests; clearing keeps the same list selected.
+        assert_eq!(gh_tab_after_pick(3, false, true), 0);
+        assert_eq!(gh_tab_after_pick(3, true, false), 2);
+        assert_eq!(gh_tab_after_pick(0, true, false), 0);
+        assert_eq!(gh_tab_after_pick(2, true, true), 2);
     }
 }

@@ -98,7 +98,7 @@ pub fn view(s: &Hooked, cx: &mut Cx<Hooked>) -> El {
         Page::Digest => pages::digest(s, &k),
         Page::Memory => pages::memory(s, &k),
         Page::Cron => pages::cron(s, &k),
-        Page::GitHub => pages::github(s, &k),
+        Page::GitHub => pages::github(s, &k, &mut layer),
         Page::Incidents => incidents::view(s, &k),
         Page::Skills => pages::skills(s, &k),
         Page::Settings => settings::view(s, &k),
