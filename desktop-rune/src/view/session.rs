@@ -1714,6 +1714,9 @@ fn split_rows(k: &Kit, lang: Option<&str>, lines: &[rune_kit::diff::Line]) -> Ve
     out
 }
 
+/// The most lines an inline diff draws for one edit.
+const INLINE_DIFF_MAX: usize = 400;
+
 fn inline_diff(k: &Kit, diff: &serde_json::Value, split: bool) -> El {
     use rune_kit::diff::{FileDiff, LineKind};
     let name = diff["name"].as_str().unwrap_or("").to_string();
@@ -1744,18 +1747,35 @@ fn inline_diff(k: &Kit, diff: &serde_json::Value, split: bool) -> El {
             .border(1.0, k.c.border_weak)
             .clip_rounded(k.radius.sm);
         let mut shown = 0;
+        // Where the previous hunk ended on the new side (or the old one for a deletion): what
+        // lies between two hunks is unchanged, and the diff says how much it leaves out.
+        let at = |l: &rune_kit::diff::Line| l.new.or(l.old).unwrap_or(0);
+        let mut last = 0;
+        let note = |msg: String| {
+            row()
+                .w_full()
+                .px(8.0)
+                .py(2.0)
+                .fill(k.c.layer_02)
+                .child(text(msg).font(k.ty.text_xsmall).color(k.c.text_faint))
+        };
         for (hi, h) in fd.hunks.iter().enumerate() {
-            if hi > 0 {
-                block = block.child(el().w_full().h(1.0).fill(k.c.border_weak));
+            if hi > 0 && shown < INLINE_DIFF_MAX {
+                let hidden = h.lines.first().map_or(0, at).saturating_sub(last + 1);
+                block = block.child(note(format!(
+                    "⋯ {hidden} unchanged line{}",
+                    if hidden == 1 { "" } else { "s" }
+                )));
             }
+            last = h.lines.last().map_or(last, at);
             if split && !old.is_empty() {
-                let lines = &h.lines[..h.lines.len().min(400usize.saturating_sub(shown))];
+                let lines = &h.lines[..h.lines.len().min(INLINE_DIFF_MAX.saturating_sub(shown))];
                 shown += lines.len();
                 block = block.children(split_rows(k, lang, lines));
                 continue;
             }
             for l in &h.lines {
-                if shown >= 400 {
+                if shown >= INLINE_DIFF_MAX {
                     break;
                 }
                 shown += 1;
@@ -1786,6 +1806,15 @@ fn inline_diff(k: &Kit, diff: &serde_json::Value, split: bool) -> El {
                         ),
                 );
             }
+        }
+        // A very long diff is cut: it says so, and where the rest can be read.
+        let total: usize = fd.hunks.iter().map(|h| h.lines.len()).sum();
+        if total > shown {
+            let more = total - shown;
+            block = block.child(note(format!(
+                "{more} more line{}: the Review lens shows the whole change",
+                if more == 1 { "" } else { "s" }
+            )));
         }
         c = c.child(block);
     }
