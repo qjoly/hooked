@@ -2221,10 +2221,23 @@ impl Hooked {
             return;
         };
         let id = d.session.id.clone();
-        let pending: Vec<Value> = self.pending_threads().into_iter().cloned().collect();
+        let mut pending: Vec<Value> = self.pending_threads().into_iter().cloned().collect();
         if pending.is_empty() {
             return;
         }
+        // In the diff's order, as the web lists them: file by file, then down each file.
+        let anchors = &self.lens_data.anchors;
+        pending.sort_by_key(|t| {
+            let file = t["file"].as_str().unwrap_or("");
+            (
+                anchors
+                    .iter()
+                    .position(|(f, _)| f == file)
+                    .unwrap_or(usize::MAX),
+                t["opIndex"].as_str().unwrap_or("").to_string(),
+                t["start"].as_u64().unwrap_or(0),
+            )
+        });
         let (scope, _) = self.review_scope();
         let items: Vec<String> = pending
             .iter()
