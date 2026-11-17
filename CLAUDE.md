@@ -178,6 +178,27 @@ Tasks live in `cron-tasks.json`; the parser (`src/lib/cron.js`) is pure and shar
 - **MCP tools** `list_cron_tasks`, `save_cron_task`, `delete_cron_task`, `run_cron_task`. A save with an `id` only
   changes the fields it carries.
 
+## Flows (`server/flows.js`, `src/lib/flows.js`, `Flows.svelte`)
+
+A flow is a graph of stages, each one a driven session, walked like a CI pipeline (the `/flows`
+page draws it). The built-in "feature" template: pilot → build → review ‖ test & challenge → decide,
+with the decider looping back to build. Templates live in `flow-templates.json`, runs in
+`flow-runs.json`; a run keeps a snapshot of its flow.
+
+- **hooked drives the transitions, not a session.** A 3 s tick reads the registry. A stage reports
+  with the MCP tool `flow_report` (summary, plus `done`/`loop`/`escalate` for the decider) and is
+  done once it has reported AND its turn has ended. No report at turn end: one nudge, then `stalled`.
+  Loops are capped (`maxLoops`), then the run waits on the user.
+- **One shared worktree per run**, one writer stage. Stage sessions join one group and are reused
+  across loops (`deliverReply`, or a resume without `model`), so each keeps its context and cache.
+- **Token choices are deliberate:** per-stage model/effort in the template (opus for pilot and
+  decider, sonnet for the rest), dense reports (~300 words), loop messages only carry the reports
+  re-run in that pass (`run.rerun`), and sibling stages start 10 s apart so the second one reads the
+  system/tools prefix the first one cached.
+- **Ownership:** the service adopts every running run at boot (`startFlowEngine({ adopt: true })`,
+  3 min grace for resumed sessions, then one automatic resume). A bare `npm run live` only drives the
+  runs it started.
+
 ## Incognito mode (`ui.incognito`, `incognito` flag in `session-meta.json`)
 
 This is for screen sharing. While the mode is on, the dashboard shows only the sessions marked
