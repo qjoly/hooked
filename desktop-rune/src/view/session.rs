@@ -1597,7 +1597,54 @@ fn diff_lines(diff: &serde_json::Value) -> usize {
         .sum()
 }
 
-fn diff_cell(k: &Kit, line: Option<&rune_kit::diff::Line>) -> El {
+/// A line of an inline diff: its code in the language's colours, with the words that changed
+/// from the line it replaces (or that replaces it) on a stronger tint.
+fn code_text(k: &Kit, lang: Option<&str>, l: &rune_kit::diff::Line) -> El {
+    use rune_kit::diff::LineKind;
+    if l.text.is_empty() {
+        return text(" ");
+    }
+    let theme = rune_kit::syntax::SyntaxTheme::from_kit(k);
+    let syntax = theme.spans(&rune_kit::syntax::highlight(lang, &l.text), 0);
+    if l.changes.is_empty() {
+        return text(l.text.clone()).spans(syntax);
+    }
+    let word = match l.kind {
+        LineKind::Removed => k.c.danger.icon,
+        _ => k.c.success.icon,
+    }
+    .alpha(0.3);
+    let mut cuts: Vec<usize> = vec![0, l.text.len()];
+    cuts.extend(
+        syntax
+            .iter()
+            .flat_map(|s| [s.start as usize, s.end as usize]),
+    );
+    cuts.extend(l.changes.iter().flat_map(|r| [r.start, r.end]));
+    cuts.sort_unstable();
+    cuts.dedup();
+    let spans: Vec<rune::Span> = cuts
+        .windows(2)
+        .filter_map(|w| {
+            let (a, b) = (w[0], w[1]);
+            let color = syntax
+                .iter()
+                .find(|s| s.start as usize <= a && b <= s.end as usize)
+                .and_then(|s| s.color);
+            let changed = l.changes.iter().any(|r| r.start <= a && b <= r.end);
+            if color.is_none() && !changed {
+                return None;
+            }
+            let mut sp = rune::Span::new(a, b);
+            sp.color = color;
+            sp.bg = changed.then_some(word);
+            Some(sp)
+        })
+        .collect();
+    text(l.text.clone()).spans(spans)
+}
+
+fn diff_cell(k: &Kit, lang: Option<&str>, line: Option<&rune_kit::diff::Line>) -> El {
     use rune_kit::diff::LineKind;
     let Some(l) = line else {
         return row().w_frac(0.5).min_w(0.0).fill(k.c.layer_02);
@@ -1615,26 +1662,22 @@ fn diff_cell(k: &Kit, line: Option<&rune_kit::diff::Line>) -> El {
         .fill(fill)
         .child(text(sign).font(k.ty.mono).color(ink).w(10.0))
         .child(
-            text(if l.text.is_empty() {
-                " ".to_string()
-            } else {
-                l.text.clone()
-            })
-            .font(k.ty.mono)
-            .color(if l.kind == LineKind::Context {
-                k.c.text_muted
-            } else {
-                k.c.text_base
-            })
-            .wrap_anywhere()
-            .grow(1.0)
-            .min_w(0.0)
-            .selectable(true),
+            code_text(k, lang, l)
+                .font(k.ty.mono)
+                .color(if l.kind == LineKind::Context {
+                    k.c.text_muted
+                } else {
+                    k.c.text_base
+                })
+                .wrap_anywhere()
+                .grow(1.0)
+                .min_w(0.0)
+                .selectable(true),
         )
 }
 
 /// Side by side: context on both sides, a run of removed lines paired with the added run after it.
-fn split_rows(k: &Kit, lines: &[rune_kit::diff::Line]) -> Vec<El> {
+fn split_rows(k: &Kit, lang: Option<&str>, lines: &[rune_kit::diff::Line]) -> Vec<El> {
     use rune_kit::diff::LineKind;
     let mut out = Vec::new();
     let mut i = 0;
@@ -1643,8 +1686,8 @@ fn split_rows(k: &Kit, lines: &[rune_kit::diff::Line]) -> Vec<El> {
             out.push(
                 row()
                     .w_full()
-                    .child(diff_cell(k, Some(&lines[i])))
-                    .child(diff_cell(k, Some(&lines[i]))),
+                    .child(diff_cell(k, lang, Some(&lines[i])))
+                    .child(diff_cell(k, lang, Some(&lines[i]))),
             );
             i += 1;
             continue;
@@ -1663,8 +1706,8 @@ fn split_rows(k: &Kit, lines: &[rune_kit::diff::Line]) -> Vec<El> {
             out.push(
                 row()
                     .w_full()
-                    .child(diff_cell(k, removed.get(j)))
-                    .child(diff_cell(k, added.get(j))),
+                    .child(diff_cell(k, lang, removed.get(j)))
+                    .child(diff_cell(k, lang, added.get(j))),
             );
         }
     }
@@ -1694,6 +1737,7 @@ fn inline_diff(k: &Kit, diff: &serde_json::Value, split: bool) -> El {
             op["new"].as_str().unwrap_or("")
         };
         let fd = FileDiff::from_texts_with_context(name.clone(), old, new, 3);
+        let lang = fd.language();
         let mut block = col()
             .w_full()
             .radius(k.radius.sm)
@@ -1707,7 +1751,7 @@ fn inline_diff(k: &Kit, diff: &serde_json::Value, split: bool) -> El {
             if split && !old.is_empty() {
                 let lines = &h.lines[..h.lines.len().min(400usize.saturating_sub(shown))];
                 shown += lines.len();
-                block = block.children(split_rows(k, lines));
+                block = block.children(split_rows(k, lang, lines));
                 continue;
             }
             for l in &h.lines {
@@ -1728,21 +1772,17 @@ fn inline_diff(k: &Kit, diff: &serde_json::Value, split: bool) -> El {
                         .fill(fill)
                         .child(text(sign).font(k.ty.mono).color(ink).w(10.0))
                         .child(
-                            text(if l.text.is_empty() {
-                                " ".to_string()
-                            } else {
-                                l.text.clone()
-                            })
-                            .font(k.ty.mono)
-                            .color(if l.kind == LineKind::Context {
-                                k.c.text_muted
-                            } else {
-                                k.c.text_base
-                            })
-                            .wrap_anywhere()
-                            .grow(1.0)
-                            .min_w(0.0)
-                            .selectable(true),
+                            code_text(k, lang, l)
+                                .font(k.ty.mono)
+                                .color(if l.kind == LineKind::Context {
+                                    k.c.text_muted
+                                } else {
+                                    k.c.text_base
+                                })
+                                .wrap_anywhere()
+                                .grow(1.0)
+                                .min_w(0.0)
+                                .selectable(true),
                         ),
                 );
             }
