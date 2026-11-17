@@ -190,6 +190,8 @@ export const setMode = (id, mode) => jpost('/api/mode', { id, mode });
 // `force` confirms a model switch the server held because the prompt cache was still warm.
 export const setModelEffort = (id, model, effort, force = false) => jpost('/api/model', { id, model, effort, force });
 export const launch = (payload) => jpost('/api/launch', payload);
+export const reviewPrInSession = (url) => jpost('/api/github/review', { url });
+export const approvePr = (url) => jpost('/api/github/approve', { url });
 export const getWorktreeBases = (cwd) => jget('/api/worktrees/bases?cwd=' + encodeURIComponent(cwd));
 export const listWorktrees = ({ pr = true } = {}) => jget('/api/worktrees' + (pr ? '' : '?pr=0'));
 export const removeWorktree = (path, force = false) => jpost('/api/worktrees', { action: 'remove', path, force });

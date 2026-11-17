@@ -1,4 +1,7 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import { ghRest, ghGraphql, parseItemUrl } from './ghClient.js';
+import { HOOKED_DIR } from './config.js';
 import { parseRunUrl } from '../src/lib/ghRun.js';
 
 // GitHub page: unread notifications, assigned issues, open PRs (authored / review requested).
@@ -41,15 +44,43 @@ export function toPr(n) {
   };
 }
 
-async function searchPrs(q) {
-  const data = await ghGraphql(
-    `query($q: String!) { search(query: $q, type: ISSUE, first: ${CAP}) { nodes { ... on PullRequest { id } } } }`, { q });
-  const ids = data.search.nodes.map((n) => n.id).filter(Boolean);
+// Asking a list for the full PR fields is slow (seconds, sometimes a 502) while ids come back
+// in under a second, and per-id lookups in small parallel chunks stay fast.
+async function prsByIds(ids) {
   const chunks = [];
   for (let i = 0; i < ids.length; i += CHUNK) chunks.push(ids.slice(i, i + CHUNK));
   const pages = await Promise.all(chunks.map((c) =>
     ghGraphql(`query($ids: [ID!]!) { nodes(ids: $ids) { ${PR_FIELDS} } }`, { ids: c }, { partial: true })));
   return pages.flatMap((p) => p.nodes.filter((n) => n?.number).map(toPr));
+}
+
+async function searchPrs(q) {
+  const data = await ghGraphql(
+    `query($q: String!) { search(query: $q, type: ISSUE, first: ${CAP}) { nodes { ... on PullRequest { id } } } }`, { q });
+  return prsByIds(data.search.nodes.map((n) => n.id).filter(Boolean));
+}
+
+const REPO_RE = /^[\w.-]+\/[\w.-]+$/;
+const REPO_TTL_MS = 60 * 1000;
+const repoCache = new Map(); // repo -> { at, promise }
+
+// Every open PR of one repository, whoever wrote it: the page's own columns only hold the
+// viewer's PRs and direct review requests, so a selected repo would otherwise look empty.
+export async function githubRepoPrs(repo, { refresh = false } = {}) {
+  if (!REPO_RE.test(repo || '')) throw new Error('Expected a repository as owner/name');
+  const hit = repoCache.get(repo);
+  if (!refresh && hit && Date.now() - hit.at < REPO_TTL_MS) return hit.promise;
+  const [owner, name] = repo.split('/');
+  const promise = ghGraphql(`query($owner: String!, $name: String!) { repository(owner: $owner, name: $name) {
+    pullRequests(states: OPEN, first: ${CAP}, orderBy: { field: UPDATED_AT, direction: DESC }) { totalCount nodes { id } }
+  } }`, { owner, name }).then(async (d) => {
+    const list = d.repository?.pullRequests;
+    if (!list) throw new Error(`Repository ${repo} not found`);
+    return { repo, total: list.totalCount, prs: await prsByIds(list.nodes.map((n) => n.id)) };
+  });
+  repoCache.set(repo, { at: Date.now(), promise });
+  promise.catch(() => { if (repoCache.get(repo)?.promise === promise) repoCache.delete(repo); });
+  return promise;
 }
 
 // Notifications only carry the API URL of their subject; map it to the page a human opens.
@@ -94,26 +125,54 @@ async function searchIssues(q) {
   return data.search.nodes.filter((n) => n.number).map(toIssue);
 }
 
-let cache = null; // { at, promise }
+// GitHub's search alone takes 2 to 5 s, so a cold overview can't be fast. The last one is kept
+// in memory and on disk and served at once (stale-while-revalidate): the page paints the last
+// state, then swaps in the fresh one. One fetch at a time; a refresh joins the one in flight.
+const OVERVIEW_FILE = path.join(HOOKED_DIR, 'github-overview.json');
+const OVERVIEW = Symbol.for('hooked.github.overview');
+const ov = () => (globalThis[OVERVIEW] ??= { data: undefined, inflight: null });
 
 async function fetchOverview() {
-  const [notifs, issues, mine, review] = await Promise.all([
+  const [viewer, notifs, issues, mine, review] = await Promise.all([
+    ghRest('user', { etag: true }).then((u) => u.login || '', () => ''),
     ghRest('notifications?per_page=50', { etag: true }),
     searchIssues('is:issue is:open archived:false assignee:@me sort:updated-desc'),
     searchPrs('is:pr is:open archived:false author:@me sort:updated-desc'),
     // ponytail: direct requests only — team requests (review-requested:@me) are ~15x more and mostly bots.
     searchPrs('is:pr is:open archived:false user-review-requested:@me sort:updated-desc'),
   ]);
-  return { fetchedAt: new Date().toISOString(), notifications: notifs.map(toNotification), issues, mine, review };
+  return { fetchedAt: new Date().toISOString(), viewer, notifications: notifs.map(toNotification), issues, mine, review };
 }
 
+function readOverviewFile() {
+  try { return JSON.parse(fs.readFileSync(OVERVIEW_FILE, 'utf8')); } catch { return null; }
+}
+
+function refreshOverview() {
+  const s = ov();
+  s.inflight ??= fetchOverview().then((data) => {
+    s.data = data;
+    try {
+      fs.mkdirSync(HOOKED_DIR, { recursive: true });
+      fs.writeFileSync(OVERVIEW_FILE + '.tmp', JSON.stringify(data));
+      fs.renameSync(OVERVIEW_FILE + '.tmp', OVERVIEW_FILE);
+    } catch { /* the memory copy is enough */ }
+    return data;
+  }).finally(() => { s.inflight = null; });
+  return s.inflight;
+}
+
+export const isStale = (data, now = Date.now()) => !data?.fetchedAt || now - Date.parse(data.fetchedAt) > TTL_MS;
+
+// `refresh` waits for fresh data. Otherwise the last overview comes back at once, flagged
+// `stale` (with a refresh started behind it) when it is older than the TTL.
 export async function githubOverview({ refresh = false } = {}) {
-  if (refresh || !cache || Date.now() - cache.at > TTL_MS) {
-    const promise = fetchOverview();
-    cache = { at: Date.now(), promise };
-    promise.catch(() => { if (cache?.promise === promise) cache = null; });
-  }
-  return cache.promise;
+  const s = ov();
+  if (s.data === undefined) s.data = readOverviewFile();
+  if (refresh || !s.data) return { ...(await refreshOverview()), stale: false };
+  const stale = isStale(s.data);
+  if (stale) refreshOverview().catch(() => {});
+  return { ...s.data, stale, refreshing: !!s.inflight };
 }
 
 // Marks notification threads as done, like the inbox's "Done" (which also marks them read).
@@ -131,8 +190,35 @@ export async function markNotificationsDone(ids) {
     if (r.status === 'fulfilled') done.push(ids[i]);
     else error ??= r.reason.message;
   });
-  if (done.length) cache = null; // the cached overview still lists them
+  // The cached overview would list them again on the next visit.
+  const s = ov();
+  if (done.length && s.data) {
+    const gone = new Set(done);
+    s.data = { ...s.data, notifications: s.data.notifications.filter((n) => !gone.has(n.id)) };
+  }
   return { done, error };
+}
+
+// Approves a pull request as the signed-in user, like GitHub's "Approve" review with no body.
+export async function approvePr(url) {
+  const { owner, name, number, kind } = itemRef(url);
+  if (kind !== 'pr') throw new Error('Only pull requests can be approved');
+  const r = await ghRest(`repos/${owner}/${name}/pulls/${number}/reviews`, { method: 'POST', body: { event: 'APPROVE' } });
+  repoCache.delete(`${owner}/${name}`);
+  const s = ov();
+  if (s.data) s.data = { ...s.data, fetchedAt: '' }; // the next read refreshes the review lists
+  return { state: r.state, url: r.html_url };
+}
+
+// Closes a pull request without merging it (it can be reopened on GitHub).
+export async function closePr(url) {
+  const { owner, name, number, kind } = itemRef(url);
+  if (kind !== 'pr') throw new Error('Only pull requests can be closed here');
+  const r = await ghRest(`repos/${owner}/${name}/pulls/${number}`, { method: 'PATCH', body: { state: 'closed' } });
+  repoCache.delete(`${owner}/${name}`);
+  const s = ov();
+  if (s.data) s.data = { ...s.data, fetchedAt: '' }; // the next read drops it from the lists
+  return { state: r.state };
 }
 
 // ── Detail panel of a single PR / issue (Summary · Timeline · Code) ──

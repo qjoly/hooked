@@ -109,6 +109,51 @@ fn empty(k: &Kit, msg: &str, c: Color) -> El {
         .child(text(msg.to_string()).font(k.ty.body).color(c).wrap())
 }
 
+/// Approve and "Review in session" for one open pull request. Approve is left out on the
+/// viewer's own PR, which GitHub refuses.
+pub fn pr_actions(s: &Hooked, k: &Kit, url: &str, author: &str, key: &str) -> El {
+    let viewer = s
+        .pages
+        .github
+        .as_ref()
+        .and_then(|v| v["viewer"].as_str())
+        .unwrap_or("");
+    let act = s.pages.gh_acts.get(url).copied();
+    let mut r = row().key(format!("{key}-acts")).gap(4.0).center_y();
+    if viewer.is_empty() || author != viewer {
+        let u = url.to_string();
+        r = r.child(
+            Button::new(match act {
+                Some("approved") => "Approved",
+                Some("approving") => "Approving…",
+                _ => "Approve",
+            })
+            .icon(&icons::CIRCLE_CHECK)
+            .variant(ButtonVariant::Outline)
+            .control_size(ControlSize::Small)
+            .disabled(matches!(act, Some("approved" | "approving")))
+            .on_press(move |s: &mut Hooked| s.approve_pr(u.clone()))
+            .build(k)
+            .key(format!("{key}-approve")),
+        );
+    }
+    let u = url.to_string();
+    r.child(
+        Button::new(if act == Some("reviewing") {
+            "Launching…"
+        } else {
+            "Review in session"
+        })
+        .icon(&icons::EYE)
+        .variant(ButtonVariant::GhostMuted)
+        .control_size(ControlSize::Small)
+        .disabled(act == Some("reviewing"))
+        .on_press(move |s: &mut Hooked| s.review_pr_in_session(u.clone()))
+        .build(k)
+        .key(format!("{key}-review")),
+    )
+}
+
 fn header(s: &Hooked, k: &Kit, v: &GhView, d: &Value, slot: GhSlot, extra: El) -> El {
     let is_pr = detail_kind(d) == "pr";
     let url = str_of(d, "url").to_string();
@@ -223,8 +268,12 @@ fn header(s: &Hooked, k: &Kit, v: &GhView, d: &Value, slot: GhSlot, extra: El) -
         };
         tabs = tabs.child(text(label).font(k.ty.text_xsmall_medium).color(c));
     }
+    tabs = tabs.child(el().grow(1.0));
+    let open = matches!(str_of(d, "state"), "OPEN" | "DRAFT");
+    if is_pr && open && !url.contains("/-/") {
+        tabs = tabs.child(pr_actions(s, k, &url, str_of(d, "author"), "ghd"));
+    }
     tabs = tabs
-        .child(el().grow(1.0))
         .child(
             IconButton::new(&icons::RESTART)
                 .label("Refresh")

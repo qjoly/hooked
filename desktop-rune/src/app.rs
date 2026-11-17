@@ -267,6 +267,7 @@ pub struct Hooked {
     pub lens_data: crate::lenses::LensData,
     pub pages: crate::pages::PageData,
     pub inc: crate::incidents::Incidents,
+    pub ghw: crate::ghwatch::GhWatch,
     pub announced: Option<HashSet<String>>,
     pub tray_dirty: bool,
     /// The conversation is scrolled up, away from its latest message: what shows the
@@ -392,6 +393,7 @@ impl Hooked {
         let notify = prefs.get("notify").unwrap_or(true);
         let incidents_hidden = prefs.get("incidentsHidden").unwrap_or(false);
         let incident_teams: Vec<String> = prefs.get("incidentsTeams").unwrap_or_default();
+        let gh_watched: Vec<String> = prefs.get("ghWatched").unwrap_or_default();
         crate::perf::set_enabled(
             crate::perf::env_override().unwrap_or(prefs.get("perfDiagnostics").unwrap_or(false)),
         );
@@ -562,6 +564,7 @@ impl Hooked {
                 incidents_hidden,
                 incident_teams.into_iter().collect(),
             ),
+            ghw: crate::ghwatch::GhWatch::new(gh_watched),
             announced: None,
             tray_dirty: true,
             chat_up: false,

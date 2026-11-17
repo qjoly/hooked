@@ -12,6 +12,8 @@
   import CodeBlock from './CodeBlock.svelte';
   import { ago } from '#lib/format.js';
   import { CHECK } from '#lib/ghRun.js';
+  import { goto } from '$app/navigation';
+  import { reviewPrInSession, approvePr } from '#lib/api.js';
 
   let { url, onfix = null } = $props();
 
@@ -23,6 +25,24 @@
   let patchErr = $state('');
   let openFiles = $state({});
   let fixed = $state({});
+  let reviewing = $state(''); // '' | 'sending' | error message
+  let approving = $state(''); // '' | 'sending' | 'done' | error message
+
+  async function approve() {
+    approving = 'sending';
+    const res = await approvePr(d.url).catch((e) => ({ ok: false, data: { error: e.message } }));
+    approving = res.ok ? 'done' : res.data?.error || 'Could not approve';
+    if (res.ok) load(url, true);
+  }
+
+  // Launches a session that reviews this PR and reports in the conversation, nothing posted.
+  async function review() {
+    reviewing = 'sending';
+    const res = await reviewPrInSession(d.url).catch((e) => ({ ok: false, data: { error: e.message } }));
+    if (!res.ok) { reviewing = res.data?.error || 'Could not launch the review'; return; }
+    reviewing = '';
+    if (res.data.link) goto(res.data.link);
+  }
 
   async function getJson(path, u) {
     const r = await fetch(`/api/github/${path}?url=${encodeURIComponent(u)}`);
@@ -59,7 +79,7 @@
 
   $effect(() => {
     const u = url;
-    d = null; err = ''; patches = null; patchErr = ''; openFiles = {}; fixed = {};
+    d = null; err = ''; patches = null; patchErr = ''; openFiles = {}; fixed = {}; reviewing = ''; approving = '';
     tab = 'summary';
     load(u);
   });
@@ -147,8 +167,22 @@
             {failing ? `${failing} of ${checks.length} failing` : running ? `${running} of ${checks.length} running` : 'All checks passed'}
           </span>
         {/if}
+ {#if d.kind === 'pr' && !gitlab && (d.state === 'OPEN' || d.state === 'DRAFT')}
+          <button class="rv-btn ap" onclick={approve} disabled={approving === 'sending' || approving === 'done'}
+            title={approving && approving !== 'sending' && approving !== 'done' ? approving : 'Approve this pull request on GitHub'}>
+            <Icon name={approving === 'sending' ? 'busy' : 'circle-check'} size={13} /> {approving === 'done' ? 'Approved' : approving === 'sending' ? 'Approving…' : 'Approve'}
+          </button>
+        {/if}
+        {#if d.kind === 'pr' && !gitlab}
+          <button class="rv-btn" onclick={review} disabled={reviewing === 'sending'}
+            title={reviewing && reviewing !== 'sending' ? reviewing : 'Review this pull request in a new session. Nothing is posted to GitHub.'}>
+            <Icon name={reviewing === 'sending' ? 'busy' : 'eye'} size={13} /> {reviewing === 'sending' ? 'Launching…' : 'Review in session'}
+          </button>
+        {/if}
         <button class="icon-btn" onclick={() => load(url, true)} disabled={loading} title="Refresh"><Icon name="refresh" size={13} /></button>
       </div>
+      {#if reviewing && reviewing !== 'sending'}<p class="rv-err">{reviewing}</p>{/if}
+      {#if approving && approving !== 'sending' && approving !== 'done'}<p class="rv-err">{approving}</p>{/if}
     </header>
 
     <div class="bd">
@@ -254,6 +288,12 @@
   .del { color: var(--danger); font-variant-numeric: tabular-nums; }
   code { font-family: var(--mono); font-size: var(--t-micro); background: var(--bg3); padding: 1px 5px; border-radius: 5px; }
 
+  .rv-btn { margin-left: auto; display: inline-flex; align-items: center; gap: 5px; padding: 3px 9px; border: 1px solid var(--border); border-radius: 7px; background: none; color: var(--text); font-size: var(--t-meta); font-weight: 600; cursor: pointer; white-space: nowrap; }
+  .rv-btn:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+  .rv-btn:disabled { opacity: .6; cursor: progress; }
+  .rv-btn + .icon-btn, .rv-btn + .rv-btn { margin-left: 0; }
+  .rv-btn.ap:hover:not(:disabled) { border-color: var(--success); color: var(--success); }
+  .rv-err { margin: 0; color: var(--danger); font-size: var(--t-meta); }
   .hd { display: flex; flex-direction: column; gap: 8px; padding: 12px 14px 10px; border-bottom: 1px solid var(--border); }
   .row { display: flex; align-items: center; gap: 8px; min-width: 0; }
   .ttl { flex: 1; min-width: 0; color: var(--text); text-decoration: none; font-weight: 600; line-height: 1.35; }

@@ -202,6 +202,9 @@ pub fn commands(s: &Hooked) -> Vec<Cmd> {
                 s.save_pref("notify", &n);
             },
         ),
+        cmd(act, &icons::BELL, "Send a test notification", "", |_, _| {
+            crate::tray::test_notification()
+        }),
         cmd(act, &icons::TRASH, "Open trash", "", |s, _| s.open_trash()),
         cmd(
             act,
