@@ -45,9 +45,18 @@ pub fn view(s: &Hooked, k: &Kit, layer: &mut Vec<El>) -> El {
     let body = match s.lens {
         Lens::Converse => converse(s, d, k),
         Lens::Review => super::lenses::review(s, d, k),
+        // MCP scopes are read from the disk of the machine the session runs on.
+        Lens::Mcp if d.session.remote.is_some() => col().w_full().h_full().center().child(
+            text("MCP servers belong to the machine a session runs on: open this lens on that hooked instance.")
+                .font(k.ty.body)
+                .color(k.c.text_faint),
+        ),
         Lens::Mcp => super::lenses::mcp(s, d, k),
         Lens::Trace => super::lenses::trace(s, k),
     };
+    // No shell for a session of a remote hooked instance: it would open on this machine.
+    let shell = d.session.remote.is_none();
+    let beside = shell && super::terminal::beside(s);
     col()
         .key("detail")
         .w_full()
@@ -55,7 +64,7 @@ pub fn view(s: &Hooked, k: &Kit, layer: &mut Vec<El>) -> El {
         .child(head(s, d, k, layer))
         .child(group_tabs(s, &d.session.id, k))
         .child(lenses(s, d, k))
-        .child(if super::terminal::beside(s) {
+        .child(if beside {
             row()
                 .key("lens-row")
                 .w_full()
@@ -78,7 +87,7 @@ pub fn view(s: &Hooked, k: &Kit, layer: &mut Vec<El>) -> El {
                 .min_h(0.0)
                 .child(body)
         })
-        .child(if super::terminal::beside(s) {
+        .child(if beside || !shell {
             el()
         } else {
             super::terminal::panel(s, k)
@@ -132,6 +141,7 @@ fn head(s: &Hooked, d: &Detail, k: &Kit, layer: &mut Vec<El>) -> El {
                 .min_w(60.0)
                 .key("sess-name"),
         )
+        .children(x.remote.iter().map(|r| super::remote_badge(k, r).key("remote-badge")))
         .child(
             row()
                 .key("state-badge")
@@ -299,10 +309,14 @@ fn head(s: &Hooked, d: &Detail, k: &Kit, layer: &mut Vec<El>) -> El {
             .key("focus-toggle"),
         );
     let right = line.child(more_menu(s, d, k, layer));
-    col()
-        .key("head")
-        .w_full()
-        .pb(4.0)
+    let mut head = col().key("head").w_full().pb(4.0);
+    if x.remote.is_some() {
+        // The same wash and rail as its sidebar row, so the pane never reads as a local session.
+        head = head
+            .fill(super::remote_wash(k, false))
+            .border_sides([3.0, 0.0, 0.0, 0.0], crate::theme::remote_color(k.dark));
+    }
+    head
         .child(
             row()
                 .key("head-line")
@@ -441,8 +455,8 @@ fn more_menu(s: &Hooked, d: &Detail, k: &Kit, layer: &mut Vec<El>) -> El {
         x.project.clone().unwrap_or_default(),
         x.id
     );
-    let link = format!("{}/session/{}", crate::api::base(), x.id);
-    m.item(
+    let link = format!("{}/session/{}", crate::api::base_of(&x.id), x.id);
+    let m = m.item(
         MenuItem::new("Copy as Markdown")
             .icon(&icons::COPY)
             .description("The whole conversation, tool calls included")
@@ -505,13 +519,18 @@ fn more_menu(s: &Hooked, d: &Detail, k: &Kit, layer: &mut Vec<El>) -> El {
             s.toggle_incognito(&id)
         })
     })
-    .separator()
-    .item(
-        MenuItem::new("Open in editor")
-            .icon(&icons::CODE)
-            .on_select(|s: &mut Hooked| s.open_editor()),
-    )
-    .item(
+    .separator();
+    // An editor would open on the machine the session runs on: not offered for a remote one.
+    let m = if x.remote.is_none() {
+        m.item(
+            MenuItem::new("Open in editor")
+                .icon(&icons::CODE)
+                .on_select(|s: &mut Hooked| s.open_editor()),
+        )
+    } else {
+        m
+    };
+    m.item(
         MenuItem::new("Open in the web dashboard")
             .icon(&icons::LINK)
             .on_select_tx(move |s: &mut Hooked, tx| {
@@ -632,7 +651,12 @@ fn lenses(s: &Hooked, d: &Detail, k: &Kit) -> El {
             d.changes.len(),
             Lens::Review,
         ))
-        .child(tab("lens-mcp", &icons::PLUG, "MCP", "4", 0, Lens::Mcp))
+        .children(
+            d.session
+                .remote
+                .is_none()
+                .then(|| tab("lens-mcp", &icons::PLUG, "MCP", "4", 0, Lens::Mcp)),
+        )
         .child(tab(
             "lens-trace",
             &icons::ACTIVITY,
@@ -762,6 +786,7 @@ fn converse(s: &Hooked, d: &Detail, k: &Kit) -> El {
         }
         chat = chat.child(w);
     }
+    let chat = chat.on_layout_tx(|s: &mut Hooked, r, tx| s.chat_moved(0, r[1] + r[3], tx));
     let scroller = col()
         .key("transcript")
         .w_full()
@@ -769,8 +794,23 @@ fn converse(s: &Hooked, d: &Detail, k: &Kit) -> El {
         .min_h(0.0)
         .scroll(ScrollSpec { stick_bottom: true })
         .scroll_edge_fade(12.0)
-        .child(chat);
-    let mut out = col().key("converse").w_full().h_full().child(scroller);
+        .child(chat)
+        .on_layout_tx(|s: &mut Hooked, r, tx| s.chat_moved(1, r[1] + r[3], tx));
+    let mut pane = col().key("transcript-pane").w_full().grow(1.0).min_h(0.0).child(scroller);
+    if s.chat_up {
+        // Only there while the conversation is scrolled away from its end.
+        pane = pane.child(
+            IconButton::new(&icons::ARROW_DOWN)
+                .variant(IconButtonVariant::Neutral)
+                .label("Back to the latest message")
+                .help("Back to the latest message")
+                .on_press_tx(|_: &mut Hooked, tx| tx.scroll_to_bottom("transcript"))
+                .build(k)
+                .key("to-latest")
+                .pin(None, None, Some(18.0), Some(14.0)),
+        );
+    }
+    let mut out = col().key("converse").w_full().h_full().child(pane);
     if let Some(q) = d.pending_question.as_ref() {
         out = out.child(question(s, q, k));
     }

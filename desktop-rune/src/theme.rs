@@ -564,6 +564,18 @@ pub fn kit(dark: bool) -> Kit {
     k
 }
 
+/// Sessions of a remote hooked instance (`crate::remote`): one hue for the rail, the wash and
+/// the instance badge, the same in every scheme. It says where a session runs, never a state,
+/// so it stays out of each scheme's own colours.
+pub fn remote_color(dark: bool) -> Color {
+    hex(if dark { "#63b3ff" } else { "#0a66c2" })
+}
+
+/// Text and icons over [`remote_color`].
+pub fn remote_ink(dark: bool) -> Color {
+    hex(if dark { "#06203d" } else { "#ffffff" })
+}
+
 pub fn state_color(dark: bool, state: &str) -> Color {
     let s = scheme(dark);
     match state {

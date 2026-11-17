@@ -28,14 +28,40 @@ pub fn enc(s: &str) -> String {
     out
 }
 
+/// The URL a request goes to: the local service, unless it names a session of a remote hooked
+/// instance (`crate::remote`, off by default), which is then asked directly. The second value
+/// is that instance's base URL.
+fn target(path: &str, body: Option<&Value>) -> Result<(String, Option<String>), String> {
+    match crate::remote::route(path, body) {
+        crate::remote::Route::Local => Ok((format!("{}{path}", base()), None)),
+        crate::remote::Route::Remote(b) => Ok((format!("{b}{path}"), Some(b))),
+        crate::remote::Route::Refused(why) => Err(why),
+    }
+}
+
+/// The base URL of the service a session runs on, for links that open it in a browser.
+pub fn base_of(session: &str) -> String {
+    crate::remote::instance_of(session).map_or_else(base, |i| i.url)
+}
+
 pub fn get(path: &str) -> Result<Value, String> {
-    let r = agent().get(&format!("{}{path}", base())).call();
-    read(r)
+    let (url, _) = target(path, None)?;
+    read(agent().get(&url).call())
+}
+
+/// A read from one given service, whatever the path names: how a remote instance is polled.
+pub fn get_from(base: &str, path: &str) -> Result<Value, String> {
+    let a = ureq::AgentBuilder::new()
+        .timeout_connect(Duration::from_secs(3))
+        .timeout(Duration::from_secs(8))
+        .build();
+    read(a.get(&format!("{base}{path}")).call())
 }
 
 pub fn bytes(path: &str) -> Result<Vec<u8>, String> {
+    let (url, _) = target(path, None)?;
     let resp = agent()
-        .get(&format!("{}{path}", base()))
+        .get(&url)
         .call()
         .map_err(|e| e.to_string())?;
     let mut out = Vec::new();
@@ -45,7 +71,8 @@ pub fn bytes(path: &str) -> Result<Vec<u8>, String> {
 
 /// The JSON body whatever the status, for endpoints that explain a refusal in it.
 pub fn post_any(path: &str, body: Value) -> Result<Value, String> {
-    match agent().post(&format!("{}{path}", base())).send_json(body) {
+    let (url, _) = target(path, Some(&body))?;
+    match agent().post(&url).send_json(body) {
         Ok(resp) => resp.into_json().map_err(|e| e.to_string()),
         Err(ureq::Error::Status(_, resp)) => resp.into_json().map_err(|e| e.to_string()),
         Err(e) => Err(e.to_string()),
@@ -53,8 +80,12 @@ pub fn post_any(path: &str, body: Value) -> Result<Value, String> {
 }
 
 pub fn post(path: &str, body: Value) -> Result<Value, String> {
-    let r = agent().post(&format!("{}{path}", base())).send_json(body);
-    read(r)
+    let (url, remote) = target(path, Some(&body))?;
+    let r = read(agent().post(&url).send_json(body));
+    if let (Some(base), Ok(v)) = (&remote, &r) {
+        crate::remote::store_answer(base, path, v);
+    }
+    r
 }
 
 fn read(r: Result<ureq::Response, ureq::Error>) -> Result<Value, String> {
@@ -87,8 +118,9 @@ pub fn follow(path: &str, mut on_data: impl FnMut(&str) -> bool) -> Result<(), S
         .timeout_connect(Duration::from_secs(3))
         .timeout_read(Duration::from_secs(45))
         .build();
+    let (url, _) = target(path, None)?;
     let resp = a
-        .get(&format!("{}{path}", base()))
+        .get(&url)
         .set("Accept", "text/event-stream")
         .call()
         .map_err(|e| e.to_string())?;
@@ -163,6 +195,10 @@ pub struct Session {
     pub followup: Option<String>,
     pub todo: Option<TodoSummary>,
     pub cache: Option<CacheInfo>,
+    /// The remote hooked instance the session runs on (`crate::remote`), `None` for a local
+    /// one. Set by this app when it lists an instance, never read from the wire.
+    #[serde(skip)]
+    pub remote: Option<crate::remote::Instance>,
 }
 
 impl Session {
@@ -181,11 +217,19 @@ impl Session {
         self.has_question || self.has_plan || self.state == "attention" || self.state == "waiting"
     }
 
+    /// What the session is filed under in the lists. A remote one gets a label of its own
+    /// (« repo @ instance »): the same repository cloned on two machines is two working
+    /// copies, and a local project section must never hold a remote session.
     pub fn project_label(&self) -> String {
-        self.repo
+        let label = self
+            .repo
             .clone()
             .or_else(|| self.project_name.clone())
-            .unwrap_or_else(|| "?".into())
+            .unwrap_or_else(|| "?".into());
+        match &self.remote {
+            Some(r) => format!("{label} @ {}", r.name),
+            None => label,
+        }
     }
 }
 
@@ -195,13 +239,22 @@ struct SessionsPayload {
     sessions: Vec<Session>,
 }
 
-pub fn sessions() -> Result<Vec<Session>, String> {
-    let v = get("/api/sessions")?;
+fn session_list(v: Value) -> Result<Vec<Session>, String> {
     let p: SessionsPayload = decode(v)?;
     Ok(p.sessions
         .into_iter()
         .filter(|s| !s.id.is_empty())
         .collect())
+}
+
+/// The local sessions, then those of the remote instances when that feature is on.
+pub fn sessions() -> Result<Vec<Session>, String> {
+    Ok(crate::remote::merge_sessions(session_list(get("/api/sessions")?)?))
+}
+
+/// What one remote instance lists.
+pub fn sessions_of(base: &str) -> Result<Vec<Session>, String> {
+    session_list(get_from(base, "/api/sessions")?)
 }
 
 #[derive(Clone, Debug, Default, Deserialize, PartialEq)]
@@ -222,6 +275,7 @@ pub fn session_meta() -> Result<std::collections::HashMap<String, Meta>, String>
             .cloned()
             .unwrap_or(Value::Object(Default::default())),
     )
+    .map(crate::remote::merge_meta)
 }
 
 pub fn patch_meta(id: &str, mut patch: Value) -> Result<(), String> {
@@ -238,7 +292,7 @@ pub fn group_op(op: &str, id: &str, extra: Value) -> Result<(), String> {
 }
 
 pub fn tags() -> Result<std::collections::HashMap<String, Vec<String>>, String> {
-    decode(get("/api/tags")?.get("tags").cloned().unwrap_or(json!({})))
+    decode(get("/api/tags")?.get("tags").cloned().unwrap_or(json!({}))).map(crate::remote::merge_tags)
 }
 
 pub fn save_tags(id: &str, tags: &[String]) -> Result<(), String> {
@@ -404,7 +458,15 @@ pub fn media_refs(d: &Detail, shots: usize) -> Vec<(String, String)> {
     for m in &d.messages {
         if m.role == "user" {
             for p in split_message_images(&m.text).0 {
-                out.push((p.clone(), format!("/api/image?path={}", enc(&p))));
+                // No session in this endpoint's own query: naming a remote one sends the read
+                // to its instance, which holds the file.
+                let owner = d
+                    .session
+                    .remote
+                    .as_ref()
+                    .map(|_| format!("&id={}", enc(&d.session.id)))
+                    .unwrap_or_default();
+                out.push((p.clone(), format!("/api/image?path={}{owner}", enc(&p))));
             }
         }
         for part in m.render_parts() {
@@ -579,7 +641,10 @@ pub struct Detail {
 }
 
 pub fn detail(id: &str) -> Result<Detail, String> {
-    decode(get(&format!("/api/session?id={}", enc(id)))?)
+    let mut d: Detail = decode(get(&format!("/api/session?id={}", enc(id)))?)?;
+    // Answered by the instance the session runs on, which does not know it is remote to us.
+    d.session.remote = crate::remote::instance_of(id);
+    Ok(d)
 }
 
 #[derive(Clone, Debug, Default, Deserialize, PartialEq)]
@@ -787,13 +852,16 @@ pub fn gh_view(url: &str) -> Result<Value, String> {
         .unwrap_or(Value::Null))
 }
 
-pub fn upload_image(mime: &str, bytes: &[u8]) -> Result<String, String> {
+/// `remote_session`: the session the image is for, when it runs on a remote hooked instance.
+/// The endpoint carries no session of its own, so this is what sends the upload over there.
+pub fn upload_image(mime: &str, bytes: &[u8], remote_session: Option<&str>) -> Result<String, String> {
     use base64::Engine;
     let data = base64::engine::general_purpose::STANDARD.encode(bytes);
-    let v = post(
-        "/api/upload-image",
-        json!({ "dataUrl": format!("data:{mime};base64,{data}") }),
-    )?;
+    let mut body = json!({ "dataUrl": format!("data:{mime};base64,{data}") });
+    if let Some(id) = remote_session {
+        body["id"] = json!(id);
+    }
+    let v = post("/api/upload-image", body)?;
     v["path"]
         .as_str()
         .map(str::to_string)

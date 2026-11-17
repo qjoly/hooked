@@ -111,6 +111,9 @@ pub struct Hooked {
     pub tag_filter: Vec<String>,
     pub repo_filter: Vec<String>,
     pub incognito: bool,
+    /// Remote hooked instances (`crate::remote`): the switch, off by default, and the list.
+    pub remote_on: bool,
+    pub remotes: Vec<crate::remote::Instance>,
     pub picker: Option<crate::organize::Picker>,
     pub gauges: Vec<Gauge>,
     pub caps: Capabilities,
@@ -260,6 +263,11 @@ pub struct Hooked {
     pub inc: crate::incidents::Incidents,
     pub announced: Option<HashSet<String>>,
     pub tray_dirty: bool,
+    /// The conversation is scrolled up, away from its latest message: what shows the
+    /// "back to the latest" arrow. Derived from `chat_edges` by [`Hooked::chat_moved`].
+    pub chat_up: bool,
+    /// Bottom edge of the conversation's content, then of its viewport, in window points.
+    pub chat_edges: [f32; 2],
 }
 
 pub const WINDOW: usize = 40;
@@ -382,6 +390,10 @@ impl Hooked {
             crate::perf::env_override().unwrap_or(prefs.get("perfDiagnostics").unwrap_or(false)),
         );
         let incognito = prefs.get("incognito").unwrap_or(false);
+        let remote_on: bool = prefs.get("remoteInstances").unwrap_or(false);
+        let remotes: Vec<crate::remote::Instance> = prefs.get("remotes").unwrap_or_default();
+        crate::remote::configure(remote_on, &remotes);
+        crate::remote::first_poll(Duration::from_millis(700));
         let sidebar_open = prefs.get("sidebarOpen").unwrap_or(true);
         let hide_old = prefs.get("hideOld").unwrap_or(false);
         let layout = prefs
@@ -408,6 +420,8 @@ impl Hooked {
             repo_filter: Vec::new(),
             tag_colors,
             incognito,
+            remote_on,
+            remotes,
             picker: None,
             gauges: Vec::new(),
             caps: Capabilities::default(),
@@ -541,6 +555,8 @@ impl Hooked {
             ),
             announced: None,
             tray_dirty: true,
+            chat_up: false,
+            chat_edges: [f32::NAN; 2],
         };
         // A synchronous first read: headless snapshots and the first frame show real data.
         if let Ok(list) = api::sessions() {
@@ -1366,6 +1382,22 @@ impl Hooked {
         }
     }
 
+    /// Reported by the conversation's content (`edge` 0) and viewport (`edge` 1) as they are
+    /// laid out and scrolled. The view only reads `chat_up`, so a scroll re-runs it twice at
+    /// most: when the arrow appears and when it leaves.
+    pub fn chat_moved(&mut self, edge: usize, bottom: f32, tx: &mut Tx) {
+        /// How far above the end, in points, counts as "scrolled up".
+        const AWAY: f32 = 120.0;
+        self.chat_edges[edge] = bottom;
+        // False while either edge is still unknown (NaN).
+        let up = self.chat_edges[0] - self.chat_edges[1] > AWAY;
+        if up == self.chat_up {
+            tx.live_only();
+        } else {
+            self.chat_up = up;
+        }
+    }
+
     pub fn open_session(&mut self, id: &str) {
         self.page = Page::Session;
         self.palette_open = false;
@@ -1923,7 +1955,12 @@ impl Hooked {
                     fmt::first_line(s.last_reply.as_deref().unwrap_or("Finished its turn"), 140)
                 }
             };
-            crate::tray::notify(&s.id, &s.display_title(), &body);
+            // A remote session says so in its notification: the title alone could be a local one.
+            let title = match &s.remote {
+                Some(r) => format!("[{}] {}", r.name, s.display_title()),
+                None => s.display_title(),
+            };
+            crate::tray::notify(&s.id, &title, &body);
         }
     }
 
@@ -2017,8 +2054,14 @@ impl Hooked {
         });
         let bytes: std::sync::Arc<[u8]> = bytes.into();
         let upload = bytes.clone();
+        // The image has to land on the machine whose Claude will read it.
+        let remote = self
+            .detail
+            .as_ref()
+            .filter(|d| d.session.remote.is_some())
+            .map(|d| d.session.id.clone());
         self.spawn(
-            move || api::upload_image(mime, &upload),
+            move || api::upload_image(mime, &upload, remote.as_deref()),
             move |s, r, _| {
                 // Seed the media cache from the bytes in hand, keyed by the server path: the
                 // composer chip gets its thumbnail and the sent message its picture at once.
@@ -2708,7 +2751,8 @@ impl Hooked {
     pub fn projects(&self) -> Vec<String> {
         let mut seen = HashSet::new();
         let mut out = Vec::new();
-        for s in &self.sessions {
+        // A remote session names a folder of the other machine: nothing to launch in here.
+        for s in self.sessions.iter().filter(|s| s.remote.is_none()) {
             if let Some(p) = s.project.clone()
                 && seen.insert(p.clone())
             {
@@ -2875,6 +2919,10 @@ pub fn start_workers(h: Option<AppHandle<Hooked>>) {
     {
         let h = h.clone();
         crate::app::spawn_named("hooked-list-refresh", move || refresh_on_ticks(h, ticks));
+    }
+    {
+        let tick = tick.clone();
+        crate::app::spawn_named("hooked-remotes", move || crate::remote::run(tick));
     }
     crate::app::spawn_named("hooked-events", move || {
         loop {

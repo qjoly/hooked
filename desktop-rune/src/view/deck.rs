@@ -65,6 +65,7 @@ fn decision_card(s: &Hooked, x: &Session, k: &Kit, wide: bool) -> El {
                 .gap(8.0)
                 .center_y()
                 .child(pill(k, label, fg, bg))
+                .children(x.remote.iter().map(|r| super::remote_badge(k, r)))
                 .child(title)
                 .child(
                     text(fmt::ago_short(x.last_activity.as_deref(), s.now))
@@ -77,6 +78,12 @@ fn decision_card(s: &Hooked, x: &Session, k: &Kit, wide: bool) -> El {
                 .font(k.ty.text_xsmall)
                 .color(k.c.text_faint),
         );
+    if x.remote.is_some() {
+        // A remote session's card: the wash and rail of its sidebar row.
+        c = c
+            .fill(super::remote_wash(k, false))
+            .border_sides([1.0, 1.0, 1.0, 3.0], crate::theme::remote_color(k.dark));
+    }
     let q = x.question.as_ref().filter(|_| x.has_question);
     let single = q
         .and_then(|q| q["questions"].as_array())

@@ -26,6 +26,11 @@ lucide!(
 );
 lucide!(PLUS, "plus", r#"<path d="M12 5v14M5 12h14"/>"#);
 lucide!(
+    GLOBE,
+    "globe",
+    r#"<circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/>"#
+);
+lucide!(
     PENCIL,
     "pencil",
     r#"<path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/><path d="m15 5 4 4"/>"#
@@ -271,6 +276,7 @@ lucide!(
 );
 lucide!(TERMINAL, "terminal", r#"<path d="m4 17 6-6-6-6M12 19h8"/>"#);
 lucide!(CHEVRON_DOWN, "chevron-down", r#"<path d="m6 9 6 6 6-6"/>"#);
+lucide!(ARROW_DOWN, "arrow-down", r#"<path d="M12 5v14"/><path d="m19 12-7 7-7-7"/>"#);
 lucide!(
     EYE,
     "eye",

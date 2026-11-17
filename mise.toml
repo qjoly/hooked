@@ -315,6 +315,10 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp target/release/hooked-rune "$APP/Contents/MacOS/"
 cp Info.plist "$APP/Contents/"
 cp ../desktop/src-tauri/icons/icon.icns "$APP/Contents/Resources/"
+# Sign the bundle (ad hoc) so the binary carries the bundle id. The linker's own signature names
+# it "hooked_rune-<hash>", and macOS then ignores the Local Network permission granted to
+# dev.qjoly.hooked-rune: every connection to a LAN address fails with "No route to host".
+codesign --force --sign - "$APP"
 osascript -e 'quit app id "dev.qjoly.hooked-rune"' 2>/dev/null || true
 sleep 1
 rm -rf "/Applications/hooked (Rune).app"

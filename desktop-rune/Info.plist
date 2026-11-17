@@ -22,5 +22,7 @@
   <string>11.0</string>
   <key>NSHighResolutionCapable</key>
   <true/>
+  <key>NSLocalNetworkUsageDescription</key>
+  <string>hooked lists and drives the sessions of the other hooked instances you add in Settings, when they are on your local network.</string>
 </dict>
 </plist>
