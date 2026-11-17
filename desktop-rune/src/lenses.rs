@@ -192,6 +192,8 @@ pub struct LensData {
     pub replies: HashMap<String, TextEdit>,
     pub editing: Option<(String, TextEdit)>,
     pub threads_open: bool,
+    /// The pending comments are on their way to Claude: a second click must not send them twice.
+    pub sending_review: bool,
     pub delete_armed: Option<String>,
 
     pub mcp_cwd: Option<String>,
@@ -255,6 +257,7 @@ impl Default for LensData {
             replies: HashMap::new(),
             editing: None,
             threads_open: false,
+            sending_review: false,
             delete_armed: None,
             mcp_cwd: None,
             mcp: Vec::new(),
@@ -2240,7 +2243,7 @@ impl Hooked {
         };
         let id = d.session.id.clone();
         let mut pending: Vec<Value> = self.pending_threads().into_iter().cloned().collect();
-        if pending.is_empty() {
+        if pending.is_empty() || self.lens_data.sending_review {
             return;
         }
         // In the diff's order, as the web lists them: file by file, then down each file.
@@ -2292,6 +2295,7 @@ impl Hooked {
             .collect();
         let live = d.session.live;
         let effort = d.session.effort.clone();
+        self.lens_data.sending_review = true;
         self.spawn(
             move || {
                 if live {
@@ -2306,6 +2310,7 @@ impl Hooked {
                 .map(|_| ())
             },
             |s, r, _| {
+                s.lens_data.sending_review = false;
                 match r {
                     Ok(()) => s.flash("✓ Comments sent to Claude", false),
                     Err(e) => s.flash(format!("✗ Send: {e}"), true),

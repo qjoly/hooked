@@ -1176,10 +1176,15 @@ pub fn review(s: &Hooked, d: &Detail, k: &Kit) -> El {
     let pending = s.pending_threads().len();
     if pending > 0 {
         top = top.child(
-            Button::new(format!(
-                "Send {pending} comment{} to Claude",
-                if pending == 1 { "" } else { "s" }
-            ))
+            Button::new(if ld.sending_review {
+                "Sending…".to_string()
+            } else {
+                format!(
+                    "Send {pending} comment{} to Claude",
+                    if pending == 1 { "" } else { "s" }
+                )
+            })
+            .disabled(ld.sending_review)
             .icon(&icons::ARROW_UP)
             .variant(ButtonVariant::Contrast)
             .control_size(ControlSize::Regular)
