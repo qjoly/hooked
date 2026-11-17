@@ -634,6 +634,24 @@ pub fn reanchor(start: u32, end: u32, snippet: &str, lines: &[&str]) -> (u32, u3
 /// The section of the diff a thread belongs to and its lines there, re-anchored on its snippet.
 /// A thread Claude opened is keyed to the whole scope (`…:*`): it goes to the section of its
 /// file whose new side holds its snippet, else to the first.
+/// The link an editor opens a file with, as `fileUrl` in src/lib/editors.js. Rune opens web
+/// links only, so these go to the system directly: the scheme and host are fixed here, and the
+/// path is the only part that comes from the diff.
+pub fn editor_file_url(editor: &str, file: &str) -> Option<String> {
+    if !file.starts_with('/') {
+        return None;
+    }
+    let path = || file.split('/').map(api::enc).collect::<Vec<_>>().join("/");
+    Some(match editor {
+        "zed" => format!("zed://file{}", path()),
+        "cursor" => format!("cursor://file{}", path()),
+        "windsurf" => format!("windsurf://file{}", path()),
+        "sublime" => format!("subl://open?url=file://{}", api::enc(file)),
+        "jetbrains" => format!("idea://open?file={}", api::enc(file)),
+        _ => format!("vscode://file{}", path()),
+    })
+}
+
 pub fn place_thread(t: &Value, anchors: &[(String, String)], files: &[FileDiff]) -> Option<Placed> {
     let (file, key) = (t["file"].as_str()?, t["opIndex"].as_str()?);
     let scoped = key.strip_suffix(":*");
@@ -2258,6 +2276,31 @@ impl Hooked {
         }
     }
 
+    /// Opens a file of the diff in the editor chosen in Settings.
+    pub fn open_in_editor(&mut self, file: usize) {
+        let editor = self
+            .setting("editor")
+            .as_str()
+            .unwrap_or("vscode")
+            .to_string();
+        let Some(url) = self
+            .lens_data
+            .anchors
+            .get(file)
+            .and_then(|(path, _)| editor_file_url(&editor, path))
+        else {
+            return;
+        };
+        self.spawn(
+            move || crate::incidents::system_open(&url),
+            |s, opened, _| {
+                if !opened {
+                    s.flash("✗ Could not open the editor", true);
+                }
+            },
+        );
+    }
+
     pub fn toggle_fold(&mut self, tid: &str) {
         let folded = &mut self.lens_data.folded;
         if !folded.remove(tid) {
@@ -3018,6 +3061,37 @@ mod tests {
     fn primary_repo_is_named_after_its_folder() {
         assert_eq!(repo("/ws/hooked", "", &[]).name(), "hooked");
         assert_eq!(repo("/ws/hooked/sub", "sub", &[]).name(), "sub");
+    }
+}
+
+#[cfg(test)]
+mod editor_tests {
+    use super::*;
+
+    #[test]
+    fn editor_links_match_the_webs() {
+        assert_eq!(
+            editor_file_url("vscode", "/repo/a b/é.rs").as_deref(),
+            Some("vscode://file/repo/a%20b/%C3%A9.rs")
+        );
+        assert_eq!(
+            editor_file_url("zed", "/repo/x.rs").as_deref(),
+            Some("zed://file/repo/x.rs")
+        );
+        assert_eq!(
+            editor_file_url("sublime", "/repo/x.rs").as_deref(),
+            Some("subl://open?url=file://%2Frepo%2Fx.rs")
+        );
+        assert_eq!(
+            editor_file_url("jetbrains", "/repo/x.rs").as_deref(),
+            Some("idea://open?file=%2Frepo%2Fx.rs")
+        );
+        // An unknown editor falls back to the default, as the web does.
+        assert_eq!(
+            editor_file_url("emacs", "/repo/x.rs").as_deref(),
+            Some("vscode://file/repo/x.rs")
+        );
+        assert_eq!(editor_file_url("vscode", "relative/x.rs"), None);
     }
 }
 

@@ -694,6 +694,28 @@ fn file_actions(s: &Hooked, k: &Kit, i: usize) -> El {
                 .build(k),
         );
     }
+    // An editor would open on this machine: not offered for a remote session's files.
+    let local = s
+        .selected
+        .as_deref()
+        .and_then(|id| s.session(id))
+        .is_none_or(|x| x.remote.is_none());
+    let absolute = s
+        .lens_data
+        .anchors
+        .get(i)
+        .is_some_and(|(path, _)| path.starts_with('/'));
+    if local && absolute {
+        r = r.child(
+            rune_kit::IconButton::new(&icons::CODE)
+                .variant(rune_kit::IconButtonVariant::GhostMuted)
+                .control_size(ControlSize::Small)
+                .label("Open in editor")
+                .help("Open this file in the editor chosen in Settings")
+                .on_press(move |s: &mut Hooked| s.open_in_editor(i))
+                .build(k),
+        );
+    }
     if let Some(path) = s.truncated_at(i) {
         let loading = s.lens_data.full.contains_key(&path);
         r = r.child(

@@ -518,7 +518,7 @@ pub fn slack_deep_link(url: &str) -> bool {
 }
 
 /// Hands a link to the system's handler; false when nothing took it.
-fn system_open(url: &str) -> bool {
+pub fn system_open(url: &str) -> bool {
     if cfg!(target_os = "macos") {
         std::process::Command::new("/usr/bin/open")
             .arg(url)
