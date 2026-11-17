@@ -1284,6 +1284,15 @@ impl Hooked {
                 } else {
                     ld.picked.push(r);
                 }
+                // Kept oldest first whatever the order of the clicks (`commits` is newest
+                // first): a place taken up later reads its slice from the first and last pick.
+                let at = |rev: &String| {
+                    ld.commits
+                        .iter()
+                        .position(|c| c["rev"].as_str() == Some(rev.as_str()))
+                };
+                ld.picked.retain(|p| at(p).is_some());
+                ld.picked.sort_by_key(|p| std::cmp::Reverse(at(p)));
             }
         }
     }
