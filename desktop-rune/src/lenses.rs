@@ -189,6 +189,8 @@ pub struct LensData {
     /// comes back open at the next launch.
     pub folded: std::collections::HashSet<String>,
     pub draft: Option<(LineRange, TextEdit)>,
+    /// The `(file, opIndex)` section the comment being written was started on.
+    pub draft_at: Option<(String, String)>,
     pub replies: HashMap<String, TextEdit>,
     pub editing: Option<(String, TextEdit)>,
     pub threads_open: bool,
@@ -251,6 +253,7 @@ impl Default for LensData {
             threads: Vec::new(),
             placed: HashMap::new(),
             jump: None,
+            draft_at: None,
             flash: None,
             folded: Default::default(),
             draft: None,
@@ -316,6 +319,8 @@ impl LensData {
             });
         if !same {
             self.diff.set_files(s.files);
+            // The definition card is placed by section index, which no longer means the same.
+            self.def = None;
         }
         self.anchors = s.anchors;
         self.fps = s.fps;
@@ -1897,13 +1902,20 @@ impl Hooked {
             notes.push(Annotation::new(p.file, at, id));
             ld.placed.insert(id.to_string(), p);
         }
-        if let Some((range, _)) = ld.draft.as_ref() {
+        // The comment being written follows its section when a refresh moves it in the list
+        // (a file added above it), and waits out of sight while that section is not shown.
+        let section = ld
+            .draft_at
+            .as_ref()
+            .and_then(|at| ld.anchors.iter().position(|a| a == at));
+        if let (Some((range, _)), Some(file)) = (ld.draft.as_mut(), section) {
+            range.file = file;
             let end = if range.end.line >= range.start.line {
                 range.end
             } else {
                 range.start
             };
-            notes.push(Annotation::new(range.file, end, "draft"));
+            notes.push(Annotation::new(file, end, "draft"));
         }
         if let Some(d) = ld.def.as_ref() {
             notes.push(Annotation::new(d.file, LineRef::new(d.side, d.line), "def"));
@@ -1914,11 +1926,13 @@ impl Hooked {
     pub fn start_comment(&mut self, range: LineRange) {
         let mut edit = TextEdit::new("");
         edit.focused = true;
+        self.lens_data.draft_at = self.lens_data.anchors.get(range.file).cloned();
         self.lens_data.draft = Some((range, edit));
         self.annotate();
     }
 
     pub fn cancel_comment(&mut self) {
+        self.lens_data.draft_at = None;
         self.lens_data.draft = None;
         self.annotate();
     }
@@ -1931,7 +1945,15 @@ impl Hooked {
             return;
         };
         let text = edit.text.trim().to_string();
-        let Some((file, key)) = self.lens_data.anchors.get(range.file).cloned() else {
+        // The section it was started on, not whatever sits at that place in the list now.
+        let at = self.lens_data.draft_at.take();
+        let Some((file, key)) = at.filter(|a| self.lens_data.anchors.get(range.file) == Some(a))
+        else {
+            self.flash(
+                "✗ The lines this comment was on are no longer in the diff",
+                true,
+            );
+            self.annotate();
             return;
         };
         if text.is_empty() {
@@ -2356,6 +2378,10 @@ impl Hooked {
             ld.diff_error = None;
             ld.no_vcs = false;
             ld.tree_truncated = false;
+            // A comment being written and an open definition belong to the diff being left.
+            ld.draft = None;
+            ld.draft_at = None;
+            ld.def = None;
             ld.show(Sections::default());
             ld.file_repos.clear();
         }
