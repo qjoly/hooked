@@ -366,8 +366,17 @@ fn thread_row(s: &Hooked, k: &Kit, t: &serde_json::Value, archived: bool) -> El 
     let first = fmt::first_line(t["messages"][0]["text"].as_str().unwrap_or(""), 90);
     let sent = t["sent"].as_bool() == Some(true);
     let armed = s.lens_data.delete_armed.as_deref() == Some(tid.as_str());
-    let reachable =
-        archived || crate::lenses::thread_context(t["opIndex"].as_str().unwrap_or("")).is_some();
+    // No scope shows a retired key any more, nor a worktree's diff outside a worktree.
+    let in_worktree = s
+        .detail
+        .as_ref()
+        .is_some_and(|d| d.session.worktree_of.is_some());
+    let reachable = archived
+        || match crate::lenses::thread_context(t["opIndex"].as_str().unwrap_or("")) {
+            Some(crate::lenses::ThreadContext::Worktree) => in_worktree,
+            Some(_) => true,
+            None => false,
+        };
     let (j, d, r) = (tid.clone(), tid.clone(), tid.clone());
     let label = col()
         .grow(1.0)

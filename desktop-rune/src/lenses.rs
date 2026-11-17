@@ -1374,14 +1374,20 @@ impl Hooked {
             }
             (ReviewSource::Claude, Side::Old) => return None,
             (ReviewSource::Claude, Side::New) => {
-                let j: usize = key.strip_prefix("full:")?.parse().ok()?;
-                let c = self
-                    .detail
-                    .as_ref()?
-                    .changes
-                    .iter()
-                    .find(|c| c.file == *path)?;
-                (c.ops.get(j)?["kind"] == "write").then_some("")?
+                // A prompt filter replayed from the original shows the whole file (its key has
+                // no op index); otherwise only a `write` does.
+                if key.strip_prefix("sel:").is_some_and(|k| !k.contains(':')) {
+                    ""
+                } else {
+                    let j: usize = key.strip_prefix("full:")?.parse().ok()?;
+                    let c = self
+                        .detail
+                        .as_ref()?
+                        .changes
+                        .iter()
+                        .find(|c| c.file == *path)?;
+                    (c.ops.get(j)?["kind"] == "write").then_some("")?
+                }
             }
         };
         Some((path.clone(), rev.to_string()))
@@ -1482,8 +1488,10 @@ impl Hooked {
                 .find(|l| l.number(side) == Some(line))
                 .map(|l| l.text.clone())
         });
+        // The blame is by line number: when the line shown is not the one blamed (the file
+        // moved on since), it says nothing rather than name the wrong commit.
         if entry.is_null() || shown.is_some_and(|t| entry["t"].as_str() != Some(t.as_str())) {
-            return Some(format!("L{line}: not committed yet"));
+            return None;
         }
         let c = &b["commits"][entry["c"].as_u64().unwrap_or(0) as usize];
         if c["uncommitted"] == true {
@@ -1701,7 +1709,11 @@ impl Hooked {
                                 compact,
                             )
                         };
-                        self.lens_data.diff_count = d.changes.len();
+                        // Files, not sections, and only those the prompt filter keeps.
+                        let mut shown: Vec<&str> =
+                            sections.anchors.iter().map(|(f, _)| f.as_str()).collect();
+                        shown.dedup();
+                        self.lens_data.diff_count = shown.len();
                         self.lens_data.show(sections);
                         self.annotate();
                         self.lens_data.diff_sig = Some(sig);
