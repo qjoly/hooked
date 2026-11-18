@@ -30,6 +30,7 @@ import { statSafe } from './util.js';
 import { scanSessions } from './transcript.js';
 import { readSettings } from './settings.js';
 import { refreshAgentStatus } from './agent-status.js';
+import { buildToolCatalog } from './llmTools.js';
 import { contextFromUsage, compactDue } from '../src/lib/promptCache.js';
 import { joinGroup, setSessionMeta, isIncognitoSession } from './sessionMeta.js';
 import { createWorktree, removeWorktree, restoreWorktree, attachWorktreeSession, autoNameBranch } from './worktrees.js';
@@ -291,6 +292,7 @@ function applyMessage(st, msg) {
         if (msg.effort) st.effort = msg.effort;
         st.cwd = msg.cwd || st.cwd;
         st.capabilities = msg.capabilities || null;
+        if (Array.isArray(msg.tools)) st.initTools = msg.tools;
         return true;
       }
       if (msg.subtype === 'status') {
@@ -1004,6 +1006,29 @@ function agentSupportedCommands(id) {
   return st.commands.p.then((commands) => (commands ? { commands, cwd } : null));
 }
 
+// The tools a driven session sends to the model (built-in + MCP), for the Settings viewer.
+// `id` picks the session; without one (or for a session that is not driven), any driven session
+// answers, as for the « / » commands. `sessions` lists every drivable session so the UI can switch.
+// Null when nothing is driven.
+async function agentToolCatalog(id) {
+  const st = commandsSource(id);
+  const sessions = liveSessionIds().filter((sid) => drivableSession(sid))
+    .map((sid) => ({ id: sid, cwd: live.get(sid).cwd || null, model: live.get(sid).model || null }));
+  if (!st) return { session: null, sessions, builtin: [], mcp: [], totals: null };
+  const call = (fn) => (typeof fn === 'function' ? fn.call(st.q).catch(() => null) : Promise.resolve(null));
+  const [ctx, servers] = await Promise.all([
+    typeof st.q.getContextUsage === 'function' ? st.q.getContextUsage({ detail: 'summary' }).catch(() => null) : null,
+    call(st.q.mcpServerStatus),
+  ]);
+  const sessionId = [...live].find(([, v]) => v === st)?.[0] || null;
+  return {
+    session: { id: sessionId, cwd: st.cwd || null, model: st.model || null },
+    sessions,
+    available: !!ctx,
+    ...buildToolCatalog({ ctx, servers, initTools: st.initTools }),
+  };
+}
+
 // ── Lectures d'état (ex-lectures de pane) ────────────────────────────────────────────────────────
 function agentBusy(id) { const st = agentSession(id); return st ? !!st.busy : null; }
 function agentActivity(id) { const st = agentSession(id); return st ? st.activity : null; }
@@ -1675,7 +1700,7 @@ function clearAgentState() {
 export {
   agentAlive, agentSession, liveSessionIds, liveSessionCwds,
   agentBusy, agentActivity, agentFollowup, agentLastProse, agentMode, agentAutoApprove, agentPendingAsk,
-  agentSupportedCommands,
+  agentSupportedCommands, agentToolCatalog,
   applyMessage, readLoop, permissionQuestion, handleToolPermission, makeInputQueue, userMessage, parseEnvBlock, loginEnv, withoutServerEnv, hookedMcpServer, sessionIdForLaunchKey,
   subscribeAgent, streamSnapshot,
   resolveLaunchForSession, sessionLaunchMap,
