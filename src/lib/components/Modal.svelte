@@ -9,6 +9,7 @@
   import AccountModal from './AccountModal.svelte';
   import GroupPickerModal from './GroupPickerModal.svelte';
   import ReviewScopeModal from './ReviewScopeModal.svelte';
+  import LlmToolsModal from './LlmToolsModal.svelte';
 
   let card;
   let prevFocus = null;
@@ -64,6 +65,8 @@
           <GroupPickerModal r={ui.modal.data} />
         {:else if ui.modal.type === 'reviewScope'}
           <ReviewScopeModal r={ui.modal.data} />
+        {:else if ui.modal.type === 'llmTools'}
+          <LlmToolsModal />
         {/if}
       </div>
     </div>
