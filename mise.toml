@@ -58,6 +58,25 @@ run = "npm test"
 description = "Rebuild le front puis redémarre le service (build && service-restart)"
 run = "mise run build && mise run service-restart"
 
+# A deploy restarts hooked, which cuts the turn of every driven session (the one running it
+# included), so it is skipped when the build already holds the checkout's build inputs. The stamp
+# (the commit deploy/service-run.sh built) is compared on those inputs only, so commits touching
+# nothing else (desktop-rune, docs) do not count. The mtime test catches edits made since the last
+# build, and stops matching once they are built: rerunning after a restart cut it short is a no-op.
+[tasks.deploy-if-stale]
+description = "Redeploy the service only when its build lags behind the checkout"
+run = '''
+BUILD_INPUTS="src server static package.json package-lock.json vite.config.js"
+STAMP="build/.hooked-src-commit"
+if [ -f "$STAMP" ] \
+  && git diff --quiet "$(cat "$STAMP")" HEAD -- $BUILD_INPUTS 2>/dev/null \
+  && [ -z "$(find $BUILD_INPUTS -type f -newer "$STAMP" 2>/dev/null | head -1)" ]; then
+  echo "hooked back end already up to date, no deploy."
+else
+  mise run deploy
+fi
+'''
+
 # The service-* tasks dispatch on `uname -s`: launchd (LaunchAgent
 # com.hooked.dashboard) on macOS, systemd --user (unit hooked-dashboard) on
 # Linux. The unit is named hooked-dashboard — NOT hooked-dev, which is the
@@ -303,7 +322,7 @@ open /Applications/hooked.app
 # Experimental native client (Rune, no webview). Installed next to the Tauri app
 # under its own bundle id, so both can be compared side by side.
 [tasks.desktop-rune]
-description = "Build the native Rune app, install it in /Applications and relaunch it"
+description = "Build the native Rune app, redeploy the service if stale, install the app in /Applications and relaunch it"
 dir = "desktop-rune"
 tools = { rust = "1.99.1", zig = "0.17.1" }
 run = """
@@ -319,6 +338,11 @@ cp ../desktop/src-tauri/icons/icon.icns "$APP/Contents/Resources/"
 # it "hooked_rune-<hash>", and macOS then ignores the Local Network permission granted to
 # dev.qjoly.hooked-rune: every connection to a LAN address fails with "No route to host".
 codesign --force --sign - "$APP"
+# The app reads some data (capabilities) once at launch, so the service is brought up to date before
+# it starts. Before quitting the old app, too: if the restart takes down the session running this
+# task, the old app keeps running, and a rerun finds the back end current and just installs.
+# Not fatal: a failed deploy (or no installed service) should not cost the app build.
+mise run deploy-if-stale || echo "⚠ back end not redeployed, the app may call a stale service" >&2
 osascript -e 'quit app id "dev.qjoly.hooked-rune"' 2>/dev/null || true
 sleep 1
 rm -rf "/Applications/hooked (Rune).app"

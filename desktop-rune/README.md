@@ -11,6 +11,10 @@ mise run desktop-rune-run   # run from source once, no live editing
 mise run desktop-rune       # build, install "/Applications/hooked (Rune).app" and relaunch it
 ```
 
+`desktop-rune` also redeploys the hooked service (`mise run deploy-if-stale`) when its build lags
+behind the checkout, so the new app never starts against a back end that lacks its endpoints. That
+restart cuts the turn of every driven session, the one running the task included.
+
 Ghostty's terminal core (`libghostty-vt`) is built from source with Zig; the mise tasks pull Zig
 0.17.1 along with Rust.
 
