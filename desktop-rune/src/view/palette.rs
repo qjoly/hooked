@@ -67,6 +67,9 @@ pub fn commands(s: &Hooked) -> Vec<Cmd> {
         cmd(nav, &icons::CLOCK, "Go to Cron", "", |s, _| {
             s.go(Page::Cron)
         }),
+        cmd(nav, &icons::WORKFLOW, "Go to Flows", "", |s, _| {
+            s.go(Page::Flows)
+        }),
         cmd(nav, &icons::BOOK, "Go to Prompts", "", |s, _| {
             s.go(Page::Prompts)
         }),

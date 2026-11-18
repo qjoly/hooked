@@ -1909,3 +1909,1059 @@ pub fn prompts(s: &Hooked, k: &Kit) -> El {
         row().w_full().grow(1.0).min_h(0.0).child(left).child(right),
     )
 }
+
+// ── Flows ───────────────────────────────────────────────────────────────────────────────────────
+
+fn tone_color(k: &Kit, t: crate::flows::Tone) -> Color {
+    use crate::flows::Tone;
+    match t {
+        Tone::Ok => k.c.success.fg,
+        Tone::Run => k.c.warning.fg,
+        Tone::Warn | Tone::Bad => k.c.danger.fg,
+        Tone::Loop => k.c.text_accent,
+        Tone::Idle => k.c.text_faint,
+    }
+}
+
+fn tone_icon(t: crate::flows::Tone) -> &'static rune::Icon {
+    use crate::flows::Tone;
+    match t {
+        Tone::Ok => &icons::CIRCLE_CHECK,
+        Tone::Run => &icons::ACTIVITY,
+        Tone::Warn => &icons::BELL,
+        Tone::Bad => &icons::STOP,
+        Tone::Loop => &icons::RESTART,
+        Tone::Idle => &icons::CIRCLE_DOT,
+    }
+}
+
+/// Flows: pipelines of driven sessions (server/flows.js). Runs on the left; on the right the
+/// selected run as a CI pipeline (one column per depth, parallel stages stacked), its actions and
+/// the selected stage's reports. Templates are edited on the web page.
+pub fn flows(s: &Hooked, k: &Kit) -> El {
+    let pd = &s.pages;
+    let actions = Button::new("New run")
+        .icon(&icons::PLUS)
+        .variant(ButtonVariant::Contrast)
+        .control_size(ControlSize::Regular)
+        .on_press(|s: &mut Hooked| s.new_flow_run())
+        .build(k)
+        .key("flows-new");
+    let Some(v) = pd.flows.as_ref() else {
+        return page(k, "flows", "Flows", actions, loading(k));
+    };
+    let runs: Vec<Value> = v["runs"].as_array().cloned().unwrap_or_default();
+
+    let mut list = col().key("flows-runs").w_full().padding(10.0).gap(6.0);
+    if runs.is_empty() {
+        list = list.child(
+            text("No run yet. A run chains one session per stage, like a CI pipeline.")
+                .font(k.ty.text_small)
+                .color(k.c.text_muted)
+                .wrap(),
+        );
+    }
+    for r in &runs {
+        let id = r["id"].as_str().unwrap_or("").to_string();
+        let on = pd.flow_form.is_none() && pd.flow_run.as_deref() == Some(id.as_str());
+        let (badge, tone) = crate::flows::run_badge(r);
+        let mut dots = row().gap(3.0).center_y();
+        for st in crate::flows::stages(r) {
+            let key = st["key"].as_str().unwrap_or("");
+            let (_, t) = crate::flows::stage_look(&r["stages"][key]);
+            dots = dots.child(el().w(8.0).h(8.0).radius(4.0).fill(tone_color(k, t)));
+        }
+        let project = r["project"]
+            .as_str()
+            .unwrap_or("")
+            .rsplit('/')
+            .next()
+            .unwrap_or("")
+            .to_string();
+        let pass = r["iteration"].as_i64().unwrap_or(1);
+        let oid = id.clone();
+        list = list.child(
+            k.interactive(
+                col()
+                    .key(format!("flow-run-{id}"))
+                    .w_full()
+                    .padding(10.0)
+                    .gap(5.0)
+                    .radius(k.radius.md)
+                    .fill(if on { k.c.layer_02 } else { k.c.layer_01 })
+                    .border(
+                        1.0,
+                        if on {
+                            k.c.border_focus
+                        } else {
+                            k.c.border_weak
+                        },
+                    )
+                    .cursor(Cursor::Pointer)
+                    .child(
+                        row()
+                            .w_full()
+                            .gap(8.0)
+                            .center_y()
+                            .child(
+                                text(r["name"].as_str().unwrap_or("").to_string())
+                                    .font(k.ty.text_small_medium)
+                                    .color(k.c.text_base)
+                                    .grow(1.0)
+                                    .shrink(),
+                            )
+                            .child(pill(k, badge, tone_color(k, tone), k.c.layer_02)),
+                    )
+                    .child(
+                        row().gap(8.0).center_y().child(dots).child(
+                            text(format!(
+                                "{project}{} · {} ago",
+                                if pass > 1 {
+                                    format!(" · pass {pass}")
+                                } else {
+                                    String::new()
+                                },
+                                fmt::ago_short(r["updatedAt"].as_str(), s.now)
+                            ))
+                            .font(k.ty.text_xsmall)
+                            .color(k.c.text_faint),
+                        ),
+                    ),
+            )
+            .on_press(move |s: &mut Hooked| s.open_flow_run(oid.clone())),
+        );
+    }
+
+    // Templates under the runs: built in or saved, each opens in the editor.
+    let tpl_open = pd.flow_tpl.as_ref().map(|f| f.id.clone());
+    list = list.child(
+        row()
+            .w_full()
+            .pt(14.0)
+            .center_y()
+            .child(section_title(k, "Templates"))
+            .child(el().grow(1.0))
+            .child(
+                Button::new("New")
+                    .icon(&icons::PLUS)
+                    .variant(ButtonVariant::GhostMuted)
+                    .control_size(ControlSize::Small)
+                    .on_press(|s: &mut Hooked| s.edit_flow_template(None))
+                    .build(k)
+                    .key("flow-tpl-new"),
+            ),
+    );
+    for t in v["templates"].as_array().into_iter().flatten() {
+        let id = t["id"].as_str().unwrap_or("").to_string();
+        let on = tpl_open.as_ref().is_some_and(|o| o.as_deref() == Some(id.as_str()));
+        let chain = t["stages"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .map(|x| x["name"].as_str().unwrap_or(""))
+            .collect::<Vec<_>>()
+            .join(" → ");
+        let tid = id.clone();
+        let mut head = row().w_full().gap(8.0).center_y().child(
+            text(t["name"].as_str().unwrap_or("").to_string())
+                .font(k.ty.text_small_medium)
+                .color(k.c.text_base)
+                .grow(1.0)
+                .shrink(),
+        );
+        if t["builtIn"] == true {
+            head = head.child(pill(k, "built-in", k.c.text_muted, k.c.layer_02));
+        }
+        list = list.child(
+            k.interactive(
+                col()
+                    .key(format!("flow-tpl-{id}"))
+                    .w_full()
+                    .padding(10.0)
+                    .gap(4.0)
+                    .radius(k.radius.md)
+                    .fill(if on { k.c.layer_02 } else { k.c.layer_01 })
+                    .border(1.0, if on { k.c.border_focus } else { k.c.border_weak })
+                    .cursor(Cursor::Pointer)
+                    .child(head)
+                    .child(text(chain).font(k.ty.text_xsmall).color(k.c.text_faint).wrap()),
+            )
+            .on_press(move |s: &mut Hooked| s.edit_flow_template(Some(tid.clone()))),
+        );
+    }
+
+    let detail = if pd.flow_tpl.is_some() {
+        flow_tpl_editor(s, k)
+    } else if pd.flow_form.is_some() {
+        flow_form(s, k, v)
+    } else if let Some(run) = s.flow_run() {
+        flow_detail(s, k, run)
+    } else {
+        col().w_full().padding(40.0).center().child(
+            text("Pick a run, or start a new one.")
+                .font(k.ty.text_small)
+                .color(k.c.text_muted),
+        )
+    };
+
+    let body = row()
+        .key("flows-split")
+        .w_full()
+        .h_full()
+        .child(
+            col()
+                .key("flows-left")
+                .w(260.0)
+                .h_full()
+                .border_sides([0.0, 1.0, 0.0, 0.0], k.c.border_weak)
+                .child(scroll("flows-left-scroll", list)),
+        )
+        .child(
+            col()
+                .key("flows-right")
+                .grow(1.0)
+                .shrink()
+                .h_full()
+                .child(scroll("flows-right-scroll", detail)),
+        );
+    page(k, "flows", "Flows", actions, body)
+}
+
+fn flow_form(s: &Hooked, k: &Kit, v: &Value) -> El {
+    let Some(f) = s.pages.flow_form.as_ref() else {
+        return el();
+    };
+    let templates: Vec<Value> = v["templates"].as_array().cloned().unwrap_or_default();
+    let labels: Vec<String> = templates
+        .iter()
+        .map(|t| t["name"].as_str().unwrap_or("").to_string())
+        .collect();
+    let label_refs: Vec<&str> = labels.iter().map(String::as_str).collect();
+    let tpl = templates.get(f.template);
+    let pipeline = tpl
+        .map(|t| {
+            t["stages"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .map(|s| s["name"].as_str().unwrap_or(""))
+                .collect::<Vec<_>>()
+                .join(" → ")
+        })
+        .unwrap_or_default();
+    let ready = !f.cwd.text.trim().is_empty() && !f.task.text.trim().is_empty();
+    col()
+        .key("flow-form")
+        .w_full()
+        .max_w(860.0)
+        .padding(24.0)
+        .gap(12.0)
+        .child(
+            text("New flow run")
+                .font(k.ty.ui_medium)
+                .color(k.c.text_base),
+        )
+        .child(field(
+            k,
+            "TEMPLATE",
+            SegmentedControl::new(&label_refs, Some(f.template))
+                .label("Template")
+                .fit()
+                .on_pick(|s: &mut Hooked, i, _| {
+                    if let Some(f) = s.pages.flow_form.as_mut() {
+                        f.template = i;
+                    }
+                })
+                .build(k)
+                .key("flow-tpl"),
+        ))
+        .child(
+            text(format!(
+                "{}\n{pipeline}",
+                tpl.and_then(|t| t["description"].as_str()).unwrap_or("")
+            ))
+            .font(k.ty.text_xsmall)
+            .color(k.c.text_faint)
+            .wrap(),
+        )
+        .child(field(
+            k,
+            "PROJECT",
+            TextInput::new(&f.cwd)
+                .width(None)
+                .leading_icon(&icons::FOLDER)
+                .on_edit(|s: &mut Hooked| &mut s.pages.flow_form.as_mut().unwrap().cwd)
+                .build(k)
+                .key("flow-cwd"),
+        ))
+        .child(field(
+            k,
+            "TASK (EVERY STAGE RECEIVES IT)",
+            TextArea::new(&f.task)
+                .width(None)
+                .auto_grow(5, 16)
+                .on_edit(|s: &mut Hooked| &mut s.pages.flow_form.as_mut().unwrap().task)
+                .build(k)
+                .key("flow-task"),
+        ))
+        .child(field(
+            k,
+            "NAME (DEFAULTS TO THE TASK'S FIRST LINE)",
+            TextInput::new(&f.name)
+                .width(None)
+                .on_edit(|s: &mut Hooked| &mut s.pages.flow_form.as_mut().unwrap().name)
+                .build(k)
+                .key("flow-name"),
+        ))
+        .child(
+            row()
+                .w_full()
+                .gap(8.0)
+                .center_y()
+                .child(
+                    Switch::new(f.worktree)
+                        .label("New git worktree shared by every stage")
+                        .on_toggle(|s: &mut Hooked| {
+                            if let Some(f) = s.pages.flow_form.as_mut() {
+                                f.worktree = !f.worktree;
+                            }
+                        })
+                        .build(k),
+                )
+                .child(el().grow(1.0))
+                .child(
+                    Button::new("Cancel")
+                        .variant(ButtonVariant::GhostMuted)
+                        .on_press(|s: &mut Hooked| s.pages.flow_form = None)
+                        .build(k)
+                        .key("flow-cancel"),
+                )
+                .child(if ready {
+                    Button::new("Start")
+                        .icon(&icons::PLAY)
+                        .variant(ButtonVariant::Contrast)
+                        .on_press(|s: &mut Hooked| s.start_flow_run())
+                        .build(k)
+                        .key("flow-start")
+                } else {
+                    Button::new("Start")
+                        .icon(&icons::PLAY)
+                        .variant(ButtonVariant::Contrast)
+                        .build(k)
+                        .disabled(true)
+                        .key("flow-start")
+                }),
+        )
+}
+
+/// A flow drawn as a CI pipeline: one column per depth, arrows between columns, parallel stages
+/// stacked; wraps on a narrow window. With `states` (a run's stage map) the cards carry their
+/// status and select the stage on click; without, it is a template preview.
+fn pipeline(s: &Hooked, k: &Kit, stages: &[Value], states: Option<&Value>) -> El {
+    let mut pipe = row().key("flow-pipe").gap(8.0).center_y().flex_wrap();
+    for (i, column) in crate::flows::columns(stages).iter().enumerate() {
+        if i > 0 {
+            pipe = pipe.child(glyph(&icons::ARROW_RIGHT, 16.0, k.c.icon_faint));
+        }
+        let mut cc = col().gap(10.0);
+        for key in column {
+            let def = stages
+                .iter()
+                .find(|x| x["key"].as_str() == Some(key.as_str()));
+            let (label, t) = match states {
+                Some(st) => crate::flows::stage_look(&st[key.as_str()]),
+                None => (key.as_str(), crate::flows::Tone::Idle),
+            };
+            let sel = states.is_some() && s.pages.flow_stage.as_deref() == Some(key.as_str());
+            let name = def
+                .and_then(|d| d["name"].as_str())
+                .filter(|n| !n.is_empty())
+                .unwrap_or(key)
+                .to_string();
+            // Model, effort and role tags on one faint line, so the title stays short.
+            let mut meta: Vec<&str> = Vec::new();
+            for f in ["model", "effort"] {
+                if let Some(v) = def.and_then(|d| d[f].as_str()) {
+                    meta.push(v);
+                }
+            }
+            if def.is_some_and(|d| d["decider"] == true) {
+                meta.push("decider");
+            }
+            if def.is_some_and(|d| d["writes"] == true) {
+                meta.push("writer");
+            }
+            let card = col()
+                .key(format!("flow-stage-{key}"))
+                .w(160.0)
+                .padding(10.0)
+                .gap(4.0)
+                .radius(k.radius.md)
+                .fill(if sel { k.c.layer_02 } else { k.c.layer_01 })
+                .border(
+                    if sel { 2.0 } else { 1.0 },
+                    if sel {
+                        k.c.border_focus
+                    } else if states.is_some() {
+                        tone_color(k, t)
+                    } else {
+                        k.c.border_base
+                    },
+                )
+                .child(
+                    row()
+                        .gap(6.0)
+                        .center_y()
+                        .child(glyph(tone_icon(t), 14.0, tone_color(k, t)))
+                        .child(
+                            text(name)
+                                .font(k.ty.text_small_medium)
+                                .color(k.c.text_base),
+                        ),
+                )
+                .child(text(label.to_string()).font(k.ty.text_xsmall).color(tone_color(k, t)))
+                .child(text(meta.join(" · ")).font(k.ty.text_xsmall).color(k.c.text_faint));
+            cc = cc.child(if states.is_some() {
+                let k2 = key.clone();
+                k.interactive(card.cursor(Cursor::Pointer)).on_press(move |s: &mut Hooked| {
+                    s.pages.flow_stage = if s.pages.flow_stage.as_deref() == Some(k2.as_str()) {
+                        None
+                    } else {
+                        Some(k2.clone())
+                    };
+                })
+            } else {
+                card
+            });
+        }
+        pipe = pipe.child(cc);
+    }
+    col()
+        .key("flow-pipe-box")
+        .w_full()
+        .padding(16.0)
+        .gap(10.0)
+        .radius(k.radius.lg)
+        .fill(k.c.bg_deep)
+        .border(1.0, k.c.border_weak)
+        .child(pipe)
+}
+
+/// A row of small toggles, one per option: the chip pattern of the web editor.
+fn chips(k: &Kit, key: String, items: Vec<(String, bool, Box<dyn Fn(&mut Hooked)>)>) -> El {
+    let mut r = row().key(key.clone()).gap(6.0).center_y().flex_wrap();
+    for (i, (label, on, f)) in items.into_iter().enumerate() {
+        r = r.child(
+            Button::new(label)
+                .variant(if on { ButtonVariant::Contrast } else { ButtonVariant::Outline })
+                .control_size(ControlSize::Small)
+                .on_press(move |s: &mut Hooked| f(s))
+                .build(k)
+                .key(format!("{key}-{i}")),
+        );
+    }
+    r
+}
+
+fn pick(k: &Kit, key: String, label: &str, opts: &[&str], cur: &str, on: impl Fn(&mut Hooked, usize) + Clone + 'static) -> El {
+    let idx = opts.iter().position(|o| *o == cur || (cur.is_empty() && *o == "inherit"));
+    field(
+        k,
+        label,
+        SegmentedControl::new(opts, idx)
+            .label(label.to_string())
+            .fit()
+            .on_pick(move |s: &mut Hooked, i, _| on(s, i))
+            .build(k)
+            .key(key),
+    )
+}
+
+/// The template editor: the flow's settings, a live preview of the pipeline, then one card per
+/// stage. Links between stages are picked by name; the server validates on save.
+fn flow_tpl_editor(s: &Hooked, k: &Kit) -> El {
+    use crate::pages::{FLOW_EFFORTS, FLOW_MODELS, FLOW_MODES};
+    let Some(f) = s.pages.flow_tpl.as_ref() else {
+        return el();
+    };
+    let preview = f.to_json();
+    let stages: Vec<Value> = preview["stages"].as_array().cloned().unwrap_or_default();
+
+    let mut acts = row().gap(8.0).center_y();
+    if f.id.is_some() {
+        acts = acts.child(small_btn(k, "Duplicate", "flow-tpl-dup".into(), |s| s.duplicate_flow_template()));
+    }
+    // The stage cards make a long page: Save sits up here too, next to the title.
+    acts = acts.child(
+        Button::new("Save")
+            .variant(ButtonVariant::Contrast)
+            .control_size(ControlSize::Small)
+            .on_press(|s: &mut Hooked| s.save_flow_template())
+            .build(k)
+            .key("flow-tpl-save-top"),
+    );
+    if let Some(id) = f.id.as_deref().filter(|_| !f.built_in) {
+        let label = if id == "feature" { "Restore built-in" } else { "Delete" };
+        acts = acts.child(small_btn(k, label, "flow-tpl-del".into(), |s| s.delete_flow_template()));
+    }
+
+    let mut c = col()
+        .key("flow-tpl-editor")
+        .w_full()
+        .max_w(980.0)
+        .padding(24.0)
+        .gap(12.0)
+        .child(
+            row()
+                .w_full()
+                .gap(10.0)
+                .center_y()
+                .child(
+                    text(if f.id.is_some() { "Edit template" } else { "New template" })
+                        .font(k.ty.ui_medium)
+                        .color(k.c.text_base),
+                )
+                .child(el().grow(1.0))
+                .child(acts),
+        )
+        .child(
+            row()
+                .w_full()
+                .gap(12.0)
+                .child(
+                    field(
+                        k,
+                        "NAME",
+                        TextInput::new(&f.name)
+                            .width(None)
+                            .on_edit(|s: &mut Hooked| &mut s.pages.flow_tpl.as_mut().unwrap().name)
+                            .build(k)
+                            .key("flow-tpl-name"),
+                    )
+                    .grow(1.0)
+                    .shrink(),
+                )
+                .child(
+                    field(
+                        k,
+                        "MAX LOOPS",
+                        TextInput::new(&f.max_loops)
+                            .width(None)
+                            .on_edit(|s: &mut Hooked| &mut s.pages.flow_tpl.as_mut().unwrap().max_loops)
+                            .build(k)
+                            .key("flow-tpl-loops"),
+                    )
+                    .w(110.0),
+                ),
+        )
+        .child(field(
+            k,
+            "DESCRIPTION",
+            TextInput::new(&f.description)
+                .width(None)
+                .on_edit(|s: &mut Hooked| &mut s.pages.flow_tpl.as_mut().unwrap().description)
+                .build(k)
+                .key("flow-tpl-desc"),
+        ))
+        .child(
+            Switch::new(f.worktree)
+                .label("Run in a new git worktree by default")
+                .on_toggle(|s: &mut Hooked| {
+                    if let Some(f) = s.pages.flow_tpl.as_mut() {
+                        f.worktree = !f.worktree;
+                    }
+                })
+                .build(k),
+        )
+        .child(pipeline(s, k, &stages, None));
+    if let Some(e) = f.error.as_ref() {
+        c = c.child(text(e.clone()).font(k.ty.text_small_medium).color(k.c.danger.fg).wrap());
+    }
+
+    for (i, st) in f.stages.iter().enumerate() {
+        let uid = st.uid;
+        let others: Vec<(u32, String)> = f
+            .stages
+            .iter()
+            .filter(|o| o.uid != uid)
+            .map(|o| {
+                let n = o.name.text.trim();
+                (o.uid, if n.is_empty() { o.key.text.clone() } else { n.to_string() })
+            })
+            .collect();
+        let after = chips(
+            k,
+            format!("flow-tpl-after-{uid}"),
+            others
+                .iter()
+                .map(|(o, n)| {
+                    let o = *o;
+                    let f: Box<dyn Fn(&mut Hooked)> = Box::new(move |s| s.toggle_tpl_after(uid, o));
+                    (n.clone(), st.after.contains(&o), f)
+                })
+                .collect(),
+        );
+        let mut card = col()
+            .key(format!("flow-tpl-stage-{uid}"))
+            .w_full()
+            .padding(14.0)
+            .gap(10.0)
+            .radius(k.radius.lg)
+            .fill(k.c.layer_01)
+            .border(1.0, if st.decider { k.c.info.border } else { k.c.border_weak })
+            .child(
+                row()
+                    .w_full()
+                    .gap(10.0)
+                    .center_y()
+                    .child(text(format!("{}", i + 1)).font(k.ty.text_small_medium).color(k.c.text_faint))
+                    .child(
+                        field(
+                            k,
+                            "KEY",
+                            TextInput::new(&st.key)
+                                .width(None)
+                                .on_edit(move |s: &mut Hooked| &mut s.tpl_stage(uid).key)
+                                .build(k)
+                                .key(format!("flow-tpl-key-{uid}")),
+                        )
+                        .w(160.0),
+                    )
+                    .child(
+                        field(
+                            k,
+                            "NAME",
+                            TextInput::new(&st.name)
+                                .width(None)
+                                .on_edit(move |s: &mut Hooked| &mut s.tpl_stage(uid).name)
+                                .build(k)
+                                .key(format!("flow-tpl-sname-{uid}")),
+                        )
+                        .grow(1.0)
+                        .shrink(),
+                    )
+                    .child(if f.stages.len() > 1 {
+                        Button::new("Remove")
+                            .icon(&icons::TRASH)
+                            .variant(ButtonVariant::GhostMuted)
+                            .control_size(ControlSize::Small)
+                            .on_press(move |s: &mut Hooked| s.remove_tpl_stage(uid))
+                            .build(k)
+                            .key(format!("flow-tpl-rm-{uid}"))
+                    } else {
+                        el()
+                    }),
+            )
+            .child(
+                row()
+                    .w_full()
+                    .gap(8.0)
+                    .center_y()
+                    .child(text("Runs after").font(k.ty.text_xsmall_medium).color(k.c.text_muted))
+                    .child(if others.is_empty() {
+                        text("nothing (first stage)").font(k.ty.text_xsmall).color(k.c.text_faint)
+                    } else {
+                        after
+                    }),
+            )
+            .child(field(
+                k,
+                "ROLE",
+                TextArea::new(&st.role)
+                    .width(None)
+                    .auto_grow(3, 12)
+                    .placeholder("What this stage does")
+                    .on_edit(move |s: &mut Hooked| &mut s.tpl_stage(uid).role)
+                    .build(k)
+                    .key(format!("flow-tpl-role-{uid}")),
+            ))
+            .child(
+                row()
+                    .w_full()
+                    .gap(12.0)
+                    .flex_wrap()
+                    .child(pick(k, format!("flow-tpl-model-{uid}"), "MODEL", &FLOW_MODELS, &st.model, move |s, i| {
+                        s.tpl_stage(uid).model = FLOW_MODELS[i].to_string()
+                    }))
+                    .child(pick(k, format!("flow-tpl-effort-{uid}"), "EFFORT", &FLOW_EFFORTS, &st.effort, move |s, i| {
+                        s.tpl_stage(uid).effort = FLOW_EFFORTS[i].to_string()
+                    }))
+                    .child(pick(k, format!("flow-tpl-mode-{uid}"), "MODE", &FLOW_MODES, &st.mode, move |s, i| {
+                        s.tpl_stage(uid).mode = FLOW_MODES[i].to_string()
+                    })),
+            )
+            .child(
+                row()
+                    .w_full()
+                    .gap(16.0)
+                    .center_y()
+                    .child(
+                        Switch::new(st.writes)
+                            .label("Writer (edits the code)")
+                            .on_toggle(move |s: &mut Hooked| {
+                                let x = s.tpl_stage(uid);
+                                x.writes = !x.writes;
+                            })
+                            .build(k),
+                    )
+                    .child(
+                        Switch::new(st.decider)
+                            .label("Decider (done / loop / escalate)")
+                            .on_toggle(move |s: &mut Hooked| s.toggle_tpl_decider(uid))
+                            .build(k),
+                    ),
+            );
+        if st.decider {
+            card = card.child(
+                row()
+                    .w_full()
+                    .gap(8.0)
+                    .center_y()
+                    .child(text("Loops back to").font(k.ty.text_xsmall_medium).color(k.c.text_accent))
+                    .child(chips(
+                        k,
+                        format!("flow-tpl-loop-{uid}"),
+                        others
+                            .iter()
+                            .map(|(o, n)| {
+                                let o = *o;
+                                let f: Box<dyn Fn(&mut Hooked)> = Box::new(move |s| {
+                                    let x = s.tpl_stage(uid);
+                                    x.loop_to = if x.loop_to == Some(o) { None } else { Some(o) };
+                                });
+                                (n.clone(), st.loop_to == Some(o), f)
+                            })
+                            .collect(),
+                    )),
+            );
+        }
+        c = c.child(card);
+    }
+
+    c.child(
+        row()
+            .w_full()
+            .gap(8.0)
+            .center_y()
+            .child(
+                Button::new("Add stage")
+                    .icon(&icons::PLUS)
+                    .variant(ButtonVariant::Outline)
+                    .on_press(|s: &mut Hooked| s.add_tpl_stage())
+                    .build(k)
+                    .key("flow-tpl-add"),
+            )
+            .child(el().grow(1.0))
+            .child(
+                Button::new("Close")
+                    .variant(ButtonVariant::GhostMuted)
+                    .on_press(|s: &mut Hooked| s.pages.flow_tpl = None)
+                    .build(k)
+                    .key("flow-tpl-close"),
+            )
+            .child(
+                Button::new("Save")
+                    .variant(ButtonVariant::Contrast)
+                    .on_press(|s: &mut Hooked| s.save_flow_template())
+                    .build(k)
+                    .key("flow-tpl-save"),
+            ),
+    )
+    .child(
+        text("Every stage is its own session: it gets the task, its role and the reports of the stages before it, and reports back with the flow_report MCP tool.")
+            .font(k.ty.text_xsmall)
+            .color(k.c.text_faint)
+            .wrap(),
+    )
+}
+
+fn small_btn(k: &Kit, label: &str, key: String, on: impl Fn(&mut Hooked) + 'static) -> El {
+    Button::new(label.to_string())
+        .variant(ButtonVariant::Outline)
+        .control_size(ControlSize::Small)
+        .on_press(move |s: &mut Hooked| on(s))
+        .build(k)
+        .key(key)
+}
+
+fn flow_detail(s: &Hooked, k: &Kit, run: &Value) -> El {
+    let pd = &s.pages;
+    let id = run["id"].as_str().unwrap_or("").to_string();
+    let status = run["status"].as_str().unwrap_or("");
+    let (badge, tone) = crate::flows::run_badge(run);
+    let stages = crate::flows::stages(run);
+    let decider = crate::flows::decider(run);
+    let max_loops = run["flow"]["maxLoops"].as_i64().unwrap_or(3);
+    let pass = run["iteration"].as_i64().unwrap_or(1);
+    let pending = crate::flows::has_pending(run);
+
+    let mut acts = row().gap(8.0).center_y();
+    if status == "running" {
+        acts = acts.child(small_btn(k, "Stop", format!("flow-stop-{id}"), |s| {
+            s.flow_act("stop")
+        }));
+    } else if status == "done" || status == "stopped" {
+        if status == "stopped" && pending {
+            acts = acts.child(small_btn(k, "Resume", format!("flow-resume-{id}"), |s| {
+                s.flow_act("continue")
+            }));
+        }
+        acts = acts.child(small_btn(k, "Delete", format!("flow-del-{id}"), |s| {
+            s.flow_act("delete")
+        }));
+    }
+
+    let mut c = col()
+        .key(format!("flow-{id}"))
+        .w_full()
+        .padding(24.0)
+        .gap(14.0)
+        .child(
+            row()
+                .w_full()
+                .gap(10.0)
+                .center_y()
+                .child(
+                    text(run["name"].as_str().unwrap_or("").to_string())
+                        .font(k.ty.ui_medium)
+                        .color(k.c.text_base)
+                        .shrink(),
+                )
+                .child(pill(k, badge, tone_color(k, tone), k.c.layer_02))
+                .child(el().grow(1.0))
+                .child(acts),
+        )
+        .child(
+            text(format!(
+                "{} · pass {pass}{} · {}{}",
+                run["flow"]["name"].as_str().unwrap_or(""),
+                if decider.is_some() {
+                    format!(" of {} max", max_loops + 1)
+                } else {
+                    String::new()
+                },
+                run["cwd"].as_str().unwrap_or(""),
+                if run["worktree"].is_object() {
+                    " (worktree)"
+                } else {
+                    ""
+                },
+            ))
+            .font(k.ty.text_xsmall)
+            .color(k.c.text_faint)
+            .wrap(),
+        );
+
+    if status == "needs-you" {
+        let mut btns = row().gap(8.0).center_y();
+        if pending {
+            btns = btns.child(small_btn(k, "Continue", "flow-continue".into(), |s| {
+                s.flow_act("continue")
+            }));
+        }
+        if let Some(to) = decider
+            .as_ref()
+            .and_then(|d| d["loopTo"].as_str())
+            .map(str::to_string)
+        {
+            btns = btns.child(small_btn(k, "Loop again", "flow-loop".into(), move |s| {
+                s.flow_rerun(to.clone(), true)
+            }));
+        }
+        btns = btns.child(small_btn(k, "Close run", "flow-close".into(), |s| {
+            s.flow_act("finish")
+        }));
+        c = c.child(
+            col()
+                .key("flow-banner")
+                .w_full()
+                .padding(12.0)
+                .gap(10.0)
+                .radius(k.radius.lg)
+                .fill(k.c.danger.bg)
+                .border(1.0, k.c.danger.border)
+                .child(
+                    row()
+                        .gap(8.0)
+                        .center_y()
+                        .child(glyph(&icons::BELL, 14.0, k.c.danger.icon))
+                        .child(
+                            text(
+                                run["note"]
+                                    .as_str()
+                                    .unwrap_or("The flow is waiting on you.")
+                                    .to_string(),
+                            )
+                            .font(k.ty.text_small_medium)
+                            .color(k.c.text_base)
+                            .wrap(),
+                        ),
+                )
+                .child(
+                    TextArea::new(&pd.flow_note)
+                        .width(None)
+                        .auto_grow(2, 6)
+                        .placeholder("Optional instructions for the next pass")
+                        .on_edit(|s: &mut Hooked| &mut s.pages.flow_note)
+                        .build(k)
+                        .key("flow-note"),
+                )
+                .child(btns),
+        );
+    }
+
+    c = c.child(pipeline(s, k, &stages, Some(&run["stages"])));
+    if let Some(d) = decider.as_ref() {
+        let to = d["loopTo"].as_str().unwrap_or("");
+        let to_name = stages
+            .iter()
+            .find(|x| x["key"].as_str() == Some(to))
+            .and_then(|x| x["name"].as_str())
+            .unwrap_or(to);
+        c = c.child(
+            row()
+                .gap(6.0)
+                .center_y()
+                .child(glyph(&icons::RESTART, 12.0, k.c.text_accent))
+                .child(
+                    text(format!(
+                        "{} loops back to {to_name} · at most {max_loops} loops · pass {pass}",
+                        d["name"].as_str().unwrap_or("Decider")
+                    ))
+                    .font(k.ty.text_xsmall)
+                    .color(k.c.text_accent),
+                ),
+        );
+    }
+
+    // The selected stage: its session, actions and every report it gave.
+    if let Some(key) = pd.flow_stage.clone()
+        && let Some(def) = stages
+            .iter()
+            .find(|x| x["key"].as_str() == Some(key.as_str()))
+    {
+        let st = &run["stages"][key.as_str()];
+        let sstatus = st["status"].as_str().unwrap_or("pending");
+        let mut sacts = row().gap(8.0).center_y();
+        if let Some(sid) = st["sessionId"].as_str().map(str::to_string) {
+            sacts = sacts.child(
+                Button::new("Open session")
+                    .icon(&icons::CONVERSE)
+                    .variant(ButtonVariant::Outline)
+                    .control_size(ControlSize::Small)
+                    .on_press(move |s: &mut Hooked| s.open_session(&sid))
+                    .build(k)
+                    .key("flow-open"),
+            );
+            if sstatus != "done" {
+                let k3 = key.clone();
+                sacts = sacts.child(small_btn(k, "Mark done", "flow-mark".into(), move |s| {
+                    s.flow_mark_done(k3.clone())
+                }));
+            }
+        }
+        if matches!(sstatus, "done" | "stalled" | "lost") {
+            let k4 = key.clone();
+            sacts = sacts.child(small_btn(
+                k,
+                "Re-run from here",
+                "flow-rerun".into(),
+                move |s| s.flow_rerun(k4.clone(), false),
+            ));
+        }
+        let mut sc = col()
+            .key(format!("flow-stage-detail-{key}"))
+            .w_full()
+            .padding(14.0)
+            .gap(10.0)
+            .radius(k.radius.lg)
+            .fill(k.c.layer_01)
+            .border(1.0, k.c.border_weak)
+            .child(
+                row()
+                    .w_full()
+                    .gap(8.0)
+                    .center_y()
+                    .child(
+                        text(def["name"].as_str().unwrap_or(&key).to_string())
+                            .font(k.ty.ui_medium)
+                            .color(k.c.text_base),
+                    )
+                    .child(el().grow(1.0))
+                    .child(sacts),
+            );
+        if sstatus != "done" && st["sessionId"].is_string() {
+            sc = sc.child(
+                text("Talk to the stage in its session; it moves on once it calls flow_report. Mark done takes its last message as the report.")
+                    .font(k.ty.text_xsmall)
+                    .color(k.c.text_faint)
+                    .wrap(),
+            );
+        }
+        let hist: Vec<&Value> = run["history"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter(|h| h["stage"].as_str() == Some(key.as_str()))
+            .collect();
+        if hist.is_empty() {
+            sc = sc.child(
+                text("No report yet.")
+                    .font(k.ty.text_small)
+                    .color(k.c.text_muted),
+            );
+        }
+        for h in hist.iter().rev() {
+            let verdict = h["verdict"]
+                .as_str()
+                .map(|v| format!(" · {v}"))
+                .unwrap_or_default();
+            sc = sc
+                .child(
+                    text(format!(
+                        "Pass {}{verdict}{} · {} ago",
+                        h["iteration"].as_i64().unwrap_or(1),
+                        if h["byUser"] == true {
+                            " · marked by you"
+                        } else {
+                            ""
+                        },
+                        fmt::ago_short(h["at"].as_str(), s.now)
+                    ))
+                    .font(k.ty.text_xsmall_medium)
+                    .color(k.c.text_muted),
+                )
+                .child(super::md(h["summary"].as_str().unwrap_or("").to_string()).build(k));
+        }
+        sc = sc.child(
+            text(def["role"].as_str().unwrap_or("").to_string())
+                .font(k.ty.text_xsmall)
+                .color(k.c.text_faint)
+                .wrap(),
+        );
+        c = c.child(sc);
+    } else {
+        c = c.child(
+            text("Click a stage to see its reports and open its session.")
+                .font(k.ty.text_xsmall)
+                .color(k.c.text_faint),
+        );
+    }
+
+    c = c
+        .child(section_title(k, "Task"))
+        .child(super::md(run["task"].as_str().unwrap_or("").to_string()).build(k));
+    let mut log = col().w_full().gap(3.0);
+    for l in run["log"].as_array().into_iter().flatten().rev().take(12) {
+        log = log.child(
+            text(format!(
+                "{} ago  {}",
+                fmt::ago_short(l["at"].as_str(), s.now),
+                l["text"].as_str().unwrap_or("")
+            ))
+            .font(k.ty.text_xsmall)
+            .color(k.c.text_muted),
+        );
+    }
+    c.child(section_title(k, "Log")).child(log)
+}

@@ -110,6 +110,132 @@ impl CronForm {
     }
 }
 
+/// The Flows page's "New run" form.
+pub struct FlowForm {
+    pub template: usize,
+    pub cwd: TextEdit,
+    pub task: TextEdit,
+    pub name: TextEdit,
+    pub worktree: bool,
+}
+
+/// One stage in the template editor. `uid` stays put while the key is edited, so the links
+/// between stages (`after`, `loop_to`) survive a rename; keys are resolved on save.
+pub struct StageForm {
+    pub uid: u32,
+    pub key: TextEdit,
+    pub name: TextEdit,
+    pub role: TextEdit,
+    pub after: Vec<u32>,
+    pub decider: bool,
+    pub loop_to: Option<u32>,
+    pub writes: bool,
+    pub model: String,
+    pub effort: String,
+    pub mode: String,
+}
+
+/// The Flows page's template editor.
+pub struct TplForm {
+    pub id: Option<String>,
+    pub built_in: bool,
+    pub name: TextEdit,
+    pub description: TextEdit,
+    pub max_loops: TextEdit,
+    pub worktree: bool,
+    pub stages: Vec<StageForm>,
+    pub next_uid: u32,
+    pub error: Option<String>,
+}
+
+pub const FLOW_MODELS: [&str; 4] = ["inherit", "opus", "sonnet", "haiku"];
+pub const FLOW_EFFORTS: [&str; 6] = ["inherit", "low", "medium", "high", "xhigh", "max"];
+pub const FLOW_MODES: [&str; 5] = ["default", "acceptEdits", "auto", "plan", "bypassPermissions"];
+
+impl TplForm {
+    pub fn from(t: Option<&Value>) -> TplForm {
+        let st = |v: &Value, k: &str| v[k].as_str().unwrap_or("").to_string();
+        let list: Vec<Value> = t
+            .and_then(|t| t["stages"].as_array().cloned())
+            .unwrap_or_else(|| vec![json!({ "key": "work", "name": "Work", "after": [] })]);
+        let uid_of = |key: &str| list.iter().position(|x| x["key"].as_str() == Some(key)).map(|i| i as u32);
+        let stages = list
+            .iter()
+            .enumerate()
+            .map(|(i, v)| StageForm {
+                uid: i as u32,
+                key: TextEdit::new(st(v, "key")),
+                name: TextEdit::new(st(v, "name")),
+                role: TextEdit::new(st(v, "role")),
+                after: v["after"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|a| uid_of(a.as_str()?))
+                    .collect(),
+                decider: v["decider"] == true,
+                loop_to: v["loopTo"].as_str().and_then(uid_of),
+                writes: v["writes"] == true,
+                model: st(v, "model"),
+                effort: st(v, "effort"),
+                mode: v["permissionMode"].as_str().unwrap_or("default").to_string(),
+            })
+            .collect::<Vec<_>>();
+        TplForm {
+            id: t.and_then(|t| t["id"].as_str()).map(str::to_string),
+            built_in: t.is_some_and(|t| t["builtIn"] == true),
+            name: TextEdit::new(t.map_or("New flow".into(), |t| st(t, "name"))),
+            description: TextEdit::new(t.map_or(String::new(), |t| st(t, "description"))),
+            max_loops: TextEdit::new(t.and_then(|t| t["maxLoops"].as_i64()).unwrap_or(3).to_string()),
+            worktree: t.is_none_or(|t| t["worktree"] != false),
+            next_uid: stages.len() as u32,
+            stages,
+            error: None,
+        }
+    }
+
+    fn key_of(&self, uid: u32) -> Option<String> {
+        self.stages
+            .iter()
+            .find(|x| x.uid == uid)
+            .map(|x| x.key.text.trim().to_lowercase())
+    }
+
+    /// The template as `/api/flows` takes it (and as the preview draws it).
+    pub fn to_json(&self) -> Value {
+        let stages: Vec<Value> = self
+            .stages
+            .iter()
+            .map(|x| {
+                let opt = |v: &str| if v.is_empty() || v == "inherit" { Value::Null } else { json!(v) };
+                json!({
+                    "key": x.key.text.trim().to_lowercase(),
+                    "name": x.name.text.trim(),
+                    "role": x.role.text.trim(),
+                    "after": x.after.iter().filter_map(|u| self.key_of(*u)).collect::<Vec<_>>(),
+                    "decider": x.decider,
+                    "loopTo": if x.decider { x.loop_to.and_then(|u| self.key_of(u)) } else { None },
+                    "writes": x.writes,
+                    "model": opt(&x.model),
+                    "effort": opt(&x.effort),
+                    "permissionMode": x.mode,
+                })
+            })
+            .collect();
+        let mut t = json!({
+            "name": self.name.text.trim(),
+            "description": self.description.text.trim(),
+            "maxLoops": self.max_loops.text.trim().parse::<i64>().unwrap_or(3),
+            "worktree": self.worktree,
+            "stages": stages,
+        });
+        if let Some(id) = self.id.as_ref() {
+            t["id"] = json!(id);
+        }
+        t
+    }
+}
+
 #[derive(Default)]
 pub struct PageData {
     pub stats_range: usize,
@@ -139,6 +265,17 @@ pub struct PageData {
     pub cron: Vec<Value>,
     pub cron_loaded: bool,
     pub cron_form: Option<CronForm>,
+
+    /// `{ templates, runs }` from `/api/flows`.
+    pub flows: Option<Value>,
+    pub flows_loading: bool,
+    /// A tick landed during a load: load once more when it returns.
+    pub flows_stale: bool,
+    pub flow_run: Option<String>,
+    pub flow_stage: Option<String>,
+    pub flow_form: Option<FlowForm>,
+    pub flow_note: TextEdit,
+    pub flow_tpl: Option<TplForm>,
 
     pub skills: Option<Vec<Value>>,
     pub skill_open: Option<String>,
@@ -228,6 +365,14 @@ impl Hooked {
                     pd.skill_open = Some(id);
                 }
             }
+            Page::Flows => {
+                pd.flows = api::get("/api/flows").ok();
+                pd.flow_run = pd
+                    .flows
+                    .as_ref()
+                    .and_then(|v| v["runs"][0]["id"].as_str())
+                    .map(str::to_string);
+            }
             Page::Cron => {
                 pd.cron = api::get("/api/cron")
                     .ok()
@@ -308,6 +453,10 @@ impl Hooked {
                         }
                     },
                 );
+                true
+            }
+            Page::Flows if pd.flows.is_none() && !pd.flows_loading => {
+                self.load_flows();
                 true
             }
             Page::Cron if !pd.cron_loaded => {
@@ -631,6 +780,7 @@ impl Hooked {
             Page::Digest => self.pages.digests_loaded = false,
             Page::Memory => self.pages.memory = None,
             Page::Cron => self.pages.cron_loaded = false,
+            Page::Flows => self.pages.flows = None,
             Page::GitHub => {
                 self.pages.github = None;
                 self.pages.gh_menu = None;
@@ -683,6 +833,298 @@ impl Hooked {
                 Err(e) => s.flash(format!("✗ Digest: {e}"), true),
             },
         );
+    }
+
+    /// Rereads the flows. Called on page open and on every `/api/stream` tick while the page is
+    /// up, so the pipeline follows live.
+    pub fn load_flows(&mut self) {
+        if self.pages.flows_loading {
+            self.pages.flows_stale = true;
+            return;
+        }
+        self.pages.flows_loading = true;
+        self.spawn(
+            || api::get("/api/flows"),
+            |s, r, _| {
+                s.pages.flows_loading = false;
+                match r {
+                    Ok(v) => {
+                        if s.pages.flow_run.is_none() && s.pages.flow_form.is_none() {
+                            s.pages.flow_run = v["runs"][0]["id"].as_str().map(str::to_string);
+                        }
+                        s.pages.flows = Some(v);
+                    }
+                    Err(e) => s.flash(format!("✗ Flows: {e}"), true),
+                }
+                if std::mem::take(&mut s.pages.flows_stale) {
+                    s.load_flows();
+                }
+            },
+        );
+    }
+
+    /// The selected run, as last loaded.
+    pub fn flow_run(&self) -> Option<&Value> {
+        let id = self.pages.flow_run.as_deref()?;
+        self.pages.flows.as_ref()?["runs"]
+            .as_array()?
+            .iter()
+            .find(|r| r["id"].as_str() == Some(id))
+    }
+
+    pub fn open_flow_run(&mut self, id: String) {
+        self.pages.flow_form = None;
+        self.pages.flow_tpl = None;
+        if self.pages.flow_run.as_deref() != Some(id.as_str()) {
+            self.pages.flow_stage = None;
+        }
+        self.pages.flow_run = Some(id);
+    }
+
+    pub fn new_flow_run(&mut self) {
+        let cwd = self
+            .detail
+            .as_ref()
+            .and_then(|d| d.session.project.clone())
+            .unwrap_or_default();
+        let mut task = TextEdit::new("");
+        task.focused = true;
+        self.pages.flow_tpl = None;
+        self.pages.flow_form = Some(FlowForm {
+            template: 0,
+            cwd: TextEdit::new(cwd),
+            task,
+            name: TextEdit::new(""),
+            worktree: true,
+        });
+    }
+
+    /// A POST to `/api/flows`, then a reload.
+    pub fn flow_op(&mut self, body: Value, done: &'static str) {
+        self.spawn(
+            move || api::post("/api/flows", body),
+            move |s, r, _| {
+                match r {
+                    Ok(_) => s.flash(format!("✓ {done}"), false),
+                    Err(e) => s.flash(format!("✗ {e}"), true),
+                }
+                s.pages.flow_note = TextEdit::new("");
+                s.load_flows();
+                s.refresh_sessions();
+            },
+        );
+    }
+
+    pub fn start_flow_run(&mut self) {
+        let Some(f) = self.pages.flow_form.as_ref() else {
+            return;
+        };
+        let tpl = self
+            .pages
+            .flows
+            .as_ref()
+            .and_then(|v| v["templates"].get(f.template))
+            .and_then(|t| t["id"].as_str())
+            .unwrap_or("feature")
+            .to_string();
+        let body = json!({
+            "op": "start",
+            "templateId": tpl,
+            "cwd": f.cwd.text.trim(),
+            "task": f.task.text.trim(),
+            "name": f.name.text.trim(),
+            "worktree": f.worktree,
+        });
+        self.flash("Starting the flow…", false);
+        self.spawn(
+            move || api::post("/api/flows", body),
+            |s, r, _| match r {
+                Ok(v) => {
+                    s.pages.flow_form = None;
+                    s.pages.flow_stage = None;
+                    s.pages.flow_run = v["run"]["id"].as_str().map(str::to_string);
+                    s.flash("✓ Flow started", false);
+                    s.load_flows();
+                    s.refresh_sessions();
+                }
+                Err(e) => s.flash(format!("✗ {e}"), true),
+            },
+        );
+    }
+
+    /// Run-level actions: stop, continue, finish, delete.
+    pub fn flow_act(&mut self, op: &'static str) {
+        let Some(id) = self.pages.flow_run.clone() else {
+            return;
+        };
+        if op == "delete" {
+            self.pages.flow_run = None;
+        }
+        let done = match op {
+            "stop" => "Stopped",
+            "continue" => "Resumed",
+            "finish" => "Closed",
+            _ => "Deleted",
+        };
+        self.flow_op(json!({ "op": op, "id": id }), done);
+    }
+
+    /// Re-runs `stage` and what follows; `looped` counts as a new pass (the decider's `loop`).
+    pub fn flow_rerun(&mut self, stage: String, looped: bool) {
+        let Some(id) = self.pages.flow_run.clone() else {
+            return;
+        };
+        let note = self.pages.flow_note.text.trim().to_string();
+        self.flow_op(
+            json!({ "op": "rerun", "id": id, "stage": stage, "loop": looped, "note": note }),
+            if looped { "Looping again" } else { "Re-running" },
+        );
+    }
+
+    pub fn flow_mark_done(&mut self, stage: String) {
+        let Some(id) = self.pages.flow_run.clone() else {
+            return;
+        };
+        self.flow_op(
+            json!({ "op": "markDone", "id": id, "stage": stage }),
+            "Marked done",
+        );
+    }
+
+    /// Opens the template editor on `id`, or on a blank template.
+    pub fn edit_flow_template(&mut self, id: Option<String>) {
+        let t = id.and_then(|id| {
+            self.pages.flows.as_ref()?["templates"]
+                .as_array()?
+                .iter()
+                .find(|t| t["id"].as_str() == Some(id.as_str()))
+                .cloned()
+        });
+        self.pages.flow_form = None;
+        self.pages.flow_tpl = Some(TplForm::from(t.as_ref()));
+    }
+
+    /// The editor turns into a new template with the same stages.
+    pub fn duplicate_flow_template(&mut self) {
+        if let Some(f) = self.pages.flow_tpl.as_mut() {
+            f.id = None;
+            f.built_in = false;
+            f.name = TextEdit::new(format!("{} (copy)", f.name.text.trim()));
+        }
+    }
+
+    /// The stage `uid` of the template being edited.
+    pub fn tpl_stage(&mut self, uid: u32) -> &mut StageForm {
+        self.pages
+            .flow_tpl
+            .as_mut()
+            .and_then(|f| f.stages.iter_mut().find(|x| x.uid == uid))
+            .expect("stage of the open template")
+    }
+
+    /// A new stage after the last non-decider one, placed before the decider.
+    pub fn add_tpl_stage(&mut self) {
+        let Some(f) = self.pages.flow_tpl.as_mut() else {
+            return;
+        };
+        let uid = f.next_uid;
+        f.next_uid += 1;
+        let mut n = f.stages.len() + 1;
+        while f.stages.iter().any(|x| x.key.text == format!("stage-{n}")) {
+            n += 1;
+        }
+        let last = f.stages.iter().rev().find(|x| !x.decider).map(|x| x.uid);
+        let stage = StageForm {
+            uid,
+            key: TextEdit::new(format!("stage-{n}")),
+            name: TextEdit::new(format!("Stage {n}")),
+            role: TextEdit::new(""),
+            after: last.into_iter().collect(),
+            decider: false,
+            loop_to: None,
+            writes: false,
+            model: String::new(),
+            effort: String::new(),
+            mode: "default".into(),
+        };
+        // The decider waits on the new stage too, and stays last.
+        match f.stages.iter().position(|x| x.decider) {
+            Some(i) => {
+                f.stages[i].after.retain(|a| Some(*a) != last);
+                f.stages[i].after.push(uid);
+                f.stages.insert(i, stage);
+            }
+            None => f.stages.push(stage),
+        }
+    }
+
+    pub fn remove_tpl_stage(&mut self, uid: u32) {
+        let Some(f) = self.pages.flow_tpl.as_mut() else {
+            return;
+        };
+        f.stages.retain(|x| x.uid != uid);
+        for x in &mut f.stages {
+            x.after.retain(|a| *a != uid);
+            if x.loop_to == Some(uid) {
+                x.loop_to = None;
+            }
+        }
+    }
+
+    pub fn toggle_tpl_after(&mut self, uid: u32, other: u32) {
+        let st = self.tpl_stage(uid);
+        match st.after.iter().position(|a| *a == other) {
+            Some(i) => {
+                st.after.remove(i);
+            }
+            None => st.after.push(other),
+        }
+    }
+
+    /// One decider per flow: making a stage the decider demotes the previous one.
+    pub fn toggle_tpl_decider(&mut self, uid: u32) {
+        let Some(f) = self.pages.flow_tpl.as_mut() else {
+            return;
+        };
+        let on = !f.stages.iter().any(|x| x.uid == uid && x.decider);
+        for x in &mut f.stages {
+            x.decider = on && x.uid == uid;
+        }
+    }
+
+    pub fn save_flow_template(&mut self) {
+        let Some(f) = self.pages.flow_tpl.as_mut() else {
+            return;
+        };
+        f.error = None;
+        let body = json!({ "op": "saveTemplate", "template": f.to_json() });
+        self.spawn(
+            move || api::post("/api/flows", body),
+            |s, r, _| match r {
+                Ok(v) => {
+                    if let Some(f) = s.pages.flow_tpl.as_mut() {
+                        f.id = v["template"]["id"].as_str().map(str::to_string);
+                        f.built_in = false;
+                    }
+                    s.flash("✓ Template saved", false);
+                    s.load_flows();
+                }
+                Err(e) => {
+                    if let Some(f) = s.pages.flow_tpl.as_mut() {
+                        f.error = Some(e.to_string());
+                    }
+                }
+            },
+        );
+    }
+
+    /// Deletes the template; for the built-in one, drops the stored copy (the original returns).
+    pub fn delete_flow_template(&mut self) {
+        let Some(id) = self.pages.flow_tpl.as_ref().and_then(|f| f.id.clone()) else {
+            return;
+        };
+        self.pages.flow_tpl = None;
+        self.flow_op(json!({ "op": "deleteTemplate", "id": id }), "Template deleted");
     }
 
     pub fn load_cron(&mut self) {
@@ -1101,5 +1543,40 @@ mod gh_tests {
         assert_eq!(gh_tab_after_pick(3, true, false), 2);
         assert_eq!(gh_tab_after_pick(0, true, false), 0);
         assert_eq!(gh_tab_after_pick(2, true, true), 2);
+    }
+}
+
+#[cfg(test)]
+mod flow_tpl_tests {
+    use super::*;
+
+    fn feature() -> Value {
+        json!({
+            "id": "feature", "name": "Feature", "maxLoops": 3, "worktree": true,
+            "stages": [
+                { "key": "pilot", "name": "Pilot", "role": "r", "after": [], "model": "opus" },
+                { "key": "build", "name": "Build", "role": "r", "after": ["pilot"], "writes": true },
+                { "key": "decide", "name": "Decide", "role": "r", "after": ["build"], "decider": true, "loopTo": "build" },
+            ]
+        })
+    }
+
+    #[test]
+    fn round_trips_a_template() {
+        let out = TplForm::from(Some(&feature())).to_json();
+        assert_eq!(out["stages"][1]["after"], json!(["pilot"]));
+        assert_eq!(out["stages"][2]["loopTo"], json!("build"));
+        assert_eq!(out["stages"][0]["model"], json!("opus"));
+        assert_eq!(out["stages"][1]["model"], Value::Null);
+        assert_eq!(out["id"], json!("feature"));
+    }
+
+    #[test]
+    fn renaming_a_stage_keeps_its_links() {
+        let mut f = TplForm::from(Some(&feature()));
+        f.stages[1].key = TextEdit::new("implement");
+        let out = f.to_json();
+        assert_eq!(out["stages"][2]["after"], json!(["implement"]));
+        assert_eq!(out["stages"][2]["loopTo"], json!("implement"));
     }
 }

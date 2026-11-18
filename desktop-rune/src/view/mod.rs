@@ -98,6 +98,7 @@ pub fn view(s: &Hooked, cx: &mut Cx<Hooked>) -> El {
         Page::Digest => pages::digest(s, &k),
         Page::Memory => pages::memory(s, &k),
         Page::Cron => pages::cron(s, &k),
+        Page::Flows => pages::flows(s, &k),
         Page::GitHub => pages::github(s, &k, &mut layer),
         Page::Incidents => incidents::view(s, &k),
         Page::Skills => pages::skills(s, &k),
@@ -215,7 +216,21 @@ impl Shadows for El {
     }
 }
 
-fn topbar(s: &Hooked, k: &Kit, inset: f32, _layer: &mut Vec<El>) -> El {
+/// The pages the top bar can show next to Deck and Sessions: (settings key, element key, label,
+/// icon, page), in tab order.
+const NAV_PAGES: [(&str, &str, &str, &Icon, Page); 9] = [
+    ("stats", "tb-stats", "Stats", &icons::CHART, Page::Stats),
+    ("digest", "tb-digest", "Digest", &icons::BOOK, Page::Digest),
+    ("memory", "tb-memory", "Memory", &icons::BRAIN, Page::Memory),
+    ("cron", "tb-cron", "Cron", &icons::TIMER, Page::Cron),
+    ("flows", "tb-flows", "Flows", &icons::WORKFLOW, Page::Flows),
+    ("github", "tb-github", "GitHub", &icons::GITHUB, Page::GitHub),
+    ("incidents", "tb-incidents", "Incidents", &icons::SIREN, Page::Incidents),
+    ("skills", "tb-skills", "Skills", &icons::SPARKLE, Page::Skills),
+    ("prompts", "tb-prompts", "Prompts", &icons::BOOK, Page::Prompts),
+];
+
+fn topbar(s: &Hooked, k: &Kit, inset: f32, layer: &mut Vec<El>) -> El {
     let space = |key: &'static str,
                  label: &'static str,
                  i: &'static Icon,
@@ -433,6 +448,76 @@ fn topbar(s: &Hooked, k: &Kit, inset: f32, _layer: &mut Vec<El>) -> El {
         } else {
             "hooked is unreachable on localhost:4123"
         });
+    // Pages picked in Settings → navigation are tabs; the others (and Incidents, once the
+    // incident.io app is there) sit in a "More" menu, as on the web. The open page always shows
+    // as a tab, so you can see where you are.
+    let (shown, hidden): (Vec<_>, Vec<_>) = NAV_PAGES
+        .iter()
+        .copied()
+        .filter(|t| t.4 != Page::Incidents || s.incidents_on() || s.page == Page::Incidents)
+        .partition(|t| s.nav_tab(t.0) || s.page == t.4);
+    let more = (!hidden.is_empty()).then(|| {
+        let open = s.popup == Some(Popup::Nav);
+        // Open incidents still show when their tab is tucked away.
+        let pending = hidden
+            .iter()
+            .any(|t| t.4 == Page::Incidents)
+            .then(|| s.inc.mine_open())
+            .filter(|n| *n > 0);
+        let mut trigger = row()
+            .key("tb-more")
+            .role("button")
+            .label("More pages")
+            .h(28.0)
+            .px(10.0)
+            .gap(6.0)
+            .center_y()
+            .radius(k.radius.md)
+            .cursor(Cursor::Pointer)
+            .fill(if open { k.c.layer_02 } else { Color::TRANSPARENT })
+            .child(text("More").font(k.ty.ui_medium).color(k.c.text_muted))
+            .child(glyph(&icons::CHEVRON_DOWN, 12.0, k.c.icon_muted));
+        if let Some(n) = pending {
+            trigger = trigger.child(
+                row()
+                    .h(16.0)
+                    .min_w(16.0)
+                    .px(5.0)
+                    .center()
+                    .radius(8.0)
+                    .fill(k.c.warning.icon)
+                    .child(
+                        text(n.to_string())
+                            .font(k.ty.text_xsmall_medium)
+                            .color(k.c.white),
+                    ),
+            );
+        }
+        let trigger = k.interactive(trigger).on_press(|s: &mut Hooked| {
+            s.popup = if s.popup == Some(Popup::Nav) {
+                None
+            } else {
+                Some(Popup::Nav)
+            }
+        });
+        let mut menu = Menu::new("tb-more-menu")
+            .trigger(trigger)
+            .open(open)
+            .min_width(200.0)
+            .on_close(|s: &mut Hooked| s.popup = None);
+        for (_, _, label, icon, page) in hidden {
+            let mut item = MenuItem::new(label)
+                .icon(icon)
+                .on_select(move |s: &mut Hooked| s.go(page));
+            if page == Page::Incidents
+                && let Some(n) = pending
+            {
+                item = item.badge(n.to_string());
+            }
+            menu = menu.item(item);
+        }
+        menu.build(k, layer)
+    });
     row()
         .key("topbar")
         .w_full()
@@ -464,53 +549,12 @@ fn topbar(s: &Hooked, k: &Kit, inset: f32, _layer: &mut Vec<El>) -> El {
                 .center_y()
                 .child(deck)
                 .children(s.nav_tab("sessions").then_some(sessions))
-                .children(
-                    [
-                        ("stats", "tb-stats", "Stats", &icons::CHART, Page::Stats),
-                        ("digest", "tb-digest", "Digest", &icons::BOOK, Page::Digest),
-                        ("memory", "tb-memory", "Memory", &icons::BRAIN, Page::Memory),
-                        ("cron", "tb-cron", "Cron", &icons::TIMER, Page::Cron),
-                        (
-                            "github",
-                            "tb-github",
-                            "GitHub",
-                            &icons::GITHUB,
-                            Page::GitHub,
-                        ),
-                        (
-                            "skills",
-                            "tb-skills",
-                            "Skills",
-                            &icons::SPARKLE,
-                            Page::Skills,
-                        ),
-                        (
-                            "prompts",
-                            "tb-prompts",
-                            "Prompts",
-                            &icons::BOOK,
-                            Page::Prompts,
-                        ),
-                    ]
-                    .into_iter()
-                    .filter(|t| s.nav_tab(t.0) || s.page == t.4)
-                    .map(|(_, key, label, icon, page)| {
-                        space(key, label, icon, s.page == page, None)
-                            .on_press(move |s: &mut Hooked| s.go(page))
-                    }),
-                )
-                .children(
-                    (s.incidents_on() || s.page == Page::Incidents).then(|| {
-                        space(
-                            "tb-incidents",
-                            "Incidents",
-                            &icons::SIREN,
-                            s.page == Page::Incidents,
-                            Some(s.inc.mine_open()),
-                        )
-                        .on_press(|s: &mut Hooked| s.go(Page::Incidents))
-                    }),
-                ),
+                .children(shown.into_iter().map(|(_, key, label, icon, page)| {
+                    let badge = (page == Page::Incidents).then(|| s.inc.mine_open());
+                    space(key, label, icon, s.page == page, badge)
+                        .on_press(move |s: &mut Hooked| s.go(page))
+                }))
+                .children(more),
         )
         .child(
             row()
