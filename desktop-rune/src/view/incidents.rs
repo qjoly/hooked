@@ -1267,26 +1267,44 @@ fn merge_dialog(s: &Hooked, k: &Kit, f: &MergeForm) -> El {
             .center_y()
             .child(
                 text(if f.items.len() == 1 {
-                    "Merge it into"
+                    "Merge it into incident"
                 } else {
-                    "Or merge them all into"
+                    "Or merge them all into incident"
                 })
                 .font(k.ty.text_small)
                 .color(k.c.text_muted),
             )
             .child(
                 TextInput::new(&f.other)
-                    .placeholder("INC-123")
-                    .width(Some(140.0))
+                    .placeholder("123")
+                    .width(Some(120.0))
                     .on_edit(|s: &mut Hooked| {
                         let f = s.inc.merge.as_mut().expect("the merge dialog is open");
                         f.error = None;
                         &mut f.other
                     })
+                    .on_change(|s: &mut Hooked, _| s.lookup_merge_target())
                     .build(k)
                     .key("inc-merge-other"),
+            )
+            .child(
+                small("Paste")
+                    .icon(&icons::COPY)
+                    .disabled(f.busy)
+                    .on_press(|s: &mut Hooked| s.paste_merge_target())
+                    .build(k)
+                    .key("inc-merge-paste"),
             ),
     );
+    body = body.child(note(
+        k,
+        "The number is enough: INC- is optional, and a pasted incident link works too.",
+        k.c.text_faint,
+    ));
+    // The incident a typed number points at, shown before anything is merged into it.
+    if typed {
+        body = body.child(merge_target_card(s, k, f));
+    }
     let ready = plan.args().is_ok();
     let target = plan.target.as_ref().map(|t| t.1.clone());
     if let (true, Some(t)) = (ready, target.as_ref()) {
@@ -1359,6 +1377,53 @@ fn merge_dialog(s: &Hooked, k: &Kit, f: &MergeForm) -> El {
             s.inc.merge = None;
         }
     })
+}
+
+/// The incident typed as the merge target: who it is, or why it cannot be used.
+fn merge_target_card(s: &Hooked, k: &Kit, f: &MergeForm) -> El {
+    let r = crate::incidents::normalize_reference(&f.other.text).unwrap_or_default();
+    let card = col()
+        .key("inc-merge-target")
+        .w_full()
+        .padding(10.0)
+        .gap(4.0)
+        .radius(k.radius.md);
+    match f.typed_target() {
+        None => card
+            .fill(k.c.layer_01)
+            .border(1.0, k.c.border_weak)
+            .child(note(k, format!("Looking up {r}…"), k.c.text_muted)),
+        Some(Err(e)) => card
+            .fill(k.c.danger.bg)
+            .border(1.0, k.c.danger.border)
+            .child(note(k, format!("✗ {r}: {e}"), k.c.danger.fg)),
+        Some(Ok(i)) => {
+            let mut about: Vec<String> = vec![i.status.name.clone()];
+            if let Some(sev) = i.severity.as_ref() {
+                about.push(sev.name.clone());
+            }
+            if let Some(l) = i.lead() {
+                about.push(format!("lead {}", l.user));
+            }
+            about.push(format!("reported {} ago", fmt::ago_short(Some(&i.reported_at), s.now)));
+            let blocked = mergeable(i).err();
+            let mut c = card
+                .fill(if blocked.is_some() { k.c.danger.bg } else { k.c.info.bg })
+                .border(1.0, if blocked.is_some() { k.c.danger.border } else { k.c.info.border })
+                .child(note(k, "Target", k.c.text_faint))
+                .child(
+                    text(format!("{} · {}", i.reference, i.name))
+                        .font(k.ty.text_small_medium)
+                        .color(k.c.text_base)
+                        .wrap(),
+                )
+                .child(note(k, about.join(" · "), k.c.text_muted));
+            if let Some(why) = blocked {
+                c = c.child(note(k, format!("✗ It cannot take a merge: {why}."), k.c.danger.fg));
+            }
+            c
+        }
+    }
 }
 
 fn role_dialog(k: &Kit, f: &RoleForm) -> El {
