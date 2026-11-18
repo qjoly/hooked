@@ -109,7 +109,7 @@ and dark, with rounded or square corners, picked in Settings or the palette.
   message, cost breakdown, copy as Markdown, focus mode, and up to four split panes.
 - **Review**: go to definition (⌘-click a line number to pick one of its names, or double-click
   a name then F12): the declaration opens in a card under the line, with candidates when it is
-  ambiguous, more lines on demand and Esc to close; a resizable files rail with reviewed ticks (v),
+  ambiguous, more lines on demand and Esc to close; a resizable files rail with reviewed ticks (v) that fold the file,
   binary files and who changed a file (a command, a subagent), a prompt filter, a branch picker
   (repo, branch and base with a filter, commits), Review with Claude, a resizable
   comments panel (edit, archive, restore, and a jump that brings back the scope a comment was

@@ -341,8 +341,8 @@ impl LensData {
 
     /// Puts a scope's diff on screen. The diff is read again each time the session moves, and
     /// most of the time it has not changed: it is then left as it is, since replacing it
-    /// folds every opened range again and drops the line selection.
-    fn show(&mut self, s: Sections) {
+    /// folds every opened range again and drops the line selection. True when it replaced it.
+    fn show(&mut self, s: Sections) -> bool {
         let shown = self.diff.files();
         let same = s.files.len() == shown.len()
             && s.files.iter().zip(shown).all(|(a, b)| {
@@ -359,6 +359,7 @@ impl LensData {
         self.anchors = s.anchors;
         self.fps = s.fps;
         self.badges = s.badges;
+        !same
     }
 }
 
@@ -1379,7 +1380,7 @@ impl Hooked {
                             serde_json::from_value(v["changes"].clone()).unwrap_or_default();
                         s.lens_data.diff_count = changes.len();
                         let root = v["root"].as_str().map(str::to_string);
-                        s.lens_data.show(file_diffs(
+                        s.show_diff(file_diffs(
                             &changes,
                             root.as_deref(),
                             &format!("br:{key}"),
@@ -1726,7 +1727,21 @@ impl Hooked {
             .count()
     }
 
-    /// Ticking a file moves on to the next one still to review, as the web lens does.
+    /// Puts a scope's diff on screen with the files already reviewed folded, as ticking them
+    /// left them. A diff read again unchanged is left alone, so a reviewed file opened by hand
+    /// stays open.
+    fn show_diff(&mut self, sections: Sections) {
+        if self.lens_data.show(sections) {
+            for i in 0..self.lens_data.diff.files().len() {
+                if self.is_reviewed(i) {
+                    self.lens_data.diff.set_collapsed(i, true);
+                }
+            }
+        }
+    }
+
+    /// Ticking a file folds it, as on GitHub, and moves on to the next one still to review, as
+    /// the web lens does. Un-ticking it opens it again.
     pub fn toggle_reviewed(&mut self, file: usize, tx: Option<&mut rune::Tx>) {
         let Some((key, fp)) = self.review_key(file) else {
             return;
@@ -1747,14 +1762,20 @@ impl Hooked {
         }
         let all = self.reviewed.clone();
         self.save_pref("reviewed", &all);
-        if marking && let Some(tx) = tx {
+        let was_folded = self.lens_data.diff.collapsed(file);
+        self.lens_data.diff.set_collapsed(file, marking);
+        let Some(tx) = tx else {
+            return;
+        };
+        if marking {
             let n = self.lens_data.diff.files().len();
-            if let Some(next) = (1..n)
+            let next = (1..n)
                 .map(|d| (file + d) % n)
-                .find(|&i| !self.is_reviewed(i))
-            {
-                self.lens_data.diff.scroll_to_file(next, tx);
-            }
+                .find(|&i| !self.is_reviewed(i));
+            // With nothing left to review, the file just folded stays in view.
+            self.lens_data.diff.scroll_to_file(next.unwrap_or(file), tx);
+        } else if was_folded {
+            self.lens_data.diff.scroll_to_file(file, tx);
         }
     }
 
@@ -1858,7 +1879,7 @@ impl Hooked {
                             sections.anchors.iter().map(|(f, _)| f.as_str()).collect();
                         shown.dedup();
                         self.lens_data.diff_count = shown.len();
-                        self.lens_data.show(sections);
+                        self.show_diff(sections);
                         self.annotate();
                         self.lens_data.diff_sig = Some(sig);
                         self.load_threads();
@@ -1889,8 +1910,8 @@ impl Hooked {
                                             found.repos.iter().map(|r| r.changes.len()).sum();
                                         let tree =
                                             tree_diffs(&found.repos, project.as_deref(), compact);
-                                        ld.show(tree.sections);
                                         ld.file_repos = tree.repos;
+                                        s.show_diff(tree.sections);
                                         s.annotate();
                                         s.load_threads();
                                     }
@@ -1918,7 +1939,7 @@ impl Hooked {
                                             compact,
                                         );
                                         s.lens_data.worktree = Some(wt);
-                                        s.lens_data.show(sections);
+                                        s.show_diff(sections);
                                         s.annotate();
                                         s.load_threads();
                                     }
@@ -2917,16 +2938,16 @@ mod tests {
         let sections = |new: &str, compact| file_diffs(&[change(new)], Some("/r"), "full", compact);
         let at = LineRef::new(Side::New, 2);
         let mut ld = LensData::default();
-        ld.show(sections("a\nB\n", false));
+        assert!(ld.show(sections("a\nB\n", false)));
         ld.diff.set_selection(Some(LineRange::line(0, at)));
         // the same diff read again
-        ld.show(sections("a\nB\n", false));
+        assert!(!ld.show(sections("a\nB\n", false)));
         assert!(ld.diff.selection().is_some());
         // an edit, or another way to show it, replaces it
-        ld.show(sections("a\nB\nc\n", false));
+        assert!(ld.show(sections("a\nB\nc\n", false)));
         assert!(ld.diff.selection().is_none());
         ld.diff.set_selection(Some(LineRange::line(0, at)));
-        ld.show(sections("a\nB\nc\n", true));
+        assert!(ld.show(sections("a\nB\nc\n", true)));
         assert!(ld.diff.selection().is_none());
         assert_eq!(ld.fps.len(), 1);
     }
