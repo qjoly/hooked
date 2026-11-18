@@ -754,11 +754,28 @@ fn detail(s: &Hooked, k: &Kit, id: &str) -> El {
         .flex_wrap()
         .grow(1.0)
         .shrink()
-        .child(
-            text(reference.clone())
-                .font(k.ty.mono)
-                .color(k.c.text_muted),
-        )
+        .child({
+            // A click copies the reference, ready for the Paste of a merge into this incident.
+            let copied = reference.clone();
+            k.interactive(
+                row()
+                    .key("incd-ref")
+                    .role("button")
+                    .label(format!("Copy {reference}"))
+                    .gap(4.0)
+                    .px(4.0)
+                    .center_y()
+                    .radius(k.radius.sm)
+                    .cursor(Cursor::Pointer)
+                    .help(format!("Copy {reference}, to paste it as a merge target"))
+                    .child(text(reference.clone()).font(k.ty.mono).color(k.c.text_muted))
+                    .child(glyph(&icons::COPY, 11.0, k.c.icon_faint)),
+            )
+            .on_press_tx(move |s: &mut Hooked, tx| {
+                tx.copy(&copied);
+                s.flash(format!("✓ Copied {copied}"), false);
+            })
+        })
         .child(pill(k, show(&d["status"]), fg, bg));
     if let Some(sev) = d["severity"]["name"].as_str() {
         pills = pills.child(
