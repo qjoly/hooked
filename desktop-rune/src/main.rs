@@ -4,6 +4,7 @@ mod app;
 mod cron;
 mod defs;
 mod dnd;
+mod echo;
 mod export;
 mod fleet;
 mod fmt;
@@ -103,9 +104,11 @@ fn on_key(s: &mut Hooked, ev: &KeyEvent, tx: &mut Tx) -> bool {
             return true;
         }
         if ev.key == Key::Function(12)
-            && let Some(word) = tx.text_selection().map(|t| t.text().trim().to_string())
+            && let Some(sel) = tx.text_selection().cloned()
         {
-            s.def_selected(&word);
+            if !s.def_from_selection(&sel) {
+                s.def_selected(sel.text().trim());
+            }
             return true;
         }
         if s.lens_data.diff.key(ev, tx) {
