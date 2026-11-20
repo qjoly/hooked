@@ -97,10 +97,14 @@ Règles :
 
 ### M3 — Parité écosystème ✅ LIVRÉE (resume, fork, commandes /, MCP lens)
 - **Resume** : `session/load` (avec `mcpServers:[]` requis) → session `live`, reply OK.
-- **Fork** : `session/fork` → nouvelle session Vibe avec `parent_session_id`. Côté scan :
-  `scanVibeSessions` inclut les forks (marqués `forkedFrom`) et exclut les vrais sous-agents
-  (déclarés dans `child_sessions` du parent). Vérifié live : le fork apparaît dans la liste
-  avec l'historique repris.
+- **Fork** : `session/fork` → nouvelle session Vibe avec `parent_session_id`. Vibe verrouille
+  chaque session par file-lock (un seul process) : `vibeFork` ferme la connexion ACP de la
+  source (flag `forkClosing`), fait `session/load`+`session/fork` depuis un process neuf qui
+  pilote ensuite le fork, rend la source (`session/close`), puis la rouvre en arrière-plan
+  (`reopenSource`). Côté scan : `scanVibeSessions` inclut les forks (marqués `forkedFrom`) et
+  exclut les vrais sous-agents (déclarés dans `child_sessions` du parent). Vérifié live : fork
+  créé depuis une session live, source redevenue live, fork visible avec l'historique repris.
+  (Si les réponses du fork tardent : incident API Mistral, pas un bug — cf. logs vibe.)
 - **Commandes `/`** : `availableCommands` des notifications ACP + builtin Vibe curés +
   prompts `.vibe/prompts` + skills user-invocables. `agentSupportedCommands(id, provider)`
   filtre par provider (sinon une session Claude pilotée polluait la liste vibe).
@@ -110,10 +114,14 @@ Règles :
 - Skills : visibles comme commandes `/` (pas de lens dédiée côté Vibe).
 - Worktrees (`vibe --worktree`) : pas de support → M4.
 
-### M4 — Sans équivalent exact (à décider feature par feature)
-- Plan mode (`ExitPlanMode`), warmup de prompt cache Anthropic, `canUseTool` « allow always »
-  granulaire, commandes slash custom `~/.claude/commands` → à réimplémenter au-dessus de Vibe
-  ou à marquer indisponible pour le provider vibe.
+### M4 — Sans équivalent exact ✅ masqué côté UI pour le provider vibe
+- Plan mode (`ExitPlanMode`) : chip « plan » masqué dans l'en-tête d'une session vibe.
+- Auto-approve hooked-side : chip masqué pour vibe (le mode auto Vibe couvre l'auto-approbation).
+- Worktree / ephemeral au lancement : masqués quand le provider « Mistral Vibe » est sélectionné.
+- Sélecteur modèle/thinking de l'en-tête : liste les alias Vibe (`/api/vibe-options`) pour une
+  session vibe. « Copy resume command » produit `vibe --resume <id>`.
+- Warmup de prompt cache Anthropic, `canUseTool` « allow always » granulaire : pas d'équivalent
+  Vibe, non exposé. Commandes slash custom : remplacées par prompts `.vibe/prompts` + skills.
 
 ## 5. Contrat de données
 
