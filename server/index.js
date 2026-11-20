@@ -60,6 +60,7 @@ export * from './panels.js';
 export * from './worktreeCleanup.js';
 export * from './autoPull.js';
 export * from './vibe.js';
+export * from './vibeAgent.js';
 export * from './sessions.js';
 export * as searchIndex from './searchIndex.js';
 // Namespacé pour la même raison que searchIndex : `lookup`, `partition`, `readSlice` sont des

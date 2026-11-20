@@ -91,6 +91,9 @@ export const getCommands = (id, q, cwd) => jget(`/api/commands?id=${encodeURICom
 export const getAgent = (session, agent) => jget(`/api/agent?session=${encodeURIComponent(session)}&agent=${encodeURIComponent(agent)}`);
 // Défauts modèle/effort lus depuis ~/.claude (config Claude Code de l'utilisateur).
 export const getDefaults = () => jget('/api/defaults');
+// Options du provider Mistral Vibe (alias modèles, thinking levels, agents) lues dans
+// ~/.vibe/config.toml — pour le sélecteur de l'écran « Nouvelle session » en mode vibe.
+export const getVibeOptions = () => jget('/api/vibe-options');
 // Modèles (groupés) & efforts DISPONIBLES, dérivés du binaire claude par le serveur (aucune liste
 // figée) — cf. server/capabilities.js. Mémoïsé : une seule requête par chargement de page, partagée
 // entre toutes les instances du sélecteur. Reset en cas d'échec pour permettre un nouvel essai.

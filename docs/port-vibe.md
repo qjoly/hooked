@@ -70,12 +70,24 @@ Règles :
 - Résultat : les sessions Vibe apparaissent dans le Deck/la sidebar avec état live, coût, titre,
   conversation en lecture seule. Aucune action de pilotage (grisée côté UI à terme).
 
-### M1 — Launch & Converse (pilotage de base)
-- `server/vibeAgent.js` : lancer/reprendre/interrompre/envoyer un message via **ACP** (spawn
-  `vibe` en mode ACP, JSON-RPC stdio) ou l'app server ; file de messages entrants comme
-  `agent.js` ; état live dans le même registre.
-- Routes `launch`/`reply`/`interrupt` : dispatch par provider.
-- UI : permettre composer/launch sur une session vibe.
+### M1 — Launch & Converse (pilotage de base) ✅ LIVRÉE
+- `server/vibeAgent.js` : un process `vibe-acp` par session pilotée, JSON-RPC 2.0
+  newline-delimited sur stdio (**wire camelCase** : `sessionId`, `sessionUpdate`…). Méthodes :
+  `initialize`, `session/new`/`session/load`, `session/prompt`, `session/cancel`,
+  `session/set_mode`, `session/set_config_option` (`model`, `thinking`), `session/close`.
+  Entrantes : `session/update` (→ état live du registre), `session/request_permission` et
+  `elicitation/create` (→ `pendingAsk`, résolu via le contrat hooked existant).
+- Dispatch dans `server/agent.js` quand `st.provider === 'vibe'` : launch, reply, interrupt,
+  setMode (modes hooked → agents Vibe), setModelEffort (→ `model`/`thinking`), kill. Le registre
+  `live` est partagé : `stats.js`, les routes et l'UI ne changent pas.
+- UI : sélecteur **Claude / Mistral Vibe** sur l'écran « Nouvelle session » ; en mode vibe,
+  modèles = alias du catalogue Vibe (`/api/vibe-options`, lu dans `~/.vibe/config.toml` +
+  `model_catalog_cache.json`), thinking levels = ceux supportés par le modèle choisi.
+- Hooks live installés dans `~/.vibe/hooks.toml` (générés depuis `scripts/hooks-vibe.toml`).
+- Vérifié en live : launch → réponse « OK » → reply « PONG » → setMode auto → setModel/thinking →
+  interrupt, tous HTTP 200 ; session `live:true`, coût et usage remontés.
+- Note : le thinking level doit être supporté par le modèle (ex. le défaut n'accepte que
+  `high`/`none`) — Vibe renvoie 400 sinon ; l'UI filtre les niveaux par modèle.
 
 ### M2 — Approbations & questions
 - `notification` `approval_requested` → carte Allow/Deny (réponse via ACP `session/approve`).

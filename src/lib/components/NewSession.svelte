@@ -3,7 +3,7 @@
   import { goto } from '$app/navigation';
   import { page } from '$app/state';
   import { data, ui, settings, updateSettings, groupName } from '#lib/state.svelte.js';
-  import { getDefaults, pickFolder, getUsage, getWorktreeBases } from '#lib/api.js';
+  import { getDefaults, pickFolder, getUsage, getWorktreeBases, getVibeOptions } from '#lib/api.js';
   import Composer from './Composer.svelte';
   import ModelEffort from './ModelEffort.svelte';
   import Icon from '#lib/components/Icon.svelte';
@@ -45,6 +45,9 @@
   let model = $state('opus');
   let effort = $state('high');
   let mode = $state('default'); // mode de permission au lancement (claude --permission-mode)
+  // Provider de l'agent : 'claude' (Agent SDK) ou 'vibe' (Mistral Vibe via ACP, cf. docs/port-vibe.md)
+  let provider = $state('claude');
+  let vibeOpts = $state(null);
   let worktree = $state(false);
   let wtBase = $state('');
   let wtBranch = $state('');
@@ -77,7 +80,7 @@
     const sm = settings.defaultModel, se = settings.defaultEffort, smo = settings.defaultMode;
     const d = claudeDefaults;
     const q = fableQuota;
-    if (picked) return;
+    if (picked || provider === 'vibe') return; // en mode vibe, ce sont les options Vibe qui priment
     untrack(() => {
       // The fallback applies to the DEFAULT only: picking Fable by hand stays possible (the quota
       // we read can be minutes old — Claude Code's cache is the fallback source — and the user may
@@ -104,6 +107,25 @@
   });
 
   const cwd = $derived(selected === '__custom' ? customCwd.trim() : selected);
+
+  // Provider vibe : charge les options (alias modèles, thinking levels, agents) depuis
+  // ~/.vibe/config.toml via /api/vibe-options, et initialise model/effort/mode dessus quand
+  // on bascule (si la valeur courante n'est pas un alias Vibe).
+  // thinking levels supportés par le modèle Vibe sélectionné (catalogue), sinon liste par défaut
+  const vibeThinking = $derived(
+    (vibeOpts && vibeOpts.models || []).find((m) => (m.alias || m.name) === model)?.thinking
+    || (vibeOpts && vibeOpts.thinkingLevels) || ['medium'],
+  );
+  $effect(() => {
+    if (provider !== 'vibe') return;
+    if (!vibeOpts) { getVibeOptions().then((o) => { vibeOpts = o; }).catch(() => {}); return; }
+    untrack(() => {
+      const aliases = (vibeOpts.models || []).map((m) => m.alias || m.name);
+      if (!aliases.includes(model)) model = vibeOpts.activeModel || aliases[0] || '';
+      if (!vibeThinking.includes(effort)) effort = vibeThinking.includes('high') ? 'high' : vibeThinking[0];
+      if (!vibeOpts.modes.some((m) => m.id === mode)) mode = 'default';
+    });
+  });
 
   $effect(() => {
     const dir = cwd, on = worktree;
@@ -172,7 +194,7 @@
         <a class="ns-prompts-edit" href="/prompts" title="Manage the prompt library"><Icon name="pencil" size={13} /></a>
       </div>
     {/if}
-    <Composer bind:this={composer} newSession project={cwd} {model} {effort} {mode} worktree={worktreeSpec} {ephemeral} {onLaunched} {groupWith} />
+    <Composer bind:this={composer} newSession project={cwd} {model} {effort} {mode} {provider} worktree={worktreeSpec} {ephemeral} {onLaunched} {groupWith} />
 
     {#if fableFallback}
       <div class="ns-quota" role="status">
@@ -221,7 +243,31 @@
 
       <div class="ns-col ns-options">
         <div class="lf-label">Options</div>
-        <ModelEffort compact showMode bind:model bind:effort bind:mode onchange={() => (picked = true)} />
+        <div class="ns-provider" role="radiogroup" aria-label="Agent provider">
+          <button type="button" class="me-pill ns-prov-btn" class:on={provider === 'claude'} role="radio" aria-checked={provider === 'claude'}
+                  onclick={() => (provider = 'claude')} title="Claude Code — piloté via l'Agent SDK">Claude</button>
+          <button type="button" class="me-pill ns-prov-btn" class:on={provider === 'vibe'} role="radio" aria-checked={provider === 'vibe'}
+                  onclick={() => (provider = 'vibe')} title="Mistral Vibe — piloté via ACP">Mistral&nbsp;Vibe</button>
+        </div>
+        {#if provider === 'vibe'}
+          {#if vibeOpts}
+            <div class="ns-vibe-opts">
+              <select class="lf-input" bind:value={model} title="Modèle (alias lu dans ~/.vibe/config.toml)">
+                {#each vibeOpts.models as m (m.name)}<option value={m.alias || m.name}>{m.alias || m.name}</option>{/each}
+              </select>
+              <select class="lf-input" bind:value={effort} title="Thinking level (supporté par ce modèle)">
+                {#each vibeThinking as t (t)}<option value={t}>{t}</option>{/each}
+              </select>
+              <select class="lf-input" bind:value={mode} title="Mode (agent Vibe)">
+                {#each vibeOpts.modes as m (m.id)}<option value={m.id}>{m.label}</option>{/each}
+              </select>
+            </div>
+          {:else}
+            <div class="ns-vibe-loading">loading Vibe options…</div>
+          {/if}
+        {:else}
+          <ModelEffort compact showMode bind:model bind:effort bind:mode onchange={() => (picked = true)} />
+        {/if}
         <label class="me-pill ns-worktree" title="Create a git worktree on a new branch and launch the session in it">
           <input type="checkbox" bind:checked={worktree} />
           <span class="me-ico"><Icon name="git-branch" size={14} /></span> worktree

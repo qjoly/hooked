@@ -231,7 +231,14 @@ function vibeRead(dir) {
     try { data = fs.readFileSync(path.join(journalDir, f), 'utf8'); } catch (_) { continue; }
     for (const line of data.split('\n')) foldVibeLine(acc, line);
   }
-  const entries = [...acc.entries.values()].sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0) || (a._hist || 0) - (b._hist || 0));
+  let entries = [...acc.entries.values()].sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0) || (a._hist || 0) - (b._hist || 0));
+  // Dédup history vs journal : une entrée "history" (createdAt null, issue des chunks projetés)
+  // en doublon d'une vraie entry (même type + role + texte) est supprimée.
+  const seenReal = new Set();
+  for (const e of entries) {
+    if (e.createdAt) seenReal.add(`${e.type}|${e.role || ''}|${textOf(e.content).slice(0, 500)}`);
+  }
+  entries = entries.filter((e) => e.createdAt || !seenReal.has(`${e.type}|${e.role || ''}|${textOf(e.content).slice(0, 500)}`));
   const value = { key, meta, entries, usages: acc.usages, summary: finalizeVibe(acc, meta) };
   vibeCache.set(dir, value);
   return value;
