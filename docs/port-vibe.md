@@ -147,6 +147,10 @@ Audit live (session vibe `26dbee7b…`) : toutes les routes `/api/session/*`, `/
 `/api/review`, `/api/files`, `/api/commands`, `/api/llm-tools`, `/api/mcp?provider=vibe`
 répondent 200 ; `plan` est POST-only (405 en GET, le front lit le plan via `/api/session`).
 
+- **MCP hooked dans Vibe** : déclaré en user scope dans `~/.vibe/config.toml`
+  (`[[mcp_servers]] name = "hooked"`, stdio `node <repo>/mcp/server.cjs` — cf. `mcp/README.md`).
+  La lens MCP vibe le liste, et une session Vibe l'appelle vraiment (E2E : `list_sessions`).
+
 ## 5. Contrat de données
 
 - **Summary** : shape `blankSummary()` (server/transcript.js) + `provider` + `dir` (dossier session

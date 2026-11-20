@@ -23,6 +23,22 @@ Au prochain lancement de Claude Code dans ce dossier, approuve le serveur projet
 claude mcp add hooked -- node /chemin/vers/hooked/mcp/server.cjs
 ```
 
+### Mistral Vibe
+
+Dans `~/.vibe/config.toml` (scope user — dispo dans toutes les sessions Vibe) :
+
+```toml
+[[mcp_servers]]
+name = "hooked"
+transport = "stdio"
+command = "node"
+args = ["/chemin/vers/hooked/mcp/server.cjs"]
+```
+
+Vérifié en E2E : la lens MCP du dashboard (`/api/mcp?provider=vibe`) liste `hooked` (scope
+user), et une session Vibe pilotée appelle `list_sessions` avec la vraie réponse de l'API.
+
+
 ### Variables d'environnement
 
 | Var | Défaut | Rôle |
