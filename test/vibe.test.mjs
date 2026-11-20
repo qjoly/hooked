@@ -13,10 +13,17 @@ const FIX = path.join(import.meta.dirname, 'fixtures', 'vibe-session');
 const SESS = path.join(FIX, 'sess-abc123');
 
 describe('scanVibeSessions', () => {
-  it('produit un résumé compatible blankSummary, provider vibe, et exclut les sous-agents', () => {
+  it('produit un résumé compatible blankSummary, provider vibe, exclut les sous-agents, garde les forks', () => {
     const all = scanVibeSessions(FIX);
-    expect(all.map((s) => s.id)).toEqual(['sess-abc123']); // sess-sub a un parent_session_id
-    const s = all[0];
+    // sess-sub est déclaré dans child_sessions du parent → sous-agent exclu ;
+    // sess-fork a un parent_session_id non déclaré → fork visible, marqué forkedFrom
+    expect(all.map((s) => s.id).sort()).toEqual(['sess-abc123', 'sess-fork']);
+    const fork = all.find((s) => s.id === 'sess-fork');
+    expect(fork.forkedFrom).toBe('sess-abc123');
+    expect(fork.provider).toBe('vibe');
+    expect(fork.userPrompts).toBe(1);
+    expect(all.find((s) => s.id === 'sess-abc123').forkedFrom).toBeUndefined();
+    const s = all.find((x) => x.id === 'sess-abc123');
     expect(s.provider).toBe('vibe');
     expect(s.dir).toBe(SESS);
     expect(s.file).toBe(path.join(SESS, 'journal'));

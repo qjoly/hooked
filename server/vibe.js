@@ -125,6 +125,7 @@ function finalizeVibe(acc, meta) {
     if (mStart && (!s.startTs || Date.parse(mStart) < Date.parse(s.startTs))) s.startTs = mStart;
     if (mEnd && (!s.lastTs || Date.parse(mEnd) > Date.parse(s.lastTs))) s.lastTs = mEnd;
     if (meta.session_id) s.sessionIdInternal = meta.session_id;
+    if (meta.parent_session_id) s.forkedFrom = meta.parent_session_id; // fork ACP (session/fork)
     if (typeof meta.title === 'string' && meta.title) acc.title = meta.title;
   }
   const entries = [...acc.entries.values()].sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
@@ -249,18 +250,33 @@ function getVibeSession(dir) {
   return vibeRead(dir).summary;
 }
 
-// Scan de toutes les sessions Vibe de premier niveau (les sous-agents ont leur propre dossier
-// avec parent_session_id dans meta.json : exclus ici, comme agent-*.jsonl côté Claude).
+// Scan de toutes les sessions Vibe visibles. Une session avec `parent_session_id` est un fork
+// (session/fork ACP) tant que le parent ne la déclare pas dans `child_sessions` — un vrai
+// sous-agent (spawn via agent_path /root/<name>) y est déclaré et reste exclu, comme
+// agent-*.jsonl côté Claude. Les forks sont inclus et marqués `forkedFrom`.
 function scanVibeSessions(sessionsDir = VIBE_SESSIONS_DIR) {
-  const out = [];
-  for (const d of readdirSafe(sessionsDir)) {
-    const dir = path.join(sessionsDir, d);
-    const st = statSafe(dir);
-    if (!st || !st.isDirectory()) continue;
-    if (!statSafe(path.join(dir, 'journal'))) continue; // pas une session unified
+  const dirs = readdirSafe(sessionsDir)
+    .map((d) => path.join(sessionsDir, d))
+    .filter((dir) => {
+      const st = statSafe(dir);
+      return st && st.isDirectory() && statSafe(path.join(dir, 'journal')); // session unified
+    });
+  const metas = new Map(); // session_id -> meta
+  for (const dir of dirs) {
     const meta = vibeRead(dir).meta;
-    if (meta && meta.parent_session_id) continue; // sous-agent : coût replié plus tard si besoin
-    out.push(vibeRead(dir).summary);
+    if (meta && meta.session_id) metas.set(meta.session_id, meta);
+  }
+  const out = [];
+  for (const dir of dirs) {
+    const { meta, summary } = vibeRead(dir);
+    const parentId = meta && meta.parent_session_id;
+    if (parentId) {
+      const parent = metas.get(parentId);
+      const isSubagent = parent && Array.isArray(parent.child_sessions) && parent.child_sessions.includes(meta.session_id);
+      if (isSubagent) continue; // sous-agent : coût replié plus tard si besoin
+      // sinon : fork → visible, marqué forkedFrom dans finalizeVibe
+    }
+    out.push(summary);
   }
   return out;
 }

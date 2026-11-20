@@ -167,25 +167,31 @@ function pickOption(options, ...ids) {
 function handleAgentRequest(st, client, reqId, method, params) {
   if (method === 'session/request_permission') {
     const tc = params.toolCall || params.tool_call || {};
-    const toolName = tc.title || tc.toolCallId || tc.tool_call_id || 'tool';
+    const tcId = tc.toolCallId || tc.tool_call_id || null;
+    const toolName = (st._toolNames && st._toolNames[tcId]) || tc.title || tc.toolName || tcId || 'tool';
     const options = (params.options || []).map((o) => ({ ...o, option_id: o.option_id || o.optionId }));
     const ask = {
       kind: 'permission',
       id: 'acp:' + reqId,
       toolName,
       options,
-      resolve: (resp) => {
-        const deny = !resp || resp.behavior === 'deny';
-        const option_id = deny
-          ? pickOption(options, 'reject_once')
-          : pickOption(options, resp.allowAlways ? 'allow_always_permanent' : 'allow_once', resp.allowAlways ? 'allow_always' : 'allow_once', 'allow_once');
-        client._send({ jsonrpc: '2.0', id: reqId, result: { outcome: { outcome: 'selected', optionId: option_id } } });
-      },
+      resolve: null, // posé juste après (wrapper qui clear le registre)
+    };
+    const rawResolve = (resp) => {
+      const deny = !resp || resp.behavior === 'deny';
+      const option_id = deny
+        ? pickOption(options, 'reject_once')
+        : pickOption(options, resp.allowAlways ? 'allow_always_permanent' : 'allow_once', resp.allowAlways ? 'allow_always' : 'allow_once', 'allow_once');
+      client._send({ jsonrpc: '2.0', id: reqId, result: { outcome: { outcome: 'selected', optionId: option_id } } });
+    };
+    ask.resolve = (resp) => {
+      if (st.pendingAsk === ask) { st.pendingAsk = null; st.sdkState = 'running'; st.busy = true; }
+      rawResolve(resp);
     };
     st.pendingAsk = ask;
     st.sdkState = 'requires_action';
     st.busy = false;
-    if (st.autoApprove) { const r = ask.resolve; st.pendingAsk = null; r({ behavior: 'allow' }); st.sdkState = 'running'; st.busy = true; }
+    if (st.autoApprove) { const r = ask.resolve; st.pendingAsk = null; r({ behavior: 'allow' }); }
     return ACP_DEFER; // réponse envoyée plus tard via ask.resolve
   }
   if (method === 'elicitation/create') {
@@ -196,20 +202,25 @@ function handleAgentRequest(st, client, reqId, method, params) {
       kind: 'question',
       id: 'acp:' + reqId,
       questions,
-      resolve: (resp) => {
-        // resp hooked : { behavior:'allow', answers? } pour freeText, ou selections gérées par agent.js
-        let result;
-        if (resp && resp.elicitation) {
-          result = resp.elicitation; // { action, content }
-        } else if (resp && resp.freeTextAnswer) {
-          const content = {};
-          questions.forEach((q, i) => { content[`q${i}`] = i === 0 ? resp.freeTextAnswer : (q.options[0] || {}).label || ''; });
-          result = { action: 'accept', content };
-        } else {
-          result = { action: 'decline' };
-        }
-        client._send({ jsonrpc: '2.0', id: reqId, result });
-      },
+      resolve: null,
+    };
+    const rawResolve = (resp) => {
+      // resp hooked : { elicitation } (sélections) ou { freeTextAnswer } (texte libre)
+      let result;
+      if (resp && resp.elicitation) {
+        result = resp.elicitation; // { action, content }
+      } else if (resp && resp.freeTextAnswer) {
+        const content = {};
+        questions.forEach((q, i) => { content[`q${i}`] = i === 0 ? resp.freeTextAnswer : (q.options[0] || {}).label || ''; });
+        result = { action: 'accept', content };
+      } else {
+        result = { action: 'decline' };
+      }
+      client._send({ jsonrpc: '2.0', id: reqId, result });
+    };
+    ask.resolve = (resp) => {
+      if (st.pendingAsk === ask) { st.pendingAsk = null; st.sdkState = 'running'; st.busy = true; }
+      rawResolve(resp);
     };
     st.pendingAsk = ask;
     st.sdkState = 'requires_action';
@@ -235,6 +246,9 @@ function handleNotification(st, method, params) {
       if (!st.pendingAsk) st.sdkState = 'running';
       const raw = u.rawInput || u.raw_input || {};
       st.activity = u.title || raw.command || raw.file_path || 'tool';
+      // index toolCallId → nom lisible, pour les request_permission (qui ne portent que l'id)
+      const id = u.toolCallId || u.tool_call_id;
+      if (id) { st._toolNames = st._toolNames || {}; st._toolNames[id] = st.activity; }
       break;
     }
     case 'tool_call_update': case 'toolCallUpdate':
@@ -292,7 +306,9 @@ async function start(st, opts, ctx) {
     await client.call('initialize', { protocolVersion: 1, clientCapabilities: {} }, 30_000);
     let sessionId;
     if (opts.resumeId) {
-      await client.call('session/load', { cwd: st.cwd, sessionId: opts.resumeId }, 60_000);
+      // mcpServers est REQUIS par le schéma ACP (même vide) — sans ça session/load rend
+      // « Invalid params » et la session n'est jamais chargée.
+      await client.call('session/load', { cwd: st.cwd, sessionId: opts.resumeId, mcpServers: [] }, 60_000);
       sessionId = opts.resumeId;
     } else {
       const r = await client.call('session/new', { cwd: st.cwd, mcpServers: [] }, 60_000);
@@ -346,6 +362,50 @@ function kill(st) {
     st.acp.close();
   }
   st.ended = true;
+}
+
+// Fork d'une session Vibe : process vibe-acp dédié à la branche (session/load de l'orig puis
+// session/fork sur la même connexion ACP). La session d'origine n'est jamais touchée.
+// opts: { cwd, prompt, model, effort, permissionMode, autoApprove }. ctx: { setLive(st), persistLaunch(id, m, e) }.
+async function vibeFork(id, opts, ctx) {
+  const client = new AcpClient(acpBin(), [], { cwd: opts.cwd, env: process.env });
+  const st = {
+    id: null, acp: client, acpSessionId: null, cwd: opts.cwd, provider: 'vibe',
+    busy: false, sdkState: 'idle', pendingAsk: null, sawMsg: true, ended: false,
+    autoApprove: opts.autoApprove !== false, abort: new AbortController(),
+    input: { push: () => true, close: () => {} },
+    activity: null, lastProse: null, followup: null,
+    launchKey: 'fork:' + Date.now().toString(36),
+    startedAt: new Date().toISOString(), lastMsgAt: Date.now(), lastRequestAt: null, lastUsage: null,
+    model: opts.model || null, effort: opts.effort || null, launchModel: opts.model || null, launchEffort: opts.effort || null,
+    permissionMode: opts.permissionMode || 'default',
+  };
+  client.onNotification = (m, p) => handleNotification(st, m, p);
+  client.onRequest = (rid, m, p) => handleAgentRequest(st, client, rid, m, p);
+  client.onExit = () => {
+    st.ended = true; st.busy = false;
+    if (st.pendingAsk) { const r = st.pendingAsk.resolve; st.pendingAsk = null; try { r({ behavior: 'deny', message: 'vibe-acp exited' }); } catch (_) {} }
+  };
+  try {
+    await client.call('initialize', { protocolVersion: 1, clientCapabilities: {} }, 30_000);
+    await client.call('session/load', { cwd: opts.cwd, sessionId: id, mcpServers: [] }, 60_000);
+    const r = await client.call('session/fork', { sessionId: id, cwd: opts.cwd, mcpServers: [], ...(opts.forkUuid ? { messageId: opts.forkUuid } : {}) }, 60_000);
+    const newId = r && (r.sessionId || r.session_id);
+    if (!newId) throw new Error('session/fork returned no session id');
+    st.id = newId;
+    st.acpSessionId = newId;
+    ctx.setLive(st);
+    if (opts.model) { try { await client.call('session/set_config_option', { sessionId: newId, configId: 'model', value: opts.model }, 15_000); } catch (_) {} }
+    if (opts.effort) { try { await client.call('session/set_config_option', { sessionId: newId, configId: 'thinking', value: opts.effort }, 15_000); } catch (_) {} }
+    const modeId = vibeModeFor(opts.permissionMode);
+    if (modeId) { try { await client.call('session/set_mode', { sessionId: newId, modeId }, 15_000); } catch (_) {} }
+    ctx.persistLaunch(newId, opts.model || null, opts.effort || null);
+    if (opts.prompt && String(opts.prompt).trim()) prompt(st, String(opts.prompt).trim()).catch(() => {});
+    return { sessionId: newId, cwd: opts.cwd, forkedFrom: id };
+  } catch (e) {
+    client.close();
+    throw e;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -406,6 +466,6 @@ function vibeOptions() {
 // (`export *`) ferait disparaître les doublons en silence.
 export {
   start as vibeStart, prompt as vibePrompt, cancel as vibeCancel,
-  setMode as vibeSetMode, setConfig as vibeSetConfig, kill as vibeKill,
+  setMode as vibeSetMode, setConfig as vibeSetConfig, kill as vibeKill, vibeFork,
   vibeModeFor, vibeOptions, elicitationContent, questionsFromSchema, AcpClient as VibeAcpClient,
 };

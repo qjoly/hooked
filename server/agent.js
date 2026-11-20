@@ -1242,6 +1242,14 @@ function pushReply(st, id, text, cb, { respond = false } = {}) {
     .map((s) => (typeof s === 'string' ? s.trim() : ''))
     .filter(Boolean);
   if (!parts.length) return cb(err400('text required'));
+  // provider vibe : on envoie via ACP (session/prompt) — fire and forget, l'état live arrive
+  // par les notifications session/update. Le dispatch est AVANT le mode bang `!cmd` : Vibe
+  // interprète lui-même `!commande` dans son input, pas besoin de runLocalCommand.
+  if (st.provider === 'vibe') {
+    markReplied(st);
+    vibeAgent.vibePrompt(st, parts.join('\n')).catch((e) => { st.error = 'vibe prompt failed: ' + ((e && e.message) || e); });
+    return cb(null, { sessionId: id, sent: parts.length });
+  }
   // Mode bash : `!commande` s'exécute localement au lieu de partir au modèle (cf. runLocalCommand).
   // Seulement sur une saisie SIMPLE — un envoi multiple est une file de messages, pas une commande.
   if (parts.length === 1) {
@@ -1251,13 +1259,6 @@ function pushReply(st, id, text, cb, { respond = false } = {}) {
         ? runInteractiveCommand(id, bang.command, cb)
         : runLocalCommand(id, bang.command, cb, { respond });
     }
-  }
-  // provider vibe : on envoie via ACP (session/prompt) — fire and forget, l'état live arrive
-  // par les notifications session/update (le cb ne doit pas attendre la fin du tour).
-  if (st.provider === 'vibe') {
-    markReplied(st);
-    vibeAgent.vibePrompt(st, parts.join('\n')).catch((e) => { st.error = 'vibe prompt failed: ' + ((e && e.message) || e); });
-    return cb(null, { sessionId: id, sent: parts.length });
   }
   for (const p of parts) {
     if (!st.input.push(userMessage(p))) return cb(new Error('session input closed'));
@@ -1531,6 +1532,17 @@ function setModelEffort(id, { model, effort, force = false } = {}, cb) {
   });
 }
 
+// Fork d'une session Vibe via ACP (session/load + session/fork sur un process dédié).
+// Le `forkUuid` (point de coupe au message) n'a pas d'équivalent ACP simple : on forke
+// l'historique entier (cf. docs/port-vibe.md, M3).
+function forkVibe(id, opts, cb) {
+  vibeAgent.vibeFork(id, opts, {
+    setLive: (st) => { live.set(st.id, st); },
+    persistLaunch: (sid, m, e) => persistLaunch(sid, m, e),
+  }).then((info) => cb(null, info))
+    .catch((e) => cb(err400('vibe fork failed: ' + ((e && e.message) || e))));
+}
+
 // Stoppe la session : on ferme la file d'entrée puis on avorte. La boucle de lecture nettoie.
 function killSession(id, cb) {
   const st = agentSession(id);
@@ -1783,7 +1795,7 @@ export {
   applyMessage, readLoop, permissionQuestion, handleToolPermission, makeInputQueue, userMessage, parseEnvBlock, loginEnv, withoutServerEnv, hookedMcpServer, sessionIdForLaunchKey,
   subscribeAgent, streamSnapshot,
   resolveLaunchForSession, sessionLaunchMap,
-  launchSession, killSession, restartSession,
+  launchSession, killSession, restartSession, forkVibe,
   deliverReply, answerQuestion, questionAnswers, answerQuestionFreeText, answerPlan, answerPermission, answerPendingSelection,
   interruptSession, setMode, setModelEffort, setAutoApprove, alwaysAllowRules, clearAgentState,
   closeAfterTurn, resumeDrivenSessions, startDrivenSnapshot, pickResumable, saveDriven, failStartup, resumeLaunchArgs,
