@@ -296,7 +296,9 @@ function buildVibeConversation(dir) {
       const text = cleanPrompt(textOf(e.content));
       if (text) { msgs.push({ role: 'user', ts, text, tools: [] }); pendingTools = []; }
     } else if (e.type === 'message' && e.role === 'assistant') {
-      const text = cleanPrompt(textOf(e.content));
+      // PAS de cleanPrompt ici : il aplatirait les \n (\s+ → ' ') et casserait le markdown.
+      // On retire juste les balises <...> en conservant les retours à la ligne.
+      const text = textOf(e.content).replace(/<[^>]+>/g, '');
       // bulle assistant vide et sans outil (projection history) → on la saute
       if (text || pendingTools.length) {
         msgs.push({ role: 'assistant', ts, text, tools: pendingTools });

@@ -863,6 +863,7 @@ function launchSession(opts, cb) {
         persistLaunch: (sid, m, e) => persistLaunch(sid, m, e),
         done,
         failStartup: () => failStartup(st),
+        emit: (s2, now) => emitAgent(s2.id, () => streamSnapshot(s2), now), // stream SSE des chunks ACP
       });
       return;
     }
@@ -1546,6 +1547,7 @@ function forkVibe(id, opts, cb) {
   vibeAgent.vibeFork(id, opts, {
     setLive: (st) => { live.set(st.id, st); },
     persistLaunch: (sid, m, e) => persistLaunch(sid, m, e),
+    emit: (st, now) => emitAgent(st.id, () => streamSnapshot(st), now),
     liveSt: live.get(id) || null, // session live : sa connexion est fermée le temps du fork
     // Rouvre la session source avec un nouveau process ACP (vibeStart en mode resume, sans
     // prompt) — vibeStart réutilise le même st et réassigne st.acp.
@@ -1559,6 +1561,7 @@ function forkVibe(id, opts, cb) {
       return vibeAgent.vibeStart(st, { resumeId: sid, env: process.env }, {
         setLive: (s2, s) => { live.set(s, s); },
         persistLaunch: noop, done: noop, failStartup: noop,
+        emit: (s2, now) => emitAgent(s2.id, () => streamSnapshot(s2), now),
       });
     },
   }).then((info) => cb(null, info))

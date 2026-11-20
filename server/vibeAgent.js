@@ -237,9 +237,34 @@ function handleNotification(st, method, params) {
   const kind = u.sessionUpdate || u.session_update;
   st.lastMsgAt = Date.now();
   st.sawMsg = true;
+  let dirty = false;
   switch (kind) {
-    case 'agent_message_chunk': case 'agentMessageChunk':
-      if (u.chunk && typeof u.chunk.text === 'string' && u.chunk.text) st.lastProse = u.chunk.text.slice(0, 4000);
+    case 'agent_message_chunk': case 'agentMessageChunk': {
+      // Le texte est dans u.content.text (ContentChunk), pas u.chunk.text.
+      const text = (u.content && typeof u.content.text === 'string' && u.content.text)
+        || (u.chunk && typeof u.chunk.text === 'string' && u.chunk.text) || '';
+      if (text) {
+        st.stream = st.stream || { text: '', thinking: '', tool: null };
+        st.stream.text += text;               // deltas ACP → tampon de stream (SSE /api/session/stream)
+        st.lastProse = st.stream.text.slice(-4000);
+        dirty = true;
+      }
+      break;
+    }
+    case 'agent_thought_chunk': case 'agentThoughtChunk': {
+      const text = (u.content && typeof u.content.text === 'string' && u.content.text)
+        || (u.chunk && typeof u.chunk.text === 'string' && u.chunk.text) || '';
+      if (text) {
+        st.stream = st.stream || { text: '', thinking: '', tool: null };
+        st.stream.thinking += text;
+        dirty = true;
+      }
+      break;
+    }
+    case 'user_message_chunk': case 'userMessageChunk':
+      st.stream = null; // nouveau tour côté user : on vide le tampon d'affichage
+      st.lastProse = null;
+      dirty = true;
       break;
     case 'tool_call': case 'toolCall': {
       st.busy = true;
@@ -265,6 +290,7 @@ function handleNotification(st, method, params) {
     default:
       break;
   }
+  if (dirty && st._emit) st._emit(); // pousse le snapshot SSE (coalescé côté agent.js)
 }
 
 // Envoie un prompt (session/prompt). Résolu quand le tour se termine (stop_reason reçu).
@@ -295,9 +321,11 @@ async function start(st, opts, ctx) {
   const client = new AcpClient(acpBin(), [], { cwd: st.cwd, env });
   st.acp = client;
   st.provider = 'vibe';
+  st._emit = (now) => ctx.emit && ctx.emit(st, now);
   client.onNotification = (m, p) => handleNotification(st, m, p);
   client.onRequest = (id, m, p) => handleAgentRequest(st, client, id, m, p);
   client.onExit = () => {
+    st.stream = null;
     st.ended = true;
     st.busy = false;
     if (st.pendingAsk) { const r = st.pendingAsk.resolve; st.pendingAsk = null; try { r({ behavior: 'deny', message: 'vibe-acp exited' }); } catch (_) {} }
@@ -397,9 +425,11 @@ async function vibeFork(id, opts, ctx) {
     model: opts.model || null, effort: opts.effort || null, launchModel: opts.model || null, launchEffort: opts.effort || null,
     permissionMode: opts.permissionMode || 'default',
   };
+  st._emit = (now) => ctx.emit && ctx.emit(st, now);
   client.onNotification = (m, p) => handleNotification(st, m, p);
   client.onRequest = (rid, m, p) => handleAgentRequest(st, client, rid, m, p);
   client.onExit = () => {
+    st.stream = null;
     st.ended = true; st.busy = false;
     if (st.pendingAsk) { const r = st.pendingAsk.resolve; st.pendingAsk = null; try { r({ behavior: 'deny', message: 'vibe-acp exited' }); } catch (_) {} }
   };
