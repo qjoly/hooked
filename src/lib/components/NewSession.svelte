@@ -253,7 +253,7 @@
           {#if vibeOpts}
             <div class="ns-vibe-opts">
               <select class="lf-input" bind:value={model} title="Modèle (alias lu dans ~/.vibe/config.toml)">
-                {#each vibeOpts.models as m (m.name)}<option value={m.alias || m.name}>{m.alias || m.name}</option>{/each}
+                {#each vibeOpts.models as m (m.alias || m.name)}<option value={m.alias || m.name}>{m.alias || m.name}</option>{/each}
               </select>
               <select class="lf-input" bind:value={effort} title="Thinking level (supporté par ce modèle)">
                 {#each vibeThinking as t (t)}<option value={t}>{t}</option>{/each}
