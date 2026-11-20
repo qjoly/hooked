@@ -475,6 +475,7 @@
       resumeId: s.id, prompt: '',
       effort: s.effort || undefined,
       permissionMode: settings.defaultMode || 'default',
+      provider: s.provider || 'claude', // resume d'une session vibe → provider vibe
     }).catch((e) => ({ ok: false, data: { error: e?.message || 'failed' } }));
     if (res.ok) {
       unarchive(s.id);

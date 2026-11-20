@@ -773,7 +773,11 @@ function launchSession(opts, cb) {
   }
   if (!stDir || !stDir.isDirectory()) return cb(err400('invalid cwd: ' + dir));
 
-  const provider = opts.provider === 'vibe' ? 'vibe' : 'claude';
+  // Provider : explicite, ou déduit de la session resumée (resume d'une session vibe sans
+  // provider explicite lançait un `claude --resume` sur un id Vibe → échec + session bloquée).
+  const provider = opts.provider === 'vibe' || opts.provider === 'claude'
+    ? opts.provider
+    : ((id && scanAllSessions().find((s) => s.id === id)?.provider) || 'claude');
   // provider vibe : les modèles sont des aliases lus dans ~/.vibe/config.toml (pas la liste Claude),
   // et l'effort devient un thinking level Vibe — validation souple (charset), le set_config_option
   // côté Vibe refuse ce qu'il ne connaît pas.
