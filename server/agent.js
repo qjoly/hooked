@@ -1231,7 +1231,12 @@ function deliverReply(id, text, cb, opts = {}) {
   if (!st) return cb(err400('no live agent session for this id'));
   if (st.sawMsg) return pushReply(st, id, text, cb, opts);
   whenReady(st).then((ready) => {
-    if (!ready) return cb(err400('session never finished starting — use Restart'));
+    if (!ready) {
+      // Remonte la cause quand le démarrage a échoué (ex. vibe-acp: store invalide, lease tenu…)
+      const cur0 = agentSession(id);
+      const reason = cur0 && cur0.error ? ` (${cur0.error})` : '';
+      return cb(err400('session never finished starting' + reason + ' — use Restart'));
+    }
     // la session a pu disparaître pendant l'attente
     const cur = agentSession(id);
     if (!cur) return cb(err400('no live agent session for this id'));
