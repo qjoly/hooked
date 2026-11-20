@@ -1,5 +1,7 @@
 // Petite couche d'accès à l'API JSON + flux SSE. Mêmes endpoints que l'ancien front.
 
+import { deltaQuery, mergeDetail } from './detailDelta.js';
+
 async function jget(url) {
   const r = await fetch(url);
   if (!r.ok) throw new Error('HTTP ' + r.status);
@@ -13,6 +15,13 @@ async function jpost(url, body) {
 
 export const getSessions = async () => (await jget('/api/sessions')).sessions;
 export const getSession = (id) => jget('/api/session?id=' + encodeURIComponent(id));
+// Incremental variant for the open session: `prev` is the copy we hold; the server only sends the
+// tail of the conversation and skips the heavy lists that did not change. Falls back to a full
+// fetch when the response cannot be completed from `prev`.
+export async function getSessionDelta(id, prev) {
+  const d = mergeDetail(prev, await jget('/api/session?' + deltaQuery(prev, id)));
+  return d || mergeDetail(null, await jget('/api/session?' + deltaQuery(null, id)));
+}
 // Full-text hits across every transcript (SQLite FTS, server-side). Results carry a snippet with
 // <mark> tags around the match, ranked by bm25.
 export const searchTranscripts = (q, limit = 50) =>
