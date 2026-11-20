@@ -89,14 +89,26 @@ Règles :
 - Note : le thinking level doit être supporté par le modèle (ex. le défaut n'accepte que
   `high`/`none`) — Vibe renvoie 400 sinon ; l'UI filtre les niveaux par modèle.
 
-### M2 — Approbations & questions
-- `notification` `approval_requested` → carte Allow/Deny (réponse via ACP `session/approve`).
-- `question_asked` / outil `ask_user_question` → carte question avec options.
+### M2 — Approbations & questions ✅ LIVRÉE
+- `session/request_permission` (ACP) → carte Allow/Deny (`pendingQuestion.kind='permission'`),
+  résoute via le contrat existant (`/api/reply {selections}` → `outcome.selected`).
+- `elicitation/create` → carte question ; `ask_user_question` → options.
+- Vérifié en live : session mode ask → approbation → `touch /tmp/hooked-vibe-test` exécuté.
 
-### M3 — Parité écosystème
-- Modèles/thinking live (`/model`, `/thinking` via ACP), agents ≈ modes de permission,
-  worktrees (`vibe --worktree`), fork (`/branch`), MCP lens (`[[mcp_servers]]` + OAuth),
-  skills, resume.
+### M3 — Parité écosystème ✅ LIVRÉE (resume, fork, commandes /, MCP lens)
+- **Resume** : `session/load` (avec `mcpServers:[]` requis) → session `live`, reply OK.
+- **Fork** : `session/fork` → nouvelle session Vibe avec `parent_session_id`. Côté scan :
+  `scanVibeSessions` inclut les forks (marqués `forkedFrom`) et exclut les vrais sous-agents
+  (déclarés dans `child_sessions` du parent). Vérifié live : le fork apparaît dans la liste
+  avec l'historique repris.
+- **Commandes `/`** : `availableCommands` des notifications ACP + builtin Vibe curés +
+  prompts `.vibe/prompts` + skills user-invocables. `agentSupportedCommands(id, provider)`
+  filtre par provider (sinon une session Claude pilotée polluait la liste vibe).
+- **MCP lens** : `listMcpVibe` parse les `[[mcp_servers]]` de `~/.vibe/config.toml` +
+  `<cwd>/.vibe/config.toml`, health-check HTTP (stdio = « configured »), shape identique à
+  `mcp.js` (scopeLabel/authable) ; le front masque les actions OAuth/logout (pas d'équivalent).
+- Skills : visibles comme commandes `/` (pas de lens dédiée côté Vibe).
+- Worktrees (`vibe --worktree`) : pas de support → M4.
 
 ### M4 — Sans équivalent exact (à décider feature par feature)
 - Plan mode (`ExitPlanMode`), warmup de prompt cache Anthropic, `canUseTool` « allow always »
