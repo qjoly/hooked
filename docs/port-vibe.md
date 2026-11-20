@@ -123,6 +123,30 @@ Règles :
 - Warmup de prompt cache Anthropic, `canUseTool` « allow always » granulaire : pas d'équivalent
   Vibe, non exposé. Commandes slash custom : remplacées par prompts `.vibe/prompts` + skills.
 
+### M5 — Décisions « pas d'équivalent » (S7) ✅ documentées + masquées, aucun 404/500 sur une session vibe
+Règle : une feature sans équivalent Vibe est **masquée, jamais en erreur**. Quand aucun binaire
+`claude` n'est configuré (`providers.claude === false`, exposé par `/api/sessions`), les espaces
+Claude-only disparaissent de l'UI (web + rune) ; par session, les chips/outils concernés sont
+masqués via `provider === "vibe"`.
+
+| Feature | Équivalent Vibe | Décision |
+|---|---|---|
+| Mémoire (`~/.claude/projects/*/memory`) | aucun | page `/memory` + onglet topbar + commande palette + raccourci masqués quand `!providers.claude` (web S5, rune S6) |
+| Compte / quotas / usage topbar (OAuth `~/.claude.json`) | compte Mistral via `~/.vibe` | jauges 5H/7D/Fable + avatar/modal account masqués quand `!providers.claude` (web S5, rune S6) |
+| Remote control (`claude --remote-control`) | aucun | carte settings « Remote control » masquée quand `!providers.claude` |
+| Warmup prompt-cache Anthropic (5 h) | aucun | carte settings « 5-hour window » masquée quand `!providers.claude` |
+| Grafana lens / query-result (`mcp-gateway`) | aucun | tools `query` inexistants en vibe → fenêtre jamais ouverte ; `/api/query-result` répond 404 « Query not found » (sémantique, pas un crash) |
+| Plan mode (`ExitPlanMode`) | aucun | chip « plan » masqué dans l'en-tête d'une session vibe (M4) |
+| Auto-approve hooked-side granulaire | mode auto Vibe | chip masqué pour vibe (M4) |
+| Worktree / ephemeral au lancement | aucun | masqués quand provider « Mistral Vibe » sélectionné dans New Session (M4) |
+| Workflows, background jobs (Monitor/Wakeup), hooks PreCompact/SubagentStop | aucun | non exposés côté vibe ; `/api/background/stream?id=<vibe>` répond 200 (flux vide) |
+| Plugins manager (Claude) | Agent Plugins 1.0 de Vibe | skills Vibe listés via `/api/skills?provider=vibe` (racines `.vibe/skills`, `.agents/skills`, user) |
+| Hooks PreCompact/SubagentStop | hooks Vibe équivalents côté `~/.vibe` | non câblés dans hooked, documentés ici |
+
+Audit live (session vibe `26dbee7b…`) : toutes les routes `/api/session/*`, `/api/agent`,
+`/api/review`, `/api/files`, `/api/commands`, `/api/llm-tools`, `/api/mcp?provider=vibe`
+répondent 200 ; `plan` est POST-only (405 en GET, le front lit le plan via `/api/session`).
+
 ## 5. Contrat de données
 
 - **Summary** : shape `blankSummary()` (server/transcript.js) + `provider` + `dir` (dossier session

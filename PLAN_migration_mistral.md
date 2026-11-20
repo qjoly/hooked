@@ -149,7 +149,7 @@ PreCompact/SubagentStop, grafana lens (gateway `~/.claude.json`).
 - **Done quand** : `cd desktop-rune && mise exec -- cargo check` vert ; parcours manuel d'une session vibe dans Rune : chat, review, trace, MCP vibe, fork, todos, trash.
 - **Tests** : `cargo test` si existants ; sinon check + revue manuelle.
 
-### S7 — Décisions « pas d'équivalent » (doc + masquages explicites)
+### S7 — Décisions « pas d'équivalent » (doc + masquages explicites) ✅ LIVRÉE (voir commit S7)
 - Documenter dans `docs/port-vibe.md` (section M5) et masquer côté UI quand `providers.vibe && !providers.claude` (ou par session vibe) : mémoire, compte/quotas/usage topbar, remote-control, warmup, grafana lens, plan, auto-approve granulaire, worktree/ephemeral au lancement, workflows, background jobs, plugins manager (ou nouveau lecteur Agent Plugins 1.0 dans S4 si scope utile), hooks PreCompact/SubagentStop.
 - **Done quand** : chaque item a soit un masque UI, soit une note « non supporté » ; aucun 404/500 sur une session vibe.
 
