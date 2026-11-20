@@ -1542,6 +1542,21 @@ function forkVibe(id, opts, cb) {
   vibeAgent.vibeFork(id, opts, {
     setLive: (st) => { live.set(st.id, st); },
     persistLaunch: (sid, m, e) => persistLaunch(sid, m, e),
+    liveSt: live.get(id) || null, // session live : sa connexion est fermée le temps du fork
+    // Rouvre la session source avec un nouveau process ACP (vibeStart en mode resume, sans
+    // prompt) — vibeStart réutilise le même st et réassigne st.acp.
+    reopenSource: (sid) => {
+      const st = live.get(sid);
+      if (!st || st.acp) return Promise.resolve();
+      if (st.ended && !st.forkClosing) return Promise.resolve(); // vraiment terminée : on ne rouvre pas
+      st.forkClosing = false;
+      st.ended = false;
+      const noop = () => {};
+      return vibeAgent.vibeStart(st, { resumeId: sid, env: process.env }, {
+        setLive: (s2, s) => { live.set(s, s); },
+        persistLaunch: noop, done: noop, failStartup: noop,
+      });
+    },
   }).then((info) => cb(null, info))
     .catch((e) => cb(err400('vibe fork failed: ' + ((e && e.message) || e))));
 }

@@ -364,10 +364,27 @@ function kill(st) {
   st.ended = true;
 }
 
-// Fork d'une session Vibe : process vibe-acp dédié à la branche (session/load de l'orig puis
-// session/fork sur la même connexion ACP). La session d'origine n'est jamais touchée.
-// opts: { cwd, prompt, model, effort, permissionMode, autoApprove }. ctx: { setLive(st), persistLaunch(id, m, e) }.
+// Fork d'une session Vibe. Vibe verrouille chaque session par un file-lock (un seul process à la
+// fois) : on ne peut NI forker depuis le process qui tient la source (lease interne en conflit),
+// NI ouvrir la source depuis un second process tant qu'elle est live. Séquence donc :
+//   1. si la source est live, on ferme sa connexion ACP (libère le lock) et on la rouvre ensuite
+//      en arrière-plan via ctx.reopenSource ;
+//   2. un process neuf fait session/load(source) + session/fork → newId, puis session/close(source)
+//      pour rendre le lock de la source au process qui va la rouvrir ;
+//   3. ce même process pilote le fork (il le détient déjà) — st.acp = ce client.
+// opts: { cwd, prompt, model, effort, permissionMode, autoApprove, forkUuid }.
+// ctx: { setLive(st), persistLaunch(id, m, e), liveSt?, reopenSource?(id) }.
 async function vibeFork(id, opts, ctx) {
+  const src = ctx.liveSt;
+  const wasLive = !!(src && src.acp && src.acpSessionId && !src.ended);
+  if (wasLive) {
+    try { await src.acp.call('session/close', { sessionId: src.acpSessionId }, 10_000); } catch (_) {}
+    src.forkClosing = true; // la fermeture déclenche onExit (ended=true) : flag pour autoriser le reopen
+    src.acp.close();
+    src.acp = null;
+  }
+  const reopen = () => { if (wasLive && ctx.reopenSource) ctx.reopenSource(id).catch(() => {}); };
+
   const client = new AcpClient(acpBin(), [], { cwd: opts.cwd, env: process.env });
   const st = {
     id: null, acp: client, acpSessionId: null, cwd: opts.cwd, provider: 'vibe',
@@ -392,6 +409,8 @@ async function vibeFork(id, opts, ctx) {
     const r = await client.call('session/fork', { sessionId: id, cwd: opts.cwd, mcpServers: [], ...(opts.forkUuid ? { messageId: opts.forkUuid } : {}) }, 60_000);
     const newId = r && (r.sessionId || r.session_id);
     if (!newId) throw new Error('session/fork returned no session id');
+    // Le fork est créé : on rend la source (son lock) pour qu'elle soit rouverte par un autre process.
+    await client.call('session/close', { sessionId: id }, 10_000).catch(() => {});
     st.id = newId;
     st.acpSessionId = newId;
     ctx.setLive(st);
@@ -400,10 +419,12 @@ async function vibeFork(id, opts, ctx) {
     const modeId = vibeModeFor(opts.permissionMode);
     if (modeId) { try { await client.call('session/set_mode', { sessionId: newId, modeId }, 15_000); } catch (_) {} }
     ctx.persistLaunch(newId, opts.model || null, opts.effort || null);
+    reopen(); // rouvre la session d'origine en arrière-plan (elle était live)
     if (opts.prompt && String(opts.prompt).trim()) prompt(st, String(opts.prompt).trim()).catch(() => {});
     return { sessionId: newId, cwd: opts.cwd, forkedFrom: id };
   } catch (e) {
     client.close();
+    reopen(); // ne pas laisser la source sans process si elle était live
     throw e;
   }
 }

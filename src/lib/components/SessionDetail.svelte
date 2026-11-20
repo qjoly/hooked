@@ -11,7 +11,7 @@
   import { onMount, onDestroy, tick, untrack } from 'svelte';
   import { goto } from '$app/navigation';
   import { ui, data, settings, loadSessions, openModal, sessionTitle, sessionTags, renameSession, toggleFocus, splitWithMostRecent, canSplit, toggleArchive, isArchived, unarchive } from '#lib/state.svelte.js';
-  import { getSession, setMode, setModelEffort, setAutoApprove, openInEditor, openInGhostty, fork, launch, deleteSession, removeWorktree, restartClaudeSession, connectSessionStream, listTerminals, openTerminal, killTerminal } from '#lib/api.js';
+  import { getSession, setMode, setModelEffort, setAutoApprove, openInEditor, openInGhostty, fork, launch, deleteSession, removeWorktree, restartClaudeSession, connectSessionStream, listTerminals, openTerminal, killTerminal, getVibeOptions } from '#lib/api.js';
   import { promptCacheState } from '#lib/promptCache.js';
   import { STATE_LABEL, fmtCost, fmtTokens, shortModel, PERMISSION_MODES, modeLabel, modeMeta, modelAlias, tagColor, lotColor, resumeCommand, parseBang, isBlockForCommand } from '#lib/format.js';
   import { page } from '$app/state';
@@ -54,6 +54,24 @@
 
   // mode affiché : choix optimiste sinon mode réel remonté par les hooks (défaut : Normal).
   const modeView = $derived(modeOverride || (s && s.permissionMode) || 'default');
+  // Provider vibe : pas de mode « plan » ni d'auto-approve hooked-side (le mode auto Vibe couvre
+  // l'auto-approbation) → chips masqués.
+  const isVibe = $derived(s?.provider === 'vibe');
+  // Options Vibe (modèles/thinking) pour le sélecteur de modèle d'une session vibe live.
+  let vibeOpts = $state(null);
+  $effect(() => {
+    if (!isVibe || vibeOpts) return;
+    let alive = true;
+    getVibeOptions().then((o) => { if (alive) vibeOpts = o; }).catch(() => {});
+    return () => { alive = false; };
+  });
+  const vibeModelOpts = $derived(vibeOpts
+    ? vibeOpts.models.map((m) => [m.alias || m.name, m.label ? `${m.label} · ${m.alias || m.name}` : (m.alias || m.name)])
+    : null);
+  const vibeEffortList = $derived(vibeOpts
+    ? (vibeOpts.models.find((m) => (m.alias || m.name) === editModel)?.thinking
+        || [...new Set(vibeOpts.models.flatMap((m) => m.thinking || []))])
+    : null);
   // messages envoyés en attente d'apparaître dans le transcript (file d'attente, comme le CLI).
   let queued = $state([]);
   let forceBottom = false;          // force le scroll en bas au prochain rendu (envoi d'un message)
@@ -831,7 +849,8 @@
               {@const cur = modeMeta(modeView)}
               <div class="hdr-menu-cmds">
                 {#if sb.modelEffort !== false}
-                  <ModelEffort compact bind:model={editModel} bind:effort={editEffort} onchange={applyModelEffort} disabled={meBusy} />
+                  <ModelEffort compact bind:model={editModel} bind:effort={editEffort} onchange={applyModelEffort} disabled={meBusy}
+                               modelOpts={isVibe ? vibeModelOpts : null} effortList={isVibe ? vibeEffortList : null} />
                 {/if}
                 {#if sb.permissionMode !== false}
                   <div class="strip-modes wrap">
@@ -839,17 +858,21 @@
                       <span class="mode-now mode-{modeView}" title={cur.title}><span class="mode-ico">{cur.icon}</span>{cur.label}</span>
                     {/if}
                     {#each PERMISSION_MODES as m}
-                      <button class="mode-chip" class:active={modeView === m.key} disabled={modeBusy}
-                              onclick={() => switchMode(m.key)} title={m.title}><span class="mode-ico">{m.icon}</span>{m.label}</button>
+                      {#if !(isVibe && m.key === 'plan')}
+                        <button class="mode-chip" class:active={modeView === m.key} disabled={modeBusy}
+                                onclick={() => switchMode(m.key)} title={m.title}><span class="mode-ico">{m.icon}</span>{m.label}</button>
+                      {/if}
                     {/each}
                     <!-- Orthogonal au mode : le mode décide QUI escalade (règles, classifieur du
                          mode auto), ceci décide si hooked te pose la question quand ça escalade. -->
+                    {#if !isVibe}
                     <button class="mode-chip auto-chip" class:active={autoView} disabled={autoBusy}
                             onclick={toggleAuto}
                             title={autoView
                               ? 'Auto-approve is ON: tool permission requests are allowed without asking. Questions and plans still come to you.'
                               : 'Auto-approve tool permissions: stop asking for each escalated tool call. Questions and plans still come to you.'}>
                       <span class="mode-ico">⚡</span>Auto-approve · {autoView ? 'on' : 'off'}</button>
+                    {/if}
                   </div>
                 {/if}
               </div>
@@ -862,8 +885,8 @@
             <button class="vscode-btn" disabled={ghosttyBusy} onclick={openGhostty} title="Open the project folder in Ghostty">{#if ghosttyBusy}<Icon name="queued" size={14} />{:else}<Icon name="ghostty" size={14} />{/if} Open in Ghostty</button>
             <button class="vscode-btn" onclick={copyResumeCmd}
                     title={s.live
-                      ? 'Copy `claude --resume` for this session — WARNING: hooked is driving it right now, running the command too would fight over the session lock'
-                      : 'Copy `claude --resume` for this session, to reopen it in your own terminal'}>{#if cmdCopied}<Icon name="check" size={14} /> copied{:else}<Icon name="shell" size={14} /> Copy resume command{/if}</button>
+                      ? `Copy \`${isVibe ? 'vibe --resume' : 'claude --resume'}\` for this session — WARNING: hooked is driving it right now, running the command too would fight over the session lock`
+                      : `Copy \`${isVibe ? 'vibe --resume' : 'claude --resume'}\` for this session, to reopen it in your own terminal`}>{#if cmdCopied}<Icon name="check" size={14} /> copied{:else}<Icon name="shell" size={14} /> Copy resume command{/if}</button>
             <button class="vscode-btn" onclick={copyExport} title="Copy the conversation as Markdown to the clipboard">{#if exportCopied}<Icon name="check" size={14} /> copied{:else}<Icon name="copy" size={14} /> Copy as Markdown{/if}</button>
             {#if s.worktreeOf}
               <div class="hdr-div"></div>

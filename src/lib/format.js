@@ -132,7 +132,7 @@ export function isBlockForCommand(text, command) {
 export function resumeCommand(s) {
   if (!s || !s.id) return '';
   const dir = s.project || s.cwd || '';
-  const cmd = `claude --resume=${s.id}`;
+  const cmd = s.provider === 'vibe' ? `vibe --resume ${s.id}` : `claude --resume=${s.id}`;
   return dir ? `cd ${shellQuote(dir)} && ${cmd}` : cmd;
 }
 // Quoting POSIX : un chemin de projet peut contenir une espace, et rien n'interdit une apostrophe.

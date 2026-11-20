@@ -268,11 +268,13 @@
         {:else}
           <ModelEffort compact showMode bind:model bind:effort bind:mode onchange={() => (picked = true)} />
         {/if}
+        {#if provider !== 'vibe'}
         <label class="me-pill ns-worktree" title="Create a git worktree on a new branch and launch the session in it">
           <input type="checkbox" bind:checked={worktree} />
           <span class="me-ico"><Icon name="git-branch" size={14} /></span> worktree
         </label>
-        {#if worktree}
+        {/if}
+        {#if worktree && provider !== 'vibe'}
           <div class="ns-wt-row">
             <label class="ns-wt-field">from
               <input class="lf-input" list="ns-wt-bases" bind:value={wtBase} spellcheck="false"
@@ -286,10 +288,12 @@
           </div>
           {#if bases?.error}<div class="ns-wt-err"><Icon name="warning" size={13} /> {bases.error}</div>{/if}
         {/if}
+        {#if provider !== 'vibe'}
         <label class="me-pill ns-worktree" title="Claude archives the session once the task is done, when it is confident nothing is left to check">
           <input type="checkbox" bind:checked={ephemeral} />
           <span class="me-ico"><Icon name="archive" size={14} /></span> ephemeral
         </label>
+        {/if}
       </div>
     </div>
     {#if watching}<div class="ns-watch"><Icon name="queued" size={14} /> session launched — opening on first event…</div>{/if}
