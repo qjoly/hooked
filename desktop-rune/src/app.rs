@@ -685,7 +685,9 @@ impl Hooked {
             match s.lens {
                 Lens::Mcp => {
                     s.lens_data.mcp_cwd = Some(cwd.clone());
-                    s.lens_data.mcp = api::mcp_list(&cwd, true).unwrap_or_default();
+                    s.lens_data.mcp_provider = d.session.provider.clone();
+                    s.lens_data.mcp =
+                        api::mcp_list(&cwd, true, d.session.provider.as_deref()).unwrap_or_default();
                 }
                 Lens::Review => {
                     s.ensure_lens();
@@ -2633,6 +2635,21 @@ pub fn composer_changed(&mut self) {
     }
 
     /// The name a session shows under: the one given here, else its own title.
+    /// Provider ('claude'/'vibe') d'une session, cherché d'abord dans la liste, puis dans le
+    /// détail chargé — sert aux libellés provider-aware (agent_label).
+    pub fn provider_of(&self, id: &str) -> Option<&str> {
+        self.sessions
+            .iter()
+            .find(|x| x.id == id)
+            .and_then(|x| x.provider.as_deref())
+            .or_else(|| {
+                self.detail
+                    .as_ref()
+                    .filter(|d| d.session.id == id)
+                    .and_then(|d| d.session.provider.as_deref())
+            })
+    }
+
     pub fn title_of(&self, x: &Session) -> String {
         self.names
             .get(&x.id)

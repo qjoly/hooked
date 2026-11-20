@@ -89,7 +89,8 @@ impl Hooked {
             "go-board" => self.open_sessions(),
             "go-stats" => self.go(Page::Stats),
             "go-digest" => self.go(Page::Digest),
-            "go-memory" => self.go(Page::Memory),
+            // Mémoire = ~/.claude (Claude-only) : raccourci inerte sans binaire claude.
+            "go-memory" if self.providers.claude => self.go(Page::Memory),
             "go-github" => self.go(Page::GitHub),
             "go-incidents" if self.incidents_on() => self.go(Page::Incidents),
             "toggle-sidebar" => self.toggle_sidebar(),

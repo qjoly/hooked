@@ -299,7 +299,7 @@ fn wheel_card(s: &Hooked, k: &Kit, list: &[(&Session, bool)], decisions: usize) 
                     .truncate(),
             )
             .child(
-                text(fmt::state_label(&x.state))
+                text(fmt::state_label_for(&x.state, x.provider.as_deref()))
                     .font(k.ty.text_xsmall)
                     .color(k.c.text_faint),
             ),
@@ -514,7 +514,7 @@ fn table_row(s: &Hooked, k: &Kit, u: &Unit, i: usize) -> El {
     }
     let mut line = line
         .child(
-            text(fmt::state_label(&x.state))
+            text(fmt::state_label_for(&x.state, x.provider.as_deref()))
                 .font(f)
                 .color(k.c.text_faint)
                 .truncate()

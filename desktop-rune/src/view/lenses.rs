@@ -1060,7 +1060,11 @@ pub fn review(s: &Hooked, d: &Detail, k: &Kit) -> El {
     let labels: Vec<String> = sources
         .iter()
         .map(|x| match x {
-            ReviewSource::Claude => format!("Claude's edits · {}", d.changes.len()),
+            ReviewSource::Claude => format!(
+                "{}'s edits · {}",
+                fmt::agent_label(d.session.provider.as_deref()),
+                d.changes.len()
+            ),
             ReviewSource::Worktree => "Worktree".to_string(),
             ReviewSource::Tree => "Working tree".to_string(),
             ReviewSource::Branch => "Branch".to_string(),
@@ -1267,8 +1271,9 @@ pub fn review(s: &Hooked, d: &Detail, k: &Kit) -> El {
                 "Sending…".to_string()
             } else {
                 format!(
-                    "Send {pending} comment{} to Claude",
-                    if pending == 1 { "" } else { "s" }
+                    "Send {pending} comment{} to {}",
+                    if pending == 1 { "" } else { "s" },
+                    fmt::agent_label(d.session.provider.as_deref())
                 )
             })
             .disabled(ld.sending_review)
@@ -1470,6 +1475,8 @@ fn mcp_dot(k: &Kit, state: &str) -> Color {
 
 fn mcp_row(s: &Hooked, x: &McpServer, k: &Kit) -> El {
     let open = s.lens_data.mcp_open.as_deref() == Some(x.name.as_str());
+    // OAuth login/logout = flux Claude Code ; en vibe il n'y a rien à re-authentifier.
+    let oauth = x.authable && s.lens_data.mcp_provider.as_deref() != Some("vibe");
     let (n1, n2, n3) = (x.name.clone(), x.name.clone(), x.name.clone());
     let mut actions = row().gap(6.0).center_y().child(
         Button::new(if open { "Hide" } else { "Details" })
@@ -1479,7 +1486,7 @@ fn mcp_row(s: &Hooked, x: &McpServer, k: &Kit) -> El {
             .build(k)
             .key(format!("mcp-det-{}", x.name)),
     );
-    if x.authable {
+    if oauth {
         actions = actions
             .child(
                 Button::new("Re-authenticate")
@@ -1924,6 +1931,7 @@ pub fn trace(s: &Hooked, k: &Kit) -> El {
 }
 
 fn annotation(s: &Hooked, a: &Annotation, k: &Kit) -> El {
+    let agent = fmt::agent_label(s.selected.as_deref().and_then(|id| s.provider_of(id)));
     if a.id == "def" {
         return def_card(s, k);
     }
@@ -2236,7 +2244,7 @@ fn annotation(s: &Hooked, a: &Annotation, k: &Kit) -> El {
                 .w_full()
                 .gap(2.0)
                 .child(
-                    text(if claude { "Claude" } else { "You" })
+                    text(if claude { agent } else { "You" })
                         .font(k.ty.text_xsmall_medium)
                         .color(k.c.text_faint),
                 )
@@ -2249,7 +2257,10 @@ fn annotation(s: &Hooked, a: &Annotation, k: &Kit) -> El {
         let (send, drop) = (tid.clone(), tid.clone());
         c = c.child(
             TextArea::new(edit)
-                .placeholder("Reply… (⌘Enter sends to Claude, Esc cancels)")
+                .placeholder(format!(
+                    "Reply… (⌘Enter sends to {}, Esc cancels)",
+                    agent
+                ))
                 .width(None)
                 .auto_grow(1, 10)
                 .on_edit(move |s: &mut Hooked| {

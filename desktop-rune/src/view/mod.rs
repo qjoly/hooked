@@ -308,12 +308,17 @@ fn topbar(s: &Hooked, k: &Kit, inset: f32, _layer: &mut Vec<El>) -> El {
         .on_press(|s: &mut Hooked| {
             s.open_palette("");
         });
-    let gauges = row()
-        .key("tb-gauges")
-        .gap(10.0)
-        .center_y()
-        .help("Account rate limits")
-        .children(s.gauges.iter().map(|g| gauge(k, &g.label, g.pct)));
+    // Rate limits = compte Claude OAuth : masquées quand aucun binaire claude n'est configuré.
+    let gauges = if s.providers.claude {
+        row()
+            .key("tb-gauges")
+            .gap(10.0)
+            .center_y()
+            .help("Account rate limits")
+            .children(s.gauges.iter().map(|g| gauge(k, &g.label, g.pct)))
+    } else {
+        el()
+    };
     let theme_icon = match s.theme {
         Theme::Light => &icons::SUN,
         Theme::Dark => &icons::MOON,
@@ -324,7 +329,7 @@ fn topbar(s: &Hooked, k: &Kit, inset: f32, _layer: &mut Vec<El>) -> El {
         Theme::Dark => "Theme: dark",
         Theme::System => "Theme: system",
     };
-    let actions = row()
+    let mut actions = row()
         .key("tb-actions")
         .gap(2.0)
         .center_y()
@@ -346,15 +351,6 @@ fn topbar(s: &Hooked, k: &Kit, inset: f32, _layer: &mut Vec<El>) -> El {
                 .build(k)
                 .key("tb-incognito")
         })
-        .child(
-            IconButton::new(&icons::USER)
-                .variant(IconButtonVariant::GhostMuted)
-                .label("Claude account")
-                .help("Claude account: who is signed in, switch, sign out")
-                .on_press(|s: &mut Hooked| s.open_account())
-                .build(k)
-                .key("tb-account"),
-        )
         .child(
             IconButton::new(&icons::TRASH)
                 .variant(IconButtonVariant::GhostMuted)
@@ -411,6 +407,18 @@ fn topbar(s: &Hooked, k: &Kit, inset: f32, _layer: &mut Vec<El>) -> El {
                 .build(k)
                 .key("tb-settings"),
         );
+    // Compte/quotas = compte Claude OAuth : masqué quand aucun binaire claude n'est configuré.
+    if s.providers.claude {
+        actions = actions.child(
+            IconButton::new(&icons::USER)
+                .variant(IconButtonVariant::GhostMuted)
+                .label("Claude account")
+                .help("Claude account: who is signed in, switch, sign out")
+                .on_press(|s: &mut Hooked| s.open_account())
+                .build(k)
+                .key("tb-account"),
+        );
+    }
     let new = Button::new("Session")
         .icon(&icons::PLUS)
         .variant(ButtonVariant::Contrast)
@@ -493,7 +501,8 @@ fn topbar(s: &Hooked, k: &Kit, inset: f32, _layer: &mut Vec<El>) -> El {
                         ),
                     ]
                     .into_iter()
-                    .filter(|t| s.nav_tab(t.0) || s.page == t.4)
+                    // Mémoire = ~/.claude (Claude-only) : onglet masqué sans binaire claude.
+                    .filter(|t| (t.0 != "memory" || s.providers.claude) && (s.nav_tab(t.0) || s.page == t.4))
                     .map(|(_, key, label, icon, page)| {
                         space(key, label, icon, s.page == page, None)
                             .on_press(move |s: &mut Hooked| s.go(page))

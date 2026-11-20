@@ -21,7 +21,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { VIBE_SESSIONS_DIR, VIBE_HOME } from './config.js';
 import { blankSummary } from './transcript.js';
-import { readdirSafe, statSafe, textOf, cleanPrompt, truncTitle, toolDetail, toolInputText } from './util.js';
+import { readdirSafe, statSafe, textOf, cleanPrompt, truncTitle, toolDetail, toolInputText, toolDiffOps } from './util.js';
 import { costForUsage } from './pricing.js';
 import { contextFromUsage } from '../src/lib/promptCache.js';
 
@@ -355,6 +355,25 @@ function vibeToolOutput(state) {
   return null;
 }
 
+// Diff inline pour les tools fichiers de Vibe (file_system.write_file / edit_file / multi_edit),
+// en réutilisant toolDiffOps (mêmes noms d'ops que Claude Write/Edit/MultiEdit) — le front web
+// (ToolChip) et desktop-rune lisent `diff` sur le tool, quel que soit le provider.
+function vibeToolDiff(toolName, input) {
+  if (!input || typeof input !== 'object') return null;
+  const last = String(toolName || '').split('.').pop();
+  const file = input.path || input.file_path || input.notebook_path;
+  if (last === 'write_file') {
+    return toolDiffOps('Write', { file_path: file, content: input.content });
+  }
+  if (last === 'edit_file') {
+    return toolDiffOps('Edit', { file_path: file, old_string: input.old_string, new_string: input.new_string, replace_all: input.replace_all });
+  }
+  if (last === 'multi_edit') {
+    return toolDiffOps('MultiEdit', { file_path: file, edits: input.edits });
+  }
+  return null;
+}
+
 // Conversation style chat (même shape que buildConversation de conversation.js) :
 // 1 bulle user / 1 bulle assistant, les tool calls (effects) rattachés à la bulle assistant
 // en cours. Le texte est tronqué comme côté Claude (TEXT_CAP) via le front ; ici on renvoie le texte brut.
@@ -394,6 +413,7 @@ function buildVibeConversation(dir) {
         status: (e.state && e.state.status) || null,
         input,
         output,
+        diff: vibeToolDiff(e.detail.toolName || e.title || '', input) || undefined,
       });
     }
   }

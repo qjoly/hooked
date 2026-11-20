@@ -101,7 +101,7 @@ fn head(s: &Hooked, d: &Detail, k: &Kit, layer: &mut Vec<El>) -> El {
             x.activity.clone().unwrap_or_else(|| "Working".into())
         )
     } else {
-        fmt::state_label(&x.state).to_string()
+        fmt::state_label_for(&x.state, x.provider.as_deref())
     };
     let sc = state_color(k, &x.state);
     let mut meta = row().gap(5.0).center_y().child(
@@ -761,6 +761,7 @@ pub(super) fn hash_of(v: impl Hash) -> u64 {
 }
 
 fn converse(s: &Hooked, d: &Detail, k: &Kit) -> El {
+    let agent = fmt::agent_label(d.session.provider.as_deref());
     let n = d.messages.len();
     let start = n.saturating_sub(s.visible);
     let mut chat = col()
@@ -804,7 +805,7 @@ fn converse(s: &Hooked, d: &Detail, k: &Kit) -> El {
                     .fill(k.c.warning.bg)
                     .border(1.0, k.c.warning.fg)
                     .border_dash(4.0, 3.0)
-                    .child(who(k, true, "queued", k.c.text_muted))
+                    .child(who(k, true, "queued", agent, k.c.text_muted))
                     .child(text(q.clone()).font(k.ty.body).color(k.c.text_base).wrap()),
             )
             .key(format!("queued-{i}")),
@@ -816,7 +817,7 @@ fn converse(s: &Hooked, d: &Detail, k: &Kit) -> El {
                 false,
                 assistant_skin(col().gap(6.0), k)
                     .border_dash(4.0, 3.0)
-                    .child(who(k, false, "live stream", k.c.text_muted))
+                    .child(who(k, false, "live stream", agent, k.c.text_muted))
                     .child(super::md(lead.clone()).streaming(true).build(k)),
             )
             .key("leadin"),
@@ -828,7 +829,7 @@ fn converse(s: &Hooked, d: &Detail, k: &Kit) -> El {
     {
         let mut b = assistant_skin(col().gap(6.0), k)
             .border(1.0, k.c.border_focus.alpha(0.6))
-            .child(who(k, false, "live", k.c.text_muted));
+            .child(who(k, false, "live", agent, k.c.text_muted));
         if !l.thinking.is_empty() {
             b = b.child(
                 text(fmt::first_line(&l.thinking, 400))
@@ -966,7 +967,7 @@ fn assistant_skin(b: El, k: &Kit) -> El {
         .border(1.0, k.c.border_weak)
 }
 
-fn who(k: &Kit, user: bool, extra: &str, ink: Color) -> El {
+fn who(k: &Kit, user: bool, extra: &str, agent: &'static str, ink: Color) -> El {
     let mut r = row()
         .gap(6.0)
         .center_y()
@@ -976,7 +977,7 @@ fn who(k: &Kit, user: bool, extra: &str, ink: Color) -> El {
             ink,
         ))
         .child(
-            text(if user { "You" } else { "Claude" })
+            text(if user { "You" } else { agent })
                 .font(k.ty.text_small_medium)
                 .color(ink),
         );
@@ -1100,10 +1101,12 @@ pub(super) fn bubble(s: &Hooked, session: &str, m: &Message, k: &Kit, i: usize) 
     let uk = user.then(|| on_accent(k));
     let ck = uk.as_ref().unwrap_or(k);
     let ink = ck.c.text_muted;
+    let agent = fmt::agent_label(s.provider_of(session));
     let mut head = row().w_full().gap(8.0).center_y().child(who(
         k,
         user,
         if m.auto { "auto" } else { &ts },
+        agent,
         ink,
     ));
     if let Some(uuid) = m.fork_uuid.clone() {
@@ -2070,7 +2073,12 @@ fn question(s: &Hooked, q: &PendingQuestion, k: &Kit) -> El {
             .center_y()
             .child(dot(k, "waiting", 8.0))
             .child(
-                text("Claude is asking")
+                text(format!(
+                    "{} is asking",
+                    fmt::agent_label(
+                        s.selected.as_deref().and_then(|id| s.provider_of(id))
+                    )
+                ))
                     .font(k.ty.ui_medium)
                     .color(k.c.text_base),
             ),
@@ -2678,14 +2686,18 @@ fn composer(s: &Hooked, d: &Detail, k: &Kit, busy: bool) -> El {
                 })),
         );
     }
+    let reply_placeholder = if busy {
+        "Queue a message… (Esc interrupts)".to_string()
+    } else {
+        format!(
+            "Reply to {}…",
+            fmt::agent_label(s.selected.as_deref().and_then(|id| s.provider_of(id)))
+        )
+    };
     let mut bar = row().w_full().gap(8.0).items_end().child(composer_field(
         s,
         k,
-        if busy {
-            "Queue a message… (Esc interrupts)"
-        } else {
-            "Reply to Claude…"
-        },
+        &reply_placeholder,
     ));
     if busy {
         bar = bar.child(

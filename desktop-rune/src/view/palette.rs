@@ -55,9 +55,7 @@ pub fn commands(s: &Hooked) -> Vec<Cmd> {
         cmd(nav, &icons::BOOK, "Go to Digest", "⌥5", |s, _| {
             s.go(Page::Digest)
         }),
-        cmd(nav, &icons::BRAIN, "Go to Memory", "⌥6", |s, _| {
-            s.go(Page::Memory)
-        }),
+
         cmd(nav, &icons::GITHUB, "Go to GitHub", "⌥7", |s, _| {
             s.go(Page::GitHub)
         }),
@@ -239,6 +237,11 @@ pub fn commands(s: &Hooked) -> Vec<Cmd> {
             |s, _| s.resync_states(),
         ),
     ]);
+    if s.providers.claude {
+        out.push(cmd(nav, &icons::BRAIN, "Go to Memory", "⌥6", |s, _| {
+            s.go(Page::Memory)
+        }));
+    }
     let Some(x) = s
         .selected
         .as_deref()

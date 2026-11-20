@@ -144,7 +144,7 @@ PreCompact/SubagentStop, grafana lens (gateway `~/.claude.json`).
 - **Done quand** : parcours UI d'une session vibe sans aucun « Claude » ni élément cassé ; fork d'une bulle vibe fonctionne (server OK, `fork.js:70`).
 - **Tests** : snapshot/composant si dispo, sinon test de `format`/label helpers.
 
-### S6 — desktop-rune : parité
+### S6 — desktop-rune : parité ✅ LIVRÉE (voir commit S6)
 - **Scope** : `desktop-rune/src/api.rs` (MCP lens envoie `provider=vibe` pour une session vibe, masque OAuth login/logout en vibe), `src/view/session.rs` (bouton Fork session vibe — `POST /api/fork` whole-session, label `who()` provider-aware, diff inline pour `file_system.write_file/edit` via `detail.input`), `src/view/lenses.rs` (vérifier Review/Trace après S1/S3), `src/view/dock.rs` (todos/subagents/screenshots après S2), `src/app.rs` (trash/delete, open-editor après S1), `cargo check` 0 warning.
 - **Done quand** : `cd desktop-rune && mise exec -- cargo check` vert ; parcours manuel d'une session vibe dans Rune : chat, review, trace, MCP vibe, fork, todos, trash.
 - **Tests** : `cargo test` si existants ; sinon check + revue manuelle.

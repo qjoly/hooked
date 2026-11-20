@@ -985,12 +985,19 @@ pub struct McpServer {
     pub authable: bool,
 }
 
-pub fn mcp_list(cwd: &str, cached: bool) -> Result<Vec<McpServer>, String> {
-    let v = get(&format!(
-        "/api/mcp?cwd={}{}",
-        enc(cwd),
-        if cached { "&cached=1" } else { "" }
-    ))?;
+pub fn mcp_list(cwd: &str, cached: bool, provider: Option<&str>) -> Result<Vec<McpServer>, String> {
+    // provider=vibe : liste lue dans la config Vibe ; `cached` n'existe pas côté vibe, le
+    // health-check (`check=1`) est l'appel complet.
+    let mut url = format!("/api/mcp?cwd={}", enc(cwd));
+    if provider == Some("vibe") {
+        url.push_str("&provider=vibe");
+        if !cached {
+            url.push_str("&check=1");
+        }
+    } else if cached {
+        url.push_str("&cached=1");
+    }
+    let v = get(&url)?;
     decode(
         v.get("servers")
             .cloned()
