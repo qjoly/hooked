@@ -1017,7 +1017,12 @@ function commandsSource(id) {
 }
 function agentSupportedCommands(id) {
   const st = commandsSource(id);
-  if (!st || typeof st.q.supportedCommands !== 'function') return Promise.resolve(null);
+  if (!st) return Promise.resolve(null);
+  // provider vibe : la liste vient des notifications ACP availableCommands (cf. vibeAgent)
+  if (st.provider === 'vibe') {
+    return Promise.resolve(st.vibeCommands && st.vibeCommands.length ? { commands: st.vibeCommands, cwd: st.cwd || null } : null);
+  }
+  if (typeof st.q.supportedCommands !== 'function') return Promise.resolve(null);
   const cwd = st.cwd || null;
   const cached = st.commands;
   if (!cached || Date.now() - cached.at >= SUPPORTED_COMMANDS_TTL) {

@@ -240,6 +240,14 @@ function handleNotification(st, method, params) {
     case 'tool_call_update': case 'toolCallUpdate':
       if (u.status === 'completed' || u.status === 'failed') st.activity = null;
       break;
+    case 'available_commands_update': case 'availableCommandsUpdate': {
+      // liste des commandes « / » déclarées par la session Vibe → auto-complétion du composer
+      const cmds = u.availableCommands || u.available_commands || [];
+      if (Array.isArray(cmds) && cmds.length) {
+        st.vibeCommands = cmds.map((c) => ({ name: c.name, description: c.description || '' }));
+      }
+      break;
+    }
     default:
       break;
   }

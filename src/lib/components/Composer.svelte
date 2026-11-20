@@ -153,7 +153,7 @@
     acStart = 0; // index du « / » (début de message)
     const myReq = ++acReq;
     try {
-      const d = await getCommands(id, q, newSession ? project : null);
+      const d = await getCommands(id, q, newSession ? project : null, provider);
       if (myReq !== acReq || ta.selectionStart !== pos) return; // réponse périmée
       acItems = (d.commands || []).map((c) => ({
         insert: '/' + c.name + ' ', label: '/' + c.name, sub: c.description || '',

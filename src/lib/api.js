@@ -87,7 +87,7 @@ export function connectBackgroundLog({ id, taskId, onSeed, onData, onUnavailable
 export const getFiles = (id, q, cwd) => jget(`/api/files?id=${encodeURIComponent(id || '')}&q=${encodeURIComponent(q)}${cwd ? '&cwd=' + encodeURIComponent(cwd) : ''}`);
 // Tools a driven session sends to the model (built-in + MCP, with token cost). No id = any driven session.
 export const getLlmTools = (id) => jget(`/api/llm-tools${id ? '?id=' + encodeURIComponent(id) : ''}`);
-export const getCommands = (id, q, cwd) => jget(`/api/commands?id=${encodeURIComponent(id || '')}&q=${encodeURIComponent(q)}${cwd ? '&cwd=' + encodeURIComponent(cwd) : ''}`);
+export const getCommands = (id, q, cwd, provider) => jget(`/api/commands?id=${encodeURIComponent(id || '')}&q=${encodeURIComponent(q)}${cwd ? '&cwd=' + encodeURIComponent(cwd) : ''}${provider ? '&provider=' + encodeURIComponent(provider) : ''}`);
 export const getAgent = (session, agent) => jget(`/api/agent?session=${encodeURIComponent(session)}&agent=${encodeURIComponent(agent)}`);
 // Défauts modèle/effort lus depuis ~/.claude (config Claude Code de l'utilisateur).
 export const getDefaults = () => jget('/api/defaults');
