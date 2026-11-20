@@ -13,7 +13,7 @@
   import { ui, data, settings, loadSessions, openModal, sessionTitle, sessionTags, renameSession, toggleFocus, splitWithMostRecent, canSplit, toggleArchive, isArchived, unarchive } from '#lib/state.svelte.js';
   import { getSessionDelta, setMode, setModelEffort, setAutoApprove, openInEditor, openInGhostty, fork, launch, deleteSession, removeWorktree, restartClaudeSession, connectSessionStream, listTerminals, openTerminal, killTerminal, getVibeOptions } from '#lib/api.js';
   import { promptCacheState } from '#lib/promptCache.js';
-  import { STATE_LABEL, fmtCost, fmtTokens, shortModel, PERMISSION_MODES, modeLabel, modeMeta, modelAlias, tagColor, lotColor, resumeCommand, parseBang, isBlockForCommand } from '#lib/format.js';
+  import { stateLabel, agentName, fmtCost, fmtTokens, shortModel, PERMISSION_MODES, modeLabel, modeMeta, modelAlias, tagColor, lotColor, resumeCommand, parseBang, isBlockForCommand } from '#lib/format.js';
   import { page } from '$app/state';
   import ModelEffort from './ModelEffort.svelte';
   import ChatBubble from './ChatBubble.svelte';
@@ -629,7 +629,7 @@
   function restart() {
     openModal('confirm', {
       title: 'Restart session?',
-      message: 'The Claude process is stopped and resumed from its transcript. A turn in progress is lost.',
+      message: `The ${agentName(s?.provider)} process is stopped and resumed from its transcript. A turn in progress is lost.`,
       confirmLabel: 'Restart', confirmIcon: 'rotate-cw', onConfirm: doRestart,
     });
   }
@@ -804,7 +804,7 @@
           {#each sessionTags(id) as t (t)}<span class="head-tag" style="--c:{tagColor(t)}">#{t}</span>{/each}
         </button>
       {/if}
-      <span class="badge s-badge"><span class="bdot"></span>{s.state === 'working' && s.activity ? s.activity + '…' : (STATE_LABEL[s.state] || s.state)}</span>
+      <span class="badge s-badge"><span class="bdot"></span>{s.state === 'working' && s.activity ? s.activity + '…' : stateLabel(s.state, s.provider)}</span>
       <!-- Context-window fill (s.context, cf. server/status.js): the one TUI reading the dashboard
            could not surface, though it decides whether to compact or fork. Two producers, one
            format: statusline-tap.sh for a session opened by hand, server/agent-status.js for a
@@ -991,7 +991,7 @@
           </div>
         {/if}
       </div>
-      {#if s.pendingQuestion}<Question {id} pq={s.pendingQuestion} />{/if}
+      {#if s.pendingQuestion}<Question {id} pq={s.pendingQuestion} provider={s.provider || 'claude'} />{/if}
       {#if s.pendingPlan}<Plan {id} pp={s.pendingPlan} />{/if}
       {#if s.live}
         <!-- La carte de follow-up est rendue PAR le composer, dans son socle : elle ne défile plus

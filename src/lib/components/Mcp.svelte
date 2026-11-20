@@ -127,7 +127,7 @@
           Servers Mistral Vibe can reach from <code>{project || 'the user scope'}</code> (config
           <code>config.toml</code>), HTTP health-checked live. Stdio servers stay « configured ».
         {:else}
-          Servers Claude Code can reach from <code>{project || 'the user scope'}</code>, health-checked
+          Servers {isVibe ? 'Mistral Vibe' : 'Claude Code'} can reach from <code>{project || 'the user scope'}</code>, health-checked
           live. Re-authenticate one here instead of running <code>/mcp</code> in a terminal.
         {/if}
       </p>

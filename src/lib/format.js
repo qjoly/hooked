@@ -100,6 +100,14 @@ export const STATE_LABEL = {
   background: 'Running in background', idle: 'Paused', ended: 'Ended', past: 'Past',
 };
 
+// Nom d'affichage de l'agent selon le provider de la session ('claude' par défaut — non-régression).
+export const agentName = (provider) => (provider === 'vibe' ? 'Vibe' : 'Claude');
+// Libellé d'état provider-aware : seul « working » nomme l'agent ; les autres états sont neutres.
+export function stateLabel(state, provider) {
+  if (state === 'working') return `${agentName(provider)} is working`;
+  return STATE_LABEL[state] || state;
+}
+
 // Le composer a-t-il envoyé une COMMANDE plutôt qu'un message ? Sert à l'affichage (libellé, couleur
 // de la bulle) et au rattachement de l'écho à son bloc. Le parsing qui décide vraiment reste côté
 // serveur (parseBangCommand) ; même forme de retour exprès, pour qu'un test puisse comparer les deux

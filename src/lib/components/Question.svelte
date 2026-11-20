@@ -1,9 +1,10 @@
 <script>
   import { replyQuestion } from '#lib/api.js';
+  import { agentName } from '#lib/format.js';
   import { loadSessions, ui, wakeSession } from '#lib/state.svelte.js';
   import Icon from '#lib/components/Icon.svelte';
 
-  let { id, pq } = $props();
+  let { id, pq, provider = 'claude' } = $props();
   const questions = $derived(pq.questions || []);
   // The TUI's automatic "Other" choice: every REAL question also accepts a typed answer. Not on a
   // permission request (it is rendered through this component too): its Allow/Always/Deny options
@@ -158,7 +159,7 @@
 </script>
 
 <div class="question" class:sent>
-  <div class="q-head"><span class="q-ico"><Icon name="question" size={16} /></span><span class="q-title">Claude is asking you a question</span></div>
+  <div class="q-head"><span class="q-ico"><Icon name="question" size={16} /></span><span class="q-title">{agentName(provider)} is asking you a question</span></div>
   {#each questions as q, qi}
     <div class="q-block">
       {#if q.header}<span class="q-chip">{q.header}</span>{/if}

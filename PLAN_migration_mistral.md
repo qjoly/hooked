@@ -134,12 +134,12 @@ PreCompact/SubagentStop, grafana lens (gateway `~/.claude.json`).
 - **Done quand** : Trace lens d'une session vibe montre les appels d'outils ; `/api/search` retrouve du texte de sessions vibe (web + rune palette).
 - **Tests** : trace sur fixture ; search indexe une fixture vibe et retrouve un mot.
 
-### S4 — Pages écosystème provider-aware
+### S4 — Pages écosystème provider-aware ✅ LIVRÉE (395aad7)
 - **Scope** : `server/skills.js` (`?provider=vibe` → `~/.vibe/skills`, `<cwd>/.vibe/skills`, plugin packages), `server/cron.js` (champ `provider` sur `cron-tasks.json`, passé à `launchSession` ; lens read-only `scheduled-loops.json`), `server/digests.js` + `autoTags.js` + `prReviewTags.js` + `prWatch.js` + `server/prReview.js` (`scanAllSessions()` + appel LLM provider-aware : `claude -p` vs `vibe -p --output json`), `server/settings.js` (`defaultProvider`), `server/agent.js:1047` (guard `llm-tools` vibe), routes + fronts des pages Skills/Cron/Digest/Settings/GitHub.
 - **Done quand** : page Skills liste les skills vibe ; une tâche cron peut lancer en vibe ; le digest inclut les sessions vibe ; le Quick Action respecte `defaultProvider` ; `/api/llm-tools?id=<vibe>` ne 500 plus.
 - **Tests** : skills vibe sur fixture dir ; cron task avec provider ; llm-tools guard.
 
-### S5 — Finitions UI web vibe
+### S5 — Finitions UI web vibe ✅ LIVRÉE (voir commit S5)
 - **Scope** : `Question.svelte` (label provider), `SessionDetail.svelte` (jauge CTX depuis `s.context`, badge cc/vibe aussi sur les cartes Deck `Deck.svelte`/`SessionCard.svelte`), `ChatBubble.svelte` (fork par bulle via `forkUuid` vibe, « show more »), labels « Claude » restants (grep), masquages explicites quand un seul provider est configuré (Memory/Account/Remote-control pages, voir S7).
 - **Done quand** : parcours UI d'une session vibe sans aucun « Claude » ni élément cassé ; fork d'une bulle vibe fonctionne (server OK, `fork.js:70`).
 - **Tests** : snapshot/composant si dispo, sinon test de `format`/label helpers.
