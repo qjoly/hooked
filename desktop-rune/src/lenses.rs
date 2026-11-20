@@ -176,6 +176,8 @@ pub struct LensData {
     pub blame: HashMap<(String, String), Option<Value>>,
     pub blame_at: Option<(usize, Side, u32)>,
     pub def: Option<crate::defs::DefPeek>,
+    /// The text selected in the diff whose occurrences it paints (see `echo.rs`).
+    pub echo: Option<String>,
     pub rendered: bool,
     pub branches: Option<Value>,
     pub branches_loading: bool,
@@ -259,6 +261,7 @@ impl Default for LensData {
             blame: HashMap::new(),
             blame_at: None,
             def: None,
+            echo: None,
             rendered: false,
             branches: None,
             branches_loading: false,

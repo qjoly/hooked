@@ -1333,6 +1333,17 @@ pub fn review(s: &Hooked, d: &Detail, k: &Kit) -> El {
             // A narrow diff (a wide rendered column) would let the sticky file header spill
             // over the column beside it.
             .clip_rounded(0.0)
+            // What is selected in the diff paints its other occurrences, and a ⌘-double-click
+            // on a name opens its definition.
+            .on_selection_change(|s: &mut Hooked, change, tx| {
+                s.diff_selection_changed(change);
+                if tx.mods().cmd
+                    && !change.dragging()
+                    && let Some(sel) = change.selection()
+                {
+                    s.def_from_selection(sel);
+                }
+            })
             .child(
                 DiffView::new(
                     |s: &Hooked| &s.lens_data.diff,
@@ -2317,7 +2328,16 @@ fn def_card(s: &Hooked, k: &Kit) -> El {
                 .grow(1.0)
                 .min_w(0.0),
         );
-    if d.choices.len() > 1 && !matches!(d.state, DefState::Choose) {
+    if let Some(prev) = d.trail.last() {
+        head = head.child(
+            Button::new(prev.symbol.clone().unwrap_or_else(|| "Back".into()))
+                .icon(&icons::ARROW_LEFT)
+                .variant(ButtonVariant::GhostMuted)
+                .control_size(ControlSize::Small)
+                .on_press(|s: &mut Hooked| s.def_up())
+                .build(k),
+        );
+    } else if d.choices.len() > 1 && !matches!(d.state, DefState::Choose) {
         head = head.child(
             Button::new("Other name")
                 .icon(&icons::ARROW_LEFT)
