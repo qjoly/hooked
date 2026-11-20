@@ -58,13 +58,33 @@ function readToml(fp) {
 
 async function healthCheck(srv) {
   if (!srv.url) return { state: 'configured', status: 'stdio — not health-checked' };
+  // Vrai handshake MCP (comme `claude mcp list` côté claude) : POST initialize streamable-HTTP.
+  // Un simple HEAD ne suffit pas — certains serveurs ne répondent qu'au POST du protocole.
   try {
     const ctrl = new AbortController();
     const t = setTimeout(() => ctrl.abort(), 4000);
-    const res = await fetch(srv.url, { method: 'HEAD', signal: ctrl.signal }).catch(() => null);
+    const res = await fetch(srv.url, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream' },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-03-26', capabilities: {}, clientInfo: { name: 'hooked', version: '0.0.0' } } }),
+      signal: ctrl.signal,
+    }).catch(() => null);
     clearTimeout(t);
-    if (res) return { state: 'connected', status: `HTTP ${res.status}` };
-    return { state: 'failed', status: 'unreachable' };
+    if (!res) return { state: 'failed', status: 'unreachable' };
+    if (res.ok) {
+      // serverInfo si le corps JSON est lisible (SSE: on se contente du 200).
+      let info = '';
+      try {
+        const ct = res.headers.get('content-type') || '';
+        if (ct.includes('application/json')) {
+          const j = await res.json();
+          const si = j?.result?.serverInfo;
+          if (si) info = ` — ${si.name}${si.version ? ' ' + si.version : ''}`;
+        }
+      } catch (_) {}
+      return { state: 'connected', status: `Connected${info}` };
+    }
+    return { state: 'failed', status: `HTTP ${res.status}` };
   } catch (_) {
     return { state: 'failed', status: 'timeout/unreachable' };
   }

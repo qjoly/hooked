@@ -58,3 +58,54 @@ describe('vibeMcp', () => {
     }
   });
 });
+
+describe('vibeMcp — healthCheck HTTP (vrai handshake initialize)', () => {
+  it('connected avec serverInfo sur 200, failed sur 4xx/5xx, unreachable sinon', async () => {
+    const http = await import('node:http');
+    const { listMcpVibe } = await import('../server/index.js');
+    const fs = await import('node:fs');
+    const os = await import('node:os');
+    const path = await import('node:path');
+
+    const srv = http.createServer((req, res) => {
+      if (req.url === '/bad') { res.writeHead(500); return res.end(); }
+      let b = ''; req.on('data', (c) => (b += c)); req.on('end', () => {
+        res.setHeader('content-type', 'application/json');
+        res.end(JSON.stringify({ jsonrpc: '2.0', id: 1, result: { protocolVersion: '2025-03-26', capabilities: {}, serverInfo: { name: 'test-mcp', version: '1.2.3' } } }));
+      });
+    });
+    await new Promise((r) => srv.listen(0, '127.0.0.1', r));
+    const port = srv.address().port;
+
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'vibe-home-'));
+    fs.writeFileSync(path.join(home, 'config.toml'), `
+[[mcp_servers]]
+name = "ok"
+transport = "http"
+url = "http://127.0.0.1:${port}/mcp"
+
+[[mcp_servers]]
+name = "ko"
+transport = "http"
+url = "http://127.0.0.1:${port}/bad"
+
+[[mcp_servers]]
+name = "down"
+transport = "http"
+url = "http://127.0.0.1:1/mcp"
+`);
+    try {
+      const res = await listMcpVibe(null, { home, check: true });
+      const by = Object.fromEntries(res.servers.map((x) => [x.name, x]));
+      expect(by.ok.state).toBe('connected');
+      expect(by.ok.status).toContain('test-mcp 1.2.3'); // serverInfo remonté
+      expect(by.ko.state).toBe('failed');
+      expect(by.ko.status).toBe('HTTP 500');
+      expect(by.down.state).toBe('failed');
+      expect(by.down.status).toBe('unreachable');
+    } finally {
+      srv.close();
+      fs.rmSync(home, { recursive: true, force: true });
+    }
+  });
+});
