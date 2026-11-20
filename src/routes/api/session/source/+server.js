@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { json } from '@sveltejs/kit';
-import { scanSessions, symbols, buildFileChanges } from '#lib/server/core.js';
+import { findSessionAny, symbols, buildFileChanges } from '#lib/server/core.js';
 
 // Tranche de lignes d'un fichier du projet, à une révision — ce que lit le panneau de
 // définition quand la cible n'est pas dans la review. Sert des octets, donc durci : chemin
@@ -8,7 +8,7 @@ import { scanSessions, symbols, buildFileChanges } from '#lib/server/core.js';
 // La fenêtre est bornée côté serveur : un panneau n'a jamais besoin de 20 000 lignes.
 export async function GET({ url }) {
   const q = url.searchParams;
-  const s = scanSessions().find((x) => x.id === q.get('id'));
+  const s = findSessionAny(q.get('id'));
   const cwd = s ? s.project : null;
   if (!cwd) return json({ supported: false, root: null, rel: null, lines: [] });
   const file = q.get('file') || '';

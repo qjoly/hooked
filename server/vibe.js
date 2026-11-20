@@ -269,6 +269,9 @@ function scanVibeSessions(sessionsDir = VIBE_SESSIONS_DIR) {
   const out = [];
   for (const dir of dirs) {
     const { meta, summary } = vibeRead(dir);
+    // Session archivée (corbeille hooked : meta.archived_at posé par trash.js) → retirée du
+    // dashboard, listée à part par listTrashed (comme un transcript Claude déplacé dans bin/).
+    if (meta && meta.archived_at) continue;
     const parentId = meta && meta.parent_session_id;
     if (parentId) {
       const parent = metas.get(parentId);
@@ -279,6 +282,19 @@ function scanVibeSessions(sessionsDir = VIBE_SESSIONS_DIR) {
     out.push(summary);
   }
   return out;
+}
+
+// Pose / retire `archived_at` dans meta.json d'une session vibe (corbeille réversible).
+// meta.json est lu tel quel par vibe (load_metadata, AUCUNE vérification sha256 — la chaîne CRDT
+// ne couvre que chunks/generations), donc l'éditer à la main est sûr.
+function vibeSetArchived(dir, archived) {
+  const metaPath = path.join(dir, 'meta.json');
+  let meta;
+  try { meta = JSON.parse(fs.readFileSync(metaPath, 'utf8')); } catch (_) { return false; }
+  if (archived) meta.archived_at = new Date().toISOString();
+  else meta.archived_at = null;
+  fs.writeFileSync(metaPath, JSON.stringify(meta, null, 2) + '\n');
+  return true;
 }
 
 // Sortie d'un tool Vibe. Sur un tool terminé, `state.output` vaut
@@ -357,4 +373,18 @@ function buildVibeConversation(dir) {
   return msgs;
 }
 
-export { scanVibeSessions, getVibeSession, buildVibeConversation, vibeToolOutput, vibeShortTool, vibeUsageToAnthropic };
+// Texte complet d'une entry message du journal par son id (uuid exposé comme `forkUuid` dans la
+// conversation) — utilisé par /api/session/message ("show more") et le drill-in sous-agent.
+// `agentId` (sous-session vibe) : lit le dossier de la session enfant.
+function vibeMessageText(dir, entryId, agentId = null) {
+  if (!entryId) return null;
+  const target = agentId ? path.join(VIBE_SESSIONS_DIR, agentId) : dir;
+  if (!target || !statSafe(target)) return null;
+  const { entries } = vibeRead(target);
+  const e = entries.find((x) => x.id === entryId && x.type === 'message');
+  if (!e) return null;
+  const t = textOf(e.content);
+  return t || null;
+}
+
+export { scanVibeSessions, getVibeSession, buildVibeConversation, vibeRead, vibeMessageText, vibeSetArchived, vibeToolOutput, vibeShortTool, vibeUsageToAnthropic };

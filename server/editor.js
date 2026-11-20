@@ -3,7 +3,7 @@
  */
 import { execFile } from 'node:child_process';
 import { statSafe } from './util.js';
-import { scanSessions } from './transcript.js';
+import { findSessionAny } from './sessions.js';
 import { err400 } from './agent.js';
 import { readSettings } from './settings.js';
 import { editorFor } from '../src/lib/editors.js';
@@ -12,7 +12,7 @@ import { editorFor } from '../src/lib/editors.js';
 // src/lib/editors.js) via sa CLI — p.ex. `code -- <dir>` ou `zed <dir>`.
 function openInEditor(id, cb) {
   if (!id) return cb(err400('id required'));
-  const sess = scanSessions().find((x) => x.id === id);
+  const sess = findSessionAny(id);
   const dir = sess && sess.project;
   if (!dir) return cb(err400('project folder not found for this session'));
   const st = statSafe(dir);
@@ -29,7 +29,7 @@ function openInEditor(id, cb) {
 // pilotée en processus par l'Agent SDK, et son fil de discussion vit dans le dashboard.)
 function openInGhostty(id, cb) {
   if (!id) return cb(err400('id required'));
-  const sess = scanSessions().find((x) => x.id === id);
+  const sess = findSessionAny(id);
   const dir = sess && sess.project;
   if (!dir) return cb(err400('project folder not found for this session'));
   const st = statSafe(dir);

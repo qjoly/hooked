@@ -10,4 +10,12 @@ function scanAllSessions(projectsDir, vibeSessionsDir) {
   return [...scanSessions(projectsDir), ...scanVibeSessions(vibeSessionsDir)];
 }
 
-export { scanAllSessions };
+// Résout UNE session par id, tous providers confondus. Règle S1 (cf. PLAN_migration_mistral.md) :
+// toute route/module qui reçoit un `id` de session passe par ici, jamais par scanSessions() seul —
+// sinon une session vibe est 404 alors que la route n'a besoin que de `s.project` / `s.dir`.
+function findSessionAny(id, projectsDir, vibeSessionsDir) {
+  if (!id) return null;
+  return scanAllSessions(projectsDir, vibeSessionsDir).find((x) => x.id === id) || null;
+}
+
+export { scanAllSessions, findSessionAny };
