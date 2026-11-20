@@ -249,6 +249,12 @@ pub struct Hooked {
     pub new_model: Option<String>,
     pub new_effort: Option<String>,
     pub new_mode: String,
+    /// Launch provider: "claude" (default) or "vibe" (Mistral Vibe) — new-session screen.
+    pub new_provider: String,
+    /// Installed agent CLIs (badge + provider picker), refreshed with the session list.
+    pub providers: api::Providers,
+    /// /api/vibe-options payload (models/thinking/modes), loaded once when vibe is installed.
+    pub vibe_opts: serde_json::Value,
     pub new_custom: bool,
     pub new_search: TextEdit,
     pub new_worktree: bool,
@@ -544,6 +550,9 @@ impl Hooked {
             new_model: None,
             new_effort: None,
             new_mode: "default".into(),
+            new_provider: "claude".into(),
+            providers: api::Providers::default(),
+            vibe_opts: serde_json::Value::Null,
             new_custom: false,
             new_search: TextEdit::new(""),
             new_worktree: false,
@@ -569,9 +578,15 @@ impl Hooked {
             chat_edges: [f32::NAN; 2],
         };
         // A synchronous first read: headless snapshots and the first frame show real data.
-        if let Ok(list) = api::sessions() {
+        if let Ok((list, providers)) = api::sessions_full() {
             s.connected = true;
             s.sessions = list;
+            s.providers = providers;
+        }
+        if s.providers.vibe {
+            if let Ok(v) = api::vibe_options() {
+                s.vibe_opts = v;
+            }
         }
         s.meta = api::session_meta().unwrap_or_default();
         s.tags = api::tags().unwrap_or_default();
@@ -822,7 +837,7 @@ impl Hooked {
             if let (Some(q), Some(id)) = (ac_query(&t), s.selected.clone()) {
                 let (path, start, files) = match q {
                     AcQuery::Command(q) => (
-                        format!("/api/commands?id={}&q={}", api::enc(&id), api::enc(&q)),
+                        format!("/api/commands?id={}&q={}{}", api::enc(&id), api::enc(&q), Self::ac_provider_suffix(&s, &id)),
                         0,
                         false,
                     ),
@@ -1166,7 +1181,19 @@ impl Hooked {
         );
     }
 
-    pub fn composer_changed(&mut self) {
+    
+/// Suffixe `&provider=vibe` pour l'auto-complétion « / » quand aucune session n'est
+/// sélectionnée (écran New session) et que le provider choisi est vibe — sinon le serveur
+/// retomberait sur claude.
+fn ac_provider_suffix(s: &Hooked, id: &str) -> String {
+    if id.is_empty() && s.new_provider == "vibe" && s.providers.vibe {
+        "&provider=vibe".to_string()
+    } else {
+        String::new()
+    }
+}
+
+pub fn composer_changed(&mut self) {
         let (caret, end) = self.composer.range();
         let query = (caret == end)
             .then(|| ac_query(&self.composer.text[..caret]))
@@ -1179,7 +1206,7 @@ impl Hooked {
         let req = self.ac_req;
         let (path, start) = match &query {
             AcQuery::Command(q) => (
-                format!("/api/commands?id={}&q={}", api::enc(&id), api::enc(q)),
+                format!("/api/commands?id={}&q={}{}", api::enc(&id), api::enc(q), Self::ac_provider_suffix(self, &id)),
                 0,
             ),
             AcQuery::File(q, at) => (
@@ -2542,6 +2569,12 @@ impl Hooked {
             self.incognito,
         );
         let (worktree, ephemeral) = (self.new_worktree, self.new_ephemeral);
+        // Provider vibe : worktree/ephemeral are Claude-only (hidden in the UI) — never sent.
+        let provider = if self.new_provider == "vibe" {
+            Some("vibe".to_string())
+        } else {
+            None
+        };
         self.sending = true;
         self.spawn(
             move || {
@@ -2554,6 +2587,7 @@ impl Hooked {
                     incognito,
                     worktree,
                     ephemeral,
+                    provider,
                 })
             },
             |s, r, _| {
@@ -2878,11 +2912,15 @@ mod link_tests {
 impl Hooked {
     pub fn refresh_sessions(&self) {
         self.spawn(
-            || (api::sessions(), api::session_meta().ok(), api::tags().ok()),
+            || (api::sessions_full(), api::session_meta().ok(), api::tags().ok()),
             |s, (r, meta, tags), _| match r {
-                Ok(list) => {
+                Ok((list, providers)) => {
                     if let Some(t) = tags {
                         s.tags = t;
+                    }
+                    s.providers = providers;
+                    if providers.vibe && s.vibe_opts.is_null() {
+                        s.vibe_opts = api::vibe_options().unwrap_or(serde_json::Value::Null);
                     }
                     s.apply_sessions(list, meta)
                 }

@@ -195,6 +195,8 @@ pub struct Session {
     pub followup: Option<String>,
     pub todo: Option<TodoSummary>,
     pub cache: Option<CacheInfo>,
+    /// Agent provider of the session: "claude" (Agent SDK) or "vibe" (Mistral Vibe via ACP).
+    pub provider: Option<String>,
     /// The remote hooked instance the session runs on (`crate::remote`), `None` for a local
     /// one. Set by this app when it lists an instance, never read from the wire.
     #[serde(skip)]
@@ -233,10 +235,28 @@ impl Session {
     }
 }
 
+/// Which agent CLIs are installed on this machine (from /api/sessions). The UI only shows the
+/// claude/vibe badge when BOTH are present — with a single provider it would tell nothing.
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq)]
+pub struct Providers {
+    #[serde(default)]
+    pub claude: bool,
+    #[serde(default)]
+    pub vibe: bool,
+}
+
+impl Providers {
+    pub fn both(&self) -> bool {
+        self.claude && self.vibe
+    }
+}
+
 #[derive(Clone, Debug, Default, Deserialize)]
 struct SessionsPayload {
     #[serde(default)]
     sessions: Vec<Session>,
+    #[serde(default)]
+    providers: Option<Providers>,
 }
 
 fn session_list(v: Value) -> Result<Vec<Session>, String> {
@@ -248,6 +268,16 @@ fn session_list(v: Value) -> Result<Vec<Session>, String> {
 }
 
 /// The local sessions, then those of the remote instances when that feature is on.
+/// Sessions + the providers installed on this machine, in one call (the payload carries both).
+pub fn sessions_full() -> Result<(Vec<Session>, Providers), String> {
+    let v = get("/api/sessions")?;
+    let p: SessionsPayload = decode(v)?;
+    Ok((
+        crate::remote::merge_sessions(p.sessions.into_iter().filter(|s| !s.id.is_empty()).collect()),
+        p.providers.unwrap_or_default(),
+    ))
+}
+
 pub fn sessions() -> Result<Vec<Session>, String> {
     Ok(crate::remote::merge_sessions(session_list(get("/api/sessions")?)?))
 }
@@ -703,6 +733,12 @@ pub struct Capabilities {
     pub efforts: Vec<String>,
 }
 
+/// Launch options for the Mistral Vibe provider (model aliases, thinking levels, agent modes)
+/// read from ~/.vibe/config.toml by the server.
+pub fn vibe_options() -> Result<Value, String> {
+    get("/api/vibe-options")
+}
+
 pub fn capabilities() -> Result<Capabilities, String> {
     let v = get("/api/capabilities")?;
     let mut models = Vec::new();
@@ -808,6 +844,9 @@ pub struct Launch {
     pub incognito: bool,
     pub worktree: bool,
     pub ephemeral: bool,
+    /// "claude" (default) or "vibe" (Mistral Vibe). None = let the server decide.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub provider: Option<String>,
 }
 
 pub fn launch(req: &Launch) -> Result<String, String> {

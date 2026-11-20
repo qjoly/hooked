@@ -465,6 +465,23 @@ fn caption(k: &Kit, label: &str) -> El {
     text(label.to_string()).font(f).color(k.c.text_faint)
 }
 
+
+/// Small claude/vibe badge shown next to a session row — only when BOTH providers are
+/// installed on this machine (with a single one, the badge would tell nothing).
+fn prov_badge(s: &Hooked, k: &Kit, x: &Session) -> Option<El> {
+    if !s.providers.both() {
+        return None;
+    }
+    let vibe = x.provider.as_deref() == Some("vibe");
+    let mut f = k.ty.mono;
+    f.size = 9.0;
+    Some(
+        text(if vibe { "vibe" } else { "cc" })
+            .font(f)
+            .color(if vibe { k.c.text_accent } else { k.c.text_faint }),
+    )
+}
+
 fn table_row(s: &Hooked, k: &Kit, u: &Unit, i: usize) -> El {
     let x = u.mother;
     let id = x.id.clone();
@@ -491,15 +508,11 @@ fn table_row(s: &Hooked, k: &Kit, u: &Unit, i: usize) -> El {
                 .min_w(0.0)
                 .w(0.0),
         )
-        .child(
-            text(x.git_branch.clone().unwrap_or_default())
-                .font(f)
-                .color(k.c.text_faint)
-                .truncate()
-                .grow(1.0)
-                .min_w(0.0)
-                .w(0.0),
-        )
+        ;
+    if let Some(b) = prov_badge(s, k, x) {
+        line = line.child(b);
+    }
+    let mut line = line
         .child(
             text(fmt::state_label(&x.state))
                 .font(f)
