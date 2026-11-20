@@ -134,8 +134,9 @@
   const archivedUnits = $derived(groupUnits(archived).filter((u) => isGroupArchived(u.key)));
   const shown = $derived(tab === 'archived' ? archivedUnits : activeUnits);
   const unitHas = (u, pred) => u.all.some(pred);
-  // Collapsed group → its header dot summarizes the members (most pressing state wins).
-  const DOT_RANK = ['attention', 'working', 'waiting', 'bgjob', 'idle', 'ended'];
+  // Collapsed group → its header dot summarizes the members. Same precedence as sectionOf: any
+  // member at work makes the group working, before any pending decision.
+  const DOT_RANK = ['working', 'bgjob', 'attention', 'waiting', 'idle', 'ended'];
   const unitDot = (u) => u.all.map(dotClass).sort((a, b) => DOT_RANK.indexOf(a) - DOT_RANK.indexOf(b))[0];
   const groupCollapsed = (u) => !!ui.collapsed['g:' + u.key];
   function toggleUnit(u) { ui.collapsed = { ...ui.collapsed, ['g:' + u.key]: !ui.collapsed['g:' + u.key] }; }
