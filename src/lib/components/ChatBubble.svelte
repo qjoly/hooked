@@ -18,6 +18,7 @@
   let { m, onfork = null, onforkadvanced = null, forkState = null, session = null, agent = null, provider = 'claude' } = $props();
   // Lets a shell CodeBlock, two components down, run itself in this session (cf. CodeBlock).
   setContext('hooked.session', () => session);
+  setContext('hooked.provider', () => provider);
 
   // Style claude-cli : on rend les blocs dans l'ordre, et on distingue le DERNIER
   // bloc texte (réponse finale, contrasté) des précédents (raisonnement, discret).

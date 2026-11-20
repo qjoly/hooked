@@ -960,8 +960,10 @@
              transcript → without it the question card arrived without the text explaining it. -->
         {#if s.pendingLeadIn && tab === 'chat'}
           <div class="bubble assistant leadin">
-            <div class="who"><Icon name="bot" size={14} /> Claude
-              <span class="t" title="Claude Code only writes this turn to the transcript once you have answered — this text comes from the live stream">
+            <div class="who"><Icon name="bot" size={14} /> {isVibe ? 'Mistral Vibe' : 'Claude'}
+              <span class="t" title={isVibe
+                ? 'Mistral Vibe only writes this turn to the transcript once you have answered — this text comes from the live stream'
+                : 'Claude Code only writes this turn to the transcript once you have answered — this text comes from the live stream'}>
                 <Icon name="activity" size={13} /> live stream
               </span>
             </div>
@@ -974,7 +976,7 @@
              de flux n'est vidé qu'au `result`), l'afficher aussi la doublait. -->
         {#if tab === 'chat' && (liveText || liveThinking) && !s.pendingLeadIn}
           <div class="bubble assistant streaming">
-            <div class="who"><Icon name="bot" size={14} /> Claude
+            <div class="who"><Icon name="bot" size={14} /> {isVibe ? 'Mistral Vibe' : 'Claude'}
               <span class="t"><span class="sd-dot" aria-hidden="true"></span> en direct</span>
             </div>
             {#if liveThinking}<pre class="sd-thinking">{liveThinking}</pre>{/if}
@@ -982,7 +984,7 @@
           </div>
         {/if}
         {#if s.state === 'working' && tab === 'chat'}
-          <div class="working-live" title="Claude is working — new messages appear once flushed">
+          <div class="working-live" title={isVibe ? 'Mistral Vibe is working — new messages appear once flushed' : 'Claude is working — new messages appear once flushed'}>
             <span class="wl-dots" aria-hidden="true"><span></span><span></span><span></span></span>
             <span class="wl-verb">{liveTool || s.activity || 'Working'}…</span>
             {#if workElapsed}<span class="wl-sep">·</span><span class="wl-time">{workElapsed}</span>{/if}
