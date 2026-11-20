@@ -6,7 +6,7 @@ import path from 'node:path';
 import { statSafe, truncTitle } from './util.js';
 import { scanSessions, blankSummary } from './transcript.js';
 import { scanAllSessions } from './sessions.js';
-import { buildVibeConversation } from './vibe.js';
+import { buildVibeConversation, latestVibeTodos, vibeSubagents, vibeSubSessions, vibeScreenshots, vibeContext } from './vibe.js';
 import { repoSlug, worktreeOf } from './git.js';
 import { readEvents, lastEventBySession, lastActivityEventBySession, modeForSession, liveQuestionForSession, liveQuestionBySession, livePlanForSession, livePlanBySession, eventSessionMeta, rcSessionIdsFromEvents } from './events.js';
 import { liveStateFor } from './live.js';
@@ -223,7 +223,7 @@ function buildSessions() {
       ? { id: ask.id, plan: ask.plan }
       : (plans.get(s.id) || null);
     // résumé compact de la TodoList (où en est la session) — léger, pour la sidebar.
-    s.todo = s.provider === 'vibe' ? null : todoSummary(latestTodos(s.file));
+    s.todo = todoSummary(s.provider === 'vibe' ? latestVibeTodos(s.dir) : latestTodos(s.file));
   }
 // tri : plus récente activité d'abord
   visible.sort((a, b) => String(b.lastActivity || '').localeCompare(String(a.lastActivity || '')));
@@ -369,20 +369,20 @@ function buildSessionDetail(id) {
     messages = [{ role: 'user', ts: s.startTs || null, text: s.firstPrompt, tools: [], fromHooks: true }];
   }
   // sessions sœurs créées / référencées par cette conversation (cartes vivantes du sous-onglet).
-  const subSessions = subSessionsOf(s.file, id);
+  const subSessions = s.provider === 'vibe' ? vibeSubSessions(s.dir) : subSessionsOf(s.file, id);
   const changes = buildFileChanges(s.file, id);
   // Tours (prompts) de la conversation, pour filtrer les changements par prompt dans la lentille
   // Ship. On exclut les tours auto (wakeups SDK) ; l'attribution op→tour se fait par timestamp.
   const changeTurns = messages
     .filter((m) => m.role === 'user' && !m.auto && m.ts)
     .map((m, i) => ({ turn: i, ts: m.ts, prompt: (m.text || '').replace(/\s+/g, ' ').trim().slice(0, 100) }));
-  const subagents = buildSubagents(s.file);
+  const subagents = s.provider === 'vibe' ? vibeSubagents(s.dir) : buildSubagents(s.file);
   // screenshots vus/produits par la session et ses sous-agents (cf. server/screenshots.js).
-  const screenshots = buildScreenshots(s.file, id);
+  const screenshots = s.provider === 'vibe' ? vibeScreenshots(s.dir) : buildScreenshots(s.file, id);
   // runs de workflow (outil `Workflow`) : phases + agents, live pendant le run puis figés depuis
   // l'enregistrement final. Cf. server/workflows.js pour les deux sources de vérité.
   const workflows = buildWorkflows(s.file);
-  const todos = latestTodos(s.file);
+  const todos = s.provider === 'vibe' ? latestVibeTodos(s.dir) : latestTodos(s.file);
   const li = resolveLaunchForSession(id);
   const agent = agentSession(id);
   const alive = !!agent;
@@ -461,7 +461,8 @@ function buildSessionDetail(id) {
     model: (li && li.model && !s.model) ? li.model : s.model,
     launchModel: li ? li.model : null,   // forme courte (opus/sonnet…) pour relancer en conservant la config
     rateLimit: status ? status.rateLimit : null,   // vrais % 5 h / 7 j du compte (via statusline)
-    context: status ? status.context : null,        // remplissage de la fenêtre de contexte
+    // vibe : pas de statusline Claude → jauge calculée depuis le dernier usage du journal.
+    context: (status && status.context) ? status.context : (s.provider === 'vibe' ? vibeContext(s) : null),
     cache: sessionCache(s, alive ? agentCacheInfo(id) : null),   // prompt-cache clock (warm/cold, cold-resume size)
     fastMode: status ? status.fastMode : false,
     events: ev, messages, subSessions, changes, subagents, workflows, screenshots,

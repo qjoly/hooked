@@ -19,7 +19,7 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
-import { VIBE_SESSIONS_DIR } from './config.js';
+import { VIBE_SESSIONS_DIR, VIBE_HOME } from './config.js';
 import { blankSummary } from './transcript.js';
 import { readdirSafe, statSafe, textOf, cleanPrompt, truncTitle, toolDetail, toolInputText } from './util.js';
 import { costForUsage } from './pricing.js';
@@ -65,6 +65,7 @@ function newVibeAcc(dir, id) {
     entries: new Map(),  // entry.id -> entry (append_entry / replace_entry)
     usages: [],          // usage des completions terminées
     seenActions: new Set(), // action_id déjà compté (évite le double comptage input/result)
+    subagentIds: new Set(), // childSessionId des effects kind=subagent (coût replié)
     modelCount: {},
     title: null,
     lastTsMs: 0,
@@ -129,6 +130,8 @@ function finalizeVibe(acc, meta) {
     if (typeof meta.title === 'string' && meta.title) acc.title = meta.title;
   }
   const entries = [...acc.entries.values()].sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
+  const prRaw = [];
+  const issueRaw = [];
   for (const e of entries) {
     const ts = msToIso(Math.max(e.createdAt || 0, e.updatedAt || 0));
     if (ts) {
@@ -136,25 +139,48 @@ function finalizeVibe(acc, meta) {
       if (!s.lastTs || ts > s.lastTs) s.lastTs = ts;
     }
     if (e.type === 'message' && e.role === 'user') {
-      const t = cleanPrompt(textOf(e.content));
+      const raw = textOf(e.content);
+      const t = cleanPrompt(raw);
       if (t) {
         s.userPrompts++;
         if (!s.firstPrompt) s.firstPrompt = t;
         s.lastPrompt = t;
       }
+      // liens PR/issue cités dans le prompt (vibe n'écrit pas de lignes pr-link comme Claude)
+      for (const m of raw.matchAll(PR_URL_RE)) prRaw.push(m[0]);
+      for (const m of raw.matchAll(ISSUE_URL_RE)) issueRaw.push(m[0]);
     } else if (e.type === 'message' && e.role === 'assistant') {
-      const t = cleanPrompt(textOf(e.content));
+      const raw = textOf(e.content);
+      const t = cleanPrompt(raw);
       if (t) s.lastReply = t;
       s.assistantTurns++;
       if (typeof e.model === 'string' && e.model) acc.modelCount[e.model] = (acc.modelCount[e.model] || 0) + 1;
+      for (const m of raw.matchAll(PR_URL_RE)) prRaw.push(m[0]);
+      for (const m of raw.matchAll(ISSUE_URL_RE)) issueRaw.push(m[0]);
     } else if (e.type === 'effect' && e.detail && e.detail.kind === 'tool') {
       const name = vibeShortTool(e.detail.toolName || e.title || '');
       if (name) s.tools[name] = (s.tools[name] || 0) + 1;
+    } else if (e.type === 'effect' && e.detail && e.detail.kind === 'subagent') {
+      const cid = e.detail.childSessionId || ((((e.state || {}).output || {})._meta || {})['mistral.vibe.subagent'] || {}).childSessionId;
+      if (cid) acc.subagentIds.add(String(cid));
+    }
+  }
+  // liens PR/issue, dernier d'abord, dédupliqués — même shape que transcript.js finalize.
+  s.prLinks = [...new Set(prRaw.slice().reverse())].slice(0, 12);
+  s.issueLinks = [...new Set(issueRaw.slice().reverse())].slice(0, 12);
+  // coût replié des sous-agents — comme subagentCost côté Claude. Source : les effects
+  // kind=subagent du journal (childSessionId) → dossier enfant correspondant. Les dossiers
+  // child-* n'ont PAS forcément de meta.json, vibeRead fonctionne avec le journal seul.
+  if (acc.subagentIds.size) {
+    s.subagents = acc.subagentIds.size;
+    for (const cid of acc.subagentIds) {
+      try { s.subagentCost += vibeRead(path.join(path.dirname(acc.dir), cid)).summary.cost || 0; } catch (_) {}
     }
   }
   // usage cumulé (tokens Vibe mappés sur la shape Anthropic) + coût + contexte + byDay.
   const day = (msToIso(acc.lastTsMs) || '').slice(0, 10) || 'unknown';
-  s.model = Object.keys(acc.modelCount).sort((a, b) => acc.modelCount[b] - acc.modelCount[a])[0] || null;
+  s.model = Object.keys(acc.modelCount).sort((a, b) => acc.modelCount[b] - acc.modelCount[a])[0]
+    || (meta && meta.config && (meta.config.model_name || meta.config.active_model)) || null;
   // le journal ne porte pas toujours le nom du modèle → pour le coût, fallback sur le tier Mistral
   const costModel = s.model || 'mistral';
   for (const u of acc.usages) {
@@ -342,14 +368,15 @@ function buildVibeConversation(dir) {
     const ts = msToIso(Math.max(e.createdAt || 0, e.updatedAt || 0));
     if (e.type === 'message' && e.role === 'user') {
       const text = cleanPrompt(textOf(e.content));
-      if (text) { msgs.push({ role: 'user', ts, text, tools: [] }); pendingTools = []; }
+      // forkUuid = id de l'entry : point de coupe pour le fork par bulle (comme le uuid Claude).
+      if (text) { msgs.push({ role: 'user', ts, text, tools: [], forkUuid: e.id || null }); pendingTools = []; }
     } else if (e.type === 'message' && e.role === 'assistant') {
       // PAS de cleanPrompt ici : il aplatirait les \n (\s+ → ' ') et casserait le markdown.
       // On retire juste les balises <...> en conservant les retours à la ligne.
       const text = textOf(e.content).replace(/<[^>]+>/g, '');
       // bulle assistant vide et sans outil (projection history) → on la saute
       if (text || pendingTools.length) {
-        msgs.push({ role: 'assistant', ts, text, tools: pendingTools });
+        msgs.push({ role: 'assistant', ts, text, tools: pendingTools, forkUuid: e.id || null });
         pendingTools = [];
       }
     } else if (e.type === 'effect' && e.detail && e.detail.kind === 'tool') {
@@ -373,6 +400,156 @@ function buildVibeConversation(dir) {
   return msgs;
 }
 
+// ── Todos (outil `vibe.todo`) ──────────────────────────────────────────────────────────────────
+// Même sémantique que Claude TodoWrite : action "write" réécrit la liste entière → le dernier
+// appel fait foi. Status vibe : pending|in_progress|completed|cancelled → on normalise comme
+// côté Claude (seuls completed/in_progress sont retenus tels quels) pour que le front
+// (Todos.svelte + résumé sidebar) reste inchangé.
+function normVibeTodoStatus(s) {
+  return (s === 'completed' || s === 'in_progress') ? s : 'pending';
+}
+function latestVibeTodos(dir) {
+  const { entries } = vibeRead(dir);
+  let latest = null;
+  for (const e of entries) {
+    if (e.type !== 'effect' || !e.detail || e.detail.kind !== 'tool') continue;
+    if (e.detail.toolName !== 'vibe.todo') continue;
+    const input = e.detail.input || {};
+    const ts = msToIso(Math.max(e.createdAt || 0, e.updatedAt || 0));
+    if (input.action === 'write' && Array.isArray(input.todos)) {
+      latest = {
+        ts,
+        todos: input.todos.map((t) => ({
+          content: String((t && t.content) || ''),
+          status: normVibeTodoStatus(t && t.status),
+          activeForm: String((t && t.activeForm) || ''),
+        })),
+      };
+    }
+  }
+  return latest;
+}
+
+// ── S2 : sous-agents, sous-sessions, screenshots, liens PR/issue ───────────────────────────────
+const IMG_EXT = new Set(['.png', '.jpg', '.jpeg', '.webp', '.gif']);
+const isImagePath = (p) => IMG_EXT.has(path.extname(p || '').toLowerCase());
+const PR_URL_RE = /https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/pull\/\d+/g;
+const ISSUE_URL_RE = /https:\/\/(?:github\.com\/[\w.-]+\/[\w.-]+\/issues|[\w.-]+\/[\w./-]+?\/-\/(?:issues|work_items))\/\d+/g;
+const SESSION_LINK_RE = /\/session\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/gi;
+const VIBE_MAX_SHOTS = 40;
+
+// Sous-agents lancés via `agents.spawn` (effect detail.kind === "subagent") — même shape que
+// buildSubagents côté Claude : { id, type, description, prompt, result, ts, model, totalTokens,
+// toolUses, durationMs, cost, agentId, running }. `agentId` = childSessionId → drill-in /api/agent.
+function vibeSubagents(dir) {
+  const { entries } = vibeRead(dir);
+  const out = [];
+  for (const e of entries) {
+    if (e.type !== 'effect' || !e.detail || e.detail.kind !== 'subagent') continue;
+    const det = e.detail;
+    const input = det.input || {};
+    const st = e.state || {};
+    const metaSub = (((st.output || {})._meta || {})['mistral.vibe.subagent']) || {};
+    const childId = det.childSessionId || metaSub.childSessionId || null;
+    const status = st.status || null;
+    const out2 = st.output || {};
+    const resultText = Array.isArray(out2.content)
+      ? out2.content.filter((b) => b && b.type === 'text' && b.text).map((b) => b.text).join('\n')
+      : '';
+    out.push({
+      id: e.id,
+      type: det.agentName || metaSub.agentType || null,
+      description: det.agentName || (e.title || '') || '',
+      prompt: String(input.task || input.prompt || '').slice(0, 12000),
+      result: status === 'completed' || status === 'failed' ? (resultText.slice(0, 12000) || null) : null,
+      ts: msToIso(Math.max(e.createdAt || 0, e.updatedAt || 0)),
+      model: null, totalTokens: null, toolUses: null, durationMs: null, cost: null,
+      agentId: childId,
+      running: status !== 'completed' && status !== 'failed',
+    });
+  }
+  return out;
+}
+
+// Sous-sessions vibe : meta.child_sessions (source "child") + liens /session/<uuid> cités dans
+// les messages — même shape que buildSubSessions : { id, label, source }.
+function vibeSubSessions(dir) {
+  const { entries, meta } = vibeRead(dir);
+  const out = [];
+  const seen = new Set();
+  const add = (id, label, source) => {
+    if (!id || seen.has(id)) return;
+    seen.add(id);
+    out.push({ id, label: (label || '').trim(), source });
+  };
+  if (meta && Array.isArray(meta.child_sessions)) {
+    for (const c of meta.child_sessions) add(String(c), '', 'child');
+  }
+  for (const e of entries) {
+    if (e.type !== 'message') continue;
+    const text = textOf(e.content);
+    if (!text || !text.includes('/session/')) continue;
+    for (const m of text.matchAll(SESSION_LINK_RE)) add(m[1], '', 'referenced');
+  }
+  return out;
+}
+
+// Chemins de fichiers mentionnés dans les inputs des tools (read_file/write_file/edit/…) —
+// allowlist pour /api/user-file et base des screenshots.
+function vibeToolPaths(dir) {
+  const { entries, meta } = vibeRead(dir);
+  const cwd = (meta && meta.environment && meta.environment.working_directory) || null;
+  const paths = new Map(); // abs -> ts
+  for (const e of entries) {
+    if (e.type !== 'effect' || !e.detail || e.detail.kind !== 'tool') continue;
+    const input = e.detail.input || {};
+    const ts = msToIso(Math.max(e.createdAt || 0, e.updatedAt || 0));
+    for (const key of ['path', 'file_path', 'filePath']) {
+      const f = input[key];
+      if (typeof f === 'string' && f) {
+        const abs = path.isAbsolute(f) ? f : (cwd ? path.resolve(cwd, f) : null);
+        if (abs && (!paths.has(abs) || (ts || '') > (paths.get(abs) || ''))) paths.set(abs, ts);
+      }
+    }
+  }
+  return paths;
+}
+
+// Images lues/écrites par la session — même shape que buildScreenshots : { path, name, ts, mtime, size }.
+function vibeScreenshots(dir) {
+  const out = [];
+  for (const [abs, ts] of vibeToolPaths(dir)) {
+    if (!isImagePath(abs)) continue;
+    const st = statSafe(abs);
+    if (!st || !st.isFile() || st.size > 25 * 1024 * 1024) continue;
+    out.push({ path: abs, name: abs.split('/').pop(), ts: ts || null, mtime: st.mtimeMs, size: st.size });
+  }
+  out.sort((a, b) => b.mtime - a.mtime);
+  return out.slice(0, VIBE_MAX_SHOTS);
+}
+
+// Fenêtre de contexte du modèle (catalogue Vibe : max_context_length), 200k par défaut.
+function vibeContextWindow(model) {
+  try {
+    const cache = JSON.parse(fs.readFileSync(path.join(VIBE_HOME, 'model_catalog_cache.json'), 'utf8'));
+    const entry = Object.values(cache)[0];
+    const models = (entry && entry.payload && entry.payload.models) || [];
+    const m = models.find((x) => x.id === model || (Array.isArray(x.aliases) && x.aliases.includes(model)));
+    const n = m && Number(m.max_context_length);
+    if (Number.isFinite(n) && n > 0) return n;
+  } catch (_) {}
+  return 200000;
+}
+
+// Jauge de contexte pour le détail de session vibe — même shape que la statusline Claude
+// ({ pct, size }) : dernier usage du journal / fenêtre du modèle actif.
+function vibeContext(s) {
+  const tokens = s && s.lastUsage && s.lastUsage.contextTokens;
+  if (!tokens) return null;
+  const size = vibeContextWindow(s.model);
+  return { pct: Math.min(100, Math.round((tokens / size) * 100)), size };
+}
+
 // Texte complet d'une entry message du journal par son id (uuid exposé comme `forkUuid` dans la
 // conversation) — utilisé par /api/session/message ("show more") et le drill-in sous-agent.
 // `agentId` (sous-session vibe) : lit le dossier de la session enfant.
@@ -387,4 +564,4 @@ function vibeMessageText(dir, entryId, agentId = null) {
   return t || null;
 }
 
-export { scanVibeSessions, getVibeSession, buildVibeConversation, vibeRead, vibeMessageText, vibeSetArchived, vibeToolOutput, vibeShortTool, vibeUsageToAnthropic };
+export { scanVibeSessions, getVibeSession, buildVibeConversation, vibeRead, vibeMessageText, vibeSetArchived, latestVibeTodos, vibeSubagents, vibeSubSessions, vibeScreenshots, vibeToolPaths, vibeContext, vibeToolOutput, vibeShortTool, vibeUsageToAnthropic };

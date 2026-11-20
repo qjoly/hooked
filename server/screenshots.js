@@ -14,7 +14,8 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
-import { PROJECTS_DIR } from './config.js';
+import { PROJECTS_DIR, VIBE_SESSIONS_DIR } from './config.js';
+import { vibeScreenshots } from './vibe.js';
 import { readdirSafe, statSafe } from './util.js';
 import { incrementalReader } from './incremental.js';
 
@@ -111,8 +112,24 @@ function transcriptOf(sessionId, projectsDir) {
 
 // Sert un screenshot pour l'UI. `absPath` n'est servi que s'il figure dans la liste rebâtie depuis
 // le transcript de CETTE session (realpath → path traversal / symlink hors liste bloqués).
-function readScreenshot(sessionId, absPath, projectsDir = PROJECTS_DIR) {
+function readScreenshot(sessionId, absPath, projectsDir = PROJECTS_DIR, vibeSessionsDir = VIBE_SESSIONS_DIR) {
   if (typeof absPath !== 'string' || !absPath || !isImagePath(absPath)) return null;
+  // provider vibe : allowlist depuis les chemins d'images des tools du journal de la session.
+  const vdir = sessionId && /^[A-Za-z0-9._-]+$/.test(sessionId) ? path.join(vibeSessionsDir, sessionId) : null;
+  if (vdir && statSafe(path.join(vdir, 'journal'))) {
+    let real;
+    try { real = fs.realpathSync(absPath); } catch (_) { return null; }
+    const allowed = new Set();
+    for (const shot of vibeScreenshots(vdir)) {
+      try { allowed.add(fs.realpathSync(shot.path)); } catch (_) {}
+    }
+    if (!allowed.has(real)) return null;
+    const st = statSafe(real);
+    if (!st || !st.isFile() || st.size > MAX_BYTES) return null;
+    let buffer;
+    try { buffer = fs.readFileSync(real); } catch (_) { return null; }
+    return { buffer, contentType: CONTENT_TYPE[path.extname(real).toLowerCase()], name: real.split('/').pop() };
+  }
   const fp = transcriptOf(sessionId, projectsDir);
   if (!fp) return null;
   let real;

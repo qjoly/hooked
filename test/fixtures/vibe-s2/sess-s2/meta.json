@@ -1,0 +1,18 @@
+{
+ "session_id": "sess-s2",
+ "parent_session_id": null,
+ "start_time": "2026-11-20T10:00:00.000000+00:00",
+ "end_time": null,
+ "git_branch": "feat/x",
+ "environment": {
+  "working_directory": "/tmp/proj-vibe"
+ },
+ "origin_directory": "/tmp/proj-vibe",
+ "username": "qjoly",
+ "child_sessions": [
+  "sess-s2-child"
+ ],
+ "loops": [],
+ "title": "Session S2",
+ "title_source": "auto"
+}
