@@ -104,7 +104,7 @@ and dark, with rounded or square corners, picked in Settings or the palette.
   needs its tool on the server and a connection that may write, else it is not shown.
 - **Organizing**: drag a session (sidebar row or fleet card) onto another to group them, or onto
   a fleet repo header to take it out of its group; tags on rows and in the header, groups under their
-  lead session with a tab strip (switch, make lead, leave, rename, new session in the group),
+  lead session (move, leave and rename from the session menu),
   incognito mode for screen sharing, Fork from any message with model, effort, mode and a first
   message, cost breakdown, copy as Markdown, focus mode, and up to four split panes.
 - **Review**: selecting text in the diff paints its other occurrences in the accent; go to
