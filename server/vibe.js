@@ -550,6 +550,55 @@ function vibeContext(s) {
   return { pct: Math.min(100, Math.round((tokens / size) * 100)), size };
 }
 
+// ── S3 : trace (profiler) vibe ──────────────────────────────────────────────────────────────────
+// Même shape que buildTrace côté Claude : { turns: [{ prompt, start, end, spans: [...] }] },
+// un span par effect tool, groupé par tour user. start/end en ms (comme ms(timestamp) Claude).
+function buildVibeTrace(dir) {
+  const { entries } = vibeRead(dir);
+  const sorted = [...entries.values()].sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
+  const turns = [];
+  let turn = null;
+  for (const e of sorted) {
+    const t = Math.max(e.createdAt || 0, e.updatedAt || 0) || null;
+    if (e.type === 'message' && e.role === 'user') {
+      const prompt = cleanPrompt(textOf(e.content)).replace(/\s+/g, ' ').slice(0, 160);
+      turn = { prompt, start: t, end: t, spans: [] };
+      turns.push(turn);
+    } else if (e.type === 'effect' && e.detail && e.detail.kind === 'tool') {
+      if (!turn) { turn = { prompt: '', start: t, end: t, spans: [] }; turns.push(turn); } // resume/fork sur assistant
+      if (t) turn.end = Math.max(turn.end || 0, t);
+      const status = (e.state && e.state.status) || null;
+      const span = {
+        id: e.toolCallId || e.id,
+        name: vibeShortTool(e.detail.toolName || e.title || ''),
+        detail: toolDetail(e.detail.input || null) || '',
+        start: t,
+        end: (status === 'completed' || status === 'failed' || status === 'success') ? t : null,
+        error: status === 'failed',
+      };
+      turn.spans.push(span);
+    } else if (e.type === 'message' && e.role === 'assistant' && turn && t) {
+      turn.end = Math.max(turn.end || 0, t);
+    }
+  }
+  return { turns: turns.filter((x) => x.spans.length) };
+}
+
+// Détail d'un tool call vibe par toolCallId (ou id d'entry) — même shape que readToolDetail :
+// { input, result, error }. Le résultat vient de vibeToolOutput (state.output, pas outputText).
+function vibeToolDetail(dir, toolId) {
+  if (!dir || !toolId) return null;
+  const { entries } = vibeRead(dir);
+  const e = entries.find((x) => x.type === 'effect' && (x.toolCallId === toolId || x.id === toolId));
+  if (!e || !e.detail) return null;
+  const status = (e.state && e.state.status) || null;
+  return {
+    input: toolInputText(e.detail.input || null) || '',
+    result: vibeToolOutput(e.state),
+    error: status === 'failed',
+  };
+}
+
 // Texte complet d'une entry message du journal par son id (uuid exposé comme `forkUuid` dans la
 // conversation) — utilisé par /api/session/message ("show more") et le drill-in sous-agent.
 // `agentId` (sous-session vibe) : lit le dossier de la session enfant.
@@ -564,4 +613,4 @@ function vibeMessageText(dir, entryId, agentId = null) {
   return t || null;
 }
 
-export { scanVibeSessions, getVibeSession, buildVibeConversation, vibeRead, vibeMessageText, vibeSetArchived, latestVibeTodos, vibeSubagents, vibeSubSessions, vibeScreenshots, vibeToolPaths, vibeContext, vibeToolOutput, vibeShortTool, vibeUsageToAnthropic };
+export { scanVibeSessions, getVibeSession, buildVibeConversation, vibeRead, vibeMessageText, vibeSetArchived, latestVibeTodos, vibeSubagents, vibeSubSessions, vibeScreenshots, vibeToolPaths, vibeContext, buildVibeTrace, vibeToolDetail, vibeToolOutput, vibeShortTool, vibeUsageToAnthropic };

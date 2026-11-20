@@ -129,7 +129,7 @@ PreCompact/SubagentStop, grafana lens (gateway `~/.claude.json`).
 - **Done quand** : session vibe avec todos → chip + carte ; sous-agent vibe → carte + drill-in `/api/agent` (branche vibe : `buildVibeConversation(<dir enfant>)`) ; screenshot → galerie + `/api/screenshot` 200 ; jauge CTX remplie.
 - **Tests** : fixtures journal avec `vibe.todo`, subagent, image path ; tests `stats.js` détail vibe.
 
-### S3 — Trace lens vibe + recherche FTS vibe
+### S3 — Trace lens vibe + recherche FTS vibe ✅ LIVRÉE
 - **Scope** : `src/routes/api/session/trace/+server.js` + nouveau `buildVibeTrace(dir)` dans `server/vibe.js` (timeline des effects : tool name/input/status/output + reasoning + messages, ordre chrono) ; `server/searchIndex.js` (`refresh()` sur `scanAllSessions()`, `buildVibeConversation(s.dir)` quand `provider==="vibe"`, colonne `provider` ou DB séparée sous `~/.vibe/hooked/search.db`).
 - **Done quand** : Trace lens d'une session vibe montre les appels d'outils ; `/api/search` retrouve du texte de sessions vibe (web + rune palette).
 - **Tests** : trace sur fixture ; search indexe une fixture vibe et retrouve un mot.
