@@ -136,10 +136,10 @@ export const groupOp = (op, id, extra = {}) => jpost('/api/session-meta', { op, 
 // generation, poll getDigest until status is done/partial/error.
 export const getMemory = () => jget('/api/memory');
 const cwdQuery = (cwds) => (cwds || []).map((c) => '&cwd=' + encodeURIComponent(c)).join('');
-export const getSkills = (cwds) => jget('/api/skills?' + cwdQuery(cwds).slice(1));
+export const getSkills = (cwds, provider = 'all') => jget('/api/skills?provider=' + provider + (cwds && cwds.length ? '&' + cwdQuery(cwds).slice(1) : ''));
 export const getCronTasks = () => jget('/api/cron');
 export const cronOp = (op, extra) => jpost('/api/cron', { op, ...extra });
-export const getSkill = (id, cwds) => jget('/api/skills?id=' + encodeURIComponent(id) + cwdQuery(cwds));
+export const getSkill = (id, cwds, provider = 'all') => jget('/api/skills?id=' + encodeURIComponent(id) + '&provider=' + provider + cwdQuery(cwds));
 // MCP servers of a project (health-checked list, scope, diagnostics) + the OAuth actions.
 // `cwd` selects the project: project- and local-scope servers are per-directory.
 export const getMcpServers = (cwd, cached = false, provider = 'claude', check = false) => jget('/api/mcp?cwd=' + encodeURIComponent(cwd || '') + (cached ? '&cached=1' : '') + (provider === 'vibe' ? '&provider=vibe' : '') + (check ? '&check=1' : ''));

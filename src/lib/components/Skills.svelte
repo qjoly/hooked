@@ -86,6 +86,7 @@
               <span class="row">
                 <span class="name">{s.name}</span>
                 <span class="badge src-{s.source}">{s.source === 'project' ? projectName(s.project) : s.source}</span>
+                {#if s.provider === 'vibe'}<span class="badge src-plugin" title="Mistral Vibe skill (.vibe/skills)">vibe</span>{/if}
               </span>
               {#if s.description}<span class="desc">{s.description}</span>{/if}
             </button>

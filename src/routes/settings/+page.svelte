@@ -727,6 +727,14 @@
         </select>
         <button class="save" onclick={browseQuickProject} disabled={picking}>{#if picking}<Icon name="queued" size={14} />{:else}<Icon name="folder-open" size={14} />{/if} Browse…</button>
       </div>
+      <h2 style="margin-top:18px">Default provider</h2>
+      <p class="hint">Agent CLI used when a session is launched <strong>without</strong> an explicit provider — e.g. from a macOS shortcut that posts to <code>/api/launch</code> with only a prompt, or GitHub « review in session ».</p>
+      <div class="cmd-row">
+        <select class="cmd-input" value={settings.defaultProvider || 'claude'} onchange={(e) => updateSettings({ defaultProvider: e.currentTarget.value })}>
+          <option value="claude">Claude Code</option>
+          <option value="vibe">Mistral Vibe</option>
+        </select>
+      </div>
     </div>
 
     <div class="card" id="pset-remote-control" data-sec>

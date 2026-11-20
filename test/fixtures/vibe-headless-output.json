@@ -1,0 +1,222 @@
+[
+  {
+    "id": "hook-notice-af024e336d37c3a7",
+    "sessionId": "d5e0c817-9b16-8a6e-a57b-ff6fbb93e528",
+    "turnId": null,
+    "inputEntryId": null,
+    "createdAt": 1795211997022,
+    "updatedAt": 1795211997022,
+    "generationStatus": "completed",
+    "relatedEntryId": null,
+    "type": "notice",
+    "level": "info",
+    "message": "Running hooks",
+    "detail": {
+      "kind": "hook_run_started",
+      "scope": "pre_agent",
+      "toolName": null,
+      "toolCallId": null,
+      "hookName": null,
+      "status": null,
+      "content": null
+    }
+  },
+  {
+    "id": "hook-notice-d23007c53af017c5",
+    "sessionId": "d5e0c817-9b16-8a6e-a57b-ff6fbb93e528",
+    "turnId": null,
+    "inputEntryId": null,
+    "createdAt": 1795211997096,
+    "updatedAt": 1795211997096,
+    "generationStatus": "completed",
+    "relatedEntryId": null,
+    "type": "notice",
+    "level": "info",
+    "message": "Hooks completed",
+    "detail": {
+      "kind": "hook_run_completed",
+      "scope": "pre_agent",
+      "toolName": null,
+      "toolCallId": null,
+      "hookName": null,
+      "status": null,
+      "content": null
+    }
+  },
+  {
+    "id": "user-turn-7beca1508e8b4cac9f61eda41fd39dc6-2",
+    "sessionId": "d5e0c817-9b16-8a6e-a57b-ff6fbb93e528",
+    "turnId": "turn-7beca1508e8b4cac9f61eda41fd39dc6",
+    "inputEntryId": null,
+    "createdAt": 1795211997101,
+    "updatedAt": 1795211997101,
+    "generationStatus": "completed",
+    "relatedEntryId": null,
+    "type": "message",
+    "role": "user",
+    "content": [
+      {
+        "type": "text",
+        "text": "Réponds uniquement: {\"ok\":true}"
+      }
+    ],
+    "source": "turn_start",
+    "userDisplayContent": null,
+    "outcome": null
+  },
+  {
+    "id": "hook-notice-2b99a7888e73b209",
+    "sessionId": "d5e0c817-9b16-8a6e-a57b-ff6fbb93e528",
+    "turnId": null,
+    "inputEntryId": null,
+    "createdAt": 1795211997113,
+    "updatedAt": 1795211997113,
+    "generationStatus": "completed",
+    "relatedEntryId": null,
+    "type": "notice",
+    "level": "info",
+    "message": "Running hooks",
+    "detail": {
+      "kind": "hook_run_started",
+      "scope": "pre_llm",
+      "toolName": null,
+      "toolCallId": null,
+      "hookName": null,
+      "status": null,
+      "content": null
+    }
+  },
+  {
+    "id": "hook-notice-0e5582b68e0d96eb",
+    "sessionId": "d5e0c817-9b16-8a6e-a57b-ff6fbb93e528",
+    "turnId": null,
+    "inputEntryId": null,
+    "createdAt": 1795211997174,
+    "updatedAt": 1795211997174,
+    "generationStatus": "completed",
+    "relatedEntryId": null,
+    "type": "notice",
+    "level": "info",
+    "message": "Hooks completed",
+    "detail": {
+      "kind": "hook_run_completed",
+      "scope": "pre_llm",
+      "toolName": null,
+      "toolCallId": null,
+      "hookName": null,
+      "status": null,
+      "content": null
+    }
+  },
+  {
+    "id": "assistant-63751af9-6529-5244-b97a-509f02cb6c42",
+    "sessionId": "d5e0c817-9b16-8a6e-a57b-ff6fbb93e528",
+    "turnId": "turn-7beca1508e8b4cac9f61eda41fd39dc6",
+    "inputEntryId": "user-turn-7beca1508e8b4cac9f61eda41fd39dc6-2",
+    "createdAt": 1795211998522,
+    "updatedAt": 1795211998522,
+    "generationStatus": "completed",
+    "relatedEntryId": null,
+    "type": "message",
+    "role": "assistant",
+    "content": [
+      {
+        "type": "text",
+        "text": "{\"ok\": true}"
+      }
+    ],
+    "source": "harness",
+    "userDisplayContent": null,
+    "outcome": {
+      "type": "committed"
+    }
+  },
+  {
+    "id": "hook-notice-bc0c4432e350fce4",
+    "sessionId": "d5e0c817-9b16-8a6e-a57b-ff6fbb93e528",
+    "turnId": null,
+    "inputEntryId": null,
+    "createdAt": 1795211998387,
+    "updatedAt": 1795211998387,
+    "generationStatus": "completed",
+    "relatedEntryId": null,
+    "type": "notice",
+    "level": "info",
+    "message": "Running hooks",
+    "detail": {
+      "kind": "hook_run_started",
+      "scope": "post_llm",
+      "toolName": null,
+      "toolCallId": null,
+      "hookName": null,
+      "status": null,
+      "content": null
+    }
+  },
+  {
+    "id": "hook-notice-a686a66f7dbcd21c",
+    "sessionId": "d5e0c817-9b16-8a6e-a57b-ff6fbb93e528",
+    "turnId": null,
+    "inputEntryId": null,
+    "createdAt": 1795211998451,
+    "updatedAt": 1795211998451,
+    "generationStatus": "completed",
+    "relatedEntryId": null,
+    "type": "notice",
+    "level": "info",
+    "message": "Hooks completed",
+    "detail": {
+      "kind": "hook_run_completed",
+      "scope": "post_llm",
+      "toolName": null,
+      "toolCallId": null,
+      "hookName": null,
+      "status": null,
+      "content": null
+    }
+  },
+  {
+    "id": "hook-notice-6dc7e75d3c3c5777",
+    "sessionId": "d5e0c817-9b16-8a6e-a57b-ff6fbb93e528",
+    "turnId": null,
+    "inputEntryId": null,
+    "createdAt": 1795211998458,
+    "updatedAt": 1795211998458,
+    "generationStatus": "completed",
+    "relatedEntryId": null,
+    "type": "notice",
+    "level": "info",
+    "message": "Running hooks",
+    "detail": {
+      "kind": "hook_run_started",
+      "scope": "post_agent",
+      "toolName": null,
+      "toolCallId": null,
+      "hookName": null,
+      "status": null,
+      "content": null
+    }
+  },
+  {
+    "id": "hook-notice-bb22f83e6608687f",
+    "sessionId": "d5e0c817-9b16-8a6e-a57b-ff6fbb93e528",
+    "turnId": null,
+    "inputEntryId": null,
+    "createdAt": 1795211998519,
+    "updatedAt": 1795211998519,
+    "generationStatus": "completed",
+    "relatedEntryId": null,
+    "type": "notice",
+    "level": "info",
+    "message": "Hooks completed",
+    "detail": {
+      "kind": "hook_run_completed",
+      "scope": "post_agent",
+      "toolName": null,
+      "toolCallId": null,
+      "hookName": null,
+      "status": null,
+      "content": null
+    }
+  }
+]

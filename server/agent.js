@@ -777,7 +777,8 @@ function launchSession(opts, cb) {
   // provider explicite lançait un `claude --resume` sur un id Vibe → échec + session bloquée).
   const provider = opts.provider === 'vibe' || opts.provider === 'claude'
     ? opts.provider
-    : ((id && scanAllSessions().find((s) => s.id === id)?.provider) || 'claude');
+    : ((id && scanAllSessions().find((s) => s.id === id)?.provider)
+      || (readSettings().defaultProvider === 'vibe' ? 'vibe' : 'claude'));
   // provider vibe : les modèles sont des aliases lus dans ~/.vibe/config.toml (pas la liste Claude),
   // et l'effort devient un thinking level Vibe — validation souple (charset), le set_config_option
   // côté Vibe refuse ce qu'il ne connaît pas.
@@ -1047,8 +1048,22 @@ function agentSupportedCommands(id, provider) {
 async function agentToolCatalog(id) {
   const st = commandsSource(id);
   const sessions = liveSessionIds().filter((sid) => drivableSession(sid))
-    .map((sid) => ({ id: sid, cwd: live.get(sid).cwd || null, model: live.get(sid).model || null }));
+    .map((sid) => ({ id: sid, cwd: live.get(sid).cwd || null, model: live.get(sid).model || null, provider: live.get(sid).provider || 'claude' }));
   if (!st) return { session: null, sessions, builtin: [], mcp: [], totals: null };
+  // Provider vibe : pas de `st.q` (SDK Anthropic) → pas de getContextUsage/mcpServerStatus.
+  // Le catalogue retombe sur les commandes déclarées par la session ACP (availableCommands).
+  if (st.provider === 'vibe') {
+    const sessionId = [...live].find(([, v]) => v === st)?.[0] || null;
+    const cmds = Array.isArray(st.vibeCommands) ? st.vibeCommands : [];
+    return {
+      session: { id: sessionId, cwd: st.cwd || null, model: st.model || null, provider: 'vibe' },
+      sessions,
+      available: true,
+      builtin: cmds.map((c) => ({ name: c.name, tokens: null, deferred: null, description: c.description || '' })),
+      mcp: [],
+      totals: null,
+    };
+  }
   const call = (fn) => (typeof fn === 'function' ? fn.call(st.q).catch(() => null) : Promise.resolve(null));
   const [ctx, servers] = await Promise.all([
     typeof st.q.getContextUsage === 'function' ? st.q.getContextUsage({ detail: 'summary' }).catch(() => null) : null,

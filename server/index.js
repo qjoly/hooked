@@ -65,6 +65,7 @@ export * from './vibe.js';
 export * from './vibeAgent.js';
 export * from './vibeCommands.js';
 export * from './vibeMcp.js';
+export * from './vibeCli.js';
 export * from './sessions.js';
 export * as searchIndex from './searchIndex.js';
 // Namespacé pour la même raison que searchIndex : `lookup`, `partition`, `readSlice` sont des
