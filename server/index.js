@@ -4,6 +4,7 @@
 // à arbitrer. Note : images.js définit un `err400` interne mais ne l'exporte pas ; seul
 // agent.js exporte `err400`, donc pas d'ambiguïté.
 export * from './config.js';
+export * from './providers.js';
 export * from './settings.js';
 export * from './tags.js';
 export * from './sessionMeta.js';

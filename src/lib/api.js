@@ -14,6 +14,8 @@ async function jpost(url, body) {
 }
 
 export const getSessions = async () => (await jget('/api/sessions')).sessions;
+// Liste + providers configurés (claude/vibe) en un seul appel — cf. /api/sessions.
+export const getSessionsFull = () => jget('/api/sessions');
 export const getSession = (id) => jget('/api/session?id=' + encodeURIComponent(id));
 // Incremental variant for the open session: `prev` is the copy we hold; the server only sends the
 // tail of the conversation and skips the heavy lists that did not change. Falls back to a full

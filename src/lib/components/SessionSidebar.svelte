@@ -33,6 +33,9 @@
     ui.tagFilters.every((t) => sessionTags(s.id).includes(t)) &&
     (!ui.repoFilters.length || ui.repoFilters.includes(projectKey(s)));
   const filterCount = $derived(ui.tagFilters.length + ui.repoFilters.length);
+  // Badge provider (claude/mistral) à côté des sessions : seulement si les DEUX providers sont
+  // configurés sur la machine — avec un seul, le badge n'apprendrait rien.
+  const showProviders = $derived(!!(data.providers && data.providers.claude && data.providers.vibe));
 
   // Ordre de la liste. Les PALIERS (épinglées → en attente de décision → actives) sont les mêmes
   // dans les trois modes : c'est eux qui portent la garantie de la fenêtre de LIST_WINDOW lignes —
@@ -538,7 +541,7 @@
       {#if !ui.incognito && isIncognito(s.id)}<span class="ssb-pin-mark" title="Incognito"><Icon name="eye-off" size={11} /></span>{/if}
       {#if !groupByProject}<span class="ssb-lot" style="--lot:{lotColor(projectKey(s))}" title={projectKey(s)}></span>{/if}
       <span class="ssb-name" title={unit ? 'Group · mother session: ' + sessionTitle(s) : undefined}>{unit ? groupName(s.id) : sessionTitle(s)}</span>
-      {#if s.provider === 'vibe'}<span class="ssb-prov" title="Mistral Vibe session (read-only for now)">vibe</span>{/if}
+      {#if showProviders}<span class="ssb-prov" class:vibe={s.provider === 'vibe'} title={s.provider === 'vibe' ? 'Mistral Vibe session' : 'Claude Code session'}>{s.provider === 'vibe' ? 'vibe' : 'cc'}</span>{/if}
       {#if unit}<span class="ssb-gcount" title="{unit.all.length} sessions in this group">{unit.all.length}</span>{/if}
       <!-- settings.sidebarCache: the countdown sits in a pill beside the elapsed time, or takes its
            place (the elapsed time then moves to the tooltip). -->
@@ -731,10 +734,11 @@
   .ssb-gcount { font-family: var(--mono); font-size: var(--t-micro); color: var(--muted); flex: 0 0 auto; }
   /* badge provider (Mistral Vibe) à côté du nom de session */
   .ssb-prov {
-    font-family: var(--mono); font-size: 9px; line-height: 1; color: var(--accent, var(--muted));
+    font-family: var(--mono); font-size: 9px; line-height: 1; color: var(--muted);
     border: 1px solid var(--border); border-radius: 4px; padding: 2px 3px; flex: 0 0 auto;
     text-transform: lowercase;
   }
+  .ssb-prov.vibe { color: var(--accent, var(--muted)); border-color: var(--accent, var(--border)); }
   .ssb-group:global(.drop-over) { box-shadow: inset 0 0 0 2px var(--accent); }
   .ssb-detach {
     position: sticky; bottom: 0; margin: 8px; padding: 12px 10px; display: flex; align-items: center; justify-content: center; gap: 7px;
