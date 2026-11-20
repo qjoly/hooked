@@ -834,7 +834,7 @@
         {:else}
           {#if resumeStatus}<span class="strip-status err">{resumeStatus}</span>{/if}
           <button class="resume-btn" disabled={resuming} onclick={resume}
-                  title="Re-run claude --resume, driven by hooked">{#if resuming}<Icon name="queued" size={14} />{:else}<Icon name="in-progress" size={14} tint={false} />{/if} Resume</button>
+                  title={isVibe ? 'Re-run vibe --resume, driven by hooked' : 'Re-run claude --resume, driven by hooked'}>{#if resuming}<Icon name="queued" size={14} />{:else}<Icon name="in-progress" size={14} tint={false} />{/if} Resume</button>
         {/if}
         <!-- The one Archive control: stops the session when it runs, hides it, reversible. -->
         <button class="archive-btn" disabled={archiving} onclick={archive}
@@ -901,7 +901,7 @@
             {#if sb.focusBtn !== false}<button class="vscode-btn" class:on={ui.focus} onclick={toggleFocus} title="Focus mode: full-screen conversation"><Icon name="maximize" size={14} /> {ui.focus ? 'Exit focus' : 'Focus'}</button>{/if}
             <button class="vscode-btn" class:on={ui.toolsOpen} onclick={() => (ui.toolsOpen = !ui.toolsOpen)} title="Expand every tool call's input/result inline (this session only, off on reload)"><Icon name="tool" size={14} /> {ui.toolsOpen ? 'Collapse tool details' : 'Expand tool details'}</button>
             <div class="hdr-div"></div>
-            <button class="vscode-btn" disabled={restarting} onclick={restart} title="Stop the Claude process and resume it from its transcript (picks up the installed claude version)">{#if restarting}<Icon name="queued" size={14} />{:else}<Icon name="rotate-cw" size={14} />{/if} Restart</button>
+            <button class="vscode-btn" disabled={restarting} onclick={restart} title={isVibe ? 'Stop the Vibe process and resume it from its session (picks up the installed vibe version)' : 'Stop the Claude process and resume it from its transcript (picks up the installed claude version)'}>{#if restarting}<Icon name="queued" size={14} />{:else}<Icon name="rotate-cw" size={14} />{/if} Restart</button>
             <button class="vscode-btn del-btn" disabled={deleting} onclick={del} title="Move to trash: removes from dashboard; transcript kept in bin/ (recoverable)">{#if deleting}<Icon name="queued" size={14} tint={false} />{:else}<Icon name="trash" size={14} tint={false} />{/if} Delete</button>
           </div>
         </details>
@@ -949,7 +949,7 @@
                even as the render window slides → the key stays stable across MSG_STEP expansions and new ticks. -->
           {#each (s.messages || []).slice(startIdx) as m, j (startIdx + j)}
             {#each cmdEchoes.get(startIdx + j) || [] as q (q.ts)}{@render commandBubble(q)}{/each}
-            <ChatBubble {m} onfork={quickFork} onforkadvanced={openFork} {forkState} session={id} />
+            <ChatBubble {m} onfork={quickFork} onforkadvanced={openFork} {forkState} session={id} provider={s.provider || 'claude'} />
           {/each}
         {:else if !queued.length}
           <div class="pane-empty">Empty conversation.</div>
@@ -997,6 +997,7 @@
              (`followupSuggestion` vient du registre de l'Agent SDK), donc rien n'est perdu à la
              faire dépendre de ce `{#if}`. Seul le masquage remonte ici, car il est persisté. -->
         <Composer bind:this={composer} {id} project={s.project} lastPrompt={s.lastPrompt || ''} {onSent}
+                  provider={s.provider || 'claude'}
                   followup={showFollowup ? followup : null} onFollowupDismiss={dismissFollowup} />
       {/if}
     </div>

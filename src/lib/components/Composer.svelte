@@ -345,7 +345,7 @@
 {/if}
 <div class="composer">
   <textarea bind:this={ta} bind:value={text} id="reply-text" rows="1" disabled={busy}
-            placeholder={newSession ? 'Describe your task to start the session…' : 'Reply to Claude…'}
+            placeholder={newSession ? 'Describe your task to start the session…' : (provider === 'vibe' ? 'Reply to Mistral Vibe…' : 'Reply to Claude…')}
             oninput={onInput} onkeydown={onKeydown} onpaste={onPaste} onblur={() => setTimeout(closeAc, 150)}></textarea>
   <div class="composer-actions">
     {#if speechState !== 'disabled' && speechState !== 'failed'}
