@@ -76,11 +76,13 @@ describe('vibeAgent — intégration faux serveur ACP', () => {
     process.env.FAKE_ACP_LOG = log;
     process.env.HOOKED_VIBE_ACP_BIN = process.execPath; // on spawne node fake-acp.cjs via args
     try {
-      const st = { id: null, cwd: dir, provider: 'vibe', busy: false, sdkState: 'idle', pendingAsk: null, sawMsg: false, activity: null, lastProse: null, lastMsgAt: 0, ended: false };
+      const st = { id: null, cwd: dir, provider: 'vibe', busy: false, sdkState: 'idle', pendingAsk: null, sawMsg: false, activity: null, lastProse: null, lastMsgAt: 0, ended: false, stream: null };
       let doneSt = null;
+      const streams = []; // snapshots du tampon live poussés via ctx.emit
       const ctx = {
         setLive: () => {},
         persistLaunch: () => {},
+        emit: (s) => { streams.push(s.stream ? { ...s.stream } : null); },
         done: (s) => { doneSt = s; },
         failStartup: (s) => { throw new Error('failStartup: ' + s.error); },
       };
@@ -118,6 +120,11 @@ describe('vibeAgent — intégration faux serveur ACP', () => {
       expect(promptReply.result.stop_reason).toBe('end_turn');
       // notification tool_call reçue → activity
       expect(st.activity).toBeTruthy();
+      // le chunk 'done!' a alimenté le tampon live, puis usage_update (fin de tour) l'a vidé :
+      // la preview ne doit pas rester affichée à côté de la bulle du transcript
+      expect(streams.some((s) => s && s.text === 'done!')).toBe(true);
+      expect(streams[streams.length - 1]).toBeNull();
+      expect(st.stream).toBeNull();
       st.acp.close();
     } finally {
       delete process.env.FAKE_ACP_LOG;

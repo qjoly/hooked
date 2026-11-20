@@ -6,8 +6,9 @@
  */
 import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
-import { scanVibeSessions, getVibeSession, buildVibeConversation, vibeUsageToAnthropic } from '../server/index.js';
+import { scanVibeSessions, getVibeSession, buildVibeConversation, vibeToolOutput, vibeUsageToAnthropic } from '../server/index.js';
 
 const FIX = path.join(import.meta.dirname, 'fixtures', 'vibe-session');
 const SESS = path.join(FIX, 'sess-abc123');
@@ -84,6 +85,61 @@ describe('buildVibeConversation', () => {
     expect(msgs[1].tools[0].status).toBe('success');
     expect(msgs[2].text).toBe('Deuxième prompt');
     expect(msgs[2].tools).toEqual([]);
+  });
+});
+
+describe('vibeToolOutput', () => {
+  it('préfère outputText quand il est renseigné (fixture ancienne forme)', () => {
+    expect(vibeToolOutput({ status: 'success', outputText: 'a\nb\n' })).toBe('a\nb\n');
+  });
+  it('extrait stdout/stderr/returncode de state.output.structured_content (bash terminé)', () => {
+    // forme réelle du journal vibe : outputText présent mais VIDE, sortie dans output.structured_content
+    const st = { status: 'completed', outputText: '', output: { content: [], type: 'tool_result', structured_content: { command: 'ls', returncode: 0, stdout: 'a\nb\n', stderr: '' } } };
+    expect(vibeToolOutput(st)).toBe('a\nb');
+  });
+  it('signale un exit code non nul et concatène stderr', () => {
+    const st = { status: 'completed', output: { content: [], structured_content: { command: 'grep x', returncode: 1, stdout: 'hit', stderr: 'boom\n' } } };
+    expect(vibeToolOutput(st)).toBe('[exit code 1]\nhit\nboom');
+  });
+  it('joint les blocs content[].text (read_file…)', () => {
+    const st = { status: 'completed', output: { content: [{ type: 'text', text: 'ligne 1' }, { type: 'text', text: 'ligne 2' }], structured_content: {} } };
+    expect(vibeToolOutput(st)).toBe('ligne 1\nligne 2');
+  });
+  it('fallback JSON lisible sur un structured_content générique, null sinon', () => {
+    expect(vibeToolOutput({ status: 'completed', output: { content: [], structured_content: { path: '/tmp/x', size: 3 } } })).toBe(JSON.stringify({ path: '/tmp/x', size: 3 }, null, 2));
+    expect(vibeToolOutput({ status: 'running', outputText: '' })).toBeNull();
+    expect(vibeToolOutput(null)).toBeNull();
+  });
+});
+
+describe('buildVibeConversation — tool bash au format réel du journal', () => {
+  it('remonte input + output (structured_content) du tool dans la bulle assistant', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'vibe-tool-'));
+    try {
+      fs.mkdirSync(path.join(dir, 'journal'));
+      fs.writeFileSync(path.join(dir, 'meta.json'), JSON.stringify({ session_id: 'sess-tool', start_time: '2026-11-20T09:00:00Z', environment: { working_directory: '/tmp/p' } }));
+      const entry = (e) => JSON.stringify({ payload: { delta: [{ op: 'append_entry', entry: e }], watermark: 1 } }) + '\n';
+      fs.writeFileSync(path.join(dir, 'journal', '0000000000000001.jsonl'), [
+        entry({ type: 'message', role: 'user', id: 'm1', sessionId: 'sess-tool', createdAt: 1000, updatedAt: 1000, content: [{ type: 'text', text: 'lance ls' }] }),
+        entry({ type: 'effect', id: 'e1', sessionId: 'sess-tool', createdAt: 2000, updatedAt: 4000, detail: { kind: 'tool', toolName: 'file_system.bash', input: { command: 'ls -la', timeout_seconds: 30 } }, state: { status: 'completed', outputText: '', output: { content: [], type: 'tool_result', structured_content: { command: 'ls -la', returncode: 0, stdout: 'total 0\na.txt\n', stderr: '', timed_out: false, was_truncated: false } } } }),
+        entry({ type: 'message', role: 'assistant', id: 'm2', sessionId: 'sess-tool', createdAt: 5000, updatedAt: 5000, content: [{ type: 'text', text: 'Voilà le listing.\n\n- a.txt' }] }),
+      ].join(''));
+      const msgs = buildVibeConversation(dir);
+      expect(msgs.map((m) => m.role)).toEqual(['user', 'assistant']);
+      expect(msgs[1].text).toBe('Voilà le listing.\n\n- a.txt'); // \n conservés (markdown)
+      expect(msgs[1].tools).toHaveLength(1);
+      const t = msgs[1].tools[0];
+      expect(t.name).toBe('bash');
+      expect(t.input).toEqual({ command: 'ls -la', timeout_seconds: 30 });
+      expect(t.status).toBe('completed');
+      expect(t.output).toBe('total 0\na.txt');
+      // shape ToolChip (web + desktop-rune) : detail / inputText / result
+      expect(t.detail).toBe('ls -la');
+      expect(t.inputText).toContain('"command": "ls -la"');
+      expect(t.result).toBe('total 0\na.txt');
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 

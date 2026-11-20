@@ -266,6 +266,12 @@ function handleNotification(st, method, params) {
       st.lastProse = null;
       dirty = true;
       break;
+    case 'usage_update': case 'usageUpdate':
+      // Émis par vibe-acp UNIQUEMENT en fin de tour (TurnCompleted, cancel, max_tokens, load) —
+      // jamais au milieu d'un stream de chunks. Le transcript journal porte alors le texte final :
+      // on vide le tampon live pour que la preview ne reste pas à côté de la vraie bulle.
+      if (st.stream) { st.stream = null; st.lastProse = null; dirty = true; }
+      break;
     case 'tool_call': case 'toolCall': {
       st.busy = true;
       if (!st.pendingAsk) st.sdkState = 'running';

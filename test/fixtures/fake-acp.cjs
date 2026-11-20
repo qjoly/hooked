@@ -86,6 +86,8 @@ process.stdin.on('data', (d) => {
       pendingPrompt = null;
       log({ dir: 'out', note: 'permission answered', result: m.result });
       send({ jsonrpc: '2.0', method: 'session/update', params: { sessionId: sid, update: { sessionUpdate: 'agent_message_chunk', chunk: { type: 'text', text: 'done!' } } } });
+      // vibe-acp émet usage_update UNIQUEMENT en fin de tour, juste avant la réponse au prompt
+      send({ jsonrpc: '2.0', method: 'session/update', params: { sessionId: sid, update: { sessionUpdate: 'usage_update', usage: { input_tokens: 10, output_tokens: 2 } } } });
       send({ jsonrpc: '2.0', id: pid, result: { stop_reason: 'end_turn' } });
     }
   }

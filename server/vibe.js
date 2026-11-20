@@ -21,7 +21,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { VIBE_SESSIONS_DIR } from './config.js';
 import { blankSummary } from './transcript.js';
-import { readdirSafe, statSafe, textOf, cleanPrompt, truncTitle } from './util.js';
+import { readdirSafe, statSafe, textOf, cleanPrompt, truncTitle, toolDetail, toolInputText } from './util.js';
 import { costForUsage } from './pricing.js';
 import { contextFromUsage } from '../src/lib/promptCache.js';
 
@@ -281,6 +281,38 @@ function scanVibeSessions(sessionsDir = VIBE_SESSIONS_DIR) {
   return out;
 }
 
+// Sortie d'un tool Vibe. Sur un tool terminé, `state.output` vaut
+// { content:[{type:'text',text}…], structured_content:{command,returncode,stdout,stderr…}, type }
+// et `state.outputText` existe mais reste VIDE — d'où l'ancien affichage « pas de détail ».
+function vibeToolOutput(state) {
+  if (!state || typeof state !== 'object') return null;
+  if (typeof state.outputText === 'string' && state.outputText) return state.outputText;
+  const out = state.output;
+  if (!out) return null;
+  if (typeof out === 'string') return out;
+  if (Array.isArray(out.content)) {
+    const texts = out.content
+      .filter((b) => b && typeof b.text === 'string' && b.text)
+      .map((b) => b.text);
+    if (texts.length) return texts.join('\n');
+  }
+  const sc = out.structured_content;
+  if (sc && typeof sc === 'object') {
+    const parts = [];
+    if (typeof sc.stdout === 'string' && sc.stdout) parts.push(sc.stdout.replace(/\n+$/, ''));
+    if (typeof sc.stderr === 'string' && sc.stderr) parts.push(sc.stderr.replace(/\n+$/, ''));
+    if (parts.length) {
+      const rc = sc.returncode;
+      const head = (typeof rc === 'number' && rc !== 0) ? `[exit code ${rc}]\n` : '';
+      return head + parts.join('\n');
+    }
+    // structured_content d'un autre tool (read_file, etc.) → JSON lisible
+    const keys = Object.keys(sc);
+    if (keys.length) return JSON.stringify(sc, null, 2);
+  }
+  return null;
+}
+
 // Conversation style chat (même shape que buildConversation de conversation.js) :
 // 1 bulle user / 1 bulle assistant, les tool calls (effects) rattachés à la bulle assistant
 // en cours. Le texte est tronqué comme côté Claude (TEXT_CAP) via le front ; ici on renvoie le texte brut.
@@ -305,15 +337,24 @@ function buildVibeConversation(dir) {
         pendingTools = [];
       }
     } else if (e.type === 'effect' && e.detail && e.detail.kind === 'tool') {
+      // Shape alignée sur les tools Claude (server/conversation.js) : ToolChip (web) et
+      // desktop-rune lisent `detail` / `inputText` / `result` — sans eux le chip n'est
+      // même pas dépliable ("pas de détail" sur les appels bash).
+      const input = e.detail.input || null;
+      const output = vibeToolOutput(e.state);
       pendingTools.push({
+        id: e.toolCallId || e.id || null,
         name: vibeShortTool(e.detail.toolName || e.title || ''),
-        input: e.detail.input || null,
+        detail: toolDetail(input) || undefined,
+        inputText: toolInputText(input) || undefined,
+        result: output,
         status: (e.state && e.state.status) || null,
-        output: (e.state && e.state.outputText) || null,
+        input,
+        output,
       });
     }
   }
   return msgs;
 }
 
-export { scanVibeSessions, getVibeSession, buildVibeConversation, vibeShortTool, vibeUsageToAnthropic };
+export { scanVibeSessions, getVibeSession, buildVibeConversation, vibeToolOutput, vibeShortTool, vibeUsageToAnthropic };
