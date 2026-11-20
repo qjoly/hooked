@@ -117,13 +117,13 @@ PreCompact/SubagentStop, grafana lens (gateway `~/.claude.json`).
 > Chaque session se termine par : `npm test` vert + `npm run build` + tests ciblés + commit sur
 > `feat/vibe-provider`. Ne pas merger la PR entre-temps.
 
-### S1 — Routes id → `scanAllSessions()` (fondation)
+### S1 — Routes id → `scanAllSessions()` (fondation) ✅ LIVRÉE (9e9bcbd)
 - **Scope** : `src/routes/api/session/{vcs-diff,vcs-base-diff,vcs-branches,vcs-branch,vcs-blame,file-changes,trace,symbol,source,message}/+server.js`, `src/routes/api/files/+server.js`, `server/editor.js`, `server/trash.js` (+ `listTrashed` pour les dossiers vibe, via `meta.json.archived_at` ou déplacement du dossier), `server/sessions.js` (exposer un helper `findSessionAny(id)`).
 - **À faire** : remplacer `scanSessions().find(...)` par `scanAllSessions().find(...)` quand seule `s.project`/`s.dir` est utilisée ; pour `trash` vibe, poser `archived_at` dans `meta.json` (sans casser la chaîne sha256 des chunks — `meta.json` est hors chaîne, à vérifier) ou déplacer le dossier vers une corbeille vibe.
 - **Done quand** : sur une session vibe, la Review lens affiche le diff VCS du projet, go-to-def/peek répondent, `@file` autocomplète, « open in editor/Ghostty » marchent, trash→restore fonctionne, « show more » répond (avec `forkUuid` = id d'entry, voir S5).
 - **Tests** : tests de routes existants + nouveaux tests avec fixture vibe (`test/fixtures/vibe-session`) pour chaque route touchée.
 
-### S2 — Détail vibe : todos, subagents, sub-sessions, screenshots, PR links, context
+### S2 — Détail vibe : todos, subagents, sub-sessions, screenshots, PR links, context ✅ LIVRÉE (ddf7d2b)
 - **Scope** : `server/todos.js` (branche vibe : dernier `vibe.todo action:"write"` du journal gagne), `server/stats.js:226,372,379,381,385` (dispatch par provider), `server/subagents.js` (effects `kind:"subagent"` + `child_sessions`, coût replié depuis le journal enfant), `server/subSessions.js` (`child_sessions` de `meta.json`), `server/screenshots.js` (paths d'images dans `detail.input`/`state.output` des tools + allowlist realpath pour `/api/screenshot`), `server/vibe.js` (`prLinks`/`issueLinks` extraits du texte des messages ; `context` depuis les `usage` du journal), `server/userFiles.js` (allowlist vibe pour `/api/user-file`), `server/vibe.js` `buildVibeConversation` (ajouter `forkUuid` = entry id sur les messages user).
 - **UI** : dock cards Tasks/Agents/Sub-sessions/Screenshots + sidebar chip todo s'allument pour vibe (web `Dock.svelte`, rune `view/dock.rs` — rune passif, lit `/api/session`).
 - **Done quand** : session vibe avec todos → chip + carte ; sous-agent vibe → carte + drill-in `/api/agent` (branche vibe : `buildVibeConversation(<dir enfant>)`) ; screenshot → galerie + `/api/screenshot` 200 ; jauge CTX remplie.
