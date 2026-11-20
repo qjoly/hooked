@@ -16,12 +16,12 @@ export async function GET({ url }) {
   const provider = q.get('provider') || (sess && sess.provider) || 'claude';
 
   if (provider === 'vibe') {
-    const live = await agentSupportedCommands(id); // branche vibe : st.vibeCommands (ACP)
+    const live = await agentSupportedCommands(id, 'vibe'); // branche vibe : st.vibeCommands (ACP)
     return json({ commands: matchCommands(vibeSlashCommands(cwd, live && live.commands), q.get('q') || '') });
   }
 
   // Rien de piloté (typiquement l'écran « New session ») : on rejoue la dernière liste connue.
-  const live = await agentSupportedCommands(id);
+  const live = await agentSupportedCommands(id, 'claude');
   const sdk = live ? rememberSdkCommands(live.commands, live.cwd) : persistedSdkCommands();
   return json({ commands: matchCommands(slashCommands(cwd, sdk), q.get('q') || '') });
 }

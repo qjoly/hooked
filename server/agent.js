@@ -1006,17 +1006,20 @@ function liveSessionCwds() {
 // Null when nothing is driven or the request fails — the palette then falls back to the disk scan.
 // The promise is cached: the palette asks on every keystroke, the control channel must not.
 const SUPPORTED_COMMANDS_TTL = 30_000;
-function commandsSource(id) {
+function commandsSource(id, provider) {
+  // `provider` restreint la recherche aux sessions pilotées de ce provider : sans filtre, une
+  // session Claude pilotée répondrait à la place d'une session Vibe et polluerait la liste « / ».
+  const ok = (st) => st && (!provider || st.provider === provider);
   const st = drivableSession(id);
-  if (st) return st;
+  if (ok(st)) return st;
   for (const sid of liveSessionIds()) {
     const alt = drivableSession(sid);
-    if (alt) return alt;
+    if (ok(alt)) return alt;
   }
   return null;
 }
-function agentSupportedCommands(id) {
-  const st = commandsSource(id);
+function agentSupportedCommands(id, provider) {
+  const st = commandsSource(id, provider);
   if (!st) return Promise.resolve(null);
   // provider vibe : la liste vient des notifications ACP availableCommands (cf. vibeAgent)
   if (st.provider === 'vibe') {

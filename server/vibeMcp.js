@@ -34,11 +34,22 @@ function parseMcpToml(toml) {
       url, command,
       authType,
       scope: null, // posé par l'appelant (user/project)
-      state: 'configured',
+      state: 'configured', // vocabulaire du front : configured | connected | failed
       status: '',
     });
   }
   return servers;
+}
+
+const SCOPE_LABEL = { user: 'User', project: 'Project' };
+
+// Même décoration que server/mcp.js (scopeLabel) pour que le front n'ait qu'une shape.
+function decorateVibe(servers) {
+  return servers.map((s) => ({
+    ...s,
+    scopeLabel: SCOPE_LABEL[s.scope] || s.scope || '',
+    authable: false, // pas de flux OAuth pilotable depuis Hooked côté Vibe
+  }));
 }
 
 function readToml(fp) {
@@ -52,18 +63,18 @@ async function healthCheck(srv) {
     const t = setTimeout(() => ctrl.abort(), 4000);
     const res = await fetch(srv.url, { method: 'HEAD', signal: ctrl.signal }).catch(() => null);
     clearTimeout(t);
-    if (res) return { state: 'ok', status: `HTTP ${res.status}` };
-    return { state: 'error', status: 'unreachable' };
+    if (res) return { state: 'connected', status: `HTTP ${res.status}` };
+    return { state: 'failed', status: 'unreachable' };
   } catch (_) {
-    return { state: 'error', status: 'timeout/unreachable' };
+    return { state: 'failed', status: 'timeout/unreachable' };
   }
 }
 
-// Liste des serveurs MCP Vibe pour un projet : user (~/.vibe/config.toml) + project (<cwd>/.vibe/config.toml).
-async function listMcpVibe(cwd, { check = false } = {}) {
+// Liste des serveurs MCP Vibe pour un projet : user (<home>/config.toml) + project (<cwd>/.vibe/config.toml).
+async function listMcpVibe(cwd, { check = false, home = VIBE_HOME } = {}) {
   const servers = [];
   const diagnostics = [];
-  for (const s of parseMcpToml(readToml(path.join(VIBE_HOME, 'config.toml')))) {
+  for (const s of parseMcpToml(readToml(path.join(home, 'config.toml')))) {
     servers.push({ ...s, scope: 'user' });
   }
   if (cwd) {
@@ -77,7 +88,7 @@ async function listMcpVibe(cwd, { check = false } = {}) {
   if (check) {
     await Promise.all(servers.map(async (s) => Object.assign(s, await healthCheck(s))));
   }
-  return { servers, diagnostics, checkedAt: Date.now() };
+  return { servers: decorateVibe(servers), diagnostics, checkedAt: Date.now() };
 }
 
 export { listMcpVibe, parseMcpToml };
