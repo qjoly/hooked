@@ -5,6 +5,8 @@
 import path from 'node:path';
 import { statSafe, truncTitle } from './util.js';
 import { scanSessions, blankSummary } from './transcript.js';
+import { scanAllSessions } from './sessions.js';
+import { buildVibeConversation } from './vibe.js';
 import { repoSlug, worktreeOf } from './git.js';
 import { readEvents, lastEventBySession, lastActivityEventBySession, modeForSession, liveQuestionForSession, liveQuestionBySession, livePlanForSession, livePlanBySession, eventSessionMeta, rcSessionIdsFromEvents } from './events.js';
 import { liveStateFor } from './live.js';
@@ -133,7 +135,7 @@ function withBackgroundState(state, alive, activeCount, busy) {
 const maxTs = (a, b) => (a && b ? (a > b ? a : b) : (a || b || null));
 
 function buildSessions() {
-  const sessions = scanSessions();
+  const sessions = scanAllSessions();
   const known = new Set(sessions.map((s) => s.id));
   sessions.push(...eventOnlySessions(known));
   const last = lastEventBySession();
@@ -188,7 +190,8 @@ function buildSessions() {
       { hookTs: s.liveTs, sdkTs: agent ? agent.lastMsgAt : null });
     // jobs de fond de la session, chacun classé par jobStatus (croise notif terminale, timeout
     // Monitor, vivacité de la session). SEUL 'running' compte comme actif → forme légère sidebar.
-    const bgRunning = buildBackgroundJobs(s.file).jobs
+    // (les sessions vibe n'ont pas de transcript Claude : pas de jobs détectés pour l'instant)
+    const bgRunning = (s.provider === 'vibe' ? [] : buildBackgroundJobs(s.file).jobs)
       .filter((j) => jobStatus(j, s.live, now) === 'running');
     s.bgJobs = bgRunning.map((j) => ({ kind: j.kind, label: jobLabel(j), startedAt: j.startTs, status: 'running' }));
     // 'working' prime sur 'background' quand la session a un job de fond ET mouline vraiment.
@@ -220,7 +223,7 @@ function buildSessions() {
       ? { id: ask.id, plan: ask.plan }
       : (plans.get(s.id) || null);
     // résumé compact de la TodoList (où en est la session) — léger, pour la sidebar.
-    s.todo = todoSummary(latestTodos(s.file));
+    s.todo = s.provider === 'vibe' ? null : todoSummary(latestTodos(s.file));
   }
 // tri : plus récente activité d'abord
   visible.sort((a, b) => String(b.lastActivity || '').localeCompare(String(a.lastActivity || '')));
@@ -253,7 +256,7 @@ async function buildSessionsWarm() { return buildSessions(); }
 async function sessionDetailWarm(id) { return sessionDetail(id); }
 
 function buildStats(rangeDays) {
-  const sessions = scanSessions();
+  const sessions = scanAllSessions();
   const cutoff = rangeDays ? Date.now() - rangeDays * 86400000 : 0;
   const totals = { input: 0, output: 0, cacheCreate: 0, cacheRead: 0, cost: 0, turns: 0, sessions: 0, prompts: 0 };
   const byDay = {};
@@ -323,7 +326,7 @@ function buildUsage() {
 // la session et on ne renvoie que le outputPath qu'on a nous-mêmes extrait du transcript. null sinon.
 function resolveBackgroundOutput(sessionId, taskId) {
   if (!sessionId || !taskId) return null;
-  const s = scanSessions().find((x) => x.id === sessionId);
+  const s = scanAllSessions().find((x) => x.id === sessionId);
   if (!s || !s.file) return null;
   const job = buildBackgroundJobs(s.file).jobs.find((j) => j.taskId === taskId);
   return job && job.outputPath ? job.outputPath : null;
@@ -348,7 +351,7 @@ function sessionDetail(id) {
 }
 
 function buildSessionDetail(id) {
-  const sessions = scanSessions();
+  const sessions = scanAllSessions();
   let s = sessions.find((x) => x.id === id);
   // session tout juste lancée : pas encore de transcript → on la sert depuis les hooks.
   if (!s) s = eventOnlySessions(new Set(sessions.map((x) => x.id))).find((x) => x.id === id);
@@ -357,7 +360,8 @@ function buildSessionDetail(id) {
   s.worktreeOf = worktreeOf(s.project);
   const ev = readEvents().filter((e) => e.session_id === id).slice(-60);
   const last = ev.length ? liveStateFor(ev[ev.length - 1]) : null;
-  let messages = conversationOf(s.file);
+  // provider vibe : la conversation est rebuildée depuis le journal Vibe, pas depuis un transcript Claude.
+  let messages = s.provider === 'vibe' ? buildVibeConversation(s.dir) : conversationOf(s.file);
   // Le transcript ne porte pas encore le prompt (subagent foreground en cours, cf. fillFromEvents) :
   // les hooks, eux, l'ont capté. Sans ça la conversation reste « Empty conversation » pendant tout
   // le travail de la session.
@@ -420,7 +424,7 @@ function buildSessionDetail(id) {
   const refined = refineWithAgent(last ? last.state : (s.state || 'past'), alive, agent ? agent.sdkState : null,
     { hookTs: lastEv ? lastEv.ts : null, sdkTs: agent ? agent.lastMsgAt : null });
   // jobs de fond de la session : TOUS (actifs + historique) avec leur statut, pour l'onglet Background.
-  const bg = buildBackgroundJobs(s.file);
+  const bg = s.provider === 'vibe' ? { jobs: [] } : buildBackgroundJobs(s.file);
   const now = Date.now();
   const bgJobs = bg.jobs
     .map((j) => ({ ...j, label: jobLabel(j), status: jobStatus(j, alive, now) }))

@@ -1,0 +1,1 @@
+{"payload":{"delta":[{"op":"append_entry","entry":{"type":"message","role":"user","content":[{"type":"text","text":"sous-agent"}],"createdAt":1795168300000,"updatedAt":1795168300000,"id":"rs-s1","sessionId":"sess-sub","turnId":"turn-s1","source":"turn_start","generationStatus":"completed"}}],"watermark":1}}

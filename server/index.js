@@ -59,6 +59,8 @@ export * from './worktrees.js';
 export * from './panels.js';
 export * from './worktreeCleanup.js';
 export * from './autoPull.js';
+export * from './vibe.js';
+export * from './sessions.js';
 export * as searchIndex from './searchIndex.js';
 // Namespacé pour la même raison que searchIndex : `lookup`, `partition`, `readSlice` sont des
 // noms trop génériques pour un `export *`, où une collision fait disparaître un symbole SANS

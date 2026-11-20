@@ -36,6 +36,18 @@ const SDK_COMMANDS_FILE = path.join(HOOKED_DIR, 'sdk-commands.json');
 // weekly Fable limit), which the statusline payload does not expose (5h / 7d only).
 const CLAUDE_JSON = process.env.HOOKED_CLAUDE_JSON
   || path.join(process.env.CLAUDE_CONFIG_DIR || HOME, '.claude.json');
+// --- Provider Mistral Vibe (cf. docs/port-vibe.md) ---
+// VIBE_HOME est le home de Vibe (overridable, comme Vibe lui-même). Les sessions « unified »
+// vivent dans logs/session/unified/<id>/ (meta.json + journal/*.jsonl). Les hooks Vibe
+// (scripts/hook-vibe.cjs, branchés via ~/.vibe/hooks.toml) y écrivent leurs événements
+// normalisés dans VIBE_HOOKED_DIR/events.jsonl.
+const VIBE_HOME = process.env.VIBE_HOME || path.join(HOME, '.vibe');
+const VIBE_SESSIONS_DIR = process.env.HOOKED_VIBE_SESSIONS_DIR
+  || path.join(VIBE_HOME, 'logs', 'session', 'unified');
+const VIBE_HOOKED_DIR = process.env.HOOKED_VIBE_DATA_DIR || path.join(VIBE_HOME, 'hooked');
+const VIBE_EVENTS_FILE = path.join(VIBE_HOOKED_DIR, 'events.jsonl');
+// Toutes les sources d'événements live : hook.cjs (Claude) + hook-vibe.cjs (Vibe).
+const EVENTS_FILES = [EVENTS_FILE, VIBE_EVENTS_FILE];
 const ROOT = path.join(import.meta.dirname, '..');
 // Le front Svelte est buildé dans dist/ (npm run build) — seule source servie.
 const PUBLIC_DIR = path.join(ROOT, 'dist');
@@ -85,4 +97,4 @@ function readClaudeDefaults() {
   };
 }
 
-export { HOME, PROJECTS_DIR, HOOKED_DIR, EVENTS_FILE, LAUNCHES_FILE, SESSION_LAUNCH_FILE, DRIVEN_FILE, STATUS_DIR, SDK_COMMANDS_FILE, CLAUDE_JSON, ROOT, PUBLIC_DIR, PORT, PERMISSION_MODES, LAUNCH_PERMISSION_MODES, isValidModelArg, readClaudeDefaults };
+export { HOME, PROJECTS_DIR, HOOKED_DIR, EVENTS_FILE, LAUNCHES_FILE, SESSION_LAUNCH_FILE, DRIVEN_FILE, STATUS_DIR, SDK_COMMANDS_FILE, CLAUDE_JSON, VIBE_HOME, VIBE_SESSIONS_DIR, VIBE_HOOKED_DIR, VIBE_EVENTS_FILE, EVENTS_FILES, ROOT, PUBLIC_DIR, PORT, PERMISSION_MODES, LAUNCH_PERMISSION_MODES, isValidModelArg, readClaudeDefaults };
