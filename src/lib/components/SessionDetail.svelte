@@ -11,7 +11,7 @@
   import { onMount, onDestroy, tick, untrack } from 'svelte';
   import { goto } from '$app/navigation';
   import { ui, data, settings, loadSessions, openModal, sessionTitle, sessionTags, renameSession, toggleFocus, splitWithMostRecent, canSplit, toggleArchive, isArchived, unarchive } from '#lib/state.svelte.js';
-  import { getSession, setMode, setModelEffort, setAutoApprove, openInEditor, openInGhostty, fork, launch, deleteSession, removeWorktree, restartClaudeSession, connectSessionStream, listTerminals, openTerminal, killTerminal, getVibeOptions } from '#lib/api.js';
+  import { getSessionDelta, setMode, setModelEffort, setAutoApprove, openInEditor, openInGhostty, fork, launch, deleteSession, removeWorktree, restartClaudeSession, connectSessionStream, listTerminals, openTerminal, killTerminal, getVibeOptions } from '#lib/api.js';
   import { promptCacheState } from '#lib/promptCache.js';
   import { STATE_LABEL, fmtCost, fmtTokens, shortModel, PERMISSION_MODES, modeLabel, modeMeta, modelAlias, tagColor, lotColor, resumeCommand, parseBang, isBlockForCommand } from '#lib/format.js';
   import { page } from '$app/state';
@@ -275,7 +275,9 @@
 
   async function load(isRefresh) {
     let d;
-    try { d = await getSession(id); } catch (_) { return; }
+    // Delta against the copy we hold now (captured before the await: an overlapping load must not
+    // merge a response into a copy it was not computed against).
+    try { d = await getSessionDelta(id, s); } catch (_) { return; }
     s = d;
     lastActivity = d.lastActivity || null;
     // les hooks reflètent enfin le mode visé → on lâche le choix optimiste.

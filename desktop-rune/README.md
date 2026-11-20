@@ -104,12 +104,14 @@ and dark, with rounded or square corners, picked in Settings or the palette.
   needs its tool on the server and a connection that may write, else it is not shown.
 - **Organizing**: drag a session (sidebar row or fleet card) onto another to group them, or onto
   a fleet repo header to take it out of its group; tags on rows and in the header, groups under their
-  lead session with a tab strip (switch, make lead, leave, rename, new session in the group),
+  lead session (move, leave and rename from the session menu),
   incognito mode for screen sharing, Fork from any message with model, effort, mode and a first
   message, cost breakdown, copy as Markdown, focus mode, and up to four split panes.
-- **Review**: go to definition (⌘-click a line number to pick one of its names, or double-click
-  a name then F12): the declaration opens in a card under the line, with candidates when it is
-  ambiguous, more lines on demand and Esc to close; a resizable files rail with reviewed ticks (v) that fold the file,
+- **Review**: selecting text in the diff paints its other occurrences in the accent; go to
+  definition (⌘-double-click a name, or select it then F12, or ⌘-click a line number to pick one
+  of its names): the declaration opens in a card under the line, with candidates when it is
+  ambiguous, more lines on demand and Esc to close, and a ⌘-double-click on a name inside the card
+  follows it, with a button back; a resizable files rail with reviewed ticks (v) that fold the file,
   binary files and who changed a file (a command, a subagent), a prompt filter, a branch picker
   (repo, branch and base with a filter, commits), Review with Claude, a resizable
   comments panel (edit, archive, restore, and a jump that brings back the scope a comment was
@@ -138,9 +140,12 @@ and dark, with rounded or square corners, picked in Settings or the palette.
 ## Not done yet
 
 - Dictation (not planned), the companion (decorative).
-- Review: blame shows for the clicked line, not on hover, and go to definition starts from a
-  line number or a selected name rather than a ⌘-click on the word (rune-kit's diff view
-  reports neither the hovered line nor the clicked word).
+- Review: blame shows for the clicked line, not on hover, and go to definition takes a
+  ⌘-double-click rather than a ⌘-click on the word, with no underline under the pointer
+  (rune-kit's diff view reports neither the hovered line nor the clicked word, so the name comes
+  from the text selection). Occurrences of the selection change colour rather than getting a
+  background: the view takes no background for part of a line, so they go through the syntax
+  highlighter.
 
 ## Terminal: what is still missing
 

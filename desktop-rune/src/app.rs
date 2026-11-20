@@ -197,7 +197,6 @@ pub struct Hooked {
     pub gh_page_view: Option<crate::ghdetail::GhView>,
     pub gh_dock_view: Option<crate::ghdetail::GhView>,
     pub plan_quote: Option<String>,
-    pub new_group: Option<String>,
     pub usage: Option<serde_json::Value>,
     pub logo: Option<([usize; 6], [rune::Image; 2])>,
     pub handle: Option<AppHandle<Hooked>>,
@@ -499,7 +498,6 @@ impl Hooked {
             gh_page_view: None,
             gh_dock_view: None,
             plan_quote: None,
-            new_group: None,
             usage: None,
             logo: None,
             handle: None,
@@ -1585,12 +1583,6 @@ impl Hooked {
         self.popup = None;
     }
 
-    pub fn go_new_in_group(&mut self, mother: String) {
-        let project = self.session(&mother).and_then(|x| x.project.clone());
-        self.go_new(project);
-        self.new_group = Some(mother);
-    }
-
     /// The Fable bucket when it is spent: `pct` is the authority, `severity` the fallback.
     pub fn fable_spent(&self) -> Option<&serde_json::Value> {
         let f = &self.usage.as_ref()?["account"]["fable"];
@@ -1612,7 +1604,6 @@ impl Hooked {
     pub fn go_new(&mut self, project: Option<String>) {
         self.page = Page::New;
         self.popup = None;
-        self.new_group = None;
         if self.new_fallback() {
             self.new_model = Some("opus".into());
         }
@@ -2551,7 +2542,6 @@ impl Hooked {
             self.incognito,
         );
         let (worktree, ephemeral) = (self.new_worktree, self.new_ephemeral);
-        let group_with = self.new_group.take();
         self.sending = true;
         self.spawn(
             move || {
@@ -2564,7 +2554,6 @@ impl Hooked {
                     incognito,
                     worktree,
                     ephemeral,
-                    group_with,
                 })
             },
             |s, r, _| {
