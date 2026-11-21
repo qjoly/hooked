@@ -37,17 +37,46 @@ export const MODEL_VERSION_RE = /^claude-(opus|sonnet|haiku|fable)-\d+(-\d+)?$/;
 export const isHideableModel = (id) => typeof id === 'string' && MODEL_VERSION_RE.test(id);
 
 /*
+ * Même liste noire pour le provider pi (catalogue de `pi --list-models mistral`). Deux différences
+ * avec Claude : aucune grammaire de version à respecter (`mistral-large-latest`,
+ * `zai-glm-5-3-flash`, `labs-devstral-small-2512`…) et aucun alias de famille à protéger — donc
+ * TOUS les ids du catalogue sont masquables. La seule garde est celle de la forme : un id vide, une
+ * phrase ou un chemin ne sont pas des modèles, et on ne veut pas les voir traîner dans les réglages.
+ */
+export const PI_MODEL_RE = /^[A-Za-z0-9][A-Za-z0-9._/-]{0,79}$/;
+
+export const isHideablePiModel = (id) => typeof id === 'string' && PI_MODEL_RE.test(id);
+
+// Set des ids réellement masquables (un réglage trafiqué ne masque pas autre chose qu'un modèle).
+const hiddenSet = (hidden, isHideable) => new Set((hidden || []).filter(isHideable));
+
+/*
  * Retire des groupes (forme de server/capabilities.js : [{ label, opts: [[id, label], …] }]) les
  * versions listées dans `hidden`. `keep` est le modèle actuellement sélectionné : il survit toujours
  * au filtre, sinon un <select> lié perdrait sa valeur. Un groupe vidé disparaît.
  */
 export function filterModelGroups(groups, hidden, keep = '') {
-  const hide = new Set((hidden || []).filter(isHideableModel));
+  const hide = hiddenSet(hidden, isHideableModel);
   if (!hide.size) return groups || [];
   return (groups || [])
     .map((g) => ({ ...g, opts: (g.opts || []).filter(([id]) => !hide.has(id) || id === keep) }))
     .filter((g) => g.opts.length);
 }
+
+/*
+ * Même filtre pour une liste plate de modèles pi (forme [[id, label], …], cf. /api/pi-options),
+ * qui n'a pas de groupes. `keep` joue le même rôle que ci-dessus.
+ */
+export function filterModelOpts(opts, hidden, keep = '') {
+  const hide = hiddenSet(hidden, isHideablePiModel);
+  if (!hide.size) return opts || [];
+  return (opts || []).filter(([id]) => !hide.has(id) || id === keep);
+}
+
+// Liste noire par défaut du provider pi : rien de masqué. Le catalogue pi est déjà court et mis à
+// jour par `pi`, et masquer une famille « ancienne » n'a pas de sens ici (les `-latest` sont des
+// alias du catalogue, pas des doublons de version).
+export const DEFAULT_HIDDEN_PI_MODELS = [];
 
 /*
  * ---- Quota-aware default (New Session) ----

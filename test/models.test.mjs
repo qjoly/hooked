@@ -5,7 +5,7 @@
  * le modèle courant survivent toujours au filtre.
  */
 import { describe, it, expect } from 'vitest';
-import { filterModelGroups, isHideableModel, DEFAULT_HIDDEN_MODELS, isFableModel, isQuotaExhausted, defaultModelForQuota } from '../src/lib/models.js';
+import { filterModelGroups, filterModelOpts, isHideableModel, isHideablePiModel, DEFAULT_HIDDEN_MODELS, DEFAULT_HIDDEN_PI_MODELS, isFableModel, isQuotaExhausted, defaultModelForQuota } from '../src/lib/models.js';
 
 const GROUPS = [
   { label: 'Opus', opts: [['opus', 'Opus (default)'], ['claude-opus-5', '5'], ['claude-opus-4-8', '4.8'], ['claude-opus-4-5', '4.5']] },
@@ -68,6 +68,66 @@ describe('filterModelGroups', () => {
       'haiku', 'claude-haiku-4-5',
       'fable', 'claude-fable-5-1', 'claude-fable-5',
     ]);
+  });
+});
+
+/*
+ * Provider pi: the same blacklist over a flat list (shape of /api/pi-options → [[id, label], …]).
+ * pi has no family alias to protect and no version grammar, so every id in the catalogue is
+ * hideable; the only guard is on the shape of the id itself.
+ */
+const PI_OPTS = [
+  ['devstral-medium-latest', 'devstral-medium-latest'],
+  ['mistral-large-latest', 'mistral-large-latest'],
+  ['mistral-small-latest', 'mistral-small-latest'],
+  ['zai-glm-5-3-flash', 'zai-glm-5-3-flash'],
+];
+const piIds = (opts) => opts.map(([id]) => id);
+
+describe('isHideablePiModel', () => {
+  it('accepts the ids the catalogue actually produces', () => {
+    for (const [id] of PI_OPTS) expect(isHideablePiModel(id)).toBe(true);
+    expect(isHideablePiModel('mistral-large-4')).toBe(true);
+  });
+
+  it('rejects what could not be a model id', () => {
+    expect(isHideablePiModel('')).toBe(false);
+    expect(isHideablePiModel('two words')).toBe(false);
+    expect(isHideablePiModel('--flag')).toBe(false);
+    expect(isHideablePiModel(null)).toBe(false);
+    expect(isHideablePiModel({ id: 'devstral' })).toBe(false);
+  });
+});
+
+describe('filterModelOpts', () => {
+  it('drops the hidden ids and keeps the rest', () => {
+    expect(piIds(filterModelOpts(PI_OPTS, ['mistral-small-latest']))).toEqual([
+      'devstral-medium-latest', 'mistral-large-latest', 'zai-glm-5-3-flash',
+    ]);
+  });
+
+  it('hides every entry, aliases included (no family alias to protect here)', () => {
+    expect(filterModelOpts(PI_OPTS, piIds(PI_OPTS))).toEqual([]);
+  });
+
+  it('keeps the currently selected model visible', () => {
+    expect(piIds(filterModelOpts(PI_OPTS, ['mistral-small-latest'], 'mistral-small-latest')))
+      .toContain('mistral-small-latest');
+  });
+
+  it('is a blacklist: an unknown (new) model stays visible', () => {
+    const withNext = [...PI_OPTS, ['mistral-large-5', 'mistral-large-5']];
+    expect(piIds(filterModelOpts(withNext, DEFAULT_HIDDEN_PI_MODELS))).toContain('mistral-large-5');
+  });
+
+  it('returns the list untouched when nothing is hidden, and tolerates junk', () => {
+    expect(filterModelOpts(PI_OPTS, [])).toEqual(PI_OPTS);
+    expect(filterModelOpts(PI_OPTS, null)).toEqual(PI_OPTS);
+    expect(filterModelOpts(null, ['mistral-small-latest'])).toEqual([]);
+  });
+
+  it('nothing is hidden by default', () => {
+    expect(DEFAULT_HIDDEN_PI_MODELS).toEqual([]);
   });
 });
 

@@ -555,6 +555,32 @@ fn sessions_card(s: &Hooked, k: &Kit, v: &Value) -> El {
             )
         })
         .collect();
+    // Même réglage pour le provider pi : sa liste vient de `pi --list-models mistral` (chargée au
+    // démarrage dans pi_opts), et aucun alias n'y est protégé — tout est masquable.
+    let pi_hidden = strs(&v["hiddenPiModels"]);
+    let pi_visible: Vec<El> = if s.providers.pi {
+        s.pi_opts["models"]
+            .as_array()
+            .cloned()
+            .unwrap_or_default()
+            .into_iter()
+            .map(|m| {
+                let alias = m["alias"]
+                    .as_str()
+                    .or(m["name"].as_str())
+                    .unwrap_or("")
+                    .to_string();
+                let label = m["label"].as_str().map(str::to_string).unwrap_or_else(|| alias.clone());
+                let off = pi_hidden.contains(&alias);
+                let alias2 = alias.clone();
+                chip(k, format!("vpm-{alias}"), label, !off, move |s| {
+                    s.toggle_in_list("hiddenPiModels", &alias2)
+                })
+            })
+            .collect()
+    } else {
+        Vec::new()
+    };
     let project = s.pages.settings_project.as_ref().map_or_else(el, |p| {
         TextInput::new(p)
             .width(Some(360.0))
@@ -573,7 +599,7 @@ fn sessions_card(s: &Hooked, k: &Kit, v: &Value) -> El {
             .build(k)
             .key("set-project")
     });
-    card(k, "set-sessions", "NEW SESSIONS")
+    let mut c = card(k, "set-sessions", "NEW SESSIONS")
         .child(block(
             k,
             "Default model",
@@ -596,18 +622,26 @@ fn sessions_card(s: &Hooked, k: &Kit, v: &Value) -> El {
         .child(block(
             k,
             "Visible models",
-            "Which models the pickers offer. The list comes from your installed claude.",
+            "Which Claude models the pickers offer. The list comes from your installed claude.",
             chips(visible),
-        ))
-        .child(line(
+        ));
+    if s.providers.pi {
+        c = c.child(block(
             k,
-            "Show your work",
-            "Ask Claude to narrate its steps between tool calls.",
-            toggle(k, "set-showwork", flag(v, "showWork"), |s| {
-                let on = s.setting("showWork").as_bool().unwrap_or(false);
-                s.save_setting("showWork", json!(!on));
-            }),
-        ))
+            "Visible pi models",
+            "Which Mistral models the pi pickers offer. The list comes from `pi --list-models mistral`.",
+            chips(pi_visible),
+        ));
+    }
+    c.child(line(
+        k,
+        "Show your work",
+        "Ask Claude to narrate its steps between tool calls.",
+        toggle(k, "set-showwork", flag(v, "showWork"), |s| {
+            let on = s.setting("showWork").as_bool().unwrap_or(false);
+            s.save_setting("showWork", json!(!on));
+        }),
+    ))
 }
 
 fn sidebar_card(k: &Kit, v: &Value) -> El {

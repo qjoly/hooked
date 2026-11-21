@@ -383,8 +383,8 @@ fn more_menu(s: &Hooked, d: &Detail, k: &Kit, layer: &mut Vec<El>) -> El {
         let is_pi = x.provider.as_deref() == Some("pi");
         let current = x.model.clone().unwrap_or_default();
         let models: Vec<_> = if is_pi {
-            // Pi models (alias) from /api/pi-options
-            s.pi_opts["models"].as_array().cloned().unwrap_or_default()
+            // Pi models (alias) from /api/pi-options, minus the ones hidden in Settings.
+            s.visible_pi_models()
                 .into_iter()
                 .map(|m| {
                     let alias = m["alias"].as_str().or(m["name"].as_str()).unwrap_or("").to_string();

@@ -40,8 +40,9 @@ fn controls(s: &Hooked, k: &Kit) -> El {
         None
     };
     let models: Vec<El> = if is_pi {
-        // Pi models from /api/pi-options: [{ name, alias, label, thinking }]
-        let list = s.pi_opts["models"].as_array().cloned().unwrap_or_default();
+        // Pi models from /api/pi-options: [{ name, alias, label, thinking }], minus the aliases
+        // hidden in Settings (same blacklist as the Claude list below).
+        let list = s.visible_pi_models();
         std::iter::once(chip(k, "nm-default".into(), "Default".into(), s.new_model.is_none(), |s| {
             s.new_model = None;
         }))

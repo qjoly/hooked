@@ -2,9 +2,9 @@
   import { untrack, onMount } from 'svelte';
   import { data, ui, settings, updateSettings, openModal, setTheme, setScheme, setCorners, loadSessions, allTags, tagUsage, deleteTag } from '#lib/state.svelte.js';
   import { tagColor } from '#lib/format.js';
-  import { resync, getGit, checkoutBranch, dismissRestartNotice, getClaudeVersion, upgradeClaude, restartClaudeSession, pickFolder, getRemoteControl, getCapabilities, getWarmup, runWarmup, listWorktrees, removeWorktree, cleanupWorktrees, pullCheckouts } from '#lib/api.js';
+  import { resync, getGit, checkoutBranch, dismissRestartNotice, getClaudeVersion, upgradeClaude, restartClaudeSession, pickFolder, getRemoteControl, getCapabilities, getPiOptions, getWarmup, runWarmup, listWorktrees, removeWorktree, cleanupWorktrees, pullCheckouts } from '#lib/api.js';
   import { COMPACT_LEAD_MS, CACHED_READ_SHARE } from '#lib/promptCache.js';
-  import { isHideableModel } from '#lib/models.js';
+  import { isHideableModel, isHideablePiModel } from '#lib/models.js';
   import { knownProjects } from '#lib/projects.js';
   import { getAllBindings, setBinding, resetBinding, resetAll as resetAllShortcuts, formatKeys, keysFromEvent } from '#lib/shortcuts.js';
   import { NAV_TABS } from '#lib/nav.js';
@@ -308,6 +308,27 @@
   function toggleModel(id) {
     const cur = (settings.hiddenModels || []).filter(isHideableModel);
     updateSettings({ hiddenModels: cur.includes(id) ? cur.filter((m) => m !== id) : [...cur, id] });
+  }
+
+  // Même chose pour le provider pi, dont la liste vient de /api/pi-options (`pi --list-models`).
+  // Aucun alias de famille à protéger ici : un modèle pi peut toujours être masqué.
+  const hasPi = $derived(!!data.providers?.pi);
+  let piModels = $state([]); // [[id, label], …]
+  $effect(() => {
+    if (!hasPi) return;
+    let alive = true;
+    getPiOptions()
+      .then((o) => {
+        if (!alive) return;
+        piModels = (o.models || []).map((m) => [m.alias || m.name, m.label || m.alias || m.name]);
+      })
+      .catch(() => {});
+    return () => { alive = false; };
+  });
+  const hiddenPiModels = $derived(new Set(settings.hiddenPiModels || []));
+  function togglePiModel(id) {
+    const cur = (settings.hiddenPiModels || []).filter(isHideablePiModel);
+    updateSettings({ hiddenPiModels: cur.includes(id) ? cur.filter((m) => m !== id) : [...cur, id] });
   }
 
   // Projet de démarrage rapide : cwd utilisé quand une session est lancée sans dossier (p.ex. un
@@ -693,7 +714,8 @@
 
     <div class="card" id="pset-models" data-sec>
       <h2>Visible models</h2>
-      <p class="hint">Which model versions appear in the model selectors (new session, resume, and the live switch in a session header). The list itself comes from your installed <code>claude</code> binary — this only <strong>hides</strong> versions, so a version shipped by a future Claude Code update shows up on its own. Hiding is cosmetic: a hidden model stays valid, and a session already running on one keeps showing it. Family defaults (<em>Opus</em>, <em>Sonnet</em>…) are never hidden. (Shared setting.)</p>
+      <p class="hint">Which models appear in the model selectors (new session, resume, and the live switch in a session header). Each provider's list comes from the installed binary — this only <strong>hides</strong> entries, so a model shipped by a future update shows up on its own. Hiding is cosmetic: a hidden model stays valid, and a session already running on one keeps showing it. Family defaults (<em>Opus</em>, <em>Sonnet</em>…) are never hidden on the Claude side. (Shared setting.)</p>
+      {#if allModelGroups.length}<h3 class="mf-sec">Claude Code</h3>{/if}
       {#each allModelGroups as g (g.label)}
         <div class="mf-row">
           <span class="mf-fam">{g.label}</span>
@@ -712,8 +734,25 @@
           </div>
         </div>
       {/each}
-      {#if !allModelGroups.length}
+      {#if hasClaude && !allModelGroups.length}
         <p class="hint">No model list available — hooked could not resolve a <code>claude</code> binary.</p>
+      {/if}
+      {#if hasPi}
+        <h3 class="mf-sec">Mistral Pi</h3>
+        {#if piModels.length}
+          <p class="hint">Catalogue of <code>pi --list-models mistral</code>. Every entry can be hidden, including the <code>-latest</code> aliases.</p>
+          <div class="chips mf-flat">
+            {#each piModels as [id, label] (id)}
+              {@const off = hiddenPiModels.has(id)}
+              <button class="chip" class:active={!off} onclick={() => togglePiModel(id)}
+                      title={off ? `${id} — hidden, click to show` : `${id} — shown, click to hide`}>
+                <Icon name={off ? 'eye-off' : 'eye'} size={13} /> {label}
+              </button>
+            {/each}
+          </div>
+        {:else}
+          <p class="hint">No Pi model list available — hooked could not run <code>pi --list-models</code>.</p>
+        {/if}
       {/if}
     </div>
 
@@ -1349,6 +1388,11 @@
   /* Filtre des modèles : une ligne par famille (libellé à gauche, pilules de versions à droite). */
   .mf-row { display: flex; align-items: center; gap: 12px; padding: 6px 0; flex-wrap: wrap; }
   .mf-fam { flex: 0 0 70px; font-size: var(--t-meta); font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
+  /* Sous-sections de la carte « Visible models » : un bloc par provider (Claude Code, Mistral Pi). */
+  .mf-sec { font-size: var(--t-meta); font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin: 16px 0 6px; }
+  .mf-sec:first-of-type { margin-top: 4px; }
+  /* Liste plate (pi n'a pas de familles) : les pilules occupent toute la largeur. */
+  .mf-flat { margin-top: 6px; }
   /* La famille reste sur la même ligne que ses pilules, qui débordent en interne (Opus en a 8). */
   .mf-row .chips { flex: 1 1 0; min-width: 0; }
   .mf-row .chip { display: inline-flex; align-items: center; gap: 5px; padding: 5px 12px; }

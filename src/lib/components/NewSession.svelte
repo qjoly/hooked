@@ -123,12 +123,23 @@
     (piOpts && piOpts.models || []).find((m) => (m.alias || m.name) === model)?.thinking
     || (piOpts && piOpts.thinkingLevels) || ['medium'],
   );
+  // Modèles pi affichés : même liste noire que les sélecteurs Claude (Réglages → Visible models),
+  // appliquée ici parce que cette barre de pilules n'utilise pas ModelEffort. Le modèle courant
+  // survit toujours au filtre (sinon le <select> lié perdrait sa valeur).
+  const piVisibleModels = $derived(
+    (piOpts?.models || [])
+      .map((m) => m.alias || m.name)
+      .filter((id) => id === model || !(settings.hiddenPiModels || []).includes(id)),
+  );
   $effect(() => {
     if (provider !== 'pi') return;
     if (!piOpts) { getPiOptions().then((o) => { piOpts = o; }).catch(() => {}); return; }
     untrack(() => {
-      const aliases = (piOpts.models || []).map((m) => m.alias || m.name);
-      if (!aliases.includes(model)) model = piOpts.activeModel || aliases[0] || '';
+      const all = (piOpts.models || []).map((m) => m.alias || m.name);
+      // Le défaut ne tombe pas sur un modèle masqué : premier modèle visible du catalogue, sinon
+      // l'actif du CLI. Un modèle déjà sélectionné, lui, reste tel quel.
+      const pool = piVisibleModels.length ? piVisibleModels : all;
+      if (!all.includes(model)) model = pool.includes(piOpts.activeModel) ? piOpts.activeModel : (pool[0] || '');
       if (!piThinking.includes(effort)) effort = piThinking.includes('high') ? 'high' : piThinking[0];
       if (!piOpts.modes.some((m) => m.id === mode)) mode = 'default';
     });
@@ -262,7 +273,7 @@
           {#if piOpts}
             <div class="ns-pi-opts">
               <select class="lf-input" bind:value={model} title="Modèle (alias lu dans ~/.pi/config.toml)">
-                {#each piOpts.models as m (m.alias || m.name)}<option value={m.alias || m.name}>{m.alias || m.name}</option>{/each}
+                {#each piVisibleModels as id (id)}<option value={id}>{id}</option>{/each}
               </select>
               <select class="lf-input" bind:value={effort} title="Thinking level (supporté par ce modèle)">
                 {#each piThinking as t (t)}<option value={t}>{t}</option>{/each}

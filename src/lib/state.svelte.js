@@ -6,7 +6,7 @@ import { floating } from './floating.svelte.js';
 import { getSessionsFull, connectSSE, getSettings, saveSettings as apiSaveSettings, getTags, saveTags, replaceTags, suggestTags, getSessionMeta, saveSessionMeta, groupOp, kill, getAccount } from './api.js';
 import { NOTIFY_KINDS, notifyKeyFor, countsForBadge } from './notify.js';
 import { isFinishedAndCold } from './format.js';
-import { DEFAULT_HIDDEN_MODELS } from './models.js';
+import { DEFAULT_HIDDEN_MODELS, DEFAULT_HIDDEN_PI_MODELS } from './models.js';
 import { goto } from '$app/navigation';
 import { page } from '$app/state';
 
@@ -589,6 +589,7 @@ export const settings = $state({
   defaultPage: 'deck',
   navTabs: ['sessions', 'stats', 'digest', 'memory', 'github'], // onglets de nav visibles (paramétrable)
   hiddenModels: [...DEFAULT_HIDDEN_MODELS], // versions de modèle masquées des sélecteurs (liste noire)
+  hiddenPiModels: [...DEFAULT_HIDDEN_PI_MODELS], // idem pour le catalogue pi (liste noire)
 });
 export async function loadSettings() {
   try { Object.assign(settings, await getSettings()); } catch (_) {}

@@ -2,7 +2,7 @@
   import { MODE_OPTS, shortModel } from '#lib/format.js';
   import { getCapabilities } from '#lib/api.js';
   import { settings } from '#lib/state.svelte.js';
-  import { filterModelGroups } from '#lib/models.js';
+  import { filterModelGroups, filterModelOpts } from '#lib/models.js';
   import Icon from '#lib/components/Icon.svelte';
   // `compact` : pilules en ligne (sous une chatbox) plutôt que le formulaire des modales.
   // `onchange` : callback appelé à chaque changement (sert au changement à chaud d'une session).
@@ -36,10 +36,14 @@
   // est réactif → (dé)cocher une version se répercute immédiatement sur les sélecteurs ouverts.
   // `model` est passé en `keep` : le modèle courant d'une session survit toujours au filtre.
   const visibleGroups = $derived(filterModelGroups(modelGroups, settings.hiddenModels, model));
+  // Même réglage pour le provider pi : sa liste vient de /api/pi-options (`pi --list-models`), donc
+  // elle ne traverse pas server/capabilities.js et le filtre s'applique ici, sur la liste plate.
+  const visiblePiOpts = $derived(modelOpts ? filterModelOpts(modelOpts, settings.hiddenPiModels, model) : null);
   const modelView = $derived.by(() => {
     if (modelOpts) {
-      const has = modelOpts.some(([v]) => v === model);
-      return [{ label: 'Pi models', opts: model && !has ? [[model, shortModel(model)], ...modelOpts] : modelOpts }];
+      const opts = visiblePiOpts || modelOpts;
+      const has = opts.some(([v]) => v === model);
+      return [{ label: 'Pi models', opts: model && !has ? [[model, shortModel(model)], ...opts] : opts }];
     }
     const has = visibleGroups.some((g) => g.opts.some(([v]) => v === model));
     if (model && !has) return [{ label: '', opts: [[model, shortModel(model)]] }, ...visibleGroups];

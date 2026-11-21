@@ -2633,20 +2633,41 @@ pub fn composer_changed(&mut self) {
         );
     }
 
-    /// The models the pickers offer: the installed claude's list minus the ones hidden in Settings.
-    pub fn visible_models(&self) -> Vec<(String, String)> {
-        let hidden = self.setting("hiddenModels");
-        let hidden: Vec<&str> = hidden
+    /// The ids hidden from one picker list in Settings (`hiddenModels`, `hiddenPiModels`).
+    fn hidden_setting(&self, key: &str) -> Vec<String> {
+        self.setting(key)
             .as_array()
             .into_iter()
             .flatten()
-            .filter_map(|x| x.as_str())
-            .collect();
+            .filter_map(|x| x.as_str().map(str::to_string))
+            .collect()
+    }
+
+    /// The models the pickers offer: the installed claude's list minus the ones hidden in Settings.
+    pub fn visible_models(&self) -> Vec<(String, String)> {
+        let hidden = self.hidden_setting("hiddenModels");
         self.caps
             .models
             .iter()
-            .filter(|(id, _)| !hidden.contains(&id.as_str()))
+            .filter(|(id, _)| !hidden.contains(id))
             .cloned()
+            .collect()
+    }
+
+    /// The same blacklist for the pi provider: the catalogue entries from /api/pi-options whose
+    /// alias is not in `hiddenPiModels`. Entries are returned raw (callers pick alias / label /
+    /// thinking), and a model that is currently selected but hidden stays out — same as above.
+    pub fn visible_pi_models(&self) -> Vec<serde_json::Value> {
+        let hidden = self.hidden_setting("hiddenPiModels");
+        self.pi_opts["models"]
+            .as_array()
+            .cloned()
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|m| {
+                let alias = m["alias"].as_str().or(m["name"].as_str()).unwrap_or("");
+                !hidden.iter().any(|h| h == alias)
+            })
             .collect()
     }
 
