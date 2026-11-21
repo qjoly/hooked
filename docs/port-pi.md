@@ -9,7 +9,15 @@ est **`pi`** (il remplace `vibe` partout : scan, driver, routes, UI web, rune).
 
 ## 0. Ce qui a été vérifié sur l'installation locale (2026-11-21)
 
-- `npm i -g @earendil-works/pi-coding-agent` → `pi` 1.6.0 (bin `pi`, node ≥ 22.19 ; ici node 24.22.2).
+- **Binaire pi via mise** (recommandé, cf. `mise.toml` `[tools]`) :
+  `"npm:@earendil-works/pi-coding-agent" = "1.6.0"` — dans `[tools]` **racine** (pas une tâche)
+  pour que le service hooked, lancé par launchd/systemd via `mise x -- bash deploy/service-run.sh`,
+  ait le binaire dans son PATH : `mise x -- which pi` réussit alors et la détection auto
+  (`server/providers.js`) marche sans fallback. Vérifié : `mise x -- pi --version` → `1.6.0`.
+  Sur une machine sans provider pi, retirer la ligne du mise.toml. (`npm i -g` marche aussi,
+  `resolvePiBin` a les chemins usuels en fallback, mais sous launchd le PATH est figé.)
+- Setup manuel machine-spécifique (interactif, PAS géré par mise) : `mise run setup-pi`, puis
+  sign-in OAuth (cf. ci-dessous) + `~/.pi/agent/mcp.json`.
 - `pi install https://github.com/5omeOtherGuy/pi-mistral-subscription` → package listé dans
   `~/.pi/agent/settings.json` (`packages: [...]`), il enregistre le provider built-in `mistral`
   avec un OAuth « browser sign-in » Mistral AI Studio.

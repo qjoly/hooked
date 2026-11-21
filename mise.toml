@@ -1,5 +1,13 @@
 [tools]
 node = "24"
+# pi (provider Mistral, branche feat/pi-mistral) — dans [tools] RACINE et pas dans une tâche :
+# le service hooked est lancé par launchd/systemd via `mise x -- bash deploy/service-run.sh`
+# (cf. tasks.service-install), donc seuls les tools racine sont dans le PATH du service.
+# Avec le shim pi dispo, `which pi` réussit sous launchd et la détection auto
+# (server/providers.js → providers.pi) marche sans fallback sur les chemins en dur.
+# Sur une machine qui n'utilise pas le provider pi, retirer cette ligne (mise n'installera
+# alors plus le package) — hooked détecte l'absence et masque pi.
+"npm:@earendil-works/pi-coding-agent" = "1.6.0"
 
 [env]
 PORT = "4123"
@@ -26,6 +34,25 @@ run = "npm run build && (git rev-parse HEAD > build/.hooked-src-commit 2>/dev/nu
 [tasks.setup-hooks]
 description = "Branche hooked sur les hooks Claude Code (~/.claude/settings.json)"
 run = "node install.cjs"
+
+# Le binaire pi vient de mise ([tools] "npm:@earendil-works/pi-coding-agent" — `mise x` le rend
+# dispo, y compris pour le service). Cette tâche ne couvre que le setup MANUEL machine-spécifique
+# qu'aucun gestionnaire de packages ne peut faire : le package Mistral + le sign-in OAuth
+# (interactif) + le MCP hooked, tous dans ~/.pi/agent (cf. docs/port-pi.md §0).
+[tasks.setup-pi]
+description = "Setup manuel du provider pi (Mistral) : package pi-mistral-subscription + sign-in"
+run = '''
+set -e
+command -v pi >/dev/null || { echo "✗ binaire pi introuvable — lance d'abord: mise use npm:@earendil-works/pi-coding-agent@1.6.0" >&2; exit 1; }
+pi install https://github.com/5omeOtherGuy/pi-mistral-subscription
+echo ""
+echo "✅ Package pi-mistral-subscription installé (~/.pi/agent/settings.json)."
+echo "Reste 2 étapes manuelles (interactives, cf. docs/port-pi.md §0) :"
+echo "  1. Sign-in Mistral : lance \`pi\` dans un terminal et fais le sign-in OAuth"
+echo "     (device flow 100 % API documenté dans docs/port-pi.md → ~/.pi/agent/auth.json, mode 0600)."
+echo "  2. MCP hooked dans pi : ~/.pi/agent/mcp.json (stdio vers le serveur hooked, cf. docs/port-pi.md)."
+echo "Dans hooked, providers.pi = 'auto' (défaut) suffit alors ; 'on' force, 'off' masque."
+'''
 
 [tasks.setup]
 description = "Installation complète : deps + build + hooks Claude Code"
