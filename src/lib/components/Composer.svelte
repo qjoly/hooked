@@ -4,6 +4,7 @@
   import { reply, interrupt, launch, getFiles, getCommands, uploadImage } from '#lib/api.js';
   import { loadSessions, ui, settings, wakeSession } from '#lib/state.svelte.js';
   import { createSpeechToText } from '#lib/speech.svelte.js';
+  import { prepareImage } from '#lib/imageResize.js';
 
   // `newSession` : pas d'id encore — l'envoi LANCE une session neuve dans `project` (cwd) avec
   // le `model`/`effort` choisis ; `onLaunched(cwd)` est notifié pour ouvrir la session créée.
@@ -108,23 +109,43 @@
     for (const f of files) addImage(f);
   }
 
-  function addImage(file) {
-    const reader = new FileReader();
+  // Large screenshots are downscaled / re-encoded in the browser first (see imageResize.js):
+  // a raw Retina PNG would blow past the server's request body limit.
+  function imageError(msg) {
+    status = { text: '✗ image: ' + msg, cls: 'err' };
+    setTimeout(() => { status = { text: '', cls: '' }; }, 5000);
+  }
+  async function addImage(file) {
     uploading++;
-    reader.onload = async () => {
-      const dataUrl = reader.result;
+    try {
+      const { dataUrl } = await prepareImage(file);
       const res = await uploadImage(dataUrl).catch((err) => ({ ok: false, data: { error: err.message } }));
-      uploading--;
       if (res.ok) {
         images = [...images, { path: res.data.path, url: dataUrl, name: res.data.name }];
         queueMicrotask(() => ta && ta.focus());
       } else {
-        status = { text: '✗ image: ' + (res.data.error || 'failed'), cls: 'err' };
-        setTimeout(() => { status = { text: '', cls: '' }; }, 3500);
+        imageError(res.data.error || (res.status === 413 ? 'image too large for the server' : 'upload failed'));
       }
-    };
-    reader.onerror = () => { uploading--; status = { text: '✗ cannot read image', cls: 'err' }; };
-    reader.readAsDataURL(file);
+    } catch (err) {
+      imageError(err.message || 'cannot read image');
+    } finally {
+      uploading--;
+    }
+  }
+  // Drag and drop of image files onto the composer.
+  let dragOver = $state(false);
+  const hasFiles = (e) => Array.from(e.dataTransfer?.types || []).includes('Files');
+  function onDragOver(e) {
+    if (!hasFiles(e)) return;
+    e.preventDefault();
+    dragOver = true;
+  }
+  function onDrop(e) {
+    dragOver = false;
+    const files = Array.from(e.dataTransfer?.files || []).filter((f) => f.type.startsWith('image/') || IMG_EXT.test(f.name || ''));
+    if (!files.length) return;
+    e.preventDefault();
+    for (const f of files) addImage(f);
   }
   function removeImage(i) { images = images.filter((_, j) => j !== i); }
 
@@ -361,7 +382,7 @@
     </div>
   </div>
 {/if}
-<div class="composer">
+<div class="composer" class:drag-over={dragOver} role="group" ondragover={onDragOver} ondragleave={() => (dragOver = false)} ondrop={onDrop}>
   <textarea bind:this={ta} bind:value={text} id="reply-text" rows="1" disabled={busy}
             placeholder={newSession ? 'Describe your task to start the session…' : (provider === 'pi' ? 'Reply to Mistral Pi…' : 'Reply to Claude…')}
             oninput={onInput} onkeydown={onKeydown} onblur={() => setTimeout(closeAc, 150)}></textarea>

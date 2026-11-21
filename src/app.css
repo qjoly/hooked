@@ -1851,6 +1851,7 @@ code.path { color: var(--muted); font-size: var(--t-micro); word-break: break-al
 }
 /* Active input: accent ring + halo, consistent with the app's other fields. */
 .composer:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft), var(--shadow); }
+.composer.drag-over { border-color: var(--accent); border-style: dashed; box-shadow: 0 0 0 3px var(--accent-soft), var(--shadow); }
 .composer textarea {
   resize: none; width: 100%; box-sizing: border-box;
   background: transparent; color: var(--text); caret-color: var(--accent); border: none;
