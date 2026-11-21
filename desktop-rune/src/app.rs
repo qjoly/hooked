@@ -52,6 +52,7 @@ pub enum Page {
     Digest,
     Memory,
     Cron,
+    Flows,
     GitHub,
     Incidents,
     Skills,
@@ -79,6 +80,8 @@ pub enum Popup {
     Sort,
     Filter,
     More,
+    /// The top bar's menu of the pages not shown as tabs.
+    Nav,
     Model,
     Effort,
 }
@@ -595,6 +598,7 @@ impl Hooked {
                 "github" => Page::GitHub,
                 "skills" => Page::Skills,
                 "cron" => Page::Cron,
+                "flows" => Page::Flows,
                 "prompts" => Page::Prompts,
                 _ => Page::Deck,
             };
@@ -795,6 +799,7 @@ impl Hooked {
                 Some("digest") => Page::Digest,
                 Some("memory") => Page::Memory,
                 Some("cron") => Page::Cron,
+                Some("flows") => Page::Flows,
                 Some("github") => Page::GitHub,
                 Some("incidents") => Page::Incidents,
                 Some("skills") => Page::Skills,
@@ -1910,6 +1915,10 @@ impl Hooked {
 
     pub fn apply_sessions(&mut self, list: Vec<Session>, meta: Option<HashMap<String, Meta>>) {
         self.want_deck_plans(&list);
+        // A stage moving on always comes with hook events: the open pipeline follows them.
+        if self.page == Page::Flows {
+            self.load_flows();
+        }
         let changed = |a: &Session, b: &Session| {
             a.last_activity != b.last_activity
                 || a.state != b.state

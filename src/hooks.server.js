@@ -1,7 +1,7 @@
 import { promisify } from 'node:util';
 import { gzip as gzipCb } from 'node:zlib';
 import { dev } from '$app/env';
-import { startDigestScheduler, startCronScheduler, startRemoteControl, readSettings, resumeDrivenSessions, startDrivenSnapshot, installShutdownHook, startWarmupScheduler, startAutoCompactScheduler, applyGitSyncSetting, applyPrReviewTagSetting, applyAutoTagSetting, startPrWatch, startWorktreeCleanup, startAutoPull } from '#lib/server/core.js';
+import { startDigestScheduler, startCronScheduler, startRemoteControl, readSettings, resumeDrivenSessions, startDrivenSnapshot, installShutdownHook, startWarmupScheduler, startAutoCompactScheduler, applyGitSyncSetting, applyPrReviewTagSetting, applyAutoTagSetting, startPrWatch, startWorktreeCleanup, startAutoPull, startFlowEngine } from '#lib/server/core.js';
 
 const gzip = promisify(gzipCb);
 
@@ -34,6 +34,8 @@ if (!dev || process.env.HOOKED_MODE) {
   // driven when we last stopped, then keep the snapshot current for the next restart.
   resumeDrivenSessions();
   startDrivenSnapshot();
+  // Flow runs in progress: their stage sessions come back through the resume above.
+  startFlowEngine({ adopt: true });
   startWorktreeCleanup();
   startAutoPull();
 }

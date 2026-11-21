@@ -11,14 +11,16 @@ use crate::app::{Hooked, Theme};
 use crate::theme::{ColorScheme, Corners};
 use crate::{fmt, icons};
 
-const NAV: [(&str, &str); 8] = [
+const NAV: [(&str, &str); 10] = [
     ("sessions", "Sessions"),
     ("stats", "Stats"),
     ("digest", "Digest"),
     ("memory", "Memory"),
     ("github", "GitHub"),
+    ("incidents", "Incidents"),
     ("skills", "Skills"),
     ("cron", "Cron"),
+    ("flows", "Flows"),
     ("prompts", "Prompts"),
 ];
 const EDITORS: [(&str, &str); 6] = [
