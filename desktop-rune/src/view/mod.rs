@@ -712,6 +712,10 @@ fn session_row(
         line1 = line1.child(glyph(&icons::PIN, 12.0, k.c.icon_muted));
     }
     line1 = line1.child(title);
+    // Badge provider (cc/vibe) à côté du titre — la sidebar est LA liste des sessions.
+    if let Some(b) = fleet::prov_badge(s, k, x) {
+        line1 = line1.child(b);
+    }
     if let Some(n) = group {
         let badge = if s.folded_groups.contains(&x.id) {
             format!("+{}", n - 1)
