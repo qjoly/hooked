@@ -2,7 +2,7 @@ package dev.qjoly.hooked.data
 
 import kotlinx.serialization.json.JsonElement
 
-// The command palette's hit list (desktop-rune `view/palette.rs::hits`), without the UI.
+// The command palette's hit list (desktop `view/palette.rs::hits`), without the UI.
 
 const val CITATIONS_SHOWN = 5
 const val PALETTE_SESSIONS = 40

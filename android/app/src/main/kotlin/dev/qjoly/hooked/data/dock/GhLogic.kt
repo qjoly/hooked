@@ -7,7 +7,7 @@ import dev.qjoly.hooked.data.millis
 import dev.qjoly.hooked.data.str
 import kotlinx.serialization.json.JsonElement
 
-// desktop-rune's ghdetail.rs, ghrun.rs and the link helpers of fmt.rs / app.rs, kept pure.
+// desktop's ghdetail.rs, ghrun.rs and the link helpers of fmt.rs / app.rs, kept pure.
 
 /** A pull or merge request link, as the dock's Links card tells them from issues. */
 fun isPullLink(url: String) = "/pull/" in url || "/merge_requests/" in url

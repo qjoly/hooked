@@ -5,7 +5,7 @@ Date : 2026-11-20 · branche : `feat/vibe-provider` (PR #131, **ne pas merger ta
 Objectif : finir le port de hooked sur **Mistral Vibe** (provider `"vibe"`) pour atteindre la parité
 fonctionnelle avec Claude Code, sans régression Claude. Les phases M0–M4 de `docs/port-vibe.md`
 sont livrées (scan, pilotage ACP, approbations/questions, resume/fork/commandes/MCP, masquages).
-Ce document est l'**audit des manques restants** (trois scans : server, front web, desktop-rune)
+Ce document est l'**audit des manques restants** (trois scans : server, front web, desktop)
 suivi d'une **todo découpée en sessions de travail autonomes** (S1…S6), chacune livrable et
 testable seule, plus une liste de décisions « pas d'équivalent » (S7).
 
@@ -29,7 +29,7 @@ Claude + Vibe ; une session vibe a `s.dir = ~/.vibe/logs/session/unified/<id>/` 
 - UI web : sélecteur provider (nouvelle session + sidebar badge cc/vibe si les deux configurés),
   composer provider-aware, plan/auto-approve/worktree/ephemeral masqués en vibe, resume cmd
   `vibe --resume <id>`.
-- desktop-rune : sélecteur provider, modèles/thinking/modes vibe, badge cc/vibe, resume vibe,
+- desktop : sélecteur provider, modèles/thinking/modes vibe, badge cc/vibe, resume vibe,
   auto-approve masqué.
 - Events live normalisés (`scripts/hook-vibe.cjs` → `~/.vibe/hooked/events.jsonl`, lus par
   `events.js`) : SessionStart/UserPromptSubmit/PreToolUse/PostToolUse/Stop/SessionEnd/Notification.
@@ -95,7 +95,7 @@ DB dans `~/.claude/hooked/search.db` → les sessions vibe n'apparaissent jamais
 - Jauge CTX vide pour vibe (voir 2.2 `context`).
 - `Mcp.svelte` OK ; labels « Claude » restants à passer en provider-aware.
 
-### 2.6 desktop-rune
+### 2.6 desktop
 - MCP lens n'envoie jamais `provider=vibe` → affiche la config **Claude** du cwd pour une session vibe.
 - Pas de bouton Fork pour une session vibe (seulement `fork_uuid` par message, absent côté vibe).
 - Tool parts `send`/`show`/`diff` absents côté vibe → pas de diff inline pour write/edit, pas d'images de tools dans la galerie.
@@ -144,9 +144,9 @@ PreCompact/SubagentStop, grafana lens (gateway `~/.claude.json`).
 - **Done quand** : parcours UI d'une session vibe sans aucun « Claude » ni élément cassé ; fork d'une bulle vibe fonctionne (server OK, `fork.js:70`).
 - **Tests** : snapshot/composant si dispo, sinon test de `format`/label helpers.
 
-### S6 — desktop-rune : parité ✅ LIVRÉE (voir commit S6)
-- **Scope** : `desktop-rune/src/api.rs` (MCP lens envoie `provider=vibe` pour une session vibe, masque OAuth login/logout en vibe), `src/view/session.rs` (bouton Fork session vibe — `POST /api/fork` whole-session, label `who()` provider-aware, diff inline pour `file_system.write_file/edit` via `detail.input`), `src/view/lenses.rs` (vérifier Review/Trace après S1/S3), `src/view/dock.rs` (todos/subagents/screenshots après S2), `src/app.rs` (trash/delete, open-editor après S1), `cargo check` 0 warning.
-- **Done quand** : `cd desktop-rune && mise exec -- cargo check` vert ; parcours manuel d'une session vibe dans Rune : chat, review, trace, MCP vibe, fork, todos, trash.
+### S6 — desktop : parité ✅ LIVRÉE (voir commit S6)
+- **Scope** : `desktop/src/api.rs` (MCP lens envoie `provider=vibe` pour une session vibe, masque OAuth login/logout en vibe), `src/view/session.rs` (bouton Fork session vibe — `POST /api/fork` whole-session, label `who()` provider-aware, diff inline pour `file_system.write_file/edit` via `detail.input`), `src/view/lenses.rs` (vérifier Review/Trace après S1/S3), `src/view/dock.rs` (todos/subagents/screenshots après S2), `src/app.rs` (trash/delete, open-editor après S1), `cargo check` 0 warning.
+- **Done quand** : `cd desktop && mise exec -- cargo check` vert ; parcours manuel d'une session vibe dans Rune : chat, review, trace, MCP vibe, fork, todos, trash.
 - **Tests** : `cargo test` si existants ; sinon check + revue manuelle.
 
 ### S7 — Décisions « pas d'équivalent » (doc + masquages explicites) ✅ LIVRÉE (voir commit S7)

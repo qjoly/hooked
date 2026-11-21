@@ -74,7 +74,7 @@ session.provider = "claude" | "pi"
 | P7 | MCP + commandes + skills pi | `server/piMcp.js` (parse mcp.json + health-check HTTP `initialize`), `server/piCommands.js` (`.pi/prompts`), `server/skills.js` provider pi |
 | P8 | Headless | `server/piCli.js` : `runPiHeadless` (`pi -p --model mistral/<m>`), utilisé par digests/autoTags en fallback |
 | P9 | UI web | remplacer `'vibe'` par `'pi'` : `src/lib/providers.js`, badges (SessionSidebar/Deck), `NewSession.svelte` (picker claude/pi + options pi), `SessionDetail.svelte`, `format.js` (agentName, resume cmd), routes |
-| P10 | desktop-rune | `Providers{claude,pi}`, badge `pi`, filtre cycle claude→pi, `new_session.rs` modèles pi, `session.rs` |
+| P10 | desktop | `Providers{claude,pi}`, badge `pi`, filtre cycle claude→pi, `new_session.rs` modèles pi, `session.rs` |
 | P11 | Tests + E2E | fixtures `.jsonl` pi dans `test/pi.test.mjs` ; E2E live : launch provider=pi → prompt → SSE → réponse → resume → fork ; `npm test`, `cargo test`, build, deploy |
 
 ## 3. Différences pi vs vibe à garder en tête

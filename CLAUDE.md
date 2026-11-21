@@ -21,7 +21,7 @@ hooked is a local dashboard for Claude Code sessions. The front end is SvelteKit
   (`pkill node`, killing port 4123, `launchctl unload`...) kills the session with no rebuild, no
   restart and no resume. Claude ends up killing itself for nothing.
 
-- **`mise run desktop-rune` can restart hooked too.** It runs `mise run deploy-if-stale`, which
+- **`mise run desktop` can restart hooked too.** It runs `mise run deploy-if-stale`, which
   deploys when `build/` lags behind the checkout (a build input differs between the build stamp's
   commit and HEAD, or changed on disk since the build), and otherwise does nothing. If the restart cuts the session short,
   rerun the task: the back end is current by then, so it only installs the app.

@@ -12,7 +12,7 @@ import java.time.Instant
 import java.time.ZoneId
 import java.util.Locale
 
-// desktop-rune's querywin.rs: a Prometheus or Loki query drawn in a floating window, re-run live.
+// desktop's querywin.rs: a Prometheus or Loki query drawn in a floating window, re-run live.
 
 /** What opens the window: a spec to run, or the result of a query Claude made. `at` tells two identical asks apart. */
 sealed interface QueryRequest {

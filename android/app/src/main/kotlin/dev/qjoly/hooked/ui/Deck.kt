@@ -84,7 +84,7 @@ object FleetState {
     val kids = mutableStateMapOf<String, Boolean>()
 }
 
-/** desktop-rune's Deck: what waits on you, then the fleet. Two columns once the content is 1080 wide. */
+/** desktop's Deck: what waits on you, then the fleet. Two columns once the content is 1080 wide. */
 @Composable
 fun DeckScreen(app: AppModel) {
     val fs = FleetState

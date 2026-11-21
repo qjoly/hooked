@@ -15,10 +15,6 @@ build/
 .impeccable/questions/
 .impeccable/critique/
 
-desktop/src-tauri/target/
-desktop/src-tauri/gen/
-desktop/ui/markdown-it.min.js
-
 # Test-run artifacts (HOOKED_DATA_DIR under vitest)
 test/fixtures/data/cron-tasks.json
 test/fixtures/data/settings.json

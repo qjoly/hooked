@@ -11,8 +11,8 @@
  *   cli       exécutable en PATH qui ouvre UN DOSSIER (appelé par le serveur via execFile)
  *   cliArgs   arguments passés à `cli` pour le dossier
  *
- * The desktop app only lets out the `fileUrl` forms listed in EDITOR_LINKS
- * (desktop/src-tauri/src/main.rs): a new editor also needs its (scheme, host) pair there.
+ * The desktop app only lets out the `fileUrl` forms listed in `editor_file_url`
+ * (desktop/src/lenses.rs): a new editor also needs its (scheme, host) pair there.
  */
 
 const EDITORS = [

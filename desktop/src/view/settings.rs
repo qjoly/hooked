@@ -292,7 +292,7 @@ fn remote_instances(s: &Hooked, k: &Kit) -> El {
         // The reason gets a line of its own: on the row it pushed the URL out of sight.
         let why = match &status {
             Status::Unreachable(e) if crate::remote::local_network_blocked(e) => Some(format!(
-                "{}. On macOS this usually means this app is not allowed on the local network yet: accept the system prompt, or turn “hooked (Rune)” on in System Settings → Privacy & Security → Local Network.",
+                "{}. On macOS this usually means this app is not allowed on the local network yet: accept the system prompt, or turn “hooked” on in System Settings → Privacy & Security → Local Network.",
                 crate::remote::brief_error(e)
             )),
             Status::Unreachable(e) => Some(format!(

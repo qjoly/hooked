@@ -2,7 +2,7 @@ package dev.qjoly.hooked.state
 
 import dev.qjoly.hooked.data.Meta
 
-// desktop-rune's dnd.rs: dragging a session onto another groups them, onto a repo header takes it out.
+// desktop's dnd.rs: dragging a session onto another groups them, onto a repo header takes it out.
 
 sealed interface Drop {
     data class Session(val id: String) : Drop

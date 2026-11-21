@@ -11,7 +11,7 @@ import dev.qjoly.hooked.data.text
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 
-// The payloads of the Review, MCP and Trace lenses, as desktop-rune's api.rs decodes them.
+// The payloads of the Review, MCP and Trace lenses, as desktop's api.rs decodes them.
 
 /** One file Claude (or git) changed: an op per edit, plus the replayable raw ops. */
 data class Change(

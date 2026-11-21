@@ -4,7 +4,7 @@ import dev.qjoly.hooked.data.str
 import kotlinx.serialization.json.JsonObject
 import java.net.URI
 
-// desktop-rune's lenses.rs and defs.rs, minus the UI: how the Review lens cuts changes into diff
+// desktop's lenses.rs and defs.rs, minus the UI: how the Review lens cuts changes into diff
 // sections, keys the threads left on them, and briefs Claude.
 
 /** Where a diff section's threads are filed: the absolute path and the web lens's section key. */

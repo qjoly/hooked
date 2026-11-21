@@ -1,6 +1,6 @@
 package dev.qjoly.hooked.ui.kit
 
-// Generated from desktop-rune/src/icons.rs: the same Lucide glyphs as the desktop app.
+// Generated from desktop/src/icons.rs: the same Lucide glyphs as the desktop app.
 object Lucide {
     val Deck by lazy { lucide("deck", "M4 3h5a1 1 0 0 1 1 1v5a1 1 0 0 1 -1 1h-5a1 1 0 0 1 -1 -1v-5a1 1 0 0 1 1 -1z", "M15 3h5a1 1 0 0 1 1 1v5a1 1 0 0 1 -1 1h-5a1 1 0 0 1 -1 -1v-5a1 1 0 0 1 1 -1z", "M4 14h5a1 1 0 0 1 1 1v5a1 1 0 0 1 -1 1h-5a1 1 0 0 1 -1 -1v-5a1 1 0 0 1 1 -1z", "M15 14h5a1 1 0 0 1 1 1v5a1 1 0 0 1 -1 1h-5a1 1 0 0 1 -1 -1v-5a1 1 0 0 1 1 -1z") }
     val Search by lazy { lucide("search", "M3 11a8 8 0 1 0 16 0a8 8 0 1 0 -16 0", "m21 21-4.3-4.3") }
