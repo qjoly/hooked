@@ -8,6 +8,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { scanPiSessions, buildPiConversation, piSetArchived, piContext, buildPiTrace, piToolDetail, piToolPaths, findPiFile, activeBranch } from '../server/pi.js';
+import { buildPiUsage } from '../server/stats.js';
 
 const FX = path.join(import.meta.dirname, 'fixtures', 'pi-sessions');
 let tmp;
@@ -115,5 +116,59 @@ describe('accessoires', () => {
     expect(d.result).toBe('Successfully wrote to hello.txt');
     expect(d.error).toBe(false);
     expect(piToolPaths(f)).toEqual([path.resolve('/tmp/projet-demo', 'hello.txt')]);
+  });
+});
+
+describe('buildPiUsage (usage pi de l\'entête / TopBar)', () => {
+  it('renvoie la session la plus fraîche avec sa jauge de contexte, son modèle et son coût', () => {
+    const dir = cloneFx();
+    const u = buildPiUsage(scanPiSessions(dir), {});
+    expect(u.sessionId).toBe('sess-pi-1');
+    expect(u.title).toBe('démo pi');
+    expect(u.model).toBe('mistral-medium-3.5');
+    expect(u.live).toBe(false);
+    expect(u.at).toBe('2026-11-21T09:05:00.000Z');
+    expect(u.context.size).toBe(1345);
+    expect(u.context.contextWindow).toBe(262144); // medium
+    expect(u.context.pct).toBeCloseTo((1345 / 262144) * 100, 1);
+    expect(u.cost).toBeCloseTo(0.0017175, 9);
+    expect(u.sessions).toBe(1);
+    expect(u.todayCost).toBe(0); // la fixture est datée de 2026-11-21, pas d'aujourd'hui
+    expect(u.todayTokens).toBe(0);
+  });
+
+  it('agrège l\'usage du jour sur toutes les sessions pi (byDay)', () => {
+    const dir = cloneFx();
+    const [s] = scanPiSessions(dir);
+    const today = new Date().toISOString().slice(0, 10);
+    const withToday = {
+      ...s,
+      id: 'sess-today',
+      lastTs: new Date().toISOString(),
+      cost: 2.5,
+      byDay: { [today]: { input: 1000, output: 500, cacheRead: 100, cacheCreate: 50, cost: 1.25, turns: 1 } },
+    };
+    const u = buildPiUsage([s, withToday], {});
+    expect(u.sessions).toBe(2);
+    expect(u.todayCost).toBeCloseTo(1.25, 9);
+    expect(u.todayTokens).toBe(1650);
+    expect(u.cost).toBeCloseTo(0.0017175 + 2.5, 9);
+    expect(u.sessionId).toBe('sess-today'); // la plus fraîche gagne pour le tooltip
+  });
+
+  it('null sans session pi, et une session archivée (meta) est ignorée', () => {
+    expect(buildPiUsage([], {})).toBe(null);
+    expect(buildPiUsage([{ provider: 'claude', id: 'x' }], {})).toBe(null);
+    const dir = cloneFx();
+    expect(buildPiUsage(scanPiSessions(dir), { 'sess-pi-1': { archived: true } })).toBe(null);
+  });
+
+  it('préfère la session la plus récente quand il y en a plusieurs', () => {
+    const dir = cloneFx();
+    const [s] = scanPiSessions(dir);
+    const older = { ...s, id: 'sess-old', lastTs: '2026-11-20T09:00:00.000Z' };
+    const newer = { ...s, id: 'sess-new', lastTs: '2026-11-22T09:00:00.000Z' };
+    expect(buildPiUsage([older, newer], {}).sessionId).toBe('sess-new');
+    expect(buildPiUsage([newer, older], {}).sessionId).toBe('sess-new');
   });
 });

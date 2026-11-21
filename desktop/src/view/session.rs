@@ -2641,6 +2641,63 @@ fn autocomplete(s: &Hooked, k: &Kit) -> El {
         )
 }
 
+/// Attachment chips (thumbnail once uploaded, status, remove) — shared by the session composer
+/// and the New-session prompt, so a pasted image is visible and removable in both.
+pub fn attachments_row(s: &Hooked, k: &Kit) -> El {
+    row()
+        .key("attachments")
+        .w_full()
+        .gap(6.0)
+        .flex_wrap()
+        .children(s.attachments.iter().map(|a| {
+            let id = a.id;
+            let (status, color) = match (&a.path, a.failed) {
+                (_, true) => ("failed", k.c.danger.fg),
+                (Some(_), _) => ("ready", k.c.success.fg),
+                (None, _) => ("uploading…", k.c.text_faint),
+            };
+            // The uploaded image's thumbnail once it is in the media cache, else the icon.
+            let thumb = a
+                .path
+                .as_ref()
+                .and_then(|p| s.media.get(p).and_then(Option::as_ref))
+                .and_then(|img| {
+                    let [w, h] = img.size()?;
+                    let (w, h) = (w.max(1) as f32 / 2.0, h.max(1) as f32 / 2.0);
+                    let scale = (96.0 / w).min(64.0 / h).min(1.0);
+                    Some(
+                        el().size(w * scale, h * scale)
+                            .pixels(img.pixels())
+                            .radius(k.radius.sm)
+                            .clip_rounded(k.radius.sm),
+                    )
+                });
+            let has_thumb = thumb.is_some();
+            let chip = row()
+                .key(format!("att-{id}"))
+                .pl(if has_thumb { 4.0 } else { 8.0 })
+                .pr(2.0)
+                .gap(6.0)
+                .center_y()
+                .radius(k.radius.md)
+                .fill(k.c.layer_02);
+            let chip = if has_thumb { chip.py(4.0) } else { chip.h(26.0) };
+            chip.child(thumb.unwrap_or_else(|| glyph(&icons::IMAGE, 12.0, k.c.icon_muted)))
+                .child(text(a.name.clone()).font(k.ty.text_small).color(k.c.text_base))
+                .child(text(status).font(k.ty.text_xsmall).color(color))
+                .child(
+                    IconButton::new(&icons::CLOSE)
+                        .variant(IconButtonVariant::GhostMuted)
+                        .control_size(ControlSize::Small)
+                        .label("Remove")
+                        .on_press(move |s: &mut Hooked| {
+                            s.attachments.retain(|x| x.id != id)
+                        })
+                        .build(k),
+                )
+        }))
+}
+
 fn send_button(s: &Hooked, k: &Kit) -> El {
     IconButton::new(&icons::ARROW_UP)
         .variant(IconButtonVariant::Contrast)
@@ -2698,66 +2755,7 @@ fn composer(s: &Hooked, d: &Detail, k: &Kit, busy: bool) -> El {
         c = c.child(autocomplete(s, k));
     }
     if !s.attachments.is_empty() {
-        c = c.child(
-            row()
-                .key("attachments")
-                .w_full()
-                .gap(6.0)
-                .flex_wrap()
-                .children(s.attachments.iter().map(|a| {
-                    let id = a.id;
-                    let (status, color) = match (&a.path, a.failed) {
-                        (_, true) => ("failed", k.c.danger.fg),
-                        (Some(_), _) => ("ready", k.c.success.fg),
-                        (None, _) => ("uploading…", k.c.text_faint),
-                    };
-                    // The uploaded image's thumbnail once it is in the media cache, else the icon.
-                    let thumb = a
-                        .path
-                        .as_ref()
-                        .and_then(|p| s.media.get(p).and_then(Option::as_ref))
-                        .and_then(|img| {
-                            let [w, h] = img.size()?;
-                            let (w, h) = (w.max(1) as f32 / 2.0, h.max(1) as f32 / 2.0);
-                            let scale = (96.0 / w).min(64.0 / h).min(1.0);
-                            Some(
-                                el().size(w * scale, h * scale)
-                                    .pixels(img.pixels())
-                                    .radius(k.radius.sm)
-                                    .clip_rounded(k.radius.sm),
-                            )
-                        });
-                    let has_thumb = thumb.is_some();
-                    let chip = row()
-                        .key(format!("att-{id}"))
-                        .pl(if has_thumb { 4.0 } else { 8.0 })
-                        .pr(2.0)
-                        .gap(6.0)
-                        .center_y()
-                        .radius(k.radius.md)
-                        .fill(k.c.layer_02);
-                    let chip = if has_thumb { chip.py(4.0) } else { chip.h(26.0) };
-                    chip.child(
-                        thumb.unwrap_or_else(|| glyph(&icons::IMAGE, 12.0, k.c.icon_muted)),
-                    )
-                        .child(
-                            text(a.name.clone())
-                                .font(k.ty.text_small)
-                                .color(k.c.text_base),
-                        )
-                        .child(text(status).font(k.ty.text_xsmall).color(color))
-                        .child(
-                            IconButton::new(&icons::CLOSE)
-                                .variant(IconButtonVariant::GhostMuted)
-                                .control_size(ControlSize::Small)
-                                .label("Remove")
-                                .on_press(move |s: &mut Hooked| {
-                                    s.attachments.retain(|x| x.id != id)
-                                })
-                                .build(k),
-                        )
-                })),
-        );
+        c = c.child(attachments_row(s, k));
     }
     let reply_placeholder = if busy {
         "Queue a message… (Esc interrupts)".to_string()

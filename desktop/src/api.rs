@@ -717,8 +717,48 @@ pub struct Gauge {
     pub pct: Option<f64>,
 }
 
-pub fn usage() -> Result<(Vec<Gauge>, Value), String> {
+/// Quelle vue d'usage montre l'entête : les rate limits du compte Claude, ou la jauge de
+/// contexte de la session pi la plus fraîche. Un clic sur le bloc alterne quand les deux
+/// fournisseurs sont configurés (choix persisté dans les prefs, clé "usageView").
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum UsageView {
+    #[default]
+    Claude,
+    Pi,
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct PiContext {
+    pub pct: Option<f64>,
+    pub size: Option<f64>,
+    pub context_window: Option<f64>,
+}
+
+/// Bloc `pi` de /api/usage (buildPiUsage côté serveur) : la session pi la plus fraîche avec sa
+/// jauge de contexte, son modèle et son coût — pour l'entête quand le provider pi est configuré
+/// (Mistral n'a pas de rate limits compte exposés comme Anthropic).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct PiUsage {
+    pub session_id: String,
+    pub title: Option<String>,
+    pub model: Option<String>,
+    pub live: bool,
+    pub at: Option<String>,
+    pub context: Option<PiContext>,
+    pub cost: Option<f64>,
+    pub today_cost: Option<f64>,
+    pub today_tokens: Option<f64>,
+    pub sessions: Option<f64>,
+}
+
+pub fn usage() -> Result<(Vec<Gauge>, Option<PiUsage>, Value), String> {
     let v = get("/api/usage")?;
+    let (g, pi) = parse_usage(&v);
+    Ok((g, pi, v))
+}
+
+// Parse pur de /api/usage : jauges compte Claude + bloc `pi` (session la plus fraîche).
+fn parse_usage(v: &Value) -> (Vec<Gauge>, Option<PiUsage>) {
     let a = v.get("account").cloned().unwrap_or(Value::Null);
     let pct = |x: &Value| x.get("pct").and_then(Value::as_f64);
     let mut out = vec![
@@ -741,7 +781,35 @@ pub fn usage() -> Result<(Vec<Gauge>, Value), String> {
             pct: pct(&a["fable"]),
         });
     }
-    Ok((out, v))
+    let pi = v.get("pi").and_then(|p| {
+        if !p.is_object() {
+            return None;
+        }
+        let context = p.get("context").and_then(|c| {
+            c.is_object().then(|| PiContext {
+                pct: c.get("pct").and_then(Value::as_f64),
+                size: c.get("size").and_then(Value::as_f64),
+                context_window: c.get("contextWindow").and_then(Value::as_f64),
+            })
+        });
+        Some(PiUsage {
+            session_id: p
+                .get("sessionId")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string(),
+            title: p.get("title").and_then(Value::as_str).map(str::to_string),
+            model: p.get("model").and_then(Value::as_str).map(str::to_string),
+            live: p.get("live").and_then(Value::as_bool).unwrap_or(false),
+            at: p.get("at").and_then(Value::as_str).map(str::to_string),
+            context,
+            cost: p.get("cost").and_then(Value::as_f64),
+            today_cost: p.get("todayCost").and_then(Value::as_f64),
+            today_tokens: p.get("todayTokens").and_then(Value::as_f64),
+            sessions: p.get("sessions").and_then(Value::as_f64),
+        })
+    });
+    (out, pi)
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -1135,6 +1203,53 @@ mod tests {
     #[test]
     fn query_values_are_percent_encoded() {
         assert_eq!(enc("a b/c"), "a%20b%2Fc");
+    }
+
+    #[test]
+    fn usage_parses_the_claude_gauges_and_the_pi_block() {
+        let (g, pi) = parse_usage(&json!({
+            "account": {
+                "fiveHour": { "pct": 42.0 },
+                "sevenDay": { "pct": 7.0 },
+                "fable": { "label": "Fable", "pct": 88.0 }
+            },
+            "pi": {
+                "sessionId": "sess-pi-1", "title": "démo pi", "model": "mistral-medium-3.5",
+                "live": true, "at": "2026-11-21T09:05:00.000Z",
+                "context": { "pct": 0.5, "size": 1345, "contextWindow": 262144 },
+                "cost": 0.0017, "todayCost": 1.14, "todayTokens": 89243, "sessions": 13
+            }
+        }));
+        assert_eq!(g.len(), 3);
+        assert_eq!(g[0].label, "5H");
+        assert_eq!(g[0].pct, Some(42.0));
+        assert_eq!(g[2].label, "FABLE");
+        assert_eq!(g[2].pct, Some(88.0));
+        let p = pi.expect("bloc pi présent");
+        assert_eq!(p.session_id, "sess-pi-1");
+        assert_eq!(p.model.as_deref(), Some("mistral-medium-3.5"));
+        assert!(p.live);
+        let ctx = p.context.unwrap();
+        assert_eq!(ctx.pct, Some(0.5));
+        assert_eq!(ctx.size, Some(1345.0));
+        assert_eq!(ctx.context_window, Some(262144.0));
+        assert_eq!(p.cost, Some(0.0017));
+        assert_eq!(p.today_cost, Some(1.14));
+        assert_eq!(p.today_tokens, Some(89243.0));
+        assert_eq!(p.sessions, Some(13.0));
+    }
+
+    #[test]
+    fn usage_without_pi_or_account_is_empty() {
+        let (g, pi) = parse_usage(&json!({}));
+        assert_eq!(g.len(), 2); // 5H/7D à null, pas de fable
+        assert!(g[0].pct.is_none());
+        assert!(pi.is_none());
+        let (_, pi) = parse_usage(&json!({ "pi": null }));
+        assert!(pi.is_none());
+        // bloc pi sans contexte → présent mais sans jauge (l'entête filtre sur context.pct)
+        let (_, pi) = parse_usage(&json!({ "pi": { "sessionId": "x", "context": null } }));
+        assert!(pi.is_some_and(|p| p.context.is_none()));
     }
 
     #[test]

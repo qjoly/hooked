@@ -5,7 +5,7 @@
   import { page } from '$app/state';
   import { ui, data, settings, account, cycleTheme, toggleNotify, toggleIncognitoMode, openModal, isArchived, isSessionArchived, snoozeUntil } from '#lib/state.svelte.js';
   import { getUsage } from '#lib/api.js';
-  import { initials, needsDecision, sessionDot } from '#lib/format.js';
+  import { initials, needsDecision, sessionDot, fmtTokens, fmtCost } from '#lib/format.js';
   import { NAV_TABS, NAV_KEYS, pageHref } from '#lib/nav.js';
   import Icon from '#lib/components/Icon.svelte';
   import FleetWheel from '#lib/components/FleetWheel.svelte';
@@ -68,6 +68,31 @@
   // frozen gauge that looks live is worse than one that says so.
   const fable = $derived(usage?.account?.fable ?? null);
   const src = $derived(usage?.account?.usage ?? null);
+  // Usage en entête, provider-aware : vue claude = rate limits du compte (5H/7D/FABLE), vue pi =
+  // usage agrégé des sessions pi (coût + tokens du jour, cf. buildPiUsage — Mistral n'a pas de
+  // limites compte exposées), avec la session la plus fraîche (modèle, contexte) en tooltip.
+  // Un seul groupe est affiché à la fois (même design qu'avant) : un clic sur le bloc alterne quand
+  // les deux fournisseurs sont configurés. Le choix est persisté en localStorage.
+  const hasPi = $derived(!!data.providers?.pi);
+  const pi = $derived(usage?.pi ?? null);
+  const piCtx = $derived(pi?.context ?? null);
+  const piAge = $derived(pi?.at ? Math.max(0, Math.round((nowMin - Date.parse(pi.at)) / 60000)) : null);
+  const piTitle = $derived(pi
+    ? `pi — usage today: ${fmtCost(pi.todayCost)} · ${fmtTokens(pi.todayTokens || 0)} tokens`
+      + `\ntotal: ${fmtCost(pi.cost)} · ${pi.sessions || 1} session${(pi.sessions || 1) > 1 ? 's' : ''}`
+      + `\nlatest: ${pi.title || pi.sessionId}${pi.model ? ` · ${pi.model}` : ''}`
+      + (piCtx ? ` · ctx ${fmtTokens(piCtx.size)}/${fmtTokens(piCtx.contextWindow)}` : '')
+      + (piAge != null ? `\n${pi.live ? 'live' : 'last activity'} ${piAge < 1 ? 'just now' : piAge + 'min ago'}` : '')
+    : '');
+  let usageView = $state(typeof localStorage !== 'undefined' && localStorage.getItem('hooked.usageView') === 'pi' ? 'pi' : 'claude');
+  $effect(() => { if (typeof localStorage !== 'undefined') localStorage.setItem('hooked.usageView', usageView); });
+  const showPi = $derived(hasPi && !!pi && (usageView === 'pi' || !hasClaude));
+  const showClaude = $derived(hasClaude && !showPi);
+  const canToggle = $derived(hasClaude && hasPi && !!pi);
+  const toggleUsageView = () => { if (canToggle) usageView = usageView === 'pi' ? 'claude' : 'pi'; };
+  const gaugesTitle = $derived(showClaude
+    ? (canToggle ? 'Account rate limits — click to switch to the pi session' : 'Account rate limits')
+    : (canToggle ? 'pi session usage — click to switch to account rate limits' : 'pi session usage'));
   const fableAge = $derived(fable?.at ? Math.max(0, Math.round((nowMin - Date.parse(fable.at)) / 60000)) : null);
   const fableStale = $derived(fableAge != null && fableAge >= 10);
   const barW = (pct) => Math.max(0, Math.min(100, pct || 0));
@@ -130,8 +155,17 @@
 
   <!-- `crit` (>=90%) is a second threshold above `warn` (>=75%). Only the datadog scheme styles
        it (app.css); everywhere else it is an inert class, so nothing changes visually. -->
-  {#if hasClaude}
-  <div class="tb-gauges" title="Account rate limits">
+  {#if showClaude || showPi}
+  <div class="tb-gauges" class:tb-toggle={canToggle} title={gaugesTitle}
+       {...canToggle
+         ? {
+             role: 'button',
+             tabindex: 0,
+             onclick: toggleUsageView,
+             onkeydown: (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleUsageView(); } },
+           }
+         : {}}>
+    {#if showClaude}
     <div class="tb-gauge" class:warn={g5 != null && g5 >= 75} class:crit={g5 != null && g5 >= 90}>
       <div class="tb-g-lbl"><span>5H</span><span>{g5 != null ? g5 + '%' : '—'}</span></div>
       <div class="tb-g-track"><div class="tb-g-fill" style="width:{barW(g5)}%"></div></div>
@@ -146,6 +180,13 @@
         <div class="tb-g-lbl"><span>FABLE</span><span>{fable.pct != null ? fable.pct + '%' : '—'}</span></div>
         <div class="tb-g-track"><div class="tb-g-fill" style="width:{barW(fable.pct)}%"></div></div>
       </div>
+    {/if}
+    {:else}
+    <!-- Vue pi : l'usage du jour (coût + tokens), pas de jauge — Mistral n'a pas de limite connue. -->
+    <div class="tb-gauge tb-usage" title={piTitle}>
+      <div class="tb-g-lbl"><span>PI</span><span>{fmtCost(pi.todayCost)}</span></div>
+      <div class="tb-g-sub">{fmtTokens(pi.todayTokens || 0)} tok today</div>
+    </div>
     {/if}
   </div>
   {/if}
@@ -263,6 +304,10 @@
 
   .tb-gauges { display: flex; gap: 14px; margin-left: auto; flex: 0 0 auto; align-self: center; }
   .tb-gauge { display: flex; flex-direction: column; gap: 4px; width: 82px; }
+  .tb-g-sub { font-size: var(--t-micro); color: var(--shell-muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
+  /* Quand les deux fournisseurs sont configurés, un clic sur le bloc alterne claude ↔ pi. */
+  .tb-gauges.tb-toggle { cursor: pointer; padding: 3px 8px; margin-right: -8px; border-radius: 8px; }
+  .tb-gauges.tb-toggle:hover, .tb-gauges.tb-toggle:focus-visible { background: var(--shell-hover); outline: none; }
   .tb-g-lbl {
     display: flex; justify-content: space-between;
     font-size: var(--t-micro); font-weight: 700; color: var(--shell-muted); letter-spacing: .06em;

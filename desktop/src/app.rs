@@ -138,6 +138,10 @@ pub struct Hooked {
     pub remotes: Vec<crate::remote::Instance>,
     pub picker: Option<crate::organize::Picker>,
     pub gauges: Vec<Gauge>,
+    /// Bloc `pi` de /api/usage : jauge de contexte de la session pi la plus fraîche (entête).
+    pub pi_usage: Option<api::PiUsage>,
+    /// Quelle vue d'usage affiche l'entête (rate limits claude ↔ jauge pi, cf. toggle_usage_view).
+    pub usage_view: api::UsageView,
     pub caps: Capabilities,
     pub connected: bool,
     pub now: i64,
@@ -425,6 +429,10 @@ impl Hooked {
             crate::perf::env_override().unwrap_or(prefs.get("perfDiagnostics").unwrap_or(false)),
         );
         let incognito = prefs.get("incognito").unwrap_or(false);
+        let usage_view = match prefs.get::<String>("usageView").as_deref() {
+            Some("pi") => api::UsageView::Pi,
+            _ => api::UsageView::Claude,
+        };
         let remote_on: bool = prefs.get("remoteInstances").unwrap_or(false);
         let remotes: Vec<crate::remote::Instance> = prefs.get("remotes").unwrap_or_default();
         crate::remote::configure(remote_on, &remotes);
@@ -460,6 +468,8 @@ impl Hooked {
             remotes,
             picker: None,
             gauges: Vec::new(),
+            pi_usage: None,
+            usage_view,
             caps: Capabilities::default(),
             connected: false,
             now: fmt::now_ms(),
@@ -657,8 +667,9 @@ impl Hooked {
                 .filter(|m| !m.is_empty())
                 .map(str::to_string);
         }
-        if let Ok((g, raw)) = api::usage() {
+        if let Ok((g, pi, raw)) = api::usage() {
             s.gauges = g;
+            s.pi_usage = pi;
             s.usage = Some(raw);
         }
         let args = rune::extra_args();
@@ -2110,7 +2121,13 @@ pub fn composer_changed(&mut self) {
     }
 
     pub fn attach(&mut self, name: String, mime: &'static str, bytes: Vec<u8>) {
-        if self.page != Page::Session || self.detail.is_none() {
+        // Attachments are collected on the session page AND on the New-session page (a pasted
+        // image must be attachable before any session exists); launch() joins their paths to the
+        // first prompt, like send() does for replies.
+        if !matches!(self.page, Page::Session | Page::New) {
+            return;
+        }
+        if self.page == Page::Session && self.detail.is_none() {
             return;
         }
         self.attach_seq += 1;
@@ -2123,12 +2140,16 @@ pub fn composer_changed(&mut self) {
         });
         let bytes: std::sync::Arc<[u8]> = bytes.into();
         let upload = bytes.clone();
-        // The image has to land on the machine whose Claude will read it.
-        let remote = self
-            .detail
-            .as_ref()
-            .filter(|d| d.session.remote.is_some())
-            .map(|d| d.session.id.clone());
+        // The image has to land on the machine whose Claude will read it. A new session is
+        // always local (it is launched with a local cwd), so there is no remote to target.
+        let remote = if self.page == Page::Session {
+            self.detail
+                .as_ref()
+                .filter(|d| d.session.remote.is_some())
+                .map(|d| d.session.id.clone())
+        } else {
+            None
+        };
         self.spawn(
             move || api::upload_image(mime, &upload, remote.as_deref()),
             move |s, r, _| {
@@ -2586,11 +2607,27 @@ pub fn composer_changed(&mut self) {
 
     pub fn launch(&mut self) {
         let cwd = self.new_project.text.trim().to_string();
-        let prompt = self.new_prompt.text.trim().to_string();
         if cwd.is_empty() {
             self.flash("Pick a project folder first", true);
             return;
         }
+        if self
+            .attachments
+            .iter()
+            .any(|a| a.path.is_none() && !a.failed)
+        {
+            self.flash("Wait for the images to finish uploading", true);
+            return;
+        }
+        // The uploaded images' paths go first in the prompt: Claude Code reads them by path,
+        // like a drag-drop in the TUI (same convention as the web composer and send()).
+        let paths = self.attachments.iter().filter_map(|a| a.path.clone());
+        let prompt = paths
+            .chain(std::iter::once(self.new_prompt.text.trim().to_string()))
+            .filter(|t| !t.is_empty())
+            .collect::<Vec<_>>()
+            .join(" ");
+        self.attachments.clear();
         let (model, effort, mode, incognito) = (
             self.new_model.clone(),
             self.new_effort.clone(),
@@ -3090,9 +3127,10 @@ pub fn start_workers(h: Option<AppHandle<Hooked>>) {
         }
         loop {
             std::thread::sleep(Duration::from_secs(60));
-            if let Ok((g, raw)) = api::usage() {
+            if let Ok((g, pi, raw)) = api::usage() {
                 h.update(move |s, _| {
                     s.gauges = g;
+                    s.pi_usage = pi;
                     s.usage = Some(raw);
                 });
             }

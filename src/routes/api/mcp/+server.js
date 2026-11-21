@@ -1,12 +1,13 @@
 import { json } from '@sveltejs/kit';
 import {
   listMcp, getMcp, logoutMcp, startLogin, loginStatus, sendLoginInput, cancelLogin, listMcpPi,
+  getMcpPi, saveMcpPi, removeMcpPi,
 } from '#lib/server/core.js';
 import { fail, readJson } from '#lib/server/respond.js';
 
 // MCP servers of a project: health-checked list + scope + config diagnostics.
 // `cwd` matters — project and local scopes are per-directory (see server/mcp.js).
-// `provider=pi` : liste lue dans la config Pi (~/.pi/config.toml + <cwd>/.pi/config.toml),
+// `provider=pi` : liste lue dans les mcp.json de Pi (~/.pi/agent/mcp.json + <cwd>/.pi/mcp.json),
 // health-check HTTP uniquement (les stdio restent « configured ») — cf. server/piMcp.js.
 export async function GET({ url }) {
   const provider = url.searchParams.get('provider');
@@ -22,12 +23,20 @@ export async function GET({ url }) {
 export async function POST({ request }) {
   const body = await readJson(request);
   if (!body || typeof body.action !== 'string') return fail(400, 'action required');
-  const { action, cwd, name, id, text } = body;
+  const { action, cwd, name, id, text, provider, scope, config } = body;
+  const isPi = provider === 'pi';
   try {
     switch (action) {
       case 'get':
         if (!name) return fail(400, 'name required');
+        if (isPi) return json({ ok: true, ...getMcpPi(cwd, name) });
         return json({ ok: true, ...(await getMcp(cwd, name)) });
+      case 'save': // pi only : upsert dans le mcp.json du scope (pi n'a pas de `pi mcp add`)
+        if (!isPi) return fail(400, 'save is pi-only');
+        return json(saveMcpPi({ cwd, scope, name, config }));
+      case 'remove':
+        if (!isPi) return fail(400, 'remove is pi-only');
+        return json(removeMcpPi({ cwd, scope, name }));
       case 'logout':
         if (!name) return fail(400, 'name required');
         return json({ ok: true, ...(await logoutMcp(cwd, name)) });

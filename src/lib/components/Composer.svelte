@@ -36,7 +36,7 @@
   // engine or with the mic denied its state is 'disabled' → no button at all.
   let speech = $state(null);
   const speechState = $derived(speech ? speech.state : 'disabled');
-  onDestroy(() => speech?.destroy());
+  onDestroy(() => { speech?.destroy(); window.removeEventListener('paste', onPaste); });
   function toggleSpeech() { speech?.toggle(text); }
 
   // Raccourcis affichés en permanence sous la zone de saisie (paires [touche, effet]) :
@@ -62,6 +62,10 @@
     if (settings.speechEnabled !== false) {
       speech = createSpeechToText({ lang: settings.speechLang, onText: (t) => { text = t; queueMicrotask(autosize); } });
     }
+    // ⌘V colle une image où que soit le focus sur la page (même hors du textarea : champ de
+    // recherche projet, etc.) — utile sur l'écran « New session » où le focus n'est pas forcément
+    // dans la zone de saisie.
+    window.addEventListener('paste', onPaste);
     if (newSession) queueMicrotask(() => ta?.focus());
   });
   $effect(() => {
@@ -80,12 +84,26 @@
   let uploading = $state(0);    // nb d'uploads en cours
 
   // colle d'image : intercepte les éléments image du presse-papier, les uploade en parallèle.
-  async function onPaste(e) {
-    const items = e.clipboardData && e.clipboardData.items;
-    if (!items) return;
+  // Le handler vit sur window (cf. onMount) pour capter ⌘V même sans focus dans le textarea.
+  const IMG_EXT = /\.(png|jpe?g|gif|webp)$/i;
+  function pastedImages(clipboardData) {
+    const items = clipboardData && clipboardData.items;
+    if (!items) return [];
     const files = [];
-    for (const it of items) if (it.kind === 'file' && it.type.startsWith('image/')) { const f = it.getAsFile(); if (f) files.push(f); }
-    if (!files.length) return;
+    for (const it of items) {
+      if (it.kind !== 'file') continue;
+      const f = it.getAsFile();
+      if (!f) continue;
+      // Gecko colle un fichier image copié dans le Finder en « application/x-moz-file » (pas
+      // image/*) : on se rabat alors sur l'extension du nom de fichier.
+      const byName = (it.type === 'application/x-moz-file' || !it.type) && IMG_EXT.test(f.name || '');
+      if (it.type.startsWith('image/') || byName) files.push(f);
+    }
+    return files;
+  }
+  function onPaste(e) {
+    const files = pastedImages(e.clipboardData);
+    if (!files.length) return;          // collage de texte : on laisse le champ focalisé faire
     e.preventDefault();                 // on gère l'image nous-mêmes (pas d'insertion de texte)
     for (const f of files) addImage(f);
   }
@@ -346,7 +364,7 @@
 <div class="composer">
   <textarea bind:this={ta} bind:value={text} id="reply-text" rows="1" disabled={busy}
             placeholder={newSession ? 'Describe your task to start the session…' : (provider === 'pi' ? 'Reply to Mistral Pi…' : 'Reply to Claude…')}
-            oninput={onInput} onkeydown={onKeydown} onpaste={onPaste} onblur={() => setTimeout(closeAc, 150)}></textarea>
+            oninput={onInput} onkeydown={onKeydown} onblur={() => setTimeout(closeAc, 150)}></textarea>
   <div class="composer-actions">
     {#if speechState !== 'disabled' && speechState !== 'failed'}
       {@const listening = speechState === 'listening'}

@@ -153,6 +153,25 @@ impl Hooked {
         self.tray_dirty = true;
     }
 
+    /// Un clic sur les jauges d'usage de l'entête alterne entre la vue claude (rate limits du
+    /// compte) et la vue pi (contexte de la session la plus fraîche) — seulement quand les deux
+    /// sont affichables. Choix persisté (pref "usageView").
+    pub fn toggle_usage_view(&mut self) {
+        let pi_ok = self.pi_usage.is_some();
+        if !(self.providers.claude && self.providers.pi && pi_ok) {
+            return;
+        }
+        self.usage_view = match self.usage_view {
+            crate::api::UsageView::Claude => crate::api::UsageView::Pi,
+            crate::api::UsageView::Pi => crate::api::UsageView::Claude,
+        };
+        let v = match self.usage_view {
+            crate::api::UsageView::Pi => "pi",
+            crate::api::UsageView::Claude => "claude",
+        };
+        self.save_pref("usageView", &v);
+    }
+
     pub fn toggle_incognito(&mut self, id: &str) {
         let on = !self.meta.get(id).is_some_and(|m| m.incognito);
         let ids = if self.group_of(id).is_none() {

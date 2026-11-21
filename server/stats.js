@@ -318,7 +318,46 @@ function buildUsage() {
   const account = (merged || fable)
     ? { fiveHour: null, sevenDay: null, at: null, ...merged, fable, usage: fresh }
     : null;
-  return { sessionId: id, session, account };
+  return { sessionId: id, session, account, pi: buildPiUsage(scanAllSessions()) };
+}
+
+// Usage pi pour l'entête (TopBar), vue « pi » : Mistral n'expose pas de rate limits compte comme
+// Anthropic, donc l'entête affiche l'usage agrégé des sessions pi — coût et tokens du jour
+// (byDay de chaque session), coût total, nombre de sessions — plus la session la plus fraîche
+// (pilotée de préférence, son journal est live) pour le modèle et le contexte en tooltip.
+// Pureté : la liste des sessions et la meta sont passées en paramètre (testable sans env).
+function buildPiUsage(sessions, meta = readSessionMeta()) {
+  const pi = (sessions || [])
+    .filter((s) => s && s.provider === 'pi' && !(meta[s.id] && meta[s.id].archived))
+    .sort((a, b) => String(b.lastTs || '').localeCompare(String(a.lastTs || '')));
+  if (!pi.length) return null;
+  const today = new Date().toISOString().slice(0, 10);
+  let todayCost = 0;
+  let todayTokens = 0;
+  let cost = 0;
+  for (const s of pi) {
+    const d = s.byDay && s.byDay[today];
+    if (d) {
+      todayCost += d.cost || 0;
+      todayTokens += (d.input || 0) + (d.output || 0) + (d.cacheRead || 0) + (d.cacheCreate || 0);
+    }
+    cost += s.cost || 0;
+  }
+  const live = pi.find((s) => agentSession(s.id)) || null;
+  const s = live || pi[0];
+  const ctx = piContext(s);
+  return {
+    sessionId: s.id,
+    title: s.title || null,
+    model: s.model || null,
+    live: !!live,
+    at: s.lastTs || null,
+    context: ctx ? { pct: Math.round(ctx.pct * 10) / 10, size: ctx.size, contextWindow: ctx.contextWindow } : null,
+    sessions: pi.length,
+    cost,
+    todayCost,
+    todayTokens,
+  };
 }
 
 // Résout le chemin du fichier .output d'un job de fond À PARTIR de (session, taskId) — côté serveur.
@@ -470,4 +509,4 @@ function buildSessionDetail(id) {
   };
 }
 
-export { buildSessions, buildSessionsWarm, buildStats, buildUsage, sessionDetail, sessionDetailWarm, eventOnlySessions, fillFromEvents, refineWithAgent, withBackgroundState, resolveBackgroundOutput };
+export { buildSessions, buildSessionsWarm, buildStats, buildUsage, buildPiUsage, sessionDetail, sessionDetailWarm, eventOnlySessions, fillFromEvents, refineWithAgent, withBackgroundState, resolveBackgroundOutput };

@@ -1,9 +1,9 @@
 use rune::{Color, Cursor, El, ScrollSpec, col, el, row, text};
 use rune_kit::{
-    Button, ButtonVariant, ControlSize, IconButton, IconButtonVariant, Kit, Switch, TextArea,
-    TextInput,
+    Button, ButtonVariant, ControlSize, IconButton, IconButtonVariant, Kit, Switch, TextInput,
 };
 
+use super::session::attachments_row;
 use super::settings::{chip, chips};
 use super::{glyph, section_title};
 use crate::app::Hooked;
@@ -440,24 +440,12 @@ pub fn view(s: &Hooked, k: &Kit, _layer: &mut Vec<El>) -> El {
                         .color(k.c.text_faint),
                 ),
         );
-    let prompt = TextArea::new(&s.new_prompt)
-        .placeholder(if s.new_provider == "pi" && s.providers.pi {
-            "What should Mistral Pi do? (⌘Enter to launch)"
-        } else {
-            "What should Claude do? (⌘Enter to launch)"
-        })
-        .auto_grow(4, 16)
-        .width(None)
-        .on_edit(|s: &mut Hooked| &mut s.new_prompt)
-        .on_key(|s: &mut Hooked, ev: &rune::KeyEvent, _| {
-            if ev.key == rune::Key::Enter && ev.mods.cmd {
-                s.launch();
-                return true;
-            }
-            false
-        })
-        .build(k)
-        .key("new-prompt");
+    let placeholder = if s.new_provider == "pi" && s.providers.pi {
+        "What should Mistral Pi do? (⌘Enter to launch)"
+    } else {
+        "What should Claude do? (⌘Enter to launch)"
+    };
+    let prompt = prompt_field(s, k, placeholder);
     let launch_row = row()
         .key("new-actions")
         .w_full()
@@ -483,7 +471,11 @@ pub fn view(s: &Hooked, k: &Kit, _layer: &mut Vec<El>) -> El {
                 .icon(&icons::PLAY)
                 .variant(ButtonVariant::Contrast)
                 .shortcut("⌘↵")
-                .disabled(s.sending || project.is_empty())
+                .disabled(
+                    s.sending
+                        || project.is_empty()
+                        || (s.new_prompt.text.trim().is_empty() && s.attachments.is_empty()),
+                )
                 .on_press(|s: &mut Hooked| s.launch())
                 .build(k)
                 .key("new-launch"),
@@ -541,7 +533,7 @@ pub fn view(s: &Hooked, k: &Kit, _layer: &mut Vec<El>) -> El {
             .child(controls(s, k))
             .child(project_col.w_full())
     };
-    let form = col()
+    let mut form = col()
         .key("new-form")
         .w_full()
         .max_w(if side_by_side { 1080.0 } else { 820.0 })
@@ -549,7 +541,11 @@ pub fn view(s: &Hooked, k: &Kit, _layer: &mut Vec<El>) -> El {
         .padding(28.0)
         .gap(18.0)
         .child(header)
-        .child(prompt)
+        .child(prompt);
+    if !s.attachments.is_empty() {
+        form = form.child(attachments_row(s, k));
+    }
+    let form = form
         .child(prompt_pills(s, k))
         .child(fable_notice(s, k))
         .child(launch_row)
@@ -562,6 +558,70 @@ pub fn view(s: &Hooked, k: &Kit, _layer: &mut Vec<El>) -> El {
             stick_bottom: false,
         })
         .child(form)
+}
+
+/// The new-session prompt field, built on the bare `text_input` like the session composer
+/// (composer_field in session.rs): the kit's TextArea has no paste hook, and ⌘V is taken by the
+/// native Paste menu item before any key handler while the root's `on_paste_content` never runs
+/// while a field has focus — without `on_input_paste` here, a pasted image would be dropped.
+fn prompt_field(s: &Hooked, k: &Kit, placeholder: &str) -> El {
+    let c = &k.c;
+    let style = rune::TextStyle {
+        line_height: (13.0f32 * 1.35 * 2.0).round() / 2.0,
+        ..k.ty.ui
+    };
+    let field = rune::text_input(&s.new_prompt, style)
+        .key("input")
+        .w_full()
+        .color(c.text_base)
+        .rich_style(rune::RichStyle {
+            link: c.text_accent,
+            code_fg: None,
+            code_bg: c.layer_03,
+            code_block_bg: c.layer_02,
+            quote_bar: c.border_strong,
+            marker: Some(c.text_muted),
+        })
+        .placeholder(placeholder.to_string(), c.text_faint)
+        .caret(c.text_base, k.selection())
+        .label(placeholder.to_string())
+        .on_edit(|s: &mut Hooked| &mut s.new_prompt)
+        .on_input_paste(|s: &mut Hooked, c: &rune::ClipboardContent, _| {
+            if !c.text().is_empty() {
+                return false; // plain text: let the native paste insert it
+            }
+            let Some(img) = c.image() else {
+                return false;
+            };
+            let n = s.attach_seq + 1;
+            s.attach(format!("pasted-{n}.png"), "image/png", img.png().to_vec());
+            true
+        })
+        .on_input_key(|s: &mut Hooked, ev: &rune::KeyEvent, _| {
+            if ev.key == rune::Key::Enter && ev.mods.cmd {
+                s.launch();
+                return true;
+            }
+            false
+        });
+    // Same shell as the session composer: padded box, base fill, focus ring, input elevation.
+    let mut shell = col()
+        .role("textbox")
+        .padding(8.0)
+        .child(rune::auto_grow(field, 4, 16))
+        .w_full()
+        .radius(k.radius.md)
+        .fill(c.bg_base)
+        .token_motion(k.motion.control);
+    if s.new_prompt.focused {
+        shell = shell.outline(1.0, -1.0, c.border_focus);
+    } else {
+        for sh in k.shadow_layers(k.elevation.input()) {
+            shell = shell.box_shadow(sh);
+        }
+        shell = shell.hover(c.hover);
+    }
+    shell.key("new-prompt").grow(1.0).min_w(0.0)
 }
 
 fn prompt_pills(s: &Hooked, k: &Kit) -> El {

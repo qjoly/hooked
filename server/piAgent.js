@@ -291,6 +291,8 @@ async function piStart(st, opts, ctx) {
     ctx.persistLaunch(sessionId, opts.model || null, opts.effort || null);
     if (opts.prompt && String(opts.prompt).trim()) {
       piPrompt(st, String(opts.prompt).trim()).catch(() => {}); // le tour tourne en fond
+      // New, unnamed session: name it from the first prompt (a resumed one keeps its name).
+      if (!opts.resumeId && !opts.name && !st0.data?.sessionName) autoNamePiSession(st, String(opts.prompt));
     }
     ctx.done(st);
   } catch (e) {
@@ -300,19 +302,49 @@ async function piStart(st, opts, ctx) {
   }
 }
 
+// Best effort, in the background: a failed or slow call leaves the first-prompt fallback title.
+// Slash commands are skipped, their text says nothing about the work. piCli.js is imported lazily
+// because it imports this module back (resolvePiBin).
+function autoNamePiSession(st, prompt) {
+  const text = prompt.trim();
+  if (!text || text.startsWith('/') || process.env.HOOKED_PI_AUTO_NAME === '0') return;
+  import('./piCli.js')
+    .then(({ suggestPiTitle }) => suggestPiTitle(text))
+    .then((name) => {
+      if (!name || !st.pi || st.ended) return;
+      // pi appends a session_info entry to the .jsonl; the scan picks the name up from there.
+      return st.pi.call('set_session_name', { name }, 15_000).then(() => { if (st._emit) st._emit(); });
+    })
+    .catch((e) => console.warn(`[hooked] pi auto-name: ${st.id}: ${(e && e.message) || e}`));
+}
+
 function piPrompt(st, text) {
   const client = st.pi;
   if (!client) return Promise.reject(err400('pi session not started'));
+  // A turn is running when the preview buffer exists (turn_start → agent_settled).
+  const running = !!st.stream;
   st.busy = true;
   st.sdkState = 'running';
-  st.activity = null;
-  return client.call('prompt', { message: text }, 3_600_000).then((res) => {
-    st.busy = false;
-    if (!st.pendingAsk) st.sdkState = 'idle';
+  if (!running) st.activity = null;
+  // pi rejects a bare `prompt` while it streams ("Agent is already processing"): a message sent
+  // mid-turn must say how to queue. `steer` matches Claude Code (delivered after the current tool
+  // calls, before the next LLM call); pi ignores the option when idle, so it is always passed.
+  // The response only acknowledges the prompt (started / queued / handled): the end of the work
+  // is `agent_settled`, so busy is not cleared here unless nothing was started.
+  return client.call('prompt', { message: text, streamingBehavior: 'steer' }, 60_000).then((res) => {
+    if (res?.data?.disposition === 'handled' && !st.stream) {
+      st.busy = false;
+      if (!st.pendingAsk) st.sdkState = 'idle';
+      if (st._emit) st._emit();
+    }
     return res;
   }).catch((e) => {
-    st.busy = false;
-    if (!st.pendingAsk) st.sdkState = 'idle';
+    if (!st.stream) {
+      st.busy = false;
+      if (!st.pendingAsk) st.sdkState = 'idle';
+    }
+    console.warn(`[hooked] pi prompt: ${st.id}: ${(e && e.message) || e}`);
+    if (st._emit) st._emit();
     throw e;
   });
 }

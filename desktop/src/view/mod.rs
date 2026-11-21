@@ -308,17 +308,37 @@ fn topbar(s: &Hooked, k: &Kit, inset: f32, _layer: &mut Vec<El>) -> El {
         .on_press(|s: &mut Hooked| {
             s.open_palette("");
         });
-    // Rate limits = compte Claude OAuth : masquées quand aucun binaire claude n'est configuré.
-    let gauges = if s.providers.claude {
+    // Usage en entête, provider-aware : un seul groupe à la fois, même design qu'avant. Vue
+    // claude = rate limits du compte (5H/7D/FABLE, masqués sans binaire claude) ; vue pi = usage
+    // agrégé des sessions pi (coût + tokens du jour, cf. buildPiUsage serveur). Un clic sur le
+    // bloc alterne quand les deux fournisseurs sont configurés (s.usage_view, persisté).
+    let pi_g = s.pi_usage.as_ref();
+    let show_pi = pi_g.is_some() && (s.usage_view == crate::api::UsageView::Pi || !s.providers.claude);
+    let both = s.providers.claude && pi_g.is_some();
+    let mut gauges = if show_pi {
+        row()
+            .key("tb-gauges")
+            .center_y()
+            .child(usage_pi(s, k, pi_g.expect("show_pi filtré"), 64.0))
+    } else if s.providers.claude {
         row()
             .key("tb-gauges")
             .gap(10.0)
             .center_y()
-            .help("Account rate limits")
-            .children(s.gauges.iter().map(|g| gauge(k, &g.label, g.pct)))
+            .children(s.gauges.iter().map(|g| gauge(k, &g.label, g.pct, 64.0)))
     } else {
         el()
     };
+    if both {
+        gauges = gauges
+            .help(if show_pi {
+                "pi session usage — click to switch to account rate limits"
+            } else {
+                "Account rate limits — click to switch to the pi session"
+            })
+            .cursor(Cursor::Pointer)
+            .on_press(|s: &mut Hooked| s.toggle_usage_view());
+    }
     let theme_icon = match s.theme {
         Theme::Light => &icons::SUN,
         Theme::Dark => &icons::MOON,
@@ -540,7 +560,7 @@ fn topbar(s: &Hooked, k: &Kit, inset: f32, _layer: &mut Vec<El>) -> El {
         .child(live)
 }
 
-fn gauge(k: &Kit, label: &str, pct: Option<f64>) -> El {
+fn gauge(k: &Kit, label: &str, pct: Option<f64>, w: f32) -> El {
     let p = pct.unwrap_or(0.0).clamp(0.0, 100.0) as f32;
     let fill = if p >= 90.0 {
         k.c.danger.icon
@@ -550,7 +570,7 @@ fn gauge(k: &Kit, label: &str, pct: Option<f64>) -> El {
         k.c.icon_muted
     };
     col()
-        .w(64.0)
+        .w(w)
         .gap(3.0)
         .child(
             row()
@@ -573,8 +593,82 @@ fn gauge(k: &Kit, label: &str, pct: Option<f64>) -> El {
                 .h(3.0)
                 .radius(1.5)
                 .fill(k.c.layer_03)
-                .child(el().w(64.0 * p / 100.0).h(3.0).radius(1.5).fill(fill)),
+                .child(el().w(w * p / 100.0).h(3.0).radius(1.5).fill(fill)),
         )
+}
+
+/// Bloc d'usage pi de l'entête (vue pi), à la place des rate limits claude : coût du jour en
+/// valeur principale + tokens du jour en sous-ligne. Pas de jauge — Mistral n'a pas de limite
+/// connue à jauger. La session la plus fraîche (modèle, contexte) reste en tooltip.
+fn usage_pi(s: &Hooked, k: &Kit, p: &crate::api::PiUsage, w: f32) -> El {
+    let mut help = format!(
+        "pi — usage today: {} · {} tokens",
+        crate::fmt::cost(p.today_cost),
+        human_tokens(p.today_tokens.unwrap_or(0.0))
+    );
+    help += &format!(
+        "\ntotal: {} · {} sessions",
+        crate::fmt::cost(p.cost),
+        p.sessions.unwrap_or(1.0)
+    );
+    help += &format!(
+        "\nlatest: {}",
+        p.title
+            .as_deref()
+            .filter(|t| !t.is_empty())
+            .unwrap_or(&p.session_id)
+    );
+    if let Some(m) = &p.model {
+        help += &format!(" · {m}");
+    }
+    if let Some(ctx) = &p.context {
+        if let (Some(sz), Some(win)) = (ctx.size, ctx.context_window) {
+            help += &format!(" · ctx {} / {}", human_tokens(sz), human_tokens(win));
+        }
+    }
+    if p.live {
+        help.push_str(" · live");
+    } else {
+        help.push_str(&format!(
+            " · last activity {}",
+            crate::fmt::ago_short(p.at.as_deref(), s.now)
+        ));
+    }
+    col()
+        .w(w)
+        .gap(3.0)
+        .help(help)
+        .child(
+            row()
+                .w_full()
+                .gap(4.0)
+                .justify_between()
+                .child(
+                    text("PI".to_string())
+                        .font(k.ty.text_xsmall_medium)
+                        .color(k.c.text_faint),
+                )
+                .child(
+                    text(crate::fmt::cost(p.today_cost))
+                        .font(k.ty.text_xsmall_medium)
+                        .color(k.c.text_muted),
+                ),
+        )
+        .child(
+            text(format!("{} tok today", human_tokens(p.today_tokens.unwrap_or(0.0))))
+                .font(k.ty.text_xsmall)
+                .color(k.c.text_faint),
+        )
+}
+
+fn human_tokens(n: f64) -> String {
+    if n >= 1e6 {
+        format!("{:.0}M", n / 1e6)
+    } else if n >= 1e3 {
+        format!("{:.0}k", n / 1e3)
+    } else {
+        format!("{n:.0}")
+    }
 }
 
 fn unit_rows(s: &Hooked, u: &crate::organize::Unit<'_>, k: &Kit, layer: &mut Vec<El>) -> Vec<El> {
