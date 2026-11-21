@@ -20,7 +20,27 @@ import { scanPiSessions } from './pi.js';
 
 const err400 = (msg) => Object.assign(new Error(msg), { code: 400 });
 
-const piBin = () => process.env.HOOKED_PI_BIN || 'pi';
+// Résolution du binaire pi : HOOKED_PI_BIN, puis `which pi`, puis les installs mise/npm globales
+// (sous launchd le PATH est figé — loginEnv le répare pour les drivers, mais un fallback explicite
+// rend le headless robuste partout).
+import { spawnSync } from 'node:child_process';
+import os from 'node:os';
+function resolvePiBin() {
+  if (process.env.HOOKED_PI_BIN) return process.env.HOOKED_PI_BIN;
+  try {
+    const r = spawnSync('which', ['pi'], { encoding: 'utf8' });
+    if (r.status === 0 && r.stdout.trim()) return r.stdout.trim();
+  } catch (_) {}
+  const home = os.homedir();
+  const candidates = [
+    path.join(home, '.local', 'share', 'mise', 'installs', 'node', '24', 'bin', 'pi'),
+    path.join(home, '.npm-global', 'bin', 'pi'),
+    '/usr/local/bin/pi', '/opt/homebrew/bin/pi',
+  ];
+  for (const c of candidates) { try { if (fs.existsSync(c)) return c; } catch (_) {} }
+  return 'pi';
+}
+const piBin = () => resolvePiBin();
 const RPC_TIMEOUT = 120_000;
 
 // ---------------------------------------------------------------------------
@@ -376,6 +396,7 @@ function questionsFromSchema(schema) { return Array.isArray(schema?.questions) ?
 // Noms préfixés pi* : agent.js exporte déjà setMode/prompt/cancel… et le barrel index.js
 // (`export *`) ferait disparaître les doublons en silence.
 export {
+  resolvePiBin,
   piStart, piPrompt, piCancel, piSetMode, piSetConfig, piKill, piFork, piModeFor, piOptions,
   elicitationContent, questionsFromSchema, PiRpcClient,
 };

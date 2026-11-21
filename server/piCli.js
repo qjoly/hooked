@@ -6,10 +6,11 @@
  */
 import cp from 'node:child_process';
 import { loginEnv } from './agent.js';
+import { resolvePiBin } from './piAgent.js';
 import { objFromBraces } from './claudeJson.js';
 
 function piBin() {
-  return process.env.HOOKED_PI_BIN || 'pi';
+  return resolvePiBin();
 }
 
 // `pi -p <prompt> --model mistral/<m>` → texte brut de la réponse (ou '' si échec).
@@ -28,6 +29,9 @@ async function runPiHeadless(prompt, { cwd = null, timeout = 120000, model = nul
     }
     let out = '';
     let err = '';
+    // pi -p lit stdin jusqu'à EOF ("piped stdin prepends to the prompt") : fermer tout de suite,
+    // sinon le process attend indéfiniment sur le pipe ouvert d'execFile.
+    try { child.stdin.end(); } catch (_) {}
     child.stdout.on('data', (d) => { out += d; });
     child.stderr.on('data', (d) => { err += d; });
     child.on('error', (e) => resolve({ ok: false, error: String(e && e.message || e), text: '' }));

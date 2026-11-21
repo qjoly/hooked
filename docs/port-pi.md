@@ -90,3 +90,35 @@ session.provider = "claude" | "pi"
 
 Tout le chemin claude reste par défaut. `npm test` (tests existants, moins les tests vibe remplacés
 par des tests pi) + `cargo test` + E2E claude (`618f3fae`-style) à chaque étape.
+
+## 5. État de l'implémentation (branche feat/pi-mistral, PR #132) — 2026-11-21
+
+Toutes les étapes P1–P11 sont livrées et testées en E2E live contre le service déployé :
+
+| Feature | Statut E2E |
+|---|---|
+| Scan + liste sessions pi (`/api/sessions`, `providers {claude, pi}`) | ✅ 13 sessions pi visibles |
+| Launch `provider=pi` + prompt | ✅ `PI-E2E-OK` |
+| Reply / resume (même session) | ✅ `PI-E2E-RESUME`, resume externe `resumeId` garde l'historique |
+| Stream SSE live (`/api/session/stream`) | ✅ 1019 caractères streamés, states running→idle, preview vidée à `agent_settled` |
+| Tool call (bash) avec détail (inputText/result/status) | ✅ `PI-TOOL-OK` |
+| Diff inline write/edit | ✅ `piToolDiff` (write→Write, edit→MultiEdit) |
+| Jauge contexte | ✅ `piContext` (dernier usage + fenêtre modèle) ; `get_session_stats` exact côté driver |
+| setModel / setMode / interrupt / kill | ✅ modèle changé à chaud, `APRES-INTERRUPT` répond |
+| Trash / restore | ✅ rename `.jsonl.trashed`, la session quitte/revient de la liste |
+| Fork | ✅ RPC `fork`/`clone` + relance → `FORK-OK` (pas de bug vibe-acp) |
+| Auto-resume après restart du service (DRIVEN_FILE) | ✅ session pi reprise `live=true`, reply → `APRES-RESTART-OK` |
+| MCP hooked dans pi (`~/.pi/agent/mcp.json`) | ✅ `mcp__hooked__list_sessions` → `MCP-PI-OK 16` |
+| MCP lens `/api/mcp?provider=pi&check=1` | ✅ stdio « configured », HTTP vrai handshake `initialize` → `connected` |
+| Skills pi (`~/.pi/agent/skills`, `.pi/skills`) | ✅ `demo-skill` listée, `provider: 'pi'` |
+| Commandes `/` pi (`.pi/prompts`, skills) | ✅ `review`, `skill:demo-skill` |
+| Recherche plein texte (index) | ✅ session pi retrouvée (`APRES-INTERRUPT`) |
+| `/api/session/message` (texte complet), `/trace`, `/file-changes` (diff VCS) | ✅ |
+| Headless `pi -p` (digests/autoTags fallback) | ✅ `HEADLESS-PI-OK` (stdin fermé : pi lit stdin jusqu'à EOF) |
+| Non-régression claude | ✅ `CLAUDE-REGRESS-OK` |
+
+Tests : `npm test` 1120 OK (dont `test/pi.test.mjs` 6 tests sur fixture JSONL), `cargo test` 128 OK,
+`cargo check` 0 warning, `npm run build` OK, app rune rebuildée+installée.
+
+Notes : pas d'approbation/question côté RPC pi (auto-approve), pas de sous-agents/todos/screenshots
+natifs (sections vides), pas de hooks fichier pi (état live via le driver + mtime du `.jsonl`).
