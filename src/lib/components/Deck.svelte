@@ -8,6 +8,7 @@
   import { dragSession, dropSession, dropDetach } from '#lib/groupDnd.js';
   import { getSession, reply } from '#lib/api.js';
   import { ago, tagColor, lotColor, stateLabel, agentName, needsDecision, isActiveSession as isLive, sessionDot as dotClass } from '#lib/format.js';
+  import { providersBoth } from '#lib/providers.js';
   import Question from './Question.svelte';
   import Plan from './Plan.svelte';
   import Icon from '#lib/components/Icon.svelte';
@@ -17,7 +18,7 @@
 
   // Badge provider (cc/vibe) sur les cartes, à côté du repo : affiché seulement quand les DEUX
   // providers sont configurés (même règle que la sidebar — un seul provider = badge inutile).
-  const showProviders = $derived(!!(data.providers && data.providers.claude && data.providers.vibe));
+  const showProviders = $derived(providersBoth(data.providers));
 
   // ── snooze ────────────────────────────────────────────────────────────────────────────────
   // Snooze deadlines live in the server-side session-meta store (shared across browsers),

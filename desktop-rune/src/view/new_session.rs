@@ -21,8 +21,10 @@ fn controls(s: &Hooked, k: &Kit) -> El {
             .child(body.w_full())
     };
     let is_vibe = s.new_provider == "vibe" && s.providers.vibe;
-    // Provider picker — only offered when Mistral Vibe is installed on this machine.
-    let provider_line = if s.providers.vibe {
+    // Provider picker — only offered when BOTH providers are installed; with a single one the
+    // badge would tell nothing, so the picker is hidden and new_provider is pinned on it
+    // (see pinned_provider in app.rs).
+    let provider_line = if s.providers.both() {
         Some(line(
             "PROVIDER",
             chips(vec![

@@ -46,9 +46,14 @@ pub fn commands(s: &Hooked) -> Vec<Cmd> {
         cmd(nav, &icons::LIST, "Go to Sessions", "⌥2", |s, _| {
             s.open_sessions()
         }),
-        cmd(nav, &icons::FILTER, "Filter by provider (all/Claude/Vibe)", "⌥3", |s, _| {
+    ];
+    // Le filtre provider n'a de sens que quand les DEUX providers sont installés.
+    if s.providers.both() {
+        out.push(cmd(nav, &icons::FILTER, "Filter by provider (all/Claude/Vibe)", "⌥3", |s, _| {
             s.cycle_provider_filter()
-        }),
+        }));
+    }
+    out.extend([
         cmd(nav, &icons::PLUS, "New session", "⌘N", |s, _| {
             s.go_new(None)
         }),
@@ -118,7 +123,7 @@ pub fn commands(s: &Hooked) -> Vec<Cmd> {
         cmd("Appearance", &icons::CIRCLE, "Corners: Square", "", |s, _| {
             s.set_corners(Corners::Sharp)
         }),
-    ];
+    ]);
     if s.incidents_on() {
         out.insert(
             7,

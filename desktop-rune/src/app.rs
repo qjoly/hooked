@@ -116,6 +116,12 @@ pub fn next_provider_filter(cur: Option<&str>, both: bool) -> Option<String> {
     }
 }
 
+/// Provider à épingler pour une nouvelle session quand un seul est installé (rien à choisir) ;
+/// `None` quand les deux le sont — le choix de l'utilisateur est alors respecté.
+pub fn pinned_provider(p: &api::Providers) -> Option<&'static str> {
+    p.only()
+}
+
 pub struct Hooked {
     pub prefs: Prefs,
     pub sessions: Vec<Session>,
@@ -599,6 +605,10 @@ impl Hooked {
             s.connected = true;
             s.sessions = list;
             s.providers = providers;
+            // Un seul provider installé → pas de sélecteur, on épingle new_provider dessus.
+            if let Some(p) = pinned_provider(&providers) {
+                s.new_provider = p.to_string();
+            }
         }
         if s.providers.vibe {
             if let Ok(v) = api::vibe_options() {
@@ -2959,6 +2969,10 @@ impl Hooked {
                         s.tags = t;
                     }
                     s.providers = providers;
+                    // Un seul provider installé → pas de sélecteur, on épingle new_provider dessus.
+                    if let Some(p) = pinned_provider(&providers) {
+                        s.new_provider = p.to_string();
+                    }
                     if providers.vibe && s.vibe_opts.is_null() {
                         s.vibe_opts = api::vibe_options().unwrap_or(serde_json::Value::Null);
                     }

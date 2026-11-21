@@ -9,6 +9,7 @@
   import Icon from '#lib/components/Icon.svelte';
   import { defaultModelForQuota, isFableModel, isQuotaExhausted } from '#lib/models.js';
   import { knownProjects } from '#lib/projects.js';
+  import { providersBoth, effectiveProvider } from '#lib/providers.js';
 
   const projs = $derived(knownProjects(data.sessions, settings.favoriteProjects || []));
 
@@ -47,6 +48,12 @@
   let mode = $state('default'); // mode de permission au lancement (claude --permission-mode)
   // Provider de l'agent : 'claude' (Agent SDK) ou 'vibe' (Mistral Vibe via ACP, cf. docs/port-vibe.md)
   let provider = $state('claude');
+  // Les deux pillules de choix n'ont de sens que si les DEUX providers sont installés ; avec un
+  // seul, le sélecteur est caché et le provider est fixé dessus (voir #lib/providers.js).
+  const showProviderPicker = $derived(providersBoth(data.providers));
+  $effect(() => {
+    if (!providersBoth(data.providers)) provider = effectiveProvider(data.providers, provider);
+  });
   let vibeOpts = $state(null);
   let worktree = $state(false);
   let wtBase = $state('');
@@ -243,12 +250,14 @@
 
       <div class="ns-col ns-options">
         <div class="lf-label">Options</div>
+        {#if showProviderPicker}
         <div class="ns-provider" role="radiogroup" aria-label="Agent provider">
           <button type="button" class="me-pill ns-prov-btn" class:on={provider === 'claude'} role="radio" aria-checked={provider === 'claude'}
                   onclick={() => (provider = 'claude')} title="Claude Code — piloté via l'Agent SDK">Claude</button>
           <button type="button" class="me-pill ns-prov-btn" class:on={provider === 'vibe'} role="radio" aria-checked={provider === 'vibe'}
                   onclick={() => (provider = 'vibe')} title="Mistral Vibe — piloté via ACP">Mistral&nbsp;Vibe</button>
         </div>
+        {/if}
         {#if provider === 'vibe'}
           {#if vibeOpts}
             <div class="ns-vibe-opts">

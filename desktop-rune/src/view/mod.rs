@@ -1228,20 +1228,19 @@ fn sidebar(s: &Hooked, k: &Kit, layer: &mut Vec<El>) -> El {
         [one] => one.clone(),
         _ => format!("{} {noun}", list.len()),
     };
-    filter_menu = filter_menu
-        .item(
+    // Le filtre Provider n'a de sens que quand les DEUX providers sont installés.
+    if s.providers.both() {
+        filter_menu = filter_menu.item(
             MenuItem::new("Provider")
-                .description(if !s.providers.both() {
-                    "single provider installed".to_string()
-                } else {
-                    match s.provider_filter.as_deref() {
-                        None => "Any".to_string(),
-                        Some("claude") => "Claude Code".to_string(),
-                        _ => "Mistral Vibe".to_string(),
-                    }
+                .description(match s.provider_filter.as_deref() {
+                    None => "Any".to_string(),
+                    Some("claude") => "Claude Code".to_string(),
+                    _ => "Mistral Vibe".to_string(),
                 })
                 .on_select(|s: &mut Hooked| s.cycle_provider_filter()),
-        )
+        );
+    }
+    filter_menu = filter_menu
         .item(
             MenuItem::new("Repo")
                 .description(summary(&s.repo_filter, false, "repos"))

@@ -9,6 +9,7 @@
   import { SECTIONS, sectionOf, snoozePresets, wakeLabel, hm } from '#lib/sidebarSections.js';
   import { onMount } from 'svelte';
   import { ago, agoShort, fmtSpan, tagColor, lotColor, isActiveSession as isActive, needsDecision, sessionDot as dotClass } from '#lib/format.js';
+  import { providersBoth } from '#lib/providers.js';
   import { cacheCountdown } from '#lib/promptCache.js';
   import { dragSession, dropSession, dropDetach } from '#lib/groupDnd.js';
   import Icon from '#lib/components/Icon.svelte';
@@ -35,7 +36,7 @@
   const filterCount = $derived(ui.tagFilters.length + ui.repoFilters.length);
   // Badge provider (claude/mistral) à côté des sessions : seulement si les DEUX providers sont
   // configurés sur la machine — avec un seul, le badge n'apprendrait rien.
-  const showProviders = $derived(!!(data.providers && data.providers.claude && data.providers.vibe));
+  const showProviders = $derived(providersBoth(data.providers));
 
   // Ordre de la liste. Les PALIERS (épinglées → en attente de décision → actives) sont les mêmes
   // dans les trois modes : c'est eux qui portent la garantie de la fenêtre de LIST_WINDOW lignes —

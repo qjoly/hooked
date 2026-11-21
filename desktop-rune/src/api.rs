@@ -249,6 +249,16 @@ impl Providers {
     pub fn both(&self) -> bool {
         self.claude && self.vibe
     }
+
+    /// With a single provider installed there is nothing to choose: it is the one to use.
+    /// `None` when both (or neither) are present.
+    pub fn only(&self) -> Option<&'static str> {
+        match (self.claude, self.vibe) {
+            (true, false) => Some("claude"),
+            (false, true) => Some("vibe"),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Clone, Debug, Default, Deserialize)]
@@ -1102,6 +1112,20 @@ mod tests {
     #[test]
     fn query_values_are_percent_encoded() {
         assert_eq!(enc("a b/c"), "a%20b%2Fc");
+    }
+
+    #[test]
+    fn providers_only_when_a_single_one_is_installed() {
+        let both = Providers { claude: true, vibe: true };
+        let claude_only = Providers { claude: true, vibe: false };
+        let vibe_only = Providers { claude: false, vibe: true };
+        let none = Providers::default();
+        assert!(both.both() && both.only().is_none());
+        assert!(!claude_only.both());
+        assert_eq!(claude_only.only(), Some("claude"));
+        assert!(!vibe_only.both());
+        assert_eq!(vibe_only.only(), Some("vibe"));
+        assert!(!none.both() && none.only().is_none());
     }
 }
 
