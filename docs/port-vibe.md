@@ -142,6 +142,7 @@ masqués via `provider === "vibe"`.
 | Workflows, background jobs (Monitor/Wakeup), hooks PreCompact/SubagentStop | aucun | non exposés côté vibe ; `/api/background/stream?id=<vibe>` répond 200 (flux vide) |
 | Plugins manager (Claude) | Agent Plugins 1.0 de Vibe | skills Vibe listés via `/api/skills?provider=vibe` (racines `.vibe/skills`, `.agents/skills`, user) |
 | Hooks PreCompact/SubagentStop | hooks Vibe équivalents côté `~/.vibe` | non câblés dans hooked, documentés ici |
+| Fork par bulle (`session/fork` ACP) | branche créée, historique copié, `parent_session_id` renseigné | **bug upstream vibe-acp 3.1.3** : la branche forkée n'est pas pilotable par ACP (`session/prompt` démarre le tour `steps:1, promptTokens:0` puis timeout — reproduit avec/sans `messageId`, avec/sans `session/load`, avec/sans set model/mode, et en reprenant le fork dans un second process). Le stockage est verrouillé (manifest sha256, copie de dossier rejetée « CURRENT and manifest disagree »). La branche reste visible/archivable et reprendre via CLI `vibe --resume <forkId>` fonctionne. Côté hooked : le fork vibe crée la branche (listée, `forkedFrom`) ; le prompt initial peut rester sans réponse — documenté, pas de 500. |
 
 Audit live (session vibe `26dbee7b…`) : toutes les routes `/api/session/*`, `/api/agent`,
 `/api/review`, `/api/files`, `/api/commands`, `/api/llm-tools`, `/api/mcp?provider=vibe`
@@ -185,6 +186,8 @@ répondent 200 ; `plan` est POST-only (405 en GET, le front lit le plan via `/ap
 - ACP/app-server : surface vivante côté Mistral ; le pilotage passera par là en M1, avec
   fallback possible par PTY (hooked a déjà eu un pilotage tmux avant le SDK).
 - Coût : tarifs Mistral ajoutés dans `server/pricing.js` (tier `mistral`), ajustables.
+- **vibe-acp 3.1.3** : `session/fork` crée une branche non promptable via ACP (voir M5) — le fork
+  par bulle vibe reste donc "branche créée + visible", sans tour initial garanti.
 
 ## 8. Installation des hooks Vibe (manuel, une fois)
 
