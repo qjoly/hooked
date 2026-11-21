@@ -740,6 +740,26 @@
           <option value="pi">Mistral Pi</option>
         </select>
       </div>
+      <h2 style="margin-top:18px">Providers</h2>
+      <p class="hint">Which agent CLIs hooked detects as available on this machine. <strong>Auto</strong> = detect (binary in <code>PATH</code>, or <code>~/.pi/agent</code> for Pi); <strong>On</strong> = force active even if detection fails (e.g. frozen PATH under launchd with pi installed outside it, plus <code>HOOKED_PI_BIN</code>); <strong>Off</strong> = hide the provider (badges, picker, launches). Launching a session on a provider that is off or not installed fails with a clear error.</p>
+      <div class="cmd-row">
+        <label class="dg-field">Claude Code
+          <select class="cmd-input" value={settings.providers?.claude || 'auto'}
+                  onchange={(e) => updateSettings({ providers: { ...settings.providers, claude: e.currentTarget.value } }).then(loadSessions)}>
+            <option value="auto">Auto — detect</option>
+            <option value="on">On — forced</option>
+            <option value="off">Off — hidden</option>
+          </select>
+        </label>
+        <label class="dg-field">Mistral Pi
+          <select class="cmd-input" value={settings.providers?.pi || 'auto'}
+                  onchange={(e) => updateSettings({ providers: { ...settings.providers, pi: e.currentTarget.value } }).then(loadSessions)}>
+            <option value="auto">Auto — detect</option>
+            <option value="on">On — forced</option>
+            <option value="off">Off — hidden</option>
+          </select>
+        </label>
+      </div>
     </div>
 
     {#if hasClaude}

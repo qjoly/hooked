@@ -69,6 +69,11 @@ const DEFAULTS = {
   quickLaunchProject: '',
   // Provider par défaut des lancements sans provider explicite (Quick Action macOS, review PR…)
   defaultProvider: 'claude',
+  // Activation explicite des providers, qui override la détection auto (server/providers.js) :
+  // 'auto' = détection (binaire dans le PATH / dossier ~/.pi/agent), 'on' = forcé actif,
+  // 'off' = forcé inactif (masqué de l'UI). Utile quand la détection échoue (PATH figé sous
+  // launchd, pi installé hors PATH…) ou pour masquer un provider installé.
+  providers: { claude: 'auto', pi: 'auto' },
   // Projets pour lesquels le serveur hooked maintient un démon `claude remote-control` (mode serveur :
   // le projet devient un ENVIRONNEMENT lançable depuis l'app Claude). Liste de chemins absolus ; le serveur
   // réconcilie les process démons à cette liste (cf. server/remoteControl.js). [] = aucun.
@@ -146,6 +151,10 @@ function sanitize(raw) {
       : '';
   // defaultProvider : 'claude' (défaut, non-régression) ou 'pi'.
   const defaultProvider = o.defaultProvider === 'pi' ? 'pi' : 'claude';
+  // providers : 'auto' | 'on' | 'off' par provider connu.
+  const rawProv = o.providers && typeof o.providers === 'object' ? o.providers : {};
+  const provMode = (v) => (v === 'on' || v === 'off' ? v : 'auto');
+  const providers = { claude: provMode(rawProv.claude), pi: provMode(rawProv.pi) };
   // remoteControlProjects : liste de chemins absolus, dédupée et bornée (anti-abus : chaque démon
   // spawn un process claude). L'existence du dossier n'est PAS vérifiée ici (le disque peut varier) —
   // reconcileRemoteControl saute au lancement un chemin qui n'est plus un dossier.
@@ -246,6 +255,7 @@ function sanitize(raw) {
     defaultMode,
     quickLaunchProject,
     defaultProvider,
+    providers,
     remoteControlProjects: rcProjects,
     favoriteProjects: favProjects,
     promptLibrary,

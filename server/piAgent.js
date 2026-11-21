@@ -41,6 +41,23 @@ function resolvePiBin() {
   return 'pi';
 }
 const piBin = () => resolvePiBin();
+
+// Le binaire résolu est-il réellement utilisable sur cette machine ? (chemin absolu → test
+// X_OK ; simple nom → `which`). Sert à refuser proprement un lancement pi quand pi n'est pas
+// installé (machine sans pi, ou providers.pi forcé "on" par erreur) au lieu d'un spawn ENOENT.
+function piBinaryAvailable() {
+  const bin = resolvePiBin();
+  try {
+    if (bin.includes('/')) {
+      fs.accessSync(bin, fs.constants.X_OK);
+      return true;
+    }
+    return spawnSync('which', [bin], { stdio: 'ignore' }).status === 0;
+  } catch (_) {
+    return false;
+  }
+}
+
 const RPC_TIMEOUT = 120_000;
 
 // ---------------------------------------------------------------------------
@@ -396,7 +413,7 @@ function questionsFromSchema(schema) { return Array.isArray(schema?.questions) ?
 // Noms préfixés pi* : agent.js exporte déjà setMode/prompt/cancel… et le barrel index.js
 // (`export *`) ferait disparaître les doublons en silence.
 export {
-  resolvePiBin,
+  resolvePiBin, piBinaryAvailable,
   piStart, piPrompt, piCancel, piSetMode, piSetConfig, piKill, piFork, piModeFor, piOptions,
   elicitationContent, questionsFromSchema, PiRpcClient,
 };

@@ -6,7 +6,7 @@
  */
 import cp from 'node:child_process';
 import { loginEnv } from './agent.js';
-import { resolvePiBin } from './piAgent.js';
+import { resolvePiBin, piBinaryAvailable } from './piAgent.js';
 import { objFromBraces } from './claudeJson.js';
 
 function piBin() {
@@ -15,6 +15,9 @@ function piBin() {
 
 // `pi -p <prompt> --model mistral/<m>` → texte brut de la réponse (ou '' si échec).
 async function runPiHeadless(prompt, { cwd = null, timeout = 120000, model = null } = {}) {
+  if (!piBinaryAvailable()) {
+    return { ok: false, error: 'pi binary not found — install @earendil-works/pi-coding-agent (npm i -g) or set HOOKED_PI_BIN', text: '' };
+  }
   const env = await loginEnv();
   const args = ['-p', String(prompt || ''), '--no-session'];
   if (model) args.push('--model', model.startsWith('mistral/') ? model : `mistral/${model}`);

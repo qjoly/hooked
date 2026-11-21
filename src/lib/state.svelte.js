@@ -571,6 +571,8 @@ export const settings = $state({
   showWork: true, // cf. server/settings.js
   statusBar: { permissionMode: true, modelEffort: true, focusBtn: true },
   defaultModel: '', defaultEffort: '', defaultMode: '',
+  defaultProvider: 'claude', // cf. server/settings.js
+  providers: { claude: 'auto', pi: 'auto' }, // override détection auto des providers, cf. server/providers.js
   remoteControlProjects: [],
   favoriteProjects: [],
   promptLibrary: [], // cf. server/settings.js

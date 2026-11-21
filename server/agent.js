@@ -30,6 +30,7 @@ import { statSafe } from './util.js';
 import { scanSessions } from './transcript.js';
 import { scanAllSessions } from './sessions.js';
 import { readSettings } from './settings.js';
+import { configuredProviders } from './providers.js';
 import { refreshAgentStatus } from './agent-status.js';
 import { buildToolCatalog } from './llmTools.js';
 import { contextFromUsage, compactDue } from '../src/lib/promptCache.js';
@@ -787,6 +788,17 @@ function launchSession(opts, cb) {
   if (effort && provider !== 'pi' && !isValidEffort(effort)) return cb(err400('unknown effort: ' + effort));
   if (effort && provider === 'pi' && !/^[a-z]+$/.test(effort)) return cb(err400('unknown thinking level: ' + effort));
   if (permissionMode && !LAUNCH_PERMISSION_MODES.includes(permissionMode)) return cb(err400('unknown permission mode: ' + permissionMode));
+  // Provider explicitement désactivé dans les réglages (providers.<p> = 'off') → refus clair :
+  // l'UI ne le propose plus, mais l'API reste appelable à la main (POST /api/launch provider=…).
+  if (configuredProviders()[provider] === false) {
+    return cb(err400(`the ${provider} provider is disabled in the hooked settings (providers.${provider} = "off")`));
+  }
+  // Provider pi demandé mais binaire introuvable (machine déployée sans pi, ou providers.pi
+  // forcé "on" dans les réglages sans install derrière) → erreur claire tout de suite, plutôt
+  // qu'un spawn qui échoue en ENOENT en arrière-plan et une session bloquée.
+  if (provider === 'pi' && !piAgent.piBinaryAvailable()) {
+    return cb(err400('pi is not available on this machine: install @earendil-works/pi-coding-agent (npm i -g) or set HOOKED_PI_BIN, or set providers.pi to "auto"/"off" in the hooked settings'));
+  }
   if (id && live.has(id)) return cb(err400('session already running'));
   if (worktree && !id) return launchInNewWorktree({ ...opts, cwd: dir }, cb);
   const wt = opts[MANAGED_WORKTREE] || null;

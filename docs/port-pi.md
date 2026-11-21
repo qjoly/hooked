@@ -122,3 +122,27 @@ Tests : `npm test` 1120 OK (dont `test/pi.test.mjs` 6 tests sur fixture JSONL), 
 
 Notes : pas d'approbation/question côté RPC pi (auto-approve), pas de sous-agents/todos/screenshots
 natifs (sections vides), pas de hooks fichier pi (état live via le driver + mtime du `.jsonl`).
+
+## 6. Réglage « activer/désactiver un provider » (providers on/off/auto) — 2026-11-21
+
+Motivation : déploiement sur une machine **sans pi** (ou avec pi hors PATH sous launchd) —
+le provider pi ne doit ni apparaître dans l'UI ni être lançable, et à l'inverse `on` force
+pi actif quand la détection auto échoue.
+
+- `settings.json` : `providers: { claude: 'auto', pi: 'auto' }` — `'auto'` = détection machine
+  (binaire dans le PATH / `~/.pi/agent`), `'on'` = forcé actif, `'off'` = masqué + lancement
+  refusé. Sanitize : toute valeur inconnue retombe sur `'auto'` (`server/settings.js`).
+- `server/providers.js` : `applyProviderOverride(auto, setting)` (pur, testé) +
+  `configuredProviders()` — détection auto mémoïsée 30 s, **réglage relu à chaque appel** ;
+  exposé via `GET /api/sessions` → `{ providers: { claude, pi } }` (badges/picker web + rune
+  suivent automatiquement ; pillule affichée seulement quand les deux sont actifs).
+- Refus clair au lancement (`server/agent.js`) : provider réglé `'off'` →
+  err400 `the pi provider is disabled in the hooked settings (providers.pi = "off")` ;
+  provider pi actif mais binaire introuvable (`piBinaryAvailable()` :
+  `HOOKED_PI_BIN`/which/candidats usuels) → err400 « install @earendil-works/pi-coding-agent
+  or set HOOKED_PI_BIN… ». Même garde dans `runPiHeadless` (`server/piCli.js`).
+- UI : page web Réglages → « Providers », deux selects Auto/On/Off (claude + pi), sauvés via
+  `POST /api/settings` puis `loadSessions()` pour rafraîchir badges/picker. Rune : pas de
+  réglage propre — il lit `providers` via `/api/sessions` (pillules cachées si un seul actif).
+- Tests : `test/providersOverride.test.mjs` (11 tests — override pur, sanitize, configuredProviders
+  avec env déterministe, piBinaryAvailable faux sur binaire bidon).
