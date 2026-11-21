@@ -5,10 +5,10 @@
   import Icon from './Icon.svelte';
 
   // MCP scopes are per-directory, so the lens is pinned to the session's own project — there is
-  // no picker to get wrong. `provider === 'vibe'` : liste lue dans la config Vibe, health-check
+  // no picker to get wrong. `provider === 'pi'` : liste lue dans la config Pi, health-check
   // HTTP uniquement, sans les actions OAuth/logout (spécifiques au CLI Claude).
   let { project = '', provider = 'claude' } = $props();
-  const isVibe = $derived(provider === 'vibe');
+  const isPi = $derived(provider === 'pi');
 
   let res = $state(null);          // { cwd, servers, diagnostics, error }
   let loading = $state(true);
@@ -37,18 +37,18 @@
   const stateUi = (s) => STATE_UI[s] || { icon: 'dot', color: 'var(--muted)', label: s };
 
   // Paints the last known list at once, then waits for the live health check, which can take
-  // 30 s when a server is unreachable. Vibe: no cache, first the config alone, then the
+  // 30 s when a server is unreachable. Pi: no cache, first the config alone, then the
   // HTTP health check (`check=1`).
   async function load(dir = project) {
     loading = true;
     open = null;
     details = {};
-    const hit = await getMcpServers(dir, !isVibe, provider).catch(() => null);
+    const hit = await getMcpServers(dir, !isPi, provider).catch(() => null);
     if (dir !== project) return;
     if (hit) res = hit;
     else if (res?.cwd !== dir) res = null;
     let fresh;
-    try { fresh = await getMcpServers(dir, false, provider, isVibe); } catch (_) { fresh = { servers: [], diagnostics: [], error: 'request failed' }; }
+    try { fresh = await getMcpServers(dir, false, provider, isPi); } catch (_) { fresh = { servers: [], diagnostics: [], error: 'request failed' }; }
     if (dir !== project) return;
     res = fresh;
     loading = false;
@@ -123,11 +123,11 @@
     <div>
       <h2>MCP</h2>
       <p class="sub">
-        {#if isVibe}
-          Servers Mistral Vibe can reach from <code>{project || 'the user scope'}</code> (config
+        {#if isPi}
+          Servers Mistral Pi can reach from <code>{project || 'the user scope'}</code> (config
           <code>config.toml</code>), HTTP health-checked live. Stdio servers stay « configured ».
         {:else}
-          Servers {isVibe ? 'Mistral Vibe' : 'Claude Code'} can reach from <code>{project || 'the user scope'}</code>, health-checked
+          Servers {isPi ? 'Mistral Pi' : 'Claude Code'} can reach from <code>{project || 'the user scope'}</code>, health-checked
           live. Re-authenticate one here instead of running <code>/mcp</code> in a terminal.
         {/if}
       </p>
@@ -167,7 +167,7 @@
               <div class="target" title={s.target}>{s.target}</div>
             </div>
             <div class="acts">
-              {#if !isVibe && s.authable}
+              {#if !isPi && s.authable}
                 <button class="btn" onclick={() => reauth(s.name)} disabled={!!login && !login.done}>
                   <Icon name="lock" size={14} /> {s.state === 'connected' ? 'Reauth' : 'Authenticate'}
                 </button>
@@ -175,7 +175,7 @@
                   <button class="btn" onclick={() => logout(s.name)} disabled={busy === s.name}>Logout</button>
                 {/if}
               {/if}
-              {#if !isVibe}
+              {#if !isPi}
                 <button class="btn ghost" onclick={() => toggleDetails(s.name)} title="Details">
                   <Icon name={open === s.name ? 'chevron-down' : 'chevron-right'} size={14} />
                 </button>

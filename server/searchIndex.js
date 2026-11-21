@@ -16,10 +16,10 @@ import { createRequire } from 'node:module';
 // `node:sqlite` est un module natif Node 24+. On le charge via createRequire pour que
 // le résolveur de Vite ne tente pas de le transformer (sinon : "Failed to load url sqlite").
 const { DatabaseSync } = createRequire(import.meta.url)('node:sqlite');
-import { HOOKED_DIR, PROJECTS_DIR, VIBE_SESSIONS_DIR } from './config.js';
+import { HOOKED_DIR, PROJECTS_DIR, PI_SESSIONS_DIR } from './config.js';
 import { scanAllSessions } from './sessions.js';
 import { buildConversation } from './conversation.js';
-import { buildVibeConversation } from './vibe.js';
+import { buildPiConversation } from './pi.js';
 import { readdirSafe, statSafe } from './util.js';
 
 let db = null;
@@ -75,9 +75,9 @@ function open() {
 // Indexe (ou ré-indexe) un transcript. Idempotent : supprime les anciennes lignes
 // pour ce fichier avant insertion. Renvoie le nombre de messages insérés.
 function indexFile(d, sum, mtimeMs) {
-  const isVibe = sum.provider === 'vibe';
-  const key = isVibe ? sum.dir : sum.file; // clé de dédup : dossier unified pour vibe
-  const msgs = isVibe ? buildVibeConversation(sum.dir) : buildConversation(sum.file, false);
+  const isPi = sum.provider === 'pi';
+  const key = isPi ? sum.file : sum.file;
+  const msgs = isPi ? buildPiConversation(sum.file) : buildConversation(sum.file, false);
   const del = d.prepare('DELETE FROM messages WHERE file = ?');
   del.run(key);
   const ins = d.prepare(
@@ -99,32 +99,27 @@ function indexFile(d, sum, mtimeMs) {
   return n;
 }
 
-// mtime d'un dossier de session vibe : max des mtimes de meta.json + chunks/* + journal/*
-// (le mtime du dossier ne bouge pas quand un fichier existant est modifié).
-function vibeDirMtime(dir) {
-  let mt = 0;
-  const bump = (f) => { const st = statSafe(f); if (st && st.mtimeMs > mt) mt = st.mtimeMs; };
-  bump(path.join(dir, 'meta.json'));
-  for (const f of readdirSafe(path.join(dir, 'journal'))) bump(path.join(dir, 'journal', f));
-  for (const f of readdirSafe(path.join(dir, 'chunks'))) bump(path.join(dir, 'chunks', f));
-  return mt;
+// mtime d'un fichier de session pi (le .jsonl lui-même).
+function piFileMtime(file) {
+  const st = statSafe(file);
+  return st ? Math.floor(st.mtimeMs) : 0;
 }
 
-// Rafraîchit l'index : pour chaque transcript (claude) / dossier de session (vibe), ré-indexe
+// Rafraîchit l'index : pour chaque transcript (claude) / fichier de session (pi), ré-indexe
 // si mtime change. Supprime aussi les sessions disparues du FS. Renvoie un compte des opérations.
-function refresh(projectsDir = PROJECTS_DIR, vibeSessionsDir = VIBE_SESSIONS_DIR) {
+function refresh(projectsDir = PROJECTS_DIR, piSessionsDir = PI_SESSIONS_DIR) {
   const d = open();
-  const sums = scanAllSessions(projectsDir, vibeSessionsDir);
+  const sums = scanAllSessions(projectsDir, piSessionsDir);
   const seen = new Set();
   let indexed = 0, skipped = 0, removed = 0;
   const get = d.prepare('SELECT mtime FROM sessions WHERE file = ?');
   d.exec('BEGIN');
   try {
     for (const sum of sums) {
-      const key = sum.provider === 'vibe' ? sum.dir : sum.file;
+      const key = sum.file;
       seen.add(key);
       let mt;
-      if (sum.provider === 'vibe') mt = Math.floor(vibeDirMtime(sum.dir));
+      if (sum.provider === 'pi') mt = piFileMtime(sum.file);
       else { let st; try { st = fs.statSync(sum.file); } catch (_) { continue; } mt = Math.floor(st.mtimeMs); }
       if (!mt) continue;
       const row = get.get(key);
@@ -160,10 +155,10 @@ function quotePhrase(s) {
 // chacun cité en phrase. Filtre optionnel sur project. Renvoie au plus `limit` résultats
 // classés par bm25(), avec un snippet HTML <mark>...</mark> autour du match.
 function search(q, opts = {}) {
-  const { project = null, limit = 50, projectsDir = PROJECTS_DIR, vibeSessionsDir = VIBE_SESSIONS_DIR } = opts;
+  const { project = null, limit = 50, projectsDir = PROJECTS_DIR, piSessionsDir = PI_SESSIONS_DIR } = opts;
   const query = String(q || '').trim();
   if (!query) return [];
-  refresh(projectsDir, vibeSessionsDir);
+  refresh(projectsDir, piSessionsDir);
   const d = open();
   const tokens = query.split(/\s+/).filter(Boolean).map(quotePhrase);
   if (!tokens.length) return [];

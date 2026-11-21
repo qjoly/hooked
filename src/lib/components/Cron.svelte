@@ -160,10 +160,10 @@
         <label class="fld"><span>Provider</span>
           <select bind:value={form.provider}>
             <option value="claude">Claude Code</option>
-            <option value="vibe">Mistral Vibe</option>
+            <option value="pi">Mistral Pi</option>
           </select>
         </label>
-        {#if form.provider !== 'vibe'}
+        {#if form.provider !== 'pi'}
         <ModelEffort allowInherit showMode bind:model={form.model} bind:effort={form.effort} bind:mode={form.permissionMode} />
         {/if}
 

@@ -19,7 +19,7 @@
   const onSettings = $derived(path.startsWith('/settings'));
   // Nav tabs the user chose to show (settings.navTabs). '/sessions' also lights up on /session/* & /new.
   // Claude-only spaces (mémoire ~/.claude, compte/quotas OAuth) are hidden when no `claude`
-  // binary is configured — vibe-only install: the tab would lead to an empty/dead page.
+  // binary is configured — pi-only install: the tab would lead to an empty/dead page.
   const hasClaude = $derived(!!data.providers?.claude);
   const tabs = $derived(NAV_TABS.filter((t) => (settings.navTabs || NAV_KEYS).includes(t.key) && (t.key !== 'memory' || hasClaude)));
   const hiddenTabs = $derived(NAV_TABS.filter((t) => !tabs.includes(t) && (t.key !== 'memory' || hasClaude)));

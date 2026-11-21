@@ -542,7 +542,7 @@
       {#if !ui.incognito && isIncognito(s.id)}<span class="ssb-pin-mark" title="Incognito"><Icon name="eye-off" size={11} /></span>{/if}
       {#if !groupByProject}<span class="ssb-lot" style="--lot:{lotColor(projectKey(s))}" title={projectKey(s)}></span>{/if}
       <span class="ssb-name" title={unit ? 'Group · mother session: ' + sessionTitle(s) : undefined}>{unit ? groupName(s.id) : sessionTitle(s)}</span>
-      {#if showProviders}<span class="ssb-prov" class:vibe={s.provider === 'vibe'} title={s.provider === 'vibe' ? 'Mistral Vibe session' : 'Claude Code session'}>{s.provider === 'vibe' ? 'vibe' : 'cc'}</span>{/if}
+      {#if showProviders}<span class="ssb-prov" class:pi={s.provider === 'pi'} title={s.provider === 'pi' ? 'Mistral Pi session' : 'Claude Code session'}>{s.provider === 'pi' ? 'pi' : 'cc'}</span>{/if}
       {#if unit}<span class="ssb-gcount" title="{unit.all.length} sessions in this group">{unit.all.length}</span>{/if}
       <!-- settings.sidebarCache: the countdown sits in a pill beside the elapsed time, or takes its
            place (the elapsed time then moves to the tooltip). -->
@@ -733,13 +733,13 @@
   }
   .ssb-gchev.open { transform: rotate(90deg); }
   .ssb-gcount { font-family: var(--mono); font-size: var(--t-micro); color: var(--muted); flex: 0 0 auto; }
-  /* badge provider (Mistral Vibe) à côté du nom de session */
+  /* badge provider (Mistral Pi) à côté du nom de session */
   .ssb-prov {
     font-family: var(--mono); font-size: 9px; line-height: 1; color: var(--muted);
     border: 1px solid var(--border); border-radius: 4px; padding: 2px 3px; flex: 0 0 auto;
     text-transform: lowercase;
   }
-  .ssb-prov.vibe { color: var(--accent, var(--muted)); border-color: var(--accent, var(--border)); }
+  .ssb-prov.pi { color: var(--accent, var(--muted)); border-color: var(--accent, var(--border)); }
   .ssb-group:global(.drop-over) { box-shadow: inset 0 0 0 2px var(--accent); }
   .ssb-detach {
     position: sticky; bottom: 0; margin: 8px; padding: 12px 10px; display: flex; align-items: center; justify-content: center; gap: 7px;

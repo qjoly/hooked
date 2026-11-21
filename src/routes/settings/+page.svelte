@@ -54,7 +54,7 @@
   ];
   let activeSec = $state(NAV[0].id);
   // Claude-only cards (remote-control, fenêtre 5h, section Claude Code) are hidden when no
-  // `claude` binary is configured — vibe-only install.
+  // `claude` binary is configured — pi-only install.
   const hasClaude = $derived(!!data.providers?.claude);
   const CLAUDE_ONLY_SECS = new Set(['pset-remote-control', 'pset-warmup', 'pset-claude']);
   const navVisible = $derived(hasClaude ? NAV : NAV.filter((n) => !CLAUDE_ONLY_SECS.has(n.id)));
@@ -737,7 +737,7 @@
       <div class="cmd-row">
         <select class="cmd-input" value={settings.defaultProvider || 'claude'} onchange={(e) => updateSettings({ defaultProvider: e.currentTarget.value })}>
           <option value="claude">Claude Code</option>
-          <option value="vibe">Mistral Vibe</option>
+          <option value="pi">Mistral Pi</option>
         </select>
       </div>
     </div>

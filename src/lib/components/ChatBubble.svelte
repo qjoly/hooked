@@ -121,7 +121,7 @@
   </div>
 {:else}
 <div class="bubble {m.role}" class:auto={m.auto} data-msg-ts={m.ts || ''}>
-  <div class="who">{#if m.role === 'user'}{#if m.auto}<Icon name="rotate-cw" size={14} /> Auto-resumed (background job){:else}<Icon name="user" size={14} /> You{/if}{:else}<Icon name="bot" size={14} /> {provider === 'vibe' ? 'Mistral Vibe' : 'Claude'}{/if}<span class="t">{ago(m.ts)}</span>
+  <div class="who">{#if m.role === 'user'}{#if m.auto}<Icon name="rotate-cw" size={14} /> Auto-resumed (background job){:else}<Icon name="user" size={14} /> You{/if}{:else}<Icon name="bot" size={14} /> {provider === 'pi' ? 'Mistral Pi' : 'Claude'}{/if}<span class="t">{ago(m.ts)}</span>
     {#if onfork && m.forkUuid}
       <span class="fork-ctl">
         <button class="fork-btn fork-main" title="Fork here without a message — independent branch waiting for you"

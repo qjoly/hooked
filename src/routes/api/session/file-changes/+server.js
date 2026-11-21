@@ -7,7 +7,7 @@ import { fail } from '#lib/server/respond.js';
 // serve a `path` that actually appears in this session's changes (anti path-traversal — otherwise
 // buildFileChangeFull would read any file off disk during reconstruction).
 //
-// Provider vibe : pas de transcript Claude → les changements viennent du diff VCS du projet
+// Provider pi : pas de transcript Claude → les changements viennent du diff VCS du projet
 // (buildVcsChanges produit la même shape d'entry : {file, name, badge, ops:[{old,new}]…}), et
 // l'entry servie est la version VCS complète (old/new intégraux, jamais tronquée).
 export async function GET({ url }) {
@@ -16,7 +16,7 @@ export async function GET({ url }) {
   if (!id || !p) return fail(400, 'id and path required');
   const s = findSessionAny(id);
   if (!s || !s.file) return fail(404, 'session not found');
-  if (s.provider === 'vibe') {
+  if (s.provider === 'pi') {
     const vcs = await buildVcsChanges(s.project);
     const all = [...(vcs.changes || []), ...(vcs.repos || []).flatMap((r) => r.changes || [])];
     const entry = all.find((c) => c.file === p);

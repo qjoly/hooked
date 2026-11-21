@@ -20,7 +20,7 @@ fn controls(s: &Hooked, k: &Kit) -> El {
             .child(section_title(k, label))
             .child(body.w_full())
     };
-    let is_vibe = s.new_provider == "vibe" && s.providers.vibe;
+    let is_pi = s.new_provider == "pi" && s.providers.pi;
     // Provider picker — only offered when BOTH providers are installed; with a single one the
     // badge would tell nothing, so the picker is hidden and new_provider is pinned on it
     // (see pinned_provider in app.rs).
@@ -28,20 +28,20 @@ fn controls(s: &Hooked, k: &Kit) -> El {
         Some(line(
             "PROVIDER",
             chips(vec![
-                chip(k, "np-claude".into(), "Claude Code".into(), !is_vibe, |s| {
+                chip(k, "np-claude".into(), "Claude Code".into(), !is_pi, |s| {
                     s.new_provider = "claude".into();
                 }),
-                chip(k, "np-vibe".into(), "Mistral Vibe".into(), is_vibe, |s| {
-                    s.new_provider = "vibe".into();
+                chip(k, "np-pi".into(), "Mistral Pi".into(), is_pi, |s| {
+                    s.new_provider = "pi".into();
                 }),
             ]),
         ))
     } else {
         None
     };
-    let models: Vec<El> = if is_vibe {
-        // Vibe models from /api/vibe-options: [{ name, alias, label, thinking }]
-        let list = s.vibe_opts["models"].as_array().cloned().unwrap_or_default();
+    let models: Vec<El> = if is_pi {
+        // Pi models from /api/pi-options: [{ name, alias, label, thinking }]
+        let list = s.pi_opts["models"].as_array().cloned().unwrap_or_default();
         std::iter::once(chip(k, "nm-default".into(), "Default".into(), s.new_model.is_none(), |s| {
             s.new_model = None;
         }))
@@ -70,10 +70,10 @@ fn controls(s: &Hooked, k: &Kit) -> El {
         }))
         .collect()
     };
-    // Vibe: thinking levels of the selected model (array in the entry, string in TOML).
-    let vibe_efforts: Vec<String> = if is_vibe {
+    // Pi: thinking levels of the selected model (array in the entry, string in TOML).
+    let pi_efforts: Vec<String> = if is_pi {
         let sel = s.new_model.clone().unwrap_or_default();
-        let list = s.vibe_opts["models"].as_array().cloned().unwrap_or_default();
+        let list = s.pi_opts["models"].as_array().cloned().unwrap_or_default();
         let m = list
             .iter()
             .find(|m| m["alias"].as_str().or(m["name"].as_str()) == Some(sel.as_str()) || sel.is_empty())
@@ -81,16 +81,16 @@ fn controls(s: &Hooked, k: &Kit) -> El {
         match m.as_ref().map(|m| m["thinking"].clone()).unwrap_or(serde_json::Value::Null) {
             serde_json::Value::Array(a) => a.iter().filter_map(|v| v.as_str().map(String::from)).collect(),
             serde_json::Value::String(x) => x.split(',').map(|x| x.trim().to_string()).filter(|x| !x.is_empty()).collect(),
-            _ => s.vibe_opts["thinkingLevels"].as_array().cloned().unwrap_or_default().iter().filter_map(|v| v.as_str().map(String::from)).collect(),
+            _ => s.pi_opts["thinkingLevels"].as_array().cloned().unwrap_or_default().iter().filter_map(|v| v.as_str().map(String::from)).collect(),
         }
     } else {
         Vec::new()
     };
-    let efforts: Vec<El> = if is_vibe {
+    let efforts: Vec<El> = if is_pi {
         std::iter::once(chip(k, "ne-default".into(), "Default".into(), s.new_effort.is_none(), |s| {
             s.new_effort = None;
         }))
-        .chain(vibe_efforts.iter().map(|e| {
+        .chain(pi_efforts.iter().map(|e| {
             let e = e.clone();
             chip(k, format!("ne-{e}"), e.clone(), s.new_effort.as_deref() == Some(e.as_str()), move |s| {
                 s.new_effort = Some(e.clone());
@@ -117,10 +117,10 @@ fn controls(s: &Hooked, k: &Kit) -> El {
         }))
         .collect()
     };
-    // Vibe modes from /api/vibe-options ([{ id, label }]); ids match the hooked permission-mode
-    // keys the server translates to Vibe agents.
-    let modes: Vec<El> = if is_vibe {
-        s.vibe_opts["modes"].as_array().cloned().unwrap_or_default()
+    // Pi modes from /api/pi-options ([{ id, label }]); ids match the hooked permission-mode
+    // keys the server translates to Pi agents.
+    let modes: Vec<El> = if is_pi {
+        s.pi_opts["modes"].as_array().cloned().unwrap_or_default()
             .iter()
             .map(|m| {
                 let id = m["id"].as_str().unwrap_or("default").to_string();
@@ -152,10 +152,10 @@ fn controls(s: &Hooked, k: &Kit) -> El {
     if let Some(pl) = provider_line {
         col = col.child(pl);
     }
-    // Détail du modèle sélectionné (nom complet, alias, niveaux de thinking côté Vibe) —
+    // Détail du modèle sélectionné (nom complet, alias, niveaux de thinking côté Pi) —
     // sans ça les chips ne montrent qu'un label court.
-    let model_detail: String = if is_vibe {
-        let list = s.vibe_opts["models"].as_array().cloned().unwrap_or_default();
+    let model_detail: String = if is_pi {
+        let list = s.pi_opts["models"].as_array().cloned().unwrap_or_default();
         match s.new_model.as_deref().and_then(|a| {
             list.iter()
                 .find(|m| m["alias"].as_str().or(m["name"].as_str()) == Some(a))
@@ -182,7 +182,7 @@ fn controls(s: &Hooked, k: &Kit) -> El {
                 }
                 d
             }
-            None => "active model from ~/.vibe/config.toml".to_string(),
+            None => "active model from ~/.pi/config.toml".to_string(),
         }
     } else {
         match s.new_model.as_ref() {
@@ -213,8 +213,8 @@ fn controls(s: &Hooked, k: &Kit) -> El {
         )
         .child(line("EFFORT", chips(efforts)))
         .child(line("MODE", chips(modes)));
-    // worktree / ephemeral: Claude-only, no Vibe equivalent — hidden in vibe mode.
-    if !is_vibe {
+    // worktree / ephemeral: Claude-only, no Pi equivalent — hidden in pi mode.
+    if !is_pi {
         col = col.child(line(
             "OPTIONS",
             chips(vec![
@@ -430,8 +430,8 @@ pub fn view(s: &Hooked, k: &Kit, _layer: &mut Vec<El>) -> El {
                         .color(k.c.text_base),
                 )
                 .child(
-                    text(if s.new_provider == "vibe" && s.providers.vibe {
-                        "Launches a Mistral Vibe session driven by hooked."
+                    text(if s.new_provider == "pi" && s.providers.pi {
+                        "Launches a Mistral Pi session driven by hooked."
                     } else {
                         "Launches a Claude Code session driven by hooked."
                     })
@@ -440,8 +440,8 @@ pub fn view(s: &Hooked, k: &Kit, _layer: &mut Vec<El>) -> El {
                 ),
         );
     let prompt = TextArea::new(&s.new_prompt)
-        .placeholder(if s.new_provider == "vibe" && s.providers.vibe {
-            "What should Mistral Vibe do? (⌘Enter to launch)"
+        .placeholder(if s.new_provider == "pi" && s.providers.pi {
+            "What should Mistral Pi do? (⌘Enter to launch)"
         } else {
             "What should Claude do? (⌘Enter to launch)"
         })

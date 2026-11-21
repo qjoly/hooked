@@ -466,14 +466,14 @@ fn caption(k: &Kit, label: &str) -> El {
 }
 
 
-/// Small claude/vibe badge shown next to a session row/card — only when BOTH providers are
+/// Small claude/pi badge shown next to a session row/card — only when BOTH providers are
 /// installed on this machine (with a single one, the badge would tell nothing).
 /// Pill with a filled background so the provider is readable at a glance.
 pub(super) fn prov_badge(s: &Hooked, k: &Kit, x: &Session) -> Option<El> {
     if !s.providers.both() {
         return None;
     }
-    let vibe = x.provider.as_deref() == Some("vibe");
+    let pi = x.provider.as_deref() == Some("pi");
     let mut f = k.ty.mono;
     f.size = 9.0;
     Some(
@@ -483,11 +483,11 @@ pub(super) fn prov_badge(s: &Hooked, k: &Kit, x: &Session) -> Option<El> {
             .px(5.0)
             .center_y()
             .radius(4.0)
-            .fill(if vibe { k.c.bg_accent } else { k.c.layer_02 })
+            .fill(if pi { k.c.bg_accent } else { k.c.layer_02 })
             .child(
-                text(if vibe { "vibe" } else { "cc" })
+                text(if pi { "pi" } else { "cc" })
                     .font(f)
-                    .color(if vibe { k.c.text_inverse } else { k.c.text_muted }),
+                    .color(if pi { k.c.text_inverse } else { k.c.text_muted }),
             ),
     )
 }

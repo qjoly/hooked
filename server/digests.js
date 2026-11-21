@@ -14,9 +14,9 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { HOOKED_DIR, isValidModelArg } from './config.js';
 import { scanAllSessions } from './sessions.js';
-import { buildVibeConversation } from './vibe.js';
+import { buildPiConversation } from './pi.js';
 import { resolveClaudeBin } from './commands.js';
-import { runVibeHeadless } from './vibeCli.js';
+import { runPiHeadless } from './piCli.js';
 import { buildConversation } from './conversation.js';
 import { readTags } from './tags.js';
 import { readSettings } from './settings.js';
@@ -130,7 +130,7 @@ function collectSessionsForDay(date) {
     const sd = tsToLocalDay(s.startTs);
     const ld = tsToLocalDay(s.lastTs);
     if (sd && ld && (date < sd || date > ld)) continue; // day outside the session's span
-    const msgs = s.provider === 'vibe' ? buildVibeConversation(s.dir) : buildConversation(s.file);
+    const msgs = s.provider === 'pi' ? buildPiConversation(s.dir) : buildConversation(s.file);
     const prompts = [];
     const dayTools = {};
     let assistantTurns = 0;
@@ -239,12 +239,12 @@ const parseModelJson = modelJson;
 // Run `claude -p` headless, feeding the prompt on stdin. Wrapped in a login+interactive shell for
 // PATH parity with launchSession (brew/asdf/nvm publish PATH in login files) so a hooked started
 // from launchd/systemd/cron still finds `claude`. Returns a promise of parsed model JSON (or null).
-// Générateur du digest : `claude -p` si le binaire est installé, sinon `vibe -p --output json`
+// Générateur du digest : `claude -p` si le binaire est installé, sinon `pi -p --output json`
 // (même contrat : JSON du modèle parsé, ou { error }).
 async function runDigestModel(prompt) {
   if (resolveClaudeBin()) return runClaude(prompt);
-  const r = await runVibeHeadless(prompt);
-  if (!r.ok) return { error: 'vibe -p failed: ' + (r.error || 'no output') };
+  const r = await runPiHeadless(prompt);
+  if (!r.ok) return { error: 'pi -p failed: ' + (r.error || 'no output') };
   return { parsed: objFromBraces(r.text) };
 }
 

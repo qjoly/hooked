@@ -46,7 +46,7 @@
     <div class="mmd-actions">
       {#if runnable}
         <button class="cb-copy" class:done={run === 'done'} class:err={run && run !== 'busy' && run !== 'done'} onclick={runIt} disabled={run === 'busy'}
-          title={run && run !== 'busy' && run !== 'done' ? run : (provider === 'vibe' ? 'Run in the session folder — Mistral Vibe gets the output and continues' : 'Run in the session folder — Claude gets the output and continues')}>
+          title={run && run !== 'busy' && run !== 'done' ? run : (provider === 'pi' ? 'Run in the session folder — Mistral Pi gets the output and continues' : 'Run in the session folder — Claude gets the output and continues')}>
           <Icon name={run === 'done' ? 'check' : 'shell'} size={13} /> {run === 'busy' ? 'Running…' : run === 'done' ? 'Ran' : run ? 'Failed' : 'Run'}
         </button>
       {/if}

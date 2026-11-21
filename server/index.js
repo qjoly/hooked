@@ -61,11 +61,11 @@ export * from './worktrees.js';
 export * from './panels.js';
 export * from './worktreeCleanup.js';
 export * from './autoPull.js';
-export * from './vibe.js';
-export * from './vibeAgent.js';
-export * from './vibeCommands.js';
-export * from './vibeMcp.js';
-export * from './vibeCli.js';
+export * from './pi.js';
+export * from './piAgent.js';
+export * from './piCommands.js';
+export * from './piMcp.js';
+export * from './piCli.js';
 export * from './sessions.js';
 export * as searchIndex from './searchIndex.js';
 // Namespacé pour la même raison que searchIndex : `lookup`, `partition`, `readSlice` sont des

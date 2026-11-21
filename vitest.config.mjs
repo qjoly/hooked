@@ -12,10 +12,9 @@ export default defineConfig({
     env: {
       HOOKED_PROJECTS_DIR: path.join(FX, 'projects'),
       HOOKED_DATA_DIR: path.join(FX, 'data'),
-      // provider vibe : dossiers vides par défaut (n'existent pas → scan/lecture vides) ;
-      // test/vibe.test.mjs passe son propre dossier de fixtures en argument explicite.
-      HOOKED_VIBE_SESSIONS_DIR: path.join(FX, 'vibe-session-empty'),
-      HOOKED_VIBE_DATA_DIR: path.join(FX, 'vibe-data-empty'),
+      // provider pi : dossier vide par défaut (n'existe pas → scan/lecture vides) ;
+      // test/pi.test.mjs passe son propre dossier de fixtures en argument explicite.
+      HOOKED_PI_SESSIONS_DIR: path.join(FX, 'pi-session-empty'),
     },
     server: {
       // node:sqlite est un module natif Node 24 : il doit être chargé tel quel,

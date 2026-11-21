@@ -49,7 +49,7 @@ pub fn commands(s: &Hooked) -> Vec<Cmd> {
     ];
     // Le filtre provider n'a de sens que quand les DEUX providers sont installés.
     if s.providers.both() {
-        out.push(cmd(nav, &icons::FILTER, "Filter by provider (all/Claude/Vibe)", "⌥3", |s, _| {
+        out.push(cmd(nav, &icons::FILTER, "Filter by provider (all/Claude/Pi)", "⌥3", |s, _| {
             s.cycle_provider_filter()
         }));
     }

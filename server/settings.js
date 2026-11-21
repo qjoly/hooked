@@ -144,8 +144,8 @@ function sanitize(raw) {
     typeof o.quickLaunchProject === 'string' && o.quickLaunchProject.startsWith('/')
       ? o.quickLaunchProject.slice(0, 4096)
       : '';
-  // defaultProvider : 'claude' (défaut, non-régression) ou 'vibe'.
-  const defaultProvider = o.defaultProvider === 'vibe' ? 'vibe' : 'claude';
+  // defaultProvider : 'claude' (défaut, non-régression) ou 'pi'.
+  const defaultProvider = o.defaultProvider === 'pi' ? 'pi' : 'claude';
   // remoteControlProjects : liste de chemins absolus, dédupée et bornée (anti-abus : chaque démon
   // spawn un process claude). L'existence du dossier n'est PAS vérifiée ici (le disque peut varier) —
   // reconcileRemoteControl saute au lancement un chemin qui n'est plus un dossier.

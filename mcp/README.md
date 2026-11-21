@@ -23,9 +23,9 @@ Au prochain lancement de Claude Code dans ce dossier, approuve le serveur projet
 claude mcp add hooked -- node /chemin/vers/hooked/mcp/server.cjs
 ```
 
-### Mistral Vibe
+### Mistral Pi
 
-Dans `~/.vibe/config.toml` (scope user — dispo dans toutes les sessions Vibe) :
+Dans `~/.pi/config.toml` (scope user — dispo dans toutes les sessions Pi) :
 
 ```toml
 [[mcp_servers]]
@@ -35,8 +35,8 @@ command = "node"
 args = ["/chemin/vers/hooked/mcp/server.cjs"]
 ```
 
-Vérifié en E2E : la lens MCP du dashboard (`/api/mcp?provider=vibe`) liste `hooked` (scope
-user), et une session Vibe pilotée appelle `list_sessions` avec la vraie réponse de l'API.
+Vérifié en E2E : la lens MCP du dashboard (`/api/mcp?provider=pi`) liste `hooked` (scope
+user), et une session Pi pilotée appelle `list_sessions` avec la vraie réponse de l'API.
 
 
 ### Variables d'environnement

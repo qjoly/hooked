@@ -52,6 +52,6 @@ export function reviewPrInSession(url) {
   const cwd = checkout || readSettings().quickLaunchProject || HOME;
   const prompt = prReviewPrompt({ url, repo, number: ref.number, checkout });
   return new Promise((resolve, reject) => {
-    launchSession({ cwd, prompt, provider: readSettings().defaultProvider === 'vibe' ? 'vibe' : undefined }, (err, info) => (err ? reject(err) : resolve({ ...info, checkout })));
+    launchSession({ cwd, prompt, provider: readSettings().defaultProvider === 'pi' ? 'pi' : undefined }, (err, info) => (err ? reject(err) : resolve({ ...info, checkout })));
   });
 }

@@ -447,7 +447,7 @@ export function setCorners(c) {
 // dans la sidebar, le Deck, les splits, le sélecteur de groupe…
 const raw = $state({ sessions: [] });
 export const data = {
-  providers: { claude: true, vibe: false }, // providers configurés (badge sidebar) — défaut: un seul
+  providers: { claude: true, pi: false }, // providers configurés (badge sidebar) — défaut: un seul
   get sessions() { return ui.incognito ? raw.sessions.filter((s) => isIncognito(s.id)) : raw.sessions; },
   set sessions(v) { raw.sessions = v; },
 };

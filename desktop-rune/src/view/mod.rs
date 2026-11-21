@@ -712,7 +712,7 @@ fn session_row(
         line1 = line1.child(glyph(&icons::PIN, 12.0, k.c.icon_muted));
     }
     line1 = line1.child(title);
-    // Badge provider (cc/vibe) à côté du titre — la sidebar est LA liste des sessions.
+    // Badge provider (cc/pi) à côté du titre — la sidebar est LA liste des sessions.
     if let Some(b) = fleet::prov_badge(s, k, x) {
         line1 = line1.child(b);
     }
@@ -1235,7 +1235,7 @@ fn sidebar(s: &Hooked, k: &Kit, layer: &mut Vec<El>) -> El {
                 .description(match s.provider_filter.as_deref() {
                     None => "Any".to_string(),
                     Some("claude") => "Claude Code".to_string(),
-                    _ => "Mistral Vibe".to_string(),
+                    _ => "Mistral Pi".to_string(),
                 })
                 .on_select(|s: &mut Hooked| s.cycle_provider_filter()),
         );

@@ -16,7 +16,7 @@
 
   const S = $derived(data.sessions);
 
-  // Badge provider (cc/vibe) sur les cartes, à côté du repo : affiché seulement quand les DEUX
+  // Badge provider (cc/pi) sur les cartes, à côté du repo : affiché seulement quand les DEUX
   // providers sont configurés (même règle que la sidebar — un seul provider = badge inutile).
   const showProviders = $derived(providersBoth(data.providers));
 
@@ -325,7 +325,7 @@
         </button>
       {:else}
         {#if isGrouped(s.id)}<span class="tgroup" title="Session group"><Icon name="sessions" size={11} /> {groupName(s.id)}</span>{/if}
-        <span class="tmeta">{#if projectKey(s) !== '—'}<span class="lot" style="--lot:{lotColor(projectKey(s))}"></span>{/if}{s.repo || s.projectName || ''}{#if showProviders}<span class="tprov" class:vibe={s.provider === 'vibe'} title={s.provider === 'vibe' ? 'Mistral Vibe session' : 'Claude Code session'}>{s.provider === 'vibe' ? 'vibe' : 'cc'}</span>{/if}{#if s.gitBranch} · <Icon name="git-branch" size={12} /> {s.gitBranch}{/if}</span>
+        <span class="tmeta">{#if projectKey(s) !== '—'}<span class="lot" style="--lot:{lotColor(projectKey(s))}"></span>{/if}{s.repo || s.projectName || ''}{#if showProviders}<span class="tprov" class:pi={s.provider === 'pi'} title={s.provider === 'pi' ? 'Mistral Pi session' : 'Claude Code session'}>{s.provider === 'pi' ? 'pi' : 'cc'}</span>{/if}{#if s.gitBranch} · <Icon name="git-branch" size={12} /> {s.gitBranch}{/if}</span>
         <span class="tago">{ago(s.lastActivity)}</span>
       {/if}
     </header>
@@ -554,9 +554,9 @@
   }
   .ttitle:hover { color: var(--accent-d); }
   .tmeta { font-family: var(--mono); font-size: var(--t-micro); color: var(--muted); flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  /* badge provider (Mistral Vibe) à côté du repo — même look que la sidebar (.ssb-prov) */
+  /* badge provider (Mistral Pi) à côté du repo — même look que la sidebar (.ssb-prov) */
   .tprov { font-family: var(--mono); font-size: 9px; line-height: 1; color: var(--muted); border: 1px solid var(--border); border-radius: 4px; padding: 2px 3px; margin: 0 4px; text-transform: lowercase; }
-  .tprov.vibe { color: var(--accent, var(--muted)); border-color: var(--accent, var(--border)); }
+  .tprov.pi { color: var(--accent, var(--muted)); border-color: var(--accent, var(--border)); }
   .tago { font-size: var(--t-meta); color: var(--muted); flex: 0 0 auto; font-variant-numeric: tabular-nums; }
   .tbody { padding: 6px 16px; }
   /* Project lot: one square per repo, identical wherever the repo shows up. */

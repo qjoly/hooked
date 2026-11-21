@@ -225,8 +225,8 @@ fn head(s: &Hooked, d: &Detail, k: &Kit, layer: &mut Vec<El>) -> El {
                 .icon(&icons::PLAY)
                 .variant(ButtonVariant::Neutral)
                 .control_size(ControlSize::Regular)
-                .help(if x.provider.as_deref() == Some("vibe") {
-                    "Re-run vibe --resume, driven by hooked"
+                .help(if x.provider.as_deref() == Some("pi") {
+                    "Re-run pi --resume, driven by hooked"
                 } else {
                     "Re-run claude --resume, driven by hooked"
                 })
@@ -380,11 +380,11 @@ fn more_menu(s: &Hooked, d: &Detail, k: &Kit, layer: &mut Vec<El>) -> El {
         .min_width(280.0)
         .on_close(|s: &mut Hooked| s.popup = None);
     if x.live {
-        let is_vibe = x.provider.as_deref() == Some("vibe");
+        let is_pi = x.provider.as_deref() == Some("pi");
         let current = x.model.clone().unwrap_or_default();
-        let models: Vec<_> = if is_vibe {
-            // Vibe models (alias) from /api/vibe-options
-            s.vibe_opts["models"].as_array().cloned().unwrap_or_default()
+        let models: Vec<_> = if is_pi {
+            // Pi models (alias) from /api/pi-options
+            s.pi_opts["models"].as_array().cloned().unwrap_or_default()
                 .into_iter()
                 .map(|m| {
                     let alias = m["alias"].as_str().or(m["name"].as_str()).unwrap_or("").to_string();
@@ -417,22 +417,22 @@ fn more_menu(s: &Hooked, d: &Detail, k: &Kit, layer: &mut Vec<El>) -> El {
             .collect()
         };
         let effort_now = x.effort.clone().unwrap_or_default();
-        let efforts: Vec<_> = if is_vibe {
-            // thinking levels of the current vibe model (or the global list)
-            let list = s.vibe_opts["models"].as_array().cloned().unwrap_or_default();
+        let efforts: Vec<_> = if is_pi {
+            // thinking levels of the current pi model (or the global list)
+            let list = s.pi_opts["models"].as_array().cloned().unwrap_or_default();
             let m = list.iter().find(|m| {
                 m["alias"].as_str().or(m["name"].as_str()) == Some(current.as_str())
             });
             let levels = m
                 .map(|m| m["thinking"].clone())
-                .unwrap_or_else(|| s.vibe_opts["thinkingLevels"].clone());
+                .unwrap_or_else(|| s.pi_opts["thinkingLevels"].clone());
             let arr: Vec<serde_json::Value> = match &levels {
                 serde_json::Value::Array(a) => a.clone(),
                 serde_json::Value::String(x) => x
                     .split(',')
                     .map(|v| serde_json::Value::String(v.trim().to_string()))
                     .collect(),
-                _ => s.vibe_opts["thinkingLevels"].as_array().cloned().unwrap_or_default(),
+                _ => s.pi_opts["thinkingLevels"].as_array().cloned().unwrap_or_default(),
             };
             arr.iter()
                 .filter_map(|v| v.as_str().map(String::from))
@@ -478,9 +478,9 @@ fn more_menu(s: &Hooked, d: &Detail, k: &Kit, layer: &mut Vec<El>) -> El {
         }
         if s.menu_shows("permissionMode") {
             m = m.group_label("Permission mode");
-            if is_vibe {
-                // Vibe agents (ask / accept-edits / auto-approve) — no "plan" mode in Vibe.
-                for mv in s.vibe_opts["modes"].as_array().cloned().unwrap_or_default() {
+            if is_pi {
+                // Pi agents (ask / accept-edits / auto-approve) — no "plan" mode in Pi.
+                for mv in s.pi_opts["modes"].as_array().cloned().unwrap_or_default() {
                     // set_mode takes a &'static str: map the dynamic id onto the known keys.
                     let id: &'static str = match mv["id"].as_str().unwrap_or("default") {
                         "acceptEdits" => "acceptEdits",
@@ -505,7 +505,7 @@ fn more_menu(s: &Hooked, d: &Detail, k: &Kit, layer: &mut Vec<El>) -> El {
                 }
             }
         }
-        if !is_vibe {
+        if !is_pi {
             m = m.item(
                 MenuItem::new(format!(
                     "Auto-approve · {}",
@@ -516,14 +516,14 @@ fn more_menu(s: &Hooked, d: &Detail, k: &Kit, layer: &mut Vec<El>) -> El {
                 .on_select(|s: &mut Hooked| s.toggle_auto_approve()),
             );
         }
-        if !is_vibe {
+        if !is_pi {
             m = m.separator();
         }
     }
-    let is_vibe = x.provider.as_deref() == Some("vibe");
-    let resume_cmd = if is_vibe {
+    let is_pi = x.provider.as_deref() == Some("pi");
+    let resume_cmd = if is_pi {
         format!(
-            "cd {} && vibe --resume {}",
+            "cd {} && pi --resume {}",
             x.project.clone().unwrap_or_default(),
             x.id
         )
@@ -640,14 +640,14 @@ fn more_menu(s: &Hooked, d: &Detail, k: &Kit, layer: &mut Vec<El>) -> El {
     )
     .separator()
     .item(
-        MenuItem::new(if x.provider.as_deref() == Some("vibe") {
-            "Restart Vibe"
+        MenuItem::new(if x.provider.as_deref() == Some("pi") {
+            "Restart Pi"
         } else {
             "Restart Claude"
         })
         .icon(&icons::RESTART)
-        .description(if x.provider.as_deref() == Some("vibe") {
-            "Stop the Vibe process and resume it from its session"
+        .description(if x.provider.as_deref() == Some("pi") {
+            "Stop the Pi process and resume it from its session"
         } else {
             "Stop the process and resume it from its transcript"
         })

@@ -195,7 +195,7 @@ pub struct Session {
     pub followup: Option<String>,
     pub todo: Option<TodoSummary>,
     pub cache: Option<CacheInfo>,
-    /// Agent provider of the session: "claude" (Agent SDK) or "vibe" (Mistral Vibe via ACP).
+    /// Agent provider of the session: "claude" (Agent SDK) or "pi" (Mistral via pi, RPC).
     pub provider: Option<String>,
     /// The remote hooked instance the session runs on (`crate::remote`), `None` for a local
     /// one. Set by this app when it lists an instance, never read from the wire.
@@ -236,26 +236,26 @@ impl Session {
 }
 
 /// Which agent CLIs are installed on this machine (from /api/sessions). The UI only shows the
-/// claude/vibe badge when BOTH are present — with a single provider it would tell nothing.
+/// claude/pi badge when BOTH are present — with a single provider it would tell nothing.
 #[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq)]
 pub struct Providers {
     #[serde(default)]
     pub claude: bool,
     #[serde(default)]
-    pub vibe: bool,
+    pub pi: bool,
 }
 
 impl Providers {
     pub fn both(&self) -> bool {
-        self.claude && self.vibe
+        self.claude && self.pi
     }
 
     /// With a single provider installed there is nothing to choose: it is the one to use.
     /// `None` when both (or neither) are present.
     pub fn only(&self) -> Option<&'static str> {
-        match (self.claude, self.vibe) {
+        match (self.claude, self.pi) {
             (true, false) => Some("claude"),
-            (false, true) => Some("vibe"),
+            (false, true) => Some("pi"),
             _ => None,
         }
     }
@@ -743,10 +743,10 @@ pub struct Capabilities {
     pub efforts: Vec<String>,
 }
 
-/// Launch options for the Mistral Vibe provider (model aliases, thinking levels, agent modes)
-/// read from ~/.vibe/config.toml by the server.
-pub fn vibe_options() -> Result<Value, String> {
-    get("/api/vibe-options")
+/// Launch options for the Mistral Pi provider (model aliases, thinking levels, agent modes)
+/// read from ~/.pi/config.toml by the server.
+pub fn pi_options() -> Result<Value, String> {
+    get("/api/pi-options")
 }
 
 pub fn capabilities() -> Result<Capabilities, String> {
@@ -854,7 +854,7 @@ pub struct Launch {
     pub incognito: bool,
     pub worktree: bool,
     pub ephemeral: bool,
-    /// "claude" (default) or "vibe" (Mistral Vibe). None = let the server decide.
+    /// "claude" (default) or "pi" (Mistral Pi). None = let the server decide.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub provider: Option<String>,
 }
@@ -996,11 +996,11 @@ pub struct McpServer {
 }
 
 pub fn mcp_list(cwd: &str, cached: bool, provider: Option<&str>) -> Result<Vec<McpServer>, String> {
-    // provider=vibe : liste lue dans la config Vibe ; `cached` n'existe pas côté vibe, le
+    // provider=pi : liste lue dans la config Pi ; `cached` n'existe pas côté pi, le
     // health-check (`check=1`) est l'appel complet.
     let mut url = format!("/api/mcp?cwd={}", enc(cwd));
-    if provider == Some("vibe") {
-        url.push_str("&provider=vibe");
+    if provider == Some("pi") {
+        url.push_str("&provider=pi");
         if !cached {
             url.push_str("&check=1");
         }
@@ -1116,15 +1116,15 @@ mod tests {
 
     #[test]
     fn providers_only_when_a_single_one_is_installed() {
-        let both = Providers { claude: true, vibe: true };
-        let claude_only = Providers { claude: true, vibe: false };
-        let vibe_only = Providers { claude: false, vibe: true };
+        let both = Providers { claude: true, pi: true };
+        let claude_only = Providers { claude: true, pi: false };
+        let pi_only = Providers { claude: false, pi: true };
         let none = Providers::default();
         assert!(both.both() && both.only().is_none());
         assert!(!claude_only.both());
         assert_eq!(claude_only.only(), Some("claude"));
-        assert!(!vibe_only.both());
-        assert_eq!(vibe_only.only(), Some("vibe"));
+        assert!(!pi_only.both());
+        assert_eq!(pi_only.only(), Some("pi"));
         assert!(!none.both() && none.only().is_none());
     }
 }

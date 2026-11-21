@@ -10,7 +10,7 @@ import fs from 'node:fs';
 import { EVENTS_FILES } from './config.js';
 import { statSafe } from './util.js';
 
-// Sans argument, on lit TOUTES les sources d'événements (Claude + Vibe, cf. EVENTS_FILES) :
+// Sans argument, on lit TOUTES les sources d'événements (Claude + Pi, cf. EVENTS_FILES) :
 // un appel avec un chemin explicite (tests) ne lit que ce fichier.
 let eventsCache = { key: null, list: [] };
 function readEvents(eventsFile) {

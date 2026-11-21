@@ -1,0 +1,432 @@
+/*
+ * Provider pi (CLI agent de earendil-works) — scan et parse des sessions pi, cf. docs/port-pi.md.
+ *
+ * Source : ~/.pi/agent/sessions/--<cwd encodé>--/<timestamp>_<sessionId>.jsonl (JSONL, arbre
+ * id/parentId, v3). Ligne 0 = header {type:"session",version,id,timestamp,cwd,parentSession?} ;
+ * entrées : model_change, thinking_level_change, message (system/user/assistant/toolResult),
+ * session_info (name), usage, compaction, branch_summary, label, custom.
+ *
+ * Même shape de retour que le scan Claude (blankSummary + provider:'pi') pour que stats.js et le
+ * front n'aient qu'une branche provider à gérer.
+ */
+import fs from 'node:fs';
+import path from 'node:path';
+import { PI_SESSIONS_DIR } from './config.js';
+import { blankSummary } from './transcript.js';
+import { readdirSafe, statSafe, textOf, cleanPrompt, truncTitle, toolDetail, toolInputText, toolDiffOps, toolResultText } from './util.js';
+import { costForUsage } from './pricing.js';
+
+const PR_URL_RE = /https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/pull\/\d+/g;
+const ISSUE_URL_RE = /https:\/\/(?:github\.com\/[\w.-]+\/[\w.-]+\/issues|[\w.-]+\/[\w./-]+?\/-\/(?:issues|work_items))\/\d+/g;
+
+// Fenêtres de contexte approximatives par famille de modèles Mistral (pour la jauge CTX quand le
+// driver RPC n'est pas vivant — avec le driver, get_session_stats donne la valeur exacte).
+const CTX_WINDOW = [
+  [/large/, 1_000_000],
+  [/glm/, 1_000_000],
+  [/devstral/, 262_144],
+  [/medium/, 262_144],
+  [/small|ministral|magistral/, 131_072],
+  [/codestral|pixtral/, 256_000],
+];
+const DEFAULT_CTX_WINDOW = 262_144;
+function contextWindowFor(model) {
+  for (const [re, w] of CTX_WINDOW) if (re.test(String(model || ''))) return w;
+  return DEFAULT_CTX_WINDOW;
+}
+
+// usage pi {input, output, cacheRead, cacheWrite, totalTokens, cost} → shape Anthropic de costForUsage
+function piUsageToAnthropic(u) {
+  return {
+    input_tokens: u.input || 0,
+    output_tokens: u.output || 0,
+    cache_creation_input_tokens: u.cacheWrite || 0,
+    cache_read_input_tokens: u.cacheRead || 0,
+  };
+}
+
+// Nom court d'un tool pi pour le compteur s.tools : mcp__serveur__tool → mcp:serveur, sinon le nom.
+function piShortTool(name) {
+  const n = String(name || '');
+  const m = n.match(/^mcp__([^_]+)__/);
+  return m ? 'mcp:' + m[1] : n;
+}
+
+// ── Lecture mémoïsée d'un fichier de session ───────────────────────────────────────────────────
+const piCache = new Map(); // file -> { key, header, entries, summary }
+
+function piRead(file) {
+  const st = statSafe(file);
+  if (!st || !st.isFile()) return null;
+  const key = st.mtimeMs + ':' + st.size;
+  const c = piCache.get(file);
+  if (c && c.key === key) return c;
+  let header = null;
+  const entries = [];
+  try {
+    const lines = fs.readFileSync(file, 'utf8').split('\n');
+    for (const line of lines) {
+      if (!line.trim()) continue;
+      let e;
+      try { e = JSON.parse(line); } catch (_) { continue; }
+      if (!header && e.type === 'session') { header = e; continue; }
+      if (e.type) entries.push(e);
+    }
+  } catch (_) { return null; }
+  if (!header) return null;
+  const out = { key, file, header, entries, summary: null };
+  piCache.set(file, out);
+  return out;
+}
+
+// Branche active de l'arbre : le leaf est la DERNIRE entrée du fichier (append-only) ; on remonte
+// via parentId. Renvoie les entrées de la branche, dans l'ordre du fichier.
+function activeBranch(entries) {
+  if (!entries.length) return [];
+  const byId = new Map(entries.map((e) => [e.id, e]));
+  let leaf = entries[entries.length - 1];
+  const onBranch = new Set();
+  for (let cur = leaf; cur; cur = cur.parentId ? byId.get(cur.parentId) : null) onBranch.add(cur.id);
+  return entries.filter((e) => onBranch.has(e.id));
+}
+
+// ── Résumé (blankSummary + provider:'pi') ───────────────────────────────────────────────────────
+const branchCache = new Map(); // project -> { at, branch }
+function gitBranchOf(project) {
+  if (!project) return null;
+  const now = Date.now();
+  const c = branchCache.get(project);
+  if (c && now - c.at < 30_000) return c.branch;
+  let branch = null;
+  try {
+    const head = fs.readFileSync(path.join(project, '.git', 'HEAD'), 'utf8').trim();
+    const m = head.match(/^ref: refs\/heads\/(.+)$/);
+    branch = m ? m[1] : (head.match(/^[0-9a-f]{40}$/) ? head.slice(0, 7) : null);
+  } catch (_) {}
+  branchCache.set(project, { at: now, branch });
+  return branch;
+}
+
+function finalizePi(read) {
+  const { header, entries, file } = read;
+  const s = blankSummary(header.id || path.basename(file).replace(/\.jsonl$/, ''), file);
+  s.provider = 'pi';
+  s.dir = path.dirname(file); // compat : plusieurs appels utilisaient s.dir
+  const branch = activeBranch(entries);
+  const cwd = header.cwd || null;
+  if (cwd) { s.project = cwd; s.projectName = path.basename(cwd); }
+  s.gitBranch = gitBranchOf(cwd);
+  if (header.timestamp) s.startTs = header.timestamp;
+  if (header.parentSession) {
+    const m = String(header.parentSession).match(/_([^_]+)\.jsonl$/);
+    if (m) s.forkedFrom = m[1];
+  }
+
+  let model = null;
+  let modelProvider = null;
+  let sessionName = null;
+  const prRaw = [];
+  const issueRaw = [];
+  let lastTs = s.startTs;
+
+  for (const e of branch) {
+    if (e.timestamp) {
+      if (!s.startTs || e.timestamp < s.startTs) s.startTs = e.timestamp;
+      if (!lastTs || e.timestamp > lastTs) lastTs = e.timestamp;
+    }
+    if (e.type === 'model_change') { model = e.modelId || model; modelProvider = e.provider || modelProvider; }
+    else if (e.type === 'session_info' && e.name) sessionName = e.name;
+    else if (e.type === 'message' && e.message) {
+      const m = e.message;
+      const ts = m.timestamp ? new Date(m.timestamp).toISOString() : e.timestamp;
+      if (e.type === 'message' && m.role === 'user') {
+        const raw = textOf(m.content);
+        const t = cleanPrompt(raw);
+        if (t) { s.userPrompts++; if (!s.firstPrompt) s.firstPrompt = t; s.lastPrompt = t; }
+        for (const mm of raw.matchAll(PR_URL_RE)) prRaw.push(mm[0]);
+        for (const mm of raw.matchAll(ISSUE_URL_RE)) issueRaw.push(mm[0]);
+      } else if (m.role === 'assistant') {
+        const raw = textOf(m.content);
+        const t = cleanPrompt(raw);
+        if (t) s.lastReply = t;
+        s.assistantTurns++;
+        if (Array.isArray(m.content)) {
+          for (const b of m.content) if (b && b.type === 'toolCall' && b.name) {
+            const name = piShortTool(b.name);
+            s.tools[name] = (s.tools[name] || 0) + 1;
+          }
+        }
+        for (const mm of raw.matchAll(PR_URL_RE)) prRaw.push(mm[0]);
+        for (const mm of raw.matchAll(ISSUE_URL_RE)) issueRaw.push(mm[0]);
+        // usage + coût + byDay
+        const u = m.usage;
+        if (u && (u.totalTokens || u.input || u.output)) {
+          const ua = piUsageToAnthropic(u);
+          const k = costForUsage(ua, model || 'mistral');
+          s.usage.input += k.inp; s.usage.output += k.out; s.usage.cacheCreate += k.cc; s.usage.cacheRead += k.cr;
+          s.cost += k.total;
+          s.costBreak.input += k.cIn; s.costBreak.output += k.cOut; s.costBreak.cacheCreate += k.cCc; s.costBreak.cacheRead += k.cCr;
+          const day = (ts || '').slice(0, 10) || 'unknown';
+          const d = (s.byDay[day] = s.byDay[day] || { input: 0, output: 0, cacheCreate: 0, cacheRead: 0, cost: 0, turns: 0 });
+          d.input += k.inp; d.output += k.out; d.cacheCreate += k.cc; d.cacheRead += k.cr; d.cost += k.total; d.turns++;
+          const contextTokens = u.totalTokens || ((u.input || 0) + (u.cacheRead || 0) + (u.cacheWrite || 0) + (u.output || 0));
+          if (contextTokens) s.lastUsage = { ts: ts || s.lastTs || null, contextTokens, ttl: null };
+        }
+      }
+    }
+  }
+  s.lastTs = lastTs || s.startTs || null;
+  s.model = model ? (modelProvider && modelProvider !== 'mistral' ? `${modelProvider}/${model}` : model) : null;
+  s.prLinks = [...new Set(prRaw.slice().reverse())].slice(0, 12);
+  s.issueLinks = [...new Set(issueRaw.slice().reverse())].slice(0, 12);
+  s.title = sessionName || truncTitle(s.firstPrompt, 80) || '(sans titre)';
+  read.summary = s;
+  return s;
+}
+
+// ── Scan de toutes les sessions pi ──────────────────────────────────────────────────────────────
+function scanPiSessions(sessionsDir = PI_SESSIONS_DIR) {
+  const out = [];
+  for (const sub of readdirSafe(sessionsDir)) {
+    const subDir = path.join(sessionsDir, sub);
+    if (!statSafe(subDir)?.isDirectory()) continue;
+    for (const f of readdirSafe(subDir)) {
+      if (!f.endsWith('.jsonl')) continue; // .trashed = corbeille (cf. piSetArchived)
+      const file = path.join(subDir, f);
+      const read = piRead(file);
+      if (!read) continue;
+      try { out.push(finalizePi(read)); } catch (_) {}
+    }
+  }
+  out.sort((a, b) => String(b.lastTs || '').localeCompare(String(a.lastTs || '')));
+  return out;
+}
+
+function getPiSession(id, sessionsDir = PI_SESSIONS_DIR) {
+  return scanPiSessions(sessionsDir).find((x) => x.id === id) || null;
+}
+
+// Chemin du fichier .jsonl d'une session pi par id (scan rapide, sans résumé).
+function findPiFile(sessionsDir, id) {
+  if (!id || !/^[A-Za-z0-9._-]+$/.test(id)) return null;
+  for (const sub of readdirSafe(sessionsDir)) {
+    const subDir = path.join(sessionsDir, sub);
+    if (!statSafe(subDir)?.isDirectory()) continue;
+    for (const f of readdirSafe(subDir)) {
+      if (!f.endsWith('.jsonl')) continue;
+      if (f.includes('_' + id + '.jsonl')) return path.join(subDir, f);
+    }
+  }
+  return null;
+}
+
+// ── Conversation (shape identique à conversationOf côté Claude) ─────────────────────────────────
+// pi tool name → toolDiffOps : write {path,content} → Write ; edit {path,edits:[{oldText,newText}]} → MultiEdit.
+function piToolDiff(name, args) {
+  if (!args || typeof args !== 'object') return null;
+  if (name === 'write') return toolDiffOps('Write', { file_path: args.path, content: args.content });
+  if (name === 'edit' && Array.isArray(args.edits)) {
+    return toolDiffOps('MultiEdit', {
+      file_path: args.path,
+      edits: args.edits.map((e) => ({ old_string: e.oldText, new_string: e.newText })),
+    });
+  }
+  return null;
+}
+
+function buildPiConversation(file) {
+  const read = piRead(file);
+  if (!read) return [];
+  const branch = activeBranch(read.entries);
+  const msgs = [];
+  const toolByCallId = new Map(); // toolCallId -> tool object (dans la dernière bulle assistant)
+  const partByCallId = new Map(); // toolCallId -> part (pour poser le result sans reference circulaire)
+  for (const e of branch) {
+    if (e.type !== 'message' || !e.message) continue;
+    const m = e.message;
+    const ts = m.timestamp ? new Date(m.timestamp).toISOString() : e.timestamp;
+    if (m.role === 'user') {
+      const text = textOf(m.content);
+      if (!text.trim()) continue;
+      msgs.push({ role: 'user', ts, text: text.slice(0, 200000), tools: [], parts: text.trim() ? [{ type: 'text', text }] : [], forkUuid: e.id });
+      continue;
+    }
+    if (m.role === 'toolResult') {
+      const tool = toolByCallId.get(m.toolCallId);
+      const part = partByCallId.get(m.toolCallId);
+      const result = toolResultText(m.content);
+      if (tool) {
+        tool.result = result;
+        tool.output = result;
+        tool.status = m.isError ? 'error' : 'done';
+      }
+      if (part) part.result = result;
+      continue;
+    }
+    if (m.role !== 'assistant') continue; // system ignoré
+    let text = '';
+    let thinking = '';
+    const tools = [];
+    const parts = [];
+    if (Array.isArray(m.content)) {
+      for (const b of m.content) {
+        if (!b || typeof b !== 'object') continue;
+        if (b.type === 'text' && b.text) {
+          text += (text ? '\n' : '') + b.text;
+          parts.push({ type: 'text', text: b.text });
+        } else if (b.type === 'thinking' && b.thinking) {
+          thinking += (thinking ? '\n' : '') + b.thinking;
+        } else if (b.type === 'toolCall') {
+          const tool = {
+            id: b.id || null,
+            name: b.name,
+            detail: toolDetail(b.arguments),
+            inputText: toolInputText(b.arguments),
+            result: null,
+            status: 'running',
+            input: b.arguments,
+            output: null,
+            diff: piToolDiff(b.name, b.arguments) || undefined,
+          };
+          tools.push(tool);
+          const part = { type: 'tool', tool, diff: tool.diff };
+          parts.push(part);
+          if (b.id) { toolByCallId.set(b.id, tool); partByCallId.set(b.id, part); }
+        }
+      }
+    }
+    text = text.trim();
+    if (!text && !tools.length) continue;
+    msgs.push({
+      role: 'assistant',
+      ts,
+      text,
+      thinking: thinking || undefined,
+      tools,
+      parts,
+      forkUuid: e.id,
+      model: m.model || undefined,
+      usage: m.usage || undefined,
+      stopReason: m.stopReason || undefined,
+    });
+  }
+  return msgs;
+}
+
+// ── Corbeille : renommer .jsonl ↔ .jsonl.trashed (pi ne lit que les .jsonl) ──────────────────
+function piSetArchived(file, archived) {
+  try {
+    if (archived) {
+      if (!file.endsWith('.jsonl')) return false;
+      fs.renameSync(file, file + '.trashed');
+    } else {
+      if (!file.endsWith('.trashed')) return false;
+      fs.renameSync(file, file.slice(0, -('.trashed'.length)));
+    }
+    piCache.delete(file);
+    return true;
+  } catch (_) { return false; }
+}
+
+// ── Accessoires détail (todos/subagents/screenshots : pi n'en a pas nativement) ──────────────────
+function latestPiTodos() { return null; }
+function piSubagents() { return []; }
+function piSubSessions() { return []; }
+function piScreenshots() { return []; }
+
+// Chemins de fichiers mentionnés par les tools (read/edit/write) — allowlist /api/user-file.
+function piToolPaths(file) {
+  const read = piRead(file);
+  if (!read) return [];
+  const out = new Set();
+  for (const e of activeBranch(read.entries)) {
+    if (e.type !== 'message' || e.message?.role !== 'assistant' || !Array.isArray(e.message.content)) continue;
+    for (const b of e.message.content) {
+      if (b && b.type === 'toolCall' && ['read', 'edit', 'write'].includes(b.name) && b.arguments?.path) {
+        out.add(path.isAbsolute(b.arguments.path) ? b.arguments.path : path.resolve(read.header.cwd || '', b.arguments.path));
+      }
+    }
+  }
+  return [...out];
+}
+
+// Jauge de contexte (scan, sans driver) : dernier usage + fenêtre du modèle.
+function piContext(s) {
+  const u = s.lastUsage;
+  if (!u || !u.contextTokens) return null;
+  const size = u.contextTokens;
+  const win = contextWindowFor(s.model);
+  return { pct: Math.min(100, (size / win) * 100), size, contextWindow: win };
+}
+
+// Trace (vue turns/spans) depuis les entrées de la branche active.
+function buildPiTrace(file) {
+  const read = piRead(file);
+  if (!read) return { turns: [] };
+  const branch = activeBranch(read.entries);
+  const turns = [];
+  let cur = null;
+  for (const e of branch) {
+    if (e.type !== 'message' || !e.message) continue;
+    const m = e.message;
+    const ts = m.timestamp ? new Date(m.timestamp).toISOString() : e.timestamp;
+    if (m.role === 'user') {
+      cur = { prompt: textOf(m.content), start: ts, end: null, spans: [] };
+      turns.push(cur);
+    } else if (m.role === 'assistant' && Array.isArray(m.content)) {
+      for (const b of m.content) {
+        if (b && b.type === 'toolCall') {
+          if (cur) cur.spans.push({ id: b.id, name: b.name, detail: toolDetail(b.arguments), start: ts, end: null, error: false });
+        }
+      }
+      if (cur) cur.end = ts;
+    } else if (m.role === 'toolResult' && cur) {
+      const span = cur.spans.find((x) => x.id === m.toolCallId);
+      if (span) { span.end = ts; span.error = !!m.isError; }
+    }
+  }
+  return { turns };
+}
+
+// Détail d'un tool (input/result) pour /api/session/message et le dock.
+function piToolDetail(file, toolCallId) {
+  const read = piRead(file);
+  if (!read) return null;
+  for (const e of activeBranch(read.entries)) {
+    if (e.type !== 'message' || !e.message) continue;
+    const m = e.message;
+    if (m.role === 'assistant' && Array.isArray(m.content)) {
+      const b = m.content.find((x) => x && x.type === 'toolCall' && x.id === toolCallId);
+      if (b) {
+        let result = null; let error = false;
+        for (const e2 of activeBranch(read.entries)) {
+          if (e2.type === 'message' && e2.message?.role === 'toolResult' && e2.message.toolCallId === toolCallId) {
+            result = toolResultText(e2.message.content); error = !!e2.message.isError;
+          }
+        }
+        return { input: b.arguments || {}, result, error };
+      }
+    }
+  }
+  return null;
+}
+
+function piToolOutput(file, toolCallId) {
+  const d = piToolDetail(file, toolCallId);
+  return d ? d.result : null;
+}
+
+function piMessageText(file, entryId) {
+  const read = piRead(file);
+  if (!read) return null;
+  const e = read.entries.find((x) => x.id === entryId);
+  if (!e || e.type !== 'message') return null;
+  return textOf(e.message?.content);
+}
+
+export {
+  scanPiSessions, getPiSession, buildPiConversation, piRead, piSetArchived,
+  latestPiTodos, piSubagents, piSubSessions, piScreenshots, piToolPaths,
+  piContext, buildPiTrace, piToolDetail, piToolOutput, piShortTool, piUsageToAnthropic,
+  piMessageText, contextWindowFor, activeBranch, finalizePi, findPiFile,
+};

@@ -3,7 +3,7 @@
   import { goto } from '$app/navigation';
   import { page } from '$app/state';
   import { data, ui, settings, updateSettings, groupName } from '#lib/state.svelte.js';
-  import { getDefaults, pickFolder, getUsage, getWorktreeBases, getVibeOptions } from '#lib/api.js';
+  import { getDefaults, pickFolder, getUsage, getWorktreeBases, getPiOptions } from '#lib/api.js';
   import Composer from './Composer.svelte';
   import ModelEffort from './ModelEffort.svelte';
   import Icon from '#lib/components/Icon.svelte';
@@ -46,7 +46,7 @@
   let model = $state('opus');
   let effort = $state('high');
   let mode = $state('default'); // mode de permission au lancement (claude --permission-mode)
-  // Provider de l'agent : 'claude' (Agent SDK) ou 'vibe' (Mistral Vibe via ACP, cf. docs/port-vibe.md)
+  // Provider de l'agent : 'claude' (Agent SDK) ou 'pi' (Mistral via pi, RPC — cf. docs/port-pi.md)
   let provider = $state('claude');
   // Les deux pillules de choix n'ont de sens que si les DEUX providers sont installés ; avec un
   // seul, le sélecteur est caché et le provider est fixé dessus (voir #lib/providers.js).
@@ -54,7 +54,7 @@
   $effect(() => {
     if (!providersBoth(data.providers)) provider = effectiveProvider(data.providers, provider);
   });
-  let vibeOpts = $state(null);
+  let piOpts = $state(null);
   let worktree = $state(false);
   let wtBase = $state('');
   let wtBranch = $state('');
@@ -87,7 +87,7 @@
     const sm = settings.defaultModel, se = settings.defaultEffort, smo = settings.defaultMode;
     const d = claudeDefaults;
     const q = fableQuota;
-    if (picked || provider === 'vibe') return; // en mode vibe, ce sont les options Vibe qui priment
+    if (picked || provider === 'pi') return; // en mode pi, ce sont les options Pi qui priment
     untrack(() => {
       // The fallback applies to the DEFAULT only: picking Fable by hand stays possible (the quota
       // we read can be minutes old — Claude Code's cache is the fallback source — and the user may
@@ -115,22 +115,22 @@
 
   const cwd = $derived(selected === '__custom' ? customCwd.trim() : selected);
 
-  // Provider vibe : charge les options (alias modèles, thinking levels, agents) depuis
-  // ~/.vibe/config.toml via /api/vibe-options, et initialise model/effort/mode dessus quand
-  // on bascule (si la valeur courante n'est pas un alias Vibe).
-  // thinking levels supportés par le modèle Vibe sélectionné (catalogue), sinon liste par défaut
-  const vibeThinking = $derived(
-    (vibeOpts && vibeOpts.models || []).find((m) => (m.alias || m.name) === model)?.thinking
-    || (vibeOpts && vibeOpts.thinkingLevels) || ['medium'],
+  // Provider pi : charge les options (alias modèles, thinking levels, agents) depuis
+  // ~/.pi/config.toml via /api/pi-options, et initialise model/effort/mode dessus quand
+  // on bascule (si la valeur courante n'est pas un alias Pi).
+  // thinking levels supportés par le modèle Pi sélectionné (catalogue), sinon liste par défaut
+  const piThinking = $derived(
+    (piOpts && piOpts.models || []).find((m) => (m.alias || m.name) === model)?.thinking
+    || (piOpts && piOpts.thinkingLevels) || ['medium'],
   );
   $effect(() => {
-    if (provider !== 'vibe') return;
-    if (!vibeOpts) { getVibeOptions().then((o) => { vibeOpts = o; }).catch(() => {}); return; }
+    if (provider !== 'pi') return;
+    if (!piOpts) { getPiOptions().then((o) => { piOpts = o; }).catch(() => {}); return; }
     untrack(() => {
-      const aliases = (vibeOpts.models || []).map((m) => m.alias || m.name);
-      if (!aliases.includes(model)) model = vibeOpts.activeModel || aliases[0] || '';
-      if (!vibeThinking.includes(effort)) effort = vibeThinking.includes('high') ? 'high' : vibeThinking[0];
-      if (!vibeOpts.modes.some((m) => m.id === mode)) mode = 'default';
+      const aliases = (piOpts.models || []).map((m) => m.alias || m.name);
+      if (!aliases.includes(model)) model = piOpts.activeModel || aliases[0] || '';
+      if (!piThinking.includes(effort)) effort = piThinking.includes('high') ? 'high' : piThinking[0];
+      if (!piOpts.modes.some((m) => m.id === mode)) mode = 'default';
     });
   });
 
@@ -186,7 +186,7 @@
   <div class="ns-inner">
     <button class="pane-back" onclick={() => goto('/')} title="Back"><Icon name="arrow-left" /></button>
     <h1 class="ns-title"><Icon name="hook" size={28} /> New session</h1>
-    <p class="ns-sub">{provider === 'vibe' ? 'Launches a Mistral Vibe session driven by hooked (ACP).' : 'Launches a Claude Code session driven by hooked.'}</p>
+    <p class="ns-sub">{provider === 'pi' ? 'Launches a Mistral session through pi (RPC mode), driven by hooked.' : 'Launches a Claude Code session driven by hooked.'}</p>
 
     {#if groupWith}
       <div class="ns-group"><Icon name="sessions" size={14} /> Joins the group <b>{groupName(groupWith)}</b></div>
@@ -254,36 +254,36 @@
         <div class="ns-provider" role="radiogroup" aria-label="Agent provider">
           <button type="button" class="me-pill ns-prov-btn" class:on={provider === 'claude'} role="radio" aria-checked={provider === 'claude'}
                   onclick={() => (provider = 'claude')} title="Claude Code — piloté via l'Agent SDK">Claude</button>
-          <button type="button" class="me-pill ns-prov-btn" class:on={provider === 'vibe'} role="radio" aria-checked={provider === 'vibe'}
-                  onclick={() => (provider = 'vibe')} title="Mistral Vibe — piloté via ACP">Mistral&nbsp;Vibe</button>
+          <button type="button" class="me-pill ns-prov-btn" class:on={provider === 'pi'} role="radio" aria-checked={provider === 'pi'}
+                  onclick={() => (provider = 'pi')} title="Mistral — piloté via pi (RPC)">Mistral&nbsp;(pi)</button>
         </div>
         {/if}
-        {#if provider === 'vibe'}
-          {#if vibeOpts}
-            <div class="ns-vibe-opts">
-              <select class="lf-input" bind:value={model} title="Modèle (alias lu dans ~/.vibe/config.toml)">
-                {#each vibeOpts.models as m (m.alias || m.name)}<option value={m.alias || m.name}>{m.alias || m.name}</option>{/each}
+        {#if provider === 'pi'}
+          {#if piOpts}
+            <div class="ns-pi-opts">
+              <select class="lf-input" bind:value={model} title="Modèle (alias lu dans ~/.pi/config.toml)">
+                {#each piOpts.models as m (m.alias || m.name)}<option value={m.alias || m.name}>{m.alias || m.name}</option>{/each}
               </select>
               <select class="lf-input" bind:value={effort} title="Thinking level (supporté par ce modèle)">
-                {#each vibeThinking as t (t)}<option value={t}>{t}</option>{/each}
+                {#each piThinking as t (t)}<option value={t}>{t}</option>{/each}
               </select>
-              <select class="lf-input" bind:value={mode} title="Mode (agent Vibe)">
-                {#each vibeOpts.modes as m (m.id)}<option value={m.id}>{m.label}</option>{/each}
+              <select class="lf-input" bind:value={mode} title="Mode (agent Pi)">
+                {#each piOpts.modes as m (m.id)}<option value={m.id}>{m.label}</option>{/each}
               </select>
             </div>
           {:else}
-            <div class="ns-vibe-loading">loading Vibe options…</div>
+            <div class="ns-pi-loading">loading Pi options…</div>
           {/if}
         {:else}
           <ModelEffort compact showMode bind:model bind:effort bind:mode onchange={() => (picked = true)} />
         {/if}
-        {#if provider !== 'vibe'}
+        {#if provider !== 'pi'}
         <label class="me-pill ns-worktree" title="Create a git worktree on a new branch and launch the session in it">
           <input type="checkbox" bind:checked={worktree} />
           <span class="me-ico"><Icon name="git-branch" size={14} /></span> worktree
         </label>
         {/if}
-        {#if worktree && provider !== 'vibe'}
+        {#if worktree && provider !== 'pi'}
           <div class="ns-wt-row">
             <label class="ns-wt-field">from
               <input class="lf-input" list="ns-wt-bases" bind:value={wtBase} spellcheck="false"
@@ -297,7 +297,7 @@
           </div>
           {#if bases?.error}<div class="ns-wt-err"><Icon name="warning" size={13} /> {bases.error}</div>{/if}
         {/if}
-        {#if provider !== 'vibe'}
+        {#if provider !== 'pi'}
         <label class="me-pill ns-worktree" title="Claude archives the session once the task is done, when it is confident nothing is left to check">
           <input type="checkbox" bind:checked={ephemeral} />
           <span class="me-ico"><Icon name="archive" size={14} /></span> ephemeral

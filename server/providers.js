@@ -1,8 +1,9 @@
 /*
  * Providers « configurés » sur la machine (détection cheap, mémoïsée 30 s) :
  *   claude — binaire `claude` dans le PATH ;
- *   vibe   — binaire `vibe-acp` dans le PATH, ou ~/.vibe existe.
- * Sert à l'UI : le badge claude/mistral d'une session (sidebar) n'est affiché que quand
+ *   pi     — binaire `pi` dans le PATH, ou ~/.pi/agent existe (pi + sign-in Mistral dessus,
+ *            cf. docs/port-pi.md — package pi-mistral-subscription).
+ * Sert à l'UI : le badge claude/pi d'une session (sidebar) n'est affiché que quand
  * les DEUX providers sont présents — avec un seul provider, le badge n'apprend rien.
  */
 import fs from 'node:fs';
@@ -24,10 +25,10 @@ let cacheAt = 0;
 
 function configuredProviders() {
   if (cache && Date.now() - cacheAt < 30_000) return cache;
-  const vibeHome = process.env.VIBE_HOME || path.join(os.homedir(), '.vibe');
-  const vibe = which(process.env.HOOKED_VIBE_ACP_BIN || 'vibe-acp') || fs.existsSync(vibeHome);
+  const piAgentDir = process.env.PI_CODING_AGENT_DIR || path.join(os.homedir(), '.pi', 'agent');
+  const pi = which(process.env.HOOKED_PI_BIN || 'pi') || fs.existsSync(piAgentDir);
   const claude = which('claude');
-  cache = { claude, vibe };
+  cache = { claude, pi };
   cacheAt = Date.now();
   return cache;
 }

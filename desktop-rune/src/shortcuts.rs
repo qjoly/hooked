@@ -15,7 +15,7 @@ pub const ACTIONS: [(&str, &str, &str); 20] = [
     ("go-board", "Go to Sessions", "alt+2"),
     (
         "filter-provider",
-        "Filter sessions by provider (all / Claude / Vibe)",
+        "Filter sessions by provider (all / Claude / Pi)",
         "alt+3",
     ),
     ("go-stats", "Go to Stats", "alt+4"),

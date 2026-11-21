@@ -14,7 +14,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { scanAllSessions } from './sessions.js';
-import { launchSession, forkVibe, err400 } from './agent.js';
+import { launchSession, forkPi, err400 } from './agent.js';
 import { isIncognitoSession, setSessionMeta } from './sessionMeta.js';
 
 function safeParse(line) { try { return JSON.parse(line); } catch (_) { return null; } }
@@ -65,10 +65,10 @@ function forkSession({ id, forkUuid, prompt, model, effort, permissionMode }, cb
   if (!/^[A-Za-z0-9._-]+$/.test(id || '')) return cb(err400('invalid session id'));
   const sess = scanAllSessions().find((s) => s.id === id);
   if (!sess) return cb(err400('session not found'));
-  // provider vibe : fork via ACP (session/load + session/fork), historique entier —
-  // le point de coupe `forkUuid` est ignoré (on peut le passer en messageId ACP si fourni).
-  if (sess.provider === 'vibe') {
-    return forkVibe(id, { cwd: sess.project, prompt, model, effort, permissionMode, forkUuid }, (err, info) => {
+  // provider pi : fork via RPC pi dans un process jetable (--session <src> + fork/clone) ;
+  // `forkUuid` = entryId du message user à partir duquel forker (clone sinon).
+  if (sess.provider === 'pi') {
+    return forkPi(id, { cwd: sess.project, prompt, model, effort, permissionMode, forkUuid }, (err, info) => {
       if (err) return cb(err);
       try { if (isIncognitoSession(id)) setSessionMeta(info.sessionId, { incognito: true }); } catch (_) {}
       cb(null, { ...info, forkedFrom: id });

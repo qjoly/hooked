@@ -9,9 +9,10 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
-import { PROJECTS_DIR, VIBE_SESSIONS_DIR } from './config.js';
+import { PROJECTS_DIR, PI_SESSIONS_DIR } from './config.js';
 import { scanSessions, getSummary } from './transcript.js';
-import { scanVibeSessions, getVibeSession, vibeSetArchived } from './vibe.js';
+import { scanPiSessions, piSetArchived, piRead } from './pi.js';
+import { finalizePi as finalizePiForTrash } from './pi.js';
 import { readdirSafe, statSafe } from './util.js';
 
 // Sous-dossier corbeille dans chaque dossier projet (~/.claude/projects/<projet>/bin/).
@@ -21,19 +22,19 @@ const TRASH_SUBDIR = 'bin';
 const isValidId = (id) => typeof id === 'string' && /^[A-Za-z0-9._-]+$/.test(id) && !id.includes('..');
 
 // Met une session à la corbeille : <projet>/<id>.jsonl → <projet>/bin/<id>.jsonl (claude), ou
-// `archived_at` posé dans meta.json (vibe — meta.json n'est pas chaîné en sha256 côté Vibe, cf.
-// vibeSetArchived ; la session quitte scanVibeSessions et n'apparaît plus dans le dashboard).
+// le fichier pi est renommé en .jsonl.trashed (cf. piSetArchived ; la session quitte
+// scanPiSessions et n'apparaît plus dans le dashboard).
 // Source de vérité = scanAllSessions-equivalent (même liste que le dashboard) → on ne touche
 // qu'une session réellement listée (jamais un sous-agent, jamais un bin/).
-function trashSession(id, cb, vibeSessionsDir = VIBE_SESSIONS_DIR) {
+function trashSession(id, cb, piSessionsDir = PI_SESSIONS_DIR) {
   const done = typeof cb === 'function' ? cb : () => {};
   try {
     if (!isValidId(id)) return done({ code: 400, message: 'invalid session id' });
-    const s = scanSessions().find((x) => x.id === id) || scanVibeSessions(vibeSessionsDir).find((x) => x.id === id);
+    const s = scanSessions().find((x) => x.id === id) || scanPiSessions(piSessionsDir).find((x) => x.id === id);
     if (!s || !s.file) return done({ code: 404, message: 'session not found (already in trash?)' });
-    if (s.provider === 'vibe') {
-      if (!vibeSetArchived(s.dir, true)) return done({ code: 500, message: 'could not archive vibe session' });
-      return done(null, { id, from: s.dir, to: s.dir + ' (archived_at)', project: s.projectName || null, provider: 'vibe' });
+    if (s.provider === 'pi') {
+      if (!piSetArchived(s.file, true)) return done({ code: 500, message: 'could not archive pi session' });
+      return done(null, { id, from: s.file, to: s.file + '.trashed', project: s.projectName || null, provider: 'pi' });
     }
     const binDir = path.join(path.dirname(s.file), TRASH_SUBDIR);
     fs.mkdirSync(binDir, { recursive: true });
@@ -49,19 +50,22 @@ function trashSession(id, cb, vibeSessionsDir = VIBE_SESSIONS_DIR) {
 
 // Restaure une session depuis la corbeille : cherche <projet>/bin/<id>*.jsonl et le remonte
 // d'un niveau. Réciproque de trashSession (filet de sécurité / réversibilité).
-function restoreSession(id, cb, vibeSessionsDir = VIBE_SESSIONS_DIR) {
+function restoreSession(id, cb, piSessionsDir = PI_SESSIONS_DIR) {
   const done = typeof cb === 'function' ? cb : () => {};
   try {
     if (!isValidId(id)) return done({ code: 400, message: 'invalid session id' });
-    // Session vibe archivée : chercher un dossier unified dont meta.json a archived_at + cet id.
-    for (const d of readdirSafe(vibeSessionsDir)) {
-      const dir = path.join(vibeSessionsDir, d);
-      const metaPath = path.join(dir, 'meta.json');
-      let meta;
-      try { meta = JSON.parse(fs.readFileSync(metaPath, 'utf8')); } catch (_) { continue; }
-      if (meta.session_id === id && meta.archived_at) {
-        if (!vibeSetArchived(dir, false)) return done({ code: 500, message: 'could not restore vibe session' });
-        return done(null, { id, from: dir + ' (archived_at)', to: dir, provider: 'vibe' });
+    // Session pi archivée : chercher un fichier <id>.jsonl.trashed sous piSessionsDir.
+    for (const d of readdirSafe(piSessionsDir)) {
+      const dir = path.join(piSessionsDir, d);
+      if (!statSafe(dir)?.isDirectory()) continue;
+      for (const f of readdirSafe(dir)) {
+        if (!f.endsWith('.jsonl.trashed')) continue;
+        const read = piRead(path.join(dir, f));
+        if (read?.header?.id === id) {
+          const trashed = path.join(dir, f);
+          if (!piSetArchived(trashed, false)) return done({ code: 500, message: 'could not restore pi session' });
+          return done(null, { id, from: trashed, to: trashed.slice(0, -8), provider: 'pi' });
+        }
       }
     }
     for (const proj of readdirSafe(PROJECTS_DIR)) {
@@ -84,7 +88,7 @@ function restoreSession(id, cb, vibeSessionsDir = VIBE_SESSIONS_DIR) {
 
 // Liste les sessions à la corbeille (tous projets) : parse chaque <projet>/bin/*.jsonl pour
 // en tirer un résumé (titre, projet, coût…) + la date de mise à la corbeille (mtime du fichier).
-function listTrashed(projectsDir = PROJECTS_DIR, vibeSessionsDir = VIBE_SESSIONS_DIR) {
+function listTrashed(projectsDir = PROJECTS_DIR, piSessionsDir = PI_SESSIONS_DIR) {
   const out = [];
   for (const proj of readdirSafe(projectsDir)) {
     const binDir = path.join(projectsDir, proj, TRASH_SUBDIR);
@@ -104,20 +108,24 @@ function listTrashed(projectsDir = PROJECTS_DIR, vibeSessionsDir = VIBE_SESSIONS
       });
     }
   }
-  // Sessions vibe archivées (meta.json archived_at) — même liste que le dashboard, côté vibe.
-  for (const d of readdirSafe(vibeSessionsDir)) {
-    const dir = path.join(vibeSessionsDir, d);
-    if (!statSafe(path.join(dir, 'journal'))) continue;
-    let meta;
-    try { meta = JSON.parse(fs.readFileSync(path.join(dir, 'meta.json'), 'utf8')); } catch (_) { continue; }
-    if (!meta.archived_at) continue;
-    const sum = getVibeSession(dir);
-    out.push({
-      id: sum.id, title: sum.title, firstPrompt: sum.firstPrompt,
-      project: sum.project, projectName: sum.projectName,
-      lastTs: sum.lastTs, cost: sum.cost, userPrompts: sum.userPrompts,
-      trashedAt: meta.archived_at, provider: 'vibe',
-    });
+  // Sessions pi archivées (.jsonl.trashed) — même liste que le dashboard, côté pi.
+  for (const d of readdirSafe(piSessionsDir)) {
+    const dir = path.join(piSessionsDir, d);
+    if (!statSafe(dir)?.isDirectory()) continue;
+    for (const f of readdirSafe(dir)) {
+      if (!f.endsWith('.jsonl.trashed')) continue;
+      const fp = path.join(dir, f);
+      const read = piRead(fp);
+      if (!read) continue;
+      const fst = statSafe(fp);
+      const sum = finalizePiForTrash(read);
+      out.push({
+        id: read.header.id, title: sum.title, firstPrompt: sum.firstPrompt,
+        project: read.header.cwd, projectName: read.header.cwd ? path.basename(read.header.cwd) : null,
+        lastTs: sum.lastTs, cost: sum.cost, userPrompts: sum.userPrompts,
+        trashedAt: fst ? new Date(fst.mtimeMs).toISOString() : null, provider: 'pi',
+      });
+    }
   }
   out.sort((a, b) => String(b.trashedAt || '').localeCompare(String(a.trashedAt || '')));
   return out;

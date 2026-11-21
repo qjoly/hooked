@@ -101,7 +101,7 @@ export const STATE_LABEL = {
 };
 
 // Nom d'affichage de l'agent selon le provider de la session ('claude' par défaut — non-régression).
-export const agentName = (provider) => (provider === 'vibe' ? 'Vibe' : 'Claude');
+export const agentName = (provider) => (provider === 'pi' ? 'Pi' : 'Claude');
 // Libellé d'état provider-aware : seul « working » nomme l'agent ; les autres états sont neutres.
 export function stateLabel(state, provider) {
   if (state === 'working') return `${agentName(provider)} is working`;
@@ -140,7 +140,7 @@ export function isBlockForCommand(text, command) {
 export function resumeCommand(s) {
   if (!s || !s.id) return '';
   const dir = s.project || s.cwd || '';
-  const cmd = s.provider === 'vibe' ? `vibe --resume ${s.id}` : `claude --resume=${s.id}`;
+  const cmd = s.provider === 'pi' ? `pi --resume ${s.id}` : `claude --resume=${s.id}`;
   return dir ? `cd ${shellQuote(dir)} && ${cmd}` : cmd;
 }
 // Quoting POSIX : un chemin de projet peut contenir une espace, et rien n'interdit une apostrophe.

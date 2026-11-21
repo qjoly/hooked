@@ -448,15 +448,15 @@ mod tests {
     use super::*;
 
     #[test]
-    fn provider_filter_cycles_all_claude_vibe_all() {
+    fn provider_filter_cycles_all_claude_pi_all() {
         use crate::app::next_provider_filter;
         // un seul provider installé -> toujours None
         assert_eq!(next_provider_filter(None, false), None);
-        assert_eq!(next_provider_filter(Some("vibe"), false), None);
+        assert_eq!(next_provider_filter(Some("pi"), false), None);
         // les deux -> cycle complet
         assert_eq!(next_provider_filter(None, true).as_deref(), Some("claude"));
-        assert_eq!(next_provider_filter(Some("claude"), true).as_deref(), Some("vibe"));
-        assert_eq!(next_provider_filter(Some("vibe"), true), None);
+        assert_eq!(next_provider_filter(Some("claude"), true).as_deref(), Some("pi"));
+        assert_eq!(next_provider_filter(Some("pi"), true), None);
     }
 
     #[test]

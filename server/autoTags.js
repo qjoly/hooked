@@ -9,7 +9,7 @@ import path from 'node:path';
 import { HOOKED_DIR } from './config.js';
 import { scanAllSessions } from './sessions.js';
 import { resolveClaudeBin } from './commands.js';
-import { runVibeHeadless } from './vibeCli.js';
+import { runPiHeadless } from './piCli.js';
 import { objFromBraces } from './claudeJson.js';
 import { readTags, setTags } from './tags.js';
 import { runClaude } from './mcp.js';
@@ -84,8 +84,8 @@ async function suggestTags(s, tagMap = readTags()) {
     '--settings', JSON.stringify({ disableAllHooks: true }),
   ];
   if (!resolveClaudeBin()) {
-    // Pas de binaire claude installé → `vibe -p --output json` (même contrat de sortie).
-    const r = await runVibeHeadless(buildPrompt(s, vocabulary(tagMap)), { cwd: os.tmpdir(), timeout: CALL_TIMEOUT_MS });
+    // Pas de binaire claude installé → `pi -p --output json` (même contrat de sortie).
+    const r = await runPiHeadless(buildPrompt(s, vocabulary(tagMap)), { cwd: os.tmpdir(), timeout: CALL_TIMEOUT_MS });
     const obj = objFromBraces(r.text);
     const raw = obj && Array.isArray(obj.tags) ? obj.tags : [];
     const tags = raw.filter((t) => typeof t === 'string').map((t) => t.trim().replace(/^#+/, '').trim().toLowerCase().replace(/\s+/g, '-').slice(0, 24)).filter((t) => t && !NOT_VOCABULARY.has(t));

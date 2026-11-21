@@ -1475,8 +1475,8 @@ fn mcp_dot(k: &Kit, state: &str) -> Color {
 
 fn mcp_row(s: &Hooked, x: &McpServer, k: &Kit) -> El {
     let open = s.lens_data.mcp_open.as_deref() == Some(x.name.as_str());
-    // OAuth login/logout = flux Claude Code ; en vibe il n'y a rien à re-authentifier.
-    let oauth = x.authable && s.lens_data.mcp_provider.as_deref() != Some("vibe");
+    // OAuth login/logout = flux Claude Code ; en pi il n'y a rien à re-authentifier.
+    let oauth = x.authable && s.lens_data.mcp_provider.as_deref() != Some("pi");
     let (n1, n2, n3) = (x.name.clone(), x.name.clone(), x.name.clone());
     let mut actions = row().gap(6.0).center_y().child(
         Button::new(if open { "Hide" } else { "Details" })

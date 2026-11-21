@@ -4,7 +4,7 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
-import { HOME, VIBE_HOME } from './config.js';
+import { HOME, PI_AGENT_DIR } from './config.js';
 
 const MAX_FILES = 200;
 
@@ -73,38 +73,38 @@ function pluginSkills() {
   return out;
 }
 
-// Racines skills de Mistral Vibe (cf. vibeCommands.js + GLOBAL_SKILLS_DIR côté Vibe) :
-// <cwd>/.vibe/skills, <cwd>/.agents/skills, ~/.vibe/skills, ~/.agents/skills.
-function vibeSkillRoots(cwds) {
+// Racines skills de Mistral Pi (cf. piCommands.js + GLOBAL_SKILLS_DIR côté Pi) :
+// <cwd>/.pi/skills, <cwd>/.agents/skills, ~/.pi/skills, ~/.agents/skills.
+function piSkillRoots(cwds) {
   const projects = [...new Set(cwds)].filter((c) => typeof c === 'string' && path.isAbsolute(c)).slice(0, 100);
   const roots = [];
   for (const cwd of projects) {
-    roots.push([path.join(cwd, '.vibe', 'skills'), 'project', { project: cwd }]);
+    roots.push([path.join(cwd, '.pi', 'skills'), 'project', { project: cwd }]);
     roots.push([path.join(cwd, '.agents', 'skills'), 'project', { project: cwd }]);
   }
-  roots.push([path.join(VIBE_HOME, 'skills'), 'user', {}]);
+  roots.push([path.join(PI_AGENT_DIR, 'skills'), 'user', {}]);
   roots.push([path.join(HOME, '.agents', 'skills'), 'user', {}]);
   return roots;
 }
 
-function listVibeSkills(cwds = []) {
-  const all = vibeSkillRoots(cwds).flatMap(([root, source, extra]) =>
-    scanRoot(root, source, { ...extra, provider: 'vibe' }));
+function listPiSkills(cwds = []) {
+  const all = piSkillRoots(cwds).flatMap(([root, source, extra]) =>
+    scanRoot(root, source, { ...extra, provider: 'pi' }));
   return [...new Map(all.reverse().map((s) => [s.id, s])).values()].reverse();
 }
 
 // `cwds`: the project directories whose `.claude/skills` should be listed too.
-// `provider`: 'claude' (défaut, non-régression), 'vibe', ou 'all' → les deux providers,
+// `provider`: 'claude' (défaut, non-régression), 'pi', ou 'all' → les deux providers,
 // chaque entrée porte alors son champ `provider`.
 export function listSkills(cwds = [], provider = undefined) {
-  if (provider === 'vibe') return listVibeSkills(cwds);
+  if (provider === 'pi') return listPiSkills(cwds);
   const projects = [...new Set(cwds)].filter((c) => typeof c === 'string' && path.isAbsolute(c)).slice(0, 100);
   const claude = [
     ...scanRoot(path.join(HOME, '.claude', 'skills'), 'user', { provider: 'claude' }),
     ...projects.flatMap((cwd) => scanRoot(path.join(cwd, '.claude', 'skills'), 'project', { project: cwd, provider: 'claude' })),
     ...pluginSkills(),
   ];
-  const all = provider === 'all' ? [...claude, ...listVibeSkills(cwds)] : claude;
+  const all = provider === 'all' ? [...claude, ...listPiSkills(cwds)] : claude;
   // A session opened in the home directory would list the user skills a second time as project ones.
   return [...new Map(all.reverse().map((s) => [s.id, s])).values()].reverse();
 }

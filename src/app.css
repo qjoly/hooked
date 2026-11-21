@@ -1928,13 +1928,13 @@ code.path { color: var(--muted); font-size: var(--t-micro); word-break: break-al
 .ns-grid { display: grid; grid-template-columns: minmax(0, 1fr) 250px; gap: 0 22px; align-items: start; }
 .ns-col { min-width: 0; }
 .ns-options { display: flex; flex-direction: column; gap: 8px; }
-/* sélecteur de provider (Claude / Mistral Vibe) sur l'écran nouvelle session */
+/* sélecteur de provider (Claude / Mistral Pi) sur l'écran nouvelle session */
 .ns-provider { display: flex; gap: 6px; }
 .ns-prov-btn { cursor: pointer; opacity: .65; }
 .ns-prov-btn.on { opacity: 1; border-color: var(--accent); color: var(--text); background: var(--accent-soft); }
-.ns-vibe-opts { display: flex; flex-direction: column; gap: 6px; }
-.ns-vibe-opts .lf-input { width: 100%; }
-.ns-vibe-loading { color: var(--muted); font-size: var(--t-micro); }
+.ns-pi-opts { display: flex; flex-direction: column; gap: 6px; }
+.ns-pi-opts .lf-input { width: 100%; }
+.ns-pi-loading { color: var(--muted); font-size: var(--t-micro); }
 .ns-options .lf-label { margin-bottom: 0; }
 .ns-options .me-inline { flex-direction: column; align-items: stretch; }
 .ns-options .me-pill select { flex: 1 1 auto; min-width: 0; }

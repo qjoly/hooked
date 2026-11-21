@@ -101,7 +101,7 @@ pub fn short_model(m: &str) -> String {
 
 /// Nom d'affichage de l'agent selon le provider de la session ('claude' par défaut).
 pub fn agent_label(provider: Option<&str>) -> &'static str {
-    if provider == Some("vibe") { "Vibe" } else { "Claude" }
+    if provider == Some("pi") { "Pi" } else { "Claude" }
 }
 
 /// state_label provider-aware : seul « working » nomme l'agent.

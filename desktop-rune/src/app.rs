@@ -103,7 +103,7 @@ pub struct Flash {
     pub until: i64,
 }
 
-/// Cycle du filtre provider : tous → claude → vibe → tous ; sans effet quand un seul
+/// Cycle du filtre provider : tous → claude → pi → tous ; sans effet quand un seul
 /// provider est installé (le filtre n'aurait rien à distinguer).
 pub fn next_provider_filter(cur: Option<&str>, both: bool) -> Option<String> {
     if !both {
@@ -111,7 +111,7 @@ pub fn next_provider_filter(cur: Option<&str>, both: bool) -> Option<String> {
     }
     match cur {
         None => Some("claude".into()),
-        Some("claude") => Some("vibe".into()),
+        Some("claude") => Some("pi".into()),
         _ => None,
     }
 }
@@ -129,7 +129,7 @@ pub struct Hooked {
     pub tags: HashMap<String, Vec<String>>,
     pub tag_filter: Vec<String>,
     pub repo_filter: Vec<String>,
-    /// Filtre provider ('claude' | 'vibe' | None = tous) — cyclé par le raccourci filter-provider.
+    /// Filtre provider ('claude' | 'pi' | None = tous) — cyclé par le raccourci filter-provider.
     /// N'a de sens que quand les deux providers sont configurés (providers.both()).
     pub provider_filter: Option<String>,
     pub incognito: bool,
@@ -271,12 +271,12 @@ pub struct Hooked {
     pub new_model: Option<String>,
     pub new_effort: Option<String>,
     pub new_mode: String,
-    /// Launch provider: "claude" (default) or "vibe" (Mistral Vibe) — new-session screen.
+    /// Launch provider: "claude" (default) or "pi" (Mistral Pi) — new-session screen.
     pub new_provider: String,
     /// Installed agent CLIs (badge + provider picker), refreshed with the session list.
     pub providers: api::Providers,
-    /// /api/vibe-options payload (models/thinking/modes), loaded once when vibe is installed.
-    pub vibe_opts: serde_json::Value,
+    /// /api/pi-options payload (models/thinking/modes), loaded once when pi is installed.
+    pub pi_opts: serde_json::Value,
     pub new_custom: bool,
     pub new_search: TextEdit,
     pub new_worktree: bool,
@@ -575,7 +575,7 @@ impl Hooked {
             new_mode: "default".into(),
             new_provider: "claude".into(),
             providers: api::Providers::default(),
-            vibe_opts: serde_json::Value::Null,
+            pi_opts: serde_json::Value::Null,
             new_custom: false,
             new_search: TextEdit::new(""),
             new_worktree: false,
@@ -610,9 +610,9 @@ impl Hooked {
                 s.new_provider = p.to_string();
             }
         }
-        if s.providers.vibe {
-            if let Ok(v) = api::vibe_options() {
-                s.vibe_opts = v;
+        if s.providers.pi {
+            if let Ok(v) = api::pi_options() {
+                s.pi_opts = v;
             }
         }
         s.meta = api::session_meta().unwrap_or_default();
@@ -1211,12 +1211,12 @@ impl Hooked {
     }
 
     
-/// Suffixe `&provider=vibe` pour l'auto-complétion « / » quand aucune session n'est
-/// sélectionnée (écran New session) et que le provider choisi est vibe — sinon le serveur
+/// Suffixe `&provider=pi` pour l'auto-complétion « / » quand aucune session n'est
+/// sélectionnée (écran New session) et que le provider choisi est pi — sinon le serveur
 /// retomberait sur claude.
 fn ac_provider_suffix(s: &Hooked, id: &str) -> String {
-    if id.is_empty() && s.new_provider == "vibe" && s.providers.vibe {
-        "&provider=vibe".to_string()
+    if id.is_empty() && s.new_provider == "pi" && s.providers.pi {
+        "&provider=pi".to_string()
     } else {
         String::new()
     }
@@ -2598,9 +2598,9 @@ pub fn composer_changed(&mut self) {
             self.incognito,
         );
         let (worktree, ephemeral) = (self.new_worktree, self.new_ephemeral);
-        // Provider vibe : worktree/ephemeral are Claude-only (hidden in the UI) — never sent.
-        let provider = if self.new_provider == "vibe" {
-            Some("vibe".to_string())
+        // Provider pi : worktree/ephemeral are Claude-only (hidden in the UI) — never sent.
+        let provider = if self.new_provider == "pi" {
+            Some("pi".to_string())
         } else {
             None
         };
@@ -2650,7 +2650,7 @@ pub fn composer_changed(&mut self) {
             .collect()
     }
 
-    /// Cycle le filtre provider : tous → claude → vibe → tous. Sans effet quand un seul
+    /// Cycle le filtre provider : tous → claude → pi → tous. Sans effet quand un seul
     /// provider est configuré (le filtre n'aurait rien à distinguer).
     pub fn cycle_provider_filter(&mut self) {
         self.provider_filter = next_provider_filter(self.provider_filter.as_deref(), self.providers.both());
@@ -2668,7 +2668,7 @@ pub fn composer_changed(&mut self) {
     }
 
     /// The name a session shows under: the one given here, else its own title.
-    /// Provider ('claude'/'vibe') d'une session, cherché d'abord dans la liste, puis dans le
+    /// Provider ('claude'/'pi') d'une session, cherché d'abord dans la liste, puis dans le
     /// détail chargé — sert aux libellés provider-aware (agent_label).
     pub fn provider_of(&self, id: &str) -> Option<&str> {
         self.sessions
@@ -2973,8 +2973,8 @@ impl Hooked {
                     if let Some(p) = pinned_provider(&providers) {
                         s.new_provider = p.to_string();
                     }
-                    if providers.vibe && s.vibe_opts.is_null() {
-                        s.vibe_opts = api::vibe_options().unwrap_or(serde_json::Value::Null);
+                    if providers.pi && s.pi_opts.is_null() {
+                        s.pi_opts = api::pi_options().unwrap_or(serde_json::Value::Null);
                     }
                     s.apply_sessions(list, meta)
                 }

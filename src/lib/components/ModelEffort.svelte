@@ -10,7 +10,7 @@
   // lancement d'une session. Absent du changement à chaud (qui a son propre sélecteur live).
   // `allowInherit` : ajoute une option « hériter » (valeur '') en tête de chaque sélecteur — sert
   // aux défauts de session (Réglages), où '' signifie « retomber sur la config Claude Code ».
-  // `modelOpts`/`effortList` : listes externes (provider vibe → /api/vibe-options) qui remplacent
+  // `modelOpts`/`effortList` : listes externes (provider pi → /api/pi-options) qui remplacent
   // les capacités Claude quand elles sont fournies.
   let { model = $bindable('opus'), effort = $bindable('high'), mode = $bindable('default'), compact = false, showMode = false, allowInherit = false, onchange = null, disabled = false, modelOpts = null, effortList = null } = $props();
   const fire = () => onchange && onchange();
@@ -20,7 +20,7 @@
   let modelGroups = $state([]);
   let efforts = $state([]);
   $effect(() => {
-    if (modelOpts) return; // listes externes fournies (vibe) : pas besoin des capacités Claude
+    if (modelOpts) return; // listes externes fournies (pi) : pas besoin des capacités Claude
     let alive = true;
     getCapabilities().then((c) => { if (alive) { modelGroups = c.models || []; efforts = c.efforts || []; } }).catch(() => {});
     return () => { alive = false; };
@@ -39,7 +39,7 @@
   const modelView = $derived.by(() => {
     if (modelOpts) {
       const has = modelOpts.some(([v]) => v === model);
-      return [{ label: 'Vibe models', opts: model && !has ? [[model, shortModel(model)], ...modelOpts] : modelOpts }];
+      return [{ label: 'Pi models', opts: model && !has ? [[model, shortModel(model)], ...modelOpts] : modelOpts }];
     }
     const has = visibleGroups.some((g) => g.opts.some(([v]) => v === model));
     if (model && !has) return [{ label: '', opts: [[model, shortModel(model)]] }, ...visibleGroups];
