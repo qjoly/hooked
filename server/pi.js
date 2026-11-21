@@ -362,7 +362,15 @@ function piContext(s) {
   return { pct: Math.min(100, (size / win) * 100), size, contextWindow: win };
 }
 
-// Trace (vue turns/spans) depuis les entrées de la branche active.
+// Trace (vue turns/spans) depuis les entrées de la branche active. Les timestamps sont en epoch ms
+// (number) comme buildTrace côté Claude : le desktop (TraceSpan.start: f64) et le web font de
+// l'arithmétique dessus. pi stocke ceux des messages en ms (number) et ceux des entrées en ISO.
+const tsMs = (v) => {
+  if (typeof v === 'number') return Number.isFinite(v) ? v : null;
+  const t = Date.parse(String(v ?? ''));
+  return Number.isFinite(t) ? t : null;
+};
+
 function buildPiTrace(file) {
   const read = piRead(file);
   if (!read) return { turns: [] };
@@ -372,9 +380,9 @@ function buildPiTrace(file) {
   for (const e of branch) {
     if (e.type !== 'message' || !e.message) continue;
     const m = e.message;
-    const ts = m.timestamp ? new Date(m.timestamp).toISOString() : e.timestamp;
+    const ts = tsMs(m.timestamp) ?? tsMs(e.timestamp) ?? 0;
     if (m.role === 'user') {
-      cur = { prompt: textOf(m.content), start: ts, end: null, spans: [] };
+      cur = { prompt: textOf(m.content).replace(/\s+/g, ' ').slice(0, 160), start: ts, end: null, spans: [] };
       turns.push(cur);
     } else if (m.role === 'assistant' && Array.isArray(m.content)) {
       for (const b of m.content) {
@@ -407,7 +415,8 @@ function piToolDetail(file, toolCallId) {
             result = toolResultText(e2.message.content); error = !!e2.message.isError;
           }
         }
-        return { input: b.arguments || {}, result, error };
+        // input en texte (comme readToolDetail côté Claude) : le lens Trace l'affiche en <pre>.
+        return { input: toolInputText(b.arguments), result, error };
       }
     }
   }

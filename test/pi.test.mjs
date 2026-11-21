@@ -111,8 +111,13 @@ describe('accessoires', () => {
     expect(trace.turns.length).toBe(1);
     expect(trace.turns[0].spans.length).toBe(1);
     expect(trace.turns[0].spans[0].name).toBe('write');
+    // timestamps en epoch ms (number), comme buildTrace côté Claude : le desktop fait de
+    // l'arithmétique f64 dessus (serde attend f64, une ISO string lève "invalid type")
+    expect(trace.turns[0].start).toBe(1763694001000);
+    expect(trace.turns[0].spans[0].start).toBe(1763694002000);
+    expect(trace.turns[0].spans[0].end).toBe(1763694003000);
     const d = piToolDetail(f, 'call_1');
-    expect(d.input).toEqual({ path: 'hello.txt', content: 'hi' });
+    expect(JSON.parse(d.input)).toEqual({ path: 'hello.txt', content: 'hi' });
     expect(d.result).toBe('Successfully wrote to hello.txt');
     expect(d.error).toBe(false);
     expect(piToolPaths(f)).toEqual([path.resolve('/tmp/projet-demo', 'hello.txt')]);
