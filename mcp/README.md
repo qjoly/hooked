@@ -23,20 +23,21 @@ Au prochain lancement de Claude Code dans ce dossier, approuve le serveur projet
 claude mcp add hooked -- node /chemin/vers/hooked/mcp/server.cjs
 ```
 
-### Mistral Pi
+### Mistral via pi
 
-Dans `~/.pi/config.toml` (scope user — dispo dans toutes les sessions Pi) :
+Dans `~/.pi/agent/mcp.json` (scope user — dispo dans toutes les sessions pi) :
 
-```toml
-[[mcp_servers]]
-name = "hooked"
-transport = "stdio"
-command = "node"
-args = ["/chemin/vers/hooked/mcp/server.cjs"]
+```json
+{
+  "mcpServers": {
+    "hooked": { "command": "node", "args": ["/chemin/vers/hooked/mcp/server.cjs"] }
+  }
+}
 ```
 
-Vérifié en E2E : la lens MCP du dashboard (`/api/mcp?provider=pi`) liste `hooked` (scope
-user), et une session Pi pilotée appelle `list_sessions` avec la vraie réponse de l'API.
+(Project scope : `.pi/mcp.json` dans le dépôt.) Vérifié en E2E : la lens MCP du dashboard
+(`/api/mcp?provider=pi`) liste `hooked` (scope user), et une session pi pilotée par hooked
+appelle `mcp__hooked__list_sessions` avec la vraie réponse de l'API (`MCP-PI-OK 16`).
 
 
 ### Variables d'environnement

@@ -93,7 +93,7 @@ function piSkillCommands(cwd) {
 
 function piSlashCommands(cwd) {
   const builtin = PI_BUILTIN.map(([name, description]) => ({ name, description, group: 'builtin' }));
-  return mergeCommands([piPromptCommands(cwd), piSkillCommands(cwd), builtin]);
+  return mergeCommands([...piPromptCommands(cwd), ...piSkillCommands(cwd)], builtin);
 }
 
 export { piSlashCommands, matchCommands };
