@@ -1,6 +1,6 @@
 import { json } from '@sveltejs/kit';
 import { listThreads, addThread, deleteThread, editThread, replyThread, archiveThread, markThreadsSent,
-         startReview, addClaudeThread, scanSessions } from '#lib/server/core.js';
+         startReview, addClaudeThread, findSessionAny } from '#lib/server/core.js';
 import { fail, readJson } from '#lib/server/respond.js';
 
 // Threads de revue ancrés dans la diff (lentilles Ship / Branch) — la conversation GitHub-style.
@@ -55,7 +55,7 @@ export async function POST({ request }) {
       return review ? json({ ok: true, review }) : fail(400, 'invalid scope');
     }
     if (action === 'claude-comment') {
-      const cwd = scanSessions().find((x) => x.id === id)?.project || null;
+      const cwd = findSessionAny(id)?.project || null;
       const { thread, error } = await addClaudeThread(id, body, cwd);
       // Compact on purpose: this answer lands in Claude's context, once per finding.
       return thread ? json({ ok: true, thread: { id: thread.id, file: thread.file, start: thread.start, end: thread.end } }) : fail(400, error);

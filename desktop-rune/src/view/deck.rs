@@ -74,9 +74,15 @@ fn decision_card(s: &Hooked, x: &Session, k: &Kit, wide: bool) -> El {
                 ),
         )
         .child(
-            text(x.project_label())
-                .font(k.ty.text_xsmall)
-                .color(k.c.text_faint),
+            row()
+                .gap(5.0)
+                .center_y()
+                .child(
+                    text(x.project_label())
+                        .font(k.ty.text_xsmall)
+                        .color(k.c.text_faint),
+                )
+                .children(super::fleet::prov_badge(s, k, x)),
         );
     if x.remote.is_some() {
         // A remote session's card: the wash and rail of its sidebar row.

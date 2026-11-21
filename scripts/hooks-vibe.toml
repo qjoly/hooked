@@ -1,0 +1,53 @@
+# hooked × Mistral Vibe — hooks à merger dans ~/.vibe/hooks.toml (user-level).
+#
+# Chaque hook appelle scripts/hook-vibe.cjs, qui normalise l'évènement Vibe et l'append
+# dans ~/.vibe/hooked/events.jsonl (lu par hooked exactement comme events.jsonl de Claude).
+# Adapte HOOKED_ROOT ci-dessous au chemin absolu de ton checkout de hooked.
+#
+# Sans ces hooks, les sessions Vibe restent visibles dans hooked (scan du journal
+# ~/.vibe/logs/session/unified) mais sans état live (working / attention / ended).
+
+# [[hooks]]
+# name = "hooked-session-start"
+# type = "session_start"
+# command = "node /Volumes/Stockage/code/hooked/scripts/hook-vibe.cjs"
+#
+# [[hooks]]
+# name = "hooked-pre-agent"
+# type = "pre_agent"
+# command = "node /Volumes/Stockage/code/hooked/scripts/hook-vibe.cjs"
+#
+# [[hooks]]
+# name = "hooked-pre-llm"
+# type = "pre_llm"
+# command = "node /Volumes/Stockage/code/hooked/scripts/hook-vibe.cjs"
+#
+# [[hooks]]
+# name = "hooked-post-llm"
+# type = "post_llm"
+# command = "node /Volumes/Stockage/code/hooked/scripts/hook-vibe.cjs"
+#
+# [[hooks]]
+# name = "hooked-pre-tool"
+# type = "pre_tool"
+# command = "node /Volumes/Stockage/code/hooked/scripts/hook-vibe.cjs"
+#
+# [[hooks]]
+# name = "hooked-post-tool"
+# type = "post_tool"
+# command = "node /Volumes/Stockage/code/hooked/scripts/hook-vibe.cjs"
+#
+# [[hooks]]
+# name = "hooked-post-agent"
+# type = "post_agent"
+# command = "node /Volumes/Stockage/code/hooked/scripts/hook-vibe.cjs"
+#
+# [[hooks]]
+# name = "hooked-notification"
+# type = "notification"
+# command = "node /Volumes/Stockage/code/hooked/scripts/hook-vibe.cjs"
+#
+# [[hooks]]
+# name = "hooked-session-end"
+# type = "session_end"
+# command = "node /Volumes/Stockage/code/hooked/scripts/hook-vibe.cjs"

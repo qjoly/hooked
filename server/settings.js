@@ -67,6 +67,8 @@ const DEFAULTS = {
   // un raccourci macOS (Quick Action) qui POST /api/launch avec seulement un prompt. '' = aucun ;
   // launchSession exige alors un cwd explicite comme avant.
   quickLaunchProject: '',
+  // Provider par défaut des lancements sans provider explicite (Quick Action macOS, review PR…)
+  defaultProvider: 'claude',
   // Projets pour lesquels le serveur hooked maintient un démon `claude remote-control` (mode serveur :
   // le projet devient un ENVIRONNEMENT lançable depuis l'app Claude). Liste de chemins absolus ; le serveur
   // réconcilie les process démons à cette liste (cf. server/remoteControl.js). [] = aucun.
@@ -142,6 +144,8 @@ function sanitize(raw) {
     typeof o.quickLaunchProject === 'string' && o.quickLaunchProject.startsWith('/')
       ? o.quickLaunchProject.slice(0, 4096)
       : '';
+  // defaultProvider : 'claude' (défaut, non-régression) ou 'vibe'.
+  const defaultProvider = o.defaultProvider === 'vibe' ? 'vibe' : 'claude';
   // remoteControlProjects : liste de chemins absolus, dédupée et bornée (anti-abus : chaque démon
   // spawn un process claude). L'existence du dossier n'est PAS vérifiée ici (le disque peut varier) —
   // reconcileRemoteControl saute au lancement un chemin qui n'est plus un dossier.
@@ -241,6 +245,7 @@ function sanitize(raw) {
     defaultEffort,
     defaultMode,
     quickLaunchProject,
+    defaultProvider,
     remoteControlProjects: rcProjects,
     favoriteProjects: favProjects,
     promptLibrary,

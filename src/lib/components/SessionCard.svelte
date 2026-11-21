@@ -2,7 +2,7 @@
   import { onMount } from 'svelte';
   import { data, sessionTitle } from '#lib/state.svelte.js';
   import { getSession } from '#lib/api.js';
-  import { STATE_LABEL } from '#lib/format.js';
+  import { stateLabel } from '#lib/format.js';
   import Icon from '#lib/components/Icon.svelte';
 
   // Carte de statut vivante pour un lien profond de session (`[label](/session/<id>)`), rendue par
@@ -32,7 +32,7 @@
   // libellé d'état = verbe d'activité live quand ça mouline, sinon le libellé humain de l'état
   // (miroir de l'en-tête de SessionDetail).
   const statusText = $derived(
-    s ? (s.state === 'working' && s.activity ? s.activity + '…' : (STATE_LABEL[s.state] || s.state)) : '',
+    s ? (s.state === 'working' && s.activity ? s.activity + '…' : stateLabel(s.state, s.provider)) : '',
   );
   const bg = $derived(s && s.bgJobs && s.bgJobs.length ? s.bgJobs.length : 0);
 </script>

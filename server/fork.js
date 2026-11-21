@@ -13,8 +13,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
-import { scanSessions } from './transcript.js';
-import { launchSession, err400 } from './agent.js';
+import { scanAllSessions } from './sessions.js';
+import { launchSession, forkVibe, err400 } from './agent.js';
 import { isIncognitoSession, setSessionMeta } from './sessionMeta.js';
 
 function safeParse(line) { try { return JSON.parse(line); } catch (_) { return null; } }
@@ -63,9 +63,19 @@ function buildForkLines(rawText, forkUuid, newId) {
 // session pilotée par l'Agent SDK (modèle/effort optionnels, prompt optionnel envoyé au démarrage).
 function forkSession({ id, forkUuid, prompt, model, effort, permissionMode }, cb) {
   if (!/^[A-Za-z0-9._-]+$/.test(id || '')) return cb(err400('invalid session id'));
+  const sess = scanAllSessions().find((s) => s.id === id);
+  if (!sess) return cb(err400('session not found'));
+  // provider vibe : fork via ACP (session/load + session/fork), historique entier —
+  // le point de coupe `forkUuid` est ignoré (on peut le passer en messageId ACP si fourni).
+  if (sess.provider === 'vibe') {
+    return forkVibe(id, { cwd: sess.project, prompt, model, effort, permissionMode, forkUuid }, (err, info) => {
+      if (err) return cb(err);
+      try { if (isIncognitoSession(id)) setSessionMeta(info.sessionId, { incognito: true }); } catch (_) {}
+      cb(null, { ...info, forkedFrom: id });
+    });
+  }
   if (!/^[A-Za-z0-9-]{6,}$/.test(forkUuid || '')) return cb(err400('invalid message (uuid)'));
-  const sess = scanSessions().find((s) => s.id === id);
-  if (!sess || !sess.file) return cb(err400('session not found'));
+  if (!sess.file) return cb(err400('session not found'));
 
   let raw;
   try { raw = fs.readFileSync(sess.file, 'utf8'); } catch (_) { return cb(err400('unreadable transcript')); }

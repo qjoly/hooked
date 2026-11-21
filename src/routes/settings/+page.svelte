@@ -53,6 +53,11 @@
     { key: 'nl-NL', label: 'Nederlands' },
   ];
   let activeSec = $state(NAV[0].id);
+  // Claude-only cards (remote-control, fenêtre 5h, section Claude Code) are hidden when no
+  // `claude` binary is configured — vibe-only install.
+  const hasClaude = $derived(!!data.providers?.claude);
+  const CLAUDE_ONLY_SECS = new Set(['pset-remote-control', 'pset-warmup', 'pset-claude']);
+  const navVisible = $derived(hasClaude ? NAV : NAV.filter((n) => !CLAUDE_ONLY_SECS.has(n.id)));
 
   // ─── 5-hour window ───────────────────────────────────────────────────────────────────────
   // The plan (anchor + the day's windows) is computed server-side and refetched after every edit:
@@ -537,7 +542,7 @@
 <section id="view-settings" class="view active">
   <div class="set-wrap">
     <nav class="set-nav" bind:this={navEl} aria-label="Settings sections">
-      {#each NAV.filter((n) => !matchSecs || matchSecs.has(n.id)) as n (n.id)}
+      {#each navVisible.filter((n) => !matchSecs || matchSecs.has(n.id)) as n (n.id)}
         <a href="#{n.id}" class:active={activeSec === n.id} onclick={(e) => { e.preventDefault(); goTo(n.id); }}>{n.label}</a>
       {/each}
     </nav>
@@ -727,8 +732,17 @@
         </select>
         <button class="save" onclick={browseQuickProject} disabled={picking}>{#if picking}<Icon name="queued" size={14} />{:else}<Icon name="folder-open" size={14} />{/if} Browse…</button>
       </div>
+      <h2 style="margin-top:18px">Default provider</h2>
+      <p class="hint">Agent CLI used when a session is launched <strong>without</strong> an explicit provider — e.g. from a macOS shortcut that posts to <code>/api/launch</code> with only a prompt, or GitHub « review in session ».</p>
+      <div class="cmd-row">
+        <select class="cmd-input" value={settings.defaultProvider || 'claude'} onchange={(e) => updateSettings({ defaultProvider: e.currentTarget.value })}>
+          <option value="claude">Claude Code</option>
+          <option value="vibe">Mistral Vibe</option>
+        </select>
+      </div>
     </div>
 
+    {#if hasClaude}
     <div class="card" id="pset-remote-control" data-sec>
       <h2>Remote control</h2>
       <p class="hint">Projects the hooked server keeps a <code>claude remote-control</code> server running for, so each shows up as a launchable <strong>environment</strong> in the Claude app (start new sessions on it from claude.ai/code or mobile). Each daemon runs as a detached process (supervised by a restart loop, so it self-heals if it exits) and is hidden from the dashboard. Removing a project stops its daemon.</p>
@@ -789,6 +803,8 @@
       <p class="hint" style="margin:12px 0 0">A cheaper model (e.g. <code>haiku</code>/<code>sonnet</code>) keeps daily cost low on busy days.</p>
     </div>
 
+    {/if}
+    {#if hasClaude}
     <div class="card" id="pset-warmup" data-sec>
       <h2>5-hour window</h2>
       <p class="hint">Claude's usage window is anchored to your <strong>first message</strong> and lasts 5 hours — it is not aligned on round hours, so the first prompt of the day decides where every later boundary, and every fresh budget, falls. hooked opens one with a throwaway <code>claude -p</code> ping before you start, then reopens one whenever a boundary passes while you are away from the keyboard.</p>
@@ -900,6 +916,8 @@
       </div>
     </div>
 
+    {/if}
+    {#if hasClaude}
     <div class="card" id="pset-claude" data-sec>
       <h2>Claude Code</h2>
       <div class="cmd-row" style="margin-bottom:12px">
@@ -963,6 +981,7 @@
         {#if claudeStatus}<p class="status" style="margin:10px 0 0">{claudeStatus}</p>{/if}
       {/if}
     </div>
+    {/if}
 
     <div class="card" id="pset-git" data-sec>
       <h2>Git branch</h2>

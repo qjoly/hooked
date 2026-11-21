@@ -1,13 +1,20 @@
 import { json } from '@sveltejs/kit';
 import {
-  listMcp, getMcp, logoutMcp, startLogin, loginStatus, sendLoginInput, cancelLogin,
+  listMcp, getMcp, logoutMcp, startLogin, loginStatus, sendLoginInput, cancelLogin, listMcpVibe,
 } from '#lib/server/core.js';
 import { fail, readJson } from '#lib/server/respond.js';
 
 // MCP servers of a project: health-checked list + scope + config diagnostics.
 // `cwd` matters — project and local scopes are per-directory (see server/mcp.js).
+// `provider=vibe` : liste lue dans la config Vibe (~/.vibe/config.toml + <cwd>/.vibe/config.toml),
+// health-check HTTP uniquement (les stdio restent « configured ») — cf. server/vibeMcp.js.
 export async function GET({ url }) {
-  return json(await listMcp(url.searchParams.get('cwd'), { cached: url.searchParams.get('cached') === '1' }));
+  const provider = url.searchParams.get('provider');
+  const cwd = url.searchParams.get('cwd');
+  if (provider === 'vibe') {
+    return json(await listMcpVibe(cwd, { check: url.searchParams.get('check') === '1' }));
+  }
+  return json(await listMcp(cwd, { cached: url.searchParams.get('cached') === '1' }));
 }
 
 // Everything that mutates or blocks: OAuth login (start / poll / paste back / cancel), logout,

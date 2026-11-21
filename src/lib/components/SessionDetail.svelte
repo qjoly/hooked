@@ -11,9 +11,9 @@
   import { onMount, onDestroy, tick, untrack } from 'svelte';
   import { goto } from '$app/navigation';
   import { ui, data, settings, loadSessions, openModal, sessionTitle, sessionTags, renameSession, toggleFocus, splitWithMostRecent, canSplit, toggleArchive, isArchived, unarchive } from '#lib/state.svelte.js';
-  import { getSessionDelta, setMode, setModelEffort, setAutoApprove, openInEditor, openInGhostty, fork, launch, deleteSession, removeWorktree, restartClaudeSession, connectSessionStream, listTerminals, openTerminal, killTerminal } from '#lib/api.js';
+  import { getSessionDelta, setMode, setModelEffort, setAutoApprove, openInEditor, openInGhostty, fork, launch, deleteSession, removeWorktree, restartClaudeSession, connectSessionStream, listTerminals, openTerminal, killTerminal, getVibeOptions } from '#lib/api.js';
   import { promptCacheState } from '#lib/promptCache.js';
-  import { STATE_LABEL, fmtCost, fmtTokens, shortModel, PERMISSION_MODES, modeLabel, modeMeta, modelAlias, tagColor, lotColor, resumeCommand, parseBang, isBlockForCommand } from '#lib/format.js';
+  import { stateLabel, agentName, fmtCost, fmtTokens, shortModel, PERMISSION_MODES, modeLabel, modeMeta, modelAlias, tagColor, lotColor, resumeCommand, parseBang, isBlockForCommand } from '#lib/format.js';
   import { page } from '$app/state';
   import ModelEffort from './ModelEffort.svelte';
   import ChatBubble from './ChatBubble.svelte';
@@ -54,6 +54,24 @@
 
   // mode affiché : choix optimiste sinon mode réel remonté par les hooks (défaut : Normal).
   const modeView = $derived(modeOverride || (s && s.permissionMode) || 'default');
+  // Provider vibe : pas de mode « plan » ni d'auto-approve hooked-side (le mode auto Vibe couvre
+  // l'auto-approbation) → chips masqués.
+  const isVibe = $derived(s?.provider === 'vibe');
+  // Options Vibe (modèles/thinking) pour le sélecteur de modèle d'une session vibe live.
+  let vibeOpts = $state(null);
+  $effect(() => {
+    if (!isVibe || vibeOpts) return;
+    let alive = true;
+    getVibeOptions().then((o) => { if (alive) vibeOpts = o; }).catch(() => {});
+    return () => { alive = false; };
+  });
+  const vibeModelOpts = $derived(vibeOpts
+    ? vibeOpts.models.map((m) => [m.alias || m.name, m.label ? `${m.label} · ${m.alias || m.name}` : (m.alias || m.name)])
+    : null);
+  const vibeEffortList = $derived(vibeOpts
+    ? (vibeOpts.models.find((m) => (m.alias || m.name) === editModel)?.thinking
+        || [...new Set(vibeOpts.models.flatMap((m) => m.thinking || []))])
+    : null);
   // messages envoyés en attente d'apparaître dans le transcript (file d'attente, comme le CLI).
   let queued = $state([]);
   let forceBottom = false;          // force le scroll en bas au prochain rendu (envoi d'un message)
@@ -459,6 +477,7 @@
       resumeId: s.id, prompt: '',
       effort: s.effort || undefined,
       permissionMode: settings.defaultMode || 'default',
+      provider: s.provider || 'claude', // resume d'une session vibe → provider vibe
     }).catch((e) => ({ ok: false, data: { error: e?.message || 'failed' } }));
     if (res.ok) {
       unarchive(s.id);
@@ -610,7 +629,7 @@
   function restart() {
     openModal('confirm', {
       title: 'Restart session?',
-      message: 'The Claude process is stopped and resumed from its transcript. A turn in progress is lost.',
+      message: `The ${agentName(s?.provider)} process is stopped and resumed from its transcript. A turn in progress is lost.`,
       confirmLabel: 'Restart', confirmIcon: 'rotate-cw', onConfirm: doRestart,
     });
   }
@@ -785,7 +804,7 @@
           {#each sessionTags(id) as t (t)}<span class="head-tag" style="--c:{tagColor(t)}">#{t}</span>{/each}
         </button>
       {/if}
-      <span class="badge s-badge"><span class="bdot"></span>{s.state === 'working' && s.activity ? s.activity + '…' : (STATE_LABEL[s.state] || s.state)}</span>
+      <span class="badge s-badge"><span class="bdot"></span>{s.state === 'working' && s.activity ? s.activity + '…' : stateLabel(s.state, s.provider)}</span>
       <!-- Context-window fill (s.context, cf. server/status.js): the one TUI reading the dashboard
            could not surface, though it decides whether to compact or fork. Two producers, one
            format: statusline-tap.sh for a session opened by hand, server/agent-status.js for a
@@ -815,7 +834,7 @@
         {:else}
           {#if resumeStatus}<span class="strip-status err">{resumeStatus}</span>{/if}
           <button class="resume-btn" disabled={resuming} onclick={resume}
-                  title="Re-run claude --resume, driven by hooked">{#if resuming}<Icon name="queued" size={14} />{:else}<Icon name="in-progress" size={14} tint={false} />{/if} Resume</button>
+                  title={isVibe ? 'Re-run vibe --resume, driven by hooked' : 'Re-run claude --resume, driven by hooked'}>{#if resuming}<Icon name="queued" size={14} />{:else}<Icon name="in-progress" size={14} tint={false} />{/if} Resume</button>
         {/if}
         <!-- The one Archive control: stops the session when it runs, hides it, reversible. -->
         <button class="archive-btn" disabled={archiving} onclick={archive}
@@ -833,7 +852,8 @@
               {@const cur = modeMeta(modeView)}
               <div class="hdr-menu-cmds">
                 {#if sb.modelEffort !== false}
-                  <ModelEffort compact bind:model={editModel} bind:effort={editEffort} onchange={applyModelEffort} disabled={meBusy} />
+                  <ModelEffort compact bind:model={editModel} bind:effort={editEffort} onchange={applyModelEffort} disabled={meBusy}
+                               modelOpts={isVibe ? vibeModelOpts : null} effortList={isVibe ? vibeEffortList : null} />
                 {/if}
                 {#if sb.permissionMode !== false}
                   <div class="strip-modes wrap">
@@ -841,17 +861,21 @@
                       <span class="mode-now mode-{modeView}" title={cur.title}><span class="mode-ico">{cur.icon}</span>{cur.label}</span>
                     {/if}
                     {#each PERMISSION_MODES as m}
-                      <button class="mode-chip" class:active={modeView === m.key} disabled={modeBusy}
-                              onclick={() => switchMode(m.key)} title={m.title}><span class="mode-ico">{m.icon}</span>{m.label}</button>
+                      {#if !(isVibe && m.key === 'plan')}
+                        <button class="mode-chip" class:active={modeView === m.key} disabled={modeBusy}
+                                onclick={() => switchMode(m.key)} title={m.title}><span class="mode-ico">{m.icon}</span>{m.label}</button>
+                      {/if}
                     {/each}
                     <!-- Orthogonal au mode : le mode décide QUI escalade (règles, classifieur du
                          mode auto), ceci décide si hooked te pose la question quand ça escalade. -->
+                    {#if !isVibe}
                     <button class="mode-chip auto-chip" class:active={autoView} disabled={autoBusy}
                             onclick={toggleAuto}
                             title={autoView
                               ? 'Auto-approve is ON: tool permission requests are allowed without asking. Questions and plans still come to you.'
                               : 'Auto-approve tool permissions: stop asking for each escalated tool call. Questions and plans still come to you.'}>
                       <span class="mode-ico">⚡</span>Auto-approve · {autoView ? 'on' : 'off'}</button>
+                    {/if}
                   </div>
                 {/if}
               </div>
@@ -864,8 +888,8 @@
             <button class="vscode-btn" disabled={ghosttyBusy} onclick={openGhostty} title="Open the project folder in Ghostty">{#if ghosttyBusy}<Icon name="queued" size={14} />{:else}<Icon name="ghostty" size={14} />{/if} Open in Ghostty</button>
             <button class="vscode-btn" onclick={copyResumeCmd}
                     title={s.live
-                      ? 'Copy `claude --resume` for this session — WARNING: hooked is driving it right now, running the command too would fight over the session lock'
-                      : 'Copy `claude --resume` for this session, to reopen it in your own terminal'}>{#if cmdCopied}<Icon name="check" size={14} /> copied{:else}<Icon name="shell" size={14} /> Copy resume command{/if}</button>
+                      ? `Copy \`${isVibe ? 'vibe --resume' : 'claude --resume'}\` for this session — WARNING: hooked is driving it right now, running the command too would fight over the session lock`
+                      : `Copy \`${isVibe ? 'vibe --resume' : 'claude --resume'}\` for this session, to reopen it in your own terminal`}>{#if cmdCopied}<Icon name="check" size={14} /> copied{:else}<Icon name="shell" size={14} /> Copy resume command{/if}</button>
             <button class="vscode-btn" onclick={copyExport} title="Copy the conversation as Markdown to the clipboard">{#if exportCopied}<Icon name="check" size={14} /> copied{:else}<Icon name="copy" size={14} /> Copy as Markdown{/if}</button>
             {#if s.worktreeOf}
               <div class="hdr-div"></div>
@@ -877,7 +901,7 @@
             {#if sb.focusBtn !== false}<button class="vscode-btn" class:on={ui.focus} onclick={toggleFocus} title="Focus mode: full-screen conversation"><Icon name="maximize" size={14} /> {ui.focus ? 'Exit focus' : 'Focus'}</button>{/if}
             <button class="vscode-btn" class:on={ui.toolsOpen} onclick={() => (ui.toolsOpen = !ui.toolsOpen)} title="Expand every tool call's input/result inline (this session only, off on reload)"><Icon name="tool" size={14} /> {ui.toolsOpen ? 'Collapse tool details' : 'Expand tool details'}</button>
             <div class="hdr-div"></div>
-            <button class="vscode-btn" disabled={restarting} onclick={restart} title="Stop the Claude process and resume it from its transcript (picks up the installed claude version)">{#if restarting}<Icon name="queued" size={14} />{:else}<Icon name="rotate-cw" size={14} />{/if} Restart</button>
+            <button class="vscode-btn" disabled={restarting} onclick={restart} title={isVibe ? 'Stop the Vibe process and resume it from its session (picks up the installed vibe version)' : 'Stop the Claude process and resume it from its transcript (picks up the installed claude version)'}>{#if restarting}<Icon name="queued" size={14} />{:else}<Icon name="rotate-cw" size={14} />{/if} Restart</button>
             <button class="vscode-btn del-btn" disabled={deleting} onclick={del} title="Move to trash: removes from dashboard; transcript kept in bin/ (recoverable)">{#if deleting}<Icon name="queued" size={14} tint={false} />{:else}<Icon name="trash" size={14} tint={false} />{/if} Delete</button>
           </div>
         </details>
@@ -925,7 +949,7 @@
                even as the render window slides → the key stays stable across MSG_STEP expansions and new ticks. -->
           {#each (s.messages || []).slice(startIdx) as m, j (startIdx + j)}
             {#each cmdEchoes.get(startIdx + j) || [] as q (q.ts)}{@render commandBubble(q)}{/each}
-            <ChatBubble {m} onfork={quickFork} onforkadvanced={openFork} {forkState} session={id} />
+            <ChatBubble {m} onfork={quickFork} onforkadvanced={openFork} {forkState} session={id} provider={s.provider || 'claude'} />
           {/each}
         {:else if !queued.length}
           <div class="pane-empty">Empty conversation.</div>
@@ -936,8 +960,10 @@
              transcript → without it the question card arrived without the text explaining it. -->
         {#if s.pendingLeadIn && tab === 'chat'}
           <div class="bubble assistant leadin">
-            <div class="who"><Icon name="bot" size={14} /> Claude
-              <span class="t" title="Claude Code only writes this turn to the transcript once you have answered — this text comes from the live stream">
+            <div class="who"><Icon name="bot" size={14} /> {isVibe ? 'Mistral Vibe' : 'Claude'}
+              <span class="t" title={isVibe
+                ? 'Mistral Vibe only writes this turn to the transcript once you have answered — this text comes from the live stream'
+                : 'Claude Code only writes this turn to the transcript once you have answered — this text comes from the live stream'}>
                 <Icon name="activity" size={13} /> live stream
               </span>
             </div>
@@ -950,7 +976,7 @@
              de flux n'est vidé qu'au `result`), l'afficher aussi la doublait. -->
         {#if tab === 'chat' && (liveText || liveThinking) && !s.pendingLeadIn}
           <div class="bubble assistant streaming">
-            <div class="who"><Icon name="bot" size={14} /> Claude
+            <div class="who"><Icon name="bot" size={14} /> {isVibe ? 'Mistral Vibe' : 'Claude'}
               <span class="t"><span class="sd-dot" aria-hidden="true"></span> en direct</span>
             </div>
             {#if liveThinking}<pre class="sd-thinking">{liveThinking}</pre>{/if}
@@ -958,14 +984,14 @@
           </div>
         {/if}
         {#if s.state === 'working' && tab === 'chat'}
-          <div class="working-live" title="Claude is working — new messages appear once flushed">
+          <div class="working-live" title={isVibe ? 'Mistral Vibe is working — new messages appear once flushed' : 'Claude is working — new messages appear once flushed'}>
             <span class="wl-dots" aria-hidden="true"><span></span><span></span><span></span></span>
             <span class="wl-verb">{liveTool || s.activity || 'Working'}…</span>
             {#if workElapsed}<span class="wl-sep">·</span><span class="wl-time">{workElapsed}</span>{/if}
           </div>
         {/if}
       </div>
-      {#if s.pendingQuestion}<Question {id} pq={s.pendingQuestion} />{/if}
+      {#if s.pendingQuestion}<Question {id} pq={s.pendingQuestion} provider={s.provider || 'claude'} />{/if}
       {#if s.pendingPlan}<Plan {id} pp={s.pendingPlan} />{/if}
       {#if s.live}
         <!-- La carte de follow-up est rendue PAR le composer, dans son socle : elle ne défile plus
@@ -973,6 +999,7 @@
              (`followupSuggestion` vient du registre de l'Agent SDK), donc rien n'est perdu à la
              faire dépendre de ce `{#if}`. Seul le masquage remonte ici, car il est persisté. -->
         <Composer bind:this={composer} {id} project={s.project} lastPrompt={s.lastPrompt || ''} {onSent}
+                  provider={s.provider || 'claude'}
                   followup={showFollowup ? followup : null} onFollowupDismiss={dismissFollowup} />
       {/if}
     </div>
@@ -987,7 +1014,7 @@
     <!-- Lentille MCP : santé des serveurs MCP du projet de la session + ré-authentification. -->
     <div class="pane" class:active={tab === 'mcp'}>
       {#if seen.mcp}
-        <Mcp project={s.project || ''} />
+        <Mcp project={s.project || ''} provider={s.provider || 'claude'} />
       {/if}
     </div>
 

@@ -9,7 +9,8 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
-import { PROJECTS_DIR } from './config.js';
+import { PROJECTS_DIR, VIBE_SESSIONS_DIR } from './config.js';
+import { vibeToolPaths } from './vibe.js';
 import { readdirSafe, statSafe, SHOW_TOOLS } from './util.js';
 import { agentTranscriptPath } from './transcript.js';
 
@@ -74,8 +75,29 @@ function collectAllowlist(fp) {
 
 // Lit un fichier SendUserFile pour l'UI. `agentId` non vide → transcript du sous-agent.
 // Renvoie { buffer, contentType, attachment, name } ou null (introuvable / hors liste blanche).
-function readUserFile(sessionId, agentId, absPath, projectsDir = PROJECTS_DIR) {
+function readUserFile(sessionId, agentId, absPath, projectsDir = PROJECTS_DIR, vibeSessionsDir = VIBE_SESSIONS_DIR) {
   if (typeof absPath !== 'string' || !absPath) return null;
+  // provider vibe : allowlist = chemins de fichiers mentionnés par les tools du journal (session ou sous-session).
+  const vdir = (agentId || sessionId) && /^[A-Za-z0-9._-]+$/.test(agentId || sessionId || '')
+    ? path.join(vibeSessionsDir, agentId || sessionId) : null;
+  if (vdir && statSafe(path.join(vdir, 'journal'))) {
+    let real;
+    try { real = fs.realpathSync(absPath); } catch (_) { return null; }
+    const allowed = new Set();
+    for (const p of vibeToolPaths(vdir).keys()) {
+      try { allowed.add(fs.realpathSync(p)); } catch (_) {}
+    }
+    if (!allowed.has(real)) return null;
+    let st;
+    try { st = fs.statSync(real); } catch (_) { return null; }
+    if (!st.isFile() || st.size > MAX_BYTES) return null;
+    const ext = path.extname(real).toLowerCase();
+    const contentType = CONTENT_TYPE[ext] || 'application/octet-stream';
+    const attachment = FORCE_ATTACHMENT.has(ext) || contentType === 'application/octet-stream';
+    let buffer;
+    try { buffer = fs.readFileSync(real); } catch (_) { return null; }
+    return { buffer, contentType, attachment, name: real.split('/').pop() };
+  }
   const fp = agentId ? agentTranscriptPath(sessionId, agentId, projectsDir) : sessionTranscriptPath(sessionId, projectsDir);
   if (!fp) return null;
   let real;

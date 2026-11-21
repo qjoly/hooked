@@ -95,9 +95,9 @@
     {#if !digest}
       <div class="state">Loading…</div>
     {:else if digest.status === 'running' || busy}
-      <div class="state"><span class="spin"></span> Generating the digest for {date}… Claude is analyzing the day's sessions.</div>
+      <div class="state"><span class="spin"></span> Generating the digest for {date}… the model is analyzing the day's sessions.</div>
     {:else if digest.status === 'absent'}
-      <div class="state">No digest for <b>{date}</b> yet. Click <b>Generate</b> to have Claude analyze that day.</div>
+      <div class="state">No digest for <b>{date}</b> yet. Click <b>Generate</b> to have the model analyze that day.</div>
     {:else if digest.status === 'error'}
       <div class="state err">Generation failed: {digest.error || 'unknown error'}. <button class="link" onclick={() => generate(true)}>Retry</button></div>
     {:else if ready}

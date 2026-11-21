@@ -1,0 +1,16 @@
+{
+ "session_id": "sess-s2-child",
+ "parent_session_id": "sess-s2",
+ "start_time": "2026-11-20T10:01:00.000000+00:00",
+ "end_time": null,
+ "git_branch": null,
+ "environment": {
+  "working_directory": "/tmp/proj-vibe"
+ },
+ "origin_directory": "/tmp/proj-vibe",
+ "username": "qjoly",
+ "child_sessions": [],
+ "loops": [],
+ "title": "sous-agent audit",
+ "title_source": "auto"
+}

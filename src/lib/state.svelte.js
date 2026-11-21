@@ -3,7 +3,7 @@
 // ici : elle est portée par l'URL (routing SvelteKit). Ne restent que les filtres de la
 // sidebar, l'état live (SSE), le tick de rafraîchissement et la modale.
 import { floating } from './floating.svelte.js';
-import { getSessions, connectSSE, getSettings, saveSettings as apiSaveSettings, getTags, saveTags, replaceTags, suggestTags, getSessionMeta, saveSessionMeta, groupOp, kill, getAccount } from './api.js';
+import { getSessionsFull, connectSSE, getSettings, saveSettings as apiSaveSettings, getTags, saveTags, replaceTags, suggestTags, getSessionMeta, saveSessionMeta, groupOp, kill, getAccount } from './api.js';
 import { NOTIFY_KINDS, notifyKeyFor, countsForBadge } from './notify.js';
 import { isFinishedAndCold } from './format.js';
 import { DEFAULT_HIDDEN_MODELS } from './models.js';
@@ -447,6 +447,7 @@ export function setCorners(c) {
 // dans la sidebar, le Deck, les splits, le sélecteur de groupe…
 const raw = $state({ sessions: [] });
 export const data = {
+  providers: { claude: true, vibe: false }, // providers configurés (badge sidebar) — défaut: un seul
   get sessions() { return ui.incognito ? raw.sessions.filter((s) => isIncognito(s.id)) : raw.sessions; },
   set sessions(v) { raw.sessions = v; },
 };
@@ -543,7 +544,9 @@ export async function toggleNotify() {
 
 export async function loadSessions() {
   try {
-    const sessions = await getSessions();
+    const full = await getSessionsFull();
+    const sessions = full.sessions;
+    data.providers = full.providers || data.providers;
     // A new session may have been grouped — or flagged incognito — server-side (MCP start_session,
     // launch) → resync the meta. Compared against the RAW list: in incognito mode the visible one
     // is empty until the meta resync lands, which would stop it from ever happening.

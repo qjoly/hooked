@@ -28,12 +28,14 @@ import { PORT, LAUNCHES_FILE, SESSION_LAUNCH_FILE, DRIVEN_FILE, PERMISSION_MODES
 import { isValidEffort } from './capabilities.js';
 import { statSafe } from './util.js';
 import { scanSessions } from './transcript.js';
+import { scanAllSessions } from './sessions.js';
 import { readSettings } from './settings.js';
 import { refreshAgentStatus } from './agent-status.js';
 import { buildToolCatalog } from './llmTools.js';
 import { contextFromUsage, compactDue } from '../src/lib/promptCache.js';
 import { joinGroup, setSessionMeta, isIncognitoSession } from './sessionMeta.js';
 import { createWorktree, removeWorktree, restoreWorktree, attachWorktreeSession, autoNameBranch } from './worktrees.js';
+import * as vibeAgent from './vibeAgent.js';
 
 function err400(msg) { const e = new Error(msg); e.code = 400; return e; }
 
@@ -750,7 +752,7 @@ function launchSession(opts, cb) {
   let id = null;
   if (resumeId) {
     if (!/^[A-Za-z0-9._-]+$/.test(resumeId)) return cb(err400('invalid session id'));
-    const sess = scanSessions().find((s) => s.id === resumeId);
+    const sess = scanAllSessions().find((s) => s.id === resumeId); // resume d'une session vibe comprise
     if (!sess) return cb(err400('session not found'));
     dir = dir || sess.project;
     id = resumeId;
@@ -771,8 +773,19 @@ function launchSession(opts, cb) {
   }
   if (!stDir || !stDir.isDirectory()) return cb(err400('invalid cwd: ' + dir));
 
-  if (model && !isValidModelArg(model)) return cb(err400('unknown model: ' + model));
-  if (effort && !isValidEffort(effort)) return cb(err400('unknown effort: ' + effort));
+  // Provider : explicite, ou déduit de la session resumée (resume d'une session vibe sans
+  // provider explicite lançait un `claude --resume` sur un id Vibe → échec + session bloquée).
+  const provider = opts.provider === 'vibe' || opts.provider === 'claude'
+    ? opts.provider
+    : ((id && scanAllSessions().find((s) => s.id === id)?.provider)
+      || (readSettings().defaultProvider === 'vibe' ? 'vibe' : 'claude'));
+  // provider vibe : les modèles sont des aliases lus dans ~/.vibe/config.toml (pas la liste Claude),
+  // et l'effort devient un thinking level Vibe — validation souple (charset), le set_config_option
+  // côté Vibe refuse ce qu'il ne connaît pas.
+  if (model && provider !== 'vibe' && !isValidModelArg(model)) return cb(err400('unknown model: ' + model));
+  if (model && provider === 'vibe' && !/^[A-Za-z0-9._:-]+$/.test(model)) return cb(err400('invalid model alias: ' + model));
+  if (effort && provider !== 'vibe' && !isValidEffort(effort)) return cb(err400('unknown effort: ' + effort));
+  if (effort && provider === 'vibe' && !/^[a-z]+$/.test(effort)) return cb(err400('unknown thinking level: ' + effort));
   if (permissionMode && !LAUNCH_PERMISSION_MODES.includes(permissionMode)) return cb(err400('unknown permission mode: ' + permissionMode));
   if (id && live.has(id)) return cb(err400('session already running'));
   if (worktree && !id) return launchInNewWorktree({ ...opts, cwd: dir }, cb);
@@ -781,6 +794,7 @@ function launchSession(opts, cb) {
   const input = makeInputQueue();
   const st = {
     id: id || null,
+    provider, // 'claude' (Agent SDK) | 'vibe' (ACP, cf. server/vibeAgent.js)
     launchKey: 'launch:' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
     cwd: dir,
     input,
@@ -842,6 +856,18 @@ function launchSession(opts, cb) {
   // spawner : sans lui la session perdrait le PATH et les variables du profil (cf. loginEnv).
   loginEnv().then((env) => {
     if (st.abort.signal.aborted) return; // tuée pendant le démarrage
+    // Provider vibe : pas d'Agent SDK, on pilote `vibe-acp` (cf. server/vibeAgent.js) avec le
+    // MÊME registre st — le reste du dashboard (état live, questions, interruptions) est inchangé.
+    if (st.provider === 'vibe') {
+      vibeAgent.vibeStart(st, { prompt: seed, model, effort, permissionMode, resumeId: id, env }, {
+        setLive: (sid, s) => { live.set(sid, s); },
+        persistLaunch: (sid, m, e) => persistLaunch(sid, m, e),
+        done,
+        failStartup: () => failStartup(st),
+        emit: (s2, now) => emitAgent(s2.id, () => streamSnapshot(s2), now), // stream SSE des chunks ACP
+      });
+      return;
+    }
     try {
       st.q = query({ prompt: input, options: sdkOptions({ cwd: dir, model, effort, permissionMode, resumeId: id, input, st, env }) });
     } catch (e) {
@@ -954,7 +980,8 @@ function agentAlive(id) {
 // agentSession.
 function drivableSession(id) {
   const st = agentSession(id);
-  return st && st.q ? st : null;
+  // canal de contrôle : Query du SDK (claude) ou client ACP (vibe)
+  return st && (st.q || st.acp) ? st : null;
 }
 
 function agentSession(id) {
@@ -985,18 +1012,26 @@ function liveSessionCwds() {
 // Null when nothing is driven or the request fails — the palette then falls back to the disk scan.
 // The promise is cached: the palette asks on every keystroke, the control channel must not.
 const SUPPORTED_COMMANDS_TTL = 30_000;
-function commandsSource(id) {
+function commandsSource(id, provider) {
+  // `provider` restreint la recherche aux sessions pilotées de ce provider : sans filtre, une
+  // session Claude pilotée répondrait à la place d'une session Vibe et polluerait la liste « / ».
+  const ok = (st) => st && (!provider || st.provider === provider);
   const st = drivableSession(id);
-  if (st) return st;
+  if (ok(st)) return st;
   for (const sid of liveSessionIds()) {
     const alt = drivableSession(sid);
-    if (alt) return alt;
+    if (ok(alt)) return alt;
   }
   return null;
 }
-function agentSupportedCommands(id) {
-  const st = commandsSource(id);
-  if (!st || typeof st.q.supportedCommands !== 'function') return Promise.resolve(null);
+function agentSupportedCommands(id, provider) {
+  const st = commandsSource(id, provider);
+  if (!st) return Promise.resolve(null);
+  // provider vibe : la liste vient des notifications ACP availableCommands (cf. vibeAgent)
+  if (st.provider === 'vibe') {
+    return Promise.resolve(st.vibeCommands && st.vibeCommands.length ? { commands: st.vibeCommands, cwd: st.cwd || null } : null);
+  }
+  if (typeof st.q.supportedCommands !== 'function') return Promise.resolve(null);
   const cwd = st.cwd || null;
   const cached = st.commands;
   if (!cached || Date.now() - cached.at >= SUPPORTED_COMMANDS_TTL) {
@@ -1013,8 +1048,22 @@ function agentSupportedCommands(id) {
 async function agentToolCatalog(id) {
   const st = commandsSource(id);
   const sessions = liveSessionIds().filter((sid) => drivableSession(sid))
-    .map((sid) => ({ id: sid, cwd: live.get(sid).cwd || null, model: live.get(sid).model || null }));
+    .map((sid) => ({ id: sid, cwd: live.get(sid).cwd || null, model: live.get(sid).model || null, provider: live.get(sid).provider || 'claude' }));
   if (!st) return { session: null, sessions, builtin: [], mcp: [], totals: null };
+  // Provider vibe : pas de `st.q` (SDK Anthropic) → pas de getContextUsage/mcpServerStatus.
+  // Le catalogue retombe sur les commandes déclarées par la session ACP (availableCommands).
+  if (st.provider === 'vibe') {
+    const sessionId = [...live].find(([, v]) => v === st)?.[0] || null;
+    const cmds = Array.isArray(st.vibeCommands) ? st.vibeCommands : [];
+    return {
+      session: { id: sessionId, cwd: st.cwd || null, model: st.model || null, provider: 'vibe' },
+      sessions,
+      available: true,
+      builtin: cmds.map((c) => ({ name: c.name, tokens: null, deferred: null, description: c.description || '' })),
+      mcp: [],
+      totals: null,
+    };
+  }
   const call = (fn) => (typeof fn === 'function' ? fn.call(st.q).catch(() => null) : Promise.resolve(null));
   const [ctx, servers] = await Promise.all([
     typeof st.q.getContextUsage === 'function' ? st.q.getContextUsage({ detail: 'summary' }).catch(() => null) : null,
@@ -1197,7 +1246,12 @@ function deliverReply(id, text, cb, opts = {}) {
   if (!st) return cb(err400('no live agent session for this id'));
   if (st.sawMsg) return pushReply(st, id, text, cb, opts);
   whenReady(st).then((ready) => {
-    if (!ready) return cb(err400('session never finished starting — use Restart'));
+    if (!ready) {
+      // Remonte la cause quand le démarrage a échoué (ex. vibe-acp: store invalide, lease tenu…)
+      const cur0 = agentSession(id);
+      const reason = cur0 && cur0.error ? ` (${cur0.error})` : '';
+      return cb(err400('session never finished starting' + reason + ' — use Restart'));
+    }
     // la session a pu disparaître pendant l'attente
     const cur = agentSession(id);
     if (!cur) return cb(err400('no live agent session for this id'));
@@ -1216,6 +1270,14 @@ function pushReply(st, id, text, cb, { respond = false } = {}) {
     .map((s) => (typeof s === 'string' ? s.trim() : ''))
     .filter(Boolean);
   if (!parts.length) return cb(err400('text required'));
+  // provider vibe : on envoie via ACP (session/prompt) — fire and forget, l'état live arrive
+  // par les notifications session/update. Le dispatch est AVANT le mode bang `!cmd` : Vibe
+  // interprète lui-même `!commande` dans son input, pas besoin de runLocalCommand.
+  if (st.provider === 'vibe') {
+    markReplied(st);
+    vibeAgent.vibePrompt(st, parts.join('\n')).catch((e) => { st.error = 'vibe prompt failed: ' + ((e && e.message) || e); });
+    return cb(null, { sessionId: id, sent: parts.length });
+  }
   // Mode bash : `!commande` s'exécute localement au lieu de partir au modèle (cf. runLocalCommand).
   // Seulement sur une saisie SIMPLE — un envoi multiple est une file de messages, pas une commande.
   if (parts.length === 1) {
@@ -1275,6 +1337,12 @@ function answerQuestion(id, selections, note, cb) {
 
   const n = typeof note === 'string' ? note.trim() : '';
   const resolve = ask.resolve;
+  if (st.provider === 'vibe') {
+    // ACP : la réponse est un elicitation/create → content {q0: label, …}
+    resolve({ behavior: 'allow', elicitation: { action: 'accept', content: vibeAgent.elicitationContent(ask.questions || [], selections) } });
+    if (n) vibeAgent.vibePrompt(st, n).catch(() => {});
+    return cb(null, { sessionId: id, answers });
+  }
   resolve({ behavior: 'allow', updatedInput: { ...(ask.input || {}), answers } });
   if (n) st.input.push(userMessage(n)); // la note part comme message de suivi, comme avant
   cb(null, { sessionId: id, answers });
@@ -1296,6 +1364,10 @@ function answerQuestionFreeText(id, text, cb) {
   }
   const first = (ask.questions || [])[0];
   const answers = first ? { [first.question]: answer } : {};
+  if (st.provider === 'vibe') {
+    ask.resolve({ behavior: 'allow', freeTextAnswer: answer });
+    return cb(null, { sessionId: id, freeText: true });
+  }
   ask.resolve({ behavior: 'allow', updatedInput: { ...(ask.input || {}), answers } });
   cb(null, { sessionId: id, freeText: true });
 }
@@ -1311,6 +1383,7 @@ function answerPlan(id, action, feedback, cb) {
   if (!PLAN_ACTIONS.includes(action)) return cb(err400('unknown action: ' + action));
   const fb = typeof feedback === 'string' ? feedback.trim() : '';
   if (action === 'keep-feedback' && !fb) return cb(err400('feedback required'));
+  if (st.provider === 'vibe') return cb(err400('plan mode has no equivalent on vibe sessions yet'));
   const ask = st.pendingAsk;
   if (!ask || ask.kind !== 'plan') return cb(err400('no plan awaiting approval for this session'));
 
@@ -1337,6 +1410,14 @@ function answerPermission(id, choice, message, cb) {
   if (!st) return cb(err400('no live agent session for this id'));
   const ask = st.pendingAsk;
   if (!ask || ask.kind !== 'permission') return cb(err400('no permission request awaiting an answer'));
+  if (st.provider === 'vibe') {
+    // ACP : ask.resolve traduit en outcome selected (allow_once / allow_always* / reject_once).
+    if (choice === 'deny') { ask.resolve({ behavior: 'deny', message: (typeof message === 'string' && message.trim()) || 'Denied from the hooked dashboard.' }); return cb(null, { sessionId: id, choice }); }
+    if (choice === 'allow-always') { ask.resolve({ behavior: 'allow', allowAlways: true }); return cb(null, { sessionId: id, choice }); }
+    if (choice !== 'allow') return cb(err400('unknown choice: ' + choice));
+    ask.resolve({ behavior: 'allow' });
+    return cb(null, { sessionId: id, choice });
+  }
   if (choice === 'deny') {
     ask.resolve({ behavior: 'deny', message: (typeof message === 'string' && message.trim()) || 'Denied from the hooked dashboard.' });
     return cb(null, { sessionId: id, choice });
@@ -1379,6 +1460,13 @@ function interruptSession(id, cb) {
     st.pendingAsk = null;
     try { r({ behavior: 'deny', message: 'Interrupted from the hooked dashboard.' }); } catch (_) {}
   }
+  if (st.provider === 'vibe') {
+    return vibeAgent.vibeCancel(st).then(() => {
+      st.busy = false;
+      st.activity = null;
+      cb(null, { sessionId: id, receipt: null });
+    }).catch((e) => cb(new Error('interrupt failed: ' + ((e && e.message) || e))));
+  }
   st.q.interrupt().then((receipt) => {
     st.busy = false;
     st.activity = null;
@@ -1412,6 +1500,11 @@ function setMode(id, target, cb) {
   const st = drivableSession(id);
   if (!st) return cb(err400('no live agent session for this id'));
   if (!PERMISSION_MODES.includes(target)) return cb(err400('unknown mode: ' + target));
+  if (st.provider === 'vibe') {
+    return vibeAgent.vibeSetMode(st, target)
+      .then(() => cb(null, { sessionId: id, mode: target }))
+      .catch((e) => cb(new Error('set_mode failed: ' + ((e && e.message) || e))));
+  }
   st.q.setPermissionMode(target).then(() => {
     st.permissionMode = target;
     cb(null, { sessionId: id, mode: target });
@@ -1426,6 +1519,20 @@ function setMode(id, target, cb) {
 function setModelEffort(id, { model, effort, force = false } = {}, cb) {
   const st = drivableSession(id);
   if (!st) return cb(err400('no live agent session for this id'));
+  if (st.provider === 'vibe') {
+    // Vibe : model → set_config_option "model" (alias), effort → "thinking" level. Pas de notion
+    // de prompt-cache warm à ménager côté Mistral → pas de hold, on applique directement.
+    if (model && !/^[A-Za-z0-9._:-]+$/.test(model)) return cb(err400('invalid model alias: ' + model));
+    if (effort && !/^[a-z]+$/.test(effort)) return cb(err400('unknown thinking level: ' + effort));
+    if (!model && !effort) return cb(err400('model or effort required'));
+    return vibeAgent.vibeSetConfig(st, { model: model || null, thinking: effort || null })
+      .then(() => {
+        const prev = sessionLaunchMap().get(id) || {};
+        persistLaunch(id, model || prev.model || null, effort || prev.effort || null);
+        cb(null, { sessionId: id, model: model || null, effort: effort || null });
+      })
+      .catch((e) => cb(new Error('model/thinking change failed: ' + ((e && e.message) || e))));
+  }
   if (model && !isValidModelArg(model)) return cb(err400('unknown model: ' + model));
   if (effort && !isValidEffort(effort)) return cb(err400('unknown effort: ' + effort));
   if (!model && !effort) return cb(err400('model or effort required'));
@@ -1453,10 +1560,39 @@ function setModelEffort(id, { model, effort, force = false } = {}, cb) {
   });
 }
 
+// Fork d'une session Vibe via ACP (session/load + session/fork sur un process dédié).
+// Le `forkUuid` (point de coupe au message) n'a pas d'équivalent ACP simple : on forke
+// l'historique entier (cf. docs/port-vibe.md, M3).
+function forkVibe(id, opts, cb) {
+  vibeAgent.vibeFork(id, opts, {
+    setLive: (st) => { live.set(st.id, st); },
+    persistLaunch: (sid, m, e) => persistLaunch(sid, m, e),
+    emit: (st, now) => emitAgent(st.id, () => streamSnapshot(st), now),
+    liveSt: live.get(id) || null, // session live : sa connexion est fermée le temps du fork
+    // Rouvre la session source avec un nouveau process ACP (vibeStart en mode resume, sans
+    // prompt) — vibeStart réutilise le même st et réassigne st.acp.
+    reopenSource: (sid) => {
+      const st = live.get(sid);
+      if (!st || st.acp) return Promise.resolve();
+      if (st.ended && !st.forkClosing) return Promise.resolve(); // vraiment terminée : on ne rouvre pas
+      st.forkClosing = false;
+      st.ended = false;
+      const noop = () => {};
+      return vibeAgent.vibeStart(st, { resumeId: sid, env: process.env }, {
+        setLive: (s2, s) => { live.set(s, s); },
+        persistLaunch: noop, done: noop, failStartup: noop,
+        emit: (s2, now) => emitAgent(s2.id, () => streamSnapshot(s2), now),
+      });
+    },
+  }).then((info) => cb(null, info))
+    .catch((e) => cb(err400('vibe fork failed: ' + ((e && e.message) || e))));
+}
+
 // Stoppe la session : on ferme la file d'entrée puis on avorte. La boucle de lecture nettoie.
 function killSession(id, cb) {
   const st = agentSession(id);
   if (!st) return cb(err400('no live agent session for this id'));
+  if (st.provider === 'vibe') vibeAgent.vibeKill(st);
   st.input.close();
   st.abort.abort();
   st.ended = true;
@@ -1704,7 +1840,7 @@ export {
   applyMessage, readLoop, permissionQuestion, handleToolPermission, makeInputQueue, userMessage, parseEnvBlock, loginEnv, withoutServerEnv, hookedMcpServer, sessionIdForLaunchKey,
   subscribeAgent, streamSnapshot,
   resolveLaunchForSession, sessionLaunchMap,
-  launchSession, killSession, restartSession,
+  launchSession, killSession, restartSession, forkVibe,
   deliverReply, answerQuestion, questionAnswers, answerQuestionFreeText, answerPlan, answerPermission, answerPendingSelection,
   interruptSession, setMode, setModelEffort, setAutoApprove, alwaysAllowRules, clearAgentState,
   closeAfterTurn, resumeDrivenSessions, startDrivenSnapshot, pickResumable, saveDriven, failStartup, resumeLaunchArgs,

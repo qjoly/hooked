@@ -1,8 +1,8 @@
+import { scanAllSessions } from './sessions.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import { HOOKED_DIR } from './config.js';
 import { readSettings } from './settings.js';
-import { scanSessions } from './transcript.js';
 import { agentAlive, agentBusy, agentPendingAsk, deliverReply } from './agent.js';
 import { ghGraphql, parseItemUrl } from './ghClient.js';
 import { headChecks } from './github.js';
@@ -206,7 +206,7 @@ function deliver(id, text) {
 }
 
 function latestPrLink(id) {
-  const s = scanSessions().find((x) => x.id === id);
+  const s = scanAllSessions().find((x) => x.id === id);
   return (s?.prLinks || []).find((u) => parseItemUrl(u)?.kind === 'pr') || null;
 }
 
@@ -240,7 +240,7 @@ export function listPrWatches(id) {
 
 async function autoWatch() {
   const before = readStore();
-  const candidates = scanSessions()
+  const candidates = scanAllSessions()
     .filter((s) => agentAlive(s.id))
     .map((s) => [s.id, (s.prLinks || []).find((u) => parseItemUrl(u)?.kind === 'pr')])
     .filter(([id, url]) => url && !before.sessions[id]?.[url] && !(before.dismissed[id] || []).includes(url));

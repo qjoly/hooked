@@ -11,10 +11,13 @@ const PRICING = {
   sonnet: { in: 3, out: 15 },          // Sonnet 4 / 4.5 / 4.6
   haiku: { in: 1, out: 5 },            // Haiku 4.5
   haikuLegacy: { in: 0.8, out: 4 },    // Haiku 3.5 (retired)
+  mistral: { in: 1.5, out: 7.5 },      // Mistral Medium 3.5 (alias par défaut de Vibe) ; Large 4 ~ in 2 / out 8
 };
 function priceFor(model) {
   const m = (model || '').toLowerCase();
   if (m.includes('fable') || m.includes('mythos')) return PRICING.fable;
+  // Modèles Mistral (Vibe) : mistral-large-*, mistral-medium-*, devstral, codestral, pixtral…
+  if (/mistral|devstral|codestral|pixtral/.test(m)) return PRICING.mistral;
   if (m.includes('opus')) {
     // Opus 4.0 (e.g. opus-4-20250514) and 4.1 are the legacy $15/$75 tier; 4.5+ are $5/$25.
     if (/opus-4-1\b/.test(m) || /opus-4-20\d{6}/.test(m)) return PRICING.opusLegacy;

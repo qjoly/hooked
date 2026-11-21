@@ -19,6 +19,7 @@ pub fn view(s: &Hooked, p: &SplitPane, k: &Kit) -> rune::El {
         .as_ref()
         .map(|d| d.session.state.clone())
         .unwrap_or_default();
+    let provider = p.detail.as_ref().and_then(|d| d.session.provider.clone());
     let (swap, close, edit, send, send2) =
         (id.clone(), id.clone(), id.clone(), id.clone(), id.clone());
     let mut head = row()
@@ -39,7 +40,7 @@ pub fn view(s: &Hooked, p: &SplitPane, k: &Kit) -> rune::El {
                 .shrink(),
         )
         .child(
-            text(fmt::state_label(&state))
+            text(fmt::state_label_for(&state, provider.as_deref()))
                 .font(k.ty.text_xsmall)
                 .color(k.c.text_faint),
         )

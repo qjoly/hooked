@@ -1,0 +1,10 @@
+{
+  "session_id": "sess-fork",
+  "parent_session_id": "sess-abc123",
+  "start_time": "2026-11-20T10:00:00.000000+00:00",
+  "end_time": null,
+  "git_branch": "main",
+  "environment": { "working_directory": "/tmp/proj-vibe" },
+  "title": null,
+  "title_source": "auto"
+}

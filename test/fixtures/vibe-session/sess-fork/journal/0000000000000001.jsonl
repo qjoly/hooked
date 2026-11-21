@@ -1,0 +1,1 @@
+{"payload":{"delta":[{"op":"append_entry","entry":{"type":"message","role":"user","content":[{"type":"text","text":"Prompt depuis le fork"}],"createdAt":1795171200000,"updatedAt":1795171200000,"id":"fk-1","sessionId":"sess-fork","turnId":"turn-f1","source":"turn_start","generationStatus":"completed"}}]}}

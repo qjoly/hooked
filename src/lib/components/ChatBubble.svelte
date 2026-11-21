@@ -15,9 +15,10 @@
   // Tout absent pour les traces de sous-agents (non reprenables).
   // `session` / `agent` : identifiants pour servir les fichiers SendUserFile (cf. userFileUrl).
   // `agent` non nul quand la bulle appartient au déroulé d'un sous-agent (SubagentCard).
-  let { m, onfork = null, onforkadvanced = null, forkState = null, session = null, agent = null } = $props();
+  let { m, onfork = null, onforkadvanced = null, forkState = null, session = null, agent = null, provider = 'claude' } = $props();
   // Lets a shell CodeBlock, two components down, run itself in this session (cf. CodeBlock).
   setContext('hooked.session', () => session);
+  setContext('hooked.provider', () => provider);
 
   // Style claude-cli : on rend les blocs dans l'ordre, et on distingue le DERNIER
   // bloc texte (réponse finale, contrasté) des précédents (raisonnement, discret).
@@ -120,7 +121,7 @@
   </div>
 {:else}
 <div class="bubble {m.role}" class:auto={m.auto} data-msg-ts={m.ts || ''}>
-  <div class="who">{#if m.role === 'user'}{#if m.auto}<Icon name="rotate-cw" size={14} /> Auto-resumed (background job){:else}<Icon name="user" size={14} /> You{/if}{:else}<Icon name="bot" size={14} /> Claude{/if}<span class="t">{ago(m.ts)}</span>
+  <div class="who">{#if m.role === 'user'}{#if m.auto}<Icon name="rotate-cw" size={14} /> Auto-resumed (background job){:else}<Icon name="user" size={14} /> You{/if}{:else}<Icon name="bot" size={14} /> {provider === 'vibe' ? 'Mistral Vibe' : 'Claude'}{/if}<span class="t">{ago(m.ts)}</span>
     {#if onfork && m.forkUuid}
       <span class="fork-ctl">
         <button class="fork-btn fork-main" title="Fork here without a message — independent branch waiting for you"

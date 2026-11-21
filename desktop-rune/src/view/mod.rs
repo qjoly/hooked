@@ -308,12 +308,17 @@ fn topbar(s: &Hooked, k: &Kit, inset: f32, _layer: &mut Vec<El>) -> El {
         .on_press(|s: &mut Hooked| {
             s.open_palette("");
         });
-    let gauges = row()
-        .key("tb-gauges")
-        .gap(10.0)
-        .center_y()
-        .help("Account rate limits")
-        .children(s.gauges.iter().map(|g| gauge(k, &g.label, g.pct)));
+    // Rate limits = compte Claude OAuth : masquées quand aucun binaire claude n'est configuré.
+    let gauges = if s.providers.claude {
+        row()
+            .key("tb-gauges")
+            .gap(10.0)
+            .center_y()
+            .help("Account rate limits")
+            .children(s.gauges.iter().map(|g| gauge(k, &g.label, g.pct)))
+    } else {
+        el()
+    };
     let theme_icon = match s.theme {
         Theme::Light => &icons::SUN,
         Theme::Dark => &icons::MOON,
@@ -324,7 +329,7 @@ fn topbar(s: &Hooked, k: &Kit, inset: f32, _layer: &mut Vec<El>) -> El {
         Theme::Dark => "Theme: dark",
         Theme::System => "Theme: system",
     };
-    let actions = row()
+    let mut actions = row()
         .key("tb-actions")
         .gap(2.0)
         .center_y()
@@ -346,15 +351,6 @@ fn topbar(s: &Hooked, k: &Kit, inset: f32, _layer: &mut Vec<El>) -> El {
                 .build(k)
                 .key("tb-incognito")
         })
-        .child(
-            IconButton::new(&icons::USER)
-                .variant(IconButtonVariant::GhostMuted)
-                .label("Claude account")
-                .help("Claude account: who is signed in, switch, sign out")
-                .on_press(|s: &mut Hooked| s.open_account())
-                .build(k)
-                .key("tb-account"),
-        )
         .child(
             IconButton::new(&icons::TRASH)
                 .variant(IconButtonVariant::GhostMuted)
@@ -411,6 +407,18 @@ fn topbar(s: &Hooked, k: &Kit, inset: f32, _layer: &mut Vec<El>) -> El {
                 .build(k)
                 .key("tb-settings"),
         );
+    // Compte/quotas = compte Claude OAuth : masqué quand aucun binaire claude n'est configuré.
+    if s.providers.claude {
+        actions = actions.child(
+            IconButton::new(&icons::USER)
+                .variant(IconButtonVariant::GhostMuted)
+                .label("Claude account")
+                .help("Claude account: who is signed in, switch, sign out")
+                .on_press(|s: &mut Hooked| s.open_account())
+                .build(k)
+                .key("tb-account"),
+        );
+    }
     let new = Button::new("Session")
         .icon(&icons::PLUS)
         .variant(ButtonVariant::Contrast)
@@ -493,7 +501,8 @@ fn topbar(s: &Hooked, k: &Kit, inset: f32, _layer: &mut Vec<El>) -> El {
                         ),
                     ]
                     .into_iter()
-                    .filter(|t| s.nav_tab(t.0) || s.page == t.4)
+                    // Mémoire = ~/.claude (Claude-only) : onglet masqué sans binaire claude.
+                    .filter(|t| (t.0 != "memory" || s.providers.claude) && (s.nav_tab(t.0) || s.page == t.4))
                     .map(|(_, key, label, icon, page)| {
                         space(key, label, icon, s.page == page, None)
                             .on_press(move |s: &mut Hooked| s.go(page))
@@ -703,6 +712,10 @@ fn session_row(
         line1 = line1.child(glyph(&icons::PIN, 12.0, k.c.icon_muted));
     }
     line1 = line1.child(title);
+    // Badge provider (cc/vibe) à côté du titre — la sidebar est LA liste des sessions.
+    if let Some(b) = fleet::prov_badge(s, k, x) {
+        line1 = line1.child(b);
+    }
     if let Some(n) = group {
         let badge = if s.folded_groups.contains(&x.id) {
             format!("+{}", n - 1)
@@ -1185,7 +1198,7 @@ fn sidebar(s: &Hooked, k: &Kit, layer: &mut Vec<El>) -> El {
         })
         .build(k)
         .key("ssb-collapse");
-    let picked = s.tag_filter.len() + s.repo_filter.len();
+    let picked = s.tag_filter.len() + s.repo_filter.len() + if s.provider_filter.is_some() { 1 } else { 0 };
     let filter_btn = small_icon_button(
         &icons::FILTER,
         &if picked > 0 {
@@ -1215,6 +1228,18 @@ fn sidebar(s: &Hooked, k: &Kit, layer: &mut Vec<El>) -> El {
         [one] => one.clone(),
         _ => format!("{} {noun}", list.len()),
     };
+    // Le filtre Provider n'a de sens que quand les DEUX providers sont installés.
+    if s.providers.both() {
+        filter_menu = filter_menu.item(
+            MenuItem::new("Provider")
+                .description(match s.provider_filter.as_deref() {
+                    None => "Any".to_string(),
+                    Some("claude") => "Claude Code".to_string(),
+                    _ => "Mistral Vibe".to_string(),
+                })
+                .on_select(|s: &mut Hooked| s.cycle_provider_filter()),
+        );
+    }
     filter_menu = filter_menu
         .item(
             MenuItem::new("Repo")
@@ -1233,6 +1258,7 @@ fn sidebar(s: &Hooked, k: &Kit, layer: &mut Vec<El>) -> El {
                 .on_select(|s: &mut Hooked| {
                     s.tag_filter.clear();
                     s.repo_filter.clear();
+                    s.provider_filter = None;
                 }),
         );
     }

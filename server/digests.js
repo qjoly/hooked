@@ -13,11 +13,14 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { HOOKED_DIR, isValidModelArg } from './config.js';
-import { scanSessions } from './transcript.js';
+import { scanAllSessions } from './sessions.js';
+import { buildVibeConversation } from './vibe.js';
+import { resolveClaudeBin } from './commands.js';
+import { runVibeHeadless } from './vibeCli.js';
 import { buildConversation } from './conversation.js';
 import { readTags } from './tags.js';
 import { readSettings } from './settings.js';
-import { modelJson } from './claudeJson.js';
+import { modelJson, objFromBraces } from './claudeJson.js';
 
 const DIGESTS_DIR = path.join(HOOKED_DIR, 'digests');
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -123,11 +126,11 @@ function listDigests() {
 function collectSessionsForDay(date) {
   const tags = readTags();
   const out = [];
-  for (const s of scanSessions()) {
+  for (const s of scanAllSessions()) {
     const sd = tsToLocalDay(s.startTs);
     const ld = tsToLocalDay(s.lastTs);
     if (sd && ld && (date < sd || date > ld)) continue; // day outside the session's span
-    const msgs = buildConversation(s.file);
+    const msgs = s.provider === 'vibe' ? buildVibeConversation(s.dir) : buildConversation(s.file);
     const prompts = [];
     const dayTools = {};
     let assistantTurns = 0;
@@ -236,6 +239,15 @@ const parseModelJson = modelJson;
 // Run `claude -p` headless, feeding the prompt on stdin. Wrapped in a login+interactive shell for
 // PATH parity with launchSession (brew/asdf/nvm publish PATH in login files) so a hooked started
 // from launchd/systemd/cron still finds `claude`. Returns a promise of parsed model JSON (or null).
+// Générateur du digest : `claude -p` si le binaire est installé, sinon `vibe -p --output json`
+// (même contrat : JSON du modèle parsé, ou { error }).
+async function runDigestModel(prompt) {
+  if (resolveClaudeBin()) return runClaude(prompt);
+  const r = await runVibeHeadless(prompt);
+  if (!r.ok) return { error: 'vibe -p failed: ' + (r.error || 'no output') };
+  return { parsed: objFromBraces(r.text) };
+}
+
 function runClaude(prompt) {
   return new Promise((resolve) => {
     const shell = process.env.SHELL || '/bin/zsh';
@@ -324,7 +336,9 @@ async function generate(date) {
   }
 
   const stub = process.env.HOOKED_DIGEST_STUB; // test hook: JSON string returned instead of calling claude
-  const res = stub ? { parsed: JSON.parse(stub) } : await runClaude(buildPrompt(date, sessions, truncated));
+  const res = stub
+    ? { parsed: JSON.parse(stub) }
+    : await runDigestModel(buildPrompt(date, sessions, truncated));
 
   if (res.parsed) {
     mergeLlm(sessions, res.parsed);

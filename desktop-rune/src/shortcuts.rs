@@ -6,13 +6,18 @@ use rune_kit::ShortcutRecorderState;
 use crate::app::{Hooked, Page};
 
 /// The web's `SHORTCUT_DEFS`: id, label, default chord.
-pub const ACTIONS: [(&str, &str, &str); 19] = [
+pub const ACTIONS: [(&str, &str, &str); 20] = [
     ("command-palette", "Omnibar", "mod+p"),
     ("commands-only", "Omnibar (commands only)", "mod+shift+p"),
     ("new-session", "New session", "mod+n"),
     ("settings", "Settings", "mod+comma"),
     ("go-sessions", "Go to Deck", "alt+1"),
     ("go-board", "Go to Sessions", "alt+2"),
+    (
+        "filter-provider",
+        "Filter sessions by provider (all / Claude / Vibe)",
+        "alt+3",
+    ),
     ("go-stats", "Go to Stats", "alt+4"),
     ("go-digest", "Go to Digest", "alt+5"),
     ("go-memory", "Go to Memory", "alt+6"),
@@ -87,9 +92,11 @@ impl Hooked {
             "settings" => self.go(Page::Settings),
             "go-sessions" => self.go_deck(),
             "go-board" => self.open_sessions(),
+            "filter-provider" => self.cycle_provider_filter(),
             "go-stats" => self.go(Page::Stats),
             "go-digest" => self.go(Page::Digest),
-            "go-memory" => self.go(Page::Memory),
+            // Mémoire = ~/.claude (Claude-only) : raccourci inerte sans binaire claude.
+            "go-memory" if self.providers.claude => self.go(Page::Memory),
             "go-github" => self.go(Page::GitHub),
             "go-incidents" if self.incidents_on() => self.go(Page::Incidents),
             "toggle-sidebar" => self.toggle_sidebar(),

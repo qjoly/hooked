@@ -13,7 +13,7 @@
     ['Weekdays 9:00', '0 9 * * 1-5'],
     ['Mondays 9:00', '0 9 * * 1'],
   ];
-  const EMPTY = { id: null, name: '', schedule: '0 9 * * 1-5', cwd: '', prompt: '', model: '', effort: '', permissionMode: 'default', ephemeral: false, enabled: true };
+  const EMPTY = { id: null, name: '', schedule: '0 9 * * 1-5', cwd: '', prompt: '', model: '', effort: '', permissionMode: 'default', provider: 'claude', ephemeral: false, enabled: true };
 
   let tasks = $state(null);
   let error = $state('');
@@ -42,7 +42,7 @@
   function edit(t) {
     selectedId = t ? t.id : 'new';
     form = t
-      ? { id: t.id, name: t.name, schedule: t.schedule, cwd: t.cwd, prompt: t.prompt, model: t.model || '', effort: t.effort || '', permissionMode: t.permissionMode, ephemeral: t.ephemeral, enabled: t.enabled }
+      ? { id: t.id, name: t.name, schedule: t.schedule, cwd: t.cwd, prompt: t.prompt, model: t.model || '', effort: t.effort || '', permissionMode: t.permissionMode, provider: t.provider || 'claude', ephemeral: t.ephemeral, enabled: t.enabled }
       : { ...EMPTY };
     notice = '';
   }
@@ -157,7 +157,15 @@
         <label class="lf-label" for="cr-prompt">Prompt</label>
         <textarea id="cr-prompt" class="lf-input" rows="7" placeholder="What the session should do on each run" bind:value={form.prompt}></textarea>
 
+        <label class="fld"><span>Provider</span>
+          <select bind:value={form.provider}>
+            <option value="claude">Claude Code</option>
+            <option value="vibe">Mistral Vibe</option>
+          </select>
+        </label>
+        {#if form.provider !== 'vibe'}
         <ModelEffort allowInherit showMode bind:model={form.model} bind:effort={form.effort} bind:mode={form.permissionMode} />
+        {/if}
 
         <label class="check">
           <input type="checkbox" bind:checked={form.ephemeral} /> Ephemeral: the session archives itself once it is sure nothing is left for you

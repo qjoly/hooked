@@ -101,7 +101,7 @@ fn head(s: &Hooked, d: &Detail, k: &Kit, layer: &mut Vec<El>) -> El {
             x.activity.clone().unwrap_or_else(|| "Working".into())
         )
     } else {
-        fmt::state_label(&x.state).to_string()
+        fmt::state_label_for(&x.state, x.provider.as_deref())
     };
     let sc = state_color(k, &x.state);
     let mut meta = row().gap(5.0).center_y().child(
@@ -225,7 +225,11 @@ fn head(s: &Hooked, d: &Detail, k: &Kit, layer: &mut Vec<El>) -> El {
                 .icon(&icons::PLAY)
                 .variant(ButtonVariant::Neutral)
                 .control_size(ControlSize::Regular)
-                .help("Re-run claude --resume, driven by hooked")
+                .help(if x.provider.as_deref() == Some("vibe") {
+                    "Re-run vibe --resume, driven by hooked"
+                } else {
+                    "Re-run claude --resume, driven by hooked"
+                })
                 .on_press(|s: &mut Hooked| s.resume())
                 .build(k)
                 .key("resume-btn"),
@@ -376,9 +380,26 @@ fn more_menu(s: &Hooked, d: &Detail, k: &Kit, layer: &mut Vec<El>) -> El {
         .min_width(280.0)
         .on_close(|s: &mut Hooked| s.popup = None);
     if x.live {
+        let is_vibe = x.provider.as_deref() == Some("vibe");
         let current = x.model.clone().unwrap_or_default();
-        let models: Vec<_> = s
-            .visible_models()
+        let models: Vec<_> = if is_vibe {
+            // Vibe models (alias) from /api/vibe-options
+            s.vibe_opts["models"].as_array().cloned().unwrap_or_default()
+                .into_iter()
+                .map(|m| {
+                    let alias = m["alias"].as_str().or(m["name"].as_str()).unwrap_or("").to_string();
+                    let label = m["label"].as_str().map(|l| format!("{l} · {alias}")).unwrap_or_else(|| alias.clone());
+                    MenuItem::new(label)
+                        .checked(current == alias)
+                        .on_select(move |s: &mut Hooked| {
+                            let effort = s.detail.as_ref().and_then(|d| d.session.effort.clone());
+                            s.set_model(Some(alias.clone()), effort, false);
+                        })
+                })
+                .collect()
+        } else {
+            s.visible_models()
+            .into_iter()
             .into_iter()
             .map(|(id, label)| {
                 MenuItem::new(label)
@@ -393,10 +414,37 @@ fn more_menu(s: &Hooked, d: &Detail, k: &Kit, layer: &mut Vec<El>) -> El {
                         s.set_model(Some(id.clone()), effort, force);
                     })
             })
-            .collect();
+            .collect()
+        };
         let effort_now = x.effort.clone().unwrap_or_default();
-        let efforts: Vec<_> = s
-            .caps
+        let efforts: Vec<_> = if is_vibe {
+            // thinking levels of the current vibe model (or the global list)
+            let list = s.vibe_opts["models"].as_array().cloned().unwrap_or_default();
+            let m = list.iter().find(|m| {
+                m["alias"].as_str().or(m["name"].as_str()) == Some(current.as_str())
+            });
+            let levels = m
+                .map(|m| m["thinking"].clone())
+                .unwrap_or_else(|| s.vibe_opts["thinkingLevels"].clone());
+            let arr: Vec<serde_json::Value> = match &levels {
+                serde_json::Value::Array(a) => a.clone(),
+                serde_json::Value::String(x) => x
+                    .split(',')
+                    .map(|v| serde_json::Value::String(v.trim().to_string()))
+                    .collect(),
+                _ => s.vibe_opts["thinkingLevels"].as_array().cloned().unwrap_or_default(),
+            };
+            arr.iter()
+                .filter_map(|v| v.as_str().map(String::from))
+                .map(|e| {
+                    MenuItem::new(e.clone())
+                        .checked(effort_now == e)
+                        .on_select(move |s: &mut Hooked| s.set_model(None, Some(e.clone()), false))
+                })
+                .map(rune_kit::MenuEntry::item)
+                .collect()
+        } else {
+            s.caps
             .efforts
             .iter()
             .map(|e| {
@@ -406,7 +454,8 @@ fn more_menu(s: &Hooked, d: &Detail, k: &Kit, layer: &mut Vec<El>) -> El {
                     .on_select(move |s: &mut Hooked| s.set_model(None, Some(e.clone()), false))
             })
             .map(rune_kit::MenuEntry::item)
-            .collect();
+            .collect()
+        };
         if s.menu_shows("modelEffort") {
             m = m
                 .group_label(format!("Model · {}", fmt::short_model(&current)))
@@ -429,16 +478,35 @@ fn more_menu(s: &Hooked, d: &Detail, k: &Kit, layer: &mut Vec<El>) -> El {
         }
         if s.menu_shows("permissionMode") {
             m = m.group_label("Permission mode");
-            for md in fmt::LIVE_MODES {
-                m = m.item(
-                    MenuItem::new(fmt::mode_label(md))
-                        .checked(mode == md)
-                        .on_select(move |s: &mut Hooked| s.set_mode(md)),
-                );
+            if is_vibe {
+                // Vibe agents (ask / accept-edits / auto-approve) — no "plan" mode in Vibe.
+                for mv in s.vibe_opts["modes"].as_array().cloned().unwrap_or_default() {
+                    // set_mode takes a &'static str: map the dynamic id onto the known keys.
+                    let id: &'static str = match mv["id"].as_str().unwrap_or("default") {
+                        "acceptEdits" => "acceptEdits",
+                        "auto" => "auto",
+                        _ => "default",
+                    };
+                    let label = mv["label"].as_str().unwrap_or(id).to_string();
+                    let on = mode == id;
+                    m = m.item(
+                        MenuItem::new(label)
+                            .checked(on)
+                            .on_select(move |s: &mut Hooked| s.set_mode(id)),
+                    );
+                }
+            } else {
+                for md in fmt::LIVE_MODES {
+                    m = m.item(
+                        MenuItem::new(fmt::mode_label(md))
+                            .checked(mode == md)
+                            .on_select(move |s: &mut Hooked| s.set_mode(md)),
+                    );
+                }
             }
         }
-        m = m
-            .item(
+        if !is_vibe {
+            m = m.item(
                 MenuItem::new(format!(
                     "Auto-approve · {}",
                     if d.auto_approve { "on" } else { "off" }
@@ -446,14 +514,26 @@ fn more_menu(s: &Hooked, d: &Detail, k: &Kit, layer: &mut Vec<El>) -> El {
                 .checked(d.auto_approve)
                 .description("Allow tool permission requests without asking")
                 .on_select(|s: &mut Hooked| s.toggle_auto_approve()),
-            )
-            .separator();
+            );
+        }
+        if !is_vibe {
+            m = m.separator();
+        }
     }
-    let resume_cmd = format!(
-        "cd {} && claude --resume {}",
-        x.project.clone().unwrap_or_default(),
-        x.id
-    );
+    let is_vibe = x.provider.as_deref() == Some("vibe");
+    let resume_cmd = if is_vibe {
+        format!(
+            "cd {} && vibe --resume {}",
+            x.project.clone().unwrap_or_default(),
+            x.id
+        )
+    } else {
+        format!(
+            "cd {} && claude --resume {}",
+            x.project.clone().unwrap_or_default(),
+            x.id
+        )
+    };
     let link = format!("{}/session/{}", crate::api::base_of(&x.id), x.id);
     let m = m.item(
         MenuItem::new("Copy as Markdown")
@@ -560,10 +640,18 @@ fn more_menu(s: &Hooked, d: &Detail, k: &Kit, layer: &mut Vec<El>) -> El {
     )
     .separator()
     .item(
-        MenuItem::new("Restart Claude")
-            .icon(&icons::RESTART)
-            .description("Stop the process and resume it from its transcript")
-            .on_select(|s: &mut Hooked| s.restart()),
+        MenuItem::new(if x.provider.as_deref() == Some("vibe") {
+            "Restart Vibe"
+        } else {
+            "Restart Claude"
+        })
+        .icon(&icons::RESTART)
+        .description(if x.provider.as_deref() == Some("vibe") {
+            "Stop the Vibe process and resume it from its session"
+        } else {
+            "Stop the process and resume it from its transcript"
+        })
+        .on_select(|s: &mut Hooked| s.restart()),
     )
     .item(
         MenuItem::new("Move to trash")
@@ -673,6 +761,7 @@ pub(super) fn hash_of(v: impl Hash) -> u64 {
 }
 
 fn converse(s: &Hooked, d: &Detail, k: &Kit) -> El {
+    let agent = fmt::agent_label(d.session.provider.as_deref());
     let n = d.messages.len();
     let start = n.saturating_sub(s.visible);
     let mut chat = col()
@@ -716,7 +805,7 @@ fn converse(s: &Hooked, d: &Detail, k: &Kit) -> El {
                     .fill(k.c.warning.bg)
                     .border(1.0, k.c.warning.fg)
                     .border_dash(4.0, 3.0)
-                    .child(who(k, true, "queued", k.c.text_muted))
+                    .child(who(k, true, "queued", agent, k.c.text_muted))
                     .child(text(q.clone()).font(k.ty.body).color(k.c.text_base).wrap()),
             )
             .key(format!("queued-{i}")),
@@ -728,7 +817,7 @@ fn converse(s: &Hooked, d: &Detail, k: &Kit) -> El {
                 false,
                 assistant_skin(col().gap(6.0), k)
                     .border_dash(4.0, 3.0)
-                    .child(who(k, false, "live stream", k.c.text_muted))
+                    .child(who(k, false, "live stream", agent, k.c.text_muted))
                     .child(super::md(lead.clone()).streaming(true).build(k)),
             )
             .key("leadin"),
@@ -740,7 +829,7 @@ fn converse(s: &Hooked, d: &Detail, k: &Kit) -> El {
     {
         let mut b = assistant_skin(col().gap(6.0), k)
             .border(1.0, k.c.border_focus.alpha(0.6))
-            .child(who(k, false, "live", k.c.text_muted));
+            .child(who(k, false, "live", agent, k.c.text_muted));
         if !l.thinking.is_empty() {
             b = b.child(
                 text(fmt::first_line(&l.thinking, 400))
@@ -878,7 +967,7 @@ fn assistant_skin(b: El, k: &Kit) -> El {
         .border(1.0, k.c.border_weak)
 }
 
-fn who(k: &Kit, user: bool, extra: &str, ink: Color) -> El {
+fn who(k: &Kit, user: bool, extra: &str, agent: &'static str, ink: Color) -> El {
     let mut r = row()
         .gap(6.0)
         .center_y()
@@ -888,7 +977,7 @@ fn who(k: &Kit, user: bool, extra: &str, ink: Color) -> El {
             ink,
         ))
         .child(
-            text(if user { "You" } else { "Claude" })
+            text(if user { "You" } else { agent })
                 .font(k.ty.text_small_medium)
                 .color(ink),
         );
@@ -1012,10 +1101,12 @@ pub(super) fn bubble(s: &Hooked, session: &str, m: &Message, k: &Kit, i: usize) 
     let uk = user.then(|| on_accent(k));
     let ck = uk.as_ref().unwrap_or(k);
     let ink = ck.c.text_muted;
+    let agent = fmt::agent_label(s.provider_of(session));
     let mut head = row().w_full().gap(8.0).center_y().child(who(
         k,
         user,
         if m.auto { "auto" } else { &ts },
+        agent,
         ink,
     ));
     if let Some(uuid) = m.fork_uuid.clone() {
@@ -1982,7 +2073,12 @@ fn question(s: &Hooked, q: &PendingQuestion, k: &Kit) -> El {
             .center_y()
             .child(dot(k, "waiting", 8.0))
             .child(
-                text("Claude is asking")
+                text(format!(
+                    "{} is asking",
+                    fmt::agent_label(
+                        s.selected.as_deref().and_then(|id| s.provider_of(id))
+                    )
+                ))
                     .font(k.ty.ui_medium)
                     .color(k.c.text_base),
             ),
@@ -2590,14 +2686,18 @@ fn composer(s: &Hooked, d: &Detail, k: &Kit, busy: bool) -> El {
                 })),
         );
     }
+    let reply_placeholder = if busy {
+        "Queue a message… (Esc interrupts)".to_string()
+    } else {
+        format!(
+            "Reply to {}…",
+            fmt::agent_label(s.selected.as_deref().and_then(|id| s.provider_of(id)))
+        )
+    };
     let mut bar = row().w_full().gap(8.0).items_end().child(composer_field(
         s,
         k,
-        if busy {
-            "Queue a message… (Esc interrupts)"
-        } else {
-            "Reply to Claude…"
-        },
+        &reply_placeholder,
     ));
     if busy {
         bar = bar.child(
