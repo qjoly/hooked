@@ -18,8 +18,11 @@
   const onDeck = $derived(path === '/');
   const onSettings = $derived(path.startsWith('/settings'));
   // Nav tabs the user chose to show (settings.navTabs). '/sessions' also lights up on /session/* & /new.
-  const tabs = $derived(NAV_TABS.filter((t) => (settings.navTabs || NAV_KEYS).includes(t.key)));
-  const hiddenTabs = $derived(NAV_TABS.filter((t) => !tabs.includes(t)));
+  // Claude-only spaces (mémoire ~/.claude, compte/quotas OAuth) are hidden when no `claude`
+  // binary is configured — pi-only install: the tab would lead to an empty/dead page.
+  const hasClaude = $derived(!!data.providers?.claude);
+  const tabs = $derived(NAV_TABS.filter((t) => (settings.navTabs || NAV_KEYS).includes(t.key) && (t.key !== 'memory' || hasClaude)));
+  const hiddenTabs = $derived(NAV_TABS.filter((t) => !tabs.includes(t) && (t.key !== 'memory' || hasClaude)));
   // On a hidden page, the More button wears that page's name so the bar still says where you are.
   const hiddenActive = $derived(hiddenTabs.find((t) => tabActive(t)));
 
@@ -127,6 +130,7 @@
 
   <!-- `crit` (>=90%) is a second threshold above `warn` (>=75%). Only the datadog scheme styles
        it (app.css); everywhere else it is an inert class, so nothing changes visually. -->
+  {#if hasClaude}
   <div class="tb-gauges" title="Account rate limits">
     <div class="tb-gauge" class:warn={g5 != null && g5 >= 75} class:crit={g5 != null && g5 >= 90}>
       <div class="tb-g-lbl"><span>5H</span><span>{g5 != null ? g5 + '%' : '—'}</span></div>
@@ -144,6 +148,7 @@
       </div>
     {/if}
   </div>
+  {/if}
 
   <div class="tb-actions">
     <!-- Incognito: hides every session that wasn't created in this mode (screen sharing). Wears its
@@ -182,9 +187,11 @@
   </div>
 
   <a class="tb-new" href="/new"><Icon name="plus" size={14} /> Session</a>
+  {#if hasClaude}
   <button class="tb-avatar" class:live={ui.live} title={avatarTitle} aria-label="Account" onclick={() => openModal('account')}>
     {avatarInitials}
   </button>
+  {/if}
 </header>
 
 <style>

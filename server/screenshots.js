@@ -14,7 +14,8 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
-import { PROJECTS_DIR } from './config.js';
+import { PROJECTS_DIR, PI_SESSIONS_DIR } from './config.js';
+import { piScreenshots, piToolPaths, findPiFile } from './pi.js';
 import { readdirSafe, statSafe } from './util.js';
 import { incrementalReader } from './incremental.js';
 
@@ -111,8 +112,27 @@ function transcriptOf(sessionId, projectsDir) {
 
 // Sert un screenshot pour l'UI. `absPath` n'est servi que s'il figure dans la liste rebâtie depuis
 // le transcript de CETTE session (realpath → path traversal / symlink hors liste bloqués).
-function readScreenshot(sessionId, absPath, projectsDir = PROJECTS_DIR) {
+function readScreenshot(sessionId, absPath, projectsDir = PROJECTS_DIR, piSessionsDir = PI_SESSIONS_DIR) {
   if (typeof absPath !== 'string' || !absPath || !isImagePath(absPath)) return null;
+  // provider pi : allowlist depuis les chemins de fichiers des tools de la session.
+  const piFile = sessionId && /^[A-Za-z0-9._-]+$/.test(sessionId) ? findPiFile(piSessionsDir, sessionId) : null;
+  if (piFile) {
+    let real;
+    try { real = fs.realpathSync(absPath); } catch (_) { return null; }
+    const allowed = new Set();
+    for (const p of piToolPaths(piFile)) {
+      try { allowed.add(fs.realpathSync(p)); } catch (_) {}
+    }
+    for (const shot of piScreenshots(piFile)) {
+      if (shot && shot.path) { try { allowed.add(fs.realpathSync(shot.path)); } catch (_) {} }
+    }
+    if (!allowed.has(real)) return null;
+    const st = statSafe(real);
+    if (!st || !st.isFile() || st.size > MAX_BYTES) return null;
+    let buffer;
+    try { buffer = fs.readFileSync(real); } catch (_) { return null; }
+    return { buffer, contentType: CONTENT_TYPE[path.extname(real).toLowerCase()], name: real.split('/').pop() };
+  }
   const fp = transcriptOf(sessionId, projectsDir);
   if (!fp) return null;
   let real;

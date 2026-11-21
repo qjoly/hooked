@@ -758,7 +758,9 @@ fn service_card(s: &Hooked, k: &Kit, v: &Value) -> El {
                     .collect(),
             ),
         ))
-        .child(line(
+        .children(if s.providers.claude {
+            // Fenêtre 5 h = prompt-cache Anthropic : masquée sans binaire claude.
+            vec![line(
             k,
             "5-hour window",
             &match s.pages.warmup.as_ref().filter(|w| w["decision"].is_object()) {
@@ -795,7 +797,10 @@ fn service_card(s: &Hooked, k: &Kit, v: &Value) -> El {
                         .build(k),
                 )
                 .child(toggle(k, "wu-on", wu_on, move |s| s.save_nested("warmup", "enabled", json!(!wu_on)))),
-        ))
+        )]
+        } else {
+            Vec::new()
+        })
         .child(line(k, "Working hours", "Slots separated by commas. Enter to save.", hours))
         .child(line(
             k,
@@ -1318,7 +1323,13 @@ pub fn view(s: &Hooked, k: &Kit) -> El {
         service_card(s, k, v),
         worktrees_card(s, k, v),
         tags_card(s, k, v),
-        remote_card(s, k, v),
+        // Remote control = daemon `claude --remote-control` : masqué sans binaire claude (l'ancre
+        // de scroll "set-rc" est conservée pour le rail).
+        if s.providers.claude {
+            remote_card(s, k, v)
+        } else {
+            el().key("set-rc")
+        },
         terminal_card(s, k),
         shortcuts_card(s, k),
         maintenance_card(s, k, v),

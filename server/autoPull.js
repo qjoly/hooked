@@ -1,3 +1,4 @@
+import { scanAllSessions } from './sessions.js';
 /*
  * Keeps the main checkout of each recently used repository on its default branch up to date
  * (settings → autoPullProjects). Fast-forward only, and only on a checkout with nothing local:
@@ -7,7 +8,6 @@
 import path from 'node:path';
 import { execFile } from 'node:child_process';
 import { readSettings } from './settings.js';
-import { scanSessions } from './transcript.js';
 import { findGitConfig, worktreeOf } from './git.js';
 import { isInsidePath } from './worktrees.js';
 
@@ -72,7 +72,7 @@ async function pullCheckout(root, { liveCwds = [] } = {}) {
 }
 
 async function runAutoPull({ sessions, liveCwds, now = Date.now() } = {}) {
-  sessions ??= scanSessions();
+  sessions ??= scanAllSessions();
   liveCwds ??= (await import('./agent.js')).liveSessionCwds();
   const roots = autoPullRoots(sessions, now);
   const checkouts = [];

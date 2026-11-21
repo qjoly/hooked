@@ -29,7 +29,7 @@
   import Icon from '#lib/components/Icon.svelte';
   import { toSegments, countStats, applyOp, langFromName } from '#lib/difflines.js';
   import { mdBlockDiff } from '#lib/mdDiff.js';
-  import { fmtCost } from '#lib/format.js';
+  import { fmtCost, agentName } from '#lib/format.js';
   import { getFileChangeFull, getVcsDiff, getVcsBaseDiff, getVcsBranches, getVcsBranchDiff, getVcsBlame, getSymbolDefs,
            getReviewThreads, postReviewComment, editReviewThread, deleteReviewThread,
            replyReviewThread, archiveReviewThread, markReviewSent, startClaudeReview, reply as sendToSession } from '#lib/api.js';
@@ -42,6 +42,8 @@
   import { getBinding, matchesEvent, formatKeys } from '#lib/shortcuts.js';
 
   let { s, id, onReview = null, canReview = true, active = false } = $props();
+  // Nom de l'agent pilote de la session (labels provider-aware).
+  const agent = $derived(agentName(s?.provider));
 
   // ── where the review was ── read HERE, before the state below is declared, so that the very
   // first branch fetch already targets the saved repo (an effect would fire after that fetch has
@@ -53,7 +55,7 @@
   const saved = draft.view || {};
 
   const ALL_SCOPES = [
-    { key: 'session', label: 'Session', icon: 'diff', title: "Claude's edits, reconstructed from the transcript" },
+    { key: 'session', label: 'Session', icon: 'diff', title: "The agent's edits, reconstructed from the transcript" },
     { key: 'worktree', label: 'Worktree', icon: 'git-branch', title: 'Everything this worktree changed since it forked from its base: commits and uncommitted edits' },
     { key: 'tree', label: 'Working tree', icon: 'git', title: 'The uncommitted changes, as the version control system sees them' },
     { key: 'branch', label: 'Branch', icon: 'git-branch', title: 'The full diff of a branch against a base' },
@@ -941,8 +943,8 @@
       {/each}
     </div>
     <button class="st-ask" onclick={askReview} disabled={asking || !canReview || !changes.length}
-            title={canReview ? 'Ask Claude to review this diff — its findings open as threads here' : 'No live session to send to'}>
-      <Icon name="bot" size={12} /> {asking ? 'Asking…' : 'Review with Claude'}
+            title={canReview ? `Ask ${agent} to review this diff — its findings open as threads here` : 'No live session to send to'}>
+      <Icon name="bot" size={12} /> {asking ? 'Asking…' : `Review with ${agent}`}
     </button>
     {#if scope === 'session'}
       <span class="st-label">Changes for</span>
@@ -1132,7 +1134,7 @@
                 {/if}
                 <MarkdownDiff oldStr={d.oldStr} newStr={d.newStr} />
               {:else}
-                <DiffView oldStr={d.oldStr} newStr={d.newStr} name={activeFile.name} mode={rendered ? 'unified' : effMode} compact={ui.shipCompact}
+                <DiffView oldStr={d.oldStr} newStr={d.newStr} name={activeFile.name} mode={rendered ? 'unified' : effMode} compact={ui.shipCompact} provider={s?.provider || 'claude'}
                           aside={mdBlock} asideItems={rendered ? mdBlockDiff(d.oldStr, d.newStr) : null}
                           blame={blameFor}
                           wholeFile={!!d.wholeFile}
@@ -1180,7 +1182,7 @@
       {#if pending}
         <button class="sp-send" onclick={sendReview} disabled={sending || !canReview}
                 title={canReview ? 'Send your inline comments to the session' : 'No live session to send to'}>
-          {#if sending}Sending…{:else}<Icon name="send" size={14} /> Send {pending} comment{pending > 1 ? 's' : ''} to Claude{/if}
+          {#if sending}Sending…{:else}<Icon name="send" size={14} /> Send {pending} comment{pending > 1 ? 's' : ''} to {agent}{/if}
         </button>
       {/if}
 
@@ -1198,7 +1200,7 @@
         {/if}
         <button class="sp-pr-btn" onclick={askPR} disabled={prBusy || !canReview}
                 title={canReview ? 'Ask the session to open a PR' : 'No live session to send to'}>
-          {#if prBusy}Asking…{:else}<Icon name="pr" size={13} /> Ask Claude to open the PR{/if}
+          {#if prBusy}Asking…{:else}<Icon name="pr" size={13} /> Ask {agent} to open the PR{/if}
         </button>
       </div>
 

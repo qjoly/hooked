@@ -105,7 +105,7 @@
 
 <div class="bg-list">
   {#if active.length}
-    {#if running.length}<p class="bg-hint"><Icon name="background" size={14} color="var(--background)" /> Background jobs still running — they'll re-invoke Claude when they finish.</p>{/if}
+    {#if running.length}<p class="bg-hint"><Icon name="background" size={14} color="var(--background)" /> Background jobs still running — they'll re-invoke the agent when they finish.</p>{/if}
     {#each active as j, i (j.taskId || j.command || i)}
       {@render jobItem(j, i)}
     {/each}

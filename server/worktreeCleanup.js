@@ -1,3 +1,4 @@
+import { scanAllSessions } from './sessions.js';
 /*
  * Automatic removal of the worktrees hooked created (settings → worktrees.cleanup). Two rules:
  * every session that used the worktree is archived, or nothing happened in it for N days.
@@ -6,7 +7,6 @@
  */
 import fs from 'node:fs';
 import { readSettings } from './settings.js';
-import { scanSessions } from './transcript.js';
 import { readSessionMeta, onSessionArchived } from './sessionMeta.js';
 import { readWorktreeRegistry, removeWorktree, isInsidePath } from './worktrees.js';
 
@@ -40,7 +40,7 @@ function planWorktreeCleanup({ registry, sessions, meta, liveCwds, rules, now })
 
 async function runWorktreeCleanup({ rules, sessions, meta, liveCwds, now = Date.now() } = {}) {
   rules ??= readSettings().worktrees.cleanup;
-  sessions ??= scanSessions();
+  sessions ??= scanAllSessions();
   meta ??= readSessionMeta();
   liveCwds ??= (await import('./agent.js')).liveSessionCwds();
   const plan = planWorktreeCleanup({ registry: readWorktreeRegistry(), sessions, meta, liveCwds, rules, now });

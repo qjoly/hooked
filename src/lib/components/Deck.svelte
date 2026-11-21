@@ -7,13 +7,18 @@
   import { ui, data, sessionTitle, sessionTags, loadSessions, toggleArchive, isArchived, isSessionArchived, snoozeSession, snoozeUntil, groupUnits, isGroupArchived, isGrouped, groupName } from '#lib/state.svelte.js';
   import { dragSession, dropSession, dropDetach } from '#lib/groupDnd.js';
   import { getSession, reply } from '#lib/api.js';
-  import { ago, tagColor, lotColor, STATE_LABEL, needsDecision, isActiveSession as isLive, sessionDot as dotClass } from '#lib/format.js';
+  import { ago, tagColor, lotColor, stateLabel, agentName, needsDecision, isActiveSession as isLive, sessionDot as dotClass } from '#lib/format.js';
+  import { providersBoth } from '#lib/providers.js';
   import Question from './Question.svelte';
   import Plan from './Plan.svelte';
   import Icon from '#lib/components/Icon.svelte';
   import FleetWheel from '#lib/components/FleetWheel.svelte';
 
   const S = $derived(data.sessions);
+
+  // Badge provider (cc/pi) sur les cartes, à côté du repo : affiché seulement quand les DEUX
+  // providers sont configurés (même règle que la sidebar — un seul provider = badge inutile).
+  const showProviders = $derived(providersBoth(data.providers));
 
   // ── snooze ────────────────────────────────────────────────────────────────────────────────
   // Snooze deadlines live in the server-side session-meta store (shared across browsers),
@@ -320,7 +325,7 @@
         </button>
       {:else}
         {#if isGrouped(s.id)}<span class="tgroup" title="Session group"><Icon name="sessions" size={11} /> {groupName(s.id)}</span>{/if}
-        <span class="tmeta">{#if projectKey(s) !== '—'}<span class="lot" style="--lot:{lotColor(projectKey(s))}"></span>{/if}{s.repo || s.projectName || ''}{#if s.gitBranch} · <Icon name="git-branch" size={12} /> {s.gitBranch}{/if}</span>
+        <span class="tmeta">{#if projectKey(s) !== '—'}<span class="lot" style="--lot:{lotColor(projectKey(s))}"></span>{/if}{s.repo || s.projectName || ''}{#if showProviders}<span class="tprov" class:pi={s.provider === 'pi'} title={s.provider === 'pi' ? 'Mistral Pi session' : 'Claude Code session'}>{s.provider === 'pi' ? 'pi' : 'cc'}</span>{/if}{#if s.gitBranch} · <Icon name="git-branch" size={12} /> {s.gitBranch}{/if}</span>
         <span class="tago">{ago(s.lastActivity)}</span>
       {/if}
     </header>
@@ -329,7 +334,7 @@
       <div class="tbody-wrap" class:is-clamped={clamped[s.id]}>
         <div class="tbody tbody-clamp" class:is-clamped={clamped[s.id]} use:measureClamp={s.id}>
           {#if kind === 'question' && s.question}
-            <Question id={s.id} pq={s.question} />
+            <Question id={s.id} pq={s.question} provider={s.provider || 'claude'} />
           {:else if kind === 'plan'}
             {#if planCache[s.id]?.pp}
               <Plan id={s.id} pp={planCache[s.id].pp} />
@@ -339,10 +344,10 @@
               <div class="tload">Plan unavailable — open the session.</div>
             {/if}
           {:else if kind === 'permission'}
-            <div class="tperm">Claude is waiting for a permission in the terminal.</div>
+            <div class="tperm">{agentName(s.provider)} is waiting for a permission in the terminal.</div>
             {@render convo(s)}
           {:else}
-            <div class="twait">{STATE_LABEL[s.state] || 'Finished — waiting for you'}</div>
+            <div class="twait">{s.state ? stateLabel(s.state, s.provider) : 'Finished — waiting for you'}</div>
             {#if liveSnippet(s)}{@const snip = liveSnippet(s)}<div class="tsnip"><Icon name={snip.name} color={snip.color} size={13} /> {snip.text}</div>{/if}
             {@render convo(s)}
             {#if s.followup}
@@ -441,7 +446,7 @@
            ship for every scheme and are hidden by default (see .fbranch/.fstate in <style>);
            only :root[data-scheme="datadog"] reveals them, in app.css. -->
       <span class="fbranch">{s.gitBranch || ''}</span>
-      <span class="fstate">{STATE_LABEL[s.state] || s.state}</span>
+      <span class="fstate">{stateLabel(s.state, s.provider)}</span>
       <span class="fago">{ago(s.lastActivity)}</span>
     </span>
     {#if liveSnippet(s)}
@@ -549,6 +554,9 @@
   }
   .ttitle:hover { color: var(--accent-d); }
   .tmeta { font-family: var(--mono); font-size: var(--t-micro); color: var(--muted); flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* badge provider (Mistral Pi) à côté du repo — même look que la sidebar (.ssb-prov) */
+  .tprov { font-family: var(--mono); font-size: 9px; line-height: 1; color: var(--muted); border: 1px solid var(--border); border-radius: 4px; padding: 2px 3px; margin: 0 4px; text-transform: lowercase; }
+  .tprov.pi { color: var(--accent, var(--muted)); border-color: var(--accent, var(--border)); }
   .tago { font-size: var(--t-meta); color: var(--muted); flex: 0 0 auto; font-variant-numeric: tabular-nums; }
   .tbody { padding: 6px 16px; }
   /* Project lot: one square per repo, identical wherever the repo shows up. */

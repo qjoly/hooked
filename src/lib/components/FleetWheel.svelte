@@ -5,7 +5,7 @@
   // the session in the centre; a state change sweeps the segment to its new family.
   import { goto } from '$app/navigation';
   import { sessionTitle } from '#lib/state.svelte.js';
-  import { STATE_LABEL } from '#lib/format.js';
+  import { stateLabel } from '#lib/format.js';
   import { wheelModel } from '#lib/fleetWheel.js';
 
   let {
@@ -72,7 +72,7 @@
       <div class="fw-centre" aria-live="polite">
         {#if hovered}
           <span class="fw-c-title">{sessionTitle(hovered)}</span>
-          <span class="fw-c-state">{STATE_LABEL[hovered.state] || hovered.state}</span>
+          <span class="fw-c-state">{stateLabel(hovered.state, hovered.provider)}</span>
         {:else}
           <span class="fw-c-n">{decisions}</span>
           <span class="fw-c-l">{decisions === 1 ? 'decision' : 'decisions'}</span>

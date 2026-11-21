@@ -73,7 +73,11 @@ pub fn parse_tags(text: &str) -> Vec<String> {
 
 impl Hooked {
     pub fn visible(&self, s: &Session) -> bool {
-        !self.incognito || self.meta.get(&s.id).is_some_and(|m| m.incognito)
+        (!self.incognito || self.meta.get(&s.id).is_some_and(|m| m.incognito))
+            && self
+                .provider_filter
+                .as_deref()
+                .is_none_or(|p| s.provider.as_deref() == Some(p))
     }
 
     pub fn session_tags(&self, id: &str) -> &[String] {
@@ -442,6 +446,18 @@ impl Hooked {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn provider_filter_cycles_all_claude_pi_all() {
+        use crate::app::next_provider_filter;
+        // un seul provider installé -> toujours None
+        assert_eq!(next_provider_filter(None, false), None);
+        assert_eq!(next_provider_filter(Some("pi"), false), None);
+        // les deux -> cycle complet
+        assert_eq!(next_provider_filter(None, true).as_deref(), Some("claude"));
+        assert_eq!(next_provider_filter(Some("claude"), true).as_deref(), Some("pi"));
+        assert_eq!(next_provider_filter(Some("pi"), true), None);
+    }
 
     #[test]
     fn tags_parse_from_free_text() {

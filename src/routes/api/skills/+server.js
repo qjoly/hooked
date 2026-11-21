@@ -6,7 +6,8 @@ import { fail } from '#lib/server/respond.js';
 export function GET({ url }) {
   const cwds = url.searchParams.getAll('cwd');
   const id = url.searchParams.get('id');
-  if (!id) return json(listSkills(cwds));
-  const skill = readSkill(id, cwds);
+  const provider = url.searchParams.get('provider') || undefined; // 'claude' | 'pi' | 'all'
+  if (!id) return json(listSkills(cwds, provider));
+  const skill = readSkill(id, cwds, provider);
   return skill ? json(skill) : fail(404, 'skill not found');
 }

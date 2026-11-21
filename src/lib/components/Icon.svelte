@@ -133,7 +133,7 @@
     // destructive / blocking — pin is the classic red pushpin, not a danger action
     "trash": "var(--danger)", "ban": "var(--danger)", "stop": "var(--danger)", "interrupt": "var(--danger)",
     "issue": "var(--danger)", "pin": "var(--danger)",
-    // done / positive — terminals are green too (prompt vibes)
+    // done / positive — terminals are green too (prompt pis)
     "check": "var(--success)", "circle-check": "var(--success)", "checkbox-done": "var(--success)",
     "cost": "var(--success)",
     "shell": "var(--success)", "terminal": "var(--success)", "bash": "var(--success)",

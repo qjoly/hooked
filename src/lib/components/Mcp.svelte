@@ -5,8 +5,10 @@
   import Icon from './Icon.svelte';
 
   // MCP scopes are per-directory, so the lens is pinned to the session's own project — there is
-  // no picker to get wrong.
-  let { project = '' } = $props();
+  // no picker to get wrong. `provider === 'pi'` : liste lue dans la config Pi, health-check
+  // HTTP uniquement, sans les actions OAuth/logout (spécifiques au CLI Claude).
+  let { project = '', provider = 'claude' } = $props();
+  const isPi = $derived(provider === 'pi');
 
   let res = $state(null);          // { cwd, servers, diagnostics, error }
   let loading = $state(true);
@@ -18,7 +20,7 @@
   let notice = $state('');
   let poll = null;
 
-  const RANK = { needs_auth: 0, failed: 1, pending: 2, connected: 3, disabled: 4 };
+  const RANK = { needs_auth: 0, failed: 1, pending: 2, configured: 2, connected: 3, disabled: 4 };
   // Anything needing a human first: this lens exists to fix broken auth, not to admire what works.
   const servers = $derived([...(res?.servers || [])]
     .sort((a, b) => (RANK[a.state] ?? 9) - (RANK[b.state] ?? 9) || a.name.localeCompare(b.name)));
@@ -29,22 +31,24 @@
     needs_auth: { icon: 'warning', color: 'var(--warn)', label: 'Needs authentication' },
     failed: { icon: 'close', color: 'var(--attention)', label: 'Failed' },
     pending: { icon: 'clock', color: 'var(--muted)', label: 'Pending approval' },
+    configured: { icon: 'dot', color: 'var(--muted)', label: 'Configured' },
     disabled: { icon: 'idle', color: 'var(--muted)', label: 'Disabled for this project' },
   };
   const stateUi = (s) => STATE_UI[s] || { icon: 'dot', color: 'var(--muted)', label: s };
 
   // Paints the last known list at once, then waits for the live health check, which can take
-  // 30 s when a server is unreachable.
+  // 30 s when a server is unreachable. Pi: no cache, first the config alone, then the
+  // HTTP health check (`check=1`).
   async function load(dir = project) {
     loading = true;
     open = null;
     details = {};
-    const hit = await getMcpServers(dir, true).catch(() => null);
+    const hit = await getMcpServers(dir, !isPi, provider).catch(() => null);
     if (dir !== project) return;
     if (hit) res = hit;
     else if (res?.cwd !== dir) res = null;
     let fresh;
-    try { fresh = await getMcpServers(dir); } catch (_) { fresh = { servers: [], diagnostics: [], error: 'request failed' }; }
+    try { fresh = await getMcpServers(dir, false, provider, isPi); } catch (_) { fresh = { servers: [], diagnostics: [], error: 'request failed' }; }
     if (dir !== project) return;
     res = fresh;
     loading = false;
@@ -119,8 +123,13 @@
     <div>
       <h2>MCP</h2>
       <p class="sub">
-        Servers Claude Code can reach from <code>{project || 'the user scope'}</code>, health-checked
-        live. Re-authenticate one here instead of running <code>/mcp</code> in a terminal.
+        {#if isPi}
+          Servers Mistral Pi can reach from <code>{project || 'the user scope'}</code> (config
+          <code>config.toml</code>), HTTP health-checked live. Stdio servers stay « configured ».
+        {:else}
+          Servers {isPi ? 'Mistral Pi' : 'Claude Code'} can reach from <code>{project || 'the user scope'}</code>, health-checked
+          live. Re-authenticate one here instead of running <code>/mcp</code> in a terminal.
+        {/if}
       </p>
     </div>
     <div class="count" class:bad={broken > 0}>{broken > 0 ? `${broken} to fix` : servers.length}</div>
@@ -158,7 +167,7 @@
               <div class="target" title={s.target}>{s.target}</div>
             </div>
             <div class="acts">
-              {#if s.authable}
+              {#if !isPi && s.authable}
                 <button class="btn" onclick={() => reauth(s.name)} disabled={!!login && !login.done}>
                   <Icon name="lock" size={14} /> {s.state === 'connected' ? 'Reauth' : 'Authenticate'}
                 </button>
@@ -166,9 +175,11 @@
                   <button class="btn" onclick={() => logout(s.name)} disabled={busy === s.name}>Logout</button>
                 {/if}
               {/if}
-              <button class="btn ghost" onclick={() => toggleDetails(s.name)} title="Details">
-                <Icon name={open === s.name ? 'chevron-down' : 'chevron-right'} size={14} />
-              </button>
+              {#if !isPi}
+                <button class="btn ghost" onclick={() => toggleDetails(s.name)} title="Details">
+                  <Icon name={open === s.name ? 'chevron-down' : 'chevron-right'} size={14} />
+                </button>
+              {/if}
             </div>
           </div>
           {#if login?.name === s.name}

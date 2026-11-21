@@ -31,6 +31,7 @@ function cleanTask(raw) {
     model: str(o.model, 80) || null,
     effort: str(o.effort, 40) || null,
     permissionMode: LAUNCH_PERMISSION_MODES.includes(o.permissionMode) ? o.permissionMode : 'default',
+    provider: o.provider === 'pi' ? 'pi' : 'claude', // provider du lancement (défaut claude, non-régression)
     ephemeral: o.ephemeral === true,
     enabled: o.enabled !== false,
     createdAt: typeof o.createdAt === 'string' ? o.createdAt : new Date().toISOString(),
@@ -132,7 +133,7 @@ function runCronTask(id, { manual = false, at = new Date() } = {}, cb = () => {}
   }
 
   INFLIGHT.add(id);
-  launchSession({ cwd: task.cwd, prompt: task.prompt, model: task.model, effort: task.effort, permissionMode: task.permissionMode, ephemeral: task.ephemeral }, (e, info) => {
+  launchSession({ cwd: task.cwd, prompt: task.prompt, model: task.model, effort: task.effort, permissionMode: task.permissionMode, ephemeral: task.ephemeral, provider: task.provider }, (e, info) => {
     INFLIGHT.delete(id);
     if (e) {
       recordRun(id, { ...base, error: e.message || String(e) });

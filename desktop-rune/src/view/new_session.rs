@@ -13,28 +13,99 @@ const SIDE_BY_SIDE_MIN_W: f32 = 1000.0;
 const OPTIONS_W: f32 = 320.0;
 
 fn controls(s: &Hooked, k: &Kit) -> El {
-    let models = std::iter::once(chip(
+    let line = |label: &str, body: El| {
+        col()
+            .w_full()
+            .gap(6.0)
+            .child(section_title(k, label))
+            .child(body.w_full())
+    };
+    let is_pi = s.new_provider == "pi" && s.providers.pi;
+    // Provider picker — only offered when BOTH providers are installed; with a single one the
+    // badge would tell nothing, so the picker is hidden and new_provider is pinned on it
+    // (see pinned_provider in app.rs).
+    let provider_line = if s.providers.both() {
+        Some(line(
+            "PROVIDER",
+            chips(vec![
+                chip(k, "np-claude".into(), "Claude Code".into(), !is_pi, |s| {
+                    s.new_provider = "claude".into();
+                }),
+                chip(k, "np-pi".into(), "Mistral Pi".into(), is_pi, |s| {
+                    s.new_provider = "pi".into();
+                }),
+            ]),
+        ))
+    } else {
+        None
+    };
+    let models: Vec<El> = if is_pi {
+        // Pi models from /api/pi-options: [{ name, alias, label, thinking }]
+        let list = s.pi_opts["models"].as_array().cloned().unwrap_or_default();
+        std::iter::once(chip(k, "nm-default".into(), "Default".into(), s.new_model.is_none(), |s| {
+            s.new_model = None;
+        }))
+        .chain(list.iter().map(|m| {
+            let alias = m["alias"].as_str().or(m["name"].as_str()).unwrap_or("").to_string();
+            let label = m["label"].as_str().map(|l| format!("{l} · {alias}")).unwrap_or_else(|| alias.clone());
+            let on = s.new_model.as_deref() == Some(alias.as_str());
+            chip(k, format!("nm-{alias}"), label, on, move |s| {
+                s.new_model = Some(alias.clone());
+            })
+        }))
+        .collect()
+    } else {
+        std::iter::once(chip(
         k,
         "nm-default".into(),
         "Default".into(),
         s.new_model.is_none(),
         |s| s.new_model = None,
     ))
-    .chain(s.visible_models().into_iter().map(|(id, label)| {
-        let on = s.new_model.as_deref() == Some(id.as_str());
-        chip(k, format!("nm-{id}"), label, on, move |s| {
-            s.new_model = Some(id.clone())
-        })
-    }))
-    .collect();
-    let efforts = std::iter::once(chip(
-        k,
-        "ne-default".into(),
-        "Default".into(),
-        s.new_effort.is_none(),
-        |s| s.new_effort = None,
-    ))
-    .chain(s.caps.efforts.iter().map(|e| {
+        .chain(s.visible_models().into_iter().map(|(id, label)| {
+            let on = s.new_model.as_deref() == Some(id.as_str());
+            chip(k, format!("nm-{id}"), label, on, move |s| {
+                s.new_model = Some(id.clone())
+            })
+        }))
+        .collect()
+    };
+    // Pi: thinking levels of the selected model (array in the entry, string in TOML).
+    let pi_efforts: Vec<String> = if is_pi {
+        let sel = s.new_model.clone().unwrap_or_default();
+        let list = s.pi_opts["models"].as_array().cloned().unwrap_or_default();
+        let m = list
+            .iter()
+            .find(|m| m["alias"].as_str().or(m["name"].as_str()) == Some(sel.as_str()) || sel.is_empty())
+            .cloned();
+        match m.as_ref().map(|m| m["thinking"].clone()).unwrap_or(serde_json::Value::Null) {
+            serde_json::Value::Array(a) => a.iter().filter_map(|v| v.as_str().map(String::from)).collect(),
+            serde_json::Value::String(x) => x.split(',').map(|x| x.trim().to_string()).filter(|x| !x.is_empty()).collect(),
+            _ => s.pi_opts["thinkingLevels"].as_array().cloned().unwrap_or_default().iter().filter_map(|v| v.as_str().map(String::from)).collect(),
+        }
+    } else {
+        Vec::new()
+    };
+    let efforts: Vec<El> = if is_pi {
+        std::iter::once(chip(k, "ne-default".into(), "Default".into(), s.new_effort.is_none(), |s| {
+            s.new_effort = None;
+        }))
+        .chain(pi_efforts.iter().map(|e| {
+            let e = e.clone();
+            chip(k, format!("ne-{e}"), e.clone(), s.new_effort.as_deref() == Some(e.as_str()), move |s| {
+                s.new_effort = Some(e.clone());
+            })
+        }))
+        .collect()
+    } else {
+        std::iter::once(chip(
+            k,
+            "ne-default".into(),
+            "Default".into(),
+            s.new_effort.is_none(),
+            |s| s.new_effort = None,
+        ))
+        .chain(s.caps.efforts.iter().map(|e| {
         let e = e.clone();
         chip(
             k,
@@ -43,35 +114,108 @@ fn controls(s: &Hooked, k: &Kit) -> El {
             s.new_effort.as_deref() == Some(e.as_str()),
             move |s| s.new_effort = Some(e.clone()),
         )
-    }))
-    .collect();
-    let modes = fmt::LAUNCH_MODES
-        .iter()
-        .map(|&m| {
-            chip(
-                k,
-                format!("nmode-{m}"),
-                fmt::mode_label(m).into(),
-                s.new_mode == m,
-                move |s| s.new_mode = m.to_string(),
-            )
-        })
-        .collect();
-    let line = |label: &str, body: El| {
-        col()
-            .w_full()
-            .gap(6.0)
-            .child(section_title(k, label))
-            .child(body.w_full())
+        }))
+        .collect()
     };
-    col()
+    // Pi modes from /api/pi-options ([{ id, label }]); ids match the hooked permission-mode
+    // keys the server translates to Pi agents.
+    let modes: Vec<El> = if is_pi {
+        s.pi_opts["modes"].as_array().cloned().unwrap_or_default()
+            .iter()
+            .map(|m| {
+                let id = m["id"].as_str().unwrap_or("default").to_string();
+                let label = m["label"].as_str().unwrap_or(&id).to_string();
+                let on = s.new_mode == id;
+                chip(k, format!("nmode-{id}"), label, on, move |s| {
+                    s.new_mode = id.clone();
+                })
+            })
+            .collect()
+    } else {
+        fmt::LAUNCH_MODES
+            .iter()
+            .map(|&m| {
+                chip(
+                    k,
+                    format!("nmode-{m}"),
+                    fmt::mode_label(m).into(),
+                    s.new_mode == m,
+                    move |s| s.new_mode = m.to_string(),
+                )
+            })
+            .collect()
+    };
+    let mut col = col()
         .key("new-controls")
         .w_full()
-        .gap(14.0)
+        .gap(14.0);
+    if let Some(pl) = provider_line {
+        col = col.child(pl);
+    }
+    // Détail du modèle sélectionné (nom complet, alias, niveaux de thinking côté Pi) —
+    // sans ça les chips ne montrent qu'un label court.
+    let model_detail: String = if is_pi {
+        let list = s.pi_opts["models"].as_array().cloned().unwrap_or_default();
+        match s.new_model.as_deref().and_then(|a| {
+            list.iter()
+                .find(|m| m["alias"].as_str().or(m["name"].as_str()) == Some(a))
+        }) {
+            Some(m) => {
+                let name = m["name"].as_str().unwrap_or("");
+                let alias = m["alias"].as_str().unwrap_or("");
+                let thinking = match &m["thinking"] {
+                    serde_json::Value::Array(a) => a
+                        .iter()
+                        .filter_map(|v| v.as_str())
+                        .collect::<Vec<_>>()
+                        .join(", "),
+                    serde_json::Value::String(x) => x.clone(),
+                    _ => String::new(),
+                };
+                let mut d = if alias.is_empty() {
+                    name.to_string()
+                } else {
+                    format!("{name} ({alias})")
+                };
+                if !thinking.is_empty() {
+                    d.push_str(&format!(" — thinking: {thinking}"));
+                }
+                d
+            }
+            None => "active model from ~/.pi/config.toml".to_string(),
+        }
+    } else {
+        match s.new_model.as_ref() {
+            Some(id) => {
+                let label = s
+                    .caps
+                    .models
+                    .iter()
+                    .find(|(i, _)| i == id)
+                    .map(|(_, l)| l.clone())
+                    .unwrap_or_default();
+                if label.is_empty() {
+                    id.clone()
+                } else {
+                    format!("{id} — {label}")
+                }
+            }
+            None => "default model of the installed CLI".to_string(),
+        }
+    };
+    col = col
         .child(line("MODEL", chips(models)))
+        .child(
+            text(model_detail)
+                .font(k.ty.text_xsmall)
+                .color(k.c.text_faint)
+                .px(2.0),
+        )
         .child(line("EFFORT", chips(efforts)))
-        .child(line("MODE", chips(modes)))
-        .child(line(
+        .child(line("MODE", chips(modes)));
+    // worktree / ephemeral: Claude-only, no Pi equivalent — hidden in pi mode.
+    if !is_pi {
+        col = col.child(line(
             "OPTIONS",
             chips(vec![
                 chip(
@@ -89,7 +233,9 @@ fn controls(s: &Hooked, k: &Kit) -> El {
                     |s| s.new_ephemeral = !s.new_ephemeral,
                 ),
             ]),
-        ))
+        ));
+    }
+    col
 }
 
 fn projects(s: &Hooked, k: &Kit) -> El {
@@ -284,13 +430,21 @@ pub fn view(s: &Hooked, k: &Kit, _layer: &mut Vec<El>) -> El {
                         .color(k.c.text_base),
                 )
                 .child(
-                    text("Launches a Claude Code session driven by hooked.")
+                    text(if s.new_provider == "pi" && s.providers.pi {
+                        "Launches a Mistral Pi session driven by hooked."
+                    } else {
+                        "Launches a Claude Code session driven by hooked."
+                    })
                         .font(k.ty.text_small)
                         .color(k.c.text_faint),
                 ),
         );
     let prompt = TextArea::new(&s.new_prompt)
-        .placeholder("What should Claude do? (⌘Enter to launch)")
+        .placeholder(if s.new_provider == "pi" && s.providers.pi {
+            "What should Mistral Pi do? (⌘Enter to launch)"
+        } else {
+            "What should Claude do? (⌘Enter to launch)"
+        })
         .auto_grow(4, 16)
         .width(None)
         .on_edit(|s: &mut Hooked| &mut s.new_prompt)

@@ -226,6 +226,7 @@ pub struct LensData {
     pub delete_armed: Option<String>,
 
     pub mcp_cwd: Option<String>,
+    pub mcp_provider: Option<String>,
     pub mcp: Vec<McpServer>,
     pub mcp_loading: bool,
     pub mcp_open: Option<String>,
@@ -295,6 +296,7 @@ impl Default for LensData {
             sending_review: false,
             delete_armed: None,
             mcp_cwd: None,
+            mcp_provider: None,
             mcp: Vec::new(),
             mcp_loading: false,
             mcp_open: None,
@@ -1957,10 +1959,16 @@ impl Hooked {
             Lens::Mcp => {
                 let Some(cwd) = project else { return false };
                 let mut changed = false;
+                let provider = self
+                    .selected
+                    .as_deref()
+                    .and_then(|id| self.provider_of(id))
+                    .map(|p| p.to_string());
                 if self.lens_data.mcp_cwd.as_deref() != Some(cwd.as_str())
                     && !self.lens_data.mcp_loading
                 {
                     self.lens_data.mcp_cwd = Some(cwd.clone());
+                    self.lens_data.mcp_provider = provider;
                     self.lens_data.mcp.clear();
                     self.lens_data.mcp_detail.clear();
                     self.load_mcp(true);
@@ -2024,22 +2032,23 @@ impl Hooked {
         let Some(cwd) = self.lens_data.mcp_cwd.clone() else {
             return;
         };
+        let provider = self.lens_data.mcp_provider.clone();
         self.lens_data.mcp_loading = true;
         self.spawn(
             move || {
                 let quick = if cached_first {
-                    api::mcp_list(&cwd, true).ok()
+                    api::mcp_list(&cwd, true, provider.as_deref()).ok()
                 } else {
                     None
                 };
-                (quick, cwd)
+                (quick, cwd, provider)
             },
-            |s, (quick, cwd), _| {
+            |s, (quick, cwd, provider), _| {
                 if let Some(list) = quick.filter(|l| !l.is_empty()) {
                     s.lens_data.mcp = list;
                 }
                 s.spawn(
-                    move || api::mcp_list(&cwd, false),
+                    move || api::mcp_list(&cwd, false, provider.as_deref()),
                     |s, r, _| {
                         s.lens_data.mcp_loading = false;
                         match r {

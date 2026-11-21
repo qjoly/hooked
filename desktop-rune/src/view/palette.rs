@@ -46,6 +46,14 @@ pub fn commands(s: &Hooked) -> Vec<Cmd> {
         cmd(nav, &icons::LIST, "Go to Sessions", "⌥2", |s, _| {
             s.open_sessions()
         }),
+    ];
+    // Le filtre provider n'a de sens que quand les DEUX providers sont installés.
+    if s.providers.both() {
+        out.push(cmd(nav, &icons::FILTER, "Filter by provider (all/Claude/Pi)", "⌥3", |s, _| {
+            s.cycle_provider_filter()
+        }));
+    }
+    out.extend([
         cmd(nav, &icons::PLUS, "New session", "⌘N", |s, _| {
             s.go_new(None)
         }),
@@ -55,9 +63,7 @@ pub fn commands(s: &Hooked) -> Vec<Cmd> {
         cmd(nav, &icons::BOOK, "Go to Digest", "⌥5", |s, _| {
             s.go(Page::Digest)
         }),
-        cmd(nav, &icons::BRAIN, "Go to Memory", "⌥6", |s, _| {
-            s.go(Page::Memory)
-        }),
+
         cmd(nav, &icons::GITHUB, "Go to GitHub", "⌥7", |s, _| {
             s.go(Page::GitHub)
         }),
@@ -117,7 +123,7 @@ pub fn commands(s: &Hooked) -> Vec<Cmd> {
         cmd("Appearance", &icons::CIRCLE, "Corners: Square", "", |s, _| {
             s.set_corners(Corners::Sharp)
         }),
-    ];
+    ]);
     if s.incidents_on() {
         out.insert(
             7,
@@ -239,6 +245,11 @@ pub fn commands(s: &Hooked) -> Vec<Cmd> {
             |s, _| s.resync_states(),
         ),
     ]);
+    if s.providers.claude {
+        out.push(cmd(nav, &icons::BRAIN, "Go to Memory", "⌥6", |s, _| {
+            s.go(Page::Memory)
+        }));
+    }
     let Some(x) = s
         .selected
         .as_deref()

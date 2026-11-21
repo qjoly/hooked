@@ -99,6 +99,19 @@ pub fn short_model(m: &str) -> String {
     m.strip_prefix("claude-").unwrap_or(m).to_string()
 }
 
+/// Nom d'affichage de l'agent selon le provider de la session ('claude' par défaut).
+pub fn agent_label(provider: Option<&str>) -> &'static str {
+    if provider == Some("pi") { "Pi" } else { "Claude" }
+}
+
+/// state_label provider-aware : seul « working » nomme l'agent.
+pub fn state_label_for(state: &str, provider: Option<&str>) -> String {
+    if state == "working" {
+        return format!("{} is working", agent_label(provider));
+    }
+    state_label(state).to_string()
+}
+
 pub fn state_label(state: &str) -> &'static str {
     match state {
         "working" => "Claude is working",

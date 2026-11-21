@@ -10,7 +10,9 @@
   // lancement d'une session. Absent du changement à chaud (qui a son propre sélecteur live).
   // `allowInherit` : ajoute une option « hériter » (valeur '') en tête de chaque sélecteur — sert
   // aux défauts de session (Réglages), où '' signifie « retomber sur la config Claude Code ».
-  let { model = $bindable('opus'), effort = $bindable('high'), mode = $bindable('default'), compact = false, showMode = false, allowInherit = false, onchange = null, disabled = false } = $props();
+  // `modelOpts`/`effortList` : listes externes (provider pi → /api/pi-options) qui remplacent
+  // les capacités Claude quand elles sont fournies.
+  let { model = $bindable('opus'), effort = $bindable('high'), mode = $bindable('default'), compact = false, showMode = false, allowInherit = false, onchange = null, disabled = false, modelOpts = null, effortList = null } = $props();
   const fire = () => onchange && onchange();
 
   // Modèles & efforts dérivés LIVE du binaire claude (cf. server/capabilities.js), chargés une fois
@@ -18,6 +20,7 @@
   let modelGroups = $state([]);
   let efforts = $state([]);
   $effect(() => {
+    if (modelOpts) return; // listes externes fournies (pi) : pas besoin des capacités Claude
     let alive = true;
     getCapabilities().then((c) => { if (alive) { modelGroups = c.models || []; efforts = c.efforts || []; } }).catch(() => {});
     return () => { alive = false; };
@@ -26,13 +29,18 @@
   // On garde toujours la valeur COURANTE affichable même si les listes ne sont pas (encore) chargées
   // ou ne la contiennent pas (ex. session sur une version épinglée hors bundle, ou 'ultracode' sur un
   // claude trop ancien) — sinon le <select> lié perdrait sa valeur.
-  const effortOpts = $derived(effort && !efforts.includes(effort) ? [effort, ...efforts] : efforts);
+  const effortBase = $derived(effortList || efforts);
+  const effortOpts = $derived(effort && !effortBase.includes(effort) ? [effort, ...effortBase] : effortBase);
   // Filtre d'affichage des Réglages (liste noire, cf. src/lib/models.js) appliqué ICI et pas côté
   // serveur : /api/capabilities est mémoïsé pour tout le chargement de page, alors que `settings`
   // est réactif → (dé)cocher une version se répercute immédiatement sur les sélecteurs ouverts.
   // `model` est passé en `keep` : le modèle courant d'une session survit toujours au filtre.
   const visibleGroups = $derived(filterModelGroups(modelGroups, settings.hiddenModels, model));
   const modelView = $derived.by(() => {
+    if (modelOpts) {
+      const has = modelOpts.some(([v]) => v === model);
+      return [{ label: 'Pi models', opts: model && !has ? [[model, shortModel(model)], ...modelOpts] : modelOpts }];
+    }
     const has = visibleGroups.some((g) => g.opts.some(([v]) => v === model));
     if (model && !has) return [{ label: '', opts: [[model, shortModel(model)]] }, ...visibleGroups];
     return visibleGroups;

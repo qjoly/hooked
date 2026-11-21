@@ -36,6 +36,17 @@ const SDK_COMMANDS_FILE = path.join(HOOKED_DIR, 'sdk-commands.json');
 // weekly Fable limit), which the statusline payload does not expose (5h / 7d only).
 const CLAUDE_JSON = process.env.HOOKED_CLAUDE_JSON
   || path.join(process.env.CLAUDE_CONFIG_DIR || HOME, '.claude.json');
+// --- Provider pi + Mistral (cf. docs/port-pi.md) ---
+// Pi stocke ses sessions JSONL sous ~/.pi/agent/sessions/--<cwd encodé>--/<ts>_<id>.jsonl
+// (overridable via PI_CODING_AGENT_SESSION_DIR, comme pi lui-même, ou HOOKED_PI_SESSIONS_DIR).
+// Pas de hooks fichier côté pi : l'état live vient du registre agent.js (driver RPC) et, pour les
+// sessions lancées hors hooked, du mtime du fichier de session (cf. server/pi.js).
+const PI_AGENT_DIR = process.env.PI_CODING_AGENT_DIR || path.join(HOME, '.pi', 'agent');
+const PI_SESSIONS_DIR = process.env.HOOKED_PI_SESSIONS_DIR
+  || process.env.PI_CODING_AGENT_SESSION_DIR
+  || path.join(PI_AGENT_DIR, 'sessions');
+// Source d'événements live : hook.cjs (Claude) uniquement — pi n'a pas de hooks fichier.
+const EVENTS_FILES = [EVENTS_FILE];
 const ROOT = path.join(import.meta.dirname, '..');
 // Le front Svelte est buildé dans dist/ (npm run build) — seule source servie.
 const PUBLIC_DIR = path.join(ROOT, 'dist');
@@ -85,4 +96,4 @@ function readClaudeDefaults() {
   };
 }
 
-export { HOME, PROJECTS_DIR, HOOKED_DIR, EVENTS_FILE, LAUNCHES_FILE, SESSION_LAUNCH_FILE, DRIVEN_FILE, STATUS_DIR, SDK_COMMANDS_FILE, CLAUDE_JSON, ROOT, PUBLIC_DIR, PORT, PERMISSION_MODES, LAUNCH_PERMISSION_MODES, isValidModelArg, readClaudeDefaults };
+export { HOME, PROJECTS_DIR, HOOKED_DIR, EVENTS_FILE, LAUNCHES_FILE, SESSION_LAUNCH_FILE, DRIVEN_FILE, STATUS_DIR, SDK_COMMANDS_FILE, CLAUDE_JSON, PI_AGENT_DIR, PI_SESSIONS_DIR, EVENTS_FILES, ROOT, PUBLIC_DIR, PORT, PERMISSION_MODES, LAUNCH_PERMISSION_MODES, isValidModelArg, readClaudeDefaults };

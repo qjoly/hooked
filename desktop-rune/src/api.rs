@@ -195,6 +195,8 @@ pub struct Session {
     pub followup: Option<String>,
     pub todo: Option<TodoSummary>,
     pub cache: Option<CacheInfo>,
+    /// Agent provider of the session: "claude" (Agent SDK) or "pi" (Mistral via pi, RPC).
+    pub provider: Option<String>,
     /// The remote hooked instance the session runs on (`crate::remote`), `None` for a local
     /// one. Set by this app when it lists an instance, never read from the wire.
     #[serde(skip)]
@@ -233,10 +235,38 @@ impl Session {
     }
 }
 
+/// Which agent CLIs are installed on this machine (from /api/sessions). The UI only shows the
+/// claude/pi badge when BOTH are present — with a single provider it would tell nothing.
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq)]
+pub struct Providers {
+    #[serde(default)]
+    pub claude: bool,
+    #[serde(default)]
+    pub pi: bool,
+}
+
+impl Providers {
+    pub fn both(&self) -> bool {
+        self.claude && self.pi
+    }
+
+    /// With a single provider installed there is nothing to choose: it is the one to use.
+    /// `None` when both (or neither) are present.
+    pub fn only(&self) -> Option<&'static str> {
+        match (self.claude, self.pi) {
+            (true, false) => Some("claude"),
+            (false, true) => Some("pi"),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Clone, Debug, Default, Deserialize)]
 struct SessionsPayload {
     #[serde(default)]
     sessions: Vec<Session>,
+    #[serde(default)]
+    providers: Option<Providers>,
 }
 
 fn session_list(v: Value) -> Result<Vec<Session>, String> {
@@ -248,6 +278,16 @@ fn session_list(v: Value) -> Result<Vec<Session>, String> {
 }
 
 /// The local sessions, then those of the remote instances when that feature is on.
+/// Sessions + the providers installed on this machine, in one call (the payload carries both).
+pub fn sessions_full() -> Result<(Vec<Session>, Providers), String> {
+    let v = get("/api/sessions")?;
+    let p: SessionsPayload = decode(v)?;
+    Ok((
+        crate::remote::merge_sessions(p.sessions.into_iter().filter(|s| !s.id.is_empty()).collect()),
+        p.providers.unwrap_or_default(),
+    ))
+}
+
 pub fn sessions() -> Result<Vec<Session>, String> {
     Ok(crate::remote::merge_sessions(session_list(get("/api/sessions")?)?))
 }
@@ -703,6 +743,12 @@ pub struct Capabilities {
     pub efforts: Vec<String>,
 }
 
+/// Launch options for the Mistral Pi provider (model aliases, thinking levels, agent modes)
+/// read from ~/.pi/config.toml by the server.
+pub fn pi_options() -> Result<Value, String> {
+    get("/api/pi-options")
+}
+
 pub fn capabilities() -> Result<Capabilities, String> {
     let v = get("/api/capabilities")?;
     let mut models = Vec::new();
@@ -808,6 +854,9 @@ pub struct Launch {
     pub incognito: bool,
     pub worktree: bool,
     pub ephemeral: bool,
+    /// "claude" (default) or "pi" (Mistral Pi). None = let the server decide.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub provider: Option<String>,
 }
 
 pub fn launch(req: &Launch) -> Result<String, String> {
@@ -946,12 +995,19 @@ pub struct McpServer {
     pub authable: bool,
 }
 
-pub fn mcp_list(cwd: &str, cached: bool) -> Result<Vec<McpServer>, String> {
-    let v = get(&format!(
-        "/api/mcp?cwd={}{}",
-        enc(cwd),
-        if cached { "&cached=1" } else { "" }
-    ))?;
+pub fn mcp_list(cwd: &str, cached: bool, provider: Option<&str>) -> Result<Vec<McpServer>, String> {
+    // provider=pi : liste lue dans la config Pi ; `cached` n'existe pas côté pi, le
+    // health-check (`check=1`) est l'appel complet.
+    let mut url = format!("/api/mcp?cwd={}", enc(cwd));
+    if provider == Some("pi") {
+        url.push_str("&provider=pi");
+        if !cached {
+            url.push_str("&check=1");
+        }
+    } else if cached {
+        url.push_str("&cached=1");
+    }
+    let v = get(&url)?;
     decode(
         v.get("servers")
             .cloned()
@@ -1056,6 +1112,20 @@ mod tests {
     #[test]
     fn query_values_are_percent_encoded() {
         assert_eq!(enc("a b/c"), "a%20b%2Fc");
+    }
+
+    #[test]
+    fn providers_only_when_a_single_one_is_installed() {
+        let both = Providers { claude: true, pi: true };
+        let claude_only = Providers { claude: true, pi: false };
+        let pi_only = Providers { claude: false, pi: true };
+        let none = Providers::default();
+        assert!(both.both() && both.only().is_none());
+        assert!(!claude_only.both());
+        assert_eq!(claude_only.only(), Some("claude"));
+        assert!(!pi_only.both());
+        assert_eq!(pi_only.only(), Some("pi"));
+        assert!(!none.both() && none.only().is_none());
     }
 }
 

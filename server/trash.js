@@ -9,8 +9,10 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
-import { PROJECTS_DIR } from './config.js';
+import { PROJECTS_DIR, PI_SESSIONS_DIR } from './config.js';
 import { scanSessions, getSummary } from './transcript.js';
+import { scanPiSessions, piSetArchived, piRead } from './pi.js';
+import { finalizePi as finalizePiForTrash } from './pi.js';
 import { readdirSafe, statSafe } from './util.js';
 
 // Sous-dossier corbeille dans chaque dossier projet (~/.claude/projects/<projet>/bin/).
@@ -19,15 +21,21 @@ const TRASH_SUBDIR = 'bin';
 // id de session valide (uuid-like) : liste blanche stricte anti-traversal (interpolé dans un chemin).
 const isValidId = (id) => typeof id === 'string' && /^[A-Za-z0-9._-]+$/.test(id) && !id.includes('..');
 
-// Met une session à la corbeille : <projet>/<id>.jsonl → <projet>/bin/<id>.jsonl.
-// Source de vérité = scanSessions() (même liste que le dashboard) → on ne déplace qu'un
-// transcript de premier niveau réellement listé (jamais un sous-agent, jamais un bin/).
-function trashSession(id, cb) {
+// Met une session à la corbeille : <projet>/<id>.jsonl → <projet>/bin/<id>.jsonl (claude), ou
+// le fichier pi est renommé en .jsonl.trashed (cf. piSetArchived ; la session quitte
+// scanPiSessions et n'apparaît plus dans le dashboard).
+// Source de vérité = scanAllSessions-equivalent (même liste que le dashboard) → on ne touche
+// qu'une session réellement listée (jamais un sous-agent, jamais un bin/).
+function trashSession(id, cb, piSessionsDir = PI_SESSIONS_DIR) {
   const done = typeof cb === 'function' ? cb : () => {};
   try {
     if (!isValidId(id)) return done({ code: 400, message: 'invalid session id' });
-    const s = scanSessions().find((x) => x.id === id);
+    const s = scanSessions().find((x) => x.id === id) || scanPiSessions(piSessionsDir).find((x) => x.id === id);
     if (!s || !s.file) return done({ code: 404, message: 'session not found (already in trash?)' });
+    if (s.provider === 'pi') {
+      if (!piSetArchived(s.file, true)) return done({ code: 500, message: 'could not archive pi session' });
+      return done(null, { id, from: s.file, to: s.file + '.trashed', project: s.projectName || null, provider: 'pi' });
+    }
     const binDir = path.join(path.dirname(s.file), TRASH_SUBDIR);
     fs.mkdirSync(binDir, { recursive: true });
     let dest = path.join(binDir, path.basename(s.file));
@@ -42,10 +50,24 @@ function trashSession(id, cb) {
 
 // Restaure une session depuis la corbeille : cherche <projet>/bin/<id>*.jsonl et le remonte
 // d'un niveau. Réciproque de trashSession (filet de sécurité / réversibilité).
-function restoreSession(id, cb) {
+function restoreSession(id, cb, piSessionsDir = PI_SESSIONS_DIR) {
   const done = typeof cb === 'function' ? cb : () => {};
   try {
     if (!isValidId(id)) return done({ code: 400, message: 'invalid session id' });
+    // Session pi archivée : chercher un fichier <id>.jsonl.trashed sous piSessionsDir.
+    for (const d of readdirSafe(piSessionsDir)) {
+      const dir = path.join(piSessionsDir, d);
+      if (!statSafe(dir)?.isDirectory()) continue;
+      for (const f of readdirSafe(dir)) {
+        if (!f.endsWith('.jsonl.trashed')) continue;
+        const read = piRead(path.join(dir, f));
+        if (read?.header?.id === id) {
+          const trashed = path.join(dir, f);
+          if (!piSetArchived(trashed, false)) return done({ code: 500, message: 'could not restore pi session' });
+          return done(null, { id, from: trashed, to: trashed.slice(0, -8), provider: 'pi' });
+        }
+      }
+    }
     for (const proj of readdirSafe(PROJECTS_DIR)) {
       const binDir = path.join(PROJECTS_DIR, proj, TRASH_SUBDIR);
       const st = statSafe(binDir);
@@ -66,7 +88,7 @@ function restoreSession(id, cb) {
 
 // Liste les sessions à la corbeille (tous projets) : parse chaque <projet>/bin/*.jsonl pour
 // en tirer un résumé (titre, projet, coût…) + la date de mise à la corbeille (mtime du fichier).
-function listTrashed(projectsDir = PROJECTS_DIR) {
+function listTrashed(projectsDir = PROJECTS_DIR, piSessionsDir = PI_SESSIONS_DIR) {
   const out = [];
   for (const proj of readdirSafe(projectsDir)) {
     const binDir = path.join(projectsDir, proj, TRASH_SUBDIR);
@@ -83,6 +105,25 @@ function listTrashed(projectsDir = PROJECTS_DIR) {
         project: sum.project, projectName: sum.projectName,
         lastTs: sum.lastTs, cost: sum.cost, userPrompts: sum.userPrompts,
         trashedAt: fst ? new Date(fst.mtimeMs).toISOString() : null,
+      });
+    }
+  }
+  // Sessions pi archivées (.jsonl.trashed) — même liste que le dashboard, côté pi.
+  for (const d of readdirSafe(piSessionsDir)) {
+    const dir = path.join(piSessionsDir, d);
+    if (!statSafe(dir)?.isDirectory()) continue;
+    for (const f of readdirSafe(dir)) {
+      if (!f.endsWith('.jsonl.trashed')) continue;
+      const fp = path.join(dir, f);
+      const read = piRead(fp);
+      if (!read) continue;
+      const fst = statSafe(fp);
+      const sum = finalizePiForTrash(read);
+      out.push({
+        id: read.header.id, title: sum.title, firstPrompt: sum.firstPrompt,
+        project: read.header.cwd, projectName: read.header.cwd ? path.basename(read.header.cwd) : null,
+        lastTs: sum.lastTs, cost: sum.cost, userPrompts: sum.userPrompts,
+        trashedAt: fst ? new Date(fst.mtimeMs).toISOString() : null, provider: 'pi',
       });
     }
   }

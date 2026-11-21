@@ -116,7 +116,7 @@ fn footer(w: &PanelWin, k: &Kit) -> El {
         );
     } else {
         buttons = buttons.child(
-            text("Send to Claude:")
+            text("Send to the session:")
                 .font(k.ty.text_xsmall)
                 .color(k.c.info.fg),
         );

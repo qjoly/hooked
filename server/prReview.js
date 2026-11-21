@@ -1,7 +1,7 @@
+import { scanAllSessions } from './sessions.js';
 import fs from 'node:fs';
 import { parseItemUrl } from './ghClient.js';
 import { repoSlug, worktreeOf } from './git.js';
-import { scanSessions } from './transcript.js';
 import { launchSession } from './agent.js';
 import { readSettings } from './settings.js';
 import { HOME } from './config.js';
@@ -48,10 +48,10 @@ export function reviewPrInSession(url) {
   const ref = parseItemUrl(url);
   if (!ref || ref.kind !== 'pr') return Promise.reject(Object.assign(new Error('Not a GitHub pull request URL'), { code: 400 }));
   const repo = `${ref.owner}/${ref.name}`;
-  const checkout = localCheckoutFor(repo, scanSessions());
+  const checkout = localCheckoutFor(repo, scanAllSessions());
   const cwd = checkout || readSettings().quickLaunchProject || HOME;
   const prompt = prReviewPrompt({ url, repo, number: ref.number, checkout });
   return new Promise((resolve, reject) => {
-    launchSession({ cwd, prompt }, (err, info) => (err ? reject(err) : resolve({ ...info, checkout })));
+    launchSession({ cwd, prompt, provider: readSettings().defaultProvider === 'pi' ? 'pi' : undefined }, (err, info) => (err ? reject(err) : resolve({ ...info, checkout })));
   });
 }

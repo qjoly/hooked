@@ -1,9 +1,9 @@
 import { json } from '@sveltejs/kit';
-import { listWorktrees, removeWorktree, worktreeLocation, scanSessions, agentAlive, liveSessionCwds, cleanupWorktreesNow, lastWorktreeCleanup, pullCheckoutsNow, lastAutoPull } from '#lib/server/core.js';
+import { listWorktrees, removeWorktree, worktreeLocation, scanAllSessions, agentAlive, liveSessionCwds, cleanupWorktreesNow, lastWorktreeCleanup, pullCheckoutsNow, lastAutoPull } from '#lib/server/core.js';
 import { ok, fail, readJson } from '#lib/server/respond.js';
 
 export async function GET({ url }) {
-  const sessions = scanSessions().map((s) => ({ id: s.id, project: s.project, live: agentAlive(s.id) }));
+  const sessions = scanAllSessions().map((s) => ({ id: s.id, project: s.project, live: agentAlive(s.id) }));
   const worktrees = await listWorktrees({
     projects: sessions.map((s) => s.project),
     sessions,

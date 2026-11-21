@@ -5,7 +5,7 @@
   // passes the NET original→final content so transient add-then-delete never shows.
   import { toSegments, unifiedRows, splitRows, besideBands, langFromName, EXPAND_STEP } from '#lib/difflines.js';
   import { highlight } from '#lib/highlight.js';
-  import { ago } from '#lib/format.js';
+  import { ago, agentName } from '#lib/format.js';
   import { reanchor } from '#lib/reviewAnchor.js';
   import Icon from '#lib/components/Icon.svelte';
   import Markdown from '#lib/components/Markdown.svelte';
@@ -68,7 +68,9 @@
     // one. Each item sits beside the first visible row of its lines. Unified mode only.
     aside = null,
     asideItems = null,
+    provider = 'claude',     // nom de l'agent affiché sur les threads de review
   } = $props();
+  const agent = $derived(agentName(provider));
 
   const lang = $derived(langFromName(name));
   // Pour symbolAt, on passe l'EXTENSION brute et pas `lang` : langFromName vise la COLORATION
@@ -684,7 +686,7 @@
           {:else}
             {#each c.messages as msg, mi (mi)}
               <div class="dv-msg {msg.author}">
-                <span class="dv-msg-who">{msg.author === 'claude' ? 'Claude' : 'You'}</span>
+                <span class="dv-msg-who">{msg.author === 'claude' ? agent : 'You'}</span>
                 <!-- `md` is the global markdown skin (app.css); a <div>, not a <span>: the
                      rendered markdown carries block elements. -->
                 <div class="dv-msg-text md"><Markdown text={msg.text} /></div>
@@ -695,7 +697,7 @@
             {#if replyDraft && replyDraft.id === c.id}
               <div class="dv-editor">
                 <textarea use:focusOnOpen rows="2" bind:value={replyDraft.text}
-                          placeholder="Reply — sent to Claude immediately  (⌘/Ctrl+Enter to send · Esc to cancel)"
+                          placeholder="Reply — sent to {agent} immediately  (⌘/Ctrl+Enter to send · Esc to cancel)"
                           onkeydown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); commitReply(); } else if (e.key === 'Escape') { e.preventDefault(); replyDraft = null; } }}></textarea>
                 <div class="dv-editor-bar">
                   <button class="dv-btn" onclick={() => (replyDraft = null)}>Cancel</button>
