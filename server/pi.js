@@ -274,8 +274,11 @@ function buildPiConversation(file) {
         if (b.type === 'text' && b.text) {
           text += (text ? '\n' : '') + b.text;
           parts.push({ type: 'text', text: b.text });
-        } else if (b.type === 'thinking' && b.thinking) {
+        } else if (b.type === 'thinking' && b.thinking && b.thinking.trim()) {
+          // Kept as an ordered part so every turn's reasoning stays in the conversation,
+          // not only the live stream's (which is reset at each turn).
           thinking += (thinking ? '\n' : '') + b.thinking;
+          parts.push({ type: 'thinking', text: b.thinking.trim() });
         } else if (b.type === 'toolCall') {
           const tool = {
             id: b.id || null,
@@ -296,7 +299,7 @@ function buildPiConversation(file) {
       }
     }
     text = text.trim();
-    if (!text && !tools.length) continue;
+    if (!text && !tools.length && !thinking) continue;
     msgs.push({
       role: 'assistant',
       ts,

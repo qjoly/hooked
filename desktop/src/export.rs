@@ -59,6 +59,7 @@ fn message(m: &Message) -> String {
         .into_iter()
         .map(|p| match p {
             Part::Text(t) => t,
+            Part::Thinking(t) => format!("<details><summary>thinking</summary>\n\n{t}\n</details>"),
             Part::Tool(t) => tool_block(&t),
         })
         .filter(|b| !b.is_empty())

@@ -397,6 +397,8 @@ impl Tool {
 #[derive(Clone, Debug, PartialEq)]
 pub enum Part {
     Text(String),
+    /// Model reasoning (pi / Mistral), kept in order with the text and tool calls.
+    Thinking(String),
     Tool(Tool),
 }
 
@@ -437,6 +439,11 @@ impl Message {
                     .clone()
                     .filter(|t| !t.trim().is_empty())
                     .map(Part::Text),
+                "thinking" => p
+                    .text
+                    .clone()
+                    .filter(|t| !t.trim().is_empty())
+                    .map(Part::Thinking),
                 "tool" => p.tool.clone().map(|mut t| {
                     t.send = p.send.clone();
                     t.show = p.show.clone();
@@ -1090,6 +1097,22 @@ mod tests {
         assert_eq!(parts.len(), 2);
         assert!(matches!(&parts[0], Part::Text(t) if t == "hi"));
         assert!(matches!(&parts[1], Part::Tool(t) if t.name == "Bash"));
+    }
+
+    #[test]
+    fn thinking_parts_keep_their_order() {
+        let m: Message = serde_json::from_value(json!({
+            "role": "assistant", "text": "", "parts": [
+                { "type": "thinking", "text": "I should list the files" },
+                { "type": "thinking", "text": "   " },
+                { "type": "tool", "tool": { "name": "bash", "detail": "ls" } }
+            ]
+        }))
+        .unwrap();
+        let parts = m.render_parts();
+        assert_eq!(parts.len(), 2);
+        assert!(matches!(&parts[0], Part::Thinking(t) if t == "I should list the files"));
+        assert!(matches!(&parts[1], Part::Tool(t) if t.name == "bash"));
     }
 
     #[test]

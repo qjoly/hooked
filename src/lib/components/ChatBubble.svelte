@@ -153,7 +153,14 @@
     <div class="parts">
       {#each blocks as b (b.type === 'run' ? 'r' + b.start : 'p' + b.i)}
         {#if b.type === 'part'}
-          {#if b.p.type === 'text'}
+          {#if b.p.type === 'thinking'}
+            <!-- Model reasoning (pi / Mistral): kept for every turn, folded to its first line. -->
+            <details class="thinking">
+              <summary><Icon name="memory" size={13} /> <span class="th-label">Thinking</span>
+                <span class="th-peek">{b.p.text.split('\n').find((l) => l.trim()) || ''}</span></summary>
+              <pre class="th-body">{b.p.text}</pre>
+            </details>
+          {:else if b.p.type === 'text'}
             {#if isFinalText(b.i)}
               <div class="md final"><Markdown text={b.p.text} /></div>
             {:else}
@@ -231,6 +238,23 @@
   /* message auto-repris (ScheduleWakeup) : l'en-tête le dit déjà en toutes lettres, la bulle prend
      simplement le violet des jobs de fond au lieu de l'indigo du « You » — même token partout. */
   .bubble.auto { background: var(--background); }
+
+  /* Model reasoning, folded by default: one muted line with a peek at its first sentence. */
+  .thinking { margin: 2px 0 6px; color: var(--muted); }
+  .thinking summary {
+    display: flex; align-items: center; gap: 6px; cursor: pointer; list-style: none;
+    font-size: var(--t-meta); min-width: 0;
+  }
+  .thinking summary::-webkit-details-marker { display: none; }
+  .thinking .th-label { flex: 0 0 auto; font-weight: 600; }
+  .thinking .th-peek { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-style: italic; opacity: .8; }
+  .thinking[open] .th-peek { display: none; }
+  .thinking summary:hover { color: var(--text); }
+  .th-body {
+    margin: 4px 0 0; padding: 6px 8px; border-radius: 6px;
+    background: var(--bg3); color: var(--muted);
+    font: 11.5px/1.5 var(--mono); white-space: pre-wrap; max-height: 320px; overflow-y: auto;
+  }
 
   /* run de tool calls replié : une ligne grise mono carrée + filet jusqu'au bord. */
   .tool-fold {

@@ -997,6 +997,14 @@ pub(super) fn bubble_version(s: &Hooked, m: &Message, k: &Kit) -> u64 {
         .into_iter()
         .filter_map(|p| if let Part::Tool(t) = p { t.id } else { None })
         .filter(|id| s.tools_open.contains(id))
+        .chain(
+            m.render_parts()
+                .into_iter()
+                .enumerate()
+                .filter(|(_, p)| matches!(p, Part::Thinking(_)))
+                .map(|(pi, _)| thinking_id(m, pi))
+                .filter(|id| s.tools_open.contains(id)),
+        )
         .collect();
     let tall_ids: Vec<String> = m
         .render_parts()
@@ -1170,6 +1178,7 @@ pub(super) fn bubble(s: &Hooked, session: &str, m: &Message, k: &Kit, i: usize) 
                 .selectable(true)
                 .build(k)
                 .key(format!("md-{i}-{pi}")),
+            Part::Thinking(t) => thinking_block(s, &t, k, thinking_id(m, pi), format!("think-{i}-{pi}")),
             Part::Tool(t) => tool_chip(s, session, &t, k, format!("tool-{i}-{pi}")),
         });
     }
@@ -1200,6 +1209,70 @@ pub(super) fn bubble(s: &Hooked, session: &str, m: &Message, k: &Kit, i: usize) 
         assistant_skin(b, k)
     };
     lane(user, b)
+}
+
+/// Open/closed state of a thinking block lives in `tools_open`, under an id stable across
+/// refetches (the message's fork point, else its timestamp, plus the part's position).
+fn thinking_id(m: &Message, pi: usize) -> String {
+    let base = m.fork_uuid.as_deref().or(m.ts.as_deref()).unwrap_or("");
+    format!("think:{base}:{pi}")
+}
+
+/// Model reasoning, folded by default to one muted line with a peek at its first sentence;
+/// a click unfolds the whole text. Kept for every turn, unlike the live stream's.
+fn thinking_block(s: &Hooked, t: &str, k: &Kit, id: String, key: String) -> El {
+    let open = s.tools_open.contains(&id);
+    let head = k
+        .interactive(
+            row()
+                .key(format!("{key}-head"))
+                .role("button")
+                .label("Thinking")
+                .expanded(open)
+                .w_full()
+                .h(24.0)
+                .px(4.0)
+                .gap(6.0)
+                .center_y()
+                .radius(k.radius.sm)
+                .cursor(Cursor::Pointer)
+                .child(glyph(
+                    if open { &icons::CHEVRON_DOWN } else { &icons::CHEVRON_RIGHT },
+                    12.0,
+                    k.c.icon_faint,
+                ))
+                .child(glyph(&icons::BRAIN, 12.0, k.c.icon_faint))
+                .child(
+                    text("Thinking")
+                        .font(k.ty.text_small_medium)
+                        .color(k.c.text_muted),
+                )
+                .child(
+                    text(if open { String::new() } else { fmt::first_line(t, 200) })
+                        .font(k.ty.text_small)
+                        .color(k.c.text_faint)
+                        .truncate()
+                        .grow(1.0)
+                        .min_w(0.0),
+                ),
+        )
+        .on_press(move |s: &mut Hooked| {
+            if !s.tools_open.remove(&id) {
+                s.tools_open.insert(id.clone());
+            }
+        });
+    let mut c = col().key(key).w_full().gap(4.0).child(head);
+    if open {
+        c = c.child(
+            text(t.to_string())
+                .font(k.ty.text_small)
+                .color(k.c.text_faint)
+                .wrap()
+                .selectable(true)
+                .px(8.0),
+        );
+    }
+    c
 }
 
 fn message_media(m: &Message) -> Vec<String> {

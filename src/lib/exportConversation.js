@@ -35,7 +35,9 @@ function messageMd(m) {
     ? m.parts
     : [...(m.text ? [{ type: 'text', text: m.text }] : []), ...((m.tools || []).map((t) => ({ type: 'tool', tool: t })))];
   const body = parts
-    .map((p) => (p.type === 'text' ? p.text : toolBlock(p.tool)))
+    .map((p) => (p.type === 'text' ? p.text
+      : p.type === 'thinking' ? `<details><summary>thinking</summary>\n\n${p.text}\n</details>`
+      : p.tool ? toolBlock(p.tool) : ''))
     .filter(Boolean)
     .join('\n\n');
   return `### ${who}${ts}\n\n${body}\n`;

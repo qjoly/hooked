@@ -64,6 +64,9 @@ describe('buildPiConversation', () => {
     expect(u.text).toContain('hello.txt');
     expect(u.forkUuid).toBe('e10');
     expect(a1.thinking).toBe('je dois écrire le fichier');
+    // thinking is an ordered part, rendered in the bubble before the tool call it led to
+    expect(a1.parts.map((p) => p.type)).toEqual(['thinking', 'tool']);
+    expect(a1.parts[0].text).toBe('je dois écrire le fichier');
     expect(a1.tools.length).toBe(1);
     const w = a1.tools[0];
     expect(w.name).toBe('write');

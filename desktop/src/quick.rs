@@ -123,10 +123,12 @@ impl Quick {
                         .into_iter()
                         .map(|p| match p {
                             Part::Text(t) => t,
+                            Part::Thinking(_) => String::new(),
                             Part::Tool(t) => {
                                 format!("`{}` {}", t.name, t.detail.unwrap_or_default())
                             }
                         })
+                        .filter(|t| !t.is_empty())
                         .collect();
                     if !text.is_empty() && m.role != "system" {
                         msgs.push((m.role == "user", text.join("\n\n")));
