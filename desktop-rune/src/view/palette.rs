@@ -46,6 +46,9 @@ pub fn commands(s: &Hooked) -> Vec<Cmd> {
         cmd(nav, &icons::LIST, "Go to Sessions", "⌥2", |s, _| {
             s.open_sessions()
         }),
+        cmd(nav, &icons::FILTER, "Filter by provider (all/Claude/Vibe)", "⌥3", |s, _| {
+            s.cycle_provider_filter()
+        }),
         cmd(nav, &icons::PLUS, "New session", "⌘N", |s, _| {
             s.go_new(None)
         }),

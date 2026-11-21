@@ -103,6 +103,19 @@ pub struct Flash {
     pub until: i64,
 }
 
+/// Cycle du filtre provider : tous → claude → vibe → tous ; sans effet quand un seul
+/// provider est installé (le filtre n'aurait rien à distinguer).
+pub fn next_provider_filter(cur: Option<&str>, both: bool) -> Option<String> {
+    if !both {
+        return None;
+    }
+    match cur {
+        None => Some("claude".into()),
+        Some("claude") => Some("vibe".into()),
+        _ => None,
+    }
+}
+
 pub struct Hooked {
     pub prefs: Prefs,
     pub sessions: Vec<Session>,
@@ -110,6 +123,9 @@ pub struct Hooked {
     pub tags: HashMap<String, Vec<String>>,
     pub tag_filter: Vec<String>,
     pub repo_filter: Vec<String>,
+    /// Filtre provider ('claude' | 'vibe' | None = tous) — cyclé par le raccourci filter-provider.
+    /// N'a de sens que quand les deux providers sont configurés (providers.both()).
+    pub provider_filter: Option<String>,
     pub incognito: bool,
     /// Remote hooked instances (`crate::remote`): the switch, off by default, and the list.
     pub remote_on: bool,
@@ -431,6 +447,7 @@ impl Hooked {
             tags: HashMap::new(),
             tag_filter: Vec::new(),
             repo_filter: Vec::new(),
+            provider_filter: None,
             tag_colors,
             incognito,
             remote_on,
@@ -2621,6 +2638,12 @@ pub fn composer_changed(&mut self) {
             .filter(|(id, _)| !hidden.contains(&id.as_str()))
             .cloned()
             .collect()
+    }
+
+    /// Cycle le filtre provider : tous → claude → vibe → tous. Sans effet quand un seul
+    /// provider est configuré (le filtre n'aurait rien à distinguer).
+    pub fn cycle_provider_filter(&mut self) {
+        self.provider_filter = next_provider_filter(self.provider_filter.as_deref(), self.providers.both());
     }
 
     pub fn nav_tab(&self, key: &str) -> bool {

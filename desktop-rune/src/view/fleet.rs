@@ -466,9 +466,10 @@ fn caption(k: &Kit, label: &str) -> El {
 }
 
 
-/// Small claude/vibe badge shown next to a session row — only when BOTH providers are
+/// Small claude/vibe badge shown next to a session row/card — only when BOTH providers are
 /// installed on this machine (with a single one, the badge would tell nothing).
-fn prov_badge(s: &Hooked, k: &Kit, x: &Session) -> Option<El> {
+/// Pill with a filled background so the provider is readable at a glance.
+pub(super) fn prov_badge(s: &Hooked, k: &Kit, x: &Session) -> Option<El> {
     if !s.providers.both() {
         return None;
     }
@@ -476,9 +477,18 @@ fn prov_badge(s: &Hooked, k: &Kit, x: &Session) -> Option<El> {
     let mut f = k.ty.mono;
     f.size = 9.0;
     Some(
-        text(if vibe { "vibe" } else { "cc" })
-            .font(f)
-            .color(if vibe { k.c.text_accent } else { k.c.text_faint }),
+        row()
+            .key(format!("prov-{}", x.id))
+            .h(15.0)
+            .px(5.0)
+            .center_y()
+            .radius(4.0)
+            .fill(if vibe { k.c.bg_accent } else { k.c.layer_02 })
+            .child(
+                text(if vibe { "vibe" } else { "cc" })
+                    .font(f)
+                    .color(if vibe { k.c.text_inverse } else { k.c.text_muted }),
+            ),
     )
 }
 

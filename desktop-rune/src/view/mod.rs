@@ -1194,7 +1194,7 @@ fn sidebar(s: &Hooked, k: &Kit, layer: &mut Vec<El>) -> El {
         })
         .build(k)
         .key("ssb-collapse");
-    let picked = s.tag_filter.len() + s.repo_filter.len();
+    let picked = s.tag_filter.len() + s.repo_filter.len() + if s.provider_filter.is_some() { 1 } else { 0 };
     let filter_btn = small_icon_button(
         &icons::FILTER,
         &if picked > 0 {
@@ -1226,6 +1226,19 @@ fn sidebar(s: &Hooked, k: &Kit, layer: &mut Vec<El>) -> El {
     };
     filter_menu = filter_menu
         .item(
+            MenuItem::new("Provider")
+                .description(if !s.providers.both() {
+                    "single provider installed".to_string()
+                } else {
+                    match s.provider_filter.as_deref() {
+                        None => "Any".to_string(),
+                        Some("claude") => "Claude Code".to_string(),
+                        _ => "Mistral Vibe".to_string(),
+                    }
+                })
+                .on_select(|s: &mut Hooked| s.cycle_provider_filter()),
+        )
+        .item(
             MenuItem::new("Repo")
                 .description(summary(&s.repo_filter, false, "repos"))
                 .on_select(|s: &mut Hooked| s.open_filter_picker(true)),
@@ -1242,6 +1255,7 @@ fn sidebar(s: &Hooked, k: &Kit, layer: &mut Vec<El>) -> El {
                 .on_select(|s: &mut Hooked| {
                     s.tag_filter.clear();
                     s.repo_filter.clear();
+                    s.provider_filter = None;
                 }),
         );
     }

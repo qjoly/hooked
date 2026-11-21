@@ -150,8 +150,65 @@ fn controls(s: &Hooked, k: &Kit) -> El {
     if let Some(pl) = provider_line {
         col = col.child(pl);
     }
+    // Détail du modèle sélectionné (nom complet, alias, niveaux de thinking côté Vibe) —
+    // sans ça les chips ne montrent qu'un label court.
+    let model_detail: String = if is_vibe {
+        let list = s.vibe_opts["models"].as_array().cloned().unwrap_or_default();
+        match s.new_model.as_deref().and_then(|a| {
+            list.iter()
+                .find(|m| m["alias"].as_str().or(m["name"].as_str()) == Some(a))
+        }) {
+            Some(m) => {
+                let name = m["name"].as_str().unwrap_or("");
+                let alias = m["alias"].as_str().unwrap_or("");
+                let thinking = match &m["thinking"] {
+                    serde_json::Value::Array(a) => a
+                        .iter()
+                        .filter_map(|v| v.as_str())
+                        .collect::<Vec<_>>()
+                        .join(", "),
+                    serde_json::Value::String(x) => x.clone(),
+                    _ => String::new(),
+                };
+                let mut d = if alias.is_empty() {
+                    name.to_string()
+                } else {
+                    format!("{name} ({alias})")
+                };
+                if !thinking.is_empty() {
+                    d.push_str(&format!(" — thinking: {thinking}"));
+                }
+                d
+            }
+            None => "active model from ~/.vibe/config.toml".to_string(),
+        }
+    } else {
+        match s.new_model.as_ref() {
+            Some(id) => {
+                let label = s
+                    .caps
+                    .models
+                    .iter()
+                    .find(|(i, _)| i == id)
+                    .map(|(_, l)| l.clone())
+                    .unwrap_or_default();
+                if label.is_empty() {
+                    id.clone()
+                } else {
+                    format!("{id} — {label}")
+                }
+            }
+            None => "default model of the installed CLI".to_string(),
+        }
+    };
     col = col
         .child(line("MODEL", chips(models)))
+        .child(
+            text(model_detail)
+                .font(k.ty.text_xsmall)
+                .color(k.c.text_faint)
+                .px(2.0),
+        )
         .child(line("EFFORT", chips(efforts)))
         .child(line("MODE", chips(modes)));
     // worktree / ephemeral: Claude-only, no Vibe equivalent — hidden in vibe mode.
