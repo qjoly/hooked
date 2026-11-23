@@ -283,3 +283,35 @@ describe('Claude model names on a pi provider', () => {
     expect(qualifyModel('[1m]', null)).toBeNull();
   });
 });
+
+describe('todo list of pi sessions', () => {
+  it('the package\'s TodoWrite needs no permission and returns the list', async () => {
+    const pi = load();
+    const tool = pi.tools.get('TodoWrite');
+    expect(tool).toBeTruthy();
+    const todos = [{ content: 'Run tests', status: 'in_progress', activeForm: 'Running tests' }, { content: 'Ship', status: 'pending', activeForm: 'Shipping' }];
+    const res = await tool.execute('t1', { todos }, null, null, fakeCtx());
+    expect(res.details).toEqual({ todos });
+    expect(res.content[0].text).toContain('0/2 completed');
+    expect(await pi.emit('tool_call', { toolName: 'TodoWrite', input: { todos } }, fakeCtx())).toBeUndefined();
+  });
+
+  it('the dock reads the last TodoWrite of the active branch', async () => {
+    const { latestPiTodos } = await import('../server/pi.js');
+    const file = path.join(TMP, 'todos-session.jsonl');
+    const call = (id, parentId, todos) => ({ type: 'message', id, parentId, timestamp: `2026-11-23T10:00:0${id.slice(1)}.000Z`, message: { role: 'assistant', content: [{ type: 'toolCall', id: 'c' + id, name: 'TodoWrite', arguments: { todos } }] } });
+    const lines = [
+      { type: 'session', version: 3, id: 'sess-todos', timestamp: '2026-11-23T10:00:00.000Z', cwd: '/tmp/x' },
+      call('e1', null, [{ content: 'A', status: 'in_progress', activeForm: 'Doing A' }]),
+      call('e2', 'e1', [{ content: 'A', status: 'completed', activeForm: 'Doing A' }, { content: 'B', status: 'bogus' }]),
+      call('e3', 'e1', [{ content: 'abandoned branch', status: 'pending', activeForm: '' }]),
+      { type: 'message', id: 'e4', parentId: 'e2', timestamp: '2026-11-23T10:00:05.000Z', message: { role: 'user', content: [{ type: 'text', text: 'go on' }] } },
+    ];
+    fs.writeFileSync(file, lines.map((l) => JSON.stringify(l)).join('\n') + '\n');
+    expect(latestPiTodos(file)).toEqual({
+      ts: '2026-11-23T10:00:02.000Z',
+      todos: [{ content: 'A', status: 'completed', activeForm: 'Doing A' }, { content: 'B', status: 'pending', activeForm: '' }],
+    });
+    expect(latestPiTodos(path.join(TMP, 'missing.jsonl'))).toBeNull();
+  });
+});

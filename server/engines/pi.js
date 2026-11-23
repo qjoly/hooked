@@ -39,10 +39,10 @@ const piEngine = {
   mcpKind: 'pi',
   skillsKind: 'pi',
   // With hooked's pi package (the default), pi sessions get hooked's permission cards, questions,
-  // plan mode and mode switches; `hookedPackage: false` on a provider takes them back off.
+  // plan mode, mode switches and the todo list; `hookedPackage: false` takes them back off.
   capabilitiesFor(provider) {
     if (!hookedPackageEnabled(provider)) return this.capabilities;
-    return { ...this.capabilities, permissions: true, questions: true, plan: true, modes: true, autoApprove: true };
+    return { ...this.capabilities, permissions: true, questions: true, plan: true, modes: true, autoApprove: true, todos: true };
   },
 
   detect(provider) {

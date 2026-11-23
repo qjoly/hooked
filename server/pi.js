@@ -352,8 +352,30 @@ function piSetArchived(file, archived) {
   } catch (_) { return false; }
 }
 
-// ── Accessoires détail (todos/subagents/screenshots : pi n'en a pas nativement) ──────────────────
-function latestPiTodos() { return null; }
+// ── Accessoires détail (subagents/screenshots : pi n'en a pas nativement) ──────────────────────
+// Todos: the TodoWrite tool of hooked's pi package (Claude Code's schema, the whole list on every
+// call), so the last call on the active branch is the list. Same shape as server/todos.js.
+function latestPiTodos(file) {
+  const read = file ? piRead(file) : null;
+  if (!read) return null;
+  let latest = null;
+  for (const e of activeBranch(read.entries)) {
+    const m = e.type === 'message' ? e.message : null;
+    if (!m || m.role !== 'assistant' || !Array.isArray(m.content)) continue;
+    for (const b of m.content) {
+      if (!b || b.type !== 'toolCall' || b.name !== 'TodoWrite' || !Array.isArray(b.arguments?.todos)) continue;
+      latest = {
+        ts: e.timestamp || null,
+        todos: b.arguments.todos.map((t) => ({
+          content: String((t && t.content) || ''),
+          status: t && (t.status === 'completed' || t.status === 'in_progress') ? t.status : 'pending',
+          activeForm: String((t && t.activeForm) || ''),
+        })),
+      };
+    }
+  }
+  return latest;
+}
 function piSubagents() { return []; }
 function piSubSessions() { return []; }
 function piScreenshots() { return []; }

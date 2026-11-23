@@ -9,6 +9,7 @@ and controls in the dashboard as a Claude session.
 | hooked's tools (start_session, groups, review comments, PR watch, show_image…) | MCP server `hooked` | native tools `hooked_*`, same definitions (`mcp/server.cjs`) |
 | Questions | `AskUserQuestion` | `AskUserQuestion`, same schema |
 | Plan mode | `ExitPlanMode` + permission mode | `ExitPlanMode` + the package's mode |
+| Todo list in the dock | `TodoWrite` / `TaskCreate` | `TodoWrite`, same schema, read back from the pi session file |
 | Permission cards | `canUseTool` | `tool_call` gate |
 | Modes, auto-approve | SDK `setPermissionMode` | `/hooked-mode`, `/hooked-auto-approve` commands |
 | 5h / 7d quotas | statusline / `usage_…()` | `after_provider_response` headers (pi-claude-bridge) |

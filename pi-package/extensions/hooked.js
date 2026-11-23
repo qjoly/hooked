@@ -6,7 +6,7 @@
  *
  *   - hooked's tools (start_session, groups, review comments, PR watch, show_image…) as native pi
  *     tools, from the same definitions as the MCP server (mcp/server.cjs), with no MCP proxy;
- *   - AskUserQuestion and ExitPlanMode, with Claude Code's schemas;
+ *   - AskUserQuestion, ExitPlanMode and TodoWrite, with Claude Code's schemas;
  *   - a permission gate following hooked's permission modes and auto-approve switch;
  *   - the account quotas pi-claude-bridge relays (5h / 7d), forwarded to the dashboard.
  *
@@ -28,7 +28,7 @@ const MARK = '[hooked:';
 const MODES = ['default', 'acceptEdits', 'auto', 'plan', 'bypassPermissions', 'dontAsk'];
 
 // Tools that never ask: they read, or they talk to the user / to hooked.
-const SAFE_TOOLS = new Set(['read', 'grep', 'find', 'ls', 'tool_search', 'AskUserQuestion', 'ExitPlanMode']);
+const SAFE_TOOLS = new Set(['read', 'grep', 'find', 'ls', 'tool_search', 'AskUserQuestion', 'ExitPlanMode', 'TodoWrite']);
 const EDIT_TOOLS = new Set(['write', 'edit']);
 
 function loadHookedTools() {
@@ -115,6 +115,26 @@ const QUESTIONS_SCHEMA = {
     },
   },
   required: ['questions'],
+};
+
+const TODOS_SCHEMA = {
+  type: 'object',
+  properties: {
+    todos: {
+      type: 'array',
+      description: 'The updated todo list',
+      items: {
+        type: 'object',
+        properties: {
+          content: { type: 'string', description: 'The task, in the imperative form (Run the tests)' },
+          status: { type: 'string', enum: ['pending', 'in_progress', 'completed'] },
+          activeForm: { type: 'string', description: 'The task in the present continuous form (Running the tests)' },
+        },
+        required: ['content', 'status', 'activeForm'],
+      },
+    },
+  },
+  required: ['todos'],
 };
 
 export default function hooked(pi) {
@@ -219,6 +239,25 @@ export default function hooked(pi) {
       return {
         content: [{ type: 'text', text: fb ? `The user wants you to keep planning: ${fb}` : 'The user did not approve the plan yet. Keep planning.' }],
         details: { action: action || 'keep' },
+      };
+    },
+  });
+
+  // ── TodoWrite ──────────────────────────────────────────────────────────────────────────────
+  // The whole list on every call, as in Claude Code: hooked's dock reads the last call from the
+  // session file (latestPiTodos in server/pi.js). Nothing is kept here.
+  pi.registerTool({
+    name: 'TodoWrite',
+    label: 'Todo list',
+    description: 'Create and update the task list of this session, shown to the user in the hooked dashboard. Use it for work with three steps or more: send the whole list on every call, keep exactly one task in_progress while you work, and mark each task completed as soon as it is done.',
+    promptSnippet: 'Track multi-step work in a todo list the user sees',
+    parameters: TODOS_SCHEMA,
+    async execute(_id, params) {
+      const todos = Array.isArray(params.todos) ? params.todos : [];
+      const done = todos.filter((t) => t && t.status === 'completed').length;
+      return {
+        content: [{ type: 'text', text: `Todos have been modified successfully (${done}/${todos.length} completed). Keep using the todo list to track your progress.` }],
+        details: { todos },
       };
     },
   });

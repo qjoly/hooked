@@ -55,8 +55,8 @@ describe('provider registry', () => {
     const mi = list.find((p) => p.id === 'mistral');
     expect(mi).toMatchObject({ engine: 'pi', label: 'Mistral', short: 'mi', color: '#fa520f', mcpKind: 'pi', models: ['mistral/*'] });
     // hooked's pi package brings the cards; a provider that opts out of it has none
-    expect(mi.capabilities).toMatchObject({ plan: true, questions: true, permissions: true, trace: true });
-    expect(list.find((p) => p.id === 'bare').capabilities).toMatchObject({ plan: false, questions: false, permissions: false, trace: true });
+    expect(mi.capabilities).toMatchObject({ plan: true, questions: true, permissions: true, todos: true, trace: true });
+    expect(list.find((p) => p.id === 'bare').capabilities).toMatchObject({ plan: false, questions: false, permissions: false, todos: false, trace: true });
   });
 
   it('refuses a launch on an unknown, disabled or engine-less provider with a clear reason', () => {
