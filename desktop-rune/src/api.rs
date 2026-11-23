@@ -1,18 +1,31 @@
-use std::io::{BufRead, BufReader};
+use std::io::{BufRead, BufReader, Read};
 use std::time::Duration;
 
 use serde::Deserialize;
 use serde_json::{Value, json};
+use ureq::config::ConfigBuilder;
+use ureq::http::Response;
+use ureq::typestate::AgentScope;
+use ureq::{Agent, Body};
 
 pub fn base() -> String {
     std::env::var("HOOKED_URL").unwrap_or_else(|_| "http://localhost:4123".into())
 }
 
-fn agent() -> ureq::Agent {
-    ureq::AgentBuilder::new()
-        .timeout_connect(Duration::from_secs(3))
-        .timeout(Duration::from_secs(30))
+fn agent() -> Agent {
+    config()
+        .timeout_global(Some(Duration::from_secs(30)))
         .build()
+        .into()
+}
+
+/// hooked runs on this machine or the LAN, so a proxy from the environment stays out of the way.
+/// A 4xx/5xx comes back as a response: its JSON body says why.
+fn config() -> ConfigBuilder<AgentScope> {
+    Agent::config_builder()
+        .timeout_connect(Some(Duration::from_secs(3)))
+        .proxy(None)
+        .http_status_as_error(false)
 }
 
 pub fn enc(s: &str) -> String {
@@ -51,32 +64,33 @@ pub fn get(path: &str) -> Result<Value, String> {
 
 /// A read from one given service, whatever the path names: how a remote instance is polled.
 pub fn get_from(base: &str, path: &str) -> Result<Value, String> {
-    let a = ureq::AgentBuilder::new()
-        .timeout_connect(Duration::from_secs(3))
-        .timeout(Duration::from_secs(8))
-        .build();
+    let a: Agent = config()
+        .timeout_global(Some(Duration::from_secs(8)))
+        .build()
+        .into();
     read(a.get(&format!("{base}{path}")).call())
 }
 
 pub fn bytes(path: &str) -> Result<Vec<u8>, String> {
     let (url, _) = target(path, None)?;
-    let resp = agent()
-        .get(&url)
-        .call()
-        .map_err(|e| e.to_string())?;
+    let resp = success(agent().get(&url).call())?;
     let mut out = Vec::new();
-    std::io::Read::read_to_end(&mut resp.into_reader(), &mut out).map_err(|e| e.to_string())?;
+    resp.into_body()
+        .into_reader()
+        .read_to_end(&mut out)
+        .map_err(|e| e.to_string())?;
     Ok(out)
 }
 
 /// The JSON body whatever the status, for endpoints that explain a refusal in it.
 pub fn post_any(path: &str, body: Value) -> Result<Value, String> {
     let (url, _) = target(path, Some(&body))?;
-    match agent().post(&url).send_json(body) {
-        Ok(resp) => resp.into_json().map_err(|e| e.to_string()),
-        Err(ureq::Error::Status(_, resp)) => resp.into_json().map_err(|e| e.to_string()),
-        Err(e) => Err(e.to_string()),
-    }
+    json(
+        agent()
+            .post(&url)
+            .send_json(body)
+            .map_err(|e| e.to_string())?,
+    )
 }
 
 pub fn post(path: &str, body: Value) -> Result<Value, String> {
@@ -88,10 +102,19 @@ pub fn post(path: &str, body: Value) -> Result<Value, String> {
     r
 }
 
-fn read(r: Result<ureq::Response, ureq::Error>) -> Result<Value, String> {
-    match r {
-        Ok(resp) => {
-            let v: Value = resp.into_json().map_err(|e| e.to_string())?;
+fn read(r: Result<Response<Body>, ureq::Error>) -> Result<Value, String> {
+    let resp = r.map_err(|e| e.to_string())?;
+    match resp.status().as_u16() {
+        code @ 400.. => {
+            let v = json(resp).unwrap_or(Value::Null);
+            Err(v
+                .get("error")
+                .and_then(Value::as_str)
+                .map(str::to_string)
+                .unwrap_or_else(|| format!("HTTP {code}")))
+        }
+        _ => {
+            let v = json(resp)?;
             if v.get("ok") == Some(&Value::Bool(false)) {
                 return Err(v
                     .get("error")
@@ -101,30 +124,35 @@ fn read(r: Result<ureq::Response, ureq::Error>) -> Result<Value, String> {
             }
             Ok(v)
         }
-        Err(ureq::Error::Status(code, resp)) => {
-            let v: Value = resp.into_json().unwrap_or(Value::Null);
-            Err(v
-                .get("error")
-                .and_then(Value::as_str)
-                .map(str::to_string)
-                .unwrap_or_else(|| format!("HTTP {code}")))
-        }
-        Err(e) => Err(e.to_string()),
     }
 }
 
+/// The response, or its status as the error when its body is of no use to the caller.
+fn success(r: Result<Response<Body>, ureq::Error>) -> Result<Response<Body>, String> {
+    let resp = r.map_err(|e| e.to_string())?;
+    match resp.status().as_u16() {
+        code @ 400.. => Err(format!("HTTP {code}")),
+        _ => Ok(resp),
+    }
+}
+
+/// ureq caps a body it reads at 10 MB, and a long conversation or a CI log can be larger.
+fn json(resp: Response<Body>) -> Result<Value, String> {
+    resp.into_body()
+        .into_with_config()
+        .limit(u64::MAX)
+        .read_json()
+        .map_err(|e| e.to_string())
+}
+
 pub fn follow(path: &str, mut on_data: impl FnMut(&str) -> bool) -> Result<(), String> {
-    let a = ureq::AgentBuilder::new()
-        .timeout_connect(Duration::from_secs(3))
-        .timeout_read(Duration::from_secs(45))
-        .build();
+    let a: Agent = config()
+        .timeout_per_read(Some(Duration::from_secs(45)))
+        .build()
+        .into();
     let (url, _) = target(path, None)?;
-    let resp = a
-        .get(&url)
-        .set("Accept", "text/event-stream")
-        .call()
-        .map_err(|e| e.to_string())?;
-    for line in BufReader::new(resp.into_reader()).lines() {
+    let resp = success(a.get(&url).header("Accept", "text/event-stream").call())?;
+    for line in BufReader::new(resp.into_body().into_reader()).lines() {
         let line = line.map_err(|e| e.to_string())?;
         if let Some(d) = line.strip_prefix("data:")
             && !on_data(d.trim())
@@ -1056,6 +1084,13 @@ mod tests {
     #[test]
     fn query_values_are_percent_encoded() {
         assert_eq!(enc("a b/c"), "a%20b%2Fc");
+    }
+
+    // `remote::brief_error` cuts the cause out of ureq's own wording of a transport error.
+    #[test]
+    fn a_refused_connection_reads_as_its_cause() {
+        let e = get_from("http://127.0.0.1:1", "/api/sessions").unwrap_err();
+        assert_eq!(crate::remote::brief_error(&e), "Connection refused");
     }
 }
 
