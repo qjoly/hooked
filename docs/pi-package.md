@@ -11,6 +11,7 @@ and controls in the dashboard as a Claude session.
 | Plan mode | `ExitPlanMode` + permission mode | `ExitPlanMode` + the package's mode |
 | Todo list in the dock | `TodoWrite` / `TaskCreate` | `TodoWrite`, same schema, read back from the pi session file |
 | Subagents | `Agent` | `Agent`: a separate `pi --mode json -p` on the current model (below) |
+| Web pages | `WebFetch` | `WebFetch`, same parameters: the page as text (no small-model summary), asks in the normal mode |
 | Permission cards | `canUseTool` | `tool_call` gate |
 | Modes, auto-approve | SDK `setPermissionMode` | `/hooked-mode`, `/hooked-auto-approve` commands |
 | 5h / 7d quotas | statusline / `usage_…()` | `after_provider_response` headers (pi-claude-bridge) |

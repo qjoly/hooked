@@ -381,3 +381,47 @@ describe('subagent usage in the pi session summary', () => {
     expect(s.cost).toBeCloseTo(s.subagentCost, 10);
   });
 });
+
+describe('WebFetch of the pi package', () => {
+  const WF = path.join(import.meta.dirname, '..', 'pi-package', 'extensions', 'webfetch.js');
+
+  it('turns HTML into readable text', async () => {
+    const { htmlToText } = await import(WF);
+    const html = `<!doctype html><html><head><title>Docs &amp; more</title><style>p{color:red}</style></head>
+      <body><script>alert(1)</script><h1>Intro</h1><p>Hello&nbsp;<b>world</b> &#233;t&eacute; &#x2713;</p>
+      <ul><li>one</li><li><a href="/two">two</a></li></ul><!-- hidden --><table><tr><td>a</td><td>b</td></tr></table></body></html>`;
+    const text = htmlToText(html);
+    expect(text.startsWith('Docs & more\n\n# Intro')).toBe(true);
+    expect(text).toContain('Hello world');
+    expect(text).toContain('- two (/two)');
+    expect(text).toContain('| a | b');
+    expect(text).not.toMatch(/alert|color:red|hidden|<\w/);
+  });
+
+  it('fetches a page, asks for permission in the normal mode, and reports HTTP errors', async () => {
+    const http = await import('node:http');
+    const server = http.createServer((req, res) => {
+      if (req.url === '/missing') { res.writeHead(404, { 'content-type': 'text/plain' }); return res.end('nope'); }
+      res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+      res.end('<html><title>T</title><body><p>Body text</p></body></html>');
+    });
+    await new Promise((r) => server.listen(0, '127.0.0.1', r));
+    const base = `http://127.0.0.1:${server.address().port}`;
+    try {
+      const pi = load();
+      const tool = pi.tools.get('WebFetch');
+      const ok = await tool.execute('w1', { url: base + '/', prompt: 'the body' }, null, null, fakeCtx());
+      expect(ok.content[0].text).toContain('HTTP 200, text/html');
+      expect(ok.content[0].text).toContain('Looking for: the body');
+      expect(ok.content[0].text).toContain('T\n\nBody text');
+      const missing = await tool.execute('w2', { url: base + '/missing' }, null, null, fakeCtx());
+      expect(missing.isError).toBe(true);
+      const bad = await tool.execute('w3', { url: 'file:///etc/passwd' }, null, null, fakeCtx());
+      expect(bad.content[0].text).toMatch(/unsupported protocol/);
+      // not a safe tool: the gate asks in the normal mode
+      const ctx = fakeCtx(['{"choice":"deny"}']);
+      expect(await pi.emit('tool_call', { toolName: 'WebFetch', input: { url: base } }, ctx)).toMatchObject({ block: true });
+      expect(ctx.titles[0]).toMatch(/^\[hooked:permission\] \{"toolName":"WebFetch"/);
+    } finally { server.close(); }
+  });
+});
