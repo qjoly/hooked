@@ -1,0 +1,27 @@
+# Ancien format pi (< 1.6) — ignoré par pi 1.6, à migrer vers ~/.pi/agent/mcp.json
+[mcp]
+# MCP server pour hooked (permet d'utiliser les outils comme start_session, list_sessions, etc.)
+[[mcp.servers]]
+name = "hooked"
+command = "node"
+args = ["/Users/qjoly/code/hooked/mcp/server.cjs"]
+env = { HOOKED_MCP_URL = "http://localhost:4123" }
+
+# MCP server pour Home Assistant
+[[mcp.servers]]
+name = "homeassistant"
+command = "npx"
+args = ["@orellbuehler/homeassistant-mcp"]
+env = {
+  # URL de l'instance Home Assistant
+  HASS_URL = "https://home.example.eu",
+  # Token d'API (long-lived access token)
+  HASS_TOKEN = "secret-token"
+}
+
+[[mcp.servers]]
+name = "remote"
+url = "https://mcp.example.com/sse"
+type = "http"
+headers = { Authorization = "Bearer x" }
+enabled = false

@@ -1,7 +1,7 @@
 import { json } from '@sveltejs/kit';
 import {
   listMcp, getMcp, logoutMcp, startLogin, loginStatus, sendLoginInput, cancelLogin, listMcpPi,
-  getMcpPi, saveMcpPi, removeMcpPi, engineOf,
+  getMcpPi, saveMcpPi, removeMcpPi, engineOf, migrateLegacyToml,
 } from '#lib/server/core.js';
 import { fail, readJson } from '#lib/server/respond.js';
 
@@ -47,6 +47,9 @@ export async function POST({ request }) {
       case 'remove':
         if (!isPi) return fail(400, 'remove is pi-only');
         return json(removeMcpPi({ cwd, scope, name }));
+      case 'migrate-legacy': // pi : [[mcp.servers]] de l'ancien ~/.pi/config.toml → ~/.pi/agent/mcp.json
+        if (!isPi) return fail(400, 'migrate-legacy is pi-only');
+        return json(migrateLegacyToml({ cwd }));
       case 'logout':
         if (!name) return fail(400, 'name required');
         return json({ ok: true, ...(await logoutMcp(cwd, name)) });

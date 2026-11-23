@@ -1298,6 +1298,42 @@ pub struct McpServer {
     pub status: Option<String>,
     pub scope_label: Option<String>,
     pub authable: bool,
+    // pi fields (server/piMcp.js): raw scope + detailed config, to edit the mcp.json files.
+    pub scope: Option<String>,
+    pub url: Option<String>,
+    pub command: Option<String>,
+    pub args: Option<Vec<String>>,
+    pub env: Option<serde_json::Map<String, Value>>,
+    pub headers: Option<serde_json::Map<String, Value>>,
+    pub enabled: Option<bool>,
+}
+
+impl McpServer {
+    /// The editable JSON config of a pi server, rebuilt from the fields read.
+    pub fn pi_config_json(&self) -> Value {
+        let mut m = serde_json::Map::new();
+        if let Some(u) = &self.url {
+            m.insert("url".into(), Value::String(u.clone()));
+            m.insert("type".into(), Value::String(self.transport.clone().unwrap_or_else(|| "http".into())));
+            if let Some(h) = &self.headers {
+                m.insert("headers".into(), Value::Object(h.clone()));
+            }
+        } else {
+            if let Some(c) = &self.command {
+                m.insert("command".into(), Value::String(c.clone()));
+            }
+            if let Some(a) = &self.args {
+                m.insert("args".into(), Value::Array(a.iter().cloned().map(Value::String).collect()));
+            }
+            if let Some(e) = &self.env {
+                m.insert("env".into(), Value::Object(e.clone()));
+            }
+        }
+        if self.enabled == Some(false) {
+            m.insert("enabled".into(), Value::Bool(false));
+        }
+        Value::Object(m)
+    }
 }
 
 pub fn mcp_list(cwd: &str, cached: bool, provider: Option<&str>) -> Result<Vec<McpServer>, String> {
@@ -1387,6 +1423,33 @@ pub fn trace_tool(id: &str, tool: &str) -> Result<(String, String), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn pi_config_json_rebuilds_a_stdio_or_http_server() {
+        let stdio: McpServer = serde_json::from_value(json!({
+            "name": "hooked", "scope": "project", "transport": "stdio", "state": "configured",
+            "command": "node", "args": ["mcp/server.cjs"], "env": { "A": "1" }, "enabled": true,
+        }))
+        .unwrap();
+        let cfg = stdio.pi_config_json();
+        assert_eq!(cfg["command"], "node");
+        assert_eq!(cfg["args"][0], "mcp/server.cjs");
+        assert_eq!(cfg["env"]["A"], "1");
+        assert!(cfg.get("enabled").is_none(), "enabled:true is the default, not written");
+
+        let http: McpServer = serde_json::from_value(json!({
+            "name": "remote", "scope": "user", "transport": "http", "state": "configured",
+            "url": "https://m.example.com", "headers": { "Authorization": "Bearer x" },
+            "enabled": false,
+        }))
+        .unwrap();
+        let cfg = http.pi_config_json();
+        assert_eq!(cfg["url"], "https://m.example.com");
+        assert_eq!(cfg["type"], "http");
+        assert_eq!(cfg["headers"]["Authorization"], "Bearer x");
+        assert_eq!(cfg["enabled"], false);
+        assert!(cfg.get("command").is_none());
+    }
 
     #[test]
     fn parts_fall_back_to_text_then_tools() {

@@ -1467,7 +1467,7 @@ pub fn review(s: &Hooked, d: &Detail, k: &Kit) -> El {
 fn mcp_dot(k: &Kit, state: &str) -> Color {
     match state {
         "connected" => k.c.success.icon,
-        "needs-auth" | "needs_auth" | "auth" => k.c.warning.icon,
+        "needs-auth" | "needs_auth" | "auth" | "legacy" => k.c.warning.icon,
         "failed" | "error" => k.c.danger.icon,
         _ => k.c.icon_faint,
     }
@@ -1475,9 +1475,18 @@ fn mcp_dot(k: &Kit, state: &str) -> Color {
 
 fn mcp_row(s: &Hooked, x: &McpServer, k: &Kit) -> El {
     let open = s.lens_data.mcp_open.as_deref() == Some(x.name.as_str());
-    // OAuth login/logout = flux Claude Code ; en pi il n'y a rien à re-authentifier.
-    let oauth = x.authable && s.lens_data.mcp_provider.as_deref() != Some("pi");
-    let (n1, n2, n3) = (x.name.clone(), x.name.clone(), x.name.clone());
+    // OAuth login/logout is the Claude Code flow; pi has nothing to re-authenticate here, but its
+    // servers can be managed (enable/disable, edit, remove), since they live in editable mcp.json files.
+    let is_pi = s.lens_data.mcp_provider.as_deref() == Some("pi");
+    let oauth = x.authable && !is_pi;
+    let (n1, n2, n3, n4, n5, n6) = (
+        x.name.clone(),
+        x.name.clone(),
+        x.name.clone(),
+        x.name.clone(),
+        x.name.clone(),
+        x.name.clone(),
+    );
     let mut actions = row().gap(6.0).center_y().child(
         Button::new(if open { "Hide" } else { "Details" })
             .variant(ButtonVariant::GhostMuted)
@@ -1486,6 +1495,50 @@ fn mcp_row(s: &Hooked, x: &McpServer, k: &Kit) -> El {
             .build(k)
             .key(format!("mcp-det-{}", x.name)),
     );
+    if is_pi {
+        let armed = s.lens_data.mcp_delete_armed.as_deref() == Some(x.name.as_str());
+        let disabled = x.enabled == Some(false) || x.state == "disabled";
+        actions = actions
+            .child(
+                Button::new(if disabled { "Enable" } else { "Disable" })
+                    .variant(ButtonVariant::GhostMuted)
+                    .control_size(ControlSize::Small)
+                    .on_press(move |s: &mut Hooked| s.mcp_toggle_enabled(n4.clone()))
+                    .build(k)
+                    .key(format!("mcp-tgl-{}", x.name)),
+            )
+            .child(
+                Button::new("Edit")
+                    .variant(ButtonVariant::GhostMuted)
+                    .control_size(ControlSize::Small)
+                    .on_press(move |s: &mut Hooked| s.mcp_open_editor(Some(n5.clone())))
+                    .build(k)
+                    .key(format!("mcp-edit-{}", x.name)),
+            );
+        // A legacy server (old config.toml) is in no mcp.json: no Remove,
+        // the migration writes it to ~/.pi/agent/mcp.json.
+        if x.state == "legacy" {
+            actions = actions.child(
+                Button::new("Migrer")
+                    .variant(ButtonVariant::Contrast)
+                    .control_size(ControlSize::Small)
+                    .help("Copy this server to ~/.pi/agent/mcp.json (pi 1.6 no longer reads config.toml)")
+                    .on_press(|s: &mut Hooked| s.mcp_migrate_legacy())
+                    .build(k)
+                    .key(format!("mcp-mig-{}", x.name)),
+            );
+        } else {
+            actions = actions.child(
+                Button::new(if armed { "Delete?" } else { "Remove" })
+                    .variant(if armed { ButtonVariant::Danger } else { ButtonVariant::GhostFaint })
+                    .control_size(ControlSize::Small)
+                    .help("Remove this server (click twice)")
+                    .on_press(move |s: &mut Hooked| s.mcp_remove_server(n6.clone()))
+                    .build(k)
+                    .key(format!("mcp-del-{}", x.name)),
+            );
+        }
+    }
     if oauth {
         actions = actions
             .child(
@@ -1563,6 +1616,109 @@ fn mcp_row(s: &Hooked, x: &McpServer, k: &Kit) -> El {
         );
     }
     card
+}
+
+/// Add/edit form of a pi MCP server: name + scope (project/user) + JSON config.
+fn mcp_editor(s: &Hooked, k: &Kit) -> Option<El> {
+    let ed = s.lens_data.mcp_editor.as_ref()?;
+    let title = match &ed.original_name {
+        Some(n) => format!("Edit “{n}”"),
+        None => "Add an MCP server".to_string(),
+    };
+    let labels = ["Project · .pi/mcp.json", "User · ~/.pi/agent/mcp.json"];
+    let mut c = col()
+        .key("mcp-editor")
+        .w_full()
+        .padding(12.0)
+        .gap(8.0)
+        .radius(k.radius.md)
+        .fill(k.c.surface_raised)
+        .border(1.0, k.c.border_base);
+    c = c.child(
+        row()
+            .w_full()
+            .child(text(title).font(k.ty.ui_medium).color(k.c.text_base).grow(1.0))
+            .child(
+                Button::new("Close")
+                    .variant(ButtonVariant::GhostMuted)
+                    .control_size(ControlSize::Small)
+                    .on_press(|s: &mut Hooked| s.mcp_close_editor())
+                    .build(k)
+                    .key("mcp-editor-close"),
+            ),
+    );
+    c = c.child(
+        row()
+            .gap(10.0)
+            .child(
+                TextInput::new(&ed.name)
+                    .placeholder("server-name")
+                    .width(Some(220.0))
+                    .on_edit(|s: &mut Hooked| &mut s.lens_data.mcp_editor.as_mut().expect("editor").name)
+                    .build(k)
+                    .key("mcp-editor-name"),
+            )
+            .child(
+                SegmentedControl::new(&labels, Some(ed.scope))
+                    .on_pick(|s: &mut Hooked, i, _| {
+                        if let Some(e) = s.lens_data.mcp_editor.as_mut() {
+                            e.scope = i;
+                        }
+                    })
+                    .build(k)
+                    .key("mcp-editor-scope"),
+            ),
+    );
+    c = c.child(
+        text("Config JSON — stdio: {\"command\",\"args\",\"env\"} · http: {\"url\",\"headers\",\"type\"} · \"enabled\": false to disable")
+            .font(k.ty.text_xsmall)
+            .color(k.c.text_faint),
+    );
+    c = c.child(
+        TextArea::new(&ed.json)
+            .placeholder("{ \"command\": \"…\", \"args\": [] }")
+            .width(None)
+            .auto_grow(4, 14)
+            .on_edit(|s: &mut Hooked| &mut s.lens_data.mcp_editor.as_mut().expect("editor").json)
+            .on_key(|s: &mut Hooked, ev: &rune::KeyEvent, _| match ev.key {
+                rune::Key::Enter if ev.mods.cmd => {
+                    s.mcp_save_editor();
+                    true
+                }
+                rune::Key::Escape => {
+                    s.mcp_close_editor();
+                    true
+                }
+                _ => false,
+            })
+            .build(k)
+            .key("mcp-editor-json"),
+    );
+    if let Some(e) = &ed.error {
+        c = c.child(text(e.clone()).font(k.ty.text_xsmall).color(k.c.danger.icon));
+    }
+    c = c.child(
+        row()
+            .gap(8.0)
+            .child(
+                Button::new("Save")
+                    .variant(ButtonVariant::Contrast)
+                    .control_size(ControlSize::Small)
+                    .disabled(ed.name.text.trim().is_empty())
+                    .on_press(|s: &mut Hooked| s.mcp_save_editor())
+                    .build(k)
+                    .key("mcp-editor-save"),
+            )
+            .child(
+                Button::new("Cancel")
+                    .variant(ButtonVariant::GhostMuted)
+                    .control_size(ControlSize::Small)
+                    .on_press(|s: &mut Hooked| s.mcp_close_editor())
+                    .build(k)
+                    .key("mcp-editor-cancel"),
+            ),
+    );
+    Some(c)
 }
 
 fn mcp_login(s: &Hooked, k: &Kit) -> El {
@@ -1687,6 +1843,18 @@ pub fn mcp(s: &Hooked, d: &Detail, k: &Kit) -> El {
             )
             .child(Spinner::new().build(k));
     }
+    let is_pi = ld.mcp_provider.as_deref() == Some("pi");
+    if is_pi {
+        top = top.child(
+            Button::new("Add server")
+                .icon(&icons::PLUS)
+                .variant(ButtonVariant::GhostMuted)
+                .control_size(ControlSize::Small)
+                .on_press(|s: &mut Hooked| s.mcp_open_editor(None))
+                .build(k)
+                .key("mcp-add"),
+        );
+    }
     top = top.child(
         Button::new("Refresh")
             .icon(&icons::RESTART)
@@ -1706,6 +1874,11 @@ pub fn mcp(s: &Hooked, d: &Detail, k: &Kit) -> El {
         .gap(8.0);
     if let Some(n) = ld.mcp_notice.as_ref() {
         list = list.child(text(n.clone()).font(k.ty.ui).color(k.c.text_muted));
+    }
+    if is_pi {
+        if let Some(ed) = mcp_editor(s, k) {
+            list = list.child(ed);
+        }
     }
     list = list.child(mcp_login(s, k));
     let mut scope = None;
