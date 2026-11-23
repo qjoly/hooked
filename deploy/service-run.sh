@@ -37,7 +37,7 @@ fi
 if [ "$MODE" = "dev" ]; then
   # Vite launched DIRECTLY (not via npm) so the service manager watches the
   # real node process → clean stop/restart, no orphan. strictPort: fail
-  # loudly if a stray `node build` still squats the port (see CLAUDE.md).
+  # loudly if a stray `node build` still squats the port (see AGENTS.md).
   exec node node_modules/vite/bin/vite.js dev --host "$HOST" --port "$PORT" --strictPort
 fi
 

@@ -106,7 +106,7 @@ aérer s'il sert mieux les trois scènes d'usage.
 ## Evidence on Hand
 
 - README complet, en français, avec le détail fonctionnel réel (`README.md`).
-- CLAUDE.md : la mémoire d'architecture du projet, qui documente les pièges et les décisions
+- AGENTS.md : la mémoire d'architecture du projet, qui documente les pièges et les décisions
   structurantes — source de vérité pour tout ce qui touche au pilotage des sessions.
 - Système visuel incumbent complet dans `src/app.css` : tokens clair/sombre, accent indigo
   (`#4f46e5`), **Public Sans** + **JetBrains Mono** servies localement, couleurs d'état

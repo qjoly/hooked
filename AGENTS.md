@@ -1,4 +1,4 @@
-# CLAUDE.md for hooked
+# AGENTS.md for hooked
 
 hooked is a local dashboard for Claude Code sessions. The front end is SvelteKit / Svelte 5. The back end is plain Node stdlib (`server/*` + `hook.cjs`), with a single runtime dependency for driving sessions: Anthropic's Agent SDK (`@anthropic-ai/claude-agent-sdk`). The MCP server (`mcp/server.cjs`) is a thin client that proxies the local HTTP API.
 
