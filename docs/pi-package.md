@@ -144,8 +144,15 @@ pi-migrate` copies the global `CLAUDE.md` into a managed block of `~/.pi/agent/A
 of the file stays pi-only), adds `~/.claude/skills` to the `skills` list of pi's settings, where
 pi reads it live, adds the skills of the enabled plugins the same way (a run after a plugin update
 swaps the versioned folder; plugins synced by an organization are left out, since their skills rely
-on claude.ai connectors), and copies Claude Code's user-scope MCP servers (`~/.claude.json`) into
-`~/.pi/agent/mcp.json`. Run it again after a change on the Claude side: the block is replaced, and
+on claude.ai connectors; `--with-synced-plugins` adds them anyway), and copies Claude Code's
+user-scope MCP servers (`~/.claude.json`) into `~/.pi/agent/mcp.json`. The claude.ai connectors
+connected in Claude Code (`claude mcp list`) join them when pi can reach them: the task probes each
+one. A server that publishes no OAuth metadata and lists its tools without a token is copied as is.
+A server whose authorization server lets a new client register (dynamic registration or a client
+ID metadata document) is copied, to sign in once with `pi mcp login`. Left out: Anthropic's own
+services, and servers whose authorization server only takes pre-registered clients (Google's
+connectors list their tools to anyone but want a token for every call). A run where `claude mcp
+list` fails keeps the earlier copies. Run it again after a change on the Claude side: the block is replaced, and
 the MCP copies follow Claude unless they were edited in pi (`~/.pi/agent/pi-migrate.json` records
 them). OAuth sign-ins do not carry over: the task names the `pi mcp login <name>` to run once.
 `-- --dry-run` shows the changes.

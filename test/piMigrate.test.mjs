@@ -173,6 +173,10 @@ describe('pi-migrate: plugin skills', () => {
     const found = pluginSkillDirs(on.claudeDir);
     expect(found.dirs).toEqual([{ name: 'tool@dir', dir: path.join(on.first, 'skills') }]);
     expect(found.skipped.map((s) => s.name)).toEqual(['design']);
+    // synced plugins join on request
+    const all = pluginSkillDirs(on.claudeDir, { withSynced: true });
+    expect(all.dirs.map((d) => d.name)).toEqual(['tool@dir', 'design']);
+    expect(all.skipped).toEqual([]);
     const off = plugins('plug-off', 'v1', { enabled: false });
     expect(pluginSkillDirs(off.claudeDir)).toEqual({ dirs: [], skipped: [{ name: 'tool@dir', why: 'not enabled' }] });
   });
@@ -193,5 +197,91 @@ describe('pi-migrate: plugin skills', () => {
     const state = JSON.parse(read(path.join(agentDir, 'pi-migrate.json')));
     expect(state).toEqual({ pluginSkills: [path.join(second, 'skills')], mcpServers: { slack: { command: 'slack-mcp' } } });
     expect(migrate({ claudeDir, agentDir, claudeJson }).skills.removed).toEqual([]);
+  });
+});
+
+describe('pi-migrate: claude.ai connectors', () => {
+  it('reads the connectors of `claude mcp list`', async () => {
+    const { parseConnectors } = await import('../scripts/pi-migrate.mjs');
+    const out = [
+      'Checking MCP server health…',
+      '',
+      'claude.ai Gmail: https://gmailmcp.googleapis.com/mcp/v1 - \u001b[32m✔ Connected\u001b[39m',
+      'claude.ai Notion: https://mcp.notion.com/mcp - ! Needs authentication',
+      'incident_io: /x/incident mcp - ✔ Connected',
+    ].join('\n');
+    expect(parseConnectors(out)).toEqual([
+      { name: 'Gmail', url: 'https://gmailmcp.googleapis.com/mcp/v1', connected: true },
+      { name: 'Notion', url: 'https://mcp.notion.com/mcp', connected: false },
+    ]);
+  });
+
+  it('tells open, OAuth-capable and closed servers apart by their OAuth metadata', async () => {
+    const { probeConnector } = await import('../scripts/pi-migrate.mjs');
+    const http = await import('node:http');
+    let base;
+    const server = http.createServer((req, res) => {
+      let body = '';
+      req.on('data', (d) => { body += d; });
+      req.on('end', () => {
+        const json = (code, v) => { res.writeHead(code, { 'content-type': 'application/json' }); res.end(JSON.stringify(v)); };
+        const mode = req.url.split('/').pop();
+        if (req.url.startsWith('/.well-known/oauth-protected-resource/')) {
+          const m = req.url.split('/').pop();
+          if (m === 'open') return json(404, {});
+          return json(200, { resource: `${base}/${m}`, authorization_servers: [`${base}/as-${m}`] });
+        }
+        if (req.url === '/.well-known/oauth-protected-resource') return json(404, {});
+        if (req.url.startsWith('/as-')) {
+          const m = req.url.split('/')[1].slice(3);
+          return json(200, m === 'dcr' ? { issuer: base, registration_endpoint: `${base}/register` } : { issuer: base });
+        }
+        const rpc = body ? JSON.parse(body) : {};
+        if (mode === 'dcr' && rpc.method === 'initialize') { res.writeHead(401, { 'www-authenticate': `Bearer resource_metadata="${base}/.well-known/oauth-protected-resource/x/dcr"` }); return res.end(); }
+        if (rpc.method === 'initialize') return json(200, { jsonrpc: '2.0', id: 1, result: { protocolVersion: '2025-06-18', capabilities: {} } });
+        if (rpc.method === 'tools/list') return json(200, { jsonrpc: '2.0', id: 2, result: { tools: [{ name: 'a' }, { name: 'b' }] } });
+        return json(202, {});
+      });
+    });
+    await new Promise((r) => server.listen(0, '127.0.0.1', r));
+    base = `http://127.0.0.1:${server.address().port}`;
+    try {
+      expect(await probeConnector(`${base}/x/open`)).toEqual({ access: 'open', tools: 2 });
+      expect(await probeConnector(`${base}/x/dcr`)).toEqual({ access: 'oauth' });
+      // lists its tools to anyone, but publishes OAuth metadata with a closed authorization server
+      expect(await probeConnector(`${base}/x/closed`)).toMatchObject({ access: 'closed', why: expect.stringMatching(/pre-registered/) });
+      expect(await probeConnector('http://127.0.0.1:1/nothing')).toMatchObject({ access: 'closed', why: expect.stringMatching(/unreachable/) });
+    } finally { server.close(); }
+  });
+
+  it('keeps the usable connectors, names them, and carries them over when they are not listed', async () => {
+    const { claudeConnectors } = await import('../scripts/pi-migrate.mjs');
+    const out = [
+      'claude.ai Documentation Prisme: https://zh.example/mcp/k - ✔ Connected',
+      'claude.ai Linear: https://linear.example/mcp - ✔ Connected',
+      'claude.ai Gmail: https://gmail.example/mcp - ✔ Connected',
+      'claude.ai Claude Docs: https://api.anthropic.com/v1/pages/mcp - ✔ Connected',
+      'claude.ai Notion: https://notion.example/mcp - ! Needs authentication',
+      'claude.ai Slack: https://slack.example/mcp - ✔ Connected',
+    ].join('\n');
+    const access = { 'https://zh.example/mcp/k': { access: 'open' }, 'https://linear.example/mcp': { access: 'oauth' }, 'https://gmail.example/mcp': { access: 'closed', why: 'pre-registered only' }, 'https://slack.example/mcp': { access: 'oauth' } };
+    const conn = await claudeConnectors({ list: async () => out, probe: async (u) => access[u], taken: new Set(['slack']) });
+    expect(conn.servers).toEqual({ 'documentation-prisme': { url: 'https://zh.example/mcp/k' }, linear: { url: 'https://linear.example/mcp' }, 'claudeai-slack': { url: 'https://slack.example/mcp' } });
+    expect(conn.report.filter((r) => r.action === 'skipped').map((r) => r.name)).toEqual(['Gmail', 'Claude Docs', 'Notion']);
+
+    const { claudeDir, agentDir } = setup('conn', { claudeMd: '# A\n' });
+    const claudeJson = path.join(TMP, 'conn', '.claude.json');
+    fs.writeFileSync(claudeJson, JSON.stringify({ mcpServers: { slack: { command: 'slack-mcp' } } }));
+    const r = migrate({ claudeDir, agentDir, claudeJson, connectors: conn });
+    const by = Object.fromEntries(r.mcp.changes.map((c) => [c.name, c]));
+    expect(by['documentation-prisme']).toMatchObject({ action: 'added', login: false }); // open: no sign-in
+    expect(by.linear).toMatchObject({ action: 'added', login: true });
+    // a run where the connectors could not be listed keeps them
+    const later = migrate({ claudeDir, agentDir, claudeJson, connectors: { servers: {}, report: [], listed: false } });
+    expect(later.mcp.status).toBe('unchanged');
+    expect(Object.keys(JSON.parse(fs.readFileSync(path.join(agentDir, 'mcp.json'), 'utf8')).mcpServers).sort()).toEqual(['claudeai-slack', 'documentation-prisme', 'linear', 'slack']);
+    // a listing where Linear is gone removes its copy
+    const gone = migrate({ claudeDir, agentDir, claudeJson, connectors: { ...conn, servers: { 'documentation-prisme': conn.servers['documentation-prisme'] } } });
+    expect(gone.mcp.changes.find((c) => c.name === 'linear')).toMatchObject({ action: 'removed' });
   });
 });

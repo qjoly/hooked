@@ -20,12 +20,18 @@
  *    (update, removal) while a copy edited in pi is left alone. Not copied: `hooked` (hooked's pi
  *    package serves its tools), SSE servers (pi does not support SSE). OAuth sign-ins do not carry
  *    over: an HTTP server without an Authorization header needs `pi mcp login <name>` once.
+ *  - The claude.ai connectors connected in Claude Code (`claude mcp list`) join them, when pi can
+ *    reach them: a connector that answers without a token, or whose authorization server lets a
+ *    new client register (then `pi mcp login`). Left out: Anthropic's own services, and servers
+ *    whose authorization server only knows pre-registered clients (Google's, for one).
  *
  * The first change to each file keeps a copy of it (`<file>.pre-pi-migrate.bak`).
  *
  * Paths: CLAUDE_CONFIG_DIR (default ~/.claude), PI_CODING_AGENT_DIR (default ~/.pi/agent).
- * Flags: --dry-run (show the changes, write nothing), --no-instructions, --no-skills, --no-mcp.
+ * Flags: --dry-run (show the changes, write nothing), --no-instructions, --no-skills, --no-mcp,
+ * --no-connectors, --with-synced-plugins.
  */
+import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -70,8 +76,10 @@ function duplicateHeadings(target, source) {
   return [...new Set(headings(outsideBlock(target)).filter((h) => fromSource.has(h)))];
 }
 
-// Skills folders of the enabled user-scope plugins, and the plugins left out (with why).
-function pluginSkillDirs(claudeDir) {
+// Skills folders of the enabled user-scope plugins, and the plugins left out (with why). Plugins
+// synced by an organization are left out unless `withSynced`: their skills mostly rely on claude.ai
+// connectors.
+function pluginSkillDirs(claudeDir, { withSynced = false } = {}) {
   const dirs = [];
   const skipped = [];
   let installed = {};
@@ -91,7 +99,10 @@ function pluginSkillDirs(claudeDir) {
     let names = [];
     try { names = fs.readdirSync(path.join(synced, bucket)); } catch (_) {}
     for (const name of names) {
-      if (fs.existsSync(path.join(synced, bucket, name, 'skills'))) skipped.push({ name, why: "synced by the organization, relies on claude.ai connectors" });
+      const dir = path.join(synced, bucket, name, 'skills');
+      if (!fs.existsSync(dir)) continue;
+      if (withSynced) dirs.push({ name, dir });
+      else skipped.push({ name, why: 'synced by the organization, its skills mostly rely on claude.ai connectors; add it with --with-synced-plugins' });
     }
   }
   return { dirs, skipped };
@@ -109,6 +120,110 @@ function syncSkills(list, wanted, managedBefore) {
   const kept = cur.filter((x) => !(typeof x === 'string' && removed.some((r) => sameDir(x, r))));
   const added = wanted.filter((w) => !kept.some((x) => typeof x === 'string' && sameDir(x, w)));
   return { list: [...kept, ...added.map((w) => tildify(path.resolve(expandHome(w))))], added, removed };
+}
+
+// ── claude.ai connectors ────────────────────────────────────────────────────────────────────
+const ANSI = /\u001b\[[0-9;?]*[A-Za-z]|\u001b\]8;[^\u0007\u001b]*(?:\u0007|\u001b\\)/g;
+const CONNECTOR_RE = /^claude\.ai (.+?): (https?:\/\/\S+) - (\S)\s*(.*)$/;
+
+// `claude mcp list` → the claude.ai connectors: [{ name, url, connected }].
+function parseConnectors(out) {
+  const list = [];
+  for (const line of String(out || '').replace(ANSI, '').split('\n')) {
+    const m = CONNECTOR_RE.exec(line.trim());
+    if (m) list.push({ name: m[1].trim(), url: m[2], connected: m[3] === '✔' || m[3] === '✓' });
+  }
+  return list;
+}
+
+const connectorSlug = (name) => String(name).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+
+function listClaudeMcp() {
+  return new Promise((resolve) => {
+    let out = '';
+    let child;
+    try {
+      child = spawn(process.env.HOOKED_CLAUDE_BIN || 'claude', ['mcp', 'list'], { cwd: os.tmpdir(), stdio: ['ignore', 'pipe', 'pipe'] });
+    } catch (_) { return resolve(null); }
+    const timer = setTimeout(() => { try { child.kill('SIGTERM'); } catch (_) {} }, 120_000);
+    child.stdout.on('data', (d) => { out += d; });
+    child.on('error', () => { clearTimeout(timer); resolve(null); });
+    child.on('close', (code) => { clearTimeout(timer); resolve(code === 0 || out ? out : null); });
+  });
+}
+
+async function getJson(url, f) {
+  try {
+    const r = await f(url, { signal: AbortSignal.timeout(10_000), headers: { accept: 'application/json' } });
+    return r.ok ? await r.json() : null;
+  } catch (_) { return null; }
+}
+
+// Can pi reach this MCP server? 'open' (no OAuth metadata, and it lists its tools with no token),
+// 'oauth' (it publishes OAuth metadata, and its authorization server lets a new client register:
+// dynamic registration or a client ID metadata document; then `pi mcp login`), or 'closed'.
+// The metadata decides, not the tool list: some servers (Google's) list their tools to anyone and
+// want a token for every call.
+async function probeConnector(url, f = fetch) {
+  const post = (body, sid) => f(url, {
+    method: 'POST',
+    signal: AbortSignal.timeout(10_000),
+    headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', ...(sid ? { 'mcp-session-id': sid } : {}) },
+    body: JSON.stringify(body),
+  });
+  let init;
+  try {
+    init = await post({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'pi-migrate', version: '1' } } });
+  } catch (e) {
+    return { access: 'closed', why: `unreachable (${(e && e.message) || e})` };
+  }
+  // OAuth metadata (RFC 9728): from the challenge, else the well-known paths.
+  const u = new URL(url);
+  const challenge = init.headers.get('www-authenticate');
+  const hinted = challenge && /resource_metadata="([^"]+)"/.exec(challenge);
+  const resource = (hinted && await getJson(hinted[1], f))
+    || await getJson(`${u.origin}/.well-known/oauth-protected-resource${u.pathname === '/' ? '' : u.pathname}`, f)
+    || await getJson(`${u.origin}/.well-known/oauth-protected-resource`, f);
+  const as = resource && Array.isArray(resource.authorization_servers) ? resource.authorization_servers[0] : null;
+  if (as) {
+    const base = String(as).replace(/\/$/, '');
+    const meta = await getJson(`${base}/.well-known/oauth-authorization-server`, f) || await getJson(`${base}/.well-known/openid-configuration`, f);
+    if (meta && (meta.registration_endpoint || meta.client_id_metadata_document_supported)) return { access: 'oauth' };
+    return { access: 'closed', why: `its authorization server (${new URL(base).host}) only takes pre-registered clients` };
+  }
+  if (!init.ok) return { access: 'closed', why: `answers ${init.status} and names no authorization server` };
+  try {
+    const sid = init.headers.get('mcp-session-id');
+    await post({ jsonrpc: '2.0', method: 'notifications/initialized' }, sid).catch(() => null);
+    const list = await post({ jsonrpc: '2.0', id: 2, method: 'tools/list' }, sid);
+    if (list.ok) {
+      const text = await list.text();
+      for (const l of text.split('\n').map((x) => x.replace(/^data:\s*/, '').trim()).filter((x) => x.startsWith('{'))) {
+        try { const j = JSON.parse(l); if (j.result && Array.isArray(j.result.tools)) return { access: 'open', tools: j.result.tools.length }; } catch (_) {}
+      }
+    }
+  } catch (_) { /* below */ }
+  return { access: 'closed', why: 'lists no tools without a token, and names no authorization server' };
+}
+
+// The connectors pi can use, as mcp.json entries: { servers, report, listed }. `taken`: server
+// names already used by Claude Code's own servers (a connector of the same name gets a prefix).
+async function claudeConnectors({ list = listClaudeMcp, probe = probeConnector, taken = new Set() } = {}) {
+  const out = await list();
+  if (out == null) return { servers: {}, report: [], listed: false };
+  const servers = {};
+  const report = [];
+  for (const c of parseConnectors(out)) {
+    let slug = connectorSlug(c.name);
+    if (taken.has(slug)) slug = `claudeai-${slug}`;
+    if (!c.connected) { report.push({ name: c.name, slug, action: 'skipped', why: 'not connected in Claude Code' }); continue; }
+    if (/(^|\.)anthropic\.com$/.test(new URL(c.url).hostname)) { report.push({ name: c.name, slug, action: 'skipped', why: "Anthropic's own service, reachable from Claude only" }); continue; }
+    const p = await probe(c.url);
+    if (p.access === 'closed') { report.push({ name: c.name, slug, action: 'skipped', why: p.why }); continue; }
+    servers[slug] = { url: c.url };
+    report.push({ name: c.name, slug, action: p.access === 'open' ? 'open' : 'oauth' });
+  }
+  return { servers, report, listed: true };
 }
 
 function writeAtomic(file, text, mode) {
@@ -188,6 +303,8 @@ function migrate({
   skills = true,
   mcp = true,
   claudeJson = null,
+  connectors = null, // claudeConnectors() result, or null when not listed this run
+  withSynced = false,
 } = {}) {
   claudeDir = expandHome(claudeDir);
   agentDir = expandHome(agentDir);
@@ -218,7 +335,7 @@ function migrate({
   if (skills) {
     const dir = path.join(claudeDir, 'skills');
     const file = path.join(agentDir, 'settings.json');
-    const plugins = pluginSkillDirs(claudeDir);
+    const plugins = pluginSkillDirs(claudeDir, { withSynced });
     const hasDir = fs.existsSync(dir);
     if (!hasDir && !plugins.dirs.length) {
       report.skills = { status: 'no-source', dir, plugins: [], skipped: plugins.skipped };
@@ -259,12 +376,22 @@ function migrate({
       if (piRaw != null) {
         try { piCfg = JSON.parse(piRaw); } catch (e) { throw new Error(`${file} is not valid JSON: ${e.message}`); }
       }
+      // Connectors join Claude's servers. When they were not listed this run (option off, claude
+      // missing, offline), the copies of earlier runs are carried over rather than removed.
+      const listed = connectors && connectors.listed;
+      const fromConnectors = listed
+        ? connectors.servers
+        : Object.fromEntries((state.connectorNames || []).filter((n) => state.mcpServers && state.mcpServers[n]).map((n) => [n, state.mcpServers[n]]));
+      claude = { ...fromConnectors, ...claude };
+      if (listed) state.connectorNames = Object.keys(connectors.servers);
       const { servers, recorded, changes } = mergeMcp(claude, piCfg.mcpServers, state.mcpServers);
+      const open = new Set(listed ? connectors.report.filter((c) => c.action === 'open').map((c) => c.slug) : []);
+      for (const c of changes) if (open.has(c.name)) c.login = false;
       const changed = !sameJson(servers, piCfg.mcpServers || {});
       let backup = null;
       if (changed && !dryRun) { backup = backupOnce(file); writeAtomic(file, JSON.stringify({ ...piCfg, mcpServers: servers }, null, 2) + '\n', 0o600); }
       state.mcpServers = recorded;
-      report.mcp = { status: changed ? 'changed' : 'unchanged', src, file, backup, changes };
+      report.mcp = { status: changed ? 'changed' : 'unchanged', src, file, backup, changes, connectors: connectors ? connectors.report : null, connectorsListed: !!listed };
     }
   }
   if (!dryRun && JSON.stringify(state) !== stateBefore) writeAtomic(stateFile, JSON.stringify(state, null, 2) + '\n', 0o600);
@@ -304,6 +431,8 @@ function print(r) {
       console.log(`- MCP servers (${tildify(m.src)} -> ${tildify(m.file)}):`);
       for (const c of m.changes) console.log(`  ${c.name}: ${c.action}${c.why ? ` (${c.why})` : ''}`);
       if (m.backup) console.log(`  Copy of the previous file: ${tildify(m.backup)}`);
+      for (const c of (m.connectors || []).filter((x) => x.action === 'skipped')) console.log(`  claude.ai ${c.name}: left out (${c.why})`);
+      if (m.connectors && !m.connectorsListed) console.log('  claude.ai connectors: `claude mcp list` failed, the earlier copies are kept');
       const login = m.changes.filter((c) => c.login).map((c) => c.name);
       if (login.length) console.log(`  Sign in once (OAuth does not carry over from Claude Code): ${login.map((n) => `pi mcp login ${n}`).join(', ')}`);
     }
@@ -313,17 +442,25 @@ function print(r) {
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const args = new Set(process.argv.slice(2));
-  const unknown = [...args].filter((a) => !['--dry-run', '--no-instructions', '--no-skills', '--no-mcp'].includes(a));
+  const unknown = [...args].filter((a) => !['--dry-run', '--no-instructions', '--no-skills', '--no-mcp', '--no-connectors', '--with-synced-plugins'].includes(a));
   if (unknown.length) {
-    console.error(`Unknown option: ${unknown.join(' ')}\nUsage: mise run pi-migrate [-- --dry-run] [--no-instructions] [--no-skills] [--no-mcp]`);
+    console.error(`Unknown option: ${unknown.join(' ')}\nUsage: mise run pi-migrate [-- --dry-run] [--no-instructions] [--no-skills] [--no-mcp] [--no-connectors] [--with-synced-plugins]`);
     process.exit(2);
   }
   try {
-    print(migrate({ dryRun: args.has('--dry-run'), instructions: !args.has('--no-instructions'), skills: !args.has('--no-skills'), mcp: !args.has('--no-mcp') }));
+    const mcp = !args.has('--no-mcp');
+    let connectors = null;
+    if (mcp && !args.has('--no-connectors')) {
+      let taken = new Set();
+      try { taken = new Set(Object.keys(JSON.parse(readOr(claudeJsonPath(process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude')), '{}')).mcpServers || {})); } catch (_) {}
+      console.log('Checking the claude.ai connectors (claude mcp list)…');
+      connectors = await claudeConnectors({ taken });
+    }
+    print(migrate({ dryRun: args.has('--dry-run'), instructions: !args.has('--no-instructions'), skills: !args.has('--no-skills'), mcp, connectors, withSynced: args.has('--with-synced-plugins') }));
   } catch (e) {
     console.error(`pi-migrate: ${e.message}`);
     process.exit(1);
   }
 }
 
-export { migrate, upsertBlock, outsideBlock, duplicateHeadings, syncSkills, pluginSkillDirs, mergeMcp, needsLogin, BEGIN, END };
+export { migrate, upsertBlock, outsideBlock, duplicateHeadings, syncSkills, pluginSkillDirs, mergeMcp, needsLogin, parseConnectors, probeConnector, claudeConnectors, BEGIN, END };
