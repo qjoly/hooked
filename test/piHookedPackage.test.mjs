@@ -271,3 +271,15 @@ describe('pi catalog of a provider with its own extensions', () => {
     expect(bridged.map((m) => m.ref)).toEqual(['mistral/devstral', 'claude-bridge/opus']);
   });
 });
+
+describe('Claude model names on a pi provider', () => {
+  it('drops Claude Code\'s context suffix, keeps aliases for pi to resolve', async () => {
+    const { qualifyModel } = await import('../server/piAgent.js');
+    expect(qualifyModel('opus[1m]', null)).toBe('opus');
+    expect(qualifyModel('claude-bridge/claude-opus-5-5[1m]', null)).toBe('claude-bridge/claude-opus-5-5');
+    expect(qualifyModel('sonnet', { modelProvider: 'claude-bridge' })).toBe('claude-bridge/sonnet');
+    expect(qualifyModel('mistral/devstral-latest', { modelProvider: 'x' })).toBe('mistral/devstral-latest');
+    expect(qualifyModel('', null)).toBeNull();
+    expect(qualifyModel('[1m]', null)).toBeNull();
+  });
+});

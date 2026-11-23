@@ -328,11 +328,14 @@ function piCatalogFor(provider, baseEnv) {
 
 // A model reference as pi takes it: `provider/id`, or a bare id pi resolves itself (it prefers
 // the provider with credentials). `modelProvider` on the provider config qualifies a bare id —
-// what a cron task or a launch saved before models were qualified carries.
+// what a cron task or a launch saved before models were qualified carries. Claude Code's aliases
+// (`opus`, `sonnet`) resolve as they are through pi-claude-bridge, but its context suffix
+// (`opus[1m]`) does not: pi's models carry their own window, so the suffix is dropped.
 function qualifyModel(model, provider) {
-  if (!model) return null;
-  if (model.includes('/')) return model;
-  return provider && provider.modelProvider ? `${provider.modelProvider}/${model}` : model;
+  const m = model ? String(model).replace(/\[[^\]]*\]$/, '') : '';
+  if (!m) return null;
+  if (m.includes('/')) return m;
+  return provider && provider.modelProvider ? `${provider.modelProvider}/${m}` : m;
 }
 
 // `provider/id` → { provider, modelId }; a bare id takes `fallbackProvider`.
