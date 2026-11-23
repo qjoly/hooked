@@ -17,6 +17,7 @@
 
   // A shell block in a session's conversation runs as a composer `!command`, except that Claude
   // proposed it, so its output starts a turn instead of waiting silently in the context.
+  // The hooked MCP server's instructions ask Claude to fence the commands it proposes as `bash`.
   const sessionOf = getContext('hooked.session');
   const session = $derived(sessionOf?.() || null);
   const runnable = $derived(!!session && /^(sh|bash|shell|zsh)$/i.test(lang) && !!code.trim());
