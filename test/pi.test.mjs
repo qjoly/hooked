@@ -7,8 +7,9 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { scanPiSessions, buildPiConversation, piSetArchived, piContext, buildPiTrace, piToolDetail, piToolPaths, findPiFile, activeBranch } from '../server/pi.js';
+import { scanPiSessions, buildPiConversation, piSetArchived, piContext, buildPiTrace, piToolDetail, piToolPaths, findPiFile, activeBranch, scanPiOps } from '../server/pi.js';
 import { buildPiUsage } from '../server/stats.js';
+import { buildFileChanges, buildFileChangeFull } from '../server/changes.js';
 
 const FX = path.join(import.meta.dirname, 'fixtures', 'pi-sessions');
 let tmp;
@@ -175,5 +176,64 @@ describe('buildPiUsage (usage pi de l\'entête / TopBar)', () => {
     const newer = { ...s, id: 'sess-new', lastTs: '2026-11-22T09:00:00.000Z' };
     expect(buildPiUsage([older, newer], {}).sessionId).toBe('sess-new');
     expect(buildPiUsage([newer, older], {}).sessionId).toBe('sess-new');
+  });
+});
+
+describe('scanPiOps / buildFileChanges (scope « session » de la lens Review)', () => {
+  it('scanne la fixture : write résolu contre le cwd, ts ISO', () => {
+    const dir = cloneFx();
+    const f = findPiFile(dir, 'sess-pi-1');
+    const byFile = scanPiOps(f);
+    expect([...byFile.keys()]).toEqual(['/tmp/projet-demo/hello.txt']);
+    const e = byFile.get('/tmp/projet-demo/hello.txt');
+    expect(e.tool).toBe('write');
+    expect(e.count).toBe(1);
+    expect(e.lastTs).toBe('2025-11-21T03:00:02.000Z'); // m.timestamp (epoch ms) prioritaire sur e.timestamp
+    expect(e.ops).toEqual([{ kind: 'write', content: 'hi', ts: '2025-11-21T03:00:02.000Z' }]);
+  });
+
+  it('buildFileChanges sur journal pi : fichier absent du disque → ops brutes', () => {
+    const dir = cloneFx();
+    const f = findPiFile(dir, 'sess-pi-1');
+    const changes = buildFileChanges(f);
+    expect(changes.length).toBe(1);
+    expect(changes[0].file).toBe('/tmp/projet-demo/hello.txt');
+    expect(changes[0].name).toBe('hello.txt');
+    expect(changes[0].count).toBe(1);
+    expect(changes[0].ops[0]).toMatchObject({ kind: 'write', content: 'hi' });
+    expect(changes[0].rawOps[0].ts).toBe('2025-11-21T03:00:02.000Z');
+  });
+
+  it('rejoue les edits à rebours quand le fichier existe (net original → final), edit legacy comprise', () => {
+    const proj = fs.mkdtempSync(path.join(os.tmpdir(), 'pi-proj-'));
+    fs.writeFileSync(path.join(proj, 'a.txt'), 'final content\n');
+    const sessDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pi-sess-'));
+    const f = path.join(sessDir, '2026-11-21T10-00-00-000Z_sess-x.jsonl');
+    fs.writeFileSync(f, [
+      JSON.stringify({ type: 'session', version: 3, id: 'sess-x', timestamp: '2026-11-21T10:00:00.000Z', cwd: proj }),
+      JSON.stringify({ type: 'message', id: 'e1', parentId: null, timestamp: '2026-11-21T10:00:01.000Z', message: { role: 'user', content: [{ type: 'text', text: 'modifie a.txt' }], timestamp: 1763697601000 } }),
+      JSON.stringify({ type: 'message', id: 'e2', parentId: 'e1', timestamp: '2026-11-21T10:00:02.000Z', message: { role: 'assistant', content: [{ type: 'toolCall', id: 'c1', name: 'edit', arguments: { path: 'a.txt', edits: [{ oldText: 'orig', newText: 'final content\n' }] } }], timestamp: 1763697602000 } }),
+      // forme legacy : un seul oldText/newText à la racine des arguments
+      JSON.stringify({ type: 'message', id: 'e3', parentId: 'e2', timestamp: '2026-11-21T10:00:03.000Z', message: { role: 'assistant', content: [{ type: 'toolCall', id: 'c2', name: 'edit', arguments: { path: 'a.txt', oldText: 'x', newText: 'y' } }], timestamp: 1763697603000 } }),
+    ].join('\n') + '\n');
+    const changes = buildFileChanges(f);
+    expect(changes.length).toBe(1);
+    expect(changes[0].file).toBe(path.join(proj, 'a.txt'));
+    expect(changes[0].count).toBe(2);
+    // reconstruction : le disque est l'état final, l'edit c1 s'inverse → original connu
+    expect(changes[0].original).toBe('orig');
+    expect(changes[0].ops).toEqual([{ kind: 'edit', old: 'orig', new: 'final content\n', all: false, ts: changes[0].lastTs }]);
+    // buildFileChangeFull retrouve la même entrée sans plafond
+    const full = buildFileChangeFull(f, path.join(proj, 'a.txt'));
+    expect(full.original).toBe('orig');
+    expect(full.truncated).toBe(false);
+  });
+
+  it('un transcript Claude n\'est pas pris pour un journal pi', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cl-sess-'));
+    const f = path.join(dir, 'sess-claude.jsonl');
+    fs.writeFileSync(f, JSON.stringify({ type: 'system', subtype: 'init', sessionId: 'sess-claude', cwd: dir }) + '\n');
+    expect(scanPiOps(f).size).toBe(0); // piRead sans header → map vide
+    expect(buildFileChanges(f)).toEqual([]);
   });
 });

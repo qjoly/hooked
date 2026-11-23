@@ -11,16 +11,21 @@ import path from 'node:path';
 
 const agentDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hooked-pi-agent-'));
 const project = fs.mkdtempSync(path.join(os.tmpdir(), 'hooked-pi-proj-'));
+// HOME est déplacé aussi : piMcp.js lit l'ancien ~/.pi/config.toml via os.homedir().
+const fakeHome = fs.mkdtempSync(path.join(os.tmpdir(), 'hooked-pi-home-'));
 process.env.PI_CODING_AGENT_DIR = agentDir;
+process.env.HOME = fakeHome;
 
-const { listMcpPi, getMcpPi, saveMcpPi, removeMcpPi } = await import('../server/piMcp.js');
+const { listMcpPi, getMcpPi, saveMcpPi, removeMcpPi, migrateLegacyToml } = await import('../server/piMcp.js');
 
 const userFile = path.join(agentDir, 'mcp.json');
 const projectFile = path.join(project, '.pi', 'mcp.json');
+const legacyToml = path.join(fakeHome, '.pi', 'config.toml');
 
 beforeAll(() => {
   fs.rmSync(userFile, { force: true });
   fs.rmSync(projectFile, { force: true });
+  fs.rmSync(legacyToml, { force: true });
 });
 
 describe('listMcpPi', () => {
@@ -97,5 +102,44 @@ describe('saveMcpPi / getMcpPi / removeMcpPi', () => {
     expect(r.ok).toBe(true);
     expect(getMcpPi(project, 'hooked').ok).toBe(false);
     expect(removeMcpPi({ cwd: project, scope: 'project', name: 'hooked' }).ok).toBe(false);
+  });
+});
+
+describe('legacy config.toml (pi < 1.6, ignoré par pi 1.6)', () => {
+  it('lists [[mcp.servers]] as legacy and migrates them into the user mcp.json (0600, no overwrite)', async () => {
+    fs.rmSync(userFile, { force: true });
+    fs.rmSync(projectFile, { force: true });
+    fs.mkdirSync(path.dirname(legacyToml), { recursive: true });
+    fs.writeFileSync(legacyToml, [
+      '[mcp]',
+      '[[mcp.servers]]',
+      'name = "old"',
+      'command = "run-me"',
+      'args = ["--flag"]',
+      'env = { TOKEN = "s3cret" }',
+      '',
+    ].join('\n'));
+    let { servers, diagnostics } = await listMcpPi(project, { check: false });
+    expect(servers.map((s) => [s.name, s.state])).toEqual([['old', 'legacy']]);
+    expect(diagnostics[0]).toMatch(/ancien config\.toml/);
+    expect(getMcpPi(project, 'old').env).toEqual({ TOKEN: 's3cret' });
+
+    // Un mcp.json existant gagne sur le legacy pour le même nom.
+    saveMcpPi({ cwd: project, scope: 'user', name: 'old', config: { command: 'new-cmd' } });
+    const mig = migrateLegacyToml({ cwd: project });
+    expect(mig.migrated).toEqual([]); // déjà présent dans mcp.json → pas écrasé
+    expect(getMcpPi(project, 'old').command).toBe('new-cmd');
+
+    // Sans mcp.json : la migration écrit le user file en 0600.
+    fs.rmSync(userFile, { force: true });
+    const mig2 = migrateLegacyToml({ cwd: project });
+    expect(mig2.migrated).toEqual(['old']);
+    const onDisk = JSON.parse(fs.readFileSync(userFile, 'utf8'));
+    expect(onDisk.mcpServers.old).toEqual({ command: 'run-me', args: ['--flag'], env: { TOKEN: 's3cret' } });
+    expect(fs.statSync(userFile).mode & 0o777).toBe(0o600);
+    ({ servers } = await listMcpPi(project, { check: false }));
+    expect(servers.find((s) => s.name === 'old').state).toBe('configured');
+    fs.rmSync(legacyToml, { force: true });
+    fs.rmSync(userFile, { force: true });
   });
 });

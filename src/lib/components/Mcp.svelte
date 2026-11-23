@@ -28,11 +28,12 @@
   let editor = $state(null);        // { name, scope, json, originalName } | null
   let editorError = $state('');
 
-  const RANK = { needs_auth: 0, failed: 1, pending: 2, configured: 2, connected: 3, disabled: 4 };
+  const RANK = { legacy: 0, needs_auth: 0, failed: 1, pending: 2, configured: 2, connected: 3, disabled: 4 };
   // Anything needing a human first: this lens exists to fix broken auth, not to admire what works.
   const servers = $derived([...(res?.servers || [])]
     .sort((a, b) => (RANK[a.state] ?? 9) - (RANK[b.state] ?? 9) || a.name.localeCompare(b.name)));
   const broken = $derived(servers.filter((s) => s.state === 'needs_auth' || s.state === 'failed').length);
+  const legacy = $derived(servers.filter((s) => s.state === 'legacy'));
 
   const STATE_UI = {
     connected: { icon: 'check', color: 'var(--success)', label: 'Connected' },
@@ -41,6 +42,7 @@
     pending: { icon: 'clock', color: 'var(--muted)', label: 'Pending approval' },
     configured: { icon: 'dot', color: 'var(--muted)', label: 'Configured' },
     disabled: { icon: 'idle', color: 'var(--muted)', label: 'Disabled for this project' },
+    legacy: { icon: 'warning', color: 'var(--warn)', label: 'Ancien config.toml — ignoré par pi 1.6' },
   };
   const stateUi = (s) => STATE_UI[s] || { icon: 'dot', color: 'var(--muted)', label: s };
 
@@ -120,6 +122,17 @@
     const r = await mcpAction({ action: 'save', cwd: project, name: s.name, scope: s.scope, provider, config });
     busy = '';
     notice = r.ok ? `${s.name} ${s.state === 'disabled' ? 'enabled' : 'disabled'}.` : (r.data?.error || 'Toggle failed.');
+    await load();
+  }
+
+  // Migre les [[mcp.servers]] de l'ancien ~/.pi/config.toml vers ~/.pi/agent/mcp.json.
+  async function migrateLegacy() {
+    busy = 'legacy';
+    const r = await mcpAction({ action: 'migrate-legacy', cwd: project, provider });
+    busy = '';
+    notice = r.ok && r.data.migrated?.length
+      ? `Migré ${r.data.migrated.length} serveur(s) vers ${r.data.file}: ${r.data.migrated.join(', ')}.`
+      : (r.ok ? 'Rien à migrer.' : (r.data?.error || 'Migration failed.'));
     await load();
   }
 
@@ -242,6 +255,18 @@
     <p class="notice">{notice}</p>
   {/if}
 
+  {#if isPi && legacy.length}
+    <div class="legacy">
+      <span>
+        <Icon name="warning" size={14} color="var(--warn)" />
+        {legacy.length} serveur(s) dans un ancien <code>config.toml</code> — pi 1.6 ne le lit plus, ils sont inactifs.
+      </span>
+      <button class="btn" onclick={migrateLegacy} disabled={busy === 'legacy'}>
+        <Icon name="refresh" size={14} /> Migrer vers <code>~/.pi/agent/mcp.json</code>
+      </button>
+    </div>
+  {/if}
+
   {#if res?.error}
     <p class="empty">{res.error}</p>
   {:else if loading && !res}
@@ -279,9 +304,11 @@
                 <button class="btn ghost" onclick={async () => { if (!details[s.name]) await toggleDetails(s.name); openEditor(s); }} title="Edit" disabled={busy === s.name}>
                   <Icon name="pencil" size={14} />
                 </button>
-                <button class="btn ghost" onclick={() => removeServer(s)} title="Remove" disabled={busy === s.name}>
-                  <Icon name="trash" size={14} />
-                </button>
+                {#if s.state !== 'legacy'}
+                  <button class="btn ghost" onclick={() => removeServer(s)} title="Remove" disabled={busy === s.name}>
+                    <Icon name="trash" size={14} />
+                  </button>
+                {/if}
               {/if}
               <button class="btn ghost" onclick={() => toggleDetails(s.name)} title="Details">
                 <Icon name={open === s.name ? 'chevron-down' : 'chevron-right'} size={14} />
@@ -429,6 +456,10 @@
   .dl { display: flex; gap: 10px; font-size: var(--t-meta); }
   .dl span { flex: none; width: 92px; color: var(--muted); }
   .dl code { font-family: var(--mono); font-size: var(--t-meta); overflow-wrap: anywhere; }
+
+  .legacy { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 0 0 14px; padding: 10px 12px; border: 1px solid color-mix(in srgb, var(--warn) 50%, var(--border)); border-radius: 10px; background: var(--warn-soft); font-size: var(--t-ui); color: var(--text); }
+  .legacy span { display: inline-flex; align-items: center; gap: 7px; flex: 1 1 320px; }
+  .legacy code { background: var(--bg3); padding: 1px 5px; border-radius: 5px; font-size: var(--t-meta); }
 
   .diag { margin-top: 20px; border: 1px solid color-mix(in srgb, var(--warn) 50%, var(--border)); border-radius: 10px; background: var(--warn-soft); padding: 12px 14px; }
   .diag strong { display: inline-flex; align-items: center; gap: 7px; font-size: var(--t-ui); }

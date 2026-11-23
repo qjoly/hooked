@@ -48,6 +48,10 @@ est **`pi`** (il remplace `vibe` partout : scan, driver, routes, UI web, rune).
   `get_session_stats` renvoie `tokens`, `cost`, `contextUsage{tokens,contextWindow,percent}`.
 - MCP : `~/.pi/agent/mcp.json` + `<projet>/.pi/mcp.json`, format standard
   `{"mcpServers":{"name":{"command","args","env"} | {"url","headers","type":"http"}}}`.
+  **Ancien format `~/.pi/config.toml` (`[[mcp.servers]]`, pi < 1.6) : ignoré par pi 1.6**
+  (`pi mcp list` répond « No MCP servers configured ») — la lentille MCP le détecte, l'affiche
+  en « legacy » et propose une migration en un clic vers `~/.pi/agent/mcp.json`
+  (`migrateLegacyToml` dans `server/piMcp.js`, parseur TOML ciblé dans `server/piToml.js`).
 - Prompts slash : `~/.pi/agent/prompts/*.md` + `<projet>/.pi/prompts/*.md`. Skills : `~/.pi/agent/skills`, `.pi/skills`.
 
 ## 1. Architecture cible (miroir de port-vibe.md, provider `pi` à la place de `vibe`)
@@ -121,7 +125,8 @@ Toutes les étapes P1–P11 sont livrées et testées en E2E live contre le serv
 | Skills pi (`~/.pi/agent/skills`, `.pi/skills`) | ✅ `demo-skill` listée, `provider: 'pi'` |
 | Commandes `/` pi (`.pi/prompts`, skills) | ✅ `review`, `skill:demo-skill` |
 | Recherche plein texte (index) | ✅ session pi retrouvée (`APRES-INTERRUPT`) |
-| `/api/session/message` (texte complet), `/trace`, `/file-changes` (diff VCS) | ✅ |
+| `/api/session/message` (texte complet), `/trace`, `/file-changes` | ✅ |
+| Changes du scope « session » (lens Review « Pi's edits ») reconstruits depuis le journal pi : `scanPiOps` (write/edit) dans `server/pi.js`, branchés dans `scanOps`/`collect` de `server/changes.js` via détection du header `{type:"session"}` | ✅ `test/pi.test.mjs` |
 | Headless `pi -p` (digests/autoTags fallback) | ✅ `HEADLESS-PI-OK` (stdin fermé : pi lit stdin jusqu'à EOF) |
 | Non-régression claude | ✅ `CLAUDE-REGRESS-OK` |
 

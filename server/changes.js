@@ -42,6 +42,7 @@ import { HOOKED_DIR } from './config.js';
 import { agentTranscriptPath } from './transcript.js';
 import { buildSubagents } from './subagents.js';
 import { transcriptRows } from './transcriptCache.js';
+import { scanPiOps } from './pi.js';
 
 // Default caps keep the session-detail payload lean. A file that overflows them is flagged
 // `truncated` and the Ship lens offers to load the FULL diff on demand (buildFileChangeFull).
@@ -119,9 +120,32 @@ function writeOriginals(rows) {
   return out;
 }
 
+// Détection du format pi : la première ligne d'un journal pi est un header
+// {type:"session", version:N, …} (cf. server/pi.js). Un seul bloc est lu — le scan Claude ne
+// doit pas charger tout le transcript rien que pour reconnaître le format.
+function isPiTranscript(fp) {
+  let fd;
+  try {
+    fd = fs.openSync(fp, 'r');
+    const buf = Buffer.alloc(8192);
+    const n = fs.readSync(fd, buf, 0, buf.length, 0);
+    const nl = buf.indexOf(0x0a, 0, n);
+    const line = buf.toString('utf8', 0, nl < 0 ? n : nl).trim();
+    if (!line) return false;
+    const j = JSON.parse(line);
+    return !!(j && j.type === 'session' && typeof j.version === 'number');
+  } catch (_) {
+    return false;
+  } finally {
+    if (fd !== undefined) { try { fs.closeSync(fd); } catch (_) {} }
+  }
+}
+
 // Scan a transcript into per-file ops (full, untruncated). One place both the capped list and the
-// on-demand full builder go through.
+// on-demand full builder go through. Provider pi : le journal a un autre format → scanPiOps
+// produit la même map (write/edit du CLI pi).
 function scanOps(fp) {
+  if (isPiTranscript(fp)) return scanPiOps(fp);
   const rows = transcriptRows(fp);
   if (!rows) return new Map();
   const originals = writeOriginals(rows);
@@ -200,6 +224,9 @@ function agentTranscripts(fp, sessionId) {
 // (les maps issues du cache sont partagées) ; tri chronologique dès qu'un fichier mélange les
 // sources — les ops mono-source gardent l'ordre du transcript (dont celles sans ts).
 function collect(fp, sessionId) {
+  // Journal pi : pas de sous-agents natifs ni de hook bash (hook.cjs est un hook Claude) →
+  // seules les ops du journal comptent.
+  if (isPiTranscript(fp)) return scanOpsCached(fp);
   const byFile = new Map();
   const mergeFrom = (src, agentId) => {
     for (const [file, e] of src) {

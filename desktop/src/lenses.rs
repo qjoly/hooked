@@ -155,6 +155,18 @@ pub fn remember_place(
     true
 }
 
+/// Formulaire d'édition d'un serveur MCP pi (add/edit) : on édite le mcp.json du scope choisi.
+#[derive(Clone)]
+pub struct McpEditor {
+    pub name: TextEdit,
+    /// 0 = project (.pi/mcp.json), 1 = user (~/.pi/agent/mcp.json).
+    pub scope: usize,
+    pub json: TextEdit,
+    /// Nom d'origine en cas de renommage : l'ancien est supprimé après le save.
+    pub original_name: Option<String>,
+    pub error: Option<String>,
+}
+
 pub struct LensData {
     pub review_source: ReviewSource,
     pub diff: DiffState,
@@ -235,6 +247,10 @@ pub struct LensData {
     pub mcp_login_polled: i64,
     pub mcp_redirect: TextEdit,
     pub mcp_notice: Option<String>,
+    /// Formulaire add/edit des serveurs pi (mcp.json) ; None = fermé.
+    pub mcp_editor: Option<McpEditor>,
+    /// Nom du serveur pi dont la suppression demande un second clic ("Delete?").
+    pub mcp_delete_armed: Option<String>,
 
     pub trace_sig: Option<String>,
     pub trace: Vec<TraceTurn>,
@@ -305,6 +321,8 @@ impl Default for LensData {
             mcp_login_polled: 0,
             mcp_redirect: TextEdit::new(""),
             mcp_notice: None,
+            mcp_editor: None,
+            mcp_delete_armed: None,
             trace_sig: None,
             trace: Vec::new(),
             trace_loading: false,
@@ -1969,6 +1987,8 @@ impl Hooked {
                     self.lens_data.mcp_provider = provider;
                     self.lens_data.mcp.clear();
                     self.lens_data.mcp_detail.clear();
+                    self.lens_data.mcp_editor = None;
+                    self.lens_data.mcp_delete_armed = None;
                     self.load_mcp(true);
                     changed = true;
                 }
@@ -2682,17 +2702,254 @@ impl Hooked {
             return;
         }
         let cwd = self.lens_data.mcp_cwd.clone().unwrap_or_default();
+        let provider = self.lens_data.mcp_provider.clone();
         self.spawn(
             {
                 let name = name.clone();
-                move || api::mcp_action(json!({ "action": "get", "cwd": cwd, "name": name }))
+                move || {
+                    api::mcp_action(json!({
+                        "action": "get", "cwd": cwd, "name": name,
+                        "provider": provider.as_deref().unwrap_or("claude"),
+                    }))
+                }
             },
             move |s, r, _| {
                 let raw = match r {
-                    Ok(v) => v["raw"].as_str().unwrap_or("").to_string(),
+                    // Claude : le CLI renvoie son texte brut. Pi : la config `raw` pretty, à défaut
+                    // les champs aplatis sans les enveloppes.
+                    Ok(v) => match &v["raw"] {
+                        Value::String(t) => t.clone(),
+                        Value::Null => v
+                            .as_object()
+                            .map(|o| {
+                                serde_json::to_string_pretty(&Value::Object(
+                                    o.iter()
+                                        .filter(|(k, _)| !["ok", "target", "scopeLabel", "authable"].contains(&k.as_str()))
+                                        .map(|(k, v)| (k.clone(), v.clone()))
+                                        .collect(),
+                                ))
+                                .unwrap_or_default()
+                            })
+                            .unwrap_or_default(),
+                        other => serde_json::to_string_pretty(other).unwrap_or_default(),
+                    },
                     Err(e) => format!("✗ {e}"),
                 };
                 s.lens_data.mcp_detail.insert(name, raw);
+            },
+        );
+    }
+
+    // ---------- gestion des serveurs pi (mcp.json) ----------
+
+    fn is_pi(&self) -> bool {
+        self.lens_data.mcp_provider.as_deref() == Some("pi")
+    }
+
+    /// Ouvre le formulaire add (None) ou edit (Some(name)) pour un serveur pi.
+    pub fn mcp_open_editor(&mut self, name: Option<String>) {
+        let editor = match name {
+            Some(n) => {
+                let srv = self.lens_data.mcp.iter().find(|x| x.name == n).cloned();
+                let (json, scope) = match srv {
+                    Some(x) => (
+                        serde_json::to_string_pretty(&x.pi_config_json()).unwrap_or_default(),
+                        if x.scope.as_deref() == Some("user") { 1 } else { 0 },
+                    ),
+                    None => (String::new(), 0),
+                };
+                McpEditor {
+                    name: TextEdit::new(&n),
+                    scope,
+                    json: TextEdit::new(&json),
+                    original_name: Some(n),
+                    error: None,
+                }
+            }
+            None => McpEditor {
+                name: TextEdit::new(""),
+                scope: 0,
+                json: TextEdit::new("{\n  \"command\": \"…\",\n  \"args\": []\n}"),
+                original_name: None,
+                error: None,
+            },
+        };
+        self.lens_data.mcp_editor = Some(editor);
+        self.lens_data.mcp_delete_armed = None;
+    }
+
+    pub fn mcp_close_editor(&mut self) {
+        self.lens_data.mcp_editor = None;
+    }
+
+    pub fn mcp_save_editor(&mut self) {
+        if !self.is_pi() {
+            return;
+        }
+        let Some(mut ed) = self.lens_data.mcp_editor.take() else {
+            return;
+        };
+        let name = ed.name.text.trim().to_string();
+        if name.is_empty() {
+            ed.error = Some("Name required".into());
+            self.lens_data.mcp_editor = Some(ed);
+            return;
+        }
+        let config: Value = match serde_json::from_str(ed.json.text.trim()) {
+            Ok(v) => v,
+            Err(e) => {
+                ed.error = Some(format!("Invalid JSON: {e}"));
+                self.lens_data.mcp_editor = Some(ed);
+                return;
+            }
+        };
+        let scope: &'static str = if ed.scope == 1 { "user" } else { "project" };
+        let cwd = self.lens_data.mcp_cwd.clone().unwrap_or_default();
+        let cwd2 = cwd.clone();
+        let original = ed.original_name.clone();
+        let ed_back = ed.clone();
+        self.spawn(
+            {
+                let name = name.clone();
+                move || {
+                    api::mcp_action(json!({
+                        "action": "save", "provider": "pi", "cwd": cwd,
+                        "name": name, "scope": scope, "config": config,
+                    }))
+                }
+            },
+            move |s, r, _| match r {
+                Ok(v) if v["ok"] == true => {
+                    // Renommage : l'ancien nom part du même scope.
+                    if let Some(old) = &original {
+                        if old != &name {
+                            let (old, scope, cwd) = (old.clone(), scope.to_string(), cwd2.clone());
+                            s.spawn(
+                                move || {
+                                    api::mcp_action(json!({
+                                        "action": "remove", "provider": "pi", "cwd": cwd,
+                                        "name": old, "scope": scope,
+                                    }))
+                                },
+                                |_, _, _| {},
+                            );
+                        }
+                    }
+                    s.lens_data.mcp_editor = None;
+                    s.lens_data.mcp_notice = Some(format!(
+                        "Saved {name} in {scope} scope ({}).",
+                        v["file"].as_str().unwrap_or("mcp.json")
+                    ));
+                    s.load_mcp(false);
+                }
+                Ok(v) => {
+                    // Le serveur a refusé : on rouvre le formulaire avec l'erreur.
+                    let mut ed = ed_back;
+                    ed.error = Some(v["error"].as_str().unwrap_or("Save failed").to_string());
+                    s.lens_data.mcp_editor = Some(ed);
+                }
+                Err(e) => {
+                    s.lens_data.mcp_notice = Some(format!("Save failed for {name}: {e}"));
+                    s.lens_data.mcp_editor = None;
+                }
+            },
+        );
+    }
+
+    /// Suppression en deux clics ("Delete?") comme les threads de review.
+    pub fn mcp_remove_server(&mut self, name: String) {
+        if !self.is_pi() {
+            return;
+        }
+        if self.lens_data.mcp_delete_armed.as_deref() != Some(name.as_str()) {
+            self.lens_data.mcp_delete_armed = Some(name.clone());
+            return;
+        }
+        self.lens_data.mcp_delete_armed = None;
+        let Some(srv) = self.lens_data.mcp.iter().find(|x| x.name == name).cloned() else {
+            return;
+        };
+        let scope = srv.scope.clone().unwrap_or_else(|| "project".into());
+        let cwd = self.lens_data.mcp_cwd.clone().unwrap_or_default();
+        self.spawn(
+            move || {
+                api::mcp_action(json!({
+                    "action": "remove", "provider": "pi", "cwd": cwd,
+                    "name": name, "scope": scope,
+                }))
+            },
+            move |s, r, _| {
+                s.lens_data.mcp_notice = Some(match r {
+                    Ok(v) if v["ok"] == true => format!("Removed {} ({}).", v["name"], v["file"].as_str().unwrap_or("mcp.json")),
+                    Ok(v) => v["error"].as_str().unwrap_or("Remove failed").to_string(),
+                    Err(e) => format!("Remove failed: {e}"),
+                });
+                s.load_mcp(false);
+            },
+        );
+    }
+
+    /// Migre les [[mcp.servers]] de l'ancien ~/.pi/config.toml vers ~/.pi/agent/mcp.json.
+    pub fn mcp_migrate_legacy(&mut self) {
+        if !self.is_pi() {
+            return;
+        }
+        let cwd = self.lens_data.mcp_cwd.clone().unwrap_or_default();
+        self.spawn(
+            move || {
+                api::mcp_action(json!({
+                    "action": "migrate-legacy", "provider": "pi", "cwd": cwd,
+                }))
+            },
+            move |s, r, _| {
+                s.lens_data.mcp_notice = Some(match r {
+                    Ok(v) if v["ok"] == true => {
+                        let n = v["migrated"].as_array().map(|a| a.len()).unwrap_or(0);
+                        if n > 0 {
+                            format!("Migré {n} serveur(s) vers {}.", v["file"].as_str().unwrap_or("mcp.json"))
+                        } else {
+                            "Rien à migrer.".to_string()
+                        }
+                    }
+                    Ok(v) => v["error"].as_str().unwrap_or("Migration failed").to_string(),
+                    Err(e) => format!("Migration failed: {e}"),
+                });
+                s.load_mcp(false);
+            },
+        );
+    }
+
+    /// Enable/disable : réécrit la config du serveur avec `enabled` inversé.
+    pub fn mcp_toggle_enabled(&mut self, name: String) {
+        if !self.is_pi() {
+            return;
+        }
+        let Some(srv) = self.lens_data.mcp.iter().find(|x| x.name == name).cloned() else {
+            return;
+        };
+        let mut config = srv.pi_config_json();
+        let disable = srv.enabled != Some(false);
+        if disable {
+            config["enabled"] = Value::Bool(false);
+        } else if let Some(o) = config.as_object_mut() {
+            o.remove("enabled");
+        }
+        let scope = srv.scope.clone().unwrap_or_else(|| "project".into());
+        let cwd = self.lens_data.mcp_cwd.clone().unwrap_or_default();
+        self.spawn(
+            move || {
+                api::mcp_action(json!({
+                    "action": "save", "provider": "pi", "cwd": cwd,
+                    "name": name, "scope": scope, "config": config,
+                }))
+            },
+            move |s, r, _| {
+                s.lens_data.mcp_notice = Some(match r {
+                    Ok(v) if v["ok"] == true => format!("{} {}.", v["name"], if disable { "disabled" } else { "enabled" }),
+                    Ok(v) => v["error"].as_str().unwrap_or("Toggle failed").to_string(),
+                    Err(e) => format!("Toggle failed: {e}"),
+                });
+                s.load_mcp(false);
             },
         );
     }

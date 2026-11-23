@@ -15,8 +15,10 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import { parseMcpServersToml } from './piToml.js';
 
 const PI_AGENT_DIR = process.env.PI_CODING_AGENT_DIR || path.join(os.homedir(), '.pi', 'agent');
+const PI_CONFIG_TOML = path.join(os.homedir(), '.pi', 'config.toml');
 
 function readJson(fp) {
   try { return JSON.parse(fs.readFileSync(fp, 'utf8')); } catch (_) { return null; }
@@ -93,6 +95,29 @@ async function healthCheck(srv) {
   }
 }
 
+// Ancien format pi (< 1.6) : ~/.pi/config.toml + <cwd>/.pi/config.toml, section [[mcp.servers]].
+// pi 1.6 ne le lit plus ("pi mcp list" répond « No MCP servers configured »), donc ces entrées
+// sont mortes : on les liste avec state 'legacy' pour que la lentille propose de les migrer.
+function parseLegacyToml(fp, scope) {
+  let text;
+  try { text = fs.readFileSync(fp, 'utf8'); } catch (_) { return []; }
+  return parseMcpServersToml(text).map((x) => ({
+    name: x.name,
+    transport: x.url ? (x.type === 'stdio' ? 'stdio' : 'http') : 'stdio',
+    target: x.url || [x.command, ...(x.args || [])].filter(Boolean).join(' '),
+    url: x.url || null,
+    command: x.command || null,
+    args: x.args || null,
+    env: x.env || null,
+    headers: x.headers || null,
+    enabled: x.enabled !== false,
+    scope,
+    state: 'legacy',
+    status: `in ${path.basename(fp)} — ignoré par pi 1.6`,
+    legacy: true,
+  }));
+}
+
 async function listMcpPi(cwd, { check = false } = {}) {
   const dir = cwd || '';
   const userFile = path.join(PI_AGENT_DIR, 'mcp.json');
@@ -100,15 +125,58 @@ async function listMcpPi(cwd, { check = false } = {}) {
   const byName = new Map();
   for (const s of parseMcpJson(userFile, 'user')) byName.set(s.name, s);
   if (projectFile) for (const s of parseMcpJson(projectFile, 'project')) byName.set(s.name, s); // project gagne
+  // Legacy TOML : listés seulement s'ils ne sont pas déjà migrés dans un mcp.json.
+  const legacyByName = new Map();
+  for (const s of parseLegacyToml(PI_CONFIG_TOML, 'user')) legacyByName.set(s.name, s);
+  if (dir) {
+    for (const s of parseLegacyToml(path.join(dir, '.pi', 'config.toml'), 'project')) legacyByName.set(s.name, s);
+  }
+  for (const [name, s] of legacyByName) if (!byName.has(name)) byName.set(name, s);
   let servers = decoratePi([...byName.values()]);
   if (check) {
-    servers = await Promise.all(servers.map(async (s) => (s.state === 'disabled'
-      ? s // un serveur désactivé n'est pas health-checké
+    servers = await Promise.all(servers.map(async (s) => ((s.state === 'disabled' || s.state === 'legacy')
+      ? s // désactivé ou legacy : pas de health-check
       : { ...s, ...(await healthCheck(s)) })));
   }
   const diagnostics = [];
-  if (!fs.existsSync(userFile)) diagnostics.push(`no user mcp.json at ${userFile}`);
+  const legacy = servers.filter((s) => s.state === 'legacy');
+  if (legacy.length) {
+    diagnostics.push(`${legacy.length} serveur(s) dans un ancien config.toml (ignoré par pi 1.6) — migrez-les vers ${userFile}`);
+  } else if (!fs.existsSync(userFile)) {
+    diagnostics.push(`no user mcp.json at ${userFile}`);
+  }
   return { servers, diagnostics, cwd: dir, checkedAt: check ? new Date().toISOString() : null };
+}
+
+// Migre les [[mcp.servers]] des config.toml (user + project, project gagne) vers le mcp.json
+// user, SANS écraser les entrées déjà présentes (un mcp.json actuel gagne sur le legacy).
+export function migrateLegacyToml({ cwd }) {
+  const dir = cwd || '';
+  const legacy = new Map();
+  for (const s of parseLegacyToml(PI_CONFIG_TOML, 'user')) legacy.set(s.name, s);
+  if (dir) for (const s of parseLegacyToml(path.join(dir, '.pi', 'config.toml'), 'project')) legacy.set(s.name, s);
+  if (!legacy.size) return { ok: true, migrated: [], file: null };
+  const fp = path.join(PI_AGENT_DIR, 'mcp.json');
+  const { data, servers } = readServers(fp);
+  const migrated = [];
+  for (const [name, s] of legacy) {
+    if (servers[name]) continue; // déjà migré / défini dans mcp.json
+    const cfg = {};
+    if (s.url) {
+      cfg.url = s.url;
+      if (s.transport === 'http' || s.transport === 'sse') cfg.type = s.transport;
+      if (s.headers) cfg.headers = s.headers;
+    } else {
+      cfg.command = s.command;
+      if (s.args) cfg.args = s.args;
+      if (s.env) cfg.env = s.env;
+    }
+    if (s.enabled === false) cfg.enabled = false;
+    servers[name] = cfg;
+    migrated.push(name);
+  }
+  if (migrated.length) writeServers(fp, { ...data, mcpServers: servers }, { secret: true });
+  return { ok: true, migrated, file: migrated.length ? fp : null };
 }
 
 // ---------- gestion (CRUD) des mcp.json ----------
@@ -161,7 +229,8 @@ function cleanConfig(cfg) {
   return out;
 }
 
-// Détails d'un serveur, project scope prioritaire sur user (comme au listing).
+// Détails d'un serveur, project scope prioritaire sur user (comme au listing). Un serveur
+// legacy (config.toml) n'a pas de mcp.json : on retombe sur son bloc TOML.
 export function getMcpPi(cwd, name) {
   for (const scope of ['project', 'user']) {
     const fp = fileForScope(scope, cwd);
@@ -171,6 +240,9 @@ export function getMcpPi(cwd, name) {
       return { ok: true, name, scope, ...s, raw: servers[name] };
     }
   }
+  const legacy = parseLegacyToml(PI_CONFIG_TOML, 'user').find((x) => x.name === name)
+    || (cwd ? parseLegacyToml(path.join(cwd, '.pi', 'config.toml'), 'project').find((x) => x.name === name) : null);
+  if (legacy) return { ok: true, name, scope: legacy.scope, ...legacy, raw: legacy };
   return { ok: false, error: `no MCP server named ${name}` };
 }
 

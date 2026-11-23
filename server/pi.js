@@ -439,6 +439,60 @@ function piBackgroundJobs(file) {
 function piSubSessions() { return []; }
 function piScreenshots() { return []; }
 
+// ── Changes (lentille Review, scope « session ») ───────────────────────────
+// Scan d'un journal pi en ops par fichier, MÊME forme que scanOps (changes.js) :
+// Map path -> { file, name, tool, ops:[{kind,…}], count, lastTs }, pour que
+// buildFileChanges produise les mêmes entrées « Pi's edits » que côté Claude.
+// Tools pi : write {path, content} → write ; edit {path, edits:[{oldText,newText}]}
+// (forme legacy {path, oldText, newText} et edits en chaîne JSON acceptées aussi, cf.
+// prepareEditArguments du CLI pi). Chemins relatifs résolus contre le cwd du header.
+// ts en ISO comme buildPiConversation → le filtre par prompt (comparaison de chaînes)
+// marche tel quel.
+function piEditOps(a) {
+  let edits = a.edits;
+  if (typeof edits === 'string') {
+    try {
+      const p = JSON.parse(edits);
+      edits = Array.isArray(p) ? p : (p && typeof p.oldText === 'string' ? [p] : []);
+    } catch (_) { edits = []; }
+  }
+  if (!Array.isArray(edits)) edits = [];
+  if (!edits.length && typeof a.oldText === 'string' && typeof a.newText === 'string') {
+    edits = [{ oldText: a.oldText, newText: a.newText }];
+  }
+  return edits.map((e) => ({ kind: 'edit', old: String(e.oldText || ''), new: String(e.newText || ''), all: false }));
+}
+
+function scanPiOps(file) {
+  const byFile = new Map();
+  const read = piRead(file);
+  if (!read) return byFile;
+  const cwd = read.header.cwd || '';
+  for (const e of activeBranch(read.entries)) {
+    if (e.type !== 'message' || !e.message || e.message.role !== 'assistant') continue;
+    const m = e.message;
+    if (!Array.isArray(m.content)) continue;
+    const ts = m.timestamp ? new Date(m.timestamp).toISOString() : (e.timestamp || null);
+    for (const b of m.content) {
+      if (!b || b.type !== 'toolCall' || !b.arguments) continue;
+      const a = b.arguments;
+      const rawPath = a.path || a.file_path;
+      if (!rawPath) continue;
+      const ops = b.name === 'write'
+        ? [{ kind: 'write', content: String(a.content || '') }]
+        : (b.name === 'edit' ? piEditOps(a) : null);
+      if (!ops || !ops.length) continue;
+      const fp = path.isAbsolute(rawPath) ? rawPath : (cwd ? path.resolve(cwd, rawPath) : rawPath);
+      const entry = byFile.get(fp) || { file: fp, name: path.basename(fp), tool: b.name, ops: [], count: 0, lastTs: null };
+      for (const o of ops) entry.ops.push({ ...o, ts });
+      entry.count += ops.length;
+      if (ts && (!entry.lastTs || ts > entry.lastTs)) entry.lastTs = ts;
+      byFile.set(fp, entry);
+    }
+  }
+  return byFile;
+}
+
 // Chemins de fichiers mentionnés par les tools (read/edit/write) — allowlist /api/user-file.
 function piToolPaths(file) {
   const read = piRead(file);
@@ -540,7 +594,7 @@ function piMessageText(file, entryId) {
 
 export {
   scanPiSessions, getPiSession, buildPiConversation, piRead, piSetArchived,
-  latestPiTodos, piSubagents, piBackgroundJobs, piSubSessions, piScreenshots, piToolPaths,
+  latestPiTodos, piSubagents, piBackgroundJobs, piSubSessions, piScreenshots, piToolPaths, scanPiOps,
   piContext, buildPiTrace, piToolDetail, piToolOutput, piShortTool, piUsageToAnthropic,
   piMessageText, contextWindowFor, activeBranch, finalizePi, findPiFile,
 };
