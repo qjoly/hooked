@@ -193,16 +193,21 @@ function finalizePi(read) {
       } else if (m.role === 'toolResult' && m.toolName === 'Agent' && m.details && m.details.usage) {
         // A subagent of hooked's pi package (pi-package/extensions/agent.js): its usage is in the
         // tool result only, as Claude Code's subagents are in toolUseResult.usage.
+        // Priced like the session's own messages: pi's figure when it has one, else hooked's table
+        // (pi reports 0 for a subscription model such as pi-claude-bridge's).
         const u = m.details.usage;
-        const cost = Number(u.cost) || 0;
+        const sub = String(m.details.model || '');
+        const k = Number(u.cost) > 0
+          ? { inp: u.input || 0, out: u.output || 0, cc: u.cacheWrite || 0, cr: u.cacheRead || 0, cIn: 0, cOut: 0, cCc: 0, cCr: 0, total: Number(u.cost) }
+          : costForUsage(piUsageToAnthropic(u), sub.startsWith('mistral/') ? 'mistral' : sub.slice(sub.indexOf('/') + 1));
         s.subagents++;
-        s.subagentCost += cost;
-        s.cost += cost;
-        s.usage.input += u.input || 0; s.usage.output += u.output || 0;
-        s.usage.cacheRead += u.cacheRead || 0; s.usage.cacheCreate += u.cacheWrite || 0;
+        s.subagentCost += k.total;
+        s.cost += k.total;
+        s.usage.input += k.inp; s.usage.output += k.out; s.usage.cacheRead += k.cr; s.usage.cacheCreate += k.cc;
+        s.costBreak.input += k.cIn; s.costBreak.output += k.cOut; s.costBreak.cacheCreate += k.cCc; s.costBreak.cacheRead += k.cCr;
         const day = (ts || '').slice(0, 10) || 'unknown';
         const d = (s.byDay[day] = s.byDay[day] || { input: 0, output: 0, cacheCreate: 0, cacheRead: 0, cost: 0, turns: 0 });
-        d.input += u.input || 0; d.output += u.output || 0; d.cacheCreate += u.cacheWrite || 0; d.cacheRead += u.cacheRead || 0; d.cost += cost;
+        d.input += k.inp; d.output += k.out; d.cacheCreate += k.cc; d.cacheRead += k.cr; d.cost += k.total;
       }
     }
   }

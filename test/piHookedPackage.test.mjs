@@ -356,3 +356,28 @@ describe('subagents (Agent tool of the pi package)', () => {
     expect(await pi.emit('tool_call', { toolName: 'Agent', input: { description: 'x', prompt: 'y' } }, fakeCtx())).toBeUndefined();
   });
 });
+
+describe('subagent usage in the pi session summary', () => {
+  it('adds the Agent tool\'s usage, priced by hooked when pi says 0 (subscription models)', async () => {
+    const { scanPiSessions } = await import('../server/pi.js');
+    const dir = path.join(TMP, 'pi-sessions-agent', '--tmp-x--');
+    fs.mkdirSync(dir, { recursive: true });
+    const result = (id, parentId, model, cost) => ({
+      type: 'message', id, parentId, timestamp: '2026-11-23T10:00:02.000Z',
+      message: { role: 'toolResult', toolCallId: 'c' + id, toolName: 'Agent', content: [{ type: 'text', text: '2' }], isError: false,
+        details: { model, usage: { input: 1000, output: 100, cacheRead: 0, cacheWrite: 0, cost, turns: 1 } } },
+    });
+    const lines = [
+      { type: 'session', version: 3, id: 'sess-agent', timestamp: '2026-11-23T10:00:00.000Z', cwd: '/tmp/x' },
+      { type: 'message', id: 'e1', parentId: null, timestamp: '2026-11-23T10:00:01.000Z', message: { role: 'user', content: [{ type: 'text', text: 'count' }] } },
+      result('e2', 'e1', 'mistral/mistral-large-latest', 0.004),
+      result('e3', 'e2', 'claude-bridge/claude-haiku-5-5', 0),
+    ];
+    fs.writeFileSync(path.join(dir, '2026-11-23T10-00-00-000Z_sess-agent.jsonl'), lines.map((l) => JSON.stringify(l)).join('\n') + '\n');
+    const s = scanPiSessions(path.join(TMP, 'pi-sessions-agent')).find((x) => x.id === 'sess-agent');
+    expect(s.subagents).toBe(2);
+    expect(s.subagentCost).toBeGreaterThan(0.004); // pi's price for the first, hooked's for the bridged one
+    expect(s.usage.input).toBe(2000);
+    expect(s.cost).toBeCloseTo(s.subagentCost, 10);
+  });
+});
