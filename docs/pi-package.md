@@ -118,6 +118,8 @@ Settings → Providers sets it up for one provider only:
 }
 ```
 
+`capabilities: { account: true }` says the provider runs on the Claude account, so the header keeps
+the 5h / 7d gauges and the Claude spaces even when the `claude` provider is off.
 `-e npm:…@<version>` loads the bridge for this provider's sessions (pi caches it, and a pinned
 version is never re-checked). The model picker lists the bridge's models because the catalogue
 runs `pi --list-models` with the provider's `-e` extensions.
