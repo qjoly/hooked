@@ -310,7 +310,7 @@ description = "Build l'app Tauri, l'installe dans /Applications et la relance"
 dir = "desktop/src-tauri"
 tools = { rust = "latest", "npm:@tauri-apps/cli" = "2" }
 run = """
-cp ../../node_modules/markdown-it/dist/markdown-it.min.js ../ui/
+cp ../../node_modules/markdown-it/dist/browser/markdown-it.umd.min.js ../ui/markdown-it.min.js
 tauri build
 osascript -e 'quit app id "dev.qjoly.hooked"' 2>/dev/null || true
 sleep 1
