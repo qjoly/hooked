@@ -15,6 +15,9 @@ export default defineConfig({
       // provider pi : dossier vide par défaut (n'existe pas → scan/lecture vides) ;
       // test/pi.test.mjs passe son propre dossier de fixtures en argument explicite.
       HOOKED_PI_SESSIONS_DIR: path.join(FX, 'pi-session-empty'),
+      // pi's agent dir (pi-claude-bridge state, catalog profile): a folder that does not exist, so
+      // no test reads the real ~/.pi/agent. Tests that need one set their own before importing.
+      PI_CODING_AGENT_DIR: path.join(FX, 'pi-agent-empty'),
     },
     server: {
       // node:sqlite est un module natif Node 24 : il doit être chargé tel quel,
