@@ -1,7 +1,7 @@
 <script>
   import { getCronTasks, cronOp } from '#lib/api.js';
-  import { data, settings } from '#lib/state.svelte.js';
-  import { providerListAll, providerEngine, effectiveProvider } from '#lib/providers.js';
+  import { data } from '#lib/state.svelte.js';
+  import { providerListAll, providerEngine } from '#lib/providers.js';
   import { nextRuns } from '#lib/cron.js';
   import { knownProjects } from '#lib/projects.js';
   import { fmtSpan, ago } from '#lib/format.js';
@@ -14,14 +14,12 @@
     ['Weekdays 9:00', '0 9 * * 1-5'],
     ['Mondays 9:00', '0 9 * * 1'],
   ];
-  // A new task starts on the default provider (the claude one may be switched off).
-  const defaultProvider = () => effectiveProvider(data.providers, settings.defaultProvider || 'claude');
-  const EMPTY = { id: null, name: '', schedule: '0 9 * * 1-5', cwd: '', prompt: '', model: '', effort: '', permissionMode: 'default', provider: '', ephemeral: false, enabled: true };
+  const EMPTY = { id: null, name: '', schedule: '0 9 * * 1-5', cwd: '', prompt: '', model: '', effort: '', permissionMode: 'default', provider: 'claude', ephemeral: false, enabled: true };
 
   let tasks = $state(null);
   let error = $state('');
   let selectedId = $state(null);
-  let form = $state({ ...EMPTY, provider: defaultProvider() });
+  let form = $state({ ...EMPTY });
   let busy = $state(false);
   let notice = $state('');
   let now = $state(Date.now());
@@ -45,8 +43,8 @@
   function edit(t) {
     selectedId = t ? t.id : 'new';
     form = t
-      ? { id: t.id, name: t.name, schedule: t.schedule, cwd: t.cwd, prompt: t.prompt, model: t.model || '', effort: t.effort || '', permissionMode: t.permissionMode, provider: t.provider || defaultProvider(), ephemeral: t.ephemeral, enabled: t.enabled }
-      : { ...EMPTY, provider: defaultProvider() };
+      ? { id: t.id, name: t.name, schedule: t.schedule, cwd: t.cwd, prompt: t.prompt, model: t.model || '', effort: t.effort || '', permissionMode: t.permissionMode, provider: t.provider || 'claude', ephemeral: t.ephemeral, enabled: t.enabled }
+      : { ...EMPTY };
     notice = '';
   }
 

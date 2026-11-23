@@ -248,7 +248,7 @@ pub fn commands(s: &Hooked) -> Vec<Cmd> {
             |s, _| s.resync_states(),
         ),
     ]);
-    if s.providers.claude_account() {
+    if s.providers.claude {
         out.push(cmd(nav, &icons::BRAIN, "Go to Memory", "⌥6", |s, _| {
             s.go(Page::Memory)
         }));

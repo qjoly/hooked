@@ -65,13 +65,6 @@ export function can(id, cap, list = LIST) {
   return !!(c && c[cap]);
 }
 
-// The Claude account (5h / 7d quotas, account, memory, 5 h window, Claude Code settings) is in
-// use: the claude provider is enabled, or an enabled provider declares the `account` capability
-// (Claude through pi-claude-bridge: same subscription, with the claude provider off).
-export function usesClaudeAccount(p, list = LIST) {
-  return !!(p && p.claude) || enabledProviderIds(p, list).some((id) => can(id, 'account', list));
-}
-
 // Ids of the enabled providers, in settings order.
 export function enabledProviderIds(p, list = LIST) {
   const order = providerListAll(list).map((x) => x.id);

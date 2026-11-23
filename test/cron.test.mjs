@@ -73,10 +73,6 @@ describe('cron task storage', () => {
     expect(t.id).toMatch(/^[a-z0-9]+$/);
     expect(t.name).toBe('Summarize open PRs');
     expect(t.permissionMode).toBe('default');
-    // no provider: each run takes the settings' default (the claude provider may be off)
-    expect(t.provider).toBeNull();
-    expect(cron.saveCronTask({ id: t.id, provider: 'claude-bridge' }).provider).toBe('claude-bridge');
-    expect(cron.saveCronTask({ id: t.id, provider: 'Not valid!' }).provider).toBeNull();
 
     const u = cron.saveCronTask({ ...t, enabled: false, runs: [{ at: 'forged' }] });
     expect(u.enabled).toBe(false);
