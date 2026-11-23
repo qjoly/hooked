@@ -1,0 +1,11 @@
+{
+  "name": "@hooked/pi",
+  "version": "0.1.0",
+  "private": true,
+  "description": "hooked for pi: the dashboard's tools, permission cards, questions and plan mode, and account quotas, inside every pi session hooked drives.",
+  "type": "module",
+  "keywords": ["pi-package"],
+  "pi": {
+    "extensions": ["./extensions/hooked.js"]
+  }
+}

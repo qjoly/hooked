@@ -153,7 +153,12 @@ function parseEnvBlock(out) {
 // 4123 » et repart sur le port du dashboard. Le service les porte forcément — adapter-node ne
 // sait lire ces deux noms que dans process.env — donc c'est ici, à la frontière avec les
 // process enfants, qu'on les retire.
-const SERVER_ONLY_ENV = ['PORT', 'HOST'];
+//
+// PI_CODING_AGENT is pi's mark on its own children (pi sets it on its process at startup). hook.cjs
+// ignores any Claude Code carrying it, since that is pi-claude-bridge's model process, not a
+// session. A hooked started from a pi shell (`npm run live` run by a pi session) would otherwise
+// pass the mark down to every Claude session it drives, and their hooks would go silent.
+const SERVER_ONLY_ENV = ['PORT', 'HOST', 'PI_CODING_AGENT'];
 
 function withoutServerEnv(env) {
   const out = { ...env };
@@ -1428,9 +1433,16 @@ function answerPlan(id, action, feedback, cb) {
   if (!PLAN_ACTIONS.includes(action)) return cb(err400('unknown action: ' + action));
   const fb = typeof feedback === 'string' ? feedback.trim() : '';
   if (action === 'keep-feedback' && !fb) return cb(err400('feedback required'));
-  if (driverFor(st)) return cb(err400(`plan approval has no equivalent on ${st.provider} sessions`));
   const ask = st.pendingAsk;
   if (!ask || ask.kind !== 'plan') return cb(err400('no plan awaiting approval for this session'));
+  if (driverFor(st)) {
+    // A driver's plan card (hooked's pi package): the driver applies the action, the agent side
+    // switches its own mode on approval.
+    const target = action === 'approve-auto' ? 'auto' : action === 'approve' ? 'acceptEdits' : null;
+    ask.resolve({ behavior: target ? 'allow' : 'deny', action, feedback: fb });
+    if (target) st.permissionMode = target;
+    return cb(null, { sessionId: id, action, ...(target ? { mode: target } : {}) });
+  }
 
   if (action === 'approve' || action === 'approve-auto') {
     const target = action === 'approve-auto' ? 'auto' : 'acceptEdits';
@@ -1531,6 +1543,9 @@ function setAutoApprove(id, on, cb) {
   const st = agentSession(id);
   if (!st) return cb(err400('no live agent session for this id'));
   st.autoApprove = !!on;
+  // A driver whose agent decides on its own side (hooked's pi package) is told too.
+  const drv = driverFor(st);
+  if (drv && typeof drv.setAutoApprove === 'function') drv.setAutoApprove(st, st.autoApprove);
   if (st.autoApprove && st.pendingAsk && st.pendingAsk.kind === 'permission') {
     const r = st.pendingAsk.resolve;
     st.pendingAsk = null;

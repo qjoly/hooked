@@ -160,10 +160,17 @@ function defaultProviderId() {
   return first ? first.id : 'claude';
 }
 
+// An engine's capabilities for one provider: `capabilitiesFor(provider)` when the engine depends on
+// the provider's options (pi with or without hooked's package), else its static set.
+function engineCaps(engine, p) {
+  if (!engine) return null;
+  return typeof engine.capabilitiesFor === 'function' ? engine.capabilitiesFor(p) : engine.capabilities;
+}
+
 function capabilitiesOf(providerId) {
   const p = getProvider(providerId);
   const engine = p ? getEngine(p.engine) : null;
-  return mergeCapabilities(engine && engine.capabilities, p && p.capabilities);
+  return mergeCapabilities(engineCaps(engine, p), p && p.capabilities);
 }
 
 // Provider list for the UI (GET /api/providers, /api/sessions → providerList).
@@ -189,7 +196,7 @@ function providerList() {
       defaultEffort: p.defaultEffort || null,
       models: p.models || null,
       hiddenModels: p.hiddenModels || null,
-      capabilities: mergeCapabilities(engine && engine.capabilities, p.capabilities),
+      capabilities: mergeCapabilities(engineCaps(engine, p), p.capabilities),
     };
   });
 }

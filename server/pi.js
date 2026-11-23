@@ -190,6 +190,24 @@ function finalizePi(read) {
           const contextTokens = u.totalTokens || ((u.input || 0) + (u.cacheRead || 0) + (u.cacheWrite || 0) + (u.output || 0));
           if (contextTokens) s.lastUsage = { ts: ts || s.lastTs || null, contextTokens, ttl: null };
         }
+      } else if (m.role === 'toolResult' && (m.toolName === 'Agent' || m.toolName === 'Workflow') && m.details && m.details.usage) {
+        // Subagents of hooked's pi package (Agent: one; Workflow: agentCount, usage summed): their
+        // usage is in the tool result only, as Claude Code's subagents are in toolUseResult.usage.
+        // Priced like the session's own messages: pi's figure when it has one, else hooked's table
+        // (pi reports 0 for a subscription model such as pi-claude-bridge's).
+        const u = m.details.usage;
+        const sub = String(m.details.model || '');
+        const k = Number(u.cost) > 0
+          ? { inp: u.input || 0, out: u.output || 0, cc: u.cacheWrite || 0, cr: u.cacheRead || 0, cIn: 0, cOut: 0, cCc: 0, cCr: 0, total: Number(u.cost) }
+          : costForUsage(piUsageToAnthropic(u), sub.startsWith('mistral/') ? 'mistral' : sub.slice(sub.indexOf('/') + 1));
+        s.subagents += m.toolName === 'Workflow' ? (Number(m.details.agentCount) || 0) : 1;
+        s.subagentCost += k.total;
+        s.cost += k.total;
+        s.usage.input += k.inp; s.usage.output += k.out; s.usage.cacheRead += k.cr; s.usage.cacheCreate += k.cc;
+        s.costBreak.input += k.cIn; s.costBreak.output += k.cOut; s.costBreak.cacheCreate += k.cCc; s.costBreak.cacheRead += k.cCr;
+        const day = (ts || '').slice(0, 10) || 'unknown';
+        const d = (s.byDay[day] = s.byDay[day] || { input: 0, output: 0, cacheCreate: 0, cacheRead: 0, cost: 0, turns: 0 });
+        d.input += k.inp; d.output += k.out; d.cacheCreate += k.cc; d.cacheRead += k.cr; d.cost += k.total;
       }
     }
   }
@@ -352,9 +370,72 @@ function piSetArchived(file, archived) {
   } catch (_) { return false; }
 }
 
-// ── Accessoires détail (todos/subagents/screenshots : pi n'en a pas nativement) ──────────────────
-function latestPiTodos() { return null; }
+// ── Accessoires détail (subagents/screenshots : pi n'en a pas nativement) ──────────────────────
+// Todos: the TodoWrite tool of hooked's pi package (Claude Code's schema, the whole list on every
+// call), so the last call on the active branch is the list. Same shape as server/todos.js.
+function latestPiTodos(file) {
+  const read = file ? piRead(file) : null;
+  if (!read) return null;
+  let latest = null;
+  for (const e of activeBranch(read.entries)) {
+    const m = e.type === 'message' ? e.message : null;
+    if (!m || m.role !== 'assistant' || !Array.isArray(m.content)) continue;
+    for (const b of m.content) {
+      if (!b || b.type !== 'toolCall' || b.name !== 'TodoWrite' || !Array.isArray(b.arguments?.todos)) continue;
+      latest = {
+        ts: e.timestamp || null,
+        todos: b.arguments.todos.map((t) => ({
+          content: String((t && t.content) || ''),
+          status: t && (t.status === 'completed' || t.status === 'in_progress') ? t.status : 'pending',
+          activeForm: String((t && t.activeForm) || ''),
+        })),
+      };
+    }
+  }
+  return latest;
+}
 function piSubagents() { return []; }
+
+// Background commands of hooked's pi package (pi-package/extensions/background.js), in the shape of
+// server/background.js: started by BashBackground (its result carries the id), ended by a
+// `hooked-task` entry (completion message, or the stop written at session shutdown) or KillShell.
+function piBackgroundJobs(file) {
+  const read = file ? piRead(file) : null;
+  if (!read) return { jobs: [], active: [] };
+  const byCall = new Map();
+  const byShell = new Map();
+  const end = (shellId, reason, ts, exitCode = null) => {
+    const j = byShell.get(shellId);
+    if (j && !j.done) { j.done = true; j.doneReason = reason; j.doneAt = ts || null; j.exitCode = exitCode; }
+  };
+  for (const e of activeBranch(read.entries)) {
+    const ts = e.timestamp || null;
+    if ((e.type === 'custom_message' || e.type === 'custom') && e.customType === 'hooked-task') {
+      const d = e.details || e.data || {};
+      if (d.shellId) end(d.shellId, d.status || 'completed', ts, d.exitCode ?? null);
+      continue;
+    }
+    const m = e.type === 'message' ? e.message : null;
+    if (!m) continue;
+    if (m.role === 'assistant' && Array.isArray(m.content)) {
+      for (const b of m.content) {
+        if (!b || b.type !== 'toolCall') continue;
+        if (b.name === 'BashBackground' && b.id) {
+          byCall.set(b.id, { kind: 'bash', toolUseId: b.id, taskId: null, command: String(b.arguments?.command || '').slice(0, 2000), description: String(b.arguments?.description || ''), startTs: ts, done: false, doneReason: null, doneAt: null, exitCode: null, outputPath: null });
+        } else if (b.name === 'KillShell' && b.arguments?.shell_id) {
+          end(String(b.arguments.shell_id), 'stopped', ts);
+        }
+      }
+    } else if (m.role === 'toolResult' && m.toolName === 'BashBackground') {
+      const j = byCall.get(m.toolCallId);
+      if (!j) continue;
+      const id = m.details?.shellId || (/ID: (bg-\d+)/.exec(textOf(m.content)) || [])[1];
+      if (id && !m.isError) { j.taskId = id; byShell.set(id, j); } else { j.done = true; j.doneReason = 'failed'; j.doneAt = ts; }
+    }
+  }
+  const jobs = [...byCall.values()];
+  return { jobs, active: jobs.filter((j) => !j.done) };
+}
 function piSubSessions() { return []; }
 function piScreenshots() { return []; }
 
@@ -459,7 +540,7 @@ function piMessageText(file, entryId) {
 
 export {
   scanPiSessions, getPiSession, buildPiConversation, piRead, piSetArchived,
-  latestPiTodos, piSubagents, piSubSessions, piScreenshots, piToolPaths,
+  latestPiTodos, piSubagents, piBackgroundJobs, piSubSessions, piScreenshots, piToolPaths,
   piContext, buildPiTrace, piToolDetail, piToolOutput, piShortTool, piUsageToAnthropic,
   piMessageText, contextWindowFor, activeBranch, finalizePi, findPiFile,
 };

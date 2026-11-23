@@ -41,7 +41,7 @@ The rest of hooked never tests a provider id: it asks the registry for the sessi
 | Provider | Engine | Notes |
 |---|---|---|
 | `claude` | `claude` | Claude Code through the Agent SDK. The reference implementation: every capability. |
-| `pi` | `pi` | The pi coding agent in RPC mode, every model pi is signed in to (`pi --list-models`). |
+| `pi` | `pi` | The pi coding agent in RPC mode, every model pi is signed in to (`pi --list-models`). hooked's pi package ([pi-package.md](pi-package.md)) brings permission, question and plan cards, modes and hooked's tools. |
 
 | Engine | Sessions are read from | Live driver |
 |---|---|---|
@@ -95,6 +95,7 @@ setting hides it from the launch pickers, not from the history.
 | `hiddenModels` | pi, acp | ids hidden from this provider's pickers |
 | `defaultModel`, `defaultEffort` | pi, acp | used when a launch names none |
 | `modelProvider` | pi | qualifies a bare model id (`devstral` → `mistral/devstral`) |
+| `hookedPackage` | pi | `false` to launch pi without hooked's package ([pi-package.md](pi-package.md)): no cards, tools auto-approved, `auto` mode only |
 | `titleModel` | pi | model that names new sessions (`""` turns naming off; default: a small model of the catalogue) |
 | `agentDir` | pi | a separate pi profile (`PI_CODING_AGENT_DIR`): its own auth, models and sessions |
 | `modes` | acp | hooked permission mode → agent mode id (`{"plan": "architect"}`). Without it, modes are matched by name |

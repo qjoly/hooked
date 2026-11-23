@@ -19,6 +19,7 @@ import { buildBackgroundJobs } from '../background.js';
 import { buildWorkflows } from '../workflows.js';
 import { buildTrace, readToolDetail } from '../trace.js';
 import { memoByFile } from '../transcriptCache.js';
+import { withoutBridgeShadows } from '../bridgeShadows.js';
 
 const conversationOf = memoByFile(buildConversation);
 const subSessionsOf = memoByFile(buildSubSessions);
@@ -49,7 +50,8 @@ const claudeEngine = {
   available() { return null; },
 
   // ── Store ──────────────────────────────────────────────────────────────────────────────────
-  scan() { return scanSessions(); },
+  // Without pi-claude-bridge's shadow transcripts: they are the model side of a pi session.
+  scan() { return withoutBridgeShadows(scanSessions()); },
   conversation(s) { return conversationOf(s.file); },
   messageText(s, uuid) { return readMessageText(s.file, uuid); },
   trace(s) { return buildTrace(s.file); },

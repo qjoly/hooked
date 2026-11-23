@@ -50,12 +50,12 @@ function parseCatalog(text) {
   return out;
 }
 
-function runListModels(bin, env) {
+function runListModels(bin, env, extraArgs = []) {
   return new Promise((resolve) => {
     let out = '';
     let child;
     try {
-      child = spawn(bin, ['--list-models'], { env, stdio: ['ignore', 'pipe', 'pipe'] });
+      child = spawn(bin, ['--list-models', ...extraArgs], { env, stdio: ['ignore', 'pipe', 'pipe'] });
     } catch (_) { return resolve(''); }
     const timer = setTimeout(() => { try { child.kill('SIGTERM'); } catch (_) {} }, 20_000);
     child.stdout.on('data', (d) => { out += d; });
@@ -67,11 +67,11 @@ function runListModels(bin, env) {
 
 // Catalog of one pi profile. `key` identifies the profile (binary + agent dir) so two pi-based
 // providers with different agent dirs keep separate catalogs. Async, cached TTL_MS.
-function piCatalog(key, bin, env) {
+function piCatalog(key, bin, env, extraArgs = []) {
   const c = cache.get(key);
   if (c && c.models && Date.now() - c.at < TTL_MS) return Promise.resolve(c.models);
   if (c && c.promise) return c.promise;
-  const promise = runListModels(bin, env).then((text) => {
+  const promise = runListModels(bin, env, extraArgs).then((text) => {
     const models = parseCatalog(text);
     cache.set(key, { at: Date.now(), models, promise: null });
     return models;

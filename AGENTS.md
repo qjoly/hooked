@@ -172,6 +172,27 @@ A **provider** is configuration (`settings.json` → `providers`, Settings → P
   format, so the journal is what the list, conversation, Trace, search and trash read. During
   `session/load` the replay is not journaled again. hooked's MCP server is injected into every ACP
   session through `session/new`'s `mcpServers`.
+- **pi sessions run hooked's pi package** (`pi-package/`, `server/piHooked.js`,
+  `docs/pi-package.md`): hooked's tools as native `hooked_*` tools, `AskUserQuestion` /
+  `ExitPlanMode` / `TodoWrite` (the dock reads the last call, `latestPiTodos`), `Agent` (a child
+  `pi -p` whose tools are bounded by the parent's mode, since it cannot ask), `Workflow` (Claude
+  Code's script API over those subagents, no resume), `WebFetch`, `WebSearch`
+  (a traceless `claude -p` on Haiku whose only tool is WebSearch),
+  `BashBackground` / `BashOutput` / `KillShell` (the end wakes the agent; jobs die with the pi
+  process and the dock reads them back, `piBackgroundJobs`), a permission gate
+  following the mode and auto-approve. Its dialogs reach hooked as
+  RPC `extension_ui_request` records titled `[hooked:<kind>] <json>` and become the same
+  `pendingAsk` cards as the Claude path. It never changes the system prompt between turns (a cache
+  miss on every provider). `"hookedPackage": false` on a provider turns it off.
+- **Claude through pi-claude-bridge** is a pi provider (`args: ["-e", "npm:pi-claude-bridge@…"]`).
+  The Claude Code sessions the bridge runs as the model of a pi session are hidden from the Claude
+  list (`server/bridgeShadows.js`), and their hooks are dropped (`hook.cjs` exits on pi's
+  `PI_CODING_AGENT` mark, which hooked strips from the sessions it drives). The bridge also
+  excludes Claude Code's context files, so `mise run pi-migrate` (`scripts/pi-migrate.mjs`) brings
+  the global `CLAUDE.md` (managed block in `~/.pi/agent/AGENTS.md`), `~/.claude/skills` and the
+  enabled plugins' skills (pi's `skills` setting), Claude's user-scope MCP servers and the
+  claude.ai connectors pi can reach (`~/.pi/agent/mcp.json`; a connector qualifies by its OAuth
+  metadata, not by its tool list) to pi; `~/.pi/agent/pi-migrate.json` records what it added.
 - **External engines load at boot, before resume** (`hooks.server.js`), and can be reloaded from
   Settings. A module cannot take a built-in engine id. `test/fixtures/providers/echo-engine.mjs` is
   a complete minimal engine, driven end to end through `agent.js` in `test/providerRegistry.test.mjs`.
