@@ -489,3 +489,47 @@ describe('background commands of the pi package', () => {
     expect(jobs[1].exitCode).toBe(0);
   });
 });
+
+describe('WebSearch of the pi package', () => {
+  const WS = path.join(import.meta.dirname, '..', 'pi-package', 'extensions', 'websearch.js');
+
+  it('asks a headless, traceless claude -p limited to WebSearch', async () => {
+    const { searchPrompt, headlessArgs, resultText } = await import(WS);
+    const p = searchPrompt({ query: ' pi releases ', allowed_domains: ['github.com', 'bad domain;rm'], blocked_domains: ['spam.example'] });
+    expect(p).toContain('search the web for: pi releases');
+    expect(p).toContain('Only keep results from these domains: github.com.');
+    expect(p).toContain('Leave out results from these domains: spam.example.');
+    const args = headlessArgs('Q');
+    expect(args).toEqual(expect.arrayContaining(['--no-session-persistence', '--strict-mcp-config', '--disable-slash-commands']));
+    expect(args.slice(args.indexOf('--tools'), args.indexOf('--tools') + 2)).toEqual(['--tools', 'WebSearch']);
+    expect(JSON.parse(args[args.indexOf('--settings') + 1])).toEqual({ disableAllHooks: true });
+    expect(resultText('{"type":"result","is_error":false,"result":" - [A](https://a) "}')).toBe('- [A](https://a)');
+    expect(resultText('{"is_error":true,"result":"x"}')).toBeNull();
+    expect(resultText('not json')).toBeNull();
+  });
+
+  it('returns the results of the call, reports a failure, and asks in the normal mode', async () => {
+    const bin = path.join(TMP, 'fake-claude');
+    const argsLog = path.join(TMP, 'fake-claude.args');
+    fs.writeFileSync(bin, `#!/bin/sh\nprintf '%s\\n' "$@" > '${argsLog}'\ncase "$2" in *FAILME*) echo boom >&2; exit 2;; esac\necho '{"type":"result","is_error":false,"result":"1. [Pi](https://pi.dev)"}'\n`);
+    fs.chmodSync(bin, 0o755);
+    const saved = process.env.HOOKED_CLAUDE_BIN;
+    process.env.HOOKED_CLAUDE_BIN = bin;
+    try {
+      const pi = load();
+      const tool = pi.tools.get('WebSearch');
+      const ok = await tool.execute('s1', { query: 'pi coding agent' }, null, null, fakeCtx());
+      expect(ok.isError).toBeUndefined();
+      expect(ok.content[0].text).toBe('Web search results for "pi coding agent":\n\n1. [Pi](https://pi.dev)');
+      expect(fs.readFileSync(argsLog, 'utf8').split('\n')[0]).toBe('-p');
+      expect((await tool.execute('s2', { query: 'x' }, null, null, fakeCtx())).isError).toBe(true); // too short
+      const failed = await tool.execute('s3', { query: 'FAILME now' }, null, null, fakeCtx());
+      expect(failed).toMatchObject({ isError: true });
+      expect(failed.content[0].text).toBe('WebSearch failed: boom');
+      const ctx = fakeCtx(['{"choice":"deny"}']);
+      expect(await pi.emit('tool_call', { toolName: 'WebSearch', input: { query: 'q' } }, ctx)).toMatchObject({ block: true });
+    } finally {
+      if (saved === undefined) delete process.env.HOOKED_CLAUDE_BIN; else process.env.HOOKED_CLAUDE_BIN = saved;
+    }
+  });
+});

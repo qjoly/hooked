@@ -8,7 +8,7 @@
  *     tools, from the same definitions as the MCP server (mcp/server.cjs), with no MCP proxy;
  *   - AskUserQuestion, ExitPlanMode and TodoWrite, with Claude Code's schemas;
  *   - Agent: subagents in a separate pi process (extensions/agent.js);
- *   - WebFetch: a web page as text (extensions/webfetch.js);
+ *   - WebFetch / WebSearch: a web page as text, a web search (extensions/webfetch.js, websearch.js);
  *   - BashBackground / BashOutput / KillShell: background commands (extensions/background.js);
  *   - a permission gate following hooked's permission modes and auto-approve switch;
  *   - the account quotas pi-claude-bridge relays (5h / 7d), forwarded to the dashboard.
@@ -26,6 +26,7 @@
 import { createRequire } from 'node:module';
 import { registerAgentTool } from './agent.js';
 import { registerWebFetch } from './webfetch.js';
+import { registerWebSearch } from './websearch.js';
 import { registerBackground } from './background.js';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -273,8 +274,9 @@ export default function hooked(pi) {
   // Outside hooked nothing asks either, so the subagent gets pi's default tools there.
   registerAgentTool(pi, () => (DRIVEN ? { mode, autoApprove } : { mode: 'bypassPermissions', autoApprove: true }));
 
-  // ── WebFetch (asks in the normal mode, like any tool outside SAFE_TOOLS) ──────────────────
+  // ── WebFetch, WebSearch (ask in the normal mode, like any tool outside SAFE_TOOLS) ─────────
   registerWebFetch(pi);
+  registerWebSearch(pi);
 
   // ── Background commands (BashBackground asks like bash; reading and stopping do not) ────────
   registerBackground(pi);

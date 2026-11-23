@@ -501,6 +501,7 @@ const TOOLS = [
         permissionMode: { type: 'string', enum: ['default', 'acceptEdits', 'auto', 'plan', 'bypassPermissions', 'dontAsk'] },
         ephemeral: { type: 'boolean', description: 'each run archives itself once it is sure nothing is left for the user' },
         enabled: { type: 'boolean', description: 'false pauses the scheduled runs' },
+        provider: { type: 'string', description: 'provider id the runs launch on (see list_providers); defaults to claude' },
       },
       additionalProperties: false,
     },
