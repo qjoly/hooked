@@ -1,24 +1,28 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
+use libghostty_vt::color::{Palette, Rgb};
+use libghostty_vt::effect::ClipboardWrite;
 use libghostty_vt::key::{self, Key as GKey, Mods};
 use libghostty_vt::kitty::graphics::{self, ImageFormat};
+use libghostty_vt::mode::Mode;
+use libghostty_vt::point::{Coordinate, Point};
 use libghostty_vt::render::{
     CellIterator, CursorVisualStyle, Dirty, ImageIterator, ImageLayer, ImageProtocol, RowIterator,
 };
 use libghostty_vt::screen::CellWide;
 use libghostty_vt::search::Search;
-use libghostty_vt::style::{Palette, RgbColor, StyleColor, Underline};
-use libghostty_vt::terminal::{Mode, Point, PointCoordinate, ScrollViewport};
+use libghostty_vt::style::{StyleColor, Underline};
+use libghostty_vt::terminal::ScrollViewport;
 use libghostty_vt::{RenderState, Terminal, mouse, paste};
 use rune::{Color, Key, KeyEvent, PhysicalKeyCode, Span};
 
-pub const FG: RgbColor = RgbColor {
+pub const FG: Rgb = Rgb {
     r: 0xe9,
     g: 0xe9,
     b: 0xf0,
 };
-pub const BG: RgbColor = RgbColor {
+pub const BG: Rgb = Rgb {
     r: 0x0d,
     g: 0x0d,
     b: 0x13,
@@ -82,16 +86,16 @@ fn crop(rgba: &[u8], w: u32, [x, y, cw, ch]: [u32; 4]) -> Vec<u8> {
 
 static PNG_DECODER: std::sync::Once = std::sync::Once::new();
 
-const fn rgb(v: u32) -> RgbColor {
-    RgbColor {
+const fn rgb(v: u32) -> Rgb {
+    Rgb {
         r: (v >> 16) as u8,
         g: (v >> 8) as u8,
         b: v as u8,
     }
 }
 
-pub const FG_LIGHT: RgbColor = rgb(0x1f2328);
-pub const BG_LIGHT: RgbColor = rgb(0xffffff);
+pub const FG_LIGHT: Rgb = rgb(0x1f2328);
+pub const BG_LIGHT: Rgb = rgb(0xffffff);
 const LIGHT_ANSI: [u32; 16] = [
     0x24292f, 0xcf222e, 0x116329, 0x4d2d00, 0x0969da, 0x8250df, 0x1b7c83, 0x6e7781, 0x57606a,
     0xa40e26, 0x1a7f37, 0x633c01, 0x218bff, 0xa475f9, 0x3192aa, 0x8c959f,
@@ -273,7 +277,7 @@ pub struct Vt {
     dark_palette: Option<Palette>,
 }
 
-pub fn color(c: RgbColor) -> Color {
+pub fn color(c: Rgb) -> Color {
     rune::color::hex(&format!("#{:02x}{:02x}{:02x}", c.r, c.g, c.b)).unwrap_or(Color::WHITE)
 }
 
@@ -423,7 +427,7 @@ impl Vt {
         use libghostty_vt::fmt::{Format, Formatter};
         use libghostty_vt::selection::Selection;
         let at = |(x, y): (u16, u64)| {
-            self.terminal.grid_ref(Point::Screen(PointCoordinate {
+            self.terminal.grid_ref(Point::Screen(Coordinate {
                 x,
                 y: u32::try_from(y).unwrap_or(u32::MAX),
             }))
@@ -451,7 +455,7 @@ impl Vt {
     pub fn hyperlink_at(&self, x: u16, y: u16) -> Option<String> {
         let r = self
             .terminal
-            .grid_ref(Point::Viewport(PointCoordinate { x, y: u32::from(y) }))
+            .grid_ref(Point::Viewport(Coordinate { x, y: u32::from(y) }))
             .ok()?;
         let mut buf = vec![0u8; 2048];
         let n = r.hyperlink_uri(&mut buf).ok()?;
@@ -970,31 +974,11 @@ impl Vt {
     }
 }
 
-fn clipboard_text(w: &libghostty_vt::terminal::ClipboardWrite<'_>) -> Option<String> {
-    // libghostty-rs exposes no accessor for the written contents; the wrapper is a lone raw
-    // pointer to the C request, so read it through that pointer.
-    const _: () = assert!(
-        std::mem::size_of::<libghostty_vt::terminal::ClipboardWrite<'static>>()
-            == std::mem::size_of::<*const libghostty_vt::ffi::ClipboardWrite>()
-    );
-    let raw: *const libghostty_vt::ffi::ClipboardWrite = unsafe { std::mem::transmute_copy(w) };
-    let req = unsafe { raw.as_ref()? };
-    if req.contents.is_null() {
-        return None;
-    }
-    let contents = unsafe { std::slice::from_raw_parts(req.contents, req.contents_len) };
-    let bytes = |s: &libghostty_vt::ffi::String| {
-        if s.ptr.is_null() {
-            &[][..]
-        } else {
-            unsafe { std::slice::from_raw_parts(s.ptr, s.len) }
-        }
-    };
-    contents
-        .iter()
-        .find(|c| bytes(&c.mime).starts_with(b"text/plain"))
-        .or(contents.first())
-        .map(|c| String::from_utf8_lossy(bytes(&c.data)).into_owned())
+fn clipboard_text(w: &ClipboardWrite<'_>) -> Option<String> {
+    w.contents()
+        .find(|c| c.mime.starts_with(b"text/plain"))
+        .or_else(|| w.contents().next())
+        .map(|c| String::from_utf8_lossy(c.data).into_owned())
 }
 
 fn same_look(a: &Span, b: &Span) -> bool {
