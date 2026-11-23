@@ -10,7 +10,10 @@
  *    markers is pi-only content and stays as it is. Run the task again after an edit of CLAUDE.md:
  *    it replaces the block.
  *  - The skills folder is added to the `skills` list of <agentDir>/settings.json. pi reads the
- *    folder itself, so a new or changed skill needs no new run.
+ *    folder itself, so a new or changed skill needs no new run. So are the skills of the enabled
+ *    plugins (installed_plugins.json + enabledPlugins): their folder carries the plugin version, so
+ *    a run after a plugin update swaps the old folder for the new one. Plugins synced by an
+ *    organization are left out: their skills rely on claude.ai connectors pi does not have.
  *  - The user-scope MCP servers of Claude Code (`mcpServers` in ~/.claude.json) are copied into
  *    <agentDir>/mcp.json: the entry format is the same. A server pi already defines is kept. Each
  *    copy is recorded in <agentDir>/pi-migrate.json, so a later run follows Claude's changes
@@ -67,13 +70,45 @@ function duplicateHeadings(target, source) {
   return [...new Set(headings(outsideBlock(target)).filter((h) => fromSource.has(h)))];
 }
 
-// pi settings with `dir` in `skills`, or null when an entry already points at it.
-function withSkillsDir(settings, dir) {
-  const s = settings && typeof settings === 'object' ? settings : {};
-  const list = Array.isArray(s.skills) ? s.skills : [];
-  const want = path.resolve(expandHome(dir));
-  if (list.some((x) => typeof x === 'string' && path.resolve(expandHome(x.replace(/^\+/, ''))) === want)) return null;
-  return { ...s, skills: [...list, tildify(want)] };
+// Skills folders of the enabled user-scope plugins, and the plugins left out (with why).
+function pluginSkillDirs(claudeDir) {
+  const dirs = [];
+  const skipped = [];
+  let installed = {};
+  let enabled = {};
+  try { installed = JSON.parse(readOr(path.join(claudeDir, 'plugins', 'installed_plugins.json'), '{}')).plugins || {}; } catch (_) {}
+  try { enabled = JSON.parse(readOr(path.join(claudeDir, 'settings.json'), '{}')).enabledPlugins || {}; } catch (_) {}
+  for (const [name, entries] of Object.entries(installed)) {
+    const list = Array.isArray(entries) ? entries : [entries];
+    const e = list.find((x) => x && (x.scope === 'user' || !x.scope));
+    const dir = e && e.installPath ? path.join(e.installPath, 'skills') : null;
+    if (!dir || !fs.existsSync(dir)) continue;
+    if (enabled[name] !== true) { skipped.push({ name, why: 'not enabled' }); continue; }
+    dirs.push({ name, dir });
+  }
+  const synced = path.join(claudeDir, 'plugins', 'synced');
+  for (const bucket of fs.existsSync(synced) ? fs.readdirSync(synced) : []) {
+    let names = [];
+    try { names = fs.readdirSync(path.join(synced, bucket)); } catch (_) {}
+    for (const name of names) {
+      if (fs.existsSync(path.join(synced, bucket, name, 'skills'))) skipped.push({ name, why: "synced by the organization, relies on claude.ai connectors" });
+    }
+  }
+  return { dirs, skipped };
+}
+
+const sameDir = (a, b) => path.resolve(expandHome(String(a).replace(/^\+/, ''))) === path.resolve(expandHome(b));
+
+// pi's `skills` list with every wanted folder, without the folders a previous run added for a
+// plugin and that are no longer wanted (an older plugin version).
+//   list: pi's current list; wanted: folders to have; managedBefore: plugin folders added before
+// → { list, added, removed }
+function syncSkills(list, wanted, managedBefore) {
+  const cur = Array.isArray(list) ? list : [];
+  const removed = (managedBefore || []).filter((old) => !wanted.some((w) => sameDir(old, w)) && cur.some((x) => typeof x === 'string' && sameDir(x, old)));
+  const kept = cur.filter((x) => !(typeof x === 'string' && removed.some((r) => sameDir(x, r))));
+  const added = wanted.filter((w) => !kept.some((x) => typeof x === 'string' && sameDir(x, w)));
+  return { list: [...kept, ...added.map((w) => tildify(path.resolve(expandHome(w))))], added, removed };
 }
 
 function writeAtomic(file, text, mode) {
@@ -157,6 +192,12 @@ function migrate({
   claudeDir = expandHome(claudeDir);
   agentDir = expandHome(agentDir);
   const report = { claudeDir, agentDir, dryRun };
+  // What earlier runs added (MCP copies, plugin skill folders), so a run can follow Claude's
+  // changes without touching what was edited in pi.
+  const stateFile = path.join(agentDir, 'pi-migrate.json');
+  let state = {};
+  try { state = JSON.parse(readOr(stateFile, '{}')) || {}; } catch (_) { state = {}; }
+  const stateBefore = JSON.stringify(state);
 
   if (instructions) {
     const src = path.join(claudeDir, 'CLAUDE.md');
@@ -177,26 +218,36 @@ function migrate({
   if (skills) {
     const dir = path.join(claudeDir, 'skills');
     const file = path.join(agentDir, 'settings.json');
-    if (!fs.existsSync(dir)) {
-      report.skills = { status: 'no-source', dir };
+    const plugins = pluginSkillDirs(claudeDir);
+    const hasDir = fs.existsSync(dir);
+    if (!hasDir && !plugins.dirs.length) {
+      report.skills = { status: 'no-source', dir, plugins: [], skipped: plugins.skipped };
     } else {
       let settings = {};
       const raw = readOr(file, null);
       if (raw != null) {
         try { settings = JSON.parse(raw); } catch (e) { throw new Error(`${file} is not valid JSON: ${e.message}`); }
       }
-      const next = withSkillsDir(settings, dir);
-      const count = fs.readdirSync(dir).filter((n) => !n.startsWith('.')).length;
+      const wanted = [...(hasDir ? [dir] : []), ...plugins.dirs.map((p) => p.dir)];
+      const { list, added, removed } = syncSkills(settings.skills, wanted, state.pluginSkills);
+      const changed = added.length > 0 || removed.length > 0;
       let backup = null;
-      if (next && !dryRun) { backup = backupOnce(file); writeAtomic(file, JSON.stringify(next, null, 2) + '\n'); }
-      report.skills = { status: next ? 'added' : 'present', dir, file, backup, entries: count };
+      if (changed && !dryRun) { backup = backupOnce(file); writeAtomic(file, JSON.stringify({ ...settings, skills: list }, null, 2) + '\n'); }
+      state.pluginSkills = plugins.dirs.map((p) => tildify(p.dir));
+      report.skills = {
+        status: hasDir ? (added.some((a) => sameDir(a, dir)) ? 'added' : 'present') : 'no-source',
+        dir, file, backup,
+        entries: hasDir ? fs.readdirSync(dir).filter((n) => !n.startsWith('.')).length : 0,
+        plugins: plugins.dirs.map((p) => ({ name: p.name, dir: p.dir, action: added.some((a) => sameDir(a, p.dir)) ? 'added' : 'present' })),
+        removed,
+        skipped: plugins.skipped,
+      };
     }
   }
 
   if (mcp) {
     const src = claudeJson ? expandHome(claudeJson) : claudeJsonPath(claudeDir);
     const file = path.join(agentDir, 'mcp.json');
-    const stateFile = path.join(agentDir, 'pi-migrate.json');
     const raw = readOr(src, null);
     if (raw == null) {
       report.mcp = { status: 'no-source', src };
@@ -208,18 +259,15 @@ function migrate({
       if (piRaw != null) {
         try { piCfg = JSON.parse(piRaw); } catch (e) { throw new Error(`${file} is not valid JSON: ${e.message}`); }
       }
-      let state = {};
-      try { state = JSON.parse(readOr(stateFile, '{}')) || {}; } catch (_) { state = {}; }
       const { servers, recorded, changes } = mergeMcp(claude, piCfg.mcpServers, state.mcpServers);
       const changed = !sameJson(servers, piCfg.mcpServers || {});
       let backup = null;
-      if (!dryRun) {
-        if (changed) { backup = backupOnce(file); writeAtomic(file, JSON.stringify({ ...piCfg, mcpServers: servers }, null, 2) + '\n', 0o600); }
-        if (!sameJson(recorded, state.mcpServers || {})) writeAtomic(stateFile, JSON.stringify({ ...state, mcpServers: recorded }, null, 2) + '\n', 0o600);
-      }
+      if (changed && !dryRun) { backup = backupOnce(file); writeAtomic(file, JSON.stringify({ ...piCfg, mcpServers: servers }, null, 2) + '\n', 0o600); }
+      state.mcpServers = recorded;
       report.mcp = { status: changed ? 'changed' : 'unchanged', src, file, backup, changes };
     }
   }
+  if (!dryRun && JSON.stringify(state) !== stateBefore) writeAtomic(stateFile, JSON.stringify(state, null, 2) + '\n', 0o600);
   return report;
 }
 
@@ -242,10 +290,11 @@ function print(r) {
   const s = r.skills;
   if (s) {
     if (s.status === 'no-source') console.log(`- Skills: ${tildify(s.dir)} not found, skipped.`);
-    else {
-      console.log(`- Skills: ${tildify(s.dir)} (${s.entries} entries) ${s.status === 'added' ? 'added to' : 'already in'} the skills list of ${tildify(s.file)}.`);
-      if (s.backup) console.log(`  Copy of the previous file: ${tildify(s.backup)}`);
-    }
+    else console.log(`- Skills: ${tildify(s.dir)} (${s.entries} entries) ${s.status === 'added' ? 'added to' : 'already in'} the skills list of ${tildify(s.file)}.`);
+    for (const p of s.plugins || []) console.log(`  plugin ${p.name}: ${p.action === 'added' ? 'skills added' : 'skills already listed'} (${tildify(p.dir)})`);
+    for (const d of s.removed || []) console.log(`  removed an older plugin folder: ${tildify(path.resolve(expandHome(d)))}`);
+    for (const k of s.skipped || []) console.log(`  plugin ${k.name}: left out (${k.why})`);
+    if (s.backup) console.log(`  Copy of the previous file: ${tildify(s.backup)}`);
   }
   const m = r.mcp;
   if (m) {
@@ -277,4 +326,4 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   }
 }
 
-export { migrate, upsertBlock, outsideBlock, duplicateHeadings, withSkillsDir, mergeMcp, needsLogin, BEGIN, END };
+export { migrate, upsertBlock, outsideBlock, duplicateHeadings, syncSkills, pluginSkillDirs, mergeMcp, needsLogin, BEGIN, END };

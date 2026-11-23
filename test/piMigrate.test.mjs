@@ -6,7 +6,7 @@ import { describe, it, expect, afterAll } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { migrate, upsertBlock, duplicateHeadings, withSkillsDir, BEGIN, END } from '../scripts/pi-migrate.mjs';
+import { migrate, upsertBlock, duplicateHeadings, syncSkills, pluginSkillDirs, BEGIN, END } from '../scripts/pi-migrate.mjs';
 
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'hooked-pi-migrate-'));
 afterAll(() => { fs.rmSync(TMP, { recursive: true, force: true }); });
@@ -43,12 +43,15 @@ describe('pi-migrate helpers', () => {
     expect(duplicateHeadings('# Code / Commit\n', '## Code /\u00a0Commit\n')).toEqual(['code / commit']);
   });
 
-  it('adds the skills folder once, whatever the spelling of the existing entry', () => {
-    expect(withSkillsDir({ packages: ['x'] }, '/a/skills')).toEqual({ packages: ['x'], skills: ['/a/skills'] });
-    expect(withSkillsDir({ skills: ['/a/skills/'] }, '/a/skills')).toBeNull();
-    expect(withSkillsDir({ skills: ['+/a/skills'] }, '/a/skills')).toBeNull();
-    expect(withSkillsDir({ skills: [path.join(os.homedir(), 'k')] }, '~/k')).toBeNull();
-    expect(withSkillsDir({}, path.join(os.homedir(), '.claude', 'skills')).skills).toEqual(['~/.claude/skills']);
+  it('adds the skills folders once, whatever the spelling, and swaps an older plugin folder', () => {
+    expect(syncSkills(['x.md'], ['/a/skills'], []).list).toEqual(['x.md', '/a/skills']);
+    expect(syncSkills(['/a/skills/'], ['/a/skills'], []).added).toEqual([]);
+    expect(syncSkills(['+/a/skills'], ['/a/skills'], []).added).toEqual([]);
+    expect(syncSkills([path.join(os.homedir(), 'k')], ['~/k'], []).added).toEqual([]);
+    expect(syncSkills([], [path.join(os.homedir(), '.claude', 'skills')], []).list).toEqual(['~/.claude/skills']);
+    // a plugin update: v1 was added by an earlier run, v2 is wanted now; the user's own entry stays
+    const r = syncSkills(['/mine', '/p/v1/skills'], ['/c/skills', '/p/v2/skills'], ['/p/v1/skills']);
+    expect(r).toEqual({ list: ['/mine', '/c/skills', '/p/v2/skills'], added: ['/c/skills', '/p/v2/skills'], removed: ['/p/v1/skills'] });
   });
 });
 
@@ -143,5 +146,52 @@ describe('pi-migrate: MCP servers', () => {
     expect(fs.statSync(file).mode & 0o777).toBe(0o600);
     expect(JSON.parse(read(path.join(agentDir, 'pi-migrate.json'))).mcpServers).toEqual({ incident_io: incident });
     expect(migrate({ claudeDir, agentDir, claudeJson }).mcp.status).toBe('unchanged');
+  });
+});
+
+describe('pi-migrate: plugin skills', () => {
+  function plugins(name, version, { enabled = true, synced = false } = {}) {
+    const { claudeDir, agentDir } = setup(name, { claudeMd: '# A\n' });
+    const install = (v) => {
+      const dir = path.join(claudeDir, 'plugins', 'cache', 'dir', 'tool', v);
+      fs.mkdirSync(path.join(dir, 'skills', 'incidents'), { recursive: true });
+      fs.writeFileSync(path.join(dir, 'skills', 'incidents', 'SKILL.md'), '---\nname: incidents\ndescription: x\n---\n');
+      fs.writeFileSync(path.join(claudeDir, 'plugins', 'installed_plugins.json'), JSON.stringify({ version: 2, plugins: {
+        'tool@dir': [{ scope: 'user', installPath: dir, version: v }],
+        'other@dir': [{ scope: 'project', projectPath: '/x', installPath: path.join(claudeDir, 'nowhere') }],
+      } }));
+      return dir;
+    };
+    const first = install(version);
+    fs.writeFileSync(path.join(claudeDir, 'settings.json'), JSON.stringify({ enabledPlugins: { 'tool@dir': enabled } }));
+    if (synced) fs.mkdirSync(path.join(claudeDir, 'plugins', 'synced', 'bucket', 'design', 'skills'), { recursive: true });
+    return { claudeDir, agentDir, first, install };
+  }
+
+  it('lists the skills of enabled plugins, and leaves out disabled and synced ones', () => {
+    const on = plugins('plug-on', 'v1', { synced: true });
+    const found = pluginSkillDirs(on.claudeDir);
+    expect(found.dirs).toEqual([{ name: 'tool@dir', dir: path.join(on.first, 'skills') }]);
+    expect(found.skipped.map((s) => s.name)).toEqual(['design']);
+    const off = plugins('plug-off', 'v1', { enabled: false });
+    expect(pluginSkillDirs(off.claudeDir)).toEqual({ dirs: [], skipped: [{ name: 'tool@dir', why: 'not enabled' }] });
+  });
+
+  it('adds them to pi, follows a plugin update, and keeps the MCP record beside them', () => {
+    const { claudeDir, agentDir, first, install } = plugins('plug-run', 'v1');
+    const claudeJson = path.join(TMP, 'plug-run', '.claude.json');
+    fs.writeFileSync(claudeJson, JSON.stringify({ mcpServers: { slack: { command: 'slack-mcp' } } }));
+    const r = migrate({ claudeDir, agentDir, claudeJson });
+    expect(r.skills.plugins).toEqual([{ name: 'tool@dir', dir: path.join(first, 'skills'), action: 'added' }]);
+    const settingsFile = path.join(agentDir, 'settings.json');
+    expect(JSON.parse(read(settingsFile)).skills).toEqual([path.join(claudeDir, 'skills'), path.join(first, 'skills')]);
+
+    const second = install('v2');
+    const r2 = migrate({ claudeDir, agentDir, claudeJson });
+    expect(r2.skills.removed).toEqual([path.join(first, 'skills')]);
+    expect(JSON.parse(read(settingsFile)).skills).toEqual([path.join(claudeDir, 'skills'), path.join(second, 'skills')]);
+    const state = JSON.parse(read(path.join(agentDir, 'pi-migrate.json')));
+    expect(state).toEqual({ pluginSkills: [path.join(second, 'skills')], mcpServers: { slack: { command: 'slack-mcp' } } });
+    expect(migrate({ claudeDir, agentDir, claudeJson }).skills.removed).toEqual([]);
   });
 });
