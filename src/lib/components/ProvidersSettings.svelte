@@ -143,6 +143,7 @@
       <code>env</code> ({'{'}"VAR": "value"{'}'}, "" removes a variable), <code>models</code> (glob patterns, e.g.
       <code>mistral/*</code>), <code>hiddenModels</code>, <code>defaultModel</code>, <code>defaultEffort</code>,
       <code>titleModel</code> (pi; "" = no auto-naming), <code>modelProvider</code> (pi), <code>agentDir</code> (pi profile),
+      <code>hookedPackage</code> (pi; false = no cards, tools auto-approved),
       <code>modes</code> (ACP: hooked mode → agent mode id), <code>injectHookedMcp</code> (ACP),
       <code>capabilities</code> ({'{'}"plan": false{'}'}…), <code>options</code> (free-form, external engines).
     </p>
