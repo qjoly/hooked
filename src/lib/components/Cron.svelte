@@ -163,7 +163,7 @@
         <label class="fld"><span>Provider</span>
           <select bind:value={form.provider}>
             {#each providerListAll(data.providerList) as p (p.id)}
-              <option value={p.id} disabled={!data.providers[p.id] && p.id !== form.provider}>{p.label}{data.providers[p.id] ? '' : ' (off)'}</option>
+              <option value={p.id} disabled={!data.providers[p.id] && p.id !== form.provider}>{p.label}{data.providers[p.id] ? '' : p.mode === 'off' ? ' (hidden)' : ' (unavailable)'}</option>
             {/each}
           </select>
         </label>
