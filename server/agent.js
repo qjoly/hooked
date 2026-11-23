@@ -814,7 +814,7 @@ function launchSession(opts, cb) {
   if (permissionMode && !LAUNCH_PERMISSION_MODES.includes(permissionMode)) return cb(err400('unknown permission mode: ' + permissionMode));
   // Unknown provider, switched off in the settings, engine missing, or agent not installed: a
   // clear refusal now rather than a spawn failing with ENOENT in the background.
-  const launchErr = providerLaunchError(provider, { resume: !!id });
+  const launchErr = providerLaunchError(provider);
   if (launchErr) return cb(err400(launchErr));
   if (id && live.has(id)) return cb(err400('session already running'));
   if (worktree && !id) return launchInNewWorktree({ ...opts, cwd: dir }, cb);

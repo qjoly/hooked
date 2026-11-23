@@ -81,7 +81,7 @@
   // Starting points. Commands of third-party agents change with their versions: check yours.
   const TEMPLATES = [
     { id: 'mistral', name: 'Mistral (through pi)', entry: { engine: 'pi', label: 'Mistral', short: 'mi', color: '#fa520f', models: ['mistral/*'], description: 'Mistral models through pi (pi-mistral-subscription sign-in).' } },
-    { id: 'claude-bridge', name: 'Claude through pi-claude-bridge', entry: { engine: 'pi', label: 'Claude (pi)', short: 'cb', models: ['claude-bridge/*'], args: ['-e', 'npm:pi-claude-bridge@0.13.0'], capabilities: { account: true }, description: 'Claude Code as a pi model provider, on your Claude subscription (pi-claude-bridge, loaded for this provider only).' } },
+    { id: 'claude-bridge', name: 'Claude through pi-claude-bridge', entry: { engine: 'pi', label: 'Claude (pi)', short: 'cb', models: ['claude-bridge/*'], args: ['-e', 'npm:pi-claude-bridge@0.13.0'], description: 'Claude Code as a pi model provider, on your Claude subscription (pi-claude-bridge, loaded for this provider only).' } },
     { id: 'gemini', name: 'Gemini CLI (ACP)', entry: { engine: 'acp', label: 'Gemini', short: 'gm', color: '#4285f4', command: 'gemini', args: ['--experimental-acp'] } },
     { id: 'codex', name: 'Codex (ACP adapter)', entry: { engine: 'acp', label: 'Codex', short: 'cx', command: 'npx', args: ['-y', '@zed-industries/codex-acp'] } },
     { id: 'opencode', name: 'OpenCode (ACP)', entry: { engine: 'acp', label: 'OpenCode', short: 'oc', command: 'opencode', args: ['acp'] } },

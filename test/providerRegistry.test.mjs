@@ -62,9 +62,6 @@ describe('provider registry', () => {
   it('refuses a launch on an unknown, disabled or engine-less provider with a clear reason', () => {
     expect(reg.providerLaunchError('ghost')).toMatch(/unknown provider/);
     expect(reg.providerLaunchError('claude')).toMatch(/disabled in the hooked settings/);
-    // switched off: no new session, but its sessions still resume
-    expect(reg.providerLaunchError('claude', { resume: true })).toBeNull();
-    expect(reg.providerLaunchError('ghost', { resume: true })).toMatch(/unknown provider/);
   });
 
   it('attributes pi sessions to the provider whose model patterns match', () => {

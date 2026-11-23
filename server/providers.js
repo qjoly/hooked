@@ -135,13 +135,10 @@ function isProviderEnabled(id) {
 }
 
 // Why `id` cannot be launched right now (a sentence for a 400), or null.
-// `resume`: the launch continues an existing session (resume after a restart, Resume, fork). A
-// provider switched off takes no new session but still resumes its own: "off" hides a provider
-// from the launch pickers, not from the history, and a restart must not strand its sessions.
-function providerLaunchError(id, { resume = false } = {}) {
+function providerLaunchError(id) {
   const p = getProvider(id);
   if (!p) return `unknown provider: ${id}`;
-  if (p.enabled === 'off' && !resume) return `the ${id} provider is disabled in the hooked settings (providers.${id} = "off")`;
+  if (p.enabled === 'off') return `the ${id} provider is disabled in the hooked settings (providers.${id} = "off")`;
   const engine = getEngine(p.engine);
   if (!engine) {
     return REG.external.loaded
