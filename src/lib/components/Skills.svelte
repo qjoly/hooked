@@ -86,7 +86,7 @@
               <span class="row">
                 <span class="name">{s.name}</span>
                 <span class="badge src-{s.source}">{s.source === 'project' ? projectName(s.project) : s.source}</span>
-                {#if s.provider === 'pi'}<span class="badge src-plugin" title="Mistral Pi skill (.pi/skills)">pi</span>{/if}
+                {#if s.provider === 'pi'}<span class="badge src-plugin" title="pi skill (.pi/skills, ~/.pi/agent/skills)">pi</span>{/if}
               </span>
               {#if s.description}<span class="desc">{s.description}</span>{/if}
             </button>

@@ -3,13 +3,13 @@
   import { goto } from '$app/navigation';
   import { page } from '$app/state';
   import { data, ui, settings, updateSettings, groupName } from '#lib/state.svelte.js';
-  import { getDefaults, pickFolder, getUsage, getWorktreeBases, getPiOptions } from '#lib/api.js';
+  import { getDefaults, pickFolder, getUsage, getWorktreeBases, getProviderOptions } from '#lib/api.js';
   import Composer from './Composer.svelte';
   import ModelEffort from './ModelEffort.svelte';
   import Icon from '#lib/components/Icon.svelte';
   import { defaultModelForQuota, isFableModel, isQuotaExhausted } from '#lib/models.js';
   import { knownProjects } from '#lib/projects.js';
-  import { providersBoth, effectiveProvider } from '#lib/providers.js';
+  import { multiProvider, effectiveProvider, enabledProviderIds, providerInfo, providerEngine, can } from '#lib/providers.js';
 
   const projs = $derived(knownProjects(data.sessions, settings.favoriteProjects || []));
 
@@ -46,15 +46,22 @@
   let model = $state('opus');
   let effort = $state('high');
   let mode = $state('default'); // mode de permission au lancement (claude --permission-mode)
-  // Provider de l'agent : 'claude' (Agent SDK) ou 'pi' (Mistral via pi, RPC — cf. docs/port-pi.md)
-  let provider = $state('claude');
-  // Les deux pillules de choix n'ont de sens que si les DEUX providers sont installés ; avec un
-  // seul, le sélecteur est caché et le provider est fixé dessus (voir #lib/providers.js).
-  const showProviderPicker = $derived(providersBoth(data.providers));
+  // Agent provider (any provider of the settings, cf. #lib/providers.js): starts on the settings'
+  // default provider, and is pinned to the only one when a single provider is enabled (the picker
+  // is hidden then).
+  let provider = $state(untrack(() => effectiveProvider(data.providers, settings.defaultProvider || 'claude')));
+  const showProviderPicker = $derived(multiProvider(data.providers));
+  const providerIds = $derived(enabledProviderIds(data.providers, data.providerList));
   $effect(() => {
-    if (!providersBoth(data.providers)) provider = effectiveProvider(data.providers, provider);
+    const p = data.providers;
+    untrack(() => { if (!p[provider]) provider = effectiveProvider(p, settings.defaultProvider || provider); });
   });
+  const pinfo = $derived(providerInfo(provider, data.providerList));
+  // Claude runs on the built-in path (its pickers come from the binary's capabilities); every other
+  // engine takes its options from /api/provider-options.
+  const isClaude = $derived(providerEngine(provider, data.providerList) === 'claude');
   let piOpts = $state(null);
+  let piOptsFor = null;
   let worktree = $state(false);
   let wtBase = $state('');
   let wtBranch = $state('');
@@ -87,7 +94,7 @@
     const sm = settings.defaultModel, se = settings.defaultEffort, smo = settings.defaultMode;
     const d = claudeDefaults;
     const q = fableQuota;
-    if (picked || provider === 'pi') return; // en mode pi, ce sont les options Pi qui priment
+    if (picked || !isClaude) return; // another engine: its own options decide
     untrack(() => {
       // The fallback applies to the DEFAULT only: picking Fable by hand stays possible (the quota
       // we read can be minutes old — Claude Code's cache is the fallback source — and the user may
@@ -115,33 +122,48 @@
 
   const cwd = $derived(selected === '__custom' ? customCwd.trim() : selected);
 
-  // Provider pi : charge les options (alias modèles, thinking levels, agents) depuis
-  // ~/.pi/config.toml via /api/pi-options, et initialise model/effort/mode dessus quand
-  // on bascule (si la valeur courante n'est pas un alias Pi).
-  // thinking levels supportés par le modèle Pi sélectionné (catalogue), sinon liste par défaut
+  // Non-Claude provider: its options (models of its catalog, thinking / effort levels, modes)
+  // come from /api/provider-options, and model / effort / mode are re-seeded on a switch.
+  // Levels supported by the selected model, else the provider's list.
   const piThinking = $derived(
     (piOpts && piOpts.models || []).find((m) => (m.alias || m.name) === model)?.thinking
-    || (piOpts && piOpts.thinkingLevels) || ['medium'],
+    || (piOpts && piOpts.thinkingLevels) || [],
   );
-  // Modèles pi affichés : même liste noire que les sélecteurs Claude (Réglages → Visible models),
-  // appliquée ici parce que cette barre de pilules n'utilise pas ModelEffort. Le modèle courant
-  // survit toujours au filtre (sinon le <select> lié perdrait sa valeur).
+  // Visible models: the same hide list as the Claude pickers (Settings → Visible models) — the pi
+  // catalogue list for pi-engine providers, plus the provider's own `hiddenModels`. The current
+  // model always survives the filter (a bound <select> would lose its value otherwise).
+  const hiddenForProvider = $derived([
+    ...(providerEngine(provider, data.providerList) === 'pi' ? (settings.hiddenPiModels || []) : []),
+    ...(pinfo.hiddenModels || []),
+  ]);
+  const bareId = (id) => (String(id).includes('/') ? String(id).slice(String(id).indexOf('/') + 1) : id);
   const piVisibleModels = $derived(
     (piOpts?.models || [])
       .map((m) => m.alias || m.name)
-      .filter((id) => id === model || !(settings.hiddenPiModels || []).includes(id)),
+      .filter((id) => id === model || !(hiddenForProvider.includes(id) || hiddenForProvider.includes(bareId(id)))),
   );
+  const modelLabel = (id) => (piOpts?.models || []).find((m) => (m.alias || m.name) === id)?.label || id;
   $effect(() => {
-    if (provider !== 'pi') return;
-    if (!piOpts) { getPiOptions().then((o) => { piOpts = o; }).catch(() => {}); return; }
+    const p = provider;
+    if (isClaude) return;
+    if (!piOpts || piOptsFor !== p) {
+      piOptsFor = p;
+      piOpts = null;
+      getProviderOptions(p).then((o) => { if (piOptsFor === p) piOpts = o; }).catch(() => {});
+      return;
+    }
     untrack(() => {
       const all = (piOpts.models || []).map((m) => m.alias || m.name);
-      // Le défaut ne tombe pas sur un modèle masqué : premier modèle visible du catalogue, sinon
-      // l'actif du CLI. Un modèle déjà sélectionné, lui, reste tel quel.
+      // The default never lands on a hidden model: the provider's default when visible, else the
+      // first visible one. A model already picked stays as it is.
       const pool = piVisibleModels.length ? piVisibleModels : all;
       if (!all.includes(model)) model = pool.includes(piOpts.activeModel) ? piOpts.activeModel : (pool[0] || '');
-      if (!piThinking.includes(effort)) effort = piThinking.includes('high') ? 'high' : piThinking[0];
-      if (!piOpts.modes.some((m) => m.id === mode)) mode = 'default';
+      if (piThinking.length && !piThinking.includes(effort)) {
+        effort = piOpts.defaultEffort && piThinking.includes(piOpts.defaultEffort) ? piOpts.defaultEffort : (piThinking.includes('high') ? 'high' : piThinking[0]);
+      }
+      if (!piThinking.length) effort = '';
+      const modes = piOpts.modes || [];
+      if (modes.length && !modes.some((m) => m.id === mode)) mode = modes[0].id;
     });
   });
 
@@ -197,7 +219,7 @@
   <div class="ns-inner">
     <button class="pane-back" onclick={() => goto('/')} title="Back"><Icon name="arrow-left" /></button>
     <h1 class="ns-title"><Icon name="hook" size={28} /> New session</h1>
-    <p class="ns-sub">{provider === 'pi' ? 'Launches a Mistral session through pi (RPC mode), driven by hooked.' : 'Launches a Claude Code session driven by hooked.'}</p>
+    <p class="ns-sub">Launches a {pinfo.label} session driven by hooked{pinfo.description ? ' — ' + pinfo.description : '.'}</p>
 
     {#if groupWith}
       <div class="ns-group"><Icon name="sessions" size={14} /> Joins the group <b>{groupName(groupWith)}</b></div>
@@ -263,38 +285,49 @@
         <div class="lf-label">Options</div>
         {#if showProviderPicker}
         <div class="ns-provider" role="radiogroup" aria-label="Agent provider">
-          <button type="button" class="me-pill ns-prov-btn" class:on={provider === 'claude'} role="radio" aria-checked={provider === 'claude'}
-                  onclick={() => (provider = 'claude')} title="Claude Code — piloté via l'Agent SDK">Claude</button>
-          <button type="button" class="me-pill ns-prov-btn" class:on={provider === 'pi'} role="radio" aria-checked={provider === 'pi'}
-                  onclick={() => (provider = 'pi')} title="Mistral — piloté via pi (RPC)">Mistral&nbsp;(pi)</button>
+          {#each providerIds as pid (pid)}
+            {@const info = providerInfo(pid, data.providerList)}
+            <button type="button" class="me-pill ns-prov-btn" class:on={provider === pid} role="radio" aria-checked={provider === pid}
+                    style={info.color ? `--prov:${info.color}` : ''} class:colored={!!info.color}
+                    onclick={() => (provider = pid)} title={info.description || info.label}>{info.label}</button>
+          {/each}
         </div>
         {/if}
-        {#if provider === 'pi'}
+        {#if !isClaude}
           {#if piOpts}
             <div class="ns-pi-opts">
-              <select class="lf-input" bind:value={model} title="Modèle (alias lu dans ~/.pi/config.toml)">
-                {#each piVisibleModels as id (id)}<option value={id}>{id}</option>{/each}
-              </select>
-              <select class="lf-input" bind:value={effort} title="Thinking level (supporté par ce modèle)">
-                {#each piThinking as t (t)}<option value={t}>{t}</option>{/each}
-              </select>
-              <select class="lf-input" bind:value={mode} title="Mode (agent Pi)">
-                {#each piOpts.modes as m (m.id)}<option value={m.id}>{m.label}</option>{/each}
-              </select>
+              {#if piVisibleModels.length}
+                <select class="lf-input" bind:value={model} title="Model ({pinfo.label} catalog)">
+                  {#each piVisibleModels as id (id)}<option value={id}>{modelLabel(id)}</option>{/each}
+                </select>
+              {:else}
+                <input class="lf-input" bind:value={model} placeholder="model (agent default)" title="No model list known yet: the agent's default is used, or type an id" />
+              {/if}
+              {#if piThinking.length}
+                <select class="lf-input" bind:value={effort} title="Thinking / effort level (supported by this model)">
+                  {#each piThinking as t (t)}<option value={t}>{t}</option>{/each}
+                </select>
+              {/if}
+              {#if (piOpts.modes || []).length}
+                <select class="lf-input" bind:value={mode} title="Mode">
+                  {#each piOpts.modes as m (m.id)}<option value={m.id}>{m.label}</option>{/each}
+                </select>
+              {/if}
             </div>
+            {#if piOpts.error}<div class="ns-wt-err"><Icon name="warning" size={13} /> {piOpts.error}</div>{/if}
           {:else}
-            <div class="ns-pi-loading">loading Pi options…</div>
+            <div class="ns-pi-loading">loading {pinfo.label} options…</div>
           {/if}
         {:else}
           <ModelEffort compact showMode bind:model bind:effort bind:mode onchange={() => (picked = true)} />
         {/if}
-        {#if provider !== 'pi'}
+        {#if can(provider, 'worktree', data.providerList)}
         <label class="me-pill ns-worktree" title="Create a git worktree on a new branch and launch the session in it">
           <input type="checkbox" bind:checked={worktree} />
           <span class="me-ico"><Icon name="git-branch" size={14} /></span> worktree
         </label>
         {/if}
-        {#if worktree && provider !== 'pi'}
+        {#if worktree && can(provider, 'worktree', data.providerList)}
           <div class="ns-wt-row">
             <label class="ns-wt-field">from
               <input class="lf-input" list="ns-wt-bases" bind:value={wtBase} spellcheck="false"
@@ -308,8 +341,8 @@
           </div>
           {#if bases?.error}<div class="ns-wt-err"><Icon name="warning" size={13} /> {bases.error}</div>{/if}
         {/if}
-        {#if provider !== 'pi'}
-        <label class="me-pill ns-worktree" title="Claude archives the session once the task is done, when it is confident nothing is left to check">
+        {#if can(provider, 'ephemeral', data.providerList)}
+        <label class="me-pill ns-worktree" title="{pinfo.label} archives the session once the task is done, when it is confident nothing is left to check">
           <input type="checkbox" bind:checked={ephemeral} />
           <span class="me-ico"><Icon name="archive" size={14} /></span> ephemeral
         </label>

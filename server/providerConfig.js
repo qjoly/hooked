@@ -23,20 +23,19 @@
  */
 
 // Built-in providers: always present (a settings entry only overrides their fields). Their engine
-// is fixed — a settings entry cannot point `claude` at another engine.
+// is fixed — a settings entry cannot point `claude` at another engine. No default colour: badges
+// stay neutral (claude) / accent (others) unless the settings give one.
 const BUILTIN_PROVIDERS = {
   claude: {
     engine: 'claude',
     label: 'Claude',
     short: 'cc',
-    color: '#d97757',
     description: 'Claude Code, driven through the Agent SDK.',
   },
   pi: {
     engine: 'pi',
     label: 'Pi',
     short: 'pi',
-    color: '#8b7cf6',
     description: 'pi coding agent, driven in RPC mode (any model pi is signed in to).',
   },
 };

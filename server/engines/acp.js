@@ -642,7 +642,12 @@ async function options(provider) {
     activeModel: provider.defaultModel || null,
     defaultEffort: provider.defaultEffort || null,
     thinkingLevels: cached.efforts || [],
-    modes: (cached.modes || []).map((m) => ({ id: m.id, label: m.name || m.id })),
+    // hooked's permission-mode vocabulary (what /api/launch validates), limited to the modes this
+    // agent has an equivalent for — mapped by the `modes` setting or by name.
+    modes: ['default', 'acceptEdits', 'plan', 'auto', 'bypassPermissions']
+      .map((id) => ({ id, agentMode: agentModeFor(id, provider, cached.modes) }))
+      .filter((m) => m.agentMode)
+      .map((m) => ({ id: m.id, label: `${m.id} (${m.agentMode})` })),
     learnedAt: cached.at || null,
   };
 }

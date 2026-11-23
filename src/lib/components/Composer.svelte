@@ -2,7 +2,8 @@
   import { onMount, onDestroy } from 'svelte';
   import Icon from '#lib/components/Icon.svelte';
   import { reply, interrupt, launch, getFiles, getCommands, uploadImage } from '#lib/api.js';
-  import { loadSessions, ui, settings, wakeSession } from '#lib/state.svelte.js';
+  import { loadSessions, ui, settings, wakeSession, data } from '#lib/state.svelte.js';
+  import { agentName } from '#lib/format.js';
   import { createSpeechToText } from '#lib/speech.svelte.js';
   import { prepareImage } from '#lib/imageResize.js';
 
@@ -384,7 +385,7 @@
 {/if}
 <div class="composer" class:drag-over={dragOver} role="group" ondragover={onDragOver} ondragleave={() => (dragOver = false)} ondrop={onDrop}>
   <textarea bind:this={ta} bind:value={text} id="reply-text" rows="1" disabled={busy}
-            placeholder={newSession ? 'Describe your task to start the session…' : (provider === 'pi' ? 'Reply to Mistral Pi…' : 'Reply to Claude…')}
+            placeholder={newSession ? 'Describe your task to start the session…' : `Reply to ${agentName(provider, data.providerList)}…`}
             oninput={onInput} onkeydown={onKeydown} onblur={() => setTimeout(closeAc, 150)}></textarea>
   <div class="composer-actions">
     {#if speechState !== 'disabled' && speechState !== 'failed'}

@@ -2,13 +2,18 @@
   import { copyText } from '#lib/clipboard.js';
   import { onDestroy, untrack } from 'svelte';
   import { getMcpServers, mcpAction } from '#lib/api.js';
+  import { data } from '#lib/state.svelte.js';
+  import { providerInfo } from '#lib/providers.js';
   import Icon from './Icon.svelte';
 
   // MCP scopes are per-directory, so the lens is pinned to the session's own project — there is
-  // no picker to get wrong. `provider === 'pi'` : liste lue dans la config Pi, health-check
-  // HTTP uniquement, sans les actions OAuth/logout (spécifiques au CLI Claude).
+  // no picker to get wrong. The provider's engine picks the flavour: 'pi' = pi's mcp.json (HTTP
+  // health check only, no OAuth / logout actions, which are Claude CLI ones), none = the agent
+  // keeps its MCP config to itself (ACP agents get hooked's own server injected at launch).
   let { project = '', provider = 'claude' } = $props();
-  const isPi = $derived(provider === 'pi');
+  const kind = $derived(providerInfo(provider, data.providerList).mcpKind ?? (provider === 'claude' ? 'claude' : null));
+  const isPi = $derived(kind === 'pi');
+  const agentLbl = $derived(providerInfo(provider, data.providerList).label);
 
   let res = $state(null);          // { cwd, servers, diagnostics, error }
   let loading = $state(true);
@@ -177,8 +182,11 @@
     <div>
       <h2>MCP</h2>
       <p class="sub">
-        {#if isPi}
-          Servers Mistral Pi can reach from <code>{project || 'the user scope'}</code> (config
+        {#if !kind}
+          {agentLbl} keeps its MCP configuration to itself: hooked cannot list it. hooked's own MCP
+          server is handed to every session it launches.
+        {:else if isPi}
+          Servers {agentLbl} can reach from <code>{project || 'the user scope'}</code> (config
           <code>~/.pi/agent/mcp.json</code> + <code>.pi/mcp.json</code>), HTTP health-checked live.
           Stdio servers stay « configured ». Add, edit, enable, disable or remove them here.
         {:else}

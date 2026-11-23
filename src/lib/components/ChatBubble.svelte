@@ -1,5 +1,6 @@
 <script>
-  import { ago, splitMessageImages, fmtTokens } from '#lib/format.js';
+  import { ago, splitMessageImages, fmtTokens, agentName } from '#lib/format.js';
+  import { data } from '#lib/state.svelte.js';
   import { getMessageText } from '#lib/api.js';
   import { setContext } from 'svelte';
   import ToolChip from './ToolChip.svelte';
@@ -121,7 +122,7 @@
   </div>
 {:else}
 <div class="bubble {m.role}" class:auto={m.auto} data-msg-ts={m.ts || ''}>
-  <div class="who">{#if m.role === 'user'}{#if m.auto}<Icon name="rotate-cw" size={14} /> Auto-resumed (background job){:else}<Icon name="user" size={14} /> You{/if}{:else}<Icon name="bot" size={14} /> {provider === 'pi' ? 'Mistral Pi' : 'Claude'}{/if}<span class="t">{ago(m.ts)}</span>
+  <div class="who">{#if m.role === 'user'}{#if m.auto}<Icon name="rotate-cw" size={14} /> Auto-resumed (background job){:else}<Icon name="user" size={14} /> You{/if}{:else}<Icon name="bot" size={14} /> {agentName(provider, data.providerList)}{/if}<span class="t">{ago(m.ts)}</span>
     {#if onfork && m.forkUuid}
       <span class="fork-ctl">
         <button class="fork-btn fork-main" title="Fork here without a message — independent branch waiting for you"
@@ -154,7 +155,7 @@
       {#each blocks as b (b.type === 'run' ? 'r' + b.start : 'p' + b.i)}
         {#if b.type === 'part'}
           {#if b.p.type === 'thinking'}
-            <!-- Model reasoning (pi / Mistral): kept for every turn, folded to its first line. -->
+            <!-- Model reasoning (non-Claude engines): kept for every turn, folded to its first line. -->
             <details class="thinking">
               <summary><Icon name="memory" size={13} /> <span class="th-label">Thinking</span>
                 <span class="th-peek">{b.p.text.split('\n').find((l) => l.trim()) || ''}</span></summary>

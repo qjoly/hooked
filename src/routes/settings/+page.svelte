@@ -10,6 +10,8 @@
   import { NAV_TABS } from '#lib/nav.js';
   import ModelEffort from '#lib/components/ModelEffort.svelte';
   import Icon from '#lib/components/Icon.svelte';
+  import ProvidersSettings from '#lib/components/ProvidersSettings.svelte';
+  import { providerEngine } from '#lib/providers.js';
   import { EDITORS } from '#lib/editors.js';
   import { fold, findTermRanges } from '#lib/textMatch.js';
   import { highlightsSupported } from '#lib/codeHit.js';
@@ -312,7 +314,8 @@
 
   // Même chose pour le provider pi, dont la liste vient de /api/pi-options (`pi --list-models`).
   // Aucun alias de famille à protéger ici : un modèle pi peut toujours être masqué.
-  const hasPi = $derived(!!data.providers?.pi);
+  // The pi catalogue is shared by every pi-based provider: shown when one of them is enabled.
+  const hasPi = $derived(Object.entries(data.providers || {}).some(([id, on]) => on && providerEngine(id, data.providerList) === 'pi'));
   let piModels = $state([]); // [[id, label], …]
   $effect(() => {
     if (!hasPi) return;
@@ -738,9 +741,9 @@
         <p class="hint">No model list available — hooked could not resolve a <code>claude</code> binary.</p>
       {/if}
       {#if hasPi}
-        <h3 class="mf-sec">Mistral Pi</h3>
+        <h3 class="mf-sec">pi catalogue</h3>
         {#if piModels.length}
-          <p class="hint">Catalogue of <code>pi --list-models mistral</code>. Every entry can be hidden, including the <code>-latest</code> aliases.</p>
+          <p class="hint">Catalogue of <code>pi --list-models</code> (every provider pi is signed in to), shared by all pi-based providers. Every entry can be hidden, including the <code>-latest</code> aliases. A provider can also hide models of its own (<code>hiddenModels</code>).</p>
           <div class="chips mf-flat">
             {#each piModels as [id, label] (id)}
               {@const off = hiddenPiModels.has(id)}
@@ -771,34 +774,9 @@
         </select>
         <button class="save" onclick={browseQuickProject} disabled={picking}>{#if picking}<Icon name="queued" size={14} />{:else}<Icon name="folder-open" size={14} />{/if} Browse…</button>
       </div>
-      <h2 style="margin-top:18px">Default provider</h2>
-      <p class="hint">Agent CLI used when a session is launched <strong>without</strong> an explicit provider — e.g. from a macOS shortcut that posts to <code>/api/launch</code> with only a prompt, or GitHub « review in session ».</p>
-      <div class="cmd-row">
-        <select class="cmd-input" value={settings.defaultProvider || 'claude'} onchange={(e) => updateSettings({ defaultProvider: e.currentTarget.value })}>
-          <option value="claude">Claude Code</option>
-          <option value="pi">Mistral Pi</option>
-        </select>
-      </div>
       <h2 style="margin-top:18px">Providers</h2>
-      <p class="hint">Which agent CLIs hooked detects as available on this machine. <strong>Auto</strong> = detect (binary in <code>PATH</code>, or <code>~/.pi/agent</code> for Pi); <strong>On</strong> = force active even if detection fails (e.g. frozen PATH under launchd with pi installed outside it, plus <code>HOOKED_PI_BIN</code>); <strong>Off</strong> = hide the provider (badges, picker, launches). Launching a session on a provider that is off or not installed fails with a clear error.</p>
-      <div class="cmd-row">
-        <label class="dg-field">Claude Code
-          <select class="cmd-input" value={settings.providers?.claude || 'auto'}
-                  onchange={(e) => updateSettings({ providers: { ...settings.providers, claude: e.currentTarget.value } }).then(loadSessions)}>
-            <option value="auto">Auto — detect</option>
-            <option value="on">On — forced</option>
-            <option value="off">Off — hidden</option>
-          </select>
-        </label>
-        <label class="dg-field">Mistral Pi
-          <select class="cmd-input" value={settings.providers?.pi || 'auto'}
-                  onchange={(e) => updateSettings({ providers: { ...settings.providers, pi: e.currentTarget.value } }).then(loadSessions)}>
-            <option value="auto">Auto — detect</option>
-            <option value="on">On — forced</option>
-            <option value="off">Off — hidden</option>
-          </select>
-        </label>
-      </div>
+      <p class="hint">The agents hooked can drive. Built-ins: <strong>Claude</strong> (Claude Code through the Agent SDK) and <strong>Pi</strong> (the pi coding agent, any model it is signed in to). Add your own on an engine: <code>pi</code> narrowed to some models (<code>mistral/*</code>…), <code>acp</code> for any Agent Client Protocol agent (Gemini CLI, Codex, OpenCode, Goose…), or an external engine module. <strong>Auto</strong> = detect the agent; <strong>On</strong> = forced active (e.g. frozen PATH under launchd); <strong>Off</strong> = hidden and not launchable. Details in <code>docs/providers.md</code>.</p>
+      <ProvidersSettings />
     </div>
 
     {#if hasClaude}
@@ -1388,7 +1366,7 @@
   /* Filtre des modèles : une ligne par famille (libellé à gauche, pilules de versions à droite). */
   .mf-row { display: flex; align-items: center; gap: 12px; padding: 6px 0; flex-wrap: wrap; }
   .mf-fam { flex: 0 0 70px; font-size: var(--t-meta); font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
-  /* Sous-sections de la carte « Visible models » : un bloc par provider (Claude Code, Mistral Pi). */
+  /* Sous-sections de la carte « Visible models » : un bloc par provider (Claude Code, pi catalogue). */
   .mf-sec { font-size: var(--t-meta); font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin: 16px 0 6px; }
   .mf-sec:first-of-type { margin-top: 4px; }
   /* Liste plate (pi n'a pas de familles) : les pilules occupent toute la largeur. */
