@@ -29,10 +29,13 @@ function parseTokens(v) {
 function parseCatalog(text) {
   const out = [];
   for (const line of String(text || '').split('\n')) {
-    const cols = line.trim().split(/\s{2,}|\t/);
-    if (cols.length < 2) continue;
+    // No column holds a space (ids, sizes, yes/no): any run of whitespace separates them, however
+    // wide pi pads a column.
+    const cols = line.trim().split(/\s+/);
+    // A model row has the six columns, a token count and yes/no flags: anything else (header,
+    // warnings, a "No models matching" line) is skipped.
+    if (cols.length < 6 || parseTokens(cols[2]) == null || !/^(yes|no)$/i.test(cols[4])) continue;
     const [provider, id] = cols;
-    if (provider === 'provider' && id === 'model') continue; // header
     if (!/^[a-z0-9][a-z0-9._-]*$/i.test(provider) || !/^[A-Za-z0-9][A-Za-z0-9._:@+-]*$/.test(id)) continue;
     out.push({
       provider,

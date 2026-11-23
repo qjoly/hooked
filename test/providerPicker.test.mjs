@@ -31,3 +31,51 @@ describe('effectiveProvider (nouvelle session)', () => {
     expect(effectiveProvider(null, 'pi')).toBe('claude');
   });
 });
+
+// ── Provider registry on the client (any number of providers) ─────────────────────────────────
+import { multiProvider, providerInfo, can, enabledProviderIds, setProviderList, providerBadgeStyle } from '../src/lib/providers.js';
+import { agentName, resumeCommand } from '../src/lib/format.js';
+
+describe('multiProvider', () => {
+  it('true as soon as two providers are enabled, whichever they are', () => {
+    expect(multiProvider({ claude: true, pi: false })).toBe(false);
+    expect(multiProvider({ claude: false, pi: true, gemini: true })).toBe(true);
+    expect(multiProvider({ claude: true, gemini: true })).toBe(true);
+    expect(multiProvider(null)).toBe(false);
+  });
+  it('effectiveProvider keeps a custom provider when it is enabled', () => {
+    expect(effectiveProvider({ claude: true, gemini: true }, 'gemini')).toBe('gemini');
+    expect(effectiveProvider({ claude: false, pi: false, gemini: true }, 'pi')).toBe('gemini');
+  });
+});
+
+describe('provider descriptors', () => {
+  const LIST = [
+    { id: 'claude', engine: 'claude', label: 'Claude', short: 'cc', color: null, capabilities: { plan: true } },
+    { id: 'gemini', engine: 'acp', label: 'Gemini', short: 'gm', color: '#4285f4', capabilities: { plan: false, permissions: true } },
+  ];
+  it('fall back to the built-ins before the list arrives, and derive a label from an unknown id', () => {
+    expect(providerInfo('claude', []).label).toBe('Claude');
+    expect(providerInfo('pi', []).label).toBe('Pi');
+    expect(providerInfo('my-agent', []).label).toBe('My Agent');
+    expect(can('claude', 'plan', [])).toBe(true);
+    expect(can('pi', 'plan', [])).toBe(false);
+  });
+  it('read labels, capabilities and badge colours from the server list', () => {
+    expect(providerInfo('gemini', LIST).label).toBe('Gemini');
+    expect(can('gemini', 'permissions', LIST)).toBe(true);
+    expect(can('gemini', 'plan', LIST)).toBe(false);
+    expect(providerBadgeStyle('gemini', LIST)).toBe('--prov:#4285f4');
+    expect(providerBadgeStyle('claude', LIST)).toBe('');
+    expect(enabledProviderIds({ gemini: true, claude: true, off: false }, LIST)).toEqual(['claude', 'gemini']);
+  });
+  it('name the agent and its resume command per provider', () => {
+    setProviderList(LIST);
+    expect(agentName('gemini')).toBe('Gemini');
+    expect(agentName(undefined)).toBe('Claude');
+    expect(resumeCommand({ id: 'x', provider: 'gemini' })).toBe(''); // resumed through hooked only
+    expect(resumeCommand({ id: 'x', provider: 'pi' })).toBe('pi --session-id x');
+    expect(resumeCommand({ id: 'x' })).toBe('claude --resume=x');
+    setProviderList([]);
+  });
+});
