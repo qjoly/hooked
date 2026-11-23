@@ -6,27 +6,20 @@ import path from 'node:path';
 import { statSafe, truncTitle } from './util.js';
 import { scanSessions, blankSummary } from './transcript.js';
 import { scanAllSessions } from './sessions.js';
-import { buildPiConversation, latestPiTodos, piSubagents, piSubSessions, piScreenshots, piContext } from './pi.js';
+import { engineForSession, providerConfigs } from './providers.js';
 import { repoSlug, worktreeOf } from './git.js';
 import { readEvents, lastEventBySession, lastActivityEventBySession, modeForSession, liveQuestionForSession, liveQuestionBySession, livePlanForSession, livePlanBySession, eventSessionMeta, rcSessionIdsFromEvents } from './events.js';
 import { liveStateFor } from './live.js';
 import { resolveLaunchForSession, agentAlive, agentSession, agentMode, agentAutoApprove, agentBusy, agentActivity, agentFollowup, agentLastProse, agentPendingAsk, agentCacheInfo } from './agent.js';
 import { sessionStatus, sessionStatusRaw, accountRateLimits, freshestStatusId } from './status.js';
 import { scopedLimit, accountLimit, currentUtilization, usageFreshness } from './utilization.js';
-import { buildConversation } from './conversation.js';
-import { buildSubSessions } from './subSessions.js';
 import { buildFileChanges } from './changes.js';
-import { buildSubagents } from './subagents.js';
-import { buildScreenshots } from './screenshots.js';
-import { buildWorkflows } from './workflows.js';
-import { latestTodos, todoSummary } from './todos.js';
+import { todoSummary } from './todos.js';
 import { buildBackgroundJobs, jobStatus, jobLabel } from './background.js';
 import { readSessionMeta, groupInfo } from './sessionMeta.js';
 import { DIGEST_PROMPT_PREFIX } from './digests.js';
-import { withSharedRows, memoByFile } from './transcriptCache.js';
+import { withSharedRows } from './transcriptCache.js';
 
-const conversationOf = memoByFile(buildConversation);
-const subSessionsOf = memoByFile(buildSubSessions);
 
 // Sessions « live-only » : présentes dans les évènements de hooks mais pas encore
 // dans un transcript (Claude Code n'écrit le .jsonl qu'au premier message de
@@ -190,8 +183,9 @@ function buildSessions() {
       { hookTs: s.liveTs, sdkTs: agent ? agent.lastMsgAt : null });
     // jobs de fond de la session, chacun classé par jobStatus (croise notif terminale, timeout
     // Monitor, vivacité de la session). SEUL 'running' compte comme actif → forme légère sidebar.
-    // (les sessions pi n'ont pas de transcript Claude : pas de jobs détectés pour l'instant)
-    const bgRunning = (s.provider === 'pi' ? [] : buildBackgroundJobs(s.file).jobs)
+    // Only an engine that has them (Claude: Monitor / run_in_background) reports any.
+    const eng = engineForSession(s);
+    const bgRunning = (eng.backgroundJobs ? eng.backgroundJobs(s).jobs : [])
       .filter((j) => jobStatus(j, s.live, now) === 'running');
     s.bgJobs = bgRunning.map((j) => ({ kind: j.kind, label: jobLabel(j), startedAt: j.startTs, status: 'running' }));
     // 'working' prime sur 'background' quand la session a un job de fond ET mouline vraiment.
@@ -223,7 +217,7 @@ function buildSessions() {
       ? { id: ask.id, plan: ask.plan }
       : (plans.get(s.id) || null);
     // résumé compact de la TodoList (où en est la session) — léger, pour la sidebar.
-    s.todo = todoSummary(s.provider === 'pi' ? latestPiTodos(s.file) : latestTodos(s.file));
+    s.todo = todoSummary(eng.todos ? eng.todos(s) : null);
   }
 // tri : plus récente activité d'abord
   visible.sort((a, b) => String(b.lastActivity || '').localeCompare(String(a.lastActivity || '')));
@@ -318,7 +312,26 @@ function buildUsage() {
   const account = (merged || fable)
     ? { fiveHour: null, sevenDay: null, at: null, ...merged, fable, usage: fresh }
     : null;
-  return { sessionId: id, session, account, pi: buildPiUsage(scanAllSessions()) };
+  const all = scanAllSessions();
+  return {
+    sessionId: id, session, account,
+    // Historical key (web TopBar, desktop): every pi-engine provider together.
+    pi: buildPiUsage(all),
+    // One entry per non-Claude provider that has sessions: cost / tokens of the day + freshest
+    // session, for providers without account rate limits.
+    providers: buildProviderUsage(all),
+  };
+}
+
+// Usage summary per provider (everything but the Claude engine, whose header shows rate limits).
+function buildProviderUsage(sessions, meta = readSessionMeta()) {
+  const out = {};
+  for (const p of providerConfigs()) {
+    if (p.engine === 'claude') continue;
+    const u = usageSummary((sessions || []).filter((s) => s && s.provider === p.id), meta);
+    if (u) out[p.id] = { ...u, label: p.label };
+  }
+  return out;
 }
 
 // Usage pi pour l'entête (TopBar), vue « pi » : Mistral n'expose pas de rate limits compte comme
@@ -327,8 +340,12 @@ function buildUsage() {
 // (pilotée de préférence, son journal est live) pour le modèle et le contexte en tooltip.
 // Pureté : la liste des sessions et la meta sont passées en paramètre (testable sans env).
 function buildPiUsage(sessions, meta = readSessionMeta()) {
+  return usageSummary((sessions || []).filter((s) => s && (s.engine === 'pi' || (!s.engine && s.provider === 'pi'))), meta);
+}
+
+function usageSummary(sessions, meta) {
   const pi = (sessions || [])
-    .filter((s) => s && s.provider === 'pi' && !(meta[s.id] && meta[s.id].archived))
+    .filter((s) => s && !(meta[s.id] && meta[s.id].archived))
     .sort((a, b) => String(b.lastTs || '').localeCompare(String(a.lastTs || '')));
   if (!pi.length) return null;
   const today = new Date().toISOString().slice(0, 10);
@@ -345,7 +362,8 @@ function buildPiUsage(sessions, meta = readSessionMeta()) {
   }
   const live = pi.find((s) => agentSession(s.id)) || null;
   const s = live || pi[0];
-  const ctx = piContext(s);
+  const eng = engineForSession(s);
+  const ctx = eng.context ? eng.context(s) : null;
   return {
     sessionId: s.id,
     title: s.title || null,
@@ -399,8 +417,10 @@ function buildSessionDetail(id) {
   s.worktreeOf = worktreeOf(s.project);
   const ev = readEvents().filter((e) => e.session_id === id).slice(-60);
   const last = ev.length ? liveStateFor(ev[ev.length - 1]) : null;
-  // provider pi : la conversation est rebuildée depuis le journal Pi, pas depuis un transcript Claude.
-  let messages = s.provider === 'pi' ? buildPiConversation(s.file) : conversationOf(s.file);
+  // Read through the session's engine (Claude transcript, pi session file, provider journal…).
+  const eng = engineForSession(s);
+  const call = (fn, fallback) => (typeof eng[fn] === 'function' ? eng[fn](s) : fallback);
+  let messages = s.file ? call('conversation', []) : [];
   // Le transcript ne porte pas encore le prompt (subagent foreground en cours, cf. fillFromEvents) :
   // les hooks, eux, l'ont capté. Sans ça la conversation reste « Empty conversation » pendant tout
   // le travail de la session.
@@ -408,20 +428,20 @@ function buildSessionDetail(id) {
     messages = [{ role: 'user', ts: s.startTs || null, text: s.firstPrompt, tools: [], fromHooks: true }];
   }
   // sessions sœurs créées / référencées par cette conversation (cartes vivantes du sous-onglet).
-  const subSessions = s.provider === 'pi' ? piSubSessions(s.file) : subSessionsOf(s.file, id);
+  const subSessions = s.file ? call('subSessions', []) : [];
   const changes = buildFileChanges(s.file, id);
   // Tours (prompts) de la conversation, pour filtrer les changements par prompt dans la lentille
   // Ship. On exclut les tours auto (wakeups SDK) ; l'attribution op→tour se fait par timestamp.
   const changeTurns = messages
     .filter((m) => m.role === 'user' && !m.auto && m.ts)
     .map((m, i) => ({ turn: i, ts: m.ts, prompt: (m.text || '').replace(/\s+/g, ' ').trim().slice(0, 100) }));
-  const subagents = s.provider === 'pi' ? piSubagents(s.file) : buildSubagents(s.file);
+  const subagents = s.file ? call('subagents', []) : [];
   // screenshots vus/produits par la session et ses sous-agents (cf. server/screenshots.js).
-  const screenshots = s.provider === 'pi' ? piScreenshots(s.file) : buildScreenshots(s.file, id);
+  const screenshots = s.file ? call('screenshots', []) : [];
   // runs de workflow (outil `Workflow`) : phases + agents, live pendant le run puis figés depuis
   // l'enregistrement final. Cf. server/workflows.js pour les deux sources de vérité.
-  const workflows = buildWorkflows(s.file);
-  const todos = s.provider === 'pi' ? latestPiTodos(s.file) : latestTodos(s.file);
+  const workflows = s.file ? call('workflows', []) : [];
+  const todos = s.file ? call('todos', null) : null;
   const li = resolveLaunchForSession(id);
   const agent = agentSession(id);
   const alive = !!agent;
@@ -463,7 +483,7 @@ function buildSessionDetail(id) {
   const refined = refineWithAgent(last ? last.state : (s.state || 'past'), alive, agent ? agent.sdkState : null,
     { hookTs: lastEv ? lastEv.ts : null, sdkTs: agent ? agent.lastMsgAt : null });
   // jobs de fond de la session : TOUS (actifs + historique) avec leur statut, pour l'onglet Background.
-  const bg = s.provider === 'pi' ? { jobs: [] } : buildBackgroundJobs(s.file);
+  const bg = s.file ? call('backgroundJobs', { jobs: [] }) : { jobs: [] };
   const now = Date.now();
   const bgJobs = bg.jobs
     .map((j) => ({ ...j, label: jobLabel(j), status: jobStatus(j, alive, now) }))
@@ -500,8 +520,8 @@ function buildSessionDetail(id) {
     model: (li && li.model && !s.model) ? li.model : s.model,
     launchModel: li ? li.model : null,   // forme courte (opus/sonnet…) pour relancer en conservant la config
     rateLimit: status ? status.rateLimit : null,   // vrais % 5 h / 7 j du compte (via statusline)
-    // pi : pas de statusline Claude → jauge calculée depuis le dernier usage du journal.
-    context: (status && status.context) ? status.context : (s.provider === 'pi' ? piContext(s) : null),
+    // No statusline outside Claude: the engine computes the gauge from its own store.
+    context: (status && status.context) ? status.context : call('context', null),
     cache: sessionCache(s, alive ? agentCacheInfo(id) : null),   // prompt-cache clock (warm/cold, cold-resume size)
     fastMode: status ? status.fastMode : false,
     events: ev, messages, subSessions, changes, subagents, workflows, screenshots,
@@ -509,4 +529,4 @@ function buildSessionDetail(id) {
   };
 }
 
-export { buildSessions, buildSessionsWarm, buildStats, buildUsage, buildPiUsage, sessionDetail, sessionDetailWarm, eventOnlySessions, fillFromEvents, refineWithAgent, withBackgroundState, resolveBackgroundOutput };
+export { buildSessions, buildSessionsWarm, buildStats, buildUsage, buildPiUsage, buildProviderUsage, sessionDetail, sessionDetailWarm, eventOnlySessions, fillFromEvents, refineWithAgent, withBackgroundState, resolveBackgroundOutput };

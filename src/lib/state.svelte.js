@@ -3,7 +3,8 @@
 // ici : elle est portée par l'URL (routing SvelteKit). Ne restent que les filtres de la
 // sidebar, l'état live (SSE), le tick de rafraîchissement et la modale.
 import { floating } from './floating.svelte.js';
-import { getSessionsFull, connectSSE, getSettings, saveSettings as apiSaveSettings, getTags, saveTags, replaceTags, suggestTags, getSessionMeta, saveSessionMeta, groupOp, kill, getAccount } from './api.js';
+import { getSessionsFull, connectSSE, getSettings, saveSettings as apiSaveSettings, getTags, saveTags, replaceTags, suggestTags, getSessionMeta, saveSessionMeta, groupOp, kill, getAccount, getProviders } from './api.js';
+import { setProviderList } from './providers.js';
 import { NOTIFY_KINDS, notifyKeyFor, countsForBadge } from './notify.js';
 import { isFinishedAndCold } from './format.js';
 import { DEFAULT_HIDDEN_MODELS, DEFAULT_HIDDEN_PI_MODELS } from './models.js';
@@ -446,8 +447,14 @@ export function setCorners(c) {
 // lisent TOUS les panneaux — d'où le filtre incognito ici, en un seul point, plutôt que répété
 // dans la sidebar, le Deck, les splits, le sélecteur de groupe…
 const raw = $state({ sessions: [] });
+const prov = $state({ providers: { claude: true, pi: false }, providerList: [] });
 export const data = {
-  providers: { claude: true, pi: false }, // providers configurés (badge sidebar) — défaut: un seul
+  // { [id]: enabled } and the full descriptors (label, badge, colour, capabilities) of every
+  // provider — cf. src/lib/providers.js. Reactive: components pass providerList to the helpers.
+  get providers() { return prov.providers; },
+  set providers(v) { prov.providers = v; },
+  get providerList() { return prov.providerList; },
+  set providerList(v) { prov.providerList = v; setProviderList(v); },
   get sessions() { return ui.incognito ? raw.sessions.filter((s) => isIncognito(s.id)) : raw.sessions; },
   set sessions(v) { raw.sessions = v; },
 };
@@ -542,11 +549,24 @@ export async function toggleNotify() {
   applyTitleBadge();
 }
 
+// Explicit provider refresh (after a settings change: /api/sessions may answer 304).
+export async function loadProviders() {
+  try {
+    const r = await getProviders();
+    if (r && Array.isArray(r.providers)) {
+      data.providerList = r.providers;
+      data.providers = r.enabled || data.providers;
+    }
+    return r;
+  } catch (_) { return null; }
+}
+
 export async function loadSessions() {
   try {
     const full = await getSessionsFull();
     const sessions = full.sessions;
     data.providers = full.providers || data.providers;
+    if (Array.isArray(full.providerList)) data.providerList = full.providerList;
     // A new session may have been grouped — or flagged incognito — server-side (MCP start_session,
     // launch) → resync the meta. Compared against the RAW list: in incognito mode the visible one
     // is empty until the meta resync lands, which would stop it from ever happening.

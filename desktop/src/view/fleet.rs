@@ -466,14 +466,20 @@ fn caption(k: &Kit, label: &str) -> El {
 }
 
 
-/// Small claude/pi badge shown next to a session row/card — only when BOTH providers are
-/// installed on this machine (with a single one, the badge would tell nothing).
-/// Pill with a filled background so the provider is readable at a glance.
+/// Small provider badge shown next to a session row/card — only when several providers are
+/// enabled (with a single one, the badge would tell nothing). Pill with a filled background so
+/// the provider is readable at a glance: the provider's configured colour when it has one, the
+/// accent for any non-Claude provider otherwise, neutral for Claude Code.
 pub(super) fn prov_badge(s: &Hooked, k: &Kit, x: &Session) -> Option<El> {
     if !s.providers.both() {
         return None;
     }
-    let pi = x.provider.as_deref() == Some("pi");
+    let info = s.providers.info(x.provider.as_deref().unwrap_or("claude"));
+    let (fill, ink) = match info.color.as_deref().and_then(rune::color::hex) {
+        Some(c) => (c, Color::WHITE),
+        None if info.is_claude() => (k.c.layer_02, k.c.text_muted),
+        None => (k.c.bg_accent, k.c.text_inverse),
+    };
     let mut f = k.ty.mono;
     f.size = 9.0;
     Some(
@@ -483,12 +489,9 @@ pub(super) fn prov_badge(s: &Hooked, k: &Kit, x: &Session) -> Option<El> {
             .px(5.0)
             .center_y()
             .radius(4.0)
-            .fill(if pi { k.c.bg_accent } else { k.c.layer_02 })
-            .child(
-                text(if pi { "pi" } else { "cc" })
-                    .font(f)
-                    .color(if pi { k.c.text_inverse } else { k.c.text_muted }),
-            ),
+            .fill(fill)
+            .help(format!("{} session", info.label))
+            .child(text(info.short.clone()).font(f).color(ink)),
     )
 }
 

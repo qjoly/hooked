@@ -14,7 +14,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { scanAllSessions } from './sessions.js';
-import { launchSession, forkPi, err400 } from './agent.js';
+import { launchSession, forkDriven, err400 } from './agent.js';
+import { engineForSession } from './providers.js';
 import { isIncognitoSession, setSessionMeta } from './sessionMeta.js';
 
 function safeParse(line) { try { return JSON.parse(line); } catch (_) { return null; } }
@@ -65,10 +66,11 @@ function forkSession({ id, forkUuid, prompt, model, effort, permissionMode }, cb
   if (!/^[A-Za-z0-9._-]+$/.test(id || '')) return cb(err400('invalid session id'));
   const sess = scanAllSessions().find((s) => s.id === id);
   if (!sess) return cb(err400('session not found'));
-  // provider pi : fork via RPC pi dans un process jetable (--session <src> + fork/clone) ;
-  // `forkUuid` = entryId du message user à partir duquel forker (clone sinon).
-  if (sess.provider === 'pi') {
-    return forkPi(id, { cwd: sess.project, prompt, model, effort, permissionMode, forkUuid }, (err, info) => {
+  // Non-Claude engine: forked by its driver (pi: a throwaway RPC process, --session <src> +
+  // fork/clone; `forkUuid` = the entry to fork from, clone otherwise).
+  const engine = engineForSession(sess);
+  if (engine && engine.id !== 'claude') {
+    return forkDriven(id, { cwd: sess.project, prompt, model, effort, permissionMode, forkUuid }, (err, info) => {
       if (err) return cb(err);
       try { if (isIncognitoSession(id)) setSessionMeta(info.sessionId, { incognito: true }); } catch (_) {}
       cb(null, { ...info, forkedFrom: id });

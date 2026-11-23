@@ -1,6 +1,7 @@
 <script>
   import { getCronTasks, cronOp } from '#lib/api.js';
   import { data } from '#lib/state.svelte.js';
+  import { providerListAll, providerEngine } from '#lib/providers.js';
   import { nextRuns } from '#lib/cron.js';
   import { knownProjects } from '#lib/projects.js';
   import { fmtSpan, ago } from '#lib/format.js';
@@ -159,12 +160,17 @@
 
         <label class="fld"><span>Provider</span>
           <select bind:value={form.provider}>
-            <option value="claude">Claude Code</option>
-            <option value="pi">Mistral Pi</option>
+            {#each providerListAll(data.providerList) as p (p.id)}
+              <option value={p.id} disabled={!data.providers[p.id] && p.id !== form.provider}>{p.label}{data.providers[p.id] ? '' : ' (off)'}</option>
+            {/each}
           </select>
         </label>
-        {#if form.provider !== 'pi'}
+        {#if providerEngine(form.provider, data.providerList) === 'claude'}
         <ModelEffort allowInherit showMode bind:model={form.model} bind:effort={form.effort} bind:mode={form.permissionMode} />
+        {:else}
+        <label class="fld"><span>Model</span>
+          <input class="lf-input mono" bind:value={form.model} placeholder="provider default (e.g. mistral/devstral-medium-latest)" />
+        </label>
         {/if}
 
         <label class="check">

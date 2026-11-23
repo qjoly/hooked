@@ -152,10 +152,34 @@ const TOOLS = [
     run: (a) => httpRequest('GET', '/api/session?id=' + encodeURIComponent(a.id)),
   },
   {
+    name: 'list_providers',
+    description:
+      'Agent providers hooked can launch sessions on (start_session `provider`): id, label, engine ' +
+      '(claude = Claude Code, pi = pi coding agent, acp = an Agent Client Protocol agent such as ' +
+      'Gemini CLI, or an external engine), whether it is enabled, its model filters and capabilities.',
+    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+    run: async () => {
+      const r = await httpRequest('GET', '/api/providers');
+      if (!r.ok) return r;
+      const list = (r.data && r.data.providers) || [];
+      return {
+        ok: true,
+        data: {
+          providers: list.map((p) => ({
+            id: p.id, label: p.label, engine: p.engine, enabled: p.enabled, description: p.description,
+            models: p.models, defaultModel: p.defaultModel,
+            capabilities: Object.keys(p.capabilities || {}).filter((k) => p.capabilities[k]),
+          })),
+        },
+      };
+    },
+  },
+  {
     name: 'start_session',
     description:
-      'Démarre une nouvelle session Claude Code pilotée par hooked (ou reprend une session ' +
-      'existante via resumeId), dans le dossier indiqué. La réponse inclut `sessionId` et `link` ' +
+      'Démarre une nouvelle session pilotée par hooked (ou reprend une session ' +
+      'existante via resumeId), dans le dossier indiqué. `provider` choisit l\'agent (claude par ' +
+      'défaut ; pi, ou tout provider des réglages — cf. list_providers). La réponse inclut `sessionId` et `link` ' +
       "(deep-link relatif `/session/<id>`) : pour pointer l'utilisateur vers la nouvelle session " +
       'dans hooked, émets un lien markdown `[label](<link>)`. Une session lancée depuis une session ' +
       'pilotée par hooked rejoint automatiquement le groupe de la session appelante, sauf `group: false`.',
@@ -163,8 +187,9 @@ const TOOLS = [
       type: 'object',
       properties: {
         cwd: { type: 'string', description: 'dossier de travail (requis sauf reprise, où il est déduit)' },
+        provider: { type: 'string', description: 'agent provider id (see list_providers): claude, pi, or a custom one such as gemini. Default: the settings default provider (a resumed session keeps its own).' },
         prompt: { type: 'string', description: 'premier message optionnel envoyé à la session' },
-        model: { type: 'string', description: 'modèle optionnel : alias de famille (opus/sonnet/haiku/fable) ou version complète (ex. claude-opus-4-8). Valeurs valides = install claude locale ; une valeur inconnue est rejetée par le serveur.' },
+        model: { type: 'string', description: 'modèle optionnel. Claude : alias de famille (opus/sonnet/haiku/fable) ou version complète (ex. claude-opus-4-8). pi : `provider/id` (ex. mistral/devstral-medium-latest). Autres providers : un id que l\'agent annonce. Validé par le serveur.' },
         effort: { type: 'string', description: 'niveau d\'effort optionnel (low/medium/high/xhigh/max, + ultracode si claude ≥ 2.1.203). Validé par le serveur.' },
         resumeId: { type: 'string', description: 'id d\'une session existante à reprendre' },
         worktree: { type: 'boolean', description: 'new session only: create a git worktree on a new branch and start the session in it' },

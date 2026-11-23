@@ -2,6 +2,7 @@
  * Skills explorer: every SKILL.md Claude Code can load, with its source (user, project, plugin).
  * Read straight from disk; the bundled skills (/simplify, /loop…) live in the binary and are not listed.
  */
+import { engineOf } from './providers.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import { HOME, PI_AGENT_DIR } from './config.js';
@@ -96,7 +97,18 @@ function listPiSkills(cwds = []) {
 // `cwds`: the project directories whose `.claude/skills` should be listed too.
 // `provider`: 'claude' (défaut, non-régression), 'pi', ou 'all' → les deux providers,
 // chaque entrée porte alors son champ `provider`.
+function skillsKindOf(providerId) {
+  const e = engineOf(providerId);
+  return e ? e.skillsKind || null : null;
+}
+
 export function listSkills(cwds = [], provider = undefined) {
+  // A provider id (custom pi-based provider, ACP agent…) reads the skills of its engine's flavour.
+  if (provider && provider !== 'all' && provider !== 'claude' && provider !== 'pi') {
+    const kind = skillsKindOf(provider);
+    if (kind === 'pi') return listPiSkills(cwds);
+    if (kind !== 'claude') return [];
+  }
   if (provider === 'pi') return listPiSkills(cwds);
   const projects = [...new Set(cwds)].filter((c) => typeof c === 'string' && path.isAbsolute(c)).slice(0, 100);
   const claude = [

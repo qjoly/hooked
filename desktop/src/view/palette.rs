@@ -47,9 +47,9 @@ pub fn commands(s: &Hooked) -> Vec<Cmd> {
             s.open_sessions()
         }),
     ];
-    // Le filtre provider n'a de sens que quand les DEUX providers sont installés.
+    // The provider filter only makes sense with several providers enabled.
     if s.providers.both() {
-        out.push(cmd(nav, &icons::FILTER, "Filter by provider (all/Claude/Pi)", "⌥3", |s, _| {
+        out.push(cmd(nav, &icons::FILTER, "Filter by provider (cycles all / each provider)", "⌥3", |s, _| {
             s.cycle_provider_filter()
         }));
     }

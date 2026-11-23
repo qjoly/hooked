@@ -6,6 +6,7 @@
   import { ui, data, settings, account, cycleTheme, toggleNotify, toggleIncognitoMode, openModal, isArchived, isSessionArchived, snoozeUntil } from '#lib/state.svelte.js';
   import { getUsage } from '#lib/api.js';
   import { initials, needsDecision, sessionDot, fmtTokens, fmtCost } from '#lib/format.js';
+  import { providerShort } from '#lib/providers.js';
   import { NAV_TABS, NAV_KEYS, pageHref } from '#lib/nav.js';
   import Icon from '#lib/components/Icon.svelte';
   import FleetWheel from '#lib/components/FleetWheel.svelte';
@@ -73,26 +74,34 @@
   // limites compte exposées), avec la session la plus fraîche (modèle, contexte) en tooltip.
   // Un seul groupe est affiché à la fois (même design qu'avant) : un clic sur le bloc alterne quand
   // les deux fournisseurs sont configurés. Le choix est persisté en localStorage.
-  const hasPi = $derived(!!data.providers?.pi);
-  const pi = $derived(usage?.pi ?? null);
+  // One view per non-Claude provider with sessions (usage.providers, cf. buildProviderUsage); the
+  // click cycles claude → each provider. Older servers only send `usage.pi`.
+  const provUsage = $derived(usage?.providers && Object.keys(usage.providers).length
+    ? usage.providers
+    : (usage?.pi ? { pi: { ...usage.pi, label: 'Pi' } } : {}));
+  const usageViews = $derived([...(hasClaude ? ['claude'] : []), ...Object.keys(provUsage).filter((id) => data.providers?.[id])]);
+  const hasPi = $derived(usageViews.some((v) => v !== 'claude'));
+  // Usage of the provider on display (`view` is resolved below, from the persisted choice).
+  const pi = $derived(view !== 'claude' ? (provUsage[view] || null) : null);
   const piCtx = $derived(pi?.context ?? null);
   const piAge = $derived(pi?.at ? Math.max(0, Math.round((nowMin - Date.parse(pi.at)) / 60000)) : null);
   const piTitle = $derived(pi
-    ? `pi — usage today: ${fmtCost(pi.todayCost)} · ${fmtTokens(pi.todayTokens || 0)} tokens`
+    ? `${pi.label || 'pi'} — usage today: ${fmtCost(pi.todayCost)} · ${fmtTokens(pi.todayTokens || 0)} tokens`
       + `\ntotal: ${fmtCost(pi.cost)} · ${pi.sessions || 1} session${(pi.sessions || 1) > 1 ? 's' : ''}`
       + `\nlatest: ${pi.title || pi.sessionId}${pi.model ? ` · ${pi.model}` : ''}`
       + (piCtx ? ` · ctx ${fmtTokens(piCtx.size)}/${fmtTokens(piCtx.contextWindow)}` : '')
       + (piAge != null ? `\n${pi.live ? 'live' : 'last activity'} ${piAge < 1 ? 'just now' : piAge + 'min ago'}` : '')
     : '');
-  let usageView = $state(typeof localStorage !== 'undefined' && localStorage.getItem('hooked.usageView') === 'pi' ? 'pi' : 'claude');
+  let usageView = $state((typeof localStorage !== 'undefined' && localStorage.getItem('hooked.usageView')) || 'claude');
   $effect(() => { if (typeof localStorage !== 'undefined') localStorage.setItem('hooked.usageView', usageView); });
-  const showPi = $derived(hasPi && !!pi && (usageView === 'pi' || !hasClaude));
+  const view = $derived(usageViews.includes(usageView) ? usageView : (usageViews[0] || 'claude'));
+  const showPi = $derived(view !== 'claude' && !!pi);
   const showClaude = $derived(hasClaude && !showPi);
-  const canToggle = $derived(hasClaude && hasPi && !!pi);
-  const toggleUsageView = () => { if (canToggle) usageView = usageView === 'pi' ? 'claude' : 'pi'; };
+  const canToggle = $derived(usageViews.length > 1);
+  const toggleUsageView = () => { if (canToggle) usageView = usageViews[(usageViews.indexOf(view) + 1) % usageViews.length]; };
   const gaugesTitle = $derived(showClaude
-    ? (canToggle ? 'Account rate limits — click to switch to the pi session' : 'Account rate limits')
-    : (canToggle ? 'pi session usage — click to switch to account rate limits' : 'pi session usage'));
+    ? (canToggle ? 'Account rate limits — click to switch to the next provider' : 'Account rate limits')
+    : `${pi?.label || 'Provider'} session usage${canToggle ? ' — click to switch' : ''}`);
   const fableAge = $derived(fable?.at ? Math.max(0, Math.round((nowMin - Date.parse(fable.at)) / 60000)) : null);
   const fableStale = $derived(fableAge != null && fableAge >= 10);
   const barW = (pct) => Math.max(0, Math.min(100, pct || 0));
@@ -182,9 +191,9 @@
       </div>
     {/if}
     {:else}
-    <!-- Vue pi : l'usage du jour (coût + tokens), pas de jauge — Mistral n'a pas de limite connue. -->
+    <!-- Provider view: today's usage (cost + tokens), no gauge — no account limit is known. -->
     <div class="tb-gauge tb-usage" title={piTitle}>
-      <div class="tb-g-lbl"><span>PI</span><span>{fmtCost(pi.todayCost)}</span></div>
+      <div class="tb-g-lbl"><span>{providerShort(view, data.providerList).toUpperCase()}</span><span>{fmtCost(pi.todayCost)}</span></div>
       <div class="tb-g-sub">{fmtTokens(pi.todayTokens || 0)} tok today</div>
     </div>
     {/if}

@@ -70,7 +70,9 @@ export function filterModelGroups(groups, hidden, keep = '') {
 export function filterModelOpts(opts, hidden, keep = '') {
   const hide = hiddenSet(hidden, isHideablePiModel);
   if (!hide.size) return opts || [];
-  return (opts || []).filter(([id]) => !hide.has(id) || id === keep);
+  // Catalog entries are `provider/id`; an id hidden before models were qualified still hides them.
+  const bare = (id) => (String(id).includes('/') ? String(id).slice(String(id).indexOf('/') + 1) : id);
+  return (opts || []).filter(([id]) => !(hide.has(id) || hide.has(bare(id))) || id === keep);
 }
 
 // Liste noire par défaut du provider pi : rien de masqué. Le catalogue pi est déjà court et mis à

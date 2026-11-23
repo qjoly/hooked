@@ -12,7 +12,7 @@
   // aux défauts de session (Réglages), où '' signifie « retomber sur la config Claude Code ».
   // `modelOpts`/`effortList` : listes externes (provider pi → /api/pi-options) qui remplacent
   // les capacités Claude quand elles sont fournies.
-  let { model = $bindable('opus'), effort = $bindable('high'), mode = $bindable('default'), compact = false, showMode = false, allowInherit = false, onchange = null, disabled = false, modelOpts = null, effortList = null } = $props();
+  let { model = $bindable('opus'), effort = $bindable('high'), mode = $bindable('default'), compact = false, showMode = false, allowInherit = false, onchange = null, disabled = false, modelOpts = null, effortList = null, modelOptsLabel = null, hiddenExtra = null } = $props();
   const fire = () => onchange && onchange();
 
   // Modèles & efforts dérivés LIVE du binaire claude (cf. server/capabilities.js), chargés une fois
@@ -38,12 +38,12 @@
   const visibleGroups = $derived(filterModelGroups(modelGroups, settings.hiddenModels, model));
   // Même réglage pour le provider pi : sa liste vient de /api/pi-options (`pi --list-models`), donc
   // elle ne traverse pas server/capabilities.js et le filtre s'applique ici, sur la liste plate.
-  const visiblePiOpts = $derived(modelOpts ? filterModelOpts(modelOpts, settings.hiddenPiModels, model) : null);
+  const visiblePiOpts = $derived(modelOpts ? filterModelOpts(modelOpts, [...(settings.hiddenPiModels || []), ...(hiddenExtra || [])], model) : null);
   const modelView = $derived.by(() => {
     if (modelOpts) {
       const opts = visiblePiOpts || modelOpts;
       const has = opts.some(([v]) => v === model);
-      return [{ label: 'Pi models', opts: model && !has ? [[model, shortModel(model)], ...opts] : opts }];
+      return [{ label: modelOptsLabel || 'Models', opts: model && !has ? [[model, shortModel(model)], ...opts] : opts }];
     }
     const has = visibleGroups.some((g) => g.opts.some(([v]) => v === model));
     if (model && !has) return [{ label: '', opts: [[model, shortModel(model)]] }, ...visibleGroups];

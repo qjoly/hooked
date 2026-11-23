@@ -1,6 +1,7 @@
 // Helpers de formatage — portés à l'identique depuis l'ancien app.js.
 
 import MarkdownIt from 'markdown-it';
+import { providerLabel, providerEngine } from './providers.js';
 import taskLists from 'markdown-it-task-lists';
 
 export const esc = (s) => String(s == null ? '' : s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -100,8 +101,9 @@ export const STATE_LABEL = {
   background: 'Running in background', idle: 'Paused', ended: 'Ended', past: 'Past',
 };
 
-// Nom d'affichage de l'agent selon le provider de la session ('claude' par défaut — non-régression).
-export const agentName = (provider) => (provider === 'pi' ? 'Pi' : 'Claude');
+// Display name of the agent behind a session's provider ('claude' by default): the provider's
+// label from the settings (cf. src/lib/providers.js), so a custom provider is named by its label.
+export const agentName = (provider, list) => providerLabel(provider || 'claude', list);
 // Libellé d'état provider-aware : seul « working » nomme l'agent ; les autres états sont neutres.
 export function stateLabel(state, provider) {
   if (state === 'working') return `${agentName(provider)} is working`;
@@ -140,7 +142,10 @@ export function isBlockForCommand(text, command) {
 export function resumeCommand(s) {
   if (!s || !s.id) return '';
   const dir = s.project || s.cwd || '';
-  const cmd = s.provider === 'pi' ? `pi --resume ${s.id}` : `claude --resume=${s.id}`;
+  // Only engines with a CLI that resumes by id have a command; an ACP agent resumes through hooked.
+  const engine = providerEngine(s.provider || 'claude');
+  const cmd = engine === 'claude' ? `claude --resume=${s.id}` : (engine === 'pi' ? `pi --session-id ${s.id}` : '');
+  if (!cmd) return '';
   return dir ? `cd ${shellQuote(dir)} && ${cmd}` : cmd;
 }
 // Quoting POSIX : un chemin de projet peut contenir une espace, et rien n'interdit une apostrophe.

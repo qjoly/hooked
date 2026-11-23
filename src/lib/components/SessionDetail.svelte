@@ -11,7 +11,7 @@
   import { onMount, onDestroy, tick, untrack } from 'svelte';
   import { goto } from '$app/navigation';
   import { ui, data, settings, loadSessions, openModal, sessionTitle, sessionTags, renameSession, toggleFocus, splitWithMostRecent, canSplit, toggleArchive, isArchived, unarchive } from '#lib/state.svelte.js';
-  import { getSessionDelta, setMode, setModelEffort, setAutoApprove, openInEditor, openInGhostty, fork, launch, deleteSession, removeWorktree, restartClaudeSession, connectSessionStream, listTerminals, openTerminal, killTerminal, getPiOptions } from '#lib/api.js';
+  import { getSessionDelta, setMode, setModelEffort, setAutoApprove, openInEditor, openInGhostty, fork, launch, deleteSession, removeWorktree, restartClaudeSession, connectSessionStream, listTerminals, openTerminal, killTerminal, getProviderOptions } from '#lib/api.js';
   import { promptCacheState } from '#lib/promptCache.js';
   import { stateLabel, agentName, fmtCost, fmtTokens, shortModel, PERMISSION_MODES, modeLabel, modeMeta, modelAlias, tagColor, lotColor, resumeCommand, parseBang, isBlockForCommand } from '#lib/format.js';
   import { page } from '$app/state';
@@ -27,6 +27,7 @@
   import Trace from './Trace.svelte';
   import Icon from '#lib/components/Icon.svelte';
   import { editorFor } from '#lib/editors.js';
+  import { providerInfo, providerEngine, can } from '#lib/providers.js';
   import { conversationToMarkdown } from '#lib/exportConversation.js';
   import { getBinding, matchesEvent, formatKeys } from '#lib/shortcuts.js';
 
@@ -54,15 +55,22 @@
 
   // mode affiché : choix optimiste sinon mode réel remonté par les hooks (défaut : Normal).
   const modeView = $derived(modeOverride || (s && s.permissionMode) || 'default');
-  // Provider pi : pas de mode « plan » ni d'auto-approve hooked-side (le mode auto Pi couvre
-  // l'auto-approbation) → chips masqués.
-  const isPi = $derived(s?.provider === 'pi');
-  // Options Pi (modèles/thinking) pour le sélecteur de modèle d'une session pi live.
+  // The session's provider (cf. #lib/providers.js): its label names the agent in the view, and its
+  // capabilities decide which controls show (plan mode, auto-approve, modes…).
+  const pinfo = $derived(providerInfo(s?.provider, data.providerList));
+  const agentLbl = $derived(pinfo.label);
+  const has = (cap) => can(s?.provider, cap, data.providerList);
+  // Any engine but Claude takes its live model / effort lists from /api/provider-options.
+  const isPi = $derived(providerEngine(s?.provider, data.providerList) !== 'claude');
   let piOpts = $state(null);
+  let piOptsFor = null;
   $effect(() => {
-    if (!isPi || piOpts) return;
+    const p = s?.provider;
+    if (!isPi || !p || piOptsFor === p) return;
+    piOptsFor = p;
+    piOpts = null;
     let alive = true;
-    getPiOptions().then((o) => { if (alive) piOpts = o; }).catch(() => {});
+    getProviderOptions(p).then((o) => { if (alive) piOpts = o; }).catch(() => {});
     return () => { alive = false; };
   });
   const piModelOpts = $derived(piOpts
@@ -834,7 +842,7 @@
         {:else}
           {#if resumeStatus}<span class="strip-status err">{resumeStatus}</span>{/if}
           <button class="resume-btn" disabled={resuming} onclick={resume}
-                  title={isPi ? 'Re-run pi --resume, driven by hooked' : 'Re-run claude --resume, driven by hooked'}>{#if resuming}<Icon name="queued" size={14} />{:else}<Icon name="in-progress" size={14} tint={false} />{/if} Resume</button>
+                  title="Resume this {agentLbl} session, driven by hooked">{#if resuming}<Icon name="queued" size={14} />{:else}<Icon name="in-progress" size={14} tint={false} />{/if} Resume</button>
         {/if}
         <!-- The one Archive control: stops the session when it runs, hides it, reversible. -->
         <button class="archive-btn" disabled={archiving} onclick={archive}
@@ -853,7 +861,8 @@
               <div class="hdr-menu-cmds">
                 {#if sb.modelEffort !== false}
                   <ModelEffort compact bind:model={editModel} bind:effort={editEffort} onchange={applyModelEffort} disabled={meBusy}
-                               modelOpts={isPi ? piModelOpts : null} effortList={isPi ? piEffortList : null} />
+                               modelOpts={isPi ? piModelOpts : null} effortList={isPi ? piEffortList : null}
+                               modelOptsLabel={`${agentLbl} models`} hiddenExtra={pinfo.hiddenModels || null} />
                 {/if}
                 {#if sb.permissionMode !== false}
                   <div class="strip-modes wrap">
@@ -861,14 +870,14 @@
                       <span class="mode-now mode-{modeView}" title={cur.title}><span class="mode-ico">{cur.icon}</span>{cur.label}</span>
                     {/if}
                     {#each PERMISSION_MODES as m}
-                      {#if !(isPi && m.key === 'plan')}
+                      {#if has('modes') && (m.key !== 'plan' || has('plan'))}
                         <button class="mode-chip" class:active={modeView === m.key} disabled={modeBusy}
                                 onclick={() => switchMode(m.key)} title={m.title}><span class="mode-ico">{m.icon}</span>{m.label}</button>
                       {/if}
                     {/each}
                     <!-- Orthogonal au mode : le mode décide QUI escalade (règles, classifieur du
                          mode auto), ceci décide si hooked te pose la question quand ça escalade. -->
-                    {#if !isPi}
+                    {#if has('autoApprove')}
                     <button class="mode-chip auto-chip" class:active={autoView} disabled={autoBusy}
                             onclick={toggleAuto}
                             title={autoView
@@ -888,8 +897,8 @@
             <button class="vscode-btn" disabled={ghosttyBusy} onclick={openGhostty} title="Open the project folder in Ghostty">{#if ghosttyBusy}<Icon name="queued" size={14} />{:else}<Icon name="ghostty" size={14} />{/if} Open in Ghostty</button>
             <button class="vscode-btn" onclick={copyResumeCmd}
                     title={s.live
-                      ? `Copy \`${isPi ? 'pi --resume' : 'claude --resume'}\` for this session — WARNING: hooked is driving it right now, running the command too would fight over the session lock`
-                      : `Copy \`${isPi ? 'pi --resume' : 'claude --resume'}\` for this session, to reopen it in your own terminal`}>{#if cmdCopied}<Icon name="check" size={14} /> copied{:else}<Icon name="shell" size={14} /> Copy resume command{/if}</button>
+                      ? `Copy the command that resumes this ${agentLbl} session — WARNING: hooked is driving it right now, running the command too would fight over the session lock`
+                      : `Copy the command that resumes this ${agentLbl} session, to reopen it in your own terminal`}>{#if cmdCopied}<Icon name="check" size={14} /> copied{:else}<Icon name="shell" size={14} /> Copy resume command{/if}</button>
             <button class="vscode-btn" onclick={copyExport} title="Copy the conversation as Markdown to the clipboard">{#if exportCopied}<Icon name="check" size={14} /> copied{:else}<Icon name="copy" size={14} /> Copy as Markdown{/if}</button>
             {#if s.worktreeOf}
               <div class="hdr-div"></div>
@@ -901,7 +910,7 @@
             {#if sb.focusBtn !== false}<button class="vscode-btn" class:on={ui.focus} onclick={toggleFocus} title="Focus mode: full-screen conversation"><Icon name="maximize" size={14} /> {ui.focus ? 'Exit focus' : 'Focus'}</button>{/if}
             <button class="vscode-btn" class:on={ui.toolsOpen} onclick={() => (ui.toolsOpen = !ui.toolsOpen)} title="Expand every tool call's input/result inline (this session only, off on reload)"><Icon name="tool" size={14} /> {ui.toolsOpen ? 'Collapse tool details' : 'Expand tool details'}</button>
             <div class="hdr-div"></div>
-            <button class="vscode-btn" disabled={restarting} onclick={restart} title={isPi ? 'Stop the Pi process and resume it from its session (picks up the installed pi version)' : 'Stop the Claude process and resume it from its transcript (picks up the installed claude version)'}>{#if restarting}<Icon name="queued" size={14} />{:else}<Icon name="rotate-cw" size={14} />{/if} Restart</button>
+            <button class="vscode-btn" disabled={restarting} onclick={restart} title="Stop the {agentLbl} process and resume it from its session (picks up the installed version)">{#if restarting}<Icon name="queued" size={14} />{:else}<Icon name="rotate-cw" size={14} />{/if} Restart</button>
             <button class="vscode-btn del-btn" disabled={deleting} onclick={del} title="Move to trash: removes from dashboard; transcript kept in bin/ (recoverable)">{#if deleting}<Icon name="queued" size={14} tint={false} />{:else}<Icon name="trash" size={14} tint={false} />{/if} Delete</button>
           </div>
         </details>
@@ -960,9 +969,9 @@
              transcript → without it the question card arrived without the text explaining it. -->
         {#if s.pendingLeadIn && tab === 'chat'}
           <div class="bubble assistant leadin">
-            <div class="who"><Icon name="bot" size={14} /> {isPi ? 'Mistral Pi' : 'Claude'}
+            <div class="who"><Icon name="bot" size={14} /> {agentLbl}
               <span class="t" title={isPi
-                ? 'Mistral Pi only writes this turn to the transcript once you have answered — this text comes from the live stream'
+                ? `${agentLbl} only writes this turn to its session once you have answered — this text comes from the live stream`
                 : 'Claude Code only writes this turn to the transcript once you have answered — this text comes from the live stream'}>
                 <Icon name="activity" size={13} /> live stream
               </span>
@@ -976,7 +985,7 @@
              de flux n'est vidé qu'au `result`), l'afficher aussi la doublait. -->
         {#if tab === 'chat' && (liveText || liveThinking) && !s.pendingLeadIn}
           <div class="bubble assistant streaming">
-            <div class="who"><Icon name="bot" size={14} /> {isPi ? 'Mistral Pi' : 'Claude'}
+            <div class="who"><Icon name="bot" size={14} /> {agentLbl}
               <span class="t"><span class="sd-dot" aria-hidden="true"></span> en direct</span>
             </div>
             {#if liveThinking}<pre class="sd-thinking">{liveThinking}</pre>{/if}
@@ -984,7 +993,7 @@
           </div>
         {/if}
         {#if s.state === 'working' && tab === 'chat'}
-          <div class="working-live" title={isPi ? 'Mistral Pi is working — new messages appear once flushed' : 'Claude is working — new messages appear once flushed'}>
+          <div class="working-live" title="{agentLbl} is working — new messages appear once flushed">
             <span class="wl-dots" aria-hidden="true"><span></span><span></span><span></span></span>
             <span class="wl-verb">{liveTool || s.activity || 'Working'}…</span>
             {#if workElapsed}<span class="wl-sep">·</span><span class="wl-time">{workElapsed}</span>{/if}

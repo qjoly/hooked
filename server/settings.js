@@ -11,6 +11,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { HOOKED_DIR, LAUNCH_PERMISSION_MODES, isValidModelArg } from './config.js';
 import { EDITOR_KEYS, DEFAULT_EDITOR } from '../src/lib/editors.js';
+import { sanitizeProviders } from './providerConfig.js';
 import { DEFAULT_HIDDEN_MODELS, DEFAULT_HIDDEN_PI_MODELS, isHideableModel, isHideablePiModel } from '../src/lib/models.js';
 
 const SETTINGS_FILE = path.join(HOOKED_DIR, 'settings.json');
@@ -67,12 +68,13 @@ const DEFAULTS = {
   // un raccourci macOS (Quick Action) qui POST /api/launch avec seulement un prompt. '' = aucun ;
   // launchSession exige alors un cwd explicite comme avant.
   quickLaunchProject: '',
-  // Provider par défaut des lancements sans provider explicite (Quick Action macOS, review PR…)
+  // Provider used by launches that name none (macOS Quick Action, PR review…): any provider id.
   defaultProvider: 'claude',
-  // Activation explicite des providers, qui override la détection auto (server/providers.js) :
-  // 'auto' = détection (binaire dans le PATH / dossier ~/.pi/agent), 'on' = forcé actif,
-  // 'off' = forcé inactif (masqué de l'UI). Utile quand la détection échoue (PATH figé sous
-  // launchd, pi installé hors PATH…) ou pour masquer un provider installé.
+  // Providers (cf. server/providerConfig.js, docs/providers.md). Keyed by id; a bare string is the
+  // enabled mode — 'auto' = detect the agent, 'on' = forced active, 'off' = hidden and not
+  // launchable — and an object customises the provider (label, badge, colour, command, args, env,
+  // model filters, defaults, capability overrides) or declares a new one on an engine
+  // (`{ engine: 'acp', command: 'gemini', args: ['--experimental-acp'] }`).
   providers: { claude: 'auto', pi: 'auto' },
   // Projets pour lesquels le serveur hooked maintient un démon `claude remote-control` (mode serveur :
   // le projet devient un ENVIRONNEMENT lançable depuis l'app Claude). Liste de chemins absolus ; le serveur
@@ -152,12 +154,10 @@ function sanitize(raw) {
     typeof o.quickLaunchProject === 'string' && o.quickLaunchProject.startsWith('/')
       ? o.quickLaunchProject.slice(0, 4096)
       : '';
-  // defaultProvider : 'claude' (défaut, non-régression) ou 'pi'.
-  const defaultProvider = o.defaultProvider === 'pi' ? 'pi' : 'claude';
-  // providers : 'auto' | 'on' | 'off' par provider connu.
-  const rawProv = o.providers && typeof o.providers === 'object' ? o.providers : {};
-  const provMode = (v) => (v === 'on' || v === 'off' ? v : 'auto');
-  const providers = { claude: provMode(rawProv.claude), pi: provMode(rawProv.pi) };
+  // providers: built-ins always present (bare mode string when not customised), custom entries
+  // kept when they name an engine. defaultProvider: any configured id, else 'claude'.
+  const providers = sanitizeProviders(o.providers);
+  const defaultProvider = typeof o.defaultProvider === 'string' && providers[o.defaultProvider] ? o.defaultProvider : 'claude';
   // remoteControlProjects : liste de chemins absolus, dédupée et bornée (anti-abus : chaque démon
   // spawn un process claude). L'existence du dossier n'est PAS vérifiée ici (le disque peut varier) —
   // reconcileRemoteControl saute au lancement un chemin qui n'est plus un dossier.

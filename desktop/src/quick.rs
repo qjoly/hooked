@@ -307,7 +307,7 @@ fn view(s: &Quick, cx: &mut Cx<Quick>) -> El {
         let agent = crate::fmt::agent_label(
             s.items.get(s.at).and_then(|x| x.provider.as_deref()),
         );
-        let who = text(if *user { "You" } else { agent })
+        let who = text(if *user { "You".to_string() } else { agent })
             .font(k.ty.text_xsmall_medium)
             .color(k.c.text_faint);
         let mut b = col()

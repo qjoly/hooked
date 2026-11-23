@@ -1929,10 +1929,11 @@ code.path { color: var(--muted); font-size: var(--t-micro); word-break: break-al
 .ns-grid { display: grid; grid-template-columns: minmax(0, 1fr) 250px; gap: 0 22px; align-items: start; }
 .ns-col { min-width: 0; }
 .ns-options { display: flex; flex-direction: column; gap: 8px; }
-/* sélecteur de provider (Claude / Mistral Pi) sur l'écran nouvelle session */
-.ns-provider { display: flex; gap: 6px; }
+/* provider picker on the New session screen (one pill per enabled provider, cf. #lib/providers.js) */
+.ns-provider { display: flex; gap: 6px; flex-wrap: wrap; }
 .ns-prov-btn { cursor: pointer; opacity: .65; }
 .ns-prov-btn.on { opacity: 1; border-color: var(--accent); color: var(--text); background: var(--accent-soft); }
+.ns-prov-btn.colored.on { border-color: var(--prov); background: color-mix(in srgb, var(--prov) 14%, transparent); }
 .ns-pi-opts { display: flex; flex-direction: column; gap: 6px; }
 .ns-pi-opts .lf-input { width: 100%; }
 .ns-pi-loading { color: var(--muted); font-size: var(--t-micro); }

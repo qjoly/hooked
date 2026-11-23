@@ -147,6 +147,35 @@ Claude Code sessions run inside the hooked process, through the Agent SDK's `que
     confirmation and resends with `force`. Checked live: the hook decides before `setModel()`
     resolves.
 
+## Providers and engines (`server/providers.js`, `docs/providers.md`)
+
+A **provider** is configuration (`settings.json` → `providers`, Settings → Providers). An
+**engine** is code: `claude` (the Agent SDK path above), `pi` (`server/piAgent.js`, RPC), `acp`
+(`server/engines/acp.js`, any Agent Client Protocol agent), or an external module in
+`~/.claude/hooked/providers/` (`HOOKED_PROVIDERS_DIR`). Full reference in `docs/providers.md`.
+
+- **Never test a provider id.** Ask the registry: `engineForSession(s)` for the session store
+  (conversation, trace, todos…), `driverFor(st)` for the live driver (null = the built-in Claude
+  path), capabilities for what the UI may show (`can(id, cap)` in `src/lib/providers.js`). A custom
+  provider such as `mistral` runs on the `pi` engine: `s.provider === 'pi'` misses it.
+- **Built-ins keep the historical settings shape.** `providers.claude` / `providers.pi` stay bare
+  mode strings (`'auto' | 'on' | 'off'`) until customised, and `/api/sessions` still sends
+  `providers: { id: enabled }` (the desktop app reads `.claude` / `.pi`). New fields are additive.
+- **Session attribution is by model.** Providers on the same engine and store (pi providers on the
+  same agent dir) are scanned once; a session goes to the first provider whose `models` globs match
+  its `provider/id`, else the catch-all. So a pi session's provider can change with its model.
+- **pi models are qualified** (`mistral/devstral-medium-latest`, from `pi --list-models`, parsed in
+  `server/piCatalog.js`). Nothing is Mistral-specific any more: the title model, context windows
+  and prices come from the provider config or pi's catalogue (pi's own `usage.cost` wins).
+- **ACP sessions are journaled by hooked** (`server/engines/journal.js`,
+  `~/.claude/hooked/agent-sessions/<provider>/<id>.jsonl`): agents keep history in their own
+  format, so the journal is what the list, conversation, Trace, search and trash read. During
+  `session/load` the replay is not journaled again. hooked's MCP server is injected into every ACP
+  session through `session/new`'s `mcpServers`.
+- **External engines load at boot, before resume** (`hooks.server.js`), and can be reloaded from
+  Settings. A module cannot take a built-in engine id. `test/fixtures/providers/echo-engine.mjs` is
+  a complete minimal engine, driven end to end through `agent.js` in `test/providerRegistry.test.mjs`.
+
 ## Session groups (`server/sessionMeta.js`, `GroupTabs.svelte`)
 
 Every session belongs to exactly one group. A session on its own is an implicit one-member group

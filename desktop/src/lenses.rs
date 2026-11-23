@@ -1959,11 +1959,9 @@ impl Hooked {
             Lens::Mcp => {
                 let Some(cwd) = project else { return false };
                 let mut changed = false;
-                let provider = self
-                    .selected
-                    .as_deref()
-                    .and_then(|id| self.provider_of(id))
-                    .map(|p| p.to_string());
+                let provider = crate::api::mcp_param(
+                    self.selected.as_deref().and_then(|id| self.provider_of(id)),
+                );
                 if self.lens_data.mcp_cwd.as_deref() != Some(cwd.as_str())
                     && !self.lens_data.mcp_loading
                 {

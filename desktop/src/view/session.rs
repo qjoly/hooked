@@ -225,11 +225,10 @@ fn head(s: &Hooked, d: &Detail, k: &Kit, layer: &mut Vec<El>) -> El {
                 .icon(&icons::PLAY)
                 .variant(ButtonVariant::Neutral)
                 .control_size(ControlSize::Regular)
-                .help(if x.provider.as_deref() == Some("pi") {
-                    "Re-run pi --resume, driven by hooked"
-                } else {
-                    "Re-run claude --resume, driven by hooked"
-                })
+                .help(format!(
+                    "Resume this {} session, driven by hooked",
+                    s.providers.info(x.provider.as_deref().unwrap_or("claude")).label
+                ))
                 .on_press(|s: &mut Hooked| s.resume())
                 .build(k)
                 .key("resume-btn"),
@@ -379,16 +378,21 @@ fn more_menu(s: &Hooked, d: &Detail, k: &Kit, layer: &mut Vec<El>) -> El {
         .open(open)
         .min_width(280.0)
         .on_close(|s: &mut Hooked| s.popup = None);
+    // The session's provider: its capabilities decide which controls show, and any engine but
+    // Claude Code takes its model / effort / mode lists from /api/provider-options.
+    let pid = x.provider.clone().unwrap_or_else(|| "claude".into());
+    let pinfo = s.providers.info(&pid);
+    let popts = s.opts_for(&pid).clone();
     if x.live {
-        let is_pi = x.provider.as_deref() == Some("pi");
+        let is_pi = !pinfo.is_claude();
         let current = x.model.clone().unwrap_or_default();
         let models: Vec<_> = if is_pi {
-            // Pi models (alias) from /api/pi-options, minus the ones hidden in Settings.
-            s.visible_pi_models()
+            // The provider's catalogue, minus the ones hidden in Settings.
+            s.visible_provider_models(&pid)
                 .into_iter()
                 .map(|m| {
                     let alias = m["alias"].as_str().or(m["name"].as_str()).unwrap_or("").to_string();
-                    let label = m["label"].as_str().map(|l| format!("{l} · {alias}")).unwrap_or_else(|| alias.clone());
+                    let label = fmt::model_choice_label(m["label"].as_str(), &alias);
                     MenuItem::new(label)
                         .checked(current == alias)
                         .on_select(move |s: &mut Hooked| {
@@ -418,21 +422,23 @@ fn more_menu(s: &Hooked, d: &Detail, k: &Kit, layer: &mut Vec<El>) -> El {
         };
         let effort_now = x.effort.clone().unwrap_or_default();
         let efforts: Vec<_> = if is_pi {
-            // thinking levels of the current pi model (or the global list)
-            let list = s.pi_opts["models"].as_array().cloned().unwrap_or_default();
+            // thinking levels of the current model (or the provider's list). The catalogue has
+            // `provider/id` refs while the session reports a bare id: match either.
+            let list = popts["models"].as_array().cloned().unwrap_or_default();
             let m = list.iter().find(|m| {
-                m["alias"].as_str().or(m["name"].as_str()) == Some(current.as_str())
+                let a = m["alias"].as_str().or(m["name"].as_str()).unwrap_or("");
+                a == current || a.split_once('/').is_some_and(|(_, b)| b == current)
             });
             let levels = m
                 .map(|m| m["thinking"].clone())
-                .unwrap_or_else(|| s.pi_opts["thinkingLevels"].clone());
+                .unwrap_or_else(|| popts["thinkingLevels"].clone());
             let arr: Vec<serde_json::Value> = match &levels {
                 serde_json::Value::Array(a) => a.clone(),
                 serde_json::Value::String(x) => x
                     .split(',')
                     .map(|v| serde_json::Value::String(v.trim().to_string()))
                     .collect(),
-                _ => s.pi_opts["thinkingLevels"].as_array().cloned().unwrap_or_default(),
+                _ => popts["thinkingLevels"].as_array().cloned().unwrap_or_default(),
             };
             arr.iter()
                 .filter_map(|v| v.as_str().map(String::from))
@@ -476,15 +482,18 @@ fn more_menu(s: &Hooked, d: &Detail, k: &Kit, layer: &mut Vec<El>) -> El {
                 )
                 .separator();
         }
-        if s.menu_shows("permissionMode") {
+        if s.menu_shows("permissionMode") && pinfo.can("modes") {
             m = m.group_label("Permission mode");
             if is_pi {
-                // Pi agents (ask / accept-edits / auto-approve) — no "plan" mode in Pi.
-                for mv in s.pi_opts["modes"].as_array().cloned().unwrap_or_default() {
+                // The provider's modes (hooked permission-mode keys the server maps onto the
+                // agent's own); "plan" only when the provider has a plan mode.
+                for mv in popts["modes"].as_array().cloned().unwrap_or_default() {
                     // set_mode takes a &'static str: map the dynamic id onto the known keys.
                     let id: &'static str = match mv["id"].as_str().unwrap_or("default") {
                         "acceptEdits" => "acceptEdits",
                         "auto" => "auto",
+                        "plan" => "plan",
+                        "bypassPermissions" => "bypassPermissions",
                         _ => "default",
                     };
                     let label = mv["label"].as_str().unwrap_or(id).to_string();
@@ -505,7 +514,7 @@ fn more_menu(s: &Hooked, d: &Detail, k: &Kit, layer: &mut Vec<El>) -> El {
                 }
             }
         }
-        if !is_pi {
+        if pinfo.can("autoApprove") {
             m = m.item(
                 MenuItem::new(format!(
                     "Auto-approve · {}",
@@ -520,19 +529,12 @@ fn more_menu(s: &Hooked, d: &Detail, k: &Kit, layer: &mut Vec<El>) -> El {
             m = m.separator();
         }
     }
-    let is_pi = x.provider.as_deref() == Some("pi");
-    let resume_cmd = if is_pi {
-        format!(
-            "cd {} && pi --resume {}",
-            x.project.clone().unwrap_or_default(),
-            x.id
-        )
-    } else {
-        format!(
-            "cd {} && claude --resume {}",
-            x.project.clone().unwrap_or_default(),
-            x.id
-        )
+    // Only engines with a CLI that resumes by id have a command (an ACP agent resumes through
+    // hooked): the copy then falls back to the plain cd.
+    let resume_cmd = match pinfo.engine() {
+        "claude" => format!("cd {} && claude --resume {}", x.project.clone().unwrap_or_default(), x.id),
+        "pi" => format!("cd {} && pi --session-id {}", x.project.clone().unwrap_or_default(), x.id),
+        _ => format!("cd {}", x.project.clone().unwrap_or_default()),
     };
     let link = format!("{}/session/{}", crate::api::base_of(&x.id), x.id);
     let m = m.item(
@@ -640,16 +642,12 @@ fn more_menu(s: &Hooked, d: &Detail, k: &Kit, layer: &mut Vec<El>) -> El {
     )
     .separator()
     .item(
-        MenuItem::new(if x.provider.as_deref() == Some("pi") {
-            "Restart Pi"
-        } else {
-            "Restart Claude"
-        })
+        MenuItem::new(format!("Restart {}", pinfo.label))
         .icon(&icons::RESTART)
-        .description(if x.provider.as_deref() == Some("pi") {
-            "Stop the Pi process and resume it from its session"
-        } else {
+        .description(if pinfo.is_claude() {
             "Stop the process and resume it from its transcript"
+        } else {
+            "Stop the process and resume it from its session"
         })
         .on_select(|s: &mut Hooked| s.restart()),
     )
@@ -761,7 +759,8 @@ pub(super) fn hash_of(v: impl Hash) -> u64 {
 }
 
 fn converse(s: &Hooked, d: &Detail, k: &Kit) -> El {
-    let agent = fmt::agent_label(d.session.provider.as_deref());
+    let agent_owned = fmt::agent_label(d.session.provider.as_deref());
+    let agent = agent_owned.as_str();
     let n = d.messages.len();
     let start = n.saturating_sub(s.visible);
     let mut chat = col()
@@ -967,7 +966,7 @@ fn assistant_skin(b: El, k: &Kit) -> El {
         .border(1.0, k.c.border_weak)
 }
 
-fn who(k: &Kit, user: bool, extra: &str, agent: &'static str, ink: Color) -> El {
+fn who(k: &Kit, user: bool, extra: &str, agent: &str, ink: Color) -> El {
     let mut r = row()
         .gap(6.0)
         .center_y()
@@ -977,7 +976,7 @@ fn who(k: &Kit, user: bool, extra: &str, agent: &'static str, ink: Color) -> El 
             ink,
         ))
         .child(
-            text(if user { "You" } else { agent })
+            text(if user { "You".to_string() } else { agent.to_string() })
                 .font(k.ty.text_small_medium)
                 .color(ink),
         );
@@ -1109,7 +1108,8 @@ pub(super) fn bubble(s: &Hooked, session: &str, m: &Message, k: &Kit, i: usize) 
     let uk = user.then(|| on_accent(k));
     let ck = uk.as_ref().unwrap_or(k);
     let ink = ck.c.text_muted;
-    let agent = fmt::agent_label(s.provider_of(session));
+    let agent_owned = fmt::agent_label(s.provider_of(session));
+    let agent = agent_owned.as_str();
     let mut head = row().w_full().gap(8.0).center_y().child(who(
         k,
         user,

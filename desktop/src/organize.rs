@@ -153,22 +153,38 @@ impl Hooked {
         self.tray_dirty = true;
     }
 
-    /// Un clic sur les jauges d'usage de l'entête alterne entre la vue claude (rate limits du
-    /// compte) et la vue pi (contexte de la session la plus fraîche) — seulement quand les deux
-    /// sont affichables. Choix persisté (pref "usageView").
+    /// The usage views the header can show: Claude's account rate limits (when Claude is
+    /// enabled), then one per enabled provider that has usage.
+    pub fn usage_views(&self) -> Vec<crate::api::UsageView> {
+        let mut out = Vec::new();
+        if self.providers.claude {
+            out.push(crate::api::UsageView::Claude);
+        }
+        for u in &self.provider_usage {
+            if self.providers.is_enabled(&u.provider) {
+                out.push(crate::api::UsageView::Provider(u.provider.clone()));
+            }
+        }
+        out
+    }
+
+    /// The view actually shown: the persisted choice when it is still available, else the first.
+    pub fn current_usage_view(&self) -> Option<crate::api::UsageView> {
+        let views = self.usage_views();
+        if views.contains(&self.usage_view) { Some(self.usage_view.clone()) } else { views.into_iter().next() }
+    }
+
+    /// A click on the header usage block cycles Claude → each provider → Claude, when there is
+    /// more than one view. Choice persisted (pref "usageView").
     pub fn toggle_usage_view(&mut self) {
-        let pi_ok = self.pi_usage.is_some();
-        if !(self.providers.claude && self.providers.pi && pi_ok) {
+        let views = self.usage_views();
+        if views.len() < 2 {
             return;
         }
-        self.usage_view = match self.usage_view {
-            crate::api::UsageView::Claude => crate::api::UsageView::Pi,
-            crate::api::UsageView::Pi => crate::api::UsageView::Claude,
-        };
-        let v = match self.usage_view {
-            crate::api::UsageView::Pi => "pi",
-            crate::api::UsageView::Claude => "claude",
-        };
+        let cur = self.current_usage_view().unwrap_or_default();
+        let i = views.iter().position(|v| *v == cur).unwrap_or(0);
+        self.usage_view = views[(i + 1) % views.len()].clone();
+        let v = self.usage_view.key().to_string();
         self.save_pref("usageView", &v);
     }
 
@@ -467,15 +483,20 @@ mod tests {
     use super::*;
 
     #[test]
-    fn provider_filter_cycles_all_claude_pi_all() {
+    fn provider_filter_cycles_through_every_enabled_provider() {
         use crate::app::next_provider_filter;
-        // un seul provider installé -> toujours None
-        assert_eq!(next_provider_filter(None, false), None);
-        assert_eq!(next_provider_filter(Some("pi"), false), None);
-        // les deux -> cycle complet
-        assert_eq!(next_provider_filter(None, true).as_deref(), Some("claude"));
-        assert_eq!(next_provider_filter(Some("claude"), true).as_deref(), Some("pi"));
-        assert_eq!(next_provider_filter(Some("pi"), true), None);
+        let one = ["claude".to_string()];
+        let three = ["claude".to_string(), "pi".to_string(), "gemini".to_string()];
+        // a single provider -> always None
+        assert_eq!(next_provider_filter(None, &one), None);
+        assert_eq!(next_provider_filter(Some("pi"), &one), None);
+        // several -> all → each one → all
+        assert_eq!(next_provider_filter(None, &three).as_deref(), Some("claude"));
+        assert_eq!(next_provider_filter(Some("claude"), &three).as_deref(), Some("pi"));
+        assert_eq!(next_provider_filter(Some("pi"), &three).as_deref(), Some("gemini"));
+        assert_eq!(next_provider_filter(Some("gemini"), &three), None);
+        // a filter on a provider switched off since → back to all
+        assert_eq!(next_provider_filter(Some("gone"), &three), None);
     }
 
     #[test]
