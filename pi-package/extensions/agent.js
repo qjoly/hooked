@@ -1,10 +1,13 @@
 /*
  * The `Agent` tool of hooked's pi package: Claude Code's subagents, for pi.
  *
- * A call runs a separate pi process (`pi --mode json -p --no-session`) on the current model, with
+ * A call runs a separate pi process (`pi --mode json -p`) on the current model, with
  * its own context window, and returns the subagent's final answer. The child loads the same `-e`
  * extensions as this pi, so a model that an extension provides (pi-claude-bridge's claude-bridge/*)
  * works there too, but not hooked's package: no hooked tools and no nested Agent in a subagent.
+ * Its session goes to a temporary folder, removed after the run: out of hooked's session list, but
+ * a real session, so pi-claude-bridge records the Claude Code transcript it runs as a shadow (its
+ * state file), and hooked hides that transcript too (server/bridgeShadows.js).
  *
  * A subagent cannot show a permission card (print mode has no UI), so its tools follow the
  * parent's permission mode instead of asking:
@@ -14,6 +17,7 @@
  */
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -72,7 +76,9 @@ function piInvocation(args) {
 }
 
 function runSubagent({ prompt, cwd, model, thinking, tools, extensions, signal, onTool }) {
-  const args = ['--mode', 'json', '-p', '--no-session', ...extensions];
+  let sessionDir = null;
+  try { sessionDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hooked-subagent-')); } catch (_) {}
+  const args = ['--mode', 'json', '-p', ...(sessionDir ? ['--session-dir', sessionDir] : ['--no-session']), ...extensions];
   if (model) args.push('--model', model);
   if (thinking) args.push('--thinking', thinking);
   if (tools) args.push('--tools', tools.join(','));
@@ -108,6 +114,7 @@ function runSubagent({ prompt, cwd, model, thinking, tools, extensions, signal, 
     child.stderr.on('data', (d) => { if (stderr.length < 8000) stderr += d; });
     const done = (code, err) => {
       if (signal) signal.removeEventListener('abort', onAbort);
+      if (sessionDir) { try { fs.rmSync(sessionDir, { recursive: true, force: true }); } catch (_) {} }
       if (buf.trim()) line(buf);
       resolve({ messages: messages || [], toolCalls, code, error: err || null, stderr: stderr.trim(), aborted: !!(signal && signal.aborted) });
     };

@@ -10,7 +10,7 @@ and controls in the dashboard as a Claude session.
 | Questions | `AskUserQuestion` | `AskUserQuestion`, same schema |
 | Plan mode | `ExitPlanMode` + permission mode | `ExitPlanMode` + the package's mode |
 | Todo list in the dock | `TodoWrite` / `TaskCreate` | `TodoWrite`, same schema, read back from the pi session file |
-| Subagents | `Agent` | `Agent`: a separate `pi --mode json -p --no-session` on the current model (below) |
+| Subagents | `Agent` | `Agent`: a separate `pi --mode json -p` on the current model (below) |
 | Permission cards | `canUseTool` | `tool_call` gate |
 | Modes, auto-approve | SDK `setPermissionMode` | `/hooked-mode`, `/hooked-auto-approve` commands |
 | 5h / 7d quotas | statusline / `usage_…()` | `after_provider_response` headers (pi-claude-bridge) |
@@ -50,7 +50,9 @@ bridged Claude model works there too, but not hooked's package (no hooked tools,
 | Bypass, auto, or auto-approve on | pi's default tools |
 
 Its usage is in the tool result's `details`; the session summary adds it to the cost (`subagents`,
-`subagentCost`), as for Claude Code's subagents. The subagent keeps no session file.
+`subagentCost`), as for Claude Code's subagents. The subagent's pi session lives in a temporary
+folder removed after the run, so it stays out of the session list. Through pi-claude-bridge it is
+still a real session: the bridge records its Claude Code shadow, which hooked then hides.
 
 ## The protocol
 
