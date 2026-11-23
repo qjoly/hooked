@@ -52,9 +52,16 @@
   let provider = $state(untrack(() => effectiveProvider(data.providers, settings.defaultProvider || 'claude')));
   const showProviderPicker = $derived(multiProvider(data.providers));
   const providerIds = $derived(enabledProviderIds(data.providers, data.providerList));
+  // Until a provider is picked by hand, the form follows the settings' default provider: the
+  // settings can arrive after the form opens (a page load on /new), and until then the default
+  // reads 'claude'. Once picked, the choice only moves when that provider gets switched off.
+  let pickedProvider = false;
   $effect(() => {
     const p = data.providers;
-    untrack(() => { if (!p[provider]) provider = effectiveProvider(p, settings.defaultProvider || provider); });
+    const wanted = settings.defaultProvider;
+    untrack(() => {
+      if (!pickedProvider || !p[provider]) provider = effectiveProvider(p, wanted || provider);
+    });
   });
   const pinfo = $derived(providerInfo(provider, data.providerList));
   // Claude runs on the built-in path (its pickers come from the binary's capabilities); every other
@@ -289,7 +296,7 @@
             {@const info = providerInfo(pid, data.providerList)}
             <button type="button" class="me-pill ns-prov-btn" class:on={provider === pid} role="radio" aria-checked={provider === pid}
                     style={info.color ? `--prov:${info.color}` : ''} class:colored={!!info.color}
-                    onclick={() => (provider = pid)} title={info.description || info.label}>{info.label}</button>
+                    onclick={() => { pickedProvider = true; provider = pid; }} title={info.description || info.label}>{info.label}</button>
           {/each}
         </div>
         {/if}
