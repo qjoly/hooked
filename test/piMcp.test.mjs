@@ -143,3 +143,28 @@ describe('legacy config.toml (pi < 1.6, ignored by pi 1.6)', () => {
     fs.rmSync(userFile, { force: true });
   });
 });
+
+describe('health from pi itself (pi mcp list --json)', () => {
+  it('takes the state pi reports, with its OAuth sign-ins, and falls back to the probe without pi', async () => {
+    const { piMcpStates } = await import('../server/piMcp.js');
+    const bin = path.join(project, 'fake-pi');
+    fs.writeFileSync(bin, `#!/bin/sh\ncat <<'JSON'\n${JSON.stringify({
+      servers: [
+        { name: 'gw', state: 'connected', tools: ['a', 'b', 'c'] },
+        { name: 'linear', state: 'needs-auth' },
+        { name: 'broken', state: 'error' },
+        { name: 'later', state: 'connecting' },
+      ],
+      errors: [{ server: 'broken', message: 'spawn ENOENT' }],
+    })}\nJSON\n`);
+    fs.chmodSync(bin, 0o755);
+    const states = await piMcpStates(project, { bin });
+    expect(Object.fromEntries(states)).toEqual({
+      gw: { state: 'connected', status: '3 tools', tools: 3 },
+      linear: { state: 'needs_auth', status: 'sign in with: pi mcp login linear', tools: null },
+      broken: { state: 'failed', status: 'spawn ENOENT', tools: null },
+      later: { state: 'pending', status: 'connecting', tools: null },
+    });
+    expect(await piMcpStates(project, { bin: path.join(project, 'no-such-pi') })).toBeNull();
+  });
+});
