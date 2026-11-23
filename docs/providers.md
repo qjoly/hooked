@@ -86,7 +86,7 @@ setting hides it from the launch pickers, not from the history.
 
 | Field | Applies to | Meaning |
 |---|---|---|
-| `enabled` | all | `auto` / `on` / `off` |
+| `enabled` | all | `auto` / `on` / `off`. `off` takes the provider out of the launch pickers; its existing sessions still resume (after a restart, Resume, fork) |
 | `engine` | custom | engine id: `pi`, `acp`, or an external engine. Built-ins cannot change engine |
 | `label`, `short`, `color`, `description` | all | how the provider shows: name, badge (≤ 4 chars), `#hex` colour, picker tooltip |
 | `command`, `args` | pi, acp, external | binary and extra arguments (pi: defaults to the resolved `pi`; acp: required) |
