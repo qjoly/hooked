@@ -143,6 +143,7 @@ function sanitizeEntry(id, raw) {
     if (Object.keys(modes).length) out.modes = modes;
   }
   if (typeof raw.injectHookedMcp === 'boolean') out.injectHookedMcp = raw.injectHookedMcp;
+  if (typeof raw.hookedPackage === 'boolean') out.hookedPackage = raw.hookedPackage;
   if (isObj(raw.capabilities)) {
     const caps = {};
     for (const k of CAPABILITY_KEYS) if (typeof raw.capabilities[k] === 'boolean') caps[k] = raw.capabilities[k];

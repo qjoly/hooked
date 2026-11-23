@@ -22,6 +22,7 @@ import { scanPiSessions } from './pi.js';
 import { providerEnv, modelMatches } from './providerConfig.js';
 import { piCatalog } from './piCatalog.js';
 import { PI_SESSIONS_DIR } from './config.js';
+import { hookedPiPackage, hookedPackageEnabled, hookedPackageEnv, handleUiRequest } from './piHooked.js';
 
 const err400 = (msg) => Object.assign(new Error(msg), { code: 400 });
 
@@ -147,6 +148,11 @@ class PiRpcClient {
     });
   }
 
+  // A record that expects no response (extension_ui_response).
+  send(obj) {
+    try { this.proc.stdin.write(JSON.stringify(obj) + '\n'); } catch (_) { /* pi gone */ }
+  }
+
   close() {
     try { this.proc.stdin.end(); } catch (_) {}
     setTimeout(() => { try { this.proc.kill('SIGTERM'); } catch (_) {} }, 3000).unref?.();
@@ -263,6 +269,12 @@ function handleEvent(st, rec) {
       dirty = true;
       break;
     }
+    case 'extension_ui_request': {
+      // Dialogs of the hooked package (permission / question / plan cards) and of other
+      // extensions, plus the quotas it relays (cf. server/piHooked.js).
+      if (st.pi) handleUiRequest(st, rec, (obj) => st.pi.send(obj));
+      break;
+    }
     default:
       break;
   }
@@ -290,16 +302,28 @@ function piSessionsDirFor(provider) {
   return PI_SESSIONS_DIR;
 }
 
+// The provider's own extensions (`args: ["-e", "npm:pi-claude-bridge"]`) register model providers:
+// the catalog has to load them to list their models.
+function extensionArgs(provider) {
+  const args = provider && Array.isArray(provider.args) ? provider.args : [];
+  const out = [];
+  for (let i = 0; i < args.length; i++) {
+    if ((args[i] === '-e' || args[i] === '--extension') && args[i + 1]) out.push('-e', args[++i]);
+  }
+  return out;
+}
+
 // Catalog key + spawn parameters of a provider's pi profile.
 function piProfile(provider, baseEnv = process.env) {
   const bin = piBin(provider);
   const env = piEnvFor(baseEnv, provider);
-  return { key: bin + '|' + (env.PI_CODING_AGENT_DIR || ''), bin, env };
+  const ext = extensionArgs(provider);
+  return { key: bin + '|' + (env.PI_CODING_AGENT_DIR || '') + '|' + ext.join(' '), bin, env, ext };
 }
 
 function piCatalogFor(provider, baseEnv) {
   const p = piProfile(provider, baseEnv);
-  return piCatalog(p.key, p.bin, p.env);
+  return piCatalog(p.key, p.bin, p.env, p.ext);
 }
 
 // A model reference as pi takes it: `provider/id`, or a bare id pi resolves itself (it prefers
@@ -318,6 +342,8 @@ function splitModelRef(ref, fallbackProvider = null) {
   if (i > 0) return { provider: s.slice(0, i), modelId: s.slice(i + 1) };
   return { provider: fallbackProvider, modelId: s };
 }
+
+const HOOKED_MCP_TOOLS = 'mcp__hooked__*';
 
 function piArgsFor(st, { resumeId, model, effort, name }, provider) {
   const args = ['--mode', 'rpc'];
@@ -340,13 +366,30 @@ function piArgsFor(st, { resumeId, model, effort, name }, provider) {
   const eff = effort || (!resumeId && provider && provider.defaultEffort) || null;
   if (eff) args.push('--thinking', eff);
   if (name) args.push('--name', name);
-  if (provider && Array.isArray(provider.args)) args.push(...provider.args);
+  const extra = provider && Array.isArray(provider.args) ? [...provider.args] : [];
+  // hooked's own package: tools, permission / question / plan cards, quotas (cf. pi-package/).
+  if (hookedPackageEnabled(provider)) {
+    extra.push('-e', hookedPiPackage());
+    // The package serves hooked's tools natively (`hooked_*`, with this session's launch key). A
+    // `hooked` server in pi's mcp.json would declare the same tools a second time, without the key.
+    const i = extra.findIndex((a) => a === '-xt' || a === '--exclude-tools');
+    if (i >= 0 && extra[i + 1]) extra[i + 1] += ',' + HOOKED_MCP_TOOLS;
+    else extra.push('--exclude-tools', HOOKED_MCP_TOOLS);
+  }
+  args.push(...extra);
   return args;
 }
 
 async function piStart(st, opts, ctx) {
   const provider = st.providerConfig || null;
-  const env = piEnvFor(opts.env || process.env, provider);
+  const withPackage = hookedPackageEnabled(provider);
+  // Launch mode and auto-approve travel to the package through its environment; later changes go
+  // through its /hooked-mode and /hooked-auto-approve commands.
+  if (withPackage && opts.permissionMode) st.permissionMode = opts.permissionMode;
+  const env = {
+    ...piEnvFor(opts.env || process.env, provider),
+    ...(withPackage ? hookedPackageEnv(st, ctx.hookedMcp ? ctx.hookedMcp() : null) : {}),
+  };
   const args = piArgsFor(st, opts, provider);
   const client = new PiRpcClient(args, { cwd: st.cwd, env, bin: piBin(provider) });
   st.pi = client;
@@ -370,9 +413,12 @@ async function piStart(st, opts, ctx) {
     const m0 = st0.data?.model;
     if (m0 && typeof m0 === 'object') { st.model = m0.id || st.model; st.modelProvider = m0.provider || st.modelProvider || null; }
     st.sawMsg = true;
-    // pi en RPC exécute les outils sans demander → auto-approve côté UI.
-    st.autoApprove = true;
-    st.permissionMode = 'bypassPermissions';
+    st.hookedPackage = withPackage;
+    if (!withPackage) {
+      // Without the package, pi runs every tool without asking: auto-approve, nothing to switch.
+      st.autoApprove = true;
+      st.permissionMode = 'bypassPermissions';
+    }
     ctx.setLive(sessionId, st);
     ctx.persistLaunch(sessionId, opts.model || null, opts.effort || null);
     if (opts.prompt && String(opts.prompt).trim()) {
@@ -447,10 +493,25 @@ function piCompact(st, instructions = '') {
   return st.pi.call('compact', instructions ? { customInstructions: instructions } : {}, 600_000);
 }
 
+// An extension command of the hooked package: handled at once by pi, even mid-turn, and never
+// sent to the model.
+function packageCommand(st, line) {
+  if (!st.pi) return Promise.reject(err400('pi session not started'));
+  return st.pi.call('prompt', { message: line, streamingBehavior: 'steer' }, 15_000);
+}
+
 function piSetMode(st, target) {
-  // pas de mode de permission côté pi : on note juste le choix pour l'UI.
-  st.permissionMode = target || st.permissionMode;
-  return Promise.resolve();
+  if (!st.hookedPackage) {
+    // No package: pi has no permission modes, the choice is only noted for the UI.
+    st.permissionMode = target || st.permissionMode;
+    return Promise.resolve();
+  }
+  return packageCommand(st, `/hooked-mode ${target}`).then(() => { st.permissionMode = target; });
+}
+
+function piSetAutoApprove(st, on) {
+  if (!st.hookedPackage) return Promise.resolve();
+  return packageCommand(st, `/hooked-auto-approve ${on ? 'on' : 'off'}`).catch(() => {});
 }
 
 async function piSetConfig(st, { model, thinking }) {
@@ -535,7 +596,15 @@ async function piOptions(provider = null) {
     activeModel: (def && models.some((m) => m.name === def) ? def : null) || models[0]?.name || null,
     defaultEffort: (provider && provider.defaultEffort) || null,
     thinkingLevels: THINKING_LEVELS,
-    modes: [{ id: 'auto', label: 'Auto (no approvals in RPC)' }],
+    // hooked's permission modes, enforced by its pi package; without it pi asks nothing.
+    modes: hookedPackageEnabled(provider)
+      ? [
+        { id: 'default', label: 'Normal — ask before commands and edits' },
+        { id: 'acceptEdits', label: 'Accept edits — ask before commands' },
+        { id: 'plan', label: 'Plan — read only, then a plan to approve' },
+        { id: 'bypassPermissions', label: 'Bypass — ask for nothing' },
+      ]
+      : [{ id: 'auto', label: 'Auto (no approvals in RPC)' }],
   };
 }
 
@@ -548,6 +617,6 @@ function questionsFromSchema(schema) { return Array.isArray(schema?.questions) ?
 // (`export *`) ferait disparaître les doublons en silence.
 export {
   resolvePiBin, piBinaryAvailable, piSessionsDirFor, piCatalogFor, piEnvFor, qualifyModel, splitModelRef,
-  piStart, piPrompt, piCancel, piCompact, piSetMode, piSetConfig, piKill, piFork, piModeFor, piOptions,
+  piStart, piPrompt, piCancel, piCompact, piSetMode, piSetAutoApprove, piSetConfig, piKill, piFork, piModeFor, piOptions,
   elicitationContent, questionsFromSchema, PiRpcClient,
 };

@@ -882,6 +882,12 @@ async function handle(msg) {
   return replyError(id, -32601, 'méthode non supportée : ' + method);
 }
 
+// Required as a module (the hooked pi package, pi-package/extensions/hooked.js, registers these
+// same tools as native pi tools): export them and do not start the stdio server.
+module.exports = { TOOLS, INSTRUCTIONS, resultFrom, httpRequest };
+if (require.main === module) startStdio();
+
+function startStdio() {
 let buffer = '';
 process.stdin.setEncoding('utf8');
 process.stdin.on('data', (chunk) => {
@@ -905,4 +911,4 @@ process.stdin.on('data', (chunk) => {
 
 // Pas d'exit explicite sur 'end' : on laisse l'event loop se vider (les appels HTTP en vol
 // se terminent et impriment leur réponse), puis Node sort de lui-même quand stdin est fermé.
-
+}

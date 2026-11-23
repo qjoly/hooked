@@ -18,6 +18,11 @@
  * blobs via `git cat-file` et fusionne ces ops dans le Ship. NB : les blobs non référencés sont
  * élagués par `git gc` après le délai de grâce (~2 semaines) — le serveur ignore alors l'op.
  */
+// A Claude Code process spawned by pi (pi-claude-bridge runs Claude Code as a pi model provider)
+// is the model of a pi session, not a session of its own: its hooks must not create one in the
+// dashboard. pi sets PI_CODING_AGENT=true for every child process.
+if (process.env.PI_CODING_AGENT) process.exit(0);
+
 const fs = require('fs');
 const path = require('path');
 const os = require('os');

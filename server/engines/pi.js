@@ -15,9 +15,10 @@ import {
   piSubagents, piSubSessions, piScreenshots, piContext, piToolPaths, piSetArchived,
 } from '../pi.js';
 import {
-  piStart, piPrompt, piCancel, piCompact, piSetMode, piSetConfig, piKill, piFork, piOptions,
-  piBinaryAvailable, piSessionsDirFor, elicitationContent,
+  piStart, piPrompt, piCancel, piCompact, piSetMode, piSetAutoApprove, piSetConfig, piKill, piFork, piOptions,
+  piBinaryAvailable, piSessionsDirFor,
 } from '../piAgent.js';
+import { hookedPackageEnabled } from '../piHooked.js';
 import { piSlashCommands } from '../piCommands.js';
 
 const MODEL_RE = /^[A-Za-z0-9._:/@+-]{1,160}$/;
@@ -37,6 +38,12 @@ const piEngine = {
   },
   mcpKind: 'pi',
   skillsKind: 'pi',
+  // With hooked's pi package (the default), pi sessions get hooked's permission cards, questions,
+  // plan mode and mode switches; `hookedPackage: false` on a provider takes them back off.
+  capabilitiesFor(provider) {
+    if (!hookedPackageEnabled(provider)) return this.capabilities;
+    return { ...this.capabilities, permissions: true, questions: true, plan: true, modes: true, autoApprove: true };
+  },
 
   detect(provider) {
     if (piBinaryAvailable(provider)) return true;
@@ -83,8 +90,9 @@ const piEngine = {
     setConfig: (st, { model, effort }) => piSetConfig(st, { model, thinking: effort }),
     kill: piKill,
     fork: piFork,
-    // pi has no elicitation in RPC: a pending question cannot exist; kept for the generic path.
-    answerQuestion: (st, ask, { selections }) => ask.resolve({ behavior: 'allow', elicitation: { action: 'accept', content: elicitationContent(ask.questions || [], selections) } }),
+    // A question card of the hooked package (or another extension's dialog), cf. piHooked.js.
+    answerQuestion: (st, ask, { answers }) => ask.resolve({ behavior: 'allow', answers }),
+    setAutoApprove: piSetAutoApprove,
     liveCommands: () => null,
   },
   options: (provider) => piOptions(provider),

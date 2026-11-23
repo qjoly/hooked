@@ -172,6 +172,16 @@ A **provider** is configuration (`settings.json` → `providers`, Settings → P
   format, so the journal is what the list, conversation, Trace, search and trash read. During
   `session/load` the replay is not journaled again. hooked's MCP server is injected into every ACP
   session through `session/new`'s `mcpServers`.
+- **pi sessions run hooked's pi package** (`pi-package/`, `server/piHooked.js`,
+  `docs/pi-package.md`): hooked's tools as native `hooked_*` tools, `AskUserQuestion` /
+  `ExitPlanMode`, a permission gate following the mode and auto-approve. Its dialogs reach hooked as
+  RPC `extension_ui_request` records titled `[hooked:<kind>] <json>` and become the same
+  `pendingAsk` cards as the Claude path. It never changes the system prompt between turns (a cache
+  miss on every provider). `"hookedPackage": false` on a provider turns it off.
+- **Claude through pi-claude-bridge** is a pi provider (`args: ["-e", "npm:pi-claude-bridge@…"]`).
+  The Claude Code sessions the bridge runs as the model of a pi session are hidden from the Claude
+  list (`server/bridgeShadows.js`), and their hooks are dropped (`hook.cjs` exits on pi's
+  `PI_CODING_AGENT` mark, which hooked strips from the sessions it drives).
 - **External engines load at boot, before resume** (`hooks.server.js`), and can be reloaded from
   Settings. A module cannot take a built-in engine id. `test/fixtures/providers/echo-engine.mjs` is
   a complete minimal engine, driven end to end through `agent.js` in `test/providerRegistry.test.mjs`.

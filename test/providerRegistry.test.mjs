@@ -37,6 +37,7 @@ describe('provider registry', () => {
         claude: 'off',
         pi: { enabled: 'on', label: 'Pi (all)' },
         mistral: { engine: 'pi', label: 'Mistral', short: 'mi', color: '#fa520f', models: ['mistral/*'], enabled: 'on' },
+        bare: { engine: 'pi', label: 'Bare pi', models: ['openai/*'], hookedPackage: false, enabled: 'on' },
         nope: { label: 'no engine' },
       },
       defaultProvider: 'mistral',
@@ -48,13 +49,14 @@ describe('provider registry', () => {
     expect(s.providers.nope).toBeUndefined(); // a custom entry needs an engine
     expect(s.defaultProvider).toBe('mistral');
     const enabled = reg.configuredProviders();
-    expect(enabled).toMatchObject({ claude: false, pi: true, mistral: true });
+    expect(enabled).toMatchObject({ claude: false, pi: true, mistral: true, bare: true });
     const list = reg.providerList();
-    expect(list.map((p) => p.id)).toEqual(['claude', 'pi', 'mistral']);
+    expect(list.map((p) => p.id)).toEqual(['claude', 'pi', 'mistral', 'bare']);
     const mi = list.find((p) => p.id === 'mistral');
     expect(mi).toMatchObject({ engine: 'pi', label: 'Mistral', short: 'mi', color: '#fa520f', mcpKind: 'pi', models: ['mistral/*'] });
-    expect(mi.capabilities.plan).toBe(false);
-    expect(mi.capabilities.trace).toBe(true);
+    // hooked's pi package brings the cards; a provider that opts out of it has none
+    expect(mi.capabilities).toMatchObject({ plan: true, questions: true, permissions: true, trace: true });
+    expect(list.find((p) => p.id === 'bare').capabilities).toMatchObject({ plan: false, questions: false, permissions: false, trace: true });
   });
 
   it('refuses a launch on an unknown, disabled or engine-less provider with a clear reason', () => {
