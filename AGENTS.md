@@ -1,4 +1,4 @@
-# CLAUDE.md for hooked
+# AGENTS.md for hooked
 
 hooked is a local dashboard for Claude Code sessions. The front end is SvelteKit / Svelte 5. The back end is plain Node stdlib (`server/*` + `hook.cjs`), with a single runtime dependency for driving sessions: Anthropic's Agent SDK (`@anthropic-ai/claude-agent-sdk`). The MCP server (`mcp/server.cjs`) is a thin client that proxies the local HTTP API.
 
@@ -21,6 +21,10 @@ hooked is a local dashboard for Claude Code sessions. The front end is SvelteKit
   (`pkill node`, killing port 4123, `launchctl unload`...) kills the session with no rebuild, no
   restart and no resume. Claude ends up killing itself for nothing.
 
+- **`mise run desktop-rune` can restart hooked too.** It runs `mise run deploy-if-stale`, which
+  deploys when `build/` lags behind the checkout (a build input differs between the build stamp's
+  commit and HEAD, or changed on disk since the build), and otherwise does nothing. If the restart cuts the session short,
+  rerun the task: the back end is current by then, so it only installs the app.
 - `npm run live` (Vite, `:4123`, `--strictPort`) is the live workflow to prefer. It gives front-end HMR and server reloads. The SvelteKit dev server runs the `/api/*` endpoints (`+server.js`) in-process, and Vite re-executes changed `server/*` / `#lib/server/*` modules on the next request, so a back-end change takes effect with no rebuild or restart. It uses the same port as prod (4123); `strictPort` fails loudly if `node build` still holds the port, instead of drifting to 4124.
 - `npm run dev` (Vite, `:5173`) is the same as `live`, on Vite's default port.
 - `npm start` (`node build`, prod, usually `:4123` through `PORT`) does not reload. After any change, run `mise run deploy` (build plus service restart, see the first bullet). **Never run `npm run build` on its own, not even "just to check it compiles":** it rewrites `build/` under the running service and kills hooked. To check without deploying, run `npm test`. The restart is needed because:
@@ -177,6 +181,27 @@ Tasks live in `cron-tasks.json`; the parser (`src/lib/cron.js`) is pure and shar
   is still working or waiting on you. Runs missed while hooked is down are not caught up.
 - **MCP tools** `list_cron_tasks`, `save_cron_task`, `delete_cron_task`, `run_cron_task`. A save with an `id` only
   changes the fields it carries.
+
+## Flows (`server/flows.js`, `src/lib/flows.js`, `Flows.svelte`)
+
+A flow is a graph of stages, each one a driven session, walked like a CI pipeline (the `/flows`
+page draws it). The built-in "feature" template: pilot → build → review ‖ test & challenge → decide,
+with the decider looping back to build. Templates live in `flow-templates.json`, runs in
+`flow-runs.json`; a run keeps a snapshot of its flow.
+
+- **hooked drives the transitions, not a session.** A 3 s tick reads the registry. A stage reports
+  with the MCP tool `flow_report` (summary, plus `done`/`loop`/`escalate` for the decider) and is
+  done once it has reported AND its turn has ended. No report at turn end: one nudge, then `stalled`.
+  Loops are capped (`maxLoops`), then the run waits on the user.
+- **One shared worktree per run**, one writer stage. Stage sessions join one group and are reused
+  across loops (`deliverReply`, or a resume without `model`), so each keeps its context and cache.
+- **Token choices are deliberate:** per-stage model/effort in the template (opus for pilot and
+  decider, sonnet for the rest), dense reports (~300 words), loop messages only carry the reports
+  re-run in that pass (`run.rerun`), and sibling stages start 10 s apart so the second one reads the
+  system/tools prefix the first one cached.
+- **Ownership:** the service adopts every running run at boot (`startFlowEngine({ adopt: true })`,
+  3 min grace for resumed sessions, then one automatic resume). A bare `npm run live` only drives the
+  runs it started.
 
 ## Incognito mode (`ui.incognito`, `incognito` flag in `session-meta.json`)
 

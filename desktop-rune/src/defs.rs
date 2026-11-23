@@ -2,13 +2,21 @@
 //! under the clicked line, never elsewhere. The repo is asked through hooked's
 //! `/api/session/symbol` (git grep plus a ranking by locality and imports) and the lines come
 //! from `/api/session/source`.
-use rune_kit::diff::{LineRange, Side};
+//!
+//! rune-kit's diff view reports no clicked word, so the name comes from the text selection: a
+//! ⌘-double-click selects it and opens its definition, and the selected text's element path says
+//! which line it is on (see [`diff_line_of`]). The same gesture inside the card follows a name
+//! of the definition shown, with a way back.
+use rune::TextSelection;
+use rune_kit::diff::{FileDiff, LineKind, LineRange, LineRef, Side};
 use serde_json::Value;
 
 use crate::{api, app::Hooked};
 
 pub const PAD: u64 = 12;
 pub const STEP: u64 = 20;
+/// How many definitions deep the card follows names before it stops.
+const MAX_DEPTH: usize = 8;
 
 const KEYWORDS: &[&str] = &[
     "as",
@@ -97,11 +105,109 @@ pub struct DefPeek {
     pub file: usize,
     pub side: Side,
     pub line: u32,
+    /// The file a name is looked up from: the diff's, then the definition's the card followed.
     pub path: String,
     pub rev: String,
     pub choices: Vec<String>,
     pub symbol: Option<String>,
     pub state: DefState,
+    /// The definitions the card came through, the last one first to go back to.
+    pub trail: Vec<Hop>,
+}
+
+/// A definition the card showed before following one of its names.
+pub struct Hop {
+    pub path: String,
+    pub symbol: Option<String>,
+    pub target: Value,
+}
+
+/// A row of rune-kit's diff from its element key (`DiffState::key_of`): the file and the line
+/// number its key carries, with `c` for an unchanged line (its old number), `o` a removed one
+/// (or a removed and added pair in split mode) and `n` an added one.
+fn row_key(seg: &str) -> Option<(usize, char, u32)> {
+    let (f, rest) = seg.strip_prefix("df")?.split_once('.')?;
+    let kind = rest
+        .chars()
+        .next()
+        .filter(|c| matches!(c, 'c' | 'o' | 'n'))?;
+    let n = &rest[1..];
+    let digits = |s: &str| !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit());
+    (digits(f) && digits(n)).then_some((f.parse().ok()?, kind, n.parse().ok()?))
+}
+
+/// The line holding a selected text of the Review diff, from the text's element path: its row's
+/// key and, in split mode, the half it is in. `None` outside the code of a line (a comment
+/// thread, the definition card).
+pub fn diff_line_of(files: &[FileDiff], path: &str) -> Option<(usize, Side, u32)> {
+    let segs: Vec<&str> = path.split('/').collect();
+    let at = segs.iter().position(|s| row_key(s).is_some())?;
+    let (f, kind, n) = row_key(segs[at])?;
+    let after = &segs[at + 1..];
+    if !after.contains(&"code") || after.iter().any(|s| *s == "notes" || s.starts_with("a.")) {
+        return None;
+    }
+    let half = after.iter().find_map(|s| match *s {
+        "old" => Some(Side::Old),
+        "new" => Some(Side::New),
+        _ => None,
+    });
+    let file = files.get(f)?;
+    let line = match (kind, half) {
+        ('n', _) => (Side::New, n),
+        ('o', Some(Side::New)) => (Side::New, paired_addition(file, n)?),
+        ('o', _) => (Side::Old, n),
+        ('c', Some(Side::Old)) => (Side::Old, n),
+        _ => (Side::New, unchanged_new(file, n)),
+    };
+    Some((f, line.0, line.1))
+}
+
+/// The added line split mode draws beside removed line `old`: the k-th removed line of a run
+/// pairs with the k-th added line that follows it.
+fn paired_addition(file: &FileDiff, old: u32) -> Option<u32> {
+    file.hunks.iter().find_map(|h| {
+        let l = &h.lines;
+        let i = l
+            .iter()
+            .position(|x| x.kind == LineKind::Removed && x.old == Some(old))?;
+        let start = l[..i]
+            .iter()
+            .rposition(|x| x.kind != LineKind::Removed)
+            .map_or(0, |p| p + 1);
+        let adds = l[i..]
+            .iter()
+            .position(|x| x.kind != LineKind::Removed)
+            .map_or(l.len(), |p| i + p);
+        l.get(adds + (i - start))
+            .filter(|x| x.kind == LineKind::Added)
+            .and_then(|x| x.new)
+    })
+}
+
+/// The new number of unchanged line `old`: read off its hunk, else shifted by what the hunks
+/// above it added and removed.
+fn unchanged_new(file: &FileDiff, old: u32) -> u32 {
+    if let Some(n) = file
+        .hunks
+        .iter()
+        .flat_map(|h| &h.lines)
+        .find(|l| l.kind == LineKind::Context && l.old == Some(old))
+        .and_then(|l| l.new)
+    {
+        return n;
+    }
+    // A hunk's numbers start at the line before it when it holds none of that side.
+    let end = |start: u32, count: u32| if count == 0 { start + 1 } else { start + count };
+    file.hunks
+        .iter()
+        .take_while(|h| end(h.old_start, h.old_count) <= old)
+        .last()
+        .map_or(old, |h| {
+            let shift =
+                i64::from(end(h.new_start, h.new_count)) - i64::from(end(h.old_start, h.old_count));
+            (i64::from(old) + shift).max(1) as u32
+        })
 }
 
 pub fn is_ident(s: &str) -> bool {
@@ -197,6 +303,7 @@ impl Hooked {
             choices,
             symbol: None,
             state: DefState::Choose,
+            trail: Vec::new(),
         });
         if let Some(w) = word {
             self.def_lookup(w);
@@ -210,6 +317,41 @@ impl Hooked {
             self.def_lookup(only);
         }
         self.annotate();
+    }
+
+    /// A name selected in the diff or in the card (⌘-double-click, F12): its definition opens
+    /// under the line it was selected on, or the card follows it from the definition it shows.
+    /// False when the selection is no single name, or not in either.
+    pub fn def_from_selection(&mut self, sel: &TextSelection) -> bool {
+        let word = sel.text().trim();
+        let Some(piece) = sel.texts().iter().find(|t| t.is_selected()) else {
+            return false;
+        };
+        if !is_ident(word) {
+            return false;
+        }
+        if piece.path().split('/').any(|s| s == "a.def") {
+            return self.def_dive(word.to_string());
+        }
+        let Some((file, side, line)) = diff_line_of(self.lens_data.diff.files(), piece.path())
+        else {
+            return false;
+        };
+        // Opening the card moves the selected text under a new parent, which is heard as a
+        // new selection: the card already open on it stays as it is.
+        let open = self.lens_data.def.as_ref().is_some_and(|d| {
+            (d.file, d.side, d.line) == (file, side, line)
+                && d.trail.is_empty()
+                && d.symbol.as_deref() == Some(word)
+        });
+        if open {
+            return true;
+        }
+        self.def_click(
+            LineRange::line(file, LineRef::new(side, line)),
+            Some(word.to_string()),
+        );
+        true
     }
 
     /// F12 on a name selected in the code: its line is the last clicked one when it holds the
@@ -331,8 +473,50 @@ impl Hooked {
         let Some(d) = self.lens_data.def.as_mut() else {
             return;
         };
+        if let Some(first) = d.trail.drain(..).next() {
+            d.path = first.path;
+        }
         d.state = DefState::Choose;
         d.symbol = None;
+    }
+
+    /// Follows `word` from the definition the card shows, looked up from that definition's
+    /// file. False when the card shows no definition or has gone deep enough.
+    fn def_dive(&mut self, word: String) -> bool {
+        let Some(d) = self.lens_data.def.as_mut() else {
+            return false;
+        };
+        let DefState::Source { target, .. } = &d.state else {
+            return false;
+        };
+        let Some(file) = target["file"].as_str().filter(|f| !f.is_empty()) else {
+            return false;
+        };
+        if d.trail.len() >= MAX_DEPTH || d.symbol.as_deref() == Some(word.as_str()) {
+            return false;
+        }
+        let hop = Hop {
+            path: std::mem::replace(&mut d.path, file.to_string()),
+            symbol: d.symbol.clone(),
+            target: target.clone(),
+        };
+        d.trail.push(hop);
+        self.def_lookup(word);
+        true
+    }
+
+    /// Back to the definition the card showed before following a name.
+    pub fn def_up(&mut self) {
+        let Some(d) = self.lens_data.def.as_mut() else {
+            return;
+        };
+        let Some(hop) = d.trail.pop() else {
+            return;
+        };
+        d.path = hop.path;
+        d.symbol = hop.symbol;
+        d.state = source_state(hop.target);
+        self.def_load_source();
     }
 
     pub fn def_expand(&mut self, up: bool) {
@@ -430,5 +614,126 @@ mod tests {
             ["view", "Hooked", "El"]
         );
         assert!(is_ident("launchSession") && !is_ident("a b") && !is_ident("9x"));
+    }
+
+    const PATCH: &str = "diff --git a/a.rs b/a.rs
+--- a/a.rs
++++ b/a.rs
+@@ -1,4 +1,5 @@
+ fn one() {}
+-fn two() {}
+-fn three() {}
++fn deux() {}
++fn trois() {}
++fn quatre() {}
+ fn four() {}
+@@ -20,2 +21,2 @@
+ fn twenty() {}
+-fn x() {}
++fn y() {}
+";
+
+    #[test]
+    fn a_selected_text_names_its_line_from_its_row_key() {
+        let files = rune_kit::diff::parse(PATCH);
+        let at = |p: &str| diff_line_of(&files, &format!("review/diff/scroll/rows/{p}"));
+        // unified: added and removed lines, a row with annotations under it
+        assert_eq!(at("df0.n3/code/text"), Some((0, Side::New, 3)));
+        assert_eq!(at("df0.o2/code/text"), Some((0, Side::Old, 2)));
+        assert_eq!(at("df0.n3/line/code/text"), Some((0, Side::New, 3)));
+        // unchanged lines go by their new number, in a hunk or between two
+        assert_eq!(at("df0.c4/code/text"), Some((0, Side::New, 5)));
+        assert_eq!(at("df0.c10/code/text"), Some((0, Side::New, 11)));
+        assert_eq!(at("df0.c25/code/text"), Some((0, Side::New, 26)));
+        // split: a pair's halves, an unchanged line's old half
+        assert_eq!(at("df0.o2/old/code/text"), Some((0, Side::Old, 2)));
+        assert_eq!(at("df0.o2/new/code/text"), Some((0, Side::New, 2)));
+        assert_eq!(at("df0.o3/new/code/text"), Some((0, Side::New, 3)));
+        assert_eq!(at("df0.c10/old/code/text"), Some((0, Side::Old, 10)));
+        // not the code of a line
+        assert_eq!(at("df0.n3/notes/new/a.def/x/text"), None);
+        assert_eq!(at("df0.g1/text"), None);
+        assert_eq!(at("df0.note/text"), None);
+        assert_eq!(at("df1.n3/code/text"), None);
+    }
+
+    mod headless {
+        use super::super::diff_line_of;
+        use super::PATCH;
+        use rune::{Cx, El, Env, Runtime, col};
+        use rune_kit::Kit;
+        use rune_kit::diff::{DiffMode, DiffState, DiffView, Side, parse};
+
+        struct App {
+            diff: DiffState,
+            heard: Vec<Option<(usize, Side, u32)>>,
+        }
+
+        /// The Review lens's arrangement: the diff inside an element that hears its selection.
+        fn view(s: &App, _: &mut Cx<App>) -> El {
+            let k = Kit::neutral(true);
+            col()
+                .w_full()
+                .h_full()
+                .on_selection_change(|s: &mut App, change, _| {
+                    if change.dragging() {
+                        return;
+                    }
+                    let at = change.selection().and_then(|sel| {
+                        let t = sel.texts().iter().find(|t| t.is_selected())?;
+                        diff_line_of(s.diff.files(), t.path())
+                    });
+                    s.heard.push(at);
+                })
+                .child(DiffView::new(|s: &App| &s.diff, |s: &mut App| &mut s.diff).build(s, &k))
+        }
+
+        fn double_click(rt: &mut Runtime<App>, end: &str) {
+            let e = rt
+                .elements()
+                .into_iter()
+                .find(|e| e.path.ends_with(end) && !e.exiting)
+                .unwrap_or_else(|| panic!("no {end}"));
+            let (x, y) = (e.rect[0] + 4.0, e.rect[1] + e.rect[3] / 2.0);
+            // Hovering a line's code makes its side the selectable one, as the pointer does on
+            // its way to a removed line.
+            rt.pointer_move(x, y);
+            rt.frame(1.0 / 60.0);
+            for _ in 0..2 {
+                rt.pointer_down(x, y);
+                rt.pointer_up(x, y);
+                rt.frame(1.0 / 60.0);
+            }
+            rt.frame(1.0 / 60.0);
+        }
+
+        fn runtime(mode: DiffMode) -> Runtime<App> {
+            let mut diff = DiffState::new(parse(PATCH));
+            diff.set_mode(mode);
+            let app = App {
+                diff,
+                heard: Vec::new(),
+            };
+            let mut rt = Runtime::new(app, view, (900.0, 600.0), Env::new(true, 2.0));
+            for _ in 0..10 {
+                rt.frame(1.0 / 60.0);
+            }
+            rt
+        }
+
+        #[test]
+        fn a_double_clicked_word_is_heard_on_its_line() {
+            let mut rt = runtime(DiffMode::Unified);
+            double_click(&mut rt, "/df0.n3/code/text");
+            assert_eq!(rt.state.heard.last(), Some(&Some((0, Side::New, 3))));
+            double_click(&mut rt, "/df0.o2/code/text");
+            assert_eq!(rt.state.heard.last(), Some(&Some((0, Side::Old, 2))));
+
+            let mut rt = runtime(DiffMode::Split);
+            double_click(&mut rt, "/df0.o3/new/code/text");
+            assert_eq!(rt.state.heard.last(), Some(&Some((0, Side::New, 3))));
+            double_click(&mut rt, "/df0.c4/old/code/text");
+            assert_eq!(rt.state.heard.last(), Some(&Some((0, Side::Old, 4))));
+        }
     }
 }

@@ -6,7 +6,7 @@ use rune_kit::ShortcutRecorderState;
 use crate::app::{Hooked, Page};
 
 /// The web's `SHORTCUT_DEFS`: id, label, default chord.
-pub const ACTIONS: [(&str, &str, &str); 18] = [
+pub const ACTIONS: [(&str, &str, &str); 19] = [
     ("command-palette", "Omnibar", "mod+p"),
     ("commands-only", "Omnibar (commands only)", "mod+shift+p"),
     ("new-session", "New session", "mod+n"),
@@ -17,6 +17,7 @@ pub const ACTIONS: [(&str, &str, &str); 18] = [
     ("go-digest", "Go to Digest", "alt+5"),
     ("go-memory", "Go to Memory", "alt+6"),
     ("go-github", "Go to GitHub", "alt+7"),
+    ("go-incidents", "Go to Incidents", "alt+8"),
     ("toggle-sidebar", "Toggle session sidebar", "mod+b"),
     ("open-terminal", "Toggle terminal panel", "mod+j"),
     ("new-terminal", "New terminal", "mod+shift+j"),
@@ -90,6 +91,7 @@ impl Hooked {
             "go-digest" => self.go(Page::Digest),
             "go-memory" => self.go(Page::Memory),
             "go-github" => self.go(Page::GitHub),
+            "go-incidents" if self.incidents_on() => self.go(Page::Incidents),
             "toggle-sidebar" => self.toggle_sidebar(),
             "open-terminal" if session => self.toggle_terms(),
             "new-terminal" if session => {

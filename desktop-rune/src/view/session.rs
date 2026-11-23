@@ -45,17 +45,25 @@ pub fn view(s: &Hooked, k: &Kit, layer: &mut Vec<El>) -> El {
     let body = match s.lens {
         Lens::Converse => converse(s, d, k),
         Lens::Review => super::lenses::review(s, d, k),
+        // MCP scopes are read from the disk of the machine the session runs on.
+        Lens::Mcp if d.session.remote.is_some() => col().w_full().h_full().center().child(
+            text("MCP servers belong to the machine a session runs on: open this lens on that hooked instance.")
+                .font(k.ty.body)
+                .color(k.c.text_faint),
+        ),
         Lens::Mcp => super::lenses::mcp(s, d, k),
         Lens::Trace => super::lenses::trace(s, k),
     };
+    // No shell for a session of a remote hooked instance: it would open on this machine.
+    let shell = d.session.remote.is_none();
+    let beside = shell && super::terminal::beside(s);
     col()
         .key("detail")
         .w_full()
         .h_full()
         .child(head(s, d, k, layer))
-        .child(group_tabs(s, &d.session.id, k))
         .child(lenses(s, d, k))
-        .child(if super::terminal::beside(s) {
+        .child(if beside {
             row()
                 .key("lens-row")
                 .w_full()
@@ -78,7 +86,7 @@ pub fn view(s: &Hooked, k: &Kit, layer: &mut Vec<El>) -> El {
                 .min_h(0.0)
                 .child(body)
         })
-        .child(if super::terminal::beside(s) {
+        .child(if beside || !shell {
             el()
         } else {
             super::terminal::panel(s, k)
@@ -132,6 +140,7 @@ fn head(s: &Hooked, d: &Detail, k: &Kit, layer: &mut Vec<El>) -> El {
                 .min_w(60.0)
                 .key("sess-name"),
         )
+        .children(x.remote.iter().map(|r| super::remote_badge(k, r).key("remote-badge")))
         .child(
             row()
                 .key("state-badge")
@@ -299,10 +308,14 @@ fn head(s: &Hooked, d: &Detail, k: &Kit, layer: &mut Vec<El>) -> El {
             .key("focus-toggle"),
         );
     let right = line.child(more_menu(s, d, k, layer));
-    col()
-        .key("head")
-        .w_full()
-        .pb(4.0)
+    let mut head = col().key("head").w_full().pb(4.0);
+    if x.remote.is_some() {
+        // The same wash and rail as its sidebar row, so the pane never reads as a local session.
+        head = head
+            .fill(super::remote_wash(k, false))
+            .border_sides([3.0, 0.0, 0.0, 0.0], crate::theme::remote_color(k.dark));
+    }
+    head
         .child(
             row()
                 .key("head-line")
@@ -441,8 +454,8 @@ fn more_menu(s: &Hooked, d: &Detail, k: &Kit, layer: &mut Vec<El>) -> El {
         x.project.clone().unwrap_or_default(),
         x.id
     );
-    let link = format!("{}/session/{}", crate::api::base(), x.id);
-    m.item(
+    let link = format!("{}/session/{}", crate::api::base_of(&x.id), x.id);
+    let m = m.item(
         MenuItem::new("Copy as Markdown")
             .icon(&icons::COPY)
             .description("The whole conversation, tool calls included")
@@ -505,13 +518,18 @@ fn more_menu(s: &Hooked, d: &Detail, k: &Kit, layer: &mut Vec<El>) -> El {
             s.toggle_incognito(&id)
         })
     })
-    .separator()
-    .item(
-        MenuItem::new("Open in editor")
-            .icon(&icons::CODE)
-            .on_select(|s: &mut Hooked| s.open_editor()),
-    )
-    .item(
+    .separator();
+    // An editor would open on the machine the session runs on: not offered for a remote one.
+    let m = if x.remote.is_none() {
+        m.item(
+            MenuItem::new("Open in editor")
+                .icon(&icons::CODE)
+                .on_select(|s: &mut Hooked| s.open_editor()),
+        )
+    } else {
+        m
+    };
+    m.item(
         MenuItem::new("Open in the web dashboard")
             .icon(&icons::LINK)
             .on_select_tx(move |s: &mut Hooked, tx| {
@@ -632,7 +650,12 @@ fn lenses(s: &Hooked, d: &Detail, k: &Kit) -> El {
             d.changes.len(),
             Lens::Review,
         ))
-        .child(tab("lens-mcp", &icons::PLUG, "MCP", "4", 0, Lens::Mcp))
+        .children(
+            d.session
+                .remote
+                .is_none()
+                .then(|| tab("lens-mcp", &icons::PLUG, "MCP", "4", 0, Lens::Mcp)),
+        )
         .child(tab(
             "lens-trace",
             &icons::ACTIVITY,
@@ -762,6 +785,7 @@ fn converse(s: &Hooked, d: &Detail, k: &Kit) -> El {
         }
         chat = chat.child(w);
     }
+    let chat = chat.on_layout_tx(|s: &mut Hooked, r, tx| s.chat_moved(0, r[1] + r[3], tx));
     let scroller = col()
         .key("transcript")
         .w_full()
@@ -769,8 +793,23 @@ fn converse(s: &Hooked, d: &Detail, k: &Kit) -> El {
         .min_h(0.0)
         .scroll(ScrollSpec { stick_bottom: true })
         .scroll_edge_fade(12.0)
-        .child(chat);
-    let mut out = col().key("converse").w_full().h_full().child(scroller);
+        .child(chat)
+        .on_layout_tx(|s: &mut Hooked, r, tx| s.chat_moved(1, r[1] + r[3], tx));
+    let mut pane = col().key("transcript-pane").w_full().grow(1.0).min_h(0.0).child(scroller);
+    if s.chat_up {
+        // Only there while the conversation is scrolled away from its end.
+        pane = pane.child(
+            IconButton::new(&icons::ARROW_DOWN)
+                .variant(IconButtonVariant::Neutral)
+                .label("Back to the latest message")
+                .help("Back to the latest message")
+                .on_press_tx(|_: &mut Hooked, tx| tx.scroll_to_bottom("transcript"))
+                .build(k)
+                .key("to-latest")
+                .pin(None, None, Some(18.0), Some(14.0)),
+        );
+    }
+    let mut out = col().key("converse").w_full().h_full().child(pane);
     if let Some(q) = d.pending_question.as_ref() {
         out = out.child(question(s, q, k));
     }
@@ -870,6 +909,12 @@ pub(super) fn bubble_version(s: &Hooked, m: &Message, k: &Kit) -> u64 {
         .filter_map(|p| if let Part::Tool(t) = p { t.id } else { None })
         .filter(|id| s.tools_open.contains(id))
         .collect();
+    let tall_ids: Vec<String> = m
+        .render_parts()
+        .into_iter()
+        .filter_map(|p| if let Part::Tool(t) = p { t.id } else { None })
+        .filter(|id| diff_is_tall(s, id))
+        .collect();
     let pictures: Vec<bool> = message_media(m)
         .iter()
         .map(|p| {
@@ -940,6 +985,7 @@ pub(super) fn bubble_version(s: &Hooked, m: &Message, k: &Kit) -> u64 {
         k.dark,
         s.all_tools_open,
         open_ids,
+        tall_ids,
         crate::knobs::generation(),
     ))
 }
@@ -1063,128 +1109,6 @@ pub(super) fn bubble(s: &Hooked, session: &str, m: &Message, k: &Kit, i: usize) 
         assistant_skin(b, k)
     };
     lane(user, b)
-}
-
-fn group_tabs(s: &Hooked, id: &str, k: &Kit) -> El {
-    let mother = s.group_of(id).unwrap_or(id).to_string();
-    let members: Vec<String> = s
-        .group_members(&mother)
-        .into_iter()
-        .filter(|m| s.session(m).is_some())
-        .collect();
-    if members.len() < 2 {
-        return el();
-    }
-    let name = s
-        .session(&mother)
-        .map(|m| s.group_label(m))
-        .unwrap_or_default();
-    let rename = mother.clone();
-    let strip = row()
-        .key("group-tabs")
-        .w_full()
-        .h(34.0)
-        .px(16.0)
-        .gap(4.0)
-        .center_y()
-        .border_sides([0.0, 0.0, 1.0, 0.0], k.c.border_weak)
-        .child(
-            k.interactive(
-                row()
-                    .role("button")
-                    .gap(5.0)
-                    .pr(8.0)
-                    .center_y()
-                    .cursor(Cursor::Pointer)
-                    .help("Session group: click to rename")
-                    .child(glyph(&icons::LIST, 12.0, k.c.icon_muted))
-                    .child(
-                        text(name)
-                            .font(k.ty.text_small_medium)
-                            .color(k.c.text_muted),
-                    ),
-            )
-            .on_press(move |s: &mut Hooked| s.open_rename_group(rename.clone())),
-        );
-    let mut tabs = row().gap(4.0).center_y();
-    for m in members {
-        let Some(x) = s.session(&m) else { continue };
-        let on = m == id;
-        let lead = m == mother;
-        let (open, make, leave) = (m.clone(), m.clone(), m.clone());
-        let mut tab = row()
-            .key(format!("gt-{m}"))
-            .h(26.0)
-            .pl(8.0)
-            .pr(4.0)
-            .gap(5.0)
-            .center_y()
-            .max_w(240.0)
-            .radius(k.radius.sm)
-            .fill(if on { k.c.layer_02 } else { Color::TRANSPARENT })
-            .child(
-                k.interactive(
-                    row()
-                        .role("tab")
-                        .checked(on)
-                        .gap(5.0)
-                        .center_y()
-                        .min_w(0.0)
-                        .cursor(Cursor::Pointer)
-                        .help(s.title_of(x))
-                        .child(dot(k, &x.state, 7.0))
-                        .child(if lead {
-                            glyph(&icons::STAR, 11.0, k.c.icon_accent)
-                        } else {
-                            el()
-                        })
-                        .child(
-                            text(s.title_of(x))
-                                .font(k.ty.text_small)
-                                .color(if on { k.c.text_base } else { k.c.text_muted })
-                                .truncate()
-                                .min_w(0.0),
-                        ),
-                )
-                .on_press(move |s: &mut Hooked| s.open_session(&open)),
-            );
-        if !lead {
-            tab = tab.child(
-                IconButton::new(&icons::STAR)
-                    .variant(IconButtonVariant::GhostMuted)
-                    .control_size(ControlSize::Small)
-                    .label("Make it the lead session")
-                    .help("Make it the lead session")
-                    .on_press(move |s: &mut Hooked| {
-                        s.group_op("mother", make.clone(), serde_json::json!({}))
-                    })
-                    .build(k),
-            );
-        }
-        tab = tab.child(
-            IconButton::new(&icons::CLOSE)
-                .variant(IconButtonVariant::GhostMuted)
-                .control_size(ControlSize::Small)
-                .label("Remove from the group")
-                .help("Remove from the group")
-                .on_press(move |s: &mut Hooked| {
-                    s.group_op("leave", leave.clone(), serde_json::json!({}))
-                })
-                .build(k),
-        );
-        tabs = tabs.child(tab);
-    }
-    strip
-        .child(row().grow(1.0).min_w(0.0).scroll_x().child(tabs))
-        .child(
-            IconButton::new(&icons::PLUS)
-                .variant(IconButtonVariant::GhostMuted)
-                .control_size(ControlSize::Small)
-                .label("New session in this group")
-                .help("New session in this group")
-                .on_press(move |s: &mut Hooked| s.go_new_in_group(mother.clone()))
-                .build(k),
-        )
 }
 
 fn message_media(m: &Message) -> Vec<String> {
@@ -1557,7 +1481,63 @@ fn diff_lines(diff: &serde_json::Value) -> usize {
         .sum()
 }
 
-fn diff_cell(k: &Kit, line: Option<&rune_kit::diff::Line>) -> El {
+/// A line of an inline diff: its code in the language's colours, with the words that changed
+/// from the line it replaces (or that replaces it) on a stronger tint.
+fn code_text(k: &Kit, lang: Option<&str>, l: &rune_kit::diff::Line) -> El {
+    use rune_kit::diff::LineKind;
+    if l.text.is_empty() {
+        return text(" ");
+    }
+    let theme = rune_kit::syntax::SyntaxTheme::from_kit(k);
+    let syntax = theme.spans(&rune_kit::syntax::highlight(lang, &l.text), 0);
+    if l.changes.is_empty() {
+        return text(l.text.clone()).spans(syntax);
+    }
+    let word = match l.kind {
+        LineKind::Removed => k.c.danger.icon,
+        _ => k.c.success.icon,
+    }
+    .alpha(0.3);
+    let mut cuts: Vec<usize> = vec![0, l.text.len()];
+    cuts.extend(
+        syntax
+            .iter()
+            .flat_map(|s| [s.start as usize, s.end as usize]),
+    );
+    cuts.extend(l.changes.iter().flat_map(|r| [r.start, r.end]));
+    cuts.sort_unstable();
+    cuts.dedup();
+    let spans: Vec<rune::Span> = cuts
+        .windows(2)
+        .filter_map(|w| {
+            let (a, b) = (w[0], w[1]);
+            let color = syntax
+                .iter()
+                .find(|s| s.start as usize <= a && b <= s.end as usize)
+                .and_then(|s| s.color);
+            let changed = l.changes.iter().any(|r| r.start <= a && b <= r.end);
+            if color.is_none() && !changed {
+                return None;
+            }
+            let mut sp = rune::Span::new(a, b);
+            sp.color = color;
+            sp.bg = changed.then_some(word);
+            Some(sp)
+        })
+        .collect();
+    text(l.text.clone()).spans(spans)
+}
+
+/// The line number of an inline diff's row, right against its sign.
+fn line_no(k: &Kit, n: Option<u32>) -> El {
+    row().w(30.0).justify_end().child(
+        text(n.map(|n| n.to_string()).unwrap_or_default())
+            .font(k.ty.mono)
+            .color(k.c.text_faint),
+    )
+}
+
+fn diff_cell(k: &Kit, lang: Option<&str>, line: Option<&rune_kit::diff::Line>) -> El {
     use rune_kit::diff::LineKind;
     let Some(l) = line else {
         return row().w_frac(0.5).min_w(0.0).fill(k.c.layer_02);
@@ -1573,28 +1553,25 @@ fn diff_cell(k: &Kit, line: Option<&rune_kit::diff::Line>) -> El {
         .px(6.0)
         .gap(6.0)
         .fill(fill)
+        .child(line_no(k, l.new.or(l.old)))
         .child(text(sign).font(k.ty.mono).color(ink).w(10.0))
         .child(
-            text(if l.text.is_empty() {
-                " ".to_string()
-            } else {
-                l.text.clone()
-            })
-            .font(k.ty.mono)
-            .color(if l.kind == LineKind::Context {
-                k.c.text_muted
-            } else {
-                k.c.text_base
-            })
-            .wrap_anywhere()
-            .grow(1.0)
-            .min_w(0.0)
-            .selectable(true),
+            code_text(k, lang, l)
+                .font(k.ty.mono)
+                .color(if l.kind == LineKind::Context {
+                    k.c.text_muted
+                } else {
+                    k.c.text_base
+                })
+                .wrap_anywhere()
+                .grow(1.0)
+                .min_w(0.0)
+                .selectable(true),
         )
 }
 
 /// Side by side: context on both sides, a run of removed lines paired with the added run after it.
-fn split_rows(k: &Kit, lines: &[rune_kit::diff::Line]) -> Vec<El> {
+fn split_rows(k: &Kit, lang: Option<&str>, lines: &[rune_kit::diff::Line]) -> Vec<El> {
     use rune_kit::diff::LineKind;
     let mut out = Vec::new();
     let mut i = 0;
@@ -1603,8 +1580,8 @@ fn split_rows(k: &Kit, lines: &[rune_kit::diff::Line]) -> Vec<El> {
             out.push(
                 row()
                     .w_full()
-                    .child(diff_cell(k, Some(&lines[i])))
-                    .child(diff_cell(k, Some(&lines[i]))),
+                    .child(diff_cell(k, lang, Some(&lines[i])))
+                    .child(diff_cell(k, lang, Some(&lines[i]))),
             );
             i += 1;
             continue;
@@ -1623,18 +1600,32 @@ fn split_rows(k: &Kit, lines: &[rune_kit::diff::Line]) -> Vec<El> {
             out.push(
                 row()
                     .w_full()
-                    .child(diff_cell(k, removed.get(j)))
-                    .child(diff_cell(k, added.get(j))),
+                    .child(diff_cell(k, lang, removed.get(j)))
+                    .child(diff_cell(k, lang, added.get(j))),
             );
         }
     }
     out
 }
 
+/// The most lines an inline diff draws for one edit.
+const INLINE_DIFF_MAX: usize = 400;
+
+/// A short diff shows at a glance in the conversation, up to this height (the web's clamp);
+/// past it the rest is behind "Show more".
+const INLINE_CLAMP_H: f32 = 260.0;
+
+/// A short diff that turned out taller than the clamp once laid out.
+fn diff_is_tall(s: &Hooked, id: &str) -> bool {
+    s.tool_diff_h
+        .get(id)
+        .is_some_and(|h| *h > INLINE_CLAMP_H + 8.0)
+}
+
 fn inline_diff(k: &Kit, diff: &serde_json::Value, split: bool) -> El {
     use rune_kit::diff::{FileDiff, LineKind};
     let name = diff["name"].as_str().unwrap_or("").to_string();
-    let mut c = col().w_full().gap(6.0).px(10.0).pb(10.0);
+    let mut c = col().w_full().gap(6.0);
     for op in diff["ops"].as_array().into_iter().flatten() {
         if op["all"].as_bool() == Some(true) {
             c = c.child(
@@ -1654,24 +1645,42 @@ fn inline_diff(k: &Kit, diff: &serde_json::Value, split: bool) -> El {
             op["new"].as_str().unwrap_or("")
         };
         let fd = FileDiff::from_texts_with_context(name.clone(), old, new, 3);
+        let lang = fd.language();
         let mut block = col()
             .w_full()
             .radius(k.radius.sm)
             .border(1.0, k.c.border_weak)
             .clip_rounded(k.radius.sm);
         let mut shown = 0;
+        // Where the previous hunk ended on the new side (or the old one for a deletion): what
+        // lies between two hunks is unchanged, and the diff says how much it leaves out.
+        let at = |l: &rune_kit::diff::Line| l.new.or(l.old).unwrap_or(0);
+        let mut last = 0;
+        let note = |msg: String| {
+            row()
+                .w_full()
+                .px(8.0)
+                .py(2.0)
+                .fill(k.c.layer_02)
+                .child(text(msg).font(k.ty.text_xsmall).color(k.c.text_faint))
+        };
         for (hi, h) in fd.hunks.iter().enumerate() {
-            if hi > 0 {
-                block = block.child(el().w_full().h(1.0).fill(k.c.border_weak));
+            if hi > 0 && shown < INLINE_DIFF_MAX {
+                let hidden = h.lines.first().map_or(0, at).saturating_sub(last + 1);
+                block = block.child(note(format!(
+                    "⋯ {hidden} unchanged line{}",
+                    if hidden == 1 { "" } else { "s" }
+                )));
             }
+            last = h.lines.last().map_or(last, at);
             if split && !old.is_empty() {
-                let lines = &h.lines[..h.lines.len().min(400usize.saturating_sub(shown))];
+                let lines = &h.lines[..h.lines.len().min(INLINE_DIFF_MAX.saturating_sub(shown))];
                 shown += lines.len();
-                block = block.children(split_rows(k, lines));
+                block = block.children(split_rows(k, lang, lines));
                 continue;
             }
             for l in &h.lines {
-                if shown >= 400 {
+                if shown >= INLINE_DIFF_MAX {
                     break;
                 }
                 shown += 1;
@@ -1686,26 +1695,32 @@ fn inline_diff(k: &Kit, diff: &serde_json::Value, split: bool) -> El {
                         .px(6.0)
                         .gap(6.0)
                         .fill(fill)
+                        .child(line_no(k, l.new.or(l.old)))
                         .child(text(sign).font(k.ty.mono).color(ink).w(10.0))
                         .child(
-                            text(if l.text.is_empty() {
-                                " ".to_string()
-                            } else {
-                                l.text.clone()
-                            })
-                            .font(k.ty.mono)
-                            .color(if l.kind == LineKind::Context {
-                                k.c.text_muted
-                            } else {
-                                k.c.text_base
-                            })
-                            .wrap_anywhere()
-                            .grow(1.0)
-                            .min_w(0.0)
-                            .selectable(true),
+                            code_text(k, lang, l)
+                                .font(k.ty.mono)
+                                .color(if l.kind == LineKind::Context {
+                                    k.c.text_muted
+                                } else {
+                                    k.c.text_base
+                                })
+                                .wrap_anywhere()
+                                .grow(1.0)
+                                .min_w(0.0)
+                                .selectable(true),
                         ),
                 );
             }
+        }
+        // A very long diff is cut: it says so, and where the rest can be read.
+        let total: usize = fd.hunks.iter().map(|h| h.lines.len()).sum();
+        if total > shown {
+            let more = total - shown;
+            block = block.child(note(format!(
+                "{more} more line{}: the Review lens shows the whole change",
+                if more == 1 { "" } else { "s" }
+            )));
         }
         c = c.child(block);
     }
@@ -1714,7 +1729,9 @@ fn inline_diff(k: &Kit, diff: &serde_json::Value, split: bool) -> El {
 
 fn tool_chip(s: &Hooked, session: &str, t: &Tool, k: &Kit, key: String) -> El {
     let id = t.id.clone().unwrap_or_else(|| key.clone());
-    let open = s.all_tools_open || s.tools_open.contains(&id);
+    // "Expand all" opens the calls' input and output, not the long diffs: those open one by
+    // one, and a click must be able to close them again.
+    let open = (s.all_tools_open && t.diff.is_none()) || s.tools_open.contains(&id);
     let detail = t.detail.clone().unwrap_or_default();
     let changed = t.diff.as_ref().map(diff_lines);
     let big = changed.is_some_and(|n| n > BIG_DIFF);
@@ -1725,6 +1742,11 @@ fn tool_chip(s: &Hooked, session: &str, t: &Tool, k: &Kit, key: String) -> El {
                 .role("button")
                 .label(format!("{} {}", t.name, detail))
                 .expanded(open)
+                .help(if detail.is_empty() {
+                    t.name.clone()
+                } else {
+                    detail.clone()
+                })
                 .w_full()
                 .h(28.0)
                 .px(8.0)
@@ -1788,11 +1810,57 @@ fn tool_chip(s: &Hooked, session: &str, t: &Tool, k: &Kit, key: String) -> El {
     }
     if let Some(diff) = t.diff.as_ref() {
         if !big || open {
-            chip = chip.child(inline_diff(
+            let id = t.id.clone().unwrap_or_else(|| key.clone());
+            let body = inline_diff(
                 k,
                 diff,
                 s.lens_data.diff.mode() == rune_kit::diff::DiffMode::Split,
-            ));
+            );
+            // A short diff is shown without a click, so it is the one that gets clamped: its
+            // height is only known once laid out (long lines wrap), and "Show more" follows it.
+            let long = !big && diff_is_tall(s, &id);
+            let body = if big {
+                body
+            } else {
+                let measured = id.clone();
+                // Reported on every frame of a scroll: only a new height is a change.
+                let body = body.on_layout_tx(move |s: &mut Hooked, r: [f32; 4], tx| {
+                    let known = s.tool_diff_h.get(&measured).copied().unwrap_or(0.0);
+                    if (known - r[3]).abs() > 0.5 {
+                        s.tool_diff_h.insert(measured.clone(), r[3]);
+                    } else {
+                        tx.live_only();
+                    }
+                });
+                let mut frame = col().w_full();
+                if !open {
+                    frame = frame.max_h(INLINE_CLAMP_H).clip_rounded(k.radius.sm);
+                }
+                frame.child(body)
+            };
+            let mut wrap = col().w_full().gap(4.0).px(10.0).pb(10.0).child(body);
+            if long {
+                wrap = wrap.child(
+                    row().child(
+                        Button::new(if open { "Show less" } else { "Show more" })
+                            .icon(if open {
+                                &icons::ARROW_UP
+                            } else {
+                                &icons::CHEVRON_DOWN
+                            })
+                            .variant(ButtonVariant::GhostMuted)
+                            .control_size(ControlSize::Small)
+                            .on_press(move |s: &mut Hooked| {
+                                if !s.tools_open.remove(&id) {
+                                    s.tools_open.insert(id.clone());
+                                }
+                            })
+                            .build(k)
+                            .key(format!("{key}-more")),
+                    ),
+                );
+            }
+            chip = chip.child(wrap);
         }
     } else if open {
         let mono = |label: &str, body: String| {
@@ -1938,6 +2006,7 @@ fn question(s: &Hooked, q: &PendingQuestion, k: &Kit) -> El {
                 .color(k.c.text_base)
                 .wrap(),
         );
+        let role = if qq.multi_select { "checkbox" } else { "radio" };
         for (oi, o) in qq.options.iter().enumerate() {
             let on = s.q_sel.get(qi).is_some_and(|set| set.contains(&oi));
             let mut opt = col().gap(2.0).child(
@@ -1953,61 +2022,124 @@ fn question(s: &Hooked, q: &PendingQuestion, k: &Kit) -> El {
                         .wrap(),
                 );
             }
+            let noted = s.q_notes.contains_key(&(qi, oi));
+            let choice = q_choice(k, format!("q-{qi}-{oi}"), role, on, opt)
+                .on_press(move |s: &mut Hooked| s.pick_option(qi, oi));
             block = block.child(
-                k.interactive(
-                    row()
-                        .key(format!("q-{qi}-{oi}"))
-                        .role(if qq.multi_select { "checkbox" } else { "radio" })
-                        .checked(on)
-                        .w_full()
-                        .padding(10.0)
-                        .gap(10.0)
-                        .radius(k.radius.md)
-                        .cursor(Cursor::Pointer)
-                        .border(
-                            1.0,
-                            if on {
-                                k.c.border_focus
+                row()
+                    .key(format!("q-{qi}-{oi}-row"))
+                    .w_full()
+                    .gap(4.0)
+                    .center_y()
+                    .child(choice.grow(1.0).min_w(0.0))
+                    .child(
+                        IconButton::new(&icons::PENCIL)
+                            .variant(if noted {
+                                IconButtonVariant::Ghost
                             } else {
-                                k.c.border_weak
-                            },
-                        )
-                        .fill(if on { k.c.layer_02 } else { Color::TRANSPARENT })
-                        .child(glyph(
-                            if on {
-                                &icons::CIRCLE_CHECK
+                                IconButtonVariant::GhostMuted
+                            })
+                            .control_size(ControlSize::Small)
+                            .label(if noted {
+                                "Remove the note"
                             } else {
-                                &icons::CIRCLE
-                            },
-                            16.0,
-                            if on { k.c.icon_base } else { k.c.icon_faint },
-                        ))
-                        .child(opt.grow(1.0).min_w(0.0)),
-                )
-                .on_press(move |s: &mut Hooked| s.pick_option(qi, oi)),
+                                "Take this option and add a note"
+                            })
+                            .help(if noted {
+                                "Remove the note"
+                            } else {
+                                "Take this option and add a note"
+                            })
+                            .on_press(move |s: &mut Hooked| s.toggle_note(qi, oi))
+                            .build(k)
+                            .key(format!("q-{qi}-{oi}-pen")),
+                    ),
+            );
+            if let Some(note) = s.q_notes.get(&(qi, oi)) {
+                block = block.child(
+                    row().w_full().pl(26.0).child(
+                        TextInput::new(note)
+                            .placeholder(format!("Note on «{}»…", o.label))
+                            .width(None)
+                            .on_edit(move |s: &mut Hooked| s.note_edit(qi, oi))
+                            .on_submit(|s: &mut Hooked, _| s.answer())
+                            .build(k)
+                            .key(format!("q-{qi}-{oi}-note")),
+                    ),
+                );
+            }
+        }
+        // The TUI's automatic "Other" choice: every question also takes a typed answer.
+        let other = s.q_other.get(qi).and_then(Option::as_ref);
+        block = block.child(
+            q_choice(
+                k,
+                format!("q-{qi}-other"),
+                role,
+                other.is_some(),
+                col().child(text("Other").font(k.ty.ui_medium).color(k.c.text_base)),
+            )
+            .on_press(move |s: &mut Hooked| s.toggle_other(qi)),
+        );
+        if let Some(t) = other {
+            block = block.child(
+                row().w_full().pl(26.0).child(
+                    TextInput::new(t)
+                        .placeholder("Type your own answer…")
+                        .width(None)
+                        .on_edit(move |s: &mut Hooked| s.other_edit(qi))
+                        .on_submit(|s: &mut Hooked, _| s.answer())
+                        .build(k)
+                        .key(format!("q-{qi}-other-text")),
+                ),
             );
         }
         body = body.child(block);
     }
-    c.child(body)
-        .child(
-            TextInput::new(&s.q_other)
-                .placeholder("Other: type your own answer…")
-                .width(None)
-                .on_edit(|s: &mut Hooked| &mut s.q_other)
-                .on_submit(|s: &mut Hooked, _| s.answer())
+    c.child(body).child(
+        row().justify_end().child(
+            Button::new("Answer")
+                .variant(ButtonVariant::Contrast)
+                .disabled(!s.question_answered())
+                .on_press(|s: &mut Hooked| s.answer())
                 .build(k)
-                .key("q-other"),
-        )
-        .child(
-            row().justify_end().child(
-                Button::new("Answer")
-                    .variant(ButtonVariant::Contrast)
-                    .on_press(|s: &mut Hooked| s.answer())
-                    .build(k)
-                    .key("q-answer"),
-            ),
-        )
+                .key("q-answer"),
+        ),
+    )
+}
+
+/// One choice of a question: a radio or checkbox row, ticked or not.
+fn q_choice(k: &Kit, key: String, role: &'static str, on: bool, content: El) -> El {
+    k.interactive(
+        row()
+            .key(key)
+            .role(role)
+            .checked(on)
+            .w_full()
+            .padding(10.0)
+            .gap(10.0)
+            .radius(k.radius.md)
+            .cursor(Cursor::Pointer)
+            .border(
+                1.0,
+                if on {
+                    k.c.border_focus
+                } else {
+                    k.c.border_weak
+                },
+            )
+            .fill(if on { k.c.layer_02 } else { Color::TRANSPARENT })
+            .child(glyph(
+                if on {
+                    &icons::CIRCLE_CHECK
+                } else {
+                    &icons::CIRCLE
+                },
+                16.0,
+                if on { k.c.icon_base } else { k.c.icon_faint },
+            ))
+            .child(content.grow(1.0).min_w(0.0)),
+    )
 }
 
 fn plan_comments(s: &Hooked, k: &Kit) -> El {

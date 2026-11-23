@@ -52,7 +52,9 @@ pub enum Page {
     Digest,
     Memory,
     Cron,
+    Flows,
     GitHub,
+    Incidents,
     Skills,
     Prompts,
     Settings,
@@ -78,6 +80,8 @@ pub enum Popup {
     Sort,
     Filter,
     More,
+    /// The top bar's menu of the pages not shown as tabs.
+    Nav,
     Model,
     Effort,
 }
@@ -110,6 +114,9 @@ pub struct Hooked {
     pub tag_filter: Vec<String>,
     pub repo_filter: Vec<String>,
     pub incognito: bool,
+    /// Remote hooked instances (`crate::remote`): the switch, off by default, and the list.
+    pub remote_on: bool,
+    pub remotes: Vec<crate::remote::Instance>,
     pub picker: Option<crate::organize::Picker>,
     pub gauges: Vec<Gauge>,
     pub caps: Capabilities,
@@ -130,6 +137,19 @@ pub struct Hooked {
     pub dock_gh_w: Option<f32>,
     /// The Review lens's rendered Markdown column.
     pub rendered_w: f32,
+    /// The Review lens leaves out the unchanged lines around each change.
+    pub review_compact: bool,
+    /// The Review lens's files rail and comments panel, both resizable.
+    pub review_files_w: f32,
+    pub review_threads_w: f32,
+    /// The Review lens's width, as last laid out.
+    pub review_w: f32,
+    /// The lens is narrow and showed its side-by-side diff unified: it goes back to split
+    /// once there is room.
+    pub review_forced_unified: bool,
+    /// The laid-out height of each short diff of the conversation, by tool call: what decides
+    /// whether it needs "Show more".
+    pub tool_diff_h: HashMap<String, f32>,
     pub window_h: f32,
     pub window_w: f32,
     pub show_archived: bool,
@@ -162,6 +182,11 @@ pub struct Hooked {
     pub media: HashMap<String, Option<rune::Image>>,
     pub drafts: HashMap<String, String>,
     pub reviewed: HashMap<String, Vec<String>>,
+    /// Where each session's review was left, by session id.
+    pub review_places: HashMap<String, crate::lenses::ReviewPlace>,
+    /// `review_places` changed since it was last written, and when that was (ms).
+    pub places_dirty: bool,
+    pub places_saved_at: i64,
     pub job_log: Option<(String, String)>,
     pub run_win: Option<crate::ghrun::RunWin>,
     pub query_win: Option<crate::querywin::QueryWin>,
@@ -175,7 +200,6 @@ pub struct Hooked {
     pub gh_page_view: Option<crate::ghdetail::GhView>,
     pub gh_dock_view: Option<crate::ghdetail::GhView>,
     pub plan_quote: Option<String>,
-    pub new_group: Option<String>,
     pub usage: Option<serde_json::Value>,
     pub logo: Option<([usize; 6], [rune::Image; 2])>,
     pub handle: Option<AppHandle<Hooked>>,
@@ -213,7 +237,10 @@ pub struct Hooked {
     pub sending: bool,
 
     pub q_sel: Vec<BTreeSet<usize>>,
-    pub q_other: TextEdit,
+    /// Per question, the "Other" write-in: `None` while not chosen.
+    pub q_other: Vec<Option<TextEdit>>,
+    /// Notes on chosen options, by (question, option).
+    pub q_notes: std::collections::BTreeMap<(usize, usize), TextEdit>,
     pub plan_feedback: TextEdit,
 
     pub popup: Option<Popup>,
@@ -241,8 +268,15 @@ pub struct Hooked {
 
     pub lens_data: crate::lenses::LensData,
     pub pages: crate::pages::PageData,
+    pub inc: crate::incidents::Incidents,
+    pub ghw: crate::ghwatch::GhWatch,
     pub announced: Option<HashSet<String>>,
     pub tray_dirty: bool,
+    /// The conversation is scrolled up, away from its latest message: what shows the
+    /// "back to the latest" arrow. Derived from `chat_edges` by [`Hooked::chat_moved`].
+    pub chat_up: bool,
+    /// Bottom edge of the conversation's content, then of its viewport, in window points.
+    pub chat_edges: [f32; 2],
 }
 
 pub const WINDOW: usize = 40;
@@ -349,6 +383,8 @@ impl Hooked {
         let tag_colors: HashMap<String, usize> = prefs.get("tagColors").unwrap_or_default();
         let drafts: HashMap<String, String> = prefs.get("drafts").unwrap_or_default();
         let reviewed: HashMap<String, Vec<String>> = prefs.get("reviewed").unwrap_or_default();
+        let review_places: HashMap<String, crate::lenses::ReviewPlace> =
+            prefs.get("reviewPlaces").unwrap_or_default();
         let saved_keys: HashMap<String, String> = prefs.get("shortcuts").unwrap_or_default();
         let shortcuts = crate::shortcuts::load(&saved_keys);
         let collapse_worktrees: bool = prefs.get("collapseWorktrees").unwrap_or(true);
@@ -357,10 +393,17 @@ impl Hooked {
         let corners: crate::theme::Corners = prefs.get("corners").unwrap_or_default();
         crate::theme::set_look(scheme, corners);
         let notify = prefs.get("notify").unwrap_or(true);
+        let incidents_hidden = prefs.get("incidentsHidden").unwrap_or(false);
+        let incident_teams: Vec<String> = prefs.get("incidentsTeams").unwrap_or_default();
+        let gh_watched: Vec<String> = prefs.get("ghWatched").unwrap_or_default();
         crate::perf::set_enabled(
             crate::perf::env_override().unwrap_or(prefs.get("perfDiagnostics").unwrap_or(false)),
         );
         let incognito = prefs.get("incognito").unwrap_or(false);
+        let remote_on: bool = prefs.get("remoteInstances").unwrap_or(false);
+        let remotes: Vec<crate::remote::Instance> = prefs.get("remotes").unwrap_or_default();
+        crate::remote::configure(remote_on, &remotes);
+        crate::remote::first_poll(Duration::from_millis(700));
         let sidebar_open = prefs.get("sidebarOpen").unwrap_or(true);
         let hide_old = prefs.get("hideOld").unwrap_or(false);
         let layout = prefs
@@ -371,6 +414,13 @@ impl Hooked {
         let dock_w = prefs.get("dockW").unwrap_or(crate::view::DOCK_W);
         let dock_gh_w = prefs.get("dockGhW");
         let rendered_w = prefs.get("renderedW").unwrap_or(crate::view::RENDERED_W);
+        let review_compact = prefs.get("reviewCompact").unwrap_or(false);
+        let review_files_w = prefs
+            .get("reviewFilesW")
+            .unwrap_or(crate::view::REVIEW_FILES_W);
+        let review_threads_w = prefs
+            .get("reviewThreadsW")
+            .unwrap_or(crate::view::REVIEW_THREADS_W);
         let mut s = Hooked {
             prefs,
             sessions: Vec::new(),
@@ -380,6 +430,8 @@ impl Hooked {
             repo_filter: Vec::new(),
             tag_colors,
             incognito,
+            remote_on,
+            remotes,
             picker: None,
             gauges: Vec::new(),
             caps: Capabilities::default(),
@@ -397,6 +449,12 @@ impl Hooked {
             dock_w,
             dock_gh_w,
             rendered_w,
+            review_compact,
+            review_files_w,
+            review_threads_w,
+            review_w: f32::MAX,
+            review_forced_unified: false,
+            tool_diff_h: HashMap::new(),
             window_h: 860.0,
             window_w: 1320.0,
             show_archived: false,
@@ -427,6 +485,9 @@ impl Hooked {
             media: HashMap::new(),
             drafts,
             reviewed,
+            review_places,
+            places_dirty: false,
+            places_saved_at: 0,
             job_log: None,
             run_win: None,
             query_win: None,
@@ -440,7 +501,6 @@ impl Hooked {
             gh_page_view: None,
             gh_dock_view: None,
             plan_quote: None,
-            new_group: None,
             usage: None,
             logo: None,
             handle: None,
@@ -476,7 +536,8 @@ impl Hooked {
             queued: Vec::new(),
             sending: false,
             q_sel: Vec::new(),
-            q_other: TextEdit::new(""),
+            q_other: Vec::new(),
+            q_notes: Default::default(),
             plan_feedback: TextEdit::new(""),
             popup: None,
             flash: None,
@@ -500,8 +561,15 @@ impl Hooked {
             focus: false,
             lens_data: crate::lenses::LensData::default(),
             pages: crate::pages::PageData::default(),
+            inc: crate::incidents::Incidents::new(
+                incidents_hidden,
+                incident_teams.into_iter().collect(),
+            ),
+            ghw: crate::ghwatch::GhWatch::new(gh_watched),
             announced: None,
             tray_dirty: true,
+            chat_up: false,
+            chat_edges: [f32::NAN; 2],
         };
         // A synchronous first read: headless snapshots and the first frame show real data.
         if let Ok(list) = api::sessions() {
@@ -510,7 +578,14 @@ impl Hooked {
         }
         s.meta = api::session_meta().unwrap_or_default();
         s.tags = api::tags().unwrap_or_default();
-        if s.prefs.get::<bool>("diffSplit").unwrap_or(false) {
+        // The layout last picked in the lens wins; the Settings default is for a lens whose
+        // layout was never picked.
+        let split = s
+            .prefs
+            .get::<bool>("diffLastSplit")
+            .or_else(|| s.prefs.get::<bool>("diffSplit"))
+            .unwrap_or(false);
+        if split {
             s.lens_data.diff.set_mode(rune_kit::diff::DiffMode::Split);
         }
         if let Ok(v) = api::get("/api/settings") {
@@ -523,6 +598,7 @@ impl Hooked {
                 "github" => Page::GitHub,
                 "skills" => Page::Skills,
                 "cron" => Page::Cron,
+                "flows" => Page::Flows,
                 "prompts" => Page::Prompts,
                 _ => Page::Deck,
             };
@@ -569,6 +645,14 @@ impl Hooked {
         if let Some(id) = start {
             s.page = Page::Session;
             s.detail = api::detail(&id).ok();
+            let in_worktree = s
+                .detail
+                .as_ref()
+                .is_some_and(|d| d.session.worktree_of.is_some());
+            s.lens_data.review_source = ReviewSource::default_for(in_worktree);
+            if let Some(place) = s.review_places.get(&id).cloned() {
+                s.lens_data.restore(&place);
+            }
             s.selected = Some(id);
             s.reset_question();
         } else if s.page == Page::Session {
@@ -715,7 +799,9 @@ impl Hooked {
                 Some("digest") => Page::Digest,
                 Some("memory") => Page::Memory,
                 Some("cron") => Page::Cron,
+                Some("flows") => Page::Flows,
                 Some("github") => Page::GitHub,
+                Some("incidents") => Page::Incidents,
                 Some("skills") => Page::Skills,
                 Some("settings") => Page::Settings,
                 Some("prompts") => Page::Prompts,
@@ -1323,6 +1409,22 @@ impl Hooked {
         }
     }
 
+    /// Reported by the conversation's content (`edge` 0) and viewport (`edge` 1) as they are
+    /// laid out and scrolled. The view only reads `chat_up`, so a scroll re-runs it twice at
+    /// most: when the arrow appears and when it leaves.
+    pub fn chat_moved(&mut self, edge: usize, bottom: f32, tx: &mut Tx) {
+        /// How far above the end, in points, counts as "scrolled up".
+        const AWAY: f32 = 120.0;
+        self.chat_edges[edge] = bottom;
+        // False while either edge is still unknown (NaN).
+        let up = self.chat_edges[0] - self.chat_edges[1] > AWAY;
+        if up == self.chat_up {
+            tx.live_only();
+        } else {
+            self.chat_up = up;
+        }
+    }
+
     pub fn open_session(&mut self, id: &str) {
         self.page = Page::Session;
         self.palette_open = false;
@@ -1347,16 +1449,17 @@ impl Hooked {
             .sessions
             .iter()
             .any(|x| x.id == id && x.worktree_of.is_some());
-        let source = match (self.lens_data.review_source, in_worktree) {
-            (ReviewSource::Claude, true) => ReviewSource::Worktree,
-            (ReviewSource::Worktree, false) => ReviewSource::Claude,
-            (src, _) => src,
-        };
+        self.tool_diff_h.clear();
+        // A session opens on its own review, not on the scope the previous one was left on.
+        let source = ReviewSource::default_for(in_worktree);
         let mode = self.lens_data.diff.mode();
         self.lens_data = crate::lenses::LensData {
             review_source: source,
             ..Default::default()
         };
+        if let Some(place) = self.review_places.get(id) {
+            self.lens_data.restore(place);
+        }
         self.lens_data.diff.set_mode(mode);
         self.ac = None;
         self.job_gen.fetch_add(1, Ordering::SeqCst);
@@ -1485,12 +1588,6 @@ impl Hooked {
         self.popup = None;
     }
 
-    pub fn go_new_in_group(&mut self, mother: String) {
-        let project = self.session(&mother).and_then(|x| x.project.clone());
-        self.go_new(project);
-        self.new_group = Some(mother);
-    }
-
     /// The Fable bucket when it is spent: `pct` is the authority, `severity` the fallback.
     pub fn fable_spent(&self) -> Option<&serde_json::Value> {
         let f = &self.usage.as_ref()?["account"]["fable"];
@@ -1512,7 +1609,6 @@ impl Hooked {
     pub fn go_new(&mut self, project: Option<String>) {
         self.page = Page::New;
         self.popup = None;
-        self.new_group = None;
         if self.new_fallback() {
             self.new_model = Some("opus".into());
         }
@@ -1544,7 +1640,8 @@ impl Hooked {
             .and_then(|d| d.pending_question.as_ref())
             .map_or(0, |q| q.questions.len());
         self.q_sel = vec![BTreeSet::new(); n];
-        self.q_other = TextEdit::new("");
+        self.q_other = vec![None; n];
+        self.q_notes.clear();
         self.plan_feedback = TextEdit::new("");
     }
 
@@ -1818,6 +1915,10 @@ impl Hooked {
 
     pub fn apply_sessions(&mut self, list: Vec<Session>, meta: Option<HashMap<String, Meta>>) {
         self.want_deck_plans(&list);
+        // A stage moving on always comes with hook events: the open pipeline follows them.
+        if self.page == Page::Flows {
+            self.load_flows();
+        }
         let changed = |a: &Session, b: &Session| {
             a.last_activity != b.last_activity
                 || a.state != b.state
@@ -1876,7 +1977,12 @@ impl Hooked {
                     fmt::first_line(s.last_reply.as_deref().unwrap_or("Finished its turn"), 140)
                 }
             };
-            crate::tray::notify(&s.id, &s.display_title(), &body);
+            // A remote session says so in its notification: the title alone could be a local one.
+            let title = match &s.remote {
+                Some(r) => format!("[{}] {}", r.name, s.display_title()),
+                None => s.display_title(),
+            };
+            crate::tray::notify(&s.id, &title, &body);
         }
     }
 
@@ -1970,8 +2076,14 @@ impl Hooked {
         });
         let bytes: std::sync::Arc<[u8]> = bytes.into();
         let upload = bytes.clone();
+        // The image has to land on the machine whose Claude will read it.
+        let remote = self
+            .detail
+            .as_ref()
+            .filter(|d| d.session.remote.is_some())
+            .map(|d| d.session.id.clone());
         self.spawn(
-            move || api::upload_image(mime, &upload),
+            move || api::upload_image(mime, &upload, remote.as_deref()),
             move |s, r, _| {
                 // Seed the media cache from the bytes in hand, keyed by the server path: the
                 // composer chip gets its thumbnail and the sent message its picture at once.
@@ -2241,14 +2353,38 @@ impl Hooked {
         self.act("Opened in editor", move || api::open_editor(&id));
     }
 
+    /// Whether every question has an answer: a ticked option or a typed "Other".
+    pub fn question_answered(&self) -> bool {
+        let Some(q) = self
+            .detail
+            .as_ref()
+            .and_then(|d| d.pending_question.as_ref())
+        else {
+            return false;
+        };
+        (0..q.questions.len()).all(|i| {
+            self.q_sel.get(i).is_some_and(|s| !s.is_empty()) || !self.other_text(i).is_empty()
+        })
+    }
+
+    fn other_text(&self, qi: usize) -> String {
+        self.q_other
+            .get(qi)
+            .and_then(Option::as_ref)
+            .map(|t| t.text.trim().to_string())
+            .unwrap_or_default()
+    }
+
     pub fn answer(&mut self) {
+        if !self.question_answered() {
+            return;
+        }
         let Some(d) = self.detail.as_ref() else {
             return;
         };
         let Some(q) = d.pending_question.as_ref() else {
             return;
         };
-        let other = self.q_other.text.trim().to_string();
         let selections: Vec<api::Selection> = q
             .questions
             .iter()
@@ -2260,12 +2396,24 @@ impl Hooked {
                     .get(i)
                     .map(|s| s.iter().copied().collect())
                     .unwrap_or_default(),
-                other: (i == 0 && !other.is_empty()).then(|| other.clone()),
+                other: Some(self.other_text(i)).filter(|o| !o.is_empty()),
             })
             .collect();
+        let notes: Vec<(usize, usize, String)> = self
+            .q_notes
+            .iter()
+            .map(|(&(qi, oi), t)| (qi, oi, t.text.clone()))
+            .collect();
+        let note = compose_notes(&q.questions, &self.q_sel, &notes);
         let id = d.session.id.clone();
         self.wake(&id);
-        self.act("Answered", move || api::answer(&id, &selections, None));
+        self.act("Answered", move || {
+            api::answer(
+                &id,
+                &selections,
+                Some(note.as_str()).filter(|n| !n.is_empty()),
+            )
+        });
     }
 
     /// Permission requests are a three-option question; the order is the server's contract.
@@ -2288,16 +2436,28 @@ impl Hooked {
         });
     }
 
-    pub fn pick_option(&mut self, qi: usize, oi: usize) {
-        let multi = self
-            .detail
+    fn question_multi(&self, qi: usize) -> bool {
+        self.detail
             .as_ref()
             .and_then(|d| d.pending_question.as_ref())
             .and_then(|q| q.questions.get(qi))
-            .is_some_and(|q| q.multi_select);
+            .is_some_and(|q| q.multi_select)
+    }
+
+    fn question_slots(&mut self, qi: usize) {
         if self.q_sel.len() <= qi {
             self.q_sel.resize(qi + 1, BTreeSet::new());
         }
+        if self.q_other.len() <= qi {
+            self.q_other.resize(qi + 1, None);
+        }
+    }
+
+    /// Ticks an option (toggles it on a multi-select). A note only lives on a ticked option,
+    /// and picking a listed option on a single choice drops its "Other" write-in.
+    pub fn pick_option(&mut self, qi: usize, oi: usize) {
+        let multi = self.question_multi(qi);
+        self.question_slots(qi);
         let set = &mut self.q_sel[qi];
         if multi {
             if !set.remove(&oi) {
@@ -2306,7 +2466,48 @@ impl Hooked {
         } else {
             set.clear();
             set.insert(oi);
+            self.q_other[qi] = None;
         }
+        let kept = self.q_sel[qi].clone();
+        self.q_notes
+            .retain(|&(q, o), _| q != qi || kept.contains(&o));
+    }
+
+    /// The ✎ on an option: takes it and opens its own note, or drops the note when open.
+    pub fn toggle_note(&mut self, qi: usize, oi: usize) {
+        if self.q_notes.remove(&(qi, oi)).is_some() {
+            return;
+        }
+        self.question_slots(qi);
+        if !self.q_sel[qi].contains(&oi) {
+            self.pick_option(qi, oi);
+        }
+        self.q_notes.insert((qi, oi), TextEdit::new(""));
+    }
+
+    pub fn note_edit(&mut self, qi: usize, oi: usize) -> &mut TextEdit {
+        self.q_notes
+            .entry((qi, oi))
+            .or_insert_with(|| TextEdit::new(""))
+    }
+
+    /// The "Other" choice: a write-in that replaces the ticked option on a single choice and
+    /// joins the ticked ones on a multi-select.
+    pub fn toggle_other(&mut self, qi: usize) {
+        self.question_slots(qi);
+        if self.q_other[qi].take().is_some() {
+            return;
+        }
+        self.q_other[qi] = Some(TextEdit::new(""));
+        if !self.question_multi(qi) {
+            self.q_sel[qi].clear();
+            self.q_notes.retain(|&(q, _), _| q != qi);
+        }
+    }
+
+    pub fn other_edit(&mut self, qi: usize) -> &mut TextEdit {
+        self.question_slots(qi);
+        self.q_other[qi].get_or_insert_with(|| TextEdit::new(""))
     }
 
     pub fn plan_action(&mut self, action: &'static str) {
@@ -2350,7 +2551,6 @@ impl Hooked {
             self.incognito,
         );
         let (worktree, ephemeral) = (self.new_worktree, self.new_ephemeral);
-        let group_with = self.new_group.take();
         self.sending = true;
         self.spawn(
             move || {
@@ -2363,7 +2563,6 @@ impl Hooked {
                     incognito,
                     worktree,
                     ephemeral,
-                    group_with,
                 })
             },
             |s, r, _| {
@@ -2572,7 +2771,8 @@ impl Hooked {
     pub fn projects(&self) -> Vec<String> {
         let mut seen = HashSet::new();
         let mut out = Vec::new();
-        for s in &self.sessions {
+        // A remote session names a folder of the other machine: nothing to launch in here.
+        for s in self.sessions.iter().filter(|s| s.remote.is_none()) {
             if let Some(p) = s.project.clone()
                 && seen.insert(p.clone())
             {
@@ -2740,6 +2940,10 @@ pub fn start_workers(h: Option<AppHandle<Hooked>>) {
         let h = h.clone();
         crate::app::spawn_named("hooked-list-refresh", move || refresh_on_ticks(h, ticks));
     }
+    {
+        let tick = tick.clone();
+        crate::app::spawn_named("hooked-remotes", move || crate::remote::run(tick));
+    }
     crate::app::spawn_named("hooked-events", move || {
         loop {
             let r = api::follow("/api/stream", |payload| {
@@ -2790,4 +2994,71 @@ pub fn start_workers(h: Option<AppHandle<Hooked>>) {
             }
         }
     });
+}
+
+/// The follow-up message that carries the notes, in the web dashboard's format: one line per
+/// ticked option that has a note (the ticks say what, the note says why).
+pub fn compose_notes(
+    questions: &[api::Question],
+    sel: &[BTreeSet<usize>],
+    notes: &[(usize, usize, String)],
+) -> String {
+    let mut lines = Vec::new();
+    for (qi, q) in questions.iter().enumerate() {
+        let Some(ticked) = sel.get(qi) else { continue };
+        for &oi in ticked {
+            let note = notes
+                .iter()
+                .find(|(nq, no, _)| *nq == qi && *no == oi)
+                .map(|(_, _, t)| t.trim())
+                .unwrap_or("");
+            if note.is_empty() {
+                continue;
+            }
+            let label = q.options.get(oi).map_or("", |o| o.label.as_str());
+            lines.push(format!("- «{label}» — {note}"));
+        }
+    }
+    if lines.is_empty() {
+        String::new()
+    } else {
+        format!("Notes on my selection:\n{}", lines.join("\n"))
+    }
+}
+
+#[cfg(test)]
+mod question_tests {
+    use super::*;
+
+    fn q(labels: &[&str], multi: bool) -> api::Question {
+        api::Question {
+            question: "Q".into(),
+            header: None,
+            multi_select: multi,
+            options: labels
+                .iter()
+                .map(|l| api::QOption {
+                    label: l.to_string(),
+                    ..Default::default()
+                })
+                .collect(),
+        }
+    }
+
+    #[test]
+    fn notes_list_only_ticked_options_with_text() {
+        let qs = [q(&["A", "B", "C"], true), q(&["X", "Y"], false)];
+        let sel = [BTreeSet::from([0, 2]), BTreeSet::from([1])];
+        let notes = [
+            (0, 0, " keep it short ".to_string()),
+            (0, 1, "not ticked".to_string()),
+            (0, 2, "  ".to_string()),
+            (1, 1, "because".to_string()),
+        ];
+        assert_eq!(
+            compose_notes(&qs, &sel, &notes),
+            "Notes on my selection:\n- «A» — keep it short\n- «Y» — because"
+        );
+        assert_eq!(compose_notes(&qs, &sel, &[]), "");
+    }
 }

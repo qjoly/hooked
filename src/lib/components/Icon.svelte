@@ -1,7 +1,7 @@
 <script module>
   // Flat stroke icons (Lucide geometry) — the app's single icon system. Same idiom as the
   // top-bar SVGs: 24x24 viewBox, fill:none, stroke:currentColor, round caps/joins, colored
-  // via currentColor (set `color` for status/state tints). See CLAUDE.md; generated set.
+  // via currentColor (set `color` for status/state tints). See AGENTS.md; generated set.
   export const ICONS = {
   "sessions": "<path d=\"M20 5a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h2.5a1.5 1.5 0 0 1 1.2.6l.6.8a1.5 1.5 0 0 0 1.2.6z\" /><path d=\"M3 8.268a2 2 0 0 0-1 1.738V19a2 2 0 0 0 2 2h11a2 2 0 0 0 1.732-1\" />",
   "search": "<path d=\"m21 21-4.34-4.34\" /><circle cx=\"11\" cy=\"11\" r=\"8\" />",

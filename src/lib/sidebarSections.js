@@ -15,8 +15,10 @@ export function sectionOf(members, { archived, snoozed }) {
   const live = members.filter((s) => !archived(s));
   if (live.every(snoozed)) return 'snoozed';
   const awake = live.filter((s) => !snoozed(s));
-  if (awake.some(needsDecision)) return 'waiting';
+  // A group with any member still at work is working: a mother waiting on her children's results
+  // isn't waiting on you yet.
   if (awake.some(isBusy)) return 'working';
+  if (awake.some(needsDecision)) return 'waiting';
   return 'idle';
 }
 

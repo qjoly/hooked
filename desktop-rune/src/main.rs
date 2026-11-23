@@ -2,15 +2,20 @@ mod account;
 mod api;
 mod app;
 mod cron;
+mod flows;
 mod defs;
 mod dnd;
+mod echo;
 mod export;
 mod fleet;
 mod fmt;
 mod ghdetail;
+mod ghwatch;
 mod ghostty;
 mod ghrun;
 mod icons;
+mod incidents;
+mod incmcp;
 mod knobs;
 mod lenses;
 mod logo;
@@ -22,6 +27,7 @@ mod panel;
 mod perf;
 mod querywin;
 mod quick;
+mod remote;
 mod sections;
 mod shortcuts;
 mod terminal;
@@ -99,9 +105,11 @@ fn on_key(s: &mut Hooked, ev: &KeyEvent, tx: &mut Tx) -> bool {
             return true;
         }
         if ev.key == Key::Function(12)
-            && let Some(word) = tx.text_selection().map(|t| t.text().trim().to_string())
+            && let Some(sel) = tx.text_selection().cloned()
         {
-            s.def_selected(&word);
+            if !s.def_from_selection(&sel) {
+                s.def_selected(sel.text().trim());
+            }
             return true;
         }
         if s.lens_data.diff.key(ev, tx) {
@@ -175,6 +183,8 @@ fn poll(s: &mut Hooked, clock: f64, tx: &mut Tx) -> bool {
     s.poll_run(now);
     s.poll_query(now);
     s.poll_account(now);
+    s.poll_incidents(now);
+    s.poll_gh_watch(now);
     let working = s.page == Page::Session && s.working_since.is_some();
     let step = if working { 1000 } else { 30_000 };
     if now / step != s.now / step {
@@ -186,6 +196,11 @@ fn poll(s: &mut Hooked, clock: f64, tx: &mut Tx) -> bool {
         changed = true;
     }
     changed |= s.ensure_lens();
+    s.stash_review_place();
+    s.poll_threads(now, tx);
+    changed |= s.fit_review();
+    changed |= s.resolve_jump(tx);
+    changed |= s.resolve_goto(tx);
     changed |= s.ensure_page();
     s.sync_ptys();
     s.sync_term_theme();
@@ -216,6 +231,10 @@ fn setup(s: &mut Hooked, waker: rune::Waker) {
     s.tray_dirty = true;
     s.refresh_logo();
     app::start_workers(s.handle.clone());
+    // `--test-notify` posts a sample notification once the app is up, to check delivery.
+    if std::env::args().any(|a| a == "--test-notify") {
+        tray::test_notification();
+    }
 }
 
 fn on_close(s: &mut Hooked, _: &mut Tx) {

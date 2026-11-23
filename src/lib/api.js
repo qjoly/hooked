@@ -1,5 +1,7 @@
 // Petite couche d'accès à l'API JSON + flux SSE. Mêmes endpoints que l'ancien front.
 
+import { deltaQuery, mergeDetail } from './detailDelta.js';
+
 async function jget(url) {
   const r = await fetch(url);
   if (!r.ok) throw new Error('HTTP ' + r.status);
@@ -13,6 +15,13 @@ async function jpost(url, body) {
 
 export const getSessions = async () => (await jget('/api/sessions')).sessions;
 export const getSession = (id) => jget('/api/session?id=' + encodeURIComponent(id));
+// Incremental variant for the open session: `prev` is the copy we hold; the server only sends the
+// tail of the conversation and skips the heavy lists that did not change. Falls back to a full
+// fetch when the response cannot be completed from `prev`.
+export async function getSessionDelta(id, prev) {
+  const d = mergeDetail(prev, await jget('/api/session?' + deltaQuery(prev, id)));
+  return d || mergeDetail(null, await jget('/api/session?' + deltaQuery(null, id)));
+}
 // Full-text hits across every transcript (SQLite FTS, server-side). Results carry a snippet with
 // <mark> tags around the match, ranked by bm25.
 export const searchTranscripts = (q, limit = 50) =>
@@ -85,6 +94,8 @@ export function connectBackgroundLog({ id, taskId, onSeed, onData, onUnavailable
   return es;
 }
 export const getFiles = (id, q, cwd) => jget(`/api/files?id=${encodeURIComponent(id || '')}&q=${encodeURIComponent(q)}${cwd ? '&cwd=' + encodeURIComponent(cwd) : ''}`);
+// Tools a driven session sends to the model (built-in + MCP, with token cost). No id = any driven session.
+export const getLlmTools = (id) => jget(`/api/llm-tools${id ? '?id=' + encodeURIComponent(id) : ''}`);
 export const getCommands = (id, q, cwd) => jget(`/api/commands?id=${encodeURIComponent(id || '')}&q=${encodeURIComponent(q)}${cwd ? '&cwd=' + encodeURIComponent(cwd) : ''}`);
 export const getAgent = (session, agent) => jget(`/api/agent?session=${encodeURIComponent(session)}&agent=${encodeURIComponent(agent)}`);
 // Défauts modèle/effort lus depuis ~/.claude (config Claude Code de l'utilisateur).
@@ -123,6 +134,8 @@ const cwdQuery = (cwds) => (cwds || []).map((c) => '&cwd=' + encodeURIComponent(
 export const getSkills = (cwds) => jget('/api/skills?' + cwdQuery(cwds).slice(1));
 export const getCronTasks = () => jget('/api/cron');
 export const cronOp = (op, extra) => jpost('/api/cron', { op, ...extra });
+export const getFlows = () => jget('/api/flows');
+export const flowOp = (op, extra) => jpost('/api/flows', { op, ...extra });
 export const getSkill = (id, cwds) => jget('/api/skills?id=' + encodeURIComponent(id) + cwdQuery(cwds));
 // MCP servers of a project (health-checked list, scope, diagnostics) + the OAuth actions.
 // `cwd` selects the project: project- and local-scope servers are per-directory.
@@ -190,6 +203,8 @@ export const setMode = (id, mode) => jpost('/api/mode', { id, mode });
 // `force` confirms a model switch the server held because the prompt cache was still warm.
 export const setModelEffort = (id, model, effort, force = false) => jpost('/api/model', { id, model, effort, force });
 export const launch = (payload) => jpost('/api/launch', payload);
+export const reviewPrInSession = (url) => jpost('/api/github/review', { url });
+export const approvePr = (url) => jpost('/api/github/approve', { url });
 export const getWorktreeBases = (cwd) => jget('/api/worktrees/bases?cwd=' + encodeURIComponent(cwd));
 export const listWorktrees = ({ pr = true } = {}) => jget('/api/worktrees' + (pr ? '' : '?pr=0'));
 export const removeWorktree = (path, force = false) => jpost('/api/worktrees', { action: 'remove', path, force });

@@ -11,6 +11,10 @@ mise run desktop-rune-run   # run from source once, no live editing
 mise run desktop-rune       # build, install "/Applications/hooked (Rune).app" and relaunch it
 ```
 
+`desktop-rune` also redeploys the hooked service (`mise run deploy-if-stale`) when its build lags
+behind the checkout, so the new app never starts against a back end that lacks its endpoints. That
+restart cuts the turn of every driven session, the one running the task included.
+
 Ghostty's terminal core (`libghostty-vt`) is built from source with Zig; the mise tasks pull Zig
 0.17.1 along with Rust.
 
@@ -29,11 +33,12 @@ The layout follows the web dashboard; the look is the web's colour schemes as ru
 (`src/theme.rs`): Coffee (the default), Indigo, Legacy, Datadog, Gruvbox and Claude, each in light
 and dark, with rounded or square corners, picked in Settings or the palette.
 
-- **Top bar**: Deck, Sessions, Stats, Digest, Memory, Cron and GitHub, the palette (⌘K / ⌘P;
+- **Top bar**: Deck, Sessions, Stats, Digest, Memory, Cron, GitHub and Incidents (when the
+  incident.io desktop app is installed), the palette (⌘K / ⌘P;
   ⌘⇧P or a leading `>` for commands only) with sessions, about 35 commands and full-text search
   over transcripts, 5H / 7D / Fable gauges, trash (restore deleted sessions), notifications,
   theme, settings (⌘,), `+ Session`, and a connection dot.
-- **Shortcuts**: ⌥1 Deck, ⌥2 Sessions, ⌥4–7 Stats / Digest / Memory / GitHub, ⌘J terminal,
+- **Shortcuts**: ⌥1 Deck, ⌥2 Sessions, ⌥4–8 Stats / Digest / Memory / GitHub / Incidents, ⌘J terminal,
   ⌘⇧J new terminal, ⌘⇧D context panel, ⌘⇧F focus mode, ⌘⇧T theme, ⌘⇧S split, ⌘B sidebar.
 - **Sidebar**: sessions by status (Waiting, Working, Idle; Snoozed and Archived at the bottom,
   opening upward), by project (collapsible sections with a `+` each) or flat; last-24h filter, a
@@ -52,9 +57,11 @@ and dark, with rounded or square corners, picked in Settings or the palette.
     Esc interrupts, paste or drop images, `@` file and `/` command completion, a draft kept per
     session) with the follow-up suggestion.
   - **Review (3)**: Claude's edits, the worktree since it forked from its base, the working tree or
-    a branch as a diff, unified or split, j/k between hunks and [ / ] between files; + on a line
-    opens a comment thread, and the pending ones go to Claude in one message. Threads are shared
-    with the web lens.
+    a branch as a diff, unified or split (unified in a narrow pane), compact or with its context,
+    reloaded on demand, j/k between hunks and [ / ] between files; + on a line opens a comment
+    thread, the pending ones go to Claude in one message and a reply in a thread goes to it at
+    once. Threads are shared with the web lens, follow their code when it moves and say when it is
+    gone. Each session comes back to the scope, prompts, branch pair and commits it was left on.
   - **MCP (4)**: the project's servers with their health, details, re-authenticate, log out.
   - **Trace (5)**: each turn's tool calls as a timed waterfall, input and output on click.
   - **Terminal (2)**: the session's shells over hooked's PTYs, one tab each, sized to the panel,
@@ -81,28 +88,64 @@ and dark, with rounded or square corners, picked in Settings or the palette.
   color scheme, corners, notifications, default page, new-session defaults, digest, auto-compact,
   worktrees (folder, branch naming, cleanup, auto-pull of main checkouts), tags, git sync, with a
   table of contents in place of the session list).
+- **Incidents** (⌥8): incident.io through the desktop app's own binary, which is why the tab
+  only exists where that app is installed and signed in (Settings → *incident.io* says which,
+  and can turn the tab off; it is also hidden in incognito mode). Open, Mine, Post-incident,
+  Closed and Merged lists with their counts, a text filter, severity chips and a chip per
+  team you belong to (it narrows every list but Mine to that team and its sub-teams, and is
+  remembered); the tab's badge counts the open incidents you take part in. A click previews an incident beside the list
+  (summary, roles, participants, alerts, latest updates, AI investigation, fields), ⌘-click
+  opens it in incident.io. From the preview: join the channel or the call, pin it as "my
+  incident" for the desktop app, take a role, hand it to a new Claude session with a read-only
+  brief. Tick several incidents to merge them into the one to keep (the one already being
+  worked by default, or any reference you type), with what responders will see spelled out
+  before the call and an Undo after it; open incidents whose names look alike are offered as a
+  merge to review; merged incidents can be unmerged, one or several at a time. Each action
+  needs its tool on the server and a connection that may write, else it is not shown.
 - **Organizing**: drag a session (sidebar row or fleet card) onto another to group them, or onto
   a fleet repo header to take it out of its group; tags on rows and in the header, groups under their
-  lead session with a tab strip (switch, make lead, leave, rename, new session in the group),
+  lead session (move, leave and rename from the session menu),
   incognito mode for screen sharing, Fork from any message with model, effort, mode and a first
   message, cost breakdown, copy as Markdown, focus mode, and up to four split panes.
-- **Review**: go to definition (⌘-click a line number to pick one of its names, or double-click
-  a name then F12): the declaration opens in a card under the line, with candidates when it is
-  ambiguous, more lines on demand and Esc to close; a files rail with reviewed ticks (v), a prompt filter, Review with Claude, a
-  comments panel (edit, archive, restore, jump), blame for the clicked line, rendered Markdown with added and removed blocks tinted (a
+- **Review**: selecting text in the diff paints its other occurrences in the accent; go to
+  definition (⌘-double-click a name, or select it then F12, or ⌘-click a line number to pick one
+  of its names): the declaration opens in a card under the line, with candidates when it is
+  ambiguous, more lines on demand and Esc to close, and a ⌘-double-click on a name inside the card
+  follows it, with a button back; a resizable files rail with reviewed ticks (v) that fold the file,
+  binary files and who changed a file (a command, a subagent), a prompt filter, a branch picker
+  (repo, branch and base with a filter, commits), Review with Claude, a resizable
+  comments panel (edit, archive, restore, and a jump that brings back the scope a comment was
+  written on), blame for the clicked line in every scope, rendered Markdown with added and removed blocks tinted (a
   resizable column: a click on a block selects its lines in the diff, a click on a line number
   scrolls to its block),
   and the full diff of a truncated change.
 - **Outside the window**: a menu bar item with the waiting count and sessions; closing the window
   keeps the app running; ⌘⇧H (`HOOKED_QUICK_SHORTCUT` overrides it) opens a quick-reply panel on
   the sessions waiting on you; system notifications when one starts waiting (bundled app only).
+- **Back to the latest message**: an arrow at the bottom right of the conversation, there only
+  while it is scrolled away from its end.
+- **Remote instances** (Settings → Feature flags, off by default, `src/remote.rs`): the sessions
+  of other hooked services listed next to the local ones. A feature of this app alone: the
+  switch and the instance list (name + URL, four at most) live in its prefs, and the hooked
+  service knows nothing about it. A remote session carries a blue rail, a wash and a badge with
+  its instance's name in the sidebar, the Deck, the fleet and its own header, is filed under
+  `repo @ instance`, and says so in its notification. The app talks to each instance directly: a
+  request that names a remote session (`id`, `session`, `sessionId`, `resumeId`) goes to the
+  instance that owns it, so the conversation, the live stream, replies, questions, plans, tags,
+  archive and Review work as they do locally. What belongs to a machine stays local and is not
+  offered for a remote session: a new session, the shell panel, the MCP lens, open in editor. A
+  group cannot span two instances. hooked has no authentication, so only add an instance
+  reached over a trusted network. Full-text search, Stats and Digest stay local.
 
 ## Not done yet
 
 - Dictation (not planned), the companion (decorative).
-- Review: blame shows for the clicked line, not on hover, and go to definition starts from a
-  line number or a selected name rather than a ⌘-click on the word (rune-kit's diff view
-  reports neither the hovered line nor the clicked word).
+- Review: blame shows for the clicked line, not on hover, and go to definition takes a
+  ⌘-double-click rather than a ⌘-click on the word, with no underline under the pointer
+  (rune-kit's diff view reports neither the hovered line nor the clicked word, so the name comes
+  from the text selection). Occurrences of the selection change colour rather than getting a
+  background: the view takes no background for part of a line, so they go through the syntax
+  highlighter.
 
 ## Terminal: what is still missing
 
@@ -165,6 +208,11 @@ cargo run -- --window quick --snap /tmp/quick.png --size 760x500
 cargo run -- --snap /tmp/sidebar.png --size 1440x900 -- --session <id> --open-section archived   # any section
 cargo run -- --snap /tmp/menus.png --size 1440x900 -- --session <id> --snooze-menu   # --sort-menu, --filter-menu
 cargo run -- --snap /tmp/filter.png --size 1440x900 -- --session <id> --picker filter-repo   # filter-tag
+HOOKED_INCIDENT_BIN=scripts/fake-incident cargo run -- --snap /tmp/inc.png --size 1440x900 -- --page incidents --incident INC-409   # --scope merged, --team, --merge
 ```
+
+`scripts/fake-incident` stands in for the incident.io binary (`HOOKED_INCIDENT_BIN`; empty turns
+the page off): the same MCP tools over made-up incidents kept in memory, so a merge and its undo
+can be exercised without touching a real incident. `cargo test` runs them against it.
 
 With these flags the app loads the data synchronously before the first frame, so the PNG shows it.

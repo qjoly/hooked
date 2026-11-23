@@ -24,11 +24,19 @@ describe('sectionOf', () => {
   });
 
   it('places a group by its most pressing awake member', () => {
-    const g = [s('m', 'idle'), s('c1', 'working'), s('c2', 'waiting')];
+    const g = [s('m', 'idle'), s('c1', 'idle'), s('c2', 'waiting')];
     expect(sectionOf(g, flags())).toBe('waiting');
-    expect(sectionOf(g, flags([], ['c2']))).toBe('working');
-    expect(sectionOf(g, flags(['c2']))).toBe('working');
-    expect(sectionOf(g, flags(['c1', 'c2']))).toBe('idle');
+    expect(sectionOf(g, flags([], ['c2']))).toBe('idle');
+    expect(sectionOf(g, flags(['c2']))).toBe('idle');
+  });
+
+  it('keeps a group working while any awake member works, even if another waits', () => {
+    expect(sectionOf([s('m', 'waiting'), s('c', 'working')], flags())).toBe('working');
+    expect(sectionOf([s('m', 'attention'), s('c', 'background')], flags())).toBe('working');
+    expect(sectionOf([s('m', 'idle', { hasQuestion: true }), s('c', 'working')], flags())).toBe('working');
+    const g = [s('m', 'waiting'), s('c1', 'working'), s('c2', 'waiting')];
+    expect(sectionOf(g, flags([], ['c1']))).toBe('waiting');
+    expect(sectionOf(g, flags(['c1']))).toBe('waiting');
   });
 
   it('shelves a group only when every live member is snoozed or archived', () => {

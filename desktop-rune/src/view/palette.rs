@@ -67,6 +67,9 @@ pub fn commands(s: &Hooked) -> Vec<Cmd> {
         cmd(nav, &icons::CLOCK, "Go to Cron", "", |s, _| {
             s.go(Page::Cron)
         }),
+        cmd(nav, &icons::WORKFLOW, "Go to Flows", "", |s, _| {
+            s.go(Page::Flows)
+        }),
         cmd(nav, &icons::BOOK, "Go to Prompts", "", |s, _| {
             s.go(Page::Prompts)
         }),
@@ -118,6 +121,14 @@ pub fn commands(s: &Hooked) -> Vec<Cmd> {
             s.set_corners(Corners::Sharp)
         }),
     ];
+    if s.incidents_on() {
+        out.insert(
+            7,
+            cmd(nav, &icons::SIREN, "Go to Incidents", "⌥8", |s, _| {
+                s.go_incidents()
+            }),
+        );
+    }
     #[cfg(feature = "knobs")]
     out.push(cmd(
         "Appearance",
@@ -194,6 +205,9 @@ pub fn commands(s: &Hooked) -> Vec<Cmd> {
                 s.save_pref("notify", &n);
             },
         ),
+        cmd(act, &icons::BELL, "Send a test notification", "", |_, _| {
+            crate::tray::test_notification()
+        }),
         cmd(act, &icons::TRASH, "Open trash", "", |s, _| s.open_trash()),
         cmd(
             act,
@@ -216,12 +230,8 @@ pub fn commands(s: &Hooked) -> Vec<Cmd> {
             },
             "",
             |s, _| {
-                let next = if s.lens_data.diff.mode() == rune_kit::diff::DiffMode::Split {
-                    rune_kit::diff::DiffMode::Unified
-                } else {
-                    rune_kit::diff::DiffMode::Split
-                };
-                s.lens_data.diff.set_mode(next);
+                let split = s.lens_data.diff.mode() == rune_kit::diff::DiffMode::Split;
+                s.pick_review_mode(!split);
             },
         ),
         cmd(
@@ -438,6 +448,7 @@ fn live_keys(s: &Hooked, hint: &str) -> String {
         "⌥5" => "go-digest",
         "⌥6" => "go-memory",
         "⌥7" => "go-github",
+        "⌥8" => "go-incidents",
         "⌘N" => "new-session",
         "⌘," => "settings",
         "⌘⇧T" => "theme-cycle",

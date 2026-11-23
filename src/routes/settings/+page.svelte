@@ -1,6 +1,6 @@
 <script>
   import { untrack, onMount } from 'svelte';
-  import { data, ui, settings, updateSettings, setTheme, setScheme, setCorners, loadSessions, allTags, tagUsage, deleteTag } from '#lib/state.svelte.js';
+  import { data, ui, settings, updateSettings, openModal, setTheme, setScheme, setCorners, loadSessions, allTags, tagUsage, deleteTag } from '#lib/state.svelte.js';
   import { tagColor } from '#lib/format.js';
   import { resync, getGit, checkoutBranch, dismissRestartNotice, getClaudeVersion, upgradeClaude, restartClaudeSession, pickFolder, getRemoteControl, getCapabilities, getWarmup, runWarmup, listWorktrees, removeWorktree, cleanupWorktrees, pullCheckouts } from '#lib/api.js';
   import { COMPACT_LEAD_MS, CACHED_READ_SHARE } from '#lib/promptCache.js';
@@ -902,6 +902,10 @@
 
     <div class="card" id="pset-claude" data-sec>
       <h2>Claude Code</h2>
+      <div class="cmd-row" style="margin-bottom:12px">
+        <button class="save" onclick={() => openModal('llmTools')}><Icon name="tool" size={14} /> Show tools sent to the model</button>
+        <span class="hint" style="margin:0">Built-in and MCP tools a driven session sends with each request, with their token cost.</span>
+      </div>
       <p class="hint">A running session keeps the claude version it started with. Upgrading the binary doesn't touch live sessions until they restart — reconnecting resumes them from their transcript on the new version. In-memory state is lost by design.</p>
 
       {#if claudeLoading && !claude}

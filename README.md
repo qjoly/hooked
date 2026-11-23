@@ -230,7 +230,7 @@ mise run screenshots  # regenerate docs/screenshots from fictional data (needs G
 mise tasks         # every available task
 ```
 
-See [`CLAUDE.md`](CLAUDE.md) for the architecture notes and the pitfalls worth knowing before
+See [`AGENTS.md`](AGENTS.md) for the architecture notes and the pitfalls worth knowing before
 changing the back end.
 
 ## Uninstall

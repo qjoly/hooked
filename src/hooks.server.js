@@ -1,5 +1,9 @@
+import { promisify } from 'node:util';
+import { gzip as gzipCb } from 'node:zlib';
 import { dev } from '$app/env';
-import { startDigestScheduler, startCronScheduler, startRemoteControl, readSettings, resumeDrivenSessions, startDrivenSnapshot, installShutdownHook, startWarmupScheduler, startAutoCompactScheduler, applyGitSyncSetting, applyPrReviewTagSetting, applyAutoTagSetting, startPrWatch, startWorktreeCleanup, startAutoPull } from '#lib/server/core.js';
+import { startDigestScheduler, startCronScheduler, startRemoteControl, readSettings, resumeDrivenSessions, startDrivenSnapshot, installShutdownHook, startWarmupScheduler, startAutoCompactScheduler, applyGitSyncSetting, applyPrReviewTagSetting, applyAutoTagSetting, startPrWatch, startWorktreeCleanup, startAutoPull, startFlowEngine } from '#lib/server/core.js';
+
+const gzip = promisify(gzipCb);
 
 // Ctrl+C has to actually stop the process. adapter-node closes the HTTP listener on SIGINT but
 // never exits, so any handle left behind (fs watchers, driven subprocesses, PTYs) keeps hooked
@@ -30,6 +34,8 @@ if (!dev || process.env.HOOKED_MODE) {
   // driven when we last stopped, then keep the snapshot current for the next restart.
   resumeDrivenSessions();
   startDrivenSnapshot();
+  // Flow runs in progress: their stage sessions come back through the resume above.
+  startFlowEngine({ adopt: true });
   startWorktreeCleanup();
   startAutoPull();
 }
@@ -42,3 +48,26 @@ startWarmupScheduler();
 startAutoCompactScheduler();
 // PR watches only wake sessions driven by this process, and autoPrWatch is read on every tick.
 startPrWatch();
+
+// adapter-node does not compress responses, and the dashboard polls JSON that is mostly repetitive
+// text (transcripts, file changes): gzip turns several MB per refresh into a few hundred KB, which
+// matters as soon as hooked is viewed over Wi-Fi. SSE streams are left alone (they must flush).
+const MIN_COMPRESS = 1024;
+export async function handle({ event, resolve }) {
+  const response = await resolve(event);
+  if (!event.url.pathname.startsWith('/api/')) return response;
+  if (response.status === 304 || !response.body || response.headers.has('content-encoding')) return response;
+  if (!/\bgzip\b/.test(event.request.headers.get('accept-encoding') || '')) return response;
+  if (!/^application\/json/.test(response.headers.get('content-type') || '')) return response;
+  const raw = Buffer.from(await response.arrayBuffer());
+  const headers = new Headers(response.headers);
+  headers.append('Vary', 'Accept-Encoding');
+  if (raw.length < MIN_COMPRESS) return new Response(raw, { status: response.status, headers });
+  const body = await gzip(raw, { level: 5 });
+  headers.set('Content-Encoding', 'gzip');
+  headers.set('Content-Length', String(body.length));
+  // A compressed body is a different representation: keep the validator weak so it still matches.
+  const etag = headers.get('etag');
+  if (etag && !etag.startsWith('W/')) headers.set('ETag', 'W/' + etag);
+  return new Response(body, { status: response.status, headers });
+}

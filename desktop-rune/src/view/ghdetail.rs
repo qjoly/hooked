@@ -9,8 +9,6 @@ use crate::ghdetail::{
 };
 use crate::{fmt, icons};
 
-const MAX_PATCH_LINES: usize = 2000;
-
 fn str_of<'a>(v: &'a Value, k: &str) -> &'a str {
     v[k].as_str().unwrap_or("")
 }
@@ -109,6 +107,51 @@ fn empty(k: &Kit, msg: &str, c: Color) -> El {
         .py(40.0)
         .padding(14.0)
         .child(text(msg.to_string()).font(k.ty.body).color(c).wrap())
+}
+
+/// Approve and "Review in session" for one open pull request. Approve is left out on the
+/// viewer's own PR, which GitHub refuses.
+pub fn pr_actions(s: &Hooked, k: &Kit, url: &str, author: &str, key: &str) -> El {
+    let viewer = s
+        .pages
+        .github
+        .as_ref()
+        .and_then(|v| v["viewer"].as_str())
+        .unwrap_or("");
+    let act = s.pages.gh_acts.get(url).copied();
+    let mut r = row().key(format!("{key}-acts")).gap(4.0).center_y();
+    if viewer.is_empty() || author != viewer {
+        let u = url.to_string();
+        r = r.child(
+            Button::new(match act {
+                Some("approved") => "Approved",
+                Some("approving") => "Approving…",
+                _ => "Approve",
+            })
+            .icon(&icons::CIRCLE_CHECK)
+            .variant(ButtonVariant::Outline)
+            .control_size(ControlSize::Small)
+            .disabled(matches!(act, Some("approved" | "approving")))
+            .on_press(move |s: &mut Hooked| s.approve_pr(u.clone()))
+            .build(k)
+            .key(format!("{key}-approve")),
+        );
+    }
+    let u = url.to_string();
+    r.child(
+        Button::new(if act == Some("reviewing") {
+            "Launching…"
+        } else {
+            "Review in session"
+        })
+        .icon(&icons::EYE)
+        .variant(ButtonVariant::GhostMuted)
+        .control_size(ControlSize::Small)
+        .disabled(act == Some("reviewing"))
+        .on_press(move |s: &mut Hooked| s.review_pr_in_session(u.clone()))
+        .build(k)
+        .key(format!("{key}-review")),
+    )
 }
 
 fn header(s: &Hooked, k: &Kit, v: &GhView, d: &Value, slot: GhSlot, extra: El) -> El {
@@ -225,8 +268,12 @@ fn header(s: &Hooked, k: &Kit, v: &GhView, d: &Value, slot: GhSlot, extra: El) -
         };
         tabs = tabs.child(text(label).font(k.ty.text_xsmall_medium).color(c));
     }
+    tabs = tabs.child(el().grow(1.0));
+    let open = matches!(str_of(d, "state"), "OPEN" | "DRAFT");
+    if is_pr && open && !url.contains("/-/") {
+        tabs = tabs.child(pr_actions(s, k, &url, str_of(d, "author"), "ghd"));
+    }
     tabs = tabs
-        .child(el().grow(1.0))
         .child(
             IconButton::new(&icons::RESTART)
                 .label("Refresh")
@@ -638,10 +685,11 @@ fn code(s: &Hooked, k: &Kit, v: &GhView, d: &Value, slot: GhSlot) -> El {
                     ))
                     .child(text(change).font(k.ty.mono).color(k.c.text_faint).w(10.0))
                     .child(
+                        // Cut from the left: the file name is the part to keep in sight.
                         text(path.clone())
                             .font(k.ty.text_small)
                             .color(k.c.text_base)
-                            .truncate()
+                            .truncate_head()
                             .grow(1.0)
                             .min_w(0.0),
                     )
@@ -682,7 +730,6 @@ fn note(k: &Kit, msg: &str, c: Color) -> El {
 
 fn patch_view(k: &Kit, path: &str, patch: &str) -> El {
     let lines = patch_lines(patch);
-    let total = lines.len();
     let mut c = col()
         .key(format!("ghd-p-{path}"))
         .w_full()
@@ -691,7 +738,7 @@ fn patch_view(k: &Kit, path: &str, patch: &str) -> El {
         .clip_rounded(k.radius.sm)
         .border(1.0, k.c.border_weak)
         .fill(k.c.bg_deep);
-    for l in lines.into_iter().take(MAX_PATCH_LINES) {
+    for l in lines {
         let (sign, body, fill, ink) = match l {
             PatchLine::Meta(t) => (" ", t, Color::TRANSPARENT, k.c.text_faint),
             PatchLine::Hunk(t) => (" ", t, k.c.info.bg.alpha(0.5), k.c.info.fg),
@@ -716,19 +763,10 @@ fn patch_view(k: &Kit, path: &str, patch: &str) -> El {
                     .color(ink)
                     .wrap_anywhere()
                     .grow(1.0)
-                    .min_w(0.0),
+                    .min_w(0.0)
+                    .selectable(true),
                 ),
         );
-    }
-    if total > MAX_PATCH_LINES {
-        c = c.child(note(
-            k,
-            &format!(
-                "{} more lines: open the pull request on GitHub.",
-                total - MAX_PATCH_LINES
-            ),
-            k.c.text_faint,
-        ));
     }
     c
 }

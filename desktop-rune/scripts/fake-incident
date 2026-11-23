@@ -1,0 +1,369 @@
+#!/usr/bin/env node
+// A stand-in for `incident mcp`, the incident.io desktop binary: the same MCP-over-stdio surface
+// for the tools the Incidents page calls, on made-up incidents kept in memory. It is how the
+// page is snapshotted and how merges are exercised without touching a real incident:
+//
+//   HOOKED_INCIDENT_BIN=scripts/fake-incident cargo run -- --snap /tmp/inc.png -- --page incidents
+//
+// FAKE_INCIDENT_READONLY=1 answers as a read-only connection; FAKE_INCIDENT_LOG=<file> appends
+// every tool call to a file, one JSON object per line.
+
+import fs from 'node:fs';
+import readline from 'node:readline';
+
+const ORG = 'https://app.incident.example/acme';
+const ME = { id: 'U-ME', name: 'Ada Lovelace' };
+const NOW = Date.now();
+const ago = (min) => new Date(NOW - min * 60_000).toISOString().replace(/\.\d+Z$/, 'Z');
+
+const SEVERITIES = [
+  { id: 'SEV-MINOR', name: 'Minor', rank: 0 },
+  { id: 'SEV-MEDIUM', name: 'Medium', rank: 1 },
+  { id: 'SEV-HIGH', name: 'High', rank: 2 },
+  { id: 'SEV-CRIT', name: 'Critical', rank: 3 },
+];
+const STATUSES = [
+  { id: 'ST-TRIAGE', name: 'Triage', category: 'triage' },
+  { id: 'ST-INV', name: 'Investigating', category: 'active' },
+  { id: 'ST-FIX', name: 'Fixing', category: 'active' },
+  { id: 'ST-MON', name: 'Monitoring', category: 'active' },
+  { id: 'ST-PAUSED', name: 'Paused', category: 'paused' },
+  { id: 'ST-DOC', name: 'Documenting', category: 'post-incident' },
+  { id: 'ST-CLOSED', name: 'Closed', category: 'closed' },
+  { id: 'ST-MERGED', name: 'Merged', category: 'merged' },
+  { id: 'ST-CANCELED', name: 'Canceled', category: 'canceled' },
+];
+const ROLES = [
+  { id: 'ROLE-LEAD', name: 'Incident Lead' },
+  { id: 'ROLE-SCRIBE', name: 'Scribe' },
+];
+const status = (name) => ({ ...STATUSES.find((s) => s.name === name) });
+const severity = (name) => {
+  const s = SEVERITIES.find((x) => x.name === name);
+  return s && { id: s.id, name: s.name };
+};
+const TEAMS = [
+  { id: 'TEAM-PLATFORM', name: 'Platform' },
+  { id: 'TEAM-SEARCH', name: 'Search' },
+];
+const lead = (user, id) => ({ role: 'Incident Lead', role_id: 'ROLE-LEAD', user, user_id: id });
+
+function incident(n, name, st, sev, minutes, extra = {}) {
+  return {
+    id: `01FAKE${String(n).padStart(6, '0')}`,
+    external_id: n,
+    reference: `INC-${n}`,
+    name,
+    status: status(st),
+    severity: severity(sev),
+    incident_type: { id: 'TYPE-INT', name: 'Internal incident' },
+    mode: 'standard',
+    visibility: 'public',
+    created_at: ago(minutes),
+    reported_at: ago(minutes),
+    updated_at: ago(Math.max(1, Math.round(minutes / 3))),
+    permalink: `${ORG}/incidents/${n}`,
+    chat_channel_platform: 'slack',
+    chat_channel_url: `https://slack.example/app_redirect?channel=C${n}`,
+    slack_channel_deep_link: `slack://channel?team=T1&id=C${n}`,
+    call_url: `https://meet.example/inc-${n}`,
+    summary: '',
+    roles: [],
+    participants: [],
+    alerts: [],
+    updates: [],
+    team: 'TEAM-PLATFORM',
+    ...extra,
+  };
+}
+
+const incidents = [
+  incident(412, 'Pods in CrashLoopBackOff in checkout-7c9d8b6f5', 'Triage', null, 6, {
+    summary: 'Pods of the checkout ReplicaSet have been in CrashLoopBackOff for more than 5 minutes.',
+    alerts: [{ id: 'AL-3', status: 'firing', title: 'KubePodCrashLooping' }],
+  }),
+  incident(411, 'checkout-7c9d8b6f5-x2k9p stuck in CrashLoopBackOff', 'Triage', null, 14, {
+    summary: 'A checkout pod restarts in a loop after the 14:02 rollout.',
+    alerts: [{ id: 'AL-2', status: 'firing', title: 'KubePodCrashLooping' }],
+  }),
+  incident(409, 'checkout pods CrashLoopBackOff after rollout', 'Investigating', 'High', 38, {
+    summary:
+      'Checkout pods crash at start since the 14:02 rollout: the new image reads a config key that is missing in production.\n\n- **Impact:** about a third of payments fail.\n- **Next:** roll back to the previous image.',
+    roles: [lead('Grace Hopper', 'U-GRACE')],
+    participants: ['Grace Hopper', 'Linus Torvalds', 'Ada Lovelace'],
+    you: { participant: true },
+    alerts: [
+      { id: 'AL-1', status: 'firing', title: 'KubePodCrashLooping' },
+      { id: 'AL-0', status: 'resolved', title: 'CheckoutErrorRateHigh' },
+    ],
+    updates: [
+      {
+        at: ago(12),
+        author: { id: 'U-GRACE', name: 'Grace Hopper', type: 'user' },
+        status: 'Investigating',
+        severity: 'High',
+        message: 'Rollback started, error rate is going down.',
+      },
+      {
+        at: ago(36),
+        author: { id: 'U-GRACE', name: 'Grace Hopper', type: 'user' },
+        status: 'Investigating',
+        severity: 'High',
+      },
+    ],
+    workload: { total_minutes: 94.5, working_minutes: 94.5, late_minutes: 0, sleeping_minutes: 0 },
+    investigation: {
+      status: 'complete',
+      summary: 'The rollout at 14:02 shipped an image that expects `PAYMENT_REGION`, which is unset.',
+    },
+  }),
+  incident(408, 'Search latency above 2 s on eu-west', 'Fixing', 'Medium', 95, {
+    team: 'TEAM-SEARCH',
+    summary: 'p95 search latency has been above 2 s since an index rebuild started.',
+    roles: [lead('Ada Lovelace', 'U-ME'), { role: 'Scribe', role_id: 'ROLE-SCRIBE', user: 'Alan Turing', user_id: 'U-ALAN' }],
+    participants: ['Ada Lovelace', 'Alan Turing'],
+    you: { participant: true },
+  }),
+  incident(407, 'RabbitMQ queue without consumers: invoices.dead-letter', 'Triage', null, 130, {
+    team: null,
+    summary: 'The invoices dead-letter queue has had no consumer for two hours.',
+  }),
+  incident(405, 'RabbitMQ queue without consumers: invoices.retry', 'Triage', null, 150, {
+    summary: 'The invoices retry queue has had no consumer for two hours.',
+  }),
+  incident(404, 'Expired certificate on the staging ingress', 'Paused', 'Minor', 60 * 26, {
+    summary: 'The wildcard certificate of staging expired. Paused until the renewal window.',
+    roles: [lead('Alan Turing', 'U-ALAN')],
+    participants: ['Alan Turing'],
+  }),
+  incident(401, 'Login errors for SSO tenants', 'Monitoring', 'Critical', 60 * 5, {
+    team: 'TEAM-SEARCH',
+    summary: 'SSO logins failed for 12 minutes after an identity provider change. A fix is deployed.',
+    roles: [lead('Linus Torvalds', 'U-LINUS')],
+    participants: ['Linus Torvalds', 'Grace Hopper', 'Alan Turing', 'Margaret Hamilton'],
+  }),
+  incident(398, 'Nightly export missed its window', 'Documenting', 'Medium', 60 * 30, {
+    summary: 'The nightly export started four hours late.',
+    roles: [lead('Ada Lovelace', 'U-ME')],
+    participants: ['Ada Lovelace'],
+    you: { participant: true },
+  }),
+  incident(395, 'Disk pressure on the logging nodes', 'Closed', 'Minor', 60 * 52, {
+    summary: 'Three logging nodes ran out of disk. Retention was lowered.',
+    roles: [lead('Margaret Hamilton', 'U-MARG')],
+  }),
+  incident(393, 'Disk almost full on logging-2', 'Merged', 'Minor', 60 * 53, {
+    summary: 'Duplicate of the disk pressure incident.',
+    merged_from: 'Triage',
+    merged_into: { id: '01FAKE000395', external_id: 395, reference: 'INC-395', name: 'Disk pressure on the logging nodes', permalink: `${ORG}/incidents/395` },
+  }),
+  incident(390, 'False alarm on the status probe', 'Canceled', 'Minor', 60 * 80, {}),
+];
+
+let pinned = null;
+const readonly = process.env.FAKE_INCIDENT_READONLY === '1';
+
+const find = (ref) => {
+  const key = String(ref || '').replace(/^INC-/i, '');
+  return incidents.find((i) => i.id === ref || String(i.external_id) === key);
+};
+const you = (i) => ({ participant: !!i.you?.participant });
+const listed = (i) => {
+  const { participants, alerts, updates, workload, investigation, team, merged_from, slack_channel_deep_link, call_url, ...row } = i;
+  const out = { ...row, you: you(i) };
+  if (!out.severity) delete out.severity;
+  if (!out.roles.length) delete out.roles;
+  return out;
+};
+const shown = (i, include) => {
+  const { merged_from, investigation, team, ...rest } = i;
+  const owner = TEAMS.find((t) => t.id === team);
+  const out = {
+    ...rest,
+    custom_fields: owner ? [{ field_id: 'CF-TEAM', name: 'Team', value: owner.name }] : [],
+    ai_summary: i.summary,
+    slack_channel_url: i.chat_channel_url,
+    participant_count: i.participants.length,
+    participants_truncated: false,
+    open_action_count: 0,
+    updates_total_count: i.updates.length,
+    updates_truncated: false,
+    timestamps: [{ name: 'Reported at', value: i.reported_at }],
+    you: { ...you(i), name: ME.name, user_id: ME.id },
+  };
+  if (!out.severity) delete out.severity;
+  if (include.includes('investigation')) out.investigation = investigation || { status: 'none' };
+  return out;
+};
+
+const fail = (message, code = 'validation_error') => ({
+  isError: true,
+  content: [{ type: 'text', text: JSON.stringify({ type: code, errors: [{ code, message }] }) }],
+  structuredContent: {},
+});
+const ok = (value) =>
+  typeof value === 'string'
+    ? { content: [{ type: 'text', text: value }] }
+    : { content: [{ type: 'text', text: JSON.stringify(value) }], structuredContent: value };
+
+const WRITES = new Set(['incident_merge', 'incident_unmerge', 'incident_update']);
+const TOOLS = ['incident_list', 'incident_show', 'incident_merge', 'incident_unmerge', 'incident_update', 'incident_pin', 'identity_show'];
+
+const tools = {
+  identity_show: () => ({
+    access_level: readonly ? 'read_only' : 'read_write',
+    connection_type: 'oauth',
+    organisation: { id: 'ORG', name: 'Acme' },
+    user: { id: ME.id, name: ME.name },
+  }),
+  incident_list: (a) => {
+    const cats = a.status_category || ['triage', 'active', 'paused', 'post-incident', 'closed'];
+    const q = (a.query || '').toLowerCase();
+    let rows = incidents.filter((i) => cats.includes(i.status.category));
+    if (q) rows = incidents.filter((i) => i.name.toLowerCase().includes(q));
+    const teams = a.team_part_of || a.team;
+    if (teams) rows = rows.filter((i) => teams.includes(i.team));
+    if (a.assigned_to) {
+      const ids = a.assigned_to.map((u) => (u === 'me' ? ME.id : u));
+      rows = rows.filter((i) => i.roles.some((r) => ids.includes(r.user_id)) || (ids.includes(ME.id) && i.you?.participant));
+    }
+    const size = Math.min(a.page_size || 10, 50);
+    const start = a.after ? rows.findIndex((i) => i.id === a.after) + 1 : 0;
+    const page = rows.slice(start, start + size);
+    const more = start + size < rows.length;
+    return {
+      incidents: page.map(listed),
+      pagination: { has_more: more, showing: page.length, total_count: rows.length, ...(more ? { next_cursor: page[page.length - 1].id } : {}) },
+    };
+  },
+  incident_show: (a) => {
+    const i = find(a.id);
+    return i ? shown(i, a.include || []) : fail('incident not found', 'not_found');
+  },
+  incident_merge: (a) => {
+    const target = find(a.merged_into_incident_id);
+    if (!target) return fail('target incident not found', 'not_found');
+    if (['merged', 'canceled'].includes(target.status.category)) return fail(`${target.reference} is ${target.status.category} and cannot be merged into`);
+    const merged = [];
+    const skipped = [];
+    for (const ref of a.incident_ids || []) {
+      const i = find(ref);
+      if (!i) skipped.push({ reference: String(ref), reason: 'incident not found' });
+      else if (i.id === target.id) skipped.push({ reference: i.reference, reason: 'an incident cannot be merged into itself' });
+      else if (['merged', 'canceled'].includes(i.status.category)) skipped.push({ reference: i.reference, reason: `already ${i.status.category}` });
+      else {
+        i.merged_from = i.status.name;
+        i.status = status('Merged');
+        i.merged_into = { id: target.id, external_id: target.external_id, reference: target.reference, name: target.name, permalink: target.permalink };
+        i.updated_at = ago(0);
+        target.alerts.push(...i.alerts);
+        merged.push({ reference: i.reference, name: i.name });
+      }
+    }
+    if (!merged.length) return fail(`nothing could be merged: ${skipped.map((s) => `${s.reference} (${s.reason})`).join(', ')}`);
+    return { merged_into: { reference: target.reference, name: target.name, permalink: target.permalink }, merged, skipped };
+  },
+  incident_unmerge: (a) => {
+    const i = find(a.incident_id);
+    if (!i) return fail('incident not found', 'not_found');
+    if (i.status.category !== 'merged') return fail(`${i.reference} is not merged`);
+    i.status = status(i.merged_from || 'Triage');
+    delete i.merged_into;
+    i.updated_at = ago(0);
+    return { incident: listed(i) };
+  },
+  incident_update: (a) => {
+    const i = find(a.incident_id);
+    if (!i) return fail('incident not found', 'not_found');
+    for (const ra of a.role_assignments || []) {
+      const role = ROLES.find((r) => r.id === ra.role || r.name === ra.role);
+      if (!role) return fail(`unknown role ${ra.role}`);
+      i.roles = i.roles.filter((r) => r.role_id !== role.id);
+      if (ra.user_id) {
+        i.roles.push({ role: role.name, role_id: role.id, user: ra.user_id === ME.id ? ME.name : ra.user_id, user_id: ra.user_id });
+        if (ra.user_id === ME.id) {
+          i.you = { participant: true };
+          if (!i.participants.includes(ME.name)) i.participants.push(ME.name);
+        }
+      }
+    }
+    i.updated_at = ago(0);
+    return { incident: listed(i) };
+  },
+  incident_pin: (a) => {
+    if (a.unset) {
+      pinned = null;
+      return 'Incident unpinned';
+    }
+    if (a.incident_id) {
+      const i = find(a.incident_id);
+      if (!i) return fail('incident not found', 'not_found');
+      pinned = i.external_id;
+      return `Pinned incident ${pinned}`;
+    }
+    return pinned ? `Active incident: ${pinned}` : 'No active incident';
+  },
+};
+
+const CONFIG = `# Organisation configuration
+
+## You
+
+This is the user you are authenticated as.
+
+- **Name:** ${ME.name}
+- **Email:** ada@acme.example
+- **User ID:** \`${ME.id}\`
+- **Teams:**
+  - Platform \`TEAM-PLATFORM\`
+    - Schedule: Platform on-call \`SCHED-1\`
+
+## Incident statuses
+
+${STATUSES.map((s) => `- **${s.name}** [${s.category}] \`${s.id}\` — ${s.name}`).join('\n')}
+
+## Severities
+
+Higher rank = more severe.
+
+${SEVERITIES.map((s) => `- **${s.name}** (rank ${s.rank}) \`${s.id}\` — ${s.name} impact.\nA second line of description.`).join('\n')}
+
+## Incident roles
+
+${ROLES.map((r) => `- **${r.name}** \`${r.id}\` — ${r.name}`).join('\n')}
+`;
+
+function handle(msg) {
+  const p = msg.params || {};
+  switch (msg.method) {
+    case 'initialize':
+      return { protocolVersion: p.protocolVersion, capabilities: { tools: {}, resources: {} }, serverInfo: { name: 'fake incident.io', version: '0' } };
+    case 'tools/list':
+      return { tools: TOOLS.map((name) => ({ name, description: name, inputSchema: { type: 'object' } })) };
+    case 'resources/read':
+      return { contents: [{ uri: p.uri, mimeType: 'text/markdown', text: CONFIG }] };
+    case 'tools/call': {
+      const args = p.arguments || {};
+      if (process.env.FAKE_INCIDENT_LOG) fs.appendFileSync(process.env.FAKE_INCIDENT_LOG, `${JSON.stringify({ name: p.name, arguments: args })}\n`);
+      if (!tools[p.name]) return fail(`unknown tool ${p.name}`);
+      if (readonly && WRITES.has(p.name)) return fail('this connection is read-only', 'forbidden');
+      const r = tools[p.name](args);
+      return r && r.isError ? r : ok(r);
+    }
+    default:
+      return undefined;
+  }
+}
+
+readline.createInterface({ input: process.stdin }).on('line', (line) => {
+  let msg;
+  try {
+    msg = JSON.parse(line);
+  } catch {
+    return;
+  }
+  if (msg.id === undefined) return;
+  const result = handle(msg);
+  const answer = result === undefined ? { error: { code: -32601, message: `unknown method ${msg.method}` } } : { result };
+  process.stdout.write(`${JSON.stringify({ jsonrpc: '2.0', id: msg.id, ...answer })}\n`);
+});

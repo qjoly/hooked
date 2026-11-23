@@ -2,6 +2,7 @@ mod deck;
 mod dock;
 mod fleet;
 mod ghdetail;
+mod incidents;
 pub(crate) mod ghrun;
 mod lenses;
 mod new_session;
@@ -42,6 +43,9 @@ crate::knobs::knobs! {
 }
 pub const DOCK_W: f32 = 300.0;
 pub const RENDERED_W: f32 = 460.0;
+/// The Review lens's files rail and comments panel, until they are resized.
+pub const REVIEW_FILES_W: f32 = 240.0;
+pub const REVIEW_THREADS_W: f32 = 300.0;
 pub const SHOTS_FOLDED: usize = 4;
 pub const SHOTS_OPEN: usize = 60;
 
@@ -94,7 +98,9 @@ pub fn view(s: &Hooked, cx: &mut Cx<Hooked>) -> El {
         Page::Digest => pages::digest(s, &k),
         Page::Memory => pages::memory(s, &k),
         Page::Cron => pages::cron(s, &k),
-        Page::GitHub => pages::github(s, &k),
+        Page::Flows => pages::flows(s, &k),
+        Page::GitHub => pages::github(s, &k, &mut layer),
+        Page::Incidents => incidents::view(s, &k),
         Page::Skills => pages::skills(s, &k),
         Page::Settings => settings::view(s, &k),
         Page::Prompts => pages::prompts(s, &k),
@@ -164,6 +170,7 @@ pub fn view(s: &Hooked, cx: &mut Cx<Hooked>) -> El {
     if s.picker.is_some() {
         layer.push(organize::view(s, &k));
     }
+    layer.extend(incidents::modal(s, &k));
     rune_kit::root(crate::knobs::side(base, s, k.dark), layer)
         .on_window_focus(|s: &mut Hooked, gained: bool, _| s.window_focus(gained))
         .on_paste_content(
@@ -209,7 +216,21 @@ impl Shadows for El {
     }
 }
 
-fn topbar(s: &Hooked, k: &Kit, inset: f32, _layer: &mut Vec<El>) -> El {
+/// The pages the top bar can show next to Deck and Sessions: (settings key, element key, label,
+/// icon, page), in tab order.
+const NAV_PAGES: [(&str, &str, &str, &Icon, Page); 9] = [
+    ("stats", "tb-stats", "Stats", &icons::CHART, Page::Stats),
+    ("digest", "tb-digest", "Digest", &icons::BOOK, Page::Digest),
+    ("memory", "tb-memory", "Memory", &icons::BRAIN, Page::Memory),
+    ("cron", "tb-cron", "Cron", &icons::TIMER, Page::Cron),
+    ("flows", "tb-flows", "Flows", &icons::WORKFLOW, Page::Flows),
+    ("github", "tb-github", "GitHub", &icons::GITHUB, Page::GitHub),
+    ("incidents", "tb-incidents", "Incidents", &icons::SIREN, Page::Incidents),
+    ("skills", "tb-skills", "Skills", &icons::SPARKLE, Page::Skills),
+    ("prompts", "tb-prompts", "Prompts", &icons::BOOK, Page::Prompts),
+];
+
+fn topbar(s: &Hooked, k: &Kit, inset: f32, layer: &mut Vec<El>) -> El {
     let space = |key: &'static str,
                  label: &'static str,
                  i: &'static Icon,
@@ -427,6 +448,76 @@ fn topbar(s: &Hooked, k: &Kit, inset: f32, _layer: &mut Vec<El>) -> El {
         } else {
             "hooked is unreachable on localhost:4123"
         });
+    // Pages picked in Settings → navigation are tabs; the others (and Incidents, once the
+    // incident.io app is there) sit in a "More" menu, as on the web. The open page always shows
+    // as a tab, so you can see where you are.
+    let (shown, hidden): (Vec<_>, Vec<_>) = NAV_PAGES
+        .iter()
+        .copied()
+        .filter(|t| t.4 != Page::Incidents || s.incidents_on() || s.page == Page::Incidents)
+        .partition(|t| s.nav_tab(t.0) || s.page == t.4);
+    let more = (!hidden.is_empty()).then(|| {
+        let open = s.popup == Some(Popup::Nav);
+        // Open incidents still show when their tab is tucked away.
+        let pending = hidden
+            .iter()
+            .any(|t| t.4 == Page::Incidents)
+            .then(|| s.inc.mine_open())
+            .filter(|n| *n > 0);
+        let mut trigger = row()
+            .key("tb-more")
+            .role("button")
+            .label("More pages")
+            .h(28.0)
+            .px(10.0)
+            .gap(6.0)
+            .center_y()
+            .radius(k.radius.md)
+            .cursor(Cursor::Pointer)
+            .fill(if open { k.c.layer_02 } else { Color::TRANSPARENT })
+            .child(text("More").font(k.ty.ui_medium).color(k.c.text_muted))
+            .child(glyph(&icons::CHEVRON_DOWN, 12.0, k.c.icon_muted));
+        if let Some(n) = pending {
+            trigger = trigger.child(
+                row()
+                    .h(16.0)
+                    .min_w(16.0)
+                    .px(5.0)
+                    .center()
+                    .radius(8.0)
+                    .fill(k.c.warning.icon)
+                    .child(
+                        text(n.to_string())
+                            .font(k.ty.text_xsmall_medium)
+                            .color(k.c.white),
+                    ),
+            );
+        }
+        let trigger = k.interactive(trigger).on_press(|s: &mut Hooked| {
+            s.popup = if s.popup == Some(Popup::Nav) {
+                None
+            } else {
+                Some(Popup::Nav)
+            }
+        });
+        let mut menu = Menu::new("tb-more-menu")
+            .trigger(trigger)
+            .open(open)
+            .min_width(200.0)
+            .on_close(|s: &mut Hooked| s.popup = None);
+        for (_, _, label, icon, page) in hidden {
+            let mut item = MenuItem::new(label)
+                .icon(icon)
+                .on_select(move |s: &mut Hooked| s.go(page));
+            if page == Page::Incidents
+                && let Some(n) = pending
+            {
+                item = item.badge(n.to_string());
+            }
+            menu = menu.item(item);
+        }
+        menu.build(k, layer)
+    });
     row()
         .key("topbar")
         .w_full()
@@ -458,41 +549,12 @@ fn topbar(s: &Hooked, k: &Kit, inset: f32, _layer: &mut Vec<El>) -> El {
                 .center_y()
                 .child(deck)
                 .children(s.nav_tab("sessions").then_some(sessions))
-                .children(
-                    [
-                        ("stats", "tb-stats", "Stats", &icons::CHART, Page::Stats),
-                        ("digest", "tb-digest", "Digest", &icons::BOOK, Page::Digest),
-                        ("memory", "tb-memory", "Memory", &icons::BRAIN, Page::Memory),
-                        ("cron", "tb-cron", "Cron", &icons::TIMER, Page::Cron),
-                        (
-                            "github",
-                            "tb-github",
-                            "GitHub",
-                            &icons::GITHUB,
-                            Page::GitHub,
-                        ),
-                        (
-                            "skills",
-                            "tb-skills",
-                            "Skills",
-                            &icons::SPARKLE,
-                            Page::Skills,
-                        ),
-                        (
-                            "prompts",
-                            "tb-prompts",
-                            "Prompts",
-                            &icons::BOOK,
-                            Page::Prompts,
-                        ),
-                    ]
-                    .into_iter()
-                    .filter(|t| s.nav_tab(t.0) || s.page == t.4)
-                    .map(|(_, key, label, icon, page)| {
-                        space(key, label, icon, s.page == page, None)
-                            .on_press(move |s: &mut Hooked| s.go(page))
-                    }),
-                ),
+                .children(shown.into_iter().map(|(_, key, label, icon, page)| {
+                    let badge = (page == Page::Incidents).then(|| s.inc.mine_open());
+                    space(key, label, icon, s.page == page, badge)
+                        .on_press(move |s: &mut Hooked| s.go(page))
+                }))
+                .children(more),
         )
         .child(
             row()
@@ -830,13 +892,15 @@ fn session_row(
                 .child(trailing),
         )
         .child(line2);
-    if !tags.is_empty() {
+    if x.remote.is_some() || !tags.is_empty() {
+        // A remote session's instance badge leads the line: it is there even without a tag.
         body = body.child(
             row()
                 .w_full()
                 .pt(4.0)
                 .gap(4.0)
                 .flex_wrap()
+                .children(x.remote.iter().map(|r| remote_badge(k, r)))
                 .children(tags.iter().map(|t| tag_pill(s, k, t))),
         );
     }
@@ -865,6 +929,11 @@ fn session_row(
     }
     if selected {
         r = r.fill(k.c.pressed);
+    }
+    if x.remote.is_some() {
+        r = r
+            .fill(remote_wash(k, selected))
+            .border_sides([0.0, 0.0, 0.0, 3.0], crate::theme::remote_color(k.dark));
     }
     let drag = id.clone();
     let r = s.drop_target(k, format!("sb:{}", x.id), r);
@@ -1342,7 +1411,8 @@ fn sidebar(s: &Hooked, k: &Kit, layer: &mut Vec<El>) -> El {
         for g in order {
             let rows = &groups[&g];
             let collapsed = s.collapsed.contains(&g);
-            let project = rows[0].project.clone();
+            // A remote project's folder is on the other machine: its + opens an empty form.
+            let project = rows[0].project.clone().filter(|_| rows[0].remote.is_none());
             let toggle = g.clone();
             let plus = IconButton::new(&icons::PLUS)
                 .variant(IconButtonVariant::GhostMuted)
@@ -1816,6 +1886,30 @@ pub fn tag_pill(s: &Hooked, k: &Kit, name: &str) -> El {
         .radius(8.5)
         .fill(c.alpha(0.14))
         .child(text(format!("#{name}")).font(tag_font(k)).color(c))
+}
+
+/// The mark of a session that runs on another hooked instance (`crate::remote`). One look
+/// everywhere a session is listed or opened: a filled, square-cornered, uppercase label in the
+/// remote hue, which no tag (soft round pill), state (dot) or project uses.
+pub fn remote_badge(k: &Kit, r: &crate::remote::Instance) -> El {
+    let ink = crate::theme::remote_ink(k.dark);
+    let mut f = tag_font(k);
+    f.weight = 700.0;
+    row()
+        .h(17.0)
+        .px(6.0)
+        .gap(4.0)
+        .center_y()
+        .radius(if crate::theme::sharp() { 0.0 } else { 4.0 })
+        .fill(crate::theme::remote_color(k.dark))
+        .help(format!("Remote session: runs on the hooked instance “{}” ({})", r.name, r.url))
+        .child(glyph(&icons::GLOBE, 10.0, ink))
+        .child(text(r.name.to_uppercase()).font(f).color(ink))
+}
+
+/// The wash behind a remote session's row, card or header; stronger when it is the selected one.
+pub fn remote_wash(k: &Kit, strong: bool) -> Color {
+    crate::theme::remote_color(k.dark).alpha(if strong { 0.22 } else { 0.08 })
 }
 
 pub fn pill(k: &Kit, label: impl Into<String>, fg: Color, bg: Color) -> El {
