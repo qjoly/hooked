@@ -1,4 +1,5 @@
 <script>
+  import { usesClaudeAccount } from '#lib/providers.js';
   import { copyText } from '#lib/clipboard.js';
   import { goto } from '$app/navigation';
   import { page } from '$app/state';
@@ -32,7 +33,7 @@
     { id: 'nav:stats', label: 'Go to Stats', section: 'Navigation', icon: 'stats', action: () => goto('/stats') },
     { id: 'nav:digest', label: 'Go to Digest', section: 'Navigation', icon: 'digest', action: () => goto('/digest') },
     // Mémoire = ~/.claude (Claude-only) : absent de la palette quand aucun binaire claude.
-    ...(data.providers?.claude ? [{ id: 'nav:memory', label: 'Go to Memory', section: 'Navigation', icon: 'memory', action: () => goto('/memory') }] : []),
+    ...(usesClaudeAccount(data.providers, data.providerList) ? [{ id: 'nav:memory', label: 'Go to Memory', section: 'Navigation', icon: 'memory', action: () => goto('/memory') }] : []),
     { id: 'nav:github', label: 'Go to GitHub', section: 'Navigation', icon: 'pr', action: () => goto('/github') },
     { id: 'nav:skills', label: 'Go to Skills', section: 'Navigation', icon: 'zap', action: () => goto('/skills') },
     { id: 'nav:cron', label: 'Go to Cron', section: 'Navigation', icon: 'clock', action: () => goto('/cron') },

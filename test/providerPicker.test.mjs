@@ -79,3 +79,19 @@ describe('provider descriptors', () => {
     setProviderList([]);
   });
 });
+
+describe('usesClaudeAccount', () => {
+  it('follows the claude provider or the account capability of an enabled provider', async () => {
+    const { usesClaudeAccount } = await import('../src/lib/providers.js');
+    const list = [
+      { id: 'claude', engine: 'claude', capabilities: { account: true } },
+      { id: 'pi', engine: 'pi', capabilities: {} },
+      { id: 'claude-bridge', engine: 'pi', capabilities: { account: true } },
+    ];
+    expect(usesClaudeAccount({ claude: true, pi: false }, list)).toBe(true);
+    // the claude provider off, Claude through pi on: the account is still in use
+    expect(usesClaudeAccount({ claude: false, pi: true, 'claude-bridge': true }, list)).toBe(true);
+    expect(usesClaudeAccount({ claude: false, pi: true, 'claude-bridge': false }, list)).toBe(false);
+    expect(usesClaudeAccount(null, list)).toBe(false);
+  });
+});
