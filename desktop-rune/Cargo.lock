@@ -3634,11 +3634,12 @@ source = "git+https://github.com/anomalyco/rune?rev=a7f276c3630f85a06a0230295da4
 [[package]]
 name = "rune-notify"
 version = "0.0.1"
-source = "git+https://github.com/anomalyco/rune?rev=a7f276c3630f85a06a0230295da4d2bd172d8d3b#a7f276c3630f85a06a0230295da4d2bd172d8d3b"
+source = "git+https://github.com/anomalyco/rune?rev=5035abb8657064401600f66035ad1d40867edf8c#5035abb8657064401600f66035ad1d40867edf8c"
 dependencies = [
- "block2 0.5.1",
- "objc2 0.5.3",
+ "block2 0.6.2",
+ "objc2 0.6.5",
  "windows",
+ "windows-core",
  "windows-registry",
 ]
 
