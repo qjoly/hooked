@@ -100,3 +100,9 @@ What hooked does about the bridge:
 
 The bridge runs Claude Code with no built-in tools: Claude calls pi's tools, so the permission
 gate, the questions and the plan mode above apply unchanged.
+
+The bridge also excludes Claude Code's own context files: pi owns the context, so the model sees
+pi's `AGENTS.md` and pi's skills, not `~/.claude/CLAUDE.md` and `~/.claude/skills`. `mise run
+pi-migrate` copies the global `CLAUDE.md` into a managed block of `~/.pi/agent/AGENTS.md` (the rest
+of the file stays pi-only) and adds `~/.claude/skills` to the `skills` list of pi's settings, where
+pi reads it live. Run it again after an edit of `CLAUDE.md`. `-- --dry-run` shows the changes.

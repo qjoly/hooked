@@ -181,7 +181,10 @@ A **provider** is configuration (`settings.json` → `providers`, Settings → P
 - **Claude through pi-claude-bridge** is a pi provider (`args: ["-e", "npm:pi-claude-bridge@…"]`).
   The Claude Code sessions the bridge runs as the model of a pi session are hidden from the Claude
   list (`server/bridgeShadows.js`), and their hooks are dropped (`hook.cjs` exits on pi's
-  `PI_CODING_AGENT` mark, which hooked strips from the sessions it drives).
+  `PI_CODING_AGENT` mark, which hooked strips from the sessions it drives). The bridge also
+  excludes Claude Code's context files, so `mise run pi-migrate` (`scripts/pi-migrate.mjs`) brings
+  the global `CLAUDE.md` (managed block in `~/.pi/agent/AGENTS.md`) and `~/.claude/skills` (pi's
+  `skills` setting) to pi.
 - **External engines load at boot, before resume** (`hooks.server.js`), and can be reloaded from
   Settings. A module cannot take a built-in engine id. `test/fixtures/providers/echo-engine.mjs` is
   a complete minimal engine, driven end to end through `agent.js` in `test/providerRegistry.test.mjs`.

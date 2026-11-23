@@ -54,6 +54,14 @@ echo "  2. MCP hooked dans pi : ~/.pi/agent/mcp.json (stdio vers le serveur hook
 echo "Dans hooked, providers.pi = 'auto' (défaut) suffit alors ; 'on' force, 'off' masque."
 '''
 
+# pi (and Claude through pi-claude-bridge, which excludes Claude Code's own context files) only sees
+# what pi loads: this copies ~/.claude/CLAUDE.md into a managed block of ~/.pi/agent/AGENTS.md and
+# adds ~/.claude/skills to pi's skills list. Safe to run again (after an edit of CLAUDE.md).
+# Options after `--`: --dry-run, --no-instructions, --no-skills.
+[tasks.pi-migrate]
+description = "Bring the global CLAUDE.md and the Claude skills to pi"
+run = "node scripts/pi-migrate.mjs"
+
 [tasks.setup]
 description = "Installation complète : deps + build + hooks Claude Code"
 depends = ["build", "setup-hooks"]
