@@ -2244,7 +2244,7 @@ fn annotation(s: &Hooked, a: &Annotation, k: &Kit) -> El {
                 .w_full()
                 .gap(2.0)
                 .child(
-                    text(if claude { agent } else { "You" })
+                    text(if claude { agent.clone() } else { "You".to_string() })
                         .font(k.ty.text_xsmall_medium)
                         .color(k.c.text_faint),
                 )

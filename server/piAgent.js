@@ -535,7 +535,7 @@ async function piOptions(provider = null) {
     activeModel: (def && models.some((m) => m.name === def) ? def : null) || models[0]?.name || null,
     defaultEffort: (provider && provider.defaultEffort) || null,
     thinkingLevels: THINKING_LEVELS,
-    modes: [{ id: 'auto', label: 'Auto — pi runs tools directly (no approval in RPC mode)' }],
+    modes: [{ id: 'auto', label: 'Auto (no approvals in RPC)' }],
   };
 }
 

@@ -99,9 +99,21 @@ pub fn short_model(m: &str) -> String {
     m.strip_prefix("claude-").unwrap_or(m).to_string()
 }
 
-/// Nom d'affichage de l'agent selon le provider de la session ('claude' par défaut).
-pub fn agent_label(provider: Option<&str>) -> &'static str {
-    if provider == Some("pi") { "Pi" } else { "Claude" }
+/// Label of a model in a provider's picker. The catalogue gives a display `label` and the
+/// `alias` sent to the server (`provider/id` for pi): the alias is only worth repeating when it
+/// says more than the label (not when it is the label, or the label behind a provider prefix).
+pub fn model_choice_label(label: Option<&str>, alias: &str) -> String {
+    match label.filter(|l| !l.is_empty()) {
+        None => alias.to_string(),
+        Some(l) if l == alias || alias.strip_suffix(l).is_some_and(|p| p.ends_with('/')) => l.to_string(),
+        Some(l) => format!("{l} · {alias}"),
+    }
+}
+
+/// Display name of the agent behind a session's provider ('claude' by default): the provider's
+/// label from the server's settings (cf. api::provider_info).
+pub fn agent_label(provider: Option<&str>) -> String {
+    crate::api::provider_info(provider).label
 }
 
 /// state_label provider-aware : seul « working » nomme l'agent.
@@ -285,6 +297,15 @@ pub fn link_label(url: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn model_choice_label_drops_a_redundant_alias() {
+        assert_eq!(model_choice_label(Some("devstral-latest"), "mistral/devstral-latest"), "devstral-latest");
+        assert_eq!(model_choice_label(Some("smart"), "smart"), "smart");
+        assert_eq!(model_choice_label(Some("Mistral Large"), "mistral/mistral-large-latest"), "Mistral Large · mistral/mistral-large-latest");
+        assert_eq!(model_choice_label(None, "x/y"), "x/y");
+        assert_eq!(model_choice_label(Some("y"), "x/zy"), "y · x/zy");
+    }
 
     #[test]
     fn logs_lose_their_escapes() {

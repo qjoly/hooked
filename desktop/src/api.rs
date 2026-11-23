@@ -195,7 +195,8 @@ pub struct Session {
     pub followup: Option<String>,
     pub todo: Option<TodoSummary>,
     pub cache: Option<CacheInfo>,
-    /// Agent provider of the session: "claude" (Agent SDK) or "pi" (Mistral via pi, RPC).
+    /// Agent provider of the session: a provider id of the server's settings ("claude", "pi",
+    /// or a custom one such as "mistral" / "gemini" — see `ProviderInfo`).
     pub provider: Option<String>,
     /// The remote hooked instance the session runs on (`crate::remote`), `None` for a local
     /// one. Set by this app when it lists an instance, never read from the wire.
@@ -235,29 +236,183 @@ impl Session {
     }
 }
 
-/// Which agent CLIs are installed on this machine (from /api/sessions). The UI only shows the
-/// claude/pi badge when BOTH are present — with a single provider it would tell nothing.
-#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq)]
+/// One provider as the server describes it (`providerList` of /api/sessions, cf.
+/// server/providers.js and docs/providers.md): label, badge, colour, engine and capabilities.
+/// Built-ins are `claude` (Claude Code, Agent SDK) and `pi` (pi coding agent); every other id
+/// is a provider declared in the hooked settings (an ACP agent, a pi narrowed to some models…).
+#[derive(Clone, Debug, Default, Deserialize, PartialEq)]
+#[serde(default, rename_all = "camelCase")]
+pub struct ProviderInfo {
+    pub id: String,
+    pub engine: Option<String>,
+    pub label: String,
+    pub short: String,
+    /// `#rrggbb` set in the settings, if any.
+    pub color: Option<String>,
+    pub enabled: bool,
+    /// Which flavour of the MCP lens applies: "claude", "pi", or none.
+    pub mcp_kind: Option<String>,
+    pub hidden_models: Option<Vec<String>>,
+    pub capabilities: std::collections::HashMap<String, bool>,
+}
+
+// Capabilities of the built-in engines, used before the server's list arrives (or with an
+// older server that sends none). Mirrors server/engines/{claude,pi}.js.
+const PI_CAPS: &[&str] = &[
+    "models", "effort", "resume", "fork", "forkAtMessage", "worktree", "trace", "search", "trash",
+    "promptCache", "commands", "skills", "mcp",
+];
+
+impl ProviderInfo {
+    /// Defaults for a provider the server did not describe: the built-ins, or a neutral entry
+    /// whose label comes from the id (a session of a provider removed from the settings).
+    pub fn fallback(id: &str) -> Self {
+        let mut p = ProviderInfo { id: id.to_string(), enabled: true, ..Default::default() };
+        match id {
+            "claude" => {
+                p.engine = Some("claude".into());
+                p.label = "Claude".into();
+                p.short = "cc".into();
+                p.mcp_kind = Some("claude".into());
+            }
+            "pi" => {
+                p.engine = Some("pi".into());
+                p.label = "Pi".into();
+                p.short = "pi".into();
+                p.mcp_kind = Some("pi".into());
+                p.capabilities = PI_CAPS.iter().map(|c| (c.to_string(), true)).collect();
+            }
+            _ => {
+                p.label = id
+                    .split('-')
+                    .map(|w| {
+                        let mut c = w.chars();
+                        c.next().map(|f| f.to_uppercase().chain(c).collect()).unwrap_or_default()
+                    })
+                    .collect::<Vec<String>>()
+                    .join(" ");
+                p.short = id.chars().take(2).collect();
+            }
+        }
+        p
+    }
+
+    /// The engine behind it: "claude", "pi", "acp", or an external engine id.
+    pub fn engine(&self) -> &str {
+        self.engine.as_deref().unwrap_or(if self.id == "pi" { "pi" } else if self.id == "claude" { "claude" } else { "" })
+    }
+
+    pub fn is_claude(&self) -> bool {
+        self.engine() == "claude"
+    }
+
+    /// Does this provider support `cap`? (keys of CAPABILITY_KEYS in server/providerConfig.js)
+    /// Claude Code has them all, whatever the server sent.
+    pub fn can(&self, cap: &str) -> bool {
+        self.is_claude() || self.capabilities.get(cap).copied().unwrap_or(false)
+    }
+}
+
+// Last provider list read from the server, for the display helpers that have no access to the
+// app state (fmt::agent_label…). Remote instances may know providers this one does not: those
+// fall back to ProviderInfo::fallback.
+static PROVIDER_LIST: std::sync::RwLock<Vec<ProviderInfo>> = std::sync::RwLock::new(Vec::new());
+
+/// What the MCP lens sends as `provider` for a session of provider `id`: "pi" for any pi-based
+/// provider (pi's mcp.json flavour), None for Claude Code, the id itself otherwise (the server
+/// answers an agent that keeps its MCP config to itself with an empty list).
+pub fn mcp_param(id: Option<&str>) -> Option<String> {
+    let info = provider_info(id);
+    match info.mcp_kind.as_deref() {
+        Some("pi") => Some("pi".into()),
+        Some("claude") => None,
+        _ if info.is_claude() => None,
+        _ => Some(info.id),
+    }
+}
+
+/// Descriptor of provider `id` (None = claude).
+pub fn provider_info(id: Option<&str>) -> ProviderInfo {
+    let id = id.unwrap_or("claude");
+    PROVIDER_LIST
+        .read()
+        .ok()
+        .and_then(|l| l.iter().find(|p| p.id == id).cloned())
+        .unwrap_or_else(|| ProviderInfo::fallback(id))
+}
+
+/// Which providers this hooked can launch on (from /api/sessions): enabled flags + descriptors.
+/// `claude` / `pi` stay as fields (the historical shape); custom providers live in `list`.
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct Providers {
-    #[serde(default)]
     pub claude: bool,
-    #[serde(default)]
     pub pi: bool,
+    /// Every provider in settings order, with its `enabled` flag and descriptor.
+    pub list: Vec<ProviderInfo>,
 }
 
 impl Providers {
-    pub fn both(&self) -> bool {
-        self.claude && self.pi
+    /// Builds the set from the `providers` map ({ id: enabled }) and the optional `providerList`.
+    pub fn from_wire(enabled: &serde_json::Map<String, Value>, list: Option<Vec<ProviderInfo>>) -> Self {
+        let on = |id: &str| enabled.get(id).and_then(Value::as_bool).unwrap_or(false);
+        let list = match list {
+            Some(l) if !l.is_empty() => l
+                .into_iter()
+                .map(|mut p| {
+                    p.enabled = on(&p.id);
+                    p
+                })
+                .collect(),
+            _ => {
+                // Older server: only the map. Built-ins first, then the others in key order.
+                let mut ids: Vec<&String> = enabled.keys().collect();
+                ids.sort_by_key(|k| (k.as_str() != "claude", k.as_str() != "pi", k.as_str().to_string()));
+                ids.into_iter()
+                    .map(|id| {
+                        let mut p = ProviderInfo::fallback(id);
+                        p.enabled = on(id);
+                        p
+                    })
+                    .collect()
+            }
+        };
+        Providers { claude: on("claude"), pi: on("pi"), list }
     }
 
-    /// With a single provider installed there is nothing to choose: it is the one to use.
-    /// `None` when both (or neither) are present.
-    pub fn only(&self) -> Option<&'static str> {
-        match (self.claude, self.pi) {
-            (true, false) => Some("claude"),
-            (false, true) => Some("pi"),
-            _ => None,
-        }
+    /// Two providers only (tests).
+    #[cfg(test)]
+    pub fn pair(claude: bool, pi: bool) -> Self {
+        let mut m = serde_json::Map::new();
+        m.insert("claude".into(), Value::Bool(claude));
+        m.insert("pi".into(), Value::Bool(pi));
+        Self::from_wire(&m, None)
+    }
+
+    /// Ids of the enabled providers, in settings order.
+    pub fn enabled_ids(&self) -> Vec<String> {
+        self.list.iter().filter(|p| p.enabled).map(|p| p.id.clone()).collect()
+    }
+
+    pub fn is_enabled(&self, id: &str) -> bool {
+        self.list.iter().any(|p| p.id == id && p.enabled)
+    }
+
+    /// Descriptor of `id` (fallback when the server did not describe it).
+    pub fn info(&self, id: &str) -> ProviderInfo {
+        self.list.iter().find(|p| p.id == id).cloned().unwrap_or_else(|| ProviderInfo::fallback(id))
+    }
+
+    /// More than one provider enabled: only then do badges, the picker and the provider filter
+    /// tell anything (with a single one they would not).
+    pub fn both(&self) -> bool {
+        self.list.iter().filter(|p| p.enabled).count() > 1
+    }
+
+    /// With a single provider enabled there is nothing to choose: it is the one to use.
+    /// `None` when several (or none) are.
+    pub fn only(&self) -> Option<String> {
+        let ids = self.enabled_ids();
+        if ids.len() == 1 { ids.into_iter().next() } else { None }
     }
 }
 
@@ -266,7 +421,9 @@ struct SessionsPayload {
     #[serde(default)]
     sessions: Vec<Session>,
     #[serde(default)]
-    providers: Option<Providers>,
+    providers: Option<serde_json::Map<String, Value>>,
+    #[serde(default, rename = "providerList")]
+    provider_list: Option<Vec<ProviderInfo>>,
 }
 
 fn session_list(v: Value) -> Result<Vec<Session>, String> {
@@ -278,13 +435,17 @@ fn session_list(v: Value) -> Result<Vec<Session>, String> {
 }
 
 /// The local sessions, then those of the remote instances when that feature is on.
-/// Sessions + the providers installed on this machine, in one call (the payload carries both).
+/// Sessions + the providers of this hooked, in one call (the payload carries both).
 pub fn sessions_full() -> Result<(Vec<Session>, Providers), String> {
     let v = get("/api/sessions")?;
     let p: SessionsPayload = decode(v)?;
+    let providers = Providers::from_wire(&p.providers.unwrap_or_default(), p.provider_list);
+    if let Ok(mut g) = PROVIDER_LIST.write() {
+        *g = providers.list.clone();
+    }
     Ok((
         crate::remote::merge_sessions(p.sessions.into_iter().filter(|s| !s.id.is_empty()).collect()),
-        p.providers.unwrap_or_default(),
+        providers,
     ))
 }
 
@@ -397,7 +558,7 @@ impl Tool {
 #[derive(Clone, Debug, PartialEq)]
 pub enum Part {
     Text(String),
-    /// Model reasoning (pi / Mistral), kept in order with the text and tool calls.
+    /// Model reasoning (non-Claude engines), kept in order with the text and tool calls.
     Thinking(String),
     Tool(Tool),
 }
@@ -717,14 +878,30 @@ pub struct Gauge {
     pub pct: Option<f64>,
 }
 
-/// Quelle vue d'usage montre l'entête : les rate limits du compte Claude, ou la jauge de
-/// contexte de la session pi la plus fraîche. Un clic sur le bloc alterne quand les deux
-/// fournisseurs sont configurés (choix persisté dans les prefs, clé "usageView").
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+/// Which usage the header shows: the Claude account rate limits, or the usage of one other
+/// provider (cost + tokens of the day, freshest session). A click on the block cycles through
+/// them (choice persisted in the prefs, key "usageView": "claude" or the provider id).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub enum UsageView {
     #[default]
     Claude,
-    Pi,
+    Provider(String),
+}
+
+impl UsageView {
+    pub fn key(&self) -> &str {
+        match self {
+            UsageView::Claude => "claude",
+            UsageView::Provider(id) => id,
+        }
+    }
+
+    pub fn from_key(k: Option<&str>) -> Self {
+        match k {
+            None | Some("") | Some("claude") => UsageView::Claude,
+            Some(id) => UsageView::Provider(id.to_string()),
+        }
+    }
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -734,11 +911,15 @@ pub struct PiContext {
     pub context_window: Option<f64>,
 }
 
-/// Bloc `pi` de /api/usage (buildPiUsage côté serveur) : la session pi la plus fraîche avec sa
-/// jauge de contexte, son modèle et son coût — pour l'entête quand le provider pi est configuré
-/// (Mistral n'a pas de rate limits compte exposés comme Anthropic).
+/// One provider's usage block of /api/usage (`usage.providers.<id>`, or the historical `pi`
+/// block): its freshest session with context gauge, model and cost, plus the day's totals — what
+/// the header shows for a provider without account rate limits (only Anthropic exposes those).
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct PiUsage {
+    /// Provider the block describes ("pi" for the historical `pi` block of /api/usage).
+    pub provider: String,
+    /// Its label (from `usage.providers.<id>.label`).
+    pub label: Option<String>,
     pub session_id: String,
     pub title: Option<String>,
     pub model: Option<String>,
@@ -781,7 +962,22 @@ fn parse_usage(v: &Value) -> (Vec<Gauge>, Option<PiUsage>) {
             pct: pct(&a["fable"]),
         });
     }
-    let pi = v.get("pi").and_then(|p| {
+    let pi = v.get("pi").and_then(|p| usage_block(p, "pi"));
+    (out, pi)
+}
+
+/// Usage of every non-Claude provider (`usage.providers` of /api/usage, cf. buildProviderUsage
+/// server-side), in key order. An older server only has the `pi` block: it stands for the
+/// `pi` provider then.
+pub fn parse_provider_usage(v: &Value) -> Vec<PiUsage> {
+    match v.get("providers").and_then(Value::as_object) {
+        Some(m) if !m.is_empty() => m.iter().filter_map(|(id, b)| usage_block(b, id)).collect(),
+        _ => v.get("pi").and_then(|p| usage_block(p, "pi")).into_iter().collect(),
+    }
+}
+
+fn usage_block(p: &Value, provider: &str) -> Option<PiUsage> {
+    {
         if !p.is_object() {
             return None;
         }
@@ -793,6 +989,8 @@ fn parse_usage(v: &Value) -> (Vec<Gauge>, Option<PiUsage>) {
             })
         });
         Some(PiUsage {
+            provider: provider.to_string(),
+            label: p.get("label").and_then(Value::as_str).map(str::to_string),
             session_id: p
                 .get("sessionId")
                 .and_then(Value::as_str)
@@ -808,8 +1006,7 @@ fn parse_usage(v: &Value) -> (Vec<Gauge>, Option<PiUsage>) {
             today_tokens: p.get("todayTokens").and_then(Value::as_f64),
             sessions: p.get("sessions").and_then(Value::as_f64),
         })
-    });
-    (out, pi)
+    }
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -818,10 +1015,15 @@ pub struct Capabilities {
     pub efforts: Vec<String>,
 }
 
-/// Launch options for the Mistral Pi provider (model aliases, thinking levels, agent modes)
-/// read from ~/.pi/config.toml by the server.
-pub fn pi_options() -> Result<Value, String> {
-    get("/api/pi-options")
+/// Launch options of one provider (/api/provider-options): `models` ([{ name, alias, label,
+/// thinking }]), `activeModel`, `thinkingLevels`, `modes` ([{ id, label }]). Falls back to the
+/// historical /api/pi-options for `pi` on an older server.
+pub fn provider_options(id: &str) -> Result<Value, String> {
+    match get(&format!("/api/provider-options?provider={}", enc(id))) {
+        Ok(v) => Ok(v),
+        Err(_) if id == "pi" => get("/api/pi-options"),
+        Err(e) => Err(e),
+    }
 }
 
 pub fn capabilities() -> Result<Capabilities, String> {
@@ -929,7 +1131,7 @@ pub struct Launch {
     pub incognito: bool,
     pub worktree: bool,
     pub ephemeral: bool,
-    /// "claude" (default) or "pi" (Mistral Pi). None = let the server decide.
+    /// Provider id ("claude", "pi", or a custom one). None = the settings' default provider.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub provider: Option<String>,
 }
@@ -1072,13 +1274,16 @@ pub struct McpServer {
 
 pub fn mcp_list(cwd: &str, cached: bool, provider: Option<&str>) -> Result<Vec<McpServer>, String> {
     // provider=pi : liste lue dans la config Pi ; `cached` n'existe pas côté pi, le
-    // health-check (`check=1`) est l'appel complet.
+    // health-check (`check=1`) est l'appel complet. Any other non-Claude id is sent as is: the
+    // server picks the flavour from its engine (an ACP agent lists nothing).
     let mut url = format!("/api/mcp?cwd={}", enc(cwd));
     if provider == Some("pi") {
         url.push_str("&provider=pi");
         if !cached {
             url.push_str("&check=1");
         }
+    } else if let Some(p) = provider.filter(|p| *p != "claude") {
+        url.push_str(&format!("&provider={}", enc(p)));
     } else if cached {
         url.push_str("&cached=1");
     }
@@ -1254,16 +1459,63 @@ mod tests {
 
     #[test]
     fn providers_only_when_a_single_one_is_installed() {
-        let both = Providers { claude: true, pi: true };
-        let claude_only = Providers { claude: true, pi: false };
-        let pi_only = Providers { claude: false, pi: true };
+        let both = Providers::pair(true, true);
+        let claude_only = Providers::pair(true, false);
+        let pi_only = Providers::pair(false, true);
         let none = Providers::default();
         assert!(both.both() && both.only().is_none());
         assert!(!claude_only.both());
-        assert_eq!(claude_only.only(), Some("claude"));
+        assert_eq!(claude_only.only().as_deref(), Some("claude"));
         assert!(!pi_only.both());
-        assert_eq!(pi_only.only(), Some("pi"));
+        assert_eq!(pi_only.only().as_deref(), Some("pi"));
         assert!(!none.both() && none.only().is_none());
+    }
+
+    #[test]
+    fn providers_read_custom_entries_from_the_provider_list() {
+        let p: SessionsPayload = serde_json::from_value(json!({
+            "sessions": [],
+            "providers": { "claude": false, "pi": true, "gemini": true },
+            "providerList": [
+                { "id": "claude", "engine": "claude", "label": "Claude", "short": "cc" },
+                { "id": "pi", "engine": "pi", "label": "Pi", "short": "pi", "capabilities": { "plan": false, "fork": true } },
+                { "id": "gemini", "engine": "acp", "label": "Gemini", "short": "gm", "color": "#4285f4",
+                  "mcpKind": null, "capabilities": { "permissions": true, "modes": true } }
+            ]
+        }))
+        .unwrap();
+        let ps = Providers::from_wire(&p.providers.unwrap(), p.provider_list);
+        assert!(!ps.claude && ps.pi);
+        assert_eq!(ps.enabled_ids(), ["pi", "gemini"]);
+        assert!(ps.both());
+        let g = ps.info("gemini");
+        assert_eq!((g.label.as_str(), g.short.as_str(), g.engine()), ("Gemini", "gm", "acp"));
+        assert_eq!(g.color.as_deref(), Some("#4285f4"));
+        assert!(g.can("permissions") && !g.can("plan"));
+        assert!(ps.info("claude").can("plan")); // Claude Code has every capability
+        assert!(!ps.info("pi").can("plan"));
+        // a provider the server never described still gets a usable descriptor
+        let unknown = ps.info("my-agent");
+        assert_eq!((unknown.label.as_str(), unknown.short.as_str()), ("My Agent", "my"));
+    }
+
+    #[test]
+    fn provider_usage_reads_every_provider_block() {
+        let list = parse_provider_usage(&json!({
+            "pi": { "sessionId": "a", "todayCost": 1.0 },
+            "providers": {
+                "mistral": { "sessionId": "a", "label": "Mistral", "todayCost": 1.0 },
+                "gemini": { "sessionId": "b", "label": "Gemini", "todayCost": 0.5 }
+            }
+        }));
+        assert_eq!(list.iter().map(|u| u.provider.as_str()).collect::<Vec<_>>(), ["gemini", "mistral"]);
+        assert_eq!(list[1].label.as_deref(), Some("Mistral"));
+        // older server: only the `pi` block
+        let old = parse_provider_usage(&json!({ "pi": { "sessionId": "a" } }));
+        assert_eq!(old.len(), 1);
+        assert_eq!(old[0].provider, "pi");
+        assert_eq!(UsageView::from_key(Some("gemini")), UsageView::Provider("gemini".into()));
+        assert_eq!(UsageView::from_key(Some("claude")).key(), "claude");
     }
 }
 

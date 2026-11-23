@@ -30,9 +30,10 @@ const EDITORS: [(&str, &str); 6] = [
     ("jetbrains", "JetBrains"),
 ];
 const DAYS: [&str; 7] = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-static SECTIONS: [(&str, &str, &Icon); 11] = [
+static SECTIONS: [(&str, &str, &Icon); 12] = [
     ("set-app", "This app", &icons::MONITOR),
     ("set-sessions", "New sessions", &icons::PLUS),
+    ("set-providers", "Providers", &icons::BOT),
     ("set-display", "Sidebar and session", &icons::SIDEBAR),
     ("set-service", "hooked service", &icons::ACTIVITY),
     ("set-worktrees", "Worktrees", &icons::GIT_BRANCH),
@@ -555,11 +556,17 @@ fn sessions_card(s: &Hooked, k: &Kit, v: &Value) -> El {
             )
         })
         .collect();
-    // Même réglage pour le provider pi : sa liste vient de `pi --list-models mistral` (chargée au
-    // démarrage dans pi_opts), et aucun alias n'y est protégé — tout est masquable.
+    // Same setting for the pi catalogue (`pi --list-models`, every provider pi is signed in to,
+    // shared by every pi-based provider): read from the built-in `pi` provider's options, else
+    // from the first enabled pi-based one. No id is protected there — everything can be hidden.
     let pi_hidden = strs(&v["hiddenPiModels"]);
-    let pi_visible: Vec<El> = if s.providers.pi {
-        s.pi_opts["models"]
+    let pi_source = if s.providers.pi {
+        Some("pi".to_string())
+    } else {
+        s.providers.list.iter().find(|p| p.enabled && p.engine() == "pi").map(|p| p.id.clone())
+    };
+    let pi_visible: Vec<El> = if let Some(src) = pi_source.as_deref() {
+        s.opts_for(src)["models"]
             .as_array()
             .cloned()
             .unwrap_or_default()
@@ -625,11 +632,11 @@ fn sessions_card(s: &Hooked, k: &Kit, v: &Value) -> El {
             "Which Claude models the pickers offer. The list comes from your installed claude.",
             chips(visible),
         ));
-    if s.providers.pi {
+    if pi_source.is_some() {
         c = c.child(block(
             k,
             "Visible pi models",
-            "Which Mistral models the pi pickers offer. The list comes from `pi --list-models mistral`.",
+            "Which models the pi-based providers offer. The list comes from `pi --list-models` (every provider pi is signed in to).",
             chips(pi_visible),
         ));
     }
@@ -642,6 +649,68 @@ fn sessions_card(s: &Hooked, k: &Kit, v: &Value) -> El {
             s.save_setting("showWork", json!(!on));
         }),
     ))
+}
+
+/// Settings → Providers: the enabled mode of every provider (Auto / On / Off) and the default
+/// one. Customising or adding a provider (label, command, models, an ACP agent…) is a JSON entry:
+/// the web settings have the editor (cf. docs/providers.md).
+fn providers_card(s: &Hooked, k: &Kit, v: &Value) -> El {
+    let default = v["defaultProvider"].as_str().unwrap_or("claude").to_string();
+    let defaults: Vec<El> = s
+        .providers
+        .list
+        .iter()
+        .filter(|p| p.enabled || p.id == default)
+        .map(|p| {
+            let id = p.id.clone();
+            chip(k, format!("dp-{id}"), p.label.clone(), default == id, move |s| {
+                s.save_setting("defaultProvider", json!(id));
+            })
+        })
+        .collect();
+    let mut c = card(k, "set-providers", "PROVIDERS").child(block(
+        k,
+        "Default provider",
+        "Used by launches that name none (shortcut, PR review, MCP start_session).",
+        chips(defaults),
+    ));
+    for p in &s.providers.list {
+        // The settings entry: a bare mode string, or an object whose `enabled` is the mode.
+        let entry = v["providers"][p.id.as_str()].clone();
+        let mode = entry
+            .as_str()
+            .or_else(|| entry["enabled"].as_str())
+            .unwrap_or("auto")
+            .to_string();
+        let modes: Vec<El> = [("auto", "Auto"), ("on", "On"), ("off", "Off")]
+            .into_iter()
+            .map(|(m, label)| {
+                let (id, entry) = (p.id.clone(), entry.clone());
+                chip(k, format!("pm-{}-{m}", p.id), label.into(), mode == m, move |s| {
+                    // Keep a customised entry as an object; a built-in left with nothing but its
+                    // mode keeps the bare-string shape.
+                    let value = if entry.is_object() {
+                        let mut e = entry.clone();
+                        e["enabled"] = json!(m);
+                        e
+                    } else {
+                        json!(m)
+                    };
+                    s.save_nested("providers", &id, value);
+                    s.refresh_sessions();
+                })
+            })
+            .collect();
+        let state = if p.enabled { "enabled" } else { "disabled" };
+        let hint = format!("{} · engine {} · {state}", p.id, if p.engine().is_empty() { "?" } else { p.engine() });
+        c = c.child(block(k, &p.label, &hint, chips(modes)));
+    }
+    c.child(
+        text("Add or customise a provider (an ACP agent such as Gemini CLI, a pi narrowed to some models…) from the web settings.")
+            .font(k.ty.text_xsmall)
+            .color(k.c.text_faint)
+            .wrap(),
+    )
 }
 
 fn sidebar_card(k: &Kit, v: &Value) -> El {
@@ -1353,6 +1422,7 @@ pub fn view(s: &Hooked, k: &Kit) -> El {
     let cards = [
         app_card(s, k, v),
         sessions_card(s, k, v),
+        providers_card(s, k, v),
         sidebar_card(k, v),
         service_card(s, k, v),
         worktrees_card(s, k, v),

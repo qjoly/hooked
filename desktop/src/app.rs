@@ -103,24 +103,29 @@ pub struct Flash {
     pub until: i64,
 }
 
-/// Cycle du filtre provider : tous → claude → pi → tous ; sans effet quand un seul
-/// provider est installé (le filtre n'aurait rien à distinguer).
-pub fn next_provider_filter(cur: Option<&str>, both: bool) -> Option<String> {
-    if !both {
+/// Provider filter cycle: all → each enabled provider in settings order → all. No-op with a
+/// single provider (the filter would have nothing to tell apart).
+pub fn next_provider_filter(cur: Option<&str>, enabled: &[String]) -> Option<String> {
+    if enabled.len() < 2 {
         return None;
     }
     match cur {
-        None => Some("claude".into()),
-        Some("claude") => Some("pi".into()),
-        _ => None,
+        None => enabled.first().cloned(),
+        Some(c) => enabled
+            .iter()
+            .position(|p| p == c)
+            .and_then(|i| enabled.get(i + 1).cloned()),
     }
 }
 
-/// Provider à épingler pour une nouvelle session quand un seul est installé (rien à choisir) ;
-/// `None` quand les deux le sont — le choix de l'utilisateur est alors respecté.
-pub fn pinned_provider(p: &api::Providers) -> Option<&'static str> {
+/// Provider to pin a new session on when a single one is enabled (nothing to choose); `None`
+/// when several are — the user's choice is respected then.
+pub fn pinned_provider(p: &api::Providers) -> Option<String> {
     p.only()
 }
+
+// Launch options of a provider not loaded (yet).
+static NO_OPTS: serde_json::Value = serde_json::Value::Null;
 
 pub struct Hooked {
     pub prefs: Prefs,
@@ -129,8 +134,8 @@ pub struct Hooked {
     pub tags: HashMap<String, Vec<String>>,
     pub tag_filter: Vec<String>,
     pub repo_filter: Vec<String>,
-    /// Filtre provider ('claude' | 'pi' | None = tous) — cyclé par le raccourci filter-provider.
-    /// N'a de sens que quand les deux providers sont configurés (providers.both()).
+    /// Provider filter (a provider id, None = all) — cycled by the filter-provider shortcut.
+    /// Only meaningful with several providers enabled (providers.both()).
     pub provider_filter: Option<String>,
     pub incognito: bool,
     /// Remote hooked instances (`crate::remote`): the switch, off by default, and the list.
@@ -275,12 +280,15 @@ pub struct Hooked {
     pub new_model: Option<String>,
     pub new_effort: Option<String>,
     pub new_mode: String,
-    /// Launch provider: "claude" (default) or "pi" (Mistral Pi) — new-session screen.
+    /// Launch provider (any enabled provider id) — new-session screen.
     pub new_provider: String,
-    /// Installed agent CLIs (badge + provider picker), refreshed with the session list.
+    /// Providers of this hooked (enabled flags + descriptors), refreshed with the session list.
     pub providers: api::Providers,
-    /// /api/pi-options payload (models/thinking/modes), loaded once when pi is installed.
-    pub pi_opts: serde_json::Value,
+    /// /api/provider-options payload per provider (models / thinking / modes), loaded once per
+    /// provider when it is enabled. `Null` while loading.
+    pub prov_opts: HashMap<String, serde_json::Value>,
+    /// Usage of every non-Claude provider (header block), from /api/usage.
+    pub provider_usage: Vec<api::PiUsage>,
     pub new_custom: bool,
     pub new_search: TextEdit,
     pub new_worktree: bool,
@@ -429,10 +437,7 @@ impl Hooked {
             crate::perf::env_override().unwrap_or(prefs.get("perfDiagnostics").unwrap_or(false)),
         );
         let incognito = prefs.get("incognito").unwrap_or(false);
-        let usage_view = match prefs.get::<String>("usageView").as_deref() {
-            Some("pi") => api::UsageView::Pi,
-            _ => api::UsageView::Claude,
-        };
+        let usage_view = api::UsageView::from_key(prefs.get::<String>("usageView").as_deref());
         let remote_on: bool = prefs.get("remoteInstances").unwrap_or(false);
         let remotes: Vec<crate::remote::Instance> = prefs.get("remotes").unwrap_or_default();
         crate::remote::configure(remote_on, &remotes);
@@ -585,7 +590,8 @@ impl Hooked {
             new_mode: "default".into(),
             new_provider: "claude".into(),
             providers: api::Providers::default(),
-            pi_opts: serde_json::Value::Null,
+            prov_opts: HashMap::new(),
+            provider_usage: Vec::new(),
             new_custom: false,
             new_search: TextEdit::new(""),
             new_worktree: false,
@@ -614,15 +620,18 @@ impl Hooked {
         if let Ok((list, providers)) = api::sessions_full() {
             s.connected = true;
             s.sessions = list;
-            s.providers = providers;
-            // Un seul provider installé → pas de sélecteur, on épingle new_provider dessus.
+            // A single provider enabled → no picker, new_provider is pinned on it.
             if let Some(p) = pinned_provider(&providers) {
-                s.new_provider = p.to_string();
+                s.new_provider = p;
             }
+            s.providers = providers;
         }
-        if s.providers.pi {
-            if let Ok(v) = api::pi_options() {
-                s.pi_opts = v;
+        // Launch options of the enabled non-Claude providers (the pickers need them).
+        for id in s.providers.enabled_ids() {
+            if !s.providers.info(&id).is_claude() {
+                if let Ok(v) = api::provider_options(&id) {
+                    s.prov_opts.insert(id, v);
+                }
             }
         }
         s.meta = api::session_meta().unwrap_or_default();
@@ -670,7 +679,14 @@ impl Hooked {
         if let Ok((g, pi, raw)) = api::usage() {
             s.gauges = g;
             s.pi_usage = pi;
+            s.provider_usage = api::parse_provider_usage(&raw);
             s.usage = Some(raw);
+        }
+        // The settings' default provider is where a new session starts, when it is enabled.
+        if let Some(d) = s.setting("defaultProvider").as_str().map(str::to_string) {
+            if s.providers.is_enabled(&d) {
+                s.new_provider = d;
+            }
         }
         let args = rune::extra_args();
         s.term.height = s.prefs.get("termHeight");
@@ -723,9 +739,9 @@ impl Hooked {
             match s.lens {
                 Lens::Mcp => {
                     s.lens_data.mcp_cwd = Some(cwd.clone());
-                    s.lens_data.mcp_provider = d.session.provider.clone();
+                    s.lens_data.mcp_provider = api::mcp_param(d.session.provider.as_deref());
                     s.lens_data.mcp =
-                        api::mcp_list(&cwd, true, d.session.provider.as_deref()).unwrap_or_default();
+                        api::mcp_list(&cwd, true, s.lens_data.mcp_provider.as_deref()).unwrap_or_default();
                 }
                 Lens::Review => {
                     s.ensure_lens();
@@ -1222,12 +1238,11 @@ impl Hooked {
     }
 
     
-/// Suffixe `&provider=pi` pour l'auto-complétion « / » quand aucune session n'est
-/// sélectionnée (écran New session) et que le provider choisi est pi — sinon le serveur
-/// retomberait sur claude.
+/// `&provider=<id>` for the « / » completion when no session is selected (New session screen)
+/// and the picked provider is not Claude — the server would fall back on claude otherwise.
 fn ac_provider_suffix(s: &Hooked, id: &str) -> String {
-    if id.is_empty() && s.new_provider == "pi" && s.providers.pi {
-        "&provider=pi".to_string()
+    if id.is_empty() && s.new_provider != "claude" && s.providers.is_enabled(&s.new_provider) {
+        format!("&provider={}", api::enc(&s.new_provider))
     } else {
         String::new()
     }
@@ -2634,13 +2649,15 @@ pub fn composer_changed(&mut self) {
             self.new_mode.clone(),
             self.incognito,
         );
-        let (worktree, ephemeral) = (self.new_worktree, self.new_ephemeral);
-        // Provider pi : worktree/ephemeral are Claude-only (hidden in the UI) — never sent.
-        let provider = if self.new_provider == "pi" {
-            Some("pi".to_string())
-        } else {
-            None
-        };
+        // Always explicit: with a default provider set in the settings, "none" would not mean
+        // Claude. worktree / ephemeral only go out when the provider supports them (the UI hides
+        // them otherwise).
+        let info = self.providers.info(&self.new_provider);
+        let (worktree, ephemeral) = (
+            self.new_worktree && info.can("worktree"),
+            self.new_ephemeral && info.can("ephemeral"),
+        );
+        let provider = Some(self.new_provider.clone());
         self.sending = true;
         self.spawn(
             move || {
@@ -2691,27 +2708,52 @@ pub fn composer_changed(&mut self) {
             .collect()
     }
 
-    /// The same blacklist for the pi provider: the catalogue entries from /api/pi-options whose
-    /// alias is not in `hiddenPiModels`. Entries are returned raw (callers pick alias / label /
-    /// thinking), and a model that is currently selected but hidden stays out — same as above.
-    pub fn visible_pi_models(&self) -> Vec<serde_json::Value> {
-        let hidden = self.hidden_setting("hiddenPiModels");
-        self.pi_opts["models"]
+    /// Launch options of a provider (/api/provider-options), `Null` until loaded.
+    pub fn opts_for(&self, provider: &str) -> &serde_json::Value {
+        self.prov_opts.get(provider).unwrap_or(&NO_OPTS)
+    }
+
+    /// Loads the launch options of `provider` in the background, once.
+    pub fn ensure_opts(&mut self, provider: &str) {
+        if provider.is_empty() || self.prov_opts.contains_key(provider) || self.providers.info(provider).is_claude() {
+            return;
+        }
+        self.prov_opts.insert(provider.to_string(), serde_json::Value::Null);
+        let id = provider.to_string();
+        let id2 = id.clone();
+        self.spawn(
+            move || api::provider_options(&id),
+            move |s, r, _| {
+                s.prov_opts.insert(id2, r.unwrap_or(serde_json::Value::Null));
+            },
+        );
+    }
+
+    /// The same blacklist for a non-Claude provider: its catalogue entries (from
+    /// /api/provider-options) minus `hiddenPiModels` (the pi catalogue list, shared by every
+    /// pi-based provider) and the provider's own `hiddenModels`. An id hidden before models were
+    /// qualified (`devstral` for `mistral/devstral`) still hides it. Entries are returned raw
+    /// (callers pick alias / label / thinking).
+    pub fn visible_provider_models(&self, provider: &str) -> Vec<serde_json::Value> {
+        let info = self.providers.info(provider);
+        let mut hidden = if info.engine() == "pi" { self.hidden_setting("hiddenPiModels") } else { Vec::new() };
+        hidden.extend(info.hidden_models.clone().unwrap_or_default());
+        self.opts_for(provider)["models"]
             .as_array()
             .cloned()
             .unwrap_or_default()
             .into_iter()
             .filter(|m| {
                 let alias = m["alias"].as_str().or(m["name"].as_str()).unwrap_or("");
-                !hidden.iter().any(|h| h == alias)
+                let bare = alias.split_once('/').map(|(_, b)| b).unwrap_or(alias);
+                !hidden.iter().any(|h| h == alias || h == bare)
             })
             .collect()
     }
 
-    /// Cycle le filtre provider : tous → claude → pi → tous. Sans effet quand un seul
-    /// provider est configuré (le filtre n'aurait rien à distinguer).
+    /// Provider filter cycle: all → each enabled provider → all. No-op with a single provider.
     pub fn cycle_provider_filter(&mut self) {
-        self.provider_filter = next_provider_filter(self.provider_filter.as_deref(), self.providers.both());
+        self.provider_filter = next_provider_filter(self.provider_filter.as_deref(), &self.providers.enabled_ids());
     }
 
     pub fn nav_tab(&self, key: &str) -> bool {
@@ -3026,13 +3068,19 @@ impl Hooked {
                     if let Some(t) = tags {
                         s.tags = t;
                     }
-                    s.providers = providers;
-                    // Un seul provider installé → pas de sélecteur, on épingle new_provider dessus.
+                    // A single provider enabled → no picker, new_provider is pinned on it; a
+                    // provider switched off since is dropped for the first enabled one.
                     if let Some(p) = pinned_provider(&providers) {
-                        s.new_provider = p.to_string();
+                        s.new_provider = p;
+                    } else if !providers.is_enabled(&s.new_provider) {
+                        if let Some(first) = providers.enabled_ids().into_iter().next() {
+                            s.new_provider = first;
+                        }
                     }
-                    if providers.pi && s.pi_opts.is_null() {
-                        s.pi_opts = api::pi_options().unwrap_or(serde_json::Value::Null);
+                    let ids = providers.enabled_ids();
+                    s.providers = providers;
+                    for id in ids {
+                        s.ensure_opts(&id);
                     }
                     s.apply_sessions(list, meta)
                 }
@@ -3131,6 +3179,7 @@ pub fn start_workers(h: Option<AppHandle<Hooked>>) {
                 h.update(move |s, _| {
                     s.gauges = g;
                     s.pi_usage = pi;
+                    s.provider_usage = api::parse_provider_usage(&raw);
                     s.usage = Some(raw);
                 });
             }

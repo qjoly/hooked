@@ -312,14 +312,19 @@ fn topbar(s: &Hooked, k: &Kit, inset: f32, _layer: &mut Vec<El>) -> El {
     // claude = rate limits du compte (5H/7D/FABLE, masqués sans binaire claude) ; vue pi = usage
     // agrégé des sessions pi (coût + tokens du jour, cf. buildPiUsage serveur). Un clic sur le
     // bloc alterne quand les deux fournisseurs sont configurés (s.usage_view, persisté).
-    let pi_g = s.pi_usage.as_ref();
-    let show_pi = pi_g.is_some() && (s.usage_view == crate::api::UsageView::Pi || !s.providers.claude);
-    let both = s.providers.claude && pi_g.is_some();
-    let mut gauges = if show_pi {
+    // One view per non-Claude provider with usage (s.provider_usage); a click cycles them
+    // (s.usage_views / toggle_usage_view).
+    let view = s.current_usage_view();
+    let pi_g = match &view {
+        Some(crate::api::UsageView::Provider(id)) => s.provider_usage.iter().find(|u| &u.provider == id),
+        _ => None,
+    };
+    let both = s.usage_views().len() > 1;
+    let mut gauges = if let Some(p) = pi_g {
         row()
             .key("tb-gauges")
             .center_y()
-            .child(usage_pi(s, k, pi_g.expect("show_pi filtré"), 64.0))
+            .child(usage_pi(s, k, p, 64.0))
     } else if s.providers.claude {
         row()
             .key("tb-gauges")
@@ -331,10 +336,12 @@ fn topbar(s: &Hooked, k: &Kit, inset: f32, _layer: &mut Vec<El>) -> El {
     };
     if both {
         gauges = gauges
-            .help(if show_pi {
-                "pi session usage — click to switch to account rate limits"
-            } else {
-                "Account rate limits — click to switch to the pi session"
+            .help(match pi_g {
+                Some(p) => format!(
+                    "{} session usage — click to switch",
+                    p.label.clone().unwrap_or_else(|| s.providers.info(&p.provider).label)
+                ),
+                None => "Account rate limits — click to switch to the next provider".to_string(),
             })
             .cursor(Cursor::Pointer)
             .on_press(|s: &mut Hooked| s.toggle_usage_view());
@@ -597,12 +604,13 @@ fn gauge(k: &Kit, label: &str, pct: Option<f64>, w: f32) -> El {
         )
 }
 
-/// Bloc d'usage pi de l'entête (vue pi), à la place des rate limits claude : coût du jour en
-/// valeur principale + tokens du jour en sous-ligne. Pas de jauge — Mistral n'a pas de limite
-/// connue à jauger. La session la plus fraîche (modèle, contexte) reste en tooltip.
+/// Header usage block of a non-Claude provider, in place of Claude's rate limits: the day's cost
+/// as the main value, the day's tokens below. No gauge — no account limit is known for those
+/// providers. The freshest session (model, context) stays in the tooltip.
 fn usage_pi(s: &Hooked, k: &Kit, p: &crate::api::PiUsage, w: f32) -> El {
+    let name = p.label.clone().unwrap_or_else(|| s.providers.info(&p.provider).label);
     let mut help = format!(
-        "pi — usage today: {} · {} tokens",
+        "{name} — usage today: {} · {} tokens",
         crate::fmt::cost(p.today_cost),
         human_tokens(p.today_tokens.unwrap_or(0.0))
     );
@@ -644,7 +652,7 @@ fn usage_pi(s: &Hooked, k: &Kit, p: &crate::api::PiUsage, w: f32) -> El {
                 .gap(4.0)
                 .justify_between()
                 .child(
-                    text("PI".to_string())
+                    text(s.providers.info(&p.provider).short.to_uppercase())
                         .font(k.ty.text_xsmall_medium)
                         .color(k.c.text_faint),
                 )
@@ -1328,8 +1336,7 @@ fn sidebar(s: &Hooked, k: &Kit, layer: &mut Vec<El>) -> El {
             MenuItem::new("Provider")
                 .description(match s.provider_filter.as_deref() {
                     None => "Any".to_string(),
-                    Some("claude") => "Claude Code".to_string(),
-                    _ => "Mistral Pi".to_string(),
+                    Some(id) => s.providers.info(id).label,
                 })
                 .on_select(|s: &mut Hooked| s.cycle_provider_filter()),
         );

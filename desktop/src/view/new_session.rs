@@ -20,35 +20,46 @@ fn controls(s: &Hooked, k: &Kit) -> El {
             .child(section_title(k, label))
             .child(body.w_full())
     };
-    let is_pi = s.new_provider == "pi" && s.providers.pi;
-    // Provider picker — only offered when BOTH providers are installed; with a single one the
-    // badge would tell nothing, so the picker is hidden and new_provider is pinned on it
-    // (see pinned_provider in app.rs).
+    // Any provider but Claude Code takes its pickers from /api/provider-options (opts).
+    let info = s.providers.info(&s.new_provider);
+    let is_pi = !info.is_claude();
+    let opts = s.opts_for(&s.new_provider).clone();
+    // Provider picker — one chip per enabled provider, only offered when there are several;
+    // with a single one the picker is hidden and new_provider is pinned on it (pinned_provider).
     let provider_line = if s.providers.both() {
         Some(line(
             "PROVIDER",
-            chips(vec![
-                chip(k, "np-claude".into(), "Claude Code".into(), !is_pi, |s| {
-                    s.new_provider = "claude".into();
-                }),
-                chip(k, "np-pi".into(), "Mistral Pi".into(), is_pi, |s| {
-                    s.new_provider = "pi".into();
-                }),
-            ]),
+            chips(
+                s.providers
+                    .enabled_ids()
+                    .into_iter()
+                    .map(|id| {
+                        let label = s.providers.info(&id).label;
+                        let on = s.new_provider == id;
+                        chip(k, format!("np-{id}"), label, on, move |s| {
+                            s.new_provider = id.clone();
+                            s.new_model = None;
+                            s.new_effort = None;
+                            s.new_mode = "default".into();
+                            s.ensure_opts(&id);
+                        })
+                    })
+                    .collect(),
+            ),
         ))
     } else {
         None
     };
     let models: Vec<El> = if is_pi {
-        // Pi models from /api/pi-options: [{ name, alias, label, thinking }], minus the aliases
+        // Models of the provider's catalogue: [{ name, alias, label, thinking }], minus the ids
         // hidden in Settings (same blacklist as the Claude list below).
-        let list = s.visible_pi_models();
+        let list = s.visible_provider_models(&s.new_provider);
         std::iter::once(chip(k, "nm-default".into(), "Default".into(), s.new_model.is_none(), |s| {
             s.new_model = None;
         }))
         .chain(list.iter().map(|m| {
             let alias = m["alias"].as_str().or(m["name"].as_str()).unwrap_or("").to_string();
-            let label = m["label"].as_str().map(|l| format!("{l} · {alias}")).unwrap_or_else(|| alias.clone());
+            let label = fmt::model_choice_label(m["label"].as_str(), &alias);
             let on = s.new_model.as_deref() == Some(alias.as_str());
             chip(k, format!("nm-{alias}"), label, on, move |s| {
                 s.new_model = Some(alias.clone());
@@ -71,10 +82,10 @@ fn controls(s: &Hooked, k: &Kit) -> El {
         }))
         .collect()
     };
-    // Pi: thinking levels of the selected model (array in the entry, string in TOML).
+    // Thinking / effort levels of the selected model (array in the entry), else the provider's.
     let pi_efforts: Vec<String> = if is_pi {
         let sel = s.new_model.clone().unwrap_or_default();
-        let list = s.pi_opts["models"].as_array().cloned().unwrap_or_default();
+        let list = opts["models"].as_array().cloned().unwrap_or_default();
         let m = list
             .iter()
             .find(|m| m["alias"].as_str().or(m["name"].as_str()) == Some(sel.as_str()) || sel.is_empty())
@@ -82,7 +93,7 @@ fn controls(s: &Hooked, k: &Kit) -> El {
         match m.as_ref().map(|m| m["thinking"].clone()).unwrap_or(serde_json::Value::Null) {
             serde_json::Value::Array(a) => a.iter().filter_map(|v| v.as_str().map(String::from)).collect(),
             serde_json::Value::String(x) => x.split(',').map(|x| x.trim().to_string()).filter(|x| !x.is_empty()).collect(),
-            _ => s.pi_opts["thinkingLevels"].as_array().cloned().unwrap_or_default().iter().filter_map(|v| v.as_str().map(String::from)).collect(),
+            _ => opts["thinkingLevels"].as_array().cloned().unwrap_or_default().iter().filter_map(|v| v.as_str().map(String::from)).collect(),
         }
     } else {
         Vec::new()
@@ -118,10 +129,10 @@ fn controls(s: &Hooked, k: &Kit) -> El {
         }))
         .collect()
     };
-    // Pi modes from /api/pi-options ([{ id, label }]); ids match the hooked permission-mode
-    // keys the server translates to Pi agents.
+    // The provider's modes ([{ id, label }]); ids are hooked permission-mode keys the server
+    // translates to the agent's own modes.
     let modes: Vec<El> = if is_pi {
-        s.pi_opts["modes"].as_array().cloned().unwrap_or_default()
+        opts["modes"].as_array().cloned().unwrap_or_default()
             .iter()
             .map(|m| {
                 let id = m["id"].as_str().unwrap_or("default").to_string();
@@ -156,7 +167,7 @@ fn controls(s: &Hooked, k: &Kit) -> El {
     // Détail du modèle sélectionné (nom complet, alias, niveaux de thinking côté Pi) —
     // sans ça les chips ne montrent qu'un label court.
     let model_detail: String = if is_pi {
-        let list = s.pi_opts["models"].as_array().cloned().unwrap_or_default();
+        let list = opts["models"].as_array().cloned().unwrap_or_default();
         match s.new_model.as_deref().and_then(|a| {
             list.iter()
                 .find(|m| m["alias"].as_str().or(m["name"].as_str()) == Some(a))
@@ -183,7 +194,11 @@ fn controls(s: &Hooked, k: &Kit) -> El {
                 }
                 d
             }
-            None => "active model from ~/.pi/config.toml".to_string(),
+            None if opts.is_null() => format!("loading {} options…", info.label),
+            None => match opts["activeModel"].as_str() {
+                Some(m) => format!("default: {m}"),
+                None => "the agent's default model".to_string(),
+            },
         }
     } else {
         match s.new_model.as_ref() {
@@ -212,29 +227,32 @@ fn controls(s: &Hooked, k: &Kit) -> El {
                 .color(k.c.text_faint)
                 .px(2.0),
         )
-        .child(line("EFFORT", chips(efforts)))
-        .child(line("MODE", chips(modes)));
-    // worktree / ephemeral: Claude-only, no Pi equivalent — hidden in pi mode.
-    if !is_pi {
-        col = col.child(line(
-            "OPTIONS",
-            chips(vec![
-                chip(
-                    k,
-                    "nw-worktree".into(),
-                    "Git worktree".into(),
-                    s.new_worktree,
-                    |s| s.new_worktree = !s.new_worktree,
-                ),
-                chip(
-                    k,
-                    "nw-ephemeral".into(),
-                    "Ephemeral".into(),
-                    s.new_ephemeral,
-                    |s| s.new_ephemeral = !s.new_ephemeral,
-                ),
-            ]),
+        .child(line("EFFORT", chips(efforts)));
+    if !modes.is_empty() {
+        col = col.child(line("MODE", chips(modes)));
+    }
+    // worktree / ephemeral: shown when the provider supports them (capabilities).
+    let mut options = Vec::new();
+    if info.can("worktree") {
+        options.push(chip(
+            k,
+            "nw-worktree".into(),
+            "Git worktree".into(),
+            s.new_worktree,
+            |s| s.new_worktree = !s.new_worktree,
         ));
+    }
+    if info.can("ephemeral") {
+        options.push(chip(
+            k,
+            "nw-ephemeral".into(),
+            "Ephemeral".into(),
+            s.new_ephemeral,
+            |s| s.new_ephemeral = !s.new_ephemeral,
+        ));
+    }
+    if !options.is_empty() {
+        col = col.child(line("OPTIONS", chips(options)));
     }
     col
 }
@@ -431,21 +449,19 @@ pub fn view(s: &Hooked, k: &Kit, _layer: &mut Vec<El>) -> El {
                         .color(k.c.text_base),
                 )
                 .child(
-                    text(if s.new_provider == "pi" && s.providers.pi {
-                        "Launches a Mistral Pi session driven by hooked."
-                    } else {
-                        "Launches a Claude Code session driven by hooked."
-                    })
+                    text(format!(
+                        "Launches a {} session driven by hooked.",
+                        s.providers.info(&s.new_provider).label
+                    ))
                         .font(k.ty.text_small)
                         .color(k.c.text_faint),
                 ),
         );
-    let placeholder = if s.new_provider == "pi" && s.providers.pi {
-        "What should Mistral Pi do? (⌘Enter to launch)"
-    } else {
-        "What should Claude do? (⌘Enter to launch)"
-    };
-    let prompt = prompt_field(s, k, placeholder);
+    let placeholder = format!(
+        "What should {} do? (⌘Enter to launch)",
+        s.providers.info(&s.new_provider).label
+    );
+    let prompt = prompt_field(s, k, &placeholder);
     let launch_row = row()
         .key("new-actions")
         .w_full()
