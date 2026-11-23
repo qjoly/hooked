@@ -27,6 +27,17 @@ const BASE = (process.env.HOOKED_MCP_URL || `http://localhost:${PORT}`).replace(
 const PROTOCOL_VERSION = '2025-06-18';
 const SERVER_INFO = { name: 'hooked', version: '2.0.0' };
 
+// The CLI adds these to the system prompt of every session that loads this server, so every session
+// hooked drives (hookedMcpServer in server/agent.js). It is hooked's only way in: hooked passes no
+// `systemPrompt` (the SDK then runs a bare one), and `append` only exists on the claude_code preset,
+// which would swap that prompt for Claude Code's. The language must match CodeBlock.svelte's `runnable`.
+const INSTRUCTIONS =
+  'This session is shown in hooked, a web dashboard. There, a fenced code block labelled `bash` gets a ' +
+  "Run button: one click runs the whole block in the session's working directory and sends you its " +
+  'output. So put each command you suggest running in a ```bash block, without a `$ ` prompt, and keep ' +
+  'alternatives in separate blocks. Never leave such a block unlabelled, and do not label `bash` ' +
+  'anything that is not meant to run (output, logs, paths, commit messages): use ```text for those.';
+
 // --- client HTTP minimal ------------------------------------------------------
 
 function httpRequest(method, pathQuery, body) {
@@ -815,6 +826,7 @@ async function handle(msg) {
       protocolVersion: (params && params.protocolVersion) || PROTOCOL_VERSION,
       capabilities: { tools: {} },
       serverInfo: SERVER_INFO,
+      instructions: INSTRUCTIONS,
     });
   }
 
