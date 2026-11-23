@@ -11,7 +11,7 @@
   import ModelEffort from '#lib/components/ModelEffort.svelte';
   import Icon from '#lib/components/Icon.svelte';
   import ProvidersSettings from '#lib/components/ProvidersSettings.svelte';
-  import { providerEngine, usesClaudeAccount } from '#lib/providers.js';
+  import { providerEngine } from '#lib/providers.js';
   import { EDITORS } from '#lib/editors.js';
   import { fold, findTermRanges } from '#lib/textMatch.js';
   import { highlightsSupported } from '#lib/codeHit.js';
@@ -55,13 +55,11 @@
     { key: 'nl-NL', label: 'Nederlands' },
   ];
   let activeSec = $state(NAV[0].id);
-  // Claude-only cards (remote-control, 5 h window, Claude Code section) are hidden when nothing
-  // uses the Claude account — pi-only install. Claude through pi still does (the bridge runs Claude
-  // Code on that account), with the claude provider off.
+  // Claude-only cards (remote-control, fenêtre 5h, section Claude Code) are hidden when no
+  // `claude` binary is configured — pi-only install.
   const hasClaude = $derived(!!data.providers?.claude);
-  const claudeAccount = $derived(usesClaudeAccount(data.providers, data.providerList));
   const CLAUDE_ONLY_SECS = new Set(['pset-remote-control', 'pset-warmup', 'pset-claude']);
-  const navVisible = $derived(claudeAccount ? NAV : NAV.filter((n) => !CLAUDE_ONLY_SECS.has(n.id)));
+  const navVisible = $derived(hasClaude ? NAV : NAV.filter((n) => !CLAUDE_ONLY_SECS.has(n.id)));
 
   // ─── 5-hour window ───────────────────────────────────────────────────────────────────────
   // The plan (anchor + the day's windows) is computed server-side and refetched after every edit:
@@ -781,7 +779,7 @@
       <ProvidersSettings />
     </div>
 
-    {#if claudeAccount}
+    {#if hasClaude}
     <div class="card" id="pset-remote-control" data-sec>
       <h2>Remote control</h2>
       <p class="hint">Projects the hooked server keeps a <code>claude remote-control</code> server running for, so each shows up as a launchable <strong>environment</strong> in the Claude app (start new sessions on it from claude.ai/code or mobile). Each daemon runs as a detached process (supervised by a restart loop, so it self-heals if it exits) and is hidden from the dashboard. Removing a project stops its daemon.</p>
@@ -843,7 +841,7 @@
     </div>
 
     {/if}
-    {#if claudeAccount}
+    {#if hasClaude}
     <div class="card" id="pset-warmup" data-sec>
       <h2>5-hour window</h2>
       <p class="hint">Claude's usage window is anchored to your <strong>first message</strong> and lasts 5 hours — it is not aligned on round hours, so the first prompt of the day decides where every later boundary, and every fresh budget, falls. hooked opens one with a throwaway <code>claude -p</code> ping before you start, then reopens one whenever a boundary passes while you are away from the keyboard.</p>
@@ -956,7 +954,7 @@
     </div>
 
     {/if}
-    {#if claudeAccount}
+    {#if hasClaude}
     <div class="card" id="pset-claude" data-sec>
       <h2>Claude Code</h2>
       <div class="cmd-row" style="margin-bottom:12px">
