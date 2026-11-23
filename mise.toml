@@ -55,11 +55,12 @@ echo "Dans hooked, providers.pi = 'auto' (défaut) suffit alors ; 'on' force, 'o
 '''
 
 # pi (and Claude through pi-claude-bridge, which excludes Claude Code's own context files) only sees
-# what pi loads: this copies ~/.claude/CLAUDE.md into a managed block of ~/.pi/agent/AGENTS.md and
-# adds ~/.claude/skills to pi's skills list. Safe to run again (after an edit of CLAUDE.md).
-# Options after `--`: --dry-run, --no-instructions, --no-skills.
+# what pi loads: this copies ~/.claude/CLAUDE.md into a managed block of ~/.pi/agent/AGENTS.md,
+# adds ~/.claude/skills to pi's skills list, and copies Claude's user-scope MCP servers into
+# ~/.pi/agent/mcp.json. Safe to run again (after a change on the Claude side).
+# Options after `--`: --dry-run, --no-instructions, --no-skills, --no-mcp.
 [tasks.pi-migrate]
-description = "Bring the global CLAUDE.md and the Claude skills to pi"
+description = "Bring the global CLAUDE.md, the Claude skills and MCP servers to pi"
 run = "node scripts/pi-migrate.mjs"
 
 [tasks.setup]

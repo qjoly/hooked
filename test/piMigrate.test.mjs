@@ -98,3 +98,50 @@ describe('pi-migrate', () => {
     expect(read(path.join(agentDir, 'settings.json'))).toBe('{ nope');
   });
 });
+
+describe('pi-migrate: MCP servers', () => {
+  const incident = { command: '/x/incident', args: ['mcp'] };
+  const gateway = { type: 'http', url: 'https://gw.example/mcp' };
+
+  it('copies Claude\'s servers, keeps pi\'s, skips hooked and SSE, and flags OAuth sign-ins', async () => {
+    const { mergeMcp } = await import('../scripts/pi-migrate.mjs');
+    const r = mergeMcp(
+      { incident_io: incident, 'mcp-gateway': gateway, hooked: { command: 'node' }, old: { type: 'sse', url: 'https://x/sse' }, homeassistant: { command: 'other' } },
+      { homeassistant: { command: 'ha' } },
+      {},
+    );
+    expect(r.servers).toEqual({ homeassistant: { command: 'ha' }, incident_io: incident, 'mcp-gateway': gateway });
+    expect(r.recorded).toEqual({ incident_io: incident, 'mcp-gateway': gateway });
+    const by = Object.fromEntries(r.changes.map((c) => [c.name, c]));
+    expect(by.incident_io).toMatchObject({ action: 'added', login: false });
+    expect(by['mcp-gateway']).toMatchObject({ action: 'added', login: true });
+    expect(by.hooked.action).toBe('skipped');
+    expect(by.old.action).toBe('skipped');
+    expect(by.homeassistant).toMatchObject({ action: 'kept', why: 'pi already has a server of that name' });
+  });
+
+  it('follows Claude\'s changes on its own copies only', async () => {
+    const { mergeMcp } = await import('../scripts/pi-migrate.mjs');
+    const recorded = { incident_io: incident, 'mcp-gateway': gateway, gone: { command: 'g' } };
+    const pi = { incident_io: incident, 'mcp-gateway': { ...gateway, exposure: 'direct' }, gone: { command: 'g' } };
+    const r = mergeMcp({ incident_io: { ...incident, args: ['mcp', '--v2'] }, 'mcp-gateway': gateway }, pi, recorded);
+    expect(r.servers.incident_io.args).toEqual(['mcp', '--v2']); // updated: untouched in pi
+    expect(r.servers['mcp-gateway'].exposure).toBe('direct'); // kept: edited in pi
+    expect('gone' in r.servers).toBe(false); // removed: Claude dropped it
+    expect(r.changes.map((c) => `${c.name}:${c.action}`)).toEqual(['incident_io:updated', 'mcp-gateway:kept', 'gone:removed']);
+  });
+
+  it('writes mcp.json (mode 0600) and its record, then changes nothing on a second run', () => {
+    const { claudeDir, agentDir } = setup('mcp', { claudeMd: '# A\n' });
+    const claudeJson = path.join(TMP, 'mcp', '.claude.json');
+    fs.writeFileSync(claudeJson, JSON.stringify({ numStartups: 3, mcpServers: { incident_io: incident } }));
+    fs.writeFileSync(path.join(agentDir, 'mcp.json'), JSON.stringify({ mcpServers: { hooked: { command: 'node' } } }));
+    const r = migrate({ claudeDir, agentDir, claudeJson });
+    expect(r.mcp.status).toBe('changed');
+    const file = path.join(agentDir, 'mcp.json');
+    expect(JSON.parse(read(file)).mcpServers).toEqual({ hooked: { command: 'node' }, incident_io: incident });
+    expect(fs.statSync(file).mode & 0o777).toBe(0o600);
+    expect(JSON.parse(read(path.join(agentDir, 'pi-migrate.json'))).mcpServers).toEqual({ incident_io: incident });
+    expect(migrate({ claudeDir, agentDir, claudeJson }).mcp.status).toBe('unchanged');
+  });
+});

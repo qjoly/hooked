@@ -104,5 +104,9 @@ gate, the questions and the plan mode above apply unchanged.
 The bridge also excludes Claude Code's own context files: pi owns the context, so the model sees
 pi's `AGENTS.md` and pi's skills, not `~/.claude/CLAUDE.md` and `~/.claude/skills`. `mise run
 pi-migrate` copies the global `CLAUDE.md` into a managed block of `~/.pi/agent/AGENTS.md` (the rest
-of the file stays pi-only) and adds `~/.claude/skills` to the `skills` list of pi's settings, where
-pi reads it live. Run it again after an edit of `CLAUDE.md`. `-- --dry-run` shows the changes.
+of the file stays pi-only), adds `~/.claude/skills` to the `skills` list of pi's settings, where
+pi reads it live, and copies Claude Code's user-scope MCP servers (`~/.claude.json`) into
+`~/.pi/agent/mcp.json`. Run it again after a change on the Claude side: the block is replaced, and
+the MCP copies follow Claude unless they were edited in pi (`~/.pi/agent/pi-migrate.json` records
+them). OAuth sign-ins do not carry over: the task names the `pi mcp login <name>` to run once.
+`-- --dry-run` shows the changes.
