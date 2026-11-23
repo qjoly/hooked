@@ -315,3 +315,44 @@ describe('todo list of pi sessions', () => {
     expect(latestPiTodos(path.join(TMP, 'missing.jsonl'))).toBeNull();
   });
 });
+
+describe('subagents (Agent tool of the pi package)', () => {
+  const AGENT = path.join(import.meta.dirname, '..', 'pi-package', 'extensions', 'agent.js');
+
+  it('bounds the subagent\'s tools by the parent\'s mode', async () => {
+    const { subagentTools } = await import(AGENT);
+    const read = ['read', 'grep', 'find', 'ls'];
+    expect(subagentTools({ mode: 'default', autoApprove: false })).toEqual(read);
+    expect(subagentTools({ mode: 'plan', autoApprove: true })).toEqual(read);
+    expect(subagentTools({ mode: 'default', autoApprove: true, subagentType: 'Explore' })).toEqual(read);
+    expect(subagentTools({ mode: 'acceptEdits', autoApprove: false })).toEqual([...read, 'edit', 'write']);
+    expect(subagentTools({ mode: 'default', autoApprove: true })).toBeNull();
+    expect(subagentTools({ mode: 'bypassPermissions', autoApprove: false })).toBeNull();
+  });
+
+  it('passes the parent\'s extensions on, without hooked\'s package', async () => {
+    const { inheritedExtensions } = await import(AGENT);
+    const pkg = path.join(import.meta.dirname, '..', 'pi-package');
+    expect(inheritedExtensions(['node', 'pi', '--mode', 'rpc', '-e', 'npm:pi-claude-bridge@0.13.0', '-e', pkg, '--extension', '/x/y.ts', '-e'], pkg))
+      .toEqual(['-e', 'npm:pi-claude-bridge@0.13.0', '-e', '/x/y.ts']);
+  });
+
+  it('reads the final answer and sums the usage', async () => {
+    const { finalText, totalUsage } = await import(AGENT);
+    const msgs = [
+      { role: 'user', content: [{ type: 'text', text: 'go' }] },
+      { role: 'assistant', content: [{ type: 'toolCall', name: 'ls' }], usage: { input: 10, output: 2, cacheRead: 5, cost: { total: 0.01 } } },
+      { role: 'toolResult', content: [{ type: 'text', text: 'a b' }] },
+      { role: 'assistant', content: [{ type: 'thinking', thinking: 'two' }, { type: 'text', text: '2' }], usage: { input: 12, output: 1, cost: { total: 0.02 } } },
+    ];
+    expect(finalText(msgs)).toBe('2');
+    expect(totalUsage(msgs)).toEqual({ input: 22, output: 3, cacheRead: 5, cacheWrite: 0, cost: 0.03, turns: 2 });
+    expect(finalText([])).toBe('');
+  });
+
+  it('is registered, and runs without a permission card', async () => {
+    const pi = load();
+    expect(pi.tools.get('Agent').parameters.required).toEqual(['description', 'prompt']);
+    expect(await pi.emit('tool_call', { toolName: 'Agent', input: { description: 'x', prompt: 'y' } }, fakeCtx())).toBeUndefined();
+  });
+});

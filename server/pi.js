@@ -190,6 +190,19 @@ function finalizePi(read) {
           const contextTokens = u.totalTokens || ((u.input || 0) + (u.cacheRead || 0) + (u.cacheWrite || 0) + (u.output || 0));
           if (contextTokens) s.lastUsage = { ts: ts || s.lastTs || null, contextTokens, ttl: null };
         }
+      } else if (m.role === 'toolResult' && m.toolName === 'Agent' && m.details && m.details.usage) {
+        // A subagent of hooked's pi package (pi-package/extensions/agent.js): its usage is in the
+        // tool result only, as Claude Code's subagents are in toolUseResult.usage.
+        const u = m.details.usage;
+        const cost = Number(u.cost) || 0;
+        s.subagents++;
+        s.subagentCost += cost;
+        s.cost += cost;
+        s.usage.input += u.input || 0; s.usage.output += u.output || 0;
+        s.usage.cacheRead += u.cacheRead || 0; s.usage.cacheCreate += u.cacheWrite || 0;
+        const day = (ts || '').slice(0, 10) || 'unknown';
+        const d = (s.byDay[day] = s.byDay[day] || { input: 0, output: 0, cacheCreate: 0, cacheRead: 0, cost: 0, turns: 0 });
+        d.input += u.input || 0; d.output += u.output || 0; d.cacheCreate += u.cacheWrite || 0; d.cacheRead += u.cacheRead || 0; d.cost += cost;
       }
     }
   }

@@ -10,6 +10,7 @@ and controls in the dashboard as a Claude session.
 | Questions | `AskUserQuestion` | `AskUserQuestion`, same schema |
 | Plan mode | `ExitPlanMode` + permission mode | `ExitPlanMode` + the package's mode |
 | Todo list in the dock | `TodoWrite` / `TaskCreate` | `TodoWrite`, same schema, read back from the pi session file |
+| Subagents | `Agent` | `Agent`: a separate `pi --mode json -p --no-session` on the current model (below) |
 | Permission cards | `canUseTool` | `tool_call` gate |
 | Modes, auto-approve | SDK `setPermissionMode` | `/hooked-mode`, `/hooked-auto-approve` commands |
 | 5h / 7d quotas | statusline / `usage_…()` | `after_provider_response` headers (pi-claude-bridge) |
@@ -34,6 +35,22 @@ auto-approved tools, `auto` mode only). The checkout is found next to the server
 
 Outside hooked (pi opened in a terminal with the package installed), the tools fall back to pi's
 own select dialogs and the permission gate is off.
+
+## Subagents
+
+`Agent` (`pi-package/extensions/agent.js`) runs one task in a separate pi process on the current
+model and returns its final answer. The child loads the same `-e` extensions as the parent, so a
+bridged Claude model works there too, but not hooked's package (no hooked tools, no nested
+`Agent`). A subagent has no UI to show a permission card, so its tools follow the parent's mode:
+
+| Parent | Subagent tools |
+|---|---|
+| Normal or plan mode, or `subagent_type` Explore / Plan | `read`, `grep`, `find`, `ls` |
+| `acceptEdits` | the same, plus `edit` and `write` |
+| Bypass, auto, or auto-approve on | pi's default tools |
+
+Its usage is in the tool result's `details`; the session summary adds it to the cost (`subagents`,
+`subagentCost`), as for Claude Code's subagents. The subagent keeps no session file.
 
 ## The protocol
 

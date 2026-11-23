@@ -7,6 +7,7 @@
  *   - hooked's tools (start_session, groups, review comments, PR watch, show_image…) as native pi
  *     tools, from the same definitions as the MCP server (mcp/server.cjs), with no MCP proxy;
  *   - AskUserQuestion, ExitPlanMode and TodoWrite, with Claude Code's schemas;
+ *   - Agent: subagents in a separate pi process (extensions/agent.js);
  *   - a permission gate following hooked's permission modes and auto-approve switch;
  *   - the account quotas pi-claude-bridge relays (5h / 7d), forwarded to the dashboard.
  *
@@ -21,6 +22,7 @@
  * on every provider, and a full re-import of the conversation through pi-claude-bridge.
  */
 import { createRequire } from 'node:module';
+import { registerAgentTool } from './agent.js';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -28,7 +30,8 @@ const MARK = '[hooked:';
 const MODES = ['default', 'acceptEdits', 'auto', 'plan', 'bypassPermissions', 'dontAsk'];
 
 // Tools that never ask: they read, or they talk to the user / to hooked.
-const SAFE_TOOLS = new Set(['read', 'grep', 'find', 'ls', 'tool_search', 'AskUserQuestion', 'ExitPlanMode', 'TodoWrite']);
+// Agent is safe here because its subagent's tools are bounded by the mode (extensions/agent.js).
+const SAFE_TOOLS = new Set(['read', 'grep', 'find', 'ls', 'tool_search', 'AskUserQuestion', 'ExitPlanMode', 'TodoWrite', 'Agent']);
 const EDIT_TOOLS = new Set(['write', 'edit']);
 
 function loadHookedTools() {
@@ -261,6 +264,10 @@ export default function hooked(pi) {
       };
     },
   });
+
+  // ── Agent (subagents) ─────────────────────────────────────────────────────────────────────
+  // Outside hooked nothing asks either, so the subagent gets pi's default tools there.
+  registerAgentTool(pi, () => (DRIVEN ? { mode, autoApprove } : { mode: 'bypassPermissions', autoApprove: true }));
 
   // ── Permission gate (driven sessions only) ─────────────────────────────────────────────────
   pi.on('tool_call', async (event, ctx) => {

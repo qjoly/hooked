@@ -174,7 +174,8 @@ A **provider** is configuration (`settings.json` → `providers`, Settings → P
   session through `session/new`'s `mcpServers`.
 - **pi sessions run hooked's pi package** (`pi-package/`, `server/piHooked.js`,
   `docs/pi-package.md`): hooked's tools as native `hooked_*` tools, `AskUserQuestion` /
-  `ExitPlanMode` / `TodoWrite` (the dock reads the last call, `latestPiTodos`), a permission gate
+  `ExitPlanMode` / `TodoWrite` (the dock reads the last call, `latestPiTodos`), `Agent` (a child
+  `pi -p` whose tools are bounded by the parent's mode, since it cannot ask), a permission gate
   following the mode and auto-approve. Its dialogs reach hooked as
   RPC `extension_ui_request` records titled `[hooked:<kind>] <json>` and become the same
   `pendingAsk` cards as the Claude path. It never changes the system prompt between turns (a cache
