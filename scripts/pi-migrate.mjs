@@ -23,13 +23,15 @@
  *  - The claude.ai connectors connected in Claude Code (`claude mcp list`) join them, when pi can
  *    reach them: a connector that answers without a token, or whose authorization server lets a
  *    new client register (then `pi mcp login`). Left out: Anthropic's own services, and servers
- *    whose authorization server only knows pre-registered clients (Google's, for one).
+ *    whose authorization server only knows pre-registered clients (Google's, for one), unless the
+ *    user gives such a client (PI_MIGRATE_GOOGLE_CLIENT_ID / _SECRET for Google's).
+ *    --with-unconnected also takes the connectors not connected in Claude Code.
  *
  * The first change to each file keeps a copy of it (`<file>.pre-pi-migrate.bak`).
  *
  * Paths: CLAUDE_CONFIG_DIR (default ~/.claude), PI_CODING_AGENT_DIR (default ~/.pi/agent).
  * Flags: --dry-run (show the changes, write nothing), --no-instructions, --no-skills, --no-mcp,
- * --no-connectors, --with-synced-plugins.
+ * --no-connectors, --with-unconnected, --with-synced-plugins.
  */
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
@@ -189,7 +191,7 @@ async function probeConnector(url, f = fetch) {
     const base = String(as).replace(/\/$/, '');
     const meta = await getJson(`${base}/.well-known/oauth-authorization-server`, f) || await getJson(`${base}/.well-known/openid-configuration`, f);
     if (meta && (meta.registration_endpoint || meta.client_id_metadata_document_supported)) return { access: 'oauth' };
-    return { access: 'closed', why: `its authorization server (${new URL(base).host}) only takes pre-registered clients` };
+    return { access: 'closed', authHost: new URL(base).host, why: `its authorization server (${new URL(base).host}) only takes pre-registered clients` };
   }
   if (!init.ok) return { access: 'closed', why: `answers ${init.status} and names no authorization server` };
   try {
@@ -208,7 +210,20 @@ async function probeConnector(url, f = fetch) {
 
 // The connectors pi can use, as mcp.json entries: { servers, report, listed }. `taken`: server
 // names already used by Claude Code's own servers (a connector of the same name gets a prefix).
-async function claudeConnectors({ list = listClaudeMcp, probe = probeConnector, taken = new Set() } = {}) {
+// OAuth clients the user registered for authorization servers that take no new client:
+// { 'accounts.google.com': { clientId, clientSecret } }. Google's, from the environment (a desktop
+// app client of a Google Cloud project, see docs/pi-package.md), so no secret lands in argv.
+function oauthClientsFromEnv(env = process.env) {
+  const out = {};
+  if (env.PI_MIGRATE_GOOGLE_CLIENT_ID) {
+    out['accounts.google.com'] = { clientId: env.PI_MIGRATE_GOOGLE_CLIENT_ID, ...(env.PI_MIGRATE_GOOGLE_CLIENT_SECRET ? { clientSecret: env.PI_MIGRATE_GOOGLE_CLIENT_SECRET } : {}) };
+  }
+  return out;
+}
+
+//   clients: oauthClientsFromEnv(); withUnconnected: also the connectors not connected in Claude
+//   Code (pi then signs in to them on its own, with `pi mcp login`).
+async function claudeConnectors({ list = listClaudeMcp, probe = probeConnector, taken = new Set(), clients = {}, withUnconnected = false } = {}) {
   const out = await list();
   if (out == null) return { servers: {}, report: [], listed: false };
   const servers = {};
@@ -216,11 +231,15 @@ async function claudeConnectors({ list = listClaudeMcp, probe = probeConnector, 
   for (const c of parseConnectors(out)) {
     let slug = connectorSlug(c.name);
     if (taken.has(slug)) slug = `claudeai-${slug}`;
-    if (!c.connected) { report.push({ name: c.name, slug, action: 'skipped', why: 'not connected in Claude Code' }); continue; }
+    if (!c.connected && !withUnconnected) { report.push({ name: c.name, slug, action: 'skipped', why: 'not connected in Claude Code; add it with --with-unconnected' }); continue; }
     if (/(^|\.)anthropic\.com$/.test(new URL(c.url).hostname)) { report.push({ name: c.name, slug, action: 'skipped', why: "Anthropic's own service, reachable from Claude only" }); continue; }
     const p = await probe(c.url);
-    if (p.access === 'closed') { report.push({ name: c.name, slug, action: 'skipped', why: p.why }); continue; }
-    servers[slug] = { url: c.url };
+    const client = p.access === 'closed' && p.authHost ? clients[p.authHost] : null;
+    if (p.access === 'closed' && !client) {
+      report.push({ name: c.name, slug, action: 'skipped', why: p.authHost === 'accounts.google.com' ? `${p.why}; set PI_MIGRATE_GOOGLE_CLIENT_ID (and _SECRET) to use your own` : p.why });
+      continue;
+    }
+    servers[slug] = client ? { url: c.url, oauth: { ...client } } : { url: c.url };
     report.push({ name: c.name, slug, action: p.access === 'open' ? 'open' : 'oauth' });
   }
   return { servers, report, listed: true };
@@ -442,9 +461,9 @@ function print(r) {
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const args = new Set(process.argv.slice(2));
-  const unknown = [...args].filter((a) => !['--dry-run', '--no-instructions', '--no-skills', '--no-mcp', '--no-connectors', '--with-synced-plugins'].includes(a));
+  const unknown = [...args].filter((a) => !['--dry-run', '--no-instructions', '--no-skills', '--no-mcp', '--no-connectors', '--with-unconnected', '--with-synced-plugins'].includes(a));
   if (unknown.length) {
-    console.error(`Unknown option: ${unknown.join(' ')}\nUsage: mise run pi-migrate [-- --dry-run] [--no-instructions] [--no-skills] [--no-mcp] [--no-connectors] [--with-synced-plugins]`);
+    console.error(`Unknown option: ${unknown.join(' ')}\nUsage: mise run pi-migrate [-- --dry-run] [--no-instructions] [--no-skills] [--no-mcp] [--no-connectors] [--with-unconnected] [--with-synced-plugins]`);
     process.exit(2);
   }
   try {
@@ -454,7 +473,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
       let taken = new Set();
       try { taken = new Set(Object.keys(JSON.parse(readOr(claudeJsonPath(process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude')), '{}')).mcpServers || {})); } catch (_) {}
       console.log('Checking the claude.ai connectors (claude mcp list)…');
-      connectors = await claudeConnectors({ taken });
+      connectors = await claudeConnectors({ taken, clients: oauthClientsFromEnv(), withUnconnected: args.has('--with-unconnected') });
     }
     print(migrate({ dryRun: args.has('--dry-run'), instructions: !args.has('--no-instructions'), skills: !args.has('--no-skills'), mcp, connectors, withSynced: args.has('--with-synced-plugins') }));
   } catch (e) {
@@ -463,4 +482,4 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   }
 }
 
-export { migrate, upsertBlock, outsideBlock, duplicateHeadings, syncSkills, pluginSkillDirs, mergeMcp, needsLogin, parseConnectors, probeConnector, claudeConnectors, BEGIN, END };
+export { migrate, upsertBlock, outsideBlock, duplicateHeadings, syncSkills, pluginSkillDirs, mergeMcp, needsLogin, parseConnectors, probeConnector, claudeConnectors, oauthClientsFromEnv, BEGIN, END };

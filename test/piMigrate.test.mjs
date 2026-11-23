@@ -285,3 +285,39 @@ describe('pi-migrate: claude.ai connectors', () => {
     expect(gone.mcp.changes.find((c) => c.name === 'linear')).toMatchObject({ action: 'removed' });
   });
 });
+
+describe('pi-migrate: OAuth clients and unconnected connectors', () => {
+  it('reads a Google client from the environment only', async () => {
+    const { oauthClientsFromEnv } = await import('../scripts/pi-migrate.mjs');
+    expect(oauthClientsFromEnv({})).toEqual({});
+    expect(oauthClientsFromEnv({ PI_MIGRATE_GOOGLE_CLIENT_ID: 'id.apps.googleusercontent.com', PI_MIGRATE_GOOGLE_CLIENT_SECRET: 's' }))
+      .toEqual({ 'accounts.google.com': { clientId: 'id.apps.googleusercontent.com', clientSecret: 's' } });
+  });
+
+  it('copies Google connectors with the user\'s client, and unconnected ones on request', async () => {
+    const { claudeConnectors } = await import('../scripts/pi-migrate.mjs');
+    const out = [
+      'claude.ai Gmail: https://gmail.example/mcp - ✔ Connected',
+      'claude.ai Notion: https://notion.example/mcp - ! Needs authentication',
+      'claude.ai Box: https://box.example/mcp - ! Needs authentication',
+    ].join('\n');
+    const probe = async (u) => ({
+      'https://gmail.example/mcp': { access: 'closed', authHost: 'accounts.google.com', why: 'pre-registered only' },
+      'https://notion.example/mcp': { access: 'oauth' },
+      'https://box.example/mcp': { access: 'closed', authHost: 'account.box.com', why: 'pre-registered only' },
+    }[u]);
+    const list = async () => out;
+
+    const plain = await claudeConnectors({ list, probe });
+    expect(plain.servers).toEqual({});
+    expect(plain.report.find((r) => r.name === 'Gmail').why).toMatch(/PI_MIGRATE_GOOGLE_CLIENT_ID/);
+    expect(plain.report.find((r) => r.name === 'Notion').why).toMatch(/--with-unconnected/);
+
+    const full = await claudeConnectors({ list, probe, withUnconnected: true, clients: { 'accounts.google.com': { clientId: 'cid', clientSecret: 'cs' } } });
+    expect(full.servers).toEqual({
+      gmail: { url: 'https://gmail.example/mcp', oauth: { clientId: 'cid', clientSecret: 'cs' } },
+      notion: { url: 'https://notion.example/mcp' },
+    });
+    expect(full.report.find((r) => r.name === 'Box')).toMatchObject({ action: 'skipped', why: 'pre-registered only' });
+  });
+});

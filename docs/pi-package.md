@@ -152,7 +152,22 @@ A server whose authorization server lets a new client register (dynamic registra
 ID metadata document) is copied, to sign in once with `pi mcp login`. Left out: Anthropic's own
 services, and servers whose authorization server only takes pre-registered clients (Google's
 connectors list their tools to anyone but want a token for every call). A run where `claude mcp
-list` fails keeps the earlier copies. Run it again after a change on the Claude side: the block is replaced, and
+list` fails keeps the earlier copies.
+
+Two options widen that:
+
+- **Your own Google client.** Google's authorization server only takes registered clients. Create
+  an OAuth client of type *Desktop app* in a Google Cloud project (with the APIs of the connectors
+  you want enabled), then run the task with its id and secret in the environment. The Google
+  connectors are then copied with an `oauth` block naming that client, to sign in once each:
+
+  ```bash
+  PI_MIGRATE_GOOGLE_CLIENT_ID=… PI_MIGRATE_GOOGLE_CLIENT_SECRET=… mise run pi-migrate
+  ```
+
+- **`--with-unconnected`** also takes the connectors you have not connected in Claude Code, when
+  pi can sign in to them on its own (Notion, Linear, Figma… at the time of writing). Each one then
+  needs `pi mcp login <name>`, and pi reports the missing sign-ins at startup until you do it. Run it again after a change on the Claude side: the block is replaced, and
 the MCP copies follow Claude unless they were edited in pi (`~/.pi/agent/pi-migrate.json` records
 them). OAuth sign-ins do not carry over: the task names the `pi mcp login <name>` to run once.
 `-- --dry-run` shows the changes.
