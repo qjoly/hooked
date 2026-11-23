@@ -427,8 +427,8 @@ function alwaysAllowRules(toolName, suggestions) {
 // Demande de permission d'outil présentée comme une AskUserQuestion à 3 options : l'UI web réutilise
 // telle quelle son composant Question (aucune UI nouvelle à écrire), et on retrouve enfin la
 // possibilité d'approuver un outil depuis le web — ce qui passait avant par l'onglet Terminal (tmux).
-function permissionQuestion(toolName, opts) {
-  const title = (opts && opts.title) || `Claude wants to use ${toolName}`;
+function permissionQuestion(toolName, opts, agent = 'Claude') {
+  const title = (opts && opts.title) || `${agent} wants to use ${toolName}`;
   return [{
     question: title + ' — allow?',
     header: 'Permission',
@@ -436,7 +436,7 @@ function permissionQuestion(toolName, opts) {
     options: [
       { label: 'Allow once', description: (opts && opts.description) || 'Run this call only.' },
       { label: 'Allow always', description: 'Run it and stop asking for this kind of call in this session.' },
-      { label: 'Deny', description: 'Refuse the call and let Claude choose another route.' },
+      { label: 'Deny', description: `Refuse the call and let ${agent} choose another route.` },
     ],
   }];
 }
@@ -1129,9 +1129,14 @@ function agentPendingAsk(id) {
   const st = agentSession(id);
   if (!st || !st.pendingAsk) return null;
   const a = st.pendingAsk;
+  // A driver's permission request (ACP…) carries no card of its own: it gets the same 3-option
+  // question as the Claude path (the option order is the contract answerPendingSelection reads).
+  const agentLabel = (st.providerConfig && st.providerConfig.label) || 'The agent';
+  const questions = a.questions
+    || (a.kind === 'permission' ? permissionQuestion(a.toolName || 'a tool', null, agentLabel) : null);
   return {
     kind: a.kind, id: a.id, toolName: a.toolName || null,
-    questions: a.questions || null, plan: a.plan || null, input: a.input || null,
+    questions, plan: a.plan || null, input: a.input || null,
     reason: a.reason || null, askRule: a.askRule || null,
   };
 }

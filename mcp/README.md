@@ -53,7 +53,8 @@ appelle `mcp__hooked__list_sessions` avec la vraie réponse de l'API (`MCP-PI-OK
 |-------|-------------|-------------|
 | `list_sessions` | `GET /api/sessions` | Liste les sessions (live + passées) avec leur état |
 | `get_session` | `GET /api/session` | Détail complet d'une session |
-| `start_session` | `POST /api/launch` | Démarre / reprend une session (cwd, prompt, model, effort, resumeId, worktree) ; lancée depuis une session pilotée, la nouvelle session rejoint son groupe |
+| `list_providers` | `GET /api/providers` | Providers on which a session can be started (id, label, engine, enabled, model filters, capabilities) |
+| `start_session` | `POST /api/launch` | Démarre / reprend une session (cwd, prompt, provider, model, effort, resumeId, worktree) ; lancée depuis une session pilotée, la nouvelle session rejoint son groupe |
 | `stop_session` | `POST /api/kill` | Stoppe une session (termine son process Claude Code) |
 | `reply_to_session` | `POST /api/reply` | Envoie un message à une session live |
 | `interrupt_session` | `POST /api/interrupt` | Envoie Échap (interrompt Claude) |

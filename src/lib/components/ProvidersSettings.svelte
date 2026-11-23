@@ -190,7 +190,7 @@
   .pv-main { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
   .pv-name { font-weight: 600; }
   .pv-name code { font-weight: 400; color: var(--muted); margin-left: 4px; }
-  .pv-meta { font-size: var(--t-meta, 12px); color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pv-meta { font-size: var(--t-meta, 12px); color: var(--muted); line-height: 1.4; overflow-wrap: anywhere; }
   .pv-mode { width: auto; flex: 0 0 auto; }
   .pv-btn { display: inline-flex; align-items: center; gap: 4px; background: transparent; border: 1px solid var(--border); border-radius: 6px; padding: 4px 6px; color: var(--fg, inherit); cursor: pointer; }
   .pv-btn.wide { margin-top: 6px; padding: 5px 10px; }
