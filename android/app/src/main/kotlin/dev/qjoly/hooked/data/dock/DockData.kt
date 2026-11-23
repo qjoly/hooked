@@ -9,7 +9,7 @@ import dev.qjoly.hooked.data.text
 import dev.qjoly.hooked.state.costLabel
 import kotlinx.serialization.json.JsonElement
 
-// What desktop-rune's dock (`view/dock.rs`) reads from GET /api/session, and its pure helpers.
+// What desktop's dock (`view/dock.rs`) reads from GET /api/session, and its pure helpers.
 
 data class DockTodo(val content: String, val status: String, val activeForm: String?) {
     /** The in-progress item reads its active form, as rune does. */

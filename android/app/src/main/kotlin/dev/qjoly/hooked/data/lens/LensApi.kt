@@ -10,7 +10,7 @@ import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 
-// The endpoints the Review, MCP and Trace lenses call, as desktop-rune's api.rs and lenses.rs.
+// The endpoints the Review, MCP and Trace lenses call, as desktop's api.rs and lenses.rs.
 
 /** Claude's edits and the prompts they belong to, read from the session detail. */
 suspend fun HookedClient.sessionChanges(id: String): Pair<List<Change>, List<ChangeTurn>> {

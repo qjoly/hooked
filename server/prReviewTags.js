@@ -7,7 +7,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { HOOKED_DIR } from './config.js';
-import { scanSessions } from './transcript.js';
+import { scanAllSessions } from './sessions.js';
 import { ghViewMany } from './ghMeta.js';
 import { readTags, setTags } from './tags.js';
 
@@ -53,7 +53,7 @@ const PR_REVIEW_TAGS = Object.values(TAG_BY_DECISION);
 // already-merged one.
 async function prReviewTick() {
   if (!acquirePollLock()) return; // un autre process poll déjà GitHub → on n'ajoute pas de charge
-  const linked = scanSessions().filter((s) => s.prLinks && s.prLinks[0]);
+  const linked = scanAllSessions().filter((s) => s.prLinks && s.prLinks[0]);
   if (!linked.length) return;
   const views = await ghViewMany(linked.map((s) => s.prLinks[0]), { background: true });
   for (const s of linked) {

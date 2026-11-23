@@ -7,7 +7,7 @@ import kotlinx.serialization.json.JsonPrimitive
 import java.time.LocalDate
 import java.util.Locale
 
-// Pure helpers behind the Stats, Digest, Memory, Skills and Prompts pages (desktop-rune's view/pages.rs and fmt.rs).
+// Pure helpers behind the Stats, Digest, Memory, Skills and Prompts pages (desktop's view/pages.rs and fmt.rs).
 
 /** The Stats range picker: server key and label. */
 val STATS_RANGES = listOf("1" to "Today", "7" to "7 days", "30" to "30 days", "all" to "All")

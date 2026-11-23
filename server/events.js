@@ -7,27 +7,33 @@
  * qu'un utilisateur ouvre à la main dans un terminal.
  */
 import fs from 'node:fs';
-import { EVENTS_FILE } from './config.js';
+import { EVENTS_FILES } from './config.js';
 import { statSafe } from './util.js';
 
+// Sans argument, on lit TOUTES les sources d'événements (Claude + Pi, cf. EVENTS_FILES) :
+// un appel avec un chemin explicite (tests) ne lit que ce fichier.
 let eventsCache = { key: null, list: [] };
-function readEvents(eventsFile = EVENTS_FILE) {
-  const st = statSafe(eventsFile);
-  if (!st) return [];
-  const key = st.mtimeMs + ':' + st.size;
+function readEvents(eventsFile) {
+  const files = eventsFile ? [eventsFile] : EVENTS_FILES;
+  const key = files.map((f) => {
+    const st = statSafe(f);
+    return st ? `${f}:${st.mtimeMs}:${st.size}` : `${f}:-`;
+  }).join('|');
   if (eventsCache.key === key) return eventsCache.list;
-  let data;
-  try { data = fs.readFileSync(eventsFile, 'utf8'); } catch (_) { return eventsCache.list; }
-  const lines = data.split('\n').filter(Boolean);
   const list = [];
-  for (const l of lines.slice(-8000)) {
-    try { list.push(JSON.parse(l)); } catch (_) {}
+  for (const f of files) {
+    let data;
+    try { data = fs.readFileSync(f, 'utf8'); } catch (_) { continue; }
+    const lines = data.split('\n').filter(Boolean);
+    for (const l of lines.slice(-8000)) {
+      try { list.push(JSON.parse(l)); } catch (_) {}
+    }
   }
   eventsCache = { key, list };
   return list;
 }
 
-function lastEventBySession(eventsFile = EVENTS_FILE) {
+function lastEventBySession(eventsFile) {
   const ev = readEvents(eventsFile);
   const map = new Map();
   for (const e of ev) {
@@ -43,7 +49,7 @@ function lastEventBySession(eventsFile = EVENTS_FILE) {
 // continue de venir de lastEventBySession : un SessionEnd doit toujours produire 'ended'.
 const LIFECYCLE_EVENTS = new Set(['SessionStart', 'SessionEnd']);
 
-function lastActivityEventBySession(eventsFile = EVENTS_FILE) {
+function lastActivityEventBySession(eventsFile) {
   const ev = readEvents(eventsFile);
   const map = new Map();
   for (const e of ev) {
@@ -55,7 +61,7 @@ function lastActivityEventBySession(eventsFile = EVENTS_FILE) {
 
 // dernier mode de permission connu pour une session (default / acceptEdits / plan / bypassPermissions).
 // Les payloads de hooks portent `permission_mode` (capté par hook.js) → on lit le plus récent.
-function modeForSession(id, eventsFile = EVENTS_FILE) {
+function modeForSession(id, eventsFile) {
   const ev = readEvents(eventsFile);
   for (let i = ev.length - 1; i >= 0; i--) {
     if (ev[i].session_id === id && ev[i].mode) return ev[i].mode;
@@ -78,7 +84,7 @@ function questionStep(cur, e) {
 
 // Question AskUserQuestion *en attente* pour une session, reconstruite depuis les évènements live.
 // Indispensable car le tool_use n'est écrit dans le transcript qu'une fois la question répondue.
-function liveQuestionForSession(id, eventsFile = EVENTS_FILE) {
+function liveQuestionForSession(id, eventsFile) {
   const ev = readEvents(eventsFile);
   let pending = null;
   for (const e of ev) { if (e.session_id === id) pending = questionStep(pending, e); }
@@ -87,7 +93,7 @@ function liveQuestionForSession(id, eventsFile = EVENTS_FILE) {
 
 // map session_id -> question en attente, en UNE passe (vs liveQuestionForSession par session, qui
 // rebalayait les ~8000 évènements pour CHAQUE session à chaque poll — O(sessions × évènements)).
-function liveQuestionBySession(eventsFile = EVENTS_FILE) {
+function liveQuestionBySession(eventsFile) {
   const ev = readEvents(eventsFile);
   const map = new Map();
   for (const e of ev) { if (e.session_id) map.set(e.session_id, questionStep(map.get(e.session_id) || null, e)); }
@@ -109,7 +115,7 @@ function planStep(cur, e) {
 // Plan en attente d'approbation (ExitPlanMode) : posé au PreToolUse, levé quand le plan est
 // résolu (PostToolUse ExitPlanMode = approuvé/rejeté), ou par un Stop / une fin de session / un
 // nouveau prompt. `plan` (markdown) n'est présent que sur les events émis après l'ajout du hook.
-function livePlanForSession(id, eventsFile = EVENTS_FILE) {
+function livePlanForSession(id, eventsFile) {
   const ev = readEvents(eventsFile);
   let pending = null;
   for (const e of ev) { if (e.session_id === id) pending = planStep(pending, e); }
@@ -117,7 +123,7 @@ function livePlanForSession(id, eventsFile = EVENTS_FILE) {
 }
 
 // map session_id -> plan en attente, en UNE passe (vs livePlanForSession par session).
-function livePlanBySession(eventsFile = EVENTS_FILE) {
+function livePlanBySession(eventsFile) {
   const ev = readEvents(eventsFile);
   const map = new Map();
   for (const e of ev) { if (e.session_id) map.set(e.session_id, planStep(map.get(e.session_id) || null, e)); }
@@ -128,7 +134,7 @@ function livePlanBySession(eventsFile = EVENTS_FILE) {
 // Permet de faire apparaître une session DÈS son premier hook (SessionStart /
 // UserPromptSubmit), avant que Claude Code n'ait écrit le transcript — sinon la
 // session reste invisible dans la sidebar jusqu'au premier message de l'assistant.
-function eventSessionMeta(eventsFile = EVENTS_FILE) {
+function eventSessionMeta(eventsFile) {
   const ev = readEvents(eventsFile);
   const map = new Map();
   for (const e of ev) {
@@ -151,7 +157,7 @@ function eventSessionMeta(eventsFile = EVENTS_FILE) {
 // leur environnement, que hook.cjs recopie en `rc: true` sur chaque évènement. C'est ce qui remplace
 // l'ancienne reconnaissance par le nom de la session tmux (`hooked-rc-*`) : elles restent masquées de
 // la sidebar (c'est de l'infra, pas des sessions qu'on pilote).
-function rcSessionIdsFromEvents(eventsFile = EVENTS_FILE) {
+function rcSessionIdsFromEvents(eventsFile) {
   const set = new Set();
   for (const e of readEvents(eventsFile)) if (e.rc && e.session_id) set.add(e.session_id);
   return set;

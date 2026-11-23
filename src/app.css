@@ -1851,6 +1851,7 @@ code.path { color: var(--muted); font-size: var(--t-micro); word-break: break-al
 }
 /* Active input: accent ring + halo, consistent with the app's other fields. */
 .composer:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft), var(--shadow); }
+.composer.drag-over { border-color: var(--accent); border-style: dashed; box-shadow: 0 0 0 3px var(--accent-soft), var(--shadow); }
 .composer textarea {
   resize: none; width: 100%; box-sizing: border-box;
   background: transparent; color: var(--text); caret-color: var(--accent); border: none;
@@ -1928,6 +1929,14 @@ code.path { color: var(--muted); font-size: var(--t-micro); word-break: break-al
 .ns-grid { display: grid; grid-template-columns: minmax(0, 1fr) 250px; gap: 0 22px; align-items: start; }
 .ns-col { min-width: 0; }
 .ns-options { display: flex; flex-direction: column; gap: 8px; }
+/* provider picker on the New session screen (one pill per enabled provider, cf. #lib/providers.js) */
+.ns-provider { display: flex; gap: 6px; flex-wrap: wrap; }
+.ns-prov-btn { cursor: pointer; opacity: .65; }
+.ns-prov-btn.on { opacity: 1; border-color: var(--accent); color: var(--text); background: var(--accent-soft); }
+.ns-prov-btn.colored.on { border-color: var(--prov); background: color-mix(in srgb, var(--prov) 14%, transparent); }
+.ns-pi-opts { display: flex; flex-direction: column; gap: 6px; }
+.ns-pi-opts .lf-input { width: 100%; }
+.ns-pi-loading { color: var(--muted); font-size: var(--t-micro); }
 .ns-options .lf-label { margin-bottom: 0; }
 .ns-options .me-inline { flex-direction: column; align-items: stretch; }
 .ns-options .me-pill select { flex: 1 1 auto; min-width: 0; }

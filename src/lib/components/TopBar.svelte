@@ -5,7 +5,8 @@
   import { page } from '$app/state';
   import { ui, data, settings, account, cycleTheme, toggleNotify, toggleIncognitoMode, openModal, isArchived, isSessionArchived, snoozeUntil } from '#lib/state.svelte.js';
   import { getUsage } from '#lib/api.js';
-  import { initials, needsDecision, sessionDot } from '#lib/format.js';
+  import { initials, needsDecision, sessionDot, fmtTokens, fmtCost } from '#lib/format.js';
+  import { providerShort } from '#lib/providers.js';
   import { NAV_TABS, NAV_KEYS, pageHref } from '#lib/nav.js';
   import Icon from '#lib/components/Icon.svelte';
   import FleetWheel from '#lib/components/FleetWheel.svelte';
@@ -18,8 +19,11 @@
   const onDeck = $derived(path === '/');
   const onSettings = $derived(path.startsWith('/settings'));
   // Nav tabs the user chose to show (settings.navTabs). '/sessions' also lights up on /session/* & /new.
-  const tabs = $derived(NAV_TABS.filter((t) => (settings.navTabs || NAV_KEYS).includes(t.key)));
-  const hiddenTabs = $derived(NAV_TABS.filter((t) => !tabs.includes(t)));
+  // Claude-only spaces (mémoire ~/.claude, compte/quotas OAuth) are hidden when no `claude`
+  // binary is configured — pi-only install: the tab would lead to an empty/dead page.
+  const hasClaude = $derived(!!data.providers?.claude);
+  const tabs = $derived(NAV_TABS.filter((t) => (settings.navTabs || NAV_KEYS).includes(t.key) && (t.key !== 'memory' || hasClaude)));
+  const hiddenTabs = $derived(NAV_TABS.filter((t) => !tabs.includes(t) && (t.key !== 'memory' || hasClaude)));
   // On a hidden page, the More button wears that page's name so the bar still says where you are.
   const hiddenActive = $derived(hiddenTabs.find((t) => tabActive(t)));
 
@@ -65,6 +69,39 @@
   // frozen gauge that looks live is worse than one that says so.
   const fable = $derived(usage?.account?.fable ?? null);
   const src = $derived(usage?.account?.usage ?? null);
+  // Usage en entête, provider-aware : vue claude = rate limits du compte (5H/7D/FABLE), vue pi =
+  // usage agrégé des sessions pi (coût + tokens du jour, cf. buildPiUsage — Mistral n'a pas de
+  // limites compte exposées), avec la session la plus fraîche (modèle, contexte) en tooltip.
+  // Un seul groupe est affiché à la fois (même design qu'avant) : un clic sur le bloc alterne quand
+  // les deux fournisseurs sont configurés. Le choix est persisté en localStorage.
+  // One view per non-Claude provider with sessions (usage.providers, cf. buildProviderUsage); the
+  // click cycles claude → each provider. Older servers only send `usage.pi`.
+  const provUsage = $derived(usage?.providers && Object.keys(usage.providers).length
+    ? usage.providers
+    : (usage?.pi ? { pi: { ...usage.pi, label: 'Pi' } } : {}));
+  const usageViews = $derived([...(hasClaude ? ['claude'] : []), ...Object.keys(provUsage).filter((id) => data.providers?.[id])]);
+  const hasPi = $derived(usageViews.some((v) => v !== 'claude'));
+  // Usage of the provider on display (`view` is resolved below, from the persisted choice).
+  const pi = $derived(view !== 'claude' ? (provUsage[view] || null) : null);
+  const piCtx = $derived(pi?.context ?? null);
+  const piAge = $derived(pi?.at ? Math.max(0, Math.round((nowMin - Date.parse(pi.at)) / 60000)) : null);
+  const piTitle = $derived(pi
+    ? `${pi.label || 'pi'} — usage today: ${fmtCost(pi.todayCost)} · ${fmtTokens(pi.todayTokens || 0)} tokens`
+      + `\ntotal: ${fmtCost(pi.cost)} · ${pi.sessions || 1} session${(pi.sessions || 1) > 1 ? 's' : ''}`
+      + `\nlatest: ${pi.title || pi.sessionId}${pi.model ? ` · ${pi.model}` : ''}`
+      + (piCtx ? ` · ctx ${fmtTokens(piCtx.size)}/${fmtTokens(piCtx.contextWindow)}` : '')
+      + (piAge != null ? `\n${pi.live ? 'live' : 'last activity'} ${piAge < 1 ? 'just now' : piAge + 'min ago'}` : '')
+    : '');
+  let usageView = $state((typeof localStorage !== 'undefined' && localStorage.getItem('hooked.usageView')) || 'claude');
+  $effect(() => { if (typeof localStorage !== 'undefined') localStorage.setItem('hooked.usageView', usageView); });
+  const view = $derived(usageViews.includes(usageView) ? usageView : (usageViews[0] || 'claude'));
+  const showPi = $derived(view !== 'claude' && !!pi);
+  const showClaude = $derived(hasClaude && !showPi);
+  const canToggle = $derived(usageViews.length > 1);
+  const toggleUsageView = () => { if (canToggle) usageView = usageViews[(usageViews.indexOf(view) + 1) % usageViews.length]; };
+  const gaugesTitle = $derived(showClaude
+    ? (canToggle ? 'Account rate limits — click to switch to the next provider' : 'Account rate limits')
+    : `${pi?.label || 'Provider'} session usage${canToggle ? ' — click to switch' : ''}`);
   const fableAge = $derived(fable?.at ? Math.max(0, Math.round((nowMin - Date.parse(fable.at)) / 60000)) : null);
   const fableStale = $derived(fableAge != null && fableAge >= 10);
   const barW = (pct) => Math.max(0, Math.min(100, pct || 0));
@@ -127,7 +164,17 @@
 
   <!-- `crit` (>=90%) is a second threshold above `warn` (>=75%). Only the datadog scheme styles
        it (app.css); everywhere else it is an inert class, so nothing changes visually. -->
-  <div class="tb-gauges" title="Account rate limits">
+  {#if showClaude || showPi}
+  <div class="tb-gauges" class:tb-toggle={canToggle} title={gaugesTitle}
+       {...canToggle
+         ? {
+             role: 'button',
+             tabindex: 0,
+             onclick: toggleUsageView,
+             onkeydown: (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleUsageView(); } },
+           }
+         : {}}>
+    {#if showClaude}
     <div class="tb-gauge" class:warn={g5 != null && g5 >= 75} class:crit={g5 != null && g5 >= 90}>
       <div class="tb-g-lbl"><span>5H</span><span>{g5 != null ? g5 + '%' : '—'}</span></div>
       <div class="tb-g-track"><div class="tb-g-fill" style="width:{barW(g5)}%"></div></div>
@@ -143,7 +190,15 @@
         <div class="tb-g-track"><div class="tb-g-fill" style="width:{barW(fable.pct)}%"></div></div>
       </div>
     {/if}
+    {:else}
+    <!-- Provider view: today's usage (cost + tokens), no gauge — no account limit is known. -->
+    <div class="tb-gauge tb-usage" title={piTitle}>
+      <div class="tb-g-lbl"><span>{providerShort(view, data.providerList).toUpperCase()}</span><span>{fmtCost(pi.todayCost)}</span></div>
+      <div class="tb-g-sub">{fmtTokens(pi.todayTokens || 0)} tok today</div>
+    </div>
+    {/if}
   </div>
+  {/if}
 
   <div class="tb-actions">
     <!-- Incognito: hides every session that wasn't created in this mode (screen sharing). Wears its
@@ -182,9 +237,11 @@
   </div>
 
   <a class="tb-new" href="/new"><Icon name="plus" size={14} /> Session</a>
+  {#if hasClaude}
   <button class="tb-avatar" class:live={ui.live} title={avatarTitle} aria-label="Account" onclick={() => openModal('account')}>
     {avatarInitials}
   </button>
+  {/if}
 </header>
 
 <style>
@@ -256,6 +313,10 @@
 
   .tb-gauges { display: flex; gap: 14px; margin-left: auto; flex: 0 0 auto; align-self: center; }
   .tb-gauge { display: flex; flex-direction: column; gap: 4px; width: 82px; }
+  .tb-g-sub { font-size: var(--t-micro); color: var(--shell-muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
+  /* Quand les deux fournisseurs sont configurés, un clic sur le bloc alterne claude ↔ pi. */
+  .tb-gauges.tb-toggle { cursor: pointer; padding: 3px 8px; margin-right: -8px; border-radius: 8px; }
+  .tb-gauges.tb-toggle:hover, .tb-gauges.tb-toggle:focus-visible { background: var(--shell-hover); outline: none; }
   .tb-g-lbl {
     display: flex; justify-content: space-between;
     font-size: var(--t-micro); font-weight: 700; color: var(--shell-muted); letter-spacing: .06em;

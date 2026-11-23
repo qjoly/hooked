@@ -1,5 +1,6 @@
 <script>
-  import { ago, splitMessageImages, fmtTokens } from '#lib/format.js';
+  import { ago, splitMessageImages, fmtTokens, agentName } from '#lib/format.js';
+  import { data } from '#lib/state.svelte.js';
   import { getMessageText } from '#lib/api.js';
   import { setContext } from 'svelte';
   import ToolChip from './ToolChip.svelte';
@@ -15,9 +16,10 @@
   // Tout absent pour les traces de sous-agents (non reprenables).
   // `session` / `agent` : identifiants pour servir les fichiers SendUserFile (cf. userFileUrl).
   // `agent` non nul quand la bulle appartient au déroulé d'un sous-agent (SubagentCard).
-  let { m, onfork = null, onforkadvanced = null, forkState = null, session = null, agent = null } = $props();
+  let { m, onfork = null, onforkadvanced = null, forkState = null, session = null, agent = null, provider = 'claude' } = $props();
   // Lets a shell CodeBlock, two components down, run itself in this session (cf. CodeBlock).
   setContext('hooked.session', () => session);
+  setContext('hooked.provider', () => provider);
 
   // Style claude-cli : on rend les blocs dans l'ordre, et on distingue le DERNIER
   // bloc texte (réponse finale, contrasté) des précédents (raisonnement, discret).
@@ -120,7 +122,7 @@
   </div>
 {:else}
 <div class="bubble {m.role}" class:auto={m.auto} data-msg-ts={m.ts || ''}>
-  <div class="who">{#if m.role === 'user'}{#if m.auto}<Icon name="rotate-cw" size={14} /> Auto-resumed (background job){:else}<Icon name="user" size={14} /> You{/if}{:else}<Icon name="bot" size={14} /> Claude{/if}<span class="t">{ago(m.ts)}</span>
+  <div class="who">{#if m.role === 'user'}{#if m.auto}<Icon name="rotate-cw" size={14} /> Auto-resumed (background job){:else}<Icon name="user" size={14} /> You{/if}{:else}<Icon name="bot" size={14} /> {agentName(provider, data.providerList)}{/if}<span class="t">{ago(m.ts)}</span>
     {#if onfork && m.forkUuid}
       <span class="fork-ctl">
         <button class="fork-btn fork-main" title="Fork here without a message — independent branch waiting for you"
@@ -152,7 +154,14 @@
     <div class="parts">
       {#each blocks as b (b.type === 'run' ? 'r' + b.start : 'p' + b.i)}
         {#if b.type === 'part'}
-          {#if b.p.type === 'text'}
+          {#if b.p.type === 'thinking'}
+            <!-- Model reasoning (non-Claude engines): kept for every turn, folded to its first line. -->
+            <details class="thinking">
+              <summary><Icon name="memory" size={13} /> <span class="th-label">Thinking</span>
+                <span class="th-peek">{b.p.text.split('\n').find((l) => l.trim()) || ''}</span></summary>
+              <pre class="th-body">{b.p.text}</pre>
+            </details>
+          {:else if b.p.type === 'text'}
             {#if isFinalText(b.i)}
               <div class="md final"><Markdown text={b.p.text} /></div>
             {:else}
@@ -230,6 +239,23 @@
   /* message auto-repris (ScheduleWakeup) : l'en-tête le dit déjà en toutes lettres, la bulle prend
      simplement le violet des jobs de fond au lieu de l'indigo du « You » — même token partout. */
   .bubble.auto { background: var(--background); }
+
+  /* Model reasoning, folded by default: one muted line with a peek at its first sentence. */
+  .thinking { margin: 2px 0 6px; color: var(--muted); }
+  .thinking summary {
+    display: flex; align-items: center; gap: 6px; cursor: pointer; list-style: none;
+    font-size: var(--t-meta); min-width: 0;
+  }
+  .thinking summary::-webkit-details-marker { display: none; }
+  .thinking .th-label { flex: 0 0 auto; font-weight: 600; }
+  .thinking .th-peek { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-style: italic; opacity: .8; }
+  .thinking[open] .th-peek { display: none; }
+  .thinking summary:hover { color: var(--text); }
+  .th-body {
+    margin: 4px 0 0; padding: 6px 8px; border-radius: 6px;
+    background: var(--bg3); color: var(--muted);
+    font: 11.5px/1.5 var(--mono); white-space: pre-wrap; max-height: 320px; overflow-y: auto;
+  }
 
   /* run de tool calls replié : une ligne grise mono carrée + filet jusqu'au bord. */
   .tool-fold {

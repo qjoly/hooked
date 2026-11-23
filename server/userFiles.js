@@ -9,7 +9,10 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
-import { PROJECTS_DIR } from './config.js';
+import { PROJECTS_DIR, PI_SESSIONS_DIR } from './config.js';
+import { piToolPaths, findPiFile } from './pi.js';
+import { findSessionAny } from './sessions.js';
+import { engineForSession } from './providers.js';
 import { readdirSafe, statSafe, SHOW_TOOLS } from './util.js';
 import { agentTranscriptPath } from './transcript.js';
 
@@ -74,10 +77,57 @@ function collectAllowlist(fp) {
 
 // Lit un fichier SendUserFile pour l'UI. `agentId` non vide → transcript du sous-agent.
 // Renvoie { buffer, contentType, attachment, name } ou null (introuvable / hors liste blanche).
-function readUserFile(sessionId, agentId, absPath, projectsDir = PROJECTS_DIR) {
+function readUserFile(sessionId, agentId, absPath, projectsDir = PROJECTS_DIR, piSessionsDir = PI_SESSIONS_DIR) {
   if (typeof absPath !== 'string' || !absPath) return null;
+  // provider pi : allowlist = chemins de fichiers mentionnés par les tools de la session.
+  const piFile = (agentId || sessionId) && /^[A-Za-z0-9._-]+$/.test(agentId || sessionId || '')
+    ? findPiFile(piSessionsDir, agentId || sessionId) : null;
+  if (piFile) {
+    let real;
+    try { real = fs.realpathSync(absPath); } catch (_) { return null; }
+    const allowed = new Set();
+    for (const p of piToolPaths(piFile)) {
+      try { allowed.add(fs.realpathSync(p)); } catch (_) {}
+    }
+    if (!allowed.has(real)) return null;
+    let st;
+    try { st = fs.statSync(real); } catch (_) { return null; }
+    if (!st.isFile() || st.size > MAX_BYTES) return null;
+    const ext = path.extname(real).toLowerCase();
+    const contentType = CONTENT_TYPE[ext] || 'application/octet-stream';
+    const attachment = FORCE_ATTACHMENT.has(ext) || contentType === 'application/octet-stream';
+    let buffer;
+    try { buffer = fs.readFileSync(real); } catch (_) { return null; }
+    return { buffer, contentType, attachment, name: real.split('/').pop() };
+  }
   const fp = agentId ? agentTranscriptPath(sessionId, agentId, projectsDir) : sessionTranscriptPath(sessionId, projectsDir);
-  if (!fp) return null;
+  if (!fp) {
+    // No Claude transcript: another non-Claude engine (ACP / external provider), allowlisted by
+    // the paths its tools touched.
+    if (sessionId && !agentId && /^[A-Za-z0-9._:-]+$/.test(sessionId)) {
+      const s = findSessionAny(sessionId);
+      if (s && s.file && s.engine && s.engine !== 'claude' && s.engine !== 'pi') {
+        const eng = engineForSession(s);
+        const allowed = new Set();
+        for (const p of (eng && typeof eng.toolPaths === 'function' ? eng.toolPaths(s) : [])) {
+          try { allowed.add(fs.realpathSync(p)); } catch (_) {}
+        }
+        let real;
+        try { real = fs.realpathSync(absPath); } catch (_) { return null; }
+        if (!allowed.has(real)) return null;
+        let st;
+        try { st = fs.statSync(real); } catch (_) { return null; }
+        if (!st.isFile() || st.size > MAX_BYTES) return null;
+        const ext = path.extname(real).toLowerCase();
+        const contentType = CONTENT_TYPE[ext] || 'application/octet-stream';
+        const attachment = FORCE_ATTACHMENT.has(ext) || contentType === 'application/octet-stream';
+        let buffer;
+        try { buffer = fs.readFileSync(real); } catch (_) { return null; }
+        return { buffer, contentType, attachment, name: real.split('/').pop() };
+      }
+    }
+    return null;
+  }
   let real;
   try { real = fs.realpathSync(absPath); } catch (_) { return null; }
   if (!collectAllowlist(fp).has(real)) return null; // jamais envoyé par cette session → 404

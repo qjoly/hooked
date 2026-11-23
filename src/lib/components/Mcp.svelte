@@ -2,23 +2,33 @@
   import { copyText } from '#lib/clipboard.js';
   import { onDestroy, untrack } from 'svelte';
   import { getMcpServers, mcpAction } from '#lib/api.js';
+  import { data } from '#lib/state.svelte.js';
+  import { providerInfo } from '#lib/providers.js';
   import Icon from './Icon.svelte';
 
   // MCP scopes are per-directory, so the lens is pinned to the session's own project — there is
-  // no picker to get wrong.
-  let { project = '' } = $props();
+  // no picker to get wrong. The provider's engine picks the flavour: 'pi' = pi's mcp.json (HTTP
+  // health check only, no OAuth / logout actions, which are Claude CLI ones), none = the agent
+  // keeps its MCP config to itself (ACP agents get hooked's own server injected at launch).
+  let { project = '', provider = 'claude' } = $props();
+  const kind = $derived(providerInfo(provider, data.providerList).mcpKind ?? (provider === 'claude' ? 'claude' : null));
+  const isPi = $derived(kind === 'pi');
+  const agentLbl = $derived(providerInfo(provider, data.providerList).label);
 
   let res = $state(null);          // { cwd, servers, diagnostics, error }
   let loading = $state(true);
   let busy = $state('');           // name of the server a logout/detail call is running for
-  let details = $state({});        // name -> `claude mcp get` fields, lazily fetched
+  let details = $state({});        // name -> detail fields, lazily fetched
   let open = $state(null);         // name of the expanded row
   let login = $state(null);        // { id, name, url, done, needsPaste, output, exitCode }
   let redirect = $state('');
   let notice = $state('');
   let poll = null;
+  // Édition pi : formulaire add/edit (pi n'a pas de `pi mcp add`, on édite les mcp.json).
+  let editor = $state(null);        // { name, scope, json, originalName } | null
+  let editorError = $state('');
 
-  const RANK = { needs_auth: 0, failed: 1, pending: 2, connected: 3, disabled: 4 };
+  const RANK = { needs_auth: 0, failed: 1, pending: 2, configured: 2, connected: 3, disabled: 4 };
   // Anything needing a human first: this lens exists to fix broken auth, not to admire what works.
   const servers = $derived([...(res?.servers || [])]
     .sort((a, b) => (RANK[a.state] ?? 9) - (RANK[b.state] ?? 9) || a.name.localeCompare(b.name)));
@@ -29,22 +39,24 @@
     needs_auth: { icon: 'warning', color: 'var(--warn)', label: 'Needs authentication' },
     failed: { icon: 'close', color: 'var(--attention)', label: 'Failed' },
     pending: { icon: 'clock', color: 'var(--muted)', label: 'Pending approval' },
+    configured: { icon: 'dot', color: 'var(--muted)', label: 'Configured' },
     disabled: { icon: 'idle', color: 'var(--muted)', label: 'Disabled for this project' },
   };
   const stateUi = (s) => STATE_UI[s] || { icon: 'dot', color: 'var(--muted)', label: s };
 
   // Paints the last known list at once, then waits for the live health check, which can take
-  // 30 s when a server is unreachable.
+  // 30 s when a server is unreachable. Pi: no cache, first the config alone, then the
+  // HTTP health check (`check=1`).
   async function load(dir = project) {
     loading = true;
     open = null;
     details = {};
-    const hit = await getMcpServers(dir, true).catch(() => null);
+    const hit = await getMcpServers(dir, !isPi, provider).catch(() => null);
     if (dir !== project) return;
     if (hit) res = hit;
     else if (res?.cwd !== dir) res = null;
     let fresh;
-    try { fresh = await getMcpServers(dir); } catch (_) { fresh = { servers: [], diagnostics: [], error: 'request failed' }; }
+    try { fresh = await getMcpServers(dir, false, provider, isPi); } catch (_) { fresh = { servers: [], diagnostics: [], error: 'request failed' }; }
     if (dir !== project) return;
     res = fresh;
     loading = false;
@@ -55,9 +67,60 @@
     open = name;
     if (details[name]) return;
     busy = name;
-    const r = await mcpAction({ action: 'get', cwd: project, name });
-    if (r.ok) details = { ...details, [name]: r.data.detail };
+    const r = await mcpAction({ action: 'get', cwd: project, name, provider });
+    if (r.ok) details = { ...details, [name]: isPi ? r.data : r.data.detail };
     busy = '';
+  }
+
+  // ---------- gestion des serveurs pi (mcp.json) ----------
+
+  function openEditor(s = null) {
+    editorError = '';
+    if (s) {
+      const d = details[s.name];
+      const raw = d?.raw || { ...(d?.url ? { url: d.url, type: s.transport } : { command: d?.command, args: d?.args, env: d?.env }), ...(d?.headers ? { headers: d.headers } : {}), ...(s.enabled === false ? { enabled: false } : {}) };
+      editor = { name: s.name, scope: s.scope, originalName: s.name, json: JSON.stringify(raw, null, 2) };
+    } else {
+      editor = { name: '', scope: 'project', originalName: null, json: '{\n  "command": "…",\n  "args": []\n}\n' };
+    }
+  }
+
+  async function saveEditor() {
+    if (!editor) return;
+    editorError = '';
+    let config;
+    try { config = JSON.parse(editor.json); } catch (e) { editorError = `Invalid JSON: ${e.message}`; return; }
+    busy = editor.originalName || editor.name;
+    const r = await mcpAction({ action: 'save', cwd: project, name: editor.name, scope: editor.scope, provider, config });
+    busy = '';
+    if (!r.ok) { editorError = r.data?.error || 'Save failed.'; return; }
+    if (editor.originalName && editor.originalName !== editor.name) {
+      await mcpAction({ action: 'remove', cwd: project, name: editor.originalName, scope: editor.scope, provider });
+    }
+    editor = null;
+    notice = `Saved ${r.data.name} in ${r.data.scope} scope (${r.data.file}).`;
+    await load();
+  }
+
+  async function removeServer(s) {
+    if (!confirm(`Remove MCP server “${s.name}” from ${s.scope} scope?`)) return;
+    busy = s.name;
+    const r = await mcpAction({ action: 'remove', cwd: project, name: s.name, scope: s.scope, provider });
+    busy = '';
+    notice = r.ok ? `Removed ${s.name} (${r.data.file}).` : (r.data?.error || `Remove failed for ${s.name}.`);
+    await load();
+  }
+
+  async function toggleEnabled(s) {
+    busy = s.name;
+    const d = details[s.name];
+    const raw = d?.raw || {};
+    const config = { ...raw, enabled: s.state !== 'disabled' ? false : undefined };
+    if (config.enabled === undefined) delete config.enabled;
+    const r = await mcpAction({ action: 'save', cwd: project, name: s.name, scope: s.scope, provider, config });
+    busy = '';
+    notice = r.ok ? `${s.name} ${s.state === 'disabled' ? 'enabled' : 'disabled'}.` : (r.data?.error || 'Toggle failed.');
+    await load();
   }
 
   async function logout(name) {
@@ -119,8 +182,17 @@
     <div>
       <h2>MCP</h2>
       <p class="sub">
-        Servers Claude Code can reach from <code>{project || 'the user scope'}</code>, health-checked
-        live. Re-authenticate one here instead of running <code>/mcp</code> in a terminal.
+        {#if !kind}
+          {agentLbl} keeps its MCP configuration to itself: hooked cannot list it. hooked's own MCP
+          server is handed to every session it launches.
+        {:else if isPi}
+          Servers {agentLbl} can reach from <code>{project || 'the user scope'}</code> (config
+          <code>~/.pi/agent/mcp.json</code> + <code>.pi/mcp.json</code>), HTTP health-checked live.
+          Stdio servers stay « configured ». Add, edit, enable, disable or remove them here.
+        {:else}
+          Servers Claude Code can reach from <code>{project || 'the user scope'}</code>, health-checked
+          live. Re-authenticate one here instead of running <code>/mcp</code> in a terminal.
+        {/if}
       </p>
     </div>
     <div class="count" class:bad={broken > 0}>{broken > 0 ? `${broken} to fix` : servers.length}</div>
@@ -130,7 +202,41 @@
     <button class="btn" onclick={() => load()} disabled={loading}>
       <Icon name={loading ? 'queued' : 'refresh'} size={14} /> {loading ? 'Checking…' : 'Refresh'}
     </button>
+    {#if isPi}
+      <button class="btn" onclick={() => openEditor()} disabled={!!login}>
+        <Icon name="plus" size={14} /> Add server
+      </button>
+    {/if}
   </div>
+
+  {#if isPi && editor}
+    <div class="editor">
+      <div class="auth-head">
+        <strong><Icon name="pencil" size={14} /> {editor.originalName ? `Edit “${editor.originalName}”` : 'Add an MCP server'}</strong>
+        <button class="link" onclick={() => { editor = null; }}>Close</button>
+      </div>
+      <div class="ed-grid">
+        <label class="ed-field">Name
+          <input class="pick" bind:value={editor.name} placeholder="my-server" />
+        </label>
+        <label class="ed-field">Scope
+          <select class="pick" bind:value={editor.scope}>
+            <option value="project">Project (.pi/mcp.json)</option>
+            <option value="user">User (~/.pi/agent/mcp.json)</option>
+          </select>
+        </label>
+      </div>
+      <p class="sub">Config JSON — stdio: <code>{"command","args","env"}</code> · http: <code>{"url","headers","type"}</code> · <code>"enabled": false</code> to disable.</p>
+      <textarea class="ed-json" bind:value={editor.json} spellcheck="false"></textarea>
+      {#if editorError}<p class="sub" style="color:var(--attention)">{editorError}</p>{/if}
+      <div class="urlrow">
+        <button class="btn" onclick={saveEditor} disabled={!editor.name.trim() || busy === editor.name}>
+          <Icon name="check" size={14} /> Save
+        </button>
+        <button class="link" onclick={() => { editor = null; }}>Cancel</button>
+      </div>
+    </div>
+  {/if}
 
   {#if notice}
     <p class="notice">{notice}</p>
@@ -158,13 +264,24 @@
               <div class="target" title={s.target}>{s.target}</div>
             </div>
             <div class="acts">
-              {#if s.authable}
+              {#if !isPi && s.authable}
                 <button class="btn" onclick={() => reauth(s.name)} disabled={!!login && !login.done}>
                   <Icon name="lock" size={14} /> {s.state === 'connected' ? 'Reauth' : 'Authenticate'}
                 </button>
                 {#if s.state === 'connected'}
                   <button class="btn" onclick={() => logout(s.name)} disabled={busy === s.name}>Logout</button>
                 {/if}
+              {/if}
+              {#if isPi}
+                <button class="btn" onclick={() => toggleEnabled(s)} disabled={busy === s.name || !!editor}>
+                  {s.state === 'disabled' ? 'Enable' : 'Disable'}
+                </button>
+                <button class="btn ghost" onclick={async () => { if (!details[s.name]) await toggleDetails(s.name); openEditor(s); }} title="Edit" disabled={busy === s.name}>
+                  <Icon name="pencil" size={14} />
+                </button>
+                <button class="btn ghost" onclick={() => removeServer(s)} title="Remove" disabled={busy === s.name}>
+                  <Icon name="trash" size={14} />
+                </button>
               {/if}
               <button class="btn ghost" onclick={() => toggleDetails(s.name)} title="Details">
                 <Icon name={open === s.name ? 'chevron-down' : 'chevron-right'} size={14} />
@@ -225,9 +342,25 @@
                 <span class="sub">Loading…</span>
               {:else if details[s.name]}
                 {@const d = details[s.name]}
-                {#each [['Scope', d.scopeLabel], ['Status', d.status], ['Type', d.type], ['URL', d.url], ['Command', d.command], ['Args', d.args], ['Environment', d.env]] as [k, v]}
-                  {#if v}<div class="dl"><span>{k}</span><code>{v}</code></div>{/if}
-                {/each}
+                {#if isPi}
+                  {#each [
+                    ['Scope', d.scopeLabel || d.scope],
+                    ['State', d.state],
+                    ['Transport', d.transport],
+                    ['URL', d.url],
+                    ['Command', d.command],
+                    ['Args', d.args ? JSON.stringify(d.args) : null],
+                    ['Environment', d.env ? JSON.stringify(d.env) : null],
+                    ['Headers', d.headers ? JSON.stringify(d.headers) : null],
+                    ['Enabled', d.enabled === false ? 'false' : 'true'],
+                  ] as [k, v]}
+                    {#if v}<div class="dl"><span>{k}</span><code>{v}</code></div>{/if}
+                  {/each}
+                {:else}
+                  {#each [['Scope', d.scopeLabel], ['Status', d.status], ['Type', d.type], ['URL', d.url], ['Command', d.command], ['Args', d.args], ['Environment', d.env]] as [k, v]}
+                    {#if v}<div class="dl"><span>{k}</span><code>{v}</code></div>{/if}
+                  {/each}
+                {/if}
               {/if}
             </div>
           {/if}
@@ -266,6 +399,12 @@
 
   .notice { margin: 0 0 14px; padding: 9px 12px; border-radius: 9px; background: var(--bg2); border: 1px solid var(--border); color: var(--muted); font-size: var(--t-ui); }
   .empty { color: var(--muted); text-align: center; padding: 40px 0; }
+
+  .editor { margin: 0 0 16px; padding: 12px 13px; border: 1px solid var(--accent); border-radius: 10px; background: color-mix(in srgb, var(--accent) 6%, var(--bg2)); }
+  .ed-grid { display: flex; gap: 10px; margin: 8px 0; flex-wrap: wrap; }
+  .ed-field { display: flex; flex-direction: column; gap: 4px; font-size: var(--t-meta); color: var(--muted); flex: 1 1 180px; }
+  .ed-json { width: 100%; min-height: 140px; margin-top: 8px; padding: 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg3); color: var(--text); font-family: var(--mono); font-size: var(--t-meta); resize: vertical; box-sizing: border-box; }
+  .ed-json:focus { outline: none; border-color: var(--accent); }
 
   .auth { border-top: 1px solid var(--accent); background: color-mix(in srgb, var(--accent) 6%, var(--bg2)); padding: 12px 13px; }
   .auth-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }

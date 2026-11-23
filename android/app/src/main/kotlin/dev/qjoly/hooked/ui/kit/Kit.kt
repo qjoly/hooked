@@ -19,7 +19,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.qjoly.hooked.R
 
-// hooked's colour schemes as desktop-rune paints them (theme.rs on top of rune-kit). 1 pt there is 1 dp here.
+// hooked's colour schemes as desktop paints them (theme.rs on top of rune-kit). 1 pt there is 1 dp here.
 
 enum class Scheme(val key: String, val label: String, val swatch: Long) {
     COFFEE("default", "Coffee", 0xFF96684F), INDIGO("indigo", "Indigo", 0xFF7D74F5), LEGACY("legacy", "Legacy", 0xFFA07A55),

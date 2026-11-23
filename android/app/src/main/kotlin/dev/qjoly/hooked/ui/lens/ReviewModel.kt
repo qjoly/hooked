@@ -98,7 +98,7 @@ private fun sourceState(target: JsonElement): DefState.Source {
     return DefState.Source(target, maxOf(line - DEF_PAD, 1), line + DEF_PAD)
 }
 
-/** The Review lens of one session, as desktop-rune's `LensData` and its `Hooked` methods. */
+/** The Review lens of one session, as desktop's `LensData` and its `Hooked` methods. */
 class ReviewModel(val id: String, private val prefs: LensPrefs) : ViewModel() {
     private var app: AppModel? = null
     private var session: SessionModel? = null

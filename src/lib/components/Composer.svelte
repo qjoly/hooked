@@ -2,8 +2,10 @@
   import { onMount, onDestroy } from 'svelte';
   import Icon from '#lib/components/Icon.svelte';
   import { reply, interrupt, launch, getFiles, getCommands, uploadImage } from '#lib/api.js';
-  import { loadSessions, ui, settings, wakeSession } from '#lib/state.svelte.js';
+  import { loadSessions, ui, settings, wakeSession, data } from '#lib/state.svelte.js';
+  import { agentName } from '#lib/format.js';
   import { createSpeechToText } from '#lib/speech.svelte.js';
+  import { prepareImage } from '#lib/imageResize.js';
 
   // `newSession` : pas d'id encore — l'envoi LANCE une session neuve dans `project` (cwd) avec
   // le `model`/`effort` choisis ; `onLaunched(cwd)` est notifié pour ouvrir la session créée.
@@ -13,7 +15,7 @@
   // pourrait envoyer, donc elle est solidaire de la saisie et ne défile pas avec le transcript.
   // Seul le masquage remonte (`onFollowupDismiss`), parce qu'il est persisté par session.
   let { id, project = null, lastPrompt = '',
-        onSent = null, newSession = false, model = '', effort = '', mode = 'default', worktree = false, ephemeral = false, onLaunched = null, groupWith = null,
+        onSent = null, newSession = false, model = '', effort = '', mode = 'default', provider = 'claude', worktree = false, ephemeral = false, onLaunched = null, groupWith = null,
         followup = null, onFollowupDismiss = null } = $props();
 
   // Reprendre la suggestion pour la retoucher : on la pose dans la saisie sans envoyer, et la carte
@@ -36,7 +38,7 @@
   // engine or with the mic denied its state is 'disabled' → no button at all.
   let speech = $state(null);
   const speechState = $derived(speech ? speech.state : 'disabled');
-  onDestroy(() => speech?.destroy());
+  onDestroy(() => { speech?.destroy(); window.removeEventListener('paste', onPaste); });
   function toggleSpeech() { speech?.toggle(text); }
 
   // Raccourcis affichés en permanence sous la zone de saisie (paires [touche, effet]) :
@@ -62,6 +64,10 @@
     if (settings.speechEnabled !== false) {
       speech = createSpeechToText({ lang: settings.speechLang, onText: (t) => { text = t; queueMicrotask(autosize); } });
     }
+    // ⌘V colle une image où que soit le focus sur la page (même hors du textarea : champ de
+    // recherche projet, etc.) — utile sur l'écran « New session » où le focus n'est pas forcément
+    // dans la zone de saisie.
+    window.addEventListener('paste', onPaste);
     if (newSession) queueMicrotask(() => ta?.focus());
   });
   $effect(() => {
@@ -80,33 +86,67 @@
   let uploading = $state(0);    // nb d'uploads en cours
 
   // colle d'image : intercepte les éléments image du presse-papier, les uploade en parallèle.
-  async function onPaste(e) {
-    const items = e.clipboardData && e.clipboardData.items;
-    if (!items) return;
+  // Le handler vit sur window (cf. onMount) pour capter ⌘V même sans focus dans le textarea.
+  const IMG_EXT = /\.(png|jpe?g|gif|webp)$/i;
+  function pastedImages(clipboardData) {
+    const items = clipboardData && clipboardData.items;
+    if (!items) return [];
     const files = [];
-    for (const it of items) if (it.kind === 'file' && it.type.startsWith('image/')) { const f = it.getAsFile(); if (f) files.push(f); }
-    if (!files.length) return;
+    for (const it of items) {
+      if (it.kind !== 'file') continue;
+      const f = it.getAsFile();
+      if (!f) continue;
+      // Gecko colle un fichier image copié dans le Finder en « application/x-moz-file » (pas
+      // image/*) : on se rabat alors sur l'extension du nom de fichier.
+      const byName = (it.type === 'application/x-moz-file' || !it.type) && IMG_EXT.test(f.name || '');
+      if (it.type.startsWith('image/') || byName) files.push(f);
+    }
+    return files;
+  }
+  function onPaste(e) {
+    const files = pastedImages(e.clipboardData);
+    if (!files.length) return;          // collage de texte : on laisse le champ focalisé faire
     e.preventDefault();                 // on gère l'image nous-mêmes (pas d'insertion de texte)
     for (const f of files) addImage(f);
   }
 
-  function addImage(file) {
-    const reader = new FileReader();
+  // Large screenshots are downscaled / re-encoded in the browser first (see imageResize.js):
+  // a raw Retina PNG would blow past the server's request body limit.
+  function imageError(msg) {
+    status = { text: '✗ image: ' + msg, cls: 'err' };
+    setTimeout(() => { status = { text: '', cls: '' }; }, 5000);
+  }
+  async function addImage(file) {
     uploading++;
-    reader.onload = async () => {
-      const dataUrl = reader.result;
+    try {
+      const { dataUrl } = await prepareImage(file);
       const res = await uploadImage(dataUrl).catch((err) => ({ ok: false, data: { error: err.message } }));
-      uploading--;
       if (res.ok) {
         images = [...images, { path: res.data.path, url: dataUrl, name: res.data.name }];
         queueMicrotask(() => ta && ta.focus());
       } else {
-        status = { text: '✗ image: ' + (res.data.error || 'failed'), cls: 'err' };
-        setTimeout(() => { status = { text: '', cls: '' }; }, 3500);
+        imageError(res.data.error || (res.status === 413 ? 'image too large for the server' : 'upload failed'));
       }
-    };
-    reader.onerror = () => { uploading--; status = { text: '✗ cannot read image', cls: 'err' }; };
-    reader.readAsDataURL(file);
+    } catch (err) {
+      imageError(err.message || 'cannot read image');
+    } finally {
+      uploading--;
+    }
+  }
+  // Drag and drop of image files onto the composer.
+  let dragOver = $state(false);
+  const hasFiles = (e) => Array.from(e.dataTransfer?.types || []).includes('Files');
+  function onDragOver(e) {
+    if (!hasFiles(e)) return;
+    e.preventDefault();
+    dragOver = true;
+  }
+  function onDrop(e) {
+    dragOver = false;
+    const files = Array.from(e.dataTransfer?.files || []).filter((f) => f.type.startsWith('image/') || IMG_EXT.test(f.name || ''));
+    if (!files.length) return;
+    e.preventDefault();
+    for (const f of files) addImage(f);
   }
   function removeImage(i) { images = images.filter((_, j) => j !== i); }
 
@@ -153,7 +193,7 @@
     acStart = 0; // index du « / » (début de message)
     const myReq = ++acReq;
     try {
-      const d = await getCommands(id, q, newSession ? project : null);
+      const d = await getCommands(id, q, newSession ? project : null, provider);
       if (myReq !== acReq || ta.selectionStart !== pos) return; // réponse périmée
       acItems = (d.commands || []).map((c) => ({
         insert: '/' + c.name + ' ', label: '/' + c.name, sub: c.description || '',
@@ -293,7 +333,7 @@
     busy = true;
     status = { text: newSession ? 'launching…' : 'sending…', cls: '' };
     const res = newSession
-      ? await launch({ cwd: project, prompt: full, model, effort, worktree, ephemeral, permissionMode: mode, groupWith: groupWith || undefined, incognito: ui.incognito || undefined }).catch((e) => ({ ok: false, data: { error: e.message } }))
+      ? await launch({ cwd: project, prompt: full, model, effort, provider, worktree, ephemeral, permissionMode: mode, groupWith: groupWith || undefined, incognito: ui.incognito || undefined }).catch((e) => ({ ok: false, data: { error: e.message } }))
       : await reply(id, full).catch((e) => ({ ok: false, data: { error: e.message } }));
     if (res.ok) {
       if (!newSession) wakeSession(id);
@@ -343,10 +383,10 @@
     </div>
   </div>
 {/if}
-<div class="composer">
+<div class="composer" class:drag-over={dragOver} role="group" ondragover={onDragOver} ondragleave={() => (dragOver = false)} ondrop={onDrop}>
   <textarea bind:this={ta} bind:value={text} id="reply-text" rows="1" disabled={busy}
-            placeholder={newSession ? 'Describe your task to start the session…' : 'Reply to Claude…'}
-            oninput={onInput} onkeydown={onKeydown} onpaste={onPaste} onblur={() => setTimeout(closeAc, 150)}></textarea>
+            placeholder={newSession ? 'Describe your task to start the session…' : `Reply to ${agentName(provider, data.providerList)}…`}
+            oninput={onInput} onkeydown={onKeydown} onblur={() => setTimeout(closeAc, 150)}></textarea>
   <div class="composer-actions">
     {#if speechState !== 'disabled' && speechState !== 'failed'}
       {@const listening = speechState === 'listening'}

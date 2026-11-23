@@ -16,9 +16,11 @@ import { createRequire } from 'node:module';
 // `node:sqlite` est un module natif Node 24+. On le charge via createRequire pour que
 // le résolveur de Vite ne tente pas de le transformer (sinon : "Failed to load url sqlite").
 const { DatabaseSync } = createRequire(import.meta.url)('node:sqlite');
-import { HOOKED_DIR, PROJECTS_DIR } from './config.js';
-import { scanSessions } from './transcript.js';
+import { HOOKED_DIR, PROJECTS_DIR, PI_SESSIONS_DIR } from './config.js';
+import { scanAllSessions } from './sessions.js';
 import { buildConversation } from './conversation.js';
+import { engineForSession } from './providers.js';
+import { readdirSafe, statSafe } from './util.js';
 
 let db = null;
 let dbPath = null;
@@ -73,9 +75,12 @@ function open() {
 // Indexe (ou ré-indexe) un transcript. Idempotent : supprime les anciennes lignes
 // pour ce fichier avant insertion. Renvoie le nombre de messages insérés.
 function indexFile(d, sum, mtimeMs) {
-  const msgs = buildConversation(sum.file, false);
+  const key = sum.file;
+  // Non-Claude sessions are read through their engine (pi session file, provider journal…).
+  const eng = sum.engine && sum.engine !== 'claude' ? engineForSession(sum) : null;
+  const msgs = eng ? (eng.conversation ? eng.conversation(sum) : []) : buildConversation(sum.file, false);
   const del = d.prepare('DELETE FROM messages WHERE file = ?');
-  del.run(sum.file);
+  del.run(key);
   const ins = d.prepare(
     'INSERT INTO messages (file, session_id, project, role, ts, text) VALUES (?, ?, ?, ?, ?, ?)'
   );
@@ -84,32 +89,41 @@ function indexFile(d, sum, mtimeMs) {
     if (m.role !== 'user' && m.role !== 'assistant') continue;
     const text = (m.text || '').trim();
     if (!text) continue;
-    ins.run(sum.file, sum.id, sum.project || '', m.role, m.ts || '', text);
+    ins.run(key, sum.id, sum.project || '', m.role, m.ts || '', text);
     n++;
   }
   const up = d.prepare(
     'INSERT INTO sessions (file, session_id, project, mtime) VALUES (?, ?, ?, ?) ' +
     'ON CONFLICT(file) DO UPDATE SET session_id = excluded.session_id, project = excluded.project, mtime = excluded.mtime'
   );
-  up.run(sum.file, sum.id, sum.project || '', Math.floor(mtimeMs));
+  up.run(key, sum.id, sum.project || '', Math.floor(mtimeMs));
   return n;
 }
 
-// Rafraîchit l'index : pour chaque transcript de premier niveau, ré-indexe si mtime change.
-// Supprime aussi les sessions disparues du FS. Renvoie un compte des opérations.
-function refresh(projectsDir = PROJECTS_DIR) {
+// mtime d'un fichier de session pi (le .jsonl lui-même).
+function piFileMtime(file) {
+  const st = statSafe(file);
+  return st ? Math.floor(st.mtimeMs) : 0;
+}
+
+// Rafraîchit l'index : pour chaque transcript (claude) / fichier de session (pi), ré-indexe
+// si mtime change. Supprime aussi les sessions disparues du FS. Renvoie un compte des opérations.
+function refresh(projectsDir = PROJECTS_DIR, piSessionsDir = PI_SESSIONS_DIR) {
   const d = open();
-  const sums = scanSessions(projectsDir);
+  const sums = scanAllSessions(projectsDir, piSessionsDir);
   const seen = new Set();
   let indexed = 0, skipped = 0, removed = 0;
   const get = d.prepare('SELECT mtime FROM sessions WHERE file = ?');
   d.exec('BEGIN');
   try {
     for (const sum of sums) {
-      seen.add(sum.file);
-      let st; try { st = fs.statSync(sum.file); } catch (_) { continue; }
-      const mt = Math.floor(st.mtimeMs);
-      const row = get.get(sum.file);
+      const key = sum.file;
+      seen.add(key);
+      let mt;
+      if (sum.engine && sum.engine !== 'claude') mt = piFileMtime(sum.file);
+      else { let st; try { st = fs.statSync(sum.file); } catch (_) { continue; } mt = Math.floor(st.mtimeMs); }
+      if (!mt) continue;
+      const row = get.get(key);
       if (row && row.mtime === mt) { skipped++; continue; }
       indexFile(d, sum, mt);
       indexed++;
@@ -142,10 +156,10 @@ function quotePhrase(s) {
 // chacun cité en phrase. Filtre optionnel sur project. Renvoie au plus `limit` résultats
 // classés par bm25(), avec un snippet HTML <mark>...</mark> autour du match.
 function search(q, opts = {}) {
-  const { project = null, limit = 50, projectsDir = PROJECTS_DIR } = opts;
+  const { project = null, limit = 50, projectsDir = PROJECTS_DIR, piSessionsDir = PI_SESSIONS_DIR } = opts;
   const query = String(q || '').trim();
   if (!query) return [];
-  refresh(projectsDir);
+  refresh(projectsDir, piSessionsDir);
   const d = open();
   const tokens = query.split(/\s+/).filter(Boolean).map(quotePhrase);
   if (!tokens.length) return [];

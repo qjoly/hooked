@@ -1,6 +1,6 @@
 # hooked for Android tablets
 
-A native Jetpack Compose client for hooked, ported from `desktop-rune`: same design system (six
+A native Jetpack Compose client for hooked, ported from `desktop`: same design system (six
 colour schemes, light/dark, round or square corners, Inter and JetBrains Mono, Lucide icons) and
 the same screens. It talks to the hooked service over the HTTP API and event streams the web
 dashboard uses.

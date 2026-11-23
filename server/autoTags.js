@@ -7,7 +7,10 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { HOOKED_DIR } from './config.js';
-import { scanSessions } from './transcript.js';
+import { scanAllSessions } from './sessions.js';
+import { resolveClaudeBin } from './commands.js';
+import { runPiHeadless } from './piCli.js';
+import { objFromBraces } from './claudeJson.js';
 import { readTags, setTags } from './tags.js';
 import { runClaude } from './mcp.js';
 import { modelJson } from './claudeJson.js';
@@ -80,6 +83,14 @@ async function suggestTags(s, tagMap = readTags()) {
     '--no-session-persistence', '--tools', '', '--strict-mcp-config', '--disable-slash-commands',
     '--settings', JSON.stringify({ disableAllHooks: true }),
   ];
+  if (!resolveClaudeBin()) {
+    // Pas de binaire claude installé → `pi -p --output json` (même contrat de sortie).
+    const r = await runPiHeadless(buildPrompt(s, vocabulary(tagMap)), { cwd: os.tmpdir(), timeout: CALL_TIMEOUT_MS });
+    const obj = objFromBraces(r.text);
+    const raw = obj && Array.isArray(obj.tags) ? obj.tags : [];
+    const tags = raw.filter((t) => typeof t === 'string').map((t) => t.trim().replace(/^#+/, '').trim().toLowerCase().replace(/\s+/g, '-').slice(0, 24)).filter((t) => t && !NOT_VOCABULARY.has(t));
+    return [...new Set(tags)].slice(0, MAX_SUGGESTED);
+  }
   const { ok, stdout, out } = await runClaude(args, os.tmpdir(), CALL_TIMEOUT_MS);
   const tags = parseSuggestion(stdout);
   if (!tags.length && !ok) throw new Error('claude -p failed: ' + out.slice(0, 300));
@@ -88,7 +99,7 @@ async function suggestTags(s, tagMap = readTags()) {
 
 // Tags one session (merge, never remove) and marks it done. Returns the full tag map.
 async function autoTagSession(id) {
-  const s = scanSessions().find((x) => x.id === id);
+  const s = scanAllSessions().find((x) => x.id === id);
   if (!s) throw new Error('session not found');
   markDone(id); // claimed before the call: a second hooked process or a failure must not retry in a loop
   const suggested = await suggestTags(s);
@@ -106,7 +117,7 @@ async function autoTagTick() {
   try {
     const done = readDone();
     const since = Date.now() - MAX_AGE_MS;
-    const todo = scanSessions().filter((s) => !done[s.id] && s.assistantTurns > 0 && !isOwnRun(s)
+    const todo = scanAllSessions().filter((s) => !done[s.id] && s.assistantTurns > 0 && !isOwnRun(s)
       && s.lastTs && Date.parse(s.lastTs) >= since);
     for (const s of todo) {
       try { await autoTagSession(s.id); } catch (e) { console.warn(`[hooked] auto-tags: ${s.id}: ${e.message || e}`); }

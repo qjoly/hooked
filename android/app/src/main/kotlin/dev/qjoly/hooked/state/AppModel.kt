@@ -44,7 +44,7 @@ sealed interface Page {
     data object Settings : Page
 }
 
-/** App-wide state, as desktop-rune's `Hooked` holds it: the server, the lists, the prefs and the page. */
+/** App-wide state, as desktop's `Hooked` holds it: the server, the lists, the prefs and the page. */
 class AppModel(app: Application) : AndroidViewModel(app) {
     val prefs = UiPrefs(app)
 

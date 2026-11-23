@@ -1,5 +1,13 @@
 [tools]
 node = "26"
+# pi (provider Mistral, branche feat/pi-mistral) — dans [tools] RACINE et pas dans une tâche :
+# le service hooked est lancé par launchd/systemd via `mise x -- bash deploy/service-run.sh`
+# (cf. tasks.service-install), donc seuls les tools racine sont dans le PATH du service.
+# Avec le shim pi dispo, `which pi` réussit sous launchd et la détection auto
+# (server/providers.js → providers.pi) marche sans fallback sur les chemins en dur.
+# Sur une machine qui n'utilise pas le provider pi, retirer cette ligne (mise n'installera
+# alors plus le package) — hooked détecte l'absence et masque pi.
+"npm:@earendil-works/pi-coding-agent" = "1.6.0"
 
 [env]
 PORT = "4123"
@@ -27,6 +35,25 @@ run = "npm run build && (git rev-parse HEAD > build/.hooked-src-commit 2>/dev/nu
 description = "Branche hooked sur les hooks Claude Code (~/.claude/settings.json)"
 run = "node install.cjs"
 
+# Le binaire pi vient de mise ([tools] "npm:@earendil-works/pi-coding-agent" — `mise x` le rend
+# dispo, y compris pour le service). Cette tâche ne couvre que le setup MANUEL machine-spécifique
+# qu'aucun gestionnaire de packages ne peut faire : le package Mistral + le sign-in OAuth
+# (interactif) + le MCP hooked, tous dans ~/.pi/agent (cf. docs/port-pi.md §0).
+[tasks.setup-pi]
+description = "Setup manuel du provider pi (Mistral) : package pi-mistral-subscription + sign-in"
+run = '''
+set -e
+command -v pi >/dev/null || { echo "✗ binaire pi introuvable — lance d'abord: mise use npm:@earendil-works/pi-coding-agent@1.6.0" >&2; exit 1; }
+pi install https://github.com/5omeOtherGuy/pi-mistral-subscription
+echo ""
+echo "✅ Package pi-mistral-subscription installé (~/.pi/agent/settings.json)."
+echo "Reste 2 étapes manuelles (interactives, cf. docs/port-pi.md §0) :"
+echo "  1. Sign-in Mistral : lance \`pi\` dans un terminal et fais le sign-in OAuth"
+echo "     (device flow 100 % API documenté dans docs/port-pi.md → ~/.pi/agent/auth.json, mode 0600)."
+echo "  2. MCP hooked dans pi : ~/.pi/agent/mcp.json (stdio vers le serveur hooked, cf. docs/port-pi.md)."
+echo "Dans hooked, providers.pi = 'auto' (défaut) suffit alors ; 'on' force, 'off' masque."
+'''
+
 [tasks.setup]
 description = "Installation complète : deps + build + hooks Claude Code"
 depends = ["build", "setup-hooks"]
@@ -40,7 +67,7 @@ echo "↻  Pense à redémarrer tes sessions Claude Code pour activer les hooks.
 
 [tasks.start]
 description = "Démarre le dashboard (http://localhost:4123)"
-run = "HOST=${HOST:-127.0.0.1} node build"
+run = "HOST=${HOST:-127.0.0.1} BODY_SIZE_LIMIT=${BODY_SIZE_LIMIT:-21M} node build"
 
 [tasks.dev]
 description = "Lance Vite en mode dev (front uniquement)"
@@ -48,7 +75,7 @@ run = "npm run dev"
 
 [tasks.dev-server]
 description = "Lance le serveur Node en mode dev"
-run = "node build"
+run = "BODY_SIZE_LIMIT=${BODY_SIZE_LIMIT:-21M} node build"
 
 [tasks.test]
 description = "Lance la suite Vitest"
@@ -61,7 +88,7 @@ run = "mise run build && mise run service-restart"
 # A deploy restarts hooked, which cuts the turn of every driven session (the one running it
 # included), so it is skipped when the build already holds the checkout's build inputs. The stamp
 # (the commit deploy/service-run.sh built) is compared on those inputs only, so commits touching
-# nothing else (desktop-rune, docs) do not count. The mtime test catches edits made since the last
+# nothing else (desktop, docs) do not count. The mtime test catches edits made since the last
 # build, and stops matching once they are built: rerunning after a restart cut it short is a no-op.
 [tasks.deploy-if-stale]
 description = "Redeploy the service only when its build lags behind the checkout"
@@ -298,42 +325,34 @@ description = "Regenerate docs/screenshots from a throwaway instance fed with fi
 run = "node scripts/screenshots.mjs"
 
 # Rust n'est tiré que par ces tâches : le build du front n'en a pas besoin.
-[tasks.desktop-icons]
-description = "Génère les icônes de l'app Tauri depuis static/icon-512.png"
-tools = { "npm:@tauri-apps/cli" = "2" }
-run = "tauri icon static/icon-512.png --output desktop/src-tauri/icons"
+[tasks.desktop-icon]
+description = "Régénère desktop/icons/icon.icns depuis static/icon-512.png (macOS)"
+run = '''
+set -e
+SET="$(mktemp -d)/hooked.iconset"
+mkdir -p "$SET"
+for spec in 16 32 128 256 512; do
+  sips -z $spec $spec static/icon-512.png --out "$SET/icon_${spec}x${spec}.png" >/dev/null
+  sips -z $((spec*2)) $((spec*2)) static/icon-512.png --out "$SET/icon_${spec}x${spec}@2x.png" >/dev/null
+done
+iconutil -c icns "$SET" -o desktop/icons/icon.icns
+'''
 
 # Remplace l'app installée et la relance : une seule copie lançable, donc jamais
 # de doute sur la version qui tourne.
 [tasks.desktop]
-description = "Build l'app Tauri, l'installe dans /Applications et la relance"
-dir = "desktop/src-tauri"
-tools = { rust = "latest", "npm:@tauri-apps/cli" = "2" }
-run = """
-cp ../../node_modules/markdown-it/dist/browser/markdown-it.umd.min.js ../ui/markdown-it.min.js
-tauri build
-osascript -e 'quit app id "dev.qjoly.hooked"' 2>/dev/null || true
-sleep 1
-rm -rf /Applications/hooked.app
-ditto target/release/bundle/macos/hooked.app /Applications/hooked.app
-open /Applications/hooked.app
-"""
-
-# Experimental native client (Rune, no webview). Installed next to the Tauri app
-# under its own bundle id, so both can be compared side by side.
-[tasks.desktop-rune]
-description = "Build the native Rune app, redeploy the service if stale, install the app in /Applications and relaunch it"
-dir = "desktop-rune"
+description = "Build the desktop app, redeploy the service if stale, install it in /Applications and relaunch it"
+dir = "desktop"
 tools = { rust = "1.99.1", zig = "0.17.1" }
 run = """
 set -e
 cargo build --release
-APP="target/hooked (Rune).app"
+APP="target/hooked.app"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp target/release/hooked-rune "$APP/Contents/MacOS/"
 cp Info.plist "$APP/Contents/"
-cp ../desktop/src-tauri/icons/icon.icns "$APP/Contents/Resources/"
+cp icons/icon.icns "$APP/Contents/Resources/"
 # Sign the bundle (ad hoc) so the binary carries the bundle id. The linker's own signature names
 # it "hooked_rune-<hash>", and macOS then ignores the Local Network permission granted to
 # dev.qjoly.hooked-rune: every connection to a LAN address fails with "No route to host".
@@ -343,22 +362,25 @@ codesign --force --sign - "$APP"
 # task, the old app keeps running, and a rerun finds the back end current and just installs.
 # Not fatal: a failed deploy (or no installed service) should not cost the app build.
 mise run deploy-if-stale || echo "⚠ back end not redeployed, the app may call a stale service" >&2
+# Quit the running app, whatever name it was installed under (the old Tauri bundle, or the Rune
+# app still called "hooked (Rune)"), then replace both with the single app at /Applications/hooked.app.
+osascript -e 'quit app id "dev.qjoly.hooked"' 2>/dev/null || true
 osascript -e 'quit app id "dev.qjoly.hooked-rune"' 2>/dev/null || true
 sleep 1
-rm -rf "/Applications/hooked (Rune).app"
-ditto "$APP" "/Applications/hooked (Rune).app"
-open "/Applications/hooked (Rune).app"
+rm -rf "/Applications/hooked.app" "/Applications/hooked (Rune).app"
+ditto "$APP" "/Applications/hooked.app"
+open "/Applications/hooked.app"
 """
 
-[tasks.desktop-rune-dev]
-description = "Run the native Rune app from source with live editing: body edits patch it in place, others rebuild and relaunch"
-dir = "desktop-rune"
+[tasks.desktop-dev]
+description = "Run the desktop app from source with live editing: body edits patch it in place, others rebuild and relaunch"
+dir = "desktop"
 tools = { rust = "1.99.1", zig = "0.17.1", python = "3.13" }
 run = "scripts/dev"
 
-[tasks.desktop-rune-run]
-description = "Run the native Rune app from source once, without live editing"
-dir = "desktop-rune"
+[tasks.desktop-run]
+description = "Run the desktop app from source once, without live editing"
+dir = "desktop"
 tools = { rust = "1.99.1", zig = "0.17.1" }
 run = "cargo run --features knobs"
 

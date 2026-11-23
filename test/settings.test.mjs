@@ -122,6 +122,27 @@ describe('hiddenModels', () => {
   });
 });
 
+describe('hiddenPiModels', () => {
+  it('starts empty (nothing hidden in the pi catalogue)', async () => {
+    const { DEFAULT_HIDDEN_PI_MODELS } = await import('../src/lib/models.js');
+    expect(DEFAULT_HIDDEN_PI_MODELS).toEqual([]);
+    expect(readSettings().hiddenPiModels).toEqual(DEFAULT_HIDDEN_PI_MODELS);
+  });
+
+  it('persists the ids the pi catalogue produces', () => {
+    const s = writeSettings({ hiddenPiModels: ['mistral-small-latest', 'zai-glm-5-3-flash'] });
+    expect(s.hiddenPiModels).toEqual(['mistral-small-latest', 'zai-glm-5-3-flash']);
+    expect(readSettings().hiddenPiModels).toEqual(['mistral-small-latest', 'zai-glm-5-3-flash']);
+  });
+
+  it('drops junk, dedupes, and respects an explicit empty list', () => {
+    expect(writeSettings({ hiddenPiModels: ['devstral-2512', 'devstral-2512', '', 'two words', 42] }).hiddenPiModels)
+      .toEqual(['devstral-2512']);
+    expect(writeSettings({ hiddenPiModels: [] }).hiddenPiModels).toEqual([]);
+    expect(writeSettings({ hiddenPiModels: 'not-an-array' }).hiddenPiModels).toEqual([]);
+  });
+});
+
 describe('speechLang', () => {
   it("defaults to 'fr-FR'", () => {
     expect(readSettings().speechLang).toBe('fr-FR');

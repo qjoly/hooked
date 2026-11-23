@@ -14,6 +14,8 @@ async function jpost(url, body) {
 }
 
 export const getSessions = async () => (await jget('/api/sessions')).sessions;
+// Liste + providers configurés (claude/pi) en un seul appel — cf. /api/sessions.
+export const getSessionsFull = () => jget('/api/sessions');
 export const getSession = (id) => jget('/api/session?id=' + encodeURIComponent(id));
 // Incremental variant for the open session: `prev` is the copy we hold; the server only sends the
 // tail of the conversation and skips the heavy lists that did not change. Falls back to a full
@@ -96,10 +98,27 @@ export function connectBackgroundLog({ id, taskId, onSeed, onData, onUnavailable
 export const getFiles = (id, q, cwd) => jget(`/api/files?id=${encodeURIComponent(id || '')}&q=${encodeURIComponent(q)}${cwd ? '&cwd=' + encodeURIComponent(cwd) : ''}`);
 // Tools a driven session sends to the model (built-in + MCP, with token cost). No id = any driven session.
 export const getLlmTools = (id) => jget(`/api/llm-tools${id ? '?id=' + encodeURIComponent(id) : ''}`);
-export const getCommands = (id, q, cwd) => jget(`/api/commands?id=${encodeURIComponent(id || '')}&q=${encodeURIComponent(q)}${cwd ? '&cwd=' + encodeURIComponent(cwd) : ''}`);
+export const getCommands = (id, q, cwd, provider) => jget(`/api/commands?id=${encodeURIComponent(id || '')}&q=${encodeURIComponent(q)}${cwd ? '&cwd=' + encodeURIComponent(cwd) : ''}${provider ? '&provider=' + encodeURIComponent(provider) : ''}`);
 export const getAgent = (session, agent) => jget(`/api/agent?session=${encodeURIComponent(session)}&agent=${encodeURIComponent(agent)}`);
 // Défauts modèle/effort lus depuis ~/.claude (config Claude Code de l'utilisateur).
 export const getDefaults = () => jget('/api/defaults');
+// Launch options of a provider (models, thinking / effort levels, modes) — the pickers of the New
+// session screen, the live model switch and Cron. Memoised per provider for the page's life (the
+// pi catalog takes a `pi --list-models`); `fresh` refetches.
+const _provOpts = new Map();
+export const getProviderOptions = (provider, fresh = false) => {
+  const key = provider || 'pi';
+  if (fresh || !_provOpts.has(key)) {
+    _provOpts.set(key, jget('/api/provider-options?provider=' + encodeURIComponent(key)).catch((e) => { _provOpts.delete(key); throw e; }));
+  }
+  return _provOpts.get(key);
+};
+// Historical name (built-in pi provider).
+export const getPiOptions = () => getProviderOptions('pi');
+// Providers + engines known to the server (settings page); reloadProviderEngines re-imports the
+// external engine modules.
+export const getProviders = () => jget('/api/providers');
+export const reloadProviderEngines = () => jpost('/api/providers', { action: 'reload' });
 // Modèles (groupés) & efforts DISPONIBLES, dérivés du binaire claude par le serveur (aucune liste
 // figée) — cf. server/capabilities.js. Mémoïsé : une seule requête par chargement de page, partagée
 // entre toutes les instances du sélecteur. Reset en cas d'échec pour permettre un nouvel essai.
@@ -131,15 +150,15 @@ export const groupOp = (op, id, extra = {}) => jpost('/api/session-meta', { op, 
 // generation, poll getDigest until status is done/partial/error.
 export const getMemory = () => jget('/api/memory');
 const cwdQuery = (cwds) => (cwds || []).map((c) => '&cwd=' + encodeURIComponent(c)).join('');
-export const getSkills = (cwds) => jget('/api/skills?' + cwdQuery(cwds).slice(1));
+export const getSkills = (cwds, provider = 'all') => jget('/api/skills?provider=' + provider + (cwds && cwds.length ? '&' + cwdQuery(cwds).slice(1) : ''));
 export const getCronTasks = () => jget('/api/cron');
 export const cronOp = (op, extra) => jpost('/api/cron', { op, ...extra });
 export const getFlows = () => jget('/api/flows');
 export const flowOp = (op, extra) => jpost('/api/flows', { op, ...extra });
-export const getSkill = (id, cwds) => jget('/api/skills?id=' + encodeURIComponent(id) + cwdQuery(cwds));
+export const getSkill = (id, cwds, provider = 'all') => jget('/api/skills?id=' + encodeURIComponent(id) + '&provider=' + provider + cwdQuery(cwds));
 // MCP servers of a project (health-checked list, scope, diagnostics) + the OAuth actions.
 // `cwd` selects the project: project- and local-scope servers are per-directory.
-export const getMcpServers = (cwd, cached = false) => jget('/api/mcp?cwd=' + encodeURIComponent(cwd || '') + (cached ? '&cached=1' : ''));
+export const getMcpServers = (cwd, cached = false, provider = 'claude', check = false) => jget('/api/mcp?cwd=' + encodeURIComponent(cwd || '') + (cached ? '&cached=1' : '') + (provider && provider !== 'claude' ? '&provider=' + encodeURIComponent(provider) : '') + (check ? '&check=1' : ''));
 // Trace lens: tool-call spans grouped by turn, and one span's input/result on demand.
 export const getTrace = (id) => jget('/api/session/trace?id=' + encodeURIComponent(id));
 export const getTraceTool = (id, tool) => jget('/api/session/trace?id=' + encodeURIComponent(id) + '&tool=' + encodeURIComponent(tool));

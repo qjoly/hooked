@@ -1,7 +1,7 @@
 import { promisify } from 'node:util';
 import { gzip as gzipCb } from 'node:zlib';
 import { dev } from '$app/env';
-import { startDigestScheduler, startCronScheduler, startRemoteControl, readSettings, resumeDrivenSessions, startDrivenSnapshot, installShutdownHook, startWarmupScheduler, startAutoCompactScheduler, applyGitSyncSetting, applyPrReviewTagSetting, applyAutoTagSetting, startPrWatch, startWorktreeCleanup, startAutoPull, startFlowEngine } from '#lib/server/core.js';
+import { startDigestScheduler, startCronScheduler, startRemoteControl, readSettings, resumeDrivenSessions, startDrivenSnapshot, installShutdownHook, startWarmupScheduler, startAutoCompactScheduler, applyGitSyncSetting, applyPrReviewTagSetting, applyAutoTagSetting, startPrWatch, startWorktreeCleanup, startAutoPull, loadExternalEngines, startFlowEngine } from '#lib/server/core.js';
 
 const gzip = promisify(gzipCb);
 
@@ -9,6 +9,10 @@ const gzip = promisify(gzipCb);
 // never exits, so any handle left behind (fs watchers, driven subprocesses, PTYs) keeps hooked
 // alive with a dead dashboard. Installed in dev too: the handles are the same there.
 installShutdownHook();
+
+// External provider engines (modules in HOOKED_PROVIDERS_DIR, default ~/.claude/hooked/providers):
+// loaded in every deployment so their providers show up; driven sessions are resumed after it.
+const enginesReady = loadExternalEngines().catch(() => {});
 
 // Server-init side effects. Skipped for an AD HOC `npm run live`/`npm run dev` (a developer
 // hacking on hooked itself) — we don't want that boot spawning claude processes against the live
@@ -32,7 +36,8 @@ if (!dev || process.env.HOOKED_MODE) {
   applyAutoTagSetting(settings);
   // Sessions live in this process, so a restart kills them all. Bring back the ones that were being
   // driven when we last stopped, then keep the snapshot current for the next restart.
-  resumeDrivenSessions();
+  // A session of an external provider can only resume once its engine module is loaded.
+  enginesReady.finally(() => resumeDrivenSessions());
   startDrivenSnapshot();
   // Flow runs in progress: their stage sessions come back through the resume above.
   startFlowEngine({ adopt: true });

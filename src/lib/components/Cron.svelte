@@ -1,6 +1,7 @@
 <script>
   import { getCronTasks, cronOp } from '#lib/api.js';
   import { data } from '#lib/state.svelte.js';
+  import { providerListAll, providerEngine } from '#lib/providers.js';
   import { nextRuns } from '#lib/cron.js';
   import { knownProjects } from '#lib/projects.js';
   import { fmtSpan, ago } from '#lib/format.js';
@@ -13,7 +14,7 @@
     ['Weekdays 9:00', '0 9 * * 1-5'],
     ['Mondays 9:00', '0 9 * * 1'],
   ];
-  const EMPTY = { id: null, name: '', schedule: '0 9 * * 1-5', cwd: '', prompt: '', model: '', effort: '', permissionMode: 'default', ephemeral: false, enabled: true };
+  const EMPTY = { id: null, name: '', schedule: '0 9 * * 1-5', cwd: '', prompt: '', model: '', effort: '', permissionMode: 'default', provider: 'claude', ephemeral: false, enabled: true };
 
   let tasks = $state(null);
   let error = $state('');
@@ -42,7 +43,7 @@
   function edit(t) {
     selectedId = t ? t.id : 'new';
     form = t
-      ? { id: t.id, name: t.name, schedule: t.schedule, cwd: t.cwd, prompt: t.prompt, model: t.model || '', effort: t.effort || '', permissionMode: t.permissionMode, ephemeral: t.ephemeral, enabled: t.enabled }
+      ? { id: t.id, name: t.name, schedule: t.schedule, cwd: t.cwd, prompt: t.prompt, model: t.model || '', effort: t.effort || '', permissionMode: t.permissionMode, provider: t.provider || 'claude', ephemeral: t.ephemeral, enabled: t.enabled }
       : { ...EMPTY };
     notice = '';
   }
@@ -157,7 +158,20 @@
         <label class="lf-label" for="cr-prompt">Prompt</label>
         <textarea id="cr-prompt" class="lf-input" rows="7" placeholder="What the session should do on each run" bind:value={form.prompt}></textarea>
 
+        <label class="fld"><span>Provider</span>
+          <select bind:value={form.provider}>
+            {#each providerListAll(data.providerList) as p (p.id)}
+              <option value={p.id} disabled={!data.providers[p.id] && p.id !== form.provider}>{p.label}{data.providers[p.id] ? '' : ' (off)'}</option>
+            {/each}
+          </select>
+        </label>
+        {#if providerEngine(form.provider, data.providerList) === 'claude'}
         <ModelEffort allowInherit showMode bind:model={form.model} bind:effort={form.effort} bind:mode={form.permissionMode} />
+        {:else}
+        <label class="fld"><span>Model</span>
+          <input class="lf-input mono" bind:value={form.model} placeholder="provider default (e.g. mistral/devstral-medium-latest)" />
+        </label>
+        {/if}
 
         <label class="check">
           <input type="checkbox" bind:checked={form.ephemeral} /> Ephemeral: the session archives itself once it is sure nothing is left for you

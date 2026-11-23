@@ -41,7 +41,7 @@ import dev.qjoly.hooked.ui.kit.Size
 import dev.qjoly.hooked.ui.kit.Variant
 import dev.qjoly.hooked.ui.kit.k
 
-/** desktop-rune's top bar: logo, tabs, the omni field, gauges, actions, "+ Session" and the connection dot. */
+/** desktop's top bar: logo, tabs, the omni field, gauges, actions, "+ Session" and the connection dot. */
 @Composable
 fun TopBar(app: AppModel, wide: Boolean, onPalette: () -> Unit, onAccount: () -> Unit, onTrash: () -> Unit) {
     val c = k.c

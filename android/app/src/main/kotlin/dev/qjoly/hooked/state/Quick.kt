@@ -7,7 +7,7 @@ import dev.qjoly.hooked.data.PendingQuestion
 import dev.qjoly.hooked.data.Session
 import dev.qjoly.hooked.data.SessionState
 
-// desktop-rune's quick.rs: a small window to answer the sessions that wait on you without opening them.
+// desktop's quick.rs: a small window to answer the sessions that wait on you without opening them.
 
 /** What needs you, not archived and not gone cold, twelve at most. */
 fun quickItems(sessions: List<Session>, meta: Map<String, Meta>, now: Long) =

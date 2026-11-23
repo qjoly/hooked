@@ -3,7 +3,7 @@
   import Icon from '#lib/components/Icon.svelte';
   import { highlight, langLabel } from '#lib/highlight.js';
   import { reply } from '#lib/api.js';
-  import { fenceQuery } from '#lib/format.js';
+  import { fenceQuery, agentName } from '#lib/format.js';
   import { floating } from '#lib/floating.svelte.js';
   import { getContext } from 'svelte';
 
@@ -20,6 +20,8 @@
   // The hooked MCP server's instructions ask Claude to fence the commands it proposes as `bash`.
   const sessionOf = getContext('hooked.session');
   const session = $derived(sessionOf?.() || null);
+  const provOf = getContext('hooked.provider');
+  const provider = $derived(provOf?.() || 'claude');
   const runnable = $derived(!!session && /^(sh|bash|shell|zsh)$/i.test(lang) && !!code.trim());
   let run = $state(''); // '' | 'busy' | 'done' | error message
 
@@ -45,7 +47,7 @@
     <div class="mmd-actions">
       {#if runnable}
         <button class="cb-copy" class:done={run === 'done'} class:err={run && run !== 'busy' && run !== 'done'} onclick={runIt} disabled={run === 'busy'}
-          title={run && run !== 'busy' && run !== 'done' ? run : 'Run in the session folder — Claude gets the output and continues'}>
+          title={run && run !== 'busy' && run !== 'done' ? run : `Run in the session folder — ${agentName(provider)} gets the output and continues`}>
           <Icon name={run === 'done' ? 'check' : 'shell'} size={13} /> {run === 'busy' ? 'Running…' : run === 'done' ? 'Ran' : run ? 'Failed' : 'Run'}
         </button>
       {/if}

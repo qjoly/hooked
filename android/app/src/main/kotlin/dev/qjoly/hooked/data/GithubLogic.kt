@@ -5,7 +5,7 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 
-// The GitHub page's lists (desktop-rune `pages.rs`), on the `/api/github` overview.
+// The GitHub page's lists (desktop `pages.rs`), on the `/api/github` overview.
 
 /** Key into the overview and tab label, in rune's order. */
 val GITHUB_TABS = listOf(

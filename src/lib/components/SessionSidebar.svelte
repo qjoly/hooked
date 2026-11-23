@@ -9,6 +9,7 @@
   import { SECTIONS, sectionOf, snoozePresets, wakeLabel, hm } from '#lib/sidebarSections.js';
   import { onMount } from 'svelte';
   import { ago, agoShort, fmtSpan, tagColor, lotColor, isActiveSession as isActive, needsDecision, sessionDot as dotClass } from '#lib/format.js';
+  import { multiProvider, providerEngine, providerColor, providerBadgeStyle, providerLabel, providerShort } from '#lib/providers.js';
   import { cacheCountdown } from '#lib/promptCache.js';
   import { dragSession, dropSession, dropDetach } from '#lib/groupDnd.js';
   import Icon from '#lib/components/Icon.svelte';
@@ -33,6 +34,9 @@
     ui.tagFilters.every((t) => sessionTags(s.id).includes(t)) &&
     (!ui.repoFilters.length || ui.repoFilters.includes(projectKey(s)));
   const filterCount = $derived(ui.tagFilters.length + ui.repoFilters.length);
+  // Provider badge beside the sessions: only with more than one provider enabled — with a single
+  // one, the badge would teach nothing. Label / short / colour come from the provider config.
+  const showProviders = $derived(multiProvider(data.providers));
 
   // Ordre de la liste. Les PALIERS (épinglées → en attente de décision → actives) sont les mêmes
   // dans les trois modes : c'est eux qui portent la garantie de la fenêtre de LIST_WINDOW lignes —
@@ -538,6 +542,7 @@
       {#if !ui.incognito && isIncognito(s.id)}<span class="ssb-pin-mark" title="Incognito"><Icon name="eye-off" size={11} /></span>{/if}
       {#if !groupByProject}<span class="ssb-lot" style="--lot:{lotColor(projectKey(s))}" title={projectKey(s)}></span>{/if}
       <span class="ssb-name" title={unit ? 'Group · mother session: ' + sessionTitle(s) : undefined}>{unit ? groupName(s.id) : sessionTitle(s)}</span>
+      {#if showProviders}<span class="ssb-prov" class:pi={providerEngine(s.provider, data.providerList) !== 'claude'} class:colored={!!providerColor(s.provider, data.providerList)} style={providerBadgeStyle(s.provider, data.providerList)} title="{providerLabel(s.provider, data.providerList)} session">{providerShort(s.provider, data.providerList)}</span>{/if}
       {#if unit}<span class="ssb-gcount" title="{unit.all.length} sessions in this group">{unit.all.length}</span>{/if}
       <!-- settings.sidebarCache: the countdown sits in a pill beside the elapsed time, or takes its
            place (the elapsed time then moves to the tooltip). -->
@@ -728,6 +733,14 @@
   }
   .ssb-gchev.open { transform: rotate(90deg); }
   .ssb-gcount { font-family: var(--mono); font-size: var(--t-micro); color: var(--muted); flex: 0 0 auto; }
+  /* provider badge beside the session name (label / colour from the provider config) */
+  .ssb-prov {
+    font-family: var(--mono); font-size: 9px; line-height: 1; color: var(--muted);
+    border: 1px solid var(--border); border-radius: 4px; padding: 2px 3px; flex: 0 0 auto;
+    text-transform: lowercase;
+  }
+  .ssb-prov.pi { color: var(--accent, var(--muted)); border-color: var(--accent, var(--border)); }
+  .ssb-prov.colored { color: var(--prov); border-color: var(--prov); }
   .ssb-group:global(.drop-over) { box-shadow: inset 0 0 0 2px var(--accent); }
   .ssb-detach {
     position: sticky; bottom: 0; margin: 8px; padding: 12px 10px; display: flex; align-items: center; justify-content: center; gap: 7px;

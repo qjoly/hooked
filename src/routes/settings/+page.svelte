@@ -2,14 +2,16 @@
   import { untrack, onMount } from 'svelte';
   import { data, ui, settings, updateSettings, openModal, setTheme, setScheme, setCorners, loadSessions, allTags, tagUsage, deleteTag } from '#lib/state.svelte.js';
   import { tagColor } from '#lib/format.js';
-  import { resync, getGit, checkoutBranch, dismissRestartNotice, getClaudeVersion, upgradeClaude, restartClaudeSession, pickFolder, getRemoteControl, getCapabilities, getWarmup, runWarmup, listWorktrees, removeWorktree, cleanupWorktrees, pullCheckouts } from '#lib/api.js';
+  import { resync, getGit, checkoutBranch, dismissRestartNotice, getClaudeVersion, upgradeClaude, restartClaudeSession, pickFolder, getRemoteControl, getCapabilities, getPiOptions, getWarmup, runWarmup, listWorktrees, removeWorktree, cleanupWorktrees, pullCheckouts } from '#lib/api.js';
   import { COMPACT_LEAD_MS, CACHED_READ_SHARE } from '#lib/promptCache.js';
-  import { isHideableModel } from '#lib/models.js';
+  import { isHideableModel, isHideablePiModel } from '#lib/models.js';
   import { knownProjects } from '#lib/projects.js';
   import { getAllBindings, setBinding, resetBinding, resetAll as resetAllShortcuts, formatKeys, keysFromEvent } from '#lib/shortcuts.js';
   import { NAV_TABS } from '#lib/nav.js';
   import ModelEffort from '#lib/components/ModelEffort.svelte';
   import Icon from '#lib/components/Icon.svelte';
+  import ProvidersSettings from '#lib/components/ProvidersSettings.svelte';
+  import { providerEngine } from '#lib/providers.js';
   import { EDITORS } from '#lib/editors.js';
   import { fold, findTermRanges } from '#lib/textMatch.js';
   import { highlightsSupported } from '#lib/codeHit.js';
@@ -53,6 +55,11 @@
     { key: 'nl-NL', label: 'Nederlands' },
   ];
   let activeSec = $state(NAV[0].id);
+  // Claude-only cards (remote-control, fenêtre 5h, section Claude Code) are hidden when no
+  // `claude` binary is configured — pi-only install.
+  const hasClaude = $derived(!!data.providers?.claude);
+  const CLAUDE_ONLY_SECS = new Set(['pset-remote-control', 'pset-warmup', 'pset-claude']);
+  const navVisible = $derived(hasClaude ? NAV : NAV.filter((n) => !CLAUDE_ONLY_SECS.has(n.id)));
 
   // ─── 5-hour window ───────────────────────────────────────────────────────────────────────
   // The plan (anchor + the day's windows) is computed server-side and refetched after every edit:
@@ -305,6 +312,28 @@
     updateSettings({ hiddenModels: cur.includes(id) ? cur.filter((m) => m !== id) : [...cur, id] });
   }
 
+  // Même chose pour le provider pi, dont la liste vient de /api/pi-options (`pi --list-models`).
+  // Aucun alias de famille à protéger ici : un modèle pi peut toujours être masqué.
+  // The pi catalogue is shared by every pi-based provider: shown when one of them is enabled.
+  const hasPi = $derived(Object.entries(data.providers || {}).some(([id, on]) => on && providerEngine(id, data.providerList) === 'pi'));
+  let piModels = $state([]); // [[id, label], …]
+  $effect(() => {
+    if (!hasPi) return;
+    let alive = true;
+    getPiOptions()
+      .then((o) => {
+        if (!alive) return;
+        piModels = (o.models || []).map((m) => [m.alias || m.name, m.label || m.alias || m.name]);
+      })
+      .catch(() => {});
+    return () => { alive = false; };
+  });
+  const hiddenPiModels = $derived(new Set(settings.hiddenPiModels || []));
+  function togglePiModel(id) {
+    const cur = (settings.hiddenPiModels || []).filter(isHideablePiModel);
+    updateSettings({ hiddenPiModels: cur.includes(id) ? cur.filter((m) => m !== id) : [...cur, id] });
+  }
+
   // Projet de démarrage rapide : cwd utilisé quand une session est lancée sans dossier (p.ex. un
   // raccourci macOS qui POST /api/launch avec juste un prompt). Liste = projets connus (comme la
   // Nouvelle session), + « Other folder… » via le sélecteur natif. '' = aucun (cwd requis comme avant).
@@ -537,7 +566,7 @@
 <section id="view-settings" class="view active">
   <div class="set-wrap">
     <nav class="set-nav" bind:this={navEl} aria-label="Settings sections">
-      {#each NAV.filter((n) => !matchSecs || matchSecs.has(n.id)) as n (n.id)}
+      {#each navVisible.filter((n) => !matchSecs || matchSecs.has(n.id)) as n (n.id)}
         <a href="#{n.id}" class:active={activeSec === n.id} onclick={(e) => { e.preventDefault(); goTo(n.id); }}>{n.label}</a>
       {/each}
     </nav>
@@ -688,7 +717,8 @@
 
     <div class="card" id="pset-models" data-sec>
       <h2>Visible models</h2>
-      <p class="hint">Which model versions appear in the model selectors (new session, resume, and the live switch in a session header). The list itself comes from your installed <code>claude</code> binary — this only <strong>hides</strong> versions, so a version shipped by a future Claude Code update shows up on its own. Hiding is cosmetic: a hidden model stays valid, and a session already running on one keeps showing it. Family defaults (<em>Opus</em>, <em>Sonnet</em>…) are never hidden. (Shared setting.)</p>
+      <p class="hint">Which models appear in the model selectors (new session, resume, and the live switch in a session header). Each provider's list comes from the installed binary — this only <strong>hides</strong> entries, so a model shipped by a future update shows up on its own. Hiding is cosmetic: a hidden model stays valid, and a session already running on one keeps showing it. Family defaults (<em>Opus</em>, <em>Sonnet</em>…) are never hidden on the Claude side. (Shared setting.)</p>
+      {#if allModelGroups.length}<h3 class="mf-sec">Claude Code</h3>{/if}
       {#each allModelGroups as g (g.label)}
         <div class="mf-row">
           <span class="mf-fam">{g.label}</span>
@@ -707,8 +737,25 @@
           </div>
         </div>
       {/each}
-      {#if !allModelGroups.length}
+      {#if hasClaude && !allModelGroups.length}
         <p class="hint">No model list available — hooked could not resolve a <code>claude</code> binary.</p>
+      {/if}
+      {#if hasPi}
+        <h3 class="mf-sec">pi catalogue</h3>
+        {#if piModels.length}
+          <p class="hint">Catalogue of <code>pi --list-models</code> (every provider pi is signed in to), shared by all pi-based providers. Every entry can be hidden, including the <code>-latest</code> aliases. A provider can also hide models of its own (<code>hiddenModels</code>).</p>
+          <div class="chips mf-flat">
+            {#each piModels as [id, label] (id)}
+              {@const off = hiddenPiModels.has(id)}
+              <button class="chip" class:active={!off} onclick={() => togglePiModel(id)}
+                      title={off ? `${id} — hidden, click to show` : `${id} — shown, click to hide`}>
+                <Icon name={off ? 'eye-off' : 'eye'} size={13} /> {label}
+              </button>
+            {/each}
+          </div>
+        {:else}
+          <p class="hint">No Pi model list available — hooked could not run <code>pi --list-models</code>.</p>
+        {/if}
       {/if}
     </div>
 
@@ -727,8 +774,12 @@
         </select>
         <button class="save" onclick={browseQuickProject} disabled={picking}>{#if picking}<Icon name="queued" size={14} />{:else}<Icon name="folder-open" size={14} />{/if} Browse…</button>
       </div>
+      <h2 style="margin-top:18px">Providers</h2>
+      <p class="hint">The agents hooked can drive. Built-ins: <strong>Claude</strong> (Claude Code through the Agent SDK) and <strong>Pi</strong> (the pi coding agent, any model it is signed in to). Add your own on an engine: <code>pi</code> narrowed to some models (<code>mistral/*</code>…), <code>acp</code> for any Agent Client Protocol agent (Gemini CLI, Codex, OpenCode, Goose…), or an external engine module. <strong>Auto</strong> = detect the agent; <strong>On</strong> = forced active (e.g. frozen PATH under launchd); <strong>Off</strong> = hidden and not launchable. Details in <code>docs/providers.md</code>.</p>
+      <ProvidersSettings />
     </div>
 
+    {#if hasClaude}
     <div class="card" id="pset-remote-control" data-sec>
       <h2>Remote control</h2>
       <p class="hint">Projects the hooked server keeps a <code>claude remote-control</code> server running for, so each shows up as a launchable <strong>environment</strong> in the Claude app (start new sessions on it from claude.ai/code or mobile). Each daemon runs as a detached process (supervised by a restart loop, so it self-heals if it exits) and is hidden from the dashboard. Removing a project stops its daemon.</p>
@@ -789,6 +840,8 @@
       <p class="hint" style="margin:12px 0 0">A cheaper model (e.g. <code>haiku</code>/<code>sonnet</code>) keeps daily cost low on busy days.</p>
     </div>
 
+    {/if}
+    {#if hasClaude}
     <div class="card" id="pset-warmup" data-sec>
       <h2>5-hour window</h2>
       <p class="hint">Claude's usage window is anchored to your <strong>first message</strong> and lasts 5 hours — it is not aligned on round hours, so the first prompt of the day decides where every later boundary, and every fresh budget, falls. hooked opens one with a throwaway <code>claude -p</code> ping before you start, then reopens one whenever a boundary passes while you are away from the keyboard.</p>
@@ -900,6 +953,8 @@
       </div>
     </div>
 
+    {/if}
+    {#if hasClaude}
     <div class="card" id="pset-claude" data-sec>
       <h2>Claude Code</h2>
       <div class="cmd-row" style="margin-bottom:12px">
@@ -963,6 +1018,7 @@
         {#if claudeStatus}<p class="status" style="margin:10px 0 0">{claudeStatus}</p>{/if}
       {/if}
     </div>
+    {/if}
 
     <div class="card" id="pset-git" data-sec>
       <h2>Git branch</h2>
@@ -1310,6 +1366,11 @@
   /* Filtre des modèles : une ligne par famille (libellé à gauche, pilules de versions à droite). */
   .mf-row { display: flex; align-items: center; gap: 12px; padding: 6px 0; flex-wrap: wrap; }
   .mf-fam { flex: 0 0 70px; font-size: var(--t-meta); font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
+  /* Sous-sections de la carte « Visible models » : un bloc par provider (Claude Code, pi catalogue). */
+  .mf-sec { font-size: var(--t-meta); font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin: 16px 0 6px; }
+  .mf-sec:first-of-type { margin-top: 4px; }
+  /* Liste plate (pi n'a pas de familles) : les pilules occupent toute la largeur. */
+  .mf-flat { margin-top: 6px; }
   /* La famille reste sur la même ligne que ses pilules, qui débordent en interne (Opus en a 8). */
   .mf-row .chips { flex: 1 1 0; min-width: 0; }
   .mf-row .chip { display: inline-flex; align-items: center; gap: 5px; padding: 5px 12px; }

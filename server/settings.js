@@ -11,7 +11,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { HOOKED_DIR, LAUNCH_PERMISSION_MODES, isValidModelArg } from './config.js';
 import { EDITOR_KEYS, DEFAULT_EDITOR } from '../src/lib/editors.js';
-import { DEFAULT_HIDDEN_MODELS, isHideableModel } from '../src/lib/models.js';
+import { sanitizeProviders } from './providerConfig.js';
+import { DEFAULT_HIDDEN_MODELS, DEFAULT_HIDDEN_PI_MODELS, isHideableModel, isHideablePiModel } from '../src/lib/models.js';
 
 const SETTINGS_FILE = path.join(HOOKED_DIR, 'settings.json');
 
@@ -67,6 +68,14 @@ const DEFAULTS = {
   // un raccourci macOS (Quick Action) qui POST /api/launch avec seulement un prompt. '' = aucun ;
   // launchSession exige alors un cwd explicite comme avant.
   quickLaunchProject: '',
+  // Provider used by launches that name none (macOS Quick Action, PR review…): any provider id.
+  defaultProvider: 'claude',
+  // Providers (cf. server/providerConfig.js, docs/providers.md). Keyed by id; a bare string is the
+  // enabled mode — 'auto' = detect the agent, 'on' = forced active, 'off' = hidden and not
+  // launchable — and an object customises the provider (label, badge, colour, command, args, env,
+  // model filters, defaults, capability overrides) or declares a new one on an engine
+  // (`{ engine: 'acp', command: 'gemini', args: ['--experimental-acp'] }`).
+  providers: { claude: 'auto', pi: 'auto' },
   // Projets pour lesquels le serveur hooked maintient un démon `claude remote-control` (mode serveur :
   // le projet devient un ENVIRONNEMENT lançable depuis l'app Claude). Liste de chemins absolus ; le serveur
   // réconcilie les process démons à cette liste (cf. server/remoteControl.js). [] = aucun.
@@ -94,6 +103,9 @@ const DEFAULTS = {
   // vieilles générations. [] = tout afficher. Purement cosmétique : un modèle masqué reste valide
   // au lancement, et le modèle courant d'une session reste toujours affiché.
   hiddenModels: [...DEFAULT_HIDDEN_MODELS],
+  // Same, for the pi provider's catalogue (`pi --list-models mistral`). Empty by default: pi's list
+  // is short and versioned by the catalog itself, there is no legacy generation to retire.
+  hiddenPiModels: [...DEFAULT_HIDDEN_PI_MODELS],
   // 5-hour window management (cf. server/warmup.js). Claude's usage window is anchored to your
   // first message and lasts 5h, so the day's first prompt decides where every later boundary
   // falls. `workHours` is the only thing worth setting: in 'auto' mode the anchor is derived from
@@ -142,6 +154,10 @@ function sanitize(raw) {
     typeof o.quickLaunchProject === 'string' && o.quickLaunchProject.startsWith('/')
       ? o.quickLaunchProject.slice(0, 4096)
       : '';
+  // providers: built-ins always present (bare mode string when not customised), custom entries
+  // kept when they name an engine. defaultProvider: any configured id, else 'claude'.
+  const providers = sanitizeProviders(o.providers);
+  const defaultProvider = typeof o.defaultProvider === 'string' && providers[o.defaultProvider] ? o.defaultProvider : 'claude';
   // remoteControlProjects : liste de chemins absolus, dédupée et bornée (anti-abus : chaque démon
   // spawn un process claude). L'existence du dossier n'est PAS vérifiée ici (le disque peut varier) —
   // reconcileRemoteControl saute au lancement un chemin qui n'est plus un dossier.
@@ -176,6 +192,11 @@ function sanitize(raw) {
   const hiddenModels = o.hiddenModels === undefined
     ? [...DEFAULT_HIDDEN_MODELS]
     : (Array.isArray(o.hiddenModels) ? [...new Set(o.hiddenModels.filter(isHideableModel))].slice(0, 64) : []);
+  // hiddenPiModels : ids du catalogue pi. Même règle « ABSENT ≠ VIDE » que hiddenModels ; seule la
+  // forme de l'id est validée (pi n'a pas de grammaire de version, cf. src/lib/models.js).
+  const hiddenPiModels = o.hiddenPiModels === undefined
+    ? [...DEFAULT_HIDDEN_PI_MODELS]
+    : (Array.isArray(o.hiddenPiModels) ? [...new Set(o.hiddenPiModels.filter(isHideablePiModel))].slice(0, 128) : []);
   // warmup : cf. server/warmup.js. workHours = paires ["HH:MM","HH:MM"] (comparaison de chaînes
   // valide car zero-paddées). `model` est interpolé dans une commande shell → même filtre que
   // digest.model, jamais de valeur brute.
@@ -241,6 +262,8 @@ function sanitize(raw) {
     defaultEffort,
     defaultMode,
     quickLaunchProject,
+    defaultProvider,
+    providers,
     remoteControlProjects: rcProjects,
     favoriteProjects: favProjects,
     promptLibrary,
@@ -256,6 +279,7 @@ function sanitize(raw) {
     editor: EDITOR_KEYS.includes(o.editor) ? o.editor : DEFAULT_EDITOR,
     defaultPage: DEFAULT_PAGES.includes(o.defaultPage) ? o.defaultPage : 'deck',
     hiddenModels,
+    hiddenPiModels,
     navTabs: Array.isArray(o.navTabs)
       ? NAV_PAGES.filter((k) => o.navTabs.includes(k)) // keep known keys, canonical order
       : [...DEFAULTS.navTabs],

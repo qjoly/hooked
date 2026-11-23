@@ -4,6 +4,7 @@
 // à arbitrer. Note : images.js définit un `err400` interne mais ne l'exporte pas ; seul
 // agent.js exporte `err400`, donc pas d'ambiguïté.
 export * from './config.js';
+export * from './providers.js';
 export * from './settings.js';
 export * from './tags.js';
 export * from './sessionMeta.js';
@@ -61,6 +62,12 @@ export * from './worktrees.js';
 export * from './panels.js';
 export * from './worktreeCleanup.js';
 export * from './autoPull.js';
+export * from './pi.js';
+export * from './piAgent.js';
+export * from './piCommands.js';
+export * from './piMcp.js';
+export * from './piCli.js';
+export * from './sessions.js';
 export * as searchIndex from './searchIndex.js';
 // Namespacé pour la même raison que searchIndex : `lookup`, `partition`, `readSlice` sont des
 // noms trop génériques pour un `export *`, où une collision fait disparaître un symbole SANS

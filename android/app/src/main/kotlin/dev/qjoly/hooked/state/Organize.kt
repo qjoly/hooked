@@ -8,7 +8,7 @@ import java.time.LocalDate
 import java.time.ZoneId
 import java.time.temporal.ChronoUnit
 
-// desktop-rune's sections.rs, organize.rs, fleet.rs and fmt.rs, kept pure so they test without Android.
+// desktop's sections.rs, organize.rs, fleet.rs and fmt.rs, kept pure so they test without Android.
 
 const val DAY_MS = 86_400_000L
 

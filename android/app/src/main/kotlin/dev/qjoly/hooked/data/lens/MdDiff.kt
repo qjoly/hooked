@@ -6,7 +6,7 @@ import org.intellij.markdown.flavours.gfm.GFMFlavourDescriptor
 import org.intellij.markdown.parser.CancellationToken
 import org.intellij.markdown.parser.MarkdownParser
 
-// desktop-rune's mddiff.rs (the web's mdDiff.js): both versions cut into the blocks a reader sees
+// desktop's mddiff.rs (the web's mdDiff.js): both versions cut into the blocks a reader sees
 // (a top-level list into its items), the block lists diffed, and each block kept with the source
 // lines it was cut from, so a tap on a block finds its lines in the diff and back.
 

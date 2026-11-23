@@ -3,10 +3,11 @@
 // ici : elle est portée par l'URL (routing SvelteKit). Ne restent que les filtres de la
 // sidebar, l'état live (SSE), le tick de rafraîchissement et la modale.
 import { floating } from './floating.svelte.js';
-import { getSessions, connectSSE, getSettings, saveSettings as apiSaveSettings, getTags, saveTags, replaceTags, suggestTags, getSessionMeta, saveSessionMeta, groupOp, kill, getAccount } from './api.js';
+import { getSessionsFull, connectSSE, getSettings, saveSettings as apiSaveSettings, getTags, saveTags, replaceTags, suggestTags, getSessionMeta, saveSessionMeta, groupOp, kill, getAccount, getProviders } from './api.js';
+import { setProviderList } from './providers.js';
 import { NOTIFY_KINDS, notifyKeyFor, countsForBadge } from './notify.js';
 import { isFinishedAndCold } from './format.js';
-import { DEFAULT_HIDDEN_MODELS } from './models.js';
+import { DEFAULT_HIDDEN_MODELS, DEFAULT_HIDDEN_PI_MODELS } from './models.js';
 import { goto } from '$app/navigation';
 import { page } from '$app/state';
 
@@ -446,7 +447,14 @@ export function setCorners(c) {
 // lisent TOUS les panneaux — d'où le filtre incognito ici, en un seul point, plutôt que répété
 // dans la sidebar, le Deck, les splits, le sélecteur de groupe…
 const raw = $state({ sessions: [] });
+const prov = $state({ providers: { claude: true, pi: false }, providerList: [] });
 export const data = {
+  // { [id]: enabled } and the full descriptors (label, badge, colour, capabilities) of every
+  // provider — cf. src/lib/providers.js. Reactive: components pass providerList to the helpers.
+  get providers() { return prov.providers; },
+  set providers(v) { prov.providers = v; },
+  get providerList() { return prov.providerList; },
+  set providerList(v) { prov.providerList = v; setProviderList(v); },
   get sessions() { return ui.incognito ? raw.sessions.filter((s) => isIncognito(s.id)) : raw.sessions; },
   set sessions(v) { raw.sessions = v; },
 };
@@ -541,9 +549,24 @@ export async function toggleNotify() {
   applyTitleBadge();
 }
 
+// Explicit provider refresh (after a settings change: /api/sessions may answer 304).
+export async function loadProviders() {
+  try {
+    const r = await getProviders();
+    if (r && Array.isArray(r.providers)) {
+      data.providerList = r.providers;
+      data.providers = r.enabled || data.providers;
+    }
+    return r;
+  } catch (_) { return null; }
+}
+
 export async function loadSessions() {
   try {
-    const sessions = await getSessions();
+    const full = await getSessionsFull();
+    const sessions = full.sessions;
+    data.providers = full.providers || data.providers;
+    if (Array.isArray(full.providerList)) data.providerList = full.providerList;
     // A new session may have been grouped — or flagged incognito — server-side (MCP start_session,
     // launch) → resync the meta. Compared against the RAW list: in incognito mode the visible one
     // is empty until the meta resync lands, which would stop it from ever happening.
@@ -568,6 +591,8 @@ export const settings = $state({
   showWork: true, // cf. server/settings.js
   statusBar: { permissionMode: true, modelEffort: true, focusBtn: true },
   defaultModel: '', defaultEffort: '', defaultMode: '',
+  defaultProvider: 'claude', // cf. server/settings.js
+  providers: { claude: 'auto', pi: 'auto' }, // override détection auto des providers, cf. server/providers.js
   remoteControlProjects: [],
   favoriteProjects: [],
   promptLibrary: [], // cf. server/settings.js
@@ -584,6 +609,7 @@ export const settings = $state({
   defaultPage: 'deck',
   navTabs: ['sessions', 'stats', 'digest', 'memory', 'github'], // onglets de nav visibles (paramétrable)
   hiddenModels: [...DEFAULT_HIDDEN_MODELS], // versions de modèle masquées des sélecteurs (liste noire)
+  hiddenPiModels: [...DEFAULT_HIDDEN_PI_MODELS], // idem pour le catalogue pi (liste noire)
 });
 export async function loadSettings() {
   try { Object.assign(settings, await getSettings()); } catch (_) {}

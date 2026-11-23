@@ -28,7 +28,9 @@ import { PORT, LAUNCHES_FILE, SESSION_LAUNCH_FILE, DRIVEN_FILE, PERMISSION_MODES
 import { isValidEffort } from './capabilities.js';
 import { statSafe } from './util.js';
 import { scanSessions } from './transcript.js';
+import { scanAllSessions } from './sessions.js';
 import { readSettings } from './settings.js';
+import { getProvider, getEngine, driverFor, providerLaunchError, defaultProviderId } from './providers.js';
 import { refreshAgentStatus } from './agent-status.js';
 import { buildToolCatalog } from './llmTools.js';
 import { contextFromUsage, compactDue } from '../src/lib/promptCache.js';
@@ -425,8 +427,8 @@ function alwaysAllowRules(toolName, suggestions) {
 // Demande de permission d'outil présentée comme une AskUserQuestion à 3 options : l'UI web réutilise
 // telle quelle son composant Question (aucune UI nouvelle à écrire), et on retrouve enfin la
 // possibilité d'approuver un outil depuis le web — ce qui passait avant par l'onglet Terminal (tmux).
-function permissionQuestion(toolName, opts) {
-  const title = (opts && opts.title) || `Claude wants to use ${toolName}`;
+function permissionQuestion(toolName, opts, agent = 'Claude') {
+  const title = (opts && opts.title) || `${agent} wants to use ${toolName}`;
   return [{
     question: title + ' — allow?',
     header: 'Permission',
@@ -434,7 +436,7 @@ function permissionQuestion(toolName, opts) {
     options: [
       { label: 'Allow once', description: (opts && opts.description) || 'Run this call only.' },
       { label: 'Allow always', description: 'Run it and stop asking for this kind of call in this session.' },
-      { label: 'Deny', description: 'Refuse the call and let Claude choose another route.' },
+      { label: 'Deny', description: `Refuse the call and let ${agent} choose another route.` },
     ],
   }];
 }
@@ -741,6 +743,19 @@ function closeAfterTurn(launchKey, cb) {
   cb(null, { sessionId: id });
 }
 
+// Callbacks a non-Claude driver gets to report back into the registry (cf. docs/providers.md).
+function driverCtx(st, done) {
+  return {
+    setLive: (sid, s) => { live.set(sid, s || st); pending.delete(st.launchKey); },
+    persistLaunch: (sid, m, e) => persistLaunch(sid, m, e),
+    done: (s) => { settleReady(s || st, true); done(s || st); },
+    failStartup: () => failStartup(st),
+    emit: (s2, now) => emitAgent((s2 || st).id, () => streamSnapshot(s2 || st), now),
+    // hooked's MCP server ({ command, args, env }), for engines that can hand it to their agent.
+    hookedMcp: () => hookedMcpServer(st.launchKey),
+  };
+}
+
 // Lance `claude` via l'Agent SDK. `resumeId` reprend une session existante. `worktree` (true or
 // { base, branch }) only applies to a new session: hooked creates the git worktree first, then
 // launches in it.
@@ -750,7 +765,7 @@ function launchSession(opts, cb) {
   let id = null;
   if (resumeId) {
     if (!/^[A-Za-z0-9._-]+$/.test(resumeId)) return cb(err400('invalid session id'));
-    const sess = scanSessions().find((s) => s.id === resumeId);
+    const sess = scanAllSessions().find((s) => s.id === resumeId); // resume d'une session pi comprise
     if (!sess) return cb(err400('session not found'));
     dir = dir || sess.project;
     id = resumeId;
@@ -771,9 +786,31 @@ function launchSession(opts, cb) {
   }
   if (!stDir || !stDir.isDirectory()) return cb(err400('invalid cwd: ' + dir));
 
-  if (model && !isValidModelArg(model)) return cb(err400('unknown model: ' + model));
-  if (effort && !isValidEffort(effort)) return cb(err400('unknown effort: ' + effort));
+  // Provider: explicit, else the resumed session's (resuming a pi session without an explicit
+  // provider used to launch `claude --resume` on a pi id), else the settings default.
+  const provider = typeof opts.provider === 'string' && opts.provider
+    ? opts.provider
+    : ((id && scanAllSessions().find((s) => s.id === id)?.provider) || defaultProviderId());
+  const pconf = getProvider(provider);
+  const engine = pconf ? getEngine(pconf.engine) : null;
+  // Model / effort: Claude's own grammar on the built-in path, the engine's elsewhere (pi takes
+  // `provider/id` refs and thinking levels; an ACP agent, whatever it advertised).
+  const badArg = (kind, v) => {
+    if (!v) return null;
+    if (!engine || engine.id === 'claude') {
+      return (kind === 'model' ? isValidModelArg(v) : isValidEffort(v)) ? null : `unknown ${kind}: ${v}`;
+    }
+    const check = kind === 'model' ? engine.validateModel : engine.validateEffort;
+    if (typeof check === 'function') return check(v);
+    return /^[A-Za-z0-9._:/@+-]{1,160}$/.test(v) ? null : `invalid ${kind}: ${v}`;
+  };
+  const argErr = badArg('model', model) || badArg('effort', effort);
+  if (argErr) return cb(err400(argErr));
   if (permissionMode && !LAUNCH_PERMISSION_MODES.includes(permissionMode)) return cb(err400('unknown permission mode: ' + permissionMode));
+  // Unknown provider, switched off in the settings, engine missing, or agent not installed: a
+  // clear refusal now rather than a spawn failing with ENOENT in the background.
+  const launchErr = providerLaunchError(provider);
+  if (launchErr) return cb(err400(launchErr));
   if (id && live.has(id)) return cb(err400('session already running'));
   if (worktree && !id) return launchInNewWorktree({ ...opts, cwd: dir }, cb);
   const wt = opts[MANAGED_WORKTREE] || null;
@@ -781,6 +818,9 @@ function launchSession(opts, cb) {
   const input = makeInputQueue();
   const st = {
     id: id || null,
+    provider,                     // provider id (cf. server/providers.js)
+    engine: engine ? engine.id : 'claude',
+    providerConfig: pconf,        // its resolved config: what non-Claude drivers read
     launchKey: 'launch:' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
     cwd: dir,
     input,
@@ -833,15 +873,30 @@ function launchSession(opts, cb) {
   const seed = prompt && typeof prompt === 'string' ? prompt.trim() : '';
   // The note lives in the first message rather than the system prompt, so a resumed session still has it.
   // Busy from now, as deliverReply does: the CLI only reports the turn once it starts it.
+  const fullSeed = ephemeral === true && !id && seed ? seed + '\n\n' + EPHEMERAL_NOTE : seed;
   if (seed) {
-    input.push(userMessage(ephemeral === true && !id ? seed + '\n\n' + EPHEMERAL_NOTE : seed));
+    input.push(userMessage(fullSeed));
     st.busy = true;
   }
+  // End of a turn on a non-Claude driver (readLoop handles the Claude one): an ephemeral session
+  // that called archive_this_session closes now.
+  st.onTurnEnd = () => {
+    if (!st.closeAfterTurn || !st.id) return;
+    try { setSessionMeta(st.id, { archived: true }); } catch (_) {}
+    killSession(st.id, () => {});
+  };
 
   // On attend l'environnement du shell de login (résolu une fois, déjà chaud en pratique) avant de
   // spawner : sans lui la session perdrait le PATH et les variables du profil (cf. loginEnv).
   loginEnv().then((env) => {
     if (st.abort.signal.aborted) return; // tuée pendant le démarrage
+    // Non-Claude engine: its driver spawns and talks to the agent, on the SAME registry entry —
+    // the rest of the dashboard (live state, questions, interrupts) does not change.
+    const drv = driverFor(st);
+    if (drv) {
+      drv.start(st, { prompt: fullSeed, model, effort, permissionMode, resumeId: id, env }, driverCtx(st, done));
+      return;
+    }
     try {
       st.q = query({ prompt: input, options: sdkOptions({ cwd: dir, model, effort, permissionMode, resumeId: id, input, st, env }) });
     } catch (e) {
@@ -864,7 +919,14 @@ function launchSession(opts, cb) {
     readLoop(st);
   });
 
+  // Called once: a driver reports `done` itself, and a resumed session is also answered right away
+  // below — the second call must not answer the HTTP caller twice.
+  let answered = false;
   const done = (finalSt) => {
+    if (answered) return;
+    answered = true;
+    clearTimeout(timer);
+    st.onId = null;
     if (finalSt.error) return cb(new Error('agent sdk session failed: ' + finalSt.error));
     if (!finalSt.id) return cb(new Error('agent sdk session ended before reporting its id'));
     persistLaunch(finalSt.id, model, effort);
@@ -896,6 +958,7 @@ function launchSession(opts, cb) {
     });
   };
 
+  let timer = null;
   if (st.id) {
     // Reprise : id connu, on rend la main sans attendre le `system/init`.
     persistLaunch(st.id, model, effort);
@@ -903,9 +966,10 @@ function launchSession(opts, cb) {
   }
   // Session neuve : on attend de connaître le session_id pour rendre le deep-link.
   let settled = false;
-  const timer = setTimeout(() => {
-    if (settled) return;
+  timer = setTimeout(() => {
+    if (settled || answered) return;
     settled = true;
+    answered = true;
     st.onId = null;
     cb(new Error(`agent sdk session did not start within ${INIT_TIMEOUT / 1000}s`));
   }, INIT_TIMEOUT);
@@ -954,7 +1018,8 @@ function agentAlive(id) {
 // agentSession.
 function drivableSession(id) {
   const st = agentSession(id);
-  return st && st.q ? st : null;
+  // control channel: the SDK Query (claude), or a driver that finished starting (st.sawMsg)
+  return st && (st.q || (st.engine && st.engine !== 'claude' && st.sawMsg)) ? st : null;
 }
 
 function agentSession(id) {
@@ -985,18 +1050,28 @@ function liveSessionCwds() {
 // Null when nothing is driven or the request fails — the palette then falls back to the disk scan.
 // The promise is cached: the palette asks on every keystroke, the control channel must not.
 const SUPPORTED_COMMANDS_TTL = 30_000;
-function commandsSource(id) {
+function commandsSource(id, provider) {
+  // `provider` restreint la recherche aux sessions pilotées de ce provider : sans filtre, une
+  // session Claude pilotée répondrait à la place d'une session Pi et polluerait la liste « / ».
+  const ok = (st) => st && (!provider || st.provider === provider);
   const st = drivableSession(id);
-  if (st) return st;
+  if (ok(st)) return st;
   for (const sid of liveSessionIds()) {
     const alt = drivableSession(sid);
-    if (alt) return alt;
+    if (ok(alt)) return alt;
   }
   return null;
 }
-function agentSupportedCommands(id) {
-  const st = commandsSource(id);
-  if (!st || typeof st.q.supportedCommands !== 'function') return Promise.resolve(null);
+function agentSupportedCommands(id, provider) {
+  const st = commandsSource(id, provider);
+  if (!st) return Promise.resolve(null);
+  // Non-Claude driver: the commands its agent declared live (ACP available_commands_update), if any.
+  const drv = driverFor(st);
+  if (drv) {
+    const cmds = typeof drv.liveCommands === 'function' ? drv.liveCommands(st) : null;
+    return Promise.resolve(cmds ? { commands: cmds, cwd: st.cwd || null } : null);
+  }
+  if (typeof st.q.supportedCommands !== 'function') return Promise.resolve(null);
   const cwd = st.cwd || null;
   const cached = st.commands;
   if (!cached || Date.now() - cached.at >= SUPPORTED_COMMANDS_TTL) {
@@ -1013,8 +1088,21 @@ function agentSupportedCommands(id) {
 async function agentToolCatalog(id) {
   const st = commandsSource(id);
   const sessions = liveSessionIds().filter((sid) => drivableSession(sid))
-    .map((sid) => ({ id: sid, cwd: live.get(sid).cwd || null, model: live.get(sid).model || null }));
+    .map((sid) => ({ id: sid, cwd: live.get(sid).cwd || null, model: live.get(sid).model || null, provider: live.get(sid).provider || 'claude' }));
   if (!st) return { session: null, sessions, builtin: [], mcp: [], totals: null };
+  // Non-Claude engine: no SDK Query, so no getContextUsage / mcpServerStatus to ask.
+  if (driverFor(st)) {
+    const sessionId = [...live].find(([, v]) => v === st)?.[0] || null;
+    const cmds = []; // pi : pas de catalogue live → builtin/mcp lus depuis la config pi
+    return {
+      session: { id: sessionId, cwd: st.cwd || null, model: st.model || null, provider: st.provider },
+      sessions,
+      available: true,
+      builtin: cmds.map((c) => ({ name: c.name, tokens: null, deferred: null, description: c.description || '' })),
+      mcp: [],
+      totals: null,
+    };
+  }
   const call = (fn) => (typeof fn === 'function' ? fn.call(st.q).catch(() => null) : Promise.resolve(null));
   const [ctx, servers] = await Promise.all([
     typeof st.q.getContextUsage === 'function' ? st.q.getContextUsage({ detail: 'summary' }).catch(() => null) : null,
@@ -1041,9 +1129,14 @@ function agentPendingAsk(id) {
   const st = agentSession(id);
   if (!st || !st.pendingAsk) return null;
   const a = st.pendingAsk;
+  // A driver's permission request (ACP…) carries no card of its own: it gets the same 3-option
+  // question as the Claude path (the option order is the contract answerPendingSelection reads).
+  const agentLabel = (st.providerConfig && st.providerConfig.label) || 'The agent';
+  const questions = a.questions
+    || (a.kind === 'permission' ? permissionQuestion(a.toolName || 'a tool', null, agentLabel) : null);
   return {
     kind: a.kind, id: a.id, toolName: a.toolName || null,
-    questions: a.questions || null, plan: a.plan || null, input: a.input || null,
+    questions, plan: a.plan || null, input: a.input || null,
     reason: a.reason || null, askRule: a.askRule || null,
   };
 }
@@ -1197,7 +1290,12 @@ function deliverReply(id, text, cb, opts = {}) {
   if (!st) return cb(err400('no live agent session for this id'));
   if (st.sawMsg) return pushReply(st, id, text, cb, opts);
   whenReady(st).then((ready) => {
-    if (!ready) return cb(err400('session never finished starting — use Restart'));
+    if (!ready) {
+      // Remonte la cause quand le démarrage a échoué (ex. pi: pas de sign-in Mistral, modèle inconnu…)
+      const cur0 = agentSession(id);
+      const reason = cur0 && cur0.error ? ` (${cur0.error})` : '';
+      return cb(err400('session never finished starting' + reason + ' — use Restart'));
+    }
     // la session a pu disparaître pendant l'attente
     const cur = agentSession(id);
     if (!cur) return cb(err400('no live agent session for this id'));
@@ -1216,6 +1314,14 @@ function pushReply(st, id, text, cb, { respond = false } = {}) {
     .map((s) => (typeof s === 'string' ? s.trim() : ''))
     .filter(Boolean);
   if (!parts.length) return cb(err400('text required'));
+  // Non-Claude driver: sent through it, fire and forget — the live state arrives through its
+  // events. Dispatched BEFORE the `!cmd` bang mode: pi interprets `!command` itself.
+  const drv = driverFor(st);
+  if (drv) {
+    markReplied(st);
+    drv.prompt(st, parts.join('\n')).catch((e) => { st.error = `${st.provider} prompt failed: ` + ((e && e.message) || e); });
+    return cb(null, { sessionId: id, sent: parts.length });
+  }
   // Mode bash : `!commande` s'exécute localement au lieu de partir au modèle (cf. runLocalCommand).
   // Seulement sur une saisie SIMPLE — un envoi multiple est une file de messages, pas une commande.
   if (parts.length === 1) {
@@ -1275,6 +1381,13 @@ function answerQuestion(id, selections, note, cb) {
 
   const n = typeof note === 'string' ? note.trim() : '';
   const resolve = ask.resolve;
+  const drv = driverFor(st);
+  if (drv) {
+    if (typeof drv.answerQuestion === 'function') drv.answerQuestion(st, ask, { selections, answers });
+    else resolve({ behavior: 'allow', selections, answers });
+    if (n) drv.prompt(st, n).catch(() => {});
+    return cb(null, { sessionId: id, answers });
+  }
   resolve({ behavior: 'allow', updatedInput: { ...(ask.input || {}), answers } });
   if (n) st.input.push(userMessage(n)); // la note part comme message de suivi, comme avant
   cb(null, { sessionId: id, answers });
@@ -1296,6 +1409,10 @@ function answerQuestionFreeText(id, text, cb) {
   }
   const first = (ask.questions || [])[0];
   const answers = first ? { [first.question]: answer } : {};
+  if (driverFor(st)) {
+    ask.resolve({ behavior: 'allow', freeTextAnswer: answer });
+    return cb(null, { sessionId: id, freeText: true });
+  }
   ask.resolve({ behavior: 'allow', updatedInput: { ...(ask.input || {}), answers } });
   cb(null, { sessionId: id, freeText: true });
 }
@@ -1311,6 +1428,7 @@ function answerPlan(id, action, feedback, cb) {
   if (!PLAN_ACTIONS.includes(action)) return cb(err400('unknown action: ' + action));
   const fb = typeof feedback === 'string' ? feedback.trim() : '';
   if (action === 'keep-feedback' && !fb) return cb(err400('feedback required'));
+  if (driverFor(st)) return cb(err400(`plan approval has no equivalent on ${st.provider} sessions`));
   const ask = st.pendingAsk;
   if (!ask || ask.kind !== 'plan') return cb(err400('no plan awaiting approval for this session'));
 
@@ -1337,6 +1455,14 @@ function answerPermission(id, choice, message, cb) {
   if (!st) return cb(err400('no live agent session for this id'));
   const ask = st.pendingAsk;
   if (!ask || ask.kind !== 'permission') return cb(err400('no permission request awaiting an answer'));
+  if (driverFor(st)) {
+    // The driver translates { behavior, allowAlways } into its protocol (ACP option ids…).
+    if (choice === 'deny') { ask.resolve({ behavior: 'deny', message: (typeof message === 'string' && message.trim()) || 'Denied from the hooked dashboard.' }); return cb(null, { sessionId: id, choice }); }
+    if (choice === 'allow-always') { ask.resolve({ behavior: 'allow', allowAlways: true }); return cb(null, { sessionId: id, choice }); }
+    if (choice !== 'allow') return cb(err400('unknown choice: ' + choice));
+    ask.resolve({ behavior: 'allow' });
+    return cb(null, { sessionId: id, choice });
+  }
   if (choice === 'deny') {
     ask.resolve({ behavior: 'deny', message: (typeof message === 'string' && message.trim()) || 'Denied from the hooked dashboard.' });
     return cb(null, { sessionId: id, choice });
@@ -1379,6 +1505,14 @@ function interruptSession(id, cb) {
     st.pendingAsk = null;
     try { r({ behavior: 'deny', message: 'Interrupted from the hooked dashboard.' }); } catch (_) {}
   }
+  const drv = driverFor(st);
+  if (drv) {
+    return Promise.resolve(drv.cancel(st)).then(() => {
+      st.busy = false;
+      st.activity = null;
+      cb(null, { sessionId: id, receipt: null });
+    }).catch((e) => cb(new Error('interrupt failed: ' + ((e && e.message) || e))));
+  }
   st.q.interrupt().then((receipt) => {
     st.busy = false;
     st.activity = null;
@@ -1412,6 +1546,13 @@ function setMode(id, target, cb) {
   const st = drivableSession(id);
   if (!st) return cb(err400('no live agent session for this id'));
   if (!PERMISSION_MODES.includes(target)) return cb(err400('unknown mode: ' + target));
+  const drv = driverFor(st);
+  if (drv) {
+    if (typeof drv.setMode !== 'function') return cb(err400(`${st.provider} sessions have no permission modes`));
+    return Promise.resolve(drv.setMode(st, target))
+      .then(() => cb(null, { sessionId: id, mode: target }))
+      .catch((e) => cb(new Error('set_mode failed: ' + ((e && e.message) || e))));
+  }
   st.q.setPermissionMode(target).then(() => {
     st.permissionMode = target;
     cb(null, { sessionId: id, mode: target });
@@ -1426,6 +1567,23 @@ function setMode(id, target, cb) {
 function setModelEffort(id, { model, effort, force = false } = {}, cb) {
   const st = drivableSession(id);
   if (!st) return cb(err400('no live agent session for this id'));
+  const drv = driverFor(st);
+  if (drv) {
+    // Non-Claude engine: validated by the engine, applied directly (no PreModelSwitch hold).
+    const engine = getEngine(st.engine);
+    const mErr = model && engine && typeof engine.validateModel === 'function' ? engine.validateModel(model) : null;
+    const eErr = effort && engine && typeof engine.validateEffort === 'function' ? engine.validateEffort(effort) : null;
+    if (mErr || eErr) return cb(err400(mErr || eErr));
+    if (!model && !effort) return cb(err400('model or effort required'));
+    if (typeof drv.setConfig !== 'function') return cb(err400(`${st.provider} sessions cannot switch model or effort`));
+    return Promise.resolve(drv.setConfig(st, { model: model || null, effort: effort || null }))
+      .then(() => {
+        const prev = sessionLaunchMap().get(id) || {};
+        persistLaunch(id, model || prev.model || null, effort || prev.effort || null);
+        cb(null, { sessionId: id, model: model || null, effort: effort || null });
+      })
+      .catch((e) => cb(new Error('model/thinking change failed: ' + ((e && e.message) || e))));
+  }
   if (model && !isValidModelArg(model)) return cb(err400('unknown model: ' + model));
   if (effort && !isValidEffort(effort)) return cb(err400('unknown effort: ' + effort));
   if (!model && !effort) return cb(err400('model or effort required'));
@@ -1453,10 +1611,56 @@ function setModelEffort(id, { model, effort, force = false } = {}, cb) {
   });
 }
 
+// Fork d'une session pi via RPC (process jetable : --session <src> + fork/clone).
+// Le `forkUuid` (point de coupe au message) est passé comme entryId au fork RPC ;
+// l'historique entier (cf. docs/port-pi.md, M3).
+function sessCwd(id) {
+  try { return scanAllSessions().find((s) => s.id === id)?.project || process.cwd(); } catch (_) { return process.cwd(); }
+}
+
+// Fork through a non-Claude engine's driver (pi: a throwaway RPC process, cf. piFork).
+function forkDriven(id, opts, cb) {
+  const src = scanAllSessions().find((s) => s.id === id);
+  const pconf = src ? getProvider(src.provider) : null;
+  const engine = pconf ? getEngine(pconf.engine) : null;
+  if (!engine || !engine.driver || typeof engine.driver.fork !== 'function') {
+    return cb(err400(`${(src && src.provider) || 'this'} sessions cannot be forked`));
+  }
+  engine.driver.fork(id, { ...opts, providerConfig: pconf }, {
+    setLive: (st) => { live.set(st.id, st); },
+    persistLaunch: (sid, m, e) => persistLaunch(sid, m, e),
+    emit: (st, now) => emitAgent(st.id, () => streamSnapshot(st), now),
+    liveSt: live.get(id) || null, // session live : sa connexion est fermée le temps du fork
+    // Rouvre la session source avec un nouveau process pi (piStart en mode resume, sans
+    // prompt) — piStart réutilise le même st et réassigne st.pi.
+    reopenSource: (sid) => {
+      const st = live.get(sid);
+      if (!st || st.pi) return Promise.resolve();
+      if (st.ended && !st.forkClosing) return Promise.resolve(); // vraiment terminée : on ne rouvre pas
+      st.forkClosing = false;
+      st.ended = false;
+      const noop = () => {};
+      return engine.driver.start(st, { resumeId: sid, env: process.env }, {
+        setLive: (s2, s) => { live.set(s, s); },
+        persistLaunch: noop, done: noop, failStartup: noop,
+        emit: (s2, now) => emitAgent(s2.id, () => streamSnapshot(s2), now),
+      });
+    },
+  }).then((info) => {
+    // Comme côté claude : on reprend la branche forkee dans une session pilotée (avec le prompt).
+    launchSession({ resumeId: info.sessionId, cwd: info.cwd || sessCwd(id), prompt: opts.prompt, model: opts.model, effort: opts.effort, permissionMode: opts.permissionMode, provider: src.provider }, (err, li) => {
+      if (err) return cb(err);
+      cb(null, { ...info, ...li, forkedFrom: id });
+    });
+  }).catch((e) => cb(err400(`${src.provider} fork failed: ` + ((e && e.message) || e))));
+}
+
 // Stoppe la session : on ferme la file d'entrée puis on avorte. La boucle de lecture nettoie.
 function killSession(id, cb) {
   const st = agentSession(id);
   if (!st) return cb(err400('no live agent session for this id'));
+  const drv = driverFor(st);
+  if (drv) drv.kill(st);
   st.input.close();
   st.abort.abort();
   st.ended = true;
@@ -1704,7 +1908,7 @@ export {
   applyMessage, readLoop, permissionQuestion, handleToolPermission, makeInputQueue, userMessage, parseEnvBlock, loginEnv, withoutServerEnv, hookedMcpServer, sessionIdForLaunchKey,
   subscribeAgent, streamSnapshot,
   resolveLaunchForSession, sessionLaunchMap,
-  launchSession, killSession, restartSession,
+  launchSession, killSession, restartSession, forkDriven, forkDriven as forkPi,
   deliverReply, answerQuestion, questionAnswers, answerQuestionFreeText, answerPlan, answerPermission, answerPendingSelection,
   interruptSession, setMode, setModelEffort, setAutoApprove, alwaysAllowRules, clearAgentState,
   closeAfterTurn, resumeDrivenSessions, startDrivenSnapshot, pickResumable, saveDriven, failStartup, resumeLaunchArgs,

@@ -1,0 +1,710 @@
+use rune::{Color, Cursor, El, ScrollSpec, col, el, row, text};
+use rune_kit::{
+    Button, ButtonVariant, ControlSize, IconButton, IconButtonVariant, Kit, Switch, TextInput,
+};
+
+use super::session::attachments_row;
+use super::settings::{chip, chips};
+use super::{glyph, section_title};
+use crate::app::Hooked;
+use crate::{fmt, icons};
+
+const SIDE_BY_SIDE_MIN_W: f32 = 1000.0;
+const OPTIONS_W: f32 = 320.0;
+
+fn controls(s: &Hooked, k: &Kit) -> El {
+    let line = |label: &str, body: El| {
+        col()
+            .w_full()
+            .gap(6.0)
+            .child(section_title(k, label))
+            .child(body.w_full())
+    };
+    // Any provider but Claude Code takes its pickers from /api/provider-options (opts).
+    let info = s.providers.info(&s.new_provider);
+    let is_pi = !info.is_claude();
+    let opts = s.opts_for(&s.new_provider).clone();
+    // Provider picker — one chip per enabled provider, only offered when there are several;
+    // with a single one the picker is hidden and new_provider is pinned on it (pinned_provider).
+    let provider_line = if s.providers.both() {
+        Some(line(
+            "PROVIDER",
+            chips(
+                s.providers
+                    .enabled_ids()
+                    .into_iter()
+                    .map(|id| {
+                        let label = s.providers.info(&id).label;
+                        let on = s.new_provider == id;
+                        chip(k, format!("np-{id}"), label, on, move |s| {
+                            s.new_provider = id.clone();
+                            s.new_model = None;
+                            s.new_effort = None;
+                            s.new_mode = "default".into();
+                            s.ensure_opts(&id);
+                        })
+                    })
+                    .collect(),
+            ),
+        ))
+    } else {
+        None
+    };
+    let models: Vec<El> = if is_pi {
+        // Models of the provider's catalogue: [{ name, alias, label, thinking }], minus the ids
+        // hidden in Settings (same blacklist as the Claude list below).
+        let list = s.visible_provider_models(&s.new_provider);
+        std::iter::once(chip(k, "nm-default".into(), "Default".into(), s.new_model.is_none(), |s| {
+            s.new_model = None;
+        }))
+        .chain(list.iter().map(|m| {
+            let alias = m["alias"].as_str().or(m["name"].as_str()).unwrap_or("").to_string();
+            let label = fmt::model_choice_label(m["label"].as_str(), &alias);
+            let on = s.new_model.as_deref() == Some(alias.as_str());
+            chip(k, format!("nm-{alias}"), label, on, move |s| {
+                s.new_model = Some(alias.clone());
+            })
+        }))
+        .collect()
+    } else {
+        std::iter::once(chip(
+        k,
+        "nm-default".into(),
+        "Default".into(),
+        s.new_model.is_none(),
+        |s| s.new_model = None,
+    ))
+        .chain(s.visible_models().into_iter().map(|(id, label)| {
+            let on = s.new_model.as_deref() == Some(id.as_str());
+            chip(k, format!("nm-{id}"), label, on, move |s| {
+                s.new_model = Some(id.clone())
+            })
+        }))
+        .collect()
+    };
+    // Thinking / effort levels of the selected model (array in the entry), else the provider's.
+    let pi_efforts: Vec<String> = if is_pi {
+        let sel = s.new_model.clone().unwrap_or_default();
+        let list = opts["models"].as_array().cloned().unwrap_or_default();
+        let m = list
+            .iter()
+            .find(|m| m["alias"].as_str().or(m["name"].as_str()) == Some(sel.as_str()) || sel.is_empty())
+            .cloned();
+        match m.as_ref().map(|m| m["thinking"].clone()).unwrap_or(serde_json::Value::Null) {
+            serde_json::Value::Array(a) => a.iter().filter_map(|v| v.as_str().map(String::from)).collect(),
+            serde_json::Value::String(x) => x.split(',').map(|x| x.trim().to_string()).filter(|x| !x.is_empty()).collect(),
+            _ => opts["thinkingLevels"].as_array().cloned().unwrap_or_default().iter().filter_map(|v| v.as_str().map(String::from)).collect(),
+        }
+    } else {
+        Vec::new()
+    };
+    let efforts: Vec<El> = if is_pi {
+        std::iter::once(chip(k, "ne-default".into(), "Default".into(), s.new_effort.is_none(), |s| {
+            s.new_effort = None;
+        }))
+        .chain(pi_efforts.iter().map(|e| {
+            let e = e.clone();
+            chip(k, format!("ne-{e}"), e.clone(), s.new_effort.as_deref() == Some(e.as_str()), move |s| {
+                s.new_effort = Some(e.clone());
+            })
+        }))
+        .collect()
+    } else {
+        std::iter::once(chip(
+            k,
+            "ne-default".into(),
+            "Default".into(),
+            s.new_effort.is_none(),
+            |s| s.new_effort = None,
+        ))
+        .chain(s.caps.efforts.iter().map(|e| {
+        let e = e.clone();
+        chip(
+            k,
+            format!("ne-{e}"),
+            e.clone(),
+            s.new_effort.as_deref() == Some(e.as_str()),
+            move |s| s.new_effort = Some(e.clone()),
+        )
+        }))
+        .collect()
+    };
+    // The provider's modes ([{ id, label }]); ids are hooked permission-mode keys the server
+    // translates to the agent's own modes.
+    let modes: Vec<El> = if is_pi {
+        opts["modes"].as_array().cloned().unwrap_or_default()
+            .iter()
+            .map(|m| {
+                let id = m["id"].as_str().unwrap_or("default").to_string();
+                let label = m["label"].as_str().unwrap_or(&id).to_string();
+                let on = s.new_mode == id;
+                chip(k, format!("nmode-{id}"), label, on, move |s| {
+                    s.new_mode = id.clone();
+                })
+            })
+            .collect()
+    } else {
+        fmt::LAUNCH_MODES
+            .iter()
+            .map(|&m| {
+                chip(
+                    k,
+                    format!("nmode-{m}"),
+                    fmt::mode_label(m).into(),
+                    s.new_mode == m,
+                    move |s| s.new_mode = m.to_string(),
+                )
+            })
+            .collect()
+    };
+    let mut col = col()
+        .key("new-controls")
+        .w_full()
+        .gap(14.0);
+    if let Some(pl) = provider_line {
+        col = col.child(pl);
+    }
+    // Détail du modèle sélectionné (nom complet, alias, niveaux de thinking côté Pi) —
+    // sans ça les chips ne montrent qu'un label court.
+    let model_detail: String = if is_pi {
+        let list = opts["models"].as_array().cloned().unwrap_or_default();
+        match s.new_model.as_deref().and_then(|a| {
+            list.iter()
+                .find(|m| m["alias"].as_str().or(m["name"].as_str()) == Some(a))
+        }) {
+            Some(m) => {
+                let name = m["name"].as_str().unwrap_or("");
+                let alias = m["alias"].as_str().unwrap_or("");
+                let thinking = match &m["thinking"] {
+                    serde_json::Value::Array(a) => a
+                        .iter()
+                        .filter_map(|v| v.as_str())
+                        .collect::<Vec<_>>()
+                        .join(", "),
+                    serde_json::Value::String(x) => x.clone(),
+                    _ => String::new(),
+                };
+                let mut d = if alias.is_empty() {
+                    name.to_string()
+                } else {
+                    format!("{name} ({alias})")
+                };
+                if !thinking.is_empty() {
+                    d.push_str(&format!(" — thinking: {thinking}"));
+                }
+                d
+            }
+            None if opts.is_null() => format!("loading {} options…", info.label),
+            None => match opts["activeModel"].as_str() {
+                Some(m) => format!("default: {m}"),
+                None => "the agent's default model".to_string(),
+            },
+        }
+    } else {
+        match s.new_model.as_ref() {
+            Some(id) => {
+                let label = s
+                    .caps
+                    .models
+                    .iter()
+                    .find(|(i, _)| i == id)
+                    .map(|(_, l)| l.clone())
+                    .unwrap_or_default();
+                if label.is_empty() {
+                    id.clone()
+                } else {
+                    format!("{id} — {label}")
+                }
+            }
+            None => "default model of the installed CLI".to_string(),
+        }
+    };
+    col = col
+        .child(line("MODEL", chips(models)))
+        .child(
+            text(model_detail)
+                .font(k.ty.text_xsmall)
+                .color(k.c.text_faint)
+                .px(2.0),
+        )
+        .child(line("EFFORT", chips(efforts)));
+    if !modes.is_empty() {
+        col = col.child(line("MODE", chips(modes)));
+    }
+    // worktree / ephemeral: shown when the provider supports them (capabilities).
+    let mut options = Vec::new();
+    if info.can("worktree") {
+        options.push(chip(
+            k,
+            "nw-worktree".into(),
+            "Git worktree".into(),
+            s.new_worktree,
+            |s| s.new_worktree = !s.new_worktree,
+        ));
+    }
+    if info.can("ephemeral") {
+        options.push(chip(
+            k,
+            "nw-ephemeral".into(),
+            "Ephemeral".into(),
+            s.new_ephemeral,
+            |s| s.new_ephemeral = !s.new_ephemeral,
+        ));
+    }
+    if !options.is_empty() {
+        col = col.child(line("OPTIONS", chips(options)));
+    }
+    col
+}
+
+fn projects(s: &Hooked, k: &Kit) -> El {
+    let q = s.new_search.text.trim().to_lowercase();
+    let current = s.new_project.text.trim().to_string();
+    let hits: Vec<(String, bool)> = s
+        .launch_projects()
+        .into_iter()
+        .filter(|(p, _)| q.is_empty() || p.to_lowercase().contains(&q))
+        .take(14)
+        .collect();
+    let mut list = col().key("new-projects").w_full().gap(2.0);
+    for (path, fav) in hits {
+        let on = !s.new_custom && current == path;
+        let name = path.rsplit('/').next().unwrap_or(&path).to_string();
+        let hue = crate::theme::folder_color(k.dark, &path);
+        let (pick, star) = (path.clone(), path.clone());
+        list = list.child(
+            k.interactive(
+                row()
+                    .key(format!("proj-{path}"))
+                    .role("option")
+                    .checked(on)
+                    .w_full()
+                    .px(10.0)
+                    .py(6.0)
+                    .gap(10.0)
+                    .center_y()
+                    .radius(k.radius.md)
+                    .cursor(Cursor::Pointer)
+                    .fill(if on { k.c.layer_02 } else { Color::TRANSPARENT })
+                    .border(
+                        1.0,
+                        if on {
+                            k.c.border_focus
+                        } else {
+                            Color::TRANSPARENT
+                        },
+                    )
+                    .child(
+                        row()
+                            .size(26.0, 26.0)
+                            .center()
+                            .radius(k.radius.sm)
+                            .fill(hue.alpha(0.14))
+                            .child(glyph(&icons::FOLDER, 14.0, hue)),
+                    )
+                    .child(
+                        col()
+                            .grow(1.0)
+                            .shrink()
+                            .gap(1.0)
+                            .child(text(name).font(k.ty.ui_medium).color(k.c.text_base))
+                            .child(
+                                text(path.clone())
+                                    .font(k.ty.text_xsmall)
+                                    .color(k.c.text_faint)
+                                    .truncate(),
+                            ),
+                    )
+                    .child(
+                        IconButton::new(&icons::STAR)
+                            .variant(if fav {
+                                IconButtonVariant::Neutral
+                            } else {
+                                IconButtonVariant::GhostMuted
+                            })
+                            .control_size(ControlSize::Small)
+                            .label(if fav {
+                                "Remove from favorites"
+                            } else {
+                                "Add to favorites"
+                            })
+                            .help(if fav {
+                                "Remove from favorites"
+                            } else {
+                                "Add to favorites"
+                            })
+                            .on_press(move |s: &mut Hooked| {
+                                s.toggle_in_list("favoriteProjects", &star)
+                            })
+                            .build(k),
+                    ),
+            )
+            .on_press(move |s: &mut Hooked| {
+                s.new_custom = false;
+                s.new_project = rune::TextEdit::new(pick.clone());
+            }),
+        );
+    }
+    list = list.child(
+        k.interactive(
+            row()
+                .key("proj-custom")
+                .role("option")
+                .checked(s.new_custom)
+                .w_full()
+                .px(10.0)
+                .py(6.0)
+                .gap(10.0)
+                .center_y()
+                .radius(k.radius.md)
+                .cursor(Cursor::Pointer)
+                .fill(if s.new_custom {
+                    k.c.layer_02
+                } else {
+                    Color::TRANSPARENT
+                })
+                .border(
+                    1.0,
+                    if s.new_custom {
+                        k.c.border_focus
+                    } else {
+                        Color::TRANSPARENT
+                    },
+                )
+                .child(
+                    row()
+                        .size(26.0, 26.0)
+                        .center()
+                        .radius(k.radius.sm)
+                        .fill(k.c.layer_02)
+                        .child(glyph(&icons::PLUS, 14.0, k.c.icon_muted)),
+                )
+                .child(
+                    text("Other folder…")
+                        .font(k.ty.ui_medium)
+                        .color(k.c.text_base),
+                ),
+        )
+        .on_press(|s: &mut Hooked| {
+            s.new_custom = true;
+            s.new_project.focused = true;
+        }),
+    );
+    if s.new_custom {
+        list = list.child(
+            row()
+                .key("proj-custom-row")
+                .w_full()
+                .gap(8.0)
+                .pt(4.0)
+                .child(
+                    TextInput::new(&s.new_project)
+                        .placeholder("/path/to/the/project")
+                        .leading_icon(&icons::FOLDER)
+                        .width(None)
+                        .on_edit(|s: &mut Hooked| &mut s.new_project)
+                        .build(k)
+                        .key("new-project")
+                        .grow(1.0)
+                        .shrink(),
+                )
+                .child(
+                    Button::new("Browse…")
+                        .variant(ButtonVariant::Outline)
+                        .on_press(|s: &mut Hooked| s.pick_folder())
+                        .build(k)
+                        .key("new-browse"),
+                ),
+        );
+    }
+    list
+}
+
+pub fn view(s: &Hooked, k: &Kit, _layer: &mut Vec<El>) -> El {
+    let project = s.new_project.text.trim();
+    let summary = if project.is_empty() {
+        "Pick a project".to_string()
+    } else {
+        format!("in {project}")
+    };
+    let header = row()
+        .key("new-head")
+        .w_full()
+        .gap(10.0)
+        .center_y()
+        .child(
+            IconButton::new(&icons::ARROW_LEFT)
+                .variant(IconButtonVariant::GhostMuted)
+                .label("Back")
+                .on_press(|s: &mut Hooked| s.go_deck())
+                .build(k)
+                .key("new-back"),
+        )
+        .child(
+            col()
+                .gap(2.0)
+                .child(
+                    text("New session")
+                        .font(k.ty.body_medium)
+                        .color(k.c.text_base),
+                )
+                .child(
+                    text(format!(
+                        "Launches a {} session driven by hooked.",
+                        s.providers.info(&s.new_provider).label
+                    ))
+                        .font(k.ty.text_small)
+                        .color(k.c.text_faint),
+                ),
+        );
+    let placeholder = format!(
+        "What should {} do? (⌘Enter to launch)",
+        s.providers.info(&s.new_provider).label
+    );
+    let prompt = prompt_field(s, k, &placeholder);
+    let launch_row = row()
+        .key("new-actions")
+        .w_full()
+        .gap(10.0)
+        .center_y()
+        .child(
+            text(summary)
+                .font(k.ty.text_small)
+                .color(k.c.text_faint)
+                .truncate()
+                .grow(1.0)
+                .shrink(),
+        )
+        .child(
+            Button::new("Cancel")
+                .variant(ButtonVariant::GhostMuted)
+                .on_press(|s: &mut Hooked| s.go_deck())
+                .build(k)
+                .key("new-cancel"),
+        )
+        .child(
+            Button::new(if s.sending { "Launching…" } else { "Launch" })
+                .icon(&icons::PLAY)
+                .variant(ButtonVariant::Contrast)
+                .shortcut("⌘↵")
+                .disabled(
+                    s.sending
+                        || project.is_empty()
+                        || (s.new_prompt.text.trim().is_empty() && s.attachments.is_empty()),
+                )
+                .on_press(|s: &mut Hooked| s.launch())
+                .build(k)
+                .key("new-launch"),
+        );
+    let project_head = row()
+        .w_full()
+        .gap(10.0)
+        .center_y()
+        .child(section_title(k, "PROJECT"))
+        .child(el().grow(1.0))
+        .child(
+            text("Collapse worktrees")
+                .font(k.ty.text_small)
+                .color(k.c.text_muted),
+        )
+        .child(
+            Switch::new(s.collapse_worktrees)
+                .hide_label()
+                .label("Collapse worktrees")
+                .on_toggle(|s: &mut Hooked| {
+                    s.collapse_worktrees = !s.collapse_worktrees;
+                    let v = s.collapse_worktrees;
+                    s.save_pref("collapseWorktrees", &v);
+                })
+                .build(k)
+                .key("new-collapse"),
+        );
+    let search = TextInput::new(&s.new_search)
+        .placeholder("Search a project…")
+        .leading_icon(&icons::SEARCH)
+        .width(None)
+        .on_edit(|s: &mut Hooked| &mut s.new_search)
+        .build(k)
+        .key("new-search");
+    let project_col = col()
+        .key("new-project-col")
+        .gap(8.0)
+        .child(project_head)
+        .child(search)
+        .child(projects(s, k));
+    let side_by_side = s.window_w >= SIDE_BY_SIDE_MIN_W;
+    let body = if side_by_side {
+        row()
+            .key("new-body")
+            .w_full()
+            .gap(28.0)
+            .items_start()
+            .child(project_col.grow(1.0).shrink())
+            .child(col().w(OPTIONS_W).child(controls(s, k)))
+    } else {
+        col()
+            .key("new-body")
+            .w_full()
+            .gap(18.0)
+            .child(controls(s, k))
+            .child(project_col.w_full())
+    };
+    let mut form = col()
+        .key("new-form")
+        .w_full()
+        .max_w(if side_by_side { 1080.0 } else { 820.0 })
+        .self_center()
+        .padding(28.0)
+        .gap(18.0)
+        .child(header)
+        .child(prompt);
+    if !s.attachments.is_empty() {
+        form = form.child(attachments_row(s, k));
+    }
+    let form = form
+        .child(prompt_pills(s, k))
+        .child(fable_notice(s, k))
+        .child(launch_row)
+        .child(body);
+    col()
+        .key("new-page")
+        .w_full()
+        .h_full()
+        .scroll(ScrollSpec {
+            stick_bottom: false,
+        })
+        .child(form)
+}
+
+/// The new-session prompt field, built on the bare `text_input` like the session composer
+/// (composer_field in session.rs): the kit's TextArea has no paste hook, and ⌘V is taken by the
+/// native Paste menu item before any key handler while the root's `on_paste_content` never runs
+/// while a field has focus — without `on_input_paste` here, a pasted image would be dropped.
+fn prompt_field(s: &Hooked, k: &Kit, placeholder: &str) -> El {
+    let c = &k.c;
+    let style = rune::TextStyle {
+        line_height: (13.0f32 * 1.35 * 2.0).round() / 2.0,
+        ..k.ty.ui
+    };
+    let field = rune::text_input(&s.new_prompt, style)
+        .key("input")
+        .w_full()
+        .color(c.text_base)
+        .rich_style(rune::RichStyle {
+            link: c.text_accent,
+            code_fg: None,
+            code_bg: c.layer_03,
+            code_block_bg: c.layer_02,
+            quote_bar: c.border_strong,
+            marker: Some(c.text_muted),
+        })
+        .placeholder(placeholder.to_string(), c.text_faint)
+        .caret(c.text_base, k.selection())
+        .label(placeholder.to_string())
+        .on_edit(|s: &mut Hooked| &mut s.new_prompt)
+        .on_input_paste(|s: &mut Hooked, c: &rune::ClipboardContent, _| {
+            if !c.text().is_empty() {
+                return false; // plain text: let the native paste insert it
+            }
+            let Some(img) = c.image() else {
+                return false;
+            };
+            let n = s.attach_seq + 1;
+            s.attach(format!("pasted-{n}.png"), "image/png", img.png().to_vec());
+            true
+        })
+        .on_input_key(|s: &mut Hooked, ev: &rune::KeyEvent, _| {
+            if ev.key == rune::Key::Enter && ev.mods.cmd {
+                s.launch();
+                return true;
+            }
+            false
+        });
+    // Same shell as the session composer: padded box, base fill, focus ring, input elevation.
+    let mut shell = col()
+        .role("textbox")
+        .padding(8.0)
+        .child(rune::auto_grow(field, 4, 16))
+        .w_full()
+        .radius(k.radius.md)
+        .fill(c.bg_base)
+        .token_motion(k.motion.control);
+    if s.new_prompt.focused {
+        shell = shell.outline(1.0, -1.0, c.border_focus);
+    } else {
+        for sh in k.shadow_layers(k.elevation.input()) {
+            shell = shell.box_shadow(sh);
+        }
+        shell = shell.hover(c.hover);
+    }
+    shell.key("new-prompt").grow(1.0).min_w(0.0)
+}
+
+fn prompt_pills(s: &Hooked, k: &Kit) -> El {
+    let list = s.prompts();
+    let mut r = row()
+        .key("new-prompts")
+        .w_full()
+        .gap(6.0)
+        .flex_wrap()
+        .center_y();
+    if list.is_empty() {
+        return r;
+    }
+    r = r.child(section_title(k, "PROMPTS"));
+    for (i, (name, text)) in list.into_iter().enumerate() {
+        r = r.child(chip(k, format!("np-{i}"), name, false, move |s| {
+            let cur = s.new_prompt.text.trim_end().to_string();
+            let next = if cur.is_empty() {
+                text.clone()
+            } else {
+                format!("{cur}\n\n{text}")
+            };
+            let end = next.len();
+            s.new_prompt.replace_text(next);
+            s.new_prompt.set_caret(end);
+            s.new_prompt.focused = true;
+        }));
+    }
+    r.child(
+        Button::new("Manage")
+            .variant(ButtonVariant::GhostMuted)
+            .control_size(ControlSize::Small)
+            .on_press(|s: &mut Hooked| s.go(crate::app::Page::Prompts))
+            .build(k),
+    )
+}
+
+fn fable_notice(s: &Hooked, k: &Kit) -> El {
+    let Some(f) = s.fable_spent().filter(|_| s.new_fallback()) else {
+        return el();
+    };
+    let reset = f["resetInMin"]
+        .as_f64()
+        .map(|m| {
+            if m >= 60.0 {
+                format!(" (resets in {:.0}h)", m / 60.0)
+            } else {
+                format!(" (resets in {m:.0}m)")
+            }
+        })
+        .unwrap_or_default();
+    row()
+        .key("new-fable")
+        .w_full()
+        .padding(10.0)
+        .gap(8.0)
+        .center_y()
+        .radius(k.radius.md)
+        .fill(k.c.warning.bg)
+        .border(1.0, k.c.warning.border)
+        .child(
+            text(format!(
+                "{} weekly limit reached{reset}. Defaulting to Opus so the session doesn't fail on its first turn.",
+                f["label"].as_str().unwrap_or("Fable")
+            ))
+            .font(k.ty.text_small)
+            .color(k.c.warning.fg)
+            .wrap(),
+        )
+}
