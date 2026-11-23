@@ -340,7 +340,7 @@ fn topbar(s: &Hooked, k: &Kit, inset: f32, layer: &mut Vec<El>) -> El {
             .key("tb-gauges")
             .center_y()
             .child(usage_pi(s, k, p, 64.0))
-    } else if s.providers.claude {
+    } else if s.providers.claude_account() {
         row()
             .key("tb-gauges")
             .gap(10.0)
@@ -449,8 +449,8 @@ fn topbar(s: &Hooked, k: &Kit, inset: f32, layer: &mut Vec<El>) -> El {
                 .build(k)
                 .key("tb-settings"),
         );
-    // Compte/quotas = compte Claude OAuth : masqué quand aucun binaire claude n'est configuré.
-    if s.providers.claude {
+    // Account / quotas = the Claude OAuth account: hidden when nothing uses it.
+    if s.providers.claude_account() {
         actions = actions.child(
             IconButton::new(&icons::USER)
                 .variant(IconButtonVariant::GhostMuted)
@@ -491,7 +491,7 @@ fn topbar(s: &Hooked, k: &Kit, inset: f32, layer: &mut Vec<El>) -> El {
         .copied()
         .filter(|t| t.4 != Page::Incidents || s.incidents_on() || s.page == Page::Incidents)
         // Memory = ~/.claude (Claude only): no tab, not even in More, without the claude provider.
-        .filter(|t| t.4 != Page::Memory || s.providers.claude)
+        .filter(|t| t.4 != Page::Memory || s.providers.claude_account())
         .partition(|t| s.nav_tab(t.0) || s.page == t.4);
     let more = (!hidden.is_empty()).then(|| {
         let open = s.popup == Some(Popup::Nav);

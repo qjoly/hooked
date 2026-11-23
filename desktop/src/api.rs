@@ -425,6 +425,14 @@ impl Providers {
         self.list.iter().any(|p| p.id == id && p.enabled)
     }
 
+    /// The Claude account (5h / 7d quotas, account page, memory, 5 h window) is in use: the claude
+    /// provider is enabled, or an enabled provider declares the `account` capability (Claude
+    /// through pi-claude-bridge runs on the same subscription, with the claude provider off).
+    pub fn claude_account(&self) -> bool {
+        self.claude
+            || self.list.iter().any(|p| p.enabled && p.capabilities.get("account").copied().unwrap_or(false))
+    }
+
     /// Descriptor of `id` (fallback when the server did not describe it).
     pub fn info(&self, id: &str) -> ProviderInfo {
         self.list.iter().find(|p| p.id == id).cloned().unwrap_or_else(|| ProviderInfo::fallback(id))
@@ -1560,6 +1568,28 @@ mod tests {
         assert!(!pi_only.both());
         assert_eq!(pi_only.only().as_deref(), Some("pi"));
         assert!(!none.both() && none.only().is_none());
+    }
+
+    #[test]
+    fn claude_account_follows_the_account_capability() {
+        let wire = |cb_enabled: bool| -> Providers {
+            let p: SessionsPayload = serde_json::from_value(json!({
+                "sessions": [],
+                "providers": { "claude": false, "pi": true, "claude-bridge": cb_enabled },
+                "providerList": [
+                    { "id": "claude", "engine": "claude", "label": "Claude", "short": "cc", "capabilities": { "account": true } },
+                    { "id": "pi", "engine": "pi", "label": "Pi", "short": "pi" },
+                    { "id": "claude-bridge", "engine": "pi", "label": "Claude (pi)", "short": "cb", "capabilities": { "account": true } }
+                ]
+            }))
+            .unwrap();
+            Providers::from_wire(&p.providers.unwrap(), p.provider_list)
+        };
+        // claude off, Claude through pi on: the account is still in use
+        assert!(!wire(true).claude && wire(true).claude_account());
+        // nothing on the Claude account
+        assert!(!wire(false).claude_account());
+        assert!(Providers::pair(true, false).claude_account());
     }
 
     #[test]

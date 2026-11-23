@@ -153,11 +153,11 @@ impl Hooked {
         self.tray_dirty = true;
     }
 
-    /// The usage views the header can show: Claude's account rate limits (when Claude is
-    /// enabled), then one per enabled provider that has usage.
+    /// The usage views the header can show: Claude's account rate limits (when the Claude
+    /// account is in use), then one per enabled provider that has usage.
     pub fn usage_views(&self) -> Vec<crate::api::UsageView> {
         let mut out = Vec::new();
-        if self.providers.claude {
+        if self.providers.claude_account() {
             out.push(crate::api::UsageView::Claude);
         }
         for u in &self.provider_usage {
