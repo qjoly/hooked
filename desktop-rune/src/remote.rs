@@ -332,8 +332,8 @@ pub enum Status {
     Unreachable(String),
 }
 
-/// The cause alone, out of a transport error: `http://host:4123/api/sessions: Connection
-/// Failed: Connect error: No route to host (os error 65)` reads `No route to host`.
+/// The cause alone, out of a transport error: `io: No route to host (os error 65)` reads
+/// `No route to host`.
 pub fn brief_error(e: &str) -> String {
     let cause = e.rsplit(": ").next().unwrap_or(e).trim();
     let cause = cause.split(" (os error").next().unwrap_or(cause).trim();
@@ -553,12 +553,14 @@ mod tests {
 
     #[test]
     fn a_transport_error_is_cut_down_to_its_cause() {
-        let e = "http://192.168.0.12:4123/api/sessions: Connection Failed: Connect error: No route to host (os error 65)";
+        let e = "io: No route to host (os error 65)";
         assert_eq!(brief_error(e), "No route to host");
         assert_eq!(brief_error("HTTP 502"), "HTTP 502");
         assert_eq!(brief_error(""), "");
         assert_eq!(local_network_blocked(e), cfg!(target_os = "macos"));
-        assert!(!local_network_blocked("http://h:1/api/sessions: Connection Failed: Connect error: Connection refused (os error 61)"));
+        assert!(!local_network_blocked(
+            "io: Connection refused (os error 61)"
+        ));
     }
 
     #[test]

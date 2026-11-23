@@ -13,7 +13,7 @@ rune-perf = { git = "https://github.com/anomalyco/rune", rev = "5035abb865706440
 procwatch = { git = "https://github.com/anomalyco/rune", rev = "5035abb8657064401600f66035ad1d40867edf8c" }
 rune-knobs = { git = "https://github.com/anomalyco/rune", rev = "5035abb8657064401600f66035ad1d40867edf8c" }
 rune-register = { git = "https://github.com/anomalyco/rune", rev = "5035abb8657064401600f66035ad1d40867edf8c", optional = true }
-ureq = { version = "2", features = ["json"] }
+ureq = { version = "3", features = ["json"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 base64 = "0.22"

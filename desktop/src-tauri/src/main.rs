@@ -3,6 +3,7 @@
 use std::io::{BufRead, BufReader};
 use std::time::Duration;
 
+use serde::de::DeserializeOwned;
 use serde::Deserialize;
 use serde::Serialize;
 use std::collections::HashSet;
@@ -16,6 +17,10 @@ use tauri::{
     AppHandle, Manager, WebviewUrl, WebviewWindowBuilder, WindowEvent,
 };
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
+use ureq::config::ConfigBuilder;
+use ureq::http::Response;
+use ureq::typestate::AgentScope;
+use ureq::Body;
 
 const BASE: &str = "http://localhost:4123";
 const TOAST_W: f64 = 360.0;
@@ -122,18 +127,29 @@ fn open_externally(url: &tauri::Url) {
 }
 
 fn agent() -> ureq::Agent {
-    ureq::AgentBuilder::new()
-        .timeout(Duration::from_secs(10))
+    config()
+        .timeout_global(Some(Duration::from_secs(10)))
         .build()
+        .into()
+}
+
+// The service runs on this machine, so a proxy from the environment stays out
+// of the way.
+fn config() -> ConfigBuilder<AgentScope> {
+    ureq::Agent::config_builder().proxy(None)
+}
+
+// ureq caps a body it reads at 10 MB, and a long conversation is larger.
+fn read_json<T: DeserializeOwned>(resp: Response<Body>) -> Result<T, ureq::Error> {
+    resp.into_body()
+        .into_with_config()
+        .limit(u64::MAX)
+        .read_json()
 }
 
 fn fetch_sessions(agent: &ureq::Agent) -> Option<Vec<Session>> {
-    let payload: Sessions = agent
-        .get(&format!("{BASE}/api/sessions"))
-        .call()
-        .ok()?
-        .into_json()
-        .ok()?;
+    let resp = agent.get(&format!("{BASE}/api/sessions")).call().ok()?;
+    let payload: Sessions = read_json(resp).ok()?;
     Some(payload.sessions)
 }
 
@@ -177,7 +193,7 @@ fn transcript(id: String) -> Vec<Message> {
     else {
         return Vec::new();
     };
-    let Ok(detail) = resp.into_json::<Detail>() else { return Vec::new() };
+    let Ok(detail) = read_json::<Detail>(resp) else { return Vec::new() };
     let mut out: Vec<Message> = detail
         .messages
         .into_iter()
@@ -202,7 +218,7 @@ fn transcript(id: String) -> Vec<Message> {
 fn send_reply(id: String, text: String) -> Result<(), String> {
     agent()
         .post(&format!("{BASE}/api/reply"))
-        .send_json(ureq::json!({ "id": id, "text": text }))
+        .send_json(serde_json::json!({ "id": id, "text": text }))
         .map(|_| ())
         .map_err(|e| e.to_string())
 }
@@ -511,16 +527,17 @@ fn poll_waiting(agent: &ureq::Agent) -> Option<Vec<Waiting>> {
 // so the tray stays right whether or not the window is open.
 fn follow_stream(app: AppHandle) {
     std::thread::spawn(move || {
-        let agent = ureq::AgentBuilder::new()
+        let agent: ureq::Agent = config()
             // Longer than the stream's own heartbeat, so a silent connection is
             // a dead one.
-            .timeout_read(Duration::from_secs(30))
-            .build();
+            .timeout_per_read(Some(Duration::from_secs(30)))
+            .build()
+            .into();
         loop {
             match agent.get(&format!("{BASE}/api/stream")).call() {
                 Ok(resp) => {
                     paint_tray(&app, poll_waiting(&agent));
-                    for line in BufReader::new(resp.into_reader()).lines() {
+                    for line in BufReader::new(resp.into_body().into_reader()).lines() {
                         match line {
                             Ok(l) if l.starts_with("data:") => {
                                 paint_tray(&app, poll_waiting(&agent))
