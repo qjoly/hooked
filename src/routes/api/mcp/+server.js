@@ -1,7 +1,7 @@
 import { json } from '@sveltejs/kit';
 import {
   listMcp, getMcp, logoutMcp, startLogin, loginStatus, sendLoginInput, cancelLogin, listMcpPi,
-  getMcpPi, saveMcpPi, removeMcpPi,
+  getMcpPi, saveMcpPi, removeMcpPi, engineOf,
 } from '#lib/server/core.js';
 import { fail, readJson } from '#lib/server/respond.js';
 
@@ -9,10 +9,20 @@ import { fail, readJson } from '#lib/server/respond.js';
 // `cwd` matters — project and local scopes are per-directory (see server/mcp.js).
 // `provider=pi` : liste lue dans les mcp.json de Pi (~/.pi/agent/mcp.json + <cwd>/.pi/mcp.json),
 // health-check HTTP uniquement (les stdio restent « configured ») — cf. server/piMcp.js.
+// `provider` is any provider id: its engine says which MCP flavour applies ('claude' | 'pi' | none).
+function mcpKind(provider) {
+  if (!provider || provider === 'claude') return 'claude';
+  if (provider === 'pi') return 'pi';
+  const e = engineOf(provider);
+  return e ? e.mcpKind || null : 'claude';
+}
+
 export async function GET({ url }) {
   const provider = url.searchParams.get('provider');
   const cwd = url.searchParams.get('cwd');
-  if (provider === 'pi') {
+  const kind = mcpKind(provider);
+  if (!kind) return json({ servers: [], diagnostics: [], unsupported: true });
+  if (kind === 'pi') {
     return json(await listMcpPi(cwd, { check: url.searchParams.get('check') === '1' }));
   }
   return json(await listMcp(cwd, { cached: url.searchParams.get('cached') === '1' }));
@@ -24,7 +34,7 @@ export async function POST({ request }) {
   const body = await readJson(request);
   if (!body || typeof body.action !== 'string') return fail(400, 'action required');
   const { action, cwd, name, id, text, provider, scope, config } = body;
-  const isPi = provider === 'pi';
+  const isPi = mcpKind(provider) === 'pi';
   try {
     switch (action) {
       case 'get':

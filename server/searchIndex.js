@@ -19,7 +19,7 @@ const { DatabaseSync } = createRequire(import.meta.url)('node:sqlite');
 import { HOOKED_DIR, PROJECTS_DIR, PI_SESSIONS_DIR } from './config.js';
 import { scanAllSessions } from './sessions.js';
 import { buildConversation } from './conversation.js';
-import { buildPiConversation } from './pi.js';
+import { engineForSession } from './providers.js';
 import { readdirSafe, statSafe } from './util.js';
 
 let db = null;
@@ -75,9 +75,10 @@ function open() {
 // Indexe (ou ré-indexe) un transcript. Idempotent : supprime les anciennes lignes
 // pour ce fichier avant insertion. Renvoie le nombre de messages insérés.
 function indexFile(d, sum, mtimeMs) {
-  const isPi = sum.provider === 'pi';
-  const key = isPi ? sum.file : sum.file;
-  const msgs = isPi ? buildPiConversation(sum.file) : buildConversation(sum.file, false);
+  const key = sum.file;
+  // Non-Claude sessions are read through their engine (pi session file, provider journal…).
+  const eng = sum.engine && sum.engine !== 'claude' ? engineForSession(sum) : null;
+  const msgs = eng ? (eng.conversation ? eng.conversation(sum) : []) : buildConversation(sum.file, false);
   const del = d.prepare('DELETE FROM messages WHERE file = ?');
   del.run(key);
   const ins = d.prepare(
@@ -119,7 +120,7 @@ function refresh(projectsDir = PROJECTS_DIR, piSessionsDir = PI_SESSIONS_DIR) {
       const key = sum.file;
       seen.add(key);
       let mt;
-      if (sum.provider === 'pi') mt = piFileMtime(sum.file);
+      if (sum.engine && sum.engine !== 'claude') mt = piFileMtime(sum.file);
       else { let st; try { st = fs.statSync(sum.file); } catch (_) { continue; } mt = Math.floor(st.mtimeMs); }
       if (!mt) continue;
       const row = get.get(key);

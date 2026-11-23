@@ -14,7 +14,7 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { HOOKED_DIR, isValidModelArg } from './config.js';
 import { scanAllSessions } from './sessions.js';
-import { buildPiConversation } from './pi.js';
+import { engineForSession } from './providers.js';
 import { resolveClaudeBin } from './commands.js';
 import { runPiHeadless } from './piCli.js';
 import { buildConversation } from './conversation.js';
@@ -130,7 +130,8 @@ function collectSessionsForDay(date) {
     const sd = tsToLocalDay(s.startTs);
     const ld = tsToLocalDay(s.lastTs);
     if (sd && ld && (date < sd || date > ld)) continue; // day outside the session's span
-    const msgs = s.provider === 'pi' ? buildPiConversation(s.dir) : buildConversation(s.file);
+    const eng = engineForSession(s);
+    const msgs = eng && eng.id !== 'claude' ? (s.file && eng.conversation ? eng.conversation(s) : []) : buildConversation(s.file);
     const prompts = [];
     const dayTools = {};
     let assistantTurns = 0;

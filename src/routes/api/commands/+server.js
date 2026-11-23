@@ -1,22 +1,26 @@
 import { json } from '@sveltejs/kit';
-import { scanAllSessions, matchCommands, slashCommands, piSlashCommands, agentSupportedCommands, rememberSdkCommands, persistedSdkCommands } from '#lib/server/core.js';
+import { scanAllSessions, matchCommands, slashCommands, agentSupportedCommands, rememberSdkCommands, persistedSdkCommands, getProvider, getEngine } from '#lib/server/core.js';
 
-// auto-complétion « / » : commandes custom + built-in, selon le provider.
-// - claude (défaut) : .claude/commands + built-in curées/extraites du binaire + supportedCommands
-//   de la session pilotée (seule source pour les skills embarqués).
-// - pi : prompts .pi/prompts + skills user-invocables + built-in Pi + availableCommands
-//   pi : lus depuis .pi/prompts. `provider` explicite (écran « New session ») ou déduit de la
-//   session quand `id` est donné.
+// « / » auto-completion, per provider (explicit `provider` from the New session screen, or the
+// session's when `id` is given).
+// - claude: .claude/commands + curated / binary-extracted built-ins + the driven session's
+//   supportedCommands (the only source for bundled skills).
+// - any other engine: the commands its live session declared (ACP available_commands_update) when
+//   there is one, else the engine's static list (pi: .pi/prompts + skills + built-ins).
 export async function GET({ url }) {
   const q = url.searchParams;
   const id = q.get('id');
   let cwd = q.get('cwd') || null;
-  const sess = scanAllSessions().find((x) => x.id === id);
+  const sess = id ? scanAllSessions().find((x) => x.id === id) : null;
   if (!cwd) cwd = sess && sess.project;
   const provider = q.get('provider') || (sess && sess.provider) || 'claude';
+  const pconf = getProvider(provider);
+  const engine = pconf ? getEngine(pconf.engine) : null;
 
-  if (provider === 'pi') {
-    return json({ commands: matchCommands(piSlashCommands(cwd), q.get('q') || '') });
+  if (engine && engine.id !== 'claude') {
+    const live = await agentSupportedCommands(id, provider);
+    const list = live ? live.commands : (typeof engine.slashCommands === 'function' ? engine.slashCommands(pconf, cwd) : []);
+    return json({ commands: matchCommands(list || [], q.get('q') || '') });
   }
 
   // Rien de piloté (typiquement l'écran « New session ») : on rejoue la dernière liste connue.

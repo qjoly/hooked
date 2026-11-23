@@ -15,12 +15,13 @@ import { PI_SESSIONS_DIR } from './config.js';
 import { blankSummary } from './transcript.js';
 import { readdirSafe, statSafe, textOf, cleanPrompt, truncTitle, toolDetail, toolInputText, toolDiffOps, toolResultText } from './util.js';
 import { costForUsage } from './pricing.js';
+import { anyCachedModel } from './piCatalog.js';
 
 const PR_URL_RE = /https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/pull\/\d+/g;
 const ISSUE_URL_RE = /https:\/\/(?:github\.com\/[\w.-]+\/[\w.-]+\/issues|[\w.-]+\/[\w./-]+?\/-\/(?:issues|work_items))\/\d+/g;
 
-// Fenêtres de contexte approximatives par famille de modèles Mistral (pour la jauge CTX quand le
-// driver RPC n'est pas vivant — avec le driver, get_session_stats donne la valeur exacte).
+// Context windows: pi's catalog when it was listed in this process (server/piCatalog.js, any
+// provider), else rough fallbacks by model family for the CTX gauge.
 const CTX_WINDOW = [
   [/large/, 1_000_000],
   [/glm/, 1_000_000],
@@ -30,9 +31,23 @@ const CTX_WINDOW = [
   [/codestral|pixtral/, 256_000],
 ];
 const DEFAULT_CTX_WINDOW = 262_144;
-function contextWindowFor(model) {
+function contextWindowFor(model, modelProvider = null) {
+  const ref = modelProvider && model && !String(model).includes('/') ? `${modelProvider}/${model}` : model;
+  const hit = anyCachedModel(ref);
+  if (hit && hit.contextWindow) return hit.contextWindow;
   for (const [re, w] of CTX_WINDOW) if (re.test(String(model || ''))) return w;
   return DEFAULT_CTX_WINDOW;
+}
+
+// pi's own cost of a message ({ cost: { input, output, cacheRead, cacheWrite, total } }) in the
+// costForUsage shape, or null when pi did not price it.
+function piCost(u) {
+  const c = u && u.cost;
+  if (!c || typeof c !== 'object' || typeof c.total !== 'number' || !(c.total > 0)) return null;
+  return {
+    inp: u.input || 0, out: u.output || 0, cc: u.cacheWrite || 0, cr: u.cacheRead || 0,
+    cIn: c.input || 0, cOut: c.output || 0, cCc: c.cacheWrite || 0, cCr: c.cacheRead || 0, total: c.total,
+  };
 }
 
 // usage pi {input, output, cacheRead, cacheWrite, totalTokens, cost} → shape Anthropic de costForUsage
@@ -146,6 +161,7 @@ function finalizePi(read) {
         for (const mm of raw.matchAll(PR_URL_RE)) prRaw.push(mm[0]);
         for (const mm of raw.matchAll(ISSUE_URL_RE)) issueRaw.push(mm[0]);
       } else if (m.role === 'assistant') {
+        if (m.model) { model = m.model; modelProvider = m.provider || modelProvider; }
         const raw = textOf(m.content);
         const t = cleanPrompt(raw);
         if (t) s.lastReply = t;
@@ -162,7 +178,9 @@ function finalizePi(read) {
         const u = m.usage;
         if (u && (u.totalTokens || u.input || u.output)) {
           const ua = piUsageToAnthropic(u);
-          const k = costForUsage(ua, model || 'mistral');
+          // pi prices every message from its own catalog (the provider's real rates): prefer that
+          // over hooked's family table, which only knows Anthropic and a Mistral average.
+          const k = piCost(u) || costForUsage(ua, (m.provider || modelProvider) === 'mistral' ? 'mistral' : (m.model || model || ''));
           s.usage.input += k.inp; s.usage.output += k.out; s.usage.cacheCreate += k.cc; s.usage.cacheRead += k.cr;
           s.cost += k.total;
           s.costBreak.input += k.cIn; s.costBreak.output += k.cOut; s.costBreak.cacheCreate += k.cCc; s.costBreak.cacheRead += k.cCr;
@@ -176,7 +194,10 @@ function finalizePi(read) {
     }
   }
   s.lastTs = lastTs || s.startTs || null;
-  s.model = model ? (modelProvider && modelProvider !== 'mistral' ? `${modelProvider}/${model}` : model) : null;
+  s.model = model || null;
+  s.modelProvider = modelProvider || null;
+  // `provider/id`: what a provider's `models` patterns are matched against (cf. providerConfig.js).
+  s.modelRef = model ? (modelProvider ? `${modelProvider}/${model}` : model) : null;
   s.prLinks = [...new Set(prRaw.slice().reverse())].slice(0, 12);
   s.issueLinks = [...new Set(issueRaw.slice().reverse())].slice(0, 12);
   s.title = sessionName || truncTitle(s.firstPrompt, 80) || '(sans titre)';
@@ -358,7 +379,7 @@ function piContext(s) {
   const u = s.lastUsage;
   if (!u || !u.contextTokens) return null;
   const size = u.contextTokens;
-  const win = contextWindowFor(s.model);
+  const win = contextWindowFor(s.model, s.modelProvider);
   return { pct: Math.min(100, (size / win) * 100), size, contextWindow: win };
 }
 

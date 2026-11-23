@@ -16,7 +16,7 @@ export async function GET({ url }) {
   if (!id || !p) return fail(400, 'id and path required');
   const s = findSessionAny(id);
   if (!s || !s.file) return fail(404, 'session not found');
-  if (s.provider === 'pi') {
+  if (s.engine && s.engine !== 'claude') {
     const vcs = await buildVcsChanges(s.project);
     const all = [...(vcs.changes || []), ...(vcs.repos || []).flatMap((r) => r.changes || [])];
     const entry = all.find((c) => c.file === p);

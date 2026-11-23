@@ -1,18 +1,25 @@
 /*
- * Point d'entrée unique pour le scan des sessions, tous providers confondus
- * (cf. docs/port-pi.md) : Claude Code (transcripts ~/.claude/projects) + pi
- * (fichiers .jsonl sous ~/.pi/agent/sessions). Même shape de retour (blankSummary + `provider`).
+ * Single entry point for the session scan, every provider included (cf. server/providers.js):
+ * Claude Code transcripts, pi session files, journals of ACP / external providers. Same return
+ * shape for all (blankSummary + `provider` + `engine`).
  */
 import { scanSessions } from './transcript.js';
 import { scanPiSessions } from './pi.js';
+import { scanProviderSessions } from './providers.js';
 
+// Explicit folders (tests, the search index pointed at a fixture) keep the historical two-store
+// scan; the normal call goes through the provider registry.
 function scanAllSessions(projectsDir, piSessionsDir) {
-  return [...scanSessions(projectsDir), ...scanPiSessions(piSessionsDir)];
+  if (projectsDir !== undefined || piSessionsDir !== undefined) {
+    const tag = (engine) => (s) => { s.provider = s.provider || engine; s.engine = engine; return s; };
+    return [...scanSessions(projectsDir).map(tag('claude')), ...scanPiSessions(piSessionsDir).map(tag('pi'))];
+  }
+  return scanProviderSessions();
 }
 
-// Résout UNE session par id, tous providers confondus. Règle S1 (cf. PLAN_migration_mistral.md) :
-// toute route/module qui reçoit un `id` de session passe par ici, jamais par scanSessions() seul —
-// sinon une session pi est 404 alors que la route n'a besoin que de `s.project` / `s.dir`.
+// Resolves ONE session by id, every provider included. Rule S1 (cf. PLAN_migration_mistral.md):
+// every route / module receiving a session `id` goes through here, never through scanSessions()
+// alone — otherwise a non-Claude session is a 404 although the route only needs `s.project`.
 function findSessionAny(id, projectsDir, piSessionsDir) {
   if (!id) return null;
   return scanAllSessions(projectsDir, piSessionsDir).find((x) => x.id === id) || null;

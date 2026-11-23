@@ -14,6 +14,9 @@ import { scanSessions, getSummary } from './transcript.js';
 import { scanPiSessions, piSetArchived, piRead } from './pi.js';
 import { finalizePi as finalizePiForTrash } from './pi.js';
 import { readdirSafe, statSafe } from './util.js';
+import { findSessionAny } from './sessions.js';
+import { engineForSession } from './providers.js';
+import { journalRoot, readJournal, summarizeJournal, findTrashedJournal, journalSetArchived } from './engines/journal.js';
 
 // Sous-dossier corbeille dans chaque dossier projet (~/.claude/projects/<projet>/bin/).
 const TRASH_SUBDIR = 'bin';
@@ -31,7 +34,16 @@ function trashSession(id, cb, piSessionsDir = PI_SESSIONS_DIR) {
   try {
     if (!isValidId(id)) return done({ code: 400, message: 'invalid session id' });
     const s = scanSessions().find((x) => x.id === id) || scanPiSessions(piSessionsDir).find((x) => x.id === id);
-    if (!s || !s.file) return done({ code: 404, message: 'session not found (already in trash?)' });
+    if (!s || !s.file) {
+      // Another engine's session (ACP / external provider journal…): archived by its engine.
+      const other = findSessionAny(id);
+      const eng = other && other.file ? engineForSession(other) : null;
+      if (eng && eng.id !== 'claude' && typeof eng.setArchived === 'function') {
+        if (!eng.setArchived(other, true)) return done({ code: 500, message: `could not archive ${other.provider} session` });
+        return done(null, { id, from: other.file, to: other.file + '.trashed', project: other.projectName || null, provider: other.provider });
+      }
+      return done({ code: 404, message: 'session not found (already in trash?)' });
+    }
     if (s.provider === 'pi') {
       if (!piSetArchived(s.file, true)) return done({ code: 500, message: 'could not archive pi session' });
       return done(null, { id, from: s.file, to: s.file + '.trashed', project: s.projectName || null, provider: 'pi' });
@@ -67,6 +79,12 @@ function restoreSession(id, cb, piSessionsDir = PI_SESSIONS_DIR) {
           return done(null, { id, from: trashed, to: trashed.slice(0, -8), provider: 'pi' });
         }
       }
+    }
+    // Journaled session (ACP / external provider) renamed .trashed.
+    const journaled = findTrashedJournal(id);
+    if (journaled) {
+      if (!journalSetArchived(journaled, false)) return done({ code: 500, message: 'could not restore session' });
+      return done(null, { id, from: journaled, to: journaled.slice(0, -'.trashed'.length) });
     }
     for (const proj of readdirSafe(PROJECTS_DIR)) {
       const binDir = path.join(PROJECTS_DIR, proj, TRASH_SUBDIR);
@@ -124,6 +142,26 @@ function listTrashed(projectsDir = PROJECTS_DIR, piSessionsDir = PI_SESSIONS_DIR
         project: read.header.cwd, projectName: read.header.cwd ? path.basename(read.header.cwd) : null,
         lastTs: sum.lastTs, cost: sum.cost, userPrompts: sum.userPrompts,
         trashedAt: fst ? new Date(fst.mtimeMs).toISOString() : null, provider: 'pi',
+      });
+    }
+  }
+  // Journaled sessions (ACP / external providers) renamed .trashed.
+  const root = journalRoot();
+  for (const d of readdirSafe(root)) {
+    const dir = path.join(root, d);
+    if (!statSafe(dir)?.isDirectory()) continue;
+    for (const f of readdirSafe(dir)) {
+      if (!f.endsWith('.jsonl.trashed')) continue;
+      const fp = path.join(dir, f);
+      const read = readJournal(fp);
+      if (!read) continue;
+      const sum = summarizeJournal(read, d);
+      const fst = statSafe(fp);
+      out.push({
+        id: sum.id, title: sum.title, firstPrompt: sum.firstPrompt,
+        project: sum.project, projectName: sum.projectName,
+        lastTs: sum.lastTs, cost: sum.cost, userPrompts: sum.userPrompts,
+        trashedAt: fst ? new Date(fst.mtimeMs).toISOString() : null, provider: sum.provider,
       });
     }
   }
