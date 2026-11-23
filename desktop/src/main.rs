@@ -2,6 +2,7 @@ mod account;
 mod api;
 mod app;
 mod cron;
+mod flows;
 mod defs;
 mod dnd;
 mod echo;

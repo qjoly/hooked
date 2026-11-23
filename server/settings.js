@@ -134,7 +134,7 @@ const DEFAULTS = {
   featureFlags: Object.fromEntries(FEATURE_FLAGS.map((k) => [k, false])),
 };
 
-const NAV_PAGES = ['sessions', 'stats', 'digest', 'memory', 'github', 'skills', 'cron', 'prompts'];
+const NAV_PAGES = ['sessions', 'stats', 'digest', 'memory', 'github', 'incidents', 'skills', 'cron', 'flows', 'prompts'];
 const DEFAULT_PAGES = ['deck', ...NAV_PAGES];
 
 // Ramène un objet arbitraire (fichier ou payload client) à des valeurs sûres et complètes.

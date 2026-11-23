@@ -1,5 +1,5 @@
 [tools]
-node = "24"
+node = "26"
 # pi (provider Mistral, branche feat/pi-mistral) — dans [tools] RACINE et pas dans une tâche :
 # le service hooked est lancé par launchd/systemd via `mise x -- bash deploy/service-run.sh`
 # (cf. tasks.service-install), donc seuls les tools racine sont dans le PATH du service.

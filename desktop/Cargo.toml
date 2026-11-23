@@ -5,21 +5,21 @@ edition = "2024"
 publish = false
 
 [dependencies]
-rune = { git = "https://github.com/anomalyco/rune", rev = "a7f276c3630f85a06a0230295da4d2bd172d8d3b" }
-rune-kit = { git = "https://github.com/anomalyco/rune", rev = "a7f276c3630f85a06a0230295da4d2bd172d8d3b", features = ["markdown", "mermaid"] }
-rune-notify = { git = "https://github.com/anomalyco/rune", rev = "a7f276c3630f85a06a0230295da4d2bd172d8d3b" }
-rune-luau = { git = "https://github.com/anomalyco/rune", rev = "a7f276c3630f85a06a0230295da4d2bd172d8d3b", features = ["serde"] }
-rune-perf = { git = "https://github.com/anomalyco/rune", rev = "a7f276c3630f85a06a0230295da4d2bd172d8d3b" }
-procwatch = { git = "https://github.com/anomalyco/rune", rev = "a7f276c3630f85a06a0230295da4d2bd172d8d3b" }
-rune-knobs = { git = "https://github.com/anomalyco/rune", rev = "a7f276c3630f85a06a0230295da4d2bd172d8d3b" }
-rune-register = { git = "https://github.com/anomalyco/rune", rev = "a7f276c3630f85a06a0230295da4d2bd172d8d3b", optional = true }
-ureq = { version = "2", features = ["json"] }
+rune = { git = "https://github.com/anomalyco/rune", rev = "5035abb8657064401600f66035ad1d40867edf8c" }
+rune-kit = { git = "https://github.com/anomalyco/rune", rev = "5035abb8657064401600f66035ad1d40867edf8c", features = ["markdown", "mermaid"] }
+rune-notify = { git = "https://github.com/anomalyco/rune", rev = "5035abb8657064401600f66035ad1d40867edf8c" }
+rune-luau = { git = "https://github.com/anomalyco/rune", rev = "5035abb8657064401600f66035ad1d40867edf8c", features = ["serde"] }
+rune-perf = { git = "https://github.com/anomalyco/rune", rev = "5035abb8657064401600f66035ad1d40867edf8c" }
+procwatch = { git = "https://github.com/anomalyco/rune", rev = "5035abb8657064401600f66035ad1d40867edf8c" }
+rune-knobs = { git = "https://github.com/anomalyco/rune", rev = "5035abb8657064401600f66035ad1d40867edf8c" }
+rune-register = { git = "https://github.com/anomalyco/rune", rev = "5035abb8657064401600f66035ad1d40867edf8c", optional = true }
+ureq = { version = "3", features = ["json"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 base64 = "0.22"
 libc = "0.2"
 pulldown-cmark = { version = "0.13", default-features = false }
-libghostty-vt = { git = "https://github.com/Uzaaft/libghostty-rs", rev = "9b598d6528c08c013407052767bb2e885ba869ba", features = ["png"] }
+libghostty-vt = { git = "https://github.com/Uzaaft/libghostty-rs", rev = "483ea3d5247b214060da58ef6037a95f30ae89fb", features = ["png"] }
 
 [features]
 hot = ["rune/hot"]
@@ -29,6 +29,16 @@ knobs = ["rune-knobs/panel", "dep:rune-register"]
 
 [target.'cfg(target_os = "macos")'.dependencies]
 tray-icon = "0.21"
+
+# Rune builds these crates from its own patched copies, and Cargo does not inherit a dependency's
+# `[patch]`. Copy the `[patch.crates-io]` table of Rune's root Cargo.toml, at the same rev as above.
+[patch.crates-io]
+wgpu-hal = { git = "https://github.com/anomalyco/rune", rev = "5035abb8657064401600f66035ad1d40867edf8c" }
+winit = { git = "https://github.com/anomalyco/rune", rev = "5035abb8657064401600f66035ad1d40867edf8c" }
+sctk-adwaita = { git = "https://github.com/anomalyco/rune", rev = "5035abb8657064401600f66035ad1d40867edf8c" }
+parley_engine = { git = "https://github.com/anomalyco/rune", rev = "5035abb8657064401600f66035ad1d40867edf8c" }
+accesskit_windows = { git = "https://github.com/anomalyco/rune", rev = "5035abb8657064401600f66035ad1d40867edf8c" }
+accesskit_macos = { git = "https://github.com/anomalyco/rune", rev = "5035abb8657064401600f66035ad1d40867edf8c" }
 
 [profile.dev]
 debug = "line-tables-only"

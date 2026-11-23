@@ -153,6 +153,8 @@ const cwdQuery = (cwds) => (cwds || []).map((c) => '&cwd=' + encodeURIComponent(
 export const getSkills = (cwds, provider = 'all') => jget('/api/skills?provider=' + provider + (cwds && cwds.length ? '&' + cwdQuery(cwds).slice(1) : ''));
 export const getCronTasks = () => jget('/api/cron');
 export const cronOp = (op, extra) => jpost('/api/cron', { op, ...extra });
+export const getFlows = () => jget('/api/flows');
+export const flowOp = (op, extra) => jpost('/api/flows', { op, ...extra });
 export const getSkill = (id, cwds, provider = 'all') => jget('/api/skills?id=' + encodeURIComponent(id) + '&provider=' + provider + cwdQuery(cwds));
 // MCP servers of a project (health-checked list, scope, diagnostics) + the OAuth actions.
 // `cwd` selects the project: project- and local-scope servers are per-directory.

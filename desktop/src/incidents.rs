@@ -380,6 +380,11 @@ pub struct MergeForm {
     pub other: TextEdit,
     pub busy: bool,
     pub error: Option<String>,
+    /// The incident `other` names, looked up so the dialog shows what it is about to merge into:
+    /// (reference typed, result). A typed target is only sent once it resolved.
+    pub found: Option<(String, Result<Inc, String>)>,
+    /// The reference being looked up right now.
+    pub looking: Option<String>,
 }
 
 pub struct MergePlan<'a> {
@@ -387,11 +392,21 @@ pub struct MergePlan<'a> {
     pub target: Option<(String, String)>,
     pub sources: Vec<&'a Inc>,
     pub skipped: Vec<(&'a Inc, &'static str)>,
+    /// Why a typed target is not usable yet (being looked up, not found, cannot be merged into).
+    pub wait: Option<String>,
 }
 
-/// `inc-12`, `12` and `INC-12` all name INC-12.
+/// `inc-12`, `12`, `#12`, `INC-12` and a pasted incident link all name INC-12; a link to an
+/// incident id (not a number) gives that id, which `incident_show` takes too.
 pub fn normalize_reference(text: &str) -> Option<String> {
-    let t = text.trim();
+    let mut t = text.trim();
+    if let Some(i) = t.find("/incidents/") {
+        t = t[i + "/incidents/".len()..]
+            .split(['/', '?', '#'])
+            .next()
+            .unwrap_or("");
+    }
+    let t = t.trim_start_matches('#').trim();
     if t.is_empty() {
         return None;
     }
@@ -415,7 +430,15 @@ impl MergeForm {
             other: TextEdit::new(""),
             busy: false,
             error: None,
+            found: None,
+            looking: None,
         }
+    }
+
+    /// The typed target as looked up, when the lookup is for what is typed now.
+    pub fn typed_target(&self) -> Option<&Result<Inc, String>> {
+        let r = normalize_reference(&self.other.text)?;
+        self.found.as_ref().filter(|(f, _)| *f == r).map(|(_, x)| x)
     }
 
     pub fn plan(&self) -> MergePlan<'_> {
@@ -425,10 +448,33 @@ impl MergeForm {
             .as_ref()
             .and_then(|t| self.items.iter().find(|i| &i.id == t))
             .filter(|i| mergeable(i).is_ok());
+        // A typed target counts once it resolved to an incident that can take a merge: the
+        // dialog shows it, so nothing is merged into a mistyped number.
+        let mut wait = None;
         let target = match (&outside, inside) {
-            (Some(r), _) => Some((r.clone(), r.clone())),
+            (Some(r), _) => match self.typed_target() {
+                Some(Ok(i)) => match mergeable(i) {
+                    Ok(()) => Some((i.id.clone(), i.reference.clone())),
+                    Err(why) => {
+                        wait = Some(format!("{} cannot take a merge: {why}.", i.reference));
+                        None
+                    }
+                },
+                Some(Err(e)) => {
+                    wait = Some(format!("{r}: {e}"));
+                    None
+                }
+                None => {
+                    wait = Some(format!("Looking up {r}…"));
+                    None
+                }
+            },
             (None, Some(i)) => Some((i.id.clone(), i.reference.clone())),
             (None, None) => None,
+        };
+        let outside = match (&outside, self.typed_target()) {
+            (Some(_), Some(Ok(i))) => Some(i.reference.clone()),
+            (o, _) => o.clone(),
         };
         let mut sources = Vec::new();
         let mut skipped = Vec::new();
@@ -449,6 +495,7 @@ impl MergeForm {
             target,
             sources,
             skipped,
+            wait,
         }
     }
 }
@@ -457,7 +504,7 @@ impl MergePlan<'_> {
     /// The arguments of the one `incident_merge` call, or why there is nothing to send.
     pub fn args(&self) -> Result<Value, String> {
         let Some((target, _)) = self.target.as_ref() else {
-            return Err("Pick the incident to keep.".into());
+            return Err(self.wait.clone().unwrap_or_else(|| "Pick the incident to keep.".into()));
         };
         if self.sources.is_empty() {
             return Err("Nothing left to merge into it.".into());
@@ -1163,6 +1210,78 @@ impl Hooked {
         }
     }
 
+    /// Looks up the incident typed (or pasted) as the merge target, so the dialog can show it.
+    /// Answers for a reference that is no longer the one typed are dropped.
+    pub fn lookup_merge_target(&mut self) {
+        let (Some(c), Some(form)) = (self.inc.client.clone(), self.inc.merge.as_mut()) else {
+            return;
+        };
+        let Some(r) = normalize_reference(&form.other.text) else {
+            form.found = None;
+            form.looking = None;
+            return;
+        };
+        if form.looking.as_deref() == Some(r.as_str())
+            || form.found.as_ref().is_some_and(|(f, _)| *f == r)
+        {
+            return;
+        }
+        form.looking = Some(r.clone());
+        self.spawn(
+            move || {
+                // A short pause lets the typing settle; a stale answer is dropped anyway.
+                std::thread::sleep(std::time::Duration::from_millis(300));
+                let out = fetch_detail(&c, &r, false).and_then(|v| {
+                    serde_json::from_value::<Inc>(v)
+                        .ok()
+                        .filter(|i| !i.reference.is_empty())
+                        .ok_or_else(|| "not found".to_string())
+                });
+                let out = out.map_err(|e| {
+                    if e.to_lowercase().contains("not found") { "not found".to_string() } else { e }
+                });
+                (r, out)
+            },
+            |s, (r, out), _| {
+                let Some(f) = s.inc.merge.as_mut() else {
+                    return;
+                };
+                if f.looking.as_deref() == Some(r.as_str()) {
+                    f.looking = None;
+                }
+                if normalize_reference(&f.other.text).as_deref() == Some(r.as_str()) {
+                    f.found = Some((r, out));
+                }
+            },
+        );
+    }
+
+    /// Fills the merge target from the clipboard (a number, a reference or an incident link).
+    pub fn paste_merge_target(&mut self) {
+        self.spawn(
+            || {
+                std::process::Command::new("pbpaste")
+                    .output()
+                    .ok()
+                    .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+                    .filter(|t| !t.is_empty())
+            },
+            |s, text, _| {
+                let Some(f) = s.inc.merge.as_mut() else {
+                    return;
+                };
+                let Some(r) = text.as_deref().and_then(normalize_reference) else {
+                    f.error = Some("The clipboard holds no incident.".into());
+                    return;
+                };
+                // The field takes the number alone: `INC-` adds nothing.
+                f.other = TextEdit::new(r.strip_prefix("INC-").unwrap_or(&r));
+                f.error = None;
+                s.lookup_merge_target();
+            },
+        );
+    }
+
     pub fn confirm_merge(&mut self) {
         let (Some(c), Some(form)) = (self.inc.client.clone(), self.inc.merge.as_mut()) else {
             return;
@@ -1567,10 +1686,16 @@ mod tests {
     fn a_target_outside_the_selection_takes_every_selected_incident() {
         let mut form = MergeForm::new(vec![inc(1, "a", "triage", 9), inc(2, "b", "active", 2)]);
         form.other = TextEdit::new(" 77 ");
+        // Nothing is sent until the typed number resolved to an incident shown to the user.
         let plan = form.plan();
-        assert_eq!(plan.target, Some(("INC-77".into(), "INC-77".into())));
+        assert_eq!(plan.target, None);
+        assert_eq!(plan.args().unwrap_err(), "Looking up INC-77…");
+        form.found = Some(("INC-77".into(), Ok(inc(77, "target", "active", 1))));
+        let plan = form.plan();
+        assert_eq!(plan.target, Some(("ID77".into(), "INC-77".into())));
         assert_eq!(plan.sources.len(), 2);
         form.other = TextEdit::new("inc-2");
+        form.found = Some(("INC-2".into(), Ok(inc(2, "b", "active", 2))));
         let plan = form.plan();
         assert_eq!(
             plan.sources.len(),
@@ -1578,6 +1703,31 @@ mod tests {
             "the typed target is not its own source"
         );
         assert_eq!(plan.skipped[0].1, "the target");
+    }
+
+    #[test]
+    fn a_typed_target_that_is_missing_or_merged_blocks_the_merge() {
+        let mut form = MergeForm::new(vec![inc(1, "a", "active", 1)]);
+        form.other = TextEdit::new("9");
+        form.found = Some(("INC-9".into(), Err("not found".into())));
+        assert_eq!(form.plan().args().unwrap_err(), "INC-9: not found");
+        form.found = Some(("INC-9".into(), Ok(inc(9, "old", "merged", 40))));
+        assert!(form.plan().args().unwrap_err().starts_with("INC-9 cannot take a merge"));
+        // A lookup for another number does not count for the one typed now.
+        form.found = Some(("INC-8".into(), Ok(inc(8, "x", "active", 1))));
+        assert_eq!(form.plan().args().unwrap_err(), "Looking up INC-9…");
+    }
+
+    #[test]
+    fn a_reference_reads_from_a_number_a_hash_or_a_link() {
+        for t in ["123", "#123", "INC-123", "inc-123", " https://app.incident.io/acme/incidents/123?tab=timeline "] {
+            assert_eq!(normalize_reference(t).as_deref(), Some("INC-123"), "{t}");
+        }
+        assert_eq!(
+            normalize_reference("https://app.incident.io/acme/incidents/01HXYZ").as_deref(),
+            Some("01HXYZ")
+        );
+        assert_eq!(normalize_reference("   "), None);
     }
 
     #[test]

@@ -27,6 +27,17 @@ const BASE = (process.env.HOOKED_MCP_URL || `http://localhost:${PORT}`).replace(
 const PROTOCOL_VERSION = '2025-06-18';
 const SERVER_INFO = { name: 'hooked', version: '2.0.0' };
 
+// The CLI adds these to the system prompt of every session that loads this server, so every session
+// hooked drives (hookedMcpServer in server/agent.js). It is hooked's only way in: hooked passes no
+// `systemPrompt` (the SDK then runs a bare one), and `append` only exists on the claude_code preset,
+// which would swap that prompt for Claude Code's. The language must match CodeBlock.svelte's `runnable`.
+const INSTRUCTIONS =
+  'This session is shown in hooked, a web dashboard. There, a fenced code block labelled `bash` gets a ' +
+  "Run button: one click runs the whole block in the session's working directory and sends you its " +
+  'output. So put each command you suggest running in a ```bash block, without a `$ ` prompt, and keep ' +
+  'alternatives in separate blocks. Never leave such a block unlabelled, and do not label `bash` ' +
+  'anything that is not meant to run (output, logs, paths, commit messages): use ```text for those.';
+
 // --- client HTTP minimal ------------------------------------------------------
 
 function httpRequest(method, pathQuery, body) {
@@ -519,6 +530,70 @@ const TOOLS = [
     },
     run: (a) => httpRequest('POST', '/api/cron', { op: 'run', id: a.id }),
   },
+  {
+    name: 'flow_report',
+    description:
+      'Reports the result of your stage when hooked runs you as one stage of a flow (a pipeline of sessions). ' +
+      'Call it once your part is finished, then end your turn: hooked hands your summary to the next stages. ' +
+      'The decider stage must pass a verdict: `done` (closes the flow), `loop` (sends the work back, the summary ' +
+      'being the instructions for the next pass) or `escalate` (hands the decision to the user). Other stages ' +
+      'pass no verdict, or `escalate` when blocked on a decision that belongs to the user.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        summary: { type: 'string', description: 'what you did or found, written for the next stages (markdown)' },
+        verdict: { type: 'string', enum: ['done', 'loop', 'escalate'] },
+      },
+      required: ['summary'],
+      additionalProperties: false,
+    },
+    run: (a) => process.env.HOOKED_LAUNCH_KEY
+      ? httpRequest('POST', '/api/flows', { op: 'report', launchKey: process.env.HOOKED_LAUNCH_KEY, summary: a.summary, verdict: a.verdict })
+      : Promise.resolve({ error: 'this session is not driven by hooked, it cannot be a flow stage' }),
+  },
+  {
+    name: 'list_flows',
+    description:
+      'Lists the flow templates (pipelines of sessions: pilot, build, review, challenge, decide…) and the flow runs ' +
+      'with the state of each stage and its session id.',
+    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+    run: async () => {
+      const r = await httpRequest('GET', '/api/flows');
+      if (!r.ok) return r;
+      const runs = (r.data.runs || []).map((x) => ({
+        id: x.id, name: x.name, status: x.status, note: x.note, iteration: x.iteration, cwd: x.cwd,
+        link: '/flows?run=' + x.id,
+        stages: Object.fromEntries(Object.entries(x.stages).map(([k, s]) => [k, { status: s.status, sessionId: s.sessionId, verdict: s.report?.verdict || null }])),
+      }));
+      const templates = (r.data.templates || []).map((t) => ({ id: t.id, name: t.name, description: t.description, stages: t.stages.map((s) => s.key) }));
+      return { ok: true, data: { templates, runs } };
+    },
+  },
+  {
+    name: 'start_flow',
+    description:
+      'Starts a flow run: hooked launches one session per stage of the template and chains them (each stage gets ' +
+      'the reports of the stages before it), looping back when the decider asks for it. The response carries a ' +
+      '`link` (relative): emit a markdown link `[label](<link>)` to point the user at the pipeline view.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        templateId: { type: 'string', description: 'flow template id (see list_flows); "feature" is built in' },
+        task: { type: 'string', description: 'what the flow should achieve, handed to every stage' },
+        cwd: { type: 'string', description: 'project directory' },
+        name: { type: 'string', description: 'defaults to the first line of the task' },
+        worktree: { type: 'boolean', description: 'run in a new git worktree (defaults to the template setting)' },
+        base: { type: 'string', description: 'base branch of the worktree' },
+      },
+      required: ['templateId', 'task', 'cwd'],
+      additionalProperties: false,
+    },
+    run: async (a) => {
+      const r = await httpRequest('POST', '/api/flows', { op: 'start', ...a });
+      if (!r.ok) return r;
+      return { ok: true, data: { id: r.data.run.id, name: r.data.run.name, cwd: r.data.run.cwd, link: r.data.link } };
+    },
+  },
 ];
 
 // --- show your work (show_image / show_video / show_audio) -------------------
@@ -776,6 +851,7 @@ async function handle(msg) {
       protocolVersion: (params && params.protocolVersion) || PROTOCOL_VERSION,
       capabilities: { tools: {} },
       serverInfo: SERVER_INFO,
+      instructions: INSTRUCTIONS,
     });
   }
 
