@@ -190,9 +190,9 @@ function finalizePi(read) {
           const contextTokens = u.totalTokens || ((u.input || 0) + (u.cacheRead || 0) + (u.cacheWrite || 0) + (u.output || 0));
           if (contextTokens) s.lastUsage = { ts: ts || s.lastTs || null, contextTokens, ttl: null };
         }
-      } else if (m.role === 'toolResult' && m.toolName === 'Agent' && m.details && m.details.usage) {
-        // A subagent of hooked's pi package (pi-package/extensions/agent.js): its usage is in the
-        // tool result only, as Claude Code's subagents are in toolUseResult.usage.
+      } else if (m.role === 'toolResult' && (m.toolName === 'Agent' || m.toolName === 'Workflow') && m.details && m.details.usage) {
+        // Subagents of hooked's pi package (Agent: one; Workflow: agentCount, usage summed): their
+        // usage is in the tool result only, as Claude Code's subagents are in toolUseResult.usage.
         // Priced like the session's own messages: pi's figure when it has one, else hooked's table
         // (pi reports 0 for a subscription model such as pi-claude-bridge's).
         const u = m.details.usage;
@@ -200,7 +200,7 @@ function finalizePi(read) {
         const k = Number(u.cost) > 0
           ? { inp: u.input || 0, out: u.output || 0, cc: u.cacheWrite || 0, cr: u.cacheRead || 0, cIn: 0, cOut: 0, cCc: 0, cCr: 0, total: Number(u.cost) }
           : costForUsage(piUsageToAnthropic(u), sub.startsWith('mistral/') ? 'mistral' : sub.slice(sub.indexOf('/') + 1));
-        s.subagents++;
+        s.subagents += m.toolName === 'Workflow' ? (Number(m.details.agentCount) || 0) : 1;
         s.subagentCost += k.total;
         s.cost += k.total;
         s.usage.input += k.inp; s.usage.output += k.out; s.usage.cacheRead += k.cr; s.usage.cacheCreate += k.cc;

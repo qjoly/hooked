@@ -11,6 +11,7 @@ and controls in the dashboard as a Claude session.
 | Plan mode | `ExitPlanMode` + permission mode | `ExitPlanMode` + the package's mode |
 | Todo list in the dock | `TodoWrite` / `TaskCreate` | `TodoWrite`, same schema, read back from the pi session file |
 | Subagents | `Agent` | `Agent`: a separate `pi --mode json -p` on the current model (below) |
+| Workflows | `Workflow` | `Workflow`: the same script API (`agent`, `parallel`, `pipeline`, `phase`, `log`, `args`, schemas), each agent a subagent as above; no resume, no worktree isolation |
 | Web pages | `WebFetch` | `WebFetch`, same parameters: the page as text (no small-model summary), asks in the normal mode |
 | Web search | `WebSearch` | `WebSearch`, same parameters: one headless, traceless `claude -p` on Haiku with only WebSearch (the user's Claude login), asks in the normal mode |
 | Background commands | `Bash run_in_background`, `BashOutput`, `KillShell` | `BashBackground`, `BashOutput`, `KillShell`; the end of a command wakes the agent with a `<task-notification>`, and the dock lists the jobs |
@@ -56,6 +57,19 @@ Its usage is in the tool result's `details`; the session summary adds it to the 
 `subagentCost`), as for Claude Code's subagents. The subagent's pi session lives in a temporary
 folder removed after the run, so it stays out of the session list. Through pi-claude-bridge it is
 still a real session: the bridge records its Claude Code shadow, which hooked then hides.
+
+## Workflows
+
+`Workflow` (`pi-package/extensions/workflow.js`) runs a Claude Code workflow script: it begins with
+`export const meta = {...}` and uses `agent(prompt, { label, phase, schema, model, effort,
+agentType })`, `parallel()`, `pipeline()`, `phase()`, `log()` and `args`. Every `agent()` is a
+subagent as above, at most 4 at a time and 100 per run. With `schema`, the subagent answers with one
+JSON object, checked against the schema (one retry with the problem), and `agent()` returns the
+object; a failed agent returns `null`. A `model` without a provider takes the session's
+(`sonnet` → `claude-bridge/sonnet`). Not supported: resume, `isolation: 'worktree'` (logged, the
+agent runs in the session directory), `workflow()` nesting. The script runs in its own V8 context
+with no Node.js API handed to it, which is not a sandbox: the tool asks in the normal mode. The
+tool result carries the summed usage and the agent count, which the session summary adds.
 
 ## The protocol
 

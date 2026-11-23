@@ -8,6 +8,7 @@
  *     tools, from the same definitions as the MCP server (mcp/server.cjs), with no MCP proxy;
  *   - AskUserQuestion, ExitPlanMode and TodoWrite, with Claude Code's schemas;
  *   - Agent: subagents in a separate pi process (extensions/agent.js);
+ *   - Workflow: Claude Code's scripted orchestration of subagents (extensions/workflow.js);
  *   - WebFetch / WebSearch: a web page as text, a web search (extensions/webfetch.js, websearch.js);
  *   - BashBackground / BashOutput / KillShell: background commands (extensions/background.js);
  *   - a permission gate following hooked's permission modes and auto-approve switch;
@@ -25,6 +26,7 @@
  */
 import { createRequire } from 'node:module';
 import { registerAgentTool } from './agent.js';
+import { registerWorkflowTool } from './workflow.js';
 import { registerWebFetch } from './webfetch.js';
 import { registerWebSearch } from './websearch.js';
 import { registerBackground } from './background.js';
@@ -272,7 +274,10 @@ export default function hooked(pi) {
 
   // ── Agent (subagents) ─────────────────────────────────────────────────────────────────────
   // Outside hooked nothing asks either, so the subagent gets pi's default tools there.
-  registerAgentTool(pi, () => (DRIVEN ? { mode, autoApprove } : { mode: 'bypassPermissions', autoApprove: true }));
+  const subagentPolicy = () => (DRIVEN ? { mode, autoApprove } : { mode: 'bypassPermissions', autoApprove: true });
+  registerAgentTool(pi, subagentPolicy);
+  // Workflow asks like bash: it runs a script the model wrote (not sandboxed) and many subagents.
+  registerWorkflowTool(pi, subagentPolicy);
 
   // ── WebFetch, WebSearch (ask in the normal mode, like any tool outside SAFE_TOOLS) ─────────
   registerWebFetch(pi);

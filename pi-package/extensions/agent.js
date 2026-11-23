@@ -75,7 +75,7 @@ function piInvocation(args) {
   return { command: 'pi', args };
 }
 
-function runSubagent({ prompt, cwd, model, thinking, tools, extensions, signal, onTool }) {
+export function runSubagent({ prompt, cwd, model, thinking, tools, extensions, signal, onTool }) {
   let sessionDir = null;
   try { sessionDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hooked-subagent-')); } catch (_) {}
   const args = ['--mode', 'json', '-p', ...(sessionDir ? ['--session-dir', sessionDir] : ['--no-session']), ...extensions];
@@ -123,6 +123,32 @@ function runSubagent({ prompt, cwd, model, thinking, tools, extensions, signal, 
   });
 }
 
+// One subagent for a tool call: the model, tools and extensions it gets from the parent session.
+//   model: an override ("sonnet", "mistral/x"); a bare name takes the parent's provider
+//   effort: a thinking level; null keeps the parent's
+// → { text, usage, toolCalls, model, tools, error }
+export async function subagentFor(ctx, { mode, autoApprove }, { prompt, model, effort, subagentType, signal, onTool }) {
+  const tools = subagentTools({ mode, autoApprove, subagentType });
+  const parent = ctx && ctx.model ? ctx.model : null;
+  const m = model
+    ? (String(model).includes('/') || !parent ? String(model) : `${parent.provider}/${model}`)
+    : (parent ? `${parent.provider}/${parent.id}` : null);
+  const thinking = effort || (ctx && ctx.thinkingLevel && ctx.thinkingLevel !== 'off' ? ctx.thinkingLevel : null);
+  const r = await runSubagent({
+    prompt: String(prompt || ''),
+    cwd: (ctx && ctx.cwd) || process.cwd(),
+    model: m,
+    thinking,
+    tools,
+    extensions: inheritedExtensions(process.argv),
+    signal,
+    onTool,
+  });
+  const text = finalText(r.messages);
+  const error = r.aborted ? 'interrupted' : (text ? null : (r.error || r.stderr.split('\n').slice(-3).join('\n') || `pi exited with code ${r.code}`));
+  return { text, usage: totalUsage(r.messages), toolCalls: r.toolCalls.length, model: m, tools: tools || 'default', error, aborted: r.aborted };
+}
+
 const AGENT_SCHEMA = {
   type: 'object',
   properties: {
@@ -142,31 +168,19 @@ export function registerAgentTool(pi, policy) {
     promptSnippet: 'Delegate a task to a subagent with its own context',
     parameters: AGENT_SCHEMA,
     async execute(_id, params, signal, onUpdate, ctx) {
-      const { mode, autoApprove } = policy();
-      const tools = subagentTools({ mode, autoApprove, subagentType: params.subagent_type });
-      const model = ctx && ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : null;
       const label = String(params.description || 'subagent');
-      const r = await runSubagent({
-        prompt: String(params.prompt || ''),
-        cwd: (ctx && ctx.cwd) || process.cwd(),
-        model,
-        thinking: ctx && ctx.thinkingLevel && ctx.thinkingLevel !== 'off' ? ctx.thinkingLevel : null,
-        tools,
-        extensions: inheritedExtensions(process.argv),
+      const r = await subagentFor(ctx, policy(), {
+        prompt: params.prompt,
+        subagentType: params.subagent_type,
         signal,
         onTool: (name, n) => {
           if (typeof onUpdate === 'function') onUpdate({ content: [{ type: 'text', text: `${label}: ${n} tool call${n > 1 ? 's' : ''}, last ${name}` }], details: undefined });
         },
       });
-      const usage = totalUsage(r.messages);
-      const details = { description: label, model, tools: tools || 'default', toolCalls: r.toolCalls.length, usage };
-      const text = finalText(r.messages);
+      const details = { description: label, model: r.model, tools: r.tools, toolCalls: r.toolCalls, usage: r.usage };
       if (r.aborted) return { content: [{ type: 'text', text: 'The subagent was interrupted.' }], details, isError: true };
-      if (!text) {
-        const why = r.error || r.stderr.split('\n').slice(-3).join('\n') || `pi exited with code ${r.code}`;
-        return { content: [{ type: 'text', text: `The subagent returned no answer: ${why}` }], details, isError: true };
-      }
-      return { content: [{ type: 'text', text }], details };
+      if (r.error) return { content: [{ type: 'text', text: `The subagent returned no answer: ${r.error}` }], details, isError: true };
+      return { content: [{ type: 'text', text: r.text }], details };
     },
   });
 }

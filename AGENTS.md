@@ -175,7 +175,8 @@ A **provider** is configuration (`settings.json` → `providers`, Settings → P
 - **pi sessions run hooked's pi package** (`pi-package/`, `server/piHooked.js`,
   `docs/pi-package.md`): hooked's tools as native `hooked_*` tools, `AskUserQuestion` /
   `ExitPlanMode` / `TodoWrite` (the dock reads the last call, `latestPiTodos`), `Agent` (a child
-  `pi -p` whose tools are bounded by the parent's mode, since it cannot ask), `WebFetch`, `WebSearch`
+  `pi -p` whose tools are bounded by the parent's mode, since it cannot ask), `Workflow` (Claude
+  Code's script API over those subagents, no resume), `WebFetch`, `WebSearch`
   (a traceless `claude -p` on Haiku whose only tool is WebSearch),
   `BashBackground` / `BashOutput` / `KillShell` (the end wakes the agent; jobs die with the pi
   process and the dock reads them back, `piBackgroundJobs`), a permission gate

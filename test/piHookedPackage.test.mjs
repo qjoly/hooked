@@ -533,3 +533,84 @@ describe('WebSearch of the pi package', () => {
     }
   });
 });
+
+describe('Workflow of the pi package', () => {
+  const WF = path.join(import.meta.dirname, '..', 'pi-package', 'extensions', 'workflow.js');
+  const usage = { input: 10, output: 5, cacheRead: 0, cacheWrite: 0, cost: 0.01, turns: 1 };
+
+  it('prepares the script and reads structured answers', async () => {
+    const { prepareScript, parseObject, schemaProblem } = await import(WF);
+    expect(() => prepareScript('const x = 1')).toThrow(/export const meta/);
+    expect(prepareScript("export const meta = { name: 'a' }\nexport const N = 2\nreturn N")).toBe("const meta = globalThis.__meta = { name: 'a' }\nconst N = 2\nreturn N");
+    expect(parseObject('Here:\n```json\n{"ok": true}\n```')).toEqual({ ok: true });
+    expect(parseObject('{"a": {"b": 1}}')).toEqual({ a: { b: 1 } });
+    expect(() => parseObject('no json')).toThrow();
+    const S = { type: 'object', properties: { n: { type: 'integer' }, tags: { type: 'array', items: { type: 'string' } }, kind: { enum: ['bug', 'nit'] } }, required: ['n'] };
+    expect(schemaProblem(S, { n: 2, tags: ['a'], kind: 'bug' })).toBeNull();
+    expect(schemaProblem(S, { tags: [] })).toBe('$.n is missing');
+    expect(schemaProblem(S, { n: 1.5 })).toBe('$.n should be integer');
+    expect(schemaProblem(S, { n: 1, tags: [3] })).toBe('$.tags[0] should be string');
+    expect(schemaProblem(S, { n: 1, kind: 'x' })).toMatch(/one of/);
+  });
+
+  it('runs agents through parallel, pipeline and schemas, with a capped concurrency', async () => {
+    const { runWorkflow } = await import(WF);
+    let live = 0; let peak = 0;
+    const calls = [];
+    const run = async ({ prompt }) => {
+      calls.push(prompt);
+      live++; peak = Math.max(peak, live);
+      await new Promise((r) => setTimeout(r, 20));
+      live--;
+      if (prompt.startsWith('FAIL')) return { text: '', usage, error: 'boom' };
+      if (prompt.includes('JSON Schema')) {
+        // first answer in prose, the retry in JSON
+        return prompt.includes('previously') || prompt.includes('rejected') ? { text: '{"n": 7}', usage } : { text: 'about seven', usage };
+      }
+      return { text: `done: ${prompt.split('\n')[0]}`, usage };
+    };
+    const script = `export const meta = { name: 'demo', description: 'test', phases: [{ title: 'Fan' }] }
+phase('Fan')
+const names = await parallel(args.files.map((f) => () => agent('read ' + f, { label: f })))
+const staged = await pipeline(['a', 'b'], (x) => x.toUpperCase(), (x, orig, i) => agent('stage ' + x + ' ' + orig + ' ' + i))
+const failed = await agent('FAIL please')
+const counted = await agent('count things', { schema: { type: 'object', properties: { n: { type: 'integer' } }, required: ['n'] } })
+log('all done')
+return { names, staged, failed, counted }`;
+    const { result, state, meta } = await runWorkflow({ script, args: { files: ['x', 'y', 'z', 'w', 'v', 'u'] }, run });
+    expect(meta).toEqual({ name: 'demo', description: 'test', phases: [{ title: 'Fan' }] });
+    expect(result.names).toEqual(['done: read x', 'done: read y', 'done: read z', 'done: read w', 'done: read v', 'done: read u']);
+    expect(result.staged).toEqual(['done: stage A a 0', 'done: stage B b 1']);
+    expect(result.failed).toBeNull();
+    expect(result.counted).toEqual({ n: 7 });
+    expect(peak).toBeLessThanOrEqual(4);
+    expect(state.agents.length).toBe(10);
+    expect(state.agents.filter((a) => a.status === 'failed').length).toBe(1);
+    expect(state.agents[0]).toMatchObject({ label: 'x', phase: 'Fan', status: 'done' });
+    expect(state.logs).toEqual(['all done']);
+    expect(state.usage.cost).toBeCloseTo(0.11, 10); // 11 runs: 10 agents, one schema retry
+  });
+
+  it('is a tool that asks in the normal mode, and reports script errors', async () => {
+    const pi = load();
+    expect(pi.tools.has('Workflow')).toBe(true);
+    expect(await pi.emit('tool_call', { toolName: 'Workflow', input: { script: '' } }, fakeCtx())).toMatchObject({ block: true });
+    const bad = await pi.tools.get('Workflow').execute('w1', { script: 'const x = 1' }, null, null, fakeCtx());
+    expect(bad).toMatchObject({ isError: true });
+    expect(bad.content[0].text).toMatch(/export const meta/);
+  });
+
+  it('counts a workflow\'s agents and usage in the session summary', async () => {
+    const { scanPiSessions } = await import('../server/pi.js');
+    const dir = path.join(TMP, 'pi-sessions-wf', '--tmp-y--');
+    fs.mkdirSync(dir, { recursive: true });
+    const lines = [
+      { type: 'session', version: 3, id: 'sess-wf', timestamp: '2026-11-23T10:00:00.000Z', cwd: '/tmp/y' },
+      { type: 'message', id: 'e1', parentId: null, timestamp: '2026-11-23T10:00:01.000Z', message: { role: 'toolResult', toolCallId: 'c1', toolName: 'Workflow', content: [{ type: 'text', text: 'ok' }], isError: false, details: { agentCount: 3, model: 'mistral/mistral-large-latest', usage: { input: 300, output: 30, cacheRead: 0, cacheWrite: 0, cost: 0.03, turns: 3 } } } },
+    ];
+    fs.writeFileSync(path.join(dir, '2026-11-23T10-00-00-000Z_sess-wf.jsonl'), lines.map((l) => JSON.stringify(l)).join('\n') + '\n');
+    const s = scanPiSessions(path.join(TMP, 'pi-sessions-wf')).find((x) => x.id === 'sess-wf');
+    expect(s.subagents).toBe(3);
+    expect(s.subagentCost).toBeCloseTo(0.03, 10);
+  });
+});
