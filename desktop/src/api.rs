@@ -1298,7 +1298,7 @@ pub struct McpServer {
     pub status: Option<String>,
     pub scope_label: Option<String>,
     pub authable: bool,
-    // Champs pi (server/piMcp.js) : scope brut + config détaillée, pour éditer les mcp.json.
+    // pi fields (server/piMcp.js): raw scope + detailed config, to edit the mcp.json files.
     pub scope: Option<String>,
     pub url: Option<String>,
     pub command: Option<String>,
@@ -1309,7 +1309,7 @@ pub struct McpServer {
 }
 
 impl McpServer {
-    /// La config JSON éditable d'un serveur pi, reconstruite depuis les champs lus.
+    /// The editable JSON config of a pi server, rebuilt from the fields read.
     pub fn pi_config_json(&self) -> Value {
         let mut m = serde_json::Map::new();
         if let Some(u) = &self.url {

@@ -1475,8 +1475,8 @@ fn mcp_dot(k: &Kit, state: &str) -> Color {
 
 fn mcp_row(s: &Hooked, x: &McpServer, k: &Kit) -> El {
     let open = s.lens_data.mcp_open.as_deref() == Some(x.name.as_str());
-    // OAuth login/logout = flux Claude Code ; en pi il n'y a rien à re-authentifier, mais les
-    // serveurs se gèrent (enable/disable, edit, remove) puisqu'ils vivent dans des mcp.json éditables.
+    // OAuth login/logout is the Claude Code flow; pi has nothing to re-authenticate here, but its
+    // servers can be managed (enable/disable, edit, remove), since they live in editable mcp.json files.
     let is_pi = s.lens_data.mcp_provider.as_deref() == Some("pi");
     let oauth = x.authable && !is_pi;
     let (n1, n2, n3, n4, n5, n6) = (
@@ -1515,14 +1515,14 @@ fn mcp_row(s: &Hooked, x: &McpServer, k: &Kit) -> El {
                     .build(k)
                     .key(format!("mcp-edit-{}", x.name)),
             );
-        // Un serveur legacy (ancien config.toml) n'existe dans aucun mcp.json : pas de Remove,
-        // la migration le recrée dans ~/.pi/agent/mcp.json.
+        // A legacy server (old config.toml) is in no mcp.json: no Remove,
+        // the migration writes it to ~/.pi/agent/mcp.json.
         if x.state == "legacy" {
             actions = actions.child(
                 Button::new("Migrer")
                     .variant(ButtonVariant::Contrast)
                     .control_size(ControlSize::Small)
-                    .help("Copier ce serveur dans ~/.pi/agent/mcp.json (pi 1.6 ne lit plus config.toml)")
+                    .help("Copy this server to ~/.pi/agent/mcp.json (pi 1.6 no longer reads config.toml)")
                     .on_press(|s: &mut Hooked| s.mcp_migrate_legacy())
                     .build(k)
                     .key(format!("mcp-mig-{}", x.name)),
@@ -1618,7 +1618,7 @@ fn mcp_row(s: &Hooked, x: &McpServer, k: &Kit) -> El {
     card
 }
 
-/// Formulaire add/edit d'un serveur MCP pi : nom + scope (project/user) + config JSON.
+/// Add/edit form of a pi MCP server: name + scope (project/user) + JSON config.
 fn mcp_editor(s: &Hooked, k: &Kit) -> Option<El> {
     let ed = s.lens_data.mcp_editor.as_ref()?;
     let title = match &ed.original_name {

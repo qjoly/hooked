@@ -440,13 +440,13 @@ function piSubSessions() { return []; }
 function piScreenshots() { return []; }
 
 // ── Changes (lentille Review, scope « session ») ───────────────────────────
-// Scan d'un journal pi en ops par fichier, MÊME forme que scanOps (changes.js) :
-// Map path -> { file, name, tool, ops:[{kind,…}], count, lastTs }, pour que
-// buildFileChanges produise les mêmes entrées « Pi's edits » que côté Claude.
+// A pi journal scanned into per-file ops, in the SAME shape as scanOps (changes.js):
+// Map path -> { file, name, tool, ops:[{kind,…}], count, lastTs }, so that
+// buildFileChanges produces the same "Pi's edits" entries as on the Claude side.
 // Tools pi : write {path, content} → write ; edit {path, edits:[{oldText,newText}]}
-// (forme legacy {path, oldText, newText} et edits en chaîne JSON acceptées aussi, cf.
-// prepareEditArguments du CLI pi). Chemins relatifs résolus contre le cwd du header.
-// ts en ISO comme buildPiConversation → le filtre par prompt (comparaison de chaînes)
+// (the legacy {path, oldText, newText} shape and edits as a JSON string are accepted too, see
+// prepareEditArguments in the pi CLI). Relative paths resolve against the header's cwd.
+// ts in ISO like buildPiConversation, so the per-prompt filter (string comparison)
 // marche tel quel.
 function piEditOps(a) {
   let edits = a.edits;

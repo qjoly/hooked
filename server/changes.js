@@ -120,9 +120,9 @@ function writeOriginals(rows) {
   return out;
 }
 
-// Détection du format pi : la première ligne d'un journal pi est un header
-// {type:"session", version:N, …} (cf. server/pi.js). Un seul bloc est lu — le scan Claude ne
-// doit pas charger tout le transcript rien que pour reconnaître le format.
+// pi format detection: the first line of a pi journal is a header
+// {type:"session", version:N, …} (see server/pi.js). One block is read: the Claude scan must
+// not load the whole transcript just to recognise the format.
 function isPiTranscript(fp) {
   let fd;
   try {
@@ -142,8 +142,8 @@ function isPiTranscript(fp) {
 }
 
 // Scan a transcript into per-file ops (full, untruncated). One place both the capped list and the
-// on-demand full builder go through. Provider pi : le journal a un autre format → scanPiOps
-// produit la même map (write/edit du CLI pi).
+// on-demand full builder go through. pi provider: the journal has another format, so scanPiOps
+// builds the same map (write/edit of the pi CLI).
 function scanOps(fp) {
   if (isPiTranscript(fp)) return scanPiOps(fp);
   const rows = transcriptRows(fp);
@@ -224,8 +224,8 @@ function agentTranscripts(fp, sessionId) {
 // (les maps issues du cache sont partagées) ; tri chronologique dès qu'un fichier mélange les
 // sources — les ops mono-source gardent l'ordre du transcript (dont celles sans ts).
 function collect(fp, sessionId) {
-  // Journal pi : pas de sous-agents natifs ni de hook bash (hook.cjs est un hook Claude) →
-  // seules les ops du journal comptent.
+  // pi journal: no native subagents and no bash hook (hook.cjs is a Claude hook), so
+  // only the journal's ops count.
   if (isPiTranscript(fp)) return scanOpsCached(fp);
   const byFile = new Map();
   const mergeFrom = (src, agentId) => {

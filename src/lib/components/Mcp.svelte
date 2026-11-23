@@ -42,7 +42,7 @@
     pending: { icon: 'clock', color: 'var(--muted)', label: 'Pending approval' },
     configured: { icon: 'dot', color: 'var(--muted)', label: 'Configured' },
     disabled: { icon: 'idle', color: 'var(--muted)', label: 'Disabled for this project' },
-    legacy: { icon: 'warning', color: 'var(--warn)', label: 'Ancien config.toml — ignoré par pi 1.6' },
+    legacy: { icon: 'warning', color: 'var(--warn)', label: 'Old config.toml, ignored by pi 1.6' },
   };
   const stateUi = (s) => STATE_UI[s] || { icon: 'dot', color: 'var(--muted)', label: s };
 
@@ -125,14 +125,14 @@
     await load();
   }
 
-  // Migre les [[mcp.servers]] de l'ancien ~/.pi/config.toml vers ~/.pi/agent/mcp.json.
+  // Migrates the [[mcp.servers]] of the old ~/.pi/config.toml to ~/.pi/agent/mcp.json.
   async function migrateLegacy() {
     busy = 'legacy';
     const r = await mcpAction({ action: 'migrate-legacy', cwd: project, provider });
     busy = '';
     notice = r.ok && r.data.migrated?.length
-      ? `Migré ${r.data.migrated.length} serveur(s) vers ${r.data.file}: ${r.data.migrated.join(', ')}.`
-      : (r.ok ? 'Rien à migrer.' : (r.data?.error || 'Migration failed.'));
+      ? `Migrated ${r.data.migrated.length} server(s) to ${r.data.file}: ${r.data.migrated.join(', ')}.`
+      : (r.ok ? 'Nothing to migrate.' : (r.data?.error || 'Migration failed.'));
     await load();
   }
 
@@ -259,7 +259,7 @@
     <div class="legacy">
       <span>
         <Icon name="warning" size={14} color="var(--warn)" />
-        {legacy.length} serveur(s) dans un ancien <code>config.toml</code> — pi 1.6 ne le lit plus, ils sont inactifs.
+        {legacy.length} server(s) in an old <code>config.toml</code>: pi 1.6 no longer reads it, so they are inactive.
       </span>
       <button class="btn" onclick={migrateLegacy} disabled={busy === 'legacy'}>
         <Icon name="refresh" size={14} /> Migrer vers <code>~/.pi/agent/mcp.json</code>

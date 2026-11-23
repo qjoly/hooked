@@ -1,21 +1,21 @@
 /*
- * Mini-parseur TOML ciblé sur l'ANCIEN format MCP de pi (~/.pi/config.toml, ignoré par pi >= 1.6,
- * qui lit ~/.pi/agent/mcp.json + .pi/mcp.json) :
+ * A small TOML parser for pi's OLD MCP format (~/.pi/config.toml, ignored by pi >= 1.6,
+ * which reads ~/.pi/agent/mcp.json + .pi/mcp.json):
  *
  *   [mcp]
  *   [[mcp.servers]]
  *   name = "hooked"
  *   command = "node"
  *   args = ["mcp/server.cjs"]
- *   env = { HOOKED_MCP_URL = "http://localhost:4123" }   # table inline, peut tenir sur plusieurs lignes
+ *   env = { HOOKED_MCP_URL = "http://localhost:4123" }   # inline table, may span several lines
  *   url = "https://…" / type = "http" / headers = { … }
  *
- * On ne vise PAS TOML en général : strings basiques ("…" avec escapes usuels), tableaux de
- * strings, tables inline de strings, commentaires #. Tout le reste est ignoré. Le but unique est
- * de lire ces entrées pour les migrer vers mcp.json — pas de parse générique.
+ * It is NOT a general TOML parser: basic strings ("…" with the usual escapes), arrays of
+ * strings, inline tables of strings, # comments. Everything else is ignored. Its only purpose is
+ * to read these entries to migrate them to mcp.json, not generic parsing.
  */
 
-// Avance sur espaces, retours à la ligne et commentaires "# …" (jusqu'au \n).
+// Skips spaces, newlines and "# …" comments (up to the \n).
 function skipWs(s, i) {
   for (;;) {
     while (i < s.length && /\s/.test(s[i])) i++;
@@ -28,7 +28,7 @@ function skipWs(s, i) {
   }
 }
 
-// Parse une valeur TOML à partir de i : renvoie { value, next } ou null si ce n'est pas une valeur.
+// Parses a TOML value at i: returns { value, next }, or null when it is not a value.
 function parseValue(s, i) {
   i = skipWs(s, i);
   const c = s[i];
@@ -73,7 +73,7 @@ function parseValue(s, i) {
       while (i < s.length && s[i] === ',') i = skipWs(s, i + 1);
       if (i >= s.length) return null;
       if (s[i] === '}') return { value: obj, next: i + 1 };
-      // clé : bare ou entre quotes
+      // key: bare or quoted
       let key = '';
       if (s[i] === '"' || s[i] === "'") {
         const q = s[i];
@@ -95,7 +95,7 @@ function parseValue(s, i) {
       return null;
     }
   }
-  // bare : true / false / nombre — gardés en string, sauf booléens utiles (enabled)
+  // bare: true / false / number, kept as strings except the useful booleans (enabled)
   let bare = '';
   while (i < s.length && !/[\s,\]\}\n#]/.test(s[i])) { bare += s[i]; i++; }
   if (bare === 'true') return { value: true, next: i };
@@ -104,14 +104,14 @@ function parseValue(s, i) {
   return { value: bare, next: i };
 }
 
-// Extrait les [[mcp.servers]] d'un config.toml → [{ name, command?, args?, env?, url?, type?, headers?, enabled? }]
+// Extracts the [[mcp.servers]] of a config.toml → [{ name, command?, args?, env?, url?, type?, headers?, enabled? }]
 export function parseMcpServersToml(text) {
   const servers = [];
   let cur = null;
   let i = 0;
   const s = String(text || '');
   while (i < s.length) {
-    // début de ligne (hors commentaire)
+    // start of a line (outside a comment)
     let j = i;
     while (j < s.length && (s[j] === ' ' || s[j] === '\t')) j++;
     if (s[j] === '#' || s[j] === '\n' || s[j] === '\r') { i = s.indexOf('\n', i); if (i < 0) break; i++; continue; }
@@ -125,12 +125,12 @@ export function parseMcpServersToml(text) {
         cur = {};
         servers.push(cur);
       } else {
-        cur = null; // toute autre section ferme le bloc servers courant
+        cur = null; // any other section closes the current servers block
       }
       i = close + (isArray ? 2 : 1);
       continue;
     }
-    // key = value (dans le bloc courant ou hors section : ignoré si pas de bloc)
+    // key = value (in the current block; ignored outside a block)
     let k = j;
     while (k < s.length && /[A-Za-z0-9_-]/.test(s[k])) k++;
     const key = s.slice(j, k);
@@ -142,7 +142,7 @@ export function parseMcpServersToml(text) {
     if (cur && key) cur[key] = v.value;
     i = v.next;
   }
-  // Ne garde que les blocs avec un nom ; normalise les types.
+  // Keeps only the blocks with a name; normalises the types.
   return servers
     .filter((x) => typeof x.name === 'string' && x.name)
     .map((x) => ({

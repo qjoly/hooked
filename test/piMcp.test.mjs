@@ -105,7 +105,7 @@ describe('saveMcpPi / getMcpPi / removeMcpPi', () => {
   });
 });
 
-describe('legacy config.toml (pi < 1.6, ignoré par pi 1.6)', () => {
+describe('legacy config.toml (pi < 1.6, ignored by pi 1.6)', () => {
   it('lists [[mcp.servers]] as legacy and migrates them into the user mcp.json (0600, no overwrite)', async () => {
     fs.rmSync(userFile, { force: true });
     fs.rmSync(projectFile, { force: true });
@@ -121,7 +121,7 @@ describe('legacy config.toml (pi < 1.6, ignoré par pi 1.6)', () => {
     ].join('\n'));
     let { servers, diagnostics } = await listMcpPi(project, { check: false });
     expect(servers.map((s) => [s.name, s.state])).toEqual([['old', 'legacy']]);
-    expect(diagnostics[0]).toMatch(/ancien config\.toml/);
+    expect(diagnostics[0]).toMatch(/old config\.toml/);
     expect(getMcpPi(project, 'old').env).toEqual({ TOKEN: 's3cret' });
 
     // Un mcp.json existant gagne sur le legacy pour le même nom.

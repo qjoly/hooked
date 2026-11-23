@@ -155,14 +155,14 @@ pub fn remember_place(
     true
 }
 
-/// Formulaire d'édition d'un serveur MCP pi (add/edit) : on édite le mcp.json du scope choisi.
+/// Edit form of a pi MCP server (add/edit): it edits the mcp.json of the chosen scope.
 #[derive(Clone)]
 pub struct McpEditor {
     pub name: TextEdit,
     /// 0 = project (.pi/mcp.json), 1 = user (~/.pi/agent/mcp.json).
     pub scope: usize,
     pub json: TextEdit,
-    /// Nom d'origine en cas de renommage : l'ancien est supprimé après le save.
+    /// Original name when renaming: the old entry is removed after the save.
     pub original_name: Option<String>,
     pub error: Option<String>,
 }
@@ -247,9 +247,9 @@ pub struct LensData {
     pub mcp_login_polled: i64,
     pub mcp_redirect: TextEdit,
     pub mcp_notice: Option<String>,
-    /// Formulaire add/edit des serveurs pi (mcp.json) ; None = fermé.
+    /// Add/edit form of the pi servers (mcp.json); None = closed.
     pub mcp_editor: Option<McpEditor>,
-    /// Nom du serveur pi dont la suppression demande un second clic ("Delete?").
+    /// Name of the pi server whose removal waits for a second click ("Delete?").
     pub mcp_delete_armed: Option<String>,
 
     pub trace_sig: Option<String>,
@@ -2715,8 +2715,8 @@ impl Hooked {
             },
             move |s, r, _| {
                 let raw = match r {
-                    // Claude : le CLI renvoie son texte brut. Pi : la config `raw` pretty, à défaut
-                    // les champs aplatis sans les enveloppes.
+                    // Claude: the CLI returns its raw text. Pi: the `raw` config pretty-printed, else
+                    // the flattened fields without the wrappers.
                     Ok(v) => match &v["raw"] {
                         Value::String(t) => t.clone(),
                         Value::Null => v
@@ -2740,13 +2740,13 @@ impl Hooked {
         );
     }
 
-    // ---------- gestion des serveurs pi (mcp.json) ----------
+    // ---------- pi server management (mcp.json) ----------
 
     fn is_pi(&self) -> bool {
         self.lens_data.mcp_provider.as_deref() == Some("pi")
     }
 
-    /// Ouvre le formulaire add (None) ou edit (Some(name)) pour un serveur pi.
+    /// Opens the add (None) or edit (Some(name)) form for a pi server.
     pub fn mcp_open_editor(&mut self, name: Option<String>) {
         let editor = match name {
             Some(n) => {
@@ -2820,7 +2820,7 @@ impl Hooked {
             },
             move |s, r, _| match r {
                 Ok(v) if v["ok"] == true => {
-                    // Renommage : l'ancien nom part du même scope.
+                    // Rename: the old name is removed from the same scope.
                     if let Some(old) = &original {
                         if old != &name {
                             let (old, scope, cwd) = (old.clone(), scope.to_string(), cwd2.clone());
@@ -2843,7 +2843,7 @@ impl Hooked {
                     s.load_mcp(false);
                 }
                 Ok(v) => {
-                    // Le serveur a refusé : on rouvre le formulaire avec l'erreur.
+                    // The server refused: the form opens again with the error.
                     let mut ed = ed_back;
                     ed.error = Some(v["error"].as_str().unwrap_or("Save failed").to_string());
                     s.lens_data.mcp_editor = Some(ed);
@@ -2856,7 +2856,7 @@ impl Hooked {
         );
     }
 
-    /// Suppression en deux clics ("Delete?") comme les threads de review.
+    /// Two-click removal ("Delete?"), like review threads.
     pub fn mcp_remove_server(&mut self, name: String) {
         if !self.is_pi() {
             return;
@@ -2889,7 +2889,7 @@ impl Hooked {
         );
     }
 
-    /// Migre les [[mcp.servers]] de l'ancien ~/.pi/config.toml vers ~/.pi/agent/mcp.json.
+    /// Migrates the [[mcp.servers]] of the old ~/.pi/config.toml to ~/.pi/agent/mcp.json.
     pub fn mcp_migrate_legacy(&mut self) {
         if !self.is_pi() {
             return;
@@ -2906,9 +2906,9 @@ impl Hooked {
                     Ok(v) if v["ok"] == true => {
                         let n = v["migrated"].as_array().map(|a| a.len()).unwrap_or(0);
                         if n > 0 {
-                            format!("Migré {n} serveur(s) vers {}.", v["file"].as_str().unwrap_or("mcp.json"))
+                            format!("Migrated {n} server(s) to {}.", v["file"].as_str().unwrap_or("mcp.json"))
                         } else {
-                            "Rien à migrer.".to_string()
+                            "Nothing to migrate.".to_string()
                         }
                     }
                     Ok(v) => v["error"].as_str().unwrap_or("Migration failed").to_string(),
@@ -2919,7 +2919,7 @@ impl Hooked {
         );
     }
 
-    /// Enable/disable : réécrit la config du serveur avec `enabled` inversé.
+    /// Enable/disable: rewrites the server's config with `enabled` flipped.
     pub fn mcp_toggle_enabled(&mut self, name: String) {
         if !self.is_pi() {
             return;
