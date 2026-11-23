@@ -866,7 +866,7 @@ impl Hooked {
     /// the committed text goes to the shell.
     pub fn term_ime(&mut self, f: &TermFocus, ime: &rune::Ime) {
         match ime {
-            rune::Ime::Preedit(text, _) => self.term.preedit = text.clone(),
+            rune::Ime::Preedit(text, ..) => self.term.preedit = text.clone(),
             rune::Ime::Commit(text) => {
                 self.term.preedit.clear();
                 if let Some(t) = self.target_mut(f)
