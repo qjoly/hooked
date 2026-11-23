@@ -395,6 +395,47 @@ function latestPiTodos(file) {
   return latest;
 }
 function piSubagents() { return []; }
+
+// Background commands of hooked's pi package (pi-package/extensions/background.js), in the shape of
+// server/background.js: started by BashBackground (its result carries the id), ended by a
+// `hooked-task` entry (completion message, or the stop written at session shutdown) or KillShell.
+function piBackgroundJobs(file) {
+  const read = file ? piRead(file) : null;
+  if (!read) return { jobs: [], active: [] };
+  const byCall = new Map();
+  const byShell = new Map();
+  const end = (shellId, reason, ts, exitCode = null) => {
+    const j = byShell.get(shellId);
+    if (j && !j.done) { j.done = true; j.doneReason = reason; j.doneAt = ts || null; j.exitCode = exitCode; }
+  };
+  for (const e of activeBranch(read.entries)) {
+    const ts = e.timestamp || null;
+    if ((e.type === 'custom_message' || e.type === 'custom') && e.customType === 'hooked-task') {
+      const d = e.details || e.data || {};
+      if (d.shellId) end(d.shellId, d.status || 'completed', ts, d.exitCode ?? null);
+      continue;
+    }
+    const m = e.type === 'message' ? e.message : null;
+    if (!m) continue;
+    if (m.role === 'assistant' && Array.isArray(m.content)) {
+      for (const b of m.content) {
+        if (!b || b.type !== 'toolCall') continue;
+        if (b.name === 'BashBackground' && b.id) {
+          byCall.set(b.id, { kind: 'bash', toolUseId: b.id, taskId: null, command: String(b.arguments?.command || '').slice(0, 2000), description: String(b.arguments?.description || ''), startTs: ts, done: false, doneReason: null, doneAt: null, exitCode: null, outputPath: null });
+        } else if (b.name === 'KillShell' && b.arguments?.shell_id) {
+          end(String(b.arguments.shell_id), 'stopped', ts);
+        }
+      }
+    } else if (m.role === 'toolResult' && m.toolName === 'BashBackground') {
+      const j = byCall.get(m.toolCallId);
+      if (!j) continue;
+      const id = m.details?.shellId || (/ID: (bg-\d+)/.exec(textOf(m.content)) || [])[1];
+      if (id && !m.isError) { j.taskId = id; byShell.set(id, j); } else { j.done = true; j.doneReason = 'failed'; j.doneAt = ts; }
+    }
+  }
+  const jobs = [...byCall.values()];
+  return { jobs, active: jobs.filter((j) => !j.done) };
+}
 function piSubSessions() { return []; }
 function piScreenshots() { return []; }
 
@@ -499,7 +540,7 @@ function piMessageText(file, entryId) {
 
 export {
   scanPiSessions, getPiSession, buildPiConversation, piRead, piSetArchived,
-  latestPiTodos, piSubagents, piSubSessions, piScreenshots, piToolPaths,
+  latestPiTodos, piSubagents, piBackgroundJobs, piSubSessions, piScreenshots, piToolPaths,
   piContext, buildPiTrace, piToolDetail, piToolOutput, piShortTool, piUsageToAnthropic,
   piMessageText, contextWindowFor, activeBranch, finalizePi, findPiFile,
 };

@@ -12,7 +12,7 @@ import os from 'node:os';
 import path from 'node:path';
 import {
   scanPiSessions, buildPiConversation, piMessageText, buildPiTrace, piToolDetail, latestPiTodos,
-  piSubagents, piSubSessions, piScreenshots, piContext, piToolPaths, piSetArchived,
+  piSubagents, piBackgroundJobs, piSubSessions, piScreenshots, piContext, piToolPaths, piSetArchived,
 } from '../pi.js';
 import {
   piStart, piPrompt, piCancel, piCompact, piSetMode, piSetAutoApprove, piSetConfig, piKill, piFork, piOptions,
@@ -39,10 +39,11 @@ const piEngine = {
   mcpKind: 'pi',
   skillsKind: 'pi',
   // With hooked's pi package (the default), pi sessions get hooked's permission cards, questions,
-  // plan mode, mode switches and the todo list; `hookedPackage: false` takes them back off.
+  // plan mode, mode switches, the todo list and background commands; `hookedPackage: false` takes
+  // them back off.
   capabilitiesFor(provider) {
     if (!hookedPackageEnabled(provider)) return this.capabilities;
-    return { ...this.capabilities, permissions: true, questions: true, plan: true, modes: true, autoApprove: true, todos: true };
+    return { ...this.capabilities, permissions: true, questions: true, plan: true, modes: true, autoApprove: true, todos: true, backgroundJobs: true };
   },
 
   detect(provider) {
@@ -73,6 +74,7 @@ const piEngine = {
   toolDetail(s, id) { return piToolDetail(s.file, id); },
   todos(s) { return latestPiTodos(s.file); },
   subagents(s) { return piSubagents(s.file); },
+  backgroundJobs(s) { return piBackgroundJobs(s.file); },
   subSessions(s) { return piSubSessions(s.file); },
   screenshots(s) { return piScreenshots(s.file); },
   context(s) { return piContext(s); },

@@ -9,6 +9,7 @@
  *   - AskUserQuestion, ExitPlanMode and TodoWrite, with Claude Code's schemas;
  *   - Agent: subagents in a separate pi process (extensions/agent.js);
  *   - WebFetch: a web page as text (extensions/webfetch.js);
+ *   - BashBackground / BashOutput / KillShell: background commands (extensions/background.js);
  *   - a permission gate following hooked's permission modes and auto-approve switch;
  *   - the account quotas pi-claude-bridge relays (5h / 7d), forwarded to the dashboard.
  *
@@ -25,6 +26,7 @@
 import { createRequire } from 'node:module';
 import { registerAgentTool } from './agent.js';
 import { registerWebFetch } from './webfetch.js';
+import { registerBackground } from './background.js';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -33,7 +35,7 @@ const MODES = ['default', 'acceptEdits', 'auto', 'plan', 'bypassPermissions', 'd
 
 // Tools that never ask: they read, or they talk to the user / to hooked.
 // Agent is safe here because its subagent's tools are bounded by the mode (extensions/agent.js).
-const SAFE_TOOLS = new Set(['read', 'grep', 'find', 'ls', 'tool_search', 'AskUserQuestion', 'ExitPlanMode', 'TodoWrite', 'Agent']);
+const SAFE_TOOLS = new Set(['read', 'grep', 'find', 'ls', 'tool_search', 'AskUserQuestion', 'ExitPlanMode', 'TodoWrite', 'Agent', 'BashOutput', 'KillShell']);
 const EDIT_TOOLS = new Set(['write', 'edit']);
 
 function loadHookedTools() {
@@ -273,6 +275,9 @@ export default function hooked(pi) {
 
   // ── WebFetch (asks in the normal mode, like any tool outside SAFE_TOOLS) ──────────────────
   registerWebFetch(pi);
+
+  // ── Background commands (BashBackground asks like bash; reading and stopping do not) ────────
+  registerBackground(pi);
 
   // ── Permission gate (driven sessions only) ─────────────────────────────────────────────────
   pi.on('tool_call', async (event, ctx) => {

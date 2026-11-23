@@ -30,6 +30,8 @@ function fakePi() {
     on(ev, fn) { (pi.handlers[ev] ||= []).push(fn); },
     registerCommand(name, opts) { pi.commands.set(name, opts); },
     sendMessage(msg, opts) { pi.sent.push({ msg, opts }); },
+    entries: [],
+    appendEntry(type, data) { pi.entries.push({ type, data }); },
     emit(ev, event, ctx) { return Promise.all((pi.handlers[ev] || []).map((fn) => fn(event, ctx))).then((r) => r.find((x) => x !== undefined)); },
   };
   return pi;
@@ -423,5 +425,67 @@ describe('WebFetch of the pi package', () => {
       expect(await pi.emit('tool_call', { toolName: 'WebFetch', input: { url: base } }, ctx)).toMatchObject({ block: true });
       expect(ctx.titles[0]).toMatch(/^\[hooked:permission\] \{"toolName":"WebFetch"/);
     } finally { server.close(); }
+  });
+});
+
+describe('background commands of the pi package', () => {
+  const until = async (fn, ms = 5000) => { const end = Date.now() + ms; while (Date.now() < end) { const v = fn(); if (v) return v; await new Promise((r) => setTimeout(r, 50)); } throw new Error('timeout'); };
+
+  it('runs a command in the background, notifies its end, and returns its output once', async () => {
+    const pi = load();
+    const ctx = { ...fakeCtx(), cwd: TMP };
+    const r = await pi.tools.get('BashBackground').execute('b1', { command: 'echo one; sleep 0.2; echo two; exit 3', description: 'demo' }, null, null, ctx);
+    const id = r.details.shellId;
+    expect(r.content[0].text).toContain(`ID: ${id}`);
+    const sent = await until(() => pi.sent.find((x) => x.msg.customType === 'hooked-task'));
+    expect(sent.opts).toEqual({ deliverAs: 'followUp', triggerTurn: true });
+    expect(sent.msg.details).toMatchObject({ shellId: id, status: 'failed', exitCode: 3 });
+    expect(sent.msg.content).toContain('<status>failed</status>');
+    expect(sent.msg.content).toContain('Background command "demo" failed with exit code 3');
+    const out = await pi.tools.get('BashOutput').execute('o1', { bash_id: id }, null, null, ctx);
+    expect(out.content[0].text).toBe('<status>failed (exit code 3)</status>\n<output>\none\ntwo\n</output>');
+    const again = await pi.tools.get('BashOutput').execute('o2', { bash_id: id }, null, null, ctx);
+    expect(again.content[0].text).toContain('(no new output)');
+  });
+
+  it('stops a command and its children, without a notification; the session end stops the rest', async () => {
+    const pi = load();
+    const ctx = { ...fakeCtx(), cwd: TMP };
+    const a = (await pi.tools.get('BashBackground').execute('b1', { command: 'sleep 30 & wait' }, null, null, ctx)).details.shellId;
+    const b = (await pi.tools.get('BashBackground').execute('b2', { command: 'sleep 30' }, null, null, ctx)).details.shellId;
+    const k = await pi.tools.get('KillShell').execute('k1', { shell_id: a }, null, null, ctx);
+    expect(k.content[0].text).toBe(`Stopped ${a}.`);
+    await pi.emit('session_shutdown', { reason: 'quit' }, ctx);
+    expect(pi.entries).toEqual([{ type: 'hooked-task', data: { shellId: b, status: 'killed', reason: 'session ended' } }]);
+    await new Promise((r) => setTimeout(r, 300));
+    expect(pi.sent.filter((x) => x.msg.customType === 'hooked-task')).toEqual([]);
+    const st = await pi.tools.get('BashOutput').execute('o', { bash_id: b }, null, null, ctx);
+    expect(st.content[0].text).toContain('<status>killed</status>');
+    // reading and stopping never ask; starting asks like bash
+    expect(await pi.emit('tool_call', { toolName: 'BashOutput', input: {} }, fakeCtx())).toBeUndefined();
+    expect(await pi.emit('tool_call', { toolName: 'BashBackground', input: {} }, fakeCtx())).toMatchObject({ block: true });
+  });
+
+  it('the dock reads the jobs back from the session file', async () => {
+    const { piBackgroundJobs } = await import('../server/pi.js');
+    const file = path.join(TMP, 'bg-session.jsonl');
+    const call = (id, parentId, name, args) => ({ type: 'message', id, parentId, timestamp: `2026-11-23T10:00:0${id.slice(1)}.000Z`, message: { role: 'assistant', content: [{ type: 'toolCall', id: 'c' + id, name, arguments: args }] } });
+    const result = (id, parentId, callId, shellId) => ({ type: 'message', id, parentId, timestamp: `2026-11-23T10:00:0${id.slice(1)}.000Z`, message: { role: 'toolResult', toolCallId: callId, toolName: 'BashBackground', content: [{ type: 'text', text: `Command running in background with ID: ${shellId}.` }], details: { shellId }, isError: false } });
+    const lines = [
+      { type: 'session', version: 3, id: 'sess-bg', timestamp: '2026-11-23T10:00:00.000Z', cwd: '/tmp/x' },
+      call('e1', null, 'BashBackground', { command: 'npm run dev', description: 'dev server' }),
+      result('e2', 'e1', 'ce1', 'bg-1'),
+      call('e3', 'e2', 'BashBackground', { command: 'npm test' }),
+      result('e4', 'e3', 'ce3', 'bg-2'),
+      { type: 'custom_message', id: 'e5', parentId: 'e4', timestamp: '2026-11-23T10:00:05.000Z', customType: 'hooked-task', content: '<task-notification>…', details: { shellId: 'bg-2', status: 'completed', exitCode: 0 } },
+      call('e6', 'e5', 'BashBackground', { command: 'tail -f log' }),
+      result('e7', 'e6', 'ce6', 'bg-3'),
+      call('e8', 'e7', 'KillShell', { shell_id: 'bg-3' }),
+    ];
+    fs.writeFileSync(file, lines.map((l) => JSON.stringify(l)).join('\n') + '\n');
+    const { jobs, active } = piBackgroundJobs(file);
+    expect(jobs.map((j) => [j.taskId, j.done, j.doneReason])).toEqual([['bg-1', false, null], ['bg-2', true, 'completed'], ['bg-3', true, 'stopped']]);
+    expect(active.map((j) => j.description)).toEqual(['dev server']);
+    expect(jobs[1].exitCode).toBe(0);
   });
 });
