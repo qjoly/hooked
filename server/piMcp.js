@@ -15,7 +15,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import { spawn } from 'node:child_process';
 import { parseMcpServersToml } from './piToml.js';
+import { resolvePiBin } from './piAgent.js';
 
 const PI_AGENT_DIR = process.env.PI_CODING_AGENT_DIR || path.join(os.homedir(), '.pi', 'agent');
 const PI_CONFIG_TOML = path.join(os.homedir(), '.pi', 'config.toml');
@@ -65,6 +67,46 @@ function decoratePi(servers) {
 }
 
 // Health check streamable-HTTP : vrai handshake MCP (initialize), comme côté vibe.
+// pi's own view of its servers: `pi mcp list --json`, run in the session directory so the servers
+// of a trusted project count. It connects with pi's OAuth tokens (~/.pi/agent/mcp-auth.json), which
+// the bare HTTP probe below does not have: an OAuth server pi is signed in to would look failed
+// there. Resolves to Map name -> { state, status, tools }, or null when pi is missing or fails.
+const PI_STATES = { connected: 'connected', connecting: 'pending', 'needs-auth': 'needs_auth', error: 'failed', disabled: 'disabled' };
+
+function piMcpStates(cwd, { bin = resolvePiBin(null), timeout = 60_000 } = {}) {
+  return new Promise((resolve) => {
+    let out = '';
+    let child;
+    try {
+      child = spawn(bin, ['mcp', 'list', '--json'], { cwd: cwd && fs.existsSync(cwd) ? cwd : os.homedir(), stdio: ['ignore', 'pipe', 'ignore'] });
+    } catch (_) { return resolve(null); }
+    const timer = setTimeout(() => { try { child.kill('SIGTERM'); } catch (_) {} }, timeout);
+    child.stdout.on('data', (d) => { out += d; });
+    child.on('error', () => { clearTimeout(timer); resolve(null); });
+    child.on('close', () => {
+      clearTimeout(timer);
+      let j;
+      try { j = JSON.parse(out); } catch (_) { return resolve(null); }
+      const errors = new Map();
+      for (const e of Array.isArray(j.errors) ? j.errors : []) {
+        const name = e && (e.server || e.name);
+        if (name) errors.set(name, String(e.message || e.error || '').slice(0, 200));
+      }
+      const map = new Map();
+      for (const srv of Array.isArray(j.servers) ? j.servers : []) {
+        if (!srv || !srv.name) continue;
+        const state = PI_STATES[srv.state] || 'failed';
+        const tools = Array.isArray(srv.tools) ? srv.tools.length : null;
+        const status = state === 'connected' ? `${tools ?? 0} tools`
+          : state === 'needs_auth' ? `sign in with: pi mcp login ${srv.name}`
+          : (errors.get(srv.name) || srv.error || srv.state || 'not connected');
+        map.set(srv.name, { state, status, tools });
+      }
+      resolve(map);
+    });
+  });
+}
+
 async function healthCheck(srv) {
   if (!srv.url) return { state: 'configured', status: 'stdio — not health-checked' };
   try {
@@ -134,9 +176,12 @@ async function listMcpPi(cwd, { check = false } = {}) {
   for (const [name, s] of legacyByName) if (!byName.has(name)) byName.set(name, s);
   let servers = decoratePi([...byName.values()]);
   if (check) {
-    servers = await Promise.all(servers.map(async (s) => ((s.state === 'disabled' || s.state === 'legacy')
-      ? s // disabled or legacy: no health check
-      : { ...s, ...(await healthCheck(s)) })));
+    const live = await piMcpStates(dir);
+    servers = await Promise.all(servers.map(async (s) => {
+      if (s.state === 'disabled' || s.state === 'legacy') return s; // disabled or legacy: no health check
+      if (live && live.has(s.name)) return { ...s, ...live.get(s.name) };
+      return { ...s, ...(await healthCheck(s)) };
+    }));
   }
   const diagnostics = [];
   const legacy = servers.filter((s) => s.state === 'legacy');
@@ -269,4 +314,4 @@ export function removeMcpPi({ cwd, scope, name }) {
   return { ok: true, name, scope, file: fp };
 }
 
-export { listMcpPi };
+export { listMcpPi, piMcpStates };
