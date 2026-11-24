@@ -181,7 +181,9 @@ add a provider or a bridge, step by step, in `docs/adding-a-provider.md`.
   (a traceless `claude -p` on Haiku whose only tool is WebSearch),
   `BashBackground` / `BashOutput` / `KillShell` (the end wakes the agent; jobs die with the pi
   process and the dock reads them back, `piBackgroundJobs`), a permission gate
-  following the mode and auto-approve. Its dialogs reach hooked as
+  following the mode and auto-approve. The follow-up suggestion (`st.followup`) of a pi session comes
+  from a traceless `claude -p` on Haiku after each turn (`server/piFollowup.js`), since neither pi nor
+  pi-claude-bridge has Claude Code's `prompt_suggestion`. Its dialogs reach hooked as
   RPC `extension_ui_request` records titled `[hooked:<kind>] <json>` and become the same
   `pendingAsk` cards as the Claude path. It never changes the system prompt between turns (a cache
   miss on every provider). `"hookedPackage": false` on a provider turns it off.

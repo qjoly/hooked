@@ -14,6 +14,7 @@ and controls in the dashboard as a Claude session.
 | Workflows | `Workflow` | `Workflow`: the same script API (`agent`, `parallel`, `pipeline`, `phase`, `log`, `args`, schemas), each agent a subagent as above; no resume, no worktree isolation |
 | Web pages | `WebFetch` | `WebFetch`, same parameters: the page as text (no small-model summary), asks in the normal mode |
 | Web search | `WebSearch` | `WebSearch`, same parameters: one headless, traceless `claude -p` on Haiku with only WebSearch (the user's Claude login), asks in the normal mode |
+| Follow-up suggestion | `prompt_suggestion` (the next prompt, offered in the composer and on the Deck) | after each turn, one headless `claude -p` on Haiku predicts it from the last exchange (pi's headless mode without a claude binary); `HOOKED_PI_FOLLOWUPS=0` turns it off (`server/piFollowup.js`) |
 | Background commands | `Bash run_in_background`, `BashOutput`, `KillShell` | `BashBackground`, `BashOutput`, `KillShell`; the end of a command wakes the agent with a `<task-notification>`, and the dock lists the jobs |
 | Permission cards | `canUseTool` | `tool_call` gate |
 | Modes, auto-approve | SDK `setPermissionMode` | `/hooked-mode`, `/hooked-auto-approve` commands |
