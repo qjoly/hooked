@@ -336,7 +336,7 @@ mod tests {
     #[test]
     fn links_name_their_repo() {
         assert_eq!(
-            link_label("https://github.com/LuccaSA/Infra.Charts/pull/123"),
+            link_label("https://github.com/acme/Infra.Charts/pull/123"),
             "Infra.Charts #123"
         );
         assert_eq!(
