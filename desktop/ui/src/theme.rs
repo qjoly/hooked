@@ -3,12 +3,13 @@
 
 use std::sync::atomic::{AtomicU8, Ordering};
 
+use rune::prefs::Prefs;
 use rune::{Color, Spring, TextStyle};
 use rune_kit::{Kit, PaletteSeed, StateColors};
 
-use crate::knobs::{Knob, get, knobs};
+use crate::knobs::{Knob, get};
 
-knobs! {
+crate::knobs! {
     "Corners" at "window" under "Theme";
     RADIUS_XS = 2.0, 0.0..=16.0, "Radius xs", step 0.5;
     RADIUS_SM = 4.0, 0.0..=16.0, "Radius sm", step 0.5;
@@ -17,7 +18,7 @@ knobs! {
     RADIUS_XL = 10.0, 0.0..=28.0, "Radius xl", step 0.5;
 }
 
-knobs! {
+crate::knobs! {
     "Type" at "window" under "Theme";
     FONT_UI = 13.0, 9.0..=18.0, "UI and controls", step 0.5;
     FONT_SMALL = 11.0, 8.0..=16.0, "Captions", step 0.5;
@@ -27,7 +28,7 @@ knobs! {
     FONT_MONO = 12.0, 8.0..=18.0, "Mono (code)", step 0.5;
 }
 
-knobs! {
+crate::knobs! {
     "Motion" at "window" under "Theme";
     LAYOUT_SPRING_TIME = 0.3, 0.05..=1.5, "Layout spring time", step 0.01;
     LAYOUT_SPRING_BOUNCE = 0.0, -0.5..=0.9, "Layout spring bounce", step 0.01;
@@ -125,9 +126,56 @@ pub enum Corners {
     Sharp,
 }
 
+/// Light, dark or following the system: the third axis, picked with the other two in the app's
+/// Settings.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash, serde::Serialize, serde::Deserialize)]
+pub enum Theme {
+    System,
+    Light,
+    Dark,
+}
+
+impl Theme {
+    pub fn dark(self, system_dark: bool) -> bool {
+        match self {
+            Theme::System => system_dark,
+            Theme::Light => false,
+            Theme::Dark => true,
+        }
+    }
+}
+
+/// The desktop app's preferences store, and the keys of the three axes in it.
+pub const PREFS_ID: &str = "dev.qjoly.hooked-rune";
+pub const PREF_THEME: &str = "theme";
+pub const PREF_SCHEME: &str = "scheme";
+pub const PREF_CORNERS: &str = "corners";
+
+/// The three axes as the app's Settings saved them. The launcher reads the same store, so it
+/// wears whatever look the app was given.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct Look {
+    pub theme: Theme,
+    pub scheme: ColorScheme,
+    pub corners: Corners,
+}
+
+impl Look {
+    /// Reads the saved look and paints with its scheme and corners from now on ([`set_look`]).
+    pub fn load(prefs: &Prefs) -> Look {
+        let look = Look {
+            theme: prefs.get(PREF_THEME).unwrap_or(Theme::System),
+            scheme: prefs.get(PREF_SCHEME).unwrap_or_default(),
+            corners: prefs.get(PREF_CORNERS).unwrap_or_default(),
+        };
+        set_look(look.scheme, look.corners);
+        look
+    }
+}
+
 static LOOK: AtomicU8 = AtomicU8::new(0);
 
-/// The scheme and corners every free function here paints with; `Hooked` sets it from its prefs.
+/// The scheme and corners every free function here paints with; each app sets it from its prefs.
 pub fn set_look(scheme: ColorScheme, corners: Corners) {
     let i = ColorScheme::ALL.iter().position(|c| *c == scheme).unwrap_or(0) as u8;
     LOOK.store(i | (u8::from(corners == Corners::Sharp) << 7), Ordering::Relaxed);
@@ -564,7 +612,7 @@ pub fn kit(dark: bool) -> Kit {
     k
 }
 
-/// Sessions of a remote hooked instance (`crate::remote`): one hue for the rail, the wash and
+/// Sessions of a remote hooked instance (the desktop app's `remote` module): one hue for the rail, the wash and
 /// the instance badge, the same in every scheme. It says where a session runs, never a state,
 /// so it stays out of each scheme's own colours.
 pub fn remote_color(dark: bool) -> Color {

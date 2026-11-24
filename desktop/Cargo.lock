@@ -1726,10 +1726,23 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
 
 [[package]]
+name = "hooked-launcher"
+version = "0.1.0"
+dependencies = [
+ "hooked-ui",
+ "libc",
+ "rune",
+ "rune-kit",
+ "serde_json",
+ "ureq",
+]
+
+[[package]]
 name = "hooked-rune"
 version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
+ "hooked-ui",
  "libc",
  "libghostty-vt",
  "procwatch",
@@ -1745,6 +1758,18 @@ dependencies = [
  "serde_json",
  "tray-icon",
  "ureq",
+]
+
+[[package]]
+name = "hooked-ui"
+version = "0.1.0"
+dependencies = [
+ "rune",
+ "rune-kit",
+ "rune-knobs",
+ "rune-register",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

@@ -22,7 +22,9 @@ export default defineConfig({
   plugins: [
     // A long-running Node server: the SSE stream, the fs watchers and the sessions driven through the
     // Agent SDK all live in this process.
-    sveltekit({ preprocess: vitePreprocess(), adapter: adapter() }),
+    // HOOKED_BUILD_OUT lets hooked-launcher (desktop/launcher) build next to the running service's
+    // `build/` and swap the folders only once the build succeeded.
+    sveltekit({ preprocess: vitePreprocess(), adapter: adapter({ out: process.env.HOOKED_BUILD_OUT || 'build' }) }),
   ],
   server: {
     allowedHosts: true,

@@ -13,7 +13,6 @@ mod ghdetail;
 mod ghwatch;
 mod ghostty;
 mod ghrun;
-mod icons;
 mod incidents;
 mod incmcp;
 mod knobs;
@@ -31,21 +30,18 @@ mod remote;
 mod sections;
 mod shortcuts;
 mod terminal;
-mod theme;
 mod tray;
 mod view;
 
 use std::time::Duration;
 
-use rune::{AppSpec, Chrome, Key, KeyEvent, Tx};
+use hooked_ui::{icons, theme};
+use rune::{AppSpec, Key, KeyEvent, Tx};
 
 use app::{HANDLE, Hooked, Lens, Page};
 
 #[global_allocator]
 static ALLOCATOR: procwatch::alloc::Counting = procwatch::alloc::Counting::system();
-
-/// Rune's default mono family is Inter; terminals and code need a real fixed-width face.
-pub const MONO: &str = "ui-monospace, Menlo, monospace";
 
 fn on_key(s: &mut Hooked, ev: &KeyEvent, tx: &mut Tx) -> bool {
     perf::input(perf::MAIN, tx);
@@ -252,24 +248,16 @@ fn main() {
         "dev.qjoly.hooked-rune",
         "hooked",
     ));
-    let chrome = Chrome {
-        full_size_content: true,
-        traffic_lights: Some((
-            18.0,
-            ((view::TOPBAR_H - Chrome::TRAFFIC_LIGHT) / 2.0).round(),
-        )),
-        drag_regions: true,
-    };
     let spec = AppSpec {
         on_key: Some(on_key),
         poll: Some(poll),
         setup: Some(setup),
         min_size: Some((720.0, 480.0)),
-        families: ("Inter", MONO),
+        families: hooked_ui::widgets::FAMILIES,
         ..AppSpec::new("hooked", (1320.0, 860.0), Hooked::new, view::view)
     };
     let app = rune::App::new(spec)
-        .chrome(chrome)
+        .chrome(hooked_ui::widgets::chrome())
         .keep_running()
         .on_close(on_close)
         .on_ime(on_ime)

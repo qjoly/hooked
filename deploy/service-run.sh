@@ -22,21 +22,7 @@ PORT="${PORT:-4123}"
 # `npm start` sets the same default; the service runs `node build` directly, so set it here too.
 export BODY_SIZE_LIMIT="${BODY_SIZE_LIMIT:-21M}"
 
-lock_hash() {
-  if command -v sha256sum >/dev/null 2>&1; then sha256sum package-lock.json
-  else shasum -a 256 package-lock.json
-  fi | awk '{print $1}'
-}
-
-# Same stamp file as deploy/{linux,macos}/run-dev.sh so the two flows agree.
-STAMP="node_modules/.package-lock-sha256"
-HASH="$(lock_hash)"
-if [ ! -d node_modules ] || [ "$HASH" != "$(cat "$STAMP" 2>/dev/null)" ]; then
-  echo "[hooked] dependencies out of date — running npm ci..."
-  npm ci
-  printf '%s\n' "$HASH" > "$STAMP"
-  echo "[hooked] npm ci complete."
-fi
+bash deploy/npm-deps.sh
 
 if [ "$MODE" = "dev" ]; then
   # Vite launched DIRECTLY (not via npm) so the service manager watches the

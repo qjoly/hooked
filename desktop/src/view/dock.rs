@@ -1,3 +1,4 @@
+use hooked_ui::widgets::{StepState, step_glyph};
 use rune::{Color, Cursor, El, ScrollSpec, col, el, row, text};
 use rune_kit::{Button, ButtonVariant, ControlSize, Kit};
 use serde_json::Value;
@@ -130,11 +131,13 @@ fn tasks(s: &Hooked, d: &Detail, k: &Kit) -> El {
             .collect()
     };
     for t in shown {
-        let (mark, color, strong) = match t.status.as_str() {
-            "completed" => (&icons::CIRCLE_CHECK, k.c.success.icon, false),
-            "in_progress" => (&icons::CIRCLE_DOT, k.c.info.icon, true),
-            _ => (&icons::CIRCLE, k.c.icon_faint, false),
+        let state = match t.status.as_str() {
+            "completed" => StepState::Done,
+            "in_progress" => StepState::Active,
+            _ => StepState::Pending,
         };
+        let (mark, color) = step_glyph(k, state);
+        let strong = state == StepState::Active;
         let label = if t.status == "in_progress" {
             t.active_form.clone().unwrap_or_else(|| t.content.clone())
         } else {

@@ -384,6 +384,30 @@ ditto "$APP" "/Applications/hooked.app"
 open "/Applications/hooked.app"
 """
 
+# No deploy-if-stale here: switching the service to a branch is the launcher's job, and it must not
+# restart hooked just because it got installed.
+[tasks.launcher]
+description = "Build hooked-launcher (switch the service between branches) and install it in /Applications"
+dir = "desktop/launcher"
+tools = { rust = "1.99.1" }
+run = """
+set -e
+cargo build -p hooked-launcher --release
+# A member of the desktop/ workspace: the build lands in the shared target dir, desktop/target.
+APP="../target/hooked-launcher.app"
+rm -rf "$APP"
+mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
+cp ../target/release/hooked-launcher "$APP/Contents/MacOS/"
+cp Info.plist "$APP/Contents/"
+cp ../icons/icon.icns "$APP/Contents/Resources/"
+codesign --force --sign - "$APP"
+osascript -e 'quit app id "dev.qjoly.hooked-launcher"' 2>/dev/null || true
+sleep 1
+rm -rf "/Applications/hooked-launcher.app"
+ditto "$APP" "/Applications/hooked-launcher.app"
+open "/Applications/hooked-launcher.app"
+"""
+
 [tasks.desktop-dev]
 description = "Run the desktop app from source with live editing: body edits patch it in place, others rebuild and relaunch"
 dir = "desktop"
