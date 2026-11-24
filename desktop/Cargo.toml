@@ -11,7 +11,7 @@ rune-notify = { git = "https://github.com/anomalyco/rune", rev = "ac452a9c2b75c4
 rune-luau = { git = "https://github.com/anomalyco/rune", rev = "ac452a9c2b75c462c5eb1659024178f1fbbd416a", features = ["serde"] }
 rune-perf = { git = "https://github.com/anomalyco/rune", rev = "ac452a9c2b75c462c5eb1659024178f1fbbd416a" }
 procwatch = { git = "https://github.com/anomalyco/rune", rev = "ac452a9c2b75c462c5eb1659024178f1fbbd416a" }
-rune-knobs = { git = "https://github.com/anomalyco/rune", rev = "ac452a9c2b75c462c5eb1659024178f1fbbd416a" }
+rune-knobs = { git = "https://github.com/anomalyco/rune", rev = "ec57edccba7b924fa52db11243fe219d3169ad45" }
 rune-register = { git = "https://github.com/anomalyco/rune", rev = "ac452a9c2b75c462c5eb1659024178f1fbbd416a", optional = true }
 ureq = { version = "3", features = ["json"] }
 serde = { version = "1", features = ["derive"] }
