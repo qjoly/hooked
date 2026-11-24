@@ -152,7 +152,8 @@ Claude Code sessions run inside the hooked process, through the Agent SDK's `que
 A **provider** is configuration (`settings.json` → `providers`, Settings → Providers). An
 **engine** is code: `claude` (the Agent SDK path above), `pi` (`server/piAgent.js`, RPC), `acp`
 (`server/engines/acp.js`, any Agent Client Protocol agent), or an external module in
-`~/.claude/hooked/providers/` (`HOOKED_PROVIDERS_DIR`). Full reference in `docs/providers.md`.
+`~/.claude/hooked/providers/` (`HOOKED_PROVIDERS_DIR`). Full reference in `docs/providers.md`; how to
+add a provider or a bridge, step by step, in `docs/adding-a-provider.md`.
 
 - **Never test a provider id.** Ask the registry: `engineForSession(s)` for the session store
   (conversation, trace, todos…), `driverFor(st)` for the live driver (null = the built-in Claude
