@@ -443,7 +443,34 @@ function piBackgroundJobs(file) {
   return { jobs, active: jobs.filter((j) => !j.done) };
 }
 function piSubSessions() { return []; }
-function piScreenshots() { return []; }
+
+// Screenshots: the images a `read` / `write` call of the active branch carries as `path` (the
+// agent produced a shot with bash, then reads it to see it), in the shape of server/screenshots.js.
+// Newest first, still on disk, bounded.
+const SHOT_EXT = /\.(png|jpe?g|webp|gif)$/i;
+const MAX_SHOTS = 40;
+const MAX_SHOT_BYTES = 25 * 1024 * 1024;
+function piScreenshots(file) {
+  const read = file ? piRead(file) : null;
+  if (!read) return [];
+  const seen = new Map(); // path -> ts of its last use
+  for (const e of activeBranch(read.entries)) {
+    const m = e.type === 'message' ? e.message : null;
+    if (!m || m.role !== 'assistant' || !Array.isArray(m.content)) continue;
+    for (const b of m.content) {
+      const p = b && b.type === 'toolCall' && (b.name === 'read' || b.name === 'write') ? b.arguments?.path : null;
+      if (typeof p !== 'string' || !p || !SHOT_EXT.test(p)) continue;
+      seen.set(path.isAbsolute(p) ? p : path.resolve(read.header.cwd || '', p), e.timestamp || null);
+    }
+  }
+  const out = [];
+  for (const [abs, ts] of seen) {
+    const st = statSafe(abs);
+    if (!st || !st.isFile() || st.size > MAX_SHOT_BYTES) continue;
+    out.push({ path: abs, name: abs.split('/').pop(), ts, mtime: st.mtimeMs, size: st.size });
+  }
+  return out.sort((a, b) => b.mtime - a.mtime).slice(0, MAX_SHOTS);
+}
 
 // ── Changes (lentille Review, scope « session ») ───────────────────────────
 // A pi journal scanned into per-file ops, in the SAME shape as scanOps (changes.js):

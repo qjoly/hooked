@@ -318,6 +318,32 @@ describe('todo list of pi sessions', () => {
   });
 });
 
+describe('screenshots of pi sessions', () => {
+  it('lists the images read or written on the active branch, still on disk', async () => {
+    const { piScreenshots } = await import('../server/pi.js');
+    const dir = path.join(TMP, 'shots');
+    fs.mkdirSync(dir, { recursive: true });
+    for (const f of ['seen.png', 'rel.jpg', 'other-branch.png']) fs.writeFileSync(path.join(dir, f), 'img');
+    const file = path.join(TMP, 'shots-session.jsonl');
+    const call = (id, parentId, name, p) => ({ type: 'message', id, parentId, timestamp: `2026-11-23T10:00:0${id.slice(1)}.000Z`, message: { role: 'assistant', content: [{ type: 'toolCall', id: 'c' + id, name, arguments: { path: p } }] } });
+    const lines = [
+      { type: 'session', version: 3, id: 'sess-shots', timestamp: '2026-11-23T10:00:00.000Z', cwd: dir },
+      call('e1', null, 'read', path.join(dir, 'seen.png')),
+      call('e2', 'e1', 'read', 'rel.jpg'),
+      call('e3', 'e2', 'read', path.join(dir, 'notes.txt')),
+      call('e4', 'e3', 'read', path.join(dir, 'gone.png')),
+      call('e5', 'e2', 'read', path.join(dir, 'other-branch.png')),
+      call('e6', 'e4', 'read', path.join(dir, 'seen.png')),
+    ];
+    fs.writeFileSync(file, lines.map((l) => JSON.stringify(l)).join('\n') + '\n');
+    const shots = piScreenshots(file);
+    expect(shots.map((s) => s.name).sort()).toEqual(['rel.jpg', 'seen.png']);
+    expect(shots.find((s) => s.name === 'rel.jpg').path).toBe(path.join(dir, 'rel.jpg'));
+    expect(shots.find((s) => s.name === 'seen.png')).toMatchObject({ ts: '2026-11-23T10:00:06.000Z', size: 3 });
+    expect(piScreenshots(path.join(TMP, 'missing.jsonl'))).toEqual([]);
+  });
+});
+
 describe('subagents (Agent tool of the pi package)', () => {
   const AGENT = path.join(import.meta.dirname, '..', 'pi-package', 'extensions', 'agent.js');
 
