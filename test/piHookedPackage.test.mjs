@@ -614,3 +614,56 @@ return { names, staged, failed, counted }`;
     expect(s.subagentCost).toBeCloseTo(0.03, 10);
   });
 });
+
+describe('TodoWrite and AskUserQuestion in the conversation', () => {
+  it('toolTodos normalises a TodoWrite list, whole, and ignores other tools', async () => {
+    const { toolTodos } = await import('../server/util.js');
+    const long = Array.from({ length: 30 }, (_, i) => ({ content: 'step ' + i + ' ' + 'x'.repeat(150), status: i < 2 ? 'completed' : i === 2 ? 'in_progress' : 'odd', activeForm: 'doing ' + i }));
+    const out = toolTodos('TodoWrite', { todos: long });
+    expect(out).toHaveLength(30); // the whole list, where toolInputText stops at 4000 characters
+    expect(out[0]).toEqual({ content: long[0].content, status: 'completed', activeForm: 'doing 0' });
+    expect(out[2].status).toBe('in_progress');
+    expect(out[3].status).toBe('pending');
+    expect(toolTodos('bash', { todos: [] })).toBeNull();
+    expect(toolTodos('TodoWrite', { todos: 'nope' })).toBeNull();
+  });
+
+  it('the pi conversation carries the checklist and the question on the tool parts', async () => {
+    const { buildPiConversation } = await import('../server/pi.js');
+    const file = path.join(TMP, 'conv-session.jsonl');
+    const todos = [{ content: 'Write the test', status: 'in_progress', activeForm: 'Writing the test' }, { content: 'Ship', status: 'pending', activeForm: 'Shipping' }];
+    const questions = [{ question: 'Which db?', options: [{ label: 'Postgres' }, { label: 'SQLite' }] }];
+    const lines = [
+      { type: 'session', version: 3, id: 'sess-conv', timestamp: '2026-11-24T10:00:00.000Z', cwd: '/tmp/x' },
+      { type: 'message', id: 'e1', parentId: null, timestamp: '2026-11-24T10:00:01.000Z', message: { role: 'user', content: [{ type: 'text', text: 'go' }] } },
+      { type: 'message', id: 'e2', parentId: 'e1', timestamp: '2026-11-24T10:00:02.000Z', message: { role: 'assistant', content: [
+        { type: 'toolCall', id: 'c1', name: 'TodoWrite', arguments: { todos } },
+        { type: 'toolCall', id: 'c2', name: 'AskUserQuestion', arguments: { questions } },
+        { type: 'toolCall', id: 'c3', name: 'bash', arguments: { command: 'ls' } },
+      ] } },
+    ];
+    fs.writeFileSync(file, lines.map((l) => JSON.stringify(l)).join('\n') + '\n');
+    const msgs = buildPiConversation(file);
+    const parts = msgs.flatMap((m) => m.parts || []).filter((p) => p.type === 'tool');
+    expect(parts.map((p) => p.tool.name)).toEqual(['TodoWrite', 'AskUserQuestion', 'bash']);
+    expect(parts[0].todos).toEqual(todos);
+    expect(parts[1].ask).toEqual(questions);
+    expect(parts[2].todos).toBeNull();
+    expect(parts[2].ask).toBeNull();
+  });
+});
+
+describe('TodoWrite in a Claude Code transcript', () => {
+  it('the Claude conversation carries the same checklist', async () => {
+    const { buildConversation } = await import('../server/conversation.js');
+    const file = path.join(TMP, 'claude-conv.jsonl');
+    const todos = [{ content: 'Run tests', status: 'completed', activeForm: 'Running tests' }];
+    const lines = [
+      { type: 'user', uuid: 'u1', timestamp: '2026-11-24T10:00:00.000Z', cwd: '/tmp/x', message: { role: 'user', content: 'go' } },
+      { type: 'assistant', uuid: 'a1', parentUuid: 'u1', timestamp: '2026-11-24T10:00:01.000Z', cwd: '/tmp/x', message: { id: 'm1', role: 'assistant', model: 'claude-opus-5-5', content: [{ type: 'tool_use', id: 't1', name: 'TodoWrite', input: { todos } }] } },
+    ];
+    fs.writeFileSync(file, lines.map((l) => JSON.stringify(l)).join('\n') + '\n');
+    const parts = buildConversation(file).flatMap((m) => m.parts || []).filter((p) => p.type === 'tool');
+    expect(parts[0].todos).toEqual(todos);
+  });
+});

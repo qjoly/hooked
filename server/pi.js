@@ -13,7 +13,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { PI_SESSIONS_DIR } from './config.js';
 import { blankSummary } from './transcript.js';
-import { readdirSafe, statSafe, textOf, cleanPrompt, truncTitle, toolDetail, toolInputText, toolDiffOps, toolResultText } from './util.js';
+import { readdirSafe, statSafe, textOf, cleanPrompt, truncTitle, toolDetail, toolInputText, toolDiffOps, toolResultText, toolTodos } from './util.js';
 import { costForUsage } from './pricing.js';
 import { anyCachedModel } from './piCatalog.js';
 
@@ -331,7 +331,13 @@ function buildPiConversation(file) {
             diff: piToolDiff(b.name, b.arguments) || undefined,
           };
           tools.push(tool);
-          const part = { type: 'tool', tool, diff: tool.diff };
+          // Same read-only renderings as the Claude path (server/conversation.js): the question of an
+          // AskUserQuestion and the checklist of a TodoWrite (hooked's pi package keeps their schemas).
+          const part = {
+            type: 'tool', tool, diff: tool.diff,
+            ask: b.name === 'AskUserQuestion' && Array.isArray(b.arguments?.questions) ? b.arguments.questions : null,
+            todos: toolTodos(b.name, b.arguments),
+          };
           parts.push(part);
           if (b.id) { toolByCallId.set(b.id, tool); partByCallId.set(b.id, part); }
         }

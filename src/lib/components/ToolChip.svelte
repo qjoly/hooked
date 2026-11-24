@@ -12,7 +12,7 @@
   import { ui } from '#lib/state.svelte.js';
   import { userFileUrl } from '#lib/api.js';
   import { floating } from '#lib/floating.svelte.js';
-  let { t, diff = null, ask = null, send = null, show = null, session = null, agent = null } = $props();
+  let { t, diff = null, ask = null, todos = null, send = null, show = null, session = null, agent = null } = $props();
   const hasDiff = $derived(!!(diff && diff.ops && diff.ops.length));
 
   // SendUserFile: files delivered to the user. Images render as click-to-expand thumbnails; other
@@ -32,9 +32,15 @@
   const isQuery = $derived(!!t.id && /__grafana_query_(prometheus|loki)$|^mcp__hooked__show_query$/.test(t.name || ''));
   const openQuery = (e) => { e.stopPropagation(); floating.query = { session, agent, id: t.id }; };
 
+  // TodoWrite (Claude Code's, and hooked's pi package's in every pi session): the progress in the
+  // chip and the list as a checklist, instead of the raw JSON. Same icons as the dock's Tasks card.
+  const TODO_ICON = { completed: 'checkbox-done', in_progress: 'in-progress', pending: 'checkbox' };
+  const todoDone = $derived(todos ? todos.filter((x) => x.status === 'completed').length : 0);
+  const todoCur = $derived(todos ? todos.find((x) => x.status === 'in_progress') : null);
+
   let open = $state(false);        // opened by hand while "expand all" is off
   let collapsed = $state(false);   // collapsed by hand while "expand all" is on
-  const hasDetail = $derived(!!(t.inputText || t.result || ask));
+  const hasDetail = $derived(!!(t.inputText || t.result || ask || (todos && todos.length)));
   const shown = $derived(hasDetail && (ui.toolsOpen ? !collapsed : open));
   function toggleDetail() { if (ui.toolsOpen) collapsed = !collapsed; else open = !open; }
   const answers = $derived.by(() => (ask && t.result)
@@ -117,7 +123,7 @@
 {:else}
   <div class="tool" class:has-detail={hasDetail} class:open={shown}>
     <span class="chip" onclick={() => { if (hasDetail) toggleDetail(); }}>
-      <Icon name="tool" size={13} /> {t.name}{#if t.detail}<span class="chip-d" title={t.detail}>{t.detail}</span>{/if}{#if isQuery && t.result}<button class="chip-view" onclick={openQuery} title="Show the result in a floating window"><Icon name="stats" size={12} /> View</button>{/if}{#if hasDetail}<span class="chip-x"><Icon name="chevron-right" size={13} /></span>{/if}
+      {#if todos}<Icon name="checkbox-done" size={13} /> Tasks<span class="chip-d">{todoDone}/{todos.length}{#if todoCur}{' · ' + (todoCur.activeForm || todoCur.content)}{/if}</span>{:else}<Icon name="tool" size={13} /> {t.name}{#if t.detail}<span class="chip-d" title={t.detail}>{t.detail}</span>{/if}{/if}{#if isQuery && t.result}<button class="chip-view" onclick={openQuery} title="Show the result in a floating window"><Icon name="stats" size={12} /> View</button>{/if}{#if hasDetail}<span class="chip-x"><Icon name="chevron-right" size={13} /></span>{/if}
     </span>
     {#if shown}
       <div class="tool-detail">
@@ -145,6 +151,15 @@
             </div>
           </div>
           {#if answerText}<div class="td-sec"><div class="td-h">answer</div><div class="ask-answer">{answerText}</div></div>{/if}
+        {:else if todos}
+          <div class="td-sec todo-list">
+            {#each todos as x, i (i)}
+              <div class="todo-item" class:cur={x.status === 'in_progress'} class:done={x.status === 'completed'}>
+                <span class="todo-st"><Icon name={TODO_ICON[x.status] || 'checkbox'} size={13} /></span>
+                <span class="todo-txt">{x.status === 'in_progress' && x.activeForm ? x.activeForm : x.content}</span>
+              </div>
+            {/each}
+          </div>
         {:else}
           {#if t.inputText}<div class="td-sec"><div class="td-h">input</div><pre>{t.inputText}</pre></div>{/if}
           {#if t.result}<div class="td-sec"><div class="td-h">result</div><pre>{t.result}</pre></div>{/if}
@@ -155,6 +170,14 @@
 {/if}
 
 <style>
+  /* TodoWrite: the list as a checklist (the same marks as the dock's Tasks card) */
+  .todo-list { display: flex; flex-direction: column; gap: 3px; }
+  .todo-item { display: flex; align-items: flex-start; gap: 6px; font-size: var(--t-ui); color: var(--text); }
+  .todo-st { flex: none; display: inline-flex; color: var(--muted); margin-top: 1px; }
+  .todo-item.cur .todo-st, .todo-item.cur .todo-txt { color: var(--accent-d); }
+  .todo-item.cur .todo-txt { font-weight: 500; }
+  .todo-item.done .todo-txt { color: var(--muted); text-decoration: line-through; }
+
   /* taille d'un gros diff replié (indice avant ouverture) */
   .diff-size { font-family: var(--mono); font-size: var(--t-micro); color: var(--muted); margin-left: 6px; }
 
