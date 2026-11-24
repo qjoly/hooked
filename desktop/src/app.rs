@@ -811,6 +811,15 @@ impl Hooked {
         if args.iter().any(|a| a == "--sort-menu") {
             s.popup = Some(Popup::Sort);
         }
+        if args.iter().any(|a| a == "--more-menu") {
+            s.popup = Some(Popup::More);
+        }
+        if args.iter().any(|a| a == "--model-menu") {
+            s.popup = Some(Popup::Model);
+        }
+        if args.iter().any(|a| a == "--effort-menu") {
+            s.popup = Some(Popup::Effort);
+        }
         if let Some(i) = args.iter().position(|a| a == "--media") {
             let path = args.get(i + 1).cloned().unwrap_or_default();
             let kind = args.get(i + 2).cloned().unwrap_or_else(|| "video".into());

@@ -354,19 +354,14 @@ fn head_tags(s: &Hooked, id: &str, k: &Kit) -> El {
 
 fn more_menu(s: &Hooked, d: &Detail, k: &Kit, layer: &mut Vec<El>) -> El {
     let x = &d.session;
-    let open = s.popup == Some(Popup::More);
+    // The Model and Effort submenus hang off this menu, so it stays open while one of them is.
+    let open = matches!(s.popup, Some(Popup::More | Popup::Model | Popup::Effort));
     let trigger = IconButton::new(&icons::MORE)
         .variant(IconButtonVariant::GhostMuted)
         .label("More actions")
         .help("More actions")
         .expanded(open)
-        .on_press(|s: &mut Hooked| {
-            s.popup = if s.popup == Some(Popup::More) {
-                None
-            } else {
-                Some(Popup::More)
-            }
-        })
+        .on_press(move |s: &mut Hooked| s.popup = if open { None } else { Some(Popup::More) })
         .build(k)
         .key("hdr-more");
     let mode = d
