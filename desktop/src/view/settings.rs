@@ -684,7 +684,9 @@ fn providers_card(s: &Hooked, k: &Kit, v: &Value) -> El {
             .or_else(|| entry["enabled"].as_str())
             .unwrap_or("auto")
             .to_string();
-        let modes: Vec<El> = [("auto", "Auto"), ("on", "On"), ("off", "Off")]
+        // "off" is shown as Hidden: the provider leaves the launch pickers, its sessions stay listed
+        // and still resume.
+        let modes: Vec<El> = [("auto", "Auto"), ("on", "On"), ("off", "Hidden")]
             .into_iter()
             .map(|(m, label)| {
                 let (id, entry) = (p.id.clone(), entry.clone());
@@ -703,7 +705,7 @@ fn providers_card(s: &Hooked, k: &Kit, v: &Value) -> El {
                 })
             })
             .collect();
-        let state = if p.enabled { "enabled" } else { "disabled" };
+        let state = if mode == "off" { "hidden" } else if p.enabled { "shown" } else { "unavailable" };
         let hint = format!("{} · engine {} · {state}", p.id, if p.engine().is_empty() { "?" } else { p.engine() });
         c = c.child(block(k, &p.label, &hint, chips(modes)));
     }

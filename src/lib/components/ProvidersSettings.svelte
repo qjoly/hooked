@@ -95,7 +95,7 @@
   <label class="pv-lbl" for="pv-default">Default provider</label>
   <select id="pv-default" class="lf-input" value={settings.defaultProvider || 'claude'}
           onchange={(e) => updateSettings({ defaultProvider: e.currentTarget.value })}>
-    {#each list as p (p.id)}<option value={p.id}>{p.label}{p.enabled ? '' : ' (off)'}</option>{/each}
+    {#each list as p (p.id)}<option value={p.id}>{p.label}{p.enabled ? '' : p.mode === 'off' ? ' (hidden)' : ' (unavailable)'}</option>{/each}
   </select>
   <span class="pv-hint">Used by launches that name no provider (macOS shortcut, PR review, MCP <code>start_session</code>).</span>
 </div>
@@ -108,15 +108,15 @@
         <span class="pv-name">{p.label} <code>{p.id}</code></span>
         <span class="pv-meta">
           engine <b>{p.engine}</b>{#if p.engineMissing} — <span class="pv-err">not installed</span>{/if}
-          · {p.enabled ? 'enabled' : 'disabled'}{p.mode === 'auto' ? (p.detected ? ' (detected)' : ' (not detected)') : ` (forced ${p.mode})`}
+          · {p.mode === 'off' ? 'hidden' : p.enabled ? 'shown' : 'unavailable'}{p.mode === 'auto' ? (p.detected ? ' (detected)' : ' (not detected)') : p.mode === 'on' ? ' (forced)' : ''}
           {#if p.models}· models {p.models.join(', ')}{/if}
         </span>
       </span>
       <select class="lf-input pv-mode" value={p.mode} disabled={busy} onchange={(e) => setMode(p, e.currentTarget.value)}
-              title="Auto = detect the agent on this machine · On = forced · Off = hidden and not launchable">
+              title="Auto = shown when the agent is found on this machine · On = always shown · Hidden = out of the launch pickers; its sessions stay listed and resume">
         <option value="auto">Auto</option>
         <option value="on">On</option>
-        <option value="off">Off</option>
+        <option value="off">Hidden</option>
       </select>
       <button class="pv-btn" disabled={busy} onclick={() => edit(p)} title="Edit this provider's settings (JSON)"><Icon name="pencil" size={13} /></button>
       {#if !p.builtin}
