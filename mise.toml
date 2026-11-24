@@ -392,11 +392,12 @@ dir = "desktop/launcher"
 tools = { rust = "1.99.1" }
 run = """
 set -e
-cargo build --release
-APP="target/hooked-launcher.app"
+cargo build -p hooked-launcher --release
+# A member of the desktop/ workspace: the build lands in the shared target dir, desktop/target.
+APP="../target/hooked-launcher.app"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
-cp target/release/hooked-launcher "$APP/Contents/MacOS/"
+cp ../target/release/hooked-launcher "$APP/Contents/MacOS/"
 cp Info.plist "$APP/Contents/"
 cp ../icons/icon.icns "$APP/Contents/Resources/"
 codesign --force --sign - "$APP"

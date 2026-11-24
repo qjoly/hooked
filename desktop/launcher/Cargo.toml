@@ -4,30 +4,11 @@ version = "0.1.0"
 edition = "2024"
 publish = false
 
-# Same Rune rev as the desktop app (desktop/Cargo.toml): bump both together.
+# A member of the `desktop/` workspace: Rune comes from its `[workspace.dependencies]`, pinned once in
+# desktop/Cargo.lock, and the root's `[patch.crates-io]` and `[profile.*]` apply.
 [dependencies]
-rune = { git = "https://github.com/anomalyco/rune", rev = "ac452a9c2b75c462c5eb1659024178f1fbbd416a" }
+rune = { workspace = true }
+rune-kit = { workspace = true }
 ureq = { version = "3", features = ["json"] }
 serde_json = "1"
 libc = "0.2"
-
-# Rune builds these crates from its own patched copies, and Cargo does not inherit a dependency's
-# `[patch]`. Copy the `[patch.crates-io]` table of Rune's root Cargo.toml, at the same rev as above.
-[patch.crates-io]
-wgpu-hal = { git = "https://github.com/anomalyco/rune", rev = "ac452a9c2b75c462c5eb1659024178f1fbbd416a" }
-winit = { git = "https://github.com/anomalyco/rune", rev = "ac452a9c2b75c462c5eb1659024178f1fbbd416a" }
-sctk-adwaita = { git = "https://github.com/anomalyco/rune", rev = "ac452a9c2b75c462c5eb1659024178f1fbbd416a" }
-parley_engine = { git = "https://github.com/anomalyco/rune", rev = "ac452a9c2b75c462c5eb1659024178f1fbbd416a" }
-accesskit_windows = { git = "https://github.com/anomalyco/rune", rev = "ac452a9c2b75c462c5eb1659024178f1fbbd416a" }
-accesskit_macos = { git = "https://github.com/anomalyco/rune", rev = "ac452a9c2b75c462c5eb1659024178f1fbbd416a" }
-
-[profile.dev]
-debug = "line-tables-only"
-
-[profile.dev.package."*"]
-opt-level = 1
-debug = false
-
-[profile.release]
-lto = "thin"
-strip = true
