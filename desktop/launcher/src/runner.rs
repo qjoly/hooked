@@ -6,8 +6,11 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use crate::branches::{self, Branch, Running};
-use crate::flow::{self, Changes, Step, Undo};
+use crate::flow::{self, BuildOut, Changes, Step, Undo};
 use crate::sys::{self, NPM_DEPS};
+
+/// Vite config for branches whose vite.config.js predates HOOKED_BUILD_OUT (see the file).
+const WRAPPED_CONFIG: &str = include_str!("build-out.vite.config.mjs");
 
 #[derive(Default)]
 pub struct Control {
@@ -112,14 +115,6 @@ fn deps_due(repo: &Path, log: &mut String) -> bool {
 }
 
 fn build(repo: &Path, install_deps: bool, changes: &mut Changes, log: &mut String) -> Result<(), String> {
-    // A branch whose vite.config.js ignores HOOKED_BUILD_OUT would build into `build/`, under the
-    // running service.
-    let config = fs::read_to_string(repo.join("vite.config.js")).unwrap_or_default();
-    if !config.contains("HOOKED_BUILD_OUT") {
-        return Err("This branch predates HOOKED_BUILD_OUT: its build would overwrite the running \
-                    service's build/. Merge main into it first."
-            .into());
-    }
     if install_deps {
         changes.deps = true;
         sys::run(log, repo, &["mise", "x", "--", "bash", "-s"], &[], Some(NPM_DEPS))?;
@@ -127,7 +122,31 @@ fn build(repo: &Path, install_deps: bool, changes: &mut Changes, log: &mut Strin
     let next = repo.join("build-next");
     changes.build_next = true;
     remove_dir(&next)?;
-    sys::run(log, repo, &["mise", "x", "--", "npm", "run", "build"], &[("HOOKED_BUILD_OUT", "build-next")], None)?;
+    let env = [("HOOKED_BUILD_OUT", "build-next")];
+    let config = fs::read_to_string(repo.join("vite.config.js")).unwrap_or_default();
+    match flow::build_out(&config) {
+        BuildOut::Env => {
+            sys::run(log, repo, &["mise", "x", "--", "npm", "run", "build"], &env, None)?;
+        }
+        BuildOut::WrappedConfig => {
+            // Written after the install, which empties node_modules. Living there, it resolves
+            // the branch's own packages, and git ignores it.
+            let dir = repo.join("node_modules/.hooked-launcher");
+            let wrapper = dir.join("vite.config.mjs");
+            fs::create_dir_all(&dir)
+                .and_then(|()| fs::write(&wrapper, WRAPPED_CONFIG))
+                .map_err(|e| format!("{}: {e}", wrapper.display()))?;
+            log.push_str("vite.config.js predates HOOKED_BUILD_OUT: building through the launcher's config\n");
+            let wrapper = wrapper.to_string_lossy();
+            sys::run(
+                log,
+                repo,
+                &["mise", "x", "--", "node_modules/.bin/vite", "build", "--config", &wrapper, "--configLoader", "native"],
+                &env,
+                None,
+            )?;
+        }
+    }
     if !next.join("index.js").is_file() {
         return Err("The build left no build-next/index.js".into());
     }

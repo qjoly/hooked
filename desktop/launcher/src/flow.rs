@@ -36,6 +36,25 @@ pub fn order(install_deps: bool) -> [Step; 6] {
     }
 }
 
+/// Where the build's output folder is set, so it lands in `build-next/` and not over the running
+/// service's `build/`.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum BuildOut {
+    /// The branch's vite.config.js reads HOOKED_BUILD_OUT: its own `npm run build` does it.
+    Env,
+    /// An older branch: Vite runs with the launcher's config, which loads the branch's and swaps
+    /// the adapter for one writing to HOOKED_BUILD_OUT (`build-out.vite.config.mjs`).
+    WrappedConfig,
+}
+
+pub fn build_out(vite_config: &str) -> BuildOut {
+    if vite_config.contains("HOOKED_BUILD_OUT") {
+        BuildOut::Env
+    } else {
+        BuildOut::WrappedConfig
+    }
+}
+
 /// What the run has changed so far. Each flag is set just before the change it names, so a change
 /// that failed halfway is still undone (every undo is safe to run on an unchanged tree).
 #[derive(Clone, Copy, Default, Debug)]
@@ -115,6 +134,19 @@ mod tests {
         let at = |s| steps.iter().position(|x| *x == s).unwrap();
         assert!(at(Step::WaitTurns) < at(Step::Build));
         assert_eq!(at(Step::Build) + 1, at(Step::Swap));
+    }
+
+    #[test]
+    fn a_branch_that_reads_the_env_builds_with_its_own_script() {
+        let config = "adapter({ out: process.env.HOOKED_BUILD_OUT || 'build' })";
+        assert_eq!(build_out(config), BuildOut::Env);
+    }
+
+    #[test]
+    fn an_older_branch_builds_through_the_wrapped_config() {
+        assert_eq!(build_out("sveltekit({ adapter: adapter() })"), BuildOut::WrappedConfig);
+        // No vite.config.js at all: the wrapper fails on its own, before writing anything.
+        assert_eq!(build_out(""), BuildOut::WrappedConfig);
     }
 
     #[test]
