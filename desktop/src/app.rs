@@ -68,12 +68,7 @@ pub enum Lens {
     Trace,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash, serde::Serialize, serde::Deserialize)]
-pub enum Theme {
-    System,
-    Light,
-    Dark,
-}
+pub use hooked_ui::theme::Theme;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Popup {
@@ -412,7 +407,7 @@ const STEP: usize = 120;
 
 impl Hooked {
     pub fn new() -> Hooked {
-        let prefs = Prefs::open("dev.qjoly.hooked-rune");
+        let prefs = Prefs::open(crate::theme::PREFS_ID);
         let deck_grid = prefs.get::<String>("deckView").is_none_or(|v| v != "list");
         let pinned: Vec<String> = prefs.get("pinned").unwrap_or_default();
         let names: HashMap<String, String> = prefs.get("names").unwrap_or_default();
@@ -428,10 +423,11 @@ impl Hooked {
         let saved_keys: HashMap<String, String> = prefs.get("shortcuts").unwrap_or_default();
         let shortcuts = crate::shortcuts::load(&saved_keys);
         let collapse_worktrees: bool = prefs.get("collapseWorktrees").unwrap_or(true);
-        let theme = prefs.get("theme").unwrap_or(Theme::System);
-        let scheme: crate::theme::ColorScheme = prefs.get("scheme").unwrap_or_default();
-        let corners: crate::theme::Corners = prefs.get("corners").unwrap_or_default();
-        crate::theme::set_look(scheme, corners);
+        let crate::theme::Look {
+            theme,
+            scheme,
+            corners,
+        } = crate::theme::Look::load(&prefs);
         let notify = prefs.get("notify").unwrap_or(true);
         let incidents_hidden = prefs.get("incidentsHidden").unwrap_or(false);
         let incident_teams: Vec<String> = prefs.get("incidentsTeams").unwrap_or_default();
@@ -1113,27 +1109,23 @@ impl Hooked {
     }
 
     pub fn dark(&self, system_dark: bool) -> bool {
-        match self.theme {
-            Theme::System => system_dark,
-            Theme::Light => false,
-            Theme::Dark => true,
-        }
+        self.theme.dark(system_dark)
     }
 
     pub fn set_theme(&mut self, theme: Theme) {
         self.theme = theme;
-        self.save_pref("theme", &theme);
+        self.save_pref(crate::theme::PREF_THEME, &theme);
     }
 
     pub fn set_scheme(&mut self, scheme: crate::theme::ColorScheme) {
         self.scheme = scheme;
-        self.save_pref("scheme", &scheme);
+        self.save_pref(crate::theme::PREF_SCHEME, &scheme);
         self.apply_look();
     }
 
     pub fn set_corners(&mut self, corners: crate::theme::Corners) {
         self.corners = corners;
-        self.save_pref("corners", &corners);
+        self.save_pref(crate::theme::PREF_CORNERS, &corners);
         self.apply_look();
     }
 
@@ -1406,7 +1398,7 @@ pub fn composer_changed(&mut self) {
             Theme::Dark => Theme::System,
         };
         let t = self.theme;
-        self.save_pref("theme", &t);
+        self.save_pref(crate::theme::PREF_THEME, &t);
     }
 
     pub fn flash(&mut self, text: impl Into<String>, error: bool) {

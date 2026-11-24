@@ -7,6 +7,7 @@ publish = false
 # A member of the `desktop/` workspace: Rune comes from its `[workspace.dependencies]`, pinned once in
 # desktop/Cargo.lock, and the root's `[patch.crates-io]` and `[profile.*]` apply.
 [dependencies]
+hooked-ui = { path = "../ui" }
 rune = { workspace = true }
 rune-kit = { workspace = true }
 ureq = { version = "3", features = ["json"] }

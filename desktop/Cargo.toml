@@ -1,5 +1,5 @@
 [workspace]
-members = [".", "launcher"]
+members = [".", "launcher", "ui"]
 
 # Rune is pinned once, in Cargo.lock: every crate below comes from the same git source (no `rev`,
 # so Rune's default branch), and Cargo resolves one source to one commit. A crate cannot drift to
@@ -21,6 +21,7 @@ edition = "2024"
 publish = false
 
 [dependencies]
+hooked-ui = { path = "ui" }
 rune = { workspace = true }
 rune-kit = { workspace = true, features = ["markdown", "mermaid"] }
 rune-notify = { workspace = true }
@@ -41,7 +42,7 @@ libghostty-vt = { git = "https://github.com/Uzaaft/libghostty-rs", rev = "483ea3
 hot = ["rune/hot"]
 frame-profile = ["rune/frame-profile", "rune-kit/frame-profile"]
 # The ⌘⇧K tuning panel. Dev only: `cargo build --release` leaves it out.
-knobs = ["rune-knobs/panel", "dep:rune-register"]
+knobs = ["rune-knobs/panel", "dep:rune-register", "hooked-ui/knobs"]
 
 [target.'cfg(target_os = "macos")'.dependencies]
 tray-icon = "0.21"

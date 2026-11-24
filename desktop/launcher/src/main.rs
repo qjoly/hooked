@@ -11,7 +11,11 @@ use std::path::PathBuf;
 use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
-use rune::{AppHandle, AppSpec, Tx};
+use hooked_ui::logo;
+use hooked_ui::theme::{Look, PREFS_ID, Theme};
+use hooked_ui::widgets;
+use rune::prefs::Prefs;
+use rune::{AppHandle, AppSpec, Image, ImageCache, Tx};
 
 use crate::branches::Row;
 use crate::flow::Step;
@@ -66,6 +70,10 @@ pub struct State {
     pub stale: Option<String>,
     pub reachable: Option<bool>,
     pub run: Option<Run>,
+    /// The desktop app's appearance setting; its scheme and corners live in `hooked_ui::theme`.
+    pub theme: Theme,
+    pub logo: Option<[Image; 2]>,
+    images: Option<ImageCache>,
     minute: i64,
 }
 
@@ -79,7 +87,19 @@ impl State {
             stale: None,
             reachable: None,
             run: None,
+            theme: Theme::System,
+            logo: None,
+            images: None,
             minute: 0,
+        }
+    }
+
+    /// Wears the desktop app's look, read again on each refresh so a change made there shows here.
+    fn load_look(&mut self) {
+        self.theme = Look::load(&Prefs::open(PREFS_ID)).theme;
+        if let Some(cache) = &self.images {
+            // The launcher tracks no session: the wheel's plain ring.
+            self.logo = Some(logo::render(cache, [0; 6]));
         }
     }
 
@@ -87,6 +107,7 @@ impl State {
         if self.loading {
             return;
         }
+        self.load_look();
         self.loading = true;
         let repo = self.repo.clone();
         background(move || {
@@ -189,7 +210,8 @@ fn watch_service() {
     });
 }
 
-fn setup(s: &mut State, _: rune::Waker) {
+fn setup(s: &mut State, waker: rune::Waker) {
+    s.images = Some(ImageCache::new(waker));
     s.refresh();
     watch_service();
 }
@@ -214,9 +236,10 @@ fn main() {
         setup: Some(setup),
         poll: Some(poll),
         min_size: Some((520.0, 360.0)),
+        families: widgets::FAMILIES,
         ..AppSpec::new("hooked launcher", (640.0, 600.0), State::new, view::view)
     };
-    let app = rune::App::new(spec).standard_menus();
+    let app = rune::App::new(spec).standard_menus().chrome(widgets::chrome());
     let _ = HANDLE.set(app.handle());
     app.run();
 }

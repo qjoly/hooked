@@ -31,8 +31,12 @@ folder and cost the app its preferences and its local-network permission.
 ## What is there
 
 The layout follows the web dashboard; the look is the web's colour schemes as rune-kit themes
-(`src/theme.rs`): Coffee (the default), Indigo, Legacy, Datadog, Gruvbox and Claude, each in light
+(`ui/src/theme.rs`): Coffee (the default), Indigo, Legacy, Datadog, Gruvbox and Claude, each in light
 and dark, with rounded or square corners, picked in Settings or the palette.
+
+The theme, the icons, the knobs and the pieces of the window both native apps draw (top bar,
+connection dot, list rows, step marks) live in the `hooked-ui` crate (`ui/`), which the launcher
+(`launcher/`) shares: it reads the look picked here, so the two always match.
 
 - **Top bar**: Deck, Sessions, Stats, Digest, Memory, Cron, GitHub and Incidents (when the
   incident.io desktop app is installed), the palette (⌘K / ⌘P;
@@ -182,7 +186,7 @@ the CPU columns.
 font sizes and springs, and the terminal's padding while the app runs. `cargo build --release`
 (so `mise run desktop`) leaves it out, and every knob reads its default.
 
-Each component declares its knobs beside the code that reads them, with `knobs!` (`src/knobs.rs`),
+Each component declares its knobs beside the code that reads them, with `knobs!` (`ui/src/knobs.rs`),
 which registers the group through `rune-register`. A knob is named after its constant, so a
 group's Copy gives lines like `BUBBLE_PAD = 10` that replace the matching `BUBBLE_PAD = 12.0`
 line as is: paste them over the declaration to make them the new defaults.

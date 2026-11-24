@@ -1,92 +1,10 @@
-//! A knob's name is its constant's name, so the panel's Copy gives `BUBBLE_PAD = 10` lines that
-//! replace the `BUBBLE_PAD = 12.0` line of a `knobs!` declaration as is.
-//!
-//! Views read knobs through a process-wide copy of the panel's values, synced at the top of
-//! every frame, because view helpers are free functions that never see `Hooked`.
+//! The knobs mechanism lives in `hooked-ui` (`ui/src/knobs.rs`), shared with the launcher; this
+//! module adds the panel, which needs the app state.
 
-pub use rune_knobs::Knob;
-
+pub(crate) use hooked_ui::knobs;
+pub use hooked_ui::knobs::{generation, get};
 #[cfg(feature = "knobs")]
-rune_register::slice!(pub GROUPS: rune_knobs::Group);
-
-macro_rules! knobs {
-    (
-        $group:literal at $region:literal $(under $page:literal)?;
-        $( $name:ident = $default:literal, $min:literal ..= $max:literal, $label:literal $(, step $step:literal)? ; )+
-    ) => {
-        $(
-            pub const $name: $crate::knobs::Knob = $crate::knobs::Knob::new(
-                stringify!($name),
-                $min as f32,
-                $max as f32,
-                $default as f32,
-            )
-            .label($label)
-            $(.step($step as f32))?;
-        )+
-        #[cfg(feature = "knobs")]
-        rune_register::register!($crate::knobs::GROUPS: rune_knobs::Group = [
-            rune_knobs::Group::new($group, $region, &[$($name),+]) $(.under($page))?
-        ]);
-    };
-}
-pub(crate) use knobs;
-
-#[cfg(feature = "knobs")]
-mod live {
-    use std::collections::BTreeMap;
-    use std::sync::atomic::{AtomicU64, Ordering};
-    use std::sync::{OnceLock, RwLock};
-
-    static VALUES: RwLock<BTreeMap<String, f32>> = RwLock::new(BTreeMap::new());
-    static GENERATION: AtomicU64 = AtomicU64::new(0);
-
-    pub fn get(k: &super::Knob) -> f32 {
-        VALUES
-            .read()
-            .ok()
-            .and_then(|v| v.get(k.name).copied())
-            .map_or(k.default, |v| v.clamp(k.min, k.max))
-    }
-
-    pub fn sync(k: &rune_knobs::Knobs) {
-        let Ok(mut v) = VALUES.write() else { return };
-        if *v != k.values {
-            v.clone_from(&k.values);
-            GENERATION.fetch_add(1, Ordering::Relaxed);
-        }
-    }
-
-    pub fn generation() -> u64 {
-        GENERATION.load(Ordering::Relaxed)
-    }
-
-    pub fn groups() -> &'static [rune_knobs::Group] {
-        static ALL: OnceLock<Vec<rune_knobs::Group>> = OnceLock::new();
-        ALL.get_or_init(|| rune_register::collect(&super::GROUPS))
-    }
-}
-
-#[cfg(feature = "knobs")]
-pub use live::{generation, groups, sync};
-
-#[inline]
-pub fn get(k: &Knob) -> f32 {
-    #[cfg(feature = "knobs")]
-    {
-        live::get(k)
-    }
-    #[cfg(not(feature = "knobs"))]
-    {
-        k.default
-    }
-}
-
-#[cfg(not(feature = "knobs"))]
-#[inline]
-pub fn generation() -> u64 {
-    0
-}
+pub use hooked_ui::knobs::{groups, sync};
 
 #[cfg(feature = "knobs")]
 pub fn side(page: rune::El, s: &crate::app::Hooked, dark: bool) -> rune::El {
