@@ -104,6 +104,8 @@ re-import of the conversation into a fresh Claude Code session.
 
 ## Claude through pi-claude-bridge
 
+To write another bridge, see the checklist in [adding-a-provider.md](adding-a-provider.md#bridge-checklist).
+
 [pi-claude-bridge](https://www.npmjs.com/package/pi-claude-bridge) registers Claude Code as a pi
 model provider (`claude-bridge/*`): pi drives the conversation, and each turn runs through the
 Agent SDK on the user's own Claude login. The **Claude through pi-claude-bridge** template in

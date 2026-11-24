@@ -4,6 +4,9 @@ hooked drives agents through **providers**. A provider is configuration: what th
 and launches. Each provider names an **engine**, which is code: what spawns the agent, talks to it,
 and reads its sessions back.
 
+To add one (a model, an agent or a bridge), start with the guide:
+[adding-a-provider.md](adding-a-provider.md). This page is the reference.
+
 ```mermaid
 flowchart LR
   subgraph config["settings.json → providers"]
