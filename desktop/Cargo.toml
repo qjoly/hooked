@@ -1,3 +1,19 @@
+[workspace]
+members = ["."]
+
+# Rune is pinned once, in Cargo.lock: every crate below comes from the same git source (no `rev`,
+# so Rune's default branch), and Cargo resolves one source to one commit. A crate cannot drift to
+# another rev than the others. Move them all with `cargo update -p rune`.
+[workspace.dependencies]
+rune = { git = "https://github.com/anomalyco/rune" }
+rune-kit = { git = "https://github.com/anomalyco/rune" }
+rune-notify = { git = "https://github.com/anomalyco/rune" }
+rune-luau = { git = "https://github.com/anomalyco/rune" }
+rune-perf = { git = "https://github.com/anomalyco/rune" }
+procwatch = { git = "https://github.com/anomalyco/rune" }
+rune-knobs = { git = "https://github.com/anomalyco/rune" }
+rune-register = { git = "https://github.com/anomalyco/rune" }
+
 [package]
 name = "hooked-rune"
 version = "0.1.0"
@@ -5,14 +21,14 @@ edition = "2024"
 publish = false
 
 [dependencies]
-rune = { git = "https://github.com/anomalyco/rune", rev = "ac452a9c2b75c462c5eb1659024178f1fbbd416a" }
-rune-kit = { git = "https://github.com/anomalyco/rune", rev = "ac452a9c2b75c462c5eb1659024178f1fbbd416a", features = ["markdown", "mermaid"] }
-rune-notify = { git = "https://github.com/anomalyco/rune", rev = "ac452a9c2b75c462c5eb1659024178f1fbbd416a" }
-rune-luau = { git = "https://github.com/anomalyco/rune", rev = "ac452a9c2b75c462c5eb1659024178f1fbbd416a", features = ["serde"] }
-rune-perf = { git = "https://github.com/anomalyco/rune", rev = "ac452a9c2b75c462c5eb1659024178f1fbbd416a" }
-procwatch = { git = "https://github.com/anomalyco/rune", rev = "ac452a9c2b75c462c5eb1659024178f1fbbd416a" }
-rune-knobs = { git = "https://github.com/anomalyco/rune", rev = "ac452a9c2b75c462c5eb1659024178f1fbbd416a" }
-rune-register = { git = "https://github.com/anomalyco/rune", rev = "ac452a9c2b75c462c5eb1659024178f1fbbd416a", optional = true }
+rune = { workspace = true }
+rune-kit = { workspace = true, features = ["markdown", "mermaid"] }
+rune-notify = { workspace = true }
+rune-luau = { workspace = true, features = ["serde"] }
+rune-perf = { workspace = true }
+procwatch = { workspace = true }
+rune-knobs = { workspace = true }
+rune-register = { workspace = true, optional = true }
 ureq = { version = "3", features = ["json"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -31,14 +47,17 @@ knobs = ["rune-knobs/panel", "dep:rune-register"]
 tray-icon = "0.21"
 
 # Rune builds these crates from its own patched copies, and Cargo does not inherit a dependency's
-# `[patch]`. Copy the `[patch.crates-io]` table of Rune's root Cargo.toml, at the same rev as above.
+# `[patch]`. Copy the `[patch.crates-io]` table of Rune's root Cargo.toml, at the commit Cargo.lock
+# pins; same git source as above, so the patches follow that commit.
 [patch.crates-io]
-wgpu-hal = { git = "https://github.com/anomalyco/rune", rev = "ac452a9c2b75c462c5eb1659024178f1fbbd416a" }
-winit = { git = "https://github.com/anomalyco/rune", rev = "ac452a9c2b75c462c5eb1659024178f1fbbd416a" }
-sctk-adwaita = { git = "https://github.com/anomalyco/rune", rev = "ac452a9c2b75c462c5eb1659024178f1fbbd416a" }
-parley_engine = { git = "https://github.com/anomalyco/rune", rev = "ac452a9c2b75c462c5eb1659024178f1fbbd416a" }
-accesskit_windows = { git = "https://github.com/anomalyco/rune", rev = "ac452a9c2b75c462c5eb1659024178f1fbbd416a" }
-accesskit_macos = { git = "https://github.com/anomalyco/rune", rev = "ac452a9c2b75c462c5eb1659024178f1fbbd416a" }
+wgpu-hal = { git = "https://github.com/anomalyco/rune" }
+naga = { git = "https://github.com/anomalyco/rune" }
+winit = { git = "https://github.com/anomalyco/rune" }
+sctk-adwaita = { git = "https://github.com/anomalyco/rune" }
+parley_engine = { git = "https://github.com/anomalyco/rune" }
+accesskit_windows = { git = "https://github.com/anomalyco/rune" }
+accesskit_atspi_common = { git = "https://github.com/anomalyco/rune" }
+accesskit_macos = { git = "https://github.com/anomalyco/rune" }
 
 [profile.dev]
 debug = "line-tables-only"
