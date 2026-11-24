@@ -1733,7 +1733,7 @@ dependencies = [
  "base64 0.22.1",
  "libc",
  "libghostty-vt",
- "procwatch",
+ "procwatch 0.1.0 (git+https://github.com/anomalyco/rune?rev=5035abb8657064401600f66035ad1d40867edf8c)",
  "pulldown-cmark",
  "rune",
  "rune-kit",
@@ -3365,6 +3365,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "procwatch"
+version = "0.1.0"
+source = "git+https://github.com/anomalyco/rune?rev=ac452a9c2b75c462c5eb1659024178f1fbbd416a#ac452a9c2b75c462c5eb1659024178f1fbbd416a"
+dependencies = [
+ "libc",
+]
+
+[[package]]
 name = "profiling"
 version = "1.0.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3626,7 +3634,7 @@ dependencies = [
  "parley",
  "png 0.18.1",
  "pollster",
- "procwatch",
+ "procwatch 0.1.0 (git+https://github.com/anomalyco/rune?rev=5035abb8657064401600f66035ad1d40867edf8c)",
  "raw-window-handle",
  "rune-core",
  "rune-edit",
@@ -3846,9 +3854,9 @@ dependencies = [
 [[package]]
 name = "rune-perf"
 version = "0.1.0"
-source = "git+https://github.com/anomalyco/rune?rev=5035abb8657064401600f66035ad1d40867edf8c#5035abb8657064401600f66035ad1d40867edf8c"
+source = "git+https://github.com/anomalyco/rune?rev=ac452a9c2b75c462c5eb1659024178f1fbbd416a#ac452a9c2b75c462c5eb1659024178f1fbbd416a"
 dependencies = [
- "procwatch",
+ "procwatch 0.1.0 (git+https://github.com/anomalyco/rune?rev=ac452a9c2b75c462c5eb1659024178f1fbbd416a)",
  "serde_json",
 ]
 
