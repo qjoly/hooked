@@ -12,7 +12,7 @@ rune-luau = { git = "https://github.com/anomalyco/rune", rev = "5035abb865706440
 rune-perf = { git = "https://github.com/anomalyco/rune", rev = "5035abb8657064401600f66035ad1d40867edf8c" }
 procwatch = { git = "https://github.com/anomalyco/rune", rev = "5035abb8657064401600f66035ad1d40867edf8c" }
 rune-knobs = { git = "https://github.com/anomalyco/rune", rev = "5035abb8657064401600f66035ad1d40867edf8c" }
-rune-register = { git = "https://github.com/anomalyco/rune", rev = "5035abb8657064401600f66035ad1d40867edf8c", optional = true }
+rune-register = { git = "https://github.com/anomalyco/rune", rev = "ac452a9c2b75c462c5eb1659024178f1fbbd416a", optional = true }
 ureq = { version = "3", features = ["json"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

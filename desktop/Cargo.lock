@@ -3855,7 +3855,7 @@ dependencies = [
 [[package]]
 name = "rune-register"
 version = "0.1.0"
-source = "git+https://github.com/anomalyco/rune?rev=5035abb8657064401600f66035ad1d40867edf8c#5035abb8657064401600f66035ad1d40867edf8c"
+source = "git+https://github.com/anomalyco/rune?rev=ac452a9c2b75c462c5eb1659024178f1fbbd416a#ac452a9c2b75c462c5eb1659024178f1fbbd416a"
 dependencies = [
  "linkme",
 ]
