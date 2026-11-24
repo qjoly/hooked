@@ -2069,6 +2069,68 @@ fn tool_chip(s: &Hooked, session: &str, t: &Tool, k: &Kit, key: String) -> El {
                     .pb(8.0)
                     .children(ts.iter().map(|x| super::dock::todo_row(k, x))),
             );
+        } else if let Some(qs) = t.ask.as_deref() {
+            // AskUserQuestion: the questions read-only, the options picked checked, then the answer,
+            // instead of the raw JSON (as on the web).
+            let picked = t.ask_answers();
+            let is_picked = |label: &str| {
+                picked
+                    .iter()
+                    .any(|a| a == label || a.split(',').map(str::trim).any(|x| x == label))
+            };
+            let mut qcol = col().w_full().gap(10.0).px(10.0).pb(8.0);
+            for q in qs {
+                let mut b = col().w_full().gap(4.0);
+                if let Some(h) = q.header.clone().filter(|h| !h.is_empty()) {
+                    b = b.child(row().child(pill(k, h, k.c.text_muted, k.c.layer_03)));
+                }
+                b = b.child(
+                    text(q.question.clone())
+                        .font(k.ty.text_small_medium)
+                        .color(k.c.text_base)
+                        .wrap(),
+                );
+                if q.multi_select {
+                    b = b.child(
+                        text("Multiple choices allowed")
+                            .font(k.ty.text_xsmall)
+                            .color(k.c.text_faint),
+                    );
+                }
+                for o in &q.options {
+                    let sel = is_picked(&o.label);
+                    let mut line = col().gap(1.0).grow(1.0).min_w(0.0).child(
+                        text(o.label.clone())
+                            .font(k.ty.text_small)
+                            .color(if sel { k.c.text_base } else { k.c.text_muted })
+                            .wrap(),
+                    );
+                    if let Some(d) = o.description.clone().filter(|d| !d.is_empty()) {
+                        line = line.child(text(d).font(k.ty.text_xsmall).color(k.c.text_faint).wrap());
+                    }
+                    b = b.child(
+                        row()
+                            .w_full()
+                            .gap(6.0)
+                            .child(glyph(
+                                if sel { &icons::CIRCLE_CHECK } else { &icons::CIRCLE },
+                                12.0,
+                                if sel { k.c.success.icon } else { k.c.icon_faint },
+                            ))
+                            .child(line),
+                    );
+                }
+                qcol = qcol.child(b);
+            }
+            chip = chip.child(qcol);
+            let answer = if picked.is_empty() {
+                t.result_text().unwrap_or_default()
+            } else {
+                picked.join("  ·  ")
+            };
+            if !answer.trim().is_empty() {
+                chip = chip.child(mono("Answer", answer));
+            }
         } else {
             if let Some(input) = t.input_text.clone() {
                 chip = chip.child(mono("Input", input));
