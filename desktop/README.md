@@ -207,7 +207,7 @@ cargo run -- --snap /tmp/split.png --size 1600x900 -- --session <id> --split
 cargo run -- --snap /tmp/panel.png --size 1440x900 -- --panel panels/progress   # a show_panel Luau script, with its state.json (add --panel-minimized for the pill)
 cargo run -- --window quick --snap /tmp/quick.png --size 760x500
 cargo run -- --snap /tmp/sidebar.png --size 1440x900 -- --session <id> --open-section archived   # any section
-cargo run -- --snap /tmp/menus.png --size 1440x900 -- --session <id> --snooze-menu   # --sort-menu, --filter-menu
+cargo run -- --snap /tmp/menus.png --size 1440x900 -- --session <id> --snooze-menu   # --sort-menu, --filter-menu, --more-menu, --model-menu, --effort-menu
 cargo run -- --snap /tmp/filter.png --size 1440x900 -- --session <id> --picker filter-repo   # filter-tag
 HOOKED_INCIDENT_BIN=scripts/fake-incident cargo run -- --snap /tmp/inc.png --size 1440x900 -- --page incidents --incident INC-409   # --scope merged, --team, --merge
 ```
