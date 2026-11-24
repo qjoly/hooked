@@ -579,6 +579,9 @@ pub struct Tool {
     pub show: Option<Value>,
     #[serde(skip)]
     pub diff: Option<Value>,
+    /// The list of a TodoWrite call (Claude Code's or hooked's pi package's), drawn as a checklist.
+    #[serde(skip)]
+    pub todos: Option<Vec<Todo>>,
 }
 
 impl Tool {
@@ -609,6 +612,7 @@ struct RawPart {
     send: Option<Value>,
     show: Option<Value>,
     diff: Option<Value>,
+    todos: Option<Vec<Todo>>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, PartialEq)]
@@ -648,6 +652,7 @@ impl Message {
                         .diff
                         .clone()
                         .filter(|d| d["ops"].as_array().is_some_and(|o| !o.is_empty()));
+                    t.todos = p.todos.clone().filter(|v| !v.is_empty());
                     Part::Tool(t)
                 }),
                 _ => None,
@@ -1485,6 +1490,33 @@ mod tests {
         assert_eq!(parts.len(), 2);
         assert!(matches!(&parts[0], Part::Thinking(t) if t == "I should list the files"));
         assert!(matches!(&parts[1], Part::Tool(t) if t.name == "bash"));
+    }
+
+    #[test]
+    fn a_todowrite_part_carries_its_list() {
+        let m: Message = serde_json::from_value(json!({
+            "role": "assistant", "text": "", "parts": [
+                { "type": "tool", "tool": { "name": "TodoWrite", "inputText": "{…}" },
+                  "todos": [
+                    { "content": "Run tests", "status": "completed", "activeForm": "Running tests" },
+                    { "content": "Ship", "status": "in_progress", "activeForm": "Shipping" }
+                  ] },
+                { "type": "tool", "tool": { "name": "TodoWrite" }, "todos": [] },
+                { "type": "tool", "tool": { "name": "bash", "detail": "ls" }, "todos": null }
+            ]
+        }))
+        .unwrap();
+        let parts = m.render_parts();
+        let todos = |i: usize| match &parts[i] {
+            Part::Tool(t) => t.todos.clone(),
+            _ => panic!("not a tool"),
+        };
+        let list = todos(0).expect("the list");
+        assert_eq!(list.len(), 2);
+        assert_eq!(list[1].status, "in_progress");
+        assert_eq!(list[1].active_form.as_deref(), Some("Shipping"));
+        // an empty list or another tool: the usual chip
+        assert!(todos(1).is_none() && todos(2).is_none());
     }
 
     #[test]

@@ -1896,7 +1896,21 @@ fn tool_chip(s: &Hooked, session: &str, t: &Tool, k: &Kit, key: String) -> El {
     // "Expand all" opens the calls' input and output, not the long diffs: those open one by
     // one, and a click must be able to close them again.
     let open = (s.all_tools_open && t.diff.is_none()) || s.tools_open.contains(&id);
-    let detail = t.detail.clone().unwrap_or_default();
+    // A TodoWrite (Claude Code's, or hooked's pi package's in every pi session) reads as "Tasks" with
+    // its progress and the running task, and opens on a checklist instead of the raw JSON.
+    let todos = t.todos.as_deref();
+    let (name, detail) = match todos {
+        Some(ts) => {
+            let done = ts.iter().filter(|x| x.status == "completed").count();
+            let cur = ts
+                .iter()
+                .find(|x| x.status == "in_progress")
+                .map(|x| x.active_form.clone().unwrap_or_else(|| x.content.clone()));
+            let progress = format!("{done}/{}", ts.len());
+            ("Tasks".to_string(), cur.map_or(progress.clone(), |c| format!("{progress} · {c}")))
+        }
+        None => (t.name.clone(), t.detail.clone().unwrap_or_default()),
+    };
     let changed = t.diff.as_ref().map(diff_lines);
     let big = changed.is_some_and(|n| n > BIG_DIFF);
     let head = k
@@ -1904,10 +1918,10 @@ fn tool_chip(s: &Hooked, session: &str, t: &Tool, k: &Kit, key: String) -> El {
             row()
                 .key(format!("{key}-head"))
                 .role("button")
-                .label(format!("{} {}", t.name, detail))
+                .label(format!("{} {}", name, detail))
                 .expanded(open)
                 .help(if detail.is_empty() {
-                    t.name.clone()
+                    name.clone()
                 } else {
                     detail.clone()
                 })
@@ -1918,9 +1932,9 @@ fn tool_chip(s: &Hooked, session: &str, t: &Tool, k: &Kit, key: String) -> El {
                 .center_y()
                 .radius(k.radius.sm)
                 .cursor(Cursor::Pointer)
-                .child(glyph(&icons::TOOL, 12.0, k.c.icon_faint))
+                .child(glyph(if todos.is_some() { &icons::TASKS } else { &icons::TOOL }, 12.0, k.c.icon_faint))
                 .child(
-                    text(t.name.clone())
+                    text(name.clone())
                         .font(k.ty.text_small_medium)
                         .color(k.c.text_muted),
                 )
@@ -2046,11 +2060,22 @@ fn tool_chip(s: &Hooked, session: &str, t: &Tool, k: &Kit, key: String) -> El {
                         .selectable(true),
                 )
         };
-        if let Some(input) = t.input_text.clone() {
-            chip = chip.child(mono("Input", input));
-        }
-        if let Some(r) = t.result_text() {
-            chip = chip.child(mono("Result", r));
+        if let Some(ts) = todos {
+            chip = chip.child(
+                col()
+                    .w_full()
+                    .gap(4.0)
+                    .px(10.0)
+                    .pb(8.0)
+                    .children(ts.iter().map(|x| super::dock::todo_row(k, x))),
+            );
+        } else {
+            if let Some(input) = t.input_text.clone() {
+                chip = chip.child(mono("Input", input));
+            }
+            if let Some(r) = t.result_text() {
+                chip = chip.child(mono("Result", r));
+            }
         }
     }
     if let Some(send) = t.send.as_ref() {
