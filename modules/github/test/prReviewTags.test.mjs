@@ -13,13 +13,13 @@ process.env.HOOKED_DATA_DIR = TMP;
 let sessions = [];
 let reviewByUrl = {};
 
-vi.mock('../server/transcript.js', () => ({ scanSessions: () => sessions }));
-vi.mock('../server/ghMeta.js', () => ({ ghViewMany: async (urls) => new Map(urls.map((u) => [u, reviewByUrl[u] || null])) }));
+vi.mock('../../../server/transcript.js', () => ({ scanSessions: () => sessions }));
+vi.mock('../../../server/ghMeta.js', () => ({ ghViewMany: async (urls) => new Map(urls.map((u) => [u, reviewByUrl[u] || null])) }));
 
 let prReviewTick, readTags, setTags;
 beforeAll(async () => {
   fs.rmSync(TMP, { recursive: true, force: true });
-  ({ readTags, setTags } = await import('../server/tags.js'));
+  ({ readTags, setTags } = await import('../../../server/tags.js'));
   ({ prReviewTick } = await import('../server/prReviewTags.js'));
 });
 

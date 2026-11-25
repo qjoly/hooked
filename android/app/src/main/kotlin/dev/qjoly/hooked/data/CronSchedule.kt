@@ -7,7 +7,7 @@ import java.time.format.TextStyle
 import java.time.temporal.ChronoUnit
 import java.util.Locale
 
-// The web's src/lib/cron.js (via desktop's cron.rs), so the preview agrees with the server's scheduler:
+// The web's modules/cron/lib/cron.js (via desktop's cron.rs), so the preview agrees with the server's scheduler:
 // five fields in local time, Vixie day-of-month / day-of-week OR rule.
 
 class CronException(message: String) : Exception(message)

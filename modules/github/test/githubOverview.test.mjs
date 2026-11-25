@@ -6,8 +6,8 @@ import path from 'node:path';
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hooked-gh-'));
 const calls = { rest: 0, graphql: [] };
 
-vi.mock('../server/config.js', () => ({ HOOKED_DIR: dir }));
-vi.mock('../server/ghClient.js', () => ({
+vi.mock('../../../server/config.js', () => ({ HOOKED_DIR: dir }));
+vi.mock('../../../server/ghClient.js', () => ({
   parseItemUrl: () => null,
   ghRest: async () => { calls.rest++; return []; },
   ghGraphql: async (query, vars) => {

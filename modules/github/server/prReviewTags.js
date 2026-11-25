@@ -6,10 +6,11 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
-import { HOOKED_DIR } from './config.js';
-import { scanAllSessions } from './sessions.js';
-import { ghViewMany } from './ghMeta.js';
-import { readTags, setTags } from './tags.js';
+import { HOOKED_DIR } from '#server/config.js';
+import { scanAllSessions } from '#server/sessions.js';
+import { ghViewMany } from '#server/ghMeta.js';
+import { readTags, setTags } from '#server/tags.js';
+import { TAG_BY_DECISION, PR_REVIEW_TAGS } from '../lib/reviewTags.js';
 
 // Matches ghMeta's shortest TTL: each tick only re-reads the PRs that are due.
 const TICK_INTERVAL = parseInt(process.env.HOOKED_PR_REVIEW_INTERVAL || '60000', 10) || 60000;
@@ -45,8 +46,6 @@ function releasePollLock() {
   if (cur && cur.pid === process.pid) { try { fs.unlinkSync(LOCK_FILE); } catch { /* ignore */ } }
 }
 
-const TAG_BY_DECISION = { APPROVED: 'pr-approved', CHANGES_REQUESTED: 'pr-changes-requested' };
-const PR_REVIEW_TAGS = Object.values(TAG_BY_DECISION);
 
 // Only the session's most recent PR link is checked (prLinks[0], cf. transcript.js) — a session
 // that reopens a second PR later is expected to be about that latest one, not an older, likely

@@ -1,11 +1,11 @@
-import { scanAllSessions } from './sessions.js';
+import { scanAllSessions } from '#server/sessions.js';
 import fs from 'node:fs';
 import path from 'node:path';
-import { HOOKED_DIR } from './config.js';
-import { readSettings } from './settings.js';
-import { agentAlive, agentBusy, agentPendingAsk, deliverReply } from './agent.js';
-import { ghGraphql, parseItemUrl } from './ghClient.js';
-import { headChecks } from './github.js';
+import { HOOKED_DIR } from '#server/config.js';
+import { readSettings } from '#server/settings.js';
+import { agentAlive, agentBusy, agentPendingAsk, deliverReply } from '#server/agent.js';
+import { ghGraphql, parseItemUrl } from '#server/ghClient.js';
+import { headChecks } from '#server/github.js';
 
 // Design after T3 Code (MIT, pingdotgg/t3code): pullRequestWatch.ts.
 
@@ -296,6 +296,12 @@ export async function prWatchTick() {
 function handle() {
   globalThis.__hookedPrWatch ??= { timer: null, running: false };
   return globalThis.__hookedPrWatch;
+}
+
+export function stopPrWatch() {
+  const h = handle();
+  clearInterval(h.timer);
+  h.timer = null;
 }
 
 export function startPrWatch() {

@@ -1,10 +1,12 @@
 <script>
   import { onMount, untrack } from 'svelte';
-  import { ago, ghFilter } from '#lib/format.js';
+  import { ago } from '#lib/format.js';
+  import { ghFilter } from '../lib/filter.js';
   import { goto } from '$app/navigation';
-  import { markGithubNotificationsDone, approvePr, reviewPrInSession } from '#lib/api.js';
-  import Icon from './Icon.svelte';
-  import GhDetail from './GhDetail.svelte';
+  import { approvePr, reviewPrInSession } from '#lib/api.js';
+  import { markGithubNotificationsDone } from './api.js';
+  import Icon from '#lib/components/Icon.svelte';
+  import GhDetail from '#lib/components/GhDetail.svelte';
 
   let res = $state(null); // { notifications, issues, mine, review, fetchedAt } | { error }
   let loading = $state(false);

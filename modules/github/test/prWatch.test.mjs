@@ -11,16 +11,16 @@ let prs = {};
 let settings = { autoPrWatch: false };
 let sessions = [];
 
-vi.mock('../server/agent.js', () => ({
+vi.mock('../../../server/agent.js', () => ({
   agentAlive: (id) => live.alive.has(id),
   agentBusy: (id) => live.busy.has(id),
   agentPendingAsk: () => null,
   deliverReply: (id, text, cb) => { live.sent.push({ id, text }); cb(null); },
   loginEnv: async () => ({}),
 }));
-vi.mock('../server/settings.js', () => ({ readSettings: () => settings }));
-vi.mock('../server/transcript.js', () => ({ scanSessions: () => sessions }));
-vi.mock('../server/ghClient.js', async (orig) => ({
+vi.mock('../../../server/settings.js', () => ({ readSettings: () => settings }));
+vi.mock('../../../server/transcript.js', () => ({ scanSessions: () => sessions }));
+vi.mock('../../../server/ghClient.js', async (orig) => ({
   ...(await orig()),
   ghGraphql: async (query) => {
     const data = { viewer: { login: 'me' } };

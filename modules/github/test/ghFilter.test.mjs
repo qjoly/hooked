@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { ghFilter } from '../src/lib/format.js';
+import { ghFilter } from '../lib/filter.js';
 
 const items = [
   { repo: 'une-tasse-de-cafe/blog', title: 'Fix RSS feed' },

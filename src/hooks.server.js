@@ -1,7 +1,7 @@
 import { promisify } from 'node:util';
 import { gzip as gzipCb } from 'node:zlib';
 import { dev } from '$app/env';
-import { startDigestScheduler, startRemoteControl, readSettings, resumeDrivenSessions, startDrivenSnapshot, installShutdownHook, startWarmupScheduler, startAutoCompactScheduler, applyGitSyncSetting, applyPrReviewTagSetting, applyAutoTagSetting, startPrWatch, startWorktreeCleanup, startAutoPull, loadExternalEngines, bootModules } from '#lib/server/core.js';
+import { startDigestScheduler, startRemoteControl, readSettings, resumeDrivenSessions, startDrivenSnapshot, installShutdownHook, startWarmupScheduler, startAutoCompactScheduler, applyGitSyncSetting, applyAutoTagSetting, startWorktreeCleanup, startAutoPull, loadExternalEngines, bootModules } from '#lib/server/core.js';
 
 const gzip = promisify(gzipCb);
 
@@ -27,11 +27,10 @@ if (!dev || process.env.HOOKED_MODE) {
   const settings = readSettings();
   startDigestScheduler();
   startRemoteControl(settings);
-  // Settings-driven background loops (git sync of hooked's own checkout, PR review tags). They used
+  // Settings-driven background loops (git sync of hooked's own checkout, auto tags). They used
   // to start from GET /api/settings, i.e. only once a browser had loaded the page — a service nobody
   // opened a browser on never ran them. Idempotent; POST /api/settings re-applies them on change.
   applyGitSyncSetting(settings);
-  applyPrReviewTagSetting(settings);
   applyAutoTagSetting(settings);
   // Sessions live in this process, so a restart kills them all. Bring back the ones that were being
   // driven when we last stopped, then keep the snapshot current for the next restart.
@@ -48,10 +47,9 @@ if (!dev || process.env.HOOKED_MODE) {
 startWarmupScheduler();
 // Same reasons for auto-compact (settings → autoCompact): every tick reads the setting.
 startAutoCompactScheduler();
-// PR watches only wake sessions driven by this process, and autoPrWatch is read on every tick.
-startPrWatch();
 // hooked's modules (modules/*): each starts its loops if it is on. Those that launch sessions (the
-// Cron scheduler…) only run in the service, by the same rule as the block above.
+// Cron scheduler, the Flows engine) only run in the service, by the same rule as the block above;
+// PR watches (GitHub) run everywhere, since they only wake the sessions of this process.
 bootModules({ service: !dev || !!process.env.HOOKED_MODE });
 
 // adapter-node does not compress responses, and the dashboard polls JSON that is mostly repetitive

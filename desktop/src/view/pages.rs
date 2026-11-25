@@ -1935,7 +1935,7 @@ fn tone_icon(t: crate::flows::Tone) -> &'static rune::Icon {
     }
 }
 
-/// Flows: pipelines of driven sessions (server/flows.js). Runs on the left; on the right the
+/// Flows: pipelines of driven sessions (modules/flows/server/flows.js). Runs on the left; on the right the
 /// selected run as a CI pipeline (one column per depth, parallel stages stacked), its actions and
 /// the selected stage's reports. Templates are edited on the web page.
 pub fn flows(s: &Hooked, k: &Kit) -> El {

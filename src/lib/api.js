@@ -169,7 +169,6 @@ export const getDigest = (date) => jget('/api/digest?date=' + encodeURIComponent
 export const generateDigest = (date, force) => jpost('/api/digest', { date, force: !!force });
 
 // GitHub page: marks notification threads as done. → { ok, data: { done: [threadId…], error } }.
-export const markGithubNotificationsDone = (ids) => jpost('/api/github/notifications', { ids });
 
 // Force a live-state resync: drops the volatile per-session bits derived from the SDK stream and
 // rebuilds the list now instead of waiting for the poll. Returns state counts.

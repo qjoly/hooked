@@ -16,8 +16,6 @@ export * from './remoteControl.js';
 export * from './util.js';
 export * from './git.js';
 export * from './gitOps.js';
-export * from './prReviewTags.js';
-export * from './prWatch.js';
 export * from './autoTags.js';
 export * from './pricing.js';
 export * from './transcript.js';
