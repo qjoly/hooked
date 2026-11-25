@@ -134,6 +134,13 @@ export function isBlockForCommand(text, command) {
   return !!m && m[1].trim() === String(command).trim();
 }
 
+// The live log of a Run, as a terminal would show it: progress bars repaint their line with a bare
+// `\r`, so only what follows the last one is kept. A `\r` that ends the log stays put, since its
+// repaint has not arrived yet and blanking the line meanwhile would make it flicker.
+export function liveLogText(raw) {
+  return String(raw).replace(/\r\n/g, '\n').replace(/[^\n]*\r(?=[^\n])/g, '').replace(/\r/g, '');
+}
+
 // Commande à coller dans un terminal pour reprendre une session À LA MAIN. L'Agent SDK spawne
 // exactement ça (`claude --resume=<id>`, vérifiable dans un `ps`), donc c'est bien la MÊME session
 // qui repart, pas une copie. Corollaire à garder en tête : ne pas la lancer pendant que hooked pilote
