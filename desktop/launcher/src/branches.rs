@@ -51,9 +51,15 @@ pub struct Running {
     pub commit: Option<String>,
 }
 
-/// `main` first, then the unmerged branches, newest first. The running branch stays listed even
-/// once merged, so the list always says what runs. `behind(commit, tip)` says whether `tip`
-/// descends from `commit` (git merge-base --is-ancestor).
+/// A conventional-commit `chore` subject (`chore:`, `chore(deps):`, `chore!:`). Renovate's
+/// dependency bumps are the bulk of them: nobody switches hooked to one of those branches.
+fn is_chore(subject: &str) -> bool {
+    subject.strip_prefix("chore").is_some_and(|rest| rest.starts_with(['(', ':', '!']))
+}
+
+/// `main` first, then the unmerged branches whose tip is not a chore, newest first. The running
+/// branch stays listed even once merged or a chore, so the list always says what runs.
+/// `behind(commit, tip)` says whether `tip` descends from `commit` (git merge-base --is-ancestor).
 pub fn rows(
     all: Vec<Branch>,
     unmerged: &[String],
@@ -67,7 +73,9 @@ pub fn rows(
     };
     let mut rows: Vec<Row> = all
         .into_iter()
-        .filter(|b| b.name == MAIN || unmerged.contains(&b.name) || is_running(b))
+        .filter(|b| {
+            b.name == MAIN || is_running(b) || (unmerged.contains(&b.name) && !is_chore(&b.subject))
+        })
         .map(|b| {
             let running_here = is_running(&b);
             let update = running_here
@@ -136,6 +144,26 @@ mod tests {
             .map(|r| r.branch.name)
             .collect();
         assert_eq!(names, ["main", "new", "old"]);
+    }
+
+    #[test]
+    fn hides_chore_branches_unless_they_run() {
+        let chore = |name: &str, subject: &str| Branch { subject: subject.into(), ..branch(name, name, 1) };
+        let all = vec![
+            branch("main", "0", 5),
+            chore("renovate/svelte", "chore(deps): update dependency svelte to v6"),
+            chore("chore/lint", "chore: lint"),
+            chore("feat/x", "feat(ui): x"),
+            chore("feat/chores", "chores list"),
+            chore("chore/running", "chore(mise): y"),
+        ];
+        let unmerged: Vec<String> = all[1..].iter().map(|b| b.name.clone()).collect();
+        let running = Running { branch: Some("chore/running".into()), commit: None };
+        let names: Vec<_> = rows(all, &unmerged, &running, |_, _| false)
+            .into_iter()
+            .map(|r| r.branch.name)
+            .collect();
+        assert_eq!(names, ["main", "feat/x", "feat/chores", "chore/running"]);
     }
 
     #[test]
