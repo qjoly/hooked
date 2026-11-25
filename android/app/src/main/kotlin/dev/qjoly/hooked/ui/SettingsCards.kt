@@ -141,10 +141,10 @@ internal fun AppCard(app: AppModel, m: SettingsModel, requestNotifications: () -
             if (on) requestNotifications()
         }
         SetBlock("Navigation", "Which pages get a tab in the top bar. The others stay one search away.") {
-            Chips { NAV_PAGES.forEach { (key, label) -> PageChip(label, key in navOn) { m.toggleInList(app, "navTabs", key) } } }
+            Chips { NAV_PAGES.filter { (key, _) -> app.moduleOn(key) }.forEach { (key, label) -> PageChip(label, key in navOn) { m.toggleInList(app, "navTabs", key) } } }
         }
         SetBlock("Default page", "Where the app opens.") {
-            Chips { (listOf("deck" to "Deck") + NAV_PAGES).forEach { (key, label) -> PageChip(label, home == key) { m.save(app, "defaultPage", key) } } }
+            Chips { (listOf("deck" to "Deck") + NAV_PAGES.filter { (key, _) -> app.moduleOn(key) }).forEach { (key, label) -> PageChip(label, home == key) { m.save(app, "defaultPage", key) } } }
         }
         SetLine("Review layout", "How the Review lens shows a diff by default.") {
             Chips {

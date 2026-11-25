@@ -15,6 +15,7 @@ import dev.qjoly.hooked.data.HookedClient
 import dev.qjoly.hooked.data.Meta
 import dev.qjoly.hooked.data.Session
 import dev.qjoly.hooked.data.arr
+import dev.qjoly.hooked.data.boolOr
 import dev.qjoly.hooked.data.get
 import dev.qjoly.hooked.data.int
 import dev.qjoly.hooked.data.sseFlow
@@ -183,8 +184,8 @@ class AppModel(app: Application) : AndroidViewModel(app) {
             "stats" -> page = Page.Stats
             "digest" -> page = Page.Digest
             "memory" -> page = Page.Memory
-            "cron" -> page = Page.Cron
-            "github" -> page = Page.Github
+            "cron" -> if (moduleOn("cron")) page = Page.Cron
+            "github" -> if (moduleOn("github")) page = Page.Github
             "skills" -> page = Page.Skills
             "prompts" -> page = Page.Prompts
         }
@@ -392,6 +393,10 @@ class AppModel(app: Application) : AndroidViewModel(app) {
     /** `sidebarCache` from the server settings: badge or replace, and the window in minutes. */
     val cacheDisplay: String get() = settings["sidebarCache"]["display"].str ?: "badge"
     val cacheWindowMin: Int get() = settings["sidebarCache"]["windowMin"].int ?: 15
+
+    /** Whether a module of the service is on (`modules` in the server settings); missing means on.
+     *  A key that is no module (a core page) is always on. */
+    fun moduleOn(id: String): Boolean = settings["modules"][id].boolOr(true)
 
     /** `navTabs` from the server settings; missing means every tab. */
     val navTabs: Set<String>? get() = settings["navTabs"]?.arr?.mapNotNull { it.str }?.toSet()

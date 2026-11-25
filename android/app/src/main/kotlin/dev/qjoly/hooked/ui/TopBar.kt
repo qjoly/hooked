@@ -67,7 +67,8 @@ fun TopBar(app: AppModel, wide: Boolean, onPalette: () -> Unit, onAccount: () ->
                 Triple("skills", Page.Skills, "Skills" to Lucide.Sparkle),
                 Triple("prompts", Page.Prompts, "Prompts" to Lucide.Book),
             ).forEach { (key, page, look) ->
-                if (tabs == null || key in tabs || app.page == page) Tab(look.first, look.second, app.page == page, wide) { app.page = page }
+                // A module switched off in Settings → Modules takes its tab away.
+                if ((tabs == null || key in tabs || app.page == page) && (app.moduleOn(key) || app.page == page)) Tab(look.first, look.second, app.page == page, wide) { app.page = page }
             }
         }
         Box(Modifier.weight(1f), contentAlignment = Alignment.Center) { Omni(onPalette, wide) }
