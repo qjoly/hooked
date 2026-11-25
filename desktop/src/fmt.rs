@@ -216,6 +216,37 @@ pub fn strip_ansi(s: &str) -> String {
     out
 }
 
+/// Output read while it is being written, as a terminal shows it: a progress bar repaints its
+/// line after a bare `\r`, so only what follows the last one is kept. A `\r` with nothing after
+/// it changes nothing: it is either a CRLF line end or a repaint that has not arrived yet, and
+/// blanking the line until then would make it flicker.
+pub fn live_log_text(raw: &str) -> String {
+    raw.split('\n')
+        .map(|line| {
+            let line = line.trim_end_matches('\r');
+            line.rsplit('\r').next().unwrap_or(line)
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// Drops the start of `s` so it holds at most `max` bytes, cutting on a character boundary.
+pub fn keep_tail(s: &mut String, max: usize) {
+    if s.len() > max {
+        let mut cut = s.len() - max;
+        while !s.is_char_boundary(cut) {
+            cut += 1;
+        }
+        s.drain(..cut);
+    }
+}
+
+/// The last `n` lines of `s`.
+pub fn last_lines(s: &str, n: usize) -> String {
+    let tail: Vec<&str> = s.lines().rev().take(n).collect();
+    tail.into_iter().rev().collect::<Vec<_>>().join("\n")
+}
+
 pub fn first_line(s: &str, max: usize) -> String {
     let line = s
         .lines()
@@ -313,6 +344,31 @@ mod tests {
             strip_ansi("\u{1b}[1;32mok\u{1b}[0m 50%\r80%\r\n\u{1b}]0;title\u{7}done"),
             "ok 50%\n80%\ndone"
         );
+    }
+
+    #[test]
+    fn a_live_log_keeps_the_last_repaint_of_a_line() {
+        assert_eq!(live_log_text("line 1\nline 2\n"), "line 1\nline 2\n");
+        assert_eq!(live_log_text("a\r\nb\r\n"), "a\nb\n");
+        assert_eq!(
+            live_log_text("start\n 10%\r 50%\r100%\ndone\n"),
+            "start\n100%\ndone\n"
+        );
+        // A chunk often ends right on the `\r`, before the repaint.
+        assert_eq!(live_log_text("downloading 40%\r"), "downloading 40%");
+        assert_eq!(live_log_text(""), "");
+    }
+
+    #[test]
+    fn a_tail_is_cut_on_a_character_boundary() {
+        let mut s = "aé€b".to_string();
+        keep_tail(&mut s, 4);
+        assert_eq!(s, "€b");
+        let mut short = "ok".to_string();
+        keep_tail(&mut short, 4);
+        assert_eq!(short, "ok");
+        assert_eq!(last_lines("1\n2\n3\n", 2), "2\n3");
+        assert_eq!(last_lines("", 2), "");
     }
 
     #[test]

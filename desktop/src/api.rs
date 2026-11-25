@@ -1087,6 +1087,47 @@ pub fn reply(id: &str, text: &str) -> Result<(), String> {
     post("/api/reply", json!({ "id": id, "text": text })).map(|_| ())
 }
 
+/// Runs a shell block Claude proposed: `on_output` gets the output while the command runs, and
+/// the result is the closing line, which carries `localCommand` when hooked ran it itself.
+pub fn run_command(
+    id: &str,
+    command: &str,
+    mut on_output: impl FnMut(&str),
+) -> Result<Value, String> {
+    // The service stops a command after 120 s, and a quiet one sends nothing until then.
+    let a: Agent = config()
+        .timeout_per_read(Some(Duration::from_secs(150)))
+        .build()
+        .into();
+    let body = json!({ "id": id, "command": command });
+    let (url, _) = target("/api/run-command", Some(&body))?;
+    let resp = a.post(&url).send_json(body).map_err(|e| e.to_string())?;
+    if resp.status().as_u16() >= 400 {
+        return read(Ok(resp));
+    }
+    for line in BufReader::new(resp.into_body().into_reader()).lines() {
+        let line = line.map_err(|e| e.to_string())?;
+        if line.is_empty() {
+            continue;
+        }
+        let v: Value = serde_json::from_str(&line).map_err(|e| e.to_string())?;
+        if v.get("done").is_some() {
+            if v.get("ok") == Some(&Value::Bool(false)) {
+                return Err(v
+                    .get("error")
+                    .and_then(Value::as_str)
+                    .unwrap_or("request failed")
+                    .to_string());
+            }
+            return Ok(v);
+        }
+        if let Some(out) = v.get("output").and_then(Value::as_str) {
+            on_output(out);
+        }
+    }
+    Err("connection lost before the command ended".into())
+}
+
 pub struct Selection {
     pub multi: bool,
     pub indices: Vec<usize>,

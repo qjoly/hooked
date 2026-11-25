@@ -1169,10 +1169,13 @@ pub(super) fn bubble(s: &Hooked, session: &str, m: &Message, k: &Kit, i: usize) 
                 }
                 c
             }
-            Part::Text(t) => super::md_code(t, k, Some(session.to_string()))
-                .selectable(true)
-                .build(k)
-                .key(format!("md-{i}-{pi}")),
+            Part::Text(t) => {
+                let runs = s.code_runs_in(session, &t);
+                super::md_code(t, k, Some(session.to_string()), runs)
+                    .selectable(true)
+                    .build(k)
+                    .key(format!("md-{i}-{pi}"))
+            }
             Part::Thinking(t) => thinking_block(s, &t, k, thinking_id(m, pi), format!("think-{i}-{pi}")),
             Part::Tool(t) => tool_chip(s, session, &t, k, format!("tool-{i}-{pi}")),
         });

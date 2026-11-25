@@ -7,6 +7,7 @@ use rune::prefs::Prefs;
 use rune::{AppHandle, TextEdit, Tx};
 
 use crate::api::{self, Capabilities, Detail, Gauge, LiveSnapshot, Meta, Session};
+use crate::coderun::CodeRun;
 use crate::fmt;
 use crate::lenses::ReviewSource;
 
@@ -214,6 +215,8 @@ pub struct Hooked {
     pub places_dirty: bool,
     pub places_saved_at: i64,
     pub job_log: Option<(String, String)>,
+    /// Runs on shell blocks, by session and command.
+    pub code_runs: HashMap<(String, String), CodeRun>,
     pub run_win: Option<crate::ghrun::RunWin>,
     pub query_win: Option<crate::querywin::QueryWin>,
     pub panel_win: Option<crate::panel::PanelWin>,
@@ -529,6 +532,7 @@ impl Hooked {
             places_dirty: false,
             places_saved_at: 0,
             job_log: None,
+            code_runs: HashMap::new(),
             run_win: None,
             query_win: None,
             panel_win: None,
@@ -1354,13 +1358,7 @@ pub fn composer_changed(&mut self) {
                         && *t == task
                     {
                         text.push_str(&chunk);
-                        if text.len() > 65_536 {
-                            let mut cut = text.len() - 65_536;
-                            while !text.is_char_boundary(cut) {
-                                cut += 1;
-                            }
-                            text.drain(..cut);
-                        }
+                        fmt::keep_tail(text, 65_536);
                     }
                 });
                 true
@@ -1368,18 +1366,45 @@ pub fn composer_changed(&mut self) {
         });
     }
 
+    /// Runs a shell block Claude proposed, its output streaming under the block. The agent gets
+    /// the output once the command ends, and continues.
     pub fn run_code(&mut self, session: String, code: String) {
-        let cmd = format!("!{}", code.trim());
-        self.spawn(
-            move || api::reply(&session, &cmd),
-            |s, r, _| {
-                match r {
-                    Ok(_) => s.flash("✓ Running in the session", false),
-                    Err(e) => s.flash(format!("✗ Run: {e}"), true),
+        let Some(h) = self.handle.clone() else {
+            return;
+        };
+        let command = code.trim().to_string();
+        let key = (session.clone(), command.clone());
+        self.code_runs.insert(key.clone(), CodeRun::started());
+        crate::app::spawn_named("hooked-run", move || {
+            let on_output = |chunk: &str| {
+                let (chunk, key) = (chunk.to_string(), key.clone());
+                h.update(move |s, _| {
+                    if let Some(run) = s.code_runs.get_mut(&key) {
+                        run.push(&chunk);
+                    }
+                });
+            };
+            let r = api::run_command(&session, &command, on_output);
+            h.update(move |s, _| {
+                if let Some(run) = s.code_runs.get_mut(&key) {
+                    run.finish(&r);
+                }
+                if let Err(e) = r {
+                    s.flash(format!("✗ Run: {e}"), true);
                 }
                 s.refresh_detail();
-            },
-        );
+            });
+        });
+    }
+
+    /// The Runs of `session` whose command appears in `text`, by command: what the code blocks of
+    /// one message show.
+    pub fn code_runs_in(&self, session: &str, text: &str) -> HashMap<String, CodeRun> {
+        self.code_runs
+            .iter()
+            .filter(|((id, command), _)| id == session && text.contains(command.as_str()))
+            .map(|((_, command), run)| (command.clone(), run.clone()))
+            .collect()
     }
 
     pub fn open_ghostty(&mut self) {
@@ -1547,6 +1572,7 @@ pub fn composer_changed(&mut self) {
         self.ac = None;
         self.job_gen.fetch_add(1, Ordering::SeqCst);
         self.job_log = None;
+        self.code_runs.retain(|_, run| run.busy);
         self.composer = TextEdit::new(self.drafts.get(id).cloned().unwrap_or_default());
         self.composer.focused = true;
         self.reset_question();

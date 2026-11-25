@@ -457,32 +457,17 @@ fn jobs(s: &Hooked, d: &Detail, k: &Kit) -> El {
         }
         c = c.child(r);
         if let Some((_, log)) = showing {
-            let tail: Vec<&str> = log.lines().rev().take(200).collect();
+            let tail = fmt::last_lines(log, 200);
             let body = if tail.is_empty() {
                 "waiting for output…".to_string()
             } else {
-                tail.into_iter().rev().collect::<Vec<_>>().join("\n")
+                tail
             };
             let mut block = col()
                 .key(format!("job-log-{task}"))
                 .w_full()
                 .gap(6.0)
-                .child(
-                    col()
-                        .w_full()
-                        .max_h(260.0)
-                        .padding(8.0)
-                        .radius(k.radius.sm)
-                        .fill(k.c.layer_02)
-                        .scroll(ScrollSpec { stick_bottom: true })
-                        .child(
-                            text(body)
-                                .font(k.ty.mono)
-                                .color(k.c.text_muted)
-                                .wrap_anywhere()
-                                .selectable(true),
-                        ),
-                );
+                .child(super::log_pane(k, body, 260.0));
             if !output.is_empty() {
                 block = block.child(
                     Button::new("Open the file")

@@ -16,7 +16,7 @@ mod settings;
 mod split;
 mod terminal;
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 
 use rune::{Color, Cursor, Cx, El, Icon, Phase, col, el, row, text};
 use rune_kit::shell::{Sidebar, SidebarSection};
@@ -31,6 +31,7 @@ use hooked_ui::widgets::{
 
 use crate::api::Session;
 use crate::app::{Hooked, Page, Popup, Theme};
+use crate::coderun::CodeRun;
 use crate::sections::{Section, clock, section_of, snooze_presets, wake_label};
 use crate::{fmt, icons};
 
@@ -1864,8 +1865,32 @@ pub(super) fn modal_scrim<S: 'static>(
         )
 }
 
-/// Markdown whose code blocks carry Copy, and Run for shell blocks of a session.
-pub fn md_code(src: impl Into<String>, k: &Kit, session: Option<String>) -> rune_kit::Markdown {
+/// A command's output, following its end as it grows (a background job's, a Run's).
+pub fn log_pane(k: &Kit, body: String, max_h: f32) -> El {
+    col()
+        .w_full()
+        .max_h(max_h)
+        .padding(8.0)
+        .radius(k.radius.sm)
+        .fill(k.c.layer_02)
+        .scroll(rune::ScrollSpec { stick_bottom: true })
+        .child(
+            text(body)
+                .font(k.ty.mono)
+                .color(k.c.text_muted)
+                .wrap_anywhere()
+                .selectable(true),
+        )
+}
+
+/// Markdown whose code blocks carry Copy, and Run for shell blocks of a session. `runs` are that
+/// session's Runs by command (`Hooked::code_runs_in`): a block that ran shows its output under it.
+pub fn md_code(
+    src: impl Into<String>,
+    k: &Kit,
+    session: Option<String>,
+    runs: HashMap<String, CodeRun>,
+) -> rune_kit::Markdown {
     let k = k.clone();
     let src: String = src.into();
     let doc: std::rc::Rc<str> = src.as_str().into();
@@ -1877,6 +1902,7 @@ pub fn md_code(src: impl Into<String>, k: &Kit, session: Option<String>) -> rune
             lang.to_lowercase().as_str(),
             "sh" | "bash" | "shell" | "zsh"
         );
+        let ran = runs.get(code.trim()).filter(|_| shell && !c.open).cloned();
         let mut bar = row()
             .w_full()
             .gap(4.0)
@@ -1892,12 +1918,25 @@ pub fn md_code(src: impl Into<String>, k: &Kit, session: Option<String>) -> rune
             .filter(|_| shell && !code.trim().is_empty() && !c.open)
         {
             let run = code.clone();
+            let (label, icon) = match &ran {
+                None => ("Run", &icons::TERMINAL),
+                Some(r) if r.busy => ("Running…", &icons::TERMINAL),
+                Some(r) if r.error.is_some() => ("Failed", &icons::CIRCLE_X),
+                Some(_) => ("Ran", &icons::CIRCLE_CHECK),
+            };
+            let help = ran
+                .as_ref()
+                .and_then(|r| r.error.clone())
+                .unwrap_or_else(|| {
+                    "Run in the session folder; the agent gets the output and continues".into()
+                });
             bar = bar.child(
-                Button::new("Run")
-                    .icon(&icons::TERMINAL)
+                Button::new(label)
+                    .icon(icon)
                     .variant(ButtonVariant::GhostMuted)
                     .control_size(ControlSize::Small)
-                    .help("Run in the session folder; the output goes to the conversation")
+                    .help(help)
+                    .disabled(ran.as_ref().is_some_and(|r| r.busy))
                     .on_press(move |s: &mut Hooked| s.run_code(id.clone(), run.clone()))
                     .build(&k),
             );
@@ -1935,12 +1974,24 @@ pub fn md_code(src: impl Into<String>, k: &Kit, session: Option<String>) -> rune
                 })
                 .build(&k),
         );
-        col()
+        let frame = col()
             .key(format!("code-{}", c.index))
             .w_full()
             .gap(2.0)
             .child(bar)
-            .child(card)
+            .child(card);
+        match ran.filter(|r| r.pane) {
+            Some(r) => {
+                let body = match (r.shown.is_empty(), r.busy) {
+                    (false, _) => r.shown,
+                    (true, true) => "waiting for output…".into(),
+                    (true, false) => "no output".into(),
+                };
+                // About eight lines, scrolling past that.
+                frame.child(log_pane(&k, body, 8.0 * k.ty.mono.line_height + 16.0))
+            }
+            None => frame,
+        }
     })
 }
 
