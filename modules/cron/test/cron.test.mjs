@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { parseCron, cronMatches, nextRun, nextRuns, validCron } from '../src/lib/cron.js';
+import { parseCron, cronMatches, nextRun, nextRuns, validCron } from '../lib/cron.js';
 
 const at = (s) => new Date(s); // local time, like the scheduler
 

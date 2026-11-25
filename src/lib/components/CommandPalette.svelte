@@ -1,5 +1,6 @@
 <script>
   import { usesClaudeAccount } from '#lib/providers.js';
+  import { pageAvailable } from '#lib/nav.js';
   import { copyText } from '#lib/clipboard.js';
   import { goto } from '$app/navigation';
   import { page } from '$app/state';
@@ -45,7 +46,7 @@
   const commands = $derived.by(() => {
     const cs = currentSession;
     const cmds = [
-      ...NAV_COMMANDS,
+      ...NAV_COMMANDS.filter((c) => pageAvailable(c.id.slice(4), settings)),
       { id: 'act:theme-light', label: 'Theme: Light', section: 'Appearance', icon: 'theme-light', action: () => setTheme('light') },
       { id: 'act:theme-dark', label: 'Theme: Dark', section: 'Appearance', icon: 'theme-dark', action: () => setTheme('dark') },
       { id: 'act:theme-system', label: 'Theme: System', section: 'Appearance', icon: 'theme-system', action: () => setTheme('system') },

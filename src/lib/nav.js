@@ -1,3 +1,5 @@
+import { moduleOfPage, moduleOn } from '#modules/index.js';
+
 // Navigation spaces shown next to the Deck in the top bar. The user picks which appear via
 // settings.navTabs (a list of keys); the rest go to the top bar's More menu and the omnibar. `Deck` is always
 // present and isn't in this list. Keys double as the `defaultPage` values (+ 'deck').
@@ -15,6 +17,11 @@ export const NAV_TABS = [
   { key: 'prompts',  label: 'Prompts',  icon: 'note', href: '/prompts', tint: 'var(--info)' },
 ];
 export const NAV_KEYS = NAV_TABS.map((t) => t.key);
+// A page shows unless it belongs to a module that is switched off (Settings → Modules).
+export function pageAvailable(key, settings) {
+  const m = moduleOfPage(key);
+  return !m || moduleOn(settings, m);
+}
 // href for a page key (used by the logo / default-page redirect). 'deck' → '/'.
 export function pageHref(key) {
   const t = NAV_TABS.find((x) => x.key === key);

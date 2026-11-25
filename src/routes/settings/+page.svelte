@@ -7,7 +7,8 @@
   import { isHideableModel, isHideablePiModel } from '#lib/models.js';
   import { knownProjects } from '#lib/projects.js';
   import { getAllBindings, setBinding, resetBinding, resetAll as resetAllShortcuts, formatKeys, keysFromEvent } from '#lib/shortcuts.js';
-  import { NAV_TABS } from '#lib/nav.js';
+  import { NAV_TABS, pageAvailable } from '#lib/nav.js';
+  import { MODULES, moduleOn } from '#modules/index.js';
   import ModelEffort from '#lib/components/ModelEffort.svelte';
   import Icon from '#lib/components/Icon.svelte';
   import ProvidersSettings from '#lib/components/ProvidersSettings.svelte';
@@ -38,6 +39,7 @@
     { id: 'pset-worktrees', label: 'Worktrees' },
     { id: 'pset-tags', label: 'Tags' },
     { id: 'pset-shortcuts', label: 'Keyboard shortcuts' },
+    { id: 'pset-modules', label: 'Modules' },
     { id: 'pset-interface', label: 'Interface' },
     { id: 'pset-flags', label: 'Feature flags' },
   ];
@@ -635,7 +637,7 @@
       <h2>Navigation</h2>
       <p class="hint">Which spaces show as tabs next to the Deck in the top bar. Hidden ones move to the More menu and stay reachable from the omnibar (⌘P). (Shared setting.)</p>
       <div class="navtabs-edit">
-        {#each NAV_TABS as t (t.key)}
+        {#each NAV_TABS.filter((t) => pageAvailable(t.key, settings)) as t (t.key)}
           {@const on = (settings.navTabs || []).includes(t.key)}
           <label class="check">
             <input type="checkbox" checked={on}
@@ -649,7 +651,7 @@
       <label class="filter" style="margin-bottom:16px">
         <select value={settings.defaultPage} onchange={(e) => updateSettings({ defaultPage: e.currentTarget.value })}>
           <option value="deck">Deck (triage)</option>
-          {#each NAV_TABS as t (t.key)}<option value={t.key}>{t.label}</option>{/each}
+          {#each NAV_TABS.filter((t) => pageAvailable(t.key, settings)) as t (t.key)}<option value={t.key}>{t.label}</option>{/each}
         </select>
       </label>
       <h2 style="margin-top:6px">Prompt cache countdown</h2>
@@ -1265,6 +1267,18 @@
       <div class="cmd-row" style="margin-top:14px">
         <button class="chip" onclick={doResetAll}>Reset all to defaults</button>
       </div>
+    </div>
+
+    <div class="card" id="pset-modules" data-sec>
+      <h2>Modules</h2>
+      <p class="hint">Features that come as a whole: page, background work and the tools sessions get. A module switched off is gone from the navigation, stops its background work, and new sessions no longer get its tools (running ones keep them until they restart). Shared with the desktop and Android apps.</p>
+      {#each MODULES as m (m.id)}
+        <label class="check">
+          <input type="checkbox" checked={moduleOn(settings, m.id)}
+                 onchange={(e) => updateSettings({ modules: { ...settings.modules, [m.id]: e.currentTarget.checked } })} />
+          <span><Icon name={m.icon} size={14} /> <strong>{m.label}</strong> · {m.description}</span>
+        </label>
+      {/each}
     </div>
 
     <div class="card" id="pset-interface" data-sec>

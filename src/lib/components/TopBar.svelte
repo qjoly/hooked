@@ -7,7 +7,7 @@
   import { getUsage } from '#lib/api.js';
   import { initials, needsDecision, sessionDot, fmtTokens, fmtCost } from '#lib/format.js';
   import { providerShort, usesClaudeAccount } from '#lib/providers.js';
-  import { NAV_TABS, NAV_KEYS, pageHref } from '#lib/nav.js';
+  import { NAV_TABS, NAV_KEYS, pageHref, pageAvailable } from '#lib/nav.js';
   import Icon from '#lib/components/Icon.svelte';
   import FleetWheel from '#lib/components/FleetWheel.svelte';
 
@@ -24,8 +24,10 @@
   // use when the claude provider is, or when an enabled provider declares the `account` capability
   // (Claude through pi-claude-bridge: same subscription, same 5h / 7d quotas).
   const hasClaude = $derived(usesClaudeAccount(data.providers, data.providerList));
-  const tabs = $derived(NAV_TABS.filter((t) => (settings.navTabs || NAV_KEYS).includes(t.key) && (t.key !== 'memory' || hasClaude)));
-  const hiddenTabs = $derived(NAV_TABS.filter((t) => !tabs.includes(t) && (t.key !== 'memory' || hasClaude)));
+  // A switched-off module's page is gone from both (Settings → Modules).
+  const pages = $derived(NAV_TABS.filter((t) => pageAvailable(t.key, settings) && (t.key !== 'memory' || hasClaude)));
+  const tabs = $derived(pages.filter((t) => (settings.navTabs || NAV_KEYS).includes(t.key)));
+  const hiddenTabs = $derived(pages.filter((t) => !tabs.includes(t)));
   // On a hidden page, the More button wears that page's name so the bar still says where you are.
   const hiddenActive = $derived(hiddenTabs.find((t) => tabActive(t)));
 

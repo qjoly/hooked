@@ -1,7 +1,7 @@
 import { promisify } from 'node:util';
 import { gzip as gzipCb } from 'node:zlib';
 import { dev } from '$app/env';
-import { startDigestScheduler, startCronScheduler, startRemoteControl, readSettings, resumeDrivenSessions, startDrivenSnapshot, installShutdownHook, startWarmupScheduler, startAutoCompactScheduler, applyGitSyncSetting, applyPrReviewTagSetting, applyAutoTagSetting, startPrWatch, startWorktreeCleanup, startAutoPull, loadExternalEngines, startFlowEngine } from '#lib/server/core.js';
+import { startDigestScheduler, startRemoteControl, readSettings, resumeDrivenSessions, startDrivenSnapshot, installShutdownHook, startWarmupScheduler, startAutoCompactScheduler, applyGitSyncSetting, applyPrReviewTagSetting, applyAutoTagSetting, startPrWatch, startWorktreeCleanup, startAutoPull, loadExternalEngines, startFlowEngine, bootModules } from '#lib/server/core.js';
 
 const gzip = promisify(gzipCb);
 
@@ -26,7 +26,6 @@ const enginesReady = loadExternalEngines().catch(() => {});
 if (!dev || process.env.HOOKED_MODE) {
   const settings = readSettings();
   startDigestScheduler();
-  startCronScheduler();
   startRemoteControl(settings);
   // Settings-driven background loops (git sync of hooked's own checkout, PR review tags). They used
   // to start from GET /api/settings, i.e. only once a browser had loaded the page — a service nobody
@@ -53,6 +52,9 @@ startWarmupScheduler();
 startAutoCompactScheduler();
 // PR watches only wake sessions driven by this process, and autoPrWatch is read on every tick.
 startPrWatch();
+// hooked's modules (modules/*): each starts its loops if it is on. Those that launch sessions (the
+// Cron scheduler…) only run in the service, by the same rule as the block above.
+bootModules({ service: !dev || !!process.env.HOOKED_MODE });
 
 // adapter-node does not compress responses, and the dashboard polls JSON that is mostly repetitive
 // text (transcripts, file changes): gzip turns several MB per refresh into a few hundred KB, which

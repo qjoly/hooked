@@ -7,15 +7,15 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
-import { HOOKED_DIR, LAUNCH_PERMISSION_MODES } from './config.js';
-import { launchSession, killSession, agentAlive, agentBusy, agentPendingAsk, err400 } from './agent.js';
-import { readTags, setTags } from './tags.js';
-import { parseCron, cronMatches, nextRun } from '../src/lib/cron.js';
+import { HOOKED_DIR, LAUNCH_PERMISSION_MODES } from '#server/config.js';
+import { launchSession, killSession, agentAlive, agentBusy, agentPendingAsk, err400 } from '#server/agent.js';
+import { readTags, setTags } from '#server/tags.js';
+import { parseCron, cronMatches, nextRun } from '../lib/cron.js';
 
 const CRON_FILE = path.join(HOOKED_DIR, 'cron-tasks.json');
 const MAX_RUNS = 20;
 const CRON_TAG = 'cron';
-const STARTED = Symbol.for('hooked.cron.started');
+const TIMER = Symbol.for('hooked.cron.timer');
 const INFLIGHT = (globalThis[Symbol.for('hooked.cron.inflight')] ??= new Set());
 
 const str = (v, max) => (typeof v === 'string' ? v.trim().slice(0, max) : '');
@@ -157,15 +157,21 @@ function cronTick(now = new Date()) {
   }
 }
 
+// The timer lives on globalThis: a module re-executed by Vite (`npm run live`) finds it, so it
+// neither starts a second scheduler nor loses the way to stop the first.
 function startCronScheduler() {
-  if (globalThis[STARTED]) return;
-  globalThis[STARTED] = true;
+  if (globalThis[TIMER]) return;
   const arm = () => {
     // Wake just past the next minute boundary so the tick reads the minute it is meant for.
-    const t = setTimeout(() => { cronTick(new Date()); arm(); }, 60000 - (Date.now() % 60000) + 50);
-    t.unref?.();
+    globalThis[TIMER] = setTimeout(() => { cronTick(new Date()); arm(); }, 60000 - (Date.now() % 60000) + 50);
+    globalThis[TIMER].unref?.();
   };
   arm();
 }
 
-export { CRON_FILE, readCronTasks, listCronTasks, saveCronTask, deleteCronTask, runCronTask, cronTick, startCronScheduler };
+function stopCronScheduler() {
+  clearTimeout(globalThis[TIMER]);
+  globalThis[TIMER] = null;
+}
+
+export { CRON_FILE, readCronTasks, listCronTasks, saveCronTask, deleteCronTask, runCronTask, cronTick, startCronScheduler, stopCronScheduler };

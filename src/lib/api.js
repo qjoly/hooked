@@ -2,12 +2,12 @@
 
 import { deltaQuery, mergeDetail } from './detailDelta.js';
 
-async function jget(url) {
+export async function jget(url) {
   const r = await fetch(url);
   if (!r.ok) throw new Error('HTTP ' + r.status);
   return r.json();
 }
-async function jpost(url, body) {
+export async function jpost(url, body) {
   const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
   const d = await r.json().catch(() => ({}));
   return { ok: r.ok && d.ok, status: r.status, data: d };
@@ -151,8 +151,6 @@ export const groupOp = (op, id, extra = {}) => jpost('/api/session-meta', { op, 
 export const getMemory = () => jget('/api/memory');
 const cwdQuery = (cwds) => (cwds || []).map((c) => '&cwd=' + encodeURIComponent(c)).join('');
 export const getSkills = (cwds, provider = 'all') => jget('/api/skills?provider=' + provider + (cwds && cwds.length ? '&' + cwdQuery(cwds).slice(1) : ''));
-export const getCronTasks = () => jget('/api/cron');
-export const cronOp = (op, extra) => jpost('/api/cron', { op, ...extra });
 export const getFlows = () => jget('/api/flows');
 export const flowOp = (op, extra) => jpost('/api/flows', { op, ...extra });
 export const getSkill = (id, cwds, provider = 'all') => jget('/api/skills?id=' + encodeURIComponent(id) + '&provider=' + provider + cwdQuery(cwds));

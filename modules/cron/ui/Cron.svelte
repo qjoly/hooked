@@ -1,12 +1,12 @@
 <script>
-  import { getCronTasks, cronOp } from '#lib/api.js';
+  import { getCronTasks, cronOp } from './api.js';
   import { data, settings } from '#lib/state.svelte.js';
   import { providerListAll, providerEngine, effectiveProvider } from '#lib/providers.js';
-  import { nextRuns } from '#lib/cron.js';
+  import { nextRuns } from '../lib/cron.js';
   import { knownProjects } from '#lib/projects.js';
   import { fmtSpan, ago } from '#lib/format.js';
-  import ModelEffort from './ModelEffort.svelte';
-  import Icon from './Icon.svelte';
+  import ModelEffort from '#lib/components/ModelEffort.svelte';
+  import Icon from '#lib/components/Icon.svelte';
 
   const PRESETS = [
     ['Hourly', '0 * * * *'],
