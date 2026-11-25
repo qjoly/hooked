@@ -223,38 +223,25 @@ Every session belongs to exactly one group. A session on its own is an implicit 
 - **Archiving the parent archives the whole group.** A child is archived on its own and stays in
   its group.
 
-## Cron tasks (`server/cron.js`, `Cron.svelte`)
+## Modules (`modules/`, `server/modules.js`, `docs/modules.md`)
 
-A task launches a new driven session with its prompt on a five-field cron schedule, in local time.
-Tasks live in `cron-tasks.json`; the parser (`src/lib/cron.js`) is pure and shared with the UI preview.
+GitHub, incident.io, Cron and Flows are modules: one folder each (`modules/<id>/`: server code,
+API handlers, page, agent tools, pi package, tests, README), switched as a whole in Settings →
+Modules (`settings.modules`). Each module's README holds its own rules and traps; read it before
+touching the module.
 
-- **The scheduler starts with the digest one**, so a bare `npm run live` never fires a task. Run now
-  works everywhere.
-- **One live session per task.** A run closes the previous one if it is idle, and is skipped if it
-  is still working or waiting on you. Runs missed while hooked is down are not caught up.
-- **MCP tools** `list_cron_tasks`, `save_cron_task`, `delete_cron_task`, `run_cron_task`. A save with an `id` only
-  changes the fields it carries.
-
-## Flows (`server/flows.js`, `src/lib/flows.js`, `Flows.svelte`)
-
-A flow is a graph of stages, each one a driven session, walked like a CI pipeline (the `/flows`
-page draws it). The built-in "feature" template: pilot → build → review ‖ test & challenge → decide,
-with the decider looping back to build. Templates live in `flow-templates.json`, runs in
-`flow-runs.json`; a run keeps a snapshot of its flow.
-
-- **hooked drives the transitions, not a session.** A 3 s tick reads the registry. A stage reports
-  with the MCP tool `flow_report` (summary, plus `done`/`loop`/`escalate` for the decider) and is
-  done once it has reported AND its turn has ended. No report at turn end: one nudge, then `stalled`.
-  Loops are capped (`maxLoops`), then the run waits on the user.
-- **One shared worktree per run**, one writer stage. Stage sessions join one group and are reused
-  across loops (`deliverReply`, or a resume without `model`), so each keeps its context and cache.
-- **Token choices are deliberate:** per-stage model/effort in the template (opus for pilot and
-  decider, sonnet for the rest), dense reports (~300 words), loop messages only carry the reports
-  re-run in that pass (`run.rerun`), and sibling stages start 10 s apart so the second one reads the
-  system/tools prefix the first one cached.
-- **Ownership:** the service adopts every running run at boot (`startFlowEngine({ adopt: true })`,
-  3 min grace for resumed sessions, then one automatic resume). A bare `npm run live` only drives the
-  runs it started.
+- **Routes stay in `src/routes` as one-line shims** (`export { GET } from '#modules/<id>/api.js'`),
+  pages are wrapped in `ModuleGate`. Module code reaches the core through `#server/…` and `#lib/…`;
+  the core does not import a module (one pure exception: `modules/github/lib/reviewTags.js`).
+- **Off means off everywhere**: API 404 (`gated`), page gone from the web, desktop and Android
+  navigation, background loops stopped (`stop()`), tools no longer offered to new sessions
+  (`HOOKED_MODULES` for the MCP server, `-e modules/<id>/pi` for pi). Running sessions keep their
+  tools until they restart.
+- **Loops that launch sessions only run in the service** (`start({ service })`): the Cron
+  scheduler and the Flows engine. PR watches run everywhere (they only wake this process's
+  sessions).
+- **Agent tools are CommonJS** (`tools.cjs` on `mcp/http.cjs`): the MCP server is plain Node, and
+  the same definitions back the module's pi package.
 
 ## Incognito mode (`ui.incognito`, `incognito` flag in `session-meta.json`)
 
@@ -288,7 +275,7 @@ follows you from one browser to another.
 - **Out of scope:** Stats and Digest, which aggregate every session without going through
   `data.sessions`.
 
-## GitHub calls (`server/ghClient.js`, `server/prWatch.js`)
+## GitHub calls (`server/ghClient.js`)
 
 Every GitHub read and write goes through `ghRest` / `ghGraphql`, never through a spawned `gh`
 subcommand. `gh` only hands over the token (`gh auth token`, cached 5 min, dropped on a 401);
@@ -305,13 +292,8 @@ follows T3 Code's (MIT, pingdotgg/t3code).
 - A cross-origin redirect (job logs on blob storage) is followed without the token.
 - `ghMeta.ghViewMany` batches link summaries into one aliased GraphQL query, and its cache TTL
   follows activity: 1 min for a PR updated in the last 30 min, 5 min when quiet, 30 min after a
-  day, never again once merged/closed. `prReviewTags` ticks every minute on top of it.
-- **PR watch** (`watch_pull_request` MCP tool, or the `autoPrWatch` setting for the viewer's open
-  PR a driven session links last) wakes the session with one message about failed/passed checks, no
-  check 15 min after a push, a merge conflict, or comments from anyone but the viewer. News is held
-  while the session works or waits on a question, so the state only advances once it was delivered.
-  A watch ends on merge/close, on `unwatch_pull_request`, or after 10 comment-only wakes in a row
-  (bot loops). Watches live in `pr-watches.json`; a process only polls the sessions it drives.
+  day, never again once merged/closed. The GitHub module's PR review tags tick every minute on top of it.
+- **PR watch** and **PR review tags** belong to the GitHub module: see `modules/github/README.md`.
 
 ## Worktrees (`server/worktrees.js`)
 
