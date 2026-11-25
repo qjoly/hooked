@@ -91,6 +91,7 @@ pub fn view(s: &Hooked, cx: &mut Cx<Hooked>) -> El {
     s.drop_live.borrow_mut().clear();
     let mut layer = Vec::new();
     let main = match s.page {
+        p if !s.page_on(p) => pages::module_off(&k, p),
         Page::Deck => deck::view(s, &k),
         Page::Session => session::view(s, &k, &mut layer),
         Page::New => new_session::view(s, &k, &mut layer),
@@ -490,6 +491,8 @@ fn topbar(s: &Hooked, k: &Kit, inset: f32, layer: &mut Vec<El>) -> El {
         .iter()
         .copied()
         .filter(|t| t.4 != Page::Incidents || s.incidents_on() || s.page == Page::Incidents)
+        // A module switched off in Settings → Modules takes its page away.
+        .filter(|t| s.page_on(t.4) || s.page == t.4)
         // Memory = ~/.claude (Claude only): no tab, not even in More, without the claude provider.
         .filter(|t| t.4 != Page::Memory || s.providers.claude_account())
         .partition(|t| s.nav_tab(t.0) || s.page == t.4);

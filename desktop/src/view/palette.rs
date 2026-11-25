@@ -357,6 +357,13 @@ pub fn commands(s: &Hooked) -> Vec<Cmd> {
             }
         },
     ));
+    // A module switched off in Settings → Modules takes its page out of the palette.
+    out.retain(|c| match c.label.as_str() {
+        "Go to GitHub" => s.module_on("github"),
+        "Go to Cron" => s.module_on("cron"),
+        "Go to Flows" => s.module_on("flows"),
+        _ => true,
+    });
     out
 }
 

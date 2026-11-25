@@ -32,7 +32,7 @@ const EDITORS: [(&str, &str); 6] = [
     ("jetbrains", "JetBrains"),
 ];
 const DAYS: [&str; 7] = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-static SECTIONS: [(&str, &str, &Icon); 12] = [
+static SECTIONS: [(&str, &str, &Icon); 13] = [
     ("set-app", "This app", &icons::MONITOR),
     ("set-sessions", "New sessions", &icons::PLUS),
     ("set-providers", "Providers", &icons::BOT),
@@ -44,6 +44,7 @@ static SECTIONS: [(&str, &str, &Icon); 12] = [
     ("set-term", "Terminal", &icons::TERMINAL),
     ("set-keys", "Keyboard shortcuts", &icons::ZAP),
     ("set-maint", "Maintenance", &icons::TOOL),
+    ("set-modules", "Modules", &icons::PLUG),
     ("set-flags", "Feature flags", &icons::SPARKLE),
 ];
 const FEATURE_FLAGS: [(&str, &str, &str); 2] = [
@@ -252,6 +253,29 @@ fn stepper(
 
 fn flag(v: &Value, key: &str) -> bool {
     v[key].as_bool().unwrap_or(false)
+}
+
+/// The service's modules (modules/index.js on the server): id, title, what it brings. Each one is
+/// switched as a whole: page, background work and the tools sessions get.
+const MODULES: [(&str, &str, &str, &str); 4] = [
+    ("github", "module-github", "GitHub", "The GitHub page, PR watches that wake a session, and PR review tags."),
+    ("incidents", "module-incidents", "incident.io", "Incidents from the incident.io desktop app."),
+    ("cron", "module-cron", "Cron", "Scheduled sessions: a prompt launched on a five-field cron schedule."),
+    ("flows", "module-flows", "Flows", "Pipelines of driven sessions, walked like a CI pipeline."),
+];
+
+fn modules_card(s: &Hooked, k: &Kit) -> El {
+    let mut c = card(k, "set-modules", "MODULES");
+    for &(id, key, title, hint) in &MODULES {
+        let on = s.module_on(id);
+        c = c.child(line(
+            k,
+            title,
+            hint,
+            toggle(k, key, on, move |s| s.save_nested("modules", id, json!(!on))),
+        ));
+    }
+    c
 }
 
 fn flags_card(s: &Hooked, k: &Kit, v: &Value) -> El {
@@ -467,7 +491,7 @@ fn app_card(s: &Hooked, k: &Kit, v: &Value) -> El {
             k,
             "Navigation",
             "Which pages get a tab in the top bar. The others stay one search away (⌘K).",
-            chips(NAV.iter().map(|&(key, label)| chip(k, format!("nav-{key}"), label.into(), nav_on.iter().any(|x| x == key), move |s| s.toggle_in_list("navTabs", key))).collect()),
+            chips(NAV.iter().filter(|&&(key, _)| !MODULES.iter().any(|m| m.0 == key) || s.module_on(key)).map(|&(key, label)| chip(k, format!("nav-{key}"), label.into(), nav_on.iter().any(|x| x == key), move |s| s.toggle_in_list("navTabs", key))).collect()),
         ))
         .child(block(
             k,
@@ -1441,6 +1465,7 @@ pub fn view(s: &Hooked, k: &Kit) -> El {
         terminal_card(s, k),
         shortcuts_card(s, k),
         maintenance_card(s, k, v),
+        modules_card(s, k),
         flags_card(s, k, v),
     ];
     let [_, view_h] = s.pages.settings_view;

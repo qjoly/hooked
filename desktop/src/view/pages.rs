@@ -6,7 +6,7 @@ use rune_kit::{
 use serde_json::Value;
 
 use super::{dot, glyph, pill, section_title};
-use crate::app::Hooked;
+use crate::app::{Hooked, Page};
 use crate::pages::{GITHUB_TABS, STATS_RANGES, gh_tabs};
 use crate::{fmt, icons};
 
@@ -51,6 +51,29 @@ pub(super) fn scroll(key: &str, inner: El) -> El {
             stick_bottom: false,
         })
         .child(inner)
+}
+
+/// The page of a module switched off in Settings → Modules (the server answers 404 for it).
+pub(super) fn module_off(k: &Kit, page: Page) -> El {
+    let label = match page {
+        Page::Cron => "Cron",
+        Page::Flows => "Flows",
+        Page::GitHub => "GitHub",
+        Page::Incidents => "incident.io",
+        _ => "This module",
+    };
+    col()
+        .key("module-off")
+        .w_full()
+        .h_full()
+        .center()
+        .gap(6.0)
+        .child(text(format!("{label} is off")).font(k.ty.body_medium).color(k.c.text_base))
+        .child(
+            text("Turn it on in Settings → Modules.")
+                .font(k.ty.text_small)
+                .color(k.c.text_faint),
+        )
 }
 
 pub(super) fn loading(k: &Kit) -> El {
