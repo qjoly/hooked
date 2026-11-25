@@ -1,6 +1,6 @@
 <script>
   import { usesClaudeAccount } from '#lib/providers.js';
-  import { pageAvailable } from '#lib/nav.js';
+  import { NAV_TABS, pageAvailable } from '#lib/nav.js';
   import { modulesAvail } from '#lib/modules.svelte.js';
   import { copyText } from '#lib/clipboard.js';
   import { goto } from '$app/navigation';
@@ -32,16 +32,11 @@
     { id: 'nav:deck', label: 'Go to Deck', section: 'Navigation', icon: 'deck', action: () => goto('/') },
     { id: 'nav:sessions', label: 'Go to Sessions', section: 'Navigation', icon: 'sessions', action: () => goto('/sessions') },
     { id: 'nav:new', label: 'New session', section: 'Navigation', icon: 'plus', action: () => goto('/new') },
-    { id: 'nav:stats', label: 'Go to Stats', section: 'Navigation', icon: 'stats', action: () => goto('/stats') },
-    { id: 'nav:digest', label: 'Go to Digest', section: 'Navigation', icon: 'digest', action: () => goto('/digest') },
-    // Mémoire = ~/.claude (Claude-only) : absent de la palette quand aucun binaire claude.
-    ...(usesClaudeAccount(data.providers, data.providerList) ? [{ id: 'nav:memory', label: 'Go to Memory', section: 'Navigation', icon: 'memory', action: () => goto('/memory') }] : []),
-    { id: 'nav:github', label: 'Go to GitHub', section: 'Navigation', icon: 'pr', action: () => goto('/github') },
-    { id: 'nav:incidents', label: 'Go to incident.io', section: 'Navigation', icon: 'warning', action: () => goto('/incidents') },
-    { id: 'nav:skills', label: 'Go to Skills', section: 'Navigation', icon: 'zap', action: () => goto('/skills') },
-    { id: 'nav:cron', label: 'Go to Cron', section: 'Navigation', icon: 'clock', action: () => goto('/cron') },
-    { id: 'nav:flows', label: 'Go to Flows', section: 'Navigation', icon: 'workflow', action: () => goto('/flows') },
-    { id: 'nav:prompts', label: 'Go to Prompts', section: 'Navigation', icon: 'note', action: () => goto('/prompts') },
+    // One per page of the navigation, modules included (src/lib/nav.js). Mémoire = ~/.claude
+    // (Claude-only) : absente de la palette quand aucun binaire claude.
+    ...NAV_TABS
+      .filter((t) => t.key !== 'sessions' && (t.key !== 'memory' || usesClaudeAccount(data.providers, data.providerList)))
+      .map((t) => ({ id: 'nav:' + t.key, label: 'Go to ' + t.label, section: 'Navigation', icon: t.icon, action: () => goto(t.href) })),
     { id: 'nav:settings', label: 'Go to Settings', section: 'Navigation', icon: 'settings', action: () => goto('/settings') },
   ];
 

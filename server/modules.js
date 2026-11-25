@@ -8,12 +8,9 @@
  */
 import { readSettings } from './settings.js';
 import { moduleOn } from '../modules/index.js';
-import cron from '../modules/cron/server/index.js';
-import flows from '../modules/flows/server/index.js';
-import github from '../modules/github/server/index.js';
-import incidents from '../modules/incidents/server/index.js';
-
-const HOOKS = { cron, flows, github, incidents };
+// Every module's lifecycle, found by its folder: '../modules/<id>/server/index.js' → id.
+const found = import.meta.glob('../modules/*/server/index.js', { eager: true, import: 'default' });
+const HOOKS = Object.fromEntries(Object.entries(found).map(([file, hooks]) => [file.split('/')[2], hooks || {}]));
 
 // Pinned on globalThis: Vite re-executes this file after a change in `npm run live`, and the
 // loops it started must still be known as running.

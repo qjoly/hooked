@@ -13,6 +13,7 @@ import { HOOKED_DIR, LAUNCH_PERMISSION_MODES, isValidModelArg } from './config.j
 import { EDITOR_KEYS, DEFAULT_EDITOR } from '../src/lib/editors.js';
 import { sanitizeProviders } from './providerConfig.js';
 import { sanitizeModules } from '../modules/index.js';
+import { NAV_KEYS } from '../src/lib/nav.js';
 import { DEFAULT_HIDDEN_MODELS, DEFAULT_HIDDEN_PI_MODELS, isHideableModel, isHideablePiModel } from '../src/lib/models.js';
 
 const SETTINGS_FILE = path.join(HOOKED_DIR, 'settings.json');
@@ -137,7 +138,8 @@ const DEFAULTS = {
   featureFlags: Object.fromEntries(FEATURE_FLAGS.map((k) => [k, false])),
 };
 
-const NAV_PAGES = ['sessions', 'stats', 'digest', 'memory', 'github', 'incidents', 'skills', 'cron', 'flows', 'prompts'];
+// The pages of the navigation, core and modules alike (src/lib/nav.js).
+const NAV_PAGES = NAV_KEYS;
 const DEFAULT_PAGES = ['deck', ...NAV_PAGES];
 
 // Ramène un objet arbitraire (fichier ou payload client) à des valeurs sûres et complètes.

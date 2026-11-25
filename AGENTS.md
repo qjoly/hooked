@@ -230,6 +230,9 @@ API handlers, page, agent tools, pi package, tests, README), switched as a whole
 Modules (`settings.modules`). Each module's README holds its own rules and traps; read it before
 touching the module.
 
+- **A folder with a `manifest.js` is a module**: found by `import.meta.glob` (manifests, server
+  lifecycles), its tab, palette entry and settings page derived from the manifest. Adding or
+  removing one touches no list; only its route shims live outside the folder.
 - **Routes stay in `src/routes` as one-line shims** (`export { GET } from '#modules/<id>/api.js'`),
   pages are wrapped in `ModuleGate`. Module code reaches the core through `#server/…` and `#lib/…`;
   the core does not import a module (one pure exception: `modules/github/lib/reviewTags.js`).
