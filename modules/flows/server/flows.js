@@ -18,18 +18,18 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
-import { HOOKED_DIR } from './config.js';
+import { HOOKED_DIR } from '#server/config.js';
 import {
   launchSession, deliverReply, interruptSession, agentAlive, agentBusy, agentPendingAsk, agentLastProse,
   sessionIdForLaunchKey, err400,
-} from './agent.js';
-import { createWorktree, attachWorktreeSession, autoNameBranch } from './worktrees.js';
-import { renameGroup } from './sessionMeta.js';
-import { readTags, setTags } from './tags.js';
+} from '#server/agent.js';
+import { createWorktree, attachWorktreeSession, autoNameBranch } from '#server/worktrees.js';
+import { renameGroup } from '#server/sessionMeta.js';
+import { readTags, setTags } from '#server/tags.js';
 import {
   FEATURE_TEMPLATE, VERDICTS, cleanFlow, validateFlow, readyStages, verdictOutcome, loopResetKeys,
   downstreamOf, stagePrompt, stageLoopPrompt, NUDGE_PROMPT,
-} from '../src/lib/flows.js';
+} from '../lib/flows.js';
 
 const TEMPLATES_FILE = path.join(HOOKED_DIR, 'flow-templates.json');
 const RUNS_FILE = path.join(HOOKED_DIR, 'flow-runs.json');
@@ -225,8 +225,16 @@ function startFlowEngine({ adopt = false } = {}) {
       mutateRun(r.id, (run) => { for (const s of Object.values(run.stages)) if (s.status === 'starting') s.status = 'pending'; });
     }
   }
-  const t = setInterval(() => { try { flowTick(); } catch (e) { console.warn('[hooked] flow tick:', e.message || e); } }, TICK_MS);
-  t.unref?.();
+  ENGINE.timer = setInterval(() => { try { flowTick(); } catch (e) { console.warn('[hooked] flow tick:', e.message || e); } }, TICK_MS);
+  ENGINE.timer.unref?.();
+}
+
+// The module was switched off: no more transitions. Runs keep their state and go on when the
+// engine starts again (adopted by the service at its next start, or lazily by an op).
+function stopFlowEngine() {
+  clearInterval(ENGINE.timer);
+  ENGINE.timer = null;
+  ENGINE.started = false;
 }
 
 function flowTick() {
@@ -507,6 +515,6 @@ function deleteFlowRun(id) {
 export {
   TEMPLATES_FILE as FLOW_TEMPLATES_FILE, RUNS_FILE as FLOW_RUNS_FILE,
   listFlowTemplates, saveFlowTemplate, deleteFlowTemplate,
-  listFlowRuns, getFlowRun, startFlowRun, startFlowEngine, flowTick,
+  listFlowRuns, getFlowRun, startFlowRun, startFlowEngine, stopFlowEngine, flowTick,
   reportFlowStage, stopFlowRun, finishFlowRun, continueFlowRun, rerunFlowStage, markFlowStageDone, deleteFlowRun,
 };

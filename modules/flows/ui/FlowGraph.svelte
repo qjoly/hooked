@@ -2,8 +2,8 @@
   // A flow drawn as a CI pipeline: one column per depth, stage cards, edges between them, and a
   // dashed back-edge from the decider to the stage it loops to. `stages` (the run's state map) is
   // optional: without it the graph is a template preview.
-  import { columns } from '#lib/flows.js';
-  import Icon from './Icon.svelte';
+  import { columns } from '../lib/flows.js';
+  import Icon from '#lib/components/Icon.svelte';
 
   let { flow, stages = null, iteration = 1, selected = null, onselect = null } = $props();
 

@@ -78,6 +78,10 @@ describe('module lifecycle', () => {
       stop: () => calls.push(['stop']),
       applySettings: () => calls.push(['apply']),
     } }));
+    // the other modules' loops stay off during the test
+    for (const id of ['flows', 'github', 'incidents']) {
+      vi.doMock(`../modules/${id}/server/index.js`, () => ({ default: {} }));
+    }
     delete globalThis[Symbol.for('hooked.modules')];
     const { bootModules, applyModuleSettings } = await import('../server/modules.js');
     bootModules({ service: true });
@@ -86,7 +90,7 @@ describe('module lifecycle', () => {
     applyModuleSettings({ modules: { cron: false } });
     applyModuleSettings({ modules: {} });
     expect(calls).toEqual([['start', true], ['apply'], ['stop'], ['start', true]]);
-    vi.doUnmock('../modules/cron/server/index.js');
+    for (const id of ['cron', 'flows', 'github', 'incidents']) vi.doUnmock(`../modules/${id}/server/index.js`);
     delete globalThis[Symbol.for('hooked.modules')];
   });
 });

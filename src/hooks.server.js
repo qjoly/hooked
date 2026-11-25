@@ -1,7 +1,7 @@
 import { promisify } from 'node:util';
 import { gzip as gzipCb } from 'node:zlib';
 import { dev } from '$app/env';
-import { startDigestScheduler, startRemoteControl, readSettings, resumeDrivenSessions, startDrivenSnapshot, installShutdownHook, startWarmupScheduler, startAutoCompactScheduler, applyGitSyncSetting, applyPrReviewTagSetting, applyAutoTagSetting, startPrWatch, startWorktreeCleanup, startAutoPull, loadExternalEngines, startFlowEngine, bootModules } from '#lib/server/core.js';
+import { startDigestScheduler, startRemoteControl, readSettings, resumeDrivenSessions, startDrivenSnapshot, installShutdownHook, startWarmupScheduler, startAutoCompactScheduler, applyGitSyncSetting, applyPrReviewTagSetting, applyAutoTagSetting, startPrWatch, startWorktreeCleanup, startAutoPull, loadExternalEngines, bootModules } from '#lib/server/core.js';
 
 const gzip = promisify(gzipCb);
 
@@ -38,8 +38,6 @@ if (!dev || process.env.HOOKED_MODE) {
   // A session of an external provider can only resume once its engine module is loaded.
   enginesReady.finally(() => resumeDrivenSessions());
   startDrivenSnapshot();
-  // Flow runs in progress: their stage sessions come back through the resume above.
-  startFlowEngine({ adopt: true });
   startWorktreeCleanup();
   startAutoPull();
 }

@@ -9,8 +9,9 @@
 import { readSettings } from './settings.js';
 import { moduleOn } from '../modules/index.js';
 import cron from '../modules/cron/server/index.js';
+import flows from '../modules/flows/server/index.js';
 
-const HOOKS = { cron };
+const HOOKS = { cron, flows };
 
 // Pinned on globalThis: Vite re-executes this file after a change in `npm run live`, and the
 // loops it started must still be known as running.

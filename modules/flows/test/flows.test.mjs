@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   FEATURE_TEMPLATE, cleanFlow, validateFlow, depths, columns, downstreamOf, upstreamOf, readyStages,
   verdictOutcome, loopResetKeys, stagePrompt, stageLoopPrompt, runBadge,
-} from '../src/lib/flows.js';
+} from '../lib/flows.js';
 
 const feature = () => validateFlow(cleanFlow(FEATURE_TEMPLATE));
 const runOf = (flow, statuses = {}, extra = {}) => ({

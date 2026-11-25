@@ -1,6 +1,6 @@
 /*
  * Flows: a graph of stages, each one a driven hooked session, chained like a CI pipeline.
- * Pure model shared by the server engine (server/flows.js) and the UI: validation, layout,
+ * Pure model shared by the server engine (modules/flows/server/flows.js) and the UI: validation, layout,
  * scheduling decisions and the prompts handed to each stage. No IO here, so it is tested
  * without launching anything (test/flows.test.mjs).
  *

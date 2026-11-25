@@ -1,17 +1,17 @@
 <script>
-  // Flows: pipelines of driven sessions (server/flows.js). Left: runs and templates. Right: the run
+  // Flows: pipelines of driven sessions (modules/flows/server/flows.js). Left: runs and templates. Right: the run
   // as a CI-style graph with the selected stage's report, the new-run form, or the template editor.
   import { page } from '$app/state';
   import { goto } from '$app/navigation';
-  import { getFlows, flowOp } from '#lib/api.js';
+  import { getFlows, flowOp } from './api.js';
   import { data } from '#lib/state.svelte.js';
   import { knownProjects } from '#lib/projects.js';
   import { ago } from '#lib/format.js';
-  import { cleanFlow, validateFlow, runBadge } from '#lib/flows.js';
+  import { cleanFlow, validateFlow, runBadge } from '../lib/flows.js';
   import FlowGraph from './FlowGraph.svelte';
-  import ModelEffort from './ModelEffort.svelte';
-  import Markdown from './Markdown.svelte';
-  import Icon from './Icon.svelte';
+  import ModelEffort from '#lib/components/ModelEffort.svelte';
+  import Markdown from '#lib/components/Markdown.svelte';
+  import Icon from '#lib/components/Icon.svelte';
 
   let flows = $state(null);
   let error = $state('');

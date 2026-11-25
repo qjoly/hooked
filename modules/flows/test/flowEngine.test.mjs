@@ -13,7 +13,7 @@ const sessions = new Map();
 const launches = [];
 const replies = [];
 let seq = 0;
-vi.mock('../server/agent.js', () => ({
+vi.mock('../../../server/agent.js', () => ({
   launchSession: (opts, cb) => {
     const id = opts.resumeId || 'sess-' + ++seq;
     sessions.set(id, { busy: !!opts.prompt, waiting: false, key: 'key-' + id });
@@ -29,9 +29,9 @@ vi.mock('../server/agent.js', () => ({
   sessionIdForLaunchKey: (k) => [...sessions].find(([, s]) => s.key === k)?.[0] || null,
   err400: (m) => Object.assign(new Error(m), { code: 400 }),
 }));
-vi.mock('../server/worktrees.js', () => ({ createWorktree: vi.fn(), attachWorktreeSession: () => {}, autoNameBranch: async () => {} }));
-vi.mock('../server/sessionMeta.js', () => ({ renameGroup: () => {} }));
-vi.mock('../server/tags.js', () => ({ readTags: () => ({}), setTags: () => {} }));
+vi.mock('../../../server/worktrees.js', () => ({ createWorktree: vi.fn(), attachWorktreeSession: () => {}, autoNameBranch: async () => {} }));
+vi.mock('../../../server/sessionMeta.js', () => ({ renameGroup: () => {} }));
+vi.mock('../../../server/tags.js', () => ({ readTags: () => ({}), setTags: () => {} }));
 
 let F;
 beforeAll(async () => { F = await import('../server/flows.js'); });
