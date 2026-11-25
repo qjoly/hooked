@@ -11,8 +11,9 @@ import { moduleOn } from '../modules/index.js';
 import cron from '../modules/cron/server/index.js';
 import flows from '../modules/flows/server/index.js';
 import github from '../modules/github/server/index.js';
+import incidents from '../modules/incidents/server/index.js';
 
-const HOOKS = { cron, flows, github };
+const HOOKS = { cron, flows, github, incidents };
 
 // Pinned on globalThis: Vite re-executes this file after a change in `npm run live`, and the
 // loops it started must still be known as running.
@@ -45,5 +46,13 @@ function applyModuleSettings(settings = readSettings()) {
   }
 }
 
-export { bootModules, applyModuleSettings };
+// Whether each module can work on this machine (incident.io needs its desktop app): { id: bool }.
+// A module that does not say is available.
+function moduleAvailability() {
+  return Object.fromEntries(Object.entries(HOOKS).map(([id, h]) => {
+    try { return [id, h.available ? !!h.available() : true]; } catch (_) { return [id, false]; }
+  }));
+}
+
+export { bootModules, applyModuleSettings, moduleAvailability };
 export { moduleEnabled, enabledModuleIds, modulePiPackages, listModules, modulesDir } from './moduleState.js';

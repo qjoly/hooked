@@ -1,6 +1,7 @@
 <script>
   import { usesClaudeAccount } from '#lib/providers.js';
   import { pageAvailable } from '#lib/nav.js';
+  import { modulesAvail } from '#lib/modules.svelte.js';
   import { copyText } from '#lib/clipboard.js';
   import { goto } from '$app/navigation';
   import { page } from '$app/state';
@@ -36,6 +37,7 @@
     // Mémoire = ~/.claude (Claude-only) : absent de la palette quand aucun binaire claude.
     ...(usesClaudeAccount(data.providers, data.providerList) ? [{ id: 'nav:memory', label: 'Go to Memory', section: 'Navigation', icon: 'memory', action: () => goto('/memory') }] : []),
     { id: 'nav:github', label: 'Go to GitHub', section: 'Navigation', icon: 'pr', action: () => goto('/github') },
+    { id: 'nav:incidents', label: 'Go to incident.io', section: 'Navigation', icon: 'warning', action: () => goto('/incidents') },
     { id: 'nav:skills', label: 'Go to Skills', section: 'Navigation', icon: 'zap', action: () => goto('/skills') },
     { id: 'nav:cron', label: 'Go to Cron', section: 'Navigation', icon: 'clock', action: () => goto('/cron') },
     { id: 'nav:flows', label: 'Go to Flows', section: 'Navigation', icon: 'workflow', action: () => goto('/flows') },
@@ -46,7 +48,7 @@
   const commands = $derived.by(() => {
     const cs = currentSession;
     const cmds = [
-      ...NAV_COMMANDS.filter((c) => pageAvailable(c.id.slice(4), settings)),
+      ...NAV_COMMANDS.filter((c) => pageAvailable(c.id.slice(4), settings, modulesAvail)),
       { id: 'act:theme-light', label: 'Theme: Light', section: 'Appearance', icon: 'theme-light', action: () => setTheme('light') },
       { id: 'act:theme-dark', label: 'Theme: Dark', section: 'Appearance', icon: 'theme-dark', action: () => setTheme('dark') },
       { id: 'act:theme-system', label: 'Theme: System', section: 'Appearance', icon: 'theme-system', action: () => setTheme('system') },

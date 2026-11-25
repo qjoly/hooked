@@ -8,6 +8,7 @@
   import { initials, needsDecision, sessionDot, fmtTokens, fmtCost } from '#lib/format.js';
   import { providerShort, usesClaudeAccount } from '#lib/providers.js';
   import { NAV_TABS, NAV_KEYS, pageHref, pageAvailable } from '#lib/nav.js';
+  import { modulesAvail } from '#lib/modules.svelte.js';
   import Icon from '#lib/components/Icon.svelte';
   import FleetWheel from '#lib/components/FleetWheel.svelte';
 
@@ -25,7 +26,7 @@
   // (Claude through pi-claude-bridge: same subscription, same 5h / 7d quotas).
   const hasClaude = $derived(usesClaudeAccount(data.providers, data.providerList));
   // A switched-off module's page is gone from both (Settings → Modules).
-  const pages = $derived(NAV_TABS.filter((t) => pageAvailable(t.key, settings) && (t.key !== 'memory' || hasClaude)));
+  const pages = $derived(NAV_TABS.filter((t) => pageAvailable(t.key, settings, modulesAvail) && (t.key !== 'memory' || hasClaude)));
   const tabs = $derived(pages.filter((t) => (settings.navTabs || NAV_KEYS).includes(t.key)));
   const hiddenTabs = $derived(pages.filter((t) => !tabs.includes(t)));
   // On a hidden page, the More button wears that page's name so the bar still says where you are.

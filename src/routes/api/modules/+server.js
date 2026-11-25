@@ -1,7 +1,8 @@
 import { json } from '@sveltejs/kit';
-import { listModules } from '#lib/server/core.js';
+import { listModules, moduleAvailability } from '#lib/server/core.js';
 
-// hooked's modules and whether each is on. Switching one is a settings change (`modules`).
+// hooked's modules: whether each is on (a settings change, `modules`) and can work on this machine.
 export function GET() {
-  return json({ modules: listModules() });
+  const avail = moduleAvailability();
+  return json({ modules: listModules().map((m) => ({ ...m, available: avail[m.id] !== false })) });
 }

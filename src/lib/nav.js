@@ -11,16 +11,18 @@ export const NAV_TABS = [
   { key: 'digest',   label: 'Digest',   icon: 'digest', href: '/digest', tint: 'var(--warn)' },
   { key: 'memory',   label: 'Memory',   icon: 'memory', href: '/memory', tint: 'var(--background)' },
   { key: 'github',   label: 'GitHub',   icon: 'pr', href: '/github', tint: 'var(--danger)' },
+  { key: 'incidents', label: 'incident.io', icon: 'warning', href: '/incidents', tint: 'var(--danger)' },
   { key: 'skills',   label: 'Skills',   icon: 'zap', href: '/skills', tint: 'var(--accent)' },
   { key: 'cron',     label: 'Cron',     icon: 'clock', href: '/cron', tint: 'var(--warn)' },
   { key: 'flows',    label: 'Flows',    icon: 'workflow', href: '/flows', tint: 'var(--accent)' },
   { key: 'prompts',  label: 'Prompts',  icon: 'note', href: '/prompts', tint: 'var(--info)' },
 ];
 export const NAV_KEYS = NAV_TABS.map((t) => t.key);
-// A page shows unless it belongs to a module that is switched off (Settings → Modules).
-export function pageAvailable(key, settings) {
+// A page shows unless it belongs to a module that is switched off (Settings → Modules) or cannot
+// work on this machine (`avail`, from GET /api/modules).
+export function pageAvailable(key, settings, avail = {}) {
   const m = moduleOfPage(key);
-  return !m || moduleOn(settings, m);
+  return !m || (moduleOn(settings, m) && avail[m] !== false);
 }
 // href for a page key (used by the logo / default-page redirect). 'deck' → '/'.
 export function pageHref(key) {

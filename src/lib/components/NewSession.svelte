@@ -187,6 +187,13 @@
   const worktreeSpec = $derived(worktree ? { base: wtBase.trim() || undefined, branch: wtBranch.trim() || undefined } : false);
   // `?group=<id>` (a group's « + ») : the new session joins that group.
   const groupWith = $derived(page.url.searchParams.get('group') || null);
+  // `/new?prompt=…` fills the composer once (incident.io's "Investigate in a session"…); the
+  // project and the provider are still picked here before sending.
+  let prefilled = false;
+  $effect(() => {
+    const p = page.url.searchParams.get('prompt');
+    if (p && composer && !prefilled) { prefilled = true; composer.fillText(p); }
+  });
 
   // « Other folder… » : ouvre le sélecteur de dossier natif de l'OS (macOS). En cas
   // d'échec/annulation, on retombe sur la saisie manuelle du champ texte.
