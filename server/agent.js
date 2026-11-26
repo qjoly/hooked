@@ -869,6 +869,7 @@ function launchSession(opts, cb) {
     input,
     abort: new AbortController(),
     profileId: profile.id,
+    profileKind: profile.kind,   // a `compatible` server has no Anthropic prompt cache (cf. decideModelSwitch)
     launchModel: model || null,
     launchEffort: effort || null,
     model: model || null,
@@ -1914,6 +1915,9 @@ function isIdleWaiting(st) {
 // tests. Never on a cold cache (compactDue): it would pay the re-write it is meant to avoid.
 function shouldAutoCompact(st, { enabled = false, minContextK = 0 } = {}, now = Date.now()) {
   if (!enabled || !st || st.autoCompacting || !isIdleWaiting(st)) return false;
+  // Auto-compact exists to compact while the Anthropic prompt cache is still warm, which makes it
+  // cheap. A compatible server has no such cache: compacting there is only a loss.
+  if (st.profileKind === 'compatible') return false;
   const cache = agentCache(st);
   if (!cache.contextTokens || cache.contextTokens < minContextK * 1000) return false;
   return compactDue(cache, now);
@@ -1953,6 +1957,10 @@ function agentCacheInfo(id) { const st = agentSession(id); return st ? agentCach
 // Pure over (st, input), exported for the tests: null = no opinion, else { allow, held? }.
 function decideModelSwitch(st, input) {
   if (!input || input.source !== 'sdk' || !st || !st.modelSwitch) return null;
+  // The CLI keeps its own clock and calls the cache warm for an hour after any request, whichever
+  // server answered it. On a compatible server there is no cache to throw away, and the "cost" it
+  // would quote is Anthropic's.
+  if (st.profileKind === 'compatible') return { allow: true };
   if (st.modelSwitch.force || !input.prompt_cache_warm) return { allow: true };
   return {
     allow: false,

@@ -231,7 +231,8 @@ LM Studio. Profiles live in `profiles.json`, next to hooked's other data (`~/.cl
       "ANTHROPIC_AUTH_TOKEN": "lmstudio",
       "ANTHROPIC_API_KEY": ""
     },
-    "models": ["qwen/qwen3-coder-30b"]
+    "models": ["qwen/qwen3-coder-30b"],
+    "contextWindow": 65536
   },
   {
     "id": "work",
@@ -256,6 +257,12 @@ LM Studio. Profiles live in `profiles.json`, next to hooked's other data (`~/.cl
   nothing there). A session on a profile carries its name in its header. Over the API, it is the
   `profile` field of `POST /api/launch`; `GET /api/profiles` lists them (without their `env`) and
   reports the entries it had to skip. The file is read at every launch.
+- `contextWindow` (`compatible` only) is the context the server loads the model at. The CLI assumes
+  200k for a model it does not know and would never compact before the server refuses the request;
+  hooked hands it over as `CLAUDE_CODE_MAX_CONTEXT_TOKENS`, which also sizes the context gauge.
+- What belongs to an Anthropic account is switched off for a session on a `compatible` profile: the
+  prompt-cache countdown, the hold on a model switch while the cache is warm, auto-compact, the
+  rate-limit query, and the cost (a model with a provider prefix, such as `qwen/…`, is free).
 - A `compatible` profile that lists no `models` offers whatever its server's `/v1/models` returns
   (embedding models left out), read when the picker opens.
 - A session keeps its profile when it is resumed, restarted, forked, or brought back after hooked

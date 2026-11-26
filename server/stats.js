@@ -202,7 +202,7 @@ function buildSessions() {
     // de la boîte de saisie). Exposée dans la liste pour la proposer en quick action au Deck.
     s.followup = (agent && s.state !== 'working') ? agent.followup : null;
     // prompt-cache clock: the sidebar counts down how long the cache stays warm (cf. sessionCache)
-    s.cache = sessionCache(s, agent ? agentCacheInfo(s.id) : null);
+    s.cache = sessionCache(s, agent ? agentCacheInfo(s.id) : null, s.profile);
     // effort : vrai effort de la statusline (toutes sessions) en priorité, sinon résolution
     // persistée du lancement (survit à la fin de la session). modèle explicite idem.
     const li = resolveLaunchForSession(s.id);
@@ -395,7 +395,10 @@ function resolveBackgroundOutput(sessionId, taskId) {
 // Prompt-cache clock of a session (cf. src/lib/promptCache.js), for the UI to derive warm/cold and
 // the size of a cold resume. The registry knows a driven session's last request; the transcript's
 // last response stands in otherwise — ended session, or resumed with no request yet in this process.
-function sessionCache(s, live) {
+function sessionCache(s, live, profile = null) {
+  // A compatible server has no Anthropic prompt cache. Without this the clock would count down the
+  // default one hour for a session that has none, and the sidebar would show a warm cache.
+  if (profile && profile.kind === 'compatible') return null;
   const t = s.lastUsage || null;
   const fromTranscript = t ? { lastRequestAt: t.ts, ttl: t.ttl, contextTokens: t.contextTokens } : null;
   if (!live) return fromTranscript;
@@ -446,6 +449,7 @@ function buildSessionDetail(id) {
   const workflows = s.file ? call('workflows', []) : [];
   const todos = s.file ? call('todos', null) : null;
   const li = resolveLaunchForSession(id);
+  const profile = profileInfo(profileOfSession(id), loadProfiles().profiles);   // null on the default profile
   const agent = agentSession(id);
   const alive = !!agent;
   // Attente en cours. Le registre de l'Agent SDK est autoritaire quand la session est pilotée : la
@@ -522,15 +526,15 @@ function buildSessionDetail(id) {
     effort: (status && status.effort) || (li ? li.effort : null),
     model: (li && li.model && !s.model) ? li.model : s.model,
     launchModel: li ? li.model : null,   // forme courte (opus/sonnet…) pour relancer en conservant la config
-    profile: profileInfo(profileOfSession(id), loadProfiles().profiles),   // null on the default profile
+    profile,
     rateLimit: status ? status.rateLimit : null,   // vrais % 5 h / 7 j du compte (via statusline)
     // No statusline outside Claude: the engine computes the gauge from its own store.
     context: (status && status.context) ? status.context : call('context', null),
-    cache: sessionCache(s, alive ? agentCacheInfo(id) : null),   // prompt-cache clock (warm/cold, cold-resume size)
+    cache: sessionCache(s, alive ? agentCacheInfo(id) : null, profile),   // prompt-cache clock (warm/cold, cold-resume size)
     fastMode: status ? status.fastMode : false,
     events: ev, messages, subSessions, changes, subagents, workflows, screenshots,
     todos: todos ? todos.todos : [], todoTs: todos ? todos.ts : null,
   };
 }
 
-export { buildSessions, buildSessionsWarm, buildStats, buildUsage, buildPiUsage, buildProviderUsage, sessionDetail, sessionDetailWarm, eventOnlySessions, fillFromEvents, refineWithAgent, withBackgroundState, resolveBackgroundOutput };
+export { sessionCache, buildSessions, buildSessionsWarm, buildStats, buildUsage, buildPiUsage, buildProviderUsage, sessionDetail, sessionDetailWarm, eventOnlySessions, fillFromEvents, refineWithAgent, withBackgroundState, resolveBackgroundOutput };

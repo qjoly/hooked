@@ -351,3 +351,35 @@ describe('isValidModelId', () => {
     for (const m of ['', 'a b', '$(id)', 'a;b', '../x', 42, null]) expect(isValidModelId(m)).toBe(false);
   });
 });
+
+describe('contextWindow', () => {
+  const compat = (extra) => parseProfiles([{ id: 'lm', kind: 'compatible', env: { ANTHROPIC_BASE_URL: 'http://x' }, ...extra }]);
+
+  it('is kept on a compatible profile', () => {
+    expect(compat({ contextWindow: 65536 }).profiles[1].contextWindow).toBe(65536);
+    expect(compat({}).profiles[1]).not.toHaveProperty('contextWindow');
+  });
+
+  it.each([['a string', '65536'], ['a float', 1000.5], ['too small', 100], ['too large', 1e9], ['negative', -1]])('rejects %s', (_n, v) => {
+    const r = compat({ contextWindow: v });
+    expect(r.profiles).toHaveLength(1);
+    expect(r.errors[0]).toMatch(/contextWindow/);
+  });
+
+  it('is refused on an anthropic profile, where it would mean nothing', () => {
+    const r = parseProfiles([{ id: 'work', kind: 'anthropic', contextWindow: 65536 }]);
+    expect(r.profiles).toHaveLength(1);
+    expect(r.errors[0]).toMatch(/only applies to a "compatible" profile/);
+  });
+
+  it('is handed to the CLI as its context window, unless the profile\'s own env sets it', () => {
+    const p = compat({ contextWindow: 65536 }).profiles[1];
+    expect(buildSessionEnv({ PATH: '/bin' }, p, {}).CLAUDE_CODE_MAX_CONTEXT_TOKENS).toBe('65536');
+    expect(buildSessionEnv({ PATH: '/bin' }, p, { CLAUDE_CODE_MAX_CONTEXT_TOKENS: '30000' }).CLAUDE_CODE_MAX_CONTEXT_TOKENS).toBe('30000');
+    expect(buildSessionEnv({ PATH: '/bin' }, compat({}).profiles[1], {})).not.toHaveProperty('CLAUDE_CODE_MAX_CONTEXT_TOKENS');
+  });
+
+  it('does not reach the public shape', () => {
+    expect(publicProfile(compat({ contextWindow: 65536 }).profiles[1])).not.toHaveProperty('contextWindow');
+  });
+});

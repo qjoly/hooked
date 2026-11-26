@@ -19,7 +19,8 @@
  *         "ANTHROPIC_API_KEY": { "fromEnv": "WORK_API_KEY" },
  *         "SECRET_FROM_FILE": { "file": "~/.config/hooked/token" }
  *       },
- *       "models": ["qwen/qwen3-coder-30b", { "id": "qwen/qwen3.8-27b", "label": "Qwen 27B" }]
+ *       "models": ["qwen/qwen3-coder-30b", { "id": "qwen/qwen3.8-27b", "label": "Qwen 27B" }],
+ *       "contextWindow": 65536              // "compatible" only: the context the server loads models at
  *     }
  *   ]
  *
@@ -27,6 +28,10 @@
  * never has to sit in this file: `{ "fromEnv": NAME }` reads the login environment the sessions run in (so a variable
  * exported in your shell profile works),
  * `{ "file": PATH }` reads a file (absolute, or `~/…`; one trailing newline is dropped).
+ *
+ * `contextWindow` tells the CLI how big the server's context really is. It assumes 200k for any
+ * model it does not know, so it would never compact before the server refuses the request. It is
+ * handed over as CLAUDE_CODE_MAX_CONTEXT_TOKENS (unless the profile's env sets that itself).
  *
  * The implicit `default` profile is always first and has no env: it is today's behaviour. A missing
  * file means only that profile. A bad entry is skipped and reported, never fatal: one typo must not
@@ -121,7 +126,18 @@ function parseProfile(raw) {
 
   const m = parseModels(raw.models);
   if (m.error) return { error: m.error };
-  return { profile: { id, label: (raw.label || '').trim() || id, kind, env, models: m.models } };
+
+  let contextWindow;
+  if (raw.contextWindow !== undefined) {
+    if (kind !== 'compatible') return { error: '"contextWindow" only applies to a "compatible" profile' };
+    if (!Number.isInteger(raw.contextWindow) || raw.contextWindow < 2048 || raw.contextWindow > 10_000_000) {
+      return { error: '"contextWindow" must be an integer between 2048 and 10000000' };
+    }
+    contextWindow = raw.contextWindow;
+  }
+  const profile = { id, label: (raw.label || '').trim() || id, kind, env, models: m.models };
+  if (contextWindow) profile.contextWindow = contextWindow;
+  return { profile };
 }
 
 // The whole file's parsed JSON → { profiles, errors }. Pure. `default` always comes first.
@@ -210,6 +226,8 @@ export function isValidModelForProfile(profile, model) {
 
 // Variables that decide which account or server a `claude` process talks to.
 const CREDENTIAL_ENV_RE = /^(ANTHROPIC_|CLAUDE_CODE_OAUTH_TOKEN$)/;
+// What the CLI reads as the size of the model's context window.
+const CONTEXT_WINDOW_ENV = 'CLAUDE_CODE_MAX_CONTEXT_TOKENS';
 
 // The environment of a session: `base` (the login environment) with the profile's resolved env on
 // top. For the implicit `default` profile that is `base` itself. For any other, the credential
@@ -218,7 +236,9 @@ export function buildSessionEnv(base, profile, resolved) {
   if (profile.id === DEFAULT_PROFILE_ID) return base;
   const out = {};
   for (const [k, v] of Object.entries(base)) if (!CREDENTIAL_ENV_RE.test(k)) out[k] = v;
-  return Object.assign(out, resolved);
+  Object.assign(out, resolved);
+  if (profile.contextWindow && !Object.hasOwn(resolved, CONTEXT_WINDOW_ENV)) out[CONTEXT_WINDOW_ENV] = String(profile.contextWindow);
+  return out;
 }
 
 // resolveProfileEnv + buildSessionEnv in one step: { env } to hand to the SDK, or { error } with a
