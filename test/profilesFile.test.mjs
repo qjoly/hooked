@@ -6,7 +6,7 @@ import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { slugify, uniqueProfileId, addAccountProfile } from '../server/profilesFile.js';
+import { slugify, uniqueProfileId, addAccountProfile, addServerProfile, normalizeServerUrl } from '../server/profilesFile.js';
 import { loadProfiles } from '../server/profiles.js';
 
 const setup = (content) => {
@@ -120,5 +120,114 @@ describe('addAccountProfile', () => {
     const { file, accountsRoot } = setup();
     addAccountProfile('Perso', { file, accountsRoot });
     expect(fs.readdirSync(path.dirname(file))).toEqual(['profiles.json']);
+  });
+});
+
+describe('profiles.json is private', () => {
+  const mode = (f) => (fs.statSync(f).mode & 0o777).toString(8);
+
+  it('is created 0600 by an account, and by a server', () => {
+    const a = setup();
+    addAccountProfile('Perso', { file: a.file, accountsRoot: a.accountsRoot });
+    expect(mode(a.file)).toBe('600');
+    const b = setup();
+    addServerProfile('LM', { url: 'http://127.0.0.1:1234' }, { file: b.file });
+    expect(mode(b.file)).toBe('600');
+  });
+
+  it('is tightened when it was left readable by others, as an earlier version did', () => {
+    const { file, accountsRoot } = setup([]);
+    fs.chmodSync(file, 0o644);
+    addAccountProfile('Perso', { file, accountsRoot });
+    expect(mode(file)).toBe('600');
+  });
+});
+
+describe('normalizeServerUrl', () => {
+  it('keeps an origin, with or without a trailing slash', () => {
+    expect(normalizeServerUrl('http://127.0.0.1:1234')).toBe('http://127.0.0.1:1234');
+    expect(normalizeServerUrl(' http://mew:1234/ ')).toBe('http://mew:1234');
+  });
+  it('drops the /v1 of an OpenAI-style address, which the CLI adds its own path to', () => {
+    expect(normalizeServerUrl('http://127.0.0.1:1234/v1')).toBe('http://127.0.0.1:1234');
+    expect(normalizeServerUrl('https://x.example/lm/v1/')).toBe('https://x.example/lm');
+  });
+  it('drops a query and a fragment', () => {
+    expect(normalizeServerUrl('http://h:1/p?key=SECRET#f')).toBe('http://h:1/p');
+  });
+  it.each([[''], ['nope'], ['ftp://h'], ['file:///etc/passwd'], ['http://user:pw@h:1'], [null], [undefined], [5]])('refuses %j', (v) => {
+    expect(normalizeServerUrl(v)).toBeNull();
+  });
+});
+
+describe('addServerProfile', () => {
+  const lm = (over = {}) => ({ url: 'http://127.0.0.1:1234', ...over });
+
+  it('writes a compatible profile the loader accepts, with the default dummy token', () => {
+    const { file } = setup();
+    const r = addServerProfile('LM Studio (mac)', lm(), { file });
+    expect(r.error).toBeUndefined();
+    expect(r.profile).toEqual({ id: 'lm-studio-mac', label: 'LM Studio (mac)', kind: 'compatible', models: [], implicit: false, hasAccount: false });
+    expect(read(file)).toEqual([{
+      id: 'lm-studio-mac', label: 'LM Studio (mac)', kind: 'compatible',
+      env: { ANTHROPIC_BASE_URL: 'http://127.0.0.1:1234', ANTHROPIC_AUTH_TOKEN: 'lmstudio', ANTHROPIC_API_KEY: '' },
+    }]);
+    expect(loadProfiles(file).errors).toEqual([]);
+  });
+
+  it('stores a token, a context window and the chosen models', () => {
+    const { file } = setup();
+    addServerProfile('LM', lm({ token: ' sk-1 ', contextWindow: 65536, models: ['qwen/a', 'qwen/b'] }), { file });
+    const [e] = read(file);
+    expect(e.env.ANTHROPIC_AUTH_TOKEN).toBe('sk-1');
+    expect(e.contextWindow).toBe(65536);
+    expect(e.models).toEqual(['qwen/a', 'qwen/b']);
+    const p = loadProfiles(file).profiles[1];
+    expect(p.contextWindow).toBe(65536);
+    expect(p.models.map((m) => m.id)).toEqual(['qwen/a', 'qwen/b']);
+  });
+
+  it('leaves out an empty model list and an empty context window', () => {
+    const { file } = setup();
+    addServerProfile('LM', lm({ models: [], contextWindow: '' }), { file });
+    const [e] = read(file);
+    expect(e).not.toHaveProperty('models');
+    expect(e).not.toHaveProperty('contextWindow');
+  });
+
+  it('stores the address normalized', () => {
+    const { file } = setup();
+    addServerProfile('LM', lm({ url: 'http://127.0.0.1:1234/v1/' }), { file });
+    expect(read(file)[0].env.ANTHROPIC_BASE_URL).toBe('http://127.0.0.1:1234');
+  });
+
+  it('numbers the id for a second server of the same name, and keeps the existing entries as they are', () => {
+    const existing = [{ id: 'lucca', kind: 'anthropic', futureKey: 1 }];
+    const { file } = setup(existing);
+    addServerProfile('LM', lm(), { file });
+    const r = addServerProfile('LM', lm({ url: 'http://mew:1234' }), { file });
+    expect(r.profile.id).toBe('lm-2');
+    const out = read(file);
+    expect(out[0]).toEqual(existing[0]);
+    expect(out.map((p) => p.id)).toEqual(['lucca', 'lm', 'lm-2']);
+  });
+
+  it.each([
+    ['no name', '  ', lm(), /name is required/],
+    ['no address', 'LM', {}, /http\(s\) URL/],
+    ['an address with credentials', 'LM', lm({ url: 'http://u:p@h:1' }), /without credentials/],
+    ['a context window that is not a number', 'LM', lm({ contextWindow: 'big' }), /contextWindow/],
+    ['a context window that is too small', 'LM', lm({ contextWindow: 100 }), /contextWindow/],
+    ['an invalid model id', 'LM', lm({ models: ['a b'] }), /invalid model id/],
+  ])('refuses %s, writing nothing', (_n, label, opts, message) => {
+    const { file } = setup();
+    expect(addServerProfile(label, opts, { file }).error).toMatch(message);
+    expect(fs.existsSync(file)).toBe(false);
+  });
+
+  it('refuses to touch a file that is not a JSON array', () => {
+    const { file } = setup('{ nope');
+    expect(addServerProfile('LM', lm(), { file }).error).toMatch(/left as it is/);
+    expect(fs.readFileSync(file, 'utf8')).toBe('{ nope');
   });
 });

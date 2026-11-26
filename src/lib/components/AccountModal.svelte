@@ -18,11 +18,19 @@
   let loginProfile = $state(null); // whose account the login in flight is for (null = the main one)
   let newName = $state('');
   let adding = $state(false);
+
+  // Servers (profiles of kind `compatible`: LM Studio…) and the "Add server" form.
+  let servers = $state([]);        // [{ id, label, models }]
+  let srv = $state({ open: false, name: '', url: '', token: '', ctx: '' });
+  let probe = $state(null);        // { loading } | { baseUrl, models, error } for the address typed
+  let picked = $state({});         // model id -> kept
+  let savingServer = $state(false);
   const loginLabel = $derived(loginProfile ? (accounts.find((a) => a.id === loginProfile)?.label || loginProfile) : null);
 
   async function loadAccounts() {
     try {
       const { profiles } = await getProfiles();
+      servers = (profiles || []).filter((p) => p.kind === 'compatible');
       accounts = await Promise.all((profiles || []).filter((p) => p.hasAccount).map(async (p) => {
         const info = await getAccount(p.id).catch(() => null);
         // Its limits are asked for only once it is signed in: there is nothing to poll before.
@@ -86,6 +94,35 @@
     loggingOut = false;
     notice = r.ok ? 'Signed out.' : (r.data?.error || 'Logout failed.');
     await (profile ? loadAccounts() : loadAccount());
+  }
+
+  // What the server at the typed address offers: checked before saving, so a typo or a server that is
+  // asleep shows up here and not at the first launch.
+  async function testServer() {
+    if (!srv.url.trim()) return;
+    probe = { loading: true };
+    const r = await profilesAction({ action: 'probe-server', url: srv.url, token: srv.token });
+    probe = r.ok ? r.data : { models: [], error: r.data?.error || 'request failed' };
+    picked = Object.fromEntries((probe.models || []).map((m) => [m.id, true]));
+  }
+
+  async function addServer() {
+    const label = srv.name.trim();
+    if (!label || !srv.url.trim() || savingServer) return;
+    notice = '';
+    const models = Object.keys(picked).filter((id) => picked[id]);
+    // Models were found and none is kept: saving would quietly mean "all of them".
+    if (probe?.models?.length && !models.length) { notice = 'Tick at least one model, or Cancel.'; return; }
+    savingServer = true;
+    const body = { action: 'add-server', label, url: srv.url, token: srv.token, contextWindow: srv.ctx ? Number(srv.ctx) : undefined, models };
+    const r = await profilesAction(body);
+    savingServer = false;
+    if (!r.ok) { notice = r.data?.error || 'Could not add the server.'; return; }
+    notice = `Added “${r.data.profile.label}”. Pick it in New session.`;
+    srv = { open: false, name: '', url: '', token: '', ctx: '' };
+    probe = null;
+    picked = {};
+    await loadAccounts();
   }
 
   // A new profile with an account of its own, then straight into its sign-in.
@@ -218,6 +255,53 @@
       <b>New session</b> to run a session on it.
     </p>
   </div>
+
+  <div class="others">
+    <div class="others-head">Servers</div>
+    {#each servers as v (v.id)}
+      <div class="row">
+        <div class="row-avatar"><Icon name="link" size={15} /></div>
+        <div class="row-who">
+          <strong>{v.label}</strong>
+          <span class="email">{v.models.length ? v.models.length + ' model' + (v.models.length > 1 ? 's' : '') : 'models read from the server'}</span>
+        </div>
+      </div>
+    {:else}
+      <p class="hint">No server yet. An Anthropic-compatible server (LM Studio…) runs sessions on your own machine.</p>
+    {/each}
+    {#if srv.open}
+      <div class="srv">
+        <input class="pick" placeholder="Name, e.g. LM Studio" bind:value={srv.name} />
+        <input class="pick" placeholder="Address, e.g. http://127.0.0.1:1234" bind:value={srv.url}
+               oninput={() => (probe = null)} spellcheck="false" />
+        <input class="pick" placeholder="Token (leave empty if the server has none)" bind:value={srv.token}
+               oninput={() => (probe = null)} autocomplete="off" spellcheck="false" />
+        <input class="pick" type="number" min="2048" placeholder="Context size the server loads models at, e.g. 65536" bind:value={srv.ctx} />
+        <div class="urlrow">
+          <button class="btn" onclick={testServer} disabled={!srv.url.trim() || probe?.loading}>{probe?.loading ? 'Testing…' : 'Test'}</button>
+          {#if probe && !probe.loading}
+            {#if probe.error}<span class="warn">{probe.error}</span>
+            {:else}<span class="sub">{probe.models.length} model{probe.models.length === 1 ? '' : 's'} found</span>{/if}
+          {/if}
+        </div>
+        {#if probe?.models?.length}
+          <div class="models">
+            {#each probe.models as m (m.id)}
+              <label class="model"><input type="checkbox" bind:checked={picked[m.id]} /> <code>{m.id}</code></label>
+            {/each}
+          </div>
+          <p class="hint">Only the ticked models can be picked for this server. A model that is not loaded is loaded by the server when first asked for, with its default context.</p>
+        {/if}
+        <div class="urlrow">
+          <button class="btn primary" onclick={addServer} disabled={!srv.name.trim() || !srv.url.trim() || savingServer}>{savingServer ? 'Adding…' : 'Add server'}</button>
+          <button class="link" onclick={() => { srv.open = false; probe = null; }}>Cancel</button>
+        </div>
+        <p class="hint">The token, if any, is kept in <code>profiles.json</code>, which only you can read.</p>
+      </div>
+    {:else}
+      <button class="btn add-srv" onclick={() => (srv.open = true)}>Add server</button>
+    {/if}
+  </div>
 </div>
 
 <style>
@@ -256,6 +340,11 @@
   .row-actions { display: flex; align-items: center; gap: 10px; flex: none; }
   .row-actions .btn { padding: 6px 10px; }
   .add { margin: 8px 0 6px; }
+  .srv { display: flex; flex-direction: column; gap: 8px; margin: 8px 0 4px; }
+  .models { display: flex; flex-direction: column; gap: 4px; max-height: 140px; overflow-y: auto; padding: 8px 10px; border: 1px solid var(--border); border-radius: 9px; background: var(--bg2); }
+  .model { display: flex; align-items: center; gap: 8px; font-size: var(--t-meta); cursor: pointer; }
+  .model code { font-family: var(--mono); overflow-wrap: anywhere; }
+  .add-srv { margin: 6px 0 4px; }
   .link:disabled { opacity: .5; cursor: default; }
 
   .hint { margin: 0 0 14px; font-size: var(--t-meta); color: var(--muted); line-height: 1.5; }

@@ -38,16 +38,9 @@ export function uniqueProfileId(label, taken) {
   }
 }
 
-/**
- * Adds an `anthropic` profile with its own account to profiles.json, its directory under
- * `accountsRoot`. Returns { profile } (the public shape) or { error }; never throws.
- * `file` and `accountsRoot` are injectable for the tests.
- */
-export function addAccountProfile(label, { file = PROFILES_FILE, accountsRoot = path.join(HOOKED_DIR, 'accounts') } = {}) {
-  const name = typeof label === 'string' ? label.trim() : '';
-  if (!name) return { error: 'a name is required' };
-  if (name.length > MAX_LABEL) return { error: `the name is too long (${MAX_LABEL} characters at most)` };
-
+// Reads profiles.json as the raw array it is, for appending to. { raw } or { error }: a missing file
+// is an empty list, anything else that is not a JSON array is refused and left as it is.
+function readRaw(file) {
   let raw = [];
   try {
     raw = JSON.parse(fs.readFileSync(file, 'utf8'));
@@ -55,23 +48,87 @@ export function addAccountProfile(label, { file = PROFILES_FILE, accountsRoot = 
     if (!e || e.code !== 'ENOENT') return { error: `profiles.json cannot be read, it was left as it is: ${(e && e.message) || e}` };
   }
   if (!Array.isArray(raw)) return { error: 'profiles.json is not a JSON array, it was left as it is' };
+  return { raw };
+}
 
-  const id = uniqueProfileId(name, raw.map((p) => p && p.id).filter((x) => typeof x === 'string'));
-  const entry = { id, label: name, kind: 'anthropic', configDir: normalizeConfigDir(path.join(accountsRoot, id)) };
-  // The new entry has to be acceptable on top of the file as it is (a configDir another profile
-  // already uses, the default account's own…): check before writing, not after.
+// Appends `entry` (id already chosen) to the file as it is. The entry has to be acceptable on top of
+// the existing ones (a configDir another profile already uses, a missing base URL…): that is checked
+// before anything is written, not after. Atomic (tmp + rename), and created private (0600): a profile
+// may carry a token in its env, and the other files of the data dir that hold secrets are private
+// too. → { profile } (the public shape) or { error }.
+function appendEntry(raw, entry, file, what) {
   const parsed = parseProfiles([...raw, entry]);
-  const added = parsed.profiles.find((p) => p.id === id);
-  if (!added) return { error: parsed.errors.find((e) => e.includes(`(${id})`)) || 'the new account was refused' };
-
+  const added = parsed.profiles.find((p) => p.id === entry.id);
+  if (!added) return { error: parsed.errors.find((e) => e.includes(`(${entry.id})`)) || `the new ${what} was refused` };
   const tmp = file + '.tmp';
   try {
     fs.mkdirSync(path.dirname(file), { recursive: true });
-    fs.writeFileSync(tmp, JSON.stringify([...raw, entry], null, 2) + '\n');
+    fs.writeFileSync(tmp, JSON.stringify([...raw, entry], null, 2) + '\n', { mode: 0o600 });
+    fs.chmodSync(tmp, 0o600); // the mode above only counts when the file is created
     fs.renameSync(tmp, file);
   } catch (e) {
     try { fs.unlinkSync(tmp); } catch (_) {}
     return { error: `profiles.json could not be written: ${(e && e.message) || e}` };
   }
   return { profile: publicProfile(added) };
+}
+
+function checkName(label) {
+  const name = typeof label === 'string' ? label.trim() : '';
+  if (!name) return { error: 'a name is required' };
+  if (name.length > MAX_LABEL) return { error: `the name is too long (${MAX_LABEL} characters at most)` };
+  return { name };
+}
+
+/**
+ * Adds an `anthropic` profile with its own account to profiles.json, its directory under
+ * `accountsRoot`. Returns { profile } (the public shape) or { error }; never throws.
+ * `file` and `accountsRoot` are injectable for the tests.
+ */
+export function addAccountProfile(label, { file = PROFILES_FILE, accountsRoot = path.join(HOOKED_DIR, 'accounts') } = {}) {
+  const n = checkName(label);
+  if (n.error) return n;
+  const r = readRaw(file);
+  if (r.error) return r;
+  const id = uniqueProfileId(n.name, r.raw.map((p) => p && p.id).filter((x) => typeof x === 'string'));
+  const entry = { id, label: n.name, kind: 'anthropic', configDir: normalizeConfigDir(path.join(accountsRoot, id)) };
+  return appendEntry(r.raw, entry, file, 'account');
+}
+
+// What a user pastes for a server's address, as the base URL the CLI wants: http(s) only, no
+// credentials, query or fragment, no trailing slash, and without the `/v1` an OpenAI-style URL ends
+// with (the CLI adds its own path, and hooked asks `<base>/v1/models`). null when it is not one.
+export function normalizeServerUrl(input) {
+  let u;
+  try { u = new URL(String(input || '').trim()); } catch (_) { return null; }
+  if (u.protocol !== 'http:' && u.protocol !== 'https:') return null;
+  if (u.username || u.password) return null;
+  const pathname = u.pathname.replace(/\/+$/, '').replace(/\/v1$/, '');
+  return u.origin + pathname;
+}
+
+const DEFAULT_SERVER_TOKEN = 'lmstudio'; // LM Studio asks for none; the CLI wants something
+
+/**
+ * Adds a `compatible` profile for an Anthropic-compatible server (LM Studio…) to profiles.json.
+ * `opts`: { url, token?, contextWindow?, models? (ids) }. The token is stored in the file, which is
+ * private; leave it out for a server that has no authentication.
+ * Returns { profile } or { error }; never throws.
+ */
+export function addServerProfile(label, opts = {}, { file = PROFILES_FILE } = {}) {
+  const n = checkName(label);
+  if (n.error) return n;
+  const base = normalizeServerUrl(opts.url);
+  if (!base) return { error: 'the address must be an http(s) URL without credentials, e.g. http://127.0.0.1:1234' };
+  const token = typeof opts.token === 'string' && opts.token.trim() ? opts.token.trim() : DEFAULT_SERVER_TOKEN;
+  const r = readRaw(file);
+  if (r.error) return r;
+  const id = uniqueProfileId(n.name, r.raw.map((p) => p && p.id).filter((x) => typeof x === 'string'));
+  const entry = {
+    id, label: n.name, kind: 'compatible',
+    env: { ANTHROPIC_BASE_URL: base, ANTHROPIC_AUTH_TOKEN: token, ANTHROPIC_API_KEY: '' },
+  };
+  if (Array.isArray(opts.models) && opts.models.length) entry.models = opts.models;
+  if (opts.contextWindow !== undefined && opts.contextWindow !== null && opts.contextWindow !== '') entry.contextWindow = Number(opts.contextWindow);
+  return appendEntry(r.raw, entry, file, 'server');
 }

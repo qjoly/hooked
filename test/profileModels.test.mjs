@@ -3,7 +3,7 @@
  * and the fetch, with an injected fetch (nothing leaves the machine).
  */
 import { describe, it, expect } from 'vitest';
-import { parseModelsResponse, fetchProfileModels } from '../server/profileModels.js';
+import { parseModelsResponse, fetchProfileModels, probeServer } from '../server/profileModels.js';
 import { parseProfiles } from '../server/profiles.js';
 
 const compat = (env, models) => parseProfiles([{ id: 'lm', kind: 'compatible', env, models }]).profiles[1];
@@ -76,5 +76,46 @@ describe('fetchProfileModels', () => {
     expect(down).toEqual({ models: [], error: 'cannot reach http://127.0.0.1:1234' });
     const slow = await fetchProfileModels(LM, {}, { fetchImpl: async () => { const e = new Error('t'); e.name = 'TimeoutError'; throw e; }, timeoutMs: 1000 });
     expect(slow.error).toBe('no answer from http://127.0.0.1:1234 within 1s');
+  });
+});
+
+describe('fetchProfileModels — redirects', () => {
+  it('does not follow one: the request carries this server\'s credential, and no other\'s', async () => {
+    let init = null;
+    const r = await fetchProfileModels(LM, {}, { fetchImpl: async (u, i) => { init = i; return reply({}, 302)(); } });
+    expect(init.redirect).toBe('manual');
+    expect(r).toEqual({ models: [], error: 'the server answered 302' });
+  });
+});
+
+describe('probeServer', () => {
+  it('asks the normalized address, with the token when there is one, and returns the chat models', async () => {
+    let seen = null;
+    const fetchImpl = async (url, init) => { seen = { url, init }; return reply({ data: [{ id: 'qwen/a' }, { id: 'text-embedding-x' }] })(); };
+    const r = await probeServer('http://127.0.0.1:1234/v1/', ' tok ', { fetchImpl });
+    expect(r).toEqual({ baseUrl: 'http://127.0.0.1:1234', models: [{ id: 'qwen/a', label: 'qwen/a' }] });
+    expect(seen.url).toBe('http://127.0.0.1:1234/v1/models');
+    expect(seen.init.headers.Authorization).toBe('Bearer tok');
+  });
+
+  it('sends no credential when there is no token', async () => {
+    let headers = null;
+    await probeServer('http://h:1', '', { fetchImpl: async (u, init) => { headers = init.headers; return reply({ data: [] })(); } });
+    expect(headers.Authorization).toBeUndefined();
+  });
+
+  it('refuses an address that is not usable, without any request', async () => {
+    let called = false;
+    for (const url of ['', 'nope', 'file:///etc/passwd', 'http://u:p@h:1']) {
+      const r = await probeServer(url, '', { fetchImpl: async () => { called = true; } });
+      expect(r.baseUrl).toBeNull();
+      expect(r.error).toMatch(/http\(s\) URL/);
+    }
+    expect(called).toBe(false);
+  });
+
+  it('says why a server did not answer, never throwing', async () => {
+    const r = await probeServer('http://h:1', '', { fetchImpl: async () => { throw new TypeError('fetch failed'); } });
+    expect(r).toEqual({ baseUrl: 'http://h:1', models: [], error: 'cannot reach http://h:1' });
   });
 });

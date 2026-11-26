@@ -254,6 +254,12 @@ LM Studio. Profiles live in `profiles.json`, next to hooked's other data (`~/.cl
   `{ "file": "~/path" }`. A reference that does not resolve fails the launch.
 - A profile picks the destination entirely: `ANTHROPIC_*` and `CLAUDE_CODE_OAUTH_TOKEN` exported by
   your shell are not passed to a session that uses one. Set `ANTHROPIC_API_KEY` to `""` to be explicit.
+- **Add server** (account menu, the avatar, top right) creates a `compatible` profile without editing
+  the file: a name, the server's address (a trailing `/v1` is dropped), an optional token, and the
+  context size its models are loaded at (`contextWindow`). **Test** asks the server for its models
+  first, so a typo or a sleeping machine shows up there, and the models you keep ticked become the
+  profile's `models`. A token is stored in `profiles.json`, which hooked creates readable by you only
+  (`0600`), as it does for every file it writes.
 - `kind: "compatible"` needs `ANTHROPIC_BASE_URL`. Its `models` are the ids of that server; when
   listed, a launch or a model switch is limited to them. An `anthropic` profile takes the usual
   family names (`opus`, `sonnet`…).

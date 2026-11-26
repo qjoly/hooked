@@ -13,6 +13,7 @@
  * Node stdlib only; `fetchImpl` is injectable for the tests.
  */
 import { resolveProfileEnv, isValidModelId } from './profiles.js';
+import { normalizeServerUrl } from './profilesFile.js';
 
 const TIMEOUT_MS = 4000;
 
@@ -43,11 +44,27 @@ export async function fetchProfileModels(profile, loginEnv, { fetchImpl = fetch,
   if (env.ANTHROPIC_AUTH_TOKEN) headers.Authorization = 'Bearer ' + env.ANTHROPIC_AUTH_TOKEN;
   else if (env.ANTHROPIC_API_KEY) headers['x-api-key'] = env.ANTHROPIC_API_KEY;
   try {
-    const res = await fetchImpl(base + '/v1/models', { headers, signal: AbortSignal.timeout(timeoutMs) });
+    // A redirect is not followed: the request carries the profile's credential, which belongs to
+    // this server and no other.
+    const res = await fetchImpl(base + '/v1/models', { headers, redirect: 'manual', signal: AbortSignal.timeout(timeoutMs) });
     if (!res.ok) return { models: [], error: `the server answered ${res.status}` };
     return { models: parseModelsResponse(await res.json()) };
   } catch (e) {
     const timedOut = e && (e.name === 'TimeoutError' || e.name === 'AbortError');
     return { models: [], error: timedOut ? `no answer from ${base} within ${timeoutMs / 1000}s` : `cannot reach ${base}` };
   }
+}
+
+/**
+ * Asks a server that is not a profile yet what it offers, for the "Add server" form: its models
+ * (chat ones), or why it did not answer. `url` is normalized like the one a profile stores.
+ * → { baseUrl, models, error? }; never throws.
+ */
+export async function probeServer(url, token, opts = {}) {
+  const baseUrl = normalizeServerUrl(url);
+  if (!baseUrl) return { baseUrl: null, models: [], error: 'the address must be an http(s) URL without credentials, e.g. http://127.0.0.1:1234' };
+  const env = { ANTHROPIC_BASE_URL: baseUrl };
+  if (typeof token === 'string' && token.trim()) env.ANTHROPIC_AUTH_TOKEN = token.trim();
+  const r = await fetchProfileModels({ id: 'probe', kind: 'compatible', env }, {}, opts);
+  return { baseUrl, ...r };
 }
