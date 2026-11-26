@@ -14,7 +14,18 @@ use serde_json::Value;
 /// still gets the stamp rule deploy/service-run.sh applies.
 pub const NPM_DEPS: &str = include_str!("../../../deploy/npm-deps.sh");
 
+/// desktop/scripts/install-app as of this build of the launcher, so a branch that predates the
+/// script still gets its desktop app installed.
+pub const INSTALL_APP: &str = include_str!("../../scripts/install-app");
+
 pub const SERVICE_LABEL: &str = "com.hooked.dashboard";
+
+/// Whether a switch also updates the desktop app. Absent, nobody uses it here: no Rust and Zig
+/// toolchain, nor a 5 GB build, is imposed for it. Its old "hooked (Rune).app" name does not count;
+/// `mise run desktop` migrates it.
+pub fn desktop_app_installed() -> bool {
+    cfg!(target_os = "macos") && Path::new("/Applications/hooked.app").exists()
+}
 
 /// The checkout the service runs from. `HOOKED_REPO` wins; otherwise the repository this crate was
 /// built in, and when that is a linked worktree, its main checkout, since that is where the service
@@ -183,4 +194,29 @@ pub fn wait_reachable(within: Duration) -> bool {
         std::thread::sleep(Duration::from_secs(1));
     }
     false
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn install_app_parses_when_fed_on_stdin() {
+        let mut child = Command::new("bash")
+            .args(["-n", "-s"])
+            .stdin(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        child.stdin.take().unwrap().write_all(INSTALL_APP.as_bytes()).unwrap();
+        let out = child.wait_with_output().unwrap();
+        assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    }
+
+    /// Fed on stdin, bash runs each line as it reads it: a command reading stdin would swallow the
+    /// rest of the script. Wrapped in `main`, the whole script is read before anything runs.
+    #[test]
+    fn install_app_runs_only_once_fully_read() {
+        assert!(INSTALL_APP.trim_end().ends_with("\nmain \"$@\""));
+    }
 }

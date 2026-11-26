@@ -24,7 +24,7 @@ hooked is a local dashboard for Claude Code sessions. The front end is SvelteKit
 - **`mise run desktop` can restart hooked too.** It runs `mise run deploy-if-stale`, which
   deploys when `build/` lags behind the checkout (a build input differs between the build stamp's
   commit and HEAD, or changed on disk since the build), and otherwise does nothing. If the restart cuts the session short,
-  rerun the task: the back end is current by then, so it only installs the app.
+  rerun the task: the back end is current by then, so it only builds and installs the app.
 - `npm run live` (Vite, `:4123`, `--strictPort`) is the live workflow to prefer. It gives front-end HMR and server reloads. The SvelteKit dev server runs the `/api/*` endpoints (`+server.js`) in-process, and Vite re-executes changed `server/*` / `#lib/server/*` modules on the next request, so a back-end change takes effect with no rebuild or restart. It uses the same port as prod (4123); `strictPort` fails loudly if `node build` still holds the port, instead of drifting to 4124.
 - `npm run dev` (Vite, `:5173`) is the same as `live`, on Vite's default port.
 - `npm start` (`node build`, prod, usually `:4123` through `PORT`) does not reload. After any change, run `mise run deploy` (build plus service restart, see the first bullet). **Never run `npm run build` on its own, not even "just to check it compiles":** it rewrites `build/` under the running service and kills hooked. To check without deploying, run `npm test`. The restart is needed because:

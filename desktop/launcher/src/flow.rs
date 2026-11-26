@@ -9,6 +9,9 @@ pub enum Step {
     WaitTurns,
     Swap,
     Verify,
+    /// After the switch, outside `order` and the undo plan: it has nothing to undo, and its failure
+    /// leaves the service on the branch.
+    UpdateApp,
 }
 
 impl Step {
@@ -20,6 +23,7 @@ impl Step {
             Step::WaitTurns => "Wait for turns",
             Step::Swap => "Swap and restart",
             Step::Verify => "Verify",
+            Step::UpdateApp => "Update the desktop app",
         }
     }
 }

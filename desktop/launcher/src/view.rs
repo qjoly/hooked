@@ -208,8 +208,11 @@ fn run_panel(run: &Run, k: &Kit) -> El {
                 ),
         );
     }
-    if run.switched {
+    if run.verified() {
         panel = panel.child(callout(k, &k.c.success, format!("hooked now runs {}.", run.branch)));
+    }
+    if let Some(f) = &run.app_failure {
+        panel = panel.child(app_failure(f, k));
     }
     if let Some(f) = &run.failure {
         panel = panel.child(failure(f, k));
@@ -225,8 +228,12 @@ fn run_panel(run: &Run, k: &Kit) -> El {
                 .key("back"),
         );
     }
-    if let Some(f) = &run.failure {
-        let full_log = format!("{}\n\n--- rollback ---\n{}", f.log, f.undo_log);
+    let full_log = match (&run.failure, &run.app_failure) {
+        (Some(f), _) => Some(format!("{}\n\n--- rollback ---\n{}", f.log, f.undo_log)),
+        (None, Some(f)) => Some(f.log.clone()),
+        (None, None) => None,
+    };
+    if let Some(full_log) = full_log {
         actions = actions.child(
             Button::new("Copy log")
                 .icon(&icons::COPY)
@@ -267,7 +274,6 @@ fn step_line(step: Step, status: Status, run: &Run, k: &Kit) -> El {
 }
 
 fn failure(f: &crate::Failure, k: &Kit) -> El {
-    let tail: Vec<&str> = f.log.lines().rev().take(LOG_TAIL_LINES).collect::<Vec<_>>().into_iter().rev().collect();
     let undo = match &f.undone {
         None => callout(k, &k.c.warning, "Rolling back…"),
         Some(Ok(())) => text("Rolled back: the checkout and the service are as before.")
@@ -276,28 +282,42 @@ fn failure(f: &crate::Failure, k: &Kit) -> El {
             .wrap(),
         Some(Err(e)) => callout(k, &k.c.danger, format!("Rollback incomplete, fix by hand:\n{e}")),
     };
-    let mut out = col()
+    let out = col()
         .gap(10.0)
         .grow(1.0)
         .shrink()
         .min_h(0.0)
         .child(callout(k, &k.c.danger, format!("{} failed: {}", f.step.label(), f.error)))
         .child(undo);
-    if !tail.is_empty() {
-        out = out.child(
-            col()
-                .key("log")
-                .w_full()
-                .grow(1.0)
-                .shrink()
-                .min_h(80.0)
-                .padding(10.0)
-                .radius(k.radius.md)
-                .fill(k.c.layer_01)
-                .border(1.0, k.c.border_weak)
-                .scroll(ScrollSpec { stick_bottom: true })
-                .child(text(tail.join("\n")).font(k.ty.mono).color(k.c.text_muted).w_full().wrap().selectable(true)),
-        );
+    with_log_tail(out, &f.log, k)
+}
+
+fn app_failure(f: &crate::AppFailure, k: &Kit) -> El {
+    let msg = format!(
+        "The desktop app was not updated: {}. The previous version is still installed.",
+        f.error.trim_end_matches('.')
+    );
+    let out = col().gap(10.0).grow(1.0).shrink().min_h(0.0).child(callout(k, &k.c.warning, msg));
+    with_log_tail(out, &f.log, k)
+}
+
+fn with_log_tail(out: El, log: &str, k: &Kit) -> El {
+    let tail: Vec<&str> = log.lines().rev().take(LOG_TAIL_LINES).collect::<Vec<_>>().into_iter().rev().collect();
+    if tail.is_empty() {
+        return out;
     }
-    out
+    out.child(
+        col()
+            .key("log")
+            .w_full()
+            .grow(1.0)
+            .shrink()
+            .min_h(80.0)
+            .padding(10.0)
+            .radius(k.radius.md)
+            .fill(k.c.layer_01)
+            .border(1.0, k.c.border_weak)
+            .scroll(ScrollSpec { stick_bottom: true })
+            .child(text(tail.join("\n")).font(k.ty.mono).color(k.c.text_muted).w_full().wrap().selectable(true)),
+    )
 }
