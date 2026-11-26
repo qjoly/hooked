@@ -29,6 +29,13 @@
  * exported in your shell profile works),
  * `{ "file": PATH }` reads a file (absolute, or `~/…`; one trailing newline is dropped).
  *
+ * `configDir` (an "anthropic" profile only) gives the profile its own Claude account: the session's
+ * CLAUDE_CONFIG_DIR. The CLI keeps the login there, so each profile signs in separately and shows
+ * its own identity. On macOS the login goes to a Keychain item named after a hash of that path
+ * (`Claude Code-credentials-<first 8 hex of sha256(path)>`): the path is stored normalized, absolute
+ * and without a trailing slash, and must never change, or the account would look signed out.
+ * Two profiles cannot share a dir, and none can use the default account's own.
+ *
  * `contextWindow` tells the CLI how big the server's context really is. It assumes 200k for any
  * model it does not know, so it would never compact before the server refuses the request. It is
  * handed over as CLAUDE_CODE_MAX_CONTEXT_TOKENS (unless the profile's env sets that itself).
@@ -63,6 +70,22 @@ const ENV_NAME_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
 const MODEL_ID_RE = /^[A-Za-z0-9][A-Za-z0-9._:@+/-]{0,127}$/;
 
 export const isValidModelId = (m) => typeof m === 'string' && MODEL_ID_RE.test(m);
+
+// Where the default account keeps its state: CLAUDE_CONFIG_DIR when the environment sets one, else
+// ~/.claude. Account dirs share parts of it (cf. server/accountDir.js).
+export function mainConfigDir(env = process.env, home = os.homedir()) {
+  return normalizeConfigDir(env.CLAUDE_CONFIG_DIR || path.join(home, '.claude'), home);
+}
+
+// A config dir as a stable string: `~/` expanded, absolute, normalized, no trailing separator. null
+// when it cannot be made absolute. Symlinks are NOT resolved: the CLI hashes the path it is given.
+export function normalizeConfigDir(dir, home = os.homedir()) {
+  if (typeof dir !== 'string' || !dir) return null;
+  const expanded = dir.startsWith('~/') ? path.join(home, dir.slice(2)) : dir;
+  if (!path.isAbsolute(expanded)) return null;
+  const n = path.normalize(expanded);
+  return n.length > 1 ? n.replace(/[\\/]+$/, '') : n;
+}
 
 export function defaultProfile() {
   return { id: DEFAULT_PROFILE_ID, label: 'Default', kind: 'anthropic', env: {}, models: [], implicit: true };
@@ -105,7 +128,7 @@ function parseModels(raw) {
 }
 
 // One raw entry → { profile } or { error }.
-function parseProfile(raw) {
+function parseProfile(raw, { home, mainDir }) {
   if (!isPlainObject(raw)) return { error: 'must be an object' };
   const { id, kind } = raw;
   if (typeof id !== 'string' || !ID_RE.test(id)) return { error: 'invalid "id" (lowercase letters, digits, "-" and "_", 1-32 chars)' };
@@ -135,22 +158,38 @@ function parseProfile(raw) {
     }
     contextWindow = raw.contextWindow;
   }
+  let configDir;
+  if (raw.configDir !== undefined) {
+    if (kind !== 'anthropic') return { error: '"configDir" only applies to an "anthropic" profile' };
+    configDir = normalizeConfigDir(raw.configDir, home);
+    if (!configDir) return { error: '"configDir" must be an absolute path or start with ~/' };
+    if (configDir === '/' || configDir === home) return { error: '"configDir" cannot be the root or the home directory' };
+    if (configDir === mainDir) return { error: '"configDir" is the default account\'s own directory' };
+  }
   const profile = { id, label: (raw.label || '').trim() || id, kind, env, models: m.models };
   if (contextWindow) profile.contextWindow = contextWindow;
+  if (configDir) profile.configDir = configDir;
   return { profile };
 }
 
 // The whole file's parsed JSON → { profiles, errors }. Pure. `default` always comes first.
-export function parseProfiles(json) {
+// `home` and `mainDir` are injectable for the tests (they decide what `~/` and "the default account's
+// directory" mean).
+export function parseProfiles(json, { home = os.homedir(), mainDir = mainConfigDir(process.env, home) } = {}) {
   const profiles = [defaultProfile()];
   const errors = [];
   if (!Array.isArray(json)) return { profiles, errors: ['profiles.json must be a JSON array'] };
   const seen = new Set([DEFAULT_PROFILE_ID]);
+  const dirs = new Map();
   json.forEach((raw, i) => {
-    const r = parseProfile(raw);
+    const r = parseProfile(raw, { home, mainDir });
     const where = `profile #${i + 1}${raw && typeof raw.id === 'string' ? ` (${raw.id})` : ''}`;
     if (r.error) return errors.push(`${where}: ${r.error}`);
     if (seen.has(r.profile.id)) return errors.push(`${where}: duplicate id`);
+    if (r.profile.configDir && dirs.has(r.profile.configDir)) {
+      return errors.push(`${where}: "configDir" is already used by profile "${dirs.get(r.profile.configDir)}"`);
+    }
+    if (r.profile.configDir) dirs.set(r.profile.configDir, r.profile.id);
     seen.add(r.profile.id);
     profiles.push(r.profile);
   });
@@ -228,6 +267,8 @@ export function isValidModelForProfile(profile, model) {
 const CREDENTIAL_ENV_RE = /^(ANTHROPIC_|CLAUDE_CODE_OAUTH_TOKEN$)/;
 // What the CLI reads as the size of the model's context window.
 const CONTEXT_WINDOW_ENV = 'CLAUDE_CODE_MAX_CONTEXT_TOKENS';
+// Where the CLI keeps its state and login.
+const CONFIG_DIR_ENV = 'CLAUDE_CONFIG_DIR';
 
 // The environment of a session: `base` (the login environment) with the profile's resolved env on
 // top. For the implicit `default` profile that is `base` itself. For any other, the credential
@@ -238,6 +279,7 @@ export function buildSessionEnv(base, profile, resolved) {
   for (const [k, v] of Object.entries(base)) if (!CREDENTIAL_ENV_RE.test(k)) out[k] = v;
   Object.assign(out, resolved);
   if (profile.contextWindow && !Object.hasOwn(resolved, CONTEXT_WINDOW_ENV)) out[CONTEXT_WINDOW_ENV] = String(profile.contextWindow);
+  if (profile.configDir && !Object.hasOwn(resolved, CONFIG_DIR_ENV)) out[CONFIG_DIR_ENV] = profile.configDir;
   return out;
 }
 

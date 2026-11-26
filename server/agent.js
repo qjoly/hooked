@@ -26,6 +26,7 @@ import { spawn } from 'node:child_process';
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import { PORT, PR_GATE_BIN, LAUNCHES_FILE, SESSION_LAUNCH_FILE, DRIVEN_FILE, PERMISSION_MODES, LAUNCH_PERMISSION_MODES } from './config.js';
 import { findProfile, isValidModelForProfile, sessionEnvFor, DEFAULT_PROFILE_ID } from './profiles.js';
+import { prepareAccountDir } from './accountDir.js';
 import { isValidEffort } from './capabilities.js';
 import { statSafe } from './util.js';
 import { scanSessions } from './transcript.js';
@@ -953,6 +954,11 @@ function launchSession(opts, cb) {
       return;
     }
     const env = sessionEnv.env;
+    // A profile with its own account: its dir has to exist, with the shared parts linked in.
+    if (profile.configDir) {
+      const prep = prepareAccountDir(profile);
+      if (prep.error) { st.error = `profile "${profile.id}": ${prep.error}`; failStartup(st); return; }
+    }
     // Non-Claude engine: its driver spawns and talks to the agent, on the SAME registry entry —
     // the rest of the dashboard (live state, questions, interrupts) does not change.
     const drv = driverFor(st);

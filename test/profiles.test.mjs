@@ -8,7 +8,7 @@ import os from 'node:os';
 import path from 'node:path';
 import {
   parseProfiles, loadProfiles, profilesOverview, publicProfile, resolveProfileEnv, defaultProfile,
-  findProfile, isValidModelForProfile, buildSessionEnv, sessionEnvFor, modelToKeepOnFork, profileInfo, isValidModelId,
+  findProfile, isValidModelForProfile, buildSessionEnv, sessionEnvFor, modelToKeepOnFork, profileInfo, isValidModelId, mainConfigDir,
 } from '../server/profiles.js';
 
 const LMSTUDIO = {
@@ -381,5 +381,71 @@ describe('contextWindow', () => {
 
   it('does not reach the public shape', () => {
     expect(publicProfile(compat({ contextWindow: 65536 }).profiles[1])).not.toHaveProperty('contextWindow');
+  });
+});
+
+describe('configDir', () => {
+  const HOME = '/home/me';
+  const MAIN = '/home/me/.claude';
+  const parse = (entries) => parseProfiles(entries, { home: HOME, mainDir: MAIN });
+  const acct = (extra) => ({ id: 'perso', kind: 'anthropic', ...extra });
+
+  it('is stored normalized: absolute, `~/` expanded, no trailing slash, no `..`', () => {
+    expect(parse([acct({ configDir: '~/accounts/perso' })]).profiles[1].configDir).toBe('/home/me/accounts/perso');
+    expect(parse([acct({ configDir: '/data/claude/perso/' })]).profiles[1].configDir).toBe('/data/claude/perso');
+    expect(parse([acct({ configDir: '/data/./x/../claude//perso' })]).profiles[1].configDir).toBe('/data/claude/perso');
+  });
+
+  it('is absent from a profile that has none', () => {
+    expect(parse([acct({})]).profiles[1]).not.toHaveProperty('configDir');
+  });
+
+  it.each([
+    ['a compatible profile', { id: 'lm', kind: 'compatible', env: { ANTHROPIC_BASE_URL: 'http://x' }, configDir: '/d/x' }, /only applies to an "anthropic" profile/],
+    ['a relative path', acct({ configDir: 'accounts/perso' }), /absolute path or start with ~\//],
+    ['a non-string', acct({ configDir: 42 }), /absolute path or start with ~\//],
+    ['an empty string', acct({ configDir: '' }), /absolute path or start with ~\//],
+    ['the root', acct({ configDir: '/' }), /root or the home directory/],
+    ['the home directory', acct({ configDir: '~/' }), /root or the home directory/],
+    ["the default account's own directory", acct({ configDir: '~/.claude/' }), /default account's own directory/],
+  ])('rejects %s', (_n, entry, message) => {
+    const r = parse([entry]);
+    expect(r.profiles).toHaveLength(1);
+    expect(r.errors).toHaveLength(1);
+    expect(r.errors[0]).toMatch(message);
+  });
+
+  it('knows the default account\'s directory from CLAUDE_CONFIG_DIR when it is set', () => {
+    expect(mainConfigDir({}, HOME)).toBe('/home/me/.claude');
+    expect(mainConfigDir({ CLAUDE_CONFIG_DIR: '/opt/claude/' }, HOME)).toBe('/opt/claude');
+    const r = parseProfiles([acct({ configDir: '/opt/claude' })], { home: HOME, mainDir: mainConfigDir({ CLAUDE_CONFIG_DIR: '/opt/claude' }, HOME) });
+    expect(r.errors[0]).toMatch(/default account's own directory/);
+  });
+
+  it('cannot be shared by two profiles, however the path is written', () => {
+    const r = parse([acct({ configDir: '~/a/x' }), acct({ id: 'second', configDir: '/home/me/a/x/' })]);
+    expect(r.profiles.map((p) => p.id)).toEqual(['default', 'perso']);
+    expect(r.errors).toEqual([expect.stringMatching(/already used by profile "perso"/)]);
+  });
+
+  it('is handed to the CLI as CLAUDE_CONFIG_DIR, over the login environment\'s', () => {
+    const p = parse([acct({ configDir: '~/a/perso' })]).profiles[1];
+    const env = buildSessionEnv({ PATH: '/bin', CLAUDE_CONFIG_DIR: '/elsewhere' }, p, {});
+    expect(env.CLAUDE_CONFIG_DIR).toBe('/home/me/a/perso');
+    expect(env.PATH).toBe('/bin');
+  });
+
+  it('yields to a CLAUDE_CONFIG_DIR the profile\'s own env sets, and to nothing else', () => {
+    const p = parse([acct({ configDir: '~/a/perso' })]).profiles[1];
+    expect(buildSessionEnv({}, p, { CLAUDE_CONFIG_DIR: '/explicit' }).CLAUDE_CONFIG_DIR).toBe('/explicit');
+  });
+
+  it('leaves the login environment\'s CLAUDE_CONFIG_DIR alone for a profile without one', () => {
+    const p = parse([acct({})]).profiles[1];
+    expect(buildSessionEnv({ CLAUDE_CONFIG_DIR: '/elsewhere' }, p, {}).CLAUDE_CONFIG_DIR).toBe('/elsewhere');
+  });
+
+  it('does not reach the public shape', () => {
+    expect(JSON.stringify(publicProfile(parse([acct({ configDir: '~/a/perso' })]).profiles[1]))).not.toContain('perso/');
   });
 });

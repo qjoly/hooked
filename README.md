@@ -238,6 +238,12 @@ LM Studio. Profiles live in `profiles.json`, next to hooked's other data (`~/.cl
     "id": "work",
     "kind": "anthropic",
     "env": { "ANTHROPIC_API_KEY": { "fromEnv": "WORK_ANTHROPIC_KEY" } }
+  },
+  {
+    "id": "perso",
+    "label": "Personal account",
+    "kind": "anthropic",
+    "configDir": "~/.claude/hooked/accounts/perso"
   }
 ]
 ```
@@ -257,6 +263,15 @@ LM Studio. Profiles live in `profiles.json`, next to hooked's other data (`~/.cl
   nothing there). A session on a profile carries its name in its header. Over the API, it is the
   `profile` field of `POST /api/launch`; `GET /api/profiles` lists them (without their `env`) and
   reports the entries it had to skip. The file is read at every launch.
+- `configDir` (`anthropic` only) gives the profile its own Claude account: the session runs with that
+  `CLAUDE_CONFIG_DIR`, so it signs in separately and shows its own identity. hooked creates the
+  directory (private) and links into it what is not about who is signed in: `projects/` (so every
+  transcript lands where hooked reads), `settings.json` (so the hooks apply), `CLAUDE.md`, `skills/`,
+  `commands/`, `agents/` and `plugins/`. `.claude.json` (identity, user-scope MCP servers) and the
+  login stay the account's own. Anything already in the directory is left as it is.
+  On macOS the login is stored in a Keychain item named after a hash of the directory's path, so
+  that path must never change: it is kept absolute, without a trailing slash, and two profiles
+  cannot share one. Sign in with `CLAUDE_CONFIG_DIR=<dir> claude auth login`.
 - `contextWindow` (`compatible` only) is the context the server loads the model at. The CLI assumes
   200k for a model it does not know and would never compact before the server refuses the request;
   hooked hands it over as `CLAUDE_CODE_MAX_CONTEXT_TOKENS`, which also sizes the context gauge.
