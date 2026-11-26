@@ -45,6 +45,7 @@ export * from './skills.js';
 export * from './modules.js';
 export * from './trace.js';
 export * from './account.js';
+export * from './profiles.js';
 export * from './images.js';
 export * from './userFiles.js';
 export * from './screenshots.js';

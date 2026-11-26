@@ -14,6 +14,10 @@ const HOME = os.homedir();
 const PROJECTS_DIR = process.env.HOOKED_PROJECTS_DIR || path.join(HOME, '.claude', 'projects');
 const HOOKED_DIR = process.env.HOOKED_DATA_DIR || path.join(HOME, '.claude', 'hooked');
 const EVENTS_FILE = path.join(HOOKED_DIR, 'events.jsonl');
+// Connection profiles (cf. server/profiles.js): where a driven session sends its requests — the
+// Anthropic account to use, or an Anthropic-compatible server such as LM Studio. Absent = only the
+// implicit `default` profile, i.e. today's behaviour.
+const PROFILES_FILE = path.join(HOOKED_DIR, 'profiles.json');
 // journal des lancements faits par hooked (cwd, modèle, effort, worktree), pour l'historique.
 const LAUNCHES_FILE = path.join(HOOKED_DIR, 'launches.jsonl');
 // résolution persistée session_id (claude) → modèle/effort : garde l'effort et le modèle affichés
@@ -97,4 +101,4 @@ function readClaudeDefaults() {
   };
 }
 
-export { HOME, PROJECTS_DIR, HOOKED_DIR, EVENTS_FILE, LAUNCHES_FILE, SESSION_LAUNCH_FILE, DRIVEN_FILE, STATUS_DIR, SDK_COMMANDS_FILE, PR_GATE_BIN, CLAUDE_JSON, PI_AGENT_DIR, PI_SESSIONS_DIR, EVENTS_FILES, ROOT, PUBLIC_DIR, PORT, PERMISSION_MODES, LAUNCH_PERMISSION_MODES, isValidModelArg, readClaudeDefaults };
+export { HOME, PROJECTS_DIR, HOOKED_DIR, EVENTS_FILE, PROFILES_FILE, LAUNCHES_FILE, SESSION_LAUNCH_FILE, DRIVEN_FILE, STATUS_DIR, SDK_COMMANDS_FILE, PR_GATE_BIN, CLAUDE_JSON, PI_AGENT_DIR, PI_SESSIONS_DIR, EVENTS_FILES, ROOT, PUBLIC_DIR, PORT, PERMISSION_MODES, LAUNCH_PERMISSION_MODES, isValidModelArg, readClaudeDefaults };
