@@ -16,6 +16,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFile } from 'node:child_process';
 import { ROOT, HOOKED_DIR } from './config.js';
+import { sweepStaleTmpPacks } from './git.js';
 
 // Intervalle de la boucle fetch/ff-pull (ms). Surchargée par env pour ajuster à son réseau.
 const SYNC_INTERVAL = parseInt(process.env.HOOKED_GIT_SYNC_INTERVAL || '180000', 10) || 180000;
@@ -221,7 +222,14 @@ async function gitSyncTick(settings, root) {
   try {
     if (root === undefined) root = await resolveGitRoot();
     if (!root) return { skipped: 'no-repo' };
-    await git(root, ['fetch', '--prune']);
+    const fetch = await git(root, ['fetch', '--prune']);
+    if (fetch.failed) {
+      const packDir = await git(root, ['rev-parse', '--path-format=absolute', '--git-path', 'objects/pack']);
+      const swept = packDir.failed ? 0 : sweepStaleTmpPacks(packDir.stdout.trim());
+      const error = fetch.stderr.trim().split('\n').pop() || `exit ${fetch.code}`;
+      console.warn(`[hooked] git-sync: fetch failed: ${error}` + (swept ? ` (removed ${swept} stale tmp_pack)` : ''));
+      return { skipped: 'fetch-failed', error };
+    }
     const status = await getGitStatus(root);
     if (status.dirty) return { skipped: 'dirty' };          // fetch only, jamais pull
     if (!status.upstream) return { skipped: 'no-upstream' };

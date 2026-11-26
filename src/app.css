@@ -1739,6 +1739,9 @@ code.path { color: var(--muted); font-size: var(--t-micro); word-break: break-al
 .cb-copy:disabled { opacity: .6; cursor: progress; }
 .code-block pre { margin: 0; padding: 11px 13px; overflow-x: auto; background: var(--code-surface); font-size: var(--t-meta); line-height: 1.55; }
 .code-block code { font-family: var(--mono); color: #e6e6e6; }
+/* live output of a Run under the command: about 8 lines high, scrolls past that */
+.code-block pre.cb-log { max-height: calc(8 * 1.5em + 16px); overflow: auto; padding: 8px 13px; background: var(--code-head); border-top: 1px solid rgba(255,255,255,.07); font-family: var(--mono); font-size: var(--t-micro); line-height: 1.5; color: #cfc6b4; white-space: pre-wrap; word-break: break-word; }
+.code-block pre.cb-log.empty { color: #9a9081; font-style: italic; }
 
 /* diagramme Mermaid : en-tête façon bloc de code (cf. .cb-*), canvas au thème de la page */
 .mermaid-block { margin: 8px 0; border-radius: 10px; overflow: hidden; border: 1px solid var(--border2); box-shadow: var(--shadow-sm); background: var(--bg2); isolation: isolate; }

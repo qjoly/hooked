@@ -2340,19 +2340,12 @@ fn annotation(s: &Hooked, a: &Annotation, k: &Kit) -> El {
     // An outdated thread sits at the head of its file, so it shows the code it was about.
     if outdated && let Some(snippet) = t["snippet"].as_str().filter(|x| !x.is_empty()) {
         const SHOWN: usize = 12;
-        let mut code = col()
-            .w_full()
-            .px(8.0)
-            .py(4.0)
-            .radius(k.radius.sm)
-            .fill(k.c.bg_deep)
-            .border(1.0, k.c.border_weak);
+        let mut code = col().px(8.0).py(4.0);
         for l in snippet.lines().take(SHOWN) {
             code = code.child(
                 text(if l.is_empty() { " " } else { l }.to_string())
                     .font(k.ty.mono)
-                    .color(k.c.text_muted)
-                    .single_line(),
+                    .color(k.c.text_muted),
             );
         }
         let more = snippet.lines().count().saturating_sub(SHOWN);
@@ -2366,7 +2359,18 @@ fn annotation(s: &Hooked, a: &Annotation, k: &Kit) -> El {
                 .color(k.c.text_faint),
             );
         }
-        c = c.child(code);
+        // Code lines keep their width, as in the diff: a long one scrolls sideways inside the
+        // box (the web's `overflow-x: auto`) instead of running past the card's edge.
+        c = c.child(
+            col()
+                .w_full()
+                .min_w(0.0)
+                .radius(k.radius.sm)
+                .fill(k.c.bg_deep)
+                .border(1.0, k.c.border_weak)
+                .scroll_x()
+                .child(code),
+        );
     }
     if let Some((_, edit)) = s.lens_data.editing.as_ref().filter(|(e, _)| *e == tid) {
         return c

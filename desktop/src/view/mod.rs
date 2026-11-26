@@ -18,29 +18,25 @@ mod terminal;
 
 use std::collections::BTreeMap;
 
-use rune::{Color, Cursor, Cx, El, Icon, Phase, col, el, icon, row, text};
+use rune::{Color, Cursor, Cx, El, Icon, Phase, col, el, row, text};
 use rune_kit::shell::{Sidebar, SidebarSection};
 use rune_kit::{
     Button, ButtonVariant, ControlSize, IconButton, IconButtonVariant, Kit, Menu, MenuItem,
 };
 
+pub use hooked_ui::widgets::{glyph, pill, section_title};
+use hooked_ui::widgets::{
+    connection_dot, list_row, list_row_lines, list_row_subtitle, list_row_title,
+};
+
 use crate::api::Session;
 use crate::app::{Hooked, Page, Popup, Theme};
-use crate::knobs::get;
+use crate::coderun::CodeRun;
 use crate::sections::{Section, clock, section_of, snooze_presets, wake_label};
 use crate::{fmt, icons};
 
 pub const SIDEBAR_W: f32 = 300.0;
 
-crate::knobs::knobs! {
-    "Session row" at "sidebar-wrap" under "Sidebar";
-    SIDEBAR_ROW_PAD_Y = 6.0, 0.0..=20.0, "Padding top and bottom", step 0.5;
-    SIDEBAR_ROW_PAD_L = 10.0, 0.0..=32.0, "Padding left", step 0.5;
-    SIDEBAR_ROW_PAD_R = 8.0, 0.0..=32.0, "Padding right", step 0.5;
-    SIDEBAR_ROW_MIN_H = 0.0, 0.0..=80.0, "Min height (0: fits its lines)", step 1.0;
-    SIDEBAR_ROW_LINE_GAP = 2.0, 0.0..=12.0, "Gap between title and subtitle", step 0.5;
-    SIDEBAR_ROW_INDENT = 16.0, 0.0..=40.0, "Indent per group level", step 1.0;
-}
 pub const DOCK_W: f32 = 300.0;
 pub const RENDERED_W: f32 = 460.0;
 /// The Review lens's files rail and comments panel, until they are resized.
@@ -65,10 +61,6 @@ pub fn dot(k: &Kit, state: &str, size: f32) -> El {
         .fill(state_color(k, state))
 }
 
-pub fn glyph(i: &'static Icon, size: f32, c: Color) -> El {
-    icon(i, size).color(c)
-}
-
 pub fn small_icon_button(i: &'static Icon, help: &str, on: bool) -> IconButton {
     IconButton::new(i)
         .variant(if on {
@@ -81,8 +73,6 @@ pub fn small_icon_button(i: &'static Icon, help: &str, on: bool) -> IconButton {
         .help(help.to_string())
         .expanded(on)
 }
-
-pub const TOPBAR_H: f32 = 52.0;
 
 pub fn view(s: &Hooked, cx: &mut Cx<Hooked>) -> El {
     #[cfg(feature = "knobs")]
@@ -470,20 +460,15 @@ fn topbar(s: &Hooked, k: &Kit, inset: f32, layer: &mut Vec<El>) -> El {
         .on_press(|s: &mut Hooked| s.go_new(None))
         .build(k)
         .key("tb-new");
-    let live = el()
-        .key("tb-live")
-        .size(8.0, 8.0)
-        .radius(4.0)
-        .fill(if s.connected {
-            k.c.success.icon
-        } else {
-            k.c.danger.icon
-        })
-        .help(if s.connected {
+    let live = connection_dot(
+        k,
+        s.connected,
+        if s.connected {
             "Connected to hooked"
         } else {
             "hooked is unreachable on localhost:4123"
-        });
+        },
+    );
     // Pages picked in Settings → navigation are tabs; the others (and Incidents, once the
     // incident.io app is there) sit in a "More" menu, as on the web. The open page always shows
     // as a tab, so you can see where you are.
@@ -558,17 +543,7 @@ fn topbar(s: &Hooked, k: &Kit, inset: f32, layer: &mut Vec<El>) -> El {
         }
         menu.build(k, layer)
     });
-    row()
-        .key("topbar")
-        .w_full()
-        .h(TOPBAR_H)
-        .pl(inset.max(12.0) + 12.0)
-        .pr(12.0)
-        .gap(12.0)
-        .center_y()
-        .window_drag()
-        .fill(k.c.bg_deep)
-        .border_sides([0.0, 0.0, 1.0, 0.0], k.c.border_weak)
+    hooked_ui::widgets::topbar(k, inset)
         .child(
             row()
                 .key("tb-logo")
@@ -576,9 +551,7 @@ fn topbar(s: &Hooked, k: &Kit, inset: f32, layer: &mut Vec<El>) -> El {
                 .center_y()
                 .help("hooked")
                 .child(match s.logo.as_ref() {
-                    Some((_, imgs)) => el()
-                        .size(26.0, 26.0)
-                        .pixels(imgs[usize::from(k.dark)].pixels()),
+                    Some((_, imgs)) => hooked_ui::logo::mark(imgs, k.dark),
                     None => glyph(&icons::CIRCLE_DOT, 16.0, k.c.text_base),
                 }),
         )
@@ -850,12 +823,7 @@ fn session_row(
             .key("rename")
             .grow(1.0)
             .min_w(0.0),
-        None => text(label)
-            .font(k.ty.text_small_medium)
-            .color(k.c.text_base)
-            .truncate()
-            .grow(1.0)
-            .min_w(0.0),
+        None => list_row_title(k, label),
     };
     let mut line1 = row().grow(1.0).min_w(0.0).gap(6.0).center_y();
     if s.is_pinned(&x.id) {
@@ -992,25 +960,16 @@ fn session_row(
         Box::new(move |s| s.toggle_archive(&ar)),
     ));
     let trailing = resting;
-    let line2 = text(subtitle)
-        .font(k.ty.text_xsmall)
-        .color(k.c.text_faint)
-        .truncate()
-        .w_full();
     let tags = s.session_tags(&x.id);
-    let mut body = col()
-        .grow(1.0)
-        .min_w(0.0)
-        .gap(get(&SIDEBAR_ROW_LINE_GAP))
-        .child(
-            row()
-                .w_full()
-                .gap(8.0)
-                .center_y()
-                .child(line1)
-                .child(trailing),
-        )
-        .child(line2);
+    let mut body = list_row_lines(
+        row()
+            .w_full()
+            .gap(8.0)
+            .center_y()
+            .child(line1)
+            .child(trailing),
+        list_row_subtitle(k, subtitle),
+    );
     if x.remote.is_some() || !tags.is_empty() {
         // A remote session's instance badge leads the line: it is there even without a tag.
         body = body.child(
@@ -1025,27 +984,16 @@ fn session_row(
     }
     let menu_id = id.clone();
     let (open, rename) = (id.clone(), id.clone());
-    let mut r = row()
+    let mut r = list_row(k, depth)
         .key(format!("row-{}", x.id))
         .role("button")
         .checked(selected)
         .label(s.title_of(x))
-        .w_full()
-        .pl(get(&SIDEBAR_ROW_PAD_L) + f32::from(depth) * get(&SIDEBAR_ROW_INDENT))
-        .pr(get(&SIDEBAR_ROW_PAD_R))
-        .py(get(&SIDEBAR_ROW_PAD_Y))
-        .radius(k.radius.md)
-        .cursor(Cursor::Pointer)
-        .hover_group()
-        .hover_motion(rune::Anim::INSTANT, rune::Anim::INSTANT)
         .focusable(true)
         .focus_selected(selected)
         .opacity(if archived || wake.is_some() { 0.7 } else { 1.0 })
         .child(body)
         .child(actions.pin(None, Some(4.0), Some(6.0), None));
-    if get(&SIDEBAR_ROW_MIN_H) > 0.0 {
-        r = r.min_h(get(&SIDEBAR_ROW_MIN_H)).center_y();
-    }
     if selected {
         r = r.fill(k.c.pressed);
     }
@@ -1920,8 +1868,32 @@ pub(super) fn modal_scrim<S: 'static>(
         )
 }
 
-/// Markdown whose code blocks carry Copy, and Run for shell blocks of a session.
-pub fn md_code(src: impl Into<String>, k: &Kit, session: Option<String>) -> rune_kit::Markdown {
+/// A command's output, following its end as it grows (a background job's, a Run's).
+pub fn log_pane(k: &Kit, body: String, max_h: f32) -> El {
+    col()
+        .w_full()
+        .max_h(max_h)
+        .padding(8.0)
+        .radius(k.radius.sm)
+        .fill(k.c.layer_02)
+        .scroll(rune::ScrollSpec { stick_bottom: true })
+        .child(
+            text(body)
+                .font(k.ty.mono)
+                .color(k.c.text_muted)
+                .wrap_anywhere()
+                .selectable(true),
+        )
+}
+
+/// Markdown whose code blocks carry Copy, and Run for shell blocks of a session. `runs` are that
+/// session's Runs by command (`Hooked::code_runs_in`): a block that ran shows its output under it.
+pub fn md_code(
+    src: impl Into<String>,
+    k: &Kit,
+    session: Option<String>,
+    runs: BTreeMap<String, CodeRun>,
+) -> rune_kit::Markdown {
     let k = k.clone();
     let src: String = src.into();
     let doc: std::rc::Rc<str> = src.as_str().into();
@@ -1933,6 +1905,7 @@ pub fn md_code(src: impl Into<String>, k: &Kit, session: Option<String>) -> rune
             lang.to_lowercase().as_str(),
             "sh" | "bash" | "shell" | "zsh"
         );
+        let ran = runs.get(code.trim()).filter(|_| shell && !c.open).cloned();
         let mut bar = row()
             .w_full()
             .gap(4.0)
@@ -1948,12 +1921,25 @@ pub fn md_code(src: impl Into<String>, k: &Kit, session: Option<String>) -> rune
             .filter(|_| shell && !code.trim().is_empty() && !c.open)
         {
             let run = code.clone();
+            let (label, icon) = match &ran {
+                None => ("Run", &icons::TERMINAL),
+                Some(r) if r.busy => ("Running…", &icons::TERMINAL),
+                Some(r) if r.error.is_some() => ("Failed", &icons::CIRCLE_X),
+                Some(_) => ("Ran", &icons::CIRCLE_CHECK),
+            };
+            let help = ran
+                .as_ref()
+                .and_then(|r| r.error.clone())
+                .unwrap_or_else(|| {
+                    "Run in the session folder; the agent gets the output and continues".into()
+                });
             bar = bar.child(
-                Button::new("Run")
-                    .icon(&icons::TERMINAL)
+                Button::new(label)
+                    .icon(icon)
                     .variant(ButtonVariant::GhostMuted)
                     .control_size(ControlSize::Small)
-                    .help("Run in the session folder; the output goes to the conversation")
+                    .help(help)
+                    .disabled(ran.as_ref().is_some_and(|r| r.busy))
                     .on_press(move |s: &mut Hooked| s.run_code(id.clone(), run.clone()))
                     .build(&k),
             );
@@ -1991,12 +1977,24 @@ pub fn md_code(src: impl Into<String>, k: &Kit, session: Option<String>) -> rune
                 })
                 .build(&k),
         );
-        col()
+        let frame = col()
             .key(format!("code-{}", c.index))
             .w_full()
             .gap(2.0)
             .child(bar)
-            .child(card)
+            .child(card);
+        match ran.filter(|r| r.pane) {
+            Some(r) => {
+                let body = match (r.shown.is_empty(), r.busy) {
+                    (false, _) => r.shown,
+                    (true, true) => "waiting for output…".into(),
+                    (true, false) => "no output".into(),
+                };
+                // About eight lines, scrolling past that.
+                frame.child(log_pane(&k, body, 8.0 * k.ty.mono.line_height + 16.0))
+            }
+            None => frame,
+        }
     })
 }
 
@@ -2041,23 +2039,6 @@ pub fn remote_badge(k: &Kit, r: &crate::remote::Instance) -> El {
 /// The wash behind a remote session's row, card or header; stronger when it is the selected one.
 pub fn remote_wash(k: &Kit, strong: bool) -> Color {
     crate::theme::remote_color(k.dark).alpha(if strong { 0.22 } else { 0.08 })
-}
-
-pub fn pill(k: &Kit, label: impl Into<String>, fg: Color, bg: Color) -> El {
-    row()
-        .h(20.0)
-        .px(8.0)
-        .gap(5.0)
-        .center_y()
-        .radius(10.0)
-        .fill(bg)
-        .child(text(label.into()).font(k.ty.text_xsmall_medium).color(fg))
-}
-
-pub fn section_title(k: &Kit, label: &str) -> El {
-    text(label.to_string())
-        .font(k.ty.text_xsmall_medium)
-        .color(k.c.text_faint)
 }
 
 /// The narrowest a right-hand column (the dock, the Review lens's rendered Markdown) gets.

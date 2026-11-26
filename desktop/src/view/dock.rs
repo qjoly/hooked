@@ -1,3 +1,4 @@
+use hooked_ui::widgets::{StepState, step_glyph};
 use rune::{Color, Cursor, El, ScrollSpec, col, el, row, text};
 use rune_kit::{Button, ButtonVariant, ControlSize, Kit};
 use serde_json::Value;
@@ -138,11 +139,13 @@ fn tasks(s: &Hooked, d: &Detail, k: &Kit) -> El {
 /// One task as the dock's Tasks card and the conversation's TodoWrite chip draw it: the mark of its
 /// status, and its label (the running form while it is in progress).
 pub(super) fn todo_row(k: &Kit, t: &crate::api::Todo) -> El {
-    let (mark, color, strong) = match t.status.as_str() {
-        "completed" => (&icons::CIRCLE_CHECK, k.c.success.icon, false),
-        "in_progress" => (&icons::CIRCLE_DOT, k.c.info.icon, true),
-        _ => (&icons::CIRCLE, k.c.icon_faint, false),
+    let state = match t.status.as_str() {
+        "completed" => StepState::Done,
+        "in_progress" => StepState::Active,
+        _ => StepState::Pending,
     };
+    let (mark, color) = step_glyph(k, state);
+    let strong = state == StepState::Active;
     let label = if t.status == "in_progress" {
         t.active_form.clone().unwrap_or_else(|| t.content.clone())
     } else {
@@ -460,32 +463,17 @@ fn jobs(s: &Hooked, d: &Detail, k: &Kit) -> El {
         }
         c = c.child(r);
         if let Some((_, log)) = showing {
-            let tail: Vec<&str> = log.lines().rev().take(200).collect();
+            let tail = fmt::last_lines(log, 200);
             let body = if tail.is_empty() {
                 "waiting for output…".to_string()
             } else {
-                tail.into_iter().rev().collect::<Vec<_>>().join("\n")
+                tail
             };
             let mut block = col()
                 .key(format!("job-log-{task}"))
                 .w_full()
                 .gap(6.0)
-                .child(
-                    col()
-                        .w_full()
-                        .max_h(260.0)
-                        .padding(8.0)
-                        .radius(k.radius.sm)
-                        .fill(k.c.layer_02)
-                        .scroll(ScrollSpec { stick_bottom: true })
-                        .child(
-                            text(body)
-                                .font(k.ty.mono)
-                                .color(k.c.text_muted)
-                                .wrap_anywhere()
-                                .selectable(true),
-                        ),
-                );
+                .child(super::log_pane(k, body, 260.0));
             if !output.is_empty() {
                 block = block.child(
                     Button::new("Open the file")

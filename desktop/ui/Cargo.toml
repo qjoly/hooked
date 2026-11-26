@@ -1,0 +1,22 @@
+[package]
+name = "hooked-ui"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+# The look the desktop app (`desktop/`) and the launcher (`desktop/launcher/`) share.
+# A member of the `desktop/` workspace: Rune comes from its `[workspace.dependencies]`, pinned once in
+# desktop/Cargo.lock, and the root's `[patch.crates-io]` applies.
+[dependencies]
+rune = { workspace = true }
+rune-kit = { workspace = true }
+rune-knobs = { workspace = true }
+rune-register = { workspace = true, optional = true }
+serde = { version = "1", features = ["derive"] }
+
+[dev-dependencies]
+serde_json = "1"
+
+[features]
+# Registers the knobs declared here (theme, list rows) for the desktop app's ⌘⇧K panel.
+knobs = ["dep:rune-register"]

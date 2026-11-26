@@ -8,7 +8,7 @@ import { scanAllSessions } from './sessions.js';
 import path from 'node:path';
 import { execFile } from 'node:child_process';
 import { readSettings } from './settings.js';
-import { findGitConfig, worktreeOf } from './git.js';
+import { findGitConfig, worktreeOf, sweepStaleTmpPacks } from './git.js';
 import { isInsidePath } from './worktrees.js';
 
 const TICK_MS = 10 * 60_000;
@@ -61,7 +61,11 @@ async function pullCheckout(root, { liveCwds = [] } = {}) {
   if (!status.ok) return { ...skip('git status failed'), branch: branch.out };
   if (status.out) return { ...skip('local changes'), branch: branch.out };
   const fetch = await git(root, ['fetch', '--quiet', remote.out], FETCH_TIMEOUT);
-  if (!fetch.ok) return { path: root, branch: branch.out, result: 'failed', why: 'fetch: ' + fetch.err.split('\n').pop() };
+  if (!fetch.ok) {
+    const packDir = await git(root, ['rev-parse', '--path-format=absolute', '--git-path', 'objects/pack']);
+    if (packDir.ok) sweepStaleTmpPacks(packDir.out);
+    return { path: root, branch: branch.out, result: 'failed', why: 'fetch: ' + fetch.err.split('\n').pop() };
+  }
   const counts = await git(root, ['rev-list', '--left-right', '--count', '@{u}...HEAD']);
   const [behind, ahead] = counts.out.split(/\s+/).map((n) => parseInt(n, 10) || 0);
   if (ahead) return { ...skip('local commits'), branch: branch.out };

@@ -413,7 +413,7 @@ fn app_card(s: &Hooked, k: &Kit, v: &Value) -> El {
             s.theme == t,
             move |s: &mut Hooked| {
                 s.theme = t;
-                s.save_pref("theme", &t);
+                s.save_pref(crate::theme::PREF_THEME, &t);
             },
         )
     };

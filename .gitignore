@@ -5,6 +5,8 @@ node_modules/
 dist/
 .svelte-kit/
 build/
+build-next/
+build-prev/
 .claude
 .worktrees
 
