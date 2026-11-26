@@ -96,10 +96,7 @@ pub fn group_face<'a>(members: &[&'a Session]) -> &'a Session {
 }
 
 fn local(ms: i64) -> libc::tm {
-    let t = (ms / 1000) as libc::time_t;
-    let mut tm: libc::tm = unsafe { std::mem::zeroed() };
-    unsafe { libc::localtime_r(&t, &mut tm) };
-    tm
+    fmt::local_tm(ms / 1000)
 }
 
 fn at(base: i64, days: i32, hour: i32) -> i64 {
@@ -109,7 +106,7 @@ fn at(base: i64, days: i32, hour: i32) -> i64 {
     tm.tm_min = 0;
     tm.tm_sec = 0;
     tm.tm_isdst = -1;
-    unsafe { libc::mktime(&mut tm) as i64 * 1000 }
+    fmt::mktime(&mut tm) * 1000
 }
 
 pub fn snooze_presets(now: i64) -> Vec<(&'static str, i64)> {
@@ -278,7 +275,7 @@ mod tests {
         tm.tm_hour = h;
         tm.tm_min = mi;
         tm.tm_isdst = -1;
-        unsafe { libc::mktime(&mut tm) as i64 * 1000 }
+        fmt::mktime(&mut tm) * 1000
     }
 
     #[test]

@@ -3,6 +3,8 @@
 
 use std::collections::BTreeSet;
 
+use crate::fmt;
+
 pub struct Cron {
     minute: BTreeSet<i32>,
     hour: BTreeSet<i32>,
@@ -89,16 +91,9 @@ pub fn parse(expr: &str) -> Result<Cron, String> {
     })
 }
 
-fn local(secs: i64) -> libc::tm {
-    let t = secs as libc::time_t;
-    let mut tm: libc::tm = unsafe { std::mem::zeroed() };
-    unsafe { libc::localtime_r(&t, &mut tm) };
-    tm
-}
-
 fn normalize(tm: &mut libc::tm) -> i64 {
     tm.tm_isdst = -1;
-    unsafe { libc::mktime(tm) as i64 }
+    fmt::mktime(tm)
 }
 
 impl Cron {
@@ -114,7 +109,7 @@ impl Cron {
 
     /// The first matching minute after `from_ms`, as JavaScript's `nextRun` walks it.
     pub fn next(&self, from_ms: i64) -> Option<i64> {
-        let mut tm = local(from_ms.div_euclid(1000));
+        let mut tm = fmt::local_tm(from_ms.div_euclid(1000));
         tm.tm_sec = 0;
         tm.tm_min += 1;
         let mut t = normalize(&mut tm);
@@ -161,7 +156,7 @@ pub fn stamp(ms: i64) -> String {
     const MONTHS: [&str; 12] = [
         "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
     ];
-    let tm = local(ms.div_euclid(1000));
+    let tm = fmt::local_tm(ms.div_euclid(1000));
     format!(
         "{} {} {} {:02}:{:02}",
         DAYS[tm.tm_wday.clamp(0, 6) as usize],
@@ -193,7 +188,7 @@ mod tests {
         let runs = next_runs("30 9 * * *", 2, 0).unwrap();
         assert_eq!(runs.len(), 2);
         assert_eq!(runs[1] - runs[0], 86_400_000);
-        let tm = local(runs[0] / 1000);
+        let tm = fmt::local_tm(runs[0] / 1000);
         assert_eq!((tm.tm_hour, tm.tm_min), (9, 30));
     }
 }

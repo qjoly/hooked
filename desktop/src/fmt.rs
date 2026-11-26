@@ -51,6 +51,34 @@ pub fn shift_date(date: &str, delta: i64) -> Option<String> {
     Some(format!("{year:04}-{month:02}-{day:02}"))
 }
 
+pub fn local_tm(secs: i64) -> libc::tm {
+    let t = secs as libc::time_t;
+    let mut tm: libc::tm = unsafe { std::mem::zeroed() };
+    #[cfg(unix)]
+    unsafe {
+        libc::localtime_r(&t, &mut tm)
+    };
+    #[cfg(windows)]
+    unsafe {
+        libc::localtime_s(&mut tm, &t)
+    };
+    tm
+}
+
+pub fn mktime(tm: &mut libc::tm) -> i64 {
+    #[cfg(unix)]
+    let t = unsafe { libc::mktime(tm) as i64 };
+    // The CRT's `mktime` is an inline wrapper in <time.h>, so only `_mktime64` is exported.
+    #[cfg(windows)]
+    let t = {
+        unsafe extern "C" {
+            fn _mktime64(tm: *mut libc::tm) -> i64;
+        }
+        unsafe { _mktime64(tm) }
+    };
+    t
+}
+
 fn days_from_civil(y: i64, m: i64, d: i64) -> i64 {
     let y = if m <= 2 { y - 1 } else { y };
     let era = if y >= 0 { y } else { y - 399 } / 400;
