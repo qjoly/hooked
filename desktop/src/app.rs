@@ -232,7 +232,7 @@ pub struct Hooked {
     pub usage: Option<serde_json::Value>,
     pub logo: Option<([usize; 6], [rune::Image; 2])>,
     pub handle: Option<AppHandle<Hooked>>,
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", windows))]
     pub tray: Option<(crate::tray::native::TrayIcon, String)>,
     pub shortcuts: HashMap<&'static str, rune_kit::ShortcutRecorderState>,
     pub deck_plans: HashMap<String, (String, Option<String>)>,
@@ -548,7 +548,7 @@ impl Hooked {
             usage: None,
             logo: None,
             handle: None,
-            #[cfg(target_os = "macos")]
+            #[cfg(any(target_os = "macos", windows))]
             tray: None,
             shortcuts,
             deck_plans: HashMap::new(),

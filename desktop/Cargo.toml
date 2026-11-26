@@ -44,8 +44,11 @@ frame-profile = ["rune/frame-profile", "rune-kit/frame-profile"]
 # The ⌘⇧K tuning panel. Dev only: `cargo build --release` leaves it out.
 knobs = ["rune-knobs/panel", "dep:rune-register", "hooked-ui/knobs"]
 
-[target.'cfg(target_os = "macos")'.dependencies]
+[target.'cfg(any(target_os = "macos", windows))'.dependencies]
 tray-icon = "0.21"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
 
 # Rune builds these crates from its own patched copies, and Cargo does not inherit a dependency's
 # `[patch]`. Copy the `[patch.crates-io]` table of Rune's root Cargo.toml, at the commit Cargo.lock

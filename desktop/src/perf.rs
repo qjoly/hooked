@@ -33,9 +33,9 @@ pub fn dir() -> PathBuf {
     if let Some(d) = std::env::var_os("HOOKED_PERF_DIR") {
         return d.into();
     }
-    let home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_default();
     let leaf = if rune::is_headless() { "perf-headless" } else { "perf" };
-    home.join("Library/Application Support/dev.qjoly.hooked-rune").join(leaf)
+    rune::dirs::AppDirs::new(crate::theme::PREFS_ID)
+        .map_or_else(|| PathBuf::from(leaf), |d| d.data().join(leaf))
 }
 
 pub fn set_enabled(on: bool) {

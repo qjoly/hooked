@@ -4,11 +4,10 @@ use crate::app::{HANDLE, Hooked};
 /// from "nothing was posted": macOS keeps its own delivery log out of reach.
 fn journal(title: &str, body: &str, posted: bool) {
     use std::io::Write;
-    let Some(home) = std::env::var_os("HOME") else {
+    let Some(dirs) = rune::dirs::AppDirs::new(crate::theme::PREFS_ID) else {
         return;
     };
-    let path = std::path::Path::new(&home)
-        .join("Library/Application Support/dev.qjoly.hooked-rune/notifications.log");
+    let path = dirs.data().join("notifications.log");
     // Kept small: once past 64 KB it starts over.
     let fresh = std::fs::metadata(&path).is_ok_and(|m| m.len() > 64 * 1024);
     let file = std::fs::OpenOptions::new()
@@ -89,7 +88,7 @@ pub fn init_notifications() {
     });
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", windows))]
 pub mod native {
     pub use tray_icon::TrayIcon;
     use tray_icon::menu::{Menu, MenuEvent, MenuItem, PredefinedMenuItem};
@@ -107,7 +106,9 @@ pub mod native {
                 let ring = 1.0 - ((d - 13.0).abs() - 2.2).clamp(0.0, 1.0);
                 let dot = 1.0 - (d - 5.0).clamp(0.0, 1.0);
                 let a = ring.max(dot);
-                rgba[((y * N + x) * 4 + 3) as usize] = (a * 255.0) as u8;
+                // macOS reads only the alpha of a template icon; white shows on Windows' dark taskbar.
+                let i = ((y * N + x) * 4) as usize;
+                rgba[i..i + 4].copy_from_slice(&[255, 255, 255, (a * 255.0) as u8]);
             }
         }
         Icon::from_rgba(rgba, N, N).expect("tray glyph")
@@ -218,6 +219,6 @@ pub fn sync(s: &mut Hooked) {
         return;
     }
     s.tray_dirty = false;
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", windows))]
     native::sync(s);
 }
