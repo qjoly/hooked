@@ -9,6 +9,9 @@ pub enum Step {
     WaitTurns,
     Swap,
     Verify,
+    /// After the switch, outside `order` and the undo plan: it has nothing to undo, and its failure
+    /// leaves the service on the branch.
+    UpdateApp,
 }
 
 impl Step {
@@ -20,6 +23,7 @@ impl Step {
             Step::WaitTurns => "Wait for turns",
             Step::Swap => "Swap and restart",
             Step::Verify => "Verify",
+            Step::UpdateApp => "Update the desktop app",
         }
     }
 }
@@ -34,6 +38,13 @@ pub fn order(install_deps: bool) -> [Step; 6] {
     } else {
         [Fetch, Checkout, Build, WaitTurns, Swap, Verify]
     }
+}
+
+/// Whether `git worktree list --porcelain` shows `branch` checked out somewhere. Git refuses to check
+/// out a branch another worktree holds.
+pub fn checked_out(worktrees: &str, branch: &str) -> bool {
+    let line = format!("branch refs/heads/{branch}");
+    worktrees.lines().any(|l| l == line)
 }
 
 /// Where the build's output folder is set, so it lands in `build-next/` and not over the running
@@ -147,6 +158,16 @@ mod tests {
         assert_eq!(build_out("sveltekit({ adapter: adapter() })"), BuildOut::WrappedConfig);
         // No vite.config.js at all: the wrapper fails on its own, before writing anything.
         assert_eq!(build_out(""), BuildOut::WrappedConfig);
+    }
+
+    #[test]
+    fn finds_a_branch_held_by_a_worktree() {
+        let list = "worktree /repo\nHEAD 1\nbranch refs/heads/main\n\n\
+                    worktree /wt/x\nHEAD 2\nbranch refs/heads/feat/x\n\n\
+                    worktree /wt/y\nHEAD 3\ndetached\n";
+        assert!(checked_out(list, "feat/x"));
+        assert!(!checked_out(list, "feat"));
+        assert!(!checked_out(list, "feat/y"));
     }
 
     #[test]

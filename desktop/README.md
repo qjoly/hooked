@@ -15,6 +15,10 @@ mise run desktop       # build, install /Applications/hooked.app and relaunch it
 lags behind the checkout, so the new app never starts against a back end that lacks its endpoints.
 That restart cuts the turn of every driven session, the one running the task included.
 
+The launcher (`launcher/`) runs the same recipe (`scripts/install-app`) after it switches the
+service to a branch: it rebuilds and reinstalls the app from that branch, and reopens it only if it
+was running.
+
 Ghostty's terminal core (`libghostty-vt`) is built from source with Zig; the mise tasks pull Zig
 0.17.1 along with Rust.
 

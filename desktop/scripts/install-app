@@ -1,0 +1,89 @@
+#!/usr/bin/env bash
+# Builds the desktop app from desktop/ and installs it as /Applications/hooked.app. The app is
+# reopened if it was running, or always with --open.
+#
+# The one recipe behind `mise run desktop` and hooked-launcher. The launcher embeds this file and
+# feeds it on stdin (`bash -s`) in the branch's desktop/, so a branch that predates it still gets
+# the app installed. cargo (and Zig through it) come from the caller. macOS only.
+set -euo pipefail
+
+BUNDLE_ID=dev.qjoly.hooked-rune
+BUNDLE=target/hooked.app
+DEST=/Applications/hooked.app
+# Staged beside the destination, so the swap is two renames on one volume. No `.app` suffix: Launch
+# Services never sees them as apps.
+NEXT=/Applications/.hooked.next
+PREV=/Applications/.hooked.prev
+# The Rune app's previous install name, removed on install.
+OLD_NAME="/Applications/hooked (Rune).app"
+
+# An osascript error counts as "not running": it fails on an id it does not know. A desktop-run /
+# desktop-dev process started from source is neither seen here nor quit.
+running() { [ "$(osascript -e "application id \"$1\" is running" 2>/dev/null)" = true ]; }
+
+# At most 10 s: SECONDS, not a count of polls, since each osascript call takes time of its own.
+wait_quit() {
+  local deadline=$((SECONDS + 10))
+  while running "$BUNDLE_ID"; do
+    [ "$SECONDS" -lt "$deadline" ] || return 1
+    sleep 0.2
+  done
+}
+
+# Called inside an `if`, where set -e does not stop it: a failed rename puts the previous app back.
+swap() {
+  if [ -e "$DEST" ]; then mv "$DEST" "$PREV" 2>/dev/null || return 1; fi
+  mv "$NEXT" "$DEST" 2>/dev/null && return 0
+  [ -e "$PREV" ] && mv "$PREV" "$DEST" 2>/dev/null
+  return 1
+}
+
+build_bundle() {
+  cargo build --release
+  rm -rf "$BUNDLE"
+  mkdir -p "$BUNDLE/Contents/MacOS" "$BUNDLE/Contents/Resources"
+  cp target/release/hooked-rune "$BUNDLE/Contents/MacOS/"
+  cp Info.plist "$BUNDLE/Contents/"
+  cp icons/icon.icns "$BUNDLE/Contents/Resources/"
+  # Sign the bundle (ad hoc) so the binary carries the bundle id. The linker's own signature names
+  # it "hooked_rune-<hash>", and macOS then ignores the Local Network permission granted to
+  # dev.qjoly.hooked-rune: every connection to a LAN address fails with "No route to host".
+  codesign --force --sign - "$BUNDLE"
+}
+
+main() {
+  local open=false
+  case "${1:-}" in
+    --open) open=true ;;
+    "") ;;
+    *) echo "usage: install-app [--open]" >&2; exit 2 ;;
+  esac
+  if ! grep -q '^name = "hooked-rune"$' Cargo.toml 2>/dev/null; then
+    echo "this branch has no Rune desktop app" >&2
+    exit 1
+  fi
+
+  rm -rf "$NEXT" "$PREV"
+  build_bundle
+  ditto "$BUNDLE" "$NEXT"
+
+  # Up to here nothing installed or running was touched. From the quit to the reopen, nothing may
+  # stop the script or print: a launcher closed meanwhile would kill a script writing to it.
+  local was_running=false
+  if running "$BUNDLE_ID"; then was_running=true; fi
+  # The old Tauri app, if it is still around.
+  osascript -e 'quit app id "dev.qjoly.hooked"' >/dev/null 2>&1 || true
+  osascript -e 'with timeout of 5 seconds' -e "quit app id \"$BUNDLE_ID\"" -e 'end timeout' >/dev/null 2>&1 || true
+  # Waiting matters: `open` on an app still quitting brings the old process back.
+  local ok=false
+  if wait_quit && swap; then ok=true; fi
+  if [ "$open" = true ] || [ "$was_running" = true ]; then open "$DEST" >/dev/null 2>&1 || true; fi
+  if [ -e "$DEST" ]; then rm -rf "$PREV" 2>/dev/null || true; fi
+  rm -rf "$NEXT" "$OLD_NAME" 2>/dev/null || true
+  if [ "$ok" != true ]; then
+    echo "the app did not quit within 10 s, or /Applications refused the change (System Settings → Privacy & Security → Automation / App Management)" >&2
+    exit 1
+  fi
+}
+
+main "$@"

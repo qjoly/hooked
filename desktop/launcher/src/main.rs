@@ -23,7 +23,7 @@ use crate::runner::{Control, Event};
 
 static HANDLE: OnceLock<AppHandle<State>> = OnceLock::new();
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Status {
     Pending,
     Running,
@@ -40,19 +40,88 @@ pub struct Failure {
     pub undo_log: String,
 }
 
+pub struct AppFailure {
+    pub error: String,
+    pub log: String,
+}
+
 pub struct Run {
     pub branch: String,
     pub steps: Vec<(Step, Status)>,
     /// Sessions mid-turn, while waiting for them.
     pub busy: Option<usize>,
     pub failure: Option<Failure>,
+    /// The desktop app was not updated. Not a `failure`: the service runs the branch.
+    pub app_failure: Option<AppFailure>,
     pub switched: bool,
     pub control: Arc<Control>,
 }
 
+fn plan(order: [Step; 6], app: bool) -> Vec<(Step, Status)> {
+    order.into_iter().chain(app.then_some(Step::UpdateApp)).map(|s| (s, Status::Pending)).collect()
+}
+
 impl Run {
+    fn new(branch: String, app: bool, control: Arc<Control>) -> Self {
+        Run {
+            branch,
+            steps: plan(flow::order(false), app),
+            busy: None,
+            failure: None,
+            app_failure: None,
+            switched: false,
+            control,
+        }
+    }
+
     pub fn finished(&self) -> bool {
         self.switched || self.failure.as_ref().is_some_and(|f| f.undone.is_some())
+    }
+
+    /// The service runs the branch, while the desktop app may still be updating.
+    pub fn verified(&self) -> bool {
+        self.status(Step::Verify) == Some(Status::Done)
+    }
+
+    fn status(&self, step: Step) -> Option<Status> {
+        self.steps.iter().find(|(s, _)| *s == step).map(|x| x.1)
+    }
+
+    fn apply(&mut self, ev: Event) {
+        match ev {
+            Event::Order(order) => {
+                let app = self.status(Step::UpdateApp).is_some();
+                let steps = plan(order, app)
+                    .into_iter()
+                    .map(|(s, pending)| (s, self.status(s).unwrap_or(pending)))
+                    .collect();
+                self.steps = steps;
+            }
+            Event::Start(step) => self.set(step, Status::Running),
+            Event::Done(step) => {
+                self.set(step, Status::Done);
+                if step == Step::WaitTurns {
+                    self.busy = None;
+                }
+            }
+            Event::Busy(n) => self.busy = Some(n),
+            Event::Failed { step, error, log } => {
+                self.set(step, Status::Failed);
+                self.busy = None;
+                self.failure = Some(Failure { step, error, log, undone: None, undo_log: String::new() });
+            }
+            Event::Undone(result, undo_log) => {
+                if let Some(f) = self.failure.as_mut() {
+                    f.undone = Some(result);
+                    f.undo_log = undo_log;
+                }
+            }
+            Event::AppFailed { error, log } => {
+                self.set(Step::UpdateApp, Status::Failed);
+                self.app_failure = Some(AppFailure { error, log });
+            }
+            Event::Switched => self.switched = true,
+        }
     }
 
     fn set(&mut self, step: Step, status: Status) {
@@ -131,48 +200,18 @@ impl State {
             return;
         }
         let control = Arc::new(Control::default());
-        self.run = Some(Run {
-            branch: branch.clone(),
-            steps: flow::order(false).into_iter().map(|s| (s, Status::Pending)).collect(),
-            busy: None,
-            failure: None,
-            switched: false,
-            control: control.clone(),
-        });
+        // Read once: the run's step list and the runner agree on it until the end.
+        let app = sys::desktop_app_installed();
+        self.run = Some(Run::new(branch.clone(), app, control.clone()));
         let repo = self.repo.clone();
         background(move || {
-            runner::switch(&repo, &branch, &control, &|ev| update(move |s| s.apply(ev)));
+            runner::switch(&repo, &branch, app, &control, &|ev| update(move |s| s.apply(ev)));
         });
     }
 
     fn apply(&mut self, ev: Event) {
         let Some(run) = self.run.as_mut() else { return };
-        match ev {
-            Event::Order(order) => {
-                let status = |step| run.steps.iter().find(|(s, _)| *s == step).map_or(Status::Pending, |x| x.1);
-                run.steps = order.into_iter().map(|s| (s, status(s))).collect();
-            }
-            Event::Start(step) => run.set(step, Status::Running),
-            Event::Done(step) => {
-                run.set(step, Status::Done);
-                if step == Step::WaitTurns {
-                    run.busy = None;
-                }
-            }
-            Event::Busy(n) => run.busy = Some(n),
-            Event::Failed { step, error, log } => {
-                run.set(step, Status::Failed);
-                run.busy = None;
-                run.failure = Some(Failure { step, error, log, undone: None, undo_log: String::new() });
-            }
-            Event::Undone(result, undo_log) => {
-                if let Some(f) = run.failure.as_mut() {
-                    f.undone = Some(result);
-                    f.undo_log = undo_log;
-                }
-            }
-            Event::Switched => run.switched = true,
-        }
+        run.apply(ev);
         if run.finished() {
             self.refresh();
         }
@@ -242,4 +281,48 @@ fn main() {
     let app = rune::App::new(spec).standard_menus().chrome(widgets::chrome());
     let _ = HANDLE.set(app.handle());
     app.run();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn run_with_app() -> Run {
+        Run::new("feat/x".into(), true, Arc::new(Control::default()))
+    }
+
+    #[test]
+    fn an_app_failure_finishes_the_run_without_failing_the_switch() {
+        let mut run = run_with_app();
+        for step in flow::order(false) {
+            run.apply(Event::Start(step));
+            run.apply(Event::Done(step));
+        }
+        assert!(run.verified());
+        run.apply(Event::Start(Step::UpdateApp));
+        assert!(!run.finished());
+        run.apply(Event::AppFailed { error: "cargo failed".into(), log: "error[E0308]".into() });
+        run.apply(Event::Switched);
+        assert!(run.finished());
+        assert!(run.failure.is_none());
+        assert_eq!(run.app_failure.as_ref().map(|f| f.error.as_str()), Some("cargo failed"));
+        assert_eq!(run.status(Step::UpdateApp), Some(Status::Failed));
+    }
+
+    #[test]
+    fn a_new_order_keeps_the_app_step_last() {
+        let mut run = run_with_app();
+        run.apply(Event::Done(Step::Fetch));
+        run.apply(Event::Order(flow::order(true)));
+        assert_eq!(run.steps.last(), Some(&(Step::UpdateApp, Status::Pending)));
+        assert_eq!(run.steps.len(), 7);
+        assert_eq!(run.status(Step::Fetch), Some(Status::Done));
+    }
+
+    #[test]
+    fn no_app_step_when_the_app_is_not_installed() {
+        let mut run = Run::new("feat/x".into(), false, Arc::new(Control::default()));
+        run.apply(Event::Order(flow::order(true)));
+        assert_eq!(run.status(Step::UpdateApp), None);
+    }
 }

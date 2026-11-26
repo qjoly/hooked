@@ -20,6 +20,8 @@
   <string>1</string>
   <key>LSMinimumSystemVersion</key>
   <string>11.0</string>
+  <key>NSAppleEventsUsageDescription</key>
+  <string>Quits and reopens the hooked desktop app to update it.</string>
   <key>NSHighResolutionCapable</key>
   <true/>
 </dict>

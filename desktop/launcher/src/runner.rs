@@ -7,7 +7,7 @@ use std::time::Duration;
 
 use crate::branches::{self, Branch, Running};
 use crate::flow::{self, BuildOut, Changes, Step, Undo};
-use crate::sys::{self, NPM_DEPS};
+use crate::sys::{self, INSTALL_APP, NPM_DEPS};
 
 /// Vite config for branches whose vite.config.js predates HOOKED_BUILD_OUT (see the file).
 const WRAPPED_CONFIG: &str = include_str!("build-out.vite.config.mjs");
@@ -26,6 +26,9 @@ pub enum Event {
     Failed { step: Step, error: String, log: String },
     /// Ok: the checkout and the service are as they were. Err: what is left to fix by hand.
     Undone(Result<(), String>, String),
+    /// The service runs the branch; only the desktop app was not updated.
+    AppFailed { error: String, log: String },
+    /// The run is over: the service runs the branch, and the desktop app step, if any, has ended.
     Switched,
 }
 
@@ -35,7 +38,8 @@ struct Start {
     commit: String,
 }
 
-pub fn switch(repo: &Path, branch: &str, ctl: &Control, report: &dyn Fn(Event)) {
+/// `app`: whether the desktop app is updated once the service runs the branch.
+pub fn switch(repo: &Path, branch: &str, app: bool, ctl: &Control, report: &dyn Fn(Event)) {
     let start = match read_start(repo) {
         Ok(s) => s,
         Err(error) => {
@@ -60,6 +64,7 @@ pub fn switch(repo: &Path, branch: &str, ctl: &Control, report: &dyn Fn(Event)) 
             Step::WaitTurns => wait_turns(ctl, report),
             Step::Swap => swap(repo, &mut changes, &mut log),
             Step::Verify => verify(),
+            Step::UpdateApp => unreachable!("not part of flow::order"),
         };
         if let Err(error) = r {
             report(Event::Failed { step, error, log });
@@ -73,6 +78,16 @@ pub fn switch(repo: &Path, branch: &str, ctl: &Control, report: &dyn Fn(Event)) 
             report(Event::Order(order));
         }
         i += 1;
+    }
+    // After the loop, so an app failure cannot reach the undo path, and after Verify, so the new app
+    // reads the new back end's capabilities when it starts.
+    if app {
+        report(Event::Start(Step::UpdateApp));
+        let mut log = String::new();
+        match update_app(repo, &mut log) {
+            Ok(()) => report(Event::Done(Step::UpdateApp)),
+            Err(error) => report(Event::AppFailed { error, log }),
+        }
     }
     report(Event::Switched);
 }
@@ -99,6 +114,13 @@ fn checkout(repo: &Path, branch: &str, changes: &mut Changes, log: &mut String) 
     changes.checkout = true;
     let local = format!("refs/heads/{branch}");
     let remote = format!("origin/{branch}");
+    let here = sys::query(repo, &["symbolic-ref", "--quiet", "--short", "HEAD"]).unwrap_or_default();
+    if here.trim() != branch && flow::checked_out(&sys::query(repo, &["worktree", "list", "--porcelain"])?, branch) {
+        // Held by a worktree: the service runs the pushed tip, detached. Sharing the branch
+        // (`--ignore-other-worktrees`) would let the fast-forward move the HEAD of that worktree
+        // under its files.
+        return sys::git(log, repo, &["checkout", "--detach", &remote]).map(drop);
+    }
     if sys::query(repo, &["rev-parse", "--verify", "--quiet", &local]).is_ok() {
         sys::git(log, repo, &["checkout", branch])?;
     } else {
@@ -194,6 +216,26 @@ fn verify() -> Result<(), String> {
     } else {
         Err(format!("hooked did not answer on {} within 60 s", sys::base_url()))
     }
+}
+
+fn update_app(repo: &Path, log: &mut String) -> Result<(), String> {
+    let desktop = repo.join("desktop");
+    // Branches older than any desktop/ folder; the script says the same for those whose desktop/ is
+    // not the Rune app.
+    if !desktop.is_dir() {
+        return Err("this branch has no Rune desktop app".into());
+    }
+    // `mise x` in desktop/ brings the branch's own toolchain (desktop/mise.toml: Rust, Zig).
+    sys::run(log, &desktop, &["mise", "x", "--", "bash", "-s"], &[], Some(INSTALL_APP))
+        .map(drop)
+        // The output's last line (cargo's error, the script's own message) says more than the
+        // exit status; mise's generic trailer after a failed install is skipped.
+        .map_err(|e| {
+            log.lines()
+                .rev()
+                .find(|l| !l.trim().is_empty() && !l.starts_with("mise ERROR Version") && !l.starts_with("mise ERROR Run with"))
+                .map_or(e, str::to_string)
+        })
 }
 
 fn undo(repo: &Path, start: &Start, changes: Changes) -> (Result<(), String>, String) {
