@@ -6,7 +6,7 @@ import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { slugify, uniqueProfileId, addAccountProfile, addServerProfile, normalizeServerUrl } from '../server/profilesFile.js';
+import { slugify, uniqueProfileId, addAccountProfile, addServerProfile, normalizeServerUrl, parseServerUrl } from '../server/profilesFile.js';
 import { loadProfiles } from '../server/profiles.js';
 
 const setup = (content) => {
@@ -155,8 +155,40 @@ describe('normalizeServerUrl', () => {
   it('drops a query and a fragment', () => {
     expect(normalizeServerUrl('http://h:1/p?key=SECRET#f')).toBe('http://h:1/p');
   });
-  it.each([[''], ['nope'], ['ftp://h'], ['file:///etc/passwd'], ['http://user:pw@h:1'], [null], [undefined], [5]])('refuses %j', (v) => {
+  it.each([[''], ['ftp://h'], ['file:///etc/passwd'], ['http://user:pw@h:1'], [null], [undefined], ['http://'], ['://x'], ['a b c']])('refuses %j', (v) => {
     expect(normalizeServerUrl(v)).toBeNull();
+  });
+
+  it('takes an address typed without a scheme as http://, which is what a local server is', () => {
+    expect(normalizeServerUrl('mew.net.lilian-arago.com:1234')).toBe('http://mew.net.lilian-arago.com:1234');
+    expect(normalizeServerUrl('mew:1234')).toBe('http://mew:1234');
+    expect(normalizeServerUrl('localhost:1234/v1')).toBe('http://localhost:1234');
+    expect(normalizeServerUrl('192.168.1.50:1234')).toBe('http://192.168.1.50:1234');
+    expect(normalizeServerUrl('lm.example.com')).toBe('http://lm.example.com');
+  });
+
+  it('keeps https, and a scheme in any case', () => {
+    expect(normalizeServerUrl('https://lm.example.com')).toBe('https://lm.example.com');
+    expect(normalizeServerUrl('HTTP://Mew:1234')).toBe('http://mew:1234');
+  });
+});
+
+describe('parseServerUrl — what is said when it is refused', () => {
+  const err = (v) => parseServerUrl(v).error;
+  it('asks for an address when there is none', () => {
+    for (const v of ['', '   ', null, undefined]) expect(err(v)).toMatch(/Enter the server's address/);
+  });
+  it('names the real problem, never "http(s) URL without credentials" for something else', () => {
+    expect(err('ftp://h')).toBe('Only http:// and https:// addresses are supported.');
+    expect(err('file:///etc/passwd')).toBe('Only http:// and https:// addresses are supported.');
+    expect(err('http://user:pw@h:1')).toMatch(/Remove the user name and password.*Token field/);
+    expect(err('a b c')).toMatch(/does not look like an address/);
+  });
+  it('quotes what was typed, so a typo can be spotted', () => {
+    expect(err('a b c')).toContain('“a b c”');
+  });
+  it('gives the URL when it is fine, and no error', () => {
+    expect(parseServerUrl('mew:1234')).toEqual({ url: 'http://mew:1234' });
   });
 });
 
@@ -214,8 +246,8 @@ describe('addServerProfile', () => {
 
   it.each([
     ['no name', '  ', lm(), /name is required/],
-    ['no address', 'LM', {}, /http\(s\) URL/],
-    ['an address with credentials', 'LM', lm({ url: 'http://u:p@h:1' }), /without credentials/],
+    ['no address', 'LM', {}, /Enter the server's address/],
+    ['an address with credentials', 'LM', lm({ url: 'http://u:p@h:1' }), /Remove the user name and password/],
     ['a context window that is not a number', 'LM', lm({ contextWindow: 'big' }), /contextWindow/],
     ['a context window that is too small', 'LM', lm({ contextWindow: 100 }), /contextWindow/],
     ['an invalid model id', 'LM', lm({ models: ['a b'] }), /invalid model id/],

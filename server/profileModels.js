@@ -13,7 +13,7 @@
  * Node stdlib only; `fetchImpl` is injectable for the tests.
  */
 import { resolveProfileEnv, isValidModelId } from './profiles.js';
-import { normalizeServerUrl } from './profilesFile.js';
+import { parseServerUrl } from './profilesFile.js';
 
 const TIMEOUT_MS = 4000;
 
@@ -61,8 +61,9 @@ export async function fetchProfileModels(profile, loginEnv, { fetchImpl = fetch,
  * → { baseUrl, models, error? }; never throws.
  */
 export async function probeServer(url, token, opts = {}) {
-  const baseUrl = normalizeServerUrl(url);
-  if (!baseUrl) return { baseUrl: null, models: [], error: 'the address must be an http(s) URL without credentials, e.g. http://127.0.0.1:1234' };
+  const addr = parseServerUrl(url);
+  if (addr.error) return { baseUrl: null, models: [], error: addr.error };
+  const baseUrl = addr.url;
   const env = { ANTHROPIC_BASE_URL: baseUrl };
   if (typeof token === 'string' && token.trim()) env.ANTHROPIC_AUTH_TOKEN = token.trim();
   const r = await fetchProfileModels({ id: 'probe', kind: 'compatible', env }, {}, opts);

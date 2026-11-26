@@ -350,7 +350,7 @@
         <button class="btn" onclick={testServer} disabled={!srv.url.trim() || probe?.loading}>{probe?.loading ? 'Testing…' : 'Test'}</button>
         {#if probe && !probe.loading}
           {#if probe.error}<span class="warn">{probe.error}</span>
-          {:else}<span class="sub">{probe.models.length} model{probe.models.length === 1 ? '' : 's'} found</span>{/if}
+          {:else}<span class="sub">{probe.models.length} model{probe.models.length === 1 ? '' : 's'} found at <code>{probe.baseUrl}</code></span>{/if}
         {/if}
       </div>
       {#if probe?.models?.length}

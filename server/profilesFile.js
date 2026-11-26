@@ -119,14 +119,28 @@ export function addAccountProfile(label, { file = PROFILES_FILE, accountsRoot = 
 
 // What a user pastes for a server's address, as the base URL the CLI wants: http(s) only, no
 // credentials, query or fragment, no trailing slash, and without the `/v1` an OpenAI-style URL ends
-// with (the CLI adds its own path, and hooked asks `<base>/v1/models`). null when it is not one.
-export function normalizeServerUrl(input) {
+// with (the CLI adds its own path, and hooked asks `<base>/v1/models`). An address typed without a
+// scheme (`mew:1234`, `192.168.1.5:1234`) is taken as http://, which is what a local server is: left
+// to `new URL`, `mew:1234` reads as the scheme "mew:" and fails with a message about something else.
+// → { url } or { error } where the error says what is wrong with what was typed.
+export function parseServerUrl(input) {
+  const typed = String(input == null ? '' : input).trim();
+  if (!typed) return { error: 'Enter the server\'s address, e.g. http://127.0.0.1:1234' };
+  const hasScheme = /^[a-z][a-z0-9+.-]*:\/\//i.test(typed);
   let u;
-  try { u = new URL(String(input || '').trim()); } catch (_) { return null; }
-  if (u.protocol !== 'http:' && u.protocol !== 'https:') return null;
-  if (u.username || u.password) return null;
+  try { u = new URL(hasScheme ? typed : 'http://' + typed); } catch (_) {
+    return { error: `“${typed}” does not look like an address. Example: http://127.0.0.1:1234` };
+  }
+  if (u.protocol !== 'http:' && u.protocol !== 'https:') return { error: 'Only http:// and https:// addresses are supported.' };
+  if (!u.hostname) return { error: `“${typed}” has no host name. Example: http://127.0.0.1:1234` };
+  if (u.username || u.password) return { error: 'Remove the user name and password from the address: the token goes in the Token field.' };
   const pathname = u.pathname.replace(/\/+$/, '').replace(/\/v1$/, '');
-  return u.origin + pathname;
+  return { url: u.origin + pathname };
+}
+
+// The same, for the callers that only need the URL: null when it is not usable.
+export function normalizeServerUrl(input) {
+  return parseServerUrl(input).url || null;
 }
 
 const DEFAULT_SERVER_TOKEN = 'lmstudio'; // LM Studio asks for none; the CLI wants something
@@ -140,8 +154,9 @@ const DEFAULT_SERVER_TOKEN = 'lmstudio'; // LM Studio asks for none; the CLI wan
 export function addServerProfile(label, opts = {}, { file = PROFILES_FILE } = {}) {
   const n = checkName(label);
   if (n.error) return n;
-  const base = normalizeServerUrl(opts.url);
-  if (!base) return { error: 'the address must be an http(s) URL without credentials, e.g. http://127.0.0.1:1234' };
+  const addr = parseServerUrl(opts.url);
+  if (addr.error) return { error: addr.error };
+  const base = addr.url;
   const token = typeof opts.token === 'string' && opts.token.trim() ? opts.token.trim() : DEFAULT_SERVER_TOKEN;
   const r = readRaw(file);
   if (r.error) return r;

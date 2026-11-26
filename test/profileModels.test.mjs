@@ -104,14 +104,23 @@ describe('probeServer', () => {
     expect(headers.Authorization).toBeUndefined();
   });
 
-  it('refuses an address that is not usable, without any request', async () => {
+  it('refuses an address that is not usable, saying why, without any request', async () => {
     let called = false;
-    for (const url of ['', 'nope', 'file:///etc/passwd', 'http://u:p@h:1']) {
+    const cases = [['', /Enter the server's address/], ['file:///etc/passwd', /Only http/], ['http://u:p@h:1', /Remove the user name/]];
+    for (const [url, message] of cases) {
       const r = await probeServer(url, '', { fetchImpl: async () => { called = true; } });
       expect(r.baseUrl).toBeNull();
-      expect(r.error).toMatch(/http\(s\) URL/);
+      expect(r.error).toMatch(message);
     }
     expect(called).toBe(false);
+  });
+
+  it('takes an address without a scheme as http://, and says which address it asked', async () => {
+    let seen = null;
+    const r = await probeServer('mew.net.lilian-arago.com:1234', '', { fetchImpl: async (url) => { seen = url; return reply({ data: [{ id: 'qwen/a' }] })(); } });
+    expect(seen).toBe('http://mew.net.lilian-arago.com:1234/v1/models');
+    expect(r.baseUrl).toBe('http://mew.net.lilian-arago.com:1234');
+    expect(r.models).toHaveLength(1);
   });
 
   it('says why a server did not answer, never throwing', async () => {
