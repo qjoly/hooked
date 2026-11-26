@@ -4,6 +4,9 @@ hooked drives agents through **providers**. A provider is configuration: what th
 and launches. Each provider names an **engine**, which is code: what spawns the agent, talks to it,
 and reads its sessions back.
 
+To add one (a model, an agent or a bridge), start with the guide:
+[adding-a-provider.md](adding-a-provider.md). This page is the reference.
+
 ```mermaid
 flowchart LR
   subgraph config["settings.json → providers"]
@@ -86,7 +89,7 @@ setting hides it from the launch pickers, not from the history.
 
 | Field | Applies to | Meaning |
 |---|---|---|
-| `enabled` | all | `auto` / `on` / `off` |
+| `enabled` | all | `auto` / `on` / `off` (shown as **Hidden** in the settings). `off` takes the provider out of the launch pickers; its existing sessions stay listed and still resume (after a restart, Resume, fork) |
 | `engine` | custom | engine id: `pi`, `acp`, or an external engine. Built-ins cannot change engine |
 | `label`, `short`, `color`, `description` | all | how the provider shows: name, badge (≤ 4 chars), `#hex` colour, picker tooltip |
 | `command`, `args` | pi, acp, external | binary and extra arguments (pi: defaults to the resolved `pi`; acp: required) |

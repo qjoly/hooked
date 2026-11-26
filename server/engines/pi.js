@@ -32,7 +32,7 @@ const piEngine = {
     permissions: false, questions: false, plan: false, modes: false, autoApprove: false,
     models: true, effort: true, resume: true, fork: true, forkAtMessage: true,
     worktree: true, ephemeral: false, images: false,
-    todos: false, subagents: false, backgroundJobs: false, workflows: false, screenshots: false, subSessions: false,
+    todos: false, subagents: false, backgroundJobs: false, workflows: false, screenshots: true, subSessions: false,
     trace: true, search: true, trash: true, rateLimits: false, promptCache: true, commands: true, skills: true,
     mcp: true, mcpLogin: false, memory: false, plugins: false, remoteControl: false, account: false,
   },

@@ -9,7 +9,7 @@
  * transcripts sans uuid laissent simplement ce champ à undefined (fork indisponible).
  */
 import fs from 'node:fs';
-import { chatText, toolDetail, toolDiffOps, toolInputText, toolResultText, toolSendFiles, toolShowWork } from './util.js';
+import { chatText, toolDetail, toolDiffOps, toolInputText, toolResultText, toolSendFiles, toolShowWork, toolTodos } from './util.js';
 import { transcriptRows } from './transcriptCache.js';
 
 // Plafond par message dans la charge utile de la conversation : une session porte des centaines
@@ -217,7 +217,8 @@ function buildConversation(fp, includeSidechain) {
           const ask = b.name === 'AskUserQuestion' && Array.isArray(b.input?.questions) ? b.input.questions : null;
           // `send` carries the files delivered by SendUserFile (like `diff`/`ask`, on the part) so
           // the chip renders image thumbnails / open-file links instead of raw JSON.
-          parts.push({ type: 'tool', tool, diff: toolDiffOps(b.name, b.input, b.id ? writeOriginals.get(b.id) : null), ask, send: toolSendFiles(b.name, b.input, j.cwd), show: toolShowWork(b.name, b.input, j.cwd) });
+          // `todos`: a TodoWrite's list, rendered as a checklist (like `ask`, on the part only).
+          parts.push({ type: 'tool', tool, diff: toolDiffOps(b.name, b.input, b.id ? writeOriginals.get(b.id) : null), ask, send: toolSendFiles(b.name, b.input, j.cwd), show: toolShowWork(b.name, b.input, j.cwd), todos: toolTodos(b.name, b.input) });
         }
       }
       text = text.trim();

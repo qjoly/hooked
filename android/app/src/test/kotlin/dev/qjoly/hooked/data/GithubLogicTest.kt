@@ -33,9 +33,9 @@ class GithubLogicTest {
     )
 
     @Test fun `the filter scopes by repo prefix and needs every other word`() {
-        val x = j("""{"repo":"LuccaSA/Infra.Charts","title":"ARC stall alert"}""")
+        val x = j("""{"repo":"acme/Infra.Charts","title":"ARC stall alert"}""")
         assertTrue(ghKeep("", x))
-        assertTrue(ghKeep("luccasa/ stall", x))
+        assertTrue(ghKeep("acme/ stall", x))
         assertTrue(ghKeep("charts", x))
         assertFalse(ghKeep("gitbluub/ stall", x))
         assertFalse(ghKeep("stall pprof", x))

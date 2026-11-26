@@ -14,6 +14,7 @@ and controls in the dashboard as a Claude session.
 | Workflows | `Workflow` | `Workflow`: the same script API (`agent`, `parallel`, `pipeline`, `phase`, `log`, `args`, schemas), each agent a subagent as above; no resume, no worktree isolation |
 | Web pages | `WebFetch` | `WebFetch`, same parameters: the page as text (no small-model summary), asks in the normal mode |
 | Web search | `WebSearch` | `WebSearch`, same parameters: one headless, traceless `claude -p` on Haiku with only WebSearch (the user's Claude login), asks in the normal mode |
+| Follow-up suggestion | `prompt_suggestion` (the next prompt, offered in the composer and on the Deck) | after each turn, one headless `claude -p` on Haiku predicts it from the last exchange (pi's headless mode without a claude binary); `HOOKED_PI_FOLLOWUPS=0` turns it off (`server/piFollowup.js`) |
 | Background commands | `Bash run_in_background`, `BashOutput`, `KillShell` | `BashBackground`, `BashOutput`, `KillShell`; the end of a command wakes the agent with a `<task-notification>`, and the dock lists the jobs |
 | Permission cards | `canUseTool` | `tool_call` gate |
 | Modes, auto-approve | SDK `setPermissionMode` | `/hooked-mode`, `/hooked-auto-approve` commands |
@@ -104,6 +105,8 @@ re-import of the conversation into a fresh Claude Code session.
 
 ## Claude through pi-claude-bridge
 
+To write another bridge, see the checklist in [adding-a-provider.md](adding-a-provider.md#bridge-checklist).
+
 [pi-claude-bridge](https://www.npmjs.com/package/pi-claude-bridge) registers Claude Code as a pi
 model provider (`claude-bridge/*`): pi drives the conversation, and each turn runs through the
 Agent SDK on the user's own Claude login. The **Claude through pi-claude-bridge** template in
@@ -118,6 +121,8 @@ Settings → Providers sets it up for one provider only:
 }
 ```
 
+`capabilities: { account: true }` says the provider runs on the Claude account, so the header keeps
+the 5h / 7d gauges and the Claude spaces even when the `claude` provider is off.
 `-e npm:…@<version>` loads the bridge for this provider's sessions (pi caches it, and a pinned
 version is never re-checked). The model picker lists the bridge's models because the catalogue
 runs `pi --list-models` with the provider's `-e` extensions.

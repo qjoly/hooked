@@ -257,16 +257,16 @@ describe('pi-migrate: claude.ai connectors', () => {
   it('keeps the usable connectors, names them, and carries them over when they are not listed', async () => {
     const { claudeConnectors } = await import('../scripts/pi-migrate.mjs');
     const out = [
-      'claude.ai Documentation Prisme: https://zh.example/mcp/k - ✔ Connected',
+      'claude.ai Design Docs: https://docs.example/mcp/k - ✔ Connected',
       'claude.ai Linear: https://linear.example/mcp - ✔ Connected',
       'claude.ai Gmail: https://gmail.example/mcp - ✔ Connected',
       'claude.ai Claude Docs: https://api.anthropic.com/v1/pages/mcp - ✔ Connected',
       'claude.ai Notion: https://notion.example/mcp - ! Needs authentication',
       'claude.ai Slack: https://slack.example/mcp - ✔ Connected',
     ].join('\n');
-    const access = { 'https://zh.example/mcp/k': { access: 'open' }, 'https://linear.example/mcp': { access: 'oauth' }, 'https://gmail.example/mcp': { access: 'closed', why: 'pre-registered only' }, 'https://slack.example/mcp': { access: 'oauth' } };
+    const access = { 'https://docs.example/mcp/k': { access: 'open' }, 'https://linear.example/mcp': { access: 'oauth' }, 'https://gmail.example/mcp': { access: 'closed', why: 'pre-registered only' }, 'https://slack.example/mcp': { access: 'oauth' } };
     const conn = await claudeConnectors({ list: async () => out, probe: async (u) => access[u], taken: new Set(['slack']) });
-    expect(conn.servers).toEqual({ 'documentation-prisme': { url: 'https://zh.example/mcp/k' }, linear: { url: 'https://linear.example/mcp' }, 'claudeai-slack': { url: 'https://slack.example/mcp' } });
+    expect(conn.servers).toEqual({ 'design-docs': { url: 'https://docs.example/mcp/k' }, linear: { url: 'https://linear.example/mcp' }, 'claudeai-slack': { url: 'https://slack.example/mcp' } });
     expect(conn.report.filter((r) => r.action === 'skipped').map((r) => r.name)).toEqual(['Gmail', 'Claude Docs', 'Notion']);
 
     const { claudeDir, agentDir } = setup('conn', { claudeMd: '# A\n' });
@@ -274,14 +274,14 @@ describe('pi-migrate: claude.ai connectors', () => {
     fs.writeFileSync(claudeJson, JSON.stringify({ mcpServers: { slack: { command: 'slack-mcp' } } }));
     const r = migrate({ claudeDir, agentDir, claudeJson, connectors: conn });
     const by = Object.fromEntries(r.mcp.changes.map((c) => [c.name, c]));
-    expect(by['documentation-prisme']).toMatchObject({ action: 'added', login: false }); // open: no sign-in
+    expect(by['design-docs']).toMatchObject({ action: 'added', login: false }); // open: no sign-in
     expect(by.linear).toMatchObject({ action: 'added', login: true });
     // a run where the connectors could not be listed keeps them
     const later = migrate({ claudeDir, agentDir, claudeJson, connectors: { servers: {}, report: [], listed: false } });
     expect(later.mcp.status).toBe('unchanged');
-    expect(Object.keys(JSON.parse(fs.readFileSync(path.join(agentDir, 'mcp.json'), 'utf8')).mcpServers).sort()).toEqual(['claudeai-slack', 'documentation-prisme', 'linear', 'slack']);
+    expect(Object.keys(JSON.parse(fs.readFileSync(path.join(agentDir, 'mcp.json'), 'utf8')).mcpServers).sort()).toEqual(['claudeai-slack', 'design-docs', 'linear', 'slack']);
     // a listing where Linear is gone removes its copy
-    const gone = migrate({ claudeDir, agentDir, claudeJson, connectors: { ...conn, servers: { 'documentation-prisme': conn.servers['documentation-prisme'] } } });
+    const gone = migrate({ claudeDir, agentDir, claudeJson, connectors: { ...conn, servers: { 'design-docs': conn.servers['design-docs'] } } });
     expect(gone.mcp.changes.find((c) => c.name === 'linear')).toMatchObject({ action: 'removed' });
   });
 });

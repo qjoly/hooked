@@ -76,6 +76,18 @@ function toolInputText(input) {
   } catch (_) { return ''; }
 }
 
+// The todo list of a TodoWrite call (Claude Code's, and the TodoWrite of hooked's pi package, which
+// keeps its schema), normalised for the conversation's checklist: [{ content, status, activeForm }],
+// or null for any other tool. The whole input, never truncated like toolInputText.
+function toolTodos(name, input) {
+  if (name !== 'TodoWrite' || !input || !Array.isArray(input.todos)) return null;
+  return input.todos.filter((x) => x && typeof x === 'object').map((x) => ({
+    content: String(x.content || ''),
+    status: x.status === 'completed' || x.status === 'in_progress' ? x.status : 'pending',
+    activeForm: String(x.activeForm || ''),
+  }));
+}
+
 // Diff payload for a file-mutating tool_use (Write/Edit/MultiEdit/NotebookEdit), rendered as a
 // collapsible Pierre diff in the conversation. Returns null for any other tool.
 // Same op shape as server/changes.js (kind + content/old/new/all), but carried on `parts`
@@ -151,4 +163,4 @@ function toolShowWork(toolName, input, cwd) {
   };
 }
 
-export { readdirSafe, statSafe, textOf, cleanPrompt, truncTitle, chatText, toolDetail, toolResultText, toolInputText, toolDiffOps, toolSendFiles, toolShowWork, SHOW_TOOLS };
+export { readdirSafe, statSafe, textOf, cleanPrompt, truncTitle, chatText, toolDetail, toolResultText, toolInputText, toolDiffOps, toolSendFiles, toolShowWork, SHOW_TOOLS, toolTodos };

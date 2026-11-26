@@ -425,6 +425,14 @@ impl Providers {
         self.list.iter().any(|p| p.id == id && p.enabled)
     }
 
+    /// The Claude account (5h / 7d quotas, account page, memory, 5 h window) is in use: the claude
+    /// provider is enabled, or an enabled provider declares the `account` capability (Claude
+    /// through pi-claude-bridge runs on the same subscription, with the claude provider off).
+    pub fn claude_account(&self) -> bool {
+        self.claude
+            || self.list.iter().any(|p| p.enabled && p.capabilities.get("account").copied().unwrap_or(false))
+    }
+
     /// Descriptor of `id` (fallback when the server did not describe it).
     pub fn info(&self, id: &str) -> ProviderInfo {
         self.list.iter().find(|p| p.id == id).cloned().unwrap_or_else(|| ProviderInfo::fallback(id))
@@ -571,9 +579,30 @@ pub struct Tool {
     pub show: Option<Value>,
     #[serde(skip)]
     pub diff: Option<Value>,
+    /// The list of a TodoWrite call (Claude Code's or hooked's pi package's), drawn as a checklist.
+    #[serde(skip)]
+    pub todos: Option<Vec<Todo>>,
+    /// The questions of an AskUserQuestion call, drawn read-only with the options picked.
+    #[serde(skip)]
+    pub ask: Option<Vec<Question>>,
 }
 
 impl Tool {
+    /// The answers of an AskUserQuestion, read from its result: Claude Code and hooked's pi package
+    /// both write `"<question>"="<answer>"` pairs, a multi-select answer being comma-joined.
+    pub fn ask_answers(&self) -> Vec<String> {
+        let Some(r) = self.result_text() else { return Vec::new() };
+        let mut out = Vec::new();
+        let mut rest = r.as_str();
+        while let Some(i) = rest.find("=\"") {
+            rest = &rest[i + 2..];
+            let Some(end) = rest.find('"') else { break };
+            out.push(rest[..end].to_string());
+            rest = &rest[end + 1..];
+        }
+        out
+    }
+
     pub fn result_text(&self) -> Option<String> {
         match &self.result {
             None | Some(Value::Null) => None,
@@ -601,6 +630,8 @@ struct RawPart {
     send: Option<Value>,
     show: Option<Value>,
     diff: Option<Value>,
+    todos: Option<Vec<Todo>>,
+    ask: Option<Vec<Question>>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, PartialEq)]
@@ -640,6 +671,8 @@ impl Message {
                         .diff
                         .clone()
                         .filter(|d| d["ops"].as_array().is_some_and(|o| !o.is_empty()));
+                    t.todos = p.todos.clone().filter(|v| !v.is_empty());
+                    t.ask = p.ask.clone().filter(|v| !v.is_empty());
                     Part::Tool(t)
                 }),
                 _ => None,
@@ -1521,6 +1554,60 @@ mod tests {
     }
 
     #[test]
+    fn a_todowrite_part_carries_its_list() {
+        let m: Message = serde_json::from_value(json!({
+            "role": "assistant", "text": "", "parts": [
+                { "type": "tool", "tool": { "name": "TodoWrite", "inputText": "{…}" },
+                  "todos": [
+                    { "content": "Run tests", "status": "completed", "activeForm": "Running tests" },
+                    { "content": "Ship", "status": "in_progress", "activeForm": "Shipping" }
+                  ] },
+                { "type": "tool", "tool": { "name": "TodoWrite" }, "todos": [] },
+                { "type": "tool", "tool": { "name": "bash", "detail": "ls" }, "todos": null }
+            ]
+        }))
+        .unwrap();
+        let parts = m.render_parts();
+        let todos = |i: usize| match &parts[i] {
+            Part::Tool(t) => t.todos.clone(),
+            _ => panic!("not a tool"),
+        };
+        let list = todos(0).expect("the list");
+        assert_eq!(list.len(), 2);
+        assert_eq!(list[1].status, "in_progress");
+        assert_eq!(list[1].active_form.as_deref(), Some("Shipping"));
+        // an empty list or another tool: the usual chip
+        assert!(todos(1).is_none() && todos(2).is_none());
+    }
+
+    #[test]
+    fn an_askuserquestion_part_carries_its_questions_and_answers() {
+        let m: Message = serde_json::from_value(json!({
+            "role": "assistant", "text": "", "parts": [
+                { "type": "tool",
+                  "tool": { "name": "AskUserQuestion",
+                            "result": "User has answered your questions: \"Which db?\"=\"SQLite\", \"Extras?\"=\"Cache, Logs\". You can now continue." },
+                  "ask": [
+                    { "question": "Which db?", "header": "DB", "options": [{ "label": "Postgres" }, { "label": "SQLite", "description": "file based" }] },
+                    { "question": "Extras?", "multiSelect": true, "options": [{ "label": "Cache" }, { "label": "Logs" }, { "label": "Metrics" }] }
+                  ] },
+                { "type": "tool", "tool": { "name": "bash" }, "ask": null }
+            ]
+        }))
+        .unwrap();
+        let parts = m.render_parts();
+        let Part::Tool(t) = &parts[0] else { panic!("not a tool") };
+        let qs = t.ask.as_ref().expect("the questions");
+        assert_eq!(qs.len(), 2);
+        assert_eq!(qs[0].header.as_deref(), Some("DB"));
+        assert!(qs[1].multi_select);
+        assert_eq!(qs[0].options[1].description.as_deref(), Some("file based"));
+        assert_eq!(t.ask_answers(), ["SQLite", "Cache, Logs"]);
+        let Part::Tool(b) = &parts[1] else { panic!("not a tool") };
+        assert!(b.ask.is_none() && b.ask_answers().is_empty());
+    }
+
+    #[test]
     fn title_skips_the_server_placeholder() {
         let s: Session = serde_json::from_value(
             json!({ "id": "a", "title": "(sans titre)", "lastPrompt": "do it" }),
@@ -1601,6 +1688,28 @@ mod tests {
         assert!(!pi_only.both());
         assert_eq!(pi_only.only().as_deref(), Some("pi"));
         assert!(!none.both() && none.only().is_none());
+    }
+
+    #[test]
+    fn claude_account_follows_the_account_capability() {
+        let wire = |cb_enabled: bool| -> Providers {
+            let p: SessionsPayload = serde_json::from_value(json!({
+                "sessions": [],
+                "providers": { "claude": false, "pi": true, "claude-bridge": cb_enabled },
+                "providerList": [
+                    { "id": "claude", "engine": "claude", "label": "Claude", "short": "cc", "capabilities": { "account": true } },
+                    { "id": "pi", "engine": "pi", "label": "Pi", "short": "pi" },
+                    { "id": "claude-bridge", "engine": "pi", "label": "Claude (pi)", "short": "cb", "capabilities": { "account": true } }
+                ]
+            }))
+            .unwrap();
+            Providers::from_wire(&p.providers.unwrap(), p.provider_list)
+        };
+        // claude off, Claude through pi on: the account is still in use
+        assert!(!wire(true).claude && wire(true).claude_account());
+        // nothing on the Claude account
+        assert!(!wire(false).claude_account());
+        assert!(Providers::pair(true, false).claude_account());
     }
 
     #[test]

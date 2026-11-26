@@ -23,6 +23,10 @@ import { providerEnv, modelMatches } from './providerConfig.js';
 import { piCatalog } from './piCatalog.js';
 import { PI_SESSIONS_DIR } from './config.js';
 import { hookedPiPackage, hookedPackageEnabled, hookedPackageEnv, handleUiRequest } from './piHooked.js';
+import { suggestFollowup } from './piFollowup.js';
+
+// Follow-up suggestions at the end of a turn (server/piFollowup.js); HOOKED_PI_FOLLOWUPS=0 turns them off.
+const followupsOn = () => process.env.HOOKED_PI_FOLLOWUPS !== '0';
 
 const err400 = (msg) => Object.assign(new Error(msg), { code: 400 });
 
@@ -219,7 +223,7 @@ function handleEvent(st, rec) {
       const m = rec.message;
       if (m && m.role === 'assistant') {
         const text = Array.isArray(m.content) ? m.content.filter((b) => b?.type === 'text').map((b) => b.text).join('\n') : '';
-        if (text) st.lastProse = text.slice(-4000);
+        if (text) { st.lastProse = text.slice(-4000); st._followupReply = st.lastProse; }
         if (m.usage && (m.usage.totalTokens || m.usage.input)) {
           st.lastUsage = {
             ts: new Date().toISOString(),
@@ -255,11 +259,18 @@ function handleEvent(st, rec) {
       if (!st.pendingAsk) st.sdkState = 'idle';
       dirty = true;
       if (typeof st.onTurnEnd === 'function') { try { st.onTurnEnd(); } catch (_) {} }
+      // A real turn ran (not an extension command or a compaction): suggest what comes next, as
+      // Claude Code's prompt_suggestion does on the Claude path.
+      if (st._turnRan) {
+        st._turnRan = false;
+        if (!st.pendingAsk && followupsOn()) suggestFollowup(st).catch(() => {});
+      }
       break;
     }
     case 'turn_start': {
       st.stream = { text: '', thinking: '', tool: null, types: {} }; // nouveau tour : reset preview
       st.lastRequestAt = Date.now(); // a turn opens with a model request: the prompt-cache clock
+      st._turnRan = true;
       st.busy = true;
       if (!st.pendingAsk) st.sdkState = 'running';
       dirty = true;
@@ -457,6 +468,10 @@ function autoNamePiSession(st, prompt) {
 function piPrompt(st, text) {
   const client = st.pi;
   if (!client) return Promise.reject(err400('pi session not started'));
+  // A new prompt: the suggestion on screen and any being computed are stale.
+  st._followupSeq = (st._followupSeq || 0) + 1;
+  st.followup = null;
+  st._followupUser = String(text || '').slice(-4000);
   // A turn is running when the preview buffer exists (turn_start → agent_settled).
   const running = !!st.stream;
   st.busy = true;

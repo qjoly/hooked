@@ -131,21 +131,27 @@ fn tasks(s: &Hooked, d: &Detail, k: &Kit) -> El {
             .collect()
     };
     for t in shown {
-        let state = match t.status.as_str() {
-            "completed" => StepState::Done,
-            "in_progress" => StepState::Active,
-            _ => StepState::Pending,
-        };
-        let (mark, color) = step_glyph(k, state);
-        let strong = state == StepState::Active;
-        let label = if t.status == "in_progress" {
-            t.active_form.clone().unwrap_or_else(|| t.content.clone())
-        } else {
-            t.content.clone()
-        };
-        c = c.child(item(k, mark, color, label, strong));
+        c = c.child(todo_row(k, t));
     }
     c
+}
+
+/// One task as the dock's Tasks card and the conversation's TodoWrite chip draw it: the mark of its
+/// status, and its label (the running form while it is in progress).
+pub(super) fn todo_row(k: &Kit, t: &crate::api::Todo) -> El {
+    let state = match t.status.as_str() {
+        "completed" => StepState::Done,
+        "in_progress" => StepState::Active,
+        _ => StepState::Pending,
+    };
+    let (mark, color) = step_glyph(k, state);
+    let strong = state == StepState::Active;
+    let label = if t.status == "in_progress" {
+        t.active_form.clone().unwrap_or_else(|| t.content.clone())
+    } else {
+        t.content.clone()
+    };
+    item(k, mark, color, label, strong)
 }
 
 fn changes(s: &Hooked, d: &Detail, k: &Kit) -> El {

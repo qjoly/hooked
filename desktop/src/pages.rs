@@ -1525,9 +1525,9 @@ mod gh_tests {
 
     #[test]
     fn github_filter_scopes_and_matches() {
-        let x = json!({ "repo": "LuccaSA/Infra.Charts", "title": "ARC stall alert" });
+        let x = json!({ "repo": "acme/Infra.Charts", "title": "ARC stall alert" });
         assert!(gh_keep("", &x));
-        assert!(gh_keep("luccasa/ stall", &x));
+        assert!(gh_keep("acme/ stall", &x));
         assert!(gh_keep("charts", &x));
         assert!(!gh_keep("gitbluub/ stall", &x));
         assert!(!gh_keep("stall pprof", &x));
