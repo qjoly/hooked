@@ -1241,7 +1241,9 @@ function runInteractiveCommand(id, command, cb) {
   }).catch((e) => cb(new Error('failed to open an interactive terminal: ' + ((e && e.message) || e))));
 }
 
-function runLocalCommand(id, command, cb, { respond = false } = {}) {
+// `onOutput` receives the output as it is produced (ANSI stripped), for the Run button's live log;
+// the callback still only fires once the command has exited.
+function runLocalCommand(id, command, cb, { respond = false, onOutput = null } = {}) {
   const st = agentSession(id);
   if (!st) return cb(err400('no live agent session for this id'));
   if (!command) return cb(err400('command required'));
@@ -1254,7 +1256,13 @@ function runLocalCommand(id, command, cb, { respond = false } = {}) {
       env: { ...withoutServerEnv(process.env), ...env },
     });
     const timer = setTimeout(() => { if (!done) { try { child.kill('SIGKILL'); } catch (_) {} } }, LOCAL_CMD_TIMEOUT);
-    const grab = (chunk) => { if (out.length < LOCAL_CMD_MAX_OUTPUT) out += String(chunk); };
+    const grab = (chunk) => {
+      if (out.length < LOCAL_CMD_MAX_OUTPUT) out += chunk;
+      if (onOutput) onOutput(stripAnsi(chunk));
+    };
+    // Decoded per stream: a multi-byte character split across two chunks stays whole.
+    child.stdout.setEncoding('utf8');
+    child.stderr.setEncoding('utf8');
     child.stdout.on('data', grab);
     child.stderr.on('data', grab);   // fusionnés : c'est ce qu'on lit dans un terminal
     child.on('error', (e) => {
@@ -1314,7 +1322,7 @@ function markReplied(st) {
   st.dropNextSuggestion = false; // a real turn: its suggestion is wanted again
 }
 
-function pushReply(st, id, text, cb, { respond = false } = {}) {
+function pushReply(st, id, text, cb, { respond = false, onOutput = null } = {}) {
   const parts = (Array.isArray(text) ? text : [text])
     .map((s) => (typeof s === 'string' ? s.trim() : ''))
     .filter(Boolean);
@@ -1334,7 +1342,7 @@ function pushReply(st, id, text, cb, { respond = false } = {}) {
     if (bang) {
       return bang.interactive
         ? runInteractiveCommand(id, bang.command, cb)
-        : runLocalCommand(id, bang.command, cb, { respond });
+        : runLocalCommand(id, bang.command, cb, { respond, onOutput });
     }
   }
   for (const p of parts) {

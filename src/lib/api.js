@@ -196,7 +196,28 @@ export const upgradeClaude = () => jpost('/api/claude', { action: 'upgrade' });
 // Redémarre une session (kill + `claude --resume <id>`) pour qu'elle reparte sur la version installée.
 export const restartClaudeSession = (id) => jpost('/api/claude', { action: 'restart', id });
 
-export const reply = (id, text, { respond = false } = {}) => jpost('/api/reply', { id, text, ...(respond ? { respond } : {}) });
+export const reply = (id, text) => jpost('/api/reply', { id, text });
+// Run on a shell block Claude proposed: `onOutput` receives the output while the command runs.
+// Resolves like jpost once it has exited (cf. /api/run-command for the NDJSON it reads).
+export async function runCommand(id, command, onOutput) {
+  const r = await fetch('/api/run-command', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id, command }) });
+  if (!r.ok || !r.body) return { ok: false, status: r.status, data: await r.json().catch(() => ({})) };
+  const reader = r.body.pipeThrough(new TextDecoderStream()).getReader();
+  let pending = '';
+  let end = null;
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    const lines = (pending + value).split('\n');
+    pending = lines.pop();
+    for (const line of lines.filter(Boolean)) {
+      const ev = JSON.parse(line);
+      if (ev.done) end = ev;
+      else onOutput(ev.output);
+    }
+  }
+  return end ? { ok: end.ok, status: r.status, data: end } : { ok: false, status: r.status, data: { error: 'connection lost before the command ended' } };
+}
 // Réponse à un AskUserQuestion : on transmet les indices sélectionnés par question
 // ([{ multi, indices }]) ; le serveur pilote le TUI au clavier plutôt que de taper les labels.
 // `note` (optionnel) : annotations libres envoyées en message de suivi après la sélection cochée.

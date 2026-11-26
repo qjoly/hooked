@@ -2,10 +2,10 @@
   import { copyText } from '#lib/clipboard.js';
   import Icon from '#lib/components/Icon.svelte';
   import { highlight, langLabel } from '#lib/highlight.js';
-  import { reply } from '#lib/api.js';
-  import { fenceQuery, agentName } from '#lib/format.js';
+  import { runCommand } from '#lib/api.js';
+  import { fenceQuery, agentName, liveLogText } from '#lib/format.js';
   import { floating } from '#lib/floating.svelte.js';
-  import { getContext } from 'svelte';
+  import { getContext, tick } from 'svelte';
 
   let { code = '', lang = '', meta = {} } = $props();
 
@@ -25,10 +25,32 @@
   const runnable = $derived(!!session && /^(sh|bash|shell|zsh)$/i.test(lang) && !!code.trim());
   let run = $state(''); // '' | 'busy' | 'done' | error message
 
+  // Output of the last Run, streamed while the command runs and kept once it ends. null hides the
+  // pane: nothing ran yet, the request failed before running anything, or the session's own agent
+  // ran the command (pi does `!command` itself, its output lands in the thread).
+  const LOG_MAX_CHARS = 64000;
+  let log = $state(null);
+  let logEl = $state();
+  let stick = true;   // follow the output until the user scrolls up to read
+
   async function runIt() {
     run = 'busy';
-    const r = await reply(session, '!' + code.trim(), { respond: true });
+    log = '';
+    stick = true;
+    const r = await runCommand(session, code.trim(), (text) => {
+      log = (log + text).slice(-LOG_MAX_CHARS);
+      followLog();
+    }).catch((e) => ({ ok: false, data: { error: e.message } }));
     run = r.ok ? 'done' : (r.data?.error || `HTTP ${r.status}`);
+    if (!r.data?.localCommand && !log) log = null;
+  }
+
+  async function followLog() {
+    await tick();
+    if (stick && logEl) logEl.scrollTop = logEl.scrollHeight;
+  }
+  function onLogScroll() {
+    stick = logEl.scrollHeight - logEl.scrollTop - logEl.clientHeight < 20;
   }
 
   const isQuery = $derived(/^(promql|logql)$/i.test(lang));
@@ -63,4 +85,8 @@
     </div>
   </div>
   <pre><code>{@html html}</code></pre>
+  {#if log !== null}
+    {@const text = liveLogText(log)}
+    <pre class="cb-log" class:empty={!text} bind:this={logEl} onscroll={onLogScroll}>{text || (run === 'busy' ? 'waiting for output…' : 'no output')}</pre>
+  {/if}
 </div>
