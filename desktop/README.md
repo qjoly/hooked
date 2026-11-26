@@ -140,7 +140,7 @@ connection dot, list rows, step marks) live in the `hooked-ui` crate (`ui/`), wh
   scrolls to its block),
   and the full diff of a truncated change.
 - **Outside the window**: a menu bar item with the waiting count and sessions; closing the window
-  keeps the app running; ⌘⇧H (`HOOKED_QUICK_SHORTCUT` overrides it) opens a quick-reply panel on
+  keeps the app running; ⌘⇧H (Ctrl+Shift+H on Windows; `HOOKED_QUICK_SHORTCUT` overrides it) opens a quick-reply panel on
   the sessions waiting on you; system notifications when one starts waiting (bundled app only).
 - **Back to the latest message**: an arrow at the bottom right of the conversation, there only
   while it is scrolled away from its end.
@@ -166,9 +166,13 @@ connection dot, list rows, step marks) live in the `hooked-ui` crate (`ui/`), wh
   from the text selection). Occurrences of the selection change colour rather than getting a
   background: the view takes no background for part of a line, so they go through the syntax
   highlighter.
-- Windows: the build has not been run on a Windows machine yet. Labels still read ⌘, the session
-  paths the service reports are WSL's (open in editor), and the incident.io binary is looked up
-  at its macOS paths only.
+- Windows: the build has not been run on a Windows machine yet. Chords are spelled with Ctrl, Shift
+  and Alt there (`mod` is Ctrl; the quick-reply panel is Ctrl+Shift+H), and in a terminal only
+  Ctrl+Shift chords belong to the app (Ctrl+Shift+F searches, Ctrl+Shift+C and Ctrl+Shift+V copy
+  and paste; Ctrl+C copies a selection and otherwise stays the shell's ^C, Ctrl+V pastes). The tray
+  has no title there, so a red dot on its icon stands for the waiting count and a faded icon for an
+  unreachable service. The session paths the service reports are WSL's (open in editor), and the
+  incident.io binary is looked up at its macOS paths only.
 
 ## Terminal: what is still missing
 

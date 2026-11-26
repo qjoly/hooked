@@ -264,9 +264,9 @@ fn head(s: &Hooked, d: &Detail, k: &Kit, layer: &mut Vec<El>) -> El {
             })
             .label("Split view")
             .help(if !s.splits.is_empty() {
-                "Close the split (⌘⇧S)"
+                crate::fmt::keys("Close the split (⌘⇧S)")
             } else {
-                "Split with the most recent session (⌘⇧S)"
+                crate::fmt::keys("Split with the most recent session (⌘⇧S)")
             })
             .expanded(!s.splits.is_empty())
             .on_press(|s: &mut Hooked| s.toggle_split())
@@ -301,9 +301,9 @@ fn head(s: &Hooked, d: &Detail, k: &Kit, layer: &mut Vec<El>) -> El {
             })
             .label("Focus mode")
             .help(if s.focus {
-                "Exit focus mode (⌘⇧F or Esc)"
+                crate::fmt::keys("Exit focus mode (⌘⇧F or Esc)")
             } else {
-                "Focus mode: the conversation alone (⌘⇧F)"
+                crate::fmt::keys("Focus mode: the conversation alone (⌘⇧F)")
             })
             .expanded(s.focus)
             .on_press(|s: &mut Hooked| s.focus = !s.focus)

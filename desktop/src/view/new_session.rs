@@ -457,10 +457,10 @@ pub fn view(s: &Hooked, k: &Kit, _layer: &mut Vec<El>) -> El {
                         .color(k.c.text_faint),
                 ),
         );
-    let placeholder = format!(
+    let placeholder = crate::fmt::keys(&format!(
         "What should {} do? (⌘Enter to launch)",
         s.providers.info(&s.new_provider).label
-    );
+    ));
     let prompt = prompt_field(s, k, &placeholder);
     let launch_row = row()
         .key("new-actions")
@@ -486,7 +486,7 @@ pub fn view(s: &Hooked, k: &Kit, _layer: &mut Vec<El>) -> El {
             Button::new(if s.sending { "Launching…" } else { "Launch" })
                 .icon(&icons::PLAY)
                 .variant(ButtonVariant::Contrast)
-                .shortcut("⌘↵")
+                .shortcut(crate::fmt::keys("⌘↵"))
                 .disabled(
                     s.sending
                         || project.is_empty()

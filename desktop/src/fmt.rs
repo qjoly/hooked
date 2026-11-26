@@ -79,6 +79,55 @@ pub fn mktime(tm: &mut libc::tm) -> i64 {
     t
 }
 
+/// Rewrites the Mac key glyphs in a label for the platform: `⌘⇧H` reads `Ctrl+Shift+H` elsewhere
+/// than macOS, `⌘-click` reads `Ctrl-click`, `⌘↵` reads `Ctrl+Enter`. Labels are written once, in
+/// the Mac notation, and go through here at the point of use.
+pub fn keys(text: &str) -> String {
+    keys_on(text, cfg!(target_os = "macos"))
+}
+
+fn keys_on(text: &str, mac: bool) -> String {
+    if mac {
+        return text.to_string();
+    }
+    let mut out = String::with_capacity(text.len() + 8);
+    let mut chars = text.chars().peekable();
+    while let Some(c) = chars.next() {
+        if !matches!(c, '⌘' | '⌃' | '⌥' | '⇧') {
+            match c {
+                '↵' => out.push_str("Enter"),
+                c => out.push(c),
+            }
+            continue;
+        }
+        let (mut ctrl, mut alt, mut shift) = (false, false, false);
+        let mut glyph = Some(c);
+        while let Some(g) = glyph {
+            match g {
+                '⌘' | '⌃' => ctrl = true,
+                '⌥' => alt = true,
+                _ => shift = true,
+            }
+            glyph = chars.next_if(|n| matches!(n, '⌘' | '⌃' | '⌥' | '⇧'));
+        }
+        let words: Vec<&str> = [(ctrl, "Ctrl"), (alt, "Alt"), (shift, "Shift")]
+            .into_iter()
+            .filter_map(|(on, w)| on.then_some(w))
+            .collect();
+        out.push_str(&words.join("+"));
+        // `⌘-click` is a gesture, not a chord: no plus before the hyphen.
+        let gesture = chars.peek() == Some(&'-') && {
+            let mut rest = chars.clone();
+            rest.next();
+            rest.next().is_some_and(char::is_alphabetic)
+        };
+        if !gesture {
+            out.push('+');
+        }
+    }
+    out
+}
+
 fn days_from_civil(y: i64, m: i64, d: i64) -> i64 {
     let y = if m <= 2 { y - 1 } else { y };
     let era = if y >= 0 { y } else { y - 399 } / 400;
@@ -356,6 +405,33 @@ pub fn link_label(url: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn keys_keep_the_mac_glyphs_on_macos() {
+        assert_eq!(keys_on("Quick reply (⌘⇧H)", true), "Quick reply (⌘⇧H)");
+    }
+
+    #[test]
+    fn keys_spell_the_modifiers_out_elsewhere() {
+        assert_eq!(keys_on("Quick reply (⌘⇧H)", false), "Quick reply (Ctrl+Shift+H)");
+        assert_eq!(keys_on("⌥1", false), "Alt+1");
+        assert_eq!(keys_on("⌘↵", false), "Ctrl+Enter");
+        assert_eq!(keys_on("(⌘Enter saves, Esc cancels)", false), "(Ctrl+Enter saves, Esc cancels)");
+        assert_eq!(keys_on("Settings (⌘,)", false), "Settings (Ctrl+,)");
+        assert_eq!(keys_on("↑↓ switches", false), "↑↓ switches");
+    }
+
+    #[test]
+    fn keys_tell_a_gesture_from_a_chord() {
+        assert_eq!(
+            keys_on("⌘F searches · ⌘-click opens links · ⌘V pastes", false),
+            "Ctrl+F searches · Ctrl-click opens links · Ctrl+V pastes"
+        );
+        assert_eq!(
+            keys_on("⌘+ and ⌘- in a terminal do the same, ⌘0 resets it.", false),
+            "Ctrl++ and Ctrl+- in a terminal do the same, Ctrl+0 resets it."
+        );
+    }
 
     #[test]
     fn model_choice_label_drops_a_redundant_alias() {

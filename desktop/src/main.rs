@@ -57,7 +57,9 @@ fn on_key(s: &mut Hooked, ev: &KeyEvent, tx: &mut Tx) -> bool {
     let focused = tx.focused();
     let on_chrome = focused.is_none_or(|f| f.starts_with("term-"));
     if s.term_claimed && on_chrome && s.term.open && s.page == app::Page::Session {
-        let handled = if ev.mods.cmd {
+        let handled = if s.term_copy_chord(ev, tx) || s.term_paste_chord(ev, tx) {
+            true
+        } else if terminal::app_chord(ev) {
             s.term_cmd_key(&ev.key)
         } else {
             s.term_key(ev, tx.physical_key(), tx.key_repeat())

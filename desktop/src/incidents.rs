@@ -602,7 +602,10 @@ pub fn system_open(url: &str) -> bool {
         result as usize > 32
     };
     #[cfg(not(any(target_os = "macos", windows)))]
-    let opened = false;
+    let opened = {
+        let _ = url;
+        false
+    };
     opened
 }
 

@@ -2133,7 +2133,7 @@ fn annotation(s: &Hooked, a: &Annotation, k: &Kit) -> El {
             )
             .child(
                 TextArea::new(edit)
-                    .placeholder("Leave a comment… (⌘Enter saves, Esc cancels)")
+                    .placeholder(crate::fmt::keys("Leave a comment… (⌘Enter saves, Esc cancels)"))
                     .width(None)
                     .auto_grow(2, 10)
                     .on_edit(|s: &mut Hooked| &mut s.lens_data.draft.as_mut().expect("draft").1)
@@ -2434,10 +2434,10 @@ fn annotation(s: &Hooked, a: &Annotation, k: &Kit) -> El {
         let (send, drop) = (tid.clone(), tid.clone());
         c = c.child(
             TextArea::new(edit)
-                .placeholder(format!(
+                .placeholder(crate::fmt::keys(&format!(
                     "Reply… (⌘Enter sends to {}, Esc cancels)",
                     agent
-                ))
+                )))
                 .width(None)
                 .auto_grow(1, 10)
                 .on_edit(move |s: &mut Hooked| {

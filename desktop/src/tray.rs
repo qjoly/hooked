@@ -96,19 +96,54 @@ pub mod native {
 
     use crate::app::{HANDLE, Hooked};
 
-    fn glyph() -> Icon {
+    /// What the icon says about the service. macOS says it in the menu bar title (a count next to the
+    /// icon); Windows has no such title, so the icon itself carries it.
+    #[derive(Clone, Copy, PartialEq)]
+    enum Badge {
+        None,
+        /// Sessions are waiting on the user: a dot in the corner.
+        Waiting,
+        /// The service is unreachable: the glyph is faded.
+        Offline,
+    }
+
+    fn badge(s: &Hooked) -> Badge {
+        if cfg!(not(windows)) {
+            return Badge::None;
+        }
+        match (s.connected, s.waiting().len()) {
+            (false, _) => Badge::Offline,
+            (true, 0) => Badge::None,
+            (true, _) => Badge::Waiting,
+        }
+    }
+
+    fn glyph(badge: Badge) -> Icon {
         const N: u32 = 36;
         let mut rgba = vec![0u8; (N * N * 4) as usize];
         let c = (N as f32 - 1.0) / 2.0;
+        let fade = if badge == Badge::Offline { 0.4 } else { 1.0 };
         for y in 0..N {
             for x in 0..N {
                 let d = ((x as f32 - c).powi(2) + (y as f32 - c).powi(2)).sqrt();
                 let ring = 1.0 - ((d - 13.0).abs() - 2.2).clamp(0.0, 1.0);
                 let dot = 1.0 - (d - 5.0).clamp(0.0, 1.0);
-                let a = ring.max(dot);
-                // macOS reads only the alpha of a template icon; white shows on Windows' dark taskbar.
+                let a = ring.max(dot) * fade;
+                // A template icon (macOS) keeps only its alpha, so white costs nothing there, and it
+                // is the colour that shows on Windows' dark taskbar.
                 let i = ((y * N + x) * 4) as usize;
                 rgba[i..i + 4].copy_from_slice(&[255, 255, 255, (a * 255.0) as u8]);
+                if badge == Badge::Waiting {
+                    // A red dot in the top right corner, over a transparent gap that cuts it out.
+                    let b = ((x as f32 - 27.0).powi(2) + (y as f32 - 8.0).powi(2)).sqrt();
+                    let gap = 1.0 - (b - 8.0).clamp(0.0, 1.0);
+                    let fill = 1.0 - (b - 6.0).clamp(0.0, 1.0);
+                    let keep = 1.0 - gap;
+                    rgba[i + 3] = (rgba[i + 3] as f32 * keep) as u8;
+                    if fill > 0.0 {
+                        rgba[i..i + 4].copy_from_slice(&[230, 57, 70, (fill * 255.0) as u8]);
+                    }
+                }
             }
         }
         Icon::from_rgba(rgba, N, N).expect("tray glyph")
@@ -137,7 +172,7 @@ pub mod native {
         }
         let _ = m.append(&PredefinedMenuItem::separator());
         let _ = m.append(&MenuItem::with_id("open", "Open hooked", true, None));
-        let _ = m.append(&MenuItem::with_id("quick", "Quick reply (⌘⇧H)", true, None));
+        let _ = m.append(&MenuItem::with_id("quick", &crate::fmt::keys("Quick reply (⌘⇧H)"), true, None));
         let _ = m.append(&MenuItem::with_id("new", "New session…", true, None));
         let _ = m.append(&PredefinedMenuItem::separator());
         let _ = m.append(&MenuItem::with_id("quit", "Quit", true, None));
@@ -163,9 +198,14 @@ pub mod native {
             let (m, sig) = menu(s);
             match &mut slot {
                 Some((tray, last)) => {
+                    // Not supported on Windows, where the badge is in the icon.
                     tray.set_title(t.as_deref());
                     let _ = tray.set_tooltip(Some(&tip));
                     if *last != sig {
+                        // `sig` holds the connection and the waiting sessions: the badge moves with it.
+                        if cfg!(windows) {
+                            let _ = tray.set_icon(Some(glyph(badge(s))));
+                        }
                         tray.set_menu(Some(Box::new(m)));
                         *last = sig;
                     }
@@ -173,7 +213,8 @@ pub mod native {
                 None => {
                     let built = TrayIconBuilder::new()
                         .with_id("hooked")
-                        .with_icon(glyph())
+                        .with_icon(glyph(badge(s)))
+                        // Only macOS has template icons; the other platforms ignore the flag.
                         .with_icon_as_template(true)
                         .with_tooltip(&tip)
                         .with_menu(Box::new(m))

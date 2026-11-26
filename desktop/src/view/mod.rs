@@ -306,7 +306,7 @@ fn topbar(s: &Hooked, k: &Kit, inset: f32, layer: &mut Vec<El>) -> El {
                         .shrink(),
                 )
                 .child(
-                    text("⌘K")
+                    text(crate::fmt::keys("⌘K"))
                         .font(k.ty.text_xsmall_medium)
                         .color(k.c.text_faint),
                 ),
@@ -435,7 +435,7 @@ fn topbar(s: &Hooked, k: &Kit, inset: f32, layer: &mut Vec<El>) -> El {
                     IconButtonVariant::GhostMuted
                 })
                 .label("Settings")
-                .help("Settings (⌘,)")
+                .help(crate::fmt::keys("Settings (⌘,)"))
                 .on_press(|s: &mut Hooked| s.go(Page::Settings))
                 .build(k)
                 .key("tb-settings"),
@@ -456,7 +456,7 @@ fn topbar(s: &Hooked, k: &Kit, inset: f32, layer: &mut Vec<El>) -> El {
         .icon(&icons::PLUS)
         .variant(ButtonVariant::Contrast)
         .control_size(ControlSize::Regular)
-        .shortcut("⌘N")
+        .shortcut(crate::fmt::keys("⌘N"))
         .on_press(|s: &mut Hooked| s.go_new(None))
         .build(k)
         .key("tb-new");
@@ -1298,7 +1298,7 @@ fn sidebar(s: &Hooked, k: &Kit, layer: &mut Vec<El>) -> El {
             .build(k)
             .key("ssb-old"),
     );
-    let collapse = small_icon_button(&icons::ARROW_LEFT, "Collapse sidebar (⌘B)", false)
+    let collapse = small_icon_button(&icons::ARROW_LEFT, &crate::fmt::keys("Collapse sidebar (⌘B)"), false)
         .on_press(|s: &mut Hooked| {
             s.sidebar_open = false;
             s.save_pref("sidebarOpen", &false);
@@ -1767,8 +1767,8 @@ fn rail(s: &Hooked, k: &Kit) -> El {
         .child(
             IconButton::new(&icons::ARROW_RIGHT)
                 .variant(IconButtonVariant::GhostMuted)
-                .label("Expand sidebar (⌘B)")
-                .help("Expand sidebar (⌘B)")
+                .label(crate::fmt::keys("Expand sidebar (⌘B)"))
+                .help(crate::fmt::keys("Expand sidebar (⌘B)"))
                 .on_press(|s: &mut Hooked| {
                     s.sidebar_open = true;
                     s.save_pref("sidebarOpen", &true);

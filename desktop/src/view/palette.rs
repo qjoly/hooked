@@ -476,10 +476,11 @@ fn live_keys(s: &Hooked, hint: &str) -> String {
         "⌘J" => "open-terminal",
         "⌘⇧J" => "new-terminal",
         "⌘⇧S" => "split-session",
-        _ => return hint.to_string(),
+        _ => return crate::fmt::keys(hint),
     };
     match s.shortcuts.get(id).and_then(|r| r.shortcut()) {
-        Some(sc) => sc.keycaps().concat(),
+        // Rune spells the modifiers out off macOS (`Ctrl`, `Shift`): they need a plus between them.
+        Some(sc) => sc.keycaps().join(if cfg!(target_os = "macos") { "" } else { "+" }),
         None => String::new(),
     }
 }

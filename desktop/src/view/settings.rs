@@ -490,7 +490,7 @@ fn app_card(s: &Hooked, k: &Kit, v: &Value) -> El {
         .child(block(
             k,
             "Navigation",
-            "Which pages get a tab in the top bar. The others stay one search away (⌘K).",
+            &crate::fmt::keys("Which pages get a tab in the top bar. The others stay one search away (⌘K)."),
             chips(NAV.iter().filter(|&&(key, _)| !MODULES.iter().any(|m| m.0 == key) || s.module_on(key)).map(|&(key, label)| chip(k, format!("nav-{key}"), label.into(), nav_on.iter().any(|x| x == key), move |s| s.toggle_in_list("navTabs", key))).collect()),
         ))
         .child(block(
@@ -1653,7 +1653,7 @@ fn terminal_card(s: &Hooked, k: &Kit) -> El {
         .child(line(
             k,
             "Font size",
-            "⌘+ and ⌘- in a terminal do the same, ⌘0 resets it.",
+            &crate::fmt::keys("⌘+ and ⌘- in a terminal do the same, ⌘0 resets it."),
             stepper(
                 k,
                 "set-term-size",

@@ -59,7 +59,11 @@ pub fn load(saved: &HashMap<String, String>) -> HashMap<&'static str, ShortcutRe
 
 fn matches(sc: &Shortcut, ev: &KeyEvent, tx: &Tx) -> bool {
     let (want, m) = (sc.modifiers(), ev.mods);
-    want.shift == m.shift
+    // Off macOS Rune reports Ctrl as `cmd` too (`cmd = logo || ctrl`), and `mod+…` chords are Ctrl,
+    // so comparing `cmd` and `ctrl` still tells them apart; the Windows key has to be compared on
+    // its own, or Ctrl+Win+P would pass for Ctrl+P. On macOS `logo` is ⌘, already compared.
+    let logo = cfg!(target_os = "macos") || want.logo == m.logo;
+    logo && want.shift == m.shift
         && want.alt == m.alt
         && want.cmd == m.cmd
         && want.ctrl == m.ctrl
