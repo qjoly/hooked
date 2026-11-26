@@ -783,7 +783,7 @@ fn converse(s: &Hooked, d: &Detail, k: &Kit) -> El {
         );
     }
     for (i, m) in d.messages.iter().enumerate().skip(start) {
-        let version = bubble_version(s, m, k);
+        let version = bubble_version(s, &d.session.id, m, k);
         chat = chat.child(memo(format!("msg-{}-{i}", d.session.id), version, || {
             bubble(s, &d.session.id, m, k, i)
         }));
@@ -985,7 +985,8 @@ fn who(k: &Kit, user: bool, extra: &str, agent: &str, ink: Color) -> El {
     r
 }
 
-pub(super) fn bubble_version(s: &Hooked, m: &Message, k: &Kit) -> u64 {
+/// What a bubble draws from beyond the message itself: it is only rebuilt when this changes.
+pub(super) fn bubble_version(s: &Hooked, session: &str, m: &Message, k: &Kit) -> u64 {
     let open_ids: Vec<String> = m
         .render_parts()
         .into_iter()
@@ -1065,8 +1066,17 @@ pub(super) fn bubble_version(s: &Hooked, m: &Message, k: &Kit) -> u64 {
             ["path", "compare"].map(|f| show[f].as_str().and_then(|p| s.players.look(p)))
         })
         .collect();
+    // Its code blocks' Runs (button state, output pane), looked up as `bubble` does.
+    let runs: Vec<_> = m
+        .render_parts()
+        .into_iter()
+        .filter_map(|p| match p {
+            Part::Text(t) if m.role != "user" => Some(s.code_runs_in(session, &t)),
+            _ => None,
+        })
+        .collect();
     hash_of((
-        &m.text,
+        (&m.text, runs),
         pty,
         media,
         full,

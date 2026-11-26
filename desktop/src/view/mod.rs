@@ -16,7 +16,7 @@ mod settings;
 mod split;
 mod terminal;
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
 
 use rune::{Color, Cursor, Cx, El, Icon, Phase, col, el, row, text};
 use rune_kit::shell::{Sidebar, SidebarSection};
@@ -1889,7 +1889,7 @@ pub fn md_code(
     src: impl Into<String>,
     k: &Kit,
     session: Option<String>,
-    runs: HashMap<String, CodeRun>,
+    runs: BTreeMap<String, CodeRun>,
 ) -> rune_kit::Markdown {
     let k = k.clone();
     let src: String = src.into();
