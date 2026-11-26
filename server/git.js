@@ -113,4 +113,21 @@ function worktreeOf(cwd) {
   return out;
 }
 
-export { repoSlug, slugFromUrl, findGitConfig, parseOriginUrl, worktreeOf };
+// A fetch that dies mid-transfer leaves objects/pack/tmp_pack_*; git only prunes them after
+// gc.pruneExpire (2 weeks), so a retry loop every few minutes fills the disk first.
+const TMP_PACK_MAX_AGE_MS = 10 * 60_000;
+function sweepStaleTmpPacks(packDir, now = Date.now()) {
+  let removed = 0;
+  let names = [];
+  try { names = fs.readdirSync(packDir); } catch (_) { return 0; }
+  for (const name of names) {
+    if (!name.startsWith('tmp_pack_')) continue;
+    const file = path.join(packDir, name);
+    const st = statSafe(file);
+    if (!st || now - st.mtimeMs < TMP_PACK_MAX_AGE_MS) continue;
+    try { fs.rmSync(file, { force: true }); removed++; } catch (_) {}
+  }
+  return removed;
+}
+
+export { repoSlug, slugFromUrl, findGitConfig, parseOriginUrl, worktreeOf, sweepStaleTmpPacks };

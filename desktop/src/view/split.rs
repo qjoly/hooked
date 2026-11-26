@@ -79,7 +79,7 @@ pub fn view(s: &Hooked, p: &SplitPane, k: &Kit) -> rune::El {
     if let Some(d) = p.detail.as_ref() {
         let start = d.messages.len().saturating_sub(30);
         for (i, m) in d.messages.iter().enumerate().skip(start) {
-            let version = super::session::bubble_version(s, m, k);
+            let version = super::session::bubble_version(s, &d.session.id, m, k);
             chat = chat.child(memo(format!("split-{}-{i}", d.session.id), version, || {
                 bubble(s, &d.session.id, m, k, i)
             }));

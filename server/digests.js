@@ -16,6 +16,7 @@ import { HOOKED_DIR, isValidModelArg } from './config.js';
 import { scanAllSessions } from './sessions.js';
 import { engineForSession } from './providers.js';
 import { resolveClaudeBin } from './commands.js';
+import { loginEnv } from './agent.js';
 import { runPiHeadless } from './piCli.js';
 import { buildConversation } from './conversation.js';
 import { readTags } from './tags.js';
@@ -237,9 +238,10 @@ Keep it factual and grounded in the briefs above. Prefer specifics (file/feature
 
 const parseModelJson = modelJson;
 
-// Run `claude -p` headless, feeding the prompt on stdin. Wrapped in a login+interactive shell for
-// PATH parity with launchSession (brew/asdf/nvm publish PATH in login files) so a hooked started
-// from launchd/systemd/cron still finds `claude`. Returns a promise of parsed model JSON (or null).
+// Run `claude -p` headless, feeding the prompt on stdin. The binary is resolved up front and
+// spawned directly with the login-shell environment (loginEnv), like the other headless calls: a
+// `$SHELL -l -i -c` wrapper inherits hooked's own PATH, which under launchd can lack even /bin, so
+// the rc files and then `claude` itself failed (exit 127). Returns parsed model JSON or { error }.
 // Générateur du digest : `claude -p` si le binaire est installé, sinon `pi -p --output json`
 // (même contrat : JSON du modèle parsé, ou { error }).
 async function runDigestModel(prompt) {
@@ -249,13 +251,15 @@ async function runDigestModel(prompt) {
   return { parsed: objFromBraces(r.text) };
 }
 
-function runClaude(prompt) {
+async function runClaude(prompt) {
+  const bin = resolveClaudeBin();
+  if (!bin) return { error: 'claude binary not found' };
+  const env = { ...process.env, ...(await loginEnv()) };
   return new Promise((resolve) => {
-    const shell = process.env.SHELL || '/bin/zsh';
     const model = readSettings().digest?.model;
-    const modelFlag = model && isValidModelArg(model) ? ` --model ${model}` : '';
-    const cmd = `claude -p --output-format json${modelFlag}`;
-    const child = spawn(shell, ['-l', '-i', '-c', cmd], { stdio: ['pipe', 'pipe', 'pipe'] });
+    const args = ['-p', '--output-format', 'json'];
+    if (model && isValidModelArg(model)) args.push('--model', model);
+    const child = spawn(bin, args, { env, stdio: ['pipe', 'pipe', 'pipe'] });
     let out = '', err = '';
     let done = false;
     const finish = (val) => { if (!done) { done = true; resolve(val); } };

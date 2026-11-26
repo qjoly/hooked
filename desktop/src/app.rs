@@ -1,4 +1,4 @@
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
@@ -7,6 +7,7 @@ use rune::prefs::Prefs;
 use rune::{AppHandle, TextEdit, Tx};
 
 use crate::api::{self, Capabilities, Detail, Gauge, LiveSnapshot, Meta, Session};
+use crate::coderun::CodeRun;
 use crate::fmt;
 use crate::lenses::ReviewSource;
 
@@ -68,12 +69,7 @@ pub enum Lens {
     Trace,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash, serde::Serialize, serde::Deserialize)]
-pub enum Theme {
-    System,
-    Light,
-    Dark,
-}
+pub use hooked_ui::theme::Theme;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Popup {
@@ -219,6 +215,8 @@ pub struct Hooked {
     pub places_dirty: bool,
     pub places_saved_at: i64,
     pub job_log: Option<(String, String)>,
+    /// Runs on shell blocks, by session and command.
+    pub code_runs: HashMap<(String, String), CodeRun>,
     pub run_win: Option<crate::ghrun::RunWin>,
     pub query_win: Option<crate::querywin::QueryWin>,
     pub panel_win: Option<crate::panel::PanelWin>,
@@ -412,7 +410,7 @@ const STEP: usize = 120;
 
 impl Hooked {
     pub fn new() -> Hooked {
-        let prefs = Prefs::open("dev.qjoly.hooked-rune");
+        let prefs = Prefs::open(crate::theme::PREFS_ID);
         let deck_grid = prefs.get::<String>("deckView").is_none_or(|v| v != "list");
         let pinned: Vec<String> = prefs.get("pinned").unwrap_or_default();
         let names: HashMap<String, String> = prefs.get("names").unwrap_or_default();
@@ -428,10 +426,11 @@ impl Hooked {
         let saved_keys: HashMap<String, String> = prefs.get("shortcuts").unwrap_or_default();
         let shortcuts = crate::shortcuts::load(&saved_keys);
         let collapse_worktrees: bool = prefs.get("collapseWorktrees").unwrap_or(true);
-        let theme = prefs.get("theme").unwrap_or(Theme::System);
-        let scheme: crate::theme::ColorScheme = prefs.get("scheme").unwrap_or_default();
-        let corners: crate::theme::Corners = prefs.get("corners").unwrap_or_default();
-        crate::theme::set_look(scheme, corners);
+        let crate::theme::Look {
+            theme,
+            scheme,
+            corners,
+        } = crate::theme::Look::load(&prefs);
         let notify = prefs.get("notify").unwrap_or(true);
         let incidents_hidden = prefs.get("incidentsHidden").unwrap_or(false);
         let incident_teams: Vec<String> = prefs.get("incidentsTeams").unwrap_or_default();
@@ -533,6 +532,7 @@ impl Hooked {
             places_dirty: false,
             places_saved_at: 0,
             job_log: None,
+            code_runs: HashMap::new(),
             run_win: None,
             query_win: None,
             panel_win: None,
@@ -810,6 +810,15 @@ impl Hooked {
         }
         if args.iter().any(|a| a == "--sort-menu") {
             s.popup = Some(Popup::Sort);
+        }
+        if args.iter().any(|a| a == "--more-menu") {
+            s.popup = Some(Popup::More);
+        }
+        if args.iter().any(|a| a == "--model-menu") {
+            s.popup = Some(Popup::Model);
+        }
+        if args.iter().any(|a| a == "--effort-menu") {
+            s.popup = Some(Popup::Effort);
         }
         if let Some(i) = args.iter().position(|a| a == "--media") {
             let path = args.get(i + 1).cloned().unwrap_or_default();
@@ -1104,27 +1113,23 @@ impl Hooked {
     }
 
     pub fn dark(&self, system_dark: bool) -> bool {
-        match self.theme {
-            Theme::System => system_dark,
-            Theme::Light => false,
-            Theme::Dark => true,
-        }
+        self.theme.dark(system_dark)
     }
 
     pub fn set_theme(&mut self, theme: Theme) {
         self.theme = theme;
-        self.save_pref("theme", &theme);
+        self.save_pref(crate::theme::PREF_THEME, &theme);
     }
 
     pub fn set_scheme(&mut self, scheme: crate::theme::ColorScheme) {
         self.scheme = scheme;
-        self.save_pref("scheme", &scheme);
+        self.save_pref(crate::theme::PREF_SCHEME, &scheme);
         self.apply_look();
     }
 
     pub fn set_corners(&mut self, corners: crate::theme::Corners) {
         self.corners = corners;
-        self.save_pref("corners", &corners);
+        self.save_pref(crate::theme::PREF_CORNERS, &corners);
         self.apply_look();
     }
 
@@ -1353,13 +1358,7 @@ pub fn composer_changed(&mut self) {
                         && *t == task
                     {
                         text.push_str(&chunk);
-                        if text.len() > 65_536 {
-                            let mut cut = text.len() - 65_536;
-                            while !text.is_char_boundary(cut) {
-                                cut += 1;
-                            }
-                            text.drain(..cut);
-                        }
+                        fmt::keep_tail(text, 65_536);
                     }
                 });
                 true
@@ -1367,18 +1366,45 @@ pub fn composer_changed(&mut self) {
         });
     }
 
+    /// Runs a shell block Claude proposed, its output streaming under the block. The agent gets
+    /// the output once the command ends, and continues.
     pub fn run_code(&mut self, session: String, code: String) {
-        let cmd = format!("!{}", code.trim());
-        self.spawn(
-            move || api::reply(&session, &cmd),
-            |s, r, _| {
-                match r {
-                    Ok(_) => s.flash("✓ Running in the session", false),
-                    Err(e) => s.flash(format!("✗ Run: {e}"), true),
+        let Some(h) = self.handle.clone() else {
+            return;
+        };
+        let command = code.trim().to_string();
+        let key = (session.clone(), command.clone());
+        self.code_runs.insert(key.clone(), CodeRun::started());
+        crate::app::spawn_named("hooked-run", move || {
+            let on_output = |chunk: &str| {
+                let (chunk, key) = (chunk.to_string(), key.clone());
+                h.update(move |s, _| {
+                    if let Some(run) = s.code_runs.get_mut(&key) {
+                        run.push(&chunk);
+                    }
+                });
+            };
+            let r = api::run_command(&session, &command, on_output);
+            h.update(move |s, _| {
+                if let Some(run) = s.code_runs.get_mut(&key) {
+                    run.finish(&r);
+                }
+                if let Err(e) = r {
+                    s.flash(format!("✗ Run: {e}"), true);
                 }
                 s.refresh_detail();
-            },
-        );
+            });
+        });
+    }
+
+    /// The Runs of `session` whose command appears in `text`, by command: what the code blocks of
+    /// one message show.
+    pub fn code_runs_in(&self, session: &str, text: &str) -> BTreeMap<String, CodeRun> {
+        self.code_runs
+            .iter()
+            .filter(|((id, command), _)| id == session && text.contains(command.as_str()))
+            .map(|((_, command), run)| (command.clone(), run.clone()))
+            .collect()
     }
 
     pub fn open_ghostty(&mut self) {
@@ -1397,7 +1423,7 @@ pub fn composer_changed(&mut self) {
             Theme::Dark => Theme::System,
         };
         let t = self.theme;
-        self.save_pref("theme", &t);
+        self.save_pref(crate::theme::PREF_THEME, &t);
     }
 
     pub fn flash(&mut self, text: impl Into<String>, error: bool) {
@@ -1546,6 +1572,7 @@ pub fn composer_changed(&mut self) {
         self.ac = None;
         self.job_gen.fetch_add(1, Ordering::SeqCst);
         self.job_log = None;
+        self.code_runs.retain(|_, run| run.busy);
         self.composer = TextEdit::new(self.drafts.get(id).cloned().unwrap_or_default());
         self.composer.focused = true;
         self.reset_question();

@@ -354,19 +354,14 @@ fn head_tags(s: &Hooked, id: &str, k: &Kit) -> El {
 
 fn more_menu(s: &Hooked, d: &Detail, k: &Kit, layer: &mut Vec<El>) -> El {
     let x = &d.session;
-    let open = s.popup == Some(Popup::More);
+    // The Model and Effort submenus hang off this menu, so it stays open while one of them is.
+    let open = matches!(s.popup, Some(Popup::More | Popup::Model | Popup::Effort));
     let trigger = IconButton::new(&icons::MORE)
         .variant(IconButtonVariant::GhostMuted)
         .label("More actions")
         .help("More actions")
         .expanded(open)
-        .on_press(|s: &mut Hooked| {
-            s.popup = if s.popup == Some(Popup::More) {
-                None
-            } else {
-                Some(Popup::More)
-            }
-        })
+        .on_press(move |s: &mut Hooked| s.popup = if open { None } else { Some(Popup::More) })
         .build(k)
         .key("hdr-more");
     let mode = d
@@ -788,7 +783,7 @@ fn converse(s: &Hooked, d: &Detail, k: &Kit) -> El {
         );
     }
     for (i, m) in d.messages.iter().enumerate().skip(start) {
-        let version = bubble_version(s, m, k);
+        let version = bubble_version(s, &d.session.id, m, k);
         chat = chat.child(memo(format!("msg-{}-{i}", d.session.id), version, || {
             bubble(s, &d.session.id, m, k, i)
         }));
@@ -990,7 +985,8 @@ fn who(k: &Kit, user: bool, extra: &str, agent: &str, ink: Color) -> El {
     r
 }
 
-pub(super) fn bubble_version(s: &Hooked, m: &Message, k: &Kit) -> u64 {
+/// What a bubble draws from beyond the message itself: it is only rebuilt when this changes.
+pub(super) fn bubble_version(s: &Hooked, session: &str, m: &Message, k: &Kit) -> u64 {
     let open_ids: Vec<String> = m
         .render_parts()
         .into_iter()
@@ -1070,8 +1066,17 @@ pub(super) fn bubble_version(s: &Hooked, m: &Message, k: &Kit) -> u64 {
             ["path", "compare"].map(|f| show[f].as_str().and_then(|p| s.players.look(p)))
         })
         .collect();
+    // Its code blocks' Runs (button state, output pane), looked up as `bubble` does.
+    let runs: Vec<_> = m
+        .render_parts()
+        .into_iter()
+        .filter_map(|p| match p {
+            Part::Text(t) if m.role != "user" => Some(s.code_runs_in(session, &t)),
+            _ => None,
+        })
+        .collect();
     hash_of((
-        &m.text,
+        (&m.text, runs),
         pty,
         media,
         full,
@@ -1174,10 +1179,13 @@ pub(super) fn bubble(s: &Hooked, session: &str, m: &Message, k: &Kit, i: usize) 
                 }
                 c
             }
-            Part::Text(t) => super::md_code(t, k, Some(session.to_string()))
-                .selectable(true)
-                .build(k)
-                .key(format!("md-{i}-{pi}")),
+            Part::Text(t) => {
+                let runs = s.code_runs_in(session, &t);
+                super::md_code(t, k, Some(session.to_string()), runs)
+                    .selectable(true)
+                    .build(k)
+                    .key(format!("md-{i}-{pi}"))
+            }
             Part::Thinking(t) => thinking_block(s, &t, k, thinking_id(m, pi), format!("think-{i}-{pi}")),
             Part::Tool(t) => tool_chip(s, session, &t, k, format!("tool-{i}-{pi}")),
         });
