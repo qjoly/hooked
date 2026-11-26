@@ -251,8 +251,13 @@ LM Studio. Profiles live in `profiles.json`, next to hooked's other data (`~/.cl
   listed, a launch or a model switch is limited to them. An `anthropic` profile takes the usual
   family names (`opus`, `sonnet`…).
 - The implicit `default` profile is today's behaviour, and the one used when none is asked for.
-- Pick one with the `profile` field of `POST /api/launch`; `GET /api/profiles` lists them (without
-  their `env`) and reports the entries it had to skip. The file is read at every launch.
+- Pick one in **New session**: the picker appears as soon as there is a profile besides the default.
+  A `compatible` profile shows its server's models in place of Claude's, and no effort (it means
+  nothing there). A session on a profile carries its name in its header. Over the API, it is the
+  `profile` field of `POST /api/launch`; `GET /api/profiles` lists them (without their `env`) and
+  reports the entries it had to skip. The file is read at every launch.
+- A `compatible` profile that lists no `models` offers whatever its server's `/v1/models` returns
+  (embedding models left out), read when the picker opens.
 - A session keeps its profile when it is resumed, restarted, forked, or brought back after hooked
   restarts. If that profile has since been removed from the file, the resume fails with a message
   instead of falling back to the default one. A fork cut before the first answer of a `compatible`

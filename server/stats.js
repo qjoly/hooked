@@ -10,7 +10,8 @@ import { engineForSession, providerConfigs } from './providers.js';
 import { repoSlug, worktreeOf } from './git.js';
 import { readEvents, lastEventBySession, lastActivityEventBySession, modeForSession, liveQuestionForSession, liveQuestionBySession, livePlanForSession, livePlanBySession, eventSessionMeta, rcSessionIdsFromEvents } from './events.js';
 import { liveStateFor } from './live.js';
-import { resolveLaunchForSession, agentAlive, agentSession, agentMode, agentAutoApprove, agentBusy, agentActivity, agentFollowup, agentLastProse, agentPendingAsk, agentCacheInfo } from './agent.js';
+import { profileOfSession, resolveLaunchForSession, agentAlive, agentSession, agentMode, agentAutoApprove, agentBusy, agentActivity, agentFollowup, agentLastProse, agentPendingAsk, agentCacheInfo } from './agent.js';
+import { loadProfiles, profileInfo } from './profiles.js';
 import { sessionStatus, sessionStatusRaw, accountRateLimits, freshestStatusId } from './status.js';
 import { scopedLimit, accountLimit, currentUtilization, usageFreshness } from './utilization.js';
 import { buildFileChanges } from './changes.js';
@@ -148,8 +149,10 @@ function buildSessions() {
   const now = Date.now();
   const evMeta = eventSessionMeta();
   const meta = readSessionMeta();
+  const profiles = loadProfiles().profiles; // read once for the whole list, not once per session
   for (const s of visible) {
     fillFromEvents(s, evMeta.get(s.id));
+    s.profile = profileInfo(profileOfSession(s.id), profiles);
     s.group = groupInfo(s.id, meta);
     // dépôt GitHub (owner/repo) pour le regroupement sidebar ; null hors dépôt git.
     s.repo = repoSlug(s.project);
@@ -519,6 +522,7 @@ function buildSessionDetail(id) {
     effort: (status && status.effort) || (li ? li.effort : null),
     model: (li && li.model && !s.model) ? li.model : s.model,
     launchModel: li ? li.model : null,   // forme courte (opus/sonnet…) pour relancer en conservant la config
+    profile: profileInfo(profileOfSession(id), loadProfiles().profiles),   // null on the default profile
     rateLimit: status ? status.rateLimit : null,   // vrais % 5 h / 7 j du compte (via statusline)
     // No statusline outside Claude: the engine computes the gauge from its own store.
     context: (status && status.context) ? status.context : call('context', null),

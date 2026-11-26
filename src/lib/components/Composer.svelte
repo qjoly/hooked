@@ -15,7 +15,7 @@
   // pourrait envoyer, donc elle est solidaire de la saisie et ne défile pas avec le transcript.
   // Seul le masquage remonte (`onFollowupDismiss`), parce qu'il est persisté par session.
   let { id, project = null, lastPrompt = '',
-        onSent = null, newSession = false, model = '', effort = '', mode = 'default', provider = 'claude', worktree = false, ephemeral = false, onLaunched = null, groupWith = null,
+        onSent = null, newSession = false, model = '', effort = '', mode = 'default', profile = '', provider = 'claude', worktree = false, ephemeral = false, onLaunched = null, groupWith = null,
         followup = null, onFollowupDismiss = null } = $props();
 
   // Reprendre la suggestion pour la retoucher : on la pose dans la saisie sans envoyer, et la carte
@@ -330,10 +330,13 @@
     // on préfixe les chemins des images jointes : Claude Code les lit comme un drag-drop.
     const paths = images.map((im) => im.path).join(' ');
     const full = paths ? (t ? paths + ' ' + t : paths) : t;
+    // A profile that is not the default has to name a model: without one the CLI would fall back to
+    // its own default, a Claude name another server does not know.
+    if (newSession && profile && !model) { status = { text: '✗ no model to launch on this profile', cls: 'err' }; return; }
     busy = true;
     status = { text: newSession ? 'launching…' : 'sending…', cls: '' };
     const res = newSession
-      ? await launch({ cwd: project, prompt: full, model, effort, provider, worktree, ephemeral, permissionMode: mode, groupWith: groupWith || undefined, incognito: ui.incognito || undefined }).catch((e) => ({ ok: false, data: { error: e.message } }))
+      ? await launch({ cwd: project, prompt: full, profile: profile || undefined, model, effort, provider, worktree, ephemeral, permissionMode: mode, groupWith: groupWith || undefined, incognito: ui.incognito || undefined }).catch((e) => ({ ok: false, data: { error: e.message } }))
       : await reply(id, full).catch((e) => ({ ok: false, data: { error: e.message } }));
     if (res.ok) {
       if (!newSession) wakeSession(id);

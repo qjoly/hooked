@@ -8,7 +8,7 @@ import os from 'node:os';
 import path from 'node:path';
 import {
   parseProfiles, loadProfiles, profilesOverview, publicProfile, resolveProfileEnv, defaultProfile,
-  findProfile, isValidModelForProfile, buildSessionEnv, sessionEnvFor, modelToKeepOnFork,
+  findProfile, isValidModelForProfile, buildSessionEnv, sessionEnvFor, modelToKeepOnFork, profileInfo, isValidModelId,
 } from '../server/profiles.js';
 
 const LMSTUDIO = {
@@ -320,5 +320,34 @@ describe('modelToKeepOnFork', () => {
     expect(modelToKeepOnFork(compatible, undefined)).toBeUndefined();
     expect(modelToKeepOnFork(compatible, null)).toBeUndefined();
     expect(modelToKeepOnFork(null, 'opus')).toBeUndefined();
+  });
+});
+
+describe('profileInfo', () => {
+  const { profiles } = parseProfiles([LMSTUDIO]);
+
+  it('is null for the default profile and for a session that predates profiles', () => {
+    expect(profileInfo(null, profiles)).toBeNull();
+    expect(profileInfo(undefined, profiles)).toBeNull();
+    expect(profileInfo('default', profiles)).toBeNull();
+  });
+
+  it('names a known profile, without its env or models', () => {
+    expect(profileInfo('lmstudio-home', profiles)).toEqual({ id: 'lmstudio-home', label: 'LM Studio (home)', kind: 'compatible' });
+  });
+
+  it('still names a profile that was removed from the file, flagged missing', () => {
+    expect(profileInfo('gone', profiles)).toEqual({ id: 'gone', label: 'gone', kind: null, missing: true });
+  });
+});
+
+describe('isValidModelId', () => {
+  it('accepts a server model id, publisher prefix included', () => {
+    for (const m of ['qwen/qwen3-coder-30b', 'qwen/qwen3.8-27b', 'text-embedding-nomic-embed-text-v1.5', 'llama3:8b']) {
+      expect(isValidModelId(m)).toBe(true);
+    }
+  });
+  it('rejects anything that could be interpolated badly', () => {
+    for (const m of ['', 'a b', '$(id)', 'a;b', '../x', 42, null]) expect(isValidModelId(m)).toBe(false);
   });
 });

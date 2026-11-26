@@ -1917,6 +1917,15 @@ code.path { color: var(--muted); font-size: var(--t-micro); word-break: break-al
 }
 .me-pill select:focus { outline: none; box-shadow: none; }
 .me-pill select:disabled { opacity: .55; cursor: default; }
+/* why a profile's model list is empty (its server is down, the URL is wrong…) */
+.me-note { display: inline-flex; align-items: center; gap: 5px; color: var(--warn); font-size: var(--t-ui); font-weight: 600; }
+/* the connection profile of a session, in its header (nothing on the default profile) */
+.head-profile {
+  display: inline-flex; align-items: center; gap: 4px; flex: none; background: var(--bg3);
+  border: 1px solid var(--border2); border-radius: 9px; padding: 1px 8px;
+  color: var(--muted); font-size: var(--t-micro); font-weight: 600; white-space: nowrap;
+}
+.head-profile.missing { color: var(--warn); border-color: var(--warn); }
 
 /* éditeur modèle/effort sur une session live (à la suite du sélecteur de mode) */
 

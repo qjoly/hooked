@@ -57,6 +57,8 @@ const ENV_NAME_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
 // a publisher prefix (`qwen/qwen3-coder-30b`): a strict charset, but one that allows `/` and `.`.
 const MODEL_ID_RE = /^[A-Za-z0-9][A-Za-z0-9._:@+/-]{0,127}$/;
 
+export const isValidModelId = (m) => typeof m === 'string' && MODEL_ID_RE.test(m);
+
 export function defaultProfile() {
   return { id: DEFAULT_PROFILE_ID, label: 'Default', kind: 'anthropic', env: {}, models: [], implicit: true };
 }
@@ -235,4 +237,13 @@ export function sessionEnvFor(profile, base) {
 export function modelToKeepOnFork(profile, sessionModel) {
   if (!profile || profile.kind !== 'compatible') return undefined;
   return isValidModelForProfile(profile, sessionModel) ? sessionModel : undefined;
+}
+
+// What a session list entry carries about its profile: null for the default profile (and for a
+// session that predates profiles), so the UI shows nothing for the usual case. A profile that has
+// been removed from the file is still named, flagged `missing`, because the session did run on it.
+export function profileInfo(profileId, profiles) {
+  if (!profileId || profileId === DEFAULT_PROFILE_ID) return null;
+  const p = profiles.find((x) => x.id === profileId);
+  return p ? { id: p.id, label: p.label, kind: p.kind } : { id: profileId, label: profileId, kind: null, missing: true };
 }

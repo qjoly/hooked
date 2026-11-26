@@ -124,6 +124,12 @@ export const reloadProviderEngines = () => jpost('/api/providers', { action: 're
 // entre toutes les instances du sélecteur. Reset en cas d'échec pour permettre un nouvel essai.
 let _capsPromise = null;
 export const getCapabilities = () => (_capsPromise ||= jget('/api/capabilities').catch((e) => { _capsPromise = null; throw e; }));
+// Connection profiles (profiles.json): { profiles: [{ id, label, kind, models, implicit }], errors }.
+// Not memoized: the file is read on every call server-side, and an edit should show up on the next
+// New session screen without a reload.
+export const getProfiles = () => jget('/api/profiles');
+// The models a compatible profile's server offers (its /v1/models): { models, error? }.
+export const getProfileModels = (profile) => jget('/api/profiles/models?profile=' + encodeURIComponent(profile));
 // Réglages persistants de hooked (settings.json côté serveur, partagés entre navigateurs).
 export const getSettings = () => jget('/api/settings');
 export const saveSettings = (patch) => jpost('/api/settings', patch);
