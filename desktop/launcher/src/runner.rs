@@ -114,6 +114,13 @@ fn checkout(repo: &Path, branch: &str, changes: &mut Changes, log: &mut String) 
     changes.checkout = true;
     let local = format!("refs/heads/{branch}");
     let remote = format!("origin/{branch}");
+    let here = sys::query(repo, &["symbolic-ref", "--quiet", "--short", "HEAD"]).unwrap_or_default();
+    if here.trim() != branch && flow::checked_out(&sys::query(repo, &["worktree", "list", "--porcelain"])?, branch) {
+        // Held by a worktree: the service runs the pushed tip, detached. Sharing the branch
+        // (`--ignore-other-worktrees`) would let the fast-forward move the HEAD of that worktree
+        // under its files.
+        return sys::git(log, repo, &["checkout", "--detach", &remote]).map(drop);
+    }
     if sys::query(repo, &["rev-parse", "--verify", "--quiet", &local]).is_ok() {
         sys::git(log, repo, &["checkout", branch])?;
     } else {
