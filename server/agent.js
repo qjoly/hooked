@@ -623,6 +623,21 @@ function releaseLaunchWaiters(st) {
   if (st.onId) { const f = st.onId; st.onId = null; f(st); }
 }
 
+// Takes an entry out of the registry when it ends, and tells the viewers of its id that it did.
+// The registry is keyed by session id and a restart puts a NEW entry under the id of the one it is
+// replacing (restartSession aborts the old process and relaunches 250 ms later). The old entry's
+// readLoop ends whenever its CLI has finished exiting, which after a real turn can be after that:
+// cleaning up by id alone then dropped the restarted session, leaving a CLI running that hooked
+// could neither drive nor see, and told its viewers it had ended. An entry that has been replaced
+// has nothing left to clean: the id belongs to its successor.
+function retireFromLive(st) {
+  if (!st.id) return;
+  const current = live.get(st.id);
+  if (current && current !== st) return;
+  emitAgent(st.id, () => streamSnapshot(st), true);
+  live.delete(st.id);
+}
+
 // Démolit une entrée qui n'a jamais réussi à démarrer. Même nettoyage que le `finally` de readLoop,
 // mais applicable quand readLoop n'a rien à finir : sans ça l'entrée reste dans `live` avec
 // ended:false et devient un trou noir — deliverReply y pousse des messages et répond OK.
@@ -636,10 +651,7 @@ function failStartup(st) {
   st.activity = null;
   st.sdkState = 'idle';
   if (st.pendingAsk) { const r = st.pendingAsk.resolve; st.pendingAsk = null; try { r(null); } catch (_) {} }
-  if (st.id) {
-    emitAgent(st.id, () => streamSnapshot(st), true);
-    live.delete(st.id);
-  }
+  retireFromLive(st);
   pending.delete(st.launchKey);
   releaseLaunchWaiters(st);
 }
@@ -696,10 +708,7 @@ async function readLoop(st) {
     // `canUseTool` fuite et le sous-processus resterait bloqué à la sortie.
     if (st.pendingAsk) { const r = st.pendingAsk.resolve; st.pendingAsk = null; try { r(null); } catch (_) {} }
     releaseLaunchWaiters(st);
-    if (st.id) {
-      emitAgent(st.id, () => streamSnapshot(st), true);
-      live.delete(st.id);
-    }
+    retireFromLive(st);
     pending.delete(st.launchKey);
   }
 }
