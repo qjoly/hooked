@@ -1,0 +1,12 @@
+[package]
+name = "pr-gate"
+version = "0.2.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+rune = { workspace = true }
+rune-kit = { workspace = true }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+libc = "0.2"

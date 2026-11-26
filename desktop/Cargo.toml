@@ -1,5 +1,5 @@
 [workspace]
-members = [".", "launcher", "ui"]
+members = [".", "launcher", "pr-gate", "ui"]
 
 # Rune is pinned once, in Cargo.lock: every crate below comes from the same git source (no `rev`,
 # so Rune's default branch), and Cargo resolves one source to one commit. A crate cannot drift to

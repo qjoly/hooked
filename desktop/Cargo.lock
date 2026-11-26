@@ -3301,6 +3301,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "pr-gate"
+version = "0.2.0"
+dependencies = [
+ "libc",
+ "rune",
+ "rune-kit",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "presser"
 version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"

@@ -31,6 +31,18 @@ const INSTRUCTIONS =
   'alternatives in separate blocks. Never leave such a block unlabelled, and do not label `bash` ' +
   'anything that is not meant to run (output, logs, paths, commit messages): use ```text for those.';
 
+function prGateInstructions(bin) {
+  return [
+    `Never open a pull request (\`gh pr create\`) before the user approved it in the pr-gate window. A "yes" in the chat is not enough: several sessions run in parallel, and the window is where the user checks which repo and branch a PR is for. Showing a draft the user only asked to see needs no gate.`,
+    'To ask, write a JSON file with the fields you know: `repo` (owner/name), `head`, `base`, `title`, `body` (the full description), `context` (one line saying which worktree or session this is, so a wrong branch stands out), `workdir` (your working directory) and `session` (your session id, if you know it). Then run `' + bin + ' --input <that file> --output <answer file>`, both files from `mktemp` since other sessions use the gate too.',
+    'It blocks until the user decides; one window queues the requests of every session. Read `title` and `body` back from the answer file, since the user may have edited them, and act on the exit code: `0` run `gh pr create` with them, `10` the same with `--draft`, `20` (denied) or `1` (window closed) open nothing and wait for a new instruction.',
+  ].join('\n\n');
+}
+
+const SERVER_INSTRUCTIONS = process.env.HOOKED_PR_GATE
+  ? INSTRUCTIONS + '\n\n' + prGateInstructions(process.env.HOOKED_PR_GATE)
+  : INSTRUCTIONS;
+
 const { httpRequest, resultFrom } = require('./http.cjs');
 
 // --- définition des outils ----------------------------------------------------
@@ -649,7 +661,7 @@ async function handle(msg) {
       protocolVersion: (params && params.protocolVersion) || PROTOCOL_VERSION,
       capabilities: { tools: {} },
       serverInfo: SERVER_INFO,
-      instructions: INSTRUCTIONS,
+      instructions: SERVER_INSTRUCTIONS,
     });
   }
 

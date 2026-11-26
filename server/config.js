@@ -31,6 +31,7 @@ const STATUS_DIR = path.join(HOOKED_DIR, 'status');
 // Seule source pour les skills embarqués dans le binaire (/code-review…) : sans ce cache, l'écran
 // « New session » — qui n'a par définition aucune session à interroger — ne les proposerait jamais.
 const SDK_COMMANDS_FILE = path.join(HOOKED_DIR, 'sdk-commands.json');
+const PR_GATE_BIN = path.join(HOOKED_DIR, 'bin', 'pr-gate');
 // Claude Code's global config (~/.claude.json). Carries `cachedUsageUtilization`, the account
 // quota cache the CLI refreshes: the only local source for *model-scoped* buckets (e.g. the
 // weekly Fable limit), which the statusline payload does not expose (5h / 7d only).
@@ -96,4 +97,4 @@ function readClaudeDefaults() {
   };
 }
 
-export { HOME, PROJECTS_DIR, HOOKED_DIR, EVENTS_FILE, LAUNCHES_FILE, SESSION_LAUNCH_FILE, DRIVEN_FILE, STATUS_DIR, SDK_COMMANDS_FILE, CLAUDE_JSON, PI_AGENT_DIR, PI_SESSIONS_DIR, EVENTS_FILES, ROOT, PUBLIC_DIR, PORT, PERMISSION_MODES, LAUNCH_PERMISSION_MODES, isValidModelArg, readClaudeDefaults };
+export { HOME, PROJECTS_DIR, HOOKED_DIR, EVENTS_FILE, LAUNCHES_FILE, SESSION_LAUNCH_FILE, DRIVEN_FILE, STATUS_DIR, SDK_COMMANDS_FILE, PR_GATE_BIN, CLAUDE_JSON, PI_AGENT_DIR, PI_SESSIONS_DIR, EVENTS_FILES, ROOT, PUBLIC_DIR, PORT, PERMISSION_MODES, LAUNCH_PERMISSION_MODES, isValidModelArg, readClaudeDefaults };

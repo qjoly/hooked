@@ -591,6 +591,7 @@ export const settings = $state({
   speechLang: 'fr-FR',
   speechEnabled: true,
   showWork: true, // cf. server/settings.js
+  prGate: true,
   statusBar: { permissionMode: true, modelEffort: true, focusBtn: true },
   defaultModel: '', defaultEffort: '', defaultMode: '',
   defaultProvider: 'claude', // cf. server/settings.js

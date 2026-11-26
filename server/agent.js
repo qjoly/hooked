@@ -24,7 +24,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { query } from '@anthropic-ai/claude-agent-sdk';
-import { PORT, LAUNCHES_FILE, SESSION_LAUNCH_FILE, DRIVEN_FILE, PERMISSION_MODES, LAUNCH_PERMISSION_MODES, isValidModelArg } from './config.js';
+import { PORT, PR_GATE_BIN, LAUNCHES_FILE, SESSION_LAUNCH_FILE, DRIVEN_FILE, PERMISSION_MODES, LAUNCH_PERMISSION_MODES, isValidModelArg } from './config.js';
 import { isValidEffort } from './capabilities.js';
 import { statSafe } from './util.js';
 import { scanSessions } from './transcript.js';
@@ -477,8 +477,10 @@ function hookedMcpServer(launchKey) {
   if (!server) return null;
   const env = { HOOKED_PORT: String(PORT) };
   if (launchKey) env.HOOKED_LAUNCH_KEY = launchKey;
-  if (readSettings().showWork) env.HOOKED_SHOW_WORK = '1';
-  if (readSettings().featureFlags?.showPanels) env.HOOKED_SHOW_PANELS = '1';
+  const settings = readSettings();
+  if (settings.showWork) env.HOOKED_SHOW_WORK = '1';
+  if (settings.featureFlags?.showPanels) env.HOOKED_SHOW_PANELS = '1';
+  if (settings.prGate && statSafe(PR_GATE_BIN)?.isFile()) env.HOOKED_PR_GATE = PR_GATE_BIN;
   // The modules switched on (modules/index.js): the server only offers their tools.
   env.HOOKED_MODULES = enabledModuleIds().join(',');
   return { command: 'node', args: [server], env };

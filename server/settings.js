@@ -59,6 +59,7 @@ const DEFAULTS = {
   // show_image / show_video / show_audio MCP tools (cf. mcp/server.cjs): Claude shows its work in
   // the conversation. Applies from the next launch or resume.
   showWork: true,
+  prGate: true,
   // Défauts pré-sélectionnés au lancement/à la reprise d'une session (formulaires Nouvelle session
   // et Resume). Chaîne vide = « hériter » : on retombe sur la config Claude Code de l'utilisateur
   // (~/.claude, cf. readClaudeDefaults) puis sur le défaut du sélecteur. defaultMode '' = hériter ;
@@ -281,6 +282,7 @@ function sanitize(raw) {
     speechLang,
     speechEnabled: o.speechEnabled === undefined ? true : !!o.speechEnabled,
     showWork: o.showWork === undefined ? true : !!o.showWork,
+    prGate: o.prGate === undefined ? true : !!o.prGate,
     editor: EDITOR_KEYS.includes(o.editor) ? o.editor : DEFAULT_EDITOR,
     defaultPage: DEFAULT_PAGES.includes(o.defaultPage) ? o.defaultPage : 'deck',
     hiddenModels,
