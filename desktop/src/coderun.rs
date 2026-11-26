@@ -9,7 +9,7 @@ use crate::fmt;
 const RAW_MAX_BYTES: usize = 64_000;
 const SHOWN_MAX_LINES: usize = 200;
 
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq, Hash)]
 pub struct CodeRun {
     raw: String,
     /// `raw` as a terminal shows it, last lines only.

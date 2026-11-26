@@ -1,4 +1,4 @@
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
@@ -1399,7 +1399,7 @@ pub fn composer_changed(&mut self) {
 
     /// The Runs of `session` whose command appears in `text`, by command: what the code blocks of
     /// one message show.
-    pub fn code_runs_in(&self, session: &str, text: &str) -> HashMap<String, CodeRun> {
+    pub fn code_runs_in(&self, session: &str, text: &str) -> BTreeMap<String, CodeRun> {
         self.code_runs
             .iter()
             .filter(|((id, command), _)| id == session && text.contains(command.as_str()))
