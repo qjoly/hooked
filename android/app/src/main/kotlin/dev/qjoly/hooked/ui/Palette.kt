@@ -106,6 +106,8 @@ private fun commands(app: AppModel, ui: SessionUi, ctx: Context, openTrash: (() 
         Cmd(nav, Lucide.Book, "Go to Prompts") { app.page = Page.Prompts },
         Cmd(nav, Lucide.Gear, "Go to Settings") { app.openSettings() },
     )
+    // A module switched off in Settings → Modules takes its page out of the palette.
+    out.removeAll { (it.label == "Go to GitHub" && !app.moduleOn("github")) || (it.label == "Go to Cron" && !app.moduleOn("cron")) }
     val look = "Appearance"
     out += Cmd(look, Lucide.Sun, "Theme: Light") { app.prefs.appearance(Appearance.LIGHT) }
     out += Cmd(look, Lucide.Moon, "Theme: Dark") { app.prefs.appearance(Appearance.DARK) }

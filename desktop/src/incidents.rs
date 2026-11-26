@@ -913,7 +913,7 @@ impl Incidents {
 impl Hooked {
     /// The tab, the palette entry and the shortcut exist only while this holds.
     pub fn incidents_on(&self) -> bool {
-        self.inc.ready() && !self.inc.hidden && !self.incognito
+        self.inc.ready() && !self.inc.hidden && !self.incognito && self.module_on("incidents")
     }
 
     pub fn go_incidents(&mut self) {
@@ -999,7 +999,7 @@ impl Hooked {
     /// Runs with the app: the first check, the badge, and another look for a binary that was
     /// missing or failing.
     pub fn poll_incidents(&mut self, now: i64) {
-        if self.handle.is_none() || self.inc.hidden {
+        if self.handle.is_none() || self.inc.hidden || !self.module_on("incidents") {
             return;
         }
         let due = now - self.inc.checked_at > BACKGROUND_MS;

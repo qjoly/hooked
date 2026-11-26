@@ -2,12 +2,12 @@
 
 import { deltaQuery, mergeDetail } from './detailDelta.js';
 
-async function jget(url) {
+export async function jget(url) {
   const r = await fetch(url);
   if (!r.ok) throw new Error('HTTP ' + r.status);
   return r.json();
 }
-async function jpost(url, body) {
+export async function jpost(url, body) {
   const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
   const d = await r.json().catch(() => ({}));
   return { ok: r.ok && d.ok, status: r.status, data: d };
@@ -151,10 +151,6 @@ export const groupOp = (op, id, extra = {}) => jpost('/api/session-meta', { op, 
 export const getMemory = () => jget('/api/memory');
 const cwdQuery = (cwds) => (cwds || []).map((c) => '&cwd=' + encodeURIComponent(c)).join('');
 export const getSkills = (cwds, provider = 'all') => jget('/api/skills?provider=' + provider + (cwds && cwds.length ? '&' + cwdQuery(cwds).slice(1) : ''));
-export const getCronTasks = () => jget('/api/cron');
-export const cronOp = (op, extra) => jpost('/api/cron', { op, ...extra });
-export const getFlows = () => jget('/api/flows');
-export const flowOp = (op, extra) => jpost('/api/flows', { op, ...extra });
 export const getSkill = (id, cwds, provider = 'all') => jget('/api/skills?id=' + encodeURIComponent(id) + '&provider=' + provider + cwdQuery(cwds));
 // MCP servers of a project (health-checked list, scope, diagnostics) + the OAuth actions.
 // `cwd` selects the project: project- and local-scope servers are per-directory.
@@ -173,7 +169,6 @@ export const getDigest = (date) => jget('/api/digest?date=' + encodeURIComponent
 export const generateDigest = (date, force) => jpost('/api/digest', { date, force: !!force });
 
 // GitHub page: marks notification threads as done. → { ok, data: { done: [threadId…], error } }.
-export const markGithubNotificationsDone = (ids) => jpost('/api/github/notifications', { ids });
 
 // Force a live-state resync: drops the volatile per-session bits derived from the SDK stream and
 // rebuilds the list now instead of waiting for the poll. Returns state counts.

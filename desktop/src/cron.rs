@@ -1,4 +1,4 @@
-//! The web's `src/lib/cron.js`, so the schedule preview agrees with the server's scheduler:
+//! The web's `modules/cron/lib/cron.js`, so the schedule preview agrees with the server's scheduler:
 //! five fields in local time, Vixie day-of-month / day-of-week OR rule.
 
 use std::collections::BTreeSet;

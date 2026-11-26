@@ -5,7 +5,9 @@
   "description": "Dashboard local pour suivre tes sessions Claude Code (live + stats)",
   "type": "module",
   "imports": {
-    "#lib/*": "./src/lib/*"
+    "#lib/*": "./src/lib/*",
+    "#server/*": "./server/*",
+    "#modules/*": "./modules/*"
   },
   "engines": {
     "node": ">=24"

@@ -1,0 +1,11 @@
+{
+  "name": "@hooked/pi-flows",
+  "version": "0.1.0",
+  "private": true,
+  "description": "hooked's Flows module inside a pi session: report a stage, list and start flows.",
+  "type": "module",
+  "keywords": ["pi-package"],
+  "pi": {
+    "extensions": ["./extension.js"]
+  }
+}

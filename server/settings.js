@@ -12,6 +12,8 @@ import path from 'node:path';
 import { HOOKED_DIR, LAUNCH_PERMISSION_MODES, isValidModelArg } from './config.js';
 import { EDITOR_KEYS, DEFAULT_EDITOR } from '../src/lib/editors.js';
 import { sanitizeProviders } from './providerConfig.js';
+import { sanitizeModules } from '../modules/index.js';
+import { NAV_KEYS } from '../src/lib/nav.js';
 import { DEFAULT_HIDDEN_MODELS, DEFAULT_HIDDEN_PI_MODELS, isHideableModel, isHideablePiModel } from '../src/lib/models.js';
 
 const SETTINGS_FILE = path.join(HOOKED_DIR, 'settings.json');
@@ -40,11 +42,11 @@ const DEFAULTS = {
   // Synchro git du dépôt du serveur (cf. server/gitOps.js) : boucle de fond fetch + pull --ff-only.
   autoGitSync: false,
   autoPullProjects: false,
-  // Boucle de fond (cf. server/prReviewTags.js) : tague une session `pr-approved` /
+  // Boucle de fond (cf. modules/github/server/prReviewTags.js) : tague une session `pr-approved` /
   // `pr-changes-requested` quand la review GitHub de sa PR la plus récente tombe. Lecture seule,
   // défaut activé.
   autoPrReviewTag: true,
-  // server/prWatch.js: every driven session whose latest PR link is an open PR of yours gets
+  // modules/github/server/prWatch.js: every driven session whose latest PR link is an open PR of yours gets
   // watched, and is woken when its checks fail or pass, a conflict appears or someone comments.
   // Off by default: each wake is a turn.
   autoPrWatch: false,
@@ -99,6 +101,8 @@ const DEFAULTS = {
   defaultPage: 'deck',
   // Onglets de navigation visibles à côté du Deck (paramétrable). Sous-ensemble de NAV_PAGES.
   navTabs: ['sessions', 'stats', 'digest', 'memory', 'github'],
+  // hooked's modules (modules/index.js): id → on. A module missing here is on.
+  modules: sanitizeModules(null),
   // Versions de modèle masquées des sélecteurs (liste noire, cf. src/lib/models.js). Défaut : les
   // vieilles générations. [] = tout afficher. Purement cosmétique : un modèle masqué reste valide
   // au lancement, et le modèle courant d'une session reste toujours affiché.
@@ -134,7 +138,8 @@ const DEFAULTS = {
   featureFlags: Object.fromEntries(FEATURE_FLAGS.map((k) => [k, false])),
 };
 
-const NAV_PAGES = ['sessions', 'stats', 'digest', 'memory', 'github', 'incidents', 'skills', 'cron', 'flows', 'prompts'];
+// The pages of the navigation, core and modules alike (src/lib/nav.js).
+const NAV_PAGES = NAV_KEYS;
 const DEFAULT_PAGES = ['deck', ...NAV_PAGES];
 
 // Ramène un objet arbitraire (fichier ou payload client) à des valeurs sûres et complètes.
@@ -280,6 +285,7 @@ function sanitize(raw) {
     defaultPage: DEFAULT_PAGES.includes(o.defaultPage) ? o.defaultPage : 'deck',
     hiddenModels,
     hiddenPiModels,
+    modules: sanitizeModules(o.modules),
     navTabs: Array.isArray(o.navTabs)
       ? NAV_PAGES.filter((k) => o.navTabs.includes(k)) // keep known keys, canonical order
       : [...DEFAULTS.navTabs],

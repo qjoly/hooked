@@ -1,5 +1,6 @@
 <script>
-  import Flows from '#lib/components/Flows.svelte';
+  import Flows from '#modules/flows/ui/Flows.svelte';
+  import ModuleGate from '#lib/components/ModuleGate.svelte';
 </script>
 
-<Flows />
+<ModuleGate id="flows"><Flows /></ModuleGate>

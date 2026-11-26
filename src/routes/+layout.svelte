@@ -5,7 +5,8 @@
   import { wheelModel, faviconSvg } from '#lib/fleetWheel.js';
   import { themeType } from '#lib/theme.svelte.js';
   import { page } from '$app/state';
-  import { pageHref } from '#lib/nav.js';
+  import { pageHref, pageAvailable } from '#lib/nav.js';
+  import { modulesAvail } from '#lib/modules.svelte.js';
   import { matchShortcut } from '#lib/shortcuts.js';
   import { trackModifier } from '#lib/peek.svelte.js';
   import { parseRunUrl } from '#lib/ghRun.js';
@@ -36,7 +37,7 @@
       await loadSettings();
       sessionStorage.setItem('hooked.defaultApplied', '1');
       const dp = settings.defaultPage;
-      if (dp && dp !== 'deck' && location.pathname === '/') {
+      if (dp && dp !== 'deck' && location.pathname === '/' && pageAvailable(dp, settings, modulesAvail)) {
         goto(pageHref(dp));
       }
     } catch (_) {}

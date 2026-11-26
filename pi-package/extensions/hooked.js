@@ -30,6 +30,7 @@ import { registerWorkflowTool } from './workflow.js';
 import { registerWebFetch } from './webfetch.js';
 import { registerWebSearch } from './websearch.js';
 import { registerBackground } from './background.js';
+import { registerHookedTools } from './tools.js';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -171,20 +172,8 @@ export default function hooked(pi) {
   };
 
   // ── hooked's tools ─────────────────────────────────────────────────────────────────────────
-  if (mcp && Array.isArray(mcp.TOOLS)) {
-    for (const t of mcp.TOOLS) {
-      pi.registerTool({
-        name: 'hooked_' + t.name,
-        label: 'hooked · ' + t.name,
-        description: t.description,
-        parameters: t.inputSchema || { type: 'object', properties: {} },
-        async execute(_id, params) {
-          const res = mcp.resultFrom(await t.run(params || {}));
-          return { content: res.content, details: undefined, ...(res.isError ? { isError: true } : {}) };
-        },
-      });
-    }
-  }
+  // The core ones; each module that is switched on brings its own in its pi package (modules/<id>/pi).
+  if (mcp && Array.isArray(mcp.TOOLS)) registerHookedTools(pi, mcp.TOOLS, mcp.resultFrom);
 
   // hooked's instructions (fenced bash blocks get a Run button…): one constant section.
   if (mcp && mcp.INSTRUCTIONS) {

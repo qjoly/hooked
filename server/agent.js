@@ -30,6 +30,7 @@ import { statSafe } from './util.js';
 import { scanSessions } from './transcript.js';
 import { scanAllSessions } from './sessions.js';
 import { readSettings } from './settings.js';
+import { enabledModuleIds } from './moduleState.js';
 import { getProvider, getEngine, driverFor, providerLaunchError, defaultProviderId } from './providers.js';
 import { refreshAgentStatus } from './agent-status.js';
 import { buildToolCatalog } from './llmTools.js';
@@ -478,6 +479,8 @@ function hookedMcpServer(launchKey) {
   if (launchKey) env.HOOKED_LAUNCH_KEY = launchKey;
   if (readSettings().showWork) env.HOOKED_SHOW_WORK = '1';
   if (readSettings().featureFlags?.showPanels) env.HOOKED_SHOW_PANELS = '1';
+  // The modules switched on (modules/index.js): the server only offers their tools.
+  env.HOOKED_MODULES = enabledModuleIds().join(',');
   return { command: 'node', args: [server], env };
 }
 

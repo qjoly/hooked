@@ -108,6 +108,7 @@ import dev.qjoly.hooked.ui.pages.CronPage
 import dev.qjoly.hooked.ui.pages.DigestPage
 import dev.qjoly.hooked.ui.pages.GithubPage
 import dev.qjoly.hooked.ui.pages.MemoryPage
+import dev.qjoly.hooked.ui.pages.ModuleOff
 import dev.qjoly.hooked.ui.pages.PromptsPage
 import dev.qjoly.hooked.ui.pages.SkillsPage
 import dev.qjoly.hooked.ui.pages.StatsPage
@@ -186,8 +187,8 @@ private fun Shell(app: AppModel, requestNotifications: () -> Unit) {
                         Page.Stats -> StatsPage(app)
                         Page.Digest -> DigestPage(app)
                         Page.Memory -> MemoryPage(app)
-                        Page.Cron -> CronPage(app)
-                        Page.Github -> GithubPage(app)
+                        Page.Cron -> if (app.moduleOn("cron")) CronPage(app) else ModuleOff("Cron")
+                        Page.Github -> if (app.moduleOn("github")) GithubPage(app) else ModuleOff("GitHub")
                         Page.Skills -> SkillsPage(app)
                         Page.Prompts -> PromptsPage(app)
                         Page.Settings -> SettingsPage(app, requestNotifications)

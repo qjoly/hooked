@@ -8,6 +8,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import dev.qjoly.hooked.ui.kit.k
 
+/** The page of a module switched off in Settings → Modules (web or desktop app). */
+@Composable
+fun ModuleOff(title: String) {
+    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text("$title is off. Turn it on in Settings → Modules.", style = k.ty.body, color = k.c.muted) }
+}
+
 /** A page that is not built yet. */
 @Composable
 fun Placeholder(title: String) {

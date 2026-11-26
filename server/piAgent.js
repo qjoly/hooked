@@ -23,6 +23,7 @@ import { providerEnv, modelMatches } from './providerConfig.js';
 import { piCatalog } from './piCatalog.js';
 import { PI_SESSIONS_DIR } from './config.js';
 import { hookedPiPackage, hookedPackageEnabled, hookedPackageEnv, handleUiRequest } from './piHooked.js';
+import { modulePiPackages } from './moduleState.js';
 import { suggestFollowup } from './piFollowup.js';
 
 // Follow-up suggestions at the end of a turn (server/piFollowup.js); HOOKED_PI_FOLLOWUPS=0 turns them off.
@@ -389,6 +390,8 @@ function piArgsFor(st, { resumeId, model, effort, name }, provider) {
     const i = extra.findIndex((a) => a === '-xt' || a === '--exclude-tools');
     if (i >= 0 && extra[i + 1]) extra[i + 1] += ',' + HOOKED_MCP_TOOLS;
     else extra.push('--exclude-tools', HOOKED_MCP_TOOLS);
+    // Each module that is on brings its tools in a pi package of its own (modules/<id>/pi).
+    for (const pkg of modulePiPackages()) extra.push('-e', pkg);
   }
   args.push(...extra);
   return args;

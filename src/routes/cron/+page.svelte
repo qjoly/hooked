@@ -1,5 +1,6 @@
 <script>
-  import Cron from '#lib/components/Cron.svelte';
+  import Cron from '#modules/cron/ui/Cron.svelte';
+  import ModuleGate from '#lib/components/ModuleGate.svelte';
 </script>
 
-<Cron />
+<ModuleGate id="cron"><Cron /></ModuleGate>

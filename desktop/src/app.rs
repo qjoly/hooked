@@ -2792,6 +2792,17 @@ pub fn composer_changed(&mut self) {
         self.provider_filter = next_provider_filter(self.provider_filter.as_deref(), &self.providers.enabled_ids());
     }
 
+    /// Whether a module of the service is on (Settings → Modules, `settings.modules`). A module
+    /// the settings do not name is on.
+    pub fn module_on(&self, id: &str) -> bool {
+        self.setting("modules")[id].as_bool() != Some(false)
+    }
+
+    /// Whether `page` can be shown: a page that belongs to a module needs that module on.
+    pub fn page_on(&self, page: Page) -> bool {
+        page_module(page).is_none_or(|m| self.module_on(m))
+    }
+
     pub fn nav_tab(&self, key: &str) -> bool {
         match self.setting("navTabs").as_array() {
             Some(list) => list.iter().any(|x| x.as_str() == Some(key)),
@@ -3041,6 +3052,17 @@ const ANNOUNCE_WINDOW_MS: i64 = 10 * 60_000;
 /// restarted and resumed keeps its old timestamp and is not re-announced.
 fn recently_active(s: &Session, now: i64) -> bool {
     fmt::age_ms(s.last_activity.as_deref(), now).is_some_and(|age| age < ANNOUNCE_WINDOW_MS)
+}
+
+/// The module of the service a page belongs to (modules/index.js on the server), if any.
+pub fn page_module(page: Page) -> Option<&'static str> {
+    match page {
+        Page::Cron => Some("cron"),
+        Page::Flows => Some("flows"),
+        Page::GitHub => Some("github"),
+        Page::Incidents => Some("incidents"),
+        _ => None,
+    }
 }
 
 #[cfg(test)]

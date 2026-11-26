@@ -14,16 +14,9 @@
  */
 'use strict';
 
-const http = require('node:http');
 const fs = require('node:fs');
 const path = require('node:path');
 
-const PORT = process.env.HOOKED_PORT || '4123';
-// Défaut en `localhost` (PAS 127.0.0.1) : hooked peut n'écouter qu'en IPv6 (`::1`, le défaut de
-// `vite` sans `--host`). Un littéral IPv4 (127.0.0.1) ne bascule jamais sur IPv6 → ECONNREFUSED.
-// `localhost` déclenche une résolution DNS + happy-eyeballs (autoSelectFamily, cf. httpRequest) qui
-// joint hooked qu'il soit en IPv4 (127.0.0.1) OU IPv6 (::1).
-const BASE = (process.env.HOOKED_MCP_URL || `http://localhost:${PORT}`).replace(/\/$/, '');
 const PROTOCOL_VERSION = '2025-06-18';
 const SERVER_INFO = { name: 'hooked', version: '2.0.0' };
 
@@ -38,68 +31,7 @@ const INSTRUCTIONS =
   'alternatives in separate blocks. Never leave such a block unlabelled, and do not label `bash` ' +
   'anything that is not meant to run (output, logs, paths, commit messages): use ```text for those.';
 
-// --- client HTTP minimal ------------------------------------------------------
-
-function httpRequest(method, pathQuery, body) {
-  return new Promise((resolve) => {
-    let url;
-    try {
-      url = new URL(BASE + pathQuery);
-    } catch (e) {
-      return resolve({ ok: false, status: 0, error: 'URL invalide : ' + e.message });
-    }
-    const payload = body == null ? null : Buffer.from(JSON.stringify(body));
-    const opts = {
-      method,
-      hostname: url.hostname,
-      port: url.port,
-      path: url.pathname + url.search,
-      headers: {},
-      // Essaie IPv4 ET IPv6 (happy-eyeballs) quand hostname=localhost → joint hooked que vite
-      // écoute en 127.0.0.1 ou ::1. Défaut à true depuis Node 20 ; explicite par sûreté.
-      autoSelectFamily: true,
-    };
-    if (payload) {
-      opts.headers['content-type'] = 'application/json';
-      opts.headers['content-length'] = payload.length;
-    }
-    const req = http.request(opts, (res) => {
-      const chunks = [];
-      res.on('data', (c) => chunks.push(c));
-      res.on('end', () => {
-        const text = Buffer.concat(chunks).toString('utf8');
-        let data = text;
-        try {
-          data = text ? JSON.parse(text) : null;
-        } catch (_) {}
-        const ok = res.statusCode >= 200 && res.statusCode < 300;
-        resolve({ ok, status: res.statusCode, data });
-      });
-    });
-    req.on('error', (e) => {
-      resolve({
-        ok: false,
-        status: 0,
-        error:
-          `impossible de joindre hooked sur ${BASE} (${e.code || e.message}). ` +
-          `Le serveur hooked tourne-t-il ? (npm run dev / npm start)`,
-      });
-    });
-    if (payload) req.write(payload);
-    req.end();
-  });
-}
-
-// Enveloppe un résultat HTTP en contenu MCP. Échec HTTP → isError pour que l'agent le voie.
-function resultFrom(r) {
-  if (r.error) return { content: [{ type: 'text', text: r.error }], isError: true };
-  const text = typeof r.data === 'string' ? r.data : JSON.stringify(r.data, null, 2);
-  if (!r.ok) {
-    const msg = r.data && r.data.error ? r.data.error : text;
-    return { content: [{ type: 'text', text: `Erreur ${r.status} : ${msg}` }], isError: true };
-  }
-  return { content: [{ type: 'text', text }] };
-}
+const { httpRequest, resultFrom } = require('./http.cjs');
 
 // --- définition des outils ----------------------------------------------------
 
@@ -298,43 +230,6 @@ const TOOLS = [
       : Promise.resolve({ error: 'this session is not driven by hooked, it cannot archive itself' }),
   },
   {
-    name: 'watch_pull_request',
-    description:
-      'Watches a GitHub pull request for you. hooked then messages this session when its checks fail or all ' +
-      'pass, a merge conflict appears, no check has reported 15 minutes after a push, or someone else comments. ' +
-      'Call it after opening or pushing to a PR when you should follow up on CI or review feedback. Each update ' +
-      'arrives as a new user message; watching stops on its own once the PR is merged or closed.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        url: { type: 'string', description: 'Pull request URL. Defaults to the last PR linked in this session.' },
-      },
-      additionalProperties: false,
-    },
-    run: async (a) => {
-      if (!process.env.HOOKED_LAUNCH_KEY) return { error: 'this session is not driven by hooked, it cannot watch a pull request' };
-      const r = await httpRequest('POST', '/api/pr-watch', { op: 'watch', launchKey: process.env.HOOKED_LAUNCH_KEY, url: a.url });
-      if (!r.ok) return r;
-      return { ok: true, data: `Watching pull request #${r.data.number} (${r.data.url}). You will get a message here when there is news.` };
-    },
-  },
-  {
-    name: 'unwatch_pull_request',
-    description: 'Stops watching a pull request started with watch_pull_request (all of this session\'s watches when no url is given).',
-    inputSchema: {
-      type: 'object',
-      properties: { url: { type: 'string', description: 'Pull request URL to stop watching' } },
-      additionalProperties: false,
-    },
-    run: async (a) => {
-      if (!process.env.HOOKED_LAUNCH_KEY) return { error: 'this session is not driven by hooked' };
-      const r = await httpRequest('POST', '/api/pr-watch', { op: 'unwatch', launchKey: process.env.HOOKED_LAUNCH_KEY, url: a.url });
-      if (!r.ok) return r;
-      const removed = r.data.removed || [];
-      return { ok: true, data: removed.length ? `Stopped watching ${removed.join(', ')}.` : 'Nothing was being watched.' };
-    },
-  },
-  {
     name: 'reply_to_session',
     description:
       'Envoie un message texte à une session live (comme une saisie au clavier). Si une question ' +
@@ -476,124 +371,6 @@ const TOOLS = [
       additionalProperties: false,
     },
     run: (a) => httpRequest('GET', '/api/digest' + (a.date ? '?date=' + encodeURIComponent(a.date) : '')),
-  },
-  {
-    name: 'list_cron_tasks',
-    description: 'Lists the cron tasks: prompts hooked launches as a new session on a schedule, with their next run and recent runs.',
-    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
-    run: () => httpRequest('GET', '/api/cron'),
-  },
-  {
-    name: 'save_cron_task',
-    description:
-      'Creates a cron task, or updates one when `id` is given. An update only changes the fields you pass. ' +
-      'Each run starts a new session tagged `cron` and closes the previous run if it is idle.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        id: { type: 'string', description: 'id of the task to update (omit to create one)' },
-        name: { type: 'string', description: 'defaults to the first line of the prompt' },
-        schedule: { type: 'string', description: 'five-field cron expression in local time (minute hour day-of-month month day-of-week), or @hourly / @daily / @weekly / @monthly' },
-        cwd: { type: 'string', description: 'project directory the session runs in' },
-        prompt: { type: 'string', description: 'first message sent to each run' },
-        model: { type: 'string', description: 'optional model; empty for the Claude Code default' },
-        effort: { type: 'string', description: 'optional effort; empty for the Claude Code default' },
-        permissionMode: { type: 'string', enum: ['default', 'acceptEdits', 'auto', 'plan', 'bypassPermissions', 'dontAsk'] },
-        ephemeral: { type: 'boolean', description: 'each run archives itself once it is sure nothing is left for the user' },
-        enabled: { type: 'boolean', description: 'false pauses the scheduled runs' },
-        provider: { type: 'string', description: 'provider id the runs launch on (see list_providers); defaults to claude' },
-      },
-      additionalProperties: false,
-    },
-    run: (a) => httpRequest('POST', '/api/cron', { op: 'save', task: a }),
-  },
-  {
-    name: 'delete_cron_task',
-    description: 'Deletes a cron task. The sessions it already started are kept.',
-    inputSchema: {
-      type: 'object',
-      properties: { id: { type: 'string', description: 'id of the task' } },
-      required: ['id'],
-      additionalProperties: false,
-    },
-    run: (a) => httpRequest('POST', '/api/cron', { op: 'delete', id: a.id }),
-  },
-  {
-    name: 'run_cron_task',
-    description:
-      'Runs a cron task now, outside its schedule. Fails if its previous run is still working or waiting on the user. ' +
-      'The response carries `sessionId` and `link` (relative `/session/<id>`): emit a markdown link `[label](<link>)` to point the user at it.',
-    inputSchema: {
-      type: 'object',
-      properties: { id: { type: 'string', description: 'id of the task' } },
-      required: ['id'],
-      additionalProperties: false,
-    },
-    run: (a) => httpRequest('POST', '/api/cron', { op: 'run', id: a.id }),
-  },
-  {
-    name: 'flow_report',
-    description:
-      'Reports the result of your stage when hooked runs you as one stage of a flow (a pipeline of sessions). ' +
-      'Call it once your part is finished, then end your turn: hooked hands your summary to the next stages. ' +
-      'The decider stage must pass a verdict: `done` (closes the flow), `loop` (sends the work back, the summary ' +
-      'being the instructions for the next pass) or `escalate` (hands the decision to the user). Other stages ' +
-      'pass no verdict, or `escalate` when blocked on a decision that belongs to the user.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        summary: { type: 'string', description: 'what you did or found, written for the next stages (markdown)' },
-        verdict: { type: 'string', enum: ['done', 'loop', 'escalate'] },
-      },
-      required: ['summary'],
-      additionalProperties: false,
-    },
-    run: (a) => process.env.HOOKED_LAUNCH_KEY
-      ? httpRequest('POST', '/api/flows', { op: 'report', launchKey: process.env.HOOKED_LAUNCH_KEY, summary: a.summary, verdict: a.verdict })
-      : Promise.resolve({ error: 'this session is not driven by hooked, it cannot be a flow stage' }),
-  },
-  {
-    name: 'list_flows',
-    description:
-      'Lists the flow templates (pipelines of sessions: pilot, build, review, challenge, decide…) and the flow runs ' +
-      'with the state of each stage and its session id.',
-    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
-    run: async () => {
-      const r = await httpRequest('GET', '/api/flows');
-      if (!r.ok) return r;
-      const runs = (r.data.runs || []).map((x) => ({
-        id: x.id, name: x.name, status: x.status, note: x.note, iteration: x.iteration, cwd: x.cwd,
-        link: '/flows?run=' + x.id,
-        stages: Object.fromEntries(Object.entries(x.stages).map(([k, s]) => [k, { status: s.status, sessionId: s.sessionId, verdict: s.report?.verdict || null }])),
-      }));
-      const templates = (r.data.templates || []).map((t) => ({ id: t.id, name: t.name, description: t.description, stages: t.stages.map((s) => s.key) }));
-      return { ok: true, data: { templates, runs } };
-    },
-  },
-  {
-    name: 'start_flow',
-    description:
-      'Starts a flow run: hooked launches one session per stage of the template and chains them (each stage gets ' +
-      'the reports of the stages before it), looping back when the decider asks for it. The response carries a ' +
-      '`link` (relative): emit a markdown link `[label](<link>)` to point the user at the pipeline view.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        templateId: { type: 'string', description: 'flow template id (see list_flows); "feature" is built in' },
-        task: { type: 'string', description: 'what the flow should achieve, handed to every stage' },
-        cwd: { type: 'string', description: 'project directory' },
-        name: { type: 'string', description: 'defaults to the first line of the task' },
-        worktree: { type: 'boolean', description: 'run in a new git worktree (defaults to the template setting)' },
-        base: { type: 'string', description: 'base branch of the worktree' },
-      },
-      required: ['templateId', 'task', 'cwd'],
-      additionalProperties: false,
-    },
-    run: async (a) => {
-      const r = await httpRequest('POST', '/api/flows', { op: 'start', ...a });
-      if (!r.ok) return r;
-      return { ok: true, data: { id: r.data.run.id, name: r.data.run.name, cwd: r.data.run.cwd, link: r.data.link } };
-    },
   },
 ];
 
@@ -826,7 +603,27 @@ const SHOW_PANEL = {
 };
 if (process.env.HOOKED_SHOW_PANELS === '1') TOOLS.push(SHOW_PANEL);
 
-const TOOL_BY_NAME = new Map(TOOLS.map((t) => [t.name, t]));
+// Tools of hooked's modules (modules/<id>/tools.cjs) that are switched on. hooked lists them in
+// HOOKED_MODULES when it spawns this server for a session; a server started without it (registered
+// by hand) offers every module that ships tools. pi sessions get the same tools from each module's
+// pi package instead (modules/<id>/pi), so TOOLS stays the core list the hooked pi package reads.
+function moduleTools(list = process.env.HOOKED_MODULES) {
+  const dir = path.join(__dirname, '..', 'modules');
+  const wanted = list == null ? null : new Set(String(list).split(',').map((x) => x.trim()).filter(Boolean));
+  const out = [];
+  let ids = [];
+  try { ids = fs.readdirSync(dir).sort(); } catch (_) { return out; }
+  for (const id of ids) {
+    if (wanted && !wanted.has(id)) continue;
+    const file = path.join(dir, id, 'tools.cjs');
+    if (!fs.existsSync(file)) continue;
+    out.push(...require(file).tools);
+  }
+  return out;
+}
+
+const SERVED = [...TOOLS, ...moduleTools()];
+const TOOL_BY_NAME = new Map(SERVED.map((t) => [t.name, t]));
 
 // --- boucle JSON-RPC sur stdio ------------------------------------------------
 
@@ -858,7 +655,7 @@ async function handle(msg) {
 
   if (method === 'tools/list') {
     return reply(id, {
-      tools: TOOLS.map((t) => ({ name: t.name, description: t.description, inputSchema: t.inputSchema })),
+      tools: SERVED.map((t) => ({ name: t.name, description: t.description, inputSchema: t.inputSchema })),
     });
   }
 
@@ -885,7 +682,7 @@ async function handle(msg) {
 
 // Required as a module (the hooked pi package, pi-package/extensions/hooked.js, registers these
 // same tools as native pi tools): export them and do not start the stdio server.
-module.exports = { TOOLS, INSTRUCTIONS, resultFrom, httpRequest };
+module.exports = { TOOLS, INSTRUCTIONS, resultFrom, httpRequest, moduleTools };
 if (require.main === module) startStdio();
 
 function startStdio() {
