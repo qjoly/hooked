@@ -217,7 +217,8 @@ export function loadProfiles(file = PROFILES_FILE) {
 
 // The only shape of a profile that leaves the server: no env, so no token and no reference to one.
 export function publicProfile(p) {
-  return { id: p.id, label: p.label, kind: p.kind, models: p.models, implicit: !!p.implicit };
+  // `hasAccount`: it has a Claude account of its own (a configDir), which can be signed in and out.
+  return { id: p.id, label: p.label, kind: p.kind, models: p.models, implicit: !!p.implicit, hasAccount: !!p.configDir };
 }
 
 export function profilesOverview(file = PROFILES_FILE) {

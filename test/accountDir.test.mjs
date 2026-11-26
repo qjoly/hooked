@@ -37,6 +37,15 @@ describe('prepareAccountDir', () => {
     }
   });
 
+  it('tightens a directory that already exists with looser permissions, as the CLI leaves it', () => {
+    const { main, dir, profile } = setup();
+    fs.mkdirSync(dir, { recursive: true, mode: 0o755 });
+    fs.chmodSync(dir, 0o755);
+    expect(fs.statSync(dir).mode & 0o777).toBe(0o755);
+    prepareAccountDir(profile, { mainDir: main });
+    expect(fs.statSync(dir).mode & 0o777).toBe(0o700);
+  });
+
   it('reports what the default account has none of, and links nothing for it', () => {
     const { main, dir, profile } = setup(['projects', 'settings.json']);
     const r = prepareAccountDir(profile, { mainDir: main });

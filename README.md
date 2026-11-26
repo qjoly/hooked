@@ -271,7 +271,12 @@ LM Studio. Profiles live in `profiles.json`, next to hooked's other data (`~/.cl
   login stay the account's own. Anything already in the directory is left as it is.
   On macOS the login is stored in a Keychain item named after a hash of the directory's path, so
   that path must never change: it is kept absolute, without a trailing slash, and two profiles
-  cannot share one. Sign in with `CLAUDE_CONFIG_DIR=<dir> claude auth login`.
+  cannot share one.
+  The account menu (the avatar, top right) lists every profile that has an account, with its
+  identity, and signs each in or out with the same flow as the main account, without touching
+  anything else on the machine. **Add account** there creates the profile (its directory goes
+  under `~/.claude/hooked/accounts/<id>`) and starts its sign-in. To remove an account, sign it
+  out, then delete its entry from `profiles.json` and its directory.
 - `contextWindow` (`compatible` only) is the context the server loads the model at. The CLI assumes
   200k for a model it does not know and would never compact before the server refuses the request;
   hooked hands it over as `CLAUDE_CODE_MAX_CONTEXT_TOKENS`, which also sizes the context gauge.

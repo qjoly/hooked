@@ -141,9 +141,9 @@ describe('the public shape', () => {
 
   it('exposes id, label, kind, models and whether the profile is implicit', () => {
     const { profiles } = parseProfiles([LMSTUDIO]);
-    expect(publicProfile(profiles[0])).toEqual({ id: 'default', label: 'Default', kind: 'anthropic', models: [], implicit: true });
+    expect(publicProfile(profiles[0])).toEqual({ id: 'default', label: 'Default', kind: 'anthropic', models: [], implicit: true, hasAccount: false });
     expect(publicProfile(profiles[1])).toEqual({
-      id: 'lmstudio-home', label: 'LM Studio (home)', kind: 'compatible', implicit: false,
+      id: 'lmstudio-home', label: 'LM Studio (home)', kind: 'compatible', implicit: false, hasAccount: false,
       models: [{ id: 'qwen/qwen3-coder-30b', label: 'qwen/qwen3-coder-30b' }, { id: 'qwen/qwen3.8-27b', label: 'Qwen 27B' }],
     });
   });
@@ -445,7 +445,10 @@ describe('configDir', () => {
     expect(buildSessionEnv({ CLAUDE_CONFIG_DIR: '/elsewhere' }, p, {}).CLAUDE_CONFIG_DIR).toBe('/elsewhere');
   });
 
-  it('does not reach the public shape', () => {
-    expect(JSON.stringify(publicProfile(parse([acct({ configDir: '~/a/perso' })]).profiles[1]))).not.toContain('perso/');
+  it('reaches the public shape only as the fact that the profile has an account, not as a path', () => {
+    const pub = publicProfile(parse([acct({ configDir: '~/a/perso' })]).profiles[1]);
+    expect(pub.hasAccount).toBe(true);
+    expect(JSON.stringify(pub)).not.toContain('/home/me');
+    expect(publicProfile(parse([acct({})]).profiles[1]).hasAccount).toBe(false);
   });
 });

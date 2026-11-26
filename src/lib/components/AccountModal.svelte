@@ -1,8 +1,8 @@
 <script>
   import { copyText } from '#lib/clipboard.js';
-  import { onDestroy } from 'svelte';
+  import { onDestroy, onMount } from 'svelte';
   import { account, loadAccount } from '#lib/state.svelte.js';
-  import { accountAction } from '#lib/api.js';
+  import { accountAction, getAccount, getProfiles, profilesAction } from '#lib/api.js';
   import { initials } from '#lib/format.js';
   import Icon from './Icon.svelte';
 
@@ -10,16 +10,34 @@
   let redirect = $state('');
   let notice = $state('');
   let loggingOut = $state(false);
-  let confirmingLogout = $state(false);
+  let confirmingLogout = $state(null); // null, '' (the main account) or the id of a profile's account
   let poll = null;
+
+  // The accounts of connection profiles that have one of their own, beside the main one.
+  let accounts = $state([]);     // [{ id, label, info }]
+  let loginProfile = $state(null); // whose account the login in flight is for (null = the main one)
+  let newName = $state('');
+  let adding = $state(false);
+  const loginLabel = $derived(loginProfile ? (accounts.find((a) => a.id === loginProfile)?.label || loginProfile) : null);
+
+  async function loadAccounts() {
+    try {
+      const { profiles } = await getProfiles();
+      accounts = await Promise.all((profiles || []).filter((p) => p.hasAccount).map(async (p) => ({
+        id: p.id, label: p.label, info: await getAccount(p.id).catch(() => null),
+      })));
+    } catch (_) { accounts = []; }
+  }
+  onMount(loadAccounts);
 
   function stopPoll() { if (poll) { clearInterval(poll); poll = null; } }
 
-  async function startSwitch(mode) {
+  async function startSwitch(mode, profile = null) {
     notice = '';
     redirect = '';
+    loginProfile = profile;
     login = { id: null, url: null, done: false, needsPaste: false, output: '', starting: true };
-    const r = await accountAction({ action: 'login', mode });
+    const r = await accountAction({ action: 'login', mode, ...(profile ? { profile } : {}) });
     if (!r.ok) { login = null; notice = r.data?.error || 'Could not start the login flow.'; return; }
     login = r.data.login;
     stopPoll();
@@ -30,7 +48,7 @@
       login = s.data.login;
       if (login.done) {
         stopPoll();
-        if (login.exitCode === 0) { notice = 'Signed in.'; await loadAccount(); }
+        if (login.exitCode === 0) { notice = 'Signed in.'; await (profile ? loadAccounts() : loadAccount()); }
       }
     }, 1500);
   }
@@ -50,13 +68,27 @@
 
   function closeLogin() { stopPoll(); login = null; }
 
-  async function logout() {
+  async function logout(profile = null) {
     loggingOut = true;
-    confirmingLogout = false;
-    const r = await accountAction({ action: 'logout' });
+    confirmingLogout = null;
+    const r = await accountAction({ action: 'logout', ...(profile ? { profile } : {}) });
     loggingOut = false;
     notice = r.ok ? 'Signed out.' : (r.data?.error || 'Logout failed.');
-    await loadAccount();
+    await (profile ? loadAccounts() : loadAccount());
+  }
+
+  // A new profile with an account of its own, then straight into its sign-in.
+  async function addAccount() {
+    const label = newName.trim();
+    if (!label || adding || login) return;
+    adding = true;
+    notice = '';
+    const r = await profilesAction({ action: 'add-account', label });
+    adding = false;
+    if (!r.ok) { notice = r.data?.error || 'Could not add the account.'; return; }
+    newName = '';
+    await loadAccounts();
+    await startSwitch('claudeai', r.data.profile.id);
   }
 
   onDestroy(stopPoll);
@@ -78,7 +110,7 @@
   {#if login}
     <div class="auth">
       <div class="auth-head">
-        <strong><Icon name="lock" size={14} /> Sign in</strong>
+        <strong><Icon name="lock" size={14} /> Sign in{#if loginLabel}{' — ' + loginLabel}{/if}</strong>
         <button class="link" onclick={closeLogin}>Close</button>
       </div>
       {#if login.starting}
@@ -126,16 +158,53 @@
       account afterwards.
     </p>
 
-    {#if confirmingLogout}
+    {#if confirmingLogout === ''}
       <div class="confirm">
         <span>Sign out of this account entirely?</span>
-        <button class="btn danger" onclick={logout} disabled={loggingOut}>{loggingOut ? 'Signing out…' : 'Confirm sign out'}</button>
-        <button class="link" onclick={() => (confirmingLogout = false)}>Cancel</button>
+        <button class="btn danger" onclick={() => logout()} disabled={loggingOut}>{loggingOut ? 'Signing out…' : 'Confirm sign out'}</button>
+        <button class="link" onclick={() => (confirmingLogout = null)}>Cancel</button>
       </div>
     {:else}
-      <button class="link danger" onclick={() => (confirmingLogout = true)}>Sign out</button>
+      <button class="link danger" onclick={() => (confirmingLogout = '')}>Sign out</button>
     {/if}
   {/if}
+
+  <div class="others">
+    <div class="others-head">Other accounts</div>
+    {#each accounts as a (a.id)}
+      <div class="row">
+        <div class="row-avatar">{initials(a.info?.displayName, a.info?.email)}</div>
+        <div class="row-who">
+          <strong>{a.label}</strong>
+          {#if a.info?.loggedIn}
+            <span class="email">{a.info.email}{#if a.info.organizationName} · {a.info.organizationName}{/if}{#if a.info.subscriptionType} · {a.info.subscriptionType}{/if}</span>
+          {:else}
+            <span class="warn">Not signed in</span>
+          {/if}
+        </div>
+        <div class="row-actions">
+          {#if confirmingLogout === a.id}
+            <button class="btn danger" onclick={() => logout(a.id)} disabled={loggingOut}>{loggingOut ? 'Signing out…' : 'Confirm'}</button>
+            <button class="link" onclick={() => (confirmingLogout = null)}>Cancel</button>
+          {:else}
+            <button class="btn" disabled={!!login} onclick={() => startSwitch('claudeai', a.id)}>{a.info?.loggedIn ? 'Switch' : 'Sign in'}</button>
+            {#if a.info?.loggedIn}<button class="link danger" disabled={!!login} onclick={() => (confirmingLogout = a.id)}>Sign out</button>{/if}
+          {/if}
+        </div>
+      </div>
+    {:else}
+      <p class="hint">No other account yet.</p>
+    {/each}
+    <div class="urlrow add">
+      <input class="pick" placeholder="Name of a new account…" bind:value={newName} disabled={!!login}
+             onkeydown={(e) => e.key === 'Enter' && addAccount()} />
+      <button class="btn" onclick={addAccount} disabled={!newName.trim() || adding || !!login}>{adding ? 'Adding…' : 'Add account'}</button>
+    </div>
+    <p class="hint">
+      Each account signs in on its own: nothing else on this machine changes. Pick it in
+      <b>New session</b> to run a session on it.
+    </p>
+  </div>
 </div>
 
 <style>
@@ -159,6 +228,21 @@
   .btn.primary { background: var(--accent); color: var(--accent-fg); border-color: transparent; }
   .btn.primary:hover:not(:disabled) { background: var(--accent-d); }
   .btn.danger { background: none; border-color: var(--attention); color: var(--attention); }
+
+  .others { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--border); }
+  .others-head { margin-bottom: 8px; font-size: var(--t-meta); font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+  .row { display: flex; align-items: center; gap: 10px; padding: 8px 0; }
+  .row-avatar {
+    width: 32px; height: 32px; border-radius: 50%; flex: none; background: var(--chip); color: var(--muted);
+    display: flex; align-items: center; justify-content: center; font-size: var(--t-ui); font-weight: 700;
+  }
+  .row-who { display: flex; flex-direction: column; gap: 1px; min-width: 0; flex: 1 1 auto; }
+  .row-who strong { font-size: var(--t-ui); }
+  .row-who .email { overflow-wrap: anywhere; }
+  .row-actions { display: flex; align-items: center; gap: 10px; flex: none; }
+  .row-actions .btn { padding: 6px 10px; }
+  .add { margin: 8px 0 6px; }
+  .link:disabled { opacity: .5; cursor: default; }
 
   .hint { margin: 0 0 14px; font-size: var(--t-meta); color: var(--muted); line-height: 1.5; }
   .hint code { background: var(--bg3); padding: 1px 5px; border-radius: 5px; font-size: var(--t-micro); }

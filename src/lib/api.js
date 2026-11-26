@@ -129,6 +129,8 @@ export const getCapabilities = () => (_capsPromise ||= jget('/api/capabilities')
 // New session screen without a reload.
 export const getProfiles = () => jget('/api/profiles');
 // The models a compatible profile's server offers (its /v1/models): { models, error? }.
+// `{ action: 'add-account', label }`: a new profile with a Claude account of its own.
+export const profilesAction = (body) => jpost('/api/profiles', body);
 export const getProfileModels = (profile) => jget('/api/profiles/models?profile=' + encodeURIComponent(profile));
 // Réglages persistants de hooked (settings.json côté serveur, partagés entre navigateurs).
 export const getSettings = () => jget('/api/settings');
@@ -167,7 +169,8 @@ export const getTraceTool = (id, tool) => jget('/api/session/trace?id=' + encode
 export const mcpAction = (body) => jpost('/api/mcp', body);
 
 // Signed-in Claude account (top bar avatar/menu) + the `claude auth login`/`logout` actions.
-export const getAccount = () => jget('/api/account');
+// `profile`: the account of a connection profile that has one of its own (default: the main one).
+export const getAccount = (profile) => jget('/api/account' + (profile ? '?profile=' + encodeURIComponent(profile) : ''));
 export const accountAction = (body) => jpost('/api/account', body);
 
 export const getDigests = () => jget('/api/digest');

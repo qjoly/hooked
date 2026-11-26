@@ -48,6 +48,7 @@ export * from './account.js';
 export * from './profiles.js';
 export * from './profileModels.js';
 export * from './accountDir.js';
+export * from './profilesFile.js';
 export * from './images.js';
 export * from './userFiles.js';
 export * from './screenshots.js';

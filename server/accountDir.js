@@ -10,6 +10,10 @@
  * what makes an account its own) and `.credentials.json` (the login). Anything that already exists
  * in the account dir is left as it is, never replaced: it may be the account's own on purpose.
  *
+ * The directory ends up private whoever created it first: it holds a login, and the CLI itself
+ * creates a missing config dir with the default permissions (755) the first time it is run on it,
+ * even for a read-only `auth status`. So an existing directory is tightened to 700, never loosened.
+ *
  * Idempotent, and cheap enough to run before every launch. Node stdlib only.
  */
 import fs from 'node:fs';
@@ -35,6 +39,7 @@ export function prepareAccountDir(profile, { mainDir = mainConfigDir() } = {}) {
   const linked = [], kept = [], missing = [];
   try {
     fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+    fs.chmodSync(dir, 0o700);
     // The transcripts have to land somewhere hooked reads, so this one is created if need be.
     fs.mkdirSync(path.join(mainDir, 'projects'), { recursive: true });
     for (const name of SHARED_ENTRIES) {
