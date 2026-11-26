@@ -9,6 +9,7 @@ event streams the web dashboard, the iOS app and the Android app use.
 mise run desktop-dev   # run from source with live editing
 mise run desktop-run   # run from source once, no live editing
 mise run desktop       # build, install /Applications/hooked.app and relaunch it
+mise run desktop-windows   # cross-compile a Windows .exe, from macOS or Linux
 ```
 
 `mise run desktop` also redeploys the hooked service (`mise run deploy-if-stale`) when its build
@@ -27,6 +28,10 @@ session and quits once the queue is empty.
 
 Ghostty's terminal core (`libghostty-vt`) is built from source with Zig; the mise tasks pull Zig
 0.17.1 along with Rust.
+
+`desktop-windows` targets `x86_64-pc-windows-gnu` through `cargo-zigbuild`, Zig standing in for the
+MinGW toolchain. The `.exe` is all there is to copy: no installer. On Windows the hooked service runs
+in WSL2 (see the main README), and the app reaches it on `localhost:4123` as the browser does.
 
 `desktop-dev` goes through Rune's live-editing tool (`scripts/rune-dev` in the pinned rune
 checkout, driving `dx serve --hot-patch`): saving a file whose edits stay inside function bodies
@@ -161,6 +166,9 @@ connection dot, list rows, step marks) live in the `hooked-ui` crate (`ui/`), wh
   from the text selection). Occurrences of the selection change colour rather than getting a
   background: the view takes no background for part of a line, so they go through the syntax
   highlighter.
+- Windows: the build has not been run on a Windows machine yet. Labels still read ⌘, the session
+  paths the service reports are WSL's (open in editor), and the incident.io binary is looked up
+  at its macOS paths only.
 
 ## Terminal: what is still missing
 

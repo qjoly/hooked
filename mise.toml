@@ -418,6 +418,19 @@ dir = "desktop"
 tools = { rust = "1.99.1", zig = "0.17.1" }
 run = "cargo run --features knobs"
 
+# GNU rather than MSVC: Zig ships the MinGW headers and libraries, not the Windows SDK's, so it can
+# stand in for the whole Windows toolchain (the C of libghostty-vt and the other -sys crates, and
+# the link) from macOS or Linux.
+[tasks.desktop-windows]
+description = "Cross-compile the desktop app for Windows into desktop/target/x86_64-pc-windows-gnu/release/hooked-rune.exe"
+dir = "desktop"
+tools = { rust = "1.99.1", zig = "0.17.1", "aqua:rust-cross/cargo-zigbuild" = "0.24.1" }
+run = """
+set -e
+rustup target add x86_64-pc-windows-gnu
+cargo zigbuild -p hooked-rune --release --target x86_64-pc-windows-gnu
+"""
+
 # The Android SDK comes from Android Studio or the command-line tools, not from mise.
 [tasks.android]
 description = "Build the Android tablet app and install it on the device adb sees"

@@ -1,3 +1,6 @@
+// Debug builds keep the console, for their logs.
+#![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
+
 mod account;
 mod api;
 mod app;
