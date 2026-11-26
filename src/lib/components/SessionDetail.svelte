@@ -1027,7 +1027,7 @@
     <!-- Lentille MCP : santé des serveurs MCP du projet de la session + ré-authentification. -->
     <div class="pane" class:active={tab === 'mcp'}>
       {#if seen.mcp}
-        <Mcp project={s.project || ''} provider={s.provider || 'claude'} />
+        <Mcp project={s.project || ''} provider={s.provider || 'claude'} profile={s.profile?.id || ''} profileLabel={s.profile?.label || ''} />
       {/if}
     </div>
 

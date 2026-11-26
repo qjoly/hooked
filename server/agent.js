@@ -27,6 +27,7 @@ import { query } from '@anthropic-ai/claude-agent-sdk';
 import { PORT, PR_GATE_BIN, LAUNCHES_FILE, SESSION_LAUNCH_FILE, DRIVEN_FILE, PERMISSION_MODES, LAUNCH_PERMISSION_MODES } from './config.js';
 import { findProfile, isValidModelForProfile, sessionEnvFor, DEFAULT_PROFILE_ID } from './profiles.js';
 import { prepareAccountDir } from './accountDir.js';
+import { injectedMcpFor } from './mcpServers.js';
 import { isValidEffort } from './capabilities.js';
 import { statSafe } from './util.js';
 import { scanSessions } from './transcript.js';
@@ -499,7 +500,7 @@ function sessionIdForLaunchKey(launchKey) {
 // hooks globaux de ~/.claude/settings.json — donc hook.cjs, donc events.jsonl — continuent de
 // s'exécuter pour les sessions lancées par hooked, exactement comme pour le CLI interactif. Sans ça
 // on perdrait d'un coup les questions/plans en attente, les todos, les jobs de fond, la statusline…
-function sdkOptions({ cwd, model, effort, permissionMode, resumeId, input, st, env }) {
+function sdkOptions({ cwd, model, effort, permissionMode, resumeId, input, st, env, mcp }) {
   const opts = {
     cwd,
     env,
@@ -525,8 +526,11 @@ function sdkOptions({ cwd, model, effort, permissionMode, resumeId, input, st, e
     stderr: (data) => { st.stderr = String(data).slice(-4000); },
   };
   // Outils hooked (reply/resolve review comment…) même hors de ce repo — cf. hookedMcpServer().
+  // The servers the user shares across accounts, or dedicates to this profile (cf.
+  // server/mcpServers.js), then hooked's own, whose name is reserved so nothing can shadow it.
   const hookedMcp = hookedMcpServer(st.launchKey);
-  if (hookedMcp) opts.mcpServers = { hooked: hookedMcp };
+  const servers = { ...(mcp || {}), ...(hookedMcp ? { hooked: hookedMcp } : {}) };
+  if (Object.keys(servers).length) opts.mcpServers = servers;
   return opts;
 }
 
@@ -954,6 +958,12 @@ function launchSession(opts, cb) {
       return;
     }
     const env = sessionEnv.env;
+    // MCP servers added by hooked: a reference that does not resolve refuses the launch, naming the
+    // server, rather than starting without a server the user expects. Entries of mcp-common.json
+    // that do not parse are skipped and reported, as in profiles.json.
+    const injected = injectedMcpFor(profile, { env: loginEnvVars });
+    if (injected.errors.length) { st.error = injected.errors.join('; '); failStartup(st); return; }
+    for (const w of injected.warnings) console.log('[hooked] mcp-common.json: ' + w);
     // A profile with its own account: its dir has to exist, with the shared parts linked in.
     if (profile.configDir) {
       const prep = prepareAccountDir(profile);
@@ -967,7 +977,7 @@ function launchSession(opts, cb) {
       return;
     }
     try {
-      st.q = query({ prompt: input, options: sdkOptions({ cwd: dir, model, effort, permissionMode, resumeId: id, input, st, env }) });
+      st.q = query({ prompt: input, options: sdkOptions({ cwd: dir, model, effort, permissionMode, resumeId: id, input, st, env, mcp: injected.servers }) });
     } catch (e) {
       st.error = 'agent sdk query failed: ' + ((e && e.message) || e);
       failStartup(st);

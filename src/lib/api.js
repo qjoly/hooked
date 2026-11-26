@@ -163,7 +163,9 @@ export const getSkills = (cwds, provider = 'all') => jget('/api/skills?provider=
 export const getSkill = (id, cwds, provider = 'all') => jget('/api/skills?id=' + encodeURIComponent(id) + '&provider=' + provider + cwdQuery(cwds));
 // MCP servers of a project (health-checked list, scope, diagnostics) + the OAuth actions.
 // `cwd` selects the project: project- and local-scope servers are per-directory.
-export const getMcpServers = (cwd, cached = false, provider = 'claude', check = false) => jget('/api/mcp?cwd=' + encodeURIComponent(cwd || '') + (cached ? '&cached=1' : '') + (provider && provider !== 'claude' ? '&provider=' + encodeURIComponent(provider) : '') + (check ? '&check=1' : ''));
+// `profile`: the account of a connection profile (its own servers and connectors, plus the servers
+// hooked adds for it) instead of the default account's. Claude only: another provider has no profiles.
+export const getMcpServers = (cwd, cached = false, provider = 'claude', check = false, profile = '') => jget('/api/mcp?cwd=' + encodeURIComponent(cwd || '') + (cached ? '&cached=1' : '') + (provider && provider !== 'claude' ? '&provider=' + encodeURIComponent(provider) : '') + (check ? '&check=1' : '') + (profile ? '&profile=' + encodeURIComponent(profile) : ''));
 // Trace lens: tool-call spans grouped by turn, and one span's input/result on demand.
 export const getTrace = (id) => jget('/api/session/trace?id=' + encodeURIComponent(id));
 export const getTraceTool = (id, tool) => jget('/api/session/trace?id=' + encodeURIComponent(id) + '&tool=' + encodeURIComponent(tool));

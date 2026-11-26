@@ -59,12 +59,13 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { PROFILES_FILE, isValidModelArg } from './config.js';
+import { ENV_NAME_RE, isPlainObject, parseSecretValue, resolveSecretMap } from './secretValues.js';
+import { parseMcpServerMap } from './mcpServers.js';
 
 export const DEFAULT_PROFILE_ID = 'default';
 export const PROFILE_KINDS = ['anthropic', 'compatible'];
 
 const ID_RE = /^[a-z0-9][a-z0-9_-]{0,31}$/;
-const ENV_NAME_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
 // Model ids are interpolated into the CLI's `--model` / the SDK's `setModel`, and LM Studio's carry
 // a publisher prefix (`qwen/qwen3-coder-30b`): a strict charset, but one that allows `/` and `.`.
 const MODEL_ID_RE = /^[A-Za-z0-9][A-Za-z0-9._:@+/-]{0,127}$/;
@@ -89,26 +90,6 @@ export function normalizeConfigDir(dir, home = os.homedir()) {
 
 export function defaultProfile() {
   return { id: DEFAULT_PROFILE_ID, label: 'Default', kind: 'anthropic', env: {}, models: [], implicit: true };
-}
-
-const isPlainObject = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
-
-// One env entry → the normalized value (a string, or a `{ fromEnv }` / `{ file }` reference), or an
-// error message. Exactly one reference key, and no empty reference.
-function parseEnvValue(v) {
-  if (typeof v === 'string') return { value: v };
-  if (!isPlainObject(v)) return { error: 'must be a string, { "fromEnv": NAME } or { "file": PATH }' };
-  const keys = Object.keys(v);
-  if (keys.length !== 1 || !['fromEnv', 'file'].includes(keys[0])) {
-    return { error: 'a reference has exactly one key, "fromEnv" or "file"' };
-  }
-  const key = keys[0];
-  if (typeof v[key] !== 'string' || !v[key]) return { error: `"${key}" must be a non-empty string` };
-  if (key === 'fromEnv' && !ENV_NAME_RE.test(v[key])) return { error: '"fromEnv" must be a variable name' };
-  if (key === 'file' && !(path.isAbsolute(v[key]) || v[key].startsWith('~/'))) {
-    return { error: '"file" must be an absolute path or start with ~/' };
-  }
-  return { value: { [key]: v[key] } };
 }
 
 function parseModels(raw) {
@@ -140,7 +121,7 @@ function parseProfile(raw, { home, mainDir }) {
   const env = {};
   for (const [name, v] of Object.entries(raw.env || {})) {
     if (!ENV_NAME_RE.test(name)) return { error: `invalid env variable name ${JSON.stringify(name)}` };
-    const r = parseEnvValue(v);
+    const r = parseSecretValue(v);
     if (r.error) return { error: `env ${name}: ${r.error}` };
     env[name] = r.value;
   }
@@ -166,9 +147,20 @@ function parseProfile(raw, { home, mainDir }) {
     if (configDir === '/' || configDir === home) return { error: '"configDir" cannot be the root or the home directory' };
     if (configDir === mainDir) return { error: '"configDir" is the default account\'s own directory' };
   }
+  // MCP servers dedicated to this profile, and whether it also gets the common ones (cf.
+  // server/mcpServers.js). Strict like the rest of the entry: a bad server skips the profile.
+  let mcpServers;
+  if (raw.mcpServers !== undefined) {
+    const r = parseMcpServerMap(raw.mcpServers);
+    if (r.errors.length) return { error: `mcpServers: ${r.errors.join('; ')}` };
+    if (Object.keys(r.servers).length) mcpServers = r.servers;
+  }
+  if (raw.commonMcp !== undefined && typeof raw.commonMcp !== 'boolean') return { error: '"commonMcp" must be true or false' };
   const profile = { id, label: (raw.label || '').trim() || id, kind, env, models: m.models };
   if (contextWindow) profile.contextWindow = contextWindow;
   if (configDir) profile.configDir = configDir;
+  if (mcpServers) profile.mcpServers = mcpServers;
+  if (raw.commonMcp === false) profile.commonMcp = false;
   return { profile };
 }
 
@@ -231,22 +223,9 @@ export function profilesOverview(file = PROFILES_FILE) {
 // that names the variable (never its value). An unset variable, an unreadable or empty file is an
 // error: a session must not start with a token silently missing and fall back to another account.
 // `env`, `readFile` and `home` are injectable for tests.
-export function resolveProfileEnv(profile, { env = process.env, readFile = fs.readFileSync, home = os.homedir() } = {}) {
-  const out = {};
-  const errors = [];
-  for (const [name, v] of Object.entries(profile.env || {})) {
-    if (typeof v === 'string') { out[name] = v; continue; }
-    if (v.fromEnv) {
-      const val = env[v.fromEnv];
-      if (val) out[name] = val; else errors.push(`${name}: $${v.fromEnv} is not set`);
-      continue;
-    }
-    const file = v.file.startsWith('~/') ? path.join(home, v.file.slice(2)) : v.file;
-    let text = '';
-    try { text = String(readFile(file, 'utf8')).replace(/\r?\n$/, ''); } catch (_) { /* reported below */ }
-    if (text) out[name] = text; else errors.push(`${name}: ${v.file} is missing or empty`);
-  }
-  return { env: out, errors };
+export function resolveProfileEnv(profile, opts = {}) {
+  const { values, errors } = resolveSecretMap(profile.env, opts);
+  return { env: values, errors };
 }
 
 export function findProfile(id, file = PROFILES_FILE) {

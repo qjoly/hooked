@@ -25,7 +25,13 @@ export async function GET({ url }) {
   if (kind === 'pi') {
     return json(await listMcpPi(cwd, { check: url.searchParams.get('check') === '1' }));
   }
-  return json(await listMcp(cwd, { cached: url.searchParams.get('cached') === '1' }));
+  // `profile`: the account of a connection profile (its own servers and connectors), plus the servers
+  // hooked adds for it, instead of the default account's.
+  try {
+    return json(await listMcp(cwd, { cached: url.searchParams.get('cached') === '1', profile: url.searchParams.get('profile') || null }));
+  } catch (e) {
+    return fail(400, e && e.message ? e.message : 'mcp lookup failed');
+  }
 }
 
 // Everything that mutates or blocks: OAuth login (start / poll / paste back / cancel), logout,
@@ -35,12 +41,13 @@ export async function POST({ request }) {
   if (!body || typeof body.action !== 'string') return fail(400, 'action required');
   const { action, cwd, name, id, text, provider, scope, config } = body;
   const isPi = mcpKind(provider) === 'pi';
+  const profile = typeof body.profile === 'string' && body.profile ? body.profile : null;
   try {
     switch (action) {
       case 'get':
         if (!name) return fail(400, 'name required');
         if (isPi) return json({ ok: true, ...getMcpPi(cwd, name) });
-        return json({ ok: true, ...(await getMcp(cwd, name)) });
+        return json({ ok: true, ...(await getMcp(cwd, name, profile)) });
       case 'save': // pi only : upsert dans le mcp.json du scope (pi n'a pas de `pi mcp add`)
         if (!isPi) return fail(400, 'save is pi-only');
         return json(saveMcpPi({ cwd, scope, name, config }));
@@ -52,10 +59,10 @@ export async function POST({ request }) {
         return json(migrateLegacyToml({ cwd }));
       case 'logout':
         if (!name) return fail(400, 'name required');
-        return json({ ok: true, ...(await logoutMcp(cwd, name)) });
+        return json({ ok: true, ...(await logoutMcp(cwd, name, profile)) });
       case 'login':
         if (!name) return fail(400, 'name required');
-        return json({ ok: true, login: await startLogin(cwd, name) });
+        return json({ ok: true, login: await startLogin(cwd, name, profile) });
       case 'login-status': {
         const st = loginStatus(id);
         return st ? json({ ok: true, login: st }) : fail(404, 'unknown login');

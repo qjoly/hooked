@@ -294,6 +294,40 @@ LM Studio. Profiles live in `profiles.json`, next to hooked's other data (`~/.cl
   instead of falling back to the default one. A fork cut before the first answer of a `compatible`
   profile carries the original's model over.
 
+### MCP servers per account
+
+Which MCP servers an account can use is not the same for every account: an organization's servers
+are out of reach with a personal login, and the claude.ai connectors follow the login. So:
+
+- **An account's own servers** are the ones it has in its own `.claude.json` (`claude mcp add
+  --scope user …`, run with that account's `CLAUDE_CONFIG_DIR`), plus its claude.ai connectors. They
+  stay with the account, and a server of an organization is simply not there for another account.
+- **Common servers** go in `mcp-common.json`, next to `profiles.json`, in the shape of a project's
+  `.mcp.json`. Every profile gets them, the default one included, unless it has
+  `"commonMcp": false`.
+- **A profile's own servers** go in its `mcpServers` (any kind of profile, LM Studio included), for
+  its sessions only. They win over a common server of the same name.
+
+```json
+{ "mcpServers": {
+    "context7": { "command": "npx", "args": ["-y", "@upstash/context7-mcp"] },
+    "wiki": { "type": "http", "url": "https://wiki.example.com/mcp",
+              "headers": { "Authorization": { "fromEnv": "WIKI_TOKEN" } } } } }
+```
+
+- A server is `stdio` (`command`, `args`, `env`) or `http` / `sse` (`url`, `headers`). Values of `env`
+  and `headers` are literals or `{ "fromEnv" }` / `{ "file" }` references, resolved when the session
+  starts. A reference that does not resolve refuses the launch, naming the server and the variable.
+- Entries that do not parse are skipped and reported (in the lens, and in hooked's log), never fatal.
+  `hooked` is reserved for hooked's own server.
+- hooked hands these servers to the session when it starts, as it does its own: nothing is copied
+  into any `.claude.json`, so an edit applies to the next session. A server that needs OAuth still
+  signs in per account, from the MCP lens.
+- The **MCP lens** shows what the session's own account sees (it runs the CLI with that account),
+  then the servers hooked adds, marked *Common* or *Profile*. The CLI does not know those, so they
+  are described rather than health-checked. A name the account already has is flagged: which of
+  the two a session ends up with is not decided here.
+
 ## How it works
 
 ```mermaid
