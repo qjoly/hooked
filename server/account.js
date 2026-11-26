@@ -196,9 +196,6 @@ function finish(entry, exitCode) {
   if (exitCode === 0) invalidateStatus(entry.key);
 }
 
-// Starts `claude auth login` (or `--console` for an Anthropic Console / API-billed account) under
-// a PTY. Returns once the authorization URL has appeared (or after a short grace period), so the
-// first response already carries it.
 // How many logins still hold a PTY. A finished one stays in the registry for a few minutes so its
 // result can still be polled, but it must not count against the limit: with several accounts, two
 // quick sign-ins (or cancels) would otherwise lock out every other one for five minutes.
@@ -208,11 +205,34 @@ export function countLoginsInFlight(registry) {
   return n;
 }
 
+// Ends the logins still open for one account (`key`: 'default' or a profile id). A sign-in the user
+// walked away from keeps its PTY, and the limit above, until it times out ten minutes later: so a
+// new sign-in for the same account takes the place of the old one instead of queueing behind it, and
+// removing an account ends whatever is open for it. Returns how many were ended.
+export function cancelLoginsOf(registry, key) {
+  let n = 0;
+  for (const e of registry.values()) {
+    if (e.done || e.key !== key) continue;
+    try { e.child.kill(); } catch (_) { /* already gone */ }
+    finish(e, -1);
+    n++;
+  }
+  return n;
+}
+
+export function cancelAccountLoginsFor(profileId = null) {
+  return cancelLoginsOf(logins, profileId && profileId !== DEFAULT_PROFILE_ID ? profileId : 'default');
+}
+
+// Starts `claude auth login` (or `--console` for an Anthropic Console / API-billed account) under
+// a PTY. Returns once the authorization URL has appeared (or after a short grace period), so the
+// first response already carries it.
 export async function startAccountLogin(mode, profileId = null) {
   for (const [id, e] of logins) if (e.done && Date.now() - e.startedAt > 5 * 60_000) logins.delete(id);
-  if (countLoginsInFlight(logins) >= MAX_LOGINS) throw new Error('too many logins in flight');
   const pty = await loadPty();
   const scope = await accountContext(profileId);
+  cancelLoginsOf(logins, scope.key);
+  if (countLoginsInFlight(logins) >= MAX_LOGINS) throw new Error('Too many sign-ins are open at once. Finish or cancel one first.');
   // A profile's account dir has to exist, with the shared parts linked in, before anything is
   // signed into it: sessions on it then find their hooks and write their transcripts where hooked
   // reads them.

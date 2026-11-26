@@ -86,9 +86,20 @@
   let profiles = $state([]);
   let profileId = $state('');
   onMount(async () => { try { profiles = (await getProfiles()).profiles || []; } catch (_) {} });
+  // The account chosen as the default (account menu → "Use for new sessions") starts selected, until
+  // the user picks one themselves. It has to still exist and have an account of its own: a removed
+  // one falls back to the main account. Reactive because the settings can arrive after this page
+  // mounts, on a direct load.
+  let profileTouched = false;
+  $effect(() => {
+    const d = settings.defaultProfile, list = profiles; // tracked before the guard (Svelte 5 trap)
+    if (profileTouched || !list.length) return;
+    untrack(() => { profileId = d && list.some((p) => p.id === d && p.hasAccount) ? d : ''; });
+  });
   const profile = $derived(profiles.find((p) => p.id === profileId) || null);
   const compatible = $derived(isCompatible(profile));
   function pickProfile(id) {
+    profileTouched = true;
     if (isCompatible(profiles.find((p) => p.id === id))) {
       // The model of another server: empty until ModelEffort fills in the first one it offers. The
       // defaults below are Claude names and would not mean anything there.

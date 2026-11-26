@@ -596,6 +596,7 @@ export const settings = $state({
   defaultModel: '', defaultEffort: '', defaultMode: '',
   defaultProvider: 'claude', // cf. server/settings.js
   providers: { claude: 'auto', pi: 'auto' }, // override détection auto des providers, cf. server/providers.js
+  defaultProfile: '', // cf. server/settings.js
   remoteControlProjects: [],
   favoriteProjects: [],
   promptLibrary: [], // cf. server/settings.js

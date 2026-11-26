@@ -63,17 +63,20 @@
   // that account's, anywhere else the main account's. Without this, two accounts would take turns
   // on the same gauges, whichever answered last.
   const viewed = $derived(page.params?.id ? data.sessions.find((s) => s.id === page.params.id) : null);
+  const onSession = $derived(!!page.params?.id);
   const viewedProfile = $derived(viewed?.profile?.id || null);
+  // Outside a session, the account new sessions start on (account menu → "Use for new sessions").
+  const gaugeProfile = $derived(onSession ? viewedProfile : (settings.defaultProfile || null));
   let usage = $state(null);
   $effect(() => {
     ui.tick;
-    const profile = viewedProfile;
+    const profile = gaugeProfile;
     let alive = true;
     getUsage(profile || undefined).then((u) => { if (alive) usage = u; }).catch(() => {});
     return () => { alive = false; };
   });
   // A session on a server with no account (LM Studio…) has no limits: show none rather than dashes.
-  const noLimits = $derived(!!viewedProfile && usage?.profile === viewedProfile && !usage?.account);
+  const noLimits = $derived(!!gaugeProfile && usage?.profile === gaugeProfile && !usage?.account);
   const g5 = $derived(usage?.account?.fiveHour?.pct ?? null);
   const g7 = $derived(usage?.account?.sevenDay?.pct ?? null);
   // Fable weekly bucket: model-scoped limit, only present on accounts that have one — no bucket,
@@ -114,7 +117,9 @@
   const canToggle = $derived(usageViews.length > 1);
   const toggleUsageView = () => { if (canToggle) usageView = usageViews[(usageViews.indexOf(view) + 1) % usageViews.length]; };
   // The gauges are an account's: on a session of a profile with its own account, that account's.
-  const claudeTitle = $derived(viewed?.profile ? 'Rate limits of ' + viewed.profile.label : 'Account rate limits');
+  const claudeTitle = $derived(onSession
+    ? (viewed?.profile ? 'Rate limits of ' + viewed.profile.label : 'Account rate limits')
+    : (gaugeProfile ? 'Rate limits of the default account' : 'Account rate limits'));
   const gaugesTitle = $derived(showClaude
     ? (canToggle ? claudeTitle + ' — click to switch to the next provider' : claudeTitle)
     : `${pi?.label || 'Provider'} session usage${canToggle ? ' — click to switch' : ''}`);

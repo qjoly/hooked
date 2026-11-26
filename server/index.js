@@ -49,6 +49,7 @@ export * from './profiles.js';
 export * from './profileModels.js';
 export * from './accountDir.js';
 export * from './profilesFile.js';
+export * from './profileRemoval.js';
 export * from './mcpServers.js';
 export * from './images.js';
 export * from './userFiles.js';

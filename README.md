@@ -278,11 +278,17 @@ LM Studio. Profiles live in `profiles.json`, next to hooked's other data (`~/.cl
   On macOS the login is stored in a Keychain item named after a hash of the directory's path, so
   that path must never change: it is kept absolute, without a trailing slash, and two profiles
   cannot share one.
-  The account menu (the avatar, top right) lists every profile that has an account, with its
-  identity, and signs each in or out with the same flow as the main account, without touching
-  anything else on the machine. **Add account** there creates the profile (its directory goes
-  under `~/.claude/hooked/accounts/<id>`) and starts its sign-in. To remove an account, sign it
-  out, then delete its entry from `profiles.json` and its directory.
+  The account menu (the avatar, top right) is one list of accounts, the main one first (Claude
+  Code's own login on this machine), each with its identity, plan and limits. The menu of a card
+  has **Use for new sessions** (that account starts selected in New session, and the top bar shows
+  its limits outside a session), **Sign in again**, **Sign in with Console (API billing)**,
+  **Sign out** and, for a profile, **Remove**. A sign-in happens inside the card; open its link in
+  a browser window signed in to the account you mean, since that is the one the CLI will get. Only
+  the main account's sign-in replaces a login shared with the rest of the machine, and says so.
+  Starting a sign-in for an account ends the one still open for it, and Cancel really stops it.
+  **Add account** creates the profile (its directory goes under `~/.claude/hooked/accounts/<id>`)
+  and starts its sign-in. **Remove** signs the account out and takes it out of `profiles.json`; it
+  is refused while a session runs on it, and its directory is kept on disk, never deleted by hooked.
   The rate-limit gauges follow the account: on a session of a profile with an account of its own,
   the top bar shows that account's 5 h / 7 d limits (read with its own login), anywhere else the
   main account's, and a session on a server with no account (LM Studio…) shows none. The account

@@ -1,5 +1,5 @@
 import { json } from '@sveltejs/kit';
-import { profilesOverview, addAccountProfile, addServerProfile, probeServer } from '#lib/server/core.js';
+import { profilesOverview, addAccountProfile, addServerProfile, probeServer, removeProfileForReal } from '#lib/server/core.js';
 import { fail, readJson } from '#lib/server/respond.js';
 
 // The connection profiles from profiles.json (the implicit `default` first), without their env: no
@@ -12,6 +12,7 @@ export function GET() {
 // The caller then signs it in through /api/account with the profile's id.
 // `probe-server`: what a server that is not a profile yet offers (its /v1/models), for the form.
 // `add-server`: a new profile for an Anthropic-compatible server (LM Studio…).
+// `remove-profile`: an account or a server, refused while a session runs on it.
 export async function POST({ request }) {
   const body = await readJson(request);
   if (!body) return fail(400, 'invalid request');
@@ -26,6 +27,11 @@ export async function POST({ request }) {
       const models = Array.isArray(body.models) ? body.models.filter((m) => typeof m === 'string') : undefined;
       const r = addServerProfile(body.label, { url: body.url, token: body.token, contextWindow: body.contextWindow, models });
       return r.error ? fail(400, r.error) : json({ ok: true, profile: r.profile });
+    }
+    case 'remove-profile': {
+      // Signs the account out, takes the entry out of profiles.json, keeps the account's directory.
+      const r = await removeProfileForReal(body.id);
+      return r.error ? fail(400, r.error) : json({ ok: true, ...r });
     }
     default:
       return fail(400, 'unknown action');

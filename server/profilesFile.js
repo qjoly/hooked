@@ -60,17 +60,39 @@ function appendEntry(raw, entry, file, what) {
   const parsed = parseProfiles([...raw, entry]);
   const added = parsed.profiles.find((p) => p.id === entry.id);
   if (!added) return { error: parsed.errors.find((e) => e.includes(`(${entry.id})`)) || `the new ${what} was refused` };
+  const w = writeRaw(file, [...raw, entry]);
+  return w.error ? w : { profile: publicProfile(added) };
+}
+
+// Atomic (tmp + rename) and private. → {} or { error }.
+function writeRaw(file, entries) {
   const tmp = file + '.tmp';
   try {
     fs.mkdirSync(path.dirname(file), { recursive: true });
-    fs.writeFileSync(tmp, JSON.stringify([...raw, entry], null, 2) + '\n', { mode: 0o600 });
+    fs.writeFileSync(tmp, JSON.stringify(entries, null, 2) + '\n', { mode: 0o600 });
     fs.chmodSync(tmp, 0o600); // the mode above only counts when the file is created
     fs.renameSync(tmp, file);
   } catch (e) {
     try { fs.unlinkSync(tmp); } catch (_) {}
     return { error: `profiles.json could not be written: ${(e && e.message) || e}` };
   }
-  return { profile: publicProfile(added) };
+  return {};
+}
+
+/**
+ * Takes a profile's entry out of profiles.json. The other entries are written back exactly as they
+ * were, whatever the parser makes of them, and the file is refused rather than rewritten when it is
+ * not a JSON array. Nothing outside the file is touched: a profile's directory stays on disk.
+ * → { removed: true } or { error }; never throws.
+ */
+export function removeProfileEntry(id, { file = PROFILES_FILE } = {}) {
+  if (typeof id !== 'string' || !id || id === DEFAULT_PROFILE_ID) return { error: 'unknown profile' };
+  const r = readRaw(file);
+  if (r.error) return r;
+  const rest = r.raw.filter((p) => !(p && p.id === id));
+  if (rest.length === r.raw.length) return { error: 'unknown profile' };
+  const w = writeRaw(file, rest);
+  return w.error ? w : { removed: true };
 }
 
 function checkName(label) {
