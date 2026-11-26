@@ -226,3 +226,13 @@ export function sessionEnvFor(profile, base) {
   if (r.errors.length) return { error: `profile "${profile.id}": ${r.errors.join('; ')}` };
   return { env: buildSessionEnv(base, profile, r.env) };
 }
+
+// The model a fork has to be launched with. The CLI restores a resumed session's model from its
+// transcript, which is why hooked never passes one on resume. A fork cut at the very first message
+// has no assistant message to restore it from, and the CLI then falls back to its own default
+// (`opus`): harmless on Anthropic, wrong on a compatible server, which expects its own model ids.
+// So a compatible profile hands the original's model on, when it is still one the profile allows.
+export function modelToKeepOnFork(profile, sessionModel) {
+  if (!profile || profile.kind !== 'compatible') return undefined;
+  return isValidModelForProfile(profile, sessionModel) ? sessionModel : undefined;
+}

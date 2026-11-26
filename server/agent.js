@@ -705,17 +705,20 @@ async function readLoop(st) {
 }
 
 // Persiste modèle/effort choisis au lancement : l'UI doit pouvoir les afficher même après la fin
-// de la session (le registre, lui, ne survit pas au processus).
-function persistLaunch(sessionId, model, effort) {
+// de la session (le registre, lui, ne survit pas au processus). The connection profile goes with
+// them, and every record carries it: the map keeps the LAST record of a session, so one written
+// without it would make a resume fall back to the default profile, i.e. to another account.
+function persistLaunch(sessionId, model, effort, profile) {
   if (!sessionId) return;
   try {
     fs.appendFileSync(SESSION_LAUNCH_FILE, JSON.stringify({
       ts: new Date().toISOString(), session_id: sessionId, model: model || null, effort: effort || null,
+      profile: profile || null,
     }) + '\n');
   } catch (_) {}
 }
 
-// map persistée session_id → { model, effort }, rechargée par mtime/size (inchangée depuis tmux.js).
+// map persistée session_id → { model, effort, profile }, rechargée par mtime/size (inchangée depuis tmux.js).
 let sessionLaunchCache = { key: null, map: new Map() };
 function sessionLaunchMap() {
   const stf = statSafe(SESSION_LAUNCH_FILE);
@@ -727,7 +730,7 @@ function sessionLaunchMap() {
   try { data = fs.readFileSync(SESSION_LAUNCH_FILE, 'utf8'); } catch (_) { return sessionLaunchCache.map; }
   for (const line of data.split('\n')) {
     if (!line) continue;
-    try { const j = JSON.parse(line); if (j.session_id) map.set(j.session_id, { model: j.model || null, effort: j.effort || null }); } catch (_) {}
+    try { const j = JSON.parse(line); if (j.session_id) map.set(j.session_id, { model: j.model || null, effort: j.effort || null, profile: j.profile || null }); } catch (_) {}
   }
   sessionLaunchCache = { key, map };
   return map;
@@ -740,6 +743,16 @@ function resolveLaunchForSession(id) {
   const st = live.get(id);
   if (st && (st.launchModel || st.launchEffort)) return { model: st.launchModel || null, effort: st.launchEffort || null };
   return sessionLaunchMap().get(id) || null;
+}
+
+// The connection profile a session runs, or last ran, on: the live registry first, then what the
+// launch persisted. null for a session that predates profiles, which means the default one.
+function profileOfSession(id) {
+  if (!id) return null;
+  const st = live.get(id);
+  if (st && st.profileId) return st.profileId;
+  const rec = sessionLaunchMap().get(id);
+  return (rec && rec.profile) || null;
 }
 
 const EPHEMERAL_NOTE = 'This is an ephemeral session. When the task is done and you are highly confident nothing is left '
@@ -771,7 +784,8 @@ function driverCtx(st, done) {
 // { base, branch }) only applies to a new session: hooked creates the git worktree first, then
 // launches in it.
 function launchSession(opts, cb) {
-  const { resumeId, cwd, prompt, model, effort, worktree, permissionMode, autoApprove, parentKey, groupWith, group, incognito, ephemeral, profile: profileArg } = opts;
+  const { resumeId, cwd, prompt, model, effort, worktree, permissionMode, autoApprove, parentKey, groupWith, group, incognito, ephemeral } = opts;
+  let profileArg = opts.profile;
   let dir = cwd && typeof cwd === 'string' ? cwd : null;
   let id = null;
   if (resumeId) {
@@ -809,8 +823,16 @@ function launchSession(opts, cb) {
   // Another engine has no such notion: asking for one there is a mistake, not something to ignore.
   const claudePath = !engine || engine.id === 'claude';
   if (profileArg != null && typeof profileArg !== 'string') return cb(err400('invalid profile'));
+  // A resumed session goes back to the profile it ran on unless the caller names another. Falling
+  // back to the default one instead would send the transcript to a different account or server.
+  const inherited = id && !profileArg ? profileOfSession(id) : null;
+  if (inherited) profileArg = inherited;
   const profile = findProfile(profileArg);
-  if (!profile) return cb(err400('unknown profile: ' + profileArg));
+  if (!profile) {
+    return cb(err400(inherited
+      ? `profile "${inherited}", the one this session ran on, is no longer configured`
+      : 'unknown profile: ' + profileArg));
+  }
   if (!claudePath && profile.id !== DEFAULT_PROFILE_ID) return cb(err400('connection profiles only apply to Claude sessions'));
   // Model / effort: Claude's own grammar on the built-in path (a model of the profile's server on a
   // compatible one), the engine's elsewhere (pi takes `provider/id` refs and thinking levels; an ACP
@@ -960,7 +982,7 @@ function launchSession(opts, cb) {
     st.onId = null;
     if (finalSt.error) return cb(new Error('agent sdk session failed: ' + finalSt.error));
     if (!finalSt.id) return cb(new Error('agent sdk session ended before reporting its id'));
-    persistLaunch(finalSt.id, model, effort);
+    persistLaunch(finalSt.id, model, effort, profile.id);
     // Launched from another driven session (MCP start_session), or from a group's « + » (groupWith):
     // the new session joins that group, unless the caller opted out (`group: false`). The parent
     // is still resolved in that case: incognito is inherited either way.
@@ -976,7 +998,7 @@ function launchSession(opts, cb) {
     } catch (_) {}
     try {
       fs.appendFileSync(LAUNCHES_FILE, JSON.stringify({
-        ts: new Date().toISOString(), session_id: finalSt.id, cwd: finalSt.cwd,
+        ts: new Date().toISOString(), session_id: finalSt.id, cwd: finalSt.cwd, profile: profile.id,
         model: model || null, effort: effort || null, worktree: wt ? { path: wt.path, branch: wt.branch, base: wt.base } : false,
       }) + '\n');
     } catch (_) {}
@@ -992,7 +1014,7 @@ function launchSession(opts, cb) {
   let timer = null;
   if (st.id) {
     // Reprise : id connu, on rend la main sans attendre le `system/init`.
-    persistLaunch(st.id, model, effort);
+    persistLaunch(st.id, model, effort, profile.id);
     return done(st);
   }
   // Session neuve : on attend de connaître le session_id pour rendre le deep-link.
@@ -1655,7 +1677,7 @@ function setModelEffort(id, { model, effort, force = false } = {}, cb) {
       : Promise.resolve();
     return applyEffort.then(() => finish(() => {
       const prev = sessionLaunchMap().get(id) || {};
-      persistLaunch(id, model || prev.model || null, effort || prev.effort || null);
+      persistLaunch(id, model || prev.model || null, effort || prev.effort || null, st.profileId);
       cb(null, { sessionId: id, model: model || null, effort: effort || null });
     }));
   }).catch((e) => {
@@ -1729,7 +1751,7 @@ function restartSession(id, { model, effort } = {}, cb) {
   const st = agentSession(id);
   // Same rule as resumeLaunchArgs: the session's own effort unless one is asked for, and no model
   // unless one is asked for — the CLI restores it, forcing one would empty the prompt cache.
-  const relaunch = () => launchSession({ resumeId: id, model: model || undefined, effort: effort || (st && st.effort) || undefined }, cb);
+  const relaunch = () => launchSession({ resumeId: id, model: model || undefined, effort: effort || (st && st.effort) || undefined, profile: (st && st.profileId) || undefined }, cb);
   if (!st) return relaunch();
   st.input.close();
   st.abort.abort();
@@ -1770,6 +1792,8 @@ function drivenSnapshot() {
       // effort = the EFFECTIVE one (hot changes included), the value a resume has to repeat exactly.
       id, cwd: st.cwd, model: st.launchModel || null, effort: st.effort || st.launchEffort || null,
       permissionMode: st.permissionMode || null, autoApprove: !!st.autoApprove,
+      // The connection profile: a resume has to run on the same account or server.
+      profile: st.profileId || null,
       // busy = a turn was in flight (including blocked on a question/permission): those sessions
       // get an automatic "Continue" on resume — the restart stole their turn.
       busy: !!st.busy,
@@ -1811,6 +1835,8 @@ function resumeLaunchArgs(s) {
     effort: s.effort || undefined,
     permissionMode: s.permissionMode || undefined,
     autoApprove: s.autoApprove,
+    // Passed even though launchSession would find it again: the snapshot is the fresher record.
+    profile: s.profile || undefined,
   };
 }
 
@@ -1961,7 +1987,7 @@ export {
   agentSupportedCommands, agentToolCatalog,
   applyMessage, readLoop, permissionQuestion, handleToolPermission, makeInputQueue, userMessage, parseEnvBlock, loginEnv, withoutServerEnv, hookedMcpServer, sessionIdForLaunchKey,
   subscribeAgent, streamSnapshot,
-  resolveLaunchForSession, sessionLaunchMap,
+  resolveLaunchForSession, sessionLaunchMap, profileOfSession,
   launchSession, killSession, restartSession, forkDriven, forkDriven as forkPi,
   deliverReply, answerQuestion, questionAnswers, answerQuestionFreeText, answerPlan, answerPermission, answerPendingSelection,
   interruptSession, setMode, setModelEffort, setAutoApprove, alwaysAllowRules, clearAgentState,

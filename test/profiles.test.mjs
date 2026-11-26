@@ -8,7 +8,7 @@ import os from 'node:os';
 import path from 'node:path';
 import {
   parseProfiles, loadProfiles, profilesOverview, publicProfile, resolveProfileEnv, defaultProfile,
-  findProfile, isValidModelForProfile, buildSessionEnv, sessionEnvFor,
+  findProfile, isValidModelForProfile, buildSessionEnv, sessionEnvFor, modelToKeepOnFork,
 } from '../server/profiles.js';
 
 const LMSTUDIO = {
@@ -299,5 +299,26 @@ describe('sessionEnvFor', () => {
   it('hands the default profile the login environment as is', () => {
     const base = { PATH: '/usr/bin', ANTHROPIC_API_KEY: 'k' };
     expect(sessionEnvFor(defaultProfile(), base).env).toBe(base);
+  });
+});
+
+describe('modelToKeepOnFork', () => {
+  const compatible = parseProfiles([LMSTUDIO]).profiles[1];
+  const anthropic = parseProfiles([{ id: 'work', kind: 'anthropic' }]).profiles[1];
+
+  it('hands a compatible profile the original session\'s model', () => {
+    expect(modelToKeepOnFork(compatible, 'qwen/qwen3-coder-30b')).toBe('qwen/qwen3-coder-30b');
+  });
+
+  it('leaves the model to the CLI on an anthropic profile and on the default one', () => {
+    expect(modelToKeepOnFork(anthropic, 'opus')).toBeUndefined();
+    expect(modelToKeepOnFork(defaultProfile(), 'claude-opus-4-7')).toBeUndefined();
+  });
+
+  it('drops a model the profile no longer allows, or none', () => {
+    expect(modelToKeepOnFork(compatible, 'qwen/removed-from-the-list')).toBeUndefined();
+    expect(modelToKeepOnFork(compatible, undefined)).toBeUndefined();
+    expect(modelToKeepOnFork(compatible, null)).toBeUndefined();
+    expect(modelToKeepOnFork(null, 'opus')).toBeUndefined();
   });
 });

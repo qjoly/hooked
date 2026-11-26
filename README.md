@@ -253,7 +253,10 @@ LM Studio. Profiles live in `profiles.json`, next to hooked's other data (`~/.cl
 - The implicit `default` profile is today's behaviour, and the one used when none is asked for.
 - Pick one with the `profile` field of `POST /api/launch`; `GET /api/profiles` lists them (without
   their `env`) and reports the entries it had to skip. The file is read at every launch.
-- A session resumed after a restart does not remember its profile yet.
+- A session keeps its profile when it is resumed, restarted, forked, or brought back after hooked
+  restarts. If that profile has since been removed from the file, the resume fails with a message
+  instead of falling back to the default one. A fork cut before the first answer of a `compatible`
+  profile carries the original's model over.
 
 ## How it works
 
