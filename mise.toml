@@ -391,6 +391,21 @@ ditto "$APP" "/Applications/hooked-launcher.app"
 open "/Applications/hooked-launcher.app"
 """
 
+# Renamed into place, not copied: overwriting the binary of a running pr-gate window gets it killed by macOS.
+[tasks.pr-gate]
+description = "Build pr-gate (the PR approval window sessions call before opening a PR) and install it for hooked"
+dir = "desktop"
+tools = { rust = "1.99.1" }
+run = """
+set -e
+cargo build -p pr-gate --release
+BIN="${HOOKED_DATA_DIR:-$HOME/.claude/hooked}/bin/pr-gate"
+mkdir -p "$(dirname "$BIN")"
+cp target/release/pr-gate "$BIN.new"
+mv -f "$BIN.new" "$BIN"
+echo "$BIN"
+"""
+
 [tasks.desktop-dev]
 description = "Run the desktop app from source with live editing: body edits patch it in place, others rebuild and relaunch"
 dir = "desktop"

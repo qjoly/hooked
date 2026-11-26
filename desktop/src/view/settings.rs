@@ -675,6 +675,15 @@ fn sessions_card(s: &Hooked, k: &Kit, v: &Value) -> El {
             s.save_setting("showWork", json!(!on));
         }),
     ))
+    .child(line(
+        k,
+        "PR approval gate",
+        "Claude asks in the pr-gate window before opening a pull request. Build it with `mise run pr-gate`.",
+        toggle(k, "set-prgate", flag(v, "prGate"), |s| {
+            let on = s.setting("prGate").as_bool().unwrap_or(true);
+            s.save_setting("prGate", json!(!on));
+        }),
+    ))
 }
 
 /// Settings → Providers: the enabled mode of every provider (Auto / On / Off) and the default

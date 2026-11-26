@@ -19,6 +19,12 @@ The launcher (`launcher/`) runs the same recipe (`scripts/install-app`) after it
 service to a branch: it rebuilds and reinstalls the app from that branch, and reopens it only if it
 was running.
 
+`pr-gate/` is the window a session must get through before it opens a pull request. `mise run
+pr-gate` builds it into `~/.claude/hooked/bin/pr-gate`; while that binary exists and the
+`prGate` setting is on, the hooked MCP server tells every session to call it before `gh pr
+create`. Its requests queue in `~/Library/Application Support/pr-gate`: one window serves every
+session and quits once the queue is empty.
+
 Ghostty's terminal core (`libghostty-vt`) is built from source with Zig; the mise tasks pull Zig
 0.17.1 along with Rust.
 

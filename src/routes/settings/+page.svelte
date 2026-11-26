@@ -27,6 +27,7 @@
     { id: 'pset-speech', label: 'Voice dictation' },
     { id: 'pset-new', label: 'New session defaults' },
     { id: 'pset-showwork', label: 'Show your work' },
+    { id: 'pset-prgate', label: 'PR approval gate' },
     { id: 'pset-models', label: 'Models' },
     { id: 'pset-project', label: 'Default project' },
     { id: 'pset-remote-control', label: 'Remote control' },
@@ -717,6 +718,16 @@
         <input type="checkbox" checked={settings.showWork !== false}
                onchange={(e) => updateSettings({ showWork: e.currentTarget.checked })} />
         <span>Let Claude show screenshots and recordings in the conversation</span>
+      </label>
+    </div>
+
+    <div class="card" id="pset-prgate" data-sec>
+      <h2>PR approval gate</h2>
+      <p class="hint">Before <code>gh pr create</code>, Claude opens the <code>pr-gate</code> window: you check the repo and branch, edit the title and description, then open, draft or deny the PR. One window queues the requests of every session. Needs the binary, built by <code>mise run pr-gate</code> (macOS). Applies from the next launch or resume.</p>
+      <label class="check">
+        <input type="checkbox" checked={settings.prGate !== false}
+               onchange={(e) => updateSettings({ prGate: e.currentTarget.checked })} />
+        <span>Ask for approval before Claude opens a pull request</span>
       </label>
     </div>
 

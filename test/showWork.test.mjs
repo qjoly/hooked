@@ -74,3 +74,17 @@ describe('MCP show tools gate', () => {
     expect(list({ HOOKED_SHOW_WORK: '' })).not.toContain('show_image');
   });
 });
+
+describe('MCP pr-gate instructions', () => {
+  const instructions = (env) => {
+    const out = execFileSync('node', ['mcp/server.cjs'], {
+      input: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: {} }) + '\n',
+      env: { ...process.env, ...env },
+    }).toString();
+    return JSON.parse(out.split('\n')[0]).result.instructions;
+  };
+  it('asks for the pr-gate approval only with HOOKED_PR_GATE', () => {
+    expect(instructions({ HOOKED_PR_GATE: '/opt/hooked/bin/pr-gate' })).toContain('/opt/hooked/bin/pr-gate --input');
+    expect(instructions({ HOOKED_PR_GATE: '' })).not.toContain('pr-gate');
+  });
+});
