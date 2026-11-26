@@ -92,7 +92,7 @@ pub fn init_notifications() {
 pub mod native {
     pub use tray_icon::TrayIcon;
     use tray_icon::menu::{Menu, MenuEvent, MenuItem, PredefinedMenuItem};
-    use tray_icon::{Icon, TrayIconBuilder};
+    use tray_icon::{Icon, MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 
     use crate::app::{HANDLE, Hooked};
 
@@ -216,6 +216,9 @@ pub mod native {
                         .with_icon(glyph(badge(s)))
                         // Only macOS has template icons; the other platforms ignore the flag.
                         .with_icon_as_template(true)
+                        // On Windows a left click opens the app and only the right click the menu;
+                        // on macOS the menu bar item is its menu.
+                        .with_menu_on_left_click(cfg!(not(windows)))
                         .with_tooltip(&tip)
                         .with_menu(Box::new(m))
                         .build();
@@ -223,11 +226,27 @@ pub mod native {
                         tray.set_title(t.as_deref());
                         slot = Some((tray, sig));
                         MenuEvent::set_event_handler(Some(on_menu));
+                        if cfg!(windows) {
+                            TrayIconEvent::set_event_handler(Some(on_click));
+                        }
                     }
                 }
             }
         }
         s.tray = slot;
+    }
+
+    /// A left click on the icon brings the app up (on release, so that the press alone does not).
+    fn on_click(e: TrayIconEvent) {
+        if let TrayIconEvent::Click {
+            button: MouseButton::Left,
+            button_state: MouseButtonState::Up,
+            ..
+        } = e
+            && let Some(h) = HANDLE.get()
+        {
+            h.open();
+        }
     }
 
     fn on_menu(e: MenuEvent) {
