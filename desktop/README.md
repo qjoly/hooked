@@ -171,7 +171,7 @@ connection dot, list rows, step marks) live in the `hooked-ui` crate (`ui/`), wh
   Ctrl+Shift chords belong to the app (Ctrl+Shift+F searches, Ctrl+Shift+C and Ctrl+Shift+V copy
   and paste; Ctrl+C copies a selection and otherwise stays the shell's ^C, Ctrl+V pastes). The tray
   has no title there, so a red dot on its icon stands for the waiting count and a faded icon for an
-  unreachable service. The session paths the service reports are WSL's (open in editor), and the
+  unreachable service. When `localhost:4123` is not where the service answers (WSL2 without localhost forwarding, or another machine), Settings → This app → Server takes its address (`HOOKED_URL` overrides it); the service must listen there, `HOST=0.0.0.0`. The session paths the service reports are WSL's (open in editor), and the
   incident.io binary is looked up at its macOS paths only.
 
 ## Terminal: what is still missing

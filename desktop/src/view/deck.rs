@@ -349,9 +349,12 @@ pub fn view(s: &Hooked, k: &Kit) -> El {
     let mut decide_col = col().key("deck-decide").w_full().gap(26.0);
     if !s.connected {
         decide_col = decide_col.child(
-            text("hooked is not answering on localhost:4123. Start it with `mise run start`.")
-                .font(k.ty.body)
-                .color(k.c.danger.fg),
+            text(format!(
+                "hooked is not answering on {}. Start it, or point this app at the right address in Settings → This app → Server.",
+                crate::api::base_label()
+            ))
+            .font(k.ty.body)
+            .color(k.c.danger.fg),
         );
     }
     if decide.is_empty() {

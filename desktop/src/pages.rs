@@ -312,6 +312,8 @@ pub struct PageData {
     /// Settings → Remote instances: the two fields of the add form.
     pub remote_name: TextEdit,
     pub remote_url: TextEdit,
+    /// Settings → This app → Server: the address of the hooked service, as typed.
+    pub server_url: TextEdit,
     pub wt_location: Option<TextEdit>,
     pub wt_names: Option<TextEdit>,
     pub wt_cleanup: Option<Value>,

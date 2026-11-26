@@ -8,8 +8,69 @@ use ureq::http::Response;
 use ureq::typestate::AgentScope;
 use ureq::{Agent, Body};
 
+const DEFAULT_BASE: &str = "http://localhost:4123";
+
+/// The address saved in Settings → This app → Server, kept here so that every worker thread reads
+/// the current one.
+static SERVER: std::sync::RwLock<Option<String>> = std::sync::RwLock::new(None);
+/// Bumped each time the address changes: a long-lived stream compares it to know it is stale.
+static SERVER_EPOCH: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// Where the hooked service is: `HOOKED_URL` first, then the address saved in Settings, else this
+/// machine's port 4123.
 pub fn base() -> String {
-    std::env::var("HOOKED_URL").unwrap_or_else(|_| "http://localhost:4123".into())
+    std::env::var("HOOKED_URL")
+        .ok()
+        .filter(|u| !u.is_empty())
+        .or_else(|| SERVER.read().ok().and_then(|s| s.clone()))
+        .unwrap_or_else(|| DEFAULT_BASE.into())
+}
+
+/// Sets (or, with `None`, clears) the address saved in Settings.
+pub fn set_server(url: Option<String>) {
+    if let Ok(mut s) = SERVER.write() {
+        *s = url;
+    }
+    SERVER_EPOCH.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+}
+
+pub fn server_epoch() -> u64 {
+    SERVER_EPOCH.load(std::sync::atomic::Ordering::SeqCst)
+}
+
+/// Whether `HOOKED_URL` overrides the address saved in Settings.
+pub fn server_from_env() -> bool {
+    std::env::var("HOOKED_URL").is_ok_and(|u| !u.is_empty())
+}
+
+/// The address as a person would say it, without the scheme: `localhost:4123`.
+pub fn base_label() -> String {
+    let b = base();
+    b.split_once("://").map_or(b.as_str(), |(_, rest)| rest).to_string()
+}
+
+/// What was typed in the address field, as a base URL: `192.168.1.5:4123` and `box` get
+/// `http://` (and `:4123` when no port is given); `None` for anything that is not an address.
+pub fn normalize_server(raw: &str) -> Option<String> {
+    let raw = raw.trim();
+    let with_scheme = if raw.contains("://") {
+        raw.to_string()
+    } else {
+        format!("http://{raw}")
+    };
+    let url = crate::remote::normalize_url(&with_scheme)?;
+    let (scheme, rest) = url.split_once("://")?;
+    let (host, path) = rest.split_once('/').map_or((rest, ""), |(h, p)| (h, p));
+    // A bare `box` is hooked's own port; `[::1]` has colons of its own, hence the bracket check.
+    let has_port = host.rsplit_once(':').is_some_and(|(h, p)| {
+        !p.is_empty() && p.chars().all(|c| c.is_ascii_digit()) && !h.is_empty() && (!h.contains(':') || h.ends_with(']'))
+    });
+    let port = if has_port || scheme == "https" { "" } else { ":4123" };
+    Some(if path.is_empty() {
+        format!("{scheme}://{host}{port}")
+    } else {
+        format!("{scheme}://{host}{port}/{path}")
+    })
 }
 
 fn agent() -> Agent {
@@ -1497,6 +1558,20 @@ pub fn trace_tool(id: &str, tool: &str) -> Result<(String, String), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_typed_server_address_becomes_a_base_url() {
+        let n = |t: &str| normalize_server(t);
+        assert_eq!(n("192.168.1.5:4123").as_deref(), Some("http://192.168.1.5:4123"));
+        assert_eq!(n(" box ").as_deref(), Some("http://box:4123"));
+        assert_eq!(n("http://mini.lan:8080/").as_deref(), Some("http://mini.lan:8080"));
+        assert_eq!(n("https://hooked.example.com").as_deref(), Some("https://hooked.example.com"));
+        assert_eq!(n("[::1]:4123").as_deref(), Some("http://[::1]:4123"));
+        assert_eq!(n("[fe80::1]").as_deref(), Some("http://[fe80::1]:4123"));
+        assert_eq!(n(""), None);
+        assert_eq!(n("two words"), None);
+        assert_eq!(n("http://"), None);
+    }
 
     #[test]
     fn pi_config_json_rebuilds_a_stdio_or_http_server() {

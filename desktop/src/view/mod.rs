@@ -463,10 +463,10 @@ fn topbar(s: &Hooked, k: &Kit, inset: f32, layer: &mut Vec<El>) -> El {
     let live = connection_dot(
         k,
         s.connected,
-        if s.connected {
-            "Connected to hooked"
+        &if s.connected {
+            "Connected to hooked".to_string()
         } else {
-            "hooked is unreachable on localhost:4123"
+            format!("hooked is unreachable on {}", crate::api::base_label())
         },
     );
     // Pages picked in Settings → navigation are tabs; the others (and Incidents, once the

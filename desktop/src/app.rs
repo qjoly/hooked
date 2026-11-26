@@ -440,6 +440,9 @@ impl Hooked {
         );
         let incognito = prefs.get("incognito").unwrap_or(false);
         let usage_view = api::UsageView::from_key(prefs.get::<String>("usageView").as_deref());
+        // The address of the service, before anything below talks to it.
+        let server_url: String = prefs.get("serverUrl").unwrap_or_default();
+        api::set_server(api::normalize_server(&server_url));
         let remote_on: bool = prefs.get("remoteInstances").unwrap_or(false);
         let remotes: Vec<crate::remote::Instance> = prefs.get("remotes").unwrap_or_default();
         crate::remote::configure(remote_on, &remotes);
@@ -608,7 +611,10 @@ impl Hooked {
             palette_all_cites: false,
             focus: false,
             lens_data: crate::lenses::LensData::default(),
-            pages: crate::pages::PageData::default(),
+            pages: crate::pages::PageData {
+                server_url: TextEdit::new(server_url),
+                ..Default::default()
+            },
             inc: crate::incidents::Incidents::new(
                 incidents_hidden,
                 incident_teams.into_iter().collect(),
@@ -1110,6 +1116,37 @@ impl Hooked {
 
     pub fn save_pref<T: serde::Serialize>(&mut self, key: &str, v: &T) {
         let _ = self.prefs.set(key, v);
+    }
+
+    /// Applies the address typed in Settings → This app → Server (empty: back to this machine's
+    /// port 4123), and has everything that was read from the old service read again.
+    pub fn apply_server(&mut self) {
+        let typed = self.pages.server_url.text.trim().to_string();
+        let url = if typed.is_empty() {
+            None
+        } else {
+            let Some(u) = api::normalize_server(&typed) else {
+                self.flash("✗ Expected an address such as 192.168.1.5:4123 or http://host:4123", true);
+                return;
+            };
+            Some(u)
+        };
+        // The field shows what is in force, so a bare `box` reads `http://box:4123` afterwards.
+        self.pages.server_url = TextEdit::new(url.clone().unwrap_or_default());
+        self.save_pref("serverUrl", &url.clone().unwrap_or_default());
+        api::set_server(url);
+        self.connected = false;
+        self.tray_dirty = true;
+        self.pages.settings_stale = true;
+        self.refresh_sessions();
+        self.refresh_detail();
+        self.spawn(api::capabilities, |s, r, _| {
+            if let Ok(caps) = r {
+                s.caps = caps;
+            }
+        });
+        let label = api::base_label();
+        self.flash(format!("Connecting to {label}…"), false);
     }
 
     pub fn dark(&self, system_dark: bool) -> bool {
@@ -3193,7 +3230,13 @@ pub fn start_workers(h: Option<AppHandle<Hooked>>) {
     }
     crate::app::spawn_named("hooked-events", move || {
         loop {
+            // The stream is tied to the address it was opened on: once Settings changes it, the
+            // next event closes this one, and the loop opens another on the new address.
+            let epoch = api::server_epoch();
             let r = api::follow("/api/stream", |payload| {
+                if api::server_epoch() != epoch {
+                    return false;
+                }
                 if payload.starts_with("{\"panel\"")
                     && let Ok(mut v) = serde_json::from_str::<serde_json::Value>(payload)
                     && v["panel"]["id"].is_string()
