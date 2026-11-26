@@ -59,12 +59,21 @@
   const blocking = $derived(pending.some((s) => sessionDot(s) === 'attention'));
 
   // Account rate-limit gauges (statusline snapshots + Claude Code usage cache). Refreshed on
-  // every live tick.
+  // every live tick. They are an ACCOUNT's: on a session of a profile with its own account they are
+  // that account's, anywhere else the main account's. Without this, two accounts would take turns
+  // on the same gauges, whichever answered last.
+  const viewed = $derived(page.params?.id ? data.sessions.find((s) => s.id === page.params.id) : null);
+  const viewedProfile = $derived(viewed?.profile?.id || null);
   let usage = $state(null);
   $effect(() => {
     ui.tick;
-    getUsage().then((u) => { usage = u; }).catch(() => {});
+    const profile = viewedProfile;
+    let alive = true;
+    getUsage(profile || undefined).then((u) => { if (alive) usage = u; }).catch(() => {});
+    return () => { alive = false; };
   });
+  // A session on a server with no account (LM Studio…) has no limits: show none rather than dashes.
+  const noLimits = $derived(!!viewedProfile && usage?.profile === viewedProfile && !usage?.account);
   const g5 = $derived(usage?.account?.fiveHour?.pct ?? null);
   const g7 = $derived(usage?.account?.sevenDay?.pct ?? null);
   // Fable weekly bucket: model-scoped limit, only present on accounts that have one — no bucket,
@@ -104,8 +113,10 @@
   const showClaude = $derived(hasClaude && !showPi);
   const canToggle = $derived(usageViews.length > 1);
   const toggleUsageView = () => { if (canToggle) usageView = usageViews[(usageViews.indexOf(view) + 1) % usageViews.length]; };
+  // The gauges are an account's: on a session of a profile with its own account, that account's.
+  const claudeTitle = $derived(viewed?.profile ? 'Rate limits of ' + viewed.profile.label : 'Account rate limits');
   const gaugesTitle = $derived(showClaude
-    ? (canToggle ? 'Account rate limits — click to switch to the next provider' : 'Account rate limits')
+    ? (canToggle ? claudeTitle + ' — click to switch to the next provider' : claudeTitle)
     : `${pi?.label || 'Provider'} session usage${canToggle ? ' — click to switch' : ''}`);
   const fableAge = $derived(fable?.at ? Math.max(0, Math.round((nowMin - Date.parse(fable.at)) / 60000)) : null);
   const fableStale = $derived(fableAge != null && fableAge >= 10);
@@ -169,7 +180,7 @@
 
   <!-- `crit` (>=90%) is a second threshold above `warn` (>=75%). Only the datadog scheme styles
        it (app.css); everywhere else it is an inert class, so nothing changes visually. -->
-  {#if showClaude || showPi}
+  {#if (showClaude && !noLimits) || showPi}
   <div class="tb-gauges" class:tb-toggle={canToggle} title={gaugesTitle}
        {...canToggle
          ? {

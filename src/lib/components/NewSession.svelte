@@ -105,9 +105,14 @@
   // degrade gracefully — the session errors out on its first turn. Hence the fallback of the
   // DEFAULT model to "Opus (default)" (cf. defaultModelForQuota).
   let fableQuota = $state(null);
+  // Of the account the session is about to run on: another profile's account has its own quota,
+  // and a server with no account (LM Studio…) has none.
   $effect(() => {
     ui.tick; // dependency: re-fetch on every live tick — the quota can free up (weekly reset)
-    getUsage().then((u) => { fableQuota = u?.account?.fable ?? null; }).catch(() => {});
+    const pid = profileId;
+    let alive = true;
+    getUsage(pid || undefined).then((u) => { if (alive) fableQuota = u?.account?.fable ?? null; }).catch(() => {});
+    return () => { alive = false; };
   });
   // The configured default (hooked settings, else ~/.claude) BEFORE the fallback — it is the one
   // the warning names, and whether it is a Fable model decides if that warning shows at all.

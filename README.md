@@ -277,6 +277,10 @@ LM Studio. Profiles live in `profiles.json`, next to hooked's other data (`~/.cl
   anything else on the machine. **Add account** there creates the profile (its directory goes
   under `~/.claude/hooked/accounts/<id>`) and starts its sign-in. To remove an account, sign it
   out, then delete its entry from `profiles.json` and its directory.
+  The rate-limit gauges follow the account: on a session of a profile with an account of its own,
+  the top bar shows that account's 5 h / 7 d limits (read with its own login), anywhere else the
+  main account's, and a session on a server with no account (LM Studio…) shows none. The account
+  menu lists each signed-in account's limits next to its identity.
 - `contextWindow` (`compatible` only) is the context the server loads the model at. The CLI assumes
   200k for a model it does not know and would never compact before the server refuses the request;
   hooked hands it over as `CLAUDE_CODE_MAX_CONTEXT_TOKENS`, which also sizes the context gauge.

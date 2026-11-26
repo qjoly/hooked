@@ -11,9 +11,9 @@ import { repoSlug, worktreeOf } from './git.js';
 import { readEvents, lastEventBySession, lastActivityEventBySession, modeForSession, liveQuestionForSession, liveQuestionBySession, livePlanForSession, livePlanBySession, eventSessionMeta, rcSessionIdsFromEvents } from './events.js';
 import { liveStateFor } from './live.js';
 import { profileOfSession, resolveLaunchForSession, agentAlive, agentSession, agentMode, agentAutoApprove, agentBusy, agentActivity, agentFollowup, agentLastProse, agentPendingAsk, agentCacheInfo } from './agent.js';
-import { loadProfiles, profileInfo } from './profiles.js';
+import { loadProfiles, profileInfo, findProfile } from './profiles.js';
 import { sessionStatus, sessionStatusRaw, accountRateLimits, freshestStatusId } from './status.js';
-import { scopedLimit, accountLimit, currentUtilization, usageFreshness } from './utilization.js';
+import { scopedLimit, accountLimit, currentUtilization, usageFreshness, accountOf } from './utilization.js';
 import { buildFileChanges } from './changes.js';
 import { todoSummary } from './todos.js';
 import { buildBackgroundJobs, jobStatus, jobLabel } from './background.js';
@@ -293,13 +293,24 @@ function buildStats(rangeDays) {
 // The 5h / 7d buckets come from whichever source answered most recently: the freshest status
 // snapshot (statusline tap for a TUI session, server/agent-status.js for an SDK-driven one) or the
 // account usage payload. Freshness decides — an old snapshot must never outrank a live poll.
-function buildUsage() {
+// `profileId`: whose account the gauges are of; none = the default account. A profile with no account
+// of its own (a compatible server, a token in the env) has no gauges to show: `account` is null.
+function buildUsage(profileId = null) {
+  const profile = profileId && profileId !== 'default' ? findProfile(profileId) : null;
   const id = freshestStatusId();
   const session = id ? sessionStatus(id) : null;   // contexte/effort/modèle/fastMode + rateLimit
-  const rl = accountRateLimits();                  // le + frais AVEC rate_limits, toutes sessions
-  const util = currentUtilization();
+  // A profile with no account of its own has no limits to show, but the provider views of the top bar
+  // (pi usage…) still come with the response: they are not that profile's.
+  if (profile && !profile.configDir) {
+    const others = scanAllSessions();
+    return { sessionId: id, session, account: null, profile: profile.id, pi: buildPiUsage(others), providers: buildProviderUsage(others) };
+  }
+  const acct = accountOf(profile);
+  const rl = accountRateLimits(undefined, undefined, undefined, profile && profile.id); // le + frais de CE compte
+  const now = Date.now();
+  const util = currentUtilization(now, acct);
   const fable = scopedLimit('Fable', util);
-  const fresh = usageFreshness();
+  const fresh = usageFreshness(now, acct);
   const fromUsage = {
     fiveHour: accountLimit('session', util),
     sevenDay: accountLimit('weekly_all', util),
@@ -317,7 +328,7 @@ function buildUsage() {
     : null;
   const all = scanAllSessions();
   return {
-    sessionId: id, session, account,
+    sessionId: id, session, account, profile: profile ? profile.id : null,
     // Historical key (web TopBar, desktop): every pi-engine provider together.
     pi: buildPiUsage(all),
     // One entry per non-Claude provider that has sessions: cost / tokens of the day + freshest

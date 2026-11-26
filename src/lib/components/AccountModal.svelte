@@ -2,7 +2,7 @@
   import { copyText } from '#lib/clipboard.js';
   import { onDestroy, onMount } from 'svelte';
   import { account, loadAccount } from '#lib/state.svelte.js';
-  import { accountAction, getAccount, getProfiles, profilesAction } from '#lib/api.js';
+  import { accountAction, getAccount, getProfiles, getUsage, profilesAction } from '#lib/api.js';
   import { initials } from '#lib/format.js';
   import Icon from './Icon.svelte';
 
@@ -23,12 +23,23 @@
   async function loadAccounts() {
     try {
       const { profiles } = await getProfiles();
-      accounts = await Promise.all((profiles || []).filter((p) => p.hasAccount).map(async (p) => ({
-        id: p.id, label: p.label, info: await getAccount(p.id).catch(() => null),
-      })));
+      accounts = await Promise.all((profiles || []).filter((p) => p.hasAccount).map(async (p) => {
+        const info = await getAccount(p.id).catch(() => null);
+        // Its limits are asked for only once it is signed in: there is nothing to poll before.
+        const usage = info?.loggedIn ? await getUsage(p.id).catch(() => null) : null;
+        return { id: p.id, label: p.label, info, usage };
+      }));
     } catch (_) { accounts = []; }
   }
-  onMount(loadAccounts);
+  // The 5 h and 7 d limits of an account, as text; null when there is nothing to show.
+  const limitsOf = (u) => {
+    const a = u?.account;
+    if (!a || (!a.fiveHour && !a.sevenDay)) return null;
+    const f = (x) => (x?.pct != null ? x.pct + '%' : '—');
+    return `5h ${f(a.fiveHour)} · 7d ${f(a.sevenDay)}`;
+  };
+  let mainUsage = $state(null);
+  onMount(() => { loadAccounts(); getUsage().then((u) => { mainUsage = u; }).catch(() => {}); });
 
   function stopPoll() { if (poll) { clearInterval(poll); poll = null; } }
 
@@ -102,6 +113,7 @@
       {#if account.email && account.displayName}<span class="email">{account.email}</span>{/if}
       {#if account.organizationName}<span class="org">{account.organizationName}</span>{/if}
       {#if account.loggedIn === false}<span class="warn">Not signed in</span>{/if}
+      {#if limitsOf(mainUsage)}<span class="limits" title="Rate limits of this account">{limitsOf(mainUsage)}</span>{/if}
     </div>
   </div>
 
@@ -181,6 +193,7 @@
           {:else}
             <span class="warn">Not signed in</span>
           {/if}
+          {#if limitsOf(a.usage)}<span class="limits" title="Rate limits of this account">{limitsOf(a.usage)}</span>{/if}
         </div>
         <div class="row-actions">
           {#if confirmingLogout === a.id}
@@ -217,6 +230,7 @@
   .who { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
   .who strong { font-size: var(--t-body); }
   .email, .org { font-size: var(--t-meta); color: var(--muted); }
+  .limits { font-size: var(--t-meta); color: var(--muted); font-variant-numeric: tabular-nums; }
   .warn { font-size: var(--t-meta); color: var(--attention); font-weight: 600; }
 
   .notice { margin: 0 0 12px; padding: 8px 11px; border-radius: 9px; background: var(--bg2); border: 1px solid var(--border); color: var(--muted); font-size: var(--t-ui); }

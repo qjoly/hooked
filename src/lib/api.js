@@ -84,7 +84,8 @@ export const getMessageText = (id, uuid, agent = null) =>
 export const getFileChangeFull = (id, path) =>
   jget(`/api/session/file-changes?id=${encodeURIComponent(id)}&path=${encodeURIComponent(path)}`);
 // Usage « /usage » : rate limits du compte (5 h / 7 j) + contexte/effort de la session courante + budget 5 h.
-export const getUsage = () => jget('/api/usage');
+// `profile`: the gauges of a profile that has an account of its own (default: the main account's).
+export const getUsage = (profile) => jget('/api/usage' + (profile ? '?profile=' + encodeURIComponent(profile) : ''));
 // Flux SSE du log (.output) d'un job de fond, résolu côté serveur depuis (session, taskId).
 // `onSeed(b64)` = queue initiale, `onData(b64)` = octets ajoutés, `onUnavailable()` = pas de log.
 // Renvoie l'EventSource (appeler .close() pour arrêter).
