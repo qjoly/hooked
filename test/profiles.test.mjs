@@ -8,6 +8,7 @@ import os from 'node:os';
 import path from 'node:path';
 import {
   parseProfiles, loadProfiles, profilesOverview, publicProfile, resolveProfileEnv, defaultProfile,
+  findProfile, isValidModelForProfile, buildSessionEnv, sessionEnvFor,
 } from '../server/profiles.js';
 
 const LMSTUDIO = {
@@ -184,5 +185,119 @@ describe('resolveProfileEnv', () => {
 
   it('resolves the default profile to an empty env', () => {
     expect(resolveProfileEnv(defaultProfile())).toEqual({ env: {}, errors: [] });
+  });
+});
+
+describe('findProfile', () => {
+  it('finds a profile by id, and the default one for no id', () => {
+    const { file } = tmpFile([LMSTUDIO]);
+    expect(findProfile('lmstudio-home', file).kind).toBe('compatible');
+    expect(findProfile(undefined, file).id).toBe('default');
+    expect(findProfile('', file).id).toBe('default');
+    expect(findProfile(null, file).id).toBe('default');
+  });
+
+  it('returns null for an unknown id, and still knows the default one without a file', () => {
+    const { dir, file } = tmpFile([LMSTUDIO]);
+    expect(findProfile('nope', file)).toBeNull();
+    expect(findProfile('default', path.join(dir, 'absent.json')).id).toBe('default');
+  });
+});
+
+describe('isValidModelForProfile', () => {
+  const anthropic = parseProfiles([{ id: 'work', kind: 'anthropic' }]).profiles[1];
+  const listed = parseProfiles([LMSTUDIO]).profiles[1];
+  const unlisted = parseProfiles([{ id: 'lm2', kind: 'compatible', env: { ANTHROPIC_BASE_URL: 'http://x' } }]).profiles[1];
+
+  it('gives an anthropic profile the CLI family names, as before', () => {
+    for (const m of ['opus', 'sonnet', 'haiku', 'fable', 'claude-opus-4-7', 'opus-4-7']) {
+      expect(isValidModelForProfile(defaultProfile(), m)).toBe(true);
+      expect(isValidModelForProfile(anthropic, m)).toBe(true);
+    }
+    for (const m of ['qwen/qwen3-coder-30b', 'gpt-5', '', 'opus; rm -rf /']) {
+      expect(isValidModelForProfile(defaultProfile(), m)).toBe(false);
+    }
+  });
+
+  it('limits a compatible profile that lists models to those', () => {
+    expect(isValidModelForProfile(listed, 'qwen/qwen3-coder-30b')).toBe(true);
+    expect(isValidModelForProfile(listed, 'qwen/qwen3.8-27b')).toBe(true);
+    expect(isValidModelForProfile(listed, 'qwen/other')).toBe(false);
+    expect(isValidModelForProfile(listed, 'opus')).toBe(false);
+  });
+
+  it('accepts any id within the charset when a compatible profile lists none', () => {
+    expect(isValidModelForProfile(unlisted, 'qwen/qwen3-coder-30b')).toBe(true);
+    expect(isValidModelForProfile(unlisted, 'text-embedding-nomic-embed-text-v1.5')).toBe(true);
+    expect(isValidModelForProfile(unlisted, 'a b')).toBe(false);
+    expect(isValidModelForProfile(unlisted, '$(id)')).toBe(false);
+    expect(isValidModelForProfile(unlisted, '')).toBe(false);
+  });
+
+  it('rejects a non-string', () => {
+    expect(isValidModelForProfile(defaultProfile(), undefined)).toBe(false);
+    expect(isValidModelForProfile(unlisted, 42)).toBe(false);
+  });
+});
+
+describe('buildSessionEnv', () => {
+  const base = {
+    PATH: '/usr/bin', HOME: '/home/me', GITHUB_TOKEN: 'gh',
+    ANTHROPIC_API_KEY: 'sk-from-shell', ANTHROPIC_BASE_URL: 'https://shell', ANTHROPIC_MODEL: 'opus',
+    CLAUDE_CODE_OAUTH_TOKEN: 'oauth-from-shell', CLAUDE_CONFIG_DIR: '/elsewhere',
+  };
+
+  it('leaves the environment of the default profile untouched', () => {
+    expect(buildSessionEnv(base, defaultProfile(), {})).toBe(base);
+  });
+
+  it('drops the credential variables of the login environment for any other profile', () => {
+    const p = parseProfiles([{ id: 'work', kind: 'anthropic' }]).profiles[1];
+    expect(buildSessionEnv(base, p, {})).toEqual({
+      PATH: '/usr/bin', HOME: '/home/me', GITHUB_TOKEN: 'gh', CLAUDE_CONFIG_DIR: '/elsewhere',
+    });
+  });
+
+  it('lets the profile env win, and adds to what is kept', () => {
+    const p = parseProfiles([LMSTUDIO]).profiles[1];
+    const env = buildSessionEnv(base, p, { ANTHROPIC_BASE_URL: 'http://127.0.0.1:1234', ANTHROPIC_AUTH_TOKEN: 'lmstudio' });
+    expect(env.ANTHROPIC_BASE_URL).toBe('http://127.0.0.1:1234');
+    expect(env.ANTHROPIC_AUTH_TOKEN).toBe('lmstudio');
+    expect(env.ANTHROPIC_API_KEY).toBeUndefined();
+    expect(env.PATH).toBe('/usr/bin');
+  });
+
+  it('keeps a blanked variable blank rather than dropping it', () => {
+    const p = parseProfiles([LMSTUDIO]).profiles[1];
+    expect(buildSessionEnv(base, p, { ANTHROPIC_API_KEY: '' }).ANTHROPIC_API_KEY).toBe('');
+  });
+
+  it('does not mutate the login environment it is given', () => {
+    const p = parseProfiles([{ id: 'work', kind: 'anthropic' }]).profiles[1];
+    const copy = { ...base };
+    buildSessionEnv(base, p, { ANTHROPIC_API_KEY: 'x' });
+    expect(base).toEqual(copy);
+  });
+});
+
+describe('sessionEnvFor', () => {
+  it('resolves references against the login environment', () => {
+    const p = parseProfiles([{ id: 'work', kind: 'anthropic', env: { ANTHROPIC_API_KEY: { fromEnv: 'WORK_KEY' } } }]).profiles[1];
+    const r = sessionEnvFor(p, { PATH: '/usr/bin', ANTHROPIC_API_KEY: 'shell', WORK_KEY: 'work-key' });
+    // The shell's own ANTHROPIC_API_KEY is replaced; the source variable, no credential name, stays
+    // in the environment as it is in the user's shell.
+    expect(r).toEqual({ env: { PATH: '/usr/bin', ANTHROPIC_API_KEY: 'work-key', WORK_KEY: 'work-key' } });
+  });
+
+  it('fails with the profile and the variable named, never the value of another', () => {
+    const p = parseProfiles([{ id: 'work', kind: 'anthropic', env: { ANTHROPIC_API_KEY: { fromEnv: 'WORK_KEY' } } }]).profiles[1];
+    const r = sessionEnvFor(p, { PATH: '/usr/bin', ANTHROPIC_API_KEY: 'sk-shell-secret' });
+    expect(r).toEqual({ error: 'profile "work": ANTHROPIC_API_KEY: $WORK_KEY is not set' });
+    expect(JSON.stringify(r)).not.toContain('sk-shell-secret');
+  });
+
+  it('hands the default profile the login environment as is', () => {
+    const base = { PATH: '/usr/bin', ANTHROPIC_API_KEY: 'k' };
+    expect(sessionEnvFor(defaultProfile(), base).env).toBe(base);
   });
 });

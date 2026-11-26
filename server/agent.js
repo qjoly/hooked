@@ -24,7 +24,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { query } from '@anthropic-ai/claude-agent-sdk';
-import { PORT, PR_GATE_BIN, LAUNCHES_FILE, SESSION_LAUNCH_FILE, DRIVEN_FILE, PERMISSION_MODES, LAUNCH_PERMISSION_MODES, isValidModelArg } from './config.js';
+import { PORT, PR_GATE_BIN, LAUNCHES_FILE, SESSION_LAUNCH_FILE, DRIVEN_FILE, PERMISSION_MODES, LAUNCH_PERMISSION_MODES } from './config.js';
+import { findProfile, isValidModelForProfile, sessionEnvFor, DEFAULT_PROFILE_ID } from './profiles.js';
 import { isValidEffort } from './capabilities.js';
 import { statSafe } from './util.js';
 import { scanSessions } from './transcript.js';
@@ -770,7 +771,7 @@ function driverCtx(st, done) {
 // { base, branch }) only applies to a new session: hooked creates the git worktree first, then
 // launches in it.
 function launchSession(opts, cb) {
-  const { resumeId, cwd, prompt, model, effort, worktree, permissionMode, autoApprove, parentKey, groupWith, group, incognito, ephemeral } = opts;
+  const { resumeId, cwd, prompt, model, effort, worktree, permissionMode, autoApprove, parentKey, groupWith, group, incognito, ephemeral, profile: profileArg } = opts;
   let dir = cwd && typeof cwd === 'string' ? cwd : null;
   let id = null;
   if (resumeId) {
@@ -803,12 +804,22 @@ function launchSession(opts, cb) {
     : ((id && scanAllSessions().find((s) => s.id === id)?.provider) || defaultProviderId());
   const pconf = getProvider(provider);
   const engine = pconf ? getEngine(pconf.engine) : null;
-  // Model / effort: Claude's own grammar on the built-in path, the engine's elsewhere (pi takes
-  // `provider/id` refs and thinking levels; an ACP agent, whatever it advertised).
+  // The connection profile (cf. server/profiles.js): which account or server a CLAUDE session talks
+  // to. Resolved here, before a worktree is created for it, so a bad profile or model costs nothing.
+  // Another engine has no such notion: asking for one there is a mistake, not something to ignore.
+  const claudePath = !engine || engine.id === 'claude';
+  if (profileArg != null && typeof profileArg !== 'string') return cb(err400('invalid profile'));
+  const profile = findProfile(profileArg);
+  if (!profile) return cb(err400('unknown profile: ' + profileArg));
+  if (!claudePath && profile.id !== DEFAULT_PROFILE_ID) return cb(err400('connection profiles only apply to Claude sessions'));
+  // Model / effort: Claude's own grammar on the built-in path (a model of the profile's server on a
+  // compatible one), the engine's elsewhere (pi takes `provider/id` refs and thinking levels; an ACP
+  // agent, whatever it advertised).
   const badArg = (kind, v) => {
     if (!v) return null;
-    if (!engine || engine.id === 'claude') {
-      return (kind === 'model' ? isValidModelArg(v) : isValidEffort(v)) ? null : `unknown ${kind}: ${v}`;
+    if (claudePath) {
+      if (kind === 'model') return isValidModelForProfile(profile, v) ? null : `unknown model: ${v}`;
+      return isValidEffort(v) ? null : `unknown effort: ${v}`;
     }
     const check = kind === 'model' ? engine.validateModel : engine.validateEffort;
     if (typeof check === 'function') return check(v);
@@ -835,6 +846,7 @@ function launchSession(opts, cb) {
     cwd: dir,
     input,
     abort: new AbortController(),
+    profileId: profile.id,
     launchModel: model || null,
     launchEffort: effort || null,
     model: model || null,
@@ -898,8 +910,17 @@ function launchSession(opts, cb) {
 
   // On attend l'environnement du shell de login (résolu une fois, déjà chaud en pratique) avant de
   // spawner : sans lui la session perdrait le PATH et les variables du profil (cf. loginEnv).
-  loginEnv().then((env) => {
+  loginEnv().then((loginEnvVars) => {
     if (st.abort.signal.aborted) return; // tuée pendant le démarrage
+    // The profile's env goes over the login one. A reference that does not resolve (unset variable,
+    // missing file) fails the launch: starting anyway would fall back to another account.
+    const sessionEnv = sessionEnvFor(profile, loginEnvVars);
+    if (sessionEnv.error) {
+      st.error = sessionEnv.error;
+      failStartup(st);
+      return;
+    }
+    const env = sessionEnv.env;
     // Non-Claude engine: its driver spawns and talks to the agent, on the SAME registry entry —
     // the rest of the dashboard (live state, questions, interrupts) does not change.
     const drv = driverFor(st);
@@ -1612,7 +1633,12 @@ function setModelEffort(id, { model, effort, force = false } = {}, cb) {
       })
       .catch((e) => cb(new Error('model/thinking change failed: ' + ((e && e.message) || e))));
   }
-  if (model && !isValidModelArg(model)) return cb(err400('unknown model: ' + model));
+  if (model) {
+    // Against the session's own profile: a local server's model ids are not Claude family names.
+    const profile = findProfile(st.profileId);
+    if (!profile) return cb(err400(`profile "${st.profileId}" is no longer configured`));
+    if (!isValidModelForProfile(profile, model)) return cb(err400('unknown model: ' + model));
+  }
   if (effort && !isValidEffort(effort)) return cb(err400('unknown effort: ' + effort));
   if (!model && !effort) return cb(err400('model or effort required'));
   st.modelSwitch = { force: !!force, held: null };

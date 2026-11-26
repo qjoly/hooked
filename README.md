@@ -214,6 +214,47 @@ notifications, auto-compact, which models appear in the pickers…
 Costs are estimates computed from the token counts in the transcripts. Prices live in
 `server/pricing.js`.
 
+### Connection profiles
+
+A session normally talks to the Claude account the CLI is signed in to. A **profile** sends it
+somewhere else instead: another Anthropic account, or an Anthropic-compatible server such as
+LM Studio. Profiles live in `profiles.json`, next to hooked's other data (`~/.claude/hooked/`):
+
+```json
+[
+  {
+    "id": "lmstudio-home",
+    "label": "LM Studio (home)",
+    "kind": "compatible",
+    "env": {
+      "ANTHROPIC_BASE_URL": "http://127.0.0.1:1234",
+      "ANTHROPIC_AUTH_TOKEN": "lmstudio",
+      "ANTHROPIC_API_KEY": ""
+    },
+    "models": ["qwen/qwen3-coder-30b"]
+  },
+  {
+    "id": "work",
+    "kind": "anthropic",
+    "env": { "ANTHROPIC_API_KEY": { "fromEnv": "WORK_ANTHROPIC_KEY" } }
+  }
+]
+```
+
+- `env` is what the session's `claude` process gets, on top of your login environment. A value is
+  a string, or a reference that is resolved when the session starts, so a token never has to sit in
+  the file: `{ "fromEnv": "NAME" }` (a variable of your login environment) or
+  `{ "file": "~/path" }`. A reference that does not resolve fails the launch.
+- A profile picks the destination entirely: `ANTHROPIC_*` and `CLAUDE_CODE_OAUTH_TOKEN` exported by
+  your shell are not passed to a session that uses one. Set `ANTHROPIC_API_KEY` to `""` to be explicit.
+- `kind: "compatible"` needs `ANTHROPIC_BASE_URL`. Its `models` are the ids of that server; when
+  listed, a launch or a model switch is limited to them. An `anthropic` profile takes the usual
+  family names (`opus`, `sonnet`…).
+- The implicit `default` profile is today's behaviour, and the one used when none is asked for.
+- Pick one with the `profile` field of `POST /api/launch`; `GET /api/profiles` lists them (without
+  their `env`) and reports the entries it had to skip. The file is read at every launch.
+- A session resumed after a restart does not remember its profile yet.
+
 ## How it works
 
 ```mermaid

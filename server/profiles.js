@@ -24,7 +24,8 @@
  *   ]
  *
  * An env value is a literal string, or a reference resolved when a session starts, so that a token
- * never has to sit in this file: `{ "fromEnv": NAME }` reads hooked's own environment,
+ * never has to sit in this file: `{ "fromEnv": NAME }` reads the login environment the sessions run in (so a variable
+ * exported in your shell profile works),
  * `{ "file": PATH }` reads a file (absolute, or `~/…`; one trailing newline is dropped).
  *
  * The implicit `default` profile is always first and has no env: it is today's behaviour. A missing
@@ -34,12 +35,18 @@
  * Nothing here is secret-aware beyond that: `publicProfile` is the only shape that leaves the
  * server, and it carries no env at all.
  *
+ * A session launched with a profile gets its env merged over the login environment, after the
+ * credential variables the login environment may carry (`ANTHROPIC_*`, `CLAUDE_CODE_OAUTH_TOKEN`)
+ * have been dropped: a profile picks the destination entirely, so an `ANTHROPIC_API_KEY` exported
+ * in a shell profile must not follow a session to another account or to a local server. The
+ * `default` profile touches nothing.
+ *
  * Node stdlib only.
  */
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { PROFILES_FILE } from './config.js';
+import { PROFILES_FILE, isValidModelArg } from './config.js';
 
 export const DEFAULT_PROFILE_ID = 'default';
 export const PROFILE_KINDS = ['anthropic', 'compatible'];
@@ -182,4 +189,40 @@ export function resolveProfileEnv(profile, { env = process.env, readFile = fs.re
     if (text) out[name] = text; else errors.push(`${name}: ${v.file} is missing or empty`);
   }
   return { env: out, errors };
+}
+
+export function findProfile(id, file = PROFILES_FILE) {
+  return loadProfiles(file).profiles.find((p) => p.id === (id || DEFAULT_PROFILE_ID)) || null;
+}
+
+// Whether `model` may be launched or switched to under `profile`. An `anthropic` profile takes the
+// CLI's own family names (`opus`, `claude-opus-4-7`…). A `compatible` one takes ids of its server,
+// which are free-form (`qwen/qwen3-coder-30b`): when the profile lists models, only those; with no
+// list, anything within the model-id charset (the anti-injection guard, as for the family names).
+export function isValidModelForProfile(profile, model) {
+  if (typeof model !== 'string') return false;
+  if (profile.kind === 'anthropic') return isValidModelArg(model);
+  if (!MODEL_ID_RE.test(model)) return false;
+  return profile.models.length === 0 || profile.models.some((m) => m.id === model);
+}
+
+// Variables that decide which account or server a `claude` process talks to.
+const CREDENTIAL_ENV_RE = /^(ANTHROPIC_|CLAUDE_CODE_OAUTH_TOKEN$)/;
+
+// The environment of a session: `base` (the login environment) with the profile's resolved env on
+// top. For the implicit `default` profile that is `base` itself. For any other, the credential
+// variables of `base` are dropped first, so only what the profile says reaches the CLI.
+export function buildSessionEnv(base, profile, resolved) {
+  if (profile.id === DEFAULT_PROFILE_ID) return base;
+  const out = {};
+  for (const [k, v] of Object.entries(base)) if (!CREDENTIAL_ENV_RE.test(k)) out[k] = v;
+  return Object.assign(out, resolved);
+}
+
+// resolveProfileEnv + buildSessionEnv in one step: { env } to hand to the SDK, or { error } with a
+// message naming the profile and the variables at fault, to fail the launch with.
+export function sessionEnvFor(profile, base) {
+  const r = resolveProfileEnv(profile, { env: base });
+  if (r.errors.length) return { error: `profile "${profile.id}": ${r.errors.join('; ')}` };
+  return { env: buildSessionEnv(base, profile, r.env) };
 }
