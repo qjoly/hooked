@@ -286,11 +286,29 @@ impl Hooked {
 
     /// Picks where the new session goes, and resets the model, which means something else there.
     pub fn pick_new_profile(&mut self, profile: Option<String>) {
-        self.new_profile = Some(profile.clone());
-        self.new_effort = None;
-        self.new_model = None;
+        self.new_profile = Some(profile);
+        self.reset_new_pickers();
+    }
+
+    /// The model and effort of the new session, back to what the profile in force means: a
+    /// server's first model and no effort, else the defaults of the Settings.
+    pub fn reset_new_pickers(&mut self) {
+        let profile = self.new_profile_now();
         self.ensure_profile_models(profile.as_deref());
-        self.fill_server_model();
+        if self.is_server(profile.as_deref()) {
+            self.new_model = None;
+            self.new_effort = None;
+            self.fill_server_model();
+            return;
+        }
+        let setting = |s: &Self, key: &str| {
+            s.setting(key)
+                .as_str()
+                .filter(|v| !v.is_empty())
+                .map(str::to_string)
+        };
+        self.new_model = setting(self, "defaultModel");
+        self.new_effort = setting(self, "defaultEffort");
     }
 
     /// A server needs a model named: the first one it offers, until one is picked.

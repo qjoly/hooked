@@ -159,8 +159,7 @@ impl Hooked {
     pub fn account_use_default(&mut self, key: &str) {
         self.save_setting("defaultProfile", json!(key));
         self.new_profile = None;
-        self.new_model = None;
-        self.new_effort = None;
+        self.reset_new_pickers();
         self.refresh_usage();
     }
 
@@ -314,7 +313,7 @@ impl Hooked {
                     // A new session that was about to start on it starts on the default again.
                     if s.new_profile.as_ref().and_then(|p| p.as_deref()) == Some(id.as_str()) {
                         s.new_profile = None;
-                        s.new_model = None;
+                        s.reset_new_pickers();
                     }
                     s.profiles_changed();
                 }
