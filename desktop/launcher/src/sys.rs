@@ -159,16 +159,29 @@ pub fn base_url() -> String {
     std::env::var("HOOKED_URL").unwrap_or_else(|_| "http://localhost:4123".into())
 }
 
-pub fn get_json(path: &str, timeout: Duration) -> Result<Value, String> {
-    let agent: ureq::Agent = ureq::Agent::config_builder()
+fn agent(timeout: Duration) -> ureq::Agent {
+    ureq::Agent::config_builder()
         .timeout_connect(Some(Duration::from_secs(3)))
         .timeout_global(Some(timeout))
         .proxy(None)
         .build()
-        .into();
-    agent
+        .into()
+}
+
+pub fn get_json(path: &str, timeout: Duration) -> Result<Value, String> {
+    agent(timeout)
         .get(&format!("{}{path}", base_url()))
         .call()
+        .map_err(|e| e.to_string())?
+        .body_mut()
+        .read_json()
+        .map_err(|e| e.to_string())
+}
+
+pub fn post_json(path: &str, body: &Value, timeout: Duration) -> Result<Value, String> {
+    agent(timeout)
+        .post(&format!("{}{path}", base_url()))
+        .send_json(body)
         .map_err(|e| e.to_string())?
         .body_mut()
         .read_json()

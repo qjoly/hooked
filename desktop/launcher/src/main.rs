@@ -2,6 +2,7 @@
 //! the service to it. A separate app so a restart of hooked does not take it down.
 
 mod branches;
+mod extensions;
 mod flow;
 mod runner;
 mod sys;
@@ -18,6 +19,7 @@ use rune::prefs::Prefs;
 use rune::{AppHandle, AppSpec, Image, ImageCache, Tx};
 
 use crate::branches::Row;
+use crate::extensions::Ext;
 use crate::flow::Step;
 use crate::runner::{Control, Event};
 
@@ -139,6 +141,12 @@ pub struct State {
     pub stale: Option<String>,
     pub reachable: Option<bool>,
     pub run: Option<Run>,
+    pub exts: Vec<Ext>,
+    /// The extensions came from the service, so their switches work.
+    pub exts_live: bool,
+    /// The extension whose switch is being applied.
+    pub ext_busy: Option<String>,
+    pub ext_error: Option<String>,
     /// The desktop app's appearance setting; its scheme and corners live in `hooked_ui::theme`.
     pub theme: Theme,
     pub logo: Option<[Image; 2]>,
@@ -156,6 +164,10 @@ impl State {
             stale: None,
             reachable: None,
             run: None,
+            exts: Vec::new(),
+            exts_live: false,
+            ext_busy: None,
+            ext_error: None,
             theme: Theme::System,
             logo: None,
             images: None,
@@ -177,6 +189,7 @@ impl State {
             return;
         }
         self.load_look();
+        self.refresh_extensions();
         self.loading = true;
         let repo = self.repo.clone();
         background(move || {
@@ -190,6 +203,38 @@ impl State {
                         s.list_error = None;
                     }
                     Err(e) => s.list_error = Some(e),
+                }
+            });
+        });
+    }
+
+    pub fn refresh_extensions(&mut self) {
+        let repo = self.repo.clone();
+        background(move || {
+            let listing = extensions::list(&repo);
+            update(move |s| {
+                s.exts = listing.exts;
+                s.exts_live = listing.live;
+            });
+        });
+    }
+
+    pub fn set_extension(&mut self, id: String, enabled: bool) {
+        if self.ext_busy.is_some() || !self.exts_live {
+            return;
+        }
+        self.ext_busy = Some(id.clone());
+        self.ext_error = None;
+        background(move || {
+            let r = extensions::set_enabled(&id, enabled);
+            update(move |s| {
+                s.ext_busy = None;
+                match r {
+                    Ok(exts) => s.exts = exts,
+                    Err(e) => {
+                        s.ext_error = Some(format!("Could not switch {id}: {e}"));
+                        s.refresh_extensions();
+                    }
                 }
             });
         });
@@ -242,7 +287,11 @@ fn watch_service() {
             let up = sys::get_json("/api/capabilities", Duration::from_secs(3)).is_ok();
             if last != Some(up) {
                 last = Some(up);
-                update(move |s| s.reachable = Some(up));
+                // The service came back or went away: the extension list changes source.
+                update(move |s| {
+                    s.reachable = Some(up);
+                    s.refresh_extensions();
+                });
             }
             std::thread::sleep(Duration::from_secs(5));
         }

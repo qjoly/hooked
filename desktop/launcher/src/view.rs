@@ -4,9 +4,10 @@ use hooked_ui::widgets::{
 };
 use hooked_ui::{icons, logo, theme};
 use rune::{Cursor, Cx, El, ScrollSpec, col, el, row, text};
-use rune_kit::{Button, ButtonVariant, ControlSize, Kit, StateColors};
+use rune_kit::{Button, ButtonVariant, ControlSize, Kit, StateColors, Switch};
 
 use crate::branches::{self, Row};
+use crate::extensions::Ext;
 use crate::flow::Step;
 use crate::{Run, State, Status};
 
@@ -116,7 +117,54 @@ fn list(s: &State, k: &Kit) -> El {
     for r in &s.rows {
         out = out.child(branch_row(r, now, k));
     }
+    extensions(s, k, out)
+}
+
+fn extensions(s: &State, k: &Kit, mut out: El) -> El {
+    out = out.child(row().w_full().px(10.0).pt(18.0).pb(6.0).child(section_title(k, "EXTENSIONS")));
+    if !s.exts_live && !s.exts.is_empty() {
+        out = out.child(callout(k, &k.c.warning, "The service is unreachable: read from disk, switches disabled."));
+    }
+    if let Some(e) = &s.ext_error {
+        out = out.child(callout(k, &k.c.danger, e.clone()));
+    }
+    if s.exts.is_empty() {
+        out = out.child(text("No extension.").font(k.ty.text_small).color(k.c.text_muted).px(10.0));
+    }
+    for e in &s.exts {
+        out = out.child(extension_row(s, e, k));
+    }
     out
+}
+
+/// An extension over where it comes from, with its switch. Applied at once by the service.
+fn extension_row(s: &State, e: &Ext, k: &Kit) -> El {
+    let mut title = row().w_full().gap(8.0).center_y().child(list_row_title(k, e.label.clone()));
+    if !e.errors.is_empty() {
+        title = title.child(pill(k, "error", k.c.danger.fg, k.c.danger.bg));
+    } else if e.enabled && e.active {
+        title = title.child(pill(k, "on", k.c.success.fg, k.c.success.bg));
+    }
+    let mut sub = e.origin();
+    if !e.description.is_empty() {
+        sub = format!("{sub} · {}", e.description);
+    }
+    if let Some(err) = e.errors.first() {
+        sub = format!("{err} · {sub}");
+    }
+    let (id, on) = (e.id.clone(), e.enabled);
+    let switch = Switch::new(on)
+        .label(format!("{} on", e.label))
+        .hide_label()
+        .disabled(!s.exts_live || s.ext_busy.is_some() || e.errors.iter().any(|x| x.starts_with("rejected")))
+        .on_toggle(move |s: &mut State| s.set_extension(id.clone(), !on))
+        .build(k);
+    list_row(k, 0)
+        .key(format!("ext-{}", e.id))
+        .label(e.label.clone())
+        .cursor(Cursor::Default)
+        .child(list_row_lines(title, list_row_subtitle(k, sub)))
+        .child(row().pl(12.0).center_y().child(switch))
 }
 
 /// A sidebar row: the branch over its last commit.
