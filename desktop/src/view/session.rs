@@ -387,6 +387,9 @@ fn more_menu(s: &Hooked, d: &Detail, k: &Kit, layer: &mut Vec<El>) -> El {
     if x.live {
         let is_pi = !pinfo.is_claude();
         let current = x.model.clone().unwrap_or_default();
+        // A session on a server picks among that server's models, and has no effort levels.
+        let profile = x.profile.as_ref().filter(|_| x.remote.is_none()).map(|p| p.id.clone());
+        let on_server = !is_pi && s.is_server(profile.as_deref());
         let models: Vec<_> = if is_pi {
             // The provider's catalogue, minus the ones hidden in Settings.
             s.visible_provider_models(&pid)
@@ -403,12 +406,15 @@ fn more_menu(s: &Hooked, d: &Detail, k: &Kit, layer: &mut Vec<El>) -> El {
                 })
                 .collect()
         } else {
-            s.visible_models()
-            .into_iter()
+            s.models_for(profile.as_deref())
             .into_iter()
             .map(|(id, label)| {
                 MenuItem::new(label)
-                    .checked(current.contains(id.trim_start_matches("claude-")))
+                    .checked(if on_server {
+                        current == id
+                    } else {
+                        current.contains(id.trim_start_matches("claude-"))
+                    })
                     .on_select(move |s: &mut Hooked| {
                         let effort = s.detail.as_ref().and_then(|d| d.session.effort.clone());
                         let force = s
@@ -450,6 +456,8 @@ fn more_menu(s: &Hooked, d: &Detail, k: &Kit, layer: &mut Vec<El>) -> El {
                 })
                 .map(rune_kit::MenuEntry::item)
                 .collect()
+        } else if on_server {
+            Vec::new()
         } else {
             s.caps
             .efforts
@@ -474,14 +482,17 @@ fn more_menu(s: &Hooked, d: &Detail, k: &Kit, layer: &mut Vec<El>) -> El {
                             s.popup == Some(Popup::Model),
                         )
                         .on_select(|s: &mut Hooked| s.popup = Some(Popup::Model)),
-                )
-                .item(
+                );
+            // A server has no effort levels to list.
+            if !on_server {
+                m = m.item(
                     MenuItem::new("Effort")
                         .badge(effort_now.clone())
                         .submenu(efforts, s.popup == Some(Popup::Effort))
                         .on_select(|s: &mut Hooked| s.popup = Some(Popup::Effort)),
-                )
-                .separator();
+                );
+            }
+            m = m.separator();
         }
         if s.menu_shows("permissionMode") && pinfo.can("modes") {
             m = m.group_label("Permission mode");

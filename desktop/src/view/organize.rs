@@ -455,8 +455,16 @@ fn fork(
     prompt: &rune::TextEdit,
 ) -> El {
     use super::settings::{chip, chips};
+    // The fork runs on its session's profile: a server's own models, and no effort levels.
+    let profile = s
+        .detail
+        .as_ref()
+        .filter(|d| d.session.remote.is_none())
+        .and_then(|d| d.session.profile.as_ref())
+        .map(|p| p.id.clone());
+    let on_server = s.is_server(profile.as_deref());
     let models = s
-        .visible_models()
+        .models_for(profile.as_deref())
         .into_iter()
         .map(|(id, label)| {
             let on = model == Some(id.as_str());
@@ -507,7 +515,7 @@ fn fork(
         .w_full()
         .gap(12.0)
         .child(line("MODEL", chips(models)))
-        .child(line("EFFORT", chips(efforts)))
+        .children((!on_server).then(|| line("EFFORT", chips(efforts))))
         .child(line("MODE", chips(modes)))
         .child(
             rune_kit::TextArea::new(prompt)

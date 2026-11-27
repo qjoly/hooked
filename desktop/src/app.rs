@@ -147,6 +147,8 @@ pub struct Hooked {
     pub profiles: Vec<crate::profiles::Profile>,
     /// The models a compatible profile's server answered for, when its entry lists none.
     pub profile_live: crate::profiles::Live,
+    /// The profile id that last made the list read again, so an unknown one asks once.
+    pub profiles_asked: Option<String>,
     /// The account the gauges were asked for last (`None`: the main one).
     pub usage_wanted: Option<String>,
     /// The gauges' account is a server: it has no limits, so none are drawn.
@@ -492,6 +494,7 @@ impl Hooked {
             gauges: Vec::new(),
             profiles: Vec::new(),
             profile_live: HashMap::new(),
+            profiles_asked: None,
             usage_wanted: None,
             no_limits: false,
             new_profile: None,
@@ -1774,6 +1777,11 @@ pub fn composer_changed(&mut self) {
     pub fn go_new(&mut self, project: Option<String>) {
         self.page = Page::New;
         self.popup = None;
+        // An account added or signed in elsewhere shows up in the picker.
+        self.refresh_profiles();
+        let profile = self.new_profile_now();
+        self.ensure_profile_models(profile.as_deref());
+        self.fill_server_model();
         if self.new_fallback() {
             self.new_model = Some("opus".into());
         }

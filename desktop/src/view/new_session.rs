@@ -24,6 +24,33 @@ fn controls(s: &Hooked, k: &Kit) -> El {
     let info = s.providers.info(&s.new_provider);
     let is_pi = !info.is_claude();
     let opts = s.opts_for(&s.new_provider).clone();
+    // Connection profile: where a Claude session sends its requests. Offered when there is a
+    // choice beyond the main account; a server takes its own models and has no effort.
+    let profile = (!is_pi).then(|| s.new_profile_now()).flatten();
+    let on_server = s.is_server(profile.as_deref());
+    let profile_line = (!is_pi && s.profiles.len() > 1).then(|| {
+        let picked = profile.clone();
+        line(
+            "ACCOUNT",
+            chips(
+                s.profiles
+                    .iter()
+                    .map(|p| {
+                        let id = (!p.implicit).then(|| p.id.clone());
+                        let on = id == picked;
+                        let label = if p.compatible() {
+                            format!("{} (server)", p.name())
+                        } else {
+                            p.name()
+                        };
+                        chip(k, format!("nprof-{}", p.id), label, on, move |s| {
+                            s.pick_new_profile(id.clone())
+                        })
+                    })
+                    .collect(),
+            ),
+        )
+    });
     // Provider picker — one chip per enabled provider, only offered when there are several;
     // with a single one the picker is hidden and new_provider is pinned on it (pinned_provider).
     let provider_line = if s.providers.both() {
@@ -67,20 +94,25 @@ fn controls(s: &Hooked, k: &Kit) -> El {
         }))
         .collect()
     } else {
-        std::iter::once(chip(
-        k,
-        "nm-default".into(),
-        "Default".into(),
-        s.new_model.is_none(),
-        |s| s.new_model = None,
-    ))
-        .chain(s.visible_models().into_iter().map(|(id, label)| {
-            let on = s.new_model.as_deref() == Some(id.as_str());
-            chip(k, format!("nm-{id}"), label, on, move |s| {
-                s.new_model = Some(id.clone())
-            })
-        }))
-        .collect()
+        // A server has no "Default" model: the CLI's own would be a Claude name it does not know.
+        let default = (!on_server).then(|| {
+            chip(
+                k,
+                "nm-default".into(),
+                "Default".into(),
+                s.new_model.is_none(),
+                |s| s.new_model = None,
+            )
+        });
+        default
+            .into_iter()
+            .chain(s.models_for(profile.as_deref()).into_iter().map(|(id, label)| {
+                let on = s.new_model.as_deref() == Some(id.as_str());
+                chip(k, format!("nm-{id}"), label, on, move |s| {
+                    s.new_model = Some(id.clone())
+                })
+            }))
+            .collect()
     };
     // Thinking / effort levels of the selected model (array in the entry), else the provider's.
     let pi_efforts: Vec<String> = if is_pi {
@@ -164,6 +196,9 @@ fn controls(s: &Hooked, k: &Kit) -> El {
     if let Some(pl) = provider_line {
         col = col.child(pl);
     }
+    if let Some(pl) = profile_line {
+        col = col.child(pl);
+    }
     // Détail du modèle sélectionné (nom complet, alias, niveaux de thinking côté Pi) —
     // sans ça les chips ne montrent qu'un label court.
     let model_detail: String = if is_pi {
@@ -200,6 +235,12 @@ fn controls(s: &Hooked, k: &Kit) -> El {
                 None => "the agent's default model".to_string(),
             },
         }
+    } else if on_server {
+        match (s.new_model.as_ref(), s.models_note(profile.as_deref())) {
+            (Some(id), _) => id.clone(),
+            (None, Some(why)) => format!("no model to pick: {why}"),
+            (None, None) => "loading the server's models…".to_string(),
+        }
     } else {
         match s.new_model.as_ref() {
             Some(id) => {
@@ -227,7 +268,11 @@ fn controls(s: &Hooked, k: &Kit) -> El {
                 .color(k.c.text_faint)
                 .px(2.0),
         )
-        .child(line("EFFORT", chips(efforts)));
+        ;
+    // A server has no effort levels.
+    if !on_server {
+        col = col.child(line("EFFORT", chips(efforts)));
+    }
     if !modes.is_empty() {
         col = col.child(line("MODE", chips(modes)));
     }

@@ -137,6 +137,10 @@ impl Hooked {
 
     /// Whose rate limits the gauges show: the open session's account, else the default one.
     pub fn gauge_profile(&self) -> Option<String> {
+        // The new-session screen shows the limits of the account the session is about to run on.
+        if self.page == Page::New && self.providers.info(&self.new_provider).is_claude() {
+            return self.new_profile_now();
+        }
         if self.page == Page::Session {
             if let Some(id) = self.selected.as_deref() {
                 return self.profile_of(id).map(|p| p.id);
@@ -183,6 +187,24 @@ impl Hooked {
         if self.gauge_profile() != self.usage_wanted {
             self.refresh_usage();
         }
+        // The open session's profile: its server's models are read, and a profile this app has
+        // not heard of (added since it started) makes the list read again, once per profile.
+        let Some(id) = self
+            .selected
+            .as_deref()
+            .and_then(|id| self.profile_of(id))
+            .map(|p| p.id)
+        else {
+            return;
+        };
+        if self.profile(&id).is_none() {
+            if self.profiles_asked.as_deref() != Some(id.as_str()) {
+                self.profiles_asked = Some(id);
+                self.refresh_profiles();
+            }
+            return;
+        }
+        self.ensure_profile_models(Some(&id));
     }
 
     /// The models a picker offers for `profile` (`None`: the main account): the server's for a
