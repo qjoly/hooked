@@ -2170,7 +2170,8 @@ pub fn composer_changed(&mut self) {
         self.spawn(work, move |s, r, _| {
             match r {
                 Ok(()) => s.flash(format!("✓ {label}"), false),
-                Err(e) => s.flash(format!("✗ {label}: {e}"), true),
+                // The label is a past tense ("Opened in editor"): a failure shows the reason alone.
+                Err(e) => s.flash(format!("✗ {e}"), true),
             }
             s.refresh_detail();
         });
