@@ -405,7 +405,7 @@ async function piStart(st, opts, ctx) {
     ...piEnvFor(opts.env || process.env, provider),
     ...(withPackage ? hookedPackageEnv(st, ctx.hookedMcp ? ctx.hookedMcp() : null) : {}),
   };
-  // The package registers the modules' and extensions' tools after its own, in pi's historical order.
+  // The package registers the extensions' tools after its own, in pi's historical order.
   if (withPackage) env.HOOKED_EXTENSION_TOOLS = sessionToolFiles('page').join(',');
   const args = piArgsFor(st, opts, provider);
   const client = new PiRpcClient(args, { cwd: st.cwd, env, bin: piBin(provider) });

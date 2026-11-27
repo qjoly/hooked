@@ -1,6 +1,6 @@
 /*
  * hooked's HTTP API seen from an agent tool: the minimal client the MCP server (mcp/server.cjs) and
- * the modules' tools (modules/<id>/tools.cjs) share. Zero dependencies, like the server.
+ * the extensions' tools (extensions/<id>/tools.cjs) share. Zero dependencies, like the server.
  *
  *   HOOKED_MCP_URL  → base URL of the API (default http://localhost:<HOOKED_PORT|4123>)
  *   HOOKED_PORT     → hooked's port (default 4123), used when HOOKED_MCP_URL is not set

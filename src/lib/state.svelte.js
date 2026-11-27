@@ -2,8 +2,6 @@
 // La navigation (vue courante, session ouverte, écran « nouvelle session ») n'est PLUS
 // ici : elle est portée par l'URL (routing SvelteKit). Ne restent que les filtres de la
 // sidebar, l'état live (SSE), le tick de rafraîchissement et la modale.
-import { sanitizeModules } from '#modules/index.js';
-import { loadModules } from './modules.svelte.js';
 import { loadExtensions } from './extensions.svelte.js';
 import { floating } from './floating.svelte.js';
 import { getSessionsFull, connectSSE, getSettings, saveSettings as apiSaveSettings, getTags, saveTags, replaceTags, suggestTags, getSessionMeta, saveSessionMeta, groupOp, kill, getAccount, getProviders } from './api.js';
@@ -612,7 +610,7 @@ export const settings = $state({
   editor: 'vscode', // éditeur préféré (clé de src/lib/editors.js) pour les liens « open in editor »
   defaultPage: 'deck',
   navTabs: ['sessions', 'stats', 'digest', 'memory', 'github'], // onglets de nav visibles (paramétrable)
-  modules: sanitizeModules(null), // hooked's modules, id → on (modules/index.js)
+  extensions: {}, // extensions switched on / off, id → on (docs/extensions.md)
   hiddenModels: [...DEFAULT_HIDDEN_MODELS], // versions de modèle masquées des sélecteurs (liste noire)
   hiddenPiModels: [...DEFAULT_HIDDEN_PI_MODELS], // idem pour le catalogue pi (liste noire)
 });
@@ -673,7 +671,6 @@ export function startLive() {
   lastLoadAt = Date.now();
   loadSessions();
   loadSettings();
-  loadModules();
   loadExtensions();
   loadTags();
   loadSessionMeta();

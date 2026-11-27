@@ -4,14 +4,20 @@
 import { jget, jpost } from './api.js';
 import { flash } from './flash.svelte.js';
 
-export const extensions = $state({ list: [], loaded: false });
+export const extensions = $state({ list: [], rejected: [], pending: [], loaded: false });
 const settingsValues = $state({});
 
 let pending = null;
+function setList(r) {
+  extensions.list = r.extensions || [];
+  extensions.rejected = r.rejected || [];
+  extensions.pending = r.pending || [];
+}
+
 export function loadExtensions() {
   pending = jget('/api/extensions')
     .then((r) => {
-      extensions.list = r.extensions || [];
+      setList(r);
       for (const id of Object.keys(settingsValues)) loadExtensionSettings(id);
     })
     .catch(() => {})
@@ -35,10 +41,16 @@ async function loadExtensionSettings(id) {
   try { settingsValues[id] = (await jget('/api/extensions/settings?id=' + encodeURIComponent(id))).values; } catch (_) { /* keep */ }
 }
 
-// The declarative settings of one extension, reactive (for its page).
+// The declarative settings of one extension, reactive (for its page). Writes state on first use:
+// call it from a script or an effect, not from markup.
 export function extensionSettings(id) {
   if (!(id in settingsValues)) { settingsValues[id] = {}; loadExtensionSettings(id); }
   return settingsValues[id];
+}
+
+// Read-only twin of extensionSettings, safe in markup: {} until extensionSettings(id) has loaded it.
+export function extensionSettingsIfLoaded(id) {
+  return settingsValues[id] || {};
 }
 
 export async function saveExtensionSettings(id, values) {
@@ -49,7 +61,7 @@ export async function saveExtensionSettings(id, values) {
 
 export async function setExtensionEnabled(id, enabled) {
   const r = await jpost('/api/extensions', { id, enabled });
-  if (r.status === 200) extensions.list = r.data.extensions || extensions.list;
+  if (r.status === 200) setList(r.data);
   return r;
 }
 

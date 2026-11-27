@@ -482,7 +482,7 @@ function hookedMcpServer(launchKey) {
   if (settings.showWork) env.HOOKED_SHOW_WORK = '1';
   if (settings.featureFlags?.showPanels) env.HOOKED_SHOW_PANELS = '1';
   if (settings.prGate && statSafe(PR_GATE_BIN)?.isFile()) env.HOOKED_PR_GATE = PR_GATE_BIN;
-  // The tools of the modules and extensions switched on, decided now: a session keeps them until it restarts.
+  // The tools of the extensions switched on, decided now: a session keeps them until it restarts.
   env.HOOKED_EXTENSION_TOOLS = sessionToolFiles('id').join(',');
   return { command: 'node', args: [server], env };
 }

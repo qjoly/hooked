@@ -6,7 +6,6 @@
   import { themeType } from '#lib/theme.svelte.js';
   import { page } from '$app/state';
   import { pageHref, pageAvailable } from '#lib/nav.js';
-  import { modulesAvail } from '#lib/modules.svelte.js';
   import { extensions, extensionsReady, extensionTabs } from '#lib/extensions.svelte.js';
   import { flashMessage } from '#lib/flash.svelte.js';
   import { matchShortcut } from '#lib/shortcuts.js';
@@ -40,7 +39,7 @@
       sessionStorage.setItem('hooked.defaultApplied', '1');
       const dp = settings.defaultPage;
       await extensionsReady();
-      if (dp && dp !== 'deck' && location.pathname === '/' && pageAvailable(dp, settings, modulesAvail, extensions.list)) {
+      if (dp && dp !== 'deck' && location.pathname === '/' && pageAvailable(dp, extensions.list)) {
         goto(pageHref(dp, extensionTabs()));
       }
     } catch (_) {}

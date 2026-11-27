@@ -13,6 +13,11 @@
  *
  * Every hook an extension exposes (start, stop, applySettings, available, listeners, handlers) is
  * wrapped: an exception lands in the extension's `errors` and the log, never in the core.
+ *
+ * A *legacy* extension (bundled, `"legacy": true`: Flows, GitHub, incident.io) predates the
+ * contract: it imports the core through #server/* and #lib/*, keeps its route shims in src/routes
+ * and is compiled into the service build. It gets the same switch, listing and tools; only its code
+ * is not hot-loaded.
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -21,8 +26,7 @@ import { createRequire } from 'node:module';
 import { pathToFileURL } from 'node:url';
 import { HOOKED_DIR } from './config.js';
 import { readSettings } from './settings.js';
-import { checkoutDir, modulesDir, enabledModuleIds } from './moduleState.js';
-import { MODULES } from '../modules/index.js';
+import { checkoutDir } from './checkout.js';
 import { onSessionArchived } from './sessionMeta.js';
 import { EXTENSION_API, buildContext } from './ext/context.js';
 import { subscribeExtension, unsubscribeExtension, emitExtensionEvent } from './extensionEvents.js';
@@ -32,6 +36,9 @@ import { NAV_KEYS } from '../src/lib/nav.js';
 
 // Left to the runtime: the bundler must not try to resolve an extension at build time.
 const nativeImport = (url) => import(/* @vite-ignore */ url);
+// Legacy lifecycles are part of the build. Lazy: only the ids whose manifest says `legacy` are
+// imported, so Cron's copy here is never run.
+const LEGACY_LIFECYCLES = import.meta.glob('../extensions/*/server/index.js', { import: 'default' });
 
 const CACHE_DIR = path.join(HOOKED_DIR, 'extension-cache');
 const SETTINGS_DIR = path.join(HOOKED_DIR, 'extension-settings');
@@ -51,6 +58,7 @@ const REG = (globalThis[Symbol.for('hooked.extensions')] ??= {
   notify: null,
   queue: Promise.resolve(),
 });
+REG.loads ??= new Map(); // id@hash → times loaded in this process
 
 function bundledRoot() {
   if (process.env.HOOKED_BUNDLED_EXTENSIONS_DIR) return process.env.HOOKED_BUNDLED_EXTENSIONS_DIR;
@@ -108,6 +116,7 @@ function manifestError(m, folder) {
   if (!EXTENSION_ID.test(m.id)) return `invalid id "${m.id}"`;
   if (typeof m.label !== 'string' || !m.label) return 'label missing';
   if (m.api !== EXTENSION_API) return `api ${m.api}, hooked offers ${EXTENSION_API}`;
+  if (m.legacy != null && typeof m.legacy !== 'boolean') return 'legacy must be true or false';
   if (m.page != null) {
     if (typeof m.page.key !== 'string' || !EXTENSION_ID.test(m.page.key)) return 'page.key missing or invalid';
     if (RESERVED_PAGES.has(m.page.key)) return `page.key "${m.page.key}" is a core page`;
@@ -143,12 +152,17 @@ function importError(dir) {
   return null;
 }
 
+function readManifest(dir) {
+  return JSON.parse(fs.readFileSync(path.join(dir, 'extension.json'), 'utf8'));
+}
+
 function scanFolder({ id, dir, source }) {
   let manifest;
-  try { manifest = JSON.parse(fs.readFileSync(path.join(dir, 'extension.json'), 'utf8')); } catch (e) {
+  try { manifest = readManifest(dir); } catch (e) {
     return { id, dir, source, error: 'extension.json: ' + (e.message || e) };
   }
-  const error = manifestError(manifest, id) || importError(dir);
+  const legacyError = manifest?.legacy && source !== 'bundled' ? 'legacy is for extensions bundled with hooked' : null;
+  const error = manifestError(manifest, id) || legacyError || (manifest.legacy ? null : importError(dir));
   return error ? { id, dir, source, manifest, error } : { id, dir, source, manifest, hash: folderHash(dir) };
 }
 
@@ -207,8 +221,13 @@ function schemaOf(manifest) {
 
 // ── Load, start, stop ─────────────────────────────────────────────────────────────────────────
 
+// A version loaded again in the same process (uninstalled then reinstalled) gets a fresh copy: the
+// same path would hand back the cached module graph, with the state its first instance left.
 function snapshot(scan) {
-  const dest = path.join(CACHE_DIR, scan.id, scan.hash, 'src');
+  const key = scan.id + '@' + scan.hash;
+  const n = REG.loads.get(key) || 0;
+  REG.loads.set(key, n + 1);
+  const dest = path.join(CACHE_DIR, scan.id, scan.hash, n ? `src.${n}` : 'src');
   if (!fs.existsSync(path.join(dest, 'extension.json'))) {
     const tmp = dest + '.tmp-' + process.pid;
     fs.rmSync(tmp, { recursive: true, force: true });
@@ -227,7 +246,25 @@ function snapshot(scan) {
 const loadToolDefs = (file, helpers) => createRequire(path.join(checkoutDir(), 'package.json'))('./mcp/extensionTools.cjs').loadToolDefs(file, helpers);
 const STUB_HELPERS = { httpRequest: async () => ({ ok: false }), resultFrom: (r) => r };
 
+async function loadLegacyExtension(scan) {
+  const lifecycle = LEGACY_LIFECYCLES[`../extensions/${scan.id}/server/index.js`];
+  const tools = path.join(scan.dir, 'tools.cjs');
+  return {
+    ...scan,
+    srcDir: scan.dir,
+    legacy: true,
+    lifecycle: (await lifecycle?.()) || {},
+    routes: {},
+    running: false,
+    errors: [],
+    tools: fs.existsSync(tools) ? loadToolDefs(tools, STUB_HELPERS).map((t) => t.name) : [],
+    page: null,
+    ctx: null,
+  };
+}
+
 async function loadExtension(scan) {
+  if (scan.manifest.legacy) return loadLegacyExtension(scan);
   const srcDir = snapshot(scan);
   const has = (rel) => fs.existsSync(path.join(srcDir, rel));
   const importFrom = async (rel) => (has(rel) ? (await nativeImport(pathToFileURL(path.join(srcDir, rel)).href)).default : null);
@@ -238,6 +275,7 @@ async function loadExtension(scan) {
     lifecycle: (await importFrom('server/index.js')) || {},
     routes: {},
     running: false,
+    legacy: false,
     errors: [],
     tools: has('tools.cjs') ? loadToolDefs(path.join(srcDir, 'tools.cjs'), STUB_HELPERS).map((t) => t.name) : [],
     page: null,
@@ -271,7 +309,9 @@ function activate(entry) {
   if (entry.running) return;
   entry.errors = [];
   entry.running = true;
-  guard(entry, 'start', () => entry.lifecycle.start?.(entry.ctx));
+  // A legacy lifecycle takes the shape modules had: { service, settings }.
+  const arg = entry.legacy ? { service: REG.service, settings: readSettings() } : entry.ctx;
+  guard(entry, 'start', () => entry.lifecycle.start?.(arg));
   subscribeExtension(entry.id, entry.lifecycle.on);
 }
 
@@ -337,17 +377,23 @@ async function bootExtensions({ service = false, watch = false } = {}) {
   REG.service = !!service;
   REG.booted = true;
   onSessionArchived('extensions', (sessionId) => emitExtensionEvent('session:archived', { sessionId }));
-  const ids = new Set([...idsOnDisk(), ...REG.loaded.keys()]);
-  for (const id of ids) await reloadExtension(id);
+  // Legacy extensions first: they load in a few ms, while a page compile can take seconds, and
+  // their static API routes answer `extension_off` until they are loaded.
+  const ids = [...new Set([...idsOnDisk(), ...REG.loaded.keys()])];
+  const legacy = (id) => { try { return readManifest(locate(id).winner.dir).legacy === true; } catch (_) { return false; } };
+  for (const id of [...ids.filter(legacy), ...ids.filter((id) => !legacy(id))]) await reloadExtension(id);
   if (watch) watchRoots();
 }
 
-// Starts the extensions switched on, stops the ones switched off. No restart.
+// Starts the extensions switched on, stops the ones switched off. No restart. A legacy extension
+// that stays on gets hooked's settings, as modules did (GitHub's PR review tags follow them).
 function applyExtensionSettings(settings = readSettings()) {
   if (!REG.booted) return;
   for (const entry of REG.loaded.values()) {
+    const wasRunning = entry.running;
     if (enabled(entry, settings) && available(entry)) activate(entry);
     else deactivate(entry);
+    if (wasRunning && entry.running && entry.legacy) guard(entry, 'applySettings', () => entry.lifecycle.applySettings?.(settings));
   }
   notify();
 }
@@ -361,7 +407,8 @@ function watchRoots() {
       fs.mkdirSync(root.dir, { recursive: true });
       const w = fs.watch(root.dir, { recursive: true }, (_ev, file) => {
         const id = String(file || '').split(path.sep)[0];
-        if (!EXTENSION_ID.test(id)) return;
+        // Vite reloads a legacy extension's code itself; restarting its loops on every edit would not.
+        if (!EXTENSION_ID.test(id) || REG.loaded.get(id)?.legacy) return;
         clearTimeout(timers.get(id));
         timers.set(id, setTimeout(() => { timers.delete(id); reloadExtension(id).catch(() => {}); }, 300));
       });
@@ -390,7 +437,7 @@ function describe(entry, settings) {
     desktop: m.desktop || null,
     settings: schemaOf(m),
     sessionMenu: m.contributes?.sessionMenu || [],
-    source: entry.source, legacy: false, origin: readOrigin(entry.dir), hash: entry.hash,
+    source: entry.source, legacy: entry.legacy, origin: readOrigin(entry.dir), hash: entry.hash,
     enabled: enabled(entry, settings), available: available(entry), active: isActive(entry, settings),
     tools: entry.tools,
     errors: entry.errors,
@@ -408,7 +455,7 @@ function pendingOnDisk() {
     const e = REG.loaded.get(f.id);
     if (REG.rejected.has(f.dir)) continue;
     if (!e) { if (locate(f.id).winner?.dir === f.dir) out.push({ id: f.id, dir: f.dir, state: 'on disk, not loaded yet' }); continue; }
-    if (e.dir === f.dir && folderHash(f.dir) !== e.hash) out.push({ id: f.id, dir: f.dir, state: 'changed on disk, not reloaded yet' });
+    if (!e.legacy && e.dir === f.dir && folderHash(f.dir) !== e.hash) out.push({ id: f.id, dir: f.dir, state: 'changed on disk, not reloaded yet' });
   }
   for (const e of REG.loaded.values()) {
     if (!fs.existsSync(path.join(e.dir, 'extension.json'))) out.push({ id: e.id, dir: e.dir, state: 'removed from disk, still loaded' });
@@ -439,24 +486,21 @@ function extensionAvailability() {
   return Object.fromEntries([...REG.loaded.values()].map((e) => [e.id, available(e)]));
 }
 
-// tools.cjs of the active extensions, sorted by id: the order sessions see them in.
+// tools.cjs of the active extensions, sorted by id.
 function extensionToolFiles(settings = readSettings()) {
   return [...REG.loaded.values()]
     .filter((e) => isActive(e, settings) && e.tools.length)
     .sort((a, b) => a.id.localeCompare(b.id))
-    .map((e) => ({ id: e.id, file: path.join(e.srcDir, 'tools.cjs') }));
+    .map((e) => ({ id: e.id, order: e.manifest.page?.order ?? 1000, file: path.join(e.srcDir, 'tools.cjs') }));
 }
 
-// The tools.cjs every new session loads, modules and extensions alike, in the order its engine has
-// always seen them: by id for the MCP server, by navigation order for pi (its per-module packages
-// loaded in that order). Changing either would change the prompt prefix of every session.
+// The tools.cjs every new session loads, in the order its engine has always seen them: by id for
+// the MCP server, by navigation order for pi (its per-module packages loaded in that order).
+// Changing either would change the prompt prefix of every session.
 function sessionToolFiles(order = 'id', settings = readSettings()) {
-  const mods = enabledModuleIds(settings).map((id) => ({ id, order: MODULES.find((m) => m.id === id)?.order, file: path.join(modulesDir() || '', id, 'tools.cjs') }));
-  const exts = extensionToolFiles(settings).map((t) => ({ ...t, order: REG.loaded.get(t.id).manifest.page?.order }));
-  const rank = (x) => (order === 'page' ? x.order ?? 1000 : 0);
-  return [...mods.filter((m) => fs.existsSync(m.file)), ...exts]
-    .sort((a, b) => rank(a) - rank(b) || a.id.localeCompare(b.id))
-    .map((x) => x.file);
+  const files = extensionToolFiles(settings);
+  if (order === 'page') files.sort((a, b) => a.order - b.order || a.id.localeCompare(b.id));
+  return files.map((x) => x.file);
 }
 
 function extensionLabel(id) {

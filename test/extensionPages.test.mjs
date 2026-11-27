@@ -75,8 +75,8 @@ describe('facades (EXTENSION_API ' + 1 + ')', () => {
   });
 
   it('the registry names survive the server barrel', async () => {
-    const core = await import('../server/index.js');
-    for (const n of ['bootExtensions', 'reloadExtension', 'applyExtensionSettings', 'listExtensions', 'extensionAvailability', 'extensionEnabled', 'enabledExtensionIds', 'emitExtensionEvent', 'dispatchExtensionRoute', 'sessionToolFiles']) {
+    const core = await import('../src/lib/server/core.js');
+    for (const n of ['bootExtensions', 'reloadExtension', 'applyExtensionSettings', 'listExtensions', 'extensionAvailability', 'extensionEnabled', 'enabledExtensionIds', 'emitExtensionEvent', 'dispatchExtensionRoute', 'sessionToolFiles', 'extensionLabel', 'getExtensionSettings', 'saveExtensionSettings']) {
       expect(typeof core[n], n).toBe('function');
     }
   });

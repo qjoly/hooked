@@ -74,7 +74,7 @@ describe('installing, updating and removing an extension without a restart', () 
       settings: [expect.objectContaining({ key: 'loud', type: 'bool' }), expect.objectContaining({ key: 'name', type: 'string' })],
       origin: expect.objectContaining({ commit: expect.stringMatching(/^[0-9a-f]{40}$/) }),
     });
-    expect(ext.extensionToolFiles()).toEqual([{ id: 'hello', file: expect.stringContaining(path.join('extension-cache', 'hello')) }]);
+    expect(ext.extensionToolFiles()).toEqual([{ id: 'hello', order: 1000, file: expect.stringContaining(path.join('extension-cache', 'hello')) }]);
 
     emitExtensionEvent('turn:end', { sessionId: 's1' });
     emitExtensionEvent('turn:end', { sessionId: 's1' });
@@ -132,6 +132,21 @@ describe('installing, updating and removing an extension without a restart', () 
     expect(await call('hello', 'count')).toBeNull();
     expect(ext.extensionToolFiles()).toEqual([]);
     expect(fs.existsSync(path.join(DATA, 'extension-settings', 'hello.json'))).toBe(true);
+  });
+
+  it('reinstalling the same version starts from a fresh module state', async () => {
+    installFromGit('hello');
+    await ext.reloadExtension('hello');
+    emitExtensionEvent('turn:end', { sessionId: 's1' });
+    await sleep(10);
+    expect(await (await call('hello', 'count')).json()).toMatchObject({ turns: 1, version: 2 });
+    fs.rmSync(path.join(INSTALLED, 'hello'), { recursive: true });
+    await ext.reloadExtension('hello');
+    installFromGit('hello');
+    expect(await ext.reloadExtension('hello')).toEqual({ id: 'hello', state: 'loaded' });
+    expect(await (await call('hello', 'count')).json()).toMatchObject({ turns: 0, version: 2 });
+    fs.rmSync(path.join(INSTALLED, 'hello'), { recursive: true });
+    await ext.reloadExtension('hello');
   });
 });
 
@@ -193,5 +208,18 @@ describe('what the registry refuses', () => {
     fs.rmSync(path.join(BUNDLED, 'twin'), { recursive: true });
     fs.rmSync(path.join(INSTALLED, 'twin'), { recursive: true });
     await ext.reloadExtension('twin');
+  });
+});
+
+describe('settings migration', () => {
+  it('a settings file from before extensions keeps its switches, and Android still reads modules', async () => {
+    const { SETTINGS_FILE } = await import('../server/settings.js');
+    const before = fs.readFileSync(SETTINGS_FILE, 'utf8');
+    fs.writeFileSync(SETTINGS_FILE, JSON.stringify({ modules: { github: false, cron: true, 'Bad Id': false } }));
+    expect(readSettings()).toMatchObject({ extensions: { github: false, cron: true }, modules: { github: false, cron: true } });
+    expect(readSettings().extensions).not.toHaveProperty('Bad Id');
+    // The dashboard writes `extensions`, which wins over a stale `modules` in the same patch.
+    expect(writeSettings({ modules: { github: false }, extensions: { github: true } }).extensions.github).toBe(true);
+    fs.writeFileSync(SETTINGS_FILE, before);
   });
 });

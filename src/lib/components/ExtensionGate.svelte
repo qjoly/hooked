@@ -1,25 +1,30 @@
 <script>
   // The page of an extension (src/lib/extensions.svelte.js), or a notice while it is switched off,
-  // not available on this machine, or failing to start.
+  // not available on this machine, or failing to start. Nothing until the list has loaded, so a
+  // reload does not flash the notice.
   import Icon from './Icon.svelte';
+  import { extensions } from '#lib/extensions.svelte.js';
 
-  let { ext, children } = $props();
+  let { id, children } = $props();
+  const ext = $derived(extensions.list.find((e) => e.id === id));
 </script>
 
 {#if ext?.active}
   {@render children?.()}
-{:else}
+{:else if extensions.loaded}
   <section class="ext-off">
     <Icon name={ext?.icon || 'package'} size={22} />
-    {#if ext && !ext.enabled}
+    {#if !ext}
+      <h2>The {id} extension is not installed</h2>
+    {:else if !ext.enabled}
       <h2>{ext.label} is off</h2>
       <p>{ext.description}</p>
-      <p><a href="/settings#pset-modules">Turn it on in Settings → Modules</a></p>
-    {:else if ext && ext.available === false}
+      <p><a href="/settings#pset-extensions">Turn it on in Settings → Extensions</a></p>
+    {:else if ext.available === false}
       <h2>{ext.label} is not available on this machine</h2>
     {:else}
-      <h2>{ext?.label} failed to start</h2>
-      {#each ext?.errors || [] as e (e)}<p class="err">{e}</p>{/each}
+      <h2>{ext.label} failed to start</h2>
+      {#each ext.errors as e (e)}<p class="err">{e}</p>{/each}
     {/if}
   </section>
 {/if}

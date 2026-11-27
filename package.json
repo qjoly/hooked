@@ -7,7 +7,7 @@
   "imports": {
     "#lib/*": "./src/lib/*",
     "#server/*": "./server/*",
-    "#modules/*": "./modules/*"
+    "#extensions/*": "./extensions/*"
   },
   "engines": {
     "node": ">=24"

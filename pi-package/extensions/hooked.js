@@ -172,7 +172,7 @@ export default function hooked(pi) {
   };
 
   // ── hooked's tools ─────────────────────────────────────────────────────────────────────────
-  // The core ones, then those of the modules and extensions switched on (HOOKED_EXTENSION_TOOLS).
+  // The core ones, then those of the extensions switched on (HOOKED_EXTENSION_TOOLS).
   if (mcp && Array.isArray(mcp.TOOLS)) registerHookedTools(pi, mcp.TOOLS, mcp.resultFrom);
   if (mcp && mcp.extensionTools && process.env.HOOKED_EXTENSION_TOOLS) registerHookedTools(pi, mcp.extensionTools(), mcp.resultFrom);
 

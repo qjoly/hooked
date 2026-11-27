@@ -2,7 +2,6 @@
   import { usesClaudeAccount } from '#lib/providers.js';
   import { navTabsWith, pageAvailable } from '#lib/nav.js';
   import { extensions, extensionTabs } from '#lib/extensions.svelte.js';
-  import { modulesAvail } from '#lib/modules.svelte.js';
   import { copyText } from '#lib/clipboard.js';
   import { goto } from '$app/navigation';
   import { page } from '$app/state';
@@ -33,7 +32,7 @@
     { id: 'nav:deck', label: 'Go to Deck', section: 'Navigation', icon: 'deck', action: () => goto('/') },
     { id: 'nav:sessions', label: 'Go to Sessions', section: 'Navigation', icon: 'sessions', action: () => goto('/sessions') },
     { id: 'nav:new', label: 'New session', section: 'Navigation', icon: 'plus', action: () => goto('/new') },
-    // One per page of the navigation, modules included (src/lib/nav.js). Mémoire = ~/.claude
+    // One per page of the navigation, extensions included (src/lib/nav.js). Mémoire = ~/.claude
     // (Claude-only) : absente de la palette quand aucun binaire claude.
     ...navTabsWith(extensionTabs())
       .filter((t) => t.key !== 'sessions' && (t.key !== 'memory' || usesClaudeAccount(data.providers, data.providerList)))
@@ -44,7 +43,7 @@
   const commands = $derived.by(() => {
     const cs = currentSession;
     const cmds = [
-      ...NAV_COMMANDS.filter((c) => pageAvailable(c.id.slice(4), settings, modulesAvail, extensions.list)),
+      ...NAV_COMMANDS.filter((c) => pageAvailable(c.id.slice(4), extensions.list)),
       { id: 'act:theme-light', label: 'Theme: Light', section: 'Appearance', icon: 'theme-light', action: () => setTheme('light') },
       { id: 'act:theme-dark', label: 'Theme: Dark', section: 'Appearance', icon: 'theme-dark', action: () => setTheme('dark') },
       { id: 'act:theme-system', label: 'Theme: System', section: 'Appearance', icon: 'theme-system', action: () => setTheme('system') },

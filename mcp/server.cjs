@@ -616,7 +616,7 @@ const SHOW_PANEL = {
 };
 if (process.env.HOOKED_SHOW_PANELS === '1') TOOLS.push(SHOW_PANEL);
 
-// Tools of the modules and extensions switched on, after the core ones. hooked lists their files, in
+// Tools of the extensions switched on, after the core ones. hooked lists their files, in
 // order, in HOOKED_EXTENSION_TOOLS when it spawns this server for a session; a server started without
 // it (registered by hand) offers every one found on disk.
 function extensionTools(list = process.env.HOOKED_EXTENSION_TOOLS) {

@@ -17,7 +17,7 @@ import { execFile } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { HOOKED_DIR } from './config.js';
 import { EXTENSION_API } from './ext/context.js';
-import { checkoutDir } from './moduleState.js';
+import { checkoutDir } from './checkout.js';
 
 const SVELTE_SHARED = [
   'svelte', 'svelte/internal/client', 'svelte/internal/disclose-version', 'svelte/store',

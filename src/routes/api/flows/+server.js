@@ -1,2 +1,2 @@
-// The Flows module's API (modules/flows/api.js).
-export { GET, POST } from '#modules/flows/api.js';
+// The Flows extension's API (extensions/flows/api.js).
+export { GET, POST } from '#extensions/flows/api.js';
