@@ -1,0 +1,57 @@
+{
+ "api": 1,
+ "dir": "/tmp/installed",
+ "extensions": [
+  {
+   "id": "cron",
+   "label": "Cron",
+   "version": "1.0.0",
+   "description": "Scheduled sessions: a prompt launched on a five-field cron schedule.",
+   "icon": "clock",
+   "page": {
+    "key": "cron",
+    "order": 80,
+    "tint": "var(--warn)"
+   },
+   "pageModule": "/_ext/cron/f9b53bc1c2986ec1/page.js",
+   "desktop": {
+    "view": "view"
+   },
+   "settings": [],
+   "sessionMenu": [],
+   "source": "bundled",
+   "legacy": false,
+   "origin": null,
+   "hash": "aeecb7ab5d2a4625",
+   "enabled": true,
+   "available": true,
+   "active": true,
+   "tools": [
+    "list_cron_tasks",
+    "save_cron_task",
+    "delete_cron_task",
+    "run_cron_task"
+   ],
+   "errors": []
+  },
+  {
+   "id": "hello",
+   "label": "Hello",
+   "icon": "zap",
+   "page": null,
+   "desktop": null,
+   "enabled": true,
+   "active": true,
+   "sessionMenu": [
+    {
+     "id": "say-hello",
+     "label": "Say hello",
+     "post": "say-hello",
+     "when": "any"
+    }
+   ]
+  }
+ ],
+ "rejected": [],
+ "pending": []
+}

@@ -88,7 +88,7 @@ pub fn view(s: &Hooked, cx: &mut Cx<Hooked>) -> El {
         Page::Stats => pages::stats(s, &k),
         Page::Digest => pages::digest(s, &k),
         Page::Memory => pages::memory(s, &k),
-        Page::Cron => pages::cron(s, &k),
+        Page::Ext(id) => crate::extview::page(s, &k, id),
         Page::Flows => pages::flows(s, &k),
         Page::GitHub => pages::github(s, &k, &mut layer),
         Page::Incidents => incidents::view(s, &k),
@@ -207,19 +207,32 @@ impl Shadows for El {
     }
 }
 
+type NavPage = (&'static str, &'static str, &'static str, &'static Icon, Page);
+
 /// The pages the top bar can show next to Deck and Sessions: (settings key, element key, label,
-/// icon, page), in tab order.
-const NAV_PAGES: [(&str, &str, &str, &Icon, Page); 9] = [
-    ("stats", "tb-stats", "Stats", &icons::CHART, Page::Stats),
-    ("digest", "tb-digest", "Digest", &icons::BOOK, Page::Digest),
-    ("memory", "tb-memory", "Memory", &icons::BRAIN, Page::Memory),
-    ("cron", "tb-cron", "Cron", &icons::TIMER, Page::Cron),
-    ("flows", "tb-flows", "Flows", &icons::WORKFLOW, Page::Flows),
-    ("github", "tb-github", "GitHub", &icons::GITHUB, Page::GitHub),
-    ("incidents", "tb-incidents", "Incidents", &icons::SIREN, Page::Incidents),
-    ("skills", "tb-skills", "Skills", &icons::SPARKLE, Page::Skills),
-    ("prompts", "tb-prompts", "Prompts", &icons::BOOK, Page::Prompts),
+/// icon, page), with their place among the tabs.
+const NAV_PAGES: [(NavPage, f64); 8] = [
+    (("stats", "tb-stats", "Stats", &icons::CHART, Page::Stats), 20.0),
+    (("digest", "tb-digest", "Digest", &icons::BOOK, Page::Digest), 30.0),
+    (("memory", "tb-memory", "Memory", &icons::BRAIN, Page::Memory), 40.0),
+    (("flows", "tb-flows", "Flows", &icons::WORKFLOW, Page::Flows), 90.0),
+    (("github", "tb-github", "GitHub", &icons::GITHUB, Page::GitHub), 91.0),
+    (("incidents", "tb-incidents", "Incidents", &icons::SIREN, Page::Incidents), 92.0),
+    (("skills", "tb-skills", "Skills", &icons::SPARKLE, Page::Skills), 93.0),
+    (("prompts", "tb-prompts", "Prompts", &icons::BOOK, Page::Prompts), 100.0),
 ];
+
+/// The core pages and the extensions' declarative pages, by their `page.order`.
+fn nav_pages(s: &Hooked) -> Vec<NavPage> {
+    use crate::extview::{icon_named, intern, page_of};
+    let mut all: Vec<(NavPage, f64)> = NAV_PAGES.to_vec();
+    for e in s.ext.list.iter().filter(|e| e.view_route().is_some()) {
+        let Some(key) = e.page_key() else { continue };
+        all.push(((intern(key), intern(&format!("tb-ext-{key}")), intern(&e.label), icon_named(&e.icon), page_of(&e.id)), e.order()));
+    }
+    all.sort_by(|a, b| a.1.total_cmp(&b.1));
+    all.into_iter().map(|(p, _)| p).collect()
+}
 
 fn topbar(s: &Hooked, k: &Kit, inset: f32, layer: &mut Vec<El>) -> El {
     let space = |key: &'static str,
@@ -472,9 +485,8 @@ fn topbar(s: &Hooked, k: &Kit, inset: f32, layer: &mut Vec<El>) -> El {
     // Pages picked in Settings → navigation are tabs; the others (and Incidents, once the
     // incident.io app is there) sit in a "More" menu, as on the web. The open page always shows
     // as a tab, so you can see where you are.
-    let (shown, hidden): (Vec<_>, Vec<_>) = NAV_PAGES
-        .iter()
-        .copied()
+    let (shown, hidden): (Vec<_>, Vec<_>) = nav_pages(s)
+        .into_iter()
         .filter(|t| t.4 != Page::Incidents || s.incidents_on() || s.page == Page::Incidents)
         // A module switched off in Settings → Modules takes its page away.
         .filter(|t| s.page_on(t.4) || s.page == t.4)

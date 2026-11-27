@@ -11,7 +11,7 @@ use crate::app::{Hooked, Theme};
 use crate::theme::{ColorScheme, Corners};
 use crate::{fmt, icons};
 
-const NAV: [(&str, &str); 10] = [
+const NAV: [(&str, &str); 9] = [
     ("sessions", "Sessions"),
     ("stats", "Stats"),
     ("digest", "Digest"),
@@ -19,7 +19,6 @@ const NAV: [(&str, &str); 10] = [
     ("github", "GitHub"),
     ("incidents", "Incidents"),
     ("skills", "Skills"),
-    ("cron", "Cron"),
     ("flows", "Flows"),
     ("prompts", "Prompts"),
 ];
@@ -257,10 +256,9 @@ fn flag(v: &Value, key: &str) -> bool {
 
 /// The service's modules (modules/index.js on the server): id, title, what it brings. Each one is
 /// switched as a whole: page, background work and the tools sessions get.
-const MODULES: [(&str, &str, &str, &str); 4] = [
+const MODULES: [(&str, &str, &str, &str); 3] = [
     ("github", "module-github", "GitHub", "The GitHub page, PR watches that wake a session, and PR review tags."),
     ("incidents", "module-incidents", "incident.io", "Incidents from the incident.io desktop app."),
-    ("cron", "module-cron", "Cron", "Scheduled sessions: a prompt launched on a five-field cron schedule."),
     ("flows", "module-flows", "Flows", "Pipelines of driven sessions, walked like a CI pipeline."),
 ];
 
@@ -273,6 +271,16 @@ fn modules_card(s: &Hooked, k: &Kit) -> El {
             title,
             hint,
             toggle(k, key, on, move |s| s.save_nested("modules", id, json!(!on))),
+        ));
+    }
+    // Extensions load at runtime: their rows come from the service, not from this table.
+    for e in &s.ext.list {
+        let (id, on) = (crate::extview::intern(&e.id), e.enabled);
+        c = c.child(line(
+            k,
+            &e.label,
+            &e.description,
+            toggle(k, crate::extview::intern(&format!("ext-{id}")), on, move |s| s.set_extension_enabled(id, !on)),
         ));
     }
     c
@@ -491,7 +499,7 @@ fn app_card(s: &Hooked, k: &Kit, v: &Value) -> El {
             k,
             "Navigation",
             "Which pages get a tab in the top bar. The others stay one search away (⌘K).",
-            chips(NAV.iter().filter(|&&(key, _)| !MODULES.iter().any(|m| m.0 == key) || s.module_on(key)).map(|&(key, label)| chip(k, format!("nav-{key}"), label.into(), nav_on.iter().any(|x| x == key), move |s| s.toggle_in_list("navTabs", key))).collect()),
+            chips(NAV.iter().filter(|&&(key, _)| !MODULES.iter().any(|m| m.0 == key) || s.module_on(key)).copied().chain(crate::extview::nav_keys(s)).map(|(key, label)| chip(k, format!("nav-{key}"), label.into(), nav_on.iter().any(|x| x == key), move |s| s.toggle_in_list("navTabs", key))).collect()),
         ))
         .child(block(
             k,

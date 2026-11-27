@@ -1,0 +1,84 @@
+{
+ "type": "column",
+ "refresh": 10,
+ "children": [
+  {
+   "type": "section",
+   "title": "Cron",
+   "actions": [
+    {
+     "type": "button",
+     "label": "New task",
+     "action": {
+      "view": "edit"
+     },
+     "icon": "plus",
+     "tone": "primary"
+    }
+   ]
+  },
+  {
+   "type": "list",
+   "items": [
+    {
+     "key": "abc",
+     "title": "Standup",
+     "subtitle": "/tmp/p \u00b7 Next Mon 30 Nov 09:00",
+     "text": "Summarize",
+     "badges": [
+      {
+       "label": "0 9 * * 1-5",
+       "tone": "muted",
+       "mono": true
+      }
+     ],
+     "actions": [
+      {
+       "type": "button",
+       "label": "Run now",
+       "action": {
+        "post": "view",
+        "body": {
+         "op": "run",
+         "id": "abc"
+        }
+       },
+       "icon": "play"
+      },
+      {
+       "type": "button",
+       "label": "Pause",
+       "action": {
+        "post": "view",
+        "body": {
+         "op": "toggle",
+         "id": "abc"
+        }
+       }
+      },
+      {
+       "type": "button",
+       "label": "Edit",
+       "action": {
+        "view": "edit/abc"
+       }
+      },
+      {
+       "type": "button",
+       "label": "Delete",
+       "action": {
+        "post": "view",
+        "body": {
+         "op": "delete",
+         "id": "abc"
+        },
+        "confirm": "Delete \"Standup\"?"
+       },
+       "tone": "danger"
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

@@ -14,6 +14,8 @@ pub struct Cmd {
     pub icon: &'static Icon,
     pub keys: &'static str,
     pub run: fn(&mut Hooked, &mut Tx),
+    /// Set for an extension's page, which a plain `fn` cannot name.
+    pub page: Option<Page>,
 }
 
 pub enum Hit {
@@ -36,6 +38,7 @@ fn cmd(
         icon,
         keys,
         run,
+        page: None,
     }
 }
 
@@ -69,9 +72,6 @@ pub fn commands(s: &Hooked) -> Vec<Cmd> {
         }),
         cmd(nav, &icons::ZAP, "Go to Skills", "", |s, _| {
             s.go(Page::Skills)
-        }),
-        cmd(nav, &icons::CLOCK, "Go to Cron", "", |s, _| {
-            s.go(Page::Cron)
         }),
         cmd(nav, &icons::WORKFLOW, "Go to Flows", "", |s, _| {
             s.go(Page::Flows)
@@ -357,10 +357,14 @@ pub fn commands(s: &Hooked) -> Vec<Cmd> {
             }
         },
     ));
+    for e in s.ext.list.iter().filter(|e| e.view_route().is_some() && e.enabled) {
+        let mut c = cmd(nav, crate::extview::icon_named(&e.icon), format!("Go to {}", e.label), "", |_, _| {});
+        c.page = Some(crate::extview::page_of(&e.id));
+        out.push(c);
+    }
     // A module switched off in Settings → Modules takes its page out of the palette.
     out.retain(|c| match c.label.as_str() {
         "Go to GitHub" => s.module_on("github"),
-        "Go to Cron" => s.module_on("cron"),
         "Go to Flows" => s.module_on("flows"),
         _ => true,
     });
@@ -452,6 +456,7 @@ pub fn run(s: &mut Hooked, index: usize, tx: &mut Tx) {
     s.palette_open = false;
     match h {
         Hit::Session(id) | Hit::Citation { id, .. } => s.open_session(&id),
+        Hit::Cmd(Cmd { page: Some(p), .. }) => s.go(p),
         Hit::Cmd(c) => (c.run)(s, tx),
         Hit::MoreCitations(_) => {}
     }

@@ -52,7 +52,8 @@ pub enum Page {
     Stats,
     Digest,
     Memory,
-    Cron,
+    /// A page served by an extension as a declarative view (`crate::extview`), by extension id.
+    Ext(&'static str),
     Flows,
     GitHub,
     Incidents,
@@ -306,6 +307,7 @@ pub struct Hooked {
 
     pub lens_data: crate::lenses::LensData,
     pub pages: crate::pages::PageData,
+    pub ext: crate::extview::ExtState,
     pub inc: crate::incidents::Incidents,
     pub ghw: crate::ghwatch::GhWatch,
     pub announced: Option<HashSet<String>>,
@@ -609,6 +611,7 @@ impl Hooked {
             focus: false,
             lens_data: crate::lenses::LensData::default(),
             pages: crate::pages::PageData::default(),
+            ext: crate::extview::ExtState::default(),
             inc: crate::incidents::Incidents::new(
                 incidents_hidden,
                 incident_teams.into_iter().collect(),
@@ -649,6 +652,10 @@ impl Hooked {
         if split {
             s.lens_data.diff.set_mode(rune_kit::diff::DiffMode::Split);
         }
+        if let Ok(v) = api::get("/api/extensions") {
+            s.ext.list = serde_json::from_value(v["extensions"].clone()).unwrap_or_default();
+            s.ext.list_at = fmt::now_ms();
+        }
         if let Ok(v) = api::get("/api/settings") {
             s.apply_settings(v);
             s.page = match s.setting("defaultPage").as_str().unwrap_or("deck") {
@@ -658,10 +665,9 @@ impl Hooked {
                 "memory" => Page::Memory,
                 "github" => Page::GitHub,
                 "skills" => Page::Skills,
-                "cron" => Page::Cron,
                 "flows" => Page::Flows,
                 "prompts" => Page::Prompts,
-                _ => Page::Deck,
+                other => s.ext_page_for(other).unwrap_or(Page::Deck),
             };
             s.new_mode = s
                 .setting("defaultMode")
@@ -878,15 +884,19 @@ impl Hooked {
                 Some("stats") => Page::Stats,
                 Some("digest") => Page::Digest,
                 Some("memory") => Page::Memory,
-                Some("cron") => Page::Cron,
                 Some("flows") => Page::Flows,
                 Some("github") => Page::GitHub,
                 Some("incidents") => Page::Incidents,
                 Some("skills") => Page::Skills,
                 Some("settings") => Page::Settings,
                 Some("prompts") => Page::Prompts,
-                _ => s.page,
+                Some(other) => s.ext_page_for(other).unwrap_or(s.page),
+                None => s.page,
             };
+            // `--ext-path edit/<id>`: a sub-view of an extension page, for headless snaps.
+            if let (Page::Ext(id), Some(j)) = (s.page, args.iter().position(|a| a == "--ext-path")) {
+                s.ext.views.entry(id.to_string()).or_default().path = args.get(j + 1).cloned().unwrap_or_default();
+            }
             s.preload_page();
         }
         if let Some(i) = args.iter().position(|a| a == "--palette") {
@@ -2800,7 +2810,10 @@ pub fn composer_changed(&mut self) {
 
     /// Whether `page` can be shown: a page that belongs to a module needs that module on.
     pub fn page_on(&self, page: Page) -> bool {
-        page_module(page).is_none_or(|m| self.module_on(m))
+        match page {
+            Page::Ext(id) => self.ext_info(id).is_some_and(|e| e.enabled),
+            _ => page_module(page).is_none_or(|m| self.module_on(m)),
+        }
     }
 
     pub fn nav_tab(&self, key: &str) -> bool {
@@ -3057,7 +3070,6 @@ fn recently_active(s: &Session, now: i64) -> bool {
 /// The module of the service a page belongs to (modules/index.js on the server), if any.
 pub fn page_module(page: Page) -> Option<&'static str> {
     match page {
-        Page::Cron => Some("cron"),
         Page::Flows => Some("flows"),
         Page::GitHub => Some("github"),
         Page::Incidents => Some("incidents"),

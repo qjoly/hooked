@@ -38,7 +38,7 @@ fn series_color(palette: [&str; 8], i: usize) -> Color {
 }
 
 fn hhmm(ms: f64) -> String {
-    crate::cron::stamp(ms as i64)
+    crate::fmt::stamp(ms as i64)
         .rsplit(' ')
         .next()
         .unwrap_or("")
