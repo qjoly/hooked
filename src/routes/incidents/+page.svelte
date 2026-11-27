@@ -1,6 +1,6 @@
 <script>
-  import Incidents from '#modules/incidents/ui/Incidents.svelte';
-  import ModuleGate from '#lib/components/ModuleGate.svelte';
+  import Incidents from '#extensions/incidents/ui/Incidents.svelte';
+  import ExtensionGate from '#lib/components/ExtensionGate.svelte';
 </script>
 
-<ModuleGate id="incidents"><Incidents /></ModuleGate>
+<ExtensionGate id="incidents"><Incidents /></ExtensionGate>

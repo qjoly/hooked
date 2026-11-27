@@ -1,0 +1,92 @@
+{
+ "type": "column",
+ "children": [
+  {
+   "type": "section",
+   "title": "Edit task",
+   "actions": [
+    {
+     "type": "button",
+     "label": "Cancel",
+     "action": {
+      "view": ""
+     }
+    }
+   ]
+  },
+  {
+   "type": "form",
+   "id": "task",
+   "fields": [
+    {
+     "type": "text",
+     "key": "name",
+     "label": "Name",
+     "value": "Standup",
+     "hint": "Defaults to the prompt's first line"
+    },
+    {
+     "type": "text",
+     "key": "schedule",
+     "label": "Schedule (cron, local time)",
+     "value": "0 9 * * 1-5",
+     "mono": true,
+     "preview": "preview"
+    },
+    {
+     "type": "text",
+     "key": "cwd",
+     "label": "Project",
+     "value": "/tmp/p",
+     "mono": true
+    },
+    {
+     "type": "textarea",
+     "key": "prompt",
+     "label": "Prompt",
+     "value": "Summarize"
+    },
+    {
+     "type": "bool",
+     "key": "enabled",
+     "label": "Enabled",
+     "value": true
+    },
+    {
+     "type": "number",
+     "key": "max",
+     "label": "Runs at once",
+     "value": 3
+    },
+    {
+     "type": "select",
+     "key": "mode",
+     "label": "Mode",
+     "value": "auto",
+     "options": [
+      {
+       "value": "default",
+       "label": "Default"
+      },
+      {
+       "value": "auto",
+       "label": "Auto"
+      }
+     ]
+    }
+   ],
+   "submit": {
+    "type": "button",
+    "label": "Save",
+    "action": {
+     "post": "view",
+     "body": {
+      "op": "save",
+      "id": "abc"
+     }
+    },
+    "tone": "primary"
+   }
+  }
+ ]
+}

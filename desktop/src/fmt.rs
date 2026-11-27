@@ -1,5 +1,22 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
+/// `Mon 3 Dec 09:00`, in local time.
+pub fn stamp(ms: i64) -> String {
+    const DAYS: [&str; 7] = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+    const MONTHS: [&str; 12] = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    let t = ms.div_euclid(1000) as libc::time_t;
+    let mut tm: libc::tm = unsafe { std::mem::zeroed() };
+    unsafe { libc::localtime_r(&t, &mut tm) };
+    format!(
+        "{} {} {} {:02}:{:02}",
+        DAYS[tm.tm_wday.clamp(0, 6) as usize],
+        tm.tm_mday,
+        MONTHS[tm.tm_mon.clamp(0, 11) as usize],
+        tm.tm_hour,
+        tm.tm_min
+    )
+}
+
 pub fn now_ms() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)

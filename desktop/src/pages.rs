@@ -83,33 +83,6 @@ pub const STATS_RANGES: [(&str, &str); 4] = [
     ("all", "All"),
 ];
 
-pub struct CronForm {
-    pub id: Option<String>,
-    pub name: TextEdit,
-    pub schedule: TextEdit,
-    pub cwd: TextEdit,
-    pub prompt: TextEdit,
-    pub enabled: bool,
-}
-
-impl CronForm {
-    fn from(task: Option<&Value>) -> CronForm {
-        let t = |k: &str| task.and_then(|v| v[k].as_str()).unwrap_or("").to_string();
-        CronForm {
-            id: task.and_then(|v| v["id"].as_str()).map(str::to_string),
-            name: TextEdit::new(t("name")),
-            schedule: TextEdit::new(if task.is_some() {
-                t("schedule")
-            } else {
-                "0 9 * * 1-5".into()
-            }),
-            cwd: TextEdit::new(t("cwd")),
-            prompt: TextEdit::new(t("prompt")),
-            enabled: task.is_none_or(|v| v["enabled"].as_bool().unwrap_or(true)),
-        }
-    }
-}
-
 /// The Flows page's "New run" form.
 pub struct FlowForm {
     pub template: usize,
@@ -254,17 +227,12 @@ pub struct PageData {
     pub memory_project: usize,
     pub memory_open: Option<String>,
     pub memory_query: TextEdit,
-    pub cron_history: Option<String>,
     pub digest_pick: TextEdit,
     pub warmup: Option<Value>,
     pub branches_open: bool,
     pub checkout_dirty: Option<String>,
     pub memory_type: Option<String>,
     pub skills_query: TextEdit,
-
-    pub cron: Vec<Value>,
-    pub cron_loaded: bool,
-    pub cron_form: Option<CronForm>,
 
     /// `{ templates, runs }` from `/api/flows`.
     pub flows: Option<Value>,
@@ -373,13 +341,7 @@ impl Hooked {
                     .and_then(|v| v["runs"][0]["id"].as_str())
                     .map(str::to_string);
             }
-            Page::Cron => {
-                pd.cron = api::get("/api/cron")
-                    .ok()
-                    .and_then(|v| v["tasks"].as_array().cloned())
-                    .unwrap_or_default();
-                pd.cron_loaded = true;
-            }
+            Page::Ext(id) => self.ext_preload(id),
             Page::Settings => {
                 pd.claude = api::get("/api/claude").ok();
                 pd.git = api::get("/api/git").ok();
@@ -389,6 +351,7 @@ impl Hooked {
                     self.apply_settings(v);
                 }
                 self.caps = api::capabilities().unwrap_or_default();
+                self.preload_extension_settings();
             }
             _ => {}
         }
@@ -396,6 +359,13 @@ impl Hooked {
 
     /// Starts the fetch the open page is missing; true when state changed synchronously.
     pub fn ensure_page(&mut self) -> bool {
+        if let Page::Ext(id) = self.page {
+            if self.ext.views.contains_key(id) || !self.page_on(self.page) {
+                return false;
+            }
+            self.ext_open(id, "");
+            return true;
+        }
         let pd = &mut self.pages;
         match self.page {
             Page::Stats if pd.stats_loaded_for != Some(pd.stats_range) && !pd.stats_loading => {
@@ -457,11 +427,6 @@ impl Hooked {
             }
             Page::Flows if pd.flows.is_none() && !pd.flows_loading => {
                 self.load_flows();
-                true
-            }
-            Page::Cron if !pd.cron_loaded => {
-                pd.cron_loaded = true;
-                self.load_cron();
                 true
             }
             Page::Skills if pd.skills.is_none() => {
@@ -779,7 +744,9 @@ impl Hooked {
             Page::Stats => self.pages.stats_loaded_for = None,
             Page::Digest => self.pages.digests_loaded = false,
             Page::Memory => self.pages.memory = None,
-            Page::Cron => self.pages.cron_loaded = false,
+            Page::Ext(id) => {
+                self.ext.views.remove(id);
+            }
             Page::Flows => self.pages.flows = None,
             Page::GitHub => {
                 self.pages.github = None;
@@ -1127,97 +1094,6 @@ impl Hooked {
         self.flow_op(json!({ "op": "deleteTemplate", "id": id }), "Template deleted");
     }
 
-    pub fn load_cron(&mut self) {
-        self.spawn(
-            || api::get("/api/cron"),
-            |s, r, _| match r {
-                Ok(v) => s.pages.cron = v["tasks"].as_array().cloned().unwrap_or_default(),
-                Err(e) => s.flash(format!("✗ Cron: {e}"), true),
-            },
-        );
-    }
-
-    pub fn edit_cron(&mut self, id: Option<String>) {
-        let task = id.and_then(|id| {
-            self.pages
-                .cron
-                .iter()
-                .find(|t| t["id"].as_str() == Some(id.as_str()))
-                .cloned()
-        });
-        let mut form = CronForm::from(task.as_ref());
-        if task.is_none() {
-            let p = self
-                .detail
-                .as_ref()
-                .and_then(|d| d.session.project.clone())
-                .unwrap_or_default();
-            form.cwd = TextEdit::new(p);
-            form.name.focused = true;
-        }
-        self.pages.cron_form = Some(form);
-    }
-
-    fn cron_op(&mut self, body: Value, done: &'static str) {
-        self.spawn(
-            move || api::post("/api/cron", body),
-            move |s, r, _| {
-                match r {
-                    Ok(_) => s.flash(format!("✓ {done}"), false),
-                    Err(e) => s.flash(format!("✗ {e}"), true),
-                }
-                s.load_cron();
-                s.refresh_sessions();
-            },
-        );
-    }
-
-    pub fn save_cron(&mut self) {
-        let Some(f) = self.pages.cron_form.as_ref() else {
-            return;
-        };
-        let mut task = json!({
-            "name": f.name.text.trim(),
-            "schedule": f.schedule.text.trim(),
-            "cwd": f.cwd.text.trim(),
-            "prompt": f.prompt.text.trim(),
-            "enabled": f.enabled,
-        });
-        if let Some(id) = f.id.as_ref() {
-            task["id"] = json!(id);
-        }
-        self.pages.cron_form = None;
-        self.cron_op(json!({ "op": "save", "task": task }), "Saved");
-    }
-
-    pub fn toggle_cron(&mut self, id: String) {
-        let Some(t) = self
-            .pages
-            .cron
-            .iter_mut()
-            .find(|t| t["id"].as_str() == Some(id.as_str()))
-        else {
-            return;
-        };
-        let on = !t["enabled"].as_bool().unwrap_or(true);
-        t["enabled"] = json!(on);
-        self.cron_op(
-            json!({ "op": "save", "task": { "id": id, "enabled": on } }),
-            if on { "Enabled" } else { "Paused" },
-        );
-    }
-
-    pub fn run_cron(&mut self, id: String) {
-        self.cron_op(json!({ "op": "run", "id": id }), "Started");
-    }
-
-    pub fn delete_cron(&mut self, id: String) {
-        self.pages
-            .cron
-            .retain(|t| t["id"].as_str() != Some(id.as_str()));
-        self.cron_op(json!({ "op": "delete", "id": id }), "Deleted");
-    }
-
     /// Settings are a shallow merge server-side, so a nested object is sent whole.
     pub fn apply_settings(&mut self, v: Value) {
         self.pages.settings_project = Some(TextEdit::new(
@@ -1236,6 +1112,7 @@ impl Hooked {
     }
 
     pub fn load_settings_extras(&mut self) {
+        self.load_extension_settings();
         self.spawn(
             || {
                 (

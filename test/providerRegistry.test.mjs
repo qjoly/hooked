@@ -19,9 +19,10 @@ fs.cpSync(path.join(import.meta.dirname, 'fixtures', 'pi-sessions'), process.env
 const CWD = path.join(TMP, 'project');
 fs.mkdirSync(CWD, { recursive: true });
 
-let reg, settings, agent, sessions;
+let reg, settings, agent, sessions, events;
 beforeAll(async () => {
   reg = await import('../server/providers.js');
+  events = await import('../server/extensionEvents.js');
   settings = await import('../server/settings.js');
   agent = await import('../server/agent.js');
   sessions = await import('../server/sessions.js');
@@ -92,8 +93,13 @@ describe('provider registry', () => {
       providers: { ...settings.readSettings().providers, parrot: { engine: 'echo', label: 'Parrot', options: { prefix: 'squawk: ' } } },
     });
     expect(reg.configuredProviders().parrot).toBe(true);
+    const started = [];
+    events.subscribeExtension('probe', { 'session:start': (e) => started.push(e) });
     const info = await call(agent.launchSession, { cwd: CWD, prompt: 'hello', provider: 'parrot' });
     expect(info.sessionId).toMatch(/^echo-/);
+    await new Promise((r) => setTimeout(r, 10));
+    events.unsubscribeExtension('probe');
+    expect(started).toEqual([expect.objectContaining({ sessionId: info.sessionId, provider: 'parrot', driven: true })]);
     await call(agent.deliverReply, info.sessionId, 'again');
     const s = sessions.findSessionAny(info.sessionId);
     expect(s).toMatchObject({ provider: 'parrot', engine: 'echo', project: CWD, userPrompts: 2 });

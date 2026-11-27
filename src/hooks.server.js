@@ -1,7 +1,8 @@
 import { promisify } from 'node:util';
 import { gzip as gzipCb } from 'node:zlib';
 import { dev } from '$app/env';
-import { startDigestScheduler, startRemoteControl, readSettings, resumeDrivenSessions, startDrivenSnapshot, installShutdownHook, startWarmupScheduler, startAutoCompactScheduler, applyGitSyncSetting, applyAutoTagSetting, startWorktreeCleanup, startAutoPull, loadExternalEngines, bootModules } from '#lib/server/core.js';
+import { startDigestScheduler, startRemoteControl, readSettings, resumeDrivenSessions, startDrivenSnapshot, installShutdownHook, startWarmupScheduler, startAutoCompactScheduler, applyGitSyncSetting, applyAutoTagSetting, startWorktreeCleanup, startAutoPull, loadExternalEngines, bootExtensions, setExtensionsNotifier } from '#lib/server/core.js';
+import { broadcastEvent } from '#lib/server/live.js';
 
 const gzip = promisify(gzipCb);
 
@@ -23,6 +24,14 @@ const enginesReady = loadExternalEngines().catch(() => {});
 // same as prod's. `HOOKED_MODE` is only ever set by deploy/service-run.sh (baked into the launchd
 // plist/systemd unit at `service-install` time, prod or dev) — its presence is exactly the signal
 // that this is the service, not a bare terminal `npm run live`.
+// Extensions (extensions/*, ~/.claude/hooked/extensions/*) load at runtime. Those that launch
+// sessions (the Cron scheduler, the Flows engine) only run in the service, by the same rule as the
+// block below; PR watches (GitHub) run everywhere, since they only wake the sessions of this
+// process. In `npm run live` an edit in an extension folder reloads it.
+// The desktop app reads only the data lines of the stream: the payload names the event too.
+setExtensionsNotifier(() => broadcastEvent('extensionsChanged', { extensionsChanged: true }));
+const extensionsReady = bootExtensions({ service: !dev || !!process.env.HOOKED_MODE, watch: dev }).catch((e) => console.error('[hooked] extensions:', e?.message || e));
+
 if (!dev || process.env.HOOKED_MODE) {
   const settings = readSettings();
   startDigestScheduler();
@@ -33,9 +42,10 @@ if (!dev || process.env.HOOKED_MODE) {
   applyGitSyncSetting(settings);
   applyAutoTagSetting(settings);
   // Sessions live in this process, so a restart kills them all. Bring back the ones that were being
-  // driven when we last stopped, then keep the snapshot current for the next restart.
-  // A session of an external provider can only resume once its engine module is loaded.
-  enginesReady.finally(() => resumeDrivenSessions());
+  // driven when we last stopped, then keep the snapshot current for the next restart. They are
+  // resumed once engines and extensions are loaded: an external provider needs its engine module,
+  // and the tools a session gets are decided at its launch.
+  Promise.all([enginesReady, extensionsReady]).finally(() => resumeDrivenSessions());
   startDrivenSnapshot();
   startWorktreeCleanup();
   startAutoPull();
@@ -47,10 +57,6 @@ if (!dev || process.env.HOOKED_MODE) {
 startWarmupScheduler();
 // Same reasons for auto-compact (settings → autoCompact): every tick reads the setting.
 startAutoCompactScheduler();
-// hooked's modules (modules/*): each starts its loops if it is on. Those that launch sessions (the
-// Cron scheduler, the Flows engine) only run in the service, by the same rule as the block above;
-// PR watches (GitHub) run everywhere, since they only wake the sessions of this process.
-bootModules({ service: !dev || !!process.env.HOOKED_MODE });
 
 // adapter-node does not compress responses, and the dashboard polls JSON that is mostly repetitive
 // text (transcripts, file changes): gzip turns several MB per refresh into a few hundred KB, which

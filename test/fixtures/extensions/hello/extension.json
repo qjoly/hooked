@@ -1,0 +1,18 @@
+{
+  "id": "hello",
+  "label": "Hello",
+  "version": "1.0.0",
+  "api": 1,
+  "description": "Test fixture: a feature with no page (settings, an event listener, a session menu action, a tool, a timer).",
+  "icon": "zap",
+  "default": true,
+  "contributes": {
+    "settings": [
+      { "key": "loud", "type": "bool", "label": "Shout", "default": false },
+      { "key": "name", "type": "string", "label": "Who to greet", "default": "world", "placeholder": "world" }
+    ],
+    "sessionMenu": [
+      { "id": "say-hello", "label": "Say hello", "icon": "zap", "post": "say-hello", "when": "any" }
+    ]
+  }
+}

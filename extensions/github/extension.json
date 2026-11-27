@@ -1,0 +1,11 @@
+{
+  "id": "github",
+  "label": "GitHub",
+  "version": "1.0.0",
+  "api": 1,
+  "description": "The GitHub page (reviews, your PRs, notifications), PR watches that wake a session, and PR review tags.",
+  "icon": "pr",
+  "default": true,
+  "legacy": true,
+  "page": { "key": "github", "order": 50, "tint": "var(--danger)" }
+}

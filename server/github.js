@@ -1,15 +1,15 @@
 /*
  * GitHub items linked from sessions: the detail of a PR or issue (Summary · Timeline · Code), its
  * diff, an Actions run and its job logs, and the actions on a PR (approve, close). The session dock
- * opens them on web, desktop and Android, whatever the GitHub module (modules/github) says; the
- * module's page lists PRs and notifications.
+ * opens them on web, desktop and Android, whatever the GitHub extension (extensions/github) says; the
+ * extension's page lists PRs and notifications.
  */
 import { ghRest, ghGraphql, parseItemUrl } from './ghClient.js';
 import { parseRunUrl } from '../src/lib/ghRun.js';
 
-// The GitHub module's page caches an approved or closed PR in its lists: drop them, so the next read
-// fetches again. They live on globalThis (modules/github/server/github.js), so the core needs no
-// import of the module, which may be off.
+// The GitHub extension's page caches an approved or closed PR in its lists: drop them, so the next read
+// fetches again. They live on globalThis (extensions/github/server/github.js), so the core needs no
+// import of the extension, which may be off.
 function dropPageCaches(repo) {
   globalThis[Symbol.for('hooked.github.repoPrs')]?.delete(repo);
   const s = globalThis[Symbol.for('hooked.github.overview')];

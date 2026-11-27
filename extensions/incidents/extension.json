@@ -1,0 +1,11 @@
+{
+  "id": "incidents",
+  "label": "incident.io",
+  "version": "1.0.0",
+  "api": 1,
+  "description": "Incidents from the incident.io desktop app: list, details, updates and actions.",
+  "icon": "warning",
+  "default": true,
+  "legacy": true,
+  "page": { "key": "incidents", "order": 55, "tint": "var(--danger)" }
+}

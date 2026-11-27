@@ -52,7 +52,8 @@ pub enum Page {
     Stats,
     Digest,
     Memory,
-    Cron,
+    /// A page served by an extension as a declarative view (`crate::extview`), by extension id.
+    Ext(&'static str),
     Flows,
     GitHub,
     Incidents,
@@ -306,6 +307,7 @@ pub struct Hooked {
 
     pub lens_data: crate::lenses::LensData,
     pub pages: crate::pages::PageData,
+    pub ext: crate::extensions::ExtState,
     pub inc: crate::incidents::Incidents,
     pub ghw: crate::ghwatch::GhWatch,
     pub announced: Option<HashSet<String>>,
@@ -609,6 +611,7 @@ impl Hooked {
             focus: false,
             lens_data: crate::lenses::LensData::default(),
             pages: crate::pages::PageData::default(),
+            ext: crate::extensions::ExtState::default(),
             inc: crate::incidents::Incidents::new(
                 incidents_hidden,
                 incident_teams.into_iter().collect(),
@@ -649,6 +652,10 @@ impl Hooked {
         if split {
             s.lens_data.diff.set_mode(rune_kit::diff::DiffMode::Split);
         }
+        if let Ok(v) = api::get("/api/extensions") {
+            s.ext.apply(&v);
+            s.ext.list_at = fmt::now_ms();
+        }
         if let Ok(v) = api::get("/api/settings") {
             s.apply_settings(v);
             s.page = match s.setting("defaultPage").as_str().unwrap_or("deck") {
@@ -656,12 +663,9 @@ impl Hooked {
                 "stats" => Page::Stats,
                 "digest" => Page::Digest,
                 "memory" => Page::Memory,
-                "github" => Page::GitHub,
                 "skills" => Page::Skills,
-                "cron" => Page::Cron,
-                "flows" => Page::Flows,
                 "prompts" => Page::Prompts,
-                _ => Page::Deck,
+                other => s.ext_page_for(other).unwrap_or(Page::Deck),
             };
             s.new_mode = s
                 .setting("defaultMode")
@@ -814,6 +818,9 @@ impl Hooked {
         if args.iter().any(|a| a == "--more-menu") {
             s.popup = Some(Popup::More);
         }
+        if args.iter().any(|a| a == "--nav-menu") {
+            s.popup = Some(Popup::Nav);
+        }
         if args.iter().any(|a| a == "--model-menu") {
             s.popup = Some(Popup::Model);
         }
@@ -878,15 +885,16 @@ impl Hooked {
                 Some("stats") => Page::Stats,
                 Some("digest") => Page::Digest,
                 Some("memory") => Page::Memory,
-                Some("cron") => Page::Cron,
-                Some("flows") => Page::Flows,
-                Some("github") => Page::GitHub,
-                Some("incidents") => Page::Incidents,
                 Some("skills") => Page::Skills,
                 Some("settings") => Page::Settings,
                 Some("prompts") => Page::Prompts,
-                _ => s.page,
+                Some(other) => s.ext_page_for(other).unwrap_or(s.page),
+                None => s.page,
             };
+            // `--ext-path edit/<id>`: a sub-view of an extension page, for headless snaps.
+            if let (Page::Ext(id), Some(j)) = (s.page, args.iter().position(|a| a == "--ext-path")) {
+                s.ext.views.entry(id.to_string()).or_default().path = args.get(j + 1).cloned().unwrap_or_default();
+            }
             s.preload_page();
         }
         if let Some(i) = args.iter().position(|a| a == "--palette") {
@@ -2792,15 +2800,13 @@ pub fn composer_changed(&mut self) {
         self.provider_filter = next_provider_filter(self.provider_filter.as_deref(), &self.providers.enabled_ids());
     }
 
-    /// Whether a module of the service is on (Settings → Modules, `settings.modules`). A module
-    /// the settings do not name is on.
-    pub fn module_on(&self, id: &str) -> bool {
-        self.setting("modules")[id].as_bool() != Some(false)
-    }
-
-    /// Whether `page` can be shown: a page that belongs to a module needs that module on.
+    /// Whether `page` can be shown: a page that belongs to an extension needs that extension on,
+    /// and a declarative one needs it listed too (its view comes from the service).
     pub fn page_on(&self, page: Page) -> bool {
-        page_module(page).is_none_or(|m| self.module_on(m))
+        match page {
+            Page::Ext(id) => self.ext_info(id).is_some_and(|e| e.active),
+            _ => crate::extensions::page_extension(page).is_none_or(|id| self.extension_on(id)),
+        }
     }
 
     pub fn nav_tab(&self, key: &str) -> bool {
@@ -3056,17 +3062,6 @@ fn recently_active(s: &Session, now: i64) -> bool {
     fmt::age_ms(s.last_activity.as_deref(), now).is_some_and(|age| age < ANNOUNCE_WINDOW_MS)
 }
 
-/// The module of the service a page belongs to (modules/index.js on the server), if any.
-pub fn page_module(page: Page) -> Option<&'static str> {
-    match page {
-        Page::Cron => Some("cron"),
-        Page::Flows => Some("flows"),
-        Page::GitHub => Some("github"),
-        Page::Incidents => Some("incidents"),
-        _ => None,
-    }
-}
-
 #[cfg(test)]
 mod link_tests {
     use super::*;
@@ -3195,7 +3190,13 @@ pub fn start_workers(h: Option<AppHandle<Hooked>>) {
     }
     crate::app::spawn_named("hooked-events", move || {
         loop {
+            // A (re)connection may follow a restart of the service: its extensions may have changed.
+            h.update(|s, _| s.load_extensions());
             let r = api::follow("/api/stream", |payload| {
+                if payload.contains("\"extensionsChanged\"") {
+                    h.update(|s, _| s.load_extensions());
+                    return true;
+                }
                 if payload.starts_with("{\"panel\"")
                     && let Ok(mut v) = serde_json::from_str::<serde_json::Value>(payload)
                     && v["panel"]["id"].is_string()

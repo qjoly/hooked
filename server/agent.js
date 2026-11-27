@@ -29,11 +29,12 @@ import { findProfile, isValidModelForProfile, sessionEnvFor, planProfileMove, DE
 import { prepareAccountDir } from './accountDir.js';
 import { injectedMcpFor } from './mcpServers.js';
 import { isValidEffort } from './capabilities.js';
+import { emitExtensionEvent } from './extensionEvents.js';
 import { statSafe } from './util.js';
 import { scanSessions } from './transcript.js';
 import { scanAllSessions } from './sessions.js';
 import { readSettings } from './settings.js';
-import { enabledModuleIds } from './moduleState.js';
+import { sessionToolFiles } from './extensions.js';
 import { getProvider, getEngine, driverFor, providerLaunchError, defaultProviderId } from './providers.js';
 import { refreshAgentStatus } from './agent-status.js';
 import { buildToolCatalog } from './llmTools.js';
@@ -484,8 +485,8 @@ function hookedMcpServer(launchKey) {
   if (settings.showWork) env.HOOKED_SHOW_WORK = '1';
   if (settings.featureFlags?.showPanels) env.HOOKED_SHOW_PANELS = '1';
   if (settings.prGate && statSafe(PR_GATE_BIN)?.isFile()) env.HOOKED_PR_GATE = PR_GATE_BIN;
-  // The modules switched on (modules/index.js): the server only offers their tools.
-  env.HOOKED_MODULES = enabledModuleIds().join(',');
+  // The tools of the extensions switched on, decided now: a session keeps them until it restarts.
+  env.HOOKED_EXTENSION_TOOLS = sessionToolFiles('id').join(',');
   return { command: 'node', args: [server], env };
 }
 
@@ -656,13 +657,14 @@ function releaseLaunchWaiters(st) {
 // readLoop ends whenever its CLI has finished exiting, which after a real turn can be after that:
 // cleaning up by id alone then dropped the restarted session, leaving a CLI running that hooked
 // could neither drive nor see, and told its viewers it had ended. An entry that has been replaced
-// has nothing left to clean: the id belongs to its successor.
+// has nothing left to clean: the id belongs to its successor. → whether the session left the registry.
 function retireFromLive(st) {
-  if (!st.id) return;
+  if (!st.id) return false;
   const current = live.get(st.id);
-  if (current && current !== st) return;
+  if (current && current !== st) return false;
   emitAgent(st.id, () => streamSnapshot(st), true);
   live.delete(st.id);
+  return true;
 }
 
 // Démolit une entrée qui n'a jamais réussi à démarrer. Même nettoyage que le `finally` de readLoop,
@@ -699,6 +701,7 @@ async function readLoop(st) {
         live.set(st.id, st);
         pending.delete(st.launchKey);
         if (st.onId) { const f = st.onId; st.onId = null; f(st); }
+        emitExtensionEvent('session:start', { sessionId: st.id, project: st.cwd || null, provider: st.provider || null, driven: true });
       }
       if (!st.sawMsg) { st.sawMsg = true; clearTimeout(st.watchdog); settleReady(st, true); }
       const changed = applyMessage(st, msg);
@@ -720,7 +723,10 @@ async function readLoop(st) {
         try { setSessionMeta(st.id, { archived: true }); } catch (_) {}
         killSession(st.id, () => {});
       }
-      if (msg.type === 'result') refreshAgentStatus(st, true);
+      if (msg.type === 'result') {
+        refreshAgentStatus(st, true);
+        emitExtensionEvent('turn:end', { sessionId: st.id, project: st.cwd || null, usage: msg.usage || null });
+      }
       else if (msg.type === 'assistant' || (msg.type === 'system' && msg.subtype === 'init')) refreshAgentStatus(st);
     }
   } catch (e) {
@@ -736,7 +742,7 @@ async function readLoop(st) {
     // `canUseTool` fuite et le sous-processus resterait bloqué à la sortie.
     if (st.pendingAsk) { const r = st.pendingAsk.resolve; st.pendingAsk = null; try { r(null); } catch (_) {} }
     releaseLaunchWaiters(st);
-    retireFromLive(st);
+    if (retireFromLive(st)) emitExtensionEvent('session:end', { sessionId: st.id, reason: st.error ? 'error' : 'ended' });
     pending.delete(st.launchKey);
     settleExit(st);
   }
@@ -808,7 +814,13 @@ function closeAfterTurn(launchKey, cb) {
 // Callbacks a non-Claude driver gets to report back into the registry (cf. docs/providers.md).
 function driverCtx(st, done) {
   return {
-    setLive: (sid, s) => { live.set(sid, s || st); pending.delete(st.launchKey); },
+    setLive: (sid, s) => {
+      const first = !live.has(sid);
+      const cur = s || st;
+      live.set(sid, cur);
+      pending.delete(st.launchKey);
+      if (first) emitExtensionEvent('session:start', { sessionId: sid, project: cur.cwd || null, provider: cur.provider || null, driven: true });
+    },
     persistLaunch: (sid, m, e) => persistLaunch(sid, m, e),
     done: (s) => { settleReady(s || st, true); done(s || st); },
     failStartup: () => failStartup(st),
@@ -966,6 +978,7 @@ function launchSession(opts, cb) {
   // End of a turn on a non-Claude driver (readLoop handles the Claude one): an ephemeral session
   // that called archive_this_session closes now.
   st.onTurnEnd = () => {
+    if (st.id) emitExtensionEvent('turn:end', { sessionId: st.id, project: st.cwd || null, usage: null });
     if (!st.closeAfterTurn || !st.id) return;
     try { setSessionMeta(st.id, { archived: true }); } catch (_) {}
     killSession(st.id, () => {});
@@ -1793,6 +1806,8 @@ function killSession(id, cb) {
   st.abort.abort();
   st.ended = true;
   live.delete(id);
+  // The Claude path reports its end from readLoop; another engine has no readLoop to do it.
+  if (drv) emitExtensionEvent('session:end', { sessionId: id, reason: 'killed' });
   cb(null, { sessionId: id });
 }
 

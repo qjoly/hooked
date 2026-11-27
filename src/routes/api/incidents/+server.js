@@ -1,2 +1,2 @@
-// The incident.io module's API (modules/incidents/api.js).
-export { GET } from '#modules/incidents/api.js';
+// The incident.io extension's API (extensions/incidents/api.js).
+export { GET } from '#extensions/incidents/api.js';

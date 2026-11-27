@@ -105,7 +105,7 @@ run = "mise run build && mise run service-restart"
 [tasks.deploy-if-stale]
 description = "Redeploy the service only when its build lags behind the checkout"
 run = '''
-BUILD_INPUTS="src server static package.json package-lock.json vite.config.js"
+BUILD_INPUTS="src server extensions static package.json package-lock.json vite.config.js"
 STAMP="build/.hooked-src-commit"
 if [ -f "$STAMP" ] \
   && git diff --quiet "$(cat "$STAMP")" HEAD -- $BUILD_INPUTS 2>/dev/null \

@@ -14,6 +14,8 @@ pub struct Cmd {
     pub icon: &'static Icon,
     pub keys: &'static str,
     pub run: fn(&mut Hooked, &mut Tx),
+    /// Set for an extension's page, which a plain `fn` cannot name.
+    pub page: Option<Page>,
 }
 
 pub enum Hit {
@@ -36,6 +38,7 @@ fn cmd(
         icon,
         keys,
         run,
+        page: None,
     }
 }
 
@@ -63,18 +66,8 @@ pub fn commands(s: &Hooked) -> Vec<Cmd> {
         cmd(nav, &icons::BOOK, "Go to Digest", "⌥5", |s, _| {
             s.go(Page::Digest)
         }),
-
-        cmd(nav, &icons::GITHUB, "Go to GitHub", "⌥7", |s, _| {
-            s.go(Page::GitHub)
-        }),
         cmd(nav, &icons::ZAP, "Go to Skills", "", |s, _| {
             s.go(Page::Skills)
-        }),
-        cmd(nav, &icons::CLOCK, "Go to Cron", "", |s, _| {
-            s.go(Page::Cron)
-        }),
-        cmd(nav, &icons::WORKFLOW, "Go to Flows", "", |s, _| {
-            s.go(Page::Flows)
         }),
         cmd(nav, &icons::BOOK, "Go to Prompts", "", |s, _| {
             s.go(Page::Prompts)
@@ -127,13 +120,19 @@ pub fn commands(s: &Hooked) -> Vec<Cmd> {
             s.set_corners(Corners::Sharp)
         }),
     ]);
-    if s.incidents_on() {
-        out.insert(
-            7,
-            cmd(nav, &icons::SIREN, "Go to Incidents", "⌥8", |s, _| {
-                s.go_incidents()
-            }),
-        );
+    // The extensions' pages, from the service's list: a page switched off has no entry.
+    for ((_, _, label, icon, page), _) in crate::extensions::nav_entries(&s.ext.list) {
+        if page == Page::Incidents && !s.incidents_on() {
+            continue;
+        }
+        let keys = match page {
+            Page::GitHub => "⌥7",
+            Page::Incidents => "⌥8",
+            _ => "",
+        };
+        let mut c = cmd(nav, icon, format!("Go to {label}"), keys, |_, _| {});
+        c.page = Some(page);
+        out.push(c);
     }
     #[cfg(feature = "knobs")]
     out.push(cmd(
@@ -357,13 +356,6 @@ pub fn commands(s: &Hooked) -> Vec<Cmd> {
             }
         },
     ));
-    // A module switched off in Settings → Modules takes its page out of the palette.
-    out.retain(|c| match c.label.as_str() {
-        "Go to GitHub" => s.module_on("github"),
-        "Go to Cron" => s.module_on("cron"),
-        "Go to Flows" => s.module_on("flows"),
-        _ => true,
-    });
     out
 }
 
@@ -452,6 +444,7 @@ pub fn run(s: &mut Hooked, index: usize, tx: &mut Tx) {
     s.palette_open = false;
     match h {
         Hit::Session(id) | Hit::Citation { id, .. } => s.open_session(&id),
+        Hit::Cmd(Cmd { page: Some(p), .. }) => s.go(p),
         Hit::Cmd(c) => (c.run)(s, tx),
         Hit::MoreCitations(_) => {}
     }

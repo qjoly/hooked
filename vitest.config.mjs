@@ -7,7 +7,7 @@ const FX = path.join(ROOT, 'test', 'fixtures');
 
 export default defineConfig({
   test: {
-    include: ['test/**/*.test.mjs', 'modules/*/test/**/*.test.mjs'],
+    include: ['test/**/*.test.mjs', 'extensions/*/test/**/*.test.mjs'],
     // pointe la logique back sur les fixtures (au lieu de ~/.claude)
     env: {
       HOOKED_PROJECTS_DIR: path.join(FX, 'projects'),

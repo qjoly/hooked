@@ -10,6 +10,7 @@
   import { copyText } from '#lib/clipboard.js';
   import { onMount, onDestroy, tick, untrack } from 'svelte';
   import { goto } from '$app/navigation';
+  import { sessionMenuActions, runSessionAction } from '#lib/extensions.svelte.js';
   import { ui, data, settings, loadSessions, openModal, sessionTitle, sessionTags, renameSession, toggleFocus, splitWithMostRecent, canSplit, toggleArchive, isArchived, unarchive } from '#lib/state.svelte.js';
   import { getSessionDelta, setMode, setModelEffort, setAutoApprove, openInEditor, openInGhostty, fork, launch, deleteSession, removeWorktree, restartClaudeSession, connectSessionStream, listTerminals, openTerminal, killTerminal, getProviderOptions } from '#lib/api.js';
   import { promptCacheState } from '#lib/promptCache.js';
@@ -934,6 +935,9 @@
               <button class="vscode-btn del-btn" disabled={wtRemoving} onclick={removeSessionWorktree} title="Delete this git worktree from disk (refused while a session runs in it)">{#if wtRemoving}<Icon name="queued" size={14} tint={false} />{:else}<Icon name="trash" size={14} tint={false} />{/if} Remove worktree</button>
               <div class="hdr-div"></div>
             {/if}
+            {#each sessionMenuActions(s) as a (a.extension + ':' + a.id)}
+              <button class="vscode-btn" onclick={() => runSessionAction(a, id, goto)}><Icon name={a.icon || 'package'} size={14} /> {a.label}</button>
+            {/each}
             <button class="vscode-btn" onclick={() => openModal('editTags', { sessionId: id })} title="Add or remove tags on this session (PR review tags are automatic)"><Icon name="tag" size={14} /> Edit tags</button>
             {#if sb.focusBtn !== false}<button class="vscode-btn" class:on={ui.focus} onclick={toggleFocus} title="Focus mode: full-screen conversation"><Icon name="maximize" size={14} /> {ui.focus ? 'Exit focus' : 'Focus'}</button>{/if}
             <button class="vscode-btn" class:on={ui.toolsOpen} onclick={() => (ui.toolsOpen = !ui.toolsOpen)} title="Expand every tool call's input/result inline (this session only, off on reload)"><Icon name="tool" size={14} /> {ui.toolsOpen ? 'Collapse tool details' : 'Expand tool details'}</button>

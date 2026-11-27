@@ -1,5 +1,5 @@
-//! The switch as pure decisions: which steps run in which order, and what a failure has to undo.
-//! `runner.rs` performs them.
+//! The branch switch and the extension flow as pure decisions: which steps run in which order, what
+//! a failure has to undo, what counts as success. `runner.rs` performs them.
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Step {
@@ -8,6 +8,10 @@ pub enum Step {
     Build,
     WaitTurns,
     Swap,
+    /// Extension flow: the staged folder takes the live one's place.
+    Place,
+    /// Extension flow: the service loads what is on disk now.
+    Reload,
     Verify,
     /// After the switch, outside `order` and the undo plan: it has nothing to undo, and its failure
     /// leaves the service on the branch.
@@ -22,10 +26,19 @@ impl Step {
             Step::Build => "Build",
             Step::WaitTurns => "Wait for turns",
             Step::Swap => "Swap and restart",
+            Step::Place => "Place",
+            Step::Reload => "Reload in hooked",
             Step::Verify => "Verify",
             Step::UpdateApp => "Update the desktop app",
         }
     }
+}
+
+/// The extension flow's steps: no build, no restart, no wait for turns (the service reloads one
+/// extension in place). An uninstall has nothing to fetch.
+pub fn extension_order(uninstall: bool) -> Vec<Step> {
+    let steps = [Step::Fetch, Step::Place, Step::Reload, Step::Verify];
+    steps.into_iter().filter(|s| !(uninstall && *s == Step::Fetch)).collect()
 }
 
 /// `npm ci` empties node_modules under the running service, so when the lockfile changed the wait
@@ -112,6 +125,123 @@ pub fn undo_plan(c: Changes) -> Vec<Undo> {
         plan.push(Undo::RestartService);
     }
     plan
+}
+
+/// What the extension flow has changed under `$HOOKED_EXTENSIONS_DIR`. Same rule as `Changes`: each
+/// flag is set just before its change.
+#[derive(Clone, Copy, Default, Debug)]
+pub struct ExtChanges {
+    /// `<id>.next` written.
+    pub staged: bool,
+    /// `<id>` → `<id>.prev`.
+    pub old_moved: bool,
+    /// `<id>.next` → `<id>`.
+    pub new_moved: bool,
+    /// The service was asked to load the new folder.
+    pub reloaded: bool,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum ExtUndo {
+    RemoveNext,
+    DiscardNew,
+    RestorePrev,
+    /// Last: the service loads the previous folder again (or drops the extension it never had).
+    Reload,
+}
+
+/// Data and settings files (`extension-data/`, `extension-settings/`) are never in it: they live
+/// outside the extension's folder.
+pub fn ext_undo_plan(c: ExtChanges) -> Vec<ExtUndo> {
+    let mut plan = Vec::new();
+    if c.new_moved {
+        plan.push(ExtUndo::DiscardNew);
+    }
+    // Even once moved: a failed move leaves `<id>.next` behind.
+    if c.staged {
+        plan.push(ExtUndo::RemoveNext);
+    }
+    if c.old_moved {
+        plan.push(ExtUndo::RestorePrev);
+    }
+    if c.reloaded {
+        plan.push(ExtUndo::Reload);
+    }
+    plan
+}
+
+/// The service's rule for an id (`EXTENSION_ID` in src/lib/extensions.js): it is also a folder name
+/// under `$HOOKED_EXTENSIONS_DIR`, so nothing else may reach the file system.
+pub fn valid_extension_id(id: &str) -> bool {
+    let mut chars = id.chars();
+    chars.next().is_some_and(|c| c.is_ascii_lowercase())
+        && (2..=32).contains(&id.len())
+        && chars.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+}
+
+/// The Fetch checks on a cloned manifest; returns its id. `expected`: the id a catalog entry or an
+/// update targets. `bundled`: whether the checkout ships an extension with that id, which would win
+/// over the installed one and leave it rejected.
+pub fn check_manifest(
+    m: &serde_json::Value,
+    expected: Option<&str>,
+    api: u64,
+    bundled: impl Fn(&str) -> bool,
+) -> Result<String, String> {
+    let id = m["id"].as_str().ok_or("extension.json has no id")?;
+    if !valid_extension_id(id) {
+        return Err(format!("invalid id \"{id}\""));
+    }
+    if let Some(want) = expected.filter(|w| *w != id) {
+        return Err(format!("the manifest's id is \"{id}\", expected \"{want}\""));
+    }
+    if m["api"].as_u64() != Some(api) {
+        return Err(format!("api {}, hooked offers {api}", m["api"]));
+    }
+    if bundled(id) {
+        return Err(format!("hooked already ships an extension \"{id}\""));
+    }
+    Ok(id.to_string())
+}
+
+/// Whether `GET /api/extensions` shows the flow's result: the installed extension loaded with no
+/// error (active, unless off or unavailable), or gone after an uninstall.
+pub fn verify_listing(v: &serde_json::Value, id: &str, present: bool) -> Result<(), String> {
+    let installed = v["extensions"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .find(|e| e["id"] == id && e["source"] == "installed");
+    let rejected = v["rejected"].as_array().into_iter().flatten().find(|r| r["id"] == id && r["source"] == "installed");
+    match (present, installed) {
+        (false, None) => Ok(()),
+        (false, Some(_)) => Err(format!("hooked still runs {id}")),
+        (true, None) => Err(match rejected {
+            Some(r) => format!("hooked rejected {id}: {}", r["error"].as_str().unwrap_or("no reason given")),
+            None => format!("hooked did not load {id}"),
+        }),
+        (true, Some(e)) => {
+            let errors: Vec<&str> = e["errors"].as_array().into_iter().flatten().filter_map(|x| x.as_str()).collect();
+            if !errors.is_empty() {
+                return Err(errors.join("; "));
+            }
+            if e["enabled"] == true && e["available"] != false && e["active"] != true {
+                return Err(format!("{id} is on but did not start"));
+            }
+            Ok(())
+        }
+    }
+}
+
+/// After a branch switch: the extensions the new branch's service refuses, to flag them (nothing is
+/// undone for them).
+pub fn rejected_notes(v: &serde_json::Value) -> Vec<String> {
+    v["rejected"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|r| format!("Extension {} rejected: {}", r["id"].as_str().unwrap_or("?"), r["error"].as_str().unwrap_or("?")))
+        .collect()
 }
 
 /// Sessions of `/api/sessions` whose turn is running in the service: a driven session (`live`)
@@ -229,6 +359,90 @@ mod tests {
                 Undo::RestartService,
             ]
         );
+    }
+
+    #[test]
+    fn an_uninstall_has_no_fetch() {
+        assert_eq!(extension_order(false), [Step::Fetch, Step::Place, Step::Reload, Step::Verify]);
+        assert_eq!(extension_order(true), [Step::Place, Step::Reload, Step::Verify]);
+    }
+
+    #[test]
+    fn a_failed_fetch_removes_only_what_it_staged() {
+        assert!(ext_undo_plan(ExtChanges::default()).is_empty());
+        let c = ExtChanges { staged: true, ..ExtChanges::default() };
+        assert_eq!(ext_undo_plan(c), [ExtUndo::RemoveNext]);
+    }
+
+    #[test]
+    fn a_place_cut_halfway_puts_the_old_folder_back_without_a_reload() {
+        let c = ExtChanges { staged: true, old_moved: true, ..ExtChanges::default() };
+        assert_eq!(ext_undo_plan(c), [ExtUndo::RemoveNext, ExtUndo::RestorePrev]);
+    }
+
+    #[test]
+    fn a_failed_verify_puts_the_old_folder_back_and_reloads_it() {
+        let c = ExtChanges { staged: true, old_moved: true, new_moved: true, reloaded: true };
+        assert_eq!(ext_undo_plan(c), [ExtUndo::DiscardNew, ExtUndo::RemoveNext, ExtUndo::RestorePrev, ExtUndo::Reload]);
+    }
+
+    #[test]
+    fn a_failed_uninstall_puts_the_folder_back_and_reloads_it() {
+        let c = ExtChanges { old_moved: true, reloaded: true, ..ExtChanges::default() };
+        assert_eq!(ext_undo_plan(c), [ExtUndo::RestorePrev, ExtUndo::Reload]);
+    }
+
+    #[test]
+    fn extension_ids_follow_the_service_rule() {
+        assert!(valid_extension_id("hello"));
+        assert!(valid_extension_id("a1-b"));
+        for bad in ["", "a", "Hello", "1abc", "../x", "a/b", "hello.next", &"a".repeat(33)] {
+            assert!(!valid_extension_id(bad), "{bad}");
+        }
+    }
+
+    #[test]
+    fn checks_a_cloned_manifest() {
+        let hello = json!({ "id": "hello", "api": 1 });
+        let none = |_: &str| false;
+        assert_eq!(check_manifest(&hello, Some("hello"), 1, none), Ok("hello".into()));
+        assert_eq!(check_manifest(&hello, None, 1, none), Ok("hello".into()));
+        assert!(check_manifest(&hello, Some("other"), 1, none).unwrap_err().contains("expected \"other\""));
+        assert_eq!(check_manifest(&hello, None, 2, none), Err("api 1, hooked offers 2".into()));
+        assert!(check_manifest(&hello, None, 1, |id| id == "hello").unwrap_err().contains("already ships"));
+        assert!(check_manifest(&json!({ "id": "../x", "api": 1 }), None, 1, none).is_err());
+        assert!(check_manifest(&json!({ "api": 1 }), None, 1, none).is_err());
+    }
+
+    #[test]
+    fn verifies_an_install_against_the_listing() {
+        let listing = |e: serde_json::Value| json!({ "extensions": [e], "rejected": [] });
+        let ok = json!({ "id": "hello", "source": "installed", "enabled": true, "available": true, "active": true, "errors": [] });
+        assert_eq!(verify_listing(&listing(ok.clone()), "hello", true), Ok(()));
+        let off = json!({ "id": "hello", "source": "installed", "enabled": false, "active": false, "errors": [] });
+        assert_eq!(verify_listing(&listing(off), "hello", true), Ok(()));
+        let broken = json!({ "id": "hello", "source": "installed", "enabled": true, "active": false, "errors": ["start: boom"] });
+        assert_eq!(verify_listing(&listing(broken), "hello", true), Err("start: boom".into()));
+        let idle = json!({ "id": "hello", "source": "installed", "enabled": true, "available": true, "active": false, "errors": [] });
+        assert!(verify_listing(&listing(idle), "hello", true).is_err());
+        let rejected = json!({ "extensions": [], "rejected": [{ "id": "hello", "source": "installed", "error": "api 2, hooked offers 1" }] });
+        assert_eq!(verify_listing(&rejected, "hello", true), Err("hooked rejected hello: api 2, hooked offers 1".into()));
+        assert_eq!(verify_listing(&json!({}), "hello", true), Err("hooked did not load hello".into()));
+    }
+
+    #[test]
+    fn verifies_an_uninstall_against_the_listing() {
+        let bundled = json!({ "extensions": [{ "id": "hello", "source": "bundled" }] });
+        assert_eq!(verify_listing(&bundled, "hello", false), Ok(()));
+        let installed = json!({ "extensions": [{ "id": "hello", "source": "installed" }] });
+        assert!(verify_listing(&installed, "hello", false).is_err());
+    }
+
+    #[test]
+    fn notes_the_extensions_a_branch_rejects() {
+        let v = json!({ "rejected": [{ "id": "cron", "error": "api 2, hooked offers 1" }] });
+        assert_eq!(rejected_notes(&v), ["Extension cron rejected: api 2, hooked offers 1"]);
+        assert!(rejected_notes(&json!({})).is_empty());
     }
 
     #[test]

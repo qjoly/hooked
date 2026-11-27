@@ -159,16 +159,33 @@ pub fn base_url() -> String {
     std::env::var("HOOKED_URL").unwrap_or_else(|_| "http://localhost:4123".into())
 }
 
-pub fn get_json(path: &str, timeout: Duration) -> Result<Value, String> {
-    let agent: ureq::Agent = ureq::Agent::config_builder()
+fn agent(timeout: Duration) -> ureq::Agent {
+    ureq::Agent::config_builder()
         .timeout_connect(Some(Duration::from_secs(3)))
         .timeout_global(Some(timeout))
         .proxy(None)
         .build()
-        .into();
-    agent
+        .into()
+}
+
+pub fn get_json(path: &str, timeout: Duration) -> Result<Value, String> {
+    agent(timeout)
         .get(&format!("{}{path}", base_url()))
         .call()
+        .map_err(|e| e.to_string())?
+        .body_mut()
+        .read_json()
+        .map_err(|e| e.to_string())
+}
+
+pub fn post_json(path: &str, body: &Value, timeout: Duration) -> Result<Value, String> {
+    post_json_to(&base_url(), path, body, timeout)
+}
+
+fn post_json_to(base: &str, path: &str, body: &Value, timeout: Duration) -> Result<Value, String> {
+    agent(timeout)
+        .post(&format!("{base}{path}"))
+        .send_json(body)
         .map_err(|e| e.to_string())?
         .body_mut()
         .read_json()
@@ -199,6 +216,57 @@ pub fn wait_reachable(within: Duration) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// One HTTP exchange on a local port: returns the base URL, and the request as received.
+    fn serve_once(status: &str, body: &'static str) -> (String, std::thread::JoinHandle<String>) {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        let status = status.to_string();
+        let handle = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut req = Vec::new();
+            let mut buf = [0u8; 4096];
+            // Headers, then as many body bytes as Content-Length says.
+            loop {
+                let n = stream.read(&mut buf).unwrap();
+                req.extend_from_slice(&buf[..n]);
+                let text = String::from_utf8_lossy(&req);
+                if let Some((head, rest)) = text.split_once("\r\n\r\n") {
+                    let len = head
+                        .lines()
+                        .find_map(|l| l.to_ascii_lowercase().strip_prefix("content-length:").map(|v| v.trim().parse::<usize>().unwrap()))
+                        .unwrap_or(0);
+                    if rest.len() >= len {
+                        break;
+                    }
+                }
+            }
+            let reply = format!("HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len());
+            stream.write_all(reply.as_bytes()).unwrap();
+            String::from_utf8_lossy(&req).into_owned()
+        });
+        (base, handle)
+    }
+
+    #[test]
+    fn post_json_sends_the_body_and_reads_the_answer() {
+        let (base, server) = serve_once("200 OK", r#"{"api":1,"extensions":[]}"#);
+        let body = serde_json::json!({ "id": "hello" });
+        let answer = post_json_to(&base, "/api/extensions/reload", &body, Duration::from_secs(5)).unwrap();
+        assert_eq!(answer["api"], 1);
+        let req = server.join().unwrap();
+        assert!(req.starts_with("POST /api/extensions/reload HTTP/1.1"), "{req}");
+        let sent: Value = serde_json::from_str(req.split_once("\r\n\r\n").unwrap().1).unwrap();
+        assert_eq!(sent, body);
+    }
+
+    #[test]
+    fn post_json_fails_on_an_error_status() {
+        let (base, server) = serve_once("400 Bad Request", r#"{"error":"invalid extension id"}"#);
+        let r = post_json_to(&base, "/api/extensions/reload", &serde_json::json!({}), Duration::from_secs(5));
+        assert!(r.unwrap_err().contains("400"));
+        server.join().unwrap();
+    }
 
     #[test]
     fn install_app_parses_when_fed_on_stdin() {

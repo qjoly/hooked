@@ -1,0 +1,689 @@
+[
+ {
+  "name": "hooked_list_sessions",
+  "label": "hooked · list_sessions",
+  "description": "Liste toutes les sessions Claude Code suivies par hooked (live + passées) avec leur état courant (working / waiting / attention / idle / ended), modèle, projet, coût et outil en cours. Le champ `group` (`{ mother, name, members }`, null pour une session seule) dit à quel groupe de sessions elle appartient.",
+  "parameters": {
+   "type": "object",
+   "properties": {},
+   "additionalProperties": false
+  }
+ },
+ {
+  "name": "hooked_get_session",
+  "label": "hooked · get_session",
+  "description": "Détail complet d'une session : conversation, todos, fichiers touchés, sous-agents, événements récents, question en attente éventuelle et groupe (`group`, cf. list_sessions). Le champ `link` (ex. `/session/<id>`) est un deep-link vers la session : pour diriger l'utilisateur vers elle dans hooked, émets un lien markdown `[label](<link>)` (chemin RELATIF, pas une URL absolue) — le clic focalise la session dans l'app sans rechargement.",
+  "parameters": {
+   "type": "object",
+   "properties": {
+    "id": {
+     "type": "string",
+     "description": "id de la session"
+    }
+   },
+   "required": [
+    "id"
+   ],
+   "additionalProperties": false
+  }
+ },
+ {
+  "name": "hooked_list_providers",
+  "label": "hooked · list_providers",
+  "description": "Agent providers hooked can launch sessions on (start_session `provider`): id, label, engine (claude = Claude Code, pi = pi coding agent, acp = an Agent Client Protocol agent such as Gemini CLI, or an external engine), whether it is enabled, its model filters and capabilities.",
+  "parameters": {
+   "type": "object",
+   "properties": {},
+   "additionalProperties": false
+  }
+ },
+ {
+  "name": "hooked_start_session",
+  "label": "hooked · start_session",
+  "description": "Démarre une nouvelle session pilotée par hooked (ou reprend une session existante via resumeId), dans le dossier indiqué. `provider` choisit l'agent (claude par défaut ; pi, ou tout provider des réglages — cf. list_providers). La réponse inclut `sessionId` et `link` (deep-link relatif `/session/<id>`) : pour pointer l'utilisateur vers la nouvelle session dans hooked, émets un lien markdown `[label](<link>)`. Une session lancée depuis une session pilotée par hooked rejoint automatiquement le groupe de la session appelante, sauf `group: false`.",
+  "parameters": {
+   "type": "object",
+   "properties": {
+    "cwd": {
+     "type": "string",
+     "description": "dossier de travail (requis sauf reprise, où il est déduit)"
+    },
+    "provider": {
+     "type": "string",
+     "description": "agent provider id (see list_providers): claude, pi, or a custom one such as gemini. Default: the settings default provider (a resumed session keeps its own)."
+    },
+    "prompt": {
+     "type": "string",
+     "description": "premier message optionnel envoyé à la session"
+    },
+    "model": {
+     "type": "string",
+     "description": "modèle optionnel. Claude : alias de famille (opus/sonnet/haiku/fable) ou version complète (ex. claude-opus-4-8). pi : `provider/id` (ex. mistral/devstral-medium-latest). Autres providers : un id que l'agent annonce. Validé par le serveur."
+    },
+    "effort": {
+     "type": "string",
+     "description": "niveau d'effort optionnel (low/medium/high/xhigh/max, + ultracode si claude ≥ 2.1.203). Validé par le serveur."
+    },
+    "resumeId": {
+     "type": "string",
+     "description": "id d'une session existante à reprendre"
+    },
+    "worktree": {
+     "type": "boolean",
+     "description": "new session only: create a git worktree on a new branch and start the session in it"
+    },
+    "worktreeBase": {
+     "type": "string",
+     "description": "with worktree: branch or ref the worktree starts from (default: the remote default branch, e.g. origin/main)"
+    },
+    "worktreeBranch": {
+     "type": "string",
+     "description": "with worktree: name of the new branch (default: named from the prompt)"
+    },
+    "ephemeral": {
+     "type": "boolean",
+     "description": "the session archives itself once its task is done, when it is confident nothing is left to check (new session with a prompt only)"
+    },
+    "group": {
+     "type": "boolean",
+     "description": "false pour lancer une session indépendante, hors du groupe de la session appelante (défaut : true)"
+    }
+   },
+   "additionalProperties": false
+  }
+ },
+ {
+  "name": "hooked_group_sessions",
+  "label": "hooked · group_sessions",
+  "description": "Met une session dans le groupe d'une autre (celui de `target`, qui garde sa session mère). Si `id` est elle-même mère d'un groupe, tout son groupe suit (fusion). Renvoie le groupe résultant : `{ mother, name, members: [{ id, link }] }`, `link` étant le deep-link relatif `/session/<id>` à émettre en markdown `[label](<link>)`.",
+  "parameters": {
+   "type": "object",
+   "properties": {
+    "id": {
+     "type": "string",
+     "description": "id de la session à grouper"
+    },
+    "target": {
+     "type": "string",
+     "description": "id d'une session du groupe à rejoindre"
+    }
+   },
+   "required": [
+    "id",
+    "target"
+   ],
+   "additionalProperties": false
+  }
+ },
+ {
+  "name": "hooked_ungroup_session",
+  "label": "hooked · ungroup_session",
+  "description": "Sort une session de son groupe (elle redevient seule). Si c'est la session mère, la plus ancienne de ses sessions filles prend sa place et hérite du nom. Renvoie ce qui reste du groupe quitté (`{ mother, name, members }`), ou `null` s'il ne reste qu'une session.",
+  "parameters": {
+   "type": "object",
+   "properties": {
+    "id": {
+     "type": "string",
+     "description": "id de la session à sortir"
+    }
+   },
+   "required": [
+    "id"
+   ],
+   "additionalProperties": false
+  }
+ },
+ {
+  "name": "hooked_set_group_mother",
+  "label": "hooked · set_group_mother",
+  "description": "Fait d'une session la mère de son groupe (l'ancienne mère devient la première fille). Renvoie le groupe.",
+  "parameters": {
+   "type": "object",
+   "properties": {
+    "id": {
+     "type": "string",
+     "description": "id de la session à promouvoir"
+    }
+   },
+   "required": [
+    "id"
+   ],
+   "additionalProperties": false
+  }
+ },
+ {
+  "name": "hooked_rename_group",
+  "label": "hooked · rename_group",
+  "description": "Renomme le groupe d'une session (n'importe quel membre fait l'affaire). Nom vide : retour au nom par défaut. Renvoie le groupe.",
+  "parameters": {
+   "type": "object",
+   "properties": {
+    "id": {
+     "type": "string",
+     "description": "id d'une session du groupe"
+    },
+    "name": {
+     "type": "string",
+     "description": "nouveau nom (vide pour le nom par défaut)"
+    }
+   },
+   "required": [
+    "id",
+    "name"
+   ],
+   "additionalProperties": false
+  }
+ },
+ {
+  "name": "hooked_stop_session",
+  "label": "hooked · stop_session",
+  "description": "Stoppe une session. Action irréversible : le process Claude Code se termine.",
+  "parameters": {
+   "type": "object",
+   "properties": {
+    "id": {
+     "type": "string",
+     "description": "id de la session à stopper"
+    }
+   },
+   "required": [
+    "id"
+   ],
+   "additionalProperties": false
+  }
+ },
+ {
+  "name": "hooked_archive_this_session",
+  "label": "hooked · archive_this_session",
+  "description": "Archives the session you are running in; it stops once your current turn ends. Call it as your last action, only when you are highly confident the task is done with nothing left for the user to check, decide or follow up on in this session. If anything is uncertain or unfinished, do not call it.",
+  "parameters": {
+   "type": "object",
+   "properties": {},
+   "additionalProperties": false
+  }
+ },
+ {
+  "name": "hooked_reply_to_session",
+  "label": "hooked · reply_to_session",
+  "description": "Envoie un message texte à une session live (comme une saisie au clavier). Si une question AskUserQuestion est en attente, le texte est traité comme la réponse à valider.",
+  "parameters": {
+   "type": "object",
+   "properties": {
+    "id": {
+     "type": "string",
+     "description": "id de la session"
+    },
+    "text": {
+     "type": "string",
+     "description": "message à envoyer"
+    }
+   },
+   "required": [
+    "id",
+    "text"
+   ],
+   "additionalProperties": false
+  }
+ },
+ {
+  "name": "hooked_reply_review_comment",
+  "label": "hooked · reply_review_comment",
+  "description": "Répond dans un thread de revue de code (commentaire inline d'une diff hooked). À utiliser quand un prompt de revue liste des commentaires avec leur thread_id : une réponse courte par commentaire — ce qui a été fait, ou pourquoi non. La réponse apparaît dans la diff, sous la ligne commentée. Le thread RESTE ouvert : le ranger est la décision du relecteur, il n'y a pas d'outil pour ça.",
+  "parameters": {
+   "type": "object",
+   "properties": {
+    "id": {
+     "type": "string",
+     "description": "id de la session"
+    },
+    "thread_id": {
+     "type": "string",
+     "description": "id du thread (donné dans le prompt de revue)"
+    },
+    "text": {
+     "type": "string",
+     "description": "réponse à poster dans le thread"
+    }
+   },
+   "required": [
+    "id",
+    "thread_id",
+    "text"
+   ],
+   "additionalProperties": false
+  }
+ },
+ {
+  "name": "hooked_add_review_comment",
+  "label": "hooked · add_review_comment",
+  "description": "Opens a new code-review thread inline in the hooked diff, anchored on lines of a file. Use it when a hooked review prompt asks you to report findings as threads: one call per finding. Lines are 1-based and refer to the new side of the diff under review: the file on disk, unless the review prompt names a revision. Only files of the session's repositories can be commented. The thread stays open: archiving it is the reviewer's decision, there is no tool for it. The returned thread id is the one to pass to reply_review_comment if the reviewer answers.",
+  "parameters": {
+   "type": "object",
+   "properties": {
+    "id": {
+     "type": "string",
+     "description": "session id (given in the review prompt)"
+    },
+    "file": {
+     "type": "string",
+     "description": "absolute path of the file (relative paths resolve against the session project)"
+    },
+    "line": {
+     "type": "integer",
+     "minimum": 1,
+     "description": "first line the finding is about"
+    },
+    "end_line": {
+     "type": "integer",
+     "minimum": 1,
+     "description": "last line, when the finding spans several lines"
+    },
+    "text": {
+     "type": "string",
+     "description": "the finding, in Markdown: what is wrong, why it matters, the suggested fix"
+    }
+   },
+   "required": [
+    "id",
+    "file",
+    "line",
+    "text"
+   ],
+   "additionalProperties": false
+  }
+ },
+ {
+  "name": "hooked_interrupt_session",
+  "label": "hooked · interrupt_session",
+  "description": "Envoie Échap à une session live pour interrompre Claude en cours de travail.",
+  "parameters": {
+   "type": "object",
+   "properties": {
+    "id": {
+     "type": "string",
+     "description": "id de la session"
+    }
+   },
+   "required": [
+    "id"
+   ],
+   "additionalProperties": false
+  }
+ },
+ {
+  "name": "hooked_set_mode",
+  "label": "hooked · set_mode",
+  "description": "Change le mode de permission d'une session live (default / auto / plan).",
+  "parameters": {
+   "type": "object",
+   "properties": {
+    "id": {
+     "type": "string",
+     "description": "id de la session"
+    },
+    "mode": {
+     "type": "string",
+     "enum": [
+      "default",
+      "auto",
+      "plan"
+     ],
+     "description": "mode de permission cible"
+    }
+   },
+   "required": [
+    "id",
+    "mode"
+   ],
+   "additionalProperties": false
+  }
+ },
+ {
+  "name": "hooked_set_model",
+  "label": "hooked · set_model",
+  "description": "Change le modèle et/ou l'effort d'une session live (au moins l'un des deux requis).",
+  "parameters": {
+   "type": "object",
+   "properties": {
+    "id": {
+     "type": "string",
+     "description": "id de la session"
+    },
+    "model": {
+     "type": "string",
+     "description": "nouveau modèle : alias de famille (opus/sonnet/haiku/fable) ou version complète (ex. claude-opus-4-8)"
+    },
+    "effort": {
+     "type": "string",
+     "description": "nouvel effort (low/medium/high/xhigh/max, + ultracode si claude ≥ 2.1.203)"
+    }
+   },
+   "required": [
+    "id"
+   ],
+   "additionalProperties": false
+  }
+ },
+ {
+  "name": "hooked_search_sessions",
+  "label": "hooked · search_sessions",
+  "description": "Recherche plein-texte dans les conversations des sessions.",
+  "parameters": {
+   "type": "object",
+   "properties": {
+    "q": {
+     "type": "string",
+     "description": "requête de recherche"
+    },
+    "project": {
+     "type": "string",
+     "description": "filtrer sur un chemin de projet (optionnel)"
+    },
+    "limit": {
+     "type": "integer",
+     "description": "nombre max de résultats (défaut 50)"
+    }
+   },
+   "required": [
+    "q"
+   ],
+   "additionalProperties": false
+  }
+ },
+ {
+  "name": "hooked_get_stats",
+  "label": "hooked · get_stats",
+  "description": "Statistiques d'usage (coût, tokens) agrégées par jour / modèle / projet / outil.",
+  "parameters": {
+   "type": "object",
+   "properties": {
+    "range": {
+     "type": "string",
+     "description": "fenêtre en jours (ex. \"7\", \"30\") ou \"all\" (défaut 7)"
+    }
+   },
+   "additionalProperties": false
+  }
+ },
+ {
+  "name": "hooked_get_digest",
+  "label": "hooked · get_digest",
+  "description": "Digest quotidien (récap IA de l'activité des sessions un jour donné). Sans `date` : index des digests + dernier disponible. Avec `date` (YYYY-MM-DD) : le digest de ce jour.",
+  "parameters": {
+   "type": "object",
+   "properties": {
+    "date": {
+     "type": "string",
+     "description": "jour au format YYYY-MM-DD (défaut : liste tous les digests)"
+    }
+   },
+   "additionalProperties": false
+  }
+ },
+ {
+  "name": "hooked_show_query",
+  "label": "hooked · show_query",
+  "description": "Opens a live Grafana-style view of a Prometheus/Mimir (PromQL) or Loki (LogQL) query in a floating window of the hooked dashboard, refreshed automatically. Use it when the user asks to see, graph, chart or follow metrics or logs, or when a chart says more than a table. hooked runs the query itself through mcp-gateway: you do not see the result, so query mcp-gateway yourself if you need the numbers. Same label conventions as the mcp-gateway grafana_query_* tools.",
+  "parameters": {
+   "type": "object",
+   "properties": {
+    "tool": {
+     "type": "string",
+     "enum": [
+      "prometheus",
+      "loki"
+     ],
+     "description": "Query language: prometheus (PromQL) or loki (LogQL)"
+    },
+    "datasource": {
+     "type": "string",
+     "description": "Datasource, e.g. mimir-prod, loki-prod"
+    },
+    "query": {
+     "type": "string",
+     "description": "PromQL or LogQL query"
+    },
+    "title": {
+     "type": "string",
+     "description": "Short title of the view"
+    },
+    "range": {
+     "type": "string",
+     "description": "Time range ending now, e.g. 15m, 6h, 2d (default 1h)"
+    },
+    "step": {
+     "type": "string",
+     "description": "Range step, e.g. 1m (default: range/60)"
+    },
+    "limit": {
+     "type": "number",
+     "description": "Max log lines for a Loki log query"
+    },
+    "refresh": {
+     "type": "number",
+     "description": "Auto-refresh period in seconds, 0 to turn it off (default 30)"
+    }
+   },
+   "required": [
+    "tool",
+    "datasource",
+    "query"
+   ],
+   "additionalProperties": false
+  }
+ },
+ {
+  "name": "hooked_watch_pull_request",
+  "label": "hooked · watch_pull_request",
+  "description": "Watches a GitHub pull request for you. hooked then messages this session when its checks fail or all pass, a merge conflict appears, no check has reported 15 minutes after a push, or someone else comments. Call it after opening or pushing to a PR when you should follow up on CI or review feedback. Each update arrives as a new user message; watching stops on its own once the PR is merged or closed.",
+  "parameters": {
+   "type": "object",
+   "properties": {
+    "url": {
+     "type": "string",
+     "description": "Pull request URL. Defaults to the last PR linked in this session."
+    }
+   },
+   "additionalProperties": false
+  }
+ },
+ {
+  "name": "hooked_unwatch_pull_request",
+  "label": "hooked · unwatch_pull_request",
+  "description": "Stops watching a pull request started with watch_pull_request (all of this session's watches when no url is given).",
+  "parameters": {
+   "type": "object",
+   "properties": {
+    "url": {
+     "type": "string",
+     "description": "Pull request URL to stop watching"
+    }
+   },
+   "additionalProperties": false
+  }
+ },
+ {
+  "name": "hooked_list_cron_tasks",
+  "label": "hooked · list_cron_tasks",
+  "description": "Lists the cron tasks: prompts hooked launches as a new session on a schedule, with their next run and recent runs.",
+  "parameters": {
+   "type": "object",
+   "properties": {},
+   "additionalProperties": false
+  }
+ },
+ {
+  "name": "hooked_save_cron_task",
+  "label": "hooked · save_cron_task",
+  "description": "Creates a cron task, or updates one when `id` is given. An update only changes the fields you pass. Each run starts a new session tagged `cron` and closes the previous run if it is idle.",
+  "parameters": {
+   "type": "object",
+   "properties": {
+    "id": {
+     "type": "string",
+     "description": "id of the task to update (omit to create one)"
+    },
+    "name": {
+     "type": "string",
+     "description": "defaults to the first line of the prompt"
+    },
+    "schedule": {
+     "type": "string",
+     "description": "five-field cron expression in local time (minute hour day-of-month month day-of-week), or @hourly / @daily / @weekly / @monthly"
+    },
+    "cwd": {
+     "type": "string",
+     "description": "project directory the session runs in"
+    },
+    "prompt": {
+     "type": "string",
+     "description": "first message sent to each run"
+    },
+    "model": {
+     "type": "string",
+     "description": "optional model; empty for the Claude Code default"
+    },
+    "effort": {
+     "type": "string",
+     "description": "optional effort; empty for the Claude Code default"
+    },
+    "permissionMode": {
+     "type": "string",
+     "enum": [
+      "default",
+      "acceptEdits",
+      "auto",
+      "plan",
+      "bypassPermissions",
+      "dontAsk"
+     ]
+    },
+    "ephemeral": {
+     "type": "boolean",
+     "description": "each run archives itself once it is sure nothing is left for the user"
+    },
+    "enabled": {
+     "type": "boolean",
+     "description": "false pauses the scheduled runs"
+    },
+    "provider": {
+     "type": "string",
+     "description": "provider id the runs launch on (see list_providers); defaults to the default provider of the settings"
+    }
+   },
+   "additionalProperties": false
+  }
+ },
+ {
+  "name": "hooked_delete_cron_task",
+  "label": "hooked · delete_cron_task",
+  "description": "Deletes a cron task. The sessions it already started are kept.",
+  "parameters": {
+   "type": "object",
+   "properties": {
+    "id": {
+     "type": "string",
+     "description": "id of the task"
+    }
+   },
+   "required": [
+    "id"
+   ],
+   "additionalProperties": false
+  }
+ },
+ {
+  "name": "hooked_run_cron_task",
+  "label": "hooked · run_cron_task",
+  "description": "Runs a cron task now, outside its schedule. Fails if its previous run is still working or waiting on the user. The response carries `sessionId` and `link` (relative `/session/<id>`): emit a markdown link `[label](<link>)` to point the user at it.",
+  "parameters": {
+   "type": "object",
+   "properties": {
+    "id": {
+     "type": "string",
+     "description": "id of the task"
+    }
+   },
+   "required": [
+    "id"
+   ],
+   "additionalProperties": false
+  }
+ },
+ {
+  "name": "hooked_flow_report",
+  "label": "hooked · flow_report",
+  "description": "Reports the result of your stage when hooked runs you as one stage of a flow (a pipeline of sessions). Call it once your part is finished, then end your turn: hooked hands your summary to the next stages. The decider stage must pass a verdict: `done` (closes the flow), `loop` (sends the work back, the summary being the instructions for the next pass) or `escalate` (hands the decision to the user). Other stages pass no verdict, or `escalate` when blocked on a decision that belongs to the user.",
+  "parameters": {
+   "type": "object",
+   "properties": {
+    "summary": {
+     "type": "string",
+     "description": "what you did or found, written for the next stages (markdown)"
+    },
+    "verdict": {
+     "type": "string",
+     "enum": [
+      "done",
+      "loop",
+      "escalate"
+     ]
+    }
+   },
+   "required": [
+    "summary"
+   ],
+   "additionalProperties": false
+  }
+ },
+ {
+  "name": "hooked_list_flows",
+  "label": "hooked · list_flows",
+  "description": "Lists the flow templates (pipelines of sessions: pilot, build, review, challenge, decide…) and the flow runs with the state of each stage and its session id.",
+  "parameters": {
+   "type": "object",
+   "properties": {},
+   "additionalProperties": false
+  }
+ },
+ {
+  "name": "hooked_start_flow",
+  "label": "hooked · start_flow",
+  "description": "Starts a flow run: hooked launches one session per stage of the template and chains them (each stage gets the reports of the stages before it), looping back when the decider asks for it. The response carries a `link` (relative): emit a markdown link `[label](<link>)` to point the user at the pipeline view.",
+  "parameters": {
+   "type": "object",
+   "properties": {
+    "templateId": {
+     "type": "string",
+     "description": "flow template id (see list_flows); \"feature\" is built in"
+    },
+    "task": {
+     "type": "string",
+     "description": "what the flow should achieve, handed to every stage"
+    },
+    "cwd": {
+     "type": "string",
+     "description": "project directory"
+    },
+    "name": {
+     "type": "string",
+     "description": "defaults to the first line of the task"
+    },
+    "worktree": {
+     "type": "boolean",
+     "description": "run in a new git worktree (defaults to the template setting)"
+    },
+    "base": {
+     "type": "string",
+     "description": "base branch of the worktree"
+    }
+   },
+   "required": [
+    "templateId",
+    "task",
+    "cwd"
+   ],
+   "additionalProperties": false
+  }
+ }
+]

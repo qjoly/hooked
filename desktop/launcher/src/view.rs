@@ -4,11 +4,13 @@ use hooked_ui::widgets::{
 };
 use hooked_ui::{icons, logo, theme};
 use rune::{Cursor, Cx, El, ScrollSpec, col, el, row, text};
-use rune_kit::{Button, ButtonVariant, ControlSize, Kit, StateColors};
+use rune_kit::{Button, ButtonVariant, ControlSize, Kit, StateColors, Switch, TextInput};
 
 use crate::branches::{self, Row};
+use crate::catalog::Entry;
+use crate::extensions::Ext;
 use crate::flow::Step;
-use crate::{Run, State, Status};
+use crate::{GitForm, Kind, Run, State, Status};
 
 const LOG_TAIL_LINES: usize = 30;
 
@@ -116,7 +118,178 @@ fn list(s: &State, k: &Kit) -> El {
     for r in &s.rows {
         out = out.child(branch_row(r, now, k));
     }
+    extensions(s, k, out)
+}
+
+fn extensions(s: &State, k: &Kit, mut out: El) -> El {
+    out = out.child(row().w_full().px(10.0).pt(18.0).pb(6.0).child(section_title(k, "EXTENSIONS")));
+    if !s.exts_live && !s.exts.is_empty() {
+        out = out.child(callout(k, &k.c.warning, "The service is unreachable: read from disk, switches disabled."));
+    }
+    if let Some(e) = &s.ext_error {
+        out = out.child(callout(k, &k.c.danger, e.clone()));
+    }
+    if s.exts.is_empty() {
+        out = out.child(text("No extension.").font(k.ty.text_small).color(k.c.text_muted).px(10.0));
+    }
+    for e in &s.exts {
+        out = out.child(extension_row(s, e, k));
+    }
+    out = out.child(
+        row()
+            .px(10.0)
+            .pt(8.0)
+            .gap(8.0)
+            .child(small_button(k, "Add from catalog…", "add-catalog", |s| s.toggle_catalog()))
+            .child(small_button(k, "Add from git…", "add-git", |s| s.toggle_git_form())),
+    );
+    if let Some(catalog) = &s.catalog {
+        out = out.child(catalog_panel(s, catalog.as_ref(), k));
+    }
+    if let Some(form) = &s.git_form {
+        out = out.child(git_form(form, k));
+    }
     out
+}
+
+fn small_button(k: &Kit, label: &str, key: &str, press: impl Fn(&mut State) + 'static) -> El {
+    Button::new(label).control_size(ControlSize::Small).on_press(press).build(k).key(key.to_string())
+}
+
+fn catalog_panel(s: &State, catalog: Option<&Result<Vec<Entry>, String>>, k: &Kit) -> El {
+    let mut out = col().key("catalog").w_full().pt(6.0).gap(2.0);
+    match catalog {
+        None => out = out.child(text("Loading the catalog…").font(k.ty.text_small).color(k.c.text_muted).px(10.0)),
+        Some(Err(e)) => out = out.child(callout(k, &k.c.danger, format!("Could not read the catalog: {e}"))),
+        Some(Ok(entries)) if entries.is_empty() => {
+            out = out.child(text("The catalog is empty.").font(k.ty.text_small).color(k.c.text_muted).px(10.0));
+        }
+        Some(Ok(entries)) => {
+            for e in entries {
+                out = out.child(catalog_row(s, e, k));
+            }
+        }
+    }
+    out
+}
+
+/// A catalog entry with its badges; incompatible or bundled ones cannot be installed.
+fn catalog_row(s: &State, e: &Entry, k: &Kit) -> El {
+    let mut title = row().w_full().gap(8.0).center_y().child(list_row_title(k, e.label.clone()));
+    let installed = s.installed(&e.id);
+    let bundled = s.exts.iter().any(|x| x.id == e.id && x.source == "bundled");
+    let incompatible = s.ext_api.is_some_and(|api| api != e.api);
+    if installed {
+        title = title.child(pill(k, "installed", k.c.success.fg, k.c.success.bg));
+    }
+    if bundled {
+        title = title.child(pill(k, "bundled", k.c.text_muted, k.c.layer_01));
+    }
+    if incompatible {
+        title = title.child(pill(k, format!("incompatible (api {})", e.api), k.c.warning.fg, k.c.warning.bg));
+    }
+    let sub = format!("{}@{} · {}", e.source.repo, e.source.r#ref, e.description);
+    let entry = e.clone();
+    let button = Button::new(if installed { "Update" } else { "Install" })
+        .control_size(ControlSize::Small)
+        .disabled(incompatible || bundled)
+        .on_press(move |s: &mut State| s.install(&entry))
+        .build(k)
+        .key("install");
+    list_row(k, 0)
+        .key(format!("catalog-{}", e.id))
+        .label(e.label.clone())
+        .cursor(Cursor::Default)
+        .child(list_row_lines(title, list_row_subtitle(k, sub)))
+        .child(row().pl(12.0).center_y().child(button))
+}
+
+fn git_form(form: &GitForm, k: &Kit) -> El {
+    let field = |label: &str, value: &rune::TextEdit, edit: fn(&mut GitForm) -> &mut rune::TextEdit| {
+        // Grows rather than taking the full width, so two fields share a row.
+        col().grow(1.0).min_w(0.0).gap(4.0).child(section_title(k, label)).child(
+            TextInput::new(value)
+                .width(None)
+                .on_edit(move |s: &mut State| edit(s.git_form.get_or_insert_with(GitForm::default)))
+                .build(k)
+                .key(label.to_lowercase()),
+        )
+    };
+    col()
+        .key("git-form")
+        .w_full()
+        .px(10.0)
+        .pt(8.0)
+        .gap(8.0)
+        .child(row().w_full().child(field("GIT URL", &form.repo, |f| &mut f.repo)))
+        .child(
+            row()
+                .w_full()
+                .gap(8.0)
+                .child(field("REF", &form.r#ref, |f| &mut f.r#ref))
+                .child(field("PATH IN THE REPO", &form.path, |f| &mut f.path)),
+        )
+        .child(
+            row().child(
+                Button::new("Fetch")
+                    .control_size(ControlSize::Small)
+                    .disabled(form.source().is_none())
+                    .on_press(|s: &mut State| s.install_from_git())
+                    .build(k)
+                    .key("git-fetch"),
+            ),
+        )
+}
+
+/// An extension over where it comes from, with its switch. Applied at once by the service.
+fn extension_row(s: &State, e: &Ext, k: &Kit) -> El {
+    let mut title = row().w_full().gap(8.0).center_y().child(list_row_title(k, e.label.clone()));
+    if !e.errors.is_empty() {
+        title = title.child(pill(k, "error", k.c.danger.fg, k.c.danger.bg));
+    } else if e.enabled && e.active {
+        title = title.child(pill(k, "on", k.c.success.fg, k.c.success.bg));
+    }
+    let mut sub = e.origin();
+    if !e.description.is_empty() {
+        sub = format!("{sub} · {}", e.description);
+    }
+    if let Some(err) = e.errors.first() {
+        sub = format!("{err} · {sub}");
+    }
+    let (id, on) = (e.id.clone(), e.enabled);
+    let mut actions = row().pl(12.0).gap(6.0).center_y();
+    if e.source == "installed" {
+        let (update, uninstall) = (e.clone(), e.id.clone());
+        actions = actions
+            .child(
+                Button::new("Update")
+                    .control_size(ControlSize::Small)
+                    .disabled(e.from.is_none())
+                    .help(if e.from.is_none() { "No .origin.json: installed by hand" } else { "Fetch its source again" })
+                    .on_press(move |s: &mut State| s.update_extension(&update))
+                    .build(k)
+                    .key("update"),
+            )
+            .child(
+                Button::new("Uninstall")
+                    .control_size(ControlSize::Small)
+                    .on_press(move |s: &mut State| s.uninstall(uninstall.clone()))
+                    .build(k)
+                    .key("uninstall"),
+            );
+    }
+    let switch = Switch::new(on)
+        .label(format!("{} on", e.label))
+        .hide_label()
+        .disabled(!s.exts_live || s.ext_busy.is_some() || e.errors.iter().any(|x| x.starts_with("rejected")))
+        .on_toggle(move |s: &mut State| s.set_extension(id.clone(), !on))
+        .build(k);
+    list_row(k, 0)
+        .key(format!("ext-{}", e.id))
+        .label(e.label.clone())
+        .cursor(Cursor::Default)
+        .child(list_row_lines(title, list_row_subtitle(k, sub)))
+        .child(actions.child(switch))
 }
 
 /// A sidebar row: the branch over its last commit.
@@ -171,11 +344,20 @@ fn run_panel(run: &Run, k: &Kit) -> El {
         .padding(20.0)
         .gap(14.0)
         .child(
-            col().gap(4.0).child(section_title(k, "SWITCHING TO")).child(
-                text(run.branch.clone()).font(k.ty.body_medium).color(k.c.text_base).single_line().truncate(),
+            col().gap(4.0).child(section_title(k, heading(run.kind))).child(
+                text(run.name.clone()).font(k.ty.body_medium).color(k.c.text_base).single_line().truncate(),
             ),
         )
         .child(steps);
+    if let Some(msg) = &run.confirm {
+        panel = panel.child(confirmation(run, msg, k));
+    }
+    for note in &run.notes {
+        panel = panel.child(callout(k, &k.c.warning, note.clone()));
+    }
+    if run.cancelled {
+        panel = panel.child(text("Cancelled: nothing was changed.").font(k.ty.text_small).color(k.c.text_base));
+    }
     if let Some(n) = run.busy {
         let control = run.control.clone();
         let cancel = run.control.clone();
@@ -209,18 +391,18 @@ fn run_panel(run: &Run, k: &Kit) -> El {
         );
     }
     if run.verified() {
-        panel = panel.child(callout(k, &k.c.success, format!("hooked now runs {}.", run.branch)));
+        panel = panel.child(callout(k, &k.c.success, success(run)));
     }
     if let Some(f) = &run.app_failure {
         panel = panel.child(app_failure(f, k));
     }
     if let Some(f) = &run.failure {
-        panel = panel.child(failure(f, k));
+        panel = panel.child(failure(f, run.kind, k));
     }
     let mut actions = row().gap(8.0);
     if run.finished() {
         actions = actions.child(
-            Button::new("Back to branches")
+            Button::new("Back")
                 .icon(&icons::ARROW_LEFT)
                 .control_size(ControlSize::Small)
                 .on_press(|s: &mut State| s.close_run())
@@ -244,6 +426,55 @@ fn run_panel(run: &Run, k: &Kit) -> El {
         );
     }
     panel.child(actions)
+}
+
+fn heading(kind: Kind) -> &'static str {
+    match kind {
+        Kind::Switch => "SWITCHING TO",
+        Kind::Install => "INSTALLING",
+        Kind::Update => "UPDATING",
+        Kind::Uninstall => "UNINSTALLING",
+    }
+}
+
+fn success(run: &Run) -> String {
+    match run.kind {
+        Kind::Switch => format!("hooked now runs {}.", run.name),
+        Kind::Install | Kind::Update => format!("{} is installed.", run.name),
+        Kind::Uninstall => format!("{} is uninstalled. Its data and settings files are kept.", run.name),
+    }
+}
+
+/// The extension flow stops here until the user accepts the source it shows.
+fn confirmation(run: &Run, msg: &str, k: &Kit) -> El {
+    let (accept, cancel) = (run.control.clone(), run.control.clone());
+    let verb = match run.kind {
+        Kind::Uninstall => "Uninstall",
+        Kind::Update => "Update",
+        _ => "Install",
+    };
+    col()
+        .gap(8.0)
+        .child(callout(k, &k.c.warning, msg.to_string()))
+        .child(
+            row()
+                .gap(8.0)
+                .child(
+                    Button::new(verb)
+                        .variant(ButtonVariant::Warning)
+                        .control_size(ControlSize::Small)
+                        .on_press(move |_: &mut State| accept.confirm.store(true, std::sync::atomic::Ordering::Relaxed))
+                        .build(k)
+                        .key("confirm"),
+                )
+                .child(
+                    Button::new("Cancel")
+                        .control_size(ControlSize::Small)
+                        .on_press(move |_: &mut State| cancel.cancel.store(true, std::sync::atomic::Ordering::Relaxed))
+                        .build(k)
+                        .key("cancel"),
+                ),
+        )
 }
 
 fn step_line(step: Step, status: Status, run: &Run, k: &Kit) -> El {
@@ -273,10 +504,14 @@ fn step_line(step: Step, status: Status, run: &Run, k: &Kit) -> El {
         }))
 }
 
-fn failure(f: &crate::Failure, k: &Kit) -> El {
+fn failure(f: &crate::Failure, kind: Kind, k: &Kit) -> El {
     let undo = match &f.undone {
         None => callout(k, &k.c.warning, "Rolling back…"),
-        Some(Ok(())) => text("Rolled back: the checkout and the service are as before.")
+        Some(Ok(())) => text(if kind == Kind::Switch {
+            "Rolled back: the checkout and the service are as before."
+        } else {
+            "Rolled back: the extensions folder and the service are as before."
+        })
             .font(k.ty.text_small)
             .color(k.c.text_base)
             .wrap(),

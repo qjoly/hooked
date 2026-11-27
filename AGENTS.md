@@ -223,28 +223,35 @@ Every session belongs to exactly one group. A session on its own is an implicit 
 - **Archiving the parent archives the whole group.** A child is archived on its own and stays in
   its group.
 
-## Modules (`modules/`, `server/modules.js`, `docs/modules.md`)
+## Extensions (`extensions/`, `server/extensions.js`, `docs/extensions.md`)
 
-GitHub, incident.io, Cron and Flows are modules: one folder each (`modules/<id>/`: server code,
-API handlers, page, agent tools, pi package, tests, README), switched as a whole in Settings →
-Modules (`settings.modules`). Each module's README holds its own rules and traps; read it before
-touching the module.
+Cron, GitHub, incident.io and Flows are extensions: one folder each (`extensions/<id>/` with an
+`extension.json`), switched as a whole in Settings → Extensions (`settings.extensions`). Each
+extension's README holds its own rules and traps; read it before touching the extension.
 
-- **A folder with a `manifest.js` is a module**: found by `import.meta.glob` (manifests, server
-  lifecycles), its tab, palette entry and settings page derived from the manifest. Adding or
-  removing one touches no list; only its route shims live outside the folder.
-- **Routes stay in `src/routes` as one-line shims** (`export { GET } from '#modules/<id>/api.js'`),
-  pages are wrapped in `ModuleGate`. Module code reaches the core through `#server/…` and `#lib/…`;
-  the core does not import a module (one pure exception: `modules/github/lib/reviewTags.js`).
-- **Off means off everywhere**: API 404 (`gated`), page gone from the web, desktop and Android
-  navigation, background loops stopped (`stop()`), tools no longer offered to new sessions
-  (`HOOKED_MODULES` for the MCP server, `-e modules/<id>/pi` for pi). Running sessions keep their
-  tools until they restart.
-- **Loops that launch sessions only run in the service** (`start({ service })`): the Cron
-  scheduler and the Flows engine. PR watches run everywhere (they only wake this process's
-  sessions).
-- **Agent tools are CommonJS** (`tools.cjs` on `mcp/http.cjs`): the MCP server is plain Node, and
-  the same definitions back the module's pi package.
+- **Two kinds.** Cron follows the full contract: loaded at runtime from a hashed copy of its
+  folder, server code through `ctx` only, page compiled at runtime, desktop page as a declarative
+  view. Installing, updating or removing such an extension (launcher, or
+  `POST /api/extensions/reload`) needs no rebuild and no restart. GitHub, incident.io and Flows are
+  `"legacy": true`: compiled into the build, `#server/…` / `#lib/…` imports, route shims in
+  `src/routes` behind `ExtensionGate` and `gated()`. The core does not import an extension (one
+  pure exception: `extensions/github/lib/reviewTags.js`).
+- **Nothing outside the folder names an extension**: the navigation, palette, settings, session
+  menu, desktop app and launcher read `GET /api/extensions` at runtime (and on the
+  `extensionsChanged` SSE event). Only a legacy extension's shims and native desktop page do.
+- **Off means off everywhere**: API 404 `extension_off`, page gone from the web, desktop and
+  Android navigation, background loops stopped (`stop()`), tools no longer offered to new sessions
+  (`HOOKED_EXTENSION_TOOLS`, read by the MCP server and by hooked's pi package). Running sessions
+  keep their tools until they restart.
+- **Tool order is per engine and pinned**: MCP by id, pi in navigation order, each engine's
+  historical order. `test/extensionTools.test.mjs` compares both, byte for byte, with fixtures; a
+  change there costs every session its prompt cache.
+- **Loops that launch sessions only run in the service** (`ctx.service` / `start({ service })`):
+  the Cron scheduler and the Flows engine. PR watches run everywhere (they only wake this
+  process's sessions).
+- **Never mutate `process.env` in the service.** The page compiler runs `vite.build()` in a child
+  process for that reason: Vite sets `NODE_ENV`, and resumed sessions inherited it.
+- `settings.modules` and `GET /api/modules` survive only as a mirror and an alias for Android.
 
 ## Incognito mode (`ui.incognito`, `incognito` flag in `session-meta.json`)
 
@@ -295,8 +302,8 @@ follows T3 Code's (MIT, pingdotgg/t3code).
 - A cross-origin redirect (job logs on blob storage) is followed without the token.
 - `ghMeta.ghViewMany` batches link summaries into one aliased GraphQL query, and its cache TTL
   follows activity: 1 min for a PR updated in the last 30 min, 5 min when quiet, 30 min after a
-  day, never again once merged/closed. The GitHub module's PR review tags tick every minute on top of it.
-- **PR watch** and **PR review tags** belong to the GitHub module: see `modules/github/README.md`.
+  day, never again once merged/closed. The GitHub extension's PR review tags tick every minute on top of it.
+- **PR watch** and **PR review tags** belong to the GitHub extension: see `extensions/github/README.md`.
 
 ## Worktrees (`server/worktrees.js`)
 

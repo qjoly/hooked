@@ -1,9 +1,9 @@
 <script>
-  import GitHub from '#modules/github/ui/GitHub.svelte';
-  import ModuleGate from '#lib/components/ModuleGate.svelte';
+  import GitHub from '#extensions/github/ui/GitHub.svelte';
+  import ExtensionGate from '#lib/components/ExtensionGate.svelte';
 </script>
 
-<div class="page"><ModuleGate id="github"><GitHub /></ModuleGate></div>
+<div class="page"><ExtensionGate id="github"><GitHub /></ExtensionGate></div>
 
 <style>
   /* The deck scrolls per column, so the page itself must not. */

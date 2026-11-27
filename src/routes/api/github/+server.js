@@ -1,2 +1,2 @@
-// The GitHub module's overview (modules/github/api.js).
-export { overviewGET as GET } from '#modules/github/api.js';
+// The GitHub extension's overview (extensions/github/api.js).
+export { overviewGET as GET } from '#extensions/github/api.js';

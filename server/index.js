@@ -42,7 +42,7 @@ export * from './terminal.js';
 export * from './mcp.js';
 export * from './plugins.js';
 export * from './skills.js';
-export * from './modules.js';
+export * from './extensions.js';
 export * from './trace.js';
 export * from './account.js';
 export * from './profiles.js';

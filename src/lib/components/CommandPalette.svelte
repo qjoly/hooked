@@ -1,7 +1,7 @@
 <script>
   import { usesClaudeAccount } from '#lib/providers.js';
-  import { NAV_TABS, pageAvailable } from '#lib/nav.js';
-  import { modulesAvail } from '#lib/modules.svelte.js';
+  import { navTabsWith, pageAvailable } from '#lib/nav.js';
+  import { extensions, extensionTabs } from '#lib/extensions.svelte.js';
   import { copyText } from '#lib/clipboard.js';
   import { goto } from '$app/navigation';
   import { page } from '$app/state';
@@ -28,22 +28,22 @@
     return id ? data.sessions.find(s => s.id === id) : null;
   });
 
-  const NAV_COMMANDS = [
+  const NAV_COMMANDS = $derived([
     { id: 'nav:deck', label: 'Go to Deck', section: 'Navigation', icon: 'deck', action: () => goto('/') },
     { id: 'nav:sessions', label: 'Go to Sessions', section: 'Navigation', icon: 'sessions', action: () => goto('/sessions') },
     { id: 'nav:new', label: 'New session', section: 'Navigation', icon: 'plus', action: () => goto('/new') },
-    // One per page of the navigation, modules included (src/lib/nav.js). Mémoire = ~/.claude
+    // One per page of the navigation, extensions included (src/lib/nav.js). Mémoire = ~/.claude
     // (Claude-only) : absente de la palette quand aucun binaire claude.
-    ...NAV_TABS
+    ...navTabsWith(extensionTabs())
       .filter((t) => t.key !== 'sessions' && (t.key !== 'memory' || usesClaudeAccount(data.providers, data.providerList)))
       .map((t) => ({ id: 'nav:' + t.key, label: 'Go to ' + t.label, section: 'Navigation', icon: t.icon, action: () => goto(t.href) })),
     { id: 'nav:settings', label: 'Go to Settings', section: 'Navigation', icon: 'settings', action: () => goto('/settings') },
-  ];
+  ]);
 
   const commands = $derived.by(() => {
     const cs = currentSession;
     const cmds = [
-      ...NAV_COMMANDS.filter((c) => pageAvailable(c.id.slice(4), settings, modulesAvail)),
+      ...NAV_COMMANDS.filter((c) => pageAvailable(c.id.slice(4), extensions.list)),
       { id: 'act:theme-light', label: 'Theme: Light', section: 'Appearance', icon: 'theme-light', action: () => setTheme('light') },
       { id: 'act:theme-dark', label: 'Theme: Dark', section: 'Appearance', icon: 'theme-dark', action: () => setTheme('dark') },
       { id: 'act:theme-system', label: 'Theme: System', section: 'Appearance', icon: 'theme-system', action: () => setTheme('system') },

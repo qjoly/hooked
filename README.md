@@ -101,13 +101,14 @@ only. Every shortcut can be rebound in the settings.
 | **Memory** | What Claude remembers about you and your projects (its auto-memory notes), searchable and filtered by type. |
 | **GitHub** | The pull requests and issues your sessions opened or mentioned, with their review state. Sessions get tagged automatically when their PR is reviewed, and can be woken by news on their PR (opt-in). |
 
-### 🧩 Modules
+### 🧩 Extensions
 
-GitHub, incident.io, Cron and Flows are modules: each can be switched off as a whole in
-Settings → Modules (page, background work and the tools sessions get). See
-[docs/modules.md](docs/modules.md).
+GitHub, incident.io, Cron and Flows are extensions: each can be switched off as a whole in
+Settings → Extensions (page, background work, settings and the tools sessions get). More can be
+installed from git through the launcher, with no restart. See
+[docs/extensions.md](docs/extensions.md).
 
-| Module | What it brings |
+| Extension | What it brings |
 |---|---|
 | **GitHub** | The page above, PR watches that wake a session, PR review tags. |
 | **incident.io** | Incidents from the incident.io desktop app, and a button that starts a session on one. Shown where the app is installed. |
@@ -120,7 +121,7 @@ hooked ships an MCP server (`mcp/server.cjs`), so a Claude session can drive the
 `list_sessions`, `get_session`, `search_sessions`, `start_session`, `reply_to_session`,
 `interrupt_session`, `stop_session`, `set_mode`, `set_model`, `get_stats`, `get_digest`,
 `reply_review_comment`, plus `show_image` / `show_video` / `show_audio` to display media in the conversation.
-A session started this way lands in its parent's group. The modules add their own tools while they are on:
+A session started this way lands in its parent's group. The extensions add their own tools while they are on:
 `watch_pull_request` / `unwatch_pull_request` (GitHub) let a session follow its PR, and hooked messages it when
 checks fail or pass, a conflict appears or someone comments; Cron and Flows add tools to manage tasks and flows.
 

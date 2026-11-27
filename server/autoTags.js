@@ -1,7 +1,7 @@
 /*
  * Auto-tag sessions from their content: one headless Haiku call per session, once, after its first
  * turn. Suggestions are merged into tags.json (never removing a tag), so manual edits always win.
- * Same loop shape as modules/github/server/prReviewTags.js (settings toggle, idempotent through globalThis).
+ * Same loop shape as extensions/github/server/prReviewTags.js (settings toggle, idempotent through globalThis).
  */
 import fs from 'node:fs';
 import os from 'node:os';
@@ -15,7 +15,7 @@ import { readTags, setTags } from './tags.js';
 import { runClaude } from './mcp.js';
 import { modelJson } from './claudeJson.js';
 import { DIGEST_PROMPT_PREFIX } from './digests.js';
-import { PR_REVIEW_TAGS } from '../modules/github/lib/reviewTags.js';
+import { PR_REVIEW_TAGS } from '../extensions/github/lib/reviewTags.js';
 
 const TICK_INTERVAL = 60_000;
 const CALL_TIMEOUT_MS = 90_000;

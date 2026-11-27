@@ -1,0 +1,200 @@
+{
+ "api": 1,
+ "dir": "/tmp/installed",
+ "extensions": [
+  {
+   "id": "cron",
+   "label": "Cron",
+   "version": "1.0.0",
+   "description": "Scheduled sessions: a prompt launched on a five-field cron schedule.",
+   "icon": "clock",
+   "page": {
+    "key": "cron",
+    "order": 80,
+    "tint": "var(--warn)"
+   },
+   "pageModule": "/_ext/cron/f9b53bc1c2986ec1/page.js",
+   "desktop": {
+    "view": "view"
+   },
+   "settings": [],
+   "sessionMenu": [],
+   "source": "bundled",
+   "legacy": false,
+   "origin": null,
+   "hash": "aeecb7ab5d2a4625",
+   "enabled": true,
+   "available": true,
+   "active": true,
+   "tools": [
+    "list_cron_tasks",
+    "save_cron_task",
+    "delete_cron_task",
+    "run_cron_task"
+   ],
+   "errors": []
+  },
+  {
+   "id": "hello",
+   "label": "Hello",
+   "version": "1.0.0",
+   "description": "Test fixture: a feature with no page.",
+   "icon": "zap",
+   "page": null,
+   "pageModule": null,
+   "desktop": null,
+   "settings": [
+    {
+     "key": "loud",
+     "type": "bool",
+     "label": "Shout",
+     "default": false
+    },
+    {
+     "key": "name",
+     "type": "string",
+     "label": "Who to greet",
+     "default": "world",
+     "placeholder": "world"
+    },
+    {
+     "key": "max",
+     "type": "number",
+     "label": "Greetings per session",
+     "default": 1,
+     "min": 1,
+     "max": 5
+    },
+    {
+     "key": "tags",
+     "type": "list",
+     "label": "Tags",
+     "default": []
+    },
+    {
+     "key": "tone",
+     "type": "select",
+     "label": "Tone",
+     "default": "warm",
+     "options": [
+      {
+       "value": "warm",
+       "label": "Warm"
+      },
+      {
+       "value": "dry",
+       "label": "Dry"
+      }
+     ]
+    }
+   ],
+   "sessionMenu": [
+    {
+     "id": "say-hello",
+     "label": "Say hello",
+     "icon": "zap",
+     "post": "say-hello",
+     "when": "any"
+    },
+    {
+     "id": "nudge",
+     "label": "Nudge",
+     "post": "nudge",
+     "when": "driven"
+    },
+    {
+     "id": "stop",
+     "label": "Stop",
+     "post": "stop",
+     "when": "live"
+    }
+   ],
+   "source": "installed",
+   "legacy": false,
+   "origin": {
+    "repo": "acme/hooked-hello",
+    "ref": "main",
+    "path": "hello",
+    "commit": "0123456789abcdef",
+    "installedAt": "2026-11-20T10:00:00Z"
+   },
+   "hash": "1111",
+   "enabled": true,
+   "available": true,
+   "active": true,
+   "tools": [],
+   "errors": []
+  },
+  {
+   "id": "github",
+   "label": "GitHub",
+   "version": "1.0.0",
+   "description": "GitHub",
+   "icon": "pr",
+   "page": {
+    "key": "github",
+    "order": 50,
+    "tint": "var(--danger)"
+   },
+   "pageModule": null,
+   "desktop": null,
+   "settings": [],
+   "sessionMenu": [],
+   "source": "bundled",
+   "legacy": true,
+   "origin": null,
+   "hash": "2222",
+   "enabled": true,
+   "available": true,
+   "active": true,
+   "tools": [],
+   "errors": []
+  },
+  {
+   "id": "flows",
+   "label": "Flows",
+   "version": "1.0.0",
+   "description": "Flows",
+   "icon": "workflow",
+   "page": {
+    "key": "flows",
+    "order": 90,
+    "tint": "var(--danger)"
+   },
+   "pageModule": null,
+   "desktop": null,
+   "settings": [],
+   "sessionMenu": [
+    {
+     "id": "x",
+     "label": "Off action",
+     "post": "x",
+     "when": "any"
+    }
+   ],
+   "source": "bundled",
+   "legacy": true,
+   "origin": null,
+   "hash": "2222",
+   "enabled": false,
+   "available": true,
+   "active": false,
+   "tools": [],
+   "errors": []
+  }
+ ],
+ "rejected": [
+  {
+   "id": "foo",
+   "dir": "/tmp/installed/foo",
+   "error": "api 2, hooked offers 1"
+  }
+ ],
+ "pending": [
+  {
+   "id": "bar",
+   "dir": "/tmp/installed/bar",
+   "state": "on disk, not loaded yet"
+  }
+ ]
+}

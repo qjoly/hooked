@@ -7,8 +7,8 @@
   import { getUsage } from '#lib/api.js';
   import { initials, needsDecision, sessionDot, fmtTokens, fmtCost } from '#lib/format.js';
   import { providerShort, usesClaudeAccount } from '#lib/providers.js';
-  import { NAV_TABS, NAV_KEYS, pageHref, pageAvailable } from '#lib/nav.js';
-  import { modulesAvail } from '#lib/modules.svelte.js';
+  import { NAV_KEYS, navTabsWith, pageHref, pageAvailable } from '#lib/nav.js';
+  import { extensions, extensionTabs } from '#lib/extensions.svelte.js';
   import Icon from '#lib/components/Icon.svelte';
   import FleetWheel from '#lib/components/FleetWheel.svelte';
 
@@ -25,8 +25,8 @@
   // use when the claude provider is, or when an enabled provider declares the `account` capability
   // (Claude through pi-claude-bridge: same subscription, same 5h / 7d quotas).
   const hasClaude = $derived(usesClaudeAccount(data.providers, data.providerList));
-  // A switched-off module's page is gone from both (Settings → Modules).
-  const pages = $derived(NAV_TABS.filter((t) => pageAvailable(t.key, settings, modulesAvail) && (t.key !== 'memory' || hasClaude)));
+  // A switched-off extension's page is gone from both (Settings → Extensions).
+  const pages = $derived(navTabsWith(extensionTabs()).filter((t) => pageAvailable(t.key, extensions.list) && (t.key !== 'memory' || hasClaude)));
   const tabs = $derived(pages.filter((t) => (settings.navTabs || NAV_KEYS).includes(t.key)));
   const hiddenTabs = $derived(pages.filter((t) => !tabs.includes(t)));
   // On a hidden page, the More button wears that page's name so the bar still says where you are.
