@@ -10,7 +10,7 @@ use rune::{TextEdit, Tx};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-use crate::app::{Hooked, Page};
+use crate::app::Hooked;
 use crate::fmt;
 use crate::incmcp::Client;
 
@@ -913,13 +913,7 @@ impl Incidents {
 impl Hooked {
     /// The tab, the palette entry and the shortcut exist only while this holds.
     pub fn incidents_on(&self) -> bool {
-        self.inc.ready() && !self.inc.hidden && !self.incognito && self.module_on("incidents")
-    }
-
-    pub fn go_incidents(&mut self) {
-        if self.incidents_on() {
-            self.go(Page::Incidents);
-        }
+        self.inc.ready() && !self.inc.hidden && !self.incognito && self.extension_on("incidents")
     }
 
     /// The synchronous start, for headless renders.
@@ -999,7 +993,7 @@ impl Hooked {
     /// Runs with the app: the first check, the badge, and another look for a binary that was
     /// missing or failing.
     pub fn poll_incidents(&mut self, now: i64) {
-        if self.handle.is_none() || self.inc.hidden || !self.module_on("incidents") {
+        if self.handle.is_none() || self.inc.hidden || !self.extension_on("incidents") {
             return;
         }
         let due = now - self.inc.checked_at > BACKGROUND_MS;

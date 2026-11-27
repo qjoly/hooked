@@ -2,6 +2,7 @@ mod account;
 mod api;
 mod app;
 mod coderun;
+mod extensions;
 mod extview;
 mod flows;
 mod defs;

@@ -351,6 +351,7 @@ impl Hooked {
                     self.apply_settings(v);
                 }
                 self.caps = api::capabilities().unwrap_or_default();
+                self.preload_extension_settings();
             }
             _ => {}
         }
@@ -1111,6 +1112,7 @@ impl Hooked {
     }
 
     pub fn load_settings_extras(&mut self) {
+        self.load_extension_settings();
         self.spawn(
             || {
                 (

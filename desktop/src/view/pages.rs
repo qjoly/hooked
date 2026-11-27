@@ -53,24 +53,19 @@ pub(super) fn scroll(key: &str, inner: El) -> El {
         .child(inner)
 }
 
-/// The page of a module switched off in Settings → Modules (the server answers 404 for it).
-pub(super) fn module_off(k: &Kit, page: Page) -> El {
-    let label = match page {
-        Page::Ext(id) => id,
-        Page::Flows => "Flows",
-        Page::GitHub => "GitHub",
-        Page::Incidents => "incident.io",
-        _ => "This module",
-    };
+/// The page of an extension switched off in Settings → Extensions (the server answers 404 for it).
+pub(super) fn extension_off(s: &Hooked, k: &Kit, page: Page) -> El {
+    let id = crate::extensions::page_extension(page).unwrap_or("This extension");
+    let label = s.ext_info(id).map_or(id, |e| e.label.as_str());
     col()
-        .key("module-off")
+        .key("extension-off")
         .w_full()
         .h_full()
         .center()
         .gap(6.0)
         .child(text(format!("{label} is off")).font(k.ty.body_medium).color(k.c.text_base))
         .child(
-            text("Turn it on in Settings → Modules.")
+            text("Turn it on in Settings → Extensions.")
                 .font(k.ty.text_small)
                 .color(k.c.text_faint),
         )
@@ -1638,7 +1633,7 @@ fn tone_icon(t: crate::flows::Tone) -> &'static rune::Icon {
     }
 }
 
-/// Flows: pipelines of driven sessions (modules/flows/server/flows.js). Runs on the left; on the right the
+/// Flows: pipelines of driven sessions (extensions/flows/server/flows.js). Runs on the left; on the right the
 /// selected run as a CI pipeline (one column per depth, parallel stages stacked), its actions and
 /// the selected stage's reports. Templates are edited on the web page.
 pub fn flows(s: &Hooked, k: &Kit) -> El {

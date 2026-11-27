@@ -1,4 +1,4 @@
-//! The web's `modules/flows/lib/flows.js`, the parts the native Flows page needs: the pipeline's columns
+//! The web's `extensions/flows/lib/flows.js`, the parts the native Flows page needs: the pipeline's columns
 //! (a stage's depth in the graph) and how a stage or a run reads at a glance.
 
 use serde_json::Value;

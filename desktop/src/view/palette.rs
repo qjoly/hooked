@@ -66,15 +66,8 @@ pub fn commands(s: &Hooked) -> Vec<Cmd> {
         cmd(nav, &icons::BOOK, "Go to Digest", "⌥5", |s, _| {
             s.go(Page::Digest)
         }),
-
-        cmd(nav, &icons::GITHUB, "Go to GitHub", "⌥7", |s, _| {
-            s.go(Page::GitHub)
-        }),
         cmd(nav, &icons::ZAP, "Go to Skills", "", |s, _| {
             s.go(Page::Skills)
-        }),
-        cmd(nav, &icons::WORKFLOW, "Go to Flows", "", |s, _| {
-            s.go(Page::Flows)
         }),
         cmd(nav, &icons::BOOK, "Go to Prompts", "", |s, _| {
             s.go(Page::Prompts)
@@ -127,13 +120,19 @@ pub fn commands(s: &Hooked) -> Vec<Cmd> {
             s.set_corners(Corners::Sharp)
         }),
     ]);
-    if s.incidents_on() {
-        out.insert(
-            7,
-            cmd(nav, &icons::SIREN, "Go to Incidents", "⌥8", |s, _| {
-                s.go_incidents()
-            }),
-        );
+    // The extensions' pages, from the service's list: a page switched off has no entry.
+    for ((_, _, label, icon, page), _) in crate::extensions::nav_entries(&s.ext.list) {
+        if page == Page::Incidents && !s.incidents_on() {
+            continue;
+        }
+        let keys = match page {
+            Page::GitHub => "⌥7",
+            Page::Incidents => "⌥8",
+            _ => "",
+        };
+        let mut c = cmd(nav, icon, format!("Go to {label}"), keys, |_, _| {});
+        c.page = Some(page);
+        out.push(c);
     }
     #[cfg(feature = "knobs")]
     out.push(cmd(
@@ -357,17 +356,6 @@ pub fn commands(s: &Hooked) -> Vec<Cmd> {
             }
         },
     ));
-    for e in s.ext.list.iter().filter(|e| e.view_route().is_some() && e.enabled) {
-        let mut c = cmd(nav, crate::extview::icon_named(&e.icon), format!("Go to {}", e.label), "", |_, _| {});
-        c.page = Some(crate::extview::page_of(&e.id));
-        out.push(c);
-    }
-    // A module switched off in Settings → Modules takes its page out of the palette.
-    out.retain(|c| match c.label.as_str() {
-        "Go to GitHub" => s.module_on("github"),
-        "Go to Flows" => s.module_on("flows"),
-        _ => true,
-    });
     out
 }
 

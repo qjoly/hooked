@@ -81,7 +81,7 @@ pub fn view(s: &Hooked, cx: &mut Cx<Hooked>) -> El {
     s.drop_live.borrow_mut().clear();
     let mut layer = Vec::new();
     let main = match s.page {
-        p if !s.page_on(p) => pages::module_off(&k, p),
+        p if !s.page_on(p) => pages::extension_off(s, &k, p),
         Page::Deck => deck::view(s, &k),
         Page::Session => session::view(s, &k, &mut layer),
         Page::New => new_session::view(s, &k, &mut layer),
@@ -207,29 +207,22 @@ impl Shadows for El {
     }
 }
 
-type NavPage = (&'static str, &'static str, &'static str, &'static Icon, Page);
+use crate::extensions::NavPage;
 
-/// The pages the top bar can show next to Deck and Sessions: (settings key, element key, label,
-/// icon, page), with their place among the tabs.
-const NAV_PAGES: [(NavPage, f64); 8] = [
+/// The core pages the top bar can show next to Deck and Sessions, with their place among the
+/// tabs; the extensions' pages slot in by their `page.order`.
+const NAV_PAGES: [(NavPage, f64); 5] = [
     (("stats", "tb-stats", "Stats", &icons::CHART, Page::Stats), 20.0),
     (("digest", "tb-digest", "Digest", &icons::BOOK, Page::Digest), 30.0),
     (("memory", "tb-memory", "Memory", &icons::BRAIN, Page::Memory), 40.0),
-    (("flows", "tb-flows", "Flows", &icons::WORKFLOW, Page::Flows), 90.0),
-    (("github", "tb-github", "GitHub", &icons::GITHUB, Page::GitHub), 91.0),
-    (("incidents", "tb-incidents", "Incidents", &icons::SIREN, Page::Incidents), 92.0),
     (("skills", "tb-skills", "Skills", &icons::SPARKLE, Page::Skills), 93.0),
     (("prompts", "tb-prompts", "Prompts", &icons::BOOK, Page::Prompts), 100.0),
 ];
 
-/// The core pages and the extensions' declarative pages, by their `page.order`.
-fn nav_pages(s: &Hooked) -> Vec<NavPage> {
-    use crate::extview::{icon_named, intern, page_of};
+/// The core pages and the active extensions' pages, by their `page.order`.
+pub(crate) fn nav_pages(s: &Hooked) -> Vec<NavPage> {
     let mut all: Vec<(NavPage, f64)> = NAV_PAGES.to_vec();
-    for e in s.ext.list.iter().filter(|e| e.view_route().is_some()) {
-        let Some(key) = e.page_key() else { continue };
-        all.push(((intern(key), intern(&format!("tb-ext-{key}")), intern(&e.label), icon_named(&e.icon), page_of(&e.id)), e.order()));
-    }
+    all.extend(crate::extensions::nav_entries(&s.ext.list));
     all.sort_by(|a, b| a.1.total_cmp(&b.1));
     all.into_iter().map(|(p, _)| p).collect()
 }
@@ -488,8 +481,8 @@ fn topbar(s: &Hooked, k: &Kit, inset: f32, layer: &mut Vec<El>) -> El {
     let (shown, hidden): (Vec<_>, Vec<_>) = nav_pages(s)
         .into_iter()
         .filter(|t| t.4 != Page::Incidents || s.incidents_on() || s.page == Page::Incidents)
-        // A module switched off in Settings → Modules takes its page away.
-        .filter(|t| s.page_on(t.4) || (s.page == t.4 && !matches!(t.4, Page::Ext(_))))
+        // An extension switched off in Settings → Extensions takes its page away.
+        .filter(|t| s.page_on(t.4))
         // Memory = ~/.claude (Claude only): no tab, not even in More, without the claude provider.
         .filter(|t| t.4 != Page::Memory || s.providers.claude_account())
         .partition(|t| s.nav_tab(t.0) || s.page == t.4);

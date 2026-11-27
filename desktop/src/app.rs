@@ -307,7 +307,7 @@ pub struct Hooked {
 
     pub lens_data: crate::lenses::LensData,
     pub pages: crate::pages::PageData,
-    pub ext: crate::extview::ExtState,
+    pub ext: crate::extensions::ExtState,
     pub inc: crate::incidents::Incidents,
     pub ghw: crate::ghwatch::GhWatch,
     pub announced: Option<HashSet<String>>,
@@ -611,7 +611,7 @@ impl Hooked {
             focus: false,
             lens_data: crate::lenses::LensData::default(),
             pages: crate::pages::PageData::default(),
-            ext: crate::extview::ExtState::default(),
+            ext: crate::extensions::ExtState::default(),
             inc: crate::incidents::Incidents::new(
                 incidents_hidden,
                 incident_teams.into_iter().collect(),
@@ -653,7 +653,7 @@ impl Hooked {
             s.lens_data.diff.set_mode(rune_kit::diff::DiffMode::Split);
         }
         if let Ok(v) = api::get("/api/extensions") {
-            s.ext.list = serde_json::from_value(v["extensions"].clone()).unwrap_or_default();
+            s.ext.apply(&v);
             s.ext.list_at = fmt::now_ms();
         }
         if let Ok(v) = api::get("/api/settings") {
@@ -663,9 +663,7 @@ impl Hooked {
                 "stats" => Page::Stats,
                 "digest" => Page::Digest,
                 "memory" => Page::Memory,
-                "github" => Page::GitHub,
                 "skills" => Page::Skills,
-                "flows" => Page::Flows,
                 "prompts" => Page::Prompts,
                 other => s.ext_page_for(other).unwrap_or(Page::Deck),
             };
@@ -820,6 +818,9 @@ impl Hooked {
         if args.iter().any(|a| a == "--more-menu") {
             s.popup = Some(Popup::More);
         }
+        if args.iter().any(|a| a == "--nav-menu") {
+            s.popup = Some(Popup::Nav);
+        }
         if args.iter().any(|a| a == "--model-menu") {
             s.popup = Some(Popup::Model);
         }
@@ -884,9 +885,6 @@ impl Hooked {
                 Some("stats") => Page::Stats,
                 Some("digest") => Page::Digest,
                 Some("memory") => Page::Memory,
-                Some("flows") => Page::Flows,
-                Some("github") => Page::GitHub,
-                Some("incidents") => Page::Incidents,
                 Some("skills") => Page::Skills,
                 Some("settings") => Page::Settings,
                 Some("prompts") => Page::Prompts,
@@ -2802,17 +2800,12 @@ pub fn composer_changed(&mut self) {
         self.provider_filter = next_provider_filter(self.provider_filter.as_deref(), &self.providers.enabled_ids());
     }
 
-    /// Whether a module of the service is on (Settings → Modules, `settings.modules`). A module
-    /// the settings do not name is on.
-    pub fn module_on(&self, id: &str) -> bool {
-        self.setting("modules")[id].as_bool() != Some(false)
-    }
-
-    /// Whether `page` can be shown: a page that belongs to a module needs that module on.
+    /// Whether `page` can be shown: a page that belongs to an extension needs that extension on,
+    /// and a declarative one needs it listed too (its view comes from the service).
     pub fn page_on(&self, page: Page) -> bool {
         match page {
-            Page::Ext(id) => self.ext_info(id).is_some_and(|e| e.enabled),
-            _ => page_module(page).is_none_or(|m| self.module_on(m)),
+            Page::Ext(id) => self.ext_info(id).is_some_and(|e| e.active),
+            _ => crate::extensions::page_extension(page).is_none_or(|id| self.extension_on(id)),
         }
     }
 
@@ -3065,16 +3058,6 @@ const ANNOUNCE_WINDOW_MS: i64 = 10 * 60_000;
 /// restarted and resumed keeps its old timestamp and is not re-announced.
 fn recently_active(s: &Session, now: i64) -> bool {
     fmt::age_ms(s.last_activity.as_deref(), now).is_some_and(|age| age < ANNOUNCE_WINDOW_MS)
-}
-
-/// The module of the service a page belongs to (modules/index.js on the server), if any.
-pub fn page_module(page: Page) -> Option<&'static str> {
-    match page {
-        Page::Flows => Some("flows"),
-        Page::GitHub => Some("github"),
-        Page::Incidents => Some("incidents"),
-        _ => None,
-    }
 }
 
 #[cfg(test)]

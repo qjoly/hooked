@@ -1,4 +1,4 @@
-use rune::{Color, Cursor, El, Icon, Tx, col, el, row, text};
+use rune::{Color, Cursor, El, Icon, TextEdit, Tx, col, el, row, text};
 use rune_kit::shell::{Sidebar, SidebarRow};
 use rune_kit::{
     Button, ButtonVariant, ControlSize, IconButton, IconButtonVariant, Kit, Switch, TextInput,
@@ -8,18 +8,17 @@ use serde_json::{Value, json};
 use super::pages::{loading, page, scroll};
 use super::section_title;
 use crate::app::{Hooked, Theme};
+use crate::extensions::{SettingsForm, intern};
 use crate::theme::{ColorScheme, Corners};
 use crate::{fmt, icons};
 
-const NAV: [(&str, &str); 9] = [
+/// The core pages; the extensions' pages come from the service (`nav_keys`).
+const NAV: [(&str, &str); 6] = [
     ("sessions", "Sessions"),
     ("stats", "Stats"),
     ("digest", "Digest"),
     ("memory", "Memory"),
-    ("github", "GitHub"),
-    ("incidents", "Incidents"),
     ("skills", "Skills"),
-    ("flows", "Flows"),
     ("prompts", "Prompts"),
 ];
 const EDITORS: [(&str, &str); 6] = [
@@ -43,7 +42,7 @@ static SECTIONS: [(&str, &str, &Icon); 13] = [
     ("set-term", "Terminal", &icons::TERMINAL),
     ("set-keys", "Keyboard shortcuts", &icons::ZAP),
     ("set-maint", "Maintenance", &icons::TOOL),
-    ("set-modules", "Modules", &icons::PLUG),
+    ("set-extensions", "Extensions", &icons::PLUG),
     ("set-flags", "Feature flags", &icons::SPARKLE),
 ];
 const FEATURE_FLAGS: [(&str, &str, &str); 2] = [
@@ -65,6 +64,11 @@ const MENU: [(&str, &str); 2] = [
     ("modelEffort", "Model and effort"),
     ("permissionMode", "Permission mode"),
 ];
+
+/// (nav key, label) of the active extensions' pages.
+fn nav_keys(s: &Hooked) -> impl Iterator<Item = (&'static str, &'static str)> {
+    crate::extensions::nav_entries(&s.ext.list).into_iter().map(|((key, _, label, _, _), _)| (key, label))
+}
 
 fn card(k: &Kit, key: &str, title: &str) -> El {
     col()
@@ -254,36 +258,65 @@ fn flag(v: &Value, key: &str) -> bool {
     v[key].as_bool().unwrap_or(false)
 }
 
-/// The service's modules (modules/index.js on the server): id, title, what it brings. Each one is
-/// switched as a whole: page, background work and the tools sessions get.
-const MODULES: [(&str, &str, &str, &str); 3] = [
-    ("github", "module-github", "GitHub", "The GitHub page, PR watches that wake a session, and PR review tags."),
-    ("incidents", "module-incidents", "incident.io", "Incidents from the incident.io desktop app."),
-    ("flows", "module-flows", "Flows", "Pipelines of driven sessions, walked like a CI pipeline."),
-];
-
-fn modules_card(s: &Hooked, k: &Kit) -> El {
-    let mut c = card(k, "set-modules", "MODULES");
-    for &(id, key, title, hint) in &MODULES {
-        let on = s.module_on(id);
-        c = c.child(line(
-            k,
-            title,
-            hint,
-            toggle(k, key, on, move |s| s.save_nested("modules", id, json!(!on))),
-        ));
-    }
-    // Extensions load at runtime: their rows come from the service, not from this table.
+/// Settings → Extensions: one row per extension the service lists, with its declarative settings
+/// underneath, then what it could not load.
+fn extensions_card(s: &Hooked, k: &Kit) -> El {
+    let note = |msg: String, color: Color| text(msg).font(k.ty.text_xsmall).color(color).wrap().w_full();
+    let mut c = card(k, "set-extensions", "EXTENSIONS").child(note("Installs and updates go through the launcher.".into(), k.c.text_faint));
     for e in &s.ext.list {
-        let (id, on) = (crate::extview::intern(&e.id), e.enabled);
-        c = c.child(line(
-            k,
-            &e.label,
-            &e.description,
-            toggle(k, crate::extview::intern(&format!("ext-{id}")), on, move |s| s.set_extension_enabled(id, !on)),
-        ));
+        let (id, on) = (intern(&e.id), e.enabled);
+        let hint = [e.description.clone(), e.provenance()].into_iter().filter(|x| !x.is_empty()).collect::<Vec<_>>().join("\n");
+        c = c
+            .child(line(k, &e.label, &hint, toggle(k, intern(&format!("ext-{id}")), on, move |s| s.set_extension_enabled(id, !on))))
+            .children((on && !e.active).then(|| note("On, but not available on this machine: no page, no background work.".into(), k.c.warning.fg)))
+            .children(e.errors.iter().map(|x| note(x.as_str().map_or_else(|| x.to_string(), str::to_string), k.c.danger.fg)));
+        if let Some(form) = s.ext.settings.get(id) {
+            c = c.child(col().w_full().pl(20.0).children(form.schema.iter().map(|f| extension_setting(k, id, form, f))));
+        }
     }
-    c
+    let named = |v: &Value, what: &str| format!("{} · {}", v["id"].as_str().unwrap_or("?"), v[what].as_str().unwrap_or(""));
+    c.children(s.ext.rejected.iter().map(|r| note(format!("Not loaded: {}", named(r, "error")), k.c.danger.fg)))
+        .children(s.ext.pending.iter().map(|p| note(named(p, "state"), k.c.text_muted)))
+}
+
+/// One declarative setting, rendered by its type. Switches and choices save at once, text fields
+/// on Enter.
+fn extension_setting(k: &Kit, id: &'static str, form: &SettingsForm, f: &Value) -> El {
+    let (kind, key) = (f["type"].as_str().unwrap_or(""), intern(f["key"].as_str().unwrap_or("")));
+    let label = f["label"].as_str().unwrap_or(key);
+    let mut hint = f["hint"].as_str().unwrap_or("").to_string();
+    if let (Some(min), Some(max)) = (f["min"].as_f64(), f["max"].as_f64()) {
+        hint = format!("{hint} From {min} to {max}.").trim().to_string();
+    }
+    let el_key = intern(&format!("ext-{id}-{key}"));
+    let value = &form.values[key];
+    let control = match (kind, form.drafts.get(key)) {
+        ("bool", _) => {
+            let on = value.as_bool().unwrap_or(false);
+            line(k, label, &hint, toggle(k, el_key, on, move |s| s.save_extension_setting(id, key, json!(!on))))
+        }
+        ("select", _) => {
+            let options = f["options"].as_array().into_iter().flatten().map(|o| {
+                let v = o["value"].clone();
+                let name = o["label"].as_str().or(v.as_str()).unwrap_or("").to_string();
+                chip(k, format!("{el_key}-{name}"), name, *value == v, move |s| s.save_extension_setting(id, key, v.clone()))
+            });
+            block(k, label, &hint, chips(options.collect()))
+        }
+        (_, Some(draft)) => {
+            let input = TextInput::new(draft)
+                .width(Some(280.0))
+                .placeholder(f["placeholder"].as_str().unwrap_or(if kind == "list" { "a, b, c" } else { "" }).to_string())
+                .on_edit(move |s: &mut Hooked| s.ext.settings.entry(id.into()).or_default().drafts.entry(key.into()).or_insert_with(|| TextEdit::new(String::new())))
+                .on_submit(move |s: &mut Hooked, _| s.submit_extension_setting(id, key))
+                .build(k)
+                .key(el_key);
+            line(k, label, format!("{hint} Enter saves.").trim_start(), input)
+        }
+        _ => line(k, label, "This setting needs a newer hooked desktop app.", el()),
+    };
+    let error = form.errors.get(key).map(|e| text(e.clone()).font(k.ty.text_xsmall).color(k.c.danger.fg).wrap());
+    col().w_full().child(control).children(error)
 }
 
 fn flags_card(s: &Hooked, k: &Kit, v: &Value) -> El {
@@ -499,7 +532,7 @@ fn app_card(s: &Hooked, k: &Kit, v: &Value) -> El {
             k,
             "Navigation",
             "Which pages get a tab in the top bar. The others stay one search away (⌘K).",
-            chips(NAV.iter().filter(|&&(key, _)| !MODULES.iter().any(|m| m.0 == key) || s.module_on(key)).copied().chain(crate::extview::nav_keys(s)).map(|(key, label)| chip(k, format!("nav-{key}"), label.into(), nav_on.iter().any(|x| x == key), move |s| s.toggle_in_list("navTabs", key))).collect()),
+            chips(NAV.iter().copied().chain(nav_keys(s)).map(|(key, label)| chip(k, format!("nav-{key}"), label.into(), nav_on.iter().any(|x| x == key), move |s| s.toggle_in_list("navTabs", key))).collect()),
         ))
         .child(block(
             k,
@@ -508,6 +541,7 @@ fn app_card(s: &Hooked, k: &Kit, v: &Value) -> El {
             chips(
                 std::iter::once(("deck", "Deck"))
                     .chain(NAV.iter().copied())
+                    .chain(nav_keys(s))
                     .map(|(key, label)| chip(k, format!("home-{key}"), label.into(), home == key, move |s| s.save_setting("defaultPage", json!(key))))
                     .collect(),
             ),
@@ -1482,7 +1516,7 @@ pub fn view(s: &Hooked, k: &Kit) -> El {
         terminal_card(s, k),
         shortcuts_card(s, k),
         maintenance_card(s, k, v),
-        modules_card(s, k),
+        extensions_card(s, k),
         flags_card(s, k, v),
     ];
     let [_, view_h] = s.pages.settings_view;

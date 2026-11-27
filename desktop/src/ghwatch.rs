@@ -178,7 +178,7 @@ impl Hooked {
 
     /// Runs with the app, page open or not.
     pub fn poll_gh_watch(&mut self, now: i64) {
-        if self.handle.is_none() || self.ghw.busy || now - self.ghw.checked_at < POLL_MS || !self.module_on("github") {
+        if self.handle.is_none() || self.ghw.busy || now - self.ghw.checked_at < POLL_MS || !self.extension_on("github") {
             return;
         }
         self.ghw.busy = true;

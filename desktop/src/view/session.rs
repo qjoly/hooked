@@ -596,6 +596,20 @@ fn more_menu(s: &Hooked, d: &Detail, k: &Kit, layer: &mut Vec<El>) -> El {
         })
     })
     .separator();
+    let actions = crate::extensions::session_actions(&s.ext.list, x.live);
+    let empty = actions.is_empty();
+    let m = actions.into_iter().fold(m, |m, (ext, a)| {
+        let (ext, post, id) = (ext.to_string(), a["post"].as_str().unwrap_or("").to_string(), x.id.clone());
+        m.item(
+            MenuItem::new(a["label"].as_str().unwrap_or(&post).to_string())
+                .icon(crate::extensions::icon_named(a["icon"].as_str().unwrap_or("")))
+                .on_select(move |s: &mut Hooked| {
+                    s.popup = None;
+                    s.run_session_action(&ext, &post, &id);
+                }),
+        )
+    });
+    let m = if empty { m } else { m.separator() };
     // An editor would open on the machine the session runs on: not offered for a remote one.
     let m = if x.remote.is_none() {
         m.item(
