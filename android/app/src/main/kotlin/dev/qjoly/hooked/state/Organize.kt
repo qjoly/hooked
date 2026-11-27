@@ -52,11 +52,25 @@ enum class Section(val label: String) { WAITING("Waiting"), WORKING("Working"), 
 fun sectionOf(u: GroupUnit, meta: Map<String, Meta>, now: Long): Section {
     if (u.all.all { isArchived(it, meta, now) }) return Section.ARCHIVED
     val awake = u.all.filter { !isArchived(it, meta, now) && !isSnoozed(it, meta, now) }
+    // A group with any member still at work is working: a mother waiting on her children's
+    // results isn't waiting on you yet.
     return when {
         awake.isEmpty() -> Section.SNOOZED
-        awake.any { it.needsYou } -> Section.WAITING
         awake.any { it.state == SessionState.WORKING || it.state == SessionState.BACKGROUND } -> Section.WORKING
+        awake.any { it.needsYou } -> Section.WAITING
         else -> Section.IDLE
+    }
+}
+
+/** The member whose state a folded group wears, with [sectionOf]'s precedence: a member at work
+ *  before a pending decision. Ties go to the earliest member, so the lead by default. */
+fun groupFace(u: GroupUnit): Session = u.all.minBy {
+    when {
+        it.state == SessionState.WORKING -> 0
+        it.state == SessionState.BACKGROUND -> 1
+        it.needsYou -> 2
+        it.state == SessionState.ENDED || it.state == SessionState.PAST -> 4
+        else -> 3
     }
 }
 

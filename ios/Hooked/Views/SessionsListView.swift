@@ -38,7 +38,10 @@ struct SessionsListView: View {
             let kids = members.filter { $0.id != mother.id }
                 .sorted { (rank.firstIndex(of: $0.id) ?? .max) < (rank.firstIndex(of: $1.id) ?? .max) }
             let unit = SessionUnit(mother: mother, children: kids)
-            switch unit.all.compactMap({ bucket($0, cutoff: cutoff) }).min() {
+            // A group with any member still at work is working: a mother waiting on her
+            // children's results isn't waiting on you yet.
+            let busy = unit.all.contains { $0.state == .working || $0.state == .background }
+            switch busy ? 1 : unit.all.compactMap({ bucket($0, cutoff: cutoff) }).min() {
             case 0: g.0.append(unit)
             case 1: g.1.append(unit)
             case 2: g.2.append(unit)

@@ -55,6 +55,7 @@ import dev.qjoly.hooked.state.Section
 import dev.qjoly.hooked.state.SessionUi
 import dev.qjoly.hooked.state.agoShort
 import dev.qjoly.hooked.state.cacheLeft
+import dev.qjoly.hooked.state.groupFace
 import dev.qjoly.hooked.state.isArchived
 import dev.qjoly.hooked.state.isSnoozed
 import dev.qjoly.hooked.state.of
@@ -396,14 +397,14 @@ private fun FlatOrProject(app: AppModel, lists: Lists, showArchived: Boolean, mo
 private fun UnitRows(app: AppModel, lists: Lists, u: GroupUnit, openModal: (SidebarModal) -> Unit) {
     val folded = u.lead.id in app.prefs.foldedGroups
     Column(verticalArrangement = Arrangement.spacedBy(2.dp), modifier = Modifier.padding(bottom = 2.dp)) {
-        SessionRow(app, lists, u.lead, 0, if (u.children.isEmpty()) null else if (folded) "+${u.children.size}" else "${u.children.size + 1}", isLead = u.children.isNotEmpty(), openModal = openModal)
+        SessionRow(app, lists, u.lead, 0, if (u.children.isEmpty()) null else if (folded) "+${u.children.size}" else "${u.children.size + 1}", isLead = u.children.isNotEmpty(), face = if (folded) groupFace(u) else u.lead, openModal = openModal)
         if (!folded) u.children.forEach { SessionRow(app, lists, it, 1, null, isLead = false, openModal = openModal) }
     }
 }
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun SessionRow(app: AppModel, lists: Lists, s: Session, depth: Int, groupPill: String?, isLead: Boolean, openModal: (SidebarModal) -> Unit) {
+private fun SessionRow(app: AppModel, lists: Lists, s: Session, depth: Int, groupPill: String?, isLead: Boolean, face: Session = s, openModal: (SidebarModal) -> Unit) {
     val c = k.c
     val now = lists.now
     val meta = lists.meta
@@ -449,13 +450,14 @@ private fun SessionRow(app: AppModel, lists: Lists, s: Session, depth: Int, grou
                         groupPill?.let { Pill(it, c.muted, c.chip) }
                     }
                     Text(detail(app, s, snoozed, now), style = k.ty.textXsmall, color = c.faint, maxLines = 1)
+                    // A folded group's mark (`face`) stands for the children it hides.
                     Box(Modifier.width(14.dp), contentAlignment = Alignment.Center) {
                         when {
                             archived -> {}
                             snoozed -> KIcon(Lucide.Snooze, c.muted, 12.dp)
-                            s.state == SessionState.WORKING -> Spinner(12.dp)
-                            s.needsYou -> Dot(c.warning.hue, 7.dp)
-                            else -> Dot(c.stateColor(s.state.name.lowercase()), 6.dp)
+                            face.state == SessionState.WORKING -> Spinner(12.dp)
+                            face.needsYou -> Dot(c.warning.hue, 7.dp)
+                            else -> Dot(c.stateColor(face.state.name.lowercase()), 6.dp)
                         }
                     }
                 }
