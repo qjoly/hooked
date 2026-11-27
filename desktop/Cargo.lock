@@ -1741,7 +1741,7 @@ dependencies = [
 name = "hooked-rune"
 version = "0.1.0"
 dependencies = [
- "base64 0.22.1",
+ "base64 0.23.1",
  "hooked-ui",
  "libc",
  "libghostty-vt",
