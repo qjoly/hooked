@@ -45,7 +45,7 @@ frame-profile = ["rune/frame-profile", "rune-kit/frame-profile"]
 knobs = ["rune-knobs/panel", "dep:rune-register", "hooked-ui/knobs"]
 
 [target.'cfg(target_os = "macos")'.dependencies]
-tray-icon = "0.21"
+tray-icon = "0.27"
 
 # Rune builds these crates from its own patched copies, and Cargo does not inherit a dependency's
 # `[patch]`. Copy the `[patch.crates-io]` table of Rune's root Cargo.toml, at the commit Cargo.lock
