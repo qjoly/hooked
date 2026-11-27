@@ -276,6 +276,9 @@ pub struct Session {
     pub last_prompt: Option<String>,
     pub last_reply: Option<String>,
     pub model: Option<String>,
+    /// The model the session was last launched or switched to, which the service knows before the
+    /// transcript does: a session just moved to another account still shows the old one in `model`.
+    pub launch_model: Option<String>,
     pub effort: Option<String>,
     pub cost: Option<f64>,
     pub has_question: bool,

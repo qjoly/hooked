@@ -386,7 +386,7 @@ fn more_menu(s: &Hooked, d: &Detail, k: &Kit, layer: &mut Vec<El>) -> El {
     let popts = s.opts_for(&pid).clone();
     if x.live {
         let is_pi = !pinfo.is_claude();
-        let current = x.model.clone().unwrap_or_default();
+        let current = s.model_of(x);
         // A session on a server picks among that server's models, and has no effort levels.
         let profile = x.profile.as_ref().filter(|_| x.remote.is_none()).map(|p| p.id.clone());
         let on_server = !is_pi && s.is_server(profile.as_deref());

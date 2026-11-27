@@ -100,6 +100,23 @@ pub fn move_session(
     .map(|_| ())
 }
 
+/// The model a session runs, as a picker has to mark it. The transcript's last answer says
+/// `current`, and it is stale right after a move to another account or server (the old side's model
+/// until the next turn), while `launch` is what the service resumed it with. `server_models` is the
+/// list of the session's server when it is on one.
+pub fn model_key(current: &str, launch: Option<&str>, server_models: Option<&[String]>) -> String {
+    let Some(launch) = launch.filter(|l| !l.is_empty()) else {
+        return current.to_string();
+    };
+    let current_fits = match server_models {
+        Some(models) if !models.is_empty() => models.iter().any(|m| m == current),
+        // A server whose models are not known: any model that is not a Claude one is its own.
+        Some(_) => !current.is_empty() && !current.starts_with("claude"),
+        None => current.starts_with("claude"),
+    };
+    if current_fits { current } else { launch }.to_string()
+}
+
 /// `?profile=` of a request scoped to an account; nothing for the main one.
 pub fn query(profile: Option<&str>) -> String {
     profile.map_or_else(String::new, |p| format!("profile={}", api::enc(p)))
@@ -124,6 +141,19 @@ impl Hooked {
         self.session(session)
             .filter(|x| x.remote.is_none())
             .and_then(|x| x.profile.clone())
+    }
+
+    /// The model of a session for its pickers and its fork (see [`model_key`]).
+    pub fn model_of(&self, x: &crate::api::Session) -> String {
+        let profile = x.profile.as_ref().filter(|_| x.remote.is_none());
+        let server = profile
+            .filter(|p| p.compatible())
+            .map(|p| self.models_for(Some(&p.id)).into_iter().map(|(id, _)| id).collect::<Vec<_>>());
+        model_key(
+            x.model.as_deref().unwrap_or(""),
+            x.launch_model.as_deref(),
+            server.as_deref(),
+        )
     }
 
     /// The account new sessions start on (account window → "Use for new sessions"), as the
@@ -500,6 +530,27 @@ mod tests {
         assert!(off.profile.is_none());
         let old: crate::api::Session = api::decode(json!({ "id": "c" })).unwrap();
         assert!(old.profile.is_none());
+    }
+
+    #[test]
+    fn a_moved_session_shows_the_model_it_was_resumed_with() {
+        let qwen = ["qwen/qwen3-coder-30b".to_string()];
+        // Just moved from a server to a Claude account: the transcript still says qwen.
+        assert_eq!(model_key("qwen/qwen3-coder-30b", Some("sonnet"), None), "sonnet");
+        // After its first turn there it says Claude, which is kept as it is.
+        assert_eq!(model_key("claude-sonnet-5-5", Some("sonnet"), None), "claude-sonnet-5-5");
+        // The other way: a Claude transcript on a server.
+        assert_eq!(
+            model_key("claude-sonnet-5-5", Some("qwen/qwen3-coder-30b"), Some(&qwen)),
+            "qwen/qwen3-coder-30b"
+        );
+        assert_eq!(model_key("qwen/qwen3-coder-30b", Some("qwen/qwen3-coder-30b"), Some(&qwen)), "qwen/qwen3-coder-30b");
+        // A server that lists no models: what is not a Claude model is its own.
+        assert_eq!(model_key("qwen/x", Some("qwen/y"), Some(&[])), "qwen/x");
+        assert_eq!(model_key("claude-opus-4-8", Some("qwen/y"), Some(&[])), "qwen/y");
+        // Nothing launched yet: the transcript's.
+        assert_eq!(model_key("claude-opus-4-8", None, None), "claude-opus-4-8");
+        assert_eq!(model_key("claude-opus-4-8", Some(""), None), "claude-opus-4-8");
     }
 
     #[test]

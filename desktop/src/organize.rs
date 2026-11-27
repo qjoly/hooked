@@ -419,7 +419,7 @@ impl Hooked {
         prompt.focused = true;
         self.picker = Some(Picker::Fork {
             uuid,
-            model: d.session.model.clone(),
+            model: Some(self.model_of(&d.session)).filter(|m| !m.is_empty()),
             effort: d.session.effort.clone(),
             mode: "default".into(),
             prompt,
@@ -453,7 +453,7 @@ impl Hooked {
         let req = api::ForkRequest {
             fork_uuid,
             prompt: String::new(),
-            model: d.session.model.clone(),
+            model: Some(self.model_of(&d.session)).filter(|m| !m.is_empty()),
             effort: d.session.effort.clone(),
             permission_mode: None,
         };
