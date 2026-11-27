@@ -14,8 +14,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { scanAllSessions } from './sessions.js';
-import { launchSession, forkDriven, err400 } from './agent.js';
+import { launchSession, forkDriven, err400, profileOfSession } from './agent.js';
 import { engineForSession } from './providers.js';
+import { findProfile, modelToKeepOnFork } from './profiles.js';
 import { isIncognitoSession, setSessionMeta } from './sessionMeta.js';
 
 function safeParse(line) { try { return JSON.parse(line); } catch (_) { return null; } }
@@ -91,8 +92,11 @@ function forkSession({ id, forkUuid, prompt, model, effort, permissionMode }, cb
   try { fs.writeFileSync(newFile, lines.join('\n') + '\n'); }
   catch (e) { return cb(new Error('fork write failed: ' + (e.message || e))); }
 
-  // on reprend dans le dossier d'origine de la session (cwd conservé dans le préfixe copié).
-  launchSession({ resumeId: newId, cwd: sess.project, prompt, model, effort, permissionMode }, (err, info) => {
+  // on reprend dans le dossier d'origine de la session (cwd conservé dans le préfixe copié). The
+  // fork is a new session id with no launch record yet: it runs on the profile of the original.
+  const profileId = profileOfSession(id) || undefined;
+  const keepModel = modelToKeepOnFork(findProfile(profileId), sess.model);
+  launchSession({ resumeId: newId, cwd: sess.project, prompt, model: model || keepModel, effort, permissionMode, profile: profileId }, (err, info) => {
     if (err) {
       try { fs.unlinkSync(newFile); } catch (_) {} // nettoyage si le lancement échoue
       return cb(err);

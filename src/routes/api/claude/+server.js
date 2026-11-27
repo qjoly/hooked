@@ -1,11 +1,11 @@
 import { json } from '@sveltejs/kit';
-import { claudeVersionInfo, runUpgrade, restartSession } from '#lib/server/core.js';
+import { claudeVersionInfo, runUpgrade, restartSession, moveSession } from '#lib/server/core.js';
 import { ok, fail, toPromise, readJson } from '#lib/server/respond.js';
 
 // Version claude-code de l'installation locale + sessions live qui tournent une version plus
 // ancienne (cf. server/claudeUpdate.js). Tout est déclenché par l'utilisateur depuis les Réglages.
 // GET  → { install, installed, outdated }.
-// POST → { action: 'upgrade' } | { action: 'restart', id }.
+// POST → { action: 'upgrade' } | { action: 'restart', id } | { action: 'move', id, profile, model?, effort? }.
 export function GET() {
   return json(claudeVersionInfo());
 }
@@ -27,6 +27,17 @@ export async function POST({ request }) {
     if (!id || !/^[A-Za-z0-9._-]+$/.test(id)) return fail(400, 'invalid session id');
     const opts = { model: body.model || null, effort: body.effort || null };
     const { err, info } = await toPromise((cb) => restartSession(id, opts, cb));
+    if (err) return fail(err.code === 400 ? 400 : 502, err.message || String(err));
+    return ok(info);
+  }
+
+  if (action === 'move') {
+    // The session is resumed on another connection profile (account or server).
+    const id = body.id;
+    if (!id || !/^[A-Za-z0-9._-]+$/.test(id)) return fail(400, 'invalid session id');
+    if (typeof body.profile !== 'string' || !body.profile) return fail(400, 'profile required');
+    const opts = { profile: body.profile, model: body.model || null, effort: body.effort || null };
+    const { err, info } = await toPromise((cb) => moveSession(id, opts, cb));
     if (err) return fail(err.code === 400 ? 400 : 502, err.message || String(err));
     return ok(info);
   }

@@ -84,7 +84,8 @@ export const getMessageText = (id, uuid, agent = null) =>
 export const getFileChangeFull = (id, path) =>
   jget(`/api/session/file-changes?id=${encodeURIComponent(id)}&path=${encodeURIComponent(path)}`);
 // Usage « /usage » : rate limits du compte (5 h / 7 j) + contexte/effort de la session courante + budget 5 h.
-export const getUsage = () => jget('/api/usage');
+// `profile`: the gauges of a profile that has an account of its own (default: the main account's).
+export const getUsage = (profile) => jget('/api/usage' + (profile ? '?profile=' + encodeURIComponent(profile) : ''));
 // Flux SSE du log (.output) d'un job de fond, résolu côté serveur depuis (session, taskId).
 // `onSeed(b64)` = queue initiale, `onData(b64)` = octets ajoutés, `onUnavailable()` = pas de log.
 // Renvoie l'EventSource (appeler .close() pour arrêter).
@@ -124,6 +125,14 @@ export const reloadProviderEngines = () => jpost('/api/providers', { action: 're
 // entre toutes les instances du sélecteur. Reset en cas d'échec pour permettre un nouvel essai.
 let _capsPromise = null;
 export const getCapabilities = () => (_capsPromise ||= jget('/api/capabilities').catch((e) => { _capsPromise = null; throw e; }));
+// Connection profiles (profiles.json): { profiles: [{ id, label, kind, models, implicit }], errors }.
+// Not memoized: the file is read on every call server-side, and an edit should show up on the next
+// New session screen without a reload.
+export const getProfiles = () => jget('/api/profiles');
+// The models a compatible profile's server offers (its /v1/models): { models, error? }.
+// `{ action: 'add-account', label }`: a new profile with a Claude account of its own.
+export const profilesAction = (body) => jpost('/api/profiles', body);
+export const getProfileModels = (profile) => jget('/api/profiles/models?profile=' + encodeURIComponent(profile));
 // Réglages persistants de hooked (settings.json côté serveur, partagés entre navigateurs).
 export const getSettings = () => jget('/api/settings');
 export const saveSettings = (patch) => jpost('/api/settings', patch);
@@ -154,14 +163,17 @@ export const getSkills = (cwds, provider = 'all') => jget('/api/skills?provider=
 export const getSkill = (id, cwds, provider = 'all') => jget('/api/skills?id=' + encodeURIComponent(id) + '&provider=' + provider + cwdQuery(cwds));
 // MCP servers of a project (health-checked list, scope, diagnostics) + the OAuth actions.
 // `cwd` selects the project: project- and local-scope servers are per-directory.
-export const getMcpServers = (cwd, cached = false, provider = 'claude', check = false) => jget('/api/mcp?cwd=' + encodeURIComponent(cwd || '') + (cached ? '&cached=1' : '') + (provider && provider !== 'claude' ? '&provider=' + encodeURIComponent(provider) : '') + (check ? '&check=1' : ''));
+// `profile`: the account of a connection profile (its own servers and connectors, plus the servers
+// hooked adds for it) instead of the default account's. Claude only: another provider has no profiles.
+export const getMcpServers = (cwd, cached = false, provider = 'claude', check = false, profile = '') => jget('/api/mcp?cwd=' + encodeURIComponent(cwd || '') + (cached ? '&cached=1' : '') + (provider && provider !== 'claude' ? '&provider=' + encodeURIComponent(provider) : '') + (check ? '&check=1' : '') + (profile ? '&profile=' + encodeURIComponent(profile) : ''));
 // Trace lens: tool-call spans grouped by turn, and one span's input/result on demand.
 export const getTrace = (id) => jget('/api/session/trace?id=' + encodeURIComponent(id));
 export const getTraceTool = (id, tool) => jget('/api/session/trace?id=' + encodeURIComponent(id) + '&tool=' + encodeURIComponent(tool));
 export const mcpAction = (body) => jpost('/api/mcp', body);
 
 // Signed-in Claude account (top bar avatar/menu) + the `claude auth login`/`logout` actions.
-export const getAccount = () => jget('/api/account');
+// `profile`: the account of a connection profile that has one of its own (default: the main one).
+export const getAccount = (profile) => jget('/api/account' + (profile ? '?profile=' + encodeURIComponent(profile) : ''));
 export const accountAction = (body) => jpost('/api/account', body);
 
 export const getDigests = () => jget('/api/digest');
@@ -190,6 +202,9 @@ export const getClaudeVersion = () => jget('/api/claude');
 export const upgradeClaude = () => jpost('/api/claude', { action: 'upgrade' });
 // Redémarre une session (kill + `claude --resume <id>`) pour qu'elle reparte sur la version installée.
 export const restartClaudeSession = (id) => jpost('/api/claude', { action: 'restart', id });
+// Resume a Claude session on another connection profile (account or server). `model` is required when
+// either side is a compatible server; the server says so when it is missing.
+export const moveSession = (id, profile, model, effort) => jpost('/api/claude', { action: 'move', id, profile, model: model || undefined, effort: effort || undefined });
 
 export const reply = (id, text) => jpost('/api/reply', { id, text });
 // Run on a shell block Claude proposed: `onOutput` receives the output while the command runs.

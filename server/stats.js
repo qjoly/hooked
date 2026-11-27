@@ -10,9 +10,10 @@ import { engineForSession, providerConfigs } from './providers.js';
 import { repoSlug, worktreeOf } from './git.js';
 import { readEvents, lastEventBySession, lastActivityEventBySession, modeForSession, liveQuestionForSession, liveQuestionBySession, livePlanForSession, livePlanBySession, eventSessionMeta, rcSessionIdsFromEvents } from './events.js';
 import { liveStateFor } from './live.js';
-import { resolveLaunchForSession, agentAlive, agentSession, agentMode, agentAutoApprove, agentBusy, agentActivity, agentFollowup, agentLastProse, agentPendingAsk, agentCacheInfo } from './agent.js';
+import { profileOfSession, resolveLaunchForSession, agentAlive, agentSession, agentMode, agentAutoApprove, agentBusy, agentActivity, agentFollowup, agentLastProse, agentPendingAsk, agentCacheInfo } from './agent.js';
+import { loadProfiles, profileInfo, findProfile } from './profiles.js';
 import { sessionStatus, sessionStatusRaw, accountRateLimits, freshestStatusId } from './status.js';
-import { scopedLimit, accountLimit, currentUtilization, usageFreshness } from './utilization.js';
+import { scopedLimit, accountLimit, currentUtilization, usageFreshness, accountOf } from './utilization.js';
 import { buildFileChanges } from './changes.js';
 import { todoSummary } from './todos.js';
 import { buildBackgroundJobs, jobStatus, jobLabel } from './background.js';
@@ -148,8 +149,10 @@ function buildSessions() {
   const now = Date.now();
   const evMeta = eventSessionMeta();
   const meta = readSessionMeta();
+  const profiles = loadProfiles().profiles; // read once for the whole list, not once per session
   for (const s of visible) {
     fillFromEvents(s, evMeta.get(s.id));
+    s.profile = profileInfo(profileOfSession(s.id), profiles);
     s.group = groupInfo(s.id, meta);
     // dépôt GitHub (owner/repo) pour le regroupement sidebar ; null hors dépôt git.
     s.repo = repoSlug(s.project);
@@ -199,7 +202,7 @@ function buildSessions() {
     // de la boîte de saisie). Exposée dans la liste pour la proposer en quick action au Deck.
     s.followup = (agent && s.state !== 'working') ? agent.followup : null;
     // prompt-cache clock: the sidebar counts down how long the cache stays warm (cf. sessionCache)
-    s.cache = sessionCache(s, agent ? agentCacheInfo(s.id) : null);
+    s.cache = sessionCache(s, agent ? agentCacheInfo(s.id) : null, s.profile);
     // effort : vrai effort de la statusline (toutes sessions) en priorité, sinon résolution
     // persistée du lancement (survit à la fin de la session). modèle explicite idem.
     const li = resolveLaunchForSession(s.id);
@@ -290,13 +293,24 @@ function buildStats(rangeDays) {
 // The 5h / 7d buckets come from whichever source answered most recently: the freshest status
 // snapshot (statusline tap for a TUI session, server/agent-status.js for an SDK-driven one) or the
 // account usage payload. Freshness decides — an old snapshot must never outrank a live poll.
-function buildUsage() {
+// `profileId`: whose account the gauges are of; none = the default account. A profile with no account
+// of its own (a compatible server, a token in the env) has no gauges to show: `account` is null.
+function buildUsage(profileId = null) {
+  const profile = profileId && profileId !== 'default' ? findProfile(profileId) : null;
   const id = freshestStatusId();
   const session = id ? sessionStatus(id) : null;   // contexte/effort/modèle/fastMode + rateLimit
-  const rl = accountRateLimits();                  // le + frais AVEC rate_limits, toutes sessions
-  const util = currentUtilization();
+  // A profile with no account of its own has no limits to show, but the provider views of the top bar
+  // (pi usage…) still come with the response: they are not that profile's.
+  if (profile && !profile.configDir) {
+    const others = scanAllSessions();
+    return { sessionId: id, session, account: null, profile: profile.id, pi: buildPiUsage(others), providers: buildProviderUsage(others) };
+  }
+  const acct = accountOf(profile);
+  const rl = accountRateLimits(undefined, undefined, undefined, profile && profile.id); // le + frais de CE compte
+  const now = Date.now();
+  const util = currentUtilization(now, acct);
   const fable = scopedLimit('Fable', util);
-  const fresh = usageFreshness();
+  const fresh = usageFreshness(now, acct);
   const fromUsage = {
     fiveHour: accountLimit('session', util),
     sevenDay: accountLimit('weekly_all', util),
@@ -314,7 +328,7 @@ function buildUsage() {
     : null;
   const all = scanAllSessions();
   return {
-    sessionId: id, session, account,
+    sessionId: id, session, account, profile: profile ? profile.id : null,
     // Historical key (web TopBar, desktop): every pi-engine provider together.
     pi: buildPiUsage(all),
     // One entry per non-Claude provider that has sessions: cost / tokens of the day + freshest
@@ -392,7 +406,10 @@ function resolveBackgroundOutput(sessionId, taskId) {
 // Prompt-cache clock of a session (cf. src/lib/promptCache.js), for the UI to derive warm/cold and
 // the size of a cold resume. The registry knows a driven session's last request; the transcript's
 // last response stands in otherwise — ended session, or resumed with no request yet in this process.
-function sessionCache(s, live) {
+function sessionCache(s, live, profile = null) {
+  // A compatible server has no Anthropic prompt cache. Without this the clock would count down the
+  // default one hour for a session that has none, and the sidebar would show a warm cache.
+  if (profile && profile.kind === 'compatible') return null;
   const t = s.lastUsage || null;
   const fromTranscript = t ? { lastRequestAt: t.ts, ttl: t.ttl, contextTokens: t.contextTokens } : null;
   if (!live) return fromTranscript;
@@ -443,6 +460,7 @@ function buildSessionDetail(id) {
   const workflows = s.file ? call('workflows', []) : [];
   const todos = s.file ? call('todos', null) : null;
   const li = resolveLaunchForSession(id);
+  const profile = profileInfo(profileOfSession(id), loadProfiles().profiles);   // null on the default profile
   const agent = agentSession(id);
   const alive = !!agent;
   // Attente en cours. Le registre de l'Agent SDK est autoritaire quand la session est pilotée : la
@@ -519,14 +537,15 @@ function buildSessionDetail(id) {
     effort: (status && status.effort) || (li ? li.effort : null),
     model: (li && li.model && !s.model) ? li.model : s.model,
     launchModel: li ? li.model : null,   // forme courte (opus/sonnet…) pour relancer en conservant la config
+    profile,
     rateLimit: status ? status.rateLimit : null,   // vrais % 5 h / 7 j du compte (via statusline)
     // No statusline outside Claude: the engine computes the gauge from its own store.
     context: (status && status.context) ? status.context : call('context', null),
-    cache: sessionCache(s, alive ? agentCacheInfo(id) : null),   // prompt-cache clock (warm/cold, cold-resume size)
+    cache: sessionCache(s, alive ? agentCacheInfo(id) : null, profile),   // prompt-cache clock (warm/cold, cold-resume size)
     fastMode: status ? status.fastMode : false,
     events: ev, messages, subSessions, changes, subagents, workflows, screenshots,
     todos: todos ? todos.todos : [], todoTs: todos ? todos.ts : null,
   };
 }
 
-export { buildSessions, buildSessionsWarm, buildStats, buildUsage, buildPiUsage, buildProviderUsage, sessionDetail, sessionDetailWarm, eventOnlySessions, fillFromEvents, refineWithAgent, withBackgroundState, resolveBackgroundOutput };
+export { sessionCache, buildSessions, buildSessionsWarm, buildStats, buildUsage, buildPiUsage, buildProviderUsage, sessionDetail, sessionDetailWarm, eventOnlySessions, fillFromEvents, refineWithAgent, withBackgroundState, resolveBackgroundOutput };

@@ -1,8 +1,10 @@
 <script>
+  import { untrack } from 'svelte';
   import { MODE_OPTS, shortModel } from '#lib/format.js';
-  import { getCapabilities } from '#lib/api.js';
+  import { getCapabilities, getProfiles, getProfileModels } from '#lib/api.js';
   import { settings } from '#lib/state.svelte.js';
   import { filterModelGroups, filterModelOpts } from '#lib/models.js';
+  import { isCompatible, profileModelGroups } from '#lib/profiles.js';
   import Icon from '#lib/components/Icon.svelte';
   // `compact` : pilules en ligne (sous une chatbox) plutôt que le formulaire des modales.
   // `onchange` : callback appelé à chaque changement (sert au changement à chaud d'une session).
@@ -10,9 +12,11 @@
   // lancement d'une session. Absent du changement à chaud (qui a son propre sélecteur live).
   // `allowInherit` : ajoute une option « hériter » (valeur '') en tête de chaque sélecteur — sert
   // aux défauts de session (Réglages), où '' signifie « retomber sur la config Claude Code ».
+  // `profile` : id of the connection profile the model is for ('' = the default one). On a
+  // `compatible` profile the options are that server's models, and there is no effort to pick.
   // `modelOpts`/`effortList` : listes externes (provider pi → /api/pi-options) qui remplacent
   // les capacités Claude quand elles sont fournies.
-  let { model = $bindable('opus'), effort = $bindable('high'), mode = $bindable('default'), compact = false, showMode = false, allowInherit = false, onchange = null, disabled = false, modelOpts = null, effortList = null, modelOptsLabel = null, hiddenExtra = null } = $props();
+  let { profile = '', model = $bindable('opus'), effort = $bindable('high'), mode = $bindable('default'), compact = false, showMode = false, allowInherit = false, onchange = null, disabled = false, modelOpts = null, effortList = null, modelOptsLabel = null, hiddenExtra = null } = $props();
   const fire = () => onchange && onchange();
 
   // Modèles & efforts dérivés LIVE du binaire claude (cf. server/capabilities.js), chargés une fois
@@ -29,6 +33,35 @@
   // On garde toujours la valeur COURANTE affichable même si les listes ne sont pas (encore) chargées
   // ou ne la contiennent pas (ex. session sur une version épinglée hors bundle, ou 'ultracode' sur un
   // claude trop ancien) — sinon le <select> lié perdrait sa valeur.
+  // The profile object, from profiles.json (the id alone says nothing about its kind or models).
+  let profiles = $state([]);
+  $effect(() => {
+    if (!profile) return;
+    let alive = true;
+    getProfiles().then((r) => { if (alive) profiles = r.profiles || []; }).catch(() => {});
+    return () => { alive = false; };
+  });
+  const prof = $derived(profile ? profiles.find((p) => p.id === profile) || null : null);
+  const compatible = $derived(isCompatible(prof));
+  // A compatible profile that names no models gets them from its server's /v1/models.
+  let live = $state({ id: null, models: [], error: null });
+  $effect(() => {
+    const p = prof;
+    if (!isCompatible(p) || p.models.length) return;
+    let alive = true;
+    getProfileModels(p.id)
+      .then((r) => { if (alive) live = { id: p.id, models: r.models || [], error: r.error || null }; })
+      .catch((e) => { if (alive) live = { id: p.id, models: [], error: e.message || 'failed' }; });
+    return () => { alive = false; };
+  });
+  const profileModels = $derived(!compatible ? [] : prof.models.length ? prof.models : live.id === prof.id ? live.models : []);
+  const profileNote = $derived(compatible && !prof.models.length && live.id === prof.id ? live.error : null);
+  // An empty model on a compatible profile means "the first one the server offers": launching
+  // without one would fall back to the CLI's own default, a Claude name the server does not know.
+  $effect(() => {
+    if (compatible && !model && profileModels.length) untrack(() => { model = profileModels[0].id; });
+  });
+
   const effortBase = $derived(effortList || efforts);
   const effortOpts = $derived(effort && !effortBase.includes(effort) ? [effort, ...effortBase] : effortBase);
   // Filtre d'affichage des Réglages (liste noire, cf. src/lib/models.js) appliqué ICI et pas côté
@@ -45,6 +78,7 @@
       const has = opts.some(([v]) => v === model);
       return [{ label: modelOptsLabel || 'Models', opts: model && !has ? [[model, shortModel(model)], ...opts] : opts }];
     }
+    if (compatible) return profileModelGroups(profileModels, model);
     const has = visibleGroups.some((g) => g.opts.some(([v]) => v === model));
     if (model && !has) return [{ label: '', opts: [[model, shortModel(model)]] }, ...visibleGroups];
     return visibleGroups;
@@ -64,13 +98,16 @@
         {/each}
       </select>
     </span>
-    <span class="me-pill" title="Reasoning effort">
-      <span class="me-ico"><Icon name="effort" size={14} /></span>
-      <select bind:value={effort} onchange={fire} {disabled}>
-        {#if allowInherit}<option value="">Inherit</option>{/if}
-        {#each effortOpts as v}<option value={v}>{v}</option>{/each}
-      </select>
-    </span>
+    {#if !compatible}
+      <span class="me-pill" title="Reasoning effort">
+        <span class="me-ico"><Icon name="effort" size={14} /></span>
+        <select bind:value={effort} onchange={fire} {disabled}>
+          {#if allowInherit}<option value="">Inherit</option>{/if}
+          {#each effortOpts as v}<option value={v}>{v}</option>{/each}
+        </select>
+      </span>
+    {/if}
+    {#if profileNote}<span class="me-note" role="status" title="This profile lists no models, so they are read from its server"><Icon name="warning" size={13} /> {profileNote}</span>{/if}
     {#if showMode}
       <span class="me-pill" title="Permission mode at launch (claude --permission-mode)">
         <span class="me-ico"><Icon name="mode" size={14} /></span>
@@ -94,14 +131,17 @@
         {/each}
       </select>
     </div>
-    <div>
-      <label class="lf-label">Effort</label>
-      <select class="lf-input" bind:value={effort} onchange={fire} {disabled}>
-        {#if allowInherit}<option value="">Inherit</option>{/if}
-        {#each effortOpts as v}<option value={v}>{v}</option>{/each}
-      </select>
-    </div>
+    {#if !compatible}
+      <div>
+        <label class="lf-label">Effort</label>
+        <select class="lf-input" bind:value={effort} onchange={fire} {disabled}>
+          {#if allowInherit}<option value="">Inherit</option>{/if}
+          {#each effortOpts as v}<option value={v}>{v}</option>{/each}
+        </select>
+      </div>
+    {/if}
   </div>
+  {#if profileNote}<div class="me-note" role="status"><Icon name="warning" size={13} /> {profileNote}</div>{/if}
   {#if showMode}
     <div class="lf-mode">
       <label class="lf-label">Permission mode</label>

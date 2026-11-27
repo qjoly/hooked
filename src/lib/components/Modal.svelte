@@ -3,6 +3,7 @@
   import Icon from '#lib/components/Icon.svelte';
   import CostModal from './CostModal.svelte';
   import ForkModal from './ForkModal.svelte';
+  import MoveAccountModal from './MoveAccountModal.svelte';
   import TrashModal from './TrashModal.svelte';
   import EditTagsModal from './EditTagsModal.svelte';
   import ConfirmModal from './ConfirmModal.svelte';
@@ -53,6 +54,8 @@
           <CostModal r={ui.modal.data} />
         {:else if ui.modal.type === 'fork'}
           <ForkModal r={ui.modal.data} />
+        {:else if ui.modal.type === 'moveAccount'}
+          <MoveAccountModal r={ui.modal.data} />
         {:else if ui.modal.type === 'trash'}
           <TrashModal />
         {:else if ui.modal.type === 'editTags'}

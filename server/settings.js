@@ -79,6 +79,10 @@ const DEFAULTS = {
   // model filters, defaults, capability overrides) or declares a new one on an engine
   // (`{ engine: 'acp', command: 'gemini', args: ['--experimental-acp'] }`).
   providers: { claude: 'auto', pi: 'auto' },
+  // Compte (profil de connexion, cf. server/profiles.js) présélectionné dans « New session » et dont
+  // la barre du haut montre les jauges hors d'une session. '' = le compte principal. Un id qui n'existe
+  // plus est ignoré à la lecture côté interface, pas ici : le fichier de profils peut changer.
+  defaultProfile: '',
   // Projets pour lesquels le serveur hooked maintient un démon `claude remote-control` (mode serveur :
   // le projet devient un ENVIRONNEMENT lançable depuis l'app Claude). Liste de chemins absolus ; le serveur
   // réconcilie les process démons à cette liste (cf. server/remoteControl.js). [] = aucun.
@@ -164,6 +168,8 @@ function sanitize(raw) {
   // kept when they name an engine. defaultProvider: any configured id, else 'claude'.
   const providers = sanitizeProviders(o.providers);
   const defaultProvider = typeof o.defaultProvider === 'string' && providers[o.defaultProvider] ? o.defaultProvider : 'claude';
+  // defaultProfile : id de profil (même charset que profiles.json) ou '' (le compte principal).
+  const defaultProfile = typeof o.defaultProfile === 'string' && /^[a-z0-9][a-z0-9_-]{0,31}$/.test(o.defaultProfile) ? o.defaultProfile : '';
   // remoteControlProjects : liste de chemins absolus, dédupée et bornée (anti-abus : chaque démon
   // spawn un process claude). L'existence du dossier n'est PAS vérifiée ici (le disque peut varier) —
   // reconcileRemoteControl saute au lancement un chemin qui n'est plus un dossier.
@@ -270,6 +276,7 @@ function sanitize(raw) {
     quickLaunchProject,
     defaultProvider,
     providers,
+    defaultProfile,
     remoteControlProjects: rcProjects,
     favoriteProjects: favProjects,
     promptLibrary,
@@ -316,4 +323,4 @@ function writeSettings(patch) {
   return merged;
 }
 
-export { SETTINGS_FILE, DEFAULTS as SETTINGS_DEFAULTS, readSettings, writeSettings };
+export { SETTINGS_FILE, DEFAULTS as SETTINGS_DEFAULTS, readSettings, writeSettings, sanitize as sanitizeSettings };

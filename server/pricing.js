@@ -13,6 +13,11 @@ const PRICING = {
   haikuLegacy: { in: 0.8, out: 4 },    // Haiku 3.5 (retired)
   mistral: { in: 1.5, out: 7.5 },      // Mistral Medium 3.5 (alias par défaut de Pi) ; Large 4 ~ in 2 / out 8
 };
+// A model served by a compatible server (LM Studio…) runs on the user's own machine: it costs
+// nothing per token. Such ids carry a provider prefix (`qwen/qwen3-coder-30b`), which an Anthropic
+// id never does; a Claude family name still wins, so a Claude model reached through a gateway
+// (`anthropic/claude-opus-4-8`) stays priced. An unknown id with no prefix keeps the Opus fallback.
+const FREE = { in: 0, out: 0 };
 function priceFor(model) {
   const m = (model || '').toLowerCase();
   if (m.includes('fable') || m.includes('mythos')) return PRICING.fable;
@@ -28,6 +33,7 @@ function priceFor(model) {
     return PRICING.haiku;
   }
   if (m.includes('sonnet')) return PRICING.sonnet;
+  if (m.includes('/')) return FREE;
   return PRICING.opus;
 }
 

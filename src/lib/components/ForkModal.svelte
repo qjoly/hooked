@@ -7,7 +7,7 @@
 
   let { r } = $props();
   // pré-sélection : modèle/effort réels de la session d'origine (sinon valeurs par défaut).
-  let model = $state(r.model || 'opus');
+  let model = $state(r.model || (r.profile ? '' : 'opus'));
   let effort = $state(r.effort || 'high');
   let mode = $state('default'); // mode de permission au lancement (claude --permission-mode)
   let prompt = $state('');
@@ -40,7 +40,7 @@
     <span class="fork-from-who">{#if r.role === 'user'}<Icon name="user" size={13} /> your message{:else}<Icon name="bot" size={13} /> Claude's message{/if} — cut point</span>
     {#if r.snippet}<span class="fork-from-snip">{r.snippet}</span>{/if}
   </div>
-  <ModelEffort showMode bind:model bind:effort bind:mode />
+  <ModelEffort showMode profile={r.profile || ''} bind:model bind:effort bind:mode />
   <label class="lf-label">Message to send <span style="color:var(--muted);font-weight:400">(optional)</span></label>
   <textarea class="lf-input" rows="3" placeholder="New direction from this point…  (leave empty to just open the branch)" bind:value={prompt}></textarea>
   <div class="lf-actions">

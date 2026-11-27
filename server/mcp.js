@@ -33,6 +33,8 @@ import crypto from 'node:crypto';
 import { HOME } from './config.js';
 import { resolveClaudeBin } from './commands.js';
 import { loginEnv } from './agent.js';
+import { findProfile, sessionEnvFor, DEFAULT_PROFILE_ID } from './profiles.js';
+import { describeInjectedMcp } from './mcpServers.js';
 
 const LOGIN_TIMEOUT_MS = 10 * 60_000;
 const LIST_TIMEOUT_MS = 60_000;
@@ -173,7 +175,11 @@ export function readScopes(cwd, claudeJsonPath = null) {
   return scopes;
 }
 
-const SCOPE_LABEL = { user: 'User', project: 'Project', local: 'Local', connector: 'claude.ai' };
+const SCOPE_LABEL = {
+  user: 'User', project: 'Project', local: 'Local', connector: 'claude.ai',
+  // Added by hooked rather than found in the account's config (cf. server/mcpServers.js).
+  common: 'Common', profile: 'Profile',
+};
 
 // Decorate parsed servers with scope + whether they can hold OAuth credentials. A stdio server has
 // none, so offering Reauth on it would be a dead button.
@@ -196,11 +202,13 @@ function claudeBin() {
 // Every claude invocation gets the login shell's environment, for the same reason sessions do
 // (server/agent.js): under launchd the service PATH is frozen at install time, and the CLI needs
 // its real one to reach node, the keychain helper and the OAuth opener.
-export async function runClaude(args, cwd, timeout = LIST_TIMEOUT_MS) {
-  const env = await loginEnv();
+// `env` is the whole environment to run it with (cf. mcpScope: a profile's account has its own
+// CLAUDE_CONFIG_DIR); without one, the default account's.
+export async function runClaude(args, cwd, timeout = LIST_TIMEOUT_MS, env = null) {
+  const full = env || { ...process.env, ...(await loginEnv()) };
   return new Promise((resolve) => {
     cp.execFile(claudeBin(), args, {
-      cwd, env: { ...process.env, ...env }, timeout, encoding: 'utf8', maxBuffer: 4 << 20,
+      cwd, env: full, timeout, encoding: 'utf8', maxBuffer: 4 << 20,
     }, (err, stdout, stderr) => {
       resolve({ ok: !err, out: String(stdout || '') + String(stderr || ''), stdout: String(stdout || ''), code: err ? (err.code ?? 1) : 0 });
     });
@@ -213,31 +221,78 @@ export function validCwd(cwd) {
   return HOME;
 }
 
+// What a CLI call has to run with to see what a session on `profileId` sees: that session's own
+// environment (its CLAUDE_CONFIG_DIR, its credentials), and the file its user-scope servers live in.
+// No profile, or `default`, is the default account. Throws for an unknown profile, and for a
+// reference of the profile's env that does not resolve (the same message a launch would give).
+export async function mcpScope(profileId) {
+  const base = await loginEnv();
+  if (!profileId || profileId === DEFAULT_PROFILE_ID) return { env: { ...process.env, ...base }, claudeJson: null, profile: null };
+  const profile = findProfile(profileId);
+  if (!profile) throw new Error('unknown profile');
+  const r = sessionEnvFor(profile, base);
+  if (r.error) throw new Error(r.error);
+  return {
+    env: { ...process.env, ...r.env },
+    claudeJson: profile.configDir ? path.join(profile.configDir, '.claude.json') : null,
+    profile,
+  };
+}
+
+// The servers hooked adds to a session of that profile, as rows of the list. `claude mcp list` does
+// not know them (they reach the CLI through the SDK, not through a config file), so the lens adds
+// them itself; they are not health-checked, only described. `clash` flags a name the account
+// already has, since which of the two a session ends up with is not something this lens knows.
+export function injectedRows(profile, listed = []) {
+  const taken = new Set(listed.map((s) => s.name));
+  const { servers, warnings } = describeInjectedMcp(profile);
+  return {
+    warnings,
+    rows: servers.map((s) => ({
+      name: s.name, state: 'injected', status: '', transport: s.transport, target: s.summary,
+      scope: s.scope, scopeLabel: SCOPE_LABEL[s.scope], authable: false, injected: true, clash: taken.has(s.name),
+    })),
+  };
+}
+
 // `claude mcp list` waits for its slowest server, so one unreachable host costs the 30 s connect
-// timeout. The last result per directory is kept so the lens can paint it at once, and concurrent
-// checks of the same directory share one spawn.
+// timeout. The last result per directory AND per account is kept so the lens can paint it at once,
+// and concurrent checks of the same directory and account share one spawn.
 const LIST_CACHE = Symbol.for('hooked.mcp.lists');
 /** @type {Map<string, { data?: any, at?: number, run?: Promise<any> | null }>} */
 const lists = globalThis[LIST_CACHE] || (globalThis[LIST_CACHE] = new Map());
+const listKey = (dir, profileId) => dir + '\u0000' + (profileId || DEFAULT_PROFILE_ID);
 
-async function checkMcp(dir) {
+async function checkMcp(dir, scope) {
+  const { profile } = scope;
+  const injected = injectedRows(profile);
   if (!resolveClaudeBin()) {
-    return { cwd: dir, servers: [], diagnostics: [], error: 'claude binary not found' };
+    return { cwd: dir, servers: injected.rows, diagnostics: [], warnings: injected.warnings, error: 'claude binary not found' };
   }
-  const { out } = await runClaude(['mcp', 'list'], dir);
+  // An account that has never been signed in has no directory yet, and the CLI would create it, with
+  // the default permissions, just by being asked: there is nothing of the account to list.
+  if (profile && profile.configDir && !fs.existsSync(profile.configDir)) {
+    return { cwd: dir, servers: injected.rows, diagnostics: [], warnings: injected.warnings, note: 'This account has not been signed in yet.' };
+  }
+  const { out } = await runClaude(['mcp', 'list'], dir, LIST_TIMEOUT_MS, scope.env);
   const { servers, diagnostics } = parseList(out);
-  return { cwd: dir, diagnostics, servers: decorate(servers, readScopes(dir)) };
+  const decorated = decorate(servers, readScopes(dir, scope.claudeJson));
+  const extra = injectedRows(profile, decorated);
+  return { cwd: dir, diagnostics, servers: [...decorated, ...extra.rows], warnings: extra.warnings };
 }
 
 // `cached` returns the last result without spawning anything (null if the directory was never checked).
-export async function listMcp(cwd, { cached = false } = {}) {
+// `profile`: the account of a connection profile, instead of the default one.
+export async function listMcp(cwd, { cached = false, profile = null } = {}) {
   const dir = validCwd(cwd);
-  let slot = lists.get(dir);
+  const key = listKey(dir, profile);
+  let slot = lists.get(key);
   if (cached) return slot?.data ? { ...slot.data, checkedAt: slot.at, cached: true } : null;
-  if (!slot) lists.set(dir, (slot = {}));
+  if (!slot) lists.set(key, (slot = {}));
   if (!slot.run) {
     const s = slot;
-    s.run = checkMcp(dir)
+    s.run = mcpScope(profile)
+      .then((scope) => checkMcp(dir, scope))
       .then((data) => { s.data = data; s.at = Date.now(); return data; })
       .finally(() => { s.run = null; });
   }
@@ -245,15 +300,17 @@ export async function listMcp(cwd, { cached = false } = {}) {
   return { ...data, checkedAt: slot.at };
 }
 
-export async function getMcp(cwd, name) {
+export async function getMcp(cwd, name, profile = null) {
   const dir = validCwd(cwd);
-  const { out, ok } = await runClaude(['mcp', 'get', String(name)], dir);
+  const scope = await mcpScope(profile);
+  const { out, ok } = await runClaude(['mcp', 'get', String(name)], dir, LIST_TIMEOUT_MS, scope.env);
   return { ok, name, detail: parseGet(out), raw: stripCliAnsi(out).trim() };
 }
 
-export async function logoutMcp(cwd, name) {
+export async function logoutMcp(cwd, name, profile = null) {
   const dir = validCwd(cwd);
-  const { ok, out } = await runClaude(['mcp', 'logout', String(name)], dir, 30_000);
+  const scope = await mcpScope(profile);
+  const { ok, out } = await runClaude(['mcp', 'logout', String(name)], dir, 30_000, scope.env);
   return { ok, message: stripCliAnsi(out).trim() };
 }
 
@@ -288,16 +345,18 @@ function finish(entry, exitCode) {
   clearTimeout(entry.timer);
 }
 
-export async function startLogin(cwd, name) {
+// `profile`: log in as the account of that connection profile. An MCP server's credentials live with
+// the account (in its own Keychain item or credentials file), so each account signs in on its own.
+export async function startLogin(cwd, name, profile = null) {
   const dir = validCwd(cwd);
   if (!name || typeof name !== 'string') throw new Error('name required');
   for (const [id, e] of logins) if (e.done && Date.now() - e.startedAt > 5 * 60_000) logins.delete(id);
   if (logins.size >= MAX_LOGINS) throw new Error('too many logins in flight');
   const pty = await loadPty();
-  const env = await loginEnv();
+  const scope = await mcpScope(profile);
   const id = crypto.randomUUID();
   const child = pty.spawn(claudeBin(), ['mcp', 'login', name, '--no-browser'], {
-    name: 'xterm-256color', cols: 120, rows: 40, cwd: dir, env: { ...process.env, ...env },
+    name: 'xterm-256color', cols: 120, rows: 40, cwd: dir, env: scope.env,
   });
   const entry = { id, name, cwd: dir, child, buf: '', url: null, done: false, exitCode: null, startedAt: Date.now() };
   entry.timer = setTimeout(() => { try { child.kill(); } catch (_) {} finish(entry, -1); }, LOGIN_TIMEOUT_MS);
