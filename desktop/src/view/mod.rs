@@ -844,7 +844,19 @@ fn session_row(
         } else {
             n.to_string()
         };
-        line1 = line1.child(pill(k, badge, k.c.text_muted, k.c.layer_02));
+        let lead = id.clone();
+        line1 = line1.child(
+            k.interactive(
+                row()
+                    .key(format!("fold-{}", x.id))
+                    .gap(2.0)
+                    .center_y()
+                    .cursor(Cursor::Pointer)
+                    .child(pill(k, badge, k.c.text_muted, k.c.layer_02)),
+            )
+            .on_press(move |s: &mut Hooked| s.toggle_group_fold(&lead))
+            .help(if folded { "Unfold the group" } else { "Fold the group" }),
+        );
     }
     if let Some(w) = wake {
         detail = wake_label(w, s.now);

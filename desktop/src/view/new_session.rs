@@ -233,7 +233,7 @@ fn controls(s: &Hooked, k: &Kit) -> El {
     }
     // worktree / ephemeral: shown when the provider supports them (capabilities).
     let mut options = Vec::new();
-    if info.can("worktree") {
+    if info.can("worktree") && crate::app::in_git_repo(s.new_project.text.trim()) {
         options.push(chip(
             k,
             "nw-worktree".into(),

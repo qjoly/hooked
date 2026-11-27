@@ -2690,7 +2690,7 @@ pub fn composer_changed(&mut self) {
         // them otherwise).
         let info = self.providers.info(&self.new_provider);
         let (worktree, ephemeral) = (
-            self.new_worktree && info.can("worktree"),
+            self.new_worktree && info.can("worktree") && in_git_repo(&cwd),
             self.new_ephemeral && info.can("ephemeral"),
         );
         let provider = Some(self.new_provider.clone());
@@ -2949,7 +2949,7 @@ pub fn composer_changed(&mut self) {
     }
 
     /// Projects offered by New session: favourites first, then by last activity, worktrees
-    /// under `.claude/worktrees/` folded into their project when asked to.
+    /// folded into their main checkout when asked to.
     pub fn launch_projects(&self) -> Vec<(String, bool)> {
         let favs: Vec<String> = self
             .setting("favoriteProjects")
@@ -2962,11 +2962,8 @@ pub fn composer_changed(&mut self) {
         let mut recent: Vec<&Session> = self.sessions.iter().collect();
         recent.sort_by(|a, b| b.last_activity.cmp(&a.last_activity));
         for x in recent {
-            let Some(p) = x.project.clone() else { continue };
-            let p = match p.find("/.claude/worktrees/") {
-                Some(i) if self.collapse_worktrees => p[..i].to_string(),
-                _ => p,
-            };
+            let main = x.worktree_of.clone().filter(|_| self.collapse_worktrees);
+            let Some(p) = main.or_else(|| x.project.clone()) else { continue };
             if !out.iter().any(|(q, _)| *q == p) {
                 out.push((p, false));
             }
@@ -3003,6 +3000,11 @@ pub fn composer_changed(&mut self) {
         }
         out
     }
+}
+
+/// A worktree can only be cut from a repository: elsewhere the launch would fail.
+pub fn in_git_repo(dir: &str) -> bool {
+    std::path::Path::new(dir).ancestors().any(|p| p.join(".git").exists())
 }
 
 pub enum LinkTarget {
