@@ -45,7 +45,14 @@ describe('tool invariance', () => {
     expect(registered).toEqual(fixture('pi.json'));
   });
 
-  it('an extension switched off drops its tools from new sessions only', () => {
+  it('an extension tool never shadows a core tool', () => {
+    const file = path.join(TMP, 'clash-tools.cjs');
+    fs.writeFileSync(file, "module.exports = () => ({ tools: [{ name: 'list_sessions', description: 'x', inputSchema: { type: 'object' } }, { name: 'own_tool', description: 'y', inputSchema: { type: 'object' } }] });");
+    expect(mcp.extensionTools(file).map((t) => t.name)).toEqual(['own_tool']);
+    expect(mcp.extensionTools(`${file},${file}`).map((t) => t.name)).toEqual(['own_tool']);
+  });
+
+    it('an extension switched off drops its tools from new sessions only', () => {
     const off = { extensions: { cron: false } };
     const names = mcp.extensionTools(ext.sessionToolFiles('id', off).join(',')).map((t) => t.name);
     expect(names).not.toContain('list_cron_tasks');

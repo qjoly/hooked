@@ -18,10 +18,11 @@ export function loadExtensions() {
   pending = jget('/api/extensions')
     .then((r) => {
       setList(r);
+      extensions.loaded = true;
       for (const id of Object.keys(settingsValues)) loadExtensionSettings(id);
     })
-    .catch(() => {})
-    .finally(() => { extensions.loaded = true; });
+    // Not loaded: the next extensionsReady() asks again, instead of a page that stays "not installed".
+    .catch(() => { pending = null; });
   return pending;
 }
 

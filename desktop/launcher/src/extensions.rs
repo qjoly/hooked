@@ -157,6 +157,7 @@ pub fn from_service(v: &Value) -> Vec<Ext> {
             id: str_of(r, "id"),
             label: str_of(r, "id"),
             source: str_of(r, "source"),
+            from: Source::of_origin(&r["origin"]),
             errors: vec![format!("rejected: {}", str_of(r, "error"))],
             ..Default::default()
         });
@@ -250,7 +251,8 @@ mod tests {
                 "id": "hello", "label": "Hello", "source": "installed", "version": "1.0.0",
                 "origin": { "commit": "0123456789abcdef" }, "enabled": false, "active": false, "errors": ["start: boom"]
             }],
-            "rejected": [{ "id": "bad", "source": "installed", "error": "api 2, hooked offers 1" }]
+            "rejected": [{ "id": "bad", "source": "installed", "error": "api 2, hooked offers 1",
+                "origin": { "repo": "https://x/bad.git", "ref": "main", "path": ".", "commit": "abc" } }]
         });
         let exts = from_service(&v);
         assert_eq!(exts[0].origin(), "bundled · 1.0.0");
@@ -259,6 +261,8 @@ mod tests {
         assert_eq!(exts[1].errors, vec!["start: boom"]);
         assert_eq!(exts[2].errors, vec!["rejected: api 2, hooked offers 1"]);
         assert!(!exts[2].enabled);
+        // A rejected install can still be updated from where it came.
+        assert_eq!(exts[2].from.as_ref().map(|f| f.repo.as_str()), Some("https://x/bad.git"));
     }
 
     #[test]

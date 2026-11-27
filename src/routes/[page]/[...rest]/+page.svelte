@@ -18,7 +18,7 @@
   });
 </script>
 
-<ExtensionGate id={ext?.id}>
+<ExtensionGate id={ext?.id ?? data.key}>
   {#if failed}
     <p class="ext-msg">Could not load the {ext.label} page: {failed}</p>
   {:else if Page}

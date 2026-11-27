@@ -68,7 +68,9 @@ try {
     publicDir: false,
     logLevel: 'silent',
     mode: 'production',
-    plugins: [svelte({ configFile: false, compilerOptions: { css: 'injected' } }), sharedRuntimePlugin(names)],
+    // An inline config stops Vite's search for a postcss.config.* in the extension or above it.
+    css: { postcss: {} },
+    plugins: [svelte({ configFile: false, compilerOptions: { css: 'injected', runes: true } }), sharedRuntimePlugin(names)],
     build: {
       lib: { entry: path.join(srcDir, 'ui', 'Page.svelte'), formats: ['es'], fileName: () => 'page.js' },
       outDir,

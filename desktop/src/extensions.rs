@@ -35,6 +35,7 @@ pub struct ExtInfo {
     pub session_menu: Vec<Value>,
     pub source: String,
     pub origin: Option<Value>,
+    pub hash: String,
     pub enabled: bool,
     pub active: bool,
     pub errors: Vec<Value>,
@@ -66,7 +67,7 @@ impl ExtInfo {
         match o {
             Some(o) => {
                 let commit = o["commit"].as_str().unwrap_or("");
-                format!("{}@{}", o["repo"].as_str().unwrap_or(""), &commit[..commit.len().min(7)])
+                format!("{}@{}", o["repo"].as_str().unwrap_or(""), commit.chars().take(7).collect::<String>())
             }
             None => [self.source.as_str(), self.version.as_str()].into_iter().filter(|x| !x.is_empty()).collect::<Vec<_>>().join(" · "),
         }
@@ -86,7 +87,8 @@ pub struct ExtState {
 
 impl ExtState {
     pub fn apply(&mut self, v: &Value) {
-        self.list = serde_json::from_value(v["extensions"].clone()).unwrap_or_default();
+        // Entry by entry: one the app cannot read must not hide the others.
+        self.list = v["extensions"].as_array().into_iter().flatten().filter_map(|e| api::decode(e.clone()).ok()).collect();
         self.rejected = v["rejected"].as_array().cloned().unwrap_or_default();
         self.pending = v["pending"].as_array().cloned().unwrap_or_default();
     }
@@ -227,7 +229,11 @@ impl Hooked {
     }
 
     fn apply_extensions(&mut self, v: &Value) {
+        let before: HashMap<String, String> = self.ext.list.iter().map(|e| (e.id.clone(), e.hash.clone())).collect();
         self.ext.apply(v);
+        // By hash: `extensionsChanged` also follows every settings save, and reopening a view
+        // drops what the user typed in it.
+        let updated = |e: &ExtInfo| before.get(&e.id).is_some_and(|h| *h != e.hash);
         // An extension switched off or removed takes its page with it, the open one included: no
         // tab is left behind to say it is off.
         if !self.page_on(self.page) {
@@ -235,6 +241,14 @@ impl Hooked {
                 self.ext.views.remove(id);
             }
             self.go_deck();
+        } else if let Page::Ext(id) = self.page
+            && self.ext_info(id).is_some_and(|e| updated(e))
+        {
+            let path = self.ext.views.get(id).map(|v| v.path.clone()).unwrap_or_default();
+            self.ext_open(id, &path);
+        }
+        if self.ext.list.iter().any(|e| !e.settings.is_empty() && updated(e)) {
+            self.load_extension_settings();
         }
     }
 
@@ -394,6 +408,15 @@ mod tests {
         let list = list();
         assert_eq!(list[0].provenance(), "bundled · 1.0.0");
         assert_eq!(list[1].provenance(), "acme/hooked-hello@0123456");
+        let odd = ExtInfo { origin: Some(json!({ "repo": "r", "commit": "ééééééééé" })), ..Default::default() };
+        assert_eq!(odd.provenance(), "r@ééééééé");
+    }
+
+    #[test]
+    fn an_entry_the_app_cannot_read_does_not_hide_the_others() {
+        let mut st = ExtState::default();
+        st.apply(&json!({ "extensions": [{ "id": "a", "label": "A", "version": null }, { "id": "b", "label": "B", "icon": 5 }, { "id": "c", "label": "C" }] }));
+        assert_eq!(st.list.iter().map(|e| e.id.as_str()).collect::<Vec<_>>(), vec!["a", "c"]);
     }
 
     #[test]

@@ -762,7 +762,13 @@ function closeAfterTurn(launchKey, cb) {
 // Callbacks a non-Claude driver gets to report back into the registry (cf. docs/providers.md).
 function driverCtx(st, done) {
   return {
-    setLive: (sid, s) => { live.set(sid, s || st); pending.delete(st.launchKey); },
+    setLive: (sid, s) => {
+      const first = !live.has(sid);
+      const cur = s || st;
+      live.set(sid, cur);
+      pending.delete(st.launchKey);
+      if (first) emitExtensionEvent('session:start', { sessionId: sid, project: cur.cwd || null, provider: cur.provider || null, driven: true });
+    },
     persistLaunch: (sid, m, e) => persistLaunch(sid, m, e),
     done: (s) => { settleReady(s || st, true); done(s || st); },
     failStartup: () => failStartup(st),

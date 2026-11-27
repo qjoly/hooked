@@ -42,7 +42,7 @@ const LEGACY_LIFECYCLES = import.meta.glob('../extensions/*/server/index.js', { 
 
 const CACHE_DIR = path.join(HOOKED_DIR, 'extension-cache');
 const SETTINGS_DIR = path.join(HOOKED_DIR, 'extension-settings');
-const RESERVED_PAGES = new Set([...NAV_KEYS, 'deck', 'settings', 'session', 'sessions', 'api', '_ext', 'board', 'render']);
+const RESERVED_PAGES = new Set([...NAV_KEYS, 'deck', 'settings', 'session', 'sessions', 'api', '_ext', 'board', 'render', 'new']);
 const SETTING_TYPES = ['bool', 'number', 'string', 'select', 'list'];
 const MENU_WHEN = ['any', 'driven', 'live'];
 const SKIPPED_ENTRIES = new Set(['test', 'node_modules', '.origin.json']);
@@ -107,6 +107,7 @@ function settingError(s) {
   if (!s || typeof s.key !== 'string' || !s.key || typeof s.label !== 'string') return 'a setting needs key and label';
   if (!SETTING_TYPES.includes(s.type)) return `setting ${s.key}: type must be one of ${SETTING_TYPES.join(', ')}`;
   if (s.type === 'select' && !(Array.isArray(s.options) && s.options.length)) return `setting ${s.key}: select needs options`;
+  if (s.type === 'select' && !s.options.every((o) => o && typeof o.value === 'string')) return `setting ${s.key}: select options need text values`;
   return null;
 }
 
@@ -245,6 +246,25 @@ function snapshot(scan) {
 // checkout at call time: the server bundle does not live next to mcp/.
 const loadToolDefs = (file, helpers) => createRequire(path.join(checkoutDir(), 'package.json'))('./mcp/extensionTools.cjs').loadToolDefs(file, helpers);
 const STUB_HELPERS = { httpRequest: async () => ({ ok: false }), resultFrom: (r) => r };
+const coreToolNames = () => createRequire(path.join(checkoutDir(), 'package.json'))('./mcp/server.cjs').coreToolNames();
+
+// An extension tool named like a core tool or another extension's would shadow it in every session.
+function toolClash(entry) {
+  const core = coreToolNames();
+  for (const name of entry.tools) {
+    if (core.has(name)) return `tool "${name}" is already provided by hooked`;
+    const other = [...REG.loaded.values()].find((e) => e.id !== entry.id && e.tools.includes(name));
+    if (other) return `tool "${name}" is already provided by ${other.id}`;
+  }
+  return null;
+}
+
+// Two extensions on one page key would render two tabs and one route for both.
+function pageClash(scan) {
+  const key = scan.manifest.page?.key;
+  const other = key && [...REG.loaded.values()].find((e) => e.id !== scan.id && e.manifest.page?.key === key);
+  return other ? `page.key "${key}" is already used by ${other.id}` : null;
+}
 
 async function loadLegacyExtension(scan) {
   const lifecycle = LEGACY_LIFECYCLES[`../extensions/${scan.id}/server/index.js`];
@@ -290,7 +310,7 @@ async function loadExtension(scan) {
 function guard(entry, what, fn) {
   try { return fn(); } catch (e) {
     const msg = `${what}: ${e?.message || e}`;
-    entry.errors.push(msg);
+    if (!entry.errors.includes(msg)) entry.errors.push(msg);
     console.error(`[hooked] extension ${entry.id}: ${msg}`);
     return undefined;
   }
@@ -301,8 +321,9 @@ function enabled(entry, settings = readSettings()) {
 }
 
 function available(entry) {
+  // Not guarded: it is asked on every listing, and a throw only means "not here".
   const fn = entry.lifecycle.available;
-  return fn ? guard(entry, 'available', () => !!fn()) === true : true;
+  try { return fn ? !!fn() : true; } catch (_) { return false; }
 }
 
 function activate(entry) {
@@ -339,12 +360,14 @@ async function reloadNow(id) {
   const { winner, shadowed } = locate(id);
   for (const s of shadowed) REG.rejected.set(s.dir, { ...s, error: 'duplicate id: a bundled extension has it' });
   const scan = winner ? scanFolder(winner) : null;
+  if (scan && !scan.error) scan.error = pageClash(scan);
 
   if (scan && !scan.error && old && old.hash === scan.hash && old.dir === scan.dir) return { id, state: 'unchanged' };
 
   let next = null;
   if (scan && !scan.error) {
     try { next = await loadExtension(scan); } catch (e) { scan.error = 'load: ' + (e?.message || e); }
+    if (next) { scan.error = toolClash(next); if (scan.error) next = null; }
   }
   // The new version is fully loaded (page compiled) before the old one stops: the gap is a few ms.
   if (old) deactivate(old);
@@ -431,7 +454,7 @@ function isActive(entry, settings) {
 function describe(entry, settings) {
   const m = entry.manifest;
   return {
-    id: entry.id, label: m.label, version: m.version || null, description: m.description || '', icon: m.icon || 'package',
+    id: entry.id, label: m.label, version: m.version || '', description: m.description || '', icon: m.icon || 'package',
     page: m.page || null,
     pageModule: entry.page?.url || null,
     desktop: m.desktop || null,
@@ -468,7 +491,7 @@ function listExtensions(settings = readSettings()) {
     api: EXTENSION_API,
     dir: installedRoot(),
     extensions: [...REG.loaded.values()].sort((a, b) => a.id.localeCompare(b.id)).map((e) => describe(e, settings)),
-    rejected: [...REG.rejected.values()].map(({ id, dir, source, error }) => ({ id, dir, source, error })),
+    rejected: [...REG.rejected.values()].map(({ id, dir, source, error }) => ({ id, dir, source, error, origin: readOrigin(dir) })),
     pending: pendingOnDisk(),
   };
 }

@@ -171,6 +171,9 @@ describe('what the registry refuses', () => {
     ['bad-escape', { 'extension.json': manifest('bad-escape'), 'api.js': "import x from '../../secret.js';" }, 'leaves the extension folder'],
     ['bad-npm', { 'extension.json': manifest('bad-npm'), 'tools.cjs': "require('lodash')" }, 'import not allowed (lodash)'],
     ['bad-page-import', { 'extension.json': manifest('bad-page-import'), 'ui/Page.svelte': "<script>import x from '#lib/state.svelte.js';</script>" }, 'import not allowed'],
+    ['bad-new', { 'extension.json': manifest('bad-new', { page: { key: 'new' } }) }, 'page.key "new" is a core page'],
+    ['bad-select', { 'extension.json': manifest('bad-select', { contributes: { settings: [{ key: 'k', label: 'K', type: 'select', options: [{ value: 5, label: 'five' }] }] } }) }, 'select options need text values'],
+    ['bad-tool', { 'extension.json': manifest('bad-tool'), 'tools.cjs': "module.exports = () => ({ tools: [{ name: 'list_sessions', description: 'x', inputSchema: { type: 'object' } }] });" }, 'tool "list_sessions" is already provided by hooked'],
   ])('%s', async (id, files, error) => {
     place(id, files);
     expect(await ext.reloadExtension(id)).toEqual({ id, state: 'rejected' });
@@ -186,6 +189,44 @@ describe('what the registry refuses', () => {
     expect(ext.listExtensions().extensions.find((e) => e.id === 'boom')).toMatchObject({ active: false, errors: ['start: kaboom'] });
     fs.rmSync(path.join(INSTALLED, 'boom'), { recursive: true });
     await ext.reloadExtension('boom');
+  });
+
+  it('an error is listed once, and a throwing available() only means unavailable', async () => {
+    place('flaky', {
+      'extension.json': manifest('flaky', { contributes: { settings: [{ key: 'n', label: 'N', type: 'number' }] } }),
+      'server/index.js': 'export default { applySettings() { throw new Error("bad"); } };',
+    });
+    await ext.reloadExtension('flaky');
+    ext.saveExtensionSettings('flaky', { n: 1 });
+    ext.saveExtensionSettings('flaky', { n: 2 });
+    expect(ext.listExtensions().extensions.find((e) => e.id === 'flaky').errors).toEqual(['applySettings: bad']);
+    place('flaky', { 'extension.json': manifest('flaky'), 'server/index.js': 'export default { available() { throw new Error("nope"); } };' });
+    await ext.reloadExtension('flaky');
+    ext.listExtensions();
+    expect(ext.listExtensions().extensions.find((e) => e.id === 'flaky')).toMatchObject({ available: false, errors: [] });
+    fs.rmSync(path.join(INSTALLED, 'flaky'), { recursive: true });
+    await ext.reloadExtension('flaky');
+  });
+
+  it('two extensions cannot share a page key or a tool name', async () => {
+    const tool = (name) => `module.exports = () => ({ tools: [{ name: '${name}', description: 'x', inputSchema: { type: 'object' } }] });`;
+    place('pg-a', { 'extension.json': manifest('pg-a', { page: { key: 'thing' } }), 'ui/Page.svelte': '<p>a</p>', 'tools.cjs': tool('do_thing') });
+    place('pg-b', { 'extension.json': manifest('pg-b', { page: { key: 'thing' } }), 'ui/Page.svelte': '<p>b</p>' });
+    place('pg-c', { 'extension.json': manifest('pg-c'), 'tools.cjs': tool('do_thing') });
+    expect(await ext.reloadExtension('pg-a')).toEqual({ id: 'pg-a', state: 'loaded' });
+    expect(await ext.reloadExtension('pg-b')).toEqual({ id: 'pg-b', state: 'rejected' });
+    expect(rejection('pg-b')).toBe('page.key "thing" is already used by pg-a');
+    expect(await ext.reloadExtension('pg-c')).toEqual({ id: 'pg-c', state: 'rejected' });
+    expect(rejection('pg-c')).toBe('tool "do_thing" is already provided by pg-a');
+    for (const id of ['pg-a', 'pg-b', 'pg-c']) { fs.rmSync(path.join(INSTALLED, id), { recursive: true }); await ext.reloadExtension(id); }
+  }, 30000);
+
+  it('a rejected install keeps its origin, so it can be updated', async () => {
+    place('bad-origin', { 'extension.json': manifest('bad-origin', { api: 2 }), '.origin.json': { repo: 'https://x/y.git', ref: 'main', path: '.', commit: 'abc' } });
+    await ext.reloadExtension('bad-origin');
+    expect(ext.listExtensions().rejected.find((r) => r.id === 'bad-origin')).toMatchObject({ origin: { repo: 'https://x/y.git', commit: 'abc' } });
+    fs.rmSync(path.join(INSTALLED, 'bad-origin'), { recursive: true });
+    await ext.reloadExtension('bad-origin');
   });
 
   it('a handler that throws answers 500, an unknown route 404, a missing method 405', async () => {

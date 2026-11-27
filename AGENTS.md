@@ -302,8 +302,8 @@ follows T3 Code's (MIT, pingdotgg/t3code).
 - A cross-origin redirect (job logs on blob storage) is followed without the token.
 - `ghMeta.ghViewMany` batches link summaries into one aliased GraphQL query, and its cache TTL
   follows activity: 1 min for a PR updated in the last 30 min, 5 min when quiet, 30 min after a
-  day, never again once merged/closed. The GitHub module's PR review tags tick every minute on top of it.
-- **PR watch** and **PR review tags** belong to the GitHub module: see `modules/github/README.md`.
+  day, never again once merged/closed. The GitHub extension's PR review tags tick every minute on top of it.
+- **PR watch** and **PR review tags** belong to the GitHub extension: see `extensions/github/README.md`.
 
 ## Worktrees (`server/worktrees.js`)
 

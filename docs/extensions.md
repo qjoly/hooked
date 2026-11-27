@@ -59,13 +59,16 @@ Folders starting with `.` or ending in `.next` / `.prev` are ignored (the launch
   `EXTENSION_API` is rejected. Adding to the contract keeps the number; renaming, removing or
   changing a signature bumps it and fixes the bundled extensions in the same PR.
   `test/extensionPages.test.mjs` pins the names of `ctx`, `@hooked/ext/ui` and the shared runtime.
-- **`page.key`** must not be a core page (`src/lib/nav.js`, plus `settings`, `session`, `api`,
-  `_ext`…). `order` places the tab among the core pages (Sessions 10, Stats 20, Digest 30, Memory
+- **`page.key`** must not be a core page (`src/lib/nav.js`, plus `settings`, `session`, `new`,
+  `api`, `_ext`…) nor the page of an extension already loaded. Tool names follow the same rule: a
+  tool named like a core tool or another extension's gets the extension rejected. `order` places the tab among the core pages (Sessions 10, Stats 20, Digest 30, Memory
   40, Skills 70, Prompts 100), `tint` colours it when active.
 - **`stop()` undoes `start()`.** The registry drops routes and listeners itself; timers, watchers and
   child processes are the extension's job. A hot update runs the new version right after.
 - **Core events** (`on`): `session:start`, `turn:end`, `session:end`, `session:archived`,
   `settings:changed`. Called later, never awaited, with ids only; a listener that throws only logs.
+  Session events cover sessions driven by hooked. On a non-Claude engine, `session:end` comes from a
+  kill or restart by hooked, not from the agent exiting on its own.
 - **Declarative settings** (`contributes.settings`: `bool`, `number`, `string`, `select`, `list`):
   validated against the schema, stored in their own file, handed to `applySettings(values)`, and
   rendered by Settings → Extensions on the web and the desktop. No UI code in the extension.
@@ -126,7 +129,9 @@ One core file reads a legacy extension: `server/autoTags.js` keeps GitHub's revi
 - **Dispatcher** = `src/routes/api/[ext]/[...rest]/+server.js`: 404 `extension_off` while the
   extension is off, 404 / 405 for an unknown route or method, 500 for a handler that throws.
 - **Page compiler** (`server/extensionPages.js`): `vite.build()` in a child process with
-  `configFile: false`, Svelte `css: 'injected'`, and every `svelte*` / `@hooked/ext/ui` import
+  `configFile: false` and an inline (empty) PostCSS config: no Vite or PostCSS config is read, from
+  the extension or above it. Pages are compiled in runes mode (`$props`, `$state`), with Svelte
+  `css: 'injected'`, and every `svelte*` / `@hooked/ext/ui` import
   redirected to `globalThis.__hookedExt`, which `src/lib/ext/runtime.js` fills in the browser the
   first time an extension page opens. One Svelte instance, so the page shares the dashboard's
   reactivity (`data` is the filtered view: incognito applies). Output in

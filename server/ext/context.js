@@ -2,7 +2,7 @@
  * The server facade of extensions (docs/extensions.md): everything an extension gets from the core
  * comes through this object, never through an import, so an extension installed outside the checkout
  * resolves nothing from it. Its names are part of the contract (EXTENSION_API): removing or changing
- * one bumps the version, adding one does not. test/extensionFacade.test.mjs pins them.
+ * one bumps the version, adding one does not. test/extensionPages.test.mjs pins them.
  *
  * Kept out of the server/index.js barrel on purpose: an ambiguous `export *` would silently drop a
  * name from it.

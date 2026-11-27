@@ -156,7 +156,9 @@ pub fn ext_undo_plan(c: ExtChanges) -> Vec<ExtUndo> {
     let mut plan = Vec::new();
     if c.new_moved {
         plan.push(ExtUndo::DiscardNew);
-    } else if c.staged {
+    }
+    // Even once moved: a failed move leaves `<id>.next` behind.
+    if c.staged {
         plan.push(ExtUndo::RemoveNext);
     }
     if c.old_moved {
@@ -381,7 +383,7 @@ mod tests {
     #[test]
     fn a_failed_verify_puts_the_old_folder_back_and_reloads_it() {
         let c = ExtChanges { staged: true, old_moved: true, new_moved: true, reloaded: true };
-        assert_eq!(ext_undo_plan(c), [ExtUndo::DiscardNew, ExtUndo::RestorePrev, ExtUndo::Reload]);
+        assert_eq!(ext_undo_plan(c), [ExtUndo::DiscardNew, ExtUndo::RemoveNext, ExtUndo::RestorePrev, ExtUndo::Reload]);
     }
 
     #[test]

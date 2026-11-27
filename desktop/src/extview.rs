@@ -164,7 +164,8 @@ pub struct ExtView {
     pub values: HashMap<String, FieldValue>,
     pub field_errors: HashMap<String, String>,
     pub previews: HashMap<String, Preview>,
-    pub confirm: Option<(String, Action)>,
+    /// The message, the action and the form it submits, once confirmed.
+    pub confirm: Option<(String, Action, Option<String>)>,
 }
 
 impl ExtView {
@@ -198,6 +199,11 @@ impl ExtView {
         Value::Object(out)
     }
 
+    /// What a post sends: the action's body, plus the values of `form` when it submits one.
+    fn post_payload(&self, body: &Value, form: Option<&str>) -> Value {
+        post_body(body, self.tree.as_ref().and_then(|t| Some(self.form_values(find_form(t, form?)?))))
+    }
+
     fn text_of(&self, key: &str) -> String {
         match self.values.get(key) {
             Some(FieldValue::Text(t)) => t.text.clone(),
@@ -212,7 +218,7 @@ impl ExtView {
     }
 
     fn refresh_ms(&self) -> Option<i64> {
-        Some(self.tree.as_ref()?["refresh"].as_i64()? * 1000)
+        Some(self.tree.as_ref()?["refresh"].as_i64().filter(|r| *r > 0)? * 1000)
     }
 }
 
@@ -271,16 +277,17 @@ impl Hooked {
             Action::Post { ref confirm, .. } if confirm.is_some() && !confirmed => {
                 let msg = confirm.clone().unwrap_or_default();
                 if let Some(v) = self.ext.views.get_mut(id) {
-                    v.confirm = Some((msg, action));
+                    v.confirm = Some((msg, action, form));
                 }
             }
             Action::Post { rest, body, .. } => {
-                let view = self.ext.views.get_mut(id);
-                let form_values = view.as_ref().and_then(|v| Some(v.form_values(find_form(v.tree.as_ref()?, form.as_deref()?)?)));
-                if let Some(v) = view {
-                    v.confirm = None;
-                }
-                let payload = post_body(&body, form_values);
+                let (payload, path) = match self.ext.views.get_mut(id) {
+                    Some(v) => {
+                        v.confirm = None;
+                        (v.post_payload(&body, form.as_deref()), v.path.clone())
+                    }
+                    None => (post_body(&body, None), String::new()),
+                };
                 let (id, url) = (id.to_string(), format!("/api/{id}/{rest}"));
                 self.spawn(
                     move || api::post_any(&url, payload),
@@ -291,9 +298,9 @@ impl Hooked {
                         } else if let Some(f) = &out.flash {
                             s.flash(format!("✓ {f}"), false);
                         }
-                        if let Some(v) = s.ext.views.get_mut(&id) {
-                            v.field_errors = out.errors.clone();
-                        }
+                        // The user may have moved to another view of this page meanwhile.
+                        let Some(v) = s.ext.views.get_mut(&id).filter(|v| v.path == path) else { return };
+                        v.field_errors = out.errors.clone();
                         match out.view {
                             Some(path) if out.errors.is_empty() => s.ext_open(&id, &path),
                             _ => s.ext_load(&id),
@@ -376,8 +383,9 @@ pub fn page(s: &Hooked, k: &Kit, id: &'static str) -> El {
         _ if info.is_some_and(|e| e.view_route().is_none()) => body.child(web_only(k, label, info.and_then(|e| e.page_key()).unwrap_or(id))),
         Some(v) if v.tree.is_some() => {
             let cx = Ctx { k, id, view: v };
-            let confirm = v.confirm.as_ref().map(|(msg, action)| confirm_bar(k, id, msg, action.clone()));
-            body.children(confirm).child(node(&cx, v.tree.as_ref().unwrap(), "r".into()))
+            let confirm = v.confirm.as_ref().map(|(msg, action, form)| confirm_bar(k, id, msg, action.clone(), form.clone()));
+            let stale = v.error.as_ref().map(|e| small(k, format!("{label}: {e}"), k.c.danger.fg));
+            body.children(stale).children(confirm).child(node(&cx, v.tree.as_ref().unwrap(), "r".into()))
         }
         Some(ExtView { error: Some(e), .. }) => body.child(small(k, format!("{label}: {e}"), k.c.danger.fg)),
         _ => body.child(small(k, "Loading…", k.c.text_muted)),
@@ -402,7 +410,7 @@ fn web_only(k: &Kit, label: &str, key: &str) -> El {
         )
 }
 
-fn confirm_bar(k: &Kit, id: &'static str, msg: &str, action: Action) -> El {
+fn confirm_bar(k: &Kit, id: &'static str, msg: &str, action: Action, form: Option<String>) -> El {
     let cancel = Button::new("Cancel").variant(ButtonVariant::GhostMuted).control_size(ControlSize::Small).on_press(move |s: &mut Hooked| {
         if let Some(v) = s.ext.views.get_mut(id) {
             v.confirm = None;
@@ -411,7 +419,7 @@ fn confirm_bar(k: &Kit, id: &'static str, msg: &str, action: Action) -> El {
     let ok = Button::new("Confirm")
         .variant(ButtonVariant::Danger)
         .control_size(ControlSize::Small)
-        .on_press_tx(move |s: &mut Hooked, tx| s.ext_act(id, action.clone(), None, true, tx));
+        .on_press_tx(move |s: &mut Hooked, tx| s.ext_act(id, action.clone(), form.clone(), true, tx));
     row()
         .key(format!("ext-{id}-confirm"))
         .w_full()
@@ -533,6 +541,7 @@ fn form(cx: &Ctx, f: &Value, key: String) -> El {
 
 fn text_slot<'a>(s: &'a mut Hooked, id: &str, key: &str) -> &'a mut TextEdit {
     let v = s.ext.views.entry(id.to_string()).or_default();
+    v.field_errors.remove(key);
     let slot = v.values.entry(key.to_string()).or_insert_with(|| FieldValue::Text(TextEdit::new(String::new())));
     if !matches!(slot, FieldValue::Text(_)) {
         *slot = FieldValue::Text(TextEdit::new(String::new()));
@@ -658,6 +667,26 @@ mod tests {
         // A refresh keeps what the user typed.
         v.adopt(tree);
         assert!(matches!(v.values.get("schedule"), Some(FieldValue::Text(t)) if t.text == "*/5 * * * *"));
+    }
+
+    #[test]
+    fn a_confirmed_submit_still_posts_its_form() {
+        let tree = parse_view(fixture("cron-edit")).unwrap();
+        let mut v = ExtView::default();
+        v.adopt(tree);
+        let submit = Action::Post { rest: "view".into(), body: json!({ "op": "save" }), confirm: Some("Sure?".into()) };
+        v.confirm = Some(("Sure?".into(), submit, Some("task".into())));
+        let (_, Action::Post { body, .. }, form) = v.confirm.clone().unwrap() else { panic!() };
+        assert_eq!(v.post_payload(&body, form.as_deref())["form"]["name"], "Standup");
+        assert_eq!(v.post_payload(&body, None), json!({ "op": "save" }));
+    }
+
+    #[test]
+    fn a_refresh_of_zero_or_less_means_none() {
+        let mut v = ExtView { tree: Some(json!({ "refresh": 0 })), ..Default::default() };
+        assert_eq!(v.refresh_ms(), None);
+        v.tree = Some(json!({ "refresh": -3 }));
+        assert_eq!(v.refresh_ms(), None);
     }
 
     #[test]

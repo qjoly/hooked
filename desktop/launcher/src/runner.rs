@@ -414,6 +414,8 @@ fn extension_steps(
             );
             if let Some(old) = previous(id) {
                 msg.push_str(&format!("\nReplaces {id} at {}.", old["commit"].as_str().unwrap_or("an unknown commit")));
+            } else if live(id).exists() {
+                msg.push_str(&format!("\nReplaces the {id} folder already there (no recorded source): it is deleted once the new version runs."));
             }
             msg
         }
@@ -499,18 +501,24 @@ fn fetch(
     }
     let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_nanos());
     let clone = std::env::temp_dir().join(format!("hooked-ext-fetch-{}-{nanos}", std::process::id()));
+    let mut staged_dir = None;
     let r = (|| {
         let target = clone.to_string_lossy();
         let branch = format!("--branch={}", source.r#ref);
         sys::git(log, &std::env::temp_dir(), &["clone", "--depth", "1", &branch, "--", &source.repo, &target])?;
         let commit = sys::git(log, &clone, &["rev-parse", "HEAD"])?.trim().to_string();
-        let dir = clone.join(&source.path);
+        // A symlinked path would copy a folder from elsewhere on this machine as `repo@commit`.
+        let dir = fs::canonicalize(clone.join(&source.path)).map_err(|e| format!("{}: {e}", source.path))?;
+        if !dir.starts_with(fs::canonicalize(&clone).map_err(|e| e.to_string())?) {
+            return Err(format!("the path \"{}\" leaves the repository", source.path));
+        }
         let manifest = extensions::read_json(&dir.join("extension.json"))
             .ok_or_else(|| format!("no readable extension.json in {}@{}:{}", source.repo, source.r#ref, source.path))?;
         let id = flow::check_manifest(&manifest, expected, api, |id| repo.join("extensions").join(id).is_dir())?;
         let next = root.join(format!("{id}.next"));
         remove_dir(&next)?;
         changes.staged = true;
+        staged_dir = Some(next.clone());
         copy_dir(&dir, &next)?;
         let origin = source.origin_json(&commit, crate::now());
         fs::write(next.join(ORIGIN), origin.to_string()).map_err(|e| format!("{}: {e}", next.join(ORIGIN).display()))?;
@@ -518,6 +526,10 @@ fn fetch(
         Ok(Staged { id, commit, rust: manifest["desktop"]["rust"] == true })
     })();
     let _ = fs::remove_dir_all(&clone);
+    // The undo only learns the id from a successful fetch: a half-copied `<id>.next` is ours to drop.
+    if let (Err(_), Some(next)) = (&r, &staged_dir) {
+        let _ = remove_dir(next);
+    }
     r
 }
 
@@ -545,6 +557,9 @@ fn copy_dir(from: &Path, to: &Path) -> Result<(), String> {
 /// `<id>` → `<id>.prev`, then `<id>.next` → `<id>` (an uninstall stops after the first move).
 fn place(root: &Path, id: &str, uninstall: bool, changes: &mut ExtChanges, log: &mut String) -> Result<(), String> {
     let (live, prev, next) = ext_dirs(root, id);
+    if prev.exists() && !live.exists() {
+        return Err(format!("{} holds the previous version of {id} and {id} is missing: move it back to {id} or delete it", prev.display()));
+    }
     remove_dir(&prev)?;
     if live.exists() {
         changes.old_moved = true;
@@ -886,6 +901,45 @@ mod tests {
         source.path = "../v1".into();
         let events = bed.install(&source, &FakeService::new(&bed.root));
         assert_eq!(events, ["failed Fetch: the path \"../v1\" leaves the repository", "undone true"]);
+    }
+
+    fn commit_all(dir: &Path) {
+        let mut log = String::new();
+        sys::git(&mut log, dir, &["add", "."]).unwrap();
+        sys::git(&mut log, dir, &["-c", "user.name=t", "-c", "user.email=t@t", "commit", "--quiet", "-m", "more"]).unwrap();
+    }
+
+    #[test]
+    fn refuses_a_path_that_is_a_symlink_out_of_the_repository() {
+        let bed = Bed::new("symlink-path");
+        let outside = bed.repo("outside", json!({}));
+        let mut source = bed.repo("v1", json!({}));
+        std::os::unix::fs::symlink(&outside.repo, Path::new(&source.repo).join("ext")).unwrap();
+        commit_all(Path::new(&source.repo));
+        source.path = "ext".into();
+        let events = bed.install(&source, &FakeService::new(&bed.root));
+        assert_eq!(events, ["failed Fetch: the path \"ext\" leaves the repository", "undone true"]);
+    }
+
+    #[test]
+    fn a_fetch_that_fails_while_copying_leaves_no_next_folder() {
+        let bed = Bed::new("half-copied");
+        let source = bed.repo("v1", json!({}));
+        std::os::unix::fs::symlink("/etc/hosts", Path::new(&source.repo).join("hosts")).unwrap();
+        commit_all(Path::new(&source.repo));
+        let events = bed.install(&source, &FakeService::new(&bed.root));
+        assert!(events[0].starts_with("failed Fetch: ") && events[0].ends_with("hosts is a symlink"), "{events:?}");
+        assert!(bed.folders().is_empty(), "{:?}", bed.folders());
+    }
+
+    #[test]
+    fn a_previous_version_left_alone_is_never_deleted() {
+        let bed = Bed::new("prev-only");
+        fs::create_dir_all(bed.root.join("hello.prev")).unwrap();
+        fs::create_dir_all(bed.root.join("hello.next")).unwrap();
+        let r = place(&bed.root, "hello", false, &mut ExtChanges::default(), &mut String::new());
+        assert!(r.unwrap_err().contains("holds the previous version of hello"));
+        assert!(bed.root.join("hello.prev").is_dir());
     }
 }
 

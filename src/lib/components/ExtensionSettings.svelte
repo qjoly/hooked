@@ -35,7 +35,7 @@
             {#if s.type === 'bool'}
               <input type="checkbox" checked={values[s.key] ?? s.default} onchange={(ev) => save(e.id, s.key, ev.currentTarget.checked)} />
             {:else if s.type === 'number'}
-              <input type="number" min={s.min} max={s.max} value={values[s.key] ?? s.default} onchange={(ev) => save(e.id, s.key, Number(ev.currentTarget.value))} />
+              <input type="number" min={s.min} max={s.max} value={values[s.key] ?? s.default} onchange={(ev) => ev.currentTarget.value !== '' && save(e.id, s.key, Number(ev.currentTarget.value))} />
             {:else if s.type === 'select'}
               <select value={values[s.key] ?? s.default} onchange={(ev) => save(e.id, s.key, ev.currentTarget.value)}>
                 {#each s.options as o (o.value)}<option value={o.value}>{o.label}</option>{/each}
@@ -50,6 +50,7 @@
           </label>
         {/each}
       </div>
+      {#if errors[e.id]?._}<p class="err">{errors[e.id]._}</p>{/if}
     {/if}
   </div>
 {/each}

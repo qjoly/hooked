@@ -616,19 +616,41 @@ const SHOW_PANEL = {
 };
 if (process.env.HOOKED_SHOW_PANELS === '1') TOOLS.push(SHOW_PANEL);
 
+// Every core tool name, offered here or not: an extension tool may not take one.
+function coreToolNames() {
+  return new Set([...TOOLS, ...SHOW_TOOLS, SHOW_PANEL].map((t) => t.name));
+}
+
 // Tools of the extensions switched on, after the core ones. hooked lists their files, in
 // order, in HOOKED_EXTENSION_TOOLS when it spawns this server for a session; a server started without
-// it (registered by hand) offers every one found on disk.
+// it (registered by hand) offers every one found on disk. A tool whose name is already taken, by the
+// core or by an earlier extension, is skipped: it would shadow that tool.
 function extensionTools(list = process.env.HOOKED_EXTENSION_TOOLS) {
   const files = list != null
     ? parseToolFiles(list)
     : toolFilesOnDisk(path.join(__dirname, '..'), process.env.HOOKED_EXTENSIONS_DIR
       || path.join(process.env.HOOKED_DATA_DIR || path.join(require('node:os').homedir(), '.claude', 'hooked'), 'extensions'));
-  return toolsFromFiles(files, { httpRequest, resultFrom });
+  const taken = coreToolNames();
+  const out = [];
+  for (const file of files) {
+    for (const t of toolsFromFiles([file], { httpRequest, resultFrom })) {
+      if (taken.has(t.name)) { process.stderr.write(`[hooked] tool ${t.name} of ${file} skipped: the name is taken\n`); continue; }
+      taken.add(t.name);
+      out.push(t);
+    }
+  }
+  return out;
 }
 
-const SERVED = [...TOOLS, ...extensionTools()];
-const TOOL_BY_NAME = new Map(SERVED.map((t) => [t.name, t]));
+// Computed on the first request: requiring this file (pi package, service) must not load every tools.cjs.
+let served = null;
+function servedTools() {
+  if (!served) {
+    const list = [...TOOLS, ...extensionTools()];
+    served = { list, byName: new Map(list.map((t) => [t.name, t])) };
+  }
+  return served;
+}
 
 // --- boucle JSON-RPC sur stdio ------------------------------------------------
 
@@ -660,14 +682,14 @@ async function handle(msg) {
 
   if (method === 'tools/list') {
     return reply(id, {
-      tools: SERVED.map((t) => ({ name: t.name, description: t.description, inputSchema: t.inputSchema })),
+      tools: servedTools().list.map((t) => ({ name: t.name, description: t.description, inputSchema: t.inputSchema })),
     });
   }
 
   if (method === 'tools/call') {
     const name = params && params.name;
     const args = (params && params.arguments) || {};
-    const tool = TOOL_BY_NAME.get(name);
+    const tool = servedTools().byName.get(name);
     if (!tool) return replyError(id, -32602, 'outil inconnu : ' + name);
     try {
       const r = await tool.run(args);
@@ -687,7 +709,7 @@ async function handle(msg) {
 
 // Required as a module (the hooked pi package, pi-package/extensions/hooked.js, registers these
 // same tools as native pi tools): export them and do not start the stdio server.
-module.exports = { TOOLS, INSTRUCTIONS, resultFrom, httpRequest, extensionTools };
+module.exports = { TOOLS, INSTRUCTIONS, resultFrom, httpRequest, extensionTools, coreToolNames };
 if (require.main === module) startStdio();
 
 function startStdio() {

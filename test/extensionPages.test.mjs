@@ -40,6 +40,31 @@ describe('page compiler', () => {
     await expect(compileExtensionPage({ id: 'bad', hash: 'x', srcDir: dir })).rejects.toThrow(/not allowed in an extension page: #lib\/state\.svelte\.js/);
   }, 30000);
 
+  const pageDir = (name, files) => {
+    const dir = path.join(TMP, name);
+    for (const [rel, content] of Object.entries(files)) {
+      fs.mkdirSync(path.dirname(path.join(dir, rel)), { recursive: true });
+      fs.writeFileSync(path.join(dir, rel), content);
+    }
+    return dir;
+  };
+
+  it('compiles in runes mode: plain markup builds, `export let` fails with a clear message', async () => {
+    await expect(compileExtensionPage({ id: 'plain', hash: 'x', srcDir: pageDir('plain', { 'ui/Page.svelte': '<p>plain</p>' }) })).resolves.toMatchObject({ cached: false });
+    const legacy = pageDir('legacy-props', { 'ui/Page.svelte': '<script>export let rest;</script><p>{rest}</p>' });
+    await expect(compileExtensionPage({ id: 'legacy-props', hash: 'x', srcDir: legacy })).rejects.toThrow(/runes mode/);
+  }, 30000);
+
+  it('reads no PostCSS config from the extension', async () => {
+    const marker = path.join(TMP, 'postcss-ran');
+    const dir = pageDir('postcss', {
+      'ui/Page.svelte': '<script>let { rest } = $props();</script><p class="x">{rest}</p><style>.x { color: red; }</style>',
+      'postcss.config.cjs': `require('node:fs').writeFileSync(${JSON.stringify(marker)}, '1'); module.exports = { plugins: [] };`,
+    });
+    await expect(compileExtensionPage({ id: 'postcss', hash: 'x', srcDir: dir })).resolves.toMatchObject({ cached: false });
+    expect(fs.existsSync(marker)).toBe(false);
+  }, 30000);
+
   it('serves only compiled page paths', () => {
     expect(extensionPageFile('cron/0123456789abcdef/page.js')).toBe(path.join(TMP, 'extension-cache', 'cron', '0123456789abcdef', 'page.js'));
     expect(extensionPageFile('../settings.json')).toBeNull();

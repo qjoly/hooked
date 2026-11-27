@@ -19,7 +19,3 @@ export function sanitizeExtensions(raw) {
   const o = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
   return Object.fromEntries(Object.entries(o).filter(([id, v]) => EXTENSION_ID.test(id) && typeof v === 'boolean'));
 }
-
-export function extensionOfPage(list, page) {
-  return (list || []).find((e) => e.page?.key === page) || null;
-}

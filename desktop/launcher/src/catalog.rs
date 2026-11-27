@@ -66,7 +66,8 @@ pub fn load(repo: &Path) -> Result<Vec<Entry>, String> {
 /// A shallow clone of `url` at `dir`, fetched again when it is already there.
 fn sync(url: &str, dir: &Path) -> Result<PathBuf, String> {
     let mut log = String::new();
-    let same = sys::query(dir, &["remote", "get-url", "origin"]).is_ok_and(|u| u.trim() == url);
+    // Without its own .git, git would answer for the repository around it and reset that one.
+    let same = dir.join(".git").exists() && sys::query(dir, &["remote", "get-url", "origin"]).is_ok_and(|u| u.trim() == url);
     if same {
         sys::git(&mut log, dir, &["fetch", "--depth", "1", "origin"])?;
         sys::git(&mut log, dir, &["reset", "--hard", "FETCH_HEAD"])?;
