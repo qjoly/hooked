@@ -155,31 +155,45 @@ impl Hooked {
         self.usage_wanted = profile.clone();
         self.spawn(
             move || (profile.clone(), api::usage(profile.as_deref())),
-            |s, (profile, r), _| {
-                // The open session moved on while this was in flight: its answer is another account's.
-                if s.usage_wanted != profile {
-                    return;
-                }
-                match r {
-                    Ok((g, pi, raw)) => {
-                        s.gauges = g;
-                        s.pi_usage = pi;
-                        s.provider_usage = api::parse_provider_usage(&raw);
-                        // A server has no account, so no limits: nothing to show rather than dashes.
-                        s.no_limits = profile.is_some()
-                            && raw["profile"].as_str() == profile.as_deref()
-                            && raw["account"].is_null();
-                        s.usage = Some(raw);
-                    }
-                    // The profile is gone: another account's gauges would be a lie.
-                    Err(_) if profile.is_some() => {
-                        s.gauges.clear();
-                        s.no_limits = true;
-                    }
-                    Err(_) => {}
-                }
-            },
+            |s, (profile, r), _| s.apply_usage(profile, r),
         );
+    }
+
+    /// The same, answered before the first frame (there is no handle to run a task on yet).
+    pub fn load_usage(&mut self) {
+        let profile = self.gauge_profile();
+        self.usage_wanted = profile.clone();
+        let r = api::usage(profile.as_deref());
+        self.apply_usage(profile, r);
+    }
+
+    fn apply_usage(
+        &mut self,
+        profile: Option<String>,
+        r: Result<(Vec<api::Gauge>, Option<api::PiUsage>, Value), String>,
+    ) {
+        // The open session moved on while this was in flight: its answer is another account's.
+        if self.usage_wanted != profile {
+            return;
+        }
+        match r {
+            Ok((g, pi, raw)) => {
+                self.gauges = g;
+                self.pi_usage = pi;
+                self.provider_usage = api::parse_provider_usage(&raw);
+                // A server has no account, so no limits: nothing to show rather than dashes.
+                self.no_limits = profile.is_some()
+                    && raw["profile"].as_str() == profile.as_deref()
+                    && raw["account"].is_null();
+                self.usage = Some(raw);
+            }
+            // The profile is gone: another account's gauges would be a lie.
+            Err(_) if profile.is_some() => {
+                self.gauges.clear();
+                self.no_limits = true;
+            }
+            Err(_) => {}
+        }
     }
 
     /// Called from `poll`: the gauges follow the open session's account.

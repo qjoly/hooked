@@ -707,7 +707,7 @@ impl Hooked {
                 .map(str::to_string);
         }
         s.profiles = crate::profiles::list().unwrap_or_default();
-        s.refresh_usage();
+        s.load_usage();
         // The settings' default provider is where a new session starts, when it is enabled.
         if let Some(d) = s.setting("defaultProvider").as_str().map(str::to_string) {
             if s.providers.is_enabled(&d) {
