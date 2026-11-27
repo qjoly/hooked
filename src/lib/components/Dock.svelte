@@ -264,7 +264,7 @@
   {/if}
   {/if}
 
-  {#if settings.featureFlags?.dockActions}
+  {#if settings.featureFlags?.dockActions && !ghOpen}
   <div class="dacts" aria-label="Session actions">
     <button class="dact" onclick={() => openModal('groupPicker', { mode: 'move', sessionId: id })} title="Move to group…">
       <Icon name="sessions" size={16} /><span>Group</span>

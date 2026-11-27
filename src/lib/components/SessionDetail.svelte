@@ -14,9 +14,10 @@
   import { ui, data, settings, loadSessions, openModal, sessionTitle, sessionTags, renameSession, toggleFocus, splitWithMostRecent, canSplit, toggleArchive, isArchived, unarchive } from '#lib/state.svelte.js';
   import { getSessionDelta, setMode, setModelEffort, setAutoApprove, openInEditor, openInGhostty, fork, launch, deleteSession, removeWorktree, restartClaudeSession, connectSessionStream, listTerminals, openTerminal, killTerminal, getProviderOptions } from '#lib/api.js';
   import { promptCacheState } from '#lib/promptCache.js';
-  import { stateLabel, agentName, fmtCost, fmtTokens, shortModel, PERMISSION_MODES, modeLabel, modeMeta, modelAlias, tagColor, lotColor, resumeCommand, parseBang, isBlockForCommand } from '#lib/format.js';
+  import { stateLabel, agentName, fmtCost, fmtTokens, shortModel, PERMISSION_MODES, modeLabel, modeMeta, tagColor, lotColor, resumeCommand, parseBang, isBlockForCommand } from '#lib/format.js';
   import { page } from '$app/state';
   import ModelEffort from './ModelEffort.svelte';
+  import { sessionModelKey } from '#lib/profiles.js';
   import ChatBubble from './ChatBubble.svelte';
   import Question from './Question.svelte';
   import Plan from './Plan.svelte';
@@ -441,8 +442,26 @@
     e.preventDefault();
     composer.interruptEdit();
   }
-  onMount(() => { window.addEventListener('keydown', onWindowKey); });
-  onDestroy(() => { window.removeEventListener('keydown', onWindowKey); clearTimeout(queuedRetry); });
+  // The "More actions" menu is a <details>: it stays open until its summary is clicked again, so a
+  // click anywhere else (or Escape) has to close it by hand.
+  let moreMenu = $state();
+  function closeMoreOnOutside(e) {
+    if (moreMenu?.open && !moreMenu.contains(e.target)) moreMenu.open = false;
+  }
+  function closeMoreOnEscape(e) {
+    if (e.key === 'Escape' && moreMenu?.open) moreMenu.open = false;
+  }
+  onMount(() => {
+    window.addEventListener('keydown', onWindowKey);
+    window.addEventListener('pointerdown', closeMoreOnOutside, true);
+    window.addEventListener('keydown', closeMoreOnEscape);
+  });
+  onDestroy(() => {
+    window.removeEventListener('keydown', onWindowKey);
+    window.removeEventListener('pointerdown', closeMoreOnOutside, true);
+    window.removeEventListener('keydown', closeMoreOnEscape);
+    clearTimeout(queuedRetry);
+  });
 
   // live : sur chaque tick, refetch ciblé (question (dis)paraît, ou chat actif qui bouge)
   $effect(() => {
@@ -517,7 +536,7 @@
     ui.modal = { type: 'fork', data: {
       id: s.id, forkUuid: m.forkUuid, role: m.role, snippet,
       project: s.project, projectName: s.projectName, title: s.title,
-      model: s.launchModel || modelAlias(s.model), effort: s.effort,
+      model: sessionModelKey(s), effort: s.effort, profile: s.profile?.id || '',
     } };
   }
 
@@ -528,7 +547,7 @@
   async function quickFork(m) {
     if (!m.forkUuid || forkState?.phase === 'busy') return;
     forkState = { uuid: m.forkUuid, phase: 'busy', text: '⑂ fork…' };
-    const payload = { id: s.id, forkUuid: m.forkUuid, prompt: '', model: s.launchModel || modelAlias(s.model), effort: s.effort };
+    const payload = { id: s.id, forkUuid: m.forkUuid, prompt: '', model: sessionModelKey(s), effort: s.effort };
     const res = await fork(payload).catch((e) => ({ ok: false, data: { error: e?.message || 'failed' } }));
     if (res.ok) {
       forkState = { uuid: m.forkUuid, phase: 'done', text: '✓ branch created' + (res.data?.sessionId ? ' → ' + res.data.sessionId.slice(0, 8) : '') };
@@ -549,7 +568,7 @@
   $effect(() => {
     if (!s || meBusy) return;
     // launchModel (persisté, reflète notre dernier /model) prioritaire ; sinon modèle du transcript.
-    const m = s.launchModel || modelAlias(s.model) || 'opus';
+    const m = sessionModelKey(s) || (s.profile ? '' : 'opus');
     const e = s.effort || 'high';
     untrack(() => { editModel = m; editEffort = e; });
   });
@@ -566,7 +585,7 @@
       const ci = res.data.cacheImpact || {};
       meStatus = '';
       meBusy = false;
-      editModel = s.launchModel || modelAlias(s.model) || editModel;
+      editModel = sessionModelKey(s) || editModel;
       openModal('confirm', {
         title: 'Switch model and drop a warm cache?',
         message: 'This conversation (' + fmtTokens(ci.contextTokens || 0) + ' tokens) is cached for ' + shortModel(ci.fromModel || s.model || 'the current model')
@@ -640,6 +659,12 @@
       title: 'Restart session?',
       message: `The ${agentName(s?.provider)} process is stopped and resumed from its transcript. A turn in progress is lost.`,
       confirmLabel: 'Restart', confirmIcon: 'rotate-cw', onConfirm: doRestart,
+    });
+  }
+  // Resume this session on another connection profile (account or server), keeping its conversation.
+  function openMoveAccount() {
+    openModal('moveAccount', {
+      id: s.id, title: sessionTitle(s), profile: s.profile?.id || 'default', kind: s.profile?.kind || 'anthropic', busy: s.state === 'working',
     });
   }
   async function doRestart() {
@@ -807,6 +832,9 @@
         <button class="sess-name" onclick={startRename} title="Rename this session (local)">{sessionTitle(s)}</button>
       {/if}
       <span class="head-meta" title={s.project || ''}>{#if s.repo || s.projectName}<span class="head-lot" style="--lot:{lotColor(s.repo || s.projectName)}"></span>{/if}{s.repo || s.projectName || '?'}{#if s.gitBranch} · <Icon name="git-branch" size={13} /> {s.gitBranch}{/if}</span>
+      {#if s.profile}
+        <span class="head-profile" class:missing={s.profile.missing} title={s.profile.missing ? 'This session ran on a connection profile that is no longer in profiles.json' : 'Connection profile of this session'}><Icon name="link" size={12} /> {s.profile.label}</span>
+      {/if}
       {#if sessionTags(id).length}
         <!-- tags de session (manuels + auto-tag PR) : cliquer ouvre l'éditeur -->
         <button class="head-tags" onclick={() => openModal('editTags', { sessionId: id })} title="Edit tags">
@@ -852,7 +880,7 @@
           <button class="hdr-icon-btn" title="Split with the most recent session (⌘/Ctrl+⇧+S)"
                   aria-label="Split view" disabled={!canSplit()} onclick={() => splitWithMostRecent(id)}><Icon name="pane" size={16} /></button>
         {/if}
-        <details class="hdr-more">
+        <details class="hdr-more" bind:this={moreMenu}>
           <summary title="More actions" aria-label="More actions"><Icon name="menu" size={18} /></summary>
           <div class="hdr-menu">
             <!-- Réglages fréquents (modèle/effort + mode de permission) : rangés ici en
@@ -861,7 +889,7 @@
               {@const cur = modeMeta(modeView)}
               <div class="hdr-menu-cmds">
                 {#if sb.modelEffort !== false}
-                  <ModelEffort compact bind:model={editModel} bind:effort={editEffort} onchange={applyModelEffort} disabled={meBusy}
+                  <ModelEffort compact profile={s.profile?.id || ''} bind:model={editModel} bind:effort={editEffort} onchange={applyModelEffort} disabled={meBusy}
                                modelOpts={isPi ? piModelOpts : null} effortList={isPi ? piEffortList : null}
                                modelOptsLabel={`${agentLbl} models`} hiddenExtra={pinfo.hiddenModels || null} />
                 {/if}
@@ -914,6 +942,9 @@
             {#if sb.focusBtn !== false}<button class="vscode-btn" class:on={ui.focus} onclick={toggleFocus} title="Focus mode: full-screen conversation"><Icon name="maximize" size={14} /> {ui.focus ? 'Exit focus' : 'Focus'}</button>{/if}
             <button class="vscode-btn" class:on={ui.toolsOpen} onclick={() => (ui.toolsOpen = !ui.toolsOpen)} title="Expand every tool call's input/result inline (this session only, off on reload)"><Icon name="tool" size={14} /> {ui.toolsOpen ? 'Collapse tool details' : 'Expand tool details'}</button>
             <div class="hdr-div"></div>
+            {#if !isPi}
+              <button class="vscode-btn" onclick={openMoveAccount} title="Stop this session and resume it on another account or server, keeping its conversation"><Icon name="link" size={14} /> Move to account…</button>
+            {/if}
             <button class="vscode-btn" disabled={restarting} onclick={restart} title="Stop the {agentLbl} process and resume it from its session (picks up the installed version)">{#if restarting}<Icon name="queued" size={14} />{:else}<Icon name="rotate-cw" size={14} />{/if} Restart</button>
             <button class="vscode-btn del-btn" disabled={deleting} onclick={del} title="Move to trash: removes from dashboard; transcript kept in bin/ (recoverable)">{#if deleting}<Icon name="queued" size={14} tint={false} />{:else}<Icon name="trash" size={14} tint={false} />{/if} Delete</button>
           </div>
@@ -1027,7 +1058,7 @@
     <!-- Lentille MCP : santé des serveurs MCP du projet de la session + ré-authentification. -->
     <div class="pane" class:active={tab === 'mcp'}>
       {#if seen.mcp}
-        <Mcp project={s.project || ''} provider={s.provider || 'claude'} />
+        <Mcp project={s.project || ''} provider={s.provider || 'claude'} profile={s.profile?.id || ''} profileLabel={s.profile?.label || ''} />
       {/if}
     </div>
 

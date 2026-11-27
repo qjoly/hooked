@@ -10,7 +10,9 @@
   // no picker to get wrong. The provider's engine picks the flavour: 'pi' = pi's mcp.json (HTTP
   // health check only, no OAuth / logout actions, which are Claude CLI ones), none = the agent
   // keeps its MCP config to itself (ACP agents get hooked's own server injected at launch).
-  let { project = '', provider = 'claude' } = $props();
+  // The same goes for the account: a session on a connection profile with an account of its own
+  // sees that account's servers and connectors, not the default account's (Claude only).
+  let { project = '', provider = 'claude', profile = '', profileLabel = '' } = $props();
   const kind = $derived(providerInfo(provider, data.providerList).mcpKind ?? (provider === 'claude' ? 'claude' : null));
   const isPi = $derived(kind === 'pi');
   const agentLbl = $derived(providerInfo(provider, data.providerList).label);
@@ -28,7 +30,7 @@
   let editor = $state(null);        // { name, scope, json, originalName } | null
   let editorError = $state('');
 
-  const RANK = { legacy: 0, needs_auth: 0, failed: 1, pending: 2, configured: 2, connected: 3, disabled: 4 };
+  const RANK = { legacy: 0, needs_auth: 0, failed: 1, pending: 2, configured: 2, connected: 3, injected: 3, disabled: 4 };
   // Anything needing a human first: this lens exists to fix broken auth, not to admire what works.
   const servers = $derived([...(res?.servers || [])]
     .sort((a, b) => (RANK[a.state] ?? 9) - (RANK[b.state] ?? 9) || a.name.localeCompare(b.name)));
@@ -43,23 +45,27 @@
     configured: { icon: 'dot', color: 'var(--muted)', label: 'Configured' },
     disabled: { icon: 'idle', color: 'var(--muted)', label: 'Disabled for this project' },
     legacy: { icon: 'warning', color: 'var(--warn)', label: 'Old config.toml, ignored by pi 1.6' },
+    // Added by hooked to the session (shared across accounts, or dedicated to this profile): not
+    // health-checked here, since `claude mcp list` does not know it.
+    injected: { icon: 'link', color: 'var(--muted)', label: 'Added by hooked' },
   };
   const stateUi = (s) => STATE_UI[s] || { icon: 'dot', color: 'var(--muted)', label: s };
 
   // Paints the last known list at once, then waits for the live health check, which can take
   // 30 s when a server is unreachable. Pi: no cache, first the config alone, then the
   // HTTP health check (`check=1`).
-  async function load(dir = project) {
+  async function load(dir = project, prof = profile) {
+    const stale = () => dir !== project || prof !== profile;
     loading = true;
     open = null;
     details = {};
-    const hit = await getMcpServers(dir, !isPi, provider).catch(() => null);
-    if (dir !== project) return;
+    const hit = await getMcpServers(dir, !isPi, provider, false, prof).catch(() => null);
+    if (stale()) return;
     if (hit) res = hit;
     else if (res?.cwd !== dir) res = null;
     let fresh;
-    try { fresh = await getMcpServers(dir, false, provider, isPi); } catch (_) { fresh = { servers: [], diagnostics: [], error: 'request failed' }; }
-    if (dir !== project) return;
+    try { fresh = await getMcpServers(dir, false, provider, isPi, prof); } catch (_) { fresh = { servers: [], diagnostics: [], error: 'request failed' }; }
+    if (stale()) return;
     res = fresh;
     loading = false;
   }
@@ -67,9 +73,11 @@
   async function toggleDetails(name) {
     if (open === name) { open = null; return; }
     open = name;
-    if (details[name]) return;
+    // A server hooked adds is not known to the CLI: there is no `claude mcp get` for it, and the
+    // row already carries everything worth showing.
+    if (details[name] || servers.find((s) => s.name === name)?.injected) return;
     busy = name;
-    const r = await mcpAction({ action: 'get', cwd: project, name, provider });
+    const r = await mcpAction({ action: 'get', cwd: project, name, provider, profile });
     if (r.ok) details = { ...details, [name]: isPi ? r.data : r.data.detail };
     busy = '';
   }
@@ -138,7 +146,7 @@
 
   async function logout(name) {
     busy = name;
-    const r = await mcpAction({ action: 'logout', cwd: project, name });
+    const r = await mcpAction({ action: 'logout', cwd: project, name, profile });
     busy = '';
     notice = r.ok ? `Cleared credentials for ${name}.` : `Logout failed for ${name}.`;
     await load();
@@ -150,7 +158,7 @@
     notice = '';
     redirect = '';
     login = { id: null, name, url: null, done: false, needsPaste: false, output: '', starting: true };
-    const r = await mcpAction({ action: 'login', cwd: project, name });
+    const r = await mcpAction({ action: 'login', cwd: project, name, profile });
     if (!r.ok) { login = null; notice = r.data?.error || `Could not start login for ${name}.`; return; }
     login = r.data.login;
     // The CLI holds the flow open until the OAuth callback lands (or the redirect URL is pasted),
@@ -184,8 +192,9 @@
   // SessionDetail swaps the `id` prop instead of remounting, so the lens has to refetch when the
   // project underneath it changes.
   $effect(() => {
-    const dir = project;  // tracked dep read BEFORE any guard (Svelte 5 trap)
-    untrack(() => { stopPoll(); login = null; load(dir); });
+    const dir = project;  // tracked deps read BEFORE any guard (Svelte 5 trap)
+    const account = profile;
+    untrack(() => { stopPoll(); login = null; load(dir, account); });
   });
   onDestroy(stopPoll);
 </script>
@@ -203,7 +212,7 @@
           <code>~/.pi/agent/mcp.json</code> + <code>.pi/mcp.json</code>), HTTP health-checked live.
           Stdio servers stay « configured ». Add, edit, enable, disable or remove them here.
         {:else}
-          Servers Claude Code can reach from <code>{project || 'the user scope'}</code>, health-checked
+          Servers Claude Code can reach from <code>{project || 'the user scope'}</code>{#if profileLabel}{' for the '}<b>{profileLabel}</b>{' profile'}{/if}, health-checked
           live. Re-authenticate one here instead of running <code>/mcp</code> in a terminal.
         {/if}
       </p>
@@ -254,6 +263,9 @@
   {#if notice}
     <p class="notice">{notice}</p>
   {/if}
+  {#if res?.note}
+    <p class="notice">{res.note}</p>
+  {/if}
 
   {#if isPi && legacy.length}
     <div class="legacy">
@@ -275,7 +287,9 @@
     <p class="empty">No MCP server configured for this project.</p>
   {:else}
     <div class="list">
-      {#each servers as s (s.name)}
+      <!-- Keyed by origin too: the account and hooked can both have a server of the same name, and a
+           duplicate key would break the list. -->
+      {#each servers as s (`${s.injected ? 'hooked' : 'cli'}:${s.name}`)}
         {@const ui = stateUi(s.state)}
         <div class="card" class:off={s.state === 'disabled'} style="--st:{ui.color}">
           <div class="row">
@@ -285,6 +299,7 @@
                 {s.name}
                 <span class="chip">{s.scopeLabel}</span>
                 <span class="chip">{s.transport}</span>
+                {#if s.clash}<span class="chip clash" title="This account already has a server of the same name: which of the two a session gets is not decided here">same name as the account's</span>{/if}
               </div>
               <div class="target" title={s.target}>{s.target}</div>
             </div>
@@ -365,7 +380,12 @@
           {/if}
           {#if open === s.name}
             <div class="det">
-              {#if busy === s.name && !details[s.name]}
+              {#if s.injected}
+                {#each [['Scope', s.scope === 'common' ? 'Common to every account (mcp-common.json)' : 'Dedicated to this profile'], ['Type', s.transport], ['Target', s.target]] as [k, v]}
+                  {#if v}<div class="dl"><span>{k}</span><code>{v}</code></div>{/if}
+                {/each}
+                <span class="sub">Added by hooked when the session starts, so the CLI does not list it and it is not health-checked here.</span>
+              {:else if busy === s.name && !details[s.name]}
                 <span class="sub">Loading…</span>
               {:else if details[s.name]}
                 {@const d = details[s.name]}
@@ -396,10 +416,10 @@
     </div>
   {/if}
 
-  {#if res?.diagnostics?.length}
+  {#if res?.diagnostics?.length || res?.warnings?.length}
     <div class="diag">
       <strong><Icon name="warning" size={14} color="var(--warn)" /> Config diagnostics</strong>
-      <pre>{res.diagnostics.join('\n')}</pre>
+      <pre>{[...(res.diagnostics || []), ...(res.warnings || []).map((w) => 'mcp-common.json: ' + w)].join('\n')}</pre>
     </div>
   {/if}
 </div>
@@ -449,6 +469,7 @@
   .idcol { flex: 1 1 auto; min-width: 0; }
   .name { display: flex; align-items: center; gap: 7px; font-weight: 650; font-size: var(--t-body); flex-wrap: wrap; }
   .chip { font-weight: 600; font-size: var(--t-micro); text-transform: uppercase; letter-spacing: .03em; color: var(--muted); background: var(--bg3); border-radius: 999px; padding: 2px 7px; }
+  .chip.clash { color: var(--warn); text-transform: none; }
   .target { color: var(--muted); font-family: var(--mono); font-size: var(--t-meta); margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .acts { flex: none; display: flex; gap: 6px; align-items: center; }
 

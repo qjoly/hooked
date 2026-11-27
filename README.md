@@ -215,6 +215,138 @@ notifications, auto-compact, which models appear in the pickers…
 Costs are estimates computed from the token counts in the transcripts. Prices live in
 `server/pricing.js`.
 
+### Connection profiles
+
+A session normally talks to the Claude account the CLI is signed in to. A **profile** sends it
+somewhere else instead: another Anthropic account, or an Anthropic-compatible server such as
+LM Studio. Profiles live in `profiles.json`, next to hooked's other data (`~/.claude/hooked/`):
+
+```json
+[
+  {
+    "id": "lmstudio-home",
+    "label": "LM Studio (home)",
+    "kind": "compatible",
+    "env": {
+      "ANTHROPIC_BASE_URL": "http://127.0.0.1:1234",
+      "ANTHROPIC_AUTH_TOKEN": "lmstudio",
+      "ANTHROPIC_API_KEY": ""
+    },
+    "models": ["qwen/qwen3-coder-30b"],
+    "contextWindow": 65536
+  },
+  {
+    "id": "work",
+    "kind": "anthropic",
+    "env": { "ANTHROPIC_API_KEY": { "fromEnv": "WORK_ANTHROPIC_KEY" } }
+  },
+  {
+    "id": "perso",
+    "label": "Personal account",
+    "kind": "anthropic",
+    "configDir": "~/.claude/hooked/accounts/perso"
+  }
+]
+```
+
+- `env` is what the session's `claude` process gets, on top of your login environment. A value is
+  a string, or a reference that is resolved when the session starts, so a token never has to sit in
+  the file: `{ "fromEnv": "NAME" }` (a variable of your login environment) or
+  `{ "file": "~/path" }`. A reference that does not resolve fails the launch.
+- A profile picks the destination entirely: `ANTHROPIC_*` and `CLAUDE_CODE_OAUTH_TOKEN` exported by
+  your shell are not passed to a session that uses one. Set `ANTHROPIC_API_KEY` to `""` to be explicit.
+- **Add server** (account menu, the avatar, top right) creates a `compatible` profile without editing
+  the file: a name, the server's address (a trailing `/v1` is dropped), an optional token, and the
+  context size its models are loaded at (`contextWindow`). **Test** asks the server for its models
+  first, so a typo or a sleeping machine shows up there, and the models you keep ticked become the
+  profile's `models`. A token is stored in `profiles.json`, which hooked creates readable by you only
+  (`0600`), as it does for every file it writes.
+- `kind: "compatible"` needs `ANTHROPIC_BASE_URL`. Its `models` are the ids of that server; when
+  listed, a launch or a model switch is limited to them. An `anthropic` profile takes the usual
+  family names (`opus`, `sonnet`…).
+- The implicit `default` profile is today's behaviour, and the one used when none is asked for.
+- Pick one in **New session**: the picker appears as soon as there is a profile besides the default.
+  A `compatible` profile shows its server's models in place of Claude's, and no effort (it means
+  nothing there). A session on a profile carries its name in its header. Over the API, it is the
+  `profile` field of `POST /api/launch`; `GET /api/profiles` lists them (without their `env`) and
+  reports the entries it had to skip. The file is read at every launch.
+- `configDir` (`anthropic` only) gives the profile its own Claude account: the session runs with that
+  `CLAUDE_CONFIG_DIR`, so it signs in separately and shows its own identity. hooked creates the
+  directory (private) and links into it what is not about who is signed in: `projects/` (so every
+  transcript lands where hooked reads), `settings.json` (so the hooks apply), `CLAUDE.md`, `skills/`,
+  `commands/`, `agents/` and `plugins/`. `.claude.json` (identity, user-scope MCP servers) and the
+  login stay the account's own. Anything already in the directory is left as it is.
+  On macOS the login is stored in a Keychain item named after a hash of the directory's path, so
+  that path must never change: it is kept absolute, without a trailing slash, and two profiles
+  cannot share one.
+  The account menu (the avatar, top right) is one list of accounts, the main one first (Claude
+  Code's own login on this machine), each with its identity, plan and limits. The menu of a card
+  has **Use for new sessions** (that account starts selected in New session, and the top bar shows
+  its limits outside a session), **Sign in again**, **Sign in with Console (API billing)**,
+  **Sign out** and, for a profile, **Remove**. A sign-in happens inside the card; open its link in
+  a browser window signed in to the account you mean, since that is the one the CLI will get. Only
+  the main account's sign-in replaces a login shared with the rest of the machine, and says so.
+  Starting a sign-in for an account ends the one still open for it, and Cancel really stops it.
+  **Add account** creates the profile (its directory goes under `~/.claude/hooked/accounts/<id>`)
+  and starts its sign-in. **Remove** signs the account out and takes it out of `profiles.json`; it
+  is refused while a session runs on it, and its directory is kept on disk, never deleted by hooked.
+  The rate-limit gauges follow the account: on a session of a profile with an account of its own,
+  the top bar shows that account's 5 h / 7 d limits (read with its own login), anywhere else the
+  main account's, and a session on a server with no account (LM Studio…) shows none. The account
+  menu lists each signed-in account's limits next to its identity.
+- `contextWindow` (`compatible` only) is the context the server loads the model at. The CLI assumes
+  200k for a model it does not know and would never compact before the server refuses the request;
+  hooked hands it over as `CLAUDE_CODE_MAX_CONTEXT_TOKENS`, which also sizes the context gauge.
+- What belongs to an Anthropic account is switched off for a session on a `compatible` profile: the
+  prompt-cache countdown, the hold on a model switch while the cache is warm, auto-compact, the
+  rate-limit query, and the cost (a model with a provider prefix, such as `qwen/…`, is free).
+- A `compatible` profile that lists no `models` offers whatever its server's `/v1/models` returns
+  (embedding models left out), read when the picker opens.
+- A session keeps its profile when it is resumed, restarted, forked, or brought back after hooked
+  restarts. If that profile has since been removed from the file, the resume fails with a message
+  instead of falling back to the default one. A fork cut before the first answer of a `compatible`
+  profile carries the original's model over.
+- **Move to account…** (the session's menu, Claude sessions) stops the session and resumes it on
+  another account or server, keeping its id, conversation, tags and group. A turn in progress is lost,
+  like for Restart. Between two accounts nothing is asked: the session keeps its model. When either side
+  is a server you pick a model, since a server's model ids mean nothing to Anthropic and the other way
+  round, and the CLI would otherwise restore the old one and fail on its first request. Over the API:
+  `POST /api/claude { "action": "move", "id", "profile", "model"? }`.
+
+### MCP servers per account
+
+Which MCP servers an account can use is not the same for every account: an organization's servers
+are out of reach with a personal login, and the claude.ai connectors follow the login. So:
+
+- **An account's own servers** are the ones it has in its own `.claude.json` (`claude mcp add
+  --scope user …`, run with that account's `CLAUDE_CONFIG_DIR`), plus its claude.ai connectors. They
+  stay with the account, and a server of an organization is simply not there for another account.
+- **Common servers** go in `mcp-common.json`, next to `profiles.json`, in the shape of a project's
+  `.mcp.json`. Every profile gets them, the default one included, unless it has
+  `"commonMcp": false`.
+- **A profile's own servers** go in its `mcpServers` (any kind of profile, LM Studio included), for
+  its sessions only. They win over a common server of the same name.
+
+```json
+{ "mcpServers": {
+    "context7": { "command": "npx", "args": ["-y", "@upstash/context7-mcp"] },
+    "wiki": { "type": "http", "url": "https://wiki.example.com/mcp",
+              "headers": { "Authorization": { "fromEnv": "WIKI_TOKEN" } } } } }
+```
+
+- A server is `stdio` (`command`, `args`, `env`) or `http` / `sse` (`url`, `headers`). Values of `env`
+  and `headers` are literals or `{ "fromEnv" }` / `{ "file" }` references, resolved when the session
+  starts. A reference that does not resolve refuses the launch, naming the server and the variable.
+- Entries that do not parse are skipped and reported (in the lens, and in hooked's log), never fatal.
+  `hooked` is reserved for hooked's own server.
+- hooked hands these servers to the session when it starts, as it does its own: nothing is copied
+  into any `.claude.json`, so an edit applies to the next session. A server that needs OAuth still
+  signs in per account, from the MCP lens.
+- The **MCP lens** shows what the session's own account sees (it runs the CLI with that account),
+  then the servers hooked adds, marked *Common* or *Profile*. The CLI does not know those, so they
+  are described rather than health-checked. A name the account already has is flagged: which of
+  the two a session ends up with is not decided here.
+
 ## How it works
 
 ```mermaid

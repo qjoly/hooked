@@ -11,28 +11,40 @@
  * so per-model weekly limits are invisible there — and the CLI's cache is only rewritten when a
  * session actually opens `/usage`, with a 5 min floor. Relying on it alone left the Fable gauge
  * frozen for hours. Best-effort throughout: any missing key degrades to null.
+ *
+ * Every function that reads or polls takes an ACCOUNT ({ key, configDir }; none = the default
+ * account): its own token, its own cached payload in its own .claude.json, its own live answer and
+ * back-off. A profile with an account of its own (cf. server/profiles.js) is polled with ITS token,
+ * so its numbers are its own and never the default account's.
  */
 import fs from 'node:fs';
+import path from 'node:path';
 import { CLAUDE_JSON } from './config.js';
 import { statSafe } from './util.js';
 import { accessToken } from './oauth.js';
 
-let cache = null; // { key, util }
+const cache = new Map(); // file -> { key, util }
+
+const DEFAULT_ACCOUNT = Object.freeze({ key: 'default', configDir: null });
+// The account a profile's numbers belong to: its own dir, or the default account.
+const accountOf = (profile) => (profile && profile.configDir ? { key: profile.id, configDir: profile.configDir } : DEFAULT_ACCOUNT);
+const claudeJsonOf = (acct) => (acct.configDir ? path.join(acct.configDir, '.claude.json') : CLAUDE_JSON);
 
 // `cachedUsageUtilization.utilization` from ~/.claude.json, or null. Cached on mtime+size:
 // the file is small (~100 KB) but this is read on every /api/usage poll.
 function readUtilization(file = CLAUDE_JSON) {
   const st = statSafe(file);
   if (!st || !st.isFile()) return null;
-  const key = file + ':' + st.mtimeMs + ':' + st.size;
-  if (cache && cache.key === key) return cache.util;
+  const key = st.mtimeMs + ':' + st.size;
+  const hit = cache.get(file);
+  if (hit && hit.key === key) return hit.util;
   let util = null;
   try {
     const j = JSON.parse(fs.readFileSync(file, 'utf8'));
     const c = j && j.cachedUsageUtilization;
     util = c && c.utilization ? { ...c.utilization, _fetchedAtMs: c.fetchedAtMs || null } : null;
   } catch (_) { util = null; }
-  cache = { key, util };
+  cache.set(file, { key, util });
   return util;
 }
 
@@ -45,28 +57,34 @@ const LIVE_TTL_MS = 60_000;    // don't re-poll a fresh answer more often than t
 const RETRY_MS = 300_000;      // after a failure (no token, offline, 4xx), back off hard
 const TIMEOUT_MS = 5000;
 
-let live = null;        // { util } — util carries its own _fetchedAtMs
-let inflight = false;
-let lastTryMs = 0;
-let lastError = null;   // string, shown in /api/usage for debugging (never carries the token)
+// Per account: { live: { util } | null, inflight, lastTryMs, lastError }. `live.util` carries its own
+// _fetchedAtMs; `lastError` is shown in /api/usage for debugging and never carries the token.
+const states = new Map();
+function stateFor(acct) {
+  let st = states.get(acct.key);
+  if (!st) { st = { live: null, inflight: false, lastTryMs: 0, lastError: null }; states.set(acct.key, st); }
+  return st;
+}
 
-// Fire-and-forget refresh, rate-limited. Called from currentUtilization on every read: the caller
-// keeps serving whatever we already have, and picks up the new value on its next poll.
-function kickLiveRefresh(now = Date.now()) {
-  if (!FETCH_ENABLED || inflight) return;
-  if (now - lastTryMs < (lastError ? RETRY_MS : LIVE_TTL_MS)) return;
-  inflight = true;
-  lastTryMs = now;
-  fetchUsage()
-    .then((util) => { live = { util }; lastError = null; })
-    .catch((e) => { lastError = String((e && e.message) || e); })
-    .finally(() => { inflight = false; });
+// Fire-and-forget refresh, rate-limited, per account. Called from currentUtilization on every read:
+// the caller keeps serving whatever we already have, and picks up the new value on its next poll.
+// An account nobody asks about is never polled.
+function kickLiveRefresh(now = Date.now(), acct = DEFAULT_ACCOUNT) {
+  const st = stateFor(acct);
+  if (!FETCH_ENABLED || st.inflight) return;
+  if (now - st.lastTryMs < (st.lastError ? RETRY_MS : LIVE_TTL_MS)) return;
+  st.inflight = true;
+  st.lastTryMs = now;
+  fetchUsage(acct)
+    .then((util) => { st.live = { util }; st.lastError = null; })
+    .catch((e) => { st.lastError = String((e && e.message) || e); })
+    .finally(() => { st.inflight = false; });
 }
 
 // One GET against the usage endpoint. Resolves with the payload (same shape as the cached
 // `utilization` object, `_fetchedAtMs` stamped by us), rejects with a token-free message.
-async function fetchUsage() {
-  const token = accessToken();
+async function fetchUsage(acct = DEFAULT_ACCOUNT) {
+  const token = accessToken(Date.now(), acct.configDir);
   if (!token) throw new Error('no usable local OAuth token');
   const res = await fetch(USAGE_URL, {
     headers: {
@@ -86,9 +104,10 @@ async function fetchUsage() {
 
 // The freshest utilization payload we have — live answer if it beats the CLI's cache, else the
 // cache — and kicks a background refresh when ours has gone stale.
-function currentUtilization(now = Date.now()) {
-  kickLiveRefresh(now);
-  const file = readUtilization();
+function currentUtilization(now = Date.now(), acct = DEFAULT_ACCOUNT) {
+  kickLiveRefresh(now, acct);
+  const { live } = stateFor(acct);
+  const file = readUtilization(claudeJsonOf(acct));
   const liveAt = live && live.util._fetchedAtMs || 0;
   const fileAt = (file && file._fetchedAtMs) || 0;
   if (live && liveAt >= fileAt) return live.util;
@@ -97,8 +116,9 @@ function currentUtilization(now = Date.now()) {
 
 // Where the numbers came from + why the live poll is failing, for the UI's staleness hint.
 // { source: 'live' | 'cache' | null, at: ISO | null, error: string | null }
-function usageFreshness(now = Date.now()) {
-  const util = currentUtilization(now);
+function usageFreshness(now = Date.now(), acct = DEFAULT_ACCOUNT) {
+  const util = currentUtilization(now, acct);
+  const { live, lastError } = stateFor(acct);
   const liveAt = live && live.util._fetchedAtMs || 0;
   const source = util ? (util === (live && live.util) ? 'live' : 'cache') : null;
   return {
@@ -150,4 +170,4 @@ function accountLimit(kind, util = currentUtilization(), now = Date.now()) {
   };
 }
 
-export { readUtilization, currentUtilization, usageFreshness, scopedLimit, accountLimit, fetchUsage };
+export { readUtilization, currentUtilization, usageFreshness, scopedLimit, accountLimit, fetchUsage, accountOf, DEFAULT_ACCOUNT };

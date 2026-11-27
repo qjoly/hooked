@@ -24,7 +24,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { query } from '@anthropic-ai/claude-agent-sdk';
-import { PORT, PR_GATE_BIN, LAUNCHES_FILE, SESSION_LAUNCH_FILE, DRIVEN_FILE, PERMISSION_MODES, LAUNCH_PERMISSION_MODES, isValidModelArg } from './config.js';
+import { PORT, PR_GATE_BIN, LAUNCHES_FILE, SESSION_LAUNCH_FILE, DRIVEN_FILE, PERMISSION_MODES, LAUNCH_PERMISSION_MODES } from './config.js';
+import { findProfile, isValidModelForProfile, sessionEnvFor, planProfileMove, DEFAULT_PROFILE_ID } from './profiles.js';
+import { prepareAccountDir } from './accountDir.js';
+import { injectedMcpFor } from './mcpServers.js';
 import { isValidEffort } from './capabilities.js';
 import { emitExtensionEvent } from './extensionEvents.js';
 import { statSafe } from './util.js';
@@ -498,7 +501,7 @@ function sessionIdForLaunchKey(launchKey) {
 // hooks globaux de ~/.claude/settings.json — donc hook.cjs, donc events.jsonl — continuent de
 // s'exécuter pour les sessions lancées par hooked, exactement comme pour le CLI interactif. Sans ça
 // on perdrait d'un coup les questions/plans en attente, les todos, les jobs de fond, la statusline…
-function sdkOptions({ cwd, model, effort, permissionMode, resumeId, input, st, env }) {
+function sdkOptions({ cwd, model, effort, permissionMode, resumeId, input, st, env, mcp }) {
   const opts = {
     cwd,
     env,
@@ -524,8 +527,11 @@ function sdkOptions({ cwd, model, effort, permissionMode, resumeId, input, st, e
     stderr: (data) => { st.stderr = String(data).slice(-4000); },
   };
   // Outils hooked (reply/resolve review comment…) même hors de ce repo — cf. hookedMcpServer().
+  // The servers the user shares across accounts, or dedicates to this profile (cf.
+  // server/mcpServers.js), then hooked's own, whose name is reserved so nothing can shadow it.
   const hookedMcp = hookedMcpServer(st.launchKey);
-  if (hookedMcp) opts.mcpServers = { hooked: hookedMcp };
+  const servers = { ...(mcp || {}), ...(hookedMcp ? { hooked: hookedMcp } : {}) };
+  if (Object.keys(servers).length) opts.mcpServers = servers;
   return opts;
 }
 
@@ -617,10 +623,48 @@ function whenReady(st) {
   });
 }
 
+// Waits for the CLI of an entry that has been told to stop to be gone, so that a restart does not
+// start the next one while this one still holds the session. Settled by readLoop's `finally` (the
+// stream ends when the process has exited) and by failStartup. Entries with no stream to wait for
+// (a driver's, one that never started, one created by an older version of this module still
+// running in a dev server) get `fallbackMs` instead; a CLI that will not leave gets `capMs`.
+function waitForExit(st, { capMs = 5000, fallbackMs = 250 } = {}) {
+  if (st.exitSettled) return Promise.resolve();
+  if (!st.q || !st.exitWaiters) return new Promise((r) => setTimeout(r, fallbackMs));
+  return new Promise((resolve) => {
+    const timer = setTimeout(resolve, capMs);
+    timer.unref?.();
+    st.exitWaiters.push(() => { clearTimeout(timer); resolve(); });
+  });
+}
+function settleExit(st) {
+  st.exitSettled = true;
+  const waiters = st.exitWaiters;
+  if (!waiters || !waiters.length) return;
+  st.exitWaiters = [];
+  for (const w of waiters) { try { w(); } catch (_) {} }
+}
+
 // A launch waits for the session id; it must be released when the session dies, or the HTTP
 // caller hangs until its own timeout.
 function releaseLaunchWaiters(st) {
   if (st.onId) { const f = st.onId; st.onId = null; f(st); }
+}
+
+// Takes an entry out of the registry when it ends, and tells the viewers of its id that it did.
+// The registry is keyed by session id and a restart puts a NEW entry under the id of the one it is
+// replacing (restartSession aborts the old process and relaunches 250 ms later). The old entry's
+// readLoop ends whenever its CLI has finished exiting, which after a real turn can be after that:
+// cleaning up by id alone then dropped the restarted session, leaving a CLI running that hooked
+// could neither drive nor see, and told its viewers it had ended. An entry that has been replaced
+// has nothing left to clean: the id belongs to its successor. → whether the session left the registry.
+function retireFromLive(st) {
+  if (!st.id) return false;
+  const current = live.get(st.id);
+  if (current && current !== st) return false;
+  emitAgent(st.id, () => streamSnapshot(st), true);
+  live.delete(st.id);
+  return true;
 }
 
 // Démolit une entrée qui n'a jamais réussi à démarrer. Même nettoyage que le `finally` de readLoop,
@@ -636,12 +680,10 @@ function failStartup(st) {
   st.activity = null;
   st.sdkState = 'idle';
   if (st.pendingAsk) { const r = st.pendingAsk.resolve; st.pendingAsk = null; try { r(null); } catch (_) {} }
-  if (st.id) {
-    emitAgent(st.id, () => streamSnapshot(st), true);
-    live.delete(st.id);
-  }
+  retireFromLive(st);
   pending.delete(st.launchKey);
   releaseLaunchWaiters(st);
+  settleExit(st);
 }
 
 async function readLoop(st) {
@@ -700,27 +742,27 @@ async function readLoop(st) {
     // `canUseTool` fuite et le sous-processus resterait bloqué à la sortie.
     if (st.pendingAsk) { const r = st.pendingAsk.resolve; st.pendingAsk = null; try { r(null); } catch (_) {} }
     releaseLaunchWaiters(st);
-    if (st.id) {
-      emitAgent(st.id, () => streamSnapshot(st), true);
-      emitExtensionEvent('session:end', { sessionId: st.id, reason: st.error ? 'error' : 'ended' });
-      live.delete(st.id);
-    }
+    if (retireFromLive(st)) emitExtensionEvent('session:end', { sessionId: st.id, reason: st.error ? 'error' : 'ended' });
     pending.delete(st.launchKey);
+    settleExit(st);
   }
 }
 
 // Persiste modèle/effort choisis au lancement : l'UI doit pouvoir les afficher même après la fin
-// de la session (le registre, lui, ne survit pas au processus).
-function persistLaunch(sessionId, model, effort) {
+// de la session (le registre, lui, ne survit pas au processus). The connection profile goes with
+// them, and every record carries it: the map keeps the LAST record of a session, so one written
+// without it would make a resume fall back to the default profile, i.e. to another account.
+function persistLaunch(sessionId, model, effort, profile) {
   if (!sessionId) return;
   try {
     fs.appendFileSync(SESSION_LAUNCH_FILE, JSON.stringify({
       ts: new Date().toISOString(), session_id: sessionId, model: model || null, effort: effort || null,
+      profile: profile || null,
     }) + '\n');
   } catch (_) {}
 }
 
-// map persistée session_id → { model, effort }, rechargée par mtime/size (inchangée depuis tmux.js).
+// map persistée session_id → { model, effort, profile }, rechargée par mtime/size (inchangée depuis tmux.js).
 let sessionLaunchCache = { key: null, map: new Map() };
 function sessionLaunchMap() {
   const stf = statSafe(SESSION_LAUNCH_FILE);
@@ -732,7 +774,7 @@ function sessionLaunchMap() {
   try { data = fs.readFileSync(SESSION_LAUNCH_FILE, 'utf8'); } catch (_) { return sessionLaunchCache.map; }
   for (const line of data.split('\n')) {
     if (!line) continue;
-    try { const j = JSON.parse(line); if (j.session_id) map.set(j.session_id, { model: j.model || null, effort: j.effort || null }); } catch (_) {}
+    try { const j = JSON.parse(line); if (j.session_id) map.set(j.session_id, { model: j.model || null, effort: j.effort || null, profile: j.profile || null }); } catch (_) {}
   }
   sessionLaunchCache = { key, map };
   return map;
@@ -745,6 +787,16 @@ function resolveLaunchForSession(id) {
   const st = live.get(id);
   if (st && (st.launchModel || st.launchEffort)) return { model: st.launchModel || null, effort: st.launchEffort || null };
   return sessionLaunchMap().get(id) || null;
+}
+
+// The connection profile a session runs, or last ran, on: the live registry first, then what the
+// launch persisted. null for a session that predates profiles, which means the default one.
+function profileOfSession(id) {
+  if (!id) return null;
+  const st = live.get(id);
+  if (st && st.profileId) return st.profileId;
+  const rec = sessionLaunchMap().get(id);
+  return (rec && rec.profile) || null;
 }
 
 const EPHEMERAL_NOTE = 'This is an ephemeral session. When the task is done and you are highly confident nothing is left '
@@ -783,6 +835,7 @@ function driverCtx(st, done) {
 // launches in it.
 function launchSession(opts, cb) {
   const { resumeId, cwd, prompt, model, effort, worktree, permissionMode, autoApprove, parentKey, groupWith, group, incognito, ephemeral } = opts;
+  let profileArg = opts.profile;
   let dir = cwd && typeof cwd === 'string' ? cwd : null;
   let id = null;
   if (resumeId) {
@@ -815,12 +868,30 @@ function launchSession(opts, cb) {
     : ((id && scanAllSessions().find((s) => s.id === id)?.provider) || defaultProviderId());
   const pconf = getProvider(provider);
   const engine = pconf ? getEngine(pconf.engine) : null;
-  // Model / effort: Claude's own grammar on the built-in path, the engine's elsewhere (pi takes
-  // `provider/id` refs and thinking levels; an ACP agent, whatever it advertised).
+  // The connection profile (cf. server/profiles.js): which account or server a CLAUDE session talks
+  // to. Resolved here, before a worktree is created for it, so a bad profile or model costs nothing.
+  // Another engine has no such notion: asking for one there is a mistake, not something to ignore.
+  const claudePath = !engine || engine.id === 'claude';
+  if (profileArg != null && typeof profileArg !== 'string') return cb(err400('invalid profile'));
+  // A resumed session goes back to the profile it ran on unless the caller names another. Falling
+  // back to the default one instead would send the transcript to a different account or server.
+  const inherited = id && !profileArg ? profileOfSession(id) : null;
+  if (inherited) profileArg = inherited;
+  const profile = findProfile(profileArg);
+  if (!profile) {
+    return cb(err400(inherited
+      ? `profile "${inherited}", the one this session ran on, is no longer configured`
+      : 'unknown profile: ' + profileArg));
+  }
+  if (!claudePath && profile.id !== DEFAULT_PROFILE_ID) return cb(err400('connection profiles only apply to Claude sessions'));
+  // Model / effort: Claude's own grammar on the built-in path (a model of the profile's server on a
+  // compatible one), the engine's elsewhere (pi takes `provider/id` refs and thinking levels; an ACP
+  // agent, whatever it advertised).
   const badArg = (kind, v) => {
     if (!v) return null;
-    if (!engine || engine.id === 'claude') {
-      return (kind === 'model' ? isValidModelArg(v) : isValidEffort(v)) ? null : `unknown ${kind}: ${v}`;
+    if (claudePath) {
+      if (kind === 'model') return isValidModelForProfile(profile, v) ? null : `unknown model: ${v}`;
+      return isValidEffort(v) ? null : `unknown effort: ${v}`;
     }
     const check = kind === 'model' ? engine.validateModel : engine.validateEffort;
     if (typeof check === 'function') return check(v);
@@ -847,6 +918,8 @@ function launchSession(opts, cb) {
     cwd: dir,
     input,
     abort: new AbortController(),
+    profileId: profile.id,
+    profileKind: profile.kind,   // a `compatible` server has no Anthropic prompt cache (cf. decideModelSwitch)
     launchModel: model || null,
     launchEffort: effort || null,
     model: model || null,
@@ -872,6 +945,8 @@ function launchSession(opts, cb) {
     sawMsg: false,   // le CLI a-t-il produit au moins un message ? (cf. chien de garde)
     watchdog: null,
     readyWaiters: [],   // appelants qui attendent ce premier message (cf. whenReady)
+    exitWaiters: [],    // appelants qui attendent la fin du CLI (cf. waitForExit)
+    exitSettled: false,
     startedAt: new Date().toISOString(),
     lastMsgAt: Date.now(),
     lastRequestAt: null,        // start of the last API request seen on the stream: the prompt-cache clock
@@ -911,8 +986,28 @@ function launchSession(opts, cb) {
 
   // On attend l'environnement du shell de login (résolu une fois, déjà chaud en pratique) avant de
   // spawner : sans lui la session perdrait le PATH et les variables du profil (cf. loginEnv).
-  loginEnv().then((env) => {
+  loginEnv().then((loginEnvVars) => {
     if (st.abort.signal.aborted) return; // tuée pendant le démarrage
+    // The profile's env goes over the login one. A reference that does not resolve (unset variable,
+    // missing file) fails the launch: starting anyway would fall back to another account.
+    const sessionEnv = sessionEnvFor(profile, loginEnvVars);
+    if (sessionEnv.error) {
+      st.error = sessionEnv.error;
+      failStartup(st);
+      return;
+    }
+    const env = sessionEnv.env;
+    // MCP servers added by hooked: a reference that does not resolve refuses the launch, naming the
+    // server, rather than starting without a server the user expects. Entries of mcp-common.json
+    // that do not parse are skipped and reported, as in profiles.json.
+    const injected = injectedMcpFor(profile, { env: loginEnvVars });
+    if (injected.errors.length) { st.error = injected.errors.join('; '); failStartup(st); return; }
+    for (const w of injected.warnings) console.log('[hooked] mcp-common.json: ' + w);
+    // A profile with its own account: its dir has to exist, with the shared parts linked in.
+    if (profile.configDir) {
+      const prep = prepareAccountDir(profile);
+      if (prep.error) { st.error = `profile "${profile.id}": ${prep.error}`; failStartup(st); return; }
+    }
     // Non-Claude engine: its driver spawns and talks to the agent, on the SAME registry entry —
     // the rest of the dashboard (live state, questions, interrupts) does not change.
     const drv = driverFor(st);
@@ -921,7 +1016,7 @@ function launchSession(opts, cb) {
       return;
     }
     try {
-      st.q = query({ prompt: input, options: sdkOptions({ cwd: dir, model, effort, permissionMode, resumeId: id, input, st, env }) });
+      st.q = query({ prompt: input, options: sdkOptions({ cwd: dir, model, effort, permissionMode, resumeId: id, input, st, env, mcp: injected.servers }) });
     } catch (e) {
       st.error = 'agent sdk query failed: ' + ((e && e.message) || e);
       failStartup(st);
@@ -952,7 +1047,7 @@ function launchSession(opts, cb) {
     st.onId = null;
     if (finalSt.error) return cb(new Error('agent sdk session failed: ' + finalSt.error));
     if (!finalSt.id) return cb(new Error('agent sdk session ended before reporting its id'));
-    persistLaunch(finalSt.id, model, effort);
+    persistLaunch(finalSt.id, model, effort, profile.id);
     // Launched from another driven session (MCP start_session), or from a group's « + » (groupWith):
     // the new session joins that group, unless the caller opted out (`group: false`). The parent
     // is still resolved in that case: incognito is inherited either way.
@@ -968,7 +1063,7 @@ function launchSession(opts, cb) {
     } catch (_) {}
     try {
       fs.appendFileSync(LAUNCHES_FILE, JSON.stringify({
-        ts: new Date().toISOString(), session_id: finalSt.id, cwd: finalSt.cwd,
+        ts: new Date().toISOString(), session_id: finalSt.id, cwd: finalSt.cwd, profile: profile.id,
         model: model || null, effort: effort || null, worktree: wt ? { path: wt.path, branch: wt.branch, base: wt.base } : false,
       }) + '\n');
     } catch (_) {}
@@ -984,7 +1079,7 @@ function launchSession(opts, cb) {
   let timer = null;
   if (st.id) {
     // Reprise : id connu, on rend la main sans attendre le `system/init`.
-    persistLaunch(st.id, model, effort);
+    persistLaunch(st.id, model, effort, profile.id);
     return done(st);
   }
   // Session neuve : on attend de connaître le session_id pour rendre le deep-link.
@@ -1625,7 +1720,12 @@ function setModelEffort(id, { model, effort, force = false } = {}, cb) {
       })
       .catch((e) => cb(new Error('model/thinking change failed: ' + ((e && e.message) || e))));
   }
-  if (model && !isValidModelArg(model)) return cb(err400('unknown model: ' + model));
+  if (model) {
+    // Against the session's own profile: a local server's model ids are not Claude family names.
+    const profile = findProfile(st.profileId);
+    if (!profile) return cb(err400(`profile "${st.profileId}" is no longer configured`));
+    if (!isValidModelForProfile(profile, model)) return cb(err400('unknown model: ' + model));
+  }
   if (effort && !isValidEffort(effort)) return cb(err400('unknown effort: ' + effort));
   if (!model && !effort) return cb(err400('model or effort required'));
   st.modelSwitch = { force: !!force, held: null };
@@ -1642,7 +1742,7 @@ function setModelEffort(id, { model, effort, force = false } = {}, cb) {
       : Promise.resolve();
     return applyEffort.then(() => finish(() => {
       const prev = sessionLaunchMap().get(id) || {};
-      persistLaunch(id, model || prev.model || null, effort || prev.effort || null);
+      persistLaunch(id, model || prev.model || null, effort || prev.effort || null, st.profileId);
       cb(null, { sessionId: id, model: model || null, effort: effort || null });
     }));
   }).catch((e) => {
@@ -1714,17 +1814,40 @@ function killSession(id, cb) {
 // Redémarre une session pour qu'elle reparte sur la version claude installée : on termine le
 // process courant, puis on relance en reprise. L'état mémoire est volontairement perdu ; la reprise
 // recharge le transcript (philosophie « reconnect » du projet).
-function restartSession(id, { model, effort } = {}, cb) {
+// `profile` relaunches it on another connection profile (cf. moveSession); `noEffort` stops the
+// session's own effort from being carried over when the target has none (a compatible server).
+function restartSession(id, { model, effort, profile, noEffort } = {}, cb) {
   const st = agentSession(id);
   // Same rule as resumeLaunchArgs: the session's own effort unless one is asked for, and no model
   // unless one is asked for — the CLI restores it, forcing one would empty the prompt cache.
-  const relaunch = () => launchSession({ resumeId: id, model: model || undefined, effort: effort || (st && st.effort) || undefined }, cb);
+  const relaunch = () => launchSession({ resumeId: id, model: model || undefined, effort: noEffort ? undefined : (effort || (st && st.effort) || undefined), profile: profile || (st && st.profileId) || undefined }, cb);
   if (!st) return relaunch();
   st.input.close();
   st.abort.abort();
   st.ended = true;
   live.delete(id);
-  setTimeout(relaunch, 250); // laisser le sous-processus rendre le verrou de session
+  // Let the old CLI give the session back before the next one resumes it: a fixed delay was shorter
+  // than the time a CLI mid-turn needs to exit, so the two overlapped.
+  waitForExit(st).then(relaunch);
+}
+
+// Moves a Claude session to another connection profile: stopped if it is running, then resumed on the
+// target from its transcript, same id, same group and tags. A turn in progress is lost, like for a
+// restart. The rules of what has to be picked live in planProfileMove.
+function moveSession(id, { profile: profileId, model, effort } = {}, cb) {
+  if (!/^[A-Za-z0-9._-]+$/.test(id || '')) return cb(err400('invalid session id'));
+  const sess = scanAllSessions().find((s) => s.id === id);
+  if (!sess) return cb(err400('session not found'));
+  const pconf = getProvider(sess.provider || 'claude');
+  const engine = pconf ? getEngine(pconf.engine) : null;
+  if (engine && engine.id !== 'claude') return cb(err400('Only Claude sessions can move to another account.'));
+  const st = agentSession(id);
+  const fromId = profileOfSession(id);
+  // A profile that has been removed since: its kind is unknown, so it is treated as a server.
+  const source = fromId ? (findProfile(fromId) || { id: fromId, kind: 'compatible' }) : null;
+  const plan = planProfileMove({ source, target: findProfile(profileId), model, effort, currentEffort: st && st.effort });
+  if (plan.error) return cb(err400(plan.error));
+  return restartSession(id, { model: plan.model, effort: plan.effort, profile: plan.profile, noEffort: plan.dropEffort }, cb);
 }
 
 // ── Reprise après un redémarrage de hooked ───────────────────────────────────────────────────────
@@ -1759,6 +1882,8 @@ function drivenSnapshot() {
       // effort = the EFFECTIVE one (hot changes included), the value a resume has to repeat exactly.
       id, cwd: st.cwd, model: st.launchModel || null, effort: st.effort || st.launchEffort || null,
       permissionMode: st.permissionMode || null, autoApprove: !!st.autoApprove,
+      // The connection profile: a resume has to run on the same account or server.
+      profile: st.profileId || null,
       // busy = a turn was in flight (including blocked on a question/permission): those sessions
       // get an automatic "Continue" on resume — the restart stole their turn.
       busy: !!st.busy,
@@ -1800,6 +1925,8 @@ function resumeLaunchArgs(s) {
     effort: s.effort || undefined,
     permissionMode: s.permissionMode || undefined,
     autoApprove: s.autoApprove,
+    // Passed even though launchSession would find it again: the snapshot is the fresher record.
+    profile: s.profile || undefined,
   };
 }
 
@@ -1877,6 +2004,9 @@ function isIdleWaiting(st) {
 // tests. Never on a cold cache (compactDue): it would pay the re-write it is meant to avoid.
 function shouldAutoCompact(st, { enabled = false, minContextK = 0 } = {}, now = Date.now()) {
   if (!enabled || !st || st.autoCompacting || !isIdleWaiting(st)) return false;
+  // Auto-compact exists to compact while the Anthropic prompt cache is still warm, which makes it
+  // cheap. A compatible server has no such cache: compacting there is only a loss.
+  if (st.profileKind === 'compatible') return false;
   const cache = agentCache(st);
   if (!cache.contextTokens || cache.contextTokens < minContextK * 1000) return false;
   return compactDue(cache, now);
@@ -1916,6 +2046,10 @@ function agentCacheInfo(id) { const st = agentSession(id); return st ? agentCach
 // Pure over (st, input), exported for the tests: null = no opinion, else { allow, held? }.
 function decideModelSwitch(st, input) {
   if (!input || input.source !== 'sdk' || !st || !st.modelSwitch) return null;
+  // The CLI keeps its own clock and calls the cache warm for an hour after any request, whichever
+  // server answered it. On a compatible server there is no cache to throw away, and the "cost" it
+  // would quote is Anthropic's.
+  if (st.profileKind === 'compatible') return { allow: true };
   if (st.modelSwitch.force || !input.prompt_cache_warm) return { allow: true };
   return {
     allow: false,
@@ -1948,10 +2082,10 @@ export {
   agentAlive, agentSession, liveSessionIds, liveSessionCwds,
   agentBusy, agentActivity, agentFollowup, agentLastProse, agentMode, agentAutoApprove, agentPendingAsk,
   agentSupportedCommands, agentToolCatalog,
-  applyMessage, readLoop, permissionQuestion, handleToolPermission, makeInputQueue, userMessage, parseEnvBlock, loginEnv, withoutServerEnv, hookedMcpServer, sessionIdForLaunchKey,
+  applyMessage, readLoop, waitForExit, permissionQuestion, handleToolPermission, makeInputQueue, userMessage, parseEnvBlock, loginEnv, withoutServerEnv, hookedMcpServer, sessionIdForLaunchKey,
   subscribeAgent, streamSnapshot,
-  resolveLaunchForSession, sessionLaunchMap,
-  launchSession, killSession, restartSession, forkDriven, forkDriven as forkPi,
+  resolveLaunchForSession, sessionLaunchMap, profileOfSession,
+  launchSession, killSession, restartSession, moveSession, forkDriven, forkDriven as forkPi,
   deliverReply, answerQuestion, questionAnswers, answerQuestionFreeText, answerPlan, answerPermission, answerPendingSelection,
   interruptSession, setMode, setModelEffort, setAutoApprove, alwaysAllowRules, clearAgentState,
   closeAfterTurn, resumeDrivenSessions, startDrivenSnapshot, pickResumable, saveDriven, failStartup, resumeLaunchArgs,

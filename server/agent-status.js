@@ -45,7 +45,7 @@ function toRateLimitWindow(w) {
  * `ctx` = getContextUsage() response, `usage` = usage_EXPERIMENTAL_…() response, both optional.
  * Returns null when there is nothing worth writing.
  */
-function buildSnapshot(id, { ctx, usage, model, effort } = {}, now = Date.now()) {
+function buildSnapshot(id, { ctx, usage, model, effort, profile } = {}, now = Date.now()) {
   if (!id) return null;
   const rl = usage && usage.rate_limits_available ? usage.rate_limits : null;
   const fiveHour = rl ? toRateLimitWindow(rl.five_hour) : null;
@@ -53,6 +53,8 @@ function buildSnapshot(id, { ctx, usage, model, effort } = {}, now = Date.now())
   const hasCtx = ctx && ctx.percentage != null;
   if (!hasCtx && !fiveHour && !sevenDay) return null;
   const snap = { session_id: id, source: 'sdk', ts: Math.round(now / 1000) };
+  // Which account the rate limits are of: with several, the freshest snapshot is not the one to show.
+  if (profile && profile !== 'default') snap.profile = profile;
   if (model) snap.model = { id: model, display_name: model };
   if (effort) snap.effort = { level: effort };
   if (hasCtx) {
@@ -89,9 +91,11 @@ function usageMethodName(q) {
   return names.find((k) => k.startsWith(USAGE_METHOD_PREFIX) && typeof q[k] === 'function') || null;
 }
 
-// Both control requests, each isolated: one failing must not deprive us of the other.
-async function pollQuery(q) {
-  const usageMethod = usageMethodName(q);
+// Both control requests, each isolated: one failing must not deprive us of the other. `usage: false`
+// skips the rate-limit one: quotas belong to an Anthropic account, and a session on a compatible
+// server has none to report (the question would only go to a server that cannot answer it).
+async function pollQuery(q, { usage: wantUsage = true } = {}) {
+  const usageMethod = wantUsage ? usageMethodName(q) : null;
   const [ctx, usage] = await Promise.all([
     typeof q.getContextUsage === 'function' ? q.getContextUsage().catch(() => null) : null,
     usageMethod ? q[usageMethod]().catch(() => null) : null,
@@ -110,12 +114,12 @@ function refreshAgentStatus(st, force = false, now = Date.now()) {
   if (!force && now - (st.statusAt || 0) < THROTTLE_MS) return;
   st.statusInflight = true;
   st.statusAt = now;
-  pollQuery(st.q)
+  pollQuery(st.q, { usage: st.profileKind !== 'compatible' })
     .then(({ ctx, usage }) => {
-      writeSnapshot(buildSnapshot(st.id, { ctx, usage, model: st.model, effort: st.effort }));
+      writeSnapshot(buildSnapshot(st.id, { ctx, usage, model: st.model, effort: st.effort, profile: st.profileId }));
     })
     .catch(() => {})
     .finally(() => { st.statusInflight = false; });
 }
 
-export { refreshAgentStatus, buildSnapshot, writeSnapshot };
+export { refreshAgentStatus, buildSnapshot, writeSnapshot, pollQuery };

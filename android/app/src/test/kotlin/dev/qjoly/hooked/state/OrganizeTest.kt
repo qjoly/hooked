@@ -39,6 +39,24 @@ class OrganizeTest {
         assertEquals(Section.WAITING, sectionOf(GroupUnit(s("y", "idle", q = true), emptyList()), emptyMap(), now))
     }
 
+    @Test fun `a group stays working while any awake member works, even if another waits`() {
+        assertEquals(Section.WORKING, sectionOf(GroupUnit(s("m", "waiting"), listOf(s("c", "working"))), emptyMap(), now))
+        assertEquals(Section.WORKING, sectionOf(GroupUnit(s("m", "attention"), listOf(s("c", "background"))), emptyMap(), now))
+        assertEquals(Section.WORKING, sectionOf(GroupUnit(s("m", "idle", q = true), listOf(s("c", "working"))), emptyMap(), now))
+        val g = GroupUnit(s("m", "waiting"), listOf(s("c1", "working"), s("c2", "waiting")))
+        assertEquals(Section.WAITING, sectionOf(g, mapOf("c1" to Meta(snoozeUntil = now + 1)), now))
+        assertEquals(Section.WAITING, sectionOf(g, mapOf("c1" to Meta(archived = true)), now))
+    }
+
+    @Test fun `a folded group shows its busiest member before a pending decision`() {
+        val (m, idle, ended) = Triple(s("m", "waiting"), s("i", "idle"), s("e", "ended", 3_600_000))
+        assertEquals("w", groupFace(GroupUnit(m, listOf(idle, s("w", "working"), s("b", "background")))).id)
+        assertEquals("b", groupFace(GroupUnit(m, listOf(idle, s("b", "background")))).id)
+        assertEquals("m", groupFace(GroupUnit(idle, listOf(ended, m))).id)
+        assertEquals("i", groupFace(GroupUnit(ended, listOf(idle))).id)
+        assertEquals("i", groupFace(GroupUnit(idle, listOf(s("j", "idle")))).id)
+    }
+
     @Test fun `dynamic sort puts pins, then what needs you, then the most recent`() {
         val list = listOf(s("old", age = 9_000_000), s("new", age = 1_000), s("ask", age = 5_000_000, q = true), s("pin", age = 99_000_000))
         assertEquals(listOf("pin", "ask", "new", "old"), sortSessions(list, "dynamic", setOf("pin"), emptyMap()).map { it.id })

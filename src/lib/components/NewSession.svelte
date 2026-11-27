@@ -3,13 +3,14 @@
   import { goto } from '$app/navigation';
   import { page } from '$app/state';
   import { data, ui, settings, updateSettings, groupName } from '#lib/state.svelte.js';
-  import { getDefaults, pickFolder, getUsage, getWorktreeBases, getProviderOptions } from '#lib/api.js';
+  import { getDefaults, pickFolder, getUsage, getWorktreeBases, getProviderOptions, getProfiles } from '#lib/api.js';
   import Composer from './Composer.svelte';
   import ModelEffort from './ModelEffort.svelte';
   import Icon from '#lib/components/Icon.svelte';
   import { defaultModelForQuota, isFableModel, isQuotaExhausted } from '#lib/models.js';
   import { knownProjects } from '#lib/projects.js';
   import { multiProvider, effectiveProvider, enabledProviderIds, providerInfo, providerEngine, can } from '#lib/providers.js';
+  import { isCompatible } from '#lib/profiles.js';
 
   const projs = $derived(knownProjects(data.sessions, settings.favoriteProjects || []));
 
@@ -80,14 +81,49 @@
   let claudeDefaults = $state(null);
   onMount(async () => { try { claudeDefaults = await getDefaults(); } catch (_) {} });
 
+  // Connection profiles (profiles.json): where the session sends its requests. The picker only
+  // shows when there is a choice, i.e. beyond the implicit default profile.
+  let profiles = $state([]);
+  let profileId = $state('');
+  onMount(async () => { try { profiles = (await getProfiles()).profiles || []; } catch (_) {} });
+  // The account chosen as the default (account menu → "Use for new sessions") starts selected, until
+  // the user picks one themselves. It has to still exist and have an account of its own: a removed
+  // one falls back to the main account. Reactive because the settings can arrive after this page
+  // mounts, on a direct load.
+  let profileTouched = false;
+  $effect(() => {
+    const d = settings.defaultProfile, list = profiles; // tracked before the guard (Svelte 5 trap)
+    if (profileTouched || !list.length) return;
+    untrack(() => { profileId = d && list.some((p) => p.id === d && p.hasAccount) ? d : ''; });
+  });
+  const profile = $derived(profiles.find((p) => p.id === profileId) || null);
+  const compatible = $derived(isCompatible(profile));
+  function pickProfile(id) {
+    profileTouched = true;
+    if (isCompatible(profiles.find((p) => p.id === id))) {
+      // The model of another server: empty until ModelEffort fills in the first one it offers. The
+      // defaults below are Claude names and would not mean anything there.
+      picked = true;
+      model = '';
+    } else {
+      picked = false;
+      model = defaultModelForQuota(settings.defaultModel || claudeDefaults?.model || 'opus', fableQuota);
+    }
+  }
+
   // Fable's own weekly quota (same source as the TopBar gauges). It says nothing about the 5h / 7d
   // buckets: it is a limit SCOPED to the model, and once it is full, launching on Fable does not
   // degrade gracefully — the session errors out on its first turn. Hence the fallback of the
   // DEFAULT model to "Opus (default)" (cf. defaultModelForQuota).
   let fableQuota = $state(null);
+  // Of the account the session is about to run on: another profile's account has its own quota,
+  // and a server with no account (LM Studio…) has none.
   $effect(() => {
     ui.tick; // dependency: re-fetch on every live tick — the quota can free up (weekly reset)
-    getUsage().then((u) => { fableQuota = u?.account?.fable ?? null; }).catch(() => {});
+    const pid = profileId;
+    let alive = true;
+    getUsage(pid || undefined).then((u) => { if (alive) fableQuota = u?.account?.fable ?? null; }).catch(() => {});
+    return () => { alive = false; };
   });
   // The configured default (hooked settings, else ~/.claude) BEFORE the fallback — it is the one
   // the warning names, and whether it is a Fable model decides if that warning shows at all.
@@ -248,7 +284,7 @@
         <a class="ns-prompts-edit" href="/prompts" title="Manage the prompt library"><Icon name="pencil" size={13} /></a>
       </div>
     {/if}
-    <Composer bind:this={composer} newSession project={cwd} {model} {effort} {mode} {provider} worktree={worktreeSpec} {ephemeral} {onLaunched} {groupWith} />
+    <Composer bind:this={composer} newSession project={cwd} profile={isClaude ? profileId : ""} {model} effort={compatible ? '' : effort} {mode} {provider} worktree={worktreeSpec} {ephemeral} {onLaunched} {groupWith} />
 
     {#if fableFallback}
       <div class="ns-quota" role="status">
@@ -333,7 +369,15 @@
             <div class="ns-pi-loading">loading {pinfo.label} options…</div>
           {/if}
         {:else}
-          <ModelEffort compact showMode bind:model bind:effort bind:mode onchange={() => (picked = true)} />
+          {#if profiles.length > 1}
+            <span class="me-pill" title="Where this session sends its requests (profiles.json)">
+              <span class="me-ico"><Icon name="link" size={14} /></span>
+              <select bind:value={profileId} onchange={(e) => pickProfile(e.currentTarget.value)} aria-label="Connection profile">
+                {#each profiles as p (p.id)}<option value={p.implicit ? '' : p.id}>{p.label}</option>{/each}
+              </select>
+            </span>
+          {/if}
+          <ModelEffort compact showMode profile={profileId} bind:model bind:effort bind:mode onchange={() => (picked = true)} />
         {/if}
         {#if can(provider, 'worktree', data.providerList)}
         <label class="me-pill ns-worktree" title="Create a git worktree on a new branch and launch the session in it">

@@ -47,17 +47,25 @@ function normRl(rl, now) {
   };
 }
 
-// rate limits du compte : globaux (identiques quelle que soit la session) → on prend le
-// snapshot le plus récent, toutes sessions confondues. Préfère celui de `preferId` s'il existe.
-function accountRateLimits(preferId, statusDir = STATUS_DIR, now = Date.now()) {
+// The account a snapshot belongs to: the profile id a driven session on a profile tags it with,
+// null for the default account (a terminal statusline, or a session on the default profile).
+const snapshotProfile = (d) => (d && d.profile && d.profile !== 'default' ? d.profile : null);
+
+// rate limits d'UN compte : identiques quelle que soit la session de ce compte → on prend le
+// snapshot le plus récent parmi les sessions de CE compte. Préfère celui de `preferId` s'il existe
+// (et s'il est bien de ce compte). `profile` = l'id du profil, null pour le compte par défaut: avec
+// plusieurs comptes, le plus récent toutes sessions confondues serait celui d'un autre compte.
+function accountRateLimits(preferId, statusDir = STATUS_DIR, now = Date.now(), profile = null) {
+  const want = profile && profile !== 'default' ? profile : null;
   let best = preferId ? sessionStatusRaw(preferId, statusDir) : null;
+  if (best && (snapshotProfile(best) !== want || !best.rate_limits)) best = null;
   let bestTs = best && best._mtime || -1;
   let names = [];
   try { names = fs.readdirSync(statusDir); } catch (_) { return null; }
   for (const f of names) {
     if (!f.endsWith('.json')) continue;
     const d = readStatusFile(path.join(statusDir, f));
-    if (d && d.rate_limits && (d._mtime || 0) > bestTs) { best = d; bestTs = d._mtime || 0; }
+    if (d && d.rate_limits && snapshotProfile(d) === want && (d._mtime || 0) > bestTs) { best = d; bestTs = d._mtime || 0; }
   }
   if (!best || !best.rate_limits) return null;
   return {
@@ -85,7 +93,8 @@ function freshestStatusId(statusDir = STATUS_DIR) {
 // statut consolidé pour une session : effort réel, contexte, fast mode, + rate limits du compte.
 function sessionStatus(id, statusDir = STATUS_DIR, now = Date.now()) {
   const raw = sessionStatusRaw(id, statusDir);
-  const rateLimit = accountRateLimits(id, statusDir, now);
+  // The rate limits of the session's OWN account, not of whichever account wrote last.
+  const rateLimit = accountRateLimits(id, statusDir, now, snapshotProfile(raw));
   if (!raw && !rateLimit) return null;
   const cw = raw && raw.context_window;
   return {
