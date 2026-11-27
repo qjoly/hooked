@@ -241,8 +241,14 @@ fn setup(s: &mut Hooked, waker: rune::Waker) {
     }
 }
 
-fn on_close(s: &mut Hooked, _: &mut Tx) {
+fn on_close(s: &mut Hooked, _tx: &mut Tx) {
     s.stash_draft();
+    // The app outlives its window for the tray icon. Without one (the shell refused it) nothing
+    // could bring the window back, so closing it quits.
+    #[cfg(windows)]
+    if s.tray.is_none() {
+        _tx.quit();
+    }
 }
 
 fn on_ime(s: &mut Hooked, ime: &rune::Ime, tx: &mut Tx) -> bool {

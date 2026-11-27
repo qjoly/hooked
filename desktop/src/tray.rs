@@ -22,6 +22,27 @@ fn journal(title: &str, body: &str, posted: bool) {
     }
 }
 
+/// What the tray did, for the cases where there is no icon and nothing says why: `tray.log` next to
+/// the notification journal. Kept small like it.
+#[cfg(any(target_os = "macos", windows))]
+fn trace(line: &str) {
+    use std::io::Write;
+    let Some(dirs) = rune::dirs::AppDirs::new(crate::theme::PREFS_ID) else {
+        return;
+    };
+    let path = dirs.data().join("tray.log");
+    let fresh = std::fs::metadata(&path).is_ok_and(|m| m.len() > 16 * 1024);
+    let file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(!fresh)
+        .write(true)
+        .truncate(fresh)
+        .open(&path);
+    if let Ok(mut f) = file {
+        let _ = writeln!(f, "{} {line}", crate::fmt::now_ms());
+    }
+}
+
 /// Posts a sample notification that opens the GitHub page when clicked: it checks that macOS
 /// lets this app show notifications at all.
 pub fn test_notification() {
@@ -129,10 +150,27 @@ pub mod native {
                 let ring = 1.0 - ((d - 13.0).abs() - 2.2).clamp(0.0, 1.0);
                 let dot = 1.0 - (d - 5.0).clamp(0.0, 1.0);
                 let a = ring.max(dot) * fade;
-                // A template icon (macOS) keeps only its alpha, so white costs nothing there, and it
-                // is the colour that shows on Windows' dark taskbar.
                 let i = ((y * N + x) * 4) as usize;
-                rgba[i..i + 4].copy_from_slice(&[255, 255, 255, (a * 255.0) as u8]);
+                if cfg!(windows) {
+                    // White on a dark taskbar, but the taskbar can be light: a thin dark edge around
+                    // the glyph keeps it readable on both.
+                    let halo_ring = 1.0 - ((d - 13.0).abs() - 3.8).clamp(0.0, 1.0);
+                    let halo_dot = 1.0 - (d - 6.6).clamp(0.0, 1.0);
+                    let h = halo_ring.max(halo_dot) * fade * 0.7;
+                    let out = a + h * (1.0 - a);
+                    let mix = |white: f32, dark: f32| {
+                        if out <= 0.0 { 0.0 } else { (white * a + dark * h * (1.0 - a)) / out }
+                    };
+                    rgba[i..i + 4].copy_from_slice(&[
+                        mix(255.0, 30.0) as u8,
+                        mix(255.0, 30.0) as u8,
+                        mix(255.0, 30.0) as u8,
+                        (out * 255.0) as u8,
+                    ]);
+                } else {
+                    // A template icon (macOS) keeps only its alpha, so the colour costs nothing.
+                    rgba[i..i + 4].copy_from_slice(&[255, 255, 255, (a * 255.0) as u8]);
+                }
                 if badge == Badge::Waiting {
                     // A red dot in the top right corner, over a transparent gap that cuts it out.
                     let b = ((x as f32 - 27.0).powi(2) + (y as f32 - 8.0).powi(2)).sqrt();
@@ -222,12 +260,24 @@ pub mod native {
                         .with_tooltip(&tip)
                         .with_menu(Box::new(m))
                         .build();
-                    if let Ok(tray) = built {
-                        tray.set_title(t.as_deref());
-                        slot = Some((tray, sig));
-                        MenuEvent::set_event_handler(Some(on_menu));
-                        if cfg!(windows) {
-                            TrayIconEvent::set_event_handler(Some(on_click));
+                    match built {
+                        Ok(tray) => {
+                            super::trace("tray icon created");
+                            tray.set_title(t.as_deref());
+                            slot = Some((tray, sig));
+                            MenuEvent::set_event_handler(Some(on_menu));
+                            if cfg!(windows) {
+                                TrayIconEvent::set_event_handler(Some(on_click));
+                            }
+                        }
+                        Err(e) => {
+                            // Tried again at the next poll: the shell may not have been ready yet.
+                            use std::sync::atomic::{AtomicBool, Ordering};
+                            static TOLD: AtomicBool = AtomicBool::new(false);
+                            if !TOLD.swap(true, Ordering::Relaxed) {
+                                super::trace(&format!("tray icon not created: {e}"));
+                            }
+                            s.tray_dirty = true;
                         }
                     }
                 }
