@@ -187,6 +187,41 @@ pub mod native {
         Icon::from_rgba(rgba, N, N).expect("tray glyph")
     }
 
+    /// Where Windows put the icon, or nothing when it did not (`Shell_NotifyIconGetRect`).
+    fn placed(tray: &TrayIcon) -> Option<(f64, f64, u32, u32)> {
+        let r = tray.rect()?;
+        (r.size.width > 0 && r.size.height > 0)
+            .then_some((r.position.x, r.position.y, r.size.width, r.size.height))
+    }
+
+    /// Whether the shell shows the tray icon: the app lives on in the tray only if it can be reached
+    /// from there. False when it was not created or the shell never gave it a place.
+    pub fn visible(s: &Hooked) -> bool {
+        s.tray.as_ref().is_some_and(|(t, _)| placed(t).is_some())
+    }
+
+    /// Once, a few seconds after the icon was created, writes where Windows put it to `tray.log`.
+    pub fn log_placement(s: &Hooked, now: i64) {
+        use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
+        static SINCE: AtomicI64 = AtomicI64::new(0);
+        static DONE: AtomicBool = AtomicBool::new(false);
+        let Some((tray, _)) = s.tray.as_ref() else { return };
+        if DONE.load(Ordering::Relaxed) {
+            return;
+        }
+        let since = SINCE
+            .compare_exchange(0, now, Ordering::Relaxed, Ordering::Relaxed)
+            .unwrap_or_else(|v| v);
+        if since != 0 && now - since < 3000 {
+            return;
+        }
+        DONE.store(true, Ordering::Relaxed);
+        super::trace(&match placed(tray) {
+            Some((x, y, w, h)) => format!("tray icon placed at ({x:.0}, {y:.0}) size {w}x{h}"),
+            None => "tray icon has no place in the notification area (the shell did not show it)".into(),
+        });
+    }
+
     fn menu(s: &Hooked) -> (Menu, String) {
         let m = Menu::new();
         let waiting = s.waiting();
@@ -325,10 +360,19 @@ pub mod native {
 }
 
 pub fn sync(s: &mut Hooked) {
+    #[cfg(windows)]
+    native::log_placement(s, crate::fmt::now_ms());
     if !s.tray_dirty {
         return;
     }
     s.tray_dirty = false;
     #[cfg(any(target_os = "macos", windows))]
     native::sync(s);
+}
+
+/// Whether the app can be reached from the tray: false when the icon was never created or the shell
+/// never showed it.
+#[cfg(windows)]
+pub fn reachable(s: &Hooked) -> bool {
+    native::visible(s)
 }

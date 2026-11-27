@@ -243,10 +243,10 @@ fn setup(s: &mut Hooked, waker: rune::Waker) {
 
 fn on_close(s: &mut Hooked, _tx: &mut Tx) {
     s.stash_draft();
-    // The app outlives its window for the tray icon. Without one (the shell refused it) nothing
-    // could bring the window back, so closing it quits.
+    // The app outlives its window for the tray icon. Without one the shell shows (it was refused, or
+    // never given a place), nothing could bring the window back, so closing it quits.
     #[cfg(windows)]
-    if s.tray.is_none() {
+    if !tray::reachable(s) {
         _tx.quit();
     }
 }
