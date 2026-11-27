@@ -1,0 +1,11 @@
+[
+  {
+    "id": "hello",
+    "label": "Hello",
+    "description": "Test fixture: a feature with no page (settings, an event listener, a session menu action, a tool, a timer).",
+    "repo": "https://github.com/qjoly/hooked.git",
+    "ref": "main",
+    "path": "test/fixtures/extensions/hello",
+    "api": 1
+  }
+]
