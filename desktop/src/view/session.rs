@@ -141,6 +141,12 @@ fn head(s: &Hooked, d: &Detail, k: &Kit, layer: &mut Vec<El>) -> El {
                 .key("sess-name"),
         )
         .children(x.remote.iter().map(|r| super::remote_badge(k, r).key("remote-badge")))
+        .children(
+            x.profile
+                .iter()
+                .filter(|_| x.remote.is_none())
+                .map(|p| super::profile_badge(k, p).key("profile-badge")),
+        )
         .child(
             row()
                 .key("state-badge")

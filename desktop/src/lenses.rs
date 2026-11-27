@@ -239,6 +239,8 @@ pub struct LensData {
 
     pub mcp_cwd: Option<String>,
     pub mcp_provider: Option<String>,
+    /// The account of the open session's connection profile: its own MCP servers and connectors.
+    pub mcp_profile: Option<String>,
     pub mcp: Vec<McpServer>,
     pub mcp_loading: bool,
     pub mcp_open: Option<String>,
@@ -313,6 +315,7 @@ impl Default for LensData {
             delete_armed: None,
             mcp_cwd: None,
             mcp_provider: None,
+            mcp_profile: None,
             mcp: Vec::new(),
             mcp_loading: false,
             mcp_open: None,
@@ -1980,11 +1983,19 @@ impl Hooked {
                 let provider = crate::api::mcp_param(
                     self.selected.as_deref().and_then(|id| self.provider_of(id)),
                 );
-                if self.lens_data.mcp_cwd.as_deref() != Some(cwd.as_str())
+                // Moving a session to another account changes the servers it sees: same folder, other list.
+                let profile = self
+                    .selected
+                    .as_deref()
+                    .and_then(|id| self.profile_of(id))
+                    .map(|p| p.id);
+                if (self.lens_data.mcp_cwd.as_deref() != Some(cwd.as_str())
+                    || self.lens_data.mcp_profile != profile)
                     && !self.lens_data.mcp_loading
                 {
                     self.lens_data.mcp_cwd = Some(cwd.clone());
                     self.lens_data.mcp_provider = provider;
+                    self.lens_data.mcp_profile = profile;
                     self.lens_data.mcp.clear();
                     self.lens_data.mcp_detail.clear();
                     self.lens_data.mcp_editor = None;
@@ -2051,22 +2062,23 @@ impl Hooked {
             return;
         };
         let provider = self.lens_data.mcp_provider.clone();
+        let profile = self.lens_data.mcp_profile.clone();
         self.lens_data.mcp_loading = true;
         self.spawn(
             move || {
                 let quick = if cached_first {
-                    api::mcp_list(&cwd, true, provider.as_deref()).ok()
+                    api::mcp_list(&cwd, true, provider.as_deref(), profile.as_deref()).ok()
                 } else {
                     None
                 };
-                (quick, cwd, provider)
+                (quick, cwd, provider, profile)
             },
-            |s, (quick, cwd, provider), _| {
+            |s, (quick, cwd, provider, profile), _| {
                 if let Some(list) = quick.filter(|l| !l.is_empty()) {
                     s.lens_data.mcp = list;
                 }
                 s.spawn(
-                    move || api::mcp_list(&cwd, false, provider.as_deref()),
+                    move || api::mcp_list(&cwd, false, provider.as_deref(), profile.as_deref()),
                     |s, r, _| {
                         s.lens_data.mcp_loading = false;
                         match r {
@@ -2703,6 +2715,7 @@ impl Hooked {
         }
         let cwd = self.lens_data.mcp_cwd.clone().unwrap_or_default();
         let provider = self.lens_data.mcp_provider.clone();
+        let profile = self.lens_data.mcp_profile.clone();
         self.spawn(
             {
                 let name = name.clone();
@@ -2710,6 +2723,7 @@ impl Hooked {
                     api::mcp_action(json!({
                         "action": "get", "cwd": cwd, "name": name,
                         "provider": provider.as_deref().unwrap_or("claude"),
+                        "profile": profile,
                     }))
                 }
             },
@@ -2956,10 +2970,15 @@ impl Hooked {
 
     pub fn mcp_logout(&mut self, name: String) {
         let cwd = self.lens_data.mcp_cwd.clone().unwrap_or_default();
+        let profile = self.lens_data.mcp_profile.clone();
         self.spawn(
             {
                 let name = name.clone();
-                move || api::mcp_action(json!({ "action": "logout", "cwd": cwd, "name": name }))
+                move || {
+                    api::mcp_action(json!({
+                        "action": "logout", "cwd": cwd, "name": name, "profile": profile,
+                    }))
+                }
             },
             move |s, r, _| {
                 s.lens_data.mcp_notice = Some(match r {
@@ -2973,6 +2992,7 @@ impl Hooked {
 
     pub fn mcp_reauth(&mut self, name: String) {
         let cwd = self.lens_data.mcp_cwd.clone().unwrap_or_default();
+        let profile = self.lens_data.mcp_profile.clone();
         self.lens_data.mcp_notice = None;
         self.lens_data.mcp_redirect = TextEdit::new("");
         self.lens_data.mcp_login = Some(McpLogin {
@@ -2980,7 +3000,11 @@ impl Hooked {
             ..Default::default()
         });
         self.spawn(
-            move || api::mcp_login(json!({ "action": "login", "cwd": cwd, "name": name })),
+            move || {
+                api::mcp_login(json!({
+                    "action": "login", "cwd": cwd, "name": name, "profile": profile,
+                }))
+            },
             |s, r, _| match r {
                 Ok(l) => {
                     s.lens_data.mcp_login = Some(l);

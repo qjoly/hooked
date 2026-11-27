@@ -287,6 +287,8 @@ pub struct Session {
     /// Agent provider of the session: a provider id of the server's settings ("claude", "pi",
     /// or a custom one such as "mistral" / "gemini" — see `ProviderInfo`).
     pub provider: Option<String>,
+    /// The connection profile (account or server) the session runs on; none on the main account.
+    pub profile: Option<crate::profiles::ProfileRef>,
     /// The remote hooked instance the session runs on (`crate::remote`), `None` for a local
     /// one. Set by this app when it lists an instance, never read from the wire.
     #[serde(skip)]
@@ -1054,8 +1056,10 @@ pub struct PiUsage {
     pub sessions: Option<f64>,
 }
 
-pub fn usage() -> Result<(Vec<Gauge>, Option<PiUsage>, Value), String> {
-    let v = get("/api/usage")?;
+/// The gauges of `profile`'s account (`None`: the main one).
+pub fn usage(profile: Option<&str>) -> Result<(Vec<Gauge>, Option<PiUsage>, Value), String> {
+    let q = crate::profiles::query(profile);
+    let v = get(&if q.is_empty() { "/api/usage".to_string() } else { format!("/api/usage?{q}") })?;
     let (g, pi) = parse_usage(&v);
     Ok((g, pi, v))
 }
@@ -1297,6 +1301,9 @@ pub struct Launch {
     /// Provider id ("claude", "pi", or a custom one). None = the settings' default provider.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub provider: Option<String>,
+    /// The connection profile to run on; none is the main account.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub profile: Option<String>,
 }
 
 pub fn launch(req: &Launch) -> Result<String, String> {
@@ -1471,7 +1478,12 @@ impl McpServer {
     }
 }
 
-pub fn mcp_list(cwd: &str, cached: bool, provider: Option<&str>) -> Result<Vec<McpServer>, String> {
+pub fn mcp_list(
+    cwd: &str,
+    cached: bool,
+    provider: Option<&str>,
+    profile: Option<&str>,
+) -> Result<Vec<McpServer>, String> {
     // provider=pi : liste lue dans la config Pi ; `cached` n'existe pas côté pi, le
     // health-check (`check=1`) est l'appel complet. Any other non-Claude id is sent as is: the
     // server picks the flavour from its engine (an ACP agent lists nothing).
@@ -1485,6 +1497,11 @@ pub fn mcp_list(cwd: &str, cached: bool, provider: Option<&str>) -> Result<Vec<M
         url.push_str(&format!("&provider={}", enc(p)));
     } else if cached {
         url.push_str("&cached=1");
+    }
+    // The account's own servers and connectors, not the main account's.
+    let q = crate::profiles::query(profile);
+    if !q.is_empty() && provider.is_none_or(|p| p == "claude") {
+        url.push_str(&format!("&{q}"));
     }
     let v = get(&url)?;
     decode(
