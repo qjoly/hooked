@@ -289,3 +289,32 @@ export function profileInfo(profileId, profiles) {
   const p = profiles.find((x) => x.id === profileId);
   return p ? { id: p.id, label: p.label, kind: p.kind } : { id: profileId, label: profileId, kind: null, missing: true };
 }
+
+/**
+ * What it takes to move a session from one profile to another, and what it then runs with. Pure.
+ * The conversation travels (the transcript is local), the model name does not always: a compatible
+ * server's ids mean nothing to Anthropic and the other way round, and the CLI would otherwise restore
+ * the transcript's model on the new side and fail on its first request. So a model has to be picked
+ * whenever either side is a compatible server. An anthropic account to another keeps the session's
+ * model (the CLI restores it), and nothing is asked.
+ * `source` is the profile the session ran on (null = the default one; an object of unknown kind for a
+ * profile that has since been removed, which is then treated as a server: the safe side).
+ * → { error } or { profile, model, effort, dropEffort }.
+ */
+export function planProfileMove({ source, target, model, effort, currentEffort }) {
+  if (!target) return { error: 'unknown profile' };
+  const from = source || defaultProfile();
+  if (from.id === target.id) return { error: 'The session already runs on that profile.' };
+  const toServer = target.kind === 'compatible';
+  if ((toServer || from.kind === 'compatible') && !model) {
+    return { error: toServer ? 'Pick one of the server\'s models.' : 'Pick a model: the session\'s current one only exists on its server.' };
+  }
+  if (model && !isValidModelForProfile(target, model)) return { error: `unknown model: ${model}` };
+  return {
+    profile: target.id,
+    model: model || undefined,
+    // A server has no effort levels: none is passed, and the session's own is not carried over either.
+    effort: toServer ? undefined : (effort || currentEffort || undefined),
+    dropEffort: toServer,
+  };
+}

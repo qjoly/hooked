@@ -305,6 +305,12 @@ LM Studio. Profiles live in `profiles.json`, next to hooked's other data (`~/.cl
   restarts. If that profile has since been removed from the file, the resume fails with a message
   instead of falling back to the default one. A fork cut before the first answer of a `compatible`
   profile carries the original's model over.
+- **Move to account…** (the session's menu, Claude sessions) stops the session and resumes it on
+  another account or server, keeping its id, conversation, tags and group. A turn in progress is lost,
+  like for Restart. Between two accounts nothing is asked: the session keeps its model. When either side
+  is a server you pick a model, since a server's model ids mean nothing to Anthropic and the other way
+  round, and the CLI would otherwise restore the old one and fail on its first request. Over the API:
+  `POST /api/claude { "action": "move", "id", "profile", "model"? }`.
 
 ### MCP servers per account
 

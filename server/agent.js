@@ -25,7 +25,7 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import { PORT, PR_GATE_BIN, LAUNCHES_FILE, SESSION_LAUNCH_FILE, DRIVEN_FILE, PERMISSION_MODES, LAUNCH_PERMISSION_MODES } from './config.js';
-import { findProfile, isValidModelForProfile, sessionEnvFor, DEFAULT_PROFILE_ID } from './profiles.js';
+import { findProfile, isValidModelForProfile, sessionEnvFor, planProfileMove, DEFAULT_PROFILE_ID } from './profiles.js';
 import { prepareAccountDir } from './accountDir.js';
 import { injectedMcpFor } from './mcpServers.js';
 import { isValidEffort } from './capabilities.js';
@@ -1773,17 +1773,38 @@ function killSession(id, cb) {
 // Redémarre une session pour qu'elle reparte sur la version claude installée : on termine le
 // process courant, puis on relance en reprise. L'état mémoire est volontairement perdu ; la reprise
 // recharge le transcript (philosophie « reconnect » du projet).
-function restartSession(id, { model, effort } = {}, cb) {
+// `profile` relaunches it on another connection profile (cf. moveSession); `noEffort` stops the
+// session's own effort from being carried over when the target has none (a compatible server).
+function restartSession(id, { model, effort, profile, noEffort } = {}, cb) {
   const st = agentSession(id);
   // Same rule as resumeLaunchArgs: the session's own effort unless one is asked for, and no model
   // unless one is asked for — the CLI restores it, forcing one would empty the prompt cache.
-  const relaunch = () => launchSession({ resumeId: id, model: model || undefined, effort: effort || (st && st.effort) || undefined, profile: (st && st.profileId) || undefined }, cb);
+  const relaunch = () => launchSession({ resumeId: id, model: model || undefined, effort: noEffort ? undefined : (effort || (st && st.effort) || undefined), profile: profile || (st && st.profileId) || undefined }, cb);
   if (!st) return relaunch();
   st.input.close();
   st.abort.abort();
   st.ended = true;
   live.delete(id);
   setTimeout(relaunch, 250); // laisser le sous-processus rendre le verrou de session
+}
+
+// Moves a Claude session to another connection profile: stopped if it is running, then resumed on the
+// target from its transcript, same id, same group and tags. A turn in progress is lost, like for a
+// restart. The rules of what has to be picked live in planProfileMove.
+function moveSession(id, { profile: profileId, model, effort } = {}, cb) {
+  if (!/^[A-Za-z0-9._-]+$/.test(id || '')) return cb(err400('invalid session id'));
+  const sess = scanAllSessions().find((s) => s.id === id);
+  if (!sess) return cb(err400('session not found'));
+  const pconf = getProvider(sess.provider || 'claude');
+  const engine = pconf ? getEngine(pconf.engine) : null;
+  if (engine && engine.id !== 'claude') return cb(err400('Only Claude sessions can move to another account.'));
+  const st = agentSession(id);
+  const fromId = profileOfSession(id);
+  // A profile that has been removed since: its kind is unknown, so it is treated as a server.
+  const source = fromId ? (findProfile(fromId) || { id: fromId, kind: 'compatible' }) : null;
+  const plan = planProfileMove({ source, target: findProfile(profileId), model, effort, currentEffort: st && st.effort });
+  if (plan.error) return cb(err400(plan.error));
+  return restartSession(id, { model: plan.model, effort: plan.effort, profile: plan.profile, noEffort: plan.dropEffort }, cb);
 }
 
 // ── Reprise après un redémarrage de hooked ───────────────────────────────────────────────────────
@@ -2021,7 +2042,7 @@ export {
   applyMessage, readLoop, permissionQuestion, handleToolPermission, makeInputQueue, userMessage, parseEnvBlock, loginEnv, withoutServerEnv, hookedMcpServer, sessionIdForLaunchKey,
   subscribeAgent, streamSnapshot,
   resolveLaunchForSession, sessionLaunchMap, profileOfSession,
-  launchSession, killSession, restartSession, forkDriven, forkDriven as forkPi,
+  launchSession, killSession, restartSession, moveSession, forkDriven, forkDriven as forkPi,
   deliverReply, answerQuestion, questionAnswers, answerQuestionFreeText, answerPlan, answerPermission, answerPendingSelection,
   interruptSession, setMode, setModelEffort, setAutoApprove, alwaysAllowRules, clearAgentState,
   closeAfterTurn, resumeDrivenSessions, startDrivenSnapshot, pickResumable, saveDriven, failStartup, resumeLaunchArgs,

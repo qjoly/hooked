@@ -642,6 +642,12 @@
       confirmLabel: 'Restart', confirmIcon: 'rotate-cw', onConfirm: doRestart,
     });
   }
+  // Resume this session on another connection profile (account or server), keeping its conversation.
+  function openMoveAccount() {
+    openModal('moveAccount', {
+      id: s.id, title: sessionTitle(s), profile: s.profile?.id || 'default', kind: s.profile?.kind || 'anthropic', busy: s.state === 'working',
+    });
+  }
   async function doRestart() {
     restarting = true;
     const res = await restartClaudeSession(s.id).catch((e) => ({ ok: false, data: { error: e.message } }));
@@ -914,6 +920,9 @@
             {#if sb.focusBtn !== false}<button class="vscode-btn" class:on={ui.focus} onclick={toggleFocus} title="Focus mode: full-screen conversation"><Icon name="maximize" size={14} /> {ui.focus ? 'Exit focus' : 'Focus'}</button>{/if}
             <button class="vscode-btn" class:on={ui.toolsOpen} onclick={() => (ui.toolsOpen = !ui.toolsOpen)} title="Expand every tool call's input/result inline (this session only, off on reload)"><Icon name="tool" size={14} /> {ui.toolsOpen ? 'Collapse tool details' : 'Expand tool details'}</button>
             <div class="hdr-div"></div>
+            {#if !isPi}
+              <button class="vscode-btn" onclick={openMoveAccount} title="Stop this session and resume it on another account or server, keeping its conversation"><Icon name="link" size={14} /> Move to account…</button>
+            {/if}
             <button class="vscode-btn" disabled={restarting} onclick={restart} title="Stop the {agentLbl} process and resume it from its session (picks up the installed version)">{#if restarting}<Icon name="queued" size={14} />{:else}<Icon name="rotate-cw" size={14} />{/if} Restart</button>
             <button class="vscode-btn del-btn" disabled={deleting} onclick={del} title="Move to trash: removes from dashboard; transcript kept in bin/ (recoverable)">{#if deleting}<Icon name="queued" size={14} tint={false} />{:else}<Icon name="trash" size={14} tint={false} />{/if} Delete</button>
           </div>

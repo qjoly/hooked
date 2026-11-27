@@ -202,6 +202,9 @@ export const getClaudeVersion = () => jget('/api/claude');
 export const upgradeClaude = () => jpost('/api/claude', { action: 'upgrade' });
 // Redémarre une session (kill + `claude --resume <id>`) pour qu'elle reparte sur la version installée.
 export const restartClaudeSession = (id) => jpost('/api/claude', { action: 'restart', id });
+// Resume a Claude session on another connection profile (account or server). `model` is required when
+// either side is a compatible server; the server says so when it is missing.
+export const moveSession = (id, profile, model, effort) => jpost('/api/claude', { action: 'move', id, profile, model: model || undefined, effort: effort || undefined });
 
 export const reply = (id, text) => jpost('/api/reply', { id, text });
 // Run on a shell block Claude proposed: `onOutput` receives the output while the command runs.
