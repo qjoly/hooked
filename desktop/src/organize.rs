@@ -29,6 +29,7 @@ pub enum Picker {
     },
     Cost,
     Account(Box<crate::account::AccountWin>),
+    Move(Box<crate::profiles::MoveWin>),
     Image {
         paths: Vec<String>,
         index: usize,

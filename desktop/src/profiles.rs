@@ -293,6 +293,145 @@ impl Hooked {
     }
 }
 
+/// The window that moves a session to another account or server.
+#[derive(Default)]
+pub struct MoveWin {
+    pub id: String,
+    pub title: String,
+    /// The profile the session is on now (`default` for the main account) and its kind.
+    pub from: String,
+    pub from_kind: String,
+    /// A turn is in progress and would be lost.
+    pub working: bool,
+    pub target: Option<String>,
+    pub model: Option<String>,
+    pub effort: Option<String>,
+    pub busy: bool,
+    pub error: Option<String>,
+}
+
+impl MoveWin {
+    pub fn from_server(&self) -> bool {
+        self.from_kind == "compatible"
+    }
+}
+
+impl Hooked {
+    /// Whether a session can move: a Claude session of this service (an ACP or pi agent has no
+    /// accounts, and a remote instance has its own).
+    pub fn can_move(&self, session: &str) -> bool {
+        self.session(session).is_some_and(|x| {
+            x.remote.is_none() && self.providers.info(x.provider.as_deref().unwrap_or("claude")).is_claude()
+        })
+    }
+
+    pub fn open_move(&mut self) {
+        let Some(d) = self.detail.as_ref() else { return };
+        let x = &d.session;
+        let (from, from_kind) = match &x.profile {
+            Some(p) => (p.id.clone(), p.kind.clone()),
+            None => ("default".to_string(), "anthropic".to_string()),
+        };
+        let w = MoveWin {
+            id: x.id.clone(),
+            title: self.title_of(x),
+            from,
+            from_kind,
+            working: x.state == "working",
+            ..Default::default()
+        };
+        self.popup = None;
+        self.picker = Some(crate::organize::Picker::Move(Box::new(w)));
+        self.refresh_profiles();
+    }
+
+    /// Where it can go: every profile but the one it is on.
+    pub fn move_choices(&self, w: &MoveWin) -> Vec<&Profile> {
+        self.profiles.iter().filter(|p| p.id != w.from).collect()
+    }
+
+    /// What the destination asks to be picked: a model when either side is a server, since its ids
+    /// mean nothing to the other side. Between two accounts the session keeps its own.
+    pub fn move_needs_model(&self, w: &MoveWin) -> bool {
+        let to_server = w.target.as_deref().is_some_and(|t| self.is_server(Some(t)));
+        w.target.is_some() && (to_server || w.from_server())
+    }
+
+    pub fn move_pick(&mut self, target: &str) {
+        let to_server = self.is_server(Some(target));
+        self.ensure_profile_models(Some(target));
+        let default_model = self
+            .setting("defaultModel")
+            .as_str()
+            .filter(|m| !m.is_empty())
+            .unwrap_or("opus")
+            .to_string();
+        let first = self.models_for(Some(target)).first().map(|(id, _)| id.clone());
+        let from_server = matches!(&self.picker, Some(crate::organize::Picker::Move(w)) if w.from_server());
+        if let Some(crate::organize::Picker::Move(w)) = self.picker.as_mut() {
+            w.target = Some(target.to_string());
+            w.error = None;
+            w.effort = None;
+            // On a server the first model it offers; coming back from one, the usual default.
+            w.model = if to_server {
+                first
+            } else if from_server {
+                Some(default_model)
+            } else {
+                None
+            };
+        }
+    }
+
+    pub fn move_go(&mut self) {
+        let Some(crate::organize::Picker::Move(w)) = self.picker.as_ref() else { return };
+        let Some(target) = w.target.clone() else { return };
+        let needs = self.move_needs_model(w);
+        let to_server = self.is_server(Some(&target));
+        let (id, model, effort) = (w.id.clone(), w.model.clone(), w.effort.clone());
+        if needs && model.is_none() {
+            let why = if to_server {
+                "Pick one of the server's models."
+            } else {
+                "Pick the Claude model it continues with."
+            };
+            if let Some(crate::organize::Picker::Move(w)) = self.picker.as_mut() {
+                w.error = Some(why.into());
+            }
+            return;
+        }
+        if let Some(crate::organize::Picker::Move(w)) = self.picker.as_mut() {
+            w.busy = true;
+            w.error = None;
+        }
+        self.spawn(
+            move || {
+                move_session(
+                    &id,
+                    &target,
+                    model.as_deref().filter(|_| needs),
+                    effort.as_deref().filter(|_| !to_server),
+                )
+            },
+            |s, r, _| match r {
+                Ok(()) => {
+                    s.picker = None;
+                    s.flash("✓ Session moved", false);
+                    s.refresh_sessions();
+                    s.refresh_detail();
+                    s.refresh_usage();
+                }
+                Err(e) => {
+                    if let Some(crate::organize::Picker::Move(w)) = s.picker.as_mut() {
+                        w.busy = false;
+                        w.error = Some(e);
+                    }
+                }
+            },
+        );
+    }
+}
+
 /// The accounts' state in the account window, by profile id (`""` is the main account).
 pub type Live = HashMap<String, (Vec<ProfileModel>, Option<String>)>;
 

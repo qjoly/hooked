@@ -549,6 +549,16 @@ fn more_menu(s: &Hooked, d: &Detail, k: &Kit, layer: &mut Vec<El>) -> El {
         _ => format!("cd {}", x.project.clone().unwrap_or_default()),
     };
     let link = format!("{}/session/{}", crate::api::base_of(&x.id), x.id);
+    let m = if s.can_move(&x.id) {
+        m.item(
+            MenuItem::new("Move to account…")
+                .icon(&icons::LINK)
+                .description("Resume it on another account or server, keeping its conversation")
+                .on_select(|s: &mut Hooked| s.open_move()),
+        )
+    } else {
+        m
+    };
     let m = m.item(
         MenuItem::new("Copy as Markdown")
             .icon(&icons::COPY)

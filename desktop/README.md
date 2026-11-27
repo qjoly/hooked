@@ -142,6 +142,12 @@ connection dot, list rows, step marks) live in the `hooked-ui` crate (`ui/`), wh
 - **Outside the window**: a menu bar item with the waiting count and sessions; closing the window
   keeps the app running; ⌘⇧H (Ctrl+Shift+H on Windows; `HOOKED_QUICK_SHORTCUT` overrides it) opens a quick-reply panel on
   the sessions waiting on you; system notifications when one starts waiting (bundled app only).
+- **Connection profiles**: the accounts and servers of the service's `profiles.json`. A session
+  that is not on the main account wears a badge; the gauges, the Account window and the MCP lens
+  follow the open session's account (a server has no limits). New session picks the account or
+  server, starting from "Use for new sessions", and a server brings its own models and no effort
+  levels. The Account window (avatar, top right) lists them with their limits, signs each in and
+  out, adds and removes accounts and servers; a session's menu moves it to another one.
 - **Back to the latest message**: an arrow at the bottom right of the conversation, there only
   while it is scrolled away from its end.
 - **Remote instances** (Settings → Feature flags, off by default, `src/remote.rs`): the sessions

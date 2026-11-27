@@ -1014,9 +1014,12 @@ impl Hooked {
             s.run_win = Some(w);
         }
         if args.iter().any(|a| a == "--account") {
+            let l = crate::account::load();
             s.picker = Some(crate::organize::Picker::Account(Box::new(
                 crate::account::AccountWin {
-                    info: api::get("/api/account").ok(),
+                    loaded: true,
+                    cards: l.cards,
+                    servers: l.servers,
                     ..Default::default()
                 },
             )));
