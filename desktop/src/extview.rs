@@ -20,7 +20,8 @@ use crate::icons;
 use hooked_ui::widgets::section_title;
 
 const PREVIEW_DEBOUNCE_MS: i64 = 300;
-const LIST_REFRESH_MS: i64 = 30_000;
+/// How stale the extension list may get: a switch made elsewhere (web, launcher) shows within it.
+const LIST_REFRESH_MS: i64 = 5_000;
 
 #[derive(Deserialize, Debug, Clone, PartialEq)]
 #[serde(tag = "type", rename_all = "lowercase")]
@@ -394,7 +395,18 @@ impl Hooked {
 
     /// The extension whose page has `key` (a nav key, `defaultPage`, `--page`).
     pub fn ext_page_for(&self, key: &str) -> Option<Page> {
-        self.ext.list.iter().find(|e| e.page_key() == Some(key)).map(|e| page_of(&e.id))
+        self.ext.list.iter().find(|e| e.enabled && e.page_key() == Some(key)).map(|e| page_of(&e.id))
+    }
+
+    /// An extension switched off or removed takes its page with it, the open one included: no tab
+    /// is left behind to say it is off.
+    fn leave_extension_page_if_gone(&mut self) {
+        if let Page::Ext(id) = self.page
+            && !self.page_on(self.page)
+        {
+            self.ext.views.remove(id);
+            self.go_deck();
+        }
     }
 
     pub fn set_extension_enabled(&mut self, id: &str, enabled: bool) {
@@ -402,7 +414,10 @@ impl Hooked {
         self.spawn(
             move || api::post_any("/api/extensions", body),
             |s, r, _| match r {
-                Ok(v) => s.ext.list = serde_json::from_value(v["extensions"].clone()).unwrap_or_default(),
+                Ok(v) => {
+                    s.ext.list = serde_json::from_value(v["extensions"].clone()).unwrap_or_default();
+                    s.leave_extension_page_if_gone();
+                }
                 Err(e) => s.flash(format!("✗ {e}"), true),
             },
         );
@@ -415,6 +430,7 @@ impl Hooked {
             |s, r, _| {
                 if let Ok(v) = r {
                     s.ext.list = serde_json::from_value(v["extensions"].clone()).unwrap_or_default();
+                    s.leave_extension_page_if_gone();
                 }
             },
         );

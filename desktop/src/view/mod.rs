@@ -489,7 +489,7 @@ fn topbar(s: &Hooked, k: &Kit, inset: f32, layer: &mut Vec<El>) -> El {
         .into_iter()
         .filter(|t| t.4 != Page::Incidents || s.incidents_on() || s.page == Page::Incidents)
         // A module switched off in Settings → Modules takes its page away.
-        .filter(|t| s.page_on(t.4) || s.page == t.4)
+        .filter(|t| s.page_on(t.4) || (s.page == t.4 && !matches!(t.4, Page::Ext(_))))
         // Memory = ~/.claude (Claude only): no tab, not even in More, without the claude provider.
         .filter(|t| t.4 != Page::Memory || s.providers.claude_account())
         .partition(|t| s.nav_tab(t.0) || s.page == t.4);
