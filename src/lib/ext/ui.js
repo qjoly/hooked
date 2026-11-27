@@ -1,6 +1,6 @@
 // `@hooked/ext/ui`: what a compiled extension page can import from the dashboard
 // (docs/extensions.md). The names are part of the contract (EXTENSION_API) and must match
-// UI_EXPORTS in server/extensionPages.js; test/extensionFacade.test.mjs keeps the two in step.
+// UI_EXPORTS in server/extensionPages.js; test/extensionPages.test.mjs keeps the two in step.
 // `data` is the filtered view of the sessions (incognito applies), never the raw list.
 export { jget, jpost } from '../api.js';
 export { data, settings } from '../state.svelte.js';

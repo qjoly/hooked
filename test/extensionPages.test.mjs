@@ -17,7 +17,12 @@ const { buildContext, EXTENSION_API } = await import('../server/ext/context.js')
 
 describe('page compiler', () => {
   it('compiles Cron\'s page under 5 s into a module that only reads the shared runtime, then reuses it', async () => {
+    // The service's environment never changes during a compile: sessions spawned meanwhile inherit it.
+    const seen = new Set();
+    const watch = setInterval(() => seen.add(process.env.NODE_ENV), 2);
     const first = await compileExtensionPage({ id: 'cron', hash: 'test', srcDir: path.join(ROOT, 'extensions', 'cron') });
+    clearInterval(watch);
+    expect([...seen]).toEqual([process.env.NODE_ENV]);
     expect(first.cached).toBe(false);
     expect(first.ms).toBeLessThan(5000);
     const out = fs.readFileSync(extensionPageFile(first.url.slice('/_ext/'.length)), 'utf8');
