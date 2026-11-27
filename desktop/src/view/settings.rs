@@ -278,6 +278,25 @@ fn modules_card(s: &Hooked, k: &Kit) -> El {
     c
 }
 
+/// Which build this is, so that a test or a bug report can say which binary it was about.
+fn build_line(k: &Kit) -> El {
+    let stamp = if fmt::BUILD_DATE.is_empty() {
+        fmt::BUILD_COMMIT.to_string()
+    } else {
+        format!("{} · {}", fmt::BUILD_COMMIT, fmt::BUILD_DATE)
+    };
+    line(
+        k,
+        "Build",
+        "The commit this app was built from, and its date. A + means uncommitted edits.",
+        text(stamp)
+            .key("set-build")
+            .font(k.ty.ui_medium)
+            .color(k.c.text_muted)
+            .selectable(true),
+    )
+}
+
 /// Where this app finds the hooked service. A pref of this app alone, and the way out when
 /// `localhost:4123` is not the service (hooked in WSL2 or on another machine).
 fn server_line(s: &Hooked, k: &Kit) -> El {
@@ -486,6 +505,7 @@ fn app_card(s: &Hooked, k: &Kit, v: &Value) -> El {
     let review_split = s.prefs.get::<bool>("diffSplit").unwrap_or(false);
     card(k, "set-app", "THIS APP")
         .child(server_line(s, k))
+        .child(build_line(k))
         .child(line(k, "Theme", "Follows the system unless forced.", chips(vec![theme(Theme::System, "System"), theme(Theme::Light, "Light"), theme(Theme::Dark, "Dark")])))
         .child(line(
             k,

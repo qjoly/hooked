@@ -533,7 +533,10 @@ impl Hooked {
                         match r {
                             Ok(v) => s.apply_settings(v),
                             Err(e) => {
-                                s.pages.settings = Some(json!({}));
+                                // The page renders from something: what was read before stays, else nothing.
+                                if s.pages.settings.is_none() {
+                                    s.pages.settings = Some(json!({}));
+                                }
                                 s.flash(format!("✗ Settings: {e}"), true)
                             }
                         }

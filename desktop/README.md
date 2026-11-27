@@ -31,7 +31,7 @@ Ghostty's terminal core (`libghostty-vt`) is built from source with Zig; the mis
 
 `desktop-windows` targets `x86_64-pc-windows-gnu` through `cargo-zigbuild`, Zig standing in for the
 MinGW toolchain. The `.exe` is all there is to copy: no installer. On Windows the hooked service runs
-in WSL2 (see the main README), and the app reaches it on `localhost:4123` as the browser does.
+in WSL2 (see the main README), and the app reaches it on `localhost:4123` as the browser does. Settings → This app → Build shows the commit a binary was built from (`+`: uncommitted edits).
 
 `desktop-dev` goes through Rune's live-editing tool (`scripts/rune-dev` in the pinned rune
 checkout, driving `dx serve --hot-patch`): saving a file whose edits stay inside function bodies

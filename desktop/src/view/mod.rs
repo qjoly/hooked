@@ -198,6 +198,9 @@ fn flash(k: &Kit, msg: &str, error: bool) -> El {
         .fill(c.bg)
         .border(1.0, c.border)
         .max_w(420.0)
+        // It gives way first: the tabs and the search field keep their room, the message is cut short.
+        .shrink()
+        .min_w(0.0)
         .child(
             text(msg.to_string())
                 .font(k.ty.text_small_medium)

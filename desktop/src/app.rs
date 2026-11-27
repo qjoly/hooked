@@ -2885,10 +2885,15 @@ pub fn composer_changed(&mut self) {
         page_module(page).is_none_or(|m| self.module_on(m))
     }
 
+    /// The pages the service shows as tabs when none were picked (`DEFAULTS.navTabs`). Used while
+    /// the settings are unknown, so a failed load does not turn every page into a tab: nine tabs
+    /// overflow the bar and push the usual ones out of sight.
+    const DEFAULT_NAV_TABS: [&str; 5] = ["sessions", "stats", "digest", "memory", "github"];
+
     pub fn nav_tab(&self, key: &str) -> bool {
         match self.setting("navTabs").as_array() {
             Some(list) => list.iter().any(|x| x.as_str() == Some(key)),
-            None => true,
+            None => Self::DEFAULT_NAV_TABS.contains(&key),
         }
     }
 

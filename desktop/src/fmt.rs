@@ -1,5 +1,10 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
+/// The commit this binary was built from (`build.rs`); a `+` says there were uncommitted edits.
+pub const BUILD_COMMIT: &str = env!("HOOKED_BUILD_COMMIT");
+/// The date of that commit.
+pub const BUILD_DATE: &str = env!("HOOKED_BUILD_DATE");
+
 pub fn now_ms() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
