@@ -31,12 +31,20 @@ pub enum Status {
     Failed,
 }
 
+#[derive(Debug, PartialEq)]
+pub enum Rollback {
+    Running,
+    /// Ok: the checkout and the service are as they were. Err: what is left to fix by hand.
+    Done(Result<(), String>),
+    /// The run failed before changing anything.
+    NotNeeded,
+}
+
 pub struct Failure {
     pub step: Step,
     pub error: String,
     pub log: String,
-    /// None while the rollback runs.
-    pub undone: Option<Result<(), String>>,
+    pub rollback: Rollback,
     pub undo_log: String,
 }
 
@@ -75,7 +83,7 @@ impl Run {
     }
 
     pub fn finished(&self) -> bool {
-        self.switched || self.failure.as_ref().is_some_and(|f| f.undone.is_some())
+        self.switched || self.failure.as_ref().is_some_and(|f| f.rollback != Rollback::Running)
     }
 
     /// The service runs the branch, while the desktop app may still be updating.
@@ -105,14 +113,15 @@ impl Run {
                 }
             }
             Event::Busy(n) => self.busy = Some(n),
-            Event::Failed { step, error, log } => {
+            Event::Failed { step, error, log, rollback } => {
                 self.set(step, Status::Failed);
                 self.busy = None;
-                self.failure = Some(Failure { step, error, log, undone: None, undo_log: String::new() });
+                let rollback = if rollback { Rollback::Running } else { Rollback::NotNeeded };
+                self.failure = Some(Failure { step, error, log, rollback, undo_log: String::new() });
             }
             Event::Undone(result, undo_log) => {
                 if let Some(f) = self.failure.as_mut() {
-                    f.undone = Some(result);
+                    f.rollback = Rollback::Done(result);
                     f.undo_log = undo_log;
                 }
             }
@@ -317,6 +326,78 @@ mod tests {
         assert_eq!(run.steps.last(), Some(&(Step::UpdateApp, Status::Pending)));
         assert_eq!(run.steps.len(), 7);
         assert_eq!(run.status(Step::Fetch), Some(Status::Done));
+    }
+
+    /// Drives a run with the events `runner::switch` reports.
+    fn switch_in(repo: &std::path::Path) -> Run {
+        let control = Arc::new(Control::default());
+        let run = std::cell::RefCell::new(Run::new("feat/x".into(), false, control.clone()));
+        runner::switch(repo, "feat/x", false, &control, &|ev| run.borrow_mut().apply(ev));
+        run.into_inner()
+    }
+
+    #[test]
+    fn a_failure_before_any_change_finishes_the_run_with_nothing_rolled_back() {
+        // Not a git checkout: reading where the checkout stands fails before the first step.
+        let dir = std::env::temp_dir().join(format!("hooked-launcher-no-repo-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let run = switch_in(&dir);
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(run.finished());
+        let f = run.failure.as_ref().expect("the run failed");
+        assert_eq!(f.step, Step::Fetch);
+        assert_eq!(f.rollback, Rollback::NotNeeded);
+        assert_eq!(run.status(Step::Fetch), Some(Status::Failed));
+    }
+
+    #[test]
+    fn a_failed_fetch_finishes_the_run_with_nothing_rolled_back() {
+        // A checkout with one commit and no `origin`: the fetch fails, before any change.
+        let dir = std::env::temp_dir().join(format!("hooked-launcher-no-origin-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let git = |args: &[&str]| {
+            let ok = std::process::Command::new("git")
+                .args(["-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false"])
+                .args(args)
+                .current_dir(&dir)
+                .output()
+                .unwrap()
+                .status
+                .success();
+            assert!(ok, "git {args:?}");
+        };
+        git(&["init", "-q"]);
+        git(&["commit", "-q", "--allow-empty", "-m", "start"]);
+        let run = switch_in(&dir);
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(run.finished());
+        let f = run.failure.as_ref().expect("the run failed");
+        assert_eq!(f.step, Step::Fetch);
+        assert_eq!(f.rollback, Rollback::NotNeeded);
+    }
+
+    #[test]
+    fn a_failure_with_changes_waits_for_the_rollback() {
+        let mut run = run_with_app();
+        run.apply(Event::Start(Step::Fetch));
+        run.apply(Event::Done(Step::Fetch));
+        run.apply(Event::Start(Step::Checkout));
+        run.apply(Event::Failed { step: Step::Checkout, error: "conflict".into(), log: String::new(), rollback: true });
+        assert!(!run.finished());
+        assert_eq!(run.failure.as_ref().map(|f| &f.rollback), Some(&Rollback::Running));
+        run.apply(Event::Undone(Ok(()), "git checkout main\n".into()));
+        assert!(run.finished());
+        assert_eq!(run.failure.as_ref().map(|f| &f.rollback), Some(&Rollback::Done(Ok(()))));
+    }
+
+    #[test]
+    fn a_failure_with_nothing_to_undo_finishes_at_once() {
+        let mut run = run_with_app();
+        run.apply(Event::Start(Step::Fetch));
+        run.apply(Event::Failed { step: Step::Fetch, error: "offline".into(), log: String::new(), rollback: false });
+        assert!(run.finished());
+        assert_eq!(run.failure.as_ref().map(|f| &f.rollback), Some(&Rollback::NotNeeded));
     }
 
     #[test]

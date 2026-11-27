@@ -8,7 +8,7 @@ use rune_kit::{Button, ButtonVariant, ControlSize, Kit, StateColors};
 
 use crate::branches::{self, Row};
 use crate::flow::Step;
-use crate::{Run, State, Status};
+use crate::{Rollback, Run, State, Status};
 
 const LOG_TAIL_LINES: usize = 30;
 
@@ -229,6 +229,7 @@ fn run_panel(run: &Run, k: &Kit) -> El {
         );
     }
     let full_log = match (&run.failure, &run.app_failure) {
+        (Some(f), _) if f.rollback == Rollback::NotNeeded => Some(f.log.clone()),
         (Some(f), _) => Some(format!("{}\n\n--- rollback ---\n{}", f.log, f.undo_log)),
         (None, Some(f)) => Some(f.log.clone()),
         (None, None) => None,
@@ -274,13 +275,12 @@ fn step_line(step: Step, status: Status, run: &Run, k: &Kit) -> El {
 }
 
 fn failure(f: &crate::Failure, k: &Kit) -> El {
-    let undo = match &f.undone {
-        None => callout(k, &k.c.warning, "Rolling back…"),
-        Some(Ok(())) => text("Rolled back: the checkout and the service are as before.")
-            .font(k.ty.text_small)
-            .color(k.c.text_base)
-            .wrap(),
-        Some(Err(e)) => callout(k, &k.c.danger, format!("Rollback incomplete, fix by hand:\n{e}")),
+    let note = |msg: &str| text(msg).font(k.ty.text_small).color(k.c.text_base).wrap();
+    let undo = match &f.rollback {
+        Rollback::Running => callout(k, &k.c.warning, "Rolling back…"),
+        Rollback::Done(Ok(())) => note("Rolled back: the checkout and the service are as before."),
+        Rollback::Done(Err(e)) => callout(k, &k.c.danger, format!("Rollback incomplete, fix by hand:\n{e}")),
+        Rollback::NotNeeded => note("Nothing was changed: the checkout and the service are as before."),
     };
     let out = col()
         .gap(10.0)
