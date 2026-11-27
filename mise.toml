@@ -422,7 +422,7 @@ run = "cargo run --features knobs"
 [tasks.android]
 description = "Build the Android tablet app and install it on the device adb sees"
 dir = "android"
-tools = { java = "temurin-21" }
+tools = { java = "temurin-27" }
 run = """
 set -e
 if [ -z "$ANDROID_HOME" ]; then
