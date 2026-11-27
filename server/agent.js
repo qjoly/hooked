@@ -622,6 +622,28 @@ function whenReady(st) {
   });
 }
 
+// Waits for the CLI of an entry that has been told to stop to be gone, so that a restart does not
+// start the next one while this one still holds the session. Settled by readLoop's `finally` (the
+// stream ends when the process has exited) and by failStartup. Entries with no stream to wait for
+// (a driver's, one that never started, one created by an older version of this module still
+// running in a dev server) get `fallbackMs` instead; a CLI that will not leave gets `capMs`.
+function waitForExit(st, { capMs = 5000, fallbackMs = 250 } = {}) {
+  if (st.exitSettled) return Promise.resolve();
+  if (!st.q || !st.exitWaiters) return new Promise((r) => setTimeout(r, fallbackMs));
+  return new Promise((resolve) => {
+    const timer = setTimeout(resolve, capMs);
+    timer.unref?.();
+    st.exitWaiters.push(() => { clearTimeout(timer); resolve(); });
+  });
+}
+function settleExit(st) {
+  st.exitSettled = true;
+  const waiters = st.exitWaiters;
+  if (!waiters || !waiters.length) return;
+  st.exitWaiters = [];
+  for (const w of waiters) { try { w(); } catch (_) {} }
+}
+
 // A launch waits for the session id; it must be released when the session dies, or the HTTP
 // caller hangs until its own timeout.
 function releaseLaunchWaiters(st) {
@@ -659,6 +681,7 @@ function failStartup(st) {
   retireFromLive(st);
   pending.delete(st.launchKey);
   releaseLaunchWaiters(st);
+  settleExit(st);
 }
 
 async function readLoop(st) {
@@ -715,6 +738,7 @@ async function readLoop(st) {
     releaseLaunchWaiters(st);
     retireFromLive(st);
     pending.delete(st.launchKey);
+    settleExit(st);
   }
 }
 
@@ -909,6 +933,8 @@ function launchSession(opts, cb) {
     sawMsg: false,   // le CLI a-t-il produit au moins un message ? (cf. chien de garde)
     watchdog: null,
     readyWaiters: [],   // appelants qui attendent ce premier message (cf. whenReady)
+    exitWaiters: [],    // appelants qui attendent la fin du CLI (cf. waitForExit)
+    exitSettled: false,
     startedAt: new Date().toISOString(),
     lastMsgAt: Date.now(),
     lastRequestAt: null,        // start of the last API request seen on the stream: the prompt-cache clock
@@ -1785,7 +1811,9 @@ function restartSession(id, { model, effort, profile, noEffort } = {}, cb) {
   st.abort.abort();
   st.ended = true;
   live.delete(id);
-  setTimeout(relaunch, 250); // laisser le sous-processus rendre le verrou de session
+  // Let the old CLI give the session back before the next one resumes it: a fixed delay was shorter
+  // than the time a CLI mid-turn needs to exit, so the two overlapped.
+  waitForExit(st).then(relaunch);
 }
 
 // Moves a Claude session to another connection profile: stopped if it is running, then resumed on the
@@ -2039,7 +2067,7 @@ export {
   agentAlive, agentSession, liveSessionIds, liveSessionCwds,
   agentBusy, agentActivity, agentFollowup, agentLastProse, agentMode, agentAutoApprove, agentPendingAsk,
   agentSupportedCommands, agentToolCatalog,
-  applyMessage, readLoop, permissionQuestion, handleToolPermission, makeInputQueue, userMessage, parseEnvBlock, loginEnv, withoutServerEnv, hookedMcpServer, sessionIdForLaunchKey,
+  applyMessage, readLoop, waitForExit, permissionQuestion, handleToolPermission, makeInputQueue, userMessage, parseEnvBlock, loginEnv, withoutServerEnv, hookedMcpServer, sessionIdForLaunchKey,
   subscribeAgent, streamSnapshot,
   resolveLaunchForSession, sessionLaunchMap, profileOfSession,
   launchSession, killSession, restartSession, moveSession, forkDriven, forkDriven as forkPi,

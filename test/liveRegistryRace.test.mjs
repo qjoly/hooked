@@ -1,13 +1,13 @@
 /*
  * The live registry is keyed by session id, and a restart puts a NEW entry under the id of the one
- * it is replacing: restartSession aborts the old process, then relaunches 250 ms later. The old
+ * it is replacing: restartSession aborts the old process, then relaunches once it has exited. The old
  * entry's readLoop ends whenever its CLI process has finished exiting, which after a real turn can
  * be later than that. It must then clean up after itself only, never the entry that took its place:
  * deleting by id alone dropped the restarted session from the registry, leaving a CLI running that
  * hooked could neither drive nor see.
  */
 import { describe, it, expect } from 'vitest';
-import { readLoop, failStartup, agentSession, agentAlive, subscribeAgent, clearAgentState } from '../server/agent.js';
+import { readLoop, waitForExit, failStartup, agentSession, agentAlive, subscribeAgent, clearAgentState } from '../server/agent.js';
 
 const SESSION = '11111111-2222-3333-4444-555555555555';
 const tick = () => new Promise((r) => setTimeout(r, 0));
@@ -113,5 +113,67 @@ describe('failStartup — an entry that fails after being replaced', () => {
     await tick();
     failStartup(st);
     expect(agentAlive(SESSION)).toBe(false);
+  });
+});
+
+describe('waitForExit — a restart waits for the old CLI to be gone', () => {
+  const withWaiters = (st) => Object.assign(st, { exitWaiters: [], exitSettled: false });
+  const pendingState = (p) => { let state = 'pending'; p.then(() => { state = 'done'; }); return () => state; };
+
+  it('resolves when the stream of the entry ends, not before', async () => {
+    clearAgentState();
+    const g = gate();
+    const st = withWaiters(entry(g));
+    const done = readLoop(st);
+    await tick();
+    const state = pendingState(waitForExit(st, { capMs: 5000 }));
+    await new Promise((r) => setTimeout(r, 30));
+    expect(state()).toBe('pending');
+    g.open();
+    await done;
+    await tick();
+    expect(state()).toBe('done');
+  });
+
+  it('resolves at once for an entry that has already exited', async () => {
+    clearAgentState();
+    const g = gate();
+    const st = withWaiters(entry(g));
+    const done = readLoop(st);
+    await tick();
+    g.open();
+    await done;
+    const t0 = Date.now();
+    await waitForExit(st, { capMs: 5000 });
+    expect(Date.now() - t0).toBeLessThan(100);
+  });
+
+  it('gives up after the cap on a CLI that will not leave', async () => {
+    clearAgentState();
+    const st = withWaiters(entry(gate()));
+    readLoop(st);
+    await tick();
+    const t0 = Date.now();
+    await waitForExit(st, { capMs: 60 });
+    expect(Date.now() - t0).toBeGreaterThanOrEqual(50);
+  });
+
+  it('falls back to a short delay for an entry with no stream to wait for', async () => {
+    const t0 = Date.now();
+    await waitForExit({ q: null }, { capMs: 5000, fallbackMs: 40 });
+    const waited = Date.now() - t0;
+    expect(waited).toBeGreaterThanOrEqual(30);
+    expect(waited).toBeLessThan(1000);
+  });
+
+  it('is released by failStartup too', async () => {
+    clearAgentState();
+    const st = withWaiters(entry(gate()));
+    readLoop(st);
+    await tick();
+    const state = pendingState(waitForExit(st, { capMs: 5000 }));
+    failStartup(st);
+    await tick();
+    expect(state()).toBe('done');
   });
 });
