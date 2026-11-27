@@ -828,6 +828,29 @@ fn session_row(
         None => list_row_title(k, label),
     };
     let mut line1 = row().grow(1.0).min_w(0.0).gap(6.0).center_y();
+    let folded = s.folded_groups.contains(&x.id);
+    // On the left: the row's hover actions cover its right side.
+    if group.is_some() {
+        let lead = id.clone();
+        line1 = line1.child(
+            k.interactive(
+                row()
+                    .key(format!("fold-{}", x.id))
+                    .w(16.0)
+                    .h(16.0)
+                    .center()
+                    .radius(k.radius.sm)
+                    .cursor(Cursor::Pointer)
+                    .child(glyph(
+                        if folded { &icons::CHEVRON_RIGHT } else { &icons::CHEVRON_DOWN },
+                        12.0,
+                        k.c.icon_muted,
+                    )),
+            )
+            .on_press(move |s: &mut Hooked| s.toggle_group_fold(&lead))
+            .help(if folded { "Unfold the group" } else { "Fold the group" }),
+        );
+    }
     if s.is_pinned(&x.id) {
         line1 = line1.child(glyph(&icons::PIN, 12.0, k.c.icon_muted));
     }
@@ -836,7 +859,6 @@ fn session_row(
     if let Some(b) = fleet::prov_badge(s, k, x) {
         line1 = line1.child(b);
     }
-    let folded = s.folded_groups.contains(&x.id);
     if let Some(members) = group {
         let n = members.len();
         let badge = if folded {
@@ -844,19 +866,7 @@ fn session_row(
         } else {
             n.to_string()
         };
-        let lead = id.clone();
-        line1 = line1.child(
-            k.interactive(
-                row()
-                    .key(format!("fold-{}", x.id))
-                    .gap(2.0)
-                    .center_y()
-                    .cursor(Cursor::Pointer)
-                    .child(pill(k, badge, k.c.text_muted, k.c.layer_02)),
-            )
-            .on_press(move |s: &mut Hooked| s.toggle_group_fold(&lead))
-            .help(if folded { "Unfold the group" } else { "Fold the group" }),
-        );
+        line1 = line1.child(pill(k, badge, k.c.text_muted, k.c.layer_02));
     }
     if let Some(w) = wake {
         detail = wake_label(w, s.now);
