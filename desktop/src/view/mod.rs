@@ -32,7 +32,7 @@ use hooked_ui::widgets::{
 use crate::api::Session;
 use crate::app::{Hooked, Page, Popup, Theme};
 use crate::coderun::CodeRun;
-use crate::sections::{Section, clock, section_of, snooze_presets, wake_label};
+use crate::sections::{Section, clock, group_face, section_of, snooze_presets, wake_label};
 use crate::{fmt, icons};
 
 pub const SIDEBAR_W: f32 = 300.0;
@@ -701,13 +701,15 @@ fn human_tokens(n: f64) -> String {
 }
 
 fn unit_rows(s: &Hooked, u: &crate::organize::Unit<'_>, k: &Kit, layer: &mut Vec<El>) -> Vec<El> {
-    let n = u.children.len();
+    let members: Vec<&Session> = std::iter::once(u.mother)
+        .chain(u.children.iter().copied())
+        .collect();
     let mut out = vec![session_row(
         s,
         u.mother,
         k,
         0,
-        (n > 0).then_some(n + 1),
+        (members.len() > 1).then_some(members.as_slice()),
         layer,
     )];
     if !s.folded_groups.contains(&u.mother.id) {
@@ -766,7 +768,7 @@ fn session_row(
     x: &Session,
     k: &Kit,
     depth: u8,
-    group: Option<usize>,
+    group: Option<&[&Session]>,
     layer: &mut Vec<El>,
 ) -> El {
     let id = x.id.clone();
@@ -834,8 +836,10 @@ fn session_row(
     if let Some(b) = fleet::prov_badge(s, k, x) {
         line1 = line1.child(b);
     }
-    if let Some(n) = group {
-        let badge = if s.folded_groups.contains(&x.id) {
+    let folded = s.folded_groups.contains(&x.id);
+    if let Some(members) = group {
+        let n = members.len();
+        let badge = if folded {
             format!("+{}", n - 1)
         } else {
             n.to_string()
@@ -845,16 +849,21 @@ fn session_row(
     if let Some(w) = wake {
         detail = wake_label(w, s.now);
     }
+    // A folded group's mark stands for the children it hides.
+    let face = match group {
+        Some(members) if folded => group_face(members),
+        _ => x,
+    };
     let mark: El = if archived {
         el()
     } else if wake.is_some() {
         glyph(&icons::SNOOZE, 12.0, k.c.icon_muted)
-    } else if x.state == "working" {
+    } else if face.state == "working" {
         rune_kit::Spinner::new().build(k).size(12.0, 12.0)
-    } else if x.needs_you() {
+    } else if face.needs_you() {
         dot(k, "waiting", 7.0)
     } else {
-        dot(k, &x.state, 6.0)
+        dot(k, &face.state, 6.0)
     };
     let resting = row()
         .gap(8.0)

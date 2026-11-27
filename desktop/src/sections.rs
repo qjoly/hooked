@@ -48,6 +48,10 @@ impl Section {
     }
 }
 
+fn is_busy(s: &Session) -> bool {
+    s.state == "working" || s.state == "background"
+}
+
 pub fn section_of(
     members: &[&Session],
     archived: impl Fn(&Session) -> bool,
@@ -61,18 +65,34 @@ pub fn section_of(
         .copied()
         .filter(|s| !archived(s) && !snoozed(s))
         .collect();
+    // A group with any member still at work is working: a mother waiting on her children's
+    // results isn't waiting on you yet.
     if awake.is_empty() {
         Section::Snoozed
+    } else if awake.iter().any(|s| is_busy(s)) {
+        Section::Working
     } else if awake.iter().any(|s| s.needs_you()) {
         Section::Waiting
-    } else if awake
-        .iter()
-        .any(|s| s.state == "working" || s.state == "background")
-    {
-        Section::Working
     } else {
         Section::Idle
     }
+}
+
+/// The member whose state a folded group wears, with `section_of`'s precedence: a member at
+/// work before a pending decision. Ties go to the earliest member, so the mother by default.
+pub fn group_face<'a>(members: &[&'a Session]) -> &'a Session {
+    let rank = |s: &Session| match s.state.as_str() {
+        "working" => 0,
+        "background" => 1,
+        _ if s.needs_you() => 2,
+        "ended" | "past" => 4,
+        _ => 3,
+    };
+    members
+        .iter()
+        .copied()
+        .min_by_key(|s| rank(s))
+        .expect("a group has at least its mother")
 }
 
 fn local(ms: i64) -> libc::tm {
@@ -285,12 +305,41 @@ mod tests {
 
     #[test]
     fn a_group_follows_its_most_pressing_awake_member() {
-        let (m, c1, c2) = (s("m", "idle"), s("c1", "working"), s("c2", "waiting"));
+        let (m, c1, c2) = (s("m", "idle"), s("c1", "idle"), s("c2", "waiting"));
         let g = [&m, &c1, &c2];
         assert_eq!(sec(&g, &[], &[]), Section::Waiting);
-        assert_eq!(sec(&g, &[], &["c2"]), Section::Working);
-        assert_eq!(sec(&g, &["c1", "c2"], &[]), Section::Idle);
+        assert_eq!(sec(&g, &[], &["c2"]), Section::Idle);
+        assert_eq!(sec(&g, &["c2"], &[]), Section::Idle);
         assert_eq!(sec(&g, &["c1"], &["m", "c2"]), Section::Snoozed);
+    }
+
+    #[test]
+    fn a_group_stays_working_while_any_awake_member_works_even_if_another_waits() {
+        let q = Session {
+            has_question: true,
+            ..s("m", "idle")
+        };
+        let (waiting, attention) = (s("m", "waiting"), s("m", "attention"));
+        let (working, background) = (s("c", "working"), s("c", "background"));
+        assert_eq!(sec(&[&waiting, &working], &[], &[]), Section::Working);
+        assert_eq!(sec(&[&attention, &background], &[], &[]), Section::Working);
+        assert_eq!(sec(&[&q, &working], &[], &[]), Section::Working);
+        let (c1, c2) = (s("c1", "working"), s("c2", "waiting"));
+        let g = [&waiting, &c1, &c2];
+        assert_eq!(sec(&g, &[], &["c1"]), Section::Waiting);
+        assert_eq!(sec(&g, &["c1"], &[]), Section::Waiting);
+    }
+
+    #[test]
+    fn a_group_shows_its_busiest_member_before_a_pending_decision() {
+        let face = |g: &[&Session]| group_face(g).id.clone();
+        let (m, idle, ended) = (s("m", "waiting"), s("i", "idle"), s("e", "ended"));
+        let (working, background) = (s("w", "working"), s("b", "background"));
+        assert_eq!(face(&[&m, &idle, &working, &background]), "w");
+        assert_eq!(face(&[&m, &idle, &background]), "b");
+        assert_eq!(face(&[&idle, &ended, &m]), "m");
+        assert_eq!(face(&[&ended, &idle]), "i");
+        assert_eq!(face(&[&idle, &s("j", "idle")]), "i");
     }
 
     #[test]
