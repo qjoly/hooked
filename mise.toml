@@ -355,7 +355,7 @@ iconutil -c icns "$SET" -o desktop/icons/icon.icns
 [tasks.desktop]
 description = "Redeploy the service if stale, then build the desktop app, install it in /Applications and relaunch it"
 dir = "desktop"
-tools = { rust = "1.100.0", zig = "0.17.1" }
+tools = { rust = "1.100.1", zig = "0.17.1" }
 run = """
 set -e
 # The app reads some data (capabilities) once at launch, so the service is brought up to date before
@@ -372,7 +372,7 @@ scripts/install-app --open
 [tasks.launcher]
 description = "Build hooked-launcher (switch the service between branches, then update the desktop app) and install it in /Applications"
 dir = "desktop/launcher"
-tools = { rust = "1.100.0" }
+tools = { rust = "1.100.1" }
 run = """
 set -e
 cargo build -p hooked-launcher --release
@@ -395,7 +395,7 @@ open "/Applications/hooked-launcher.app"
 [tasks.pr-gate]
 description = "Build pr-gate (the PR approval window sessions call before opening a PR) and install it for hooked"
 dir = "desktop"
-tools = { rust = "1.100.0" }
+tools = { rust = "1.100.1" }
 run = """
 set -e
 cargo build -p pr-gate --release
@@ -409,13 +409,13 @@ echo "$BIN"
 [tasks.desktop-dev]
 description = "Run the desktop app from source with live editing: body edits patch it in place, others rebuild and relaunch"
 dir = "desktop"
-tools = { rust = "1.100.0", zig = "0.17.1", python = "3.15.2" }
+tools = { rust = "1.100.1", zig = "0.17.1", python = "3.15.2" }
 run = "scripts/dev"
 
 [tasks.desktop-run]
 description = "Run the desktop app from source once, without live editing"
 dir = "desktop"
-tools = { rust = "1.100.0", zig = "0.17.1" }
+tools = { rust = "1.100.1", zig = "0.17.1" }
 run = "cargo run --features knobs"
 
 # The Android SDK comes from Android Studio or the command-line tools, not from mise.
