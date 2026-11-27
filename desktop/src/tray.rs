@@ -30,6 +30,7 @@ fn trace(line: &str) {
     let Some(dirs) = rune::dirs::AppDirs::new(crate::theme::PREFS_ID) else {
         return;
     };
+    let _ = std::fs::create_dir_all(dirs.data());
     let path = dirs.data().join("tray.log");
     let fresh = std::fs::metadata(&path).is_ok_and(|m| m.len() > 16 * 1024);
     let file = std::fs::OpenOptions::new()
