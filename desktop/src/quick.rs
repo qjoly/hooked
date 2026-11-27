@@ -215,7 +215,7 @@ fn on_key(s: &mut Quick, ev: &rune::KeyEvent, tx: &mut Tx) -> bool {
 pub fn show(s: &mut Quick) {
     if let Some(me) = s.me.as_ref() {
         me.place(
-            DisplayTarget::Primary,
+            DisplayTarget::UnderPointer,
             OverlayPlacement::Edge {
                 edge: ScreenEdge::Top,
                 margin: 140.0,
