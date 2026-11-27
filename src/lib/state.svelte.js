@@ -4,6 +4,7 @@
 // sidebar, l'état live (SSE), le tick de rafraîchissement et la modale.
 import { sanitizeModules } from '#modules/index.js';
 import { loadModules } from './modules.svelte.js';
+import { loadExtensions } from './extensions.svelte.js';
 import { floating } from './floating.svelte.js';
 import { getSessionsFull, connectSSE, getSettings, saveSettings as apiSaveSettings, getTags, saveTags, replaceTags, suggestTags, getSessionMeta, saveSessionMeta, groupOp, kill, getAccount, getProviders } from './api.js';
 import { setProviderList } from './providers.js';
@@ -673,13 +674,16 @@ export function startLive() {
   loadSessions();
   loadSettings();
   loadModules();
+  loadExtensions();
   loadTags();
   loadSessionMeta();
   loadAccount();
   appVersion().then((v) => { loadedVersion = v; }); // version de référence (au chargement)
   connectSSE({
+    onExtensionsChanged: loadExtensions,
     onOpen: async () => {
       ui.live = true;
+      loadExtensions();
       // reconnexion : si le build du front a changé (service redéployé), on recharge la page
       // pour servir la nouvelle version. Pas de reload au 1er connect (loadedVersion = la même).
       if (loadedVersion) { const v = await appVersion(); if (v && v !== loadedVersion) location.reload(); }

@@ -7,6 +7,8 @@
   import { page } from '$app/state';
   import { pageHref, pageAvailable } from '#lib/nav.js';
   import { modulesAvail } from '#lib/modules.svelte.js';
+  import { extensions, extensionsReady, extensionTabs } from '#lib/extensions.svelte.js';
+  import { flashMessage } from '#lib/flash.svelte.js';
   import { matchShortcut } from '#lib/shortcuts.js';
   import { trackModifier } from '#lib/peek.svelte.js';
   import { parseRunUrl } from '#lib/ghRun.js';
@@ -37,8 +39,9 @@
       await loadSettings();
       sessionStorage.setItem('hooked.defaultApplied', '1');
       const dp = settings.defaultPage;
-      if (dp && dp !== 'deck' && location.pathname === '/' && pageAvailable(dp, settings, modulesAvail)) {
-        goto(pageHref(dp));
+      await extensionsReady();
+      if (dp && dp !== 'deck' && location.pathname === '/' && pageAvailable(dp, settings, modulesAvail, extensions.list)) {
+        goto(pageHref(dp, extensionTabs()));
       }
     } catch (_) {}
   });
@@ -150,6 +153,7 @@
 {#if ui.companion}<Companion />{/if}
 {#key floating.run}{#if floating.run}<GhRunWindow url={floating.run} onclose={() => (floating.run = null)} />{/if}{/key}
 {#key floating.query}{#if floating.query}<QueryWindow q={floating.query} onclose={() => (floating.query = null)} />{/if}{/key}
+{#if flashMessage.text}<div class="flash" class:error={flashMessage.error} role="status">{flashMessage.text}</div>{/if}
 
 <style>
   .skip-link {
@@ -159,6 +163,13 @@
     text-decoration: none; transition: top .15s;
   }
   .skip-link:focus { top: 0; }
+
+  .flash {
+    position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); z-index: 9000;
+    padding: 8px 16px; border-radius: 8px; background: var(--bg3); color: var(--text);
+    border: 1px solid var(--border2); font-size: var(--t-ui); box-shadow: 0 6px 20px rgba(0, 0, 0, .25);
+  }
+  .flash.error { color: var(--danger); border-color: var(--danger); }
 
   /* Coquille de la refonte : top bar au-dessus, contenu en dessous (l'ancien rail vertical
      de 14 icônes est remplacé par la TopBar — espaces Deck/Archive + omnibar + jauges). */

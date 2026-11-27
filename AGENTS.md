@@ -230,6 +230,8 @@ API handlers, page, agent tools, pi package, tests, README), switched as a whole
 Modules (`settings.modules`). Each module's README holds its own rules and traps; read it before
 touching the module.
 
+- **Cron is an extension, loaded at runtime** (`extensions/cron`, `server/extensions.js`, `docs/extensions.md`):
+  installing, updating or removing an extension needs no rebuild and no restart.
 - **A folder with a `manifest.js` is a module**: found by `import.meta.glob` (manifests, server
   lifecycles), its tab, palette entry and settings page derived from the manifest. Adding or
   removing one touches no list; only its route shims live outside the folder.
@@ -238,7 +240,7 @@ touching the module.
   the core does not import a module (one pure exception: `modules/github/lib/reviewTags.js`).
 - **Off means off everywhere**: API 404 (`gated`), page gone from the web, desktop and Android
   navigation, background loops stopped (`stop()`), tools no longer offered to new sessions
-  (`HOOKED_MODULES` for the MCP server, `-e modules/<id>/pi` for pi). Running sessions keep their
+  (`HOOKED_EXTENSION_TOOLS`, read by the MCP server and by hooked's pi package). Running sessions keep their
   tools until they restart.
 - **Loops that launch sessions only run in the service** (`start({ service })`): the Cron
   scheduler and the Flows engine. PR watches run everywhere (they only wake this process's

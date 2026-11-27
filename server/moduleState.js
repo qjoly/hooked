@@ -18,14 +18,19 @@ const ROOT_CANDIDATES = [
   path.join(import.meta.dirname, '..', '..', '..'),
 ];
 
+// Absolute path of hooked's checkout (the folder holding modules/index.js), or null.
+function checkoutDir() {
+  for (const root of ROOT_CANDIDATES) {
+    try { if (fs.statSync(path.join(root, 'modules', 'index.js')).isFile()) return root; } catch (_) { /* next */ }
+  }
+  return null;
+}
+
 // Absolute path of the modules folder, or null.
 function modulesDir() {
   if (process.env.HOOKED_MODULES_DIR) return process.env.HOOKED_MODULES_DIR;
-  for (const root of ROOT_CANDIDATES) {
-    const dir = path.join(root, 'modules');
-    try { if (fs.statSync(path.join(dir, 'index.js')).isFile()) return dir; } catch (_) { /* next */ }
-  }
-  return null;
+  const root = checkoutDir();
+  return root ? path.join(root, 'modules') : null;
 }
 
 function moduleEnabled(id, settings = readSettings()) {
@@ -36,18 +41,9 @@ function enabledModuleIds(settings = readSettings()) {
   return MODULE_IDS.filter((id) => moduleOn(settings, id));
 }
 
-// The pi packages of the modules that are on (modules/<id>/pi), absolute paths.
-function modulePiPackages(settings = readSettings()) {
-  const dir = modulesDir();
-  if (!dir) return [];
-  return enabledModuleIds(settings)
-    .map((id) => path.join(dir, id, 'pi'))
-    .filter((p) => { try { return fs.statSync(path.join(p, 'package.json')).isFile(); } catch (_) { return false; } });
-}
-
 // The modules as the dashboard lists them.
 function listModules(settings = readSettings()) {
   return MODULES.map((m) => ({ ...m, enabled: moduleOn(settings, m.id) }));
 }
 
-export { modulesDir, moduleEnabled, enabledModuleIds, modulePiPackages, listModules };
+export { checkoutDir, modulesDir, moduleEnabled, enabledModuleIds, listModules };

@@ -44,6 +44,7 @@ const SERVER_INSTRUCTIONS = process.env.HOOKED_PR_GATE
   : INSTRUCTIONS;
 
 const { httpRequest, resultFrom } = require('./http.cjs');
+const { parseToolFiles, toolsFromFiles, toolFilesOnDisk } = require('./extensionTools.cjs');
 
 // --- définition des outils ----------------------------------------------------
 
@@ -615,26 +616,18 @@ const SHOW_PANEL = {
 };
 if (process.env.HOOKED_SHOW_PANELS === '1') TOOLS.push(SHOW_PANEL);
 
-// Tools of hooked's modules (modules/<id>/tools.cjs) that are switched on. hooked lists them in
-// HOOKED_MODULES when it spawns this server for a session; a server started without it (registered
-// by hand) offers every module that ships tools. pi sessions get the same tools from each module's
-// pi package instead (modules/<id>/pi), so TOOLS stays the core list the hooked pi package reads.
-function moduleTools(list = process.env.HOOKED_MODULES) {
-  const dir = path.join(__dirname, '..', 'modules');
-  const wanted = list == null ? null : new Set(String(list).split(',').map((x) => x.trim()).filter(Boolean));
-  const out = [];
-  let ids = [];
-  try { ids = fs.readdirSync(dir).sort(); } catch (_) { return out; }
-  for (const id of ids) {
-    if (wanted && !wanted.has(id)) continue;
-    const file = path.join(dir, id, 'tools.cjs');
-    if (!fs.existsSync(file)) continue;
-    out.push(...require(file).tools);
-  }
-  return out;
+// Tools of the modules and extensions switched on, after the core ones. hooked lists their files, in
+// order, in HOOKED_EXTENSION_TOOLS when it spawns this server for a session; a server started without
+// it (registered by hand) offers every one found on disk.
+function extensionTools(list = process.env.HOOKED_EXTENSION_TOOLS) {
+  const files = list != null
+    ? parseToolFiles(list)
+    : toolFilesOnDisk(path.join(__dirname, '..'), process.env.HOOKED_EXTENSIONS_DIR
+      || path.join(process.env.HOOKED_DATA_DIR || path.join(require('node:os').homedir(), '.claude', 'hooked'), 'extensions'));
+  return toolsFromFiles(files, { httpRequest, resultFrom });
 }
 
-const SERVED = [...TOOLS, ...moduleTools()];
+const SERVED = [...TOOLS, ...extensionTools()];
 const TOOL_BY_NAME = new Map(SERVED.map((t) => [t.name, t]));
 
 // --- boucle JSON-RPC sur stdio ------------------------------------------------
@@ -694,7 +687,7 @@ async function handle(msg) {
 
 // Required as a module (the hooked pi package, pi-package/extensions/hooked.js, registers these
 // same tools as native pi tools): export them and do not start the stdio server.
-module.exports = { TOOLS, INSTRUCTIONS, resultFrom, httpRequest, moduleTools };
+module.exports = { TOOLS, INSTRUCTIONS, resultFrom, httpRequest, extensionTools };
 if (require.main === module) startStdio();
 
 function startStdio() {

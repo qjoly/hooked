@@ -26,11 +26,12 @@ import { spawn } from 'node:child_process';
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import { PORT, PR_GATE_BIN, LAUNCHES_FILE, SESSION_LAUNCH_FILE, DRIVEN_FILE, PERMISSION_MODES, LAUNCH_PERMISSION_MODES, isValidModelArg } from './config.js';
 import { isValidEffort } from './capabilities.js';
+import { emitExtensionEvent } from './extensionEvents.js';
 import { statSafe } from './util.js';
 import { scanSessions } from './transcript.js';
 import { scanAllSessions } from './sessions.js';
 import { readSettings } from './settings.js';
-import { enabledModuleIds } from './moduleState.js';
+import { sessionToolFiles } from './extensions.js';
 import { getProvider, getEngine, driverFor, providerLaunchError, defaultProviderId } from './providers.js';
 import { refreshAgentStatus } from './agent-status.js';
 import { buildToolCatalog } from './llmTools.js';
@@ -481,8 +482,8 @@ function hookedMcpServer(launchKey) {
   if (settings.showWork) env.HOOKED_SHOW_WORK = '1';
   if (settings.featureFlags?.showPanels) env.HOOKED_SHOW_PANELS = '1';
   if (settings.prGate && statSafe(PR_GATE_BIN)?.isFile()) env.HOOKED_PR_GATE = PR_GATE_BIN;
-  // The modules switched on (modules/index.js): the server only offers their tools.
-  env.HOOKED_MODULES = enabledModuleIds().join(',');
+  // The tools of the modules and extensions switched on, decided now: a session keeps them until it restarts.
+  env.HOOKED_EXTENSION_TOOLS = sessionToolFiles('id').join(',');
   return { command: 'node', args: [server], env };
 }
 
@@ -658,6 +659,7 @@ async function readLoop(st) {
         live.set(st.id, st);
         pending.delete(st.launchKey);
         if (st.onId) { const f = st.onId; st.onId = null; f(st); }
+        emitExtensionEvent('session:start', { sessionId: st.id, project: st.cwd || null, provider: st.provider || null, driven: true });
       }
       if (!st.sawMsg) { st.sawMsg = true; clearTimeout(st.watchdog); settleReady(st, true); }
       const changed = applyMessage(st, msg);
@@ -679,7 +681,10 @@ async function readLoop(st) {
         try { setSessionMeta(st.id, { archived: true }); } catch (_) {}
         killSession(st.id, () => {});
       }
-      if (msg.type === 'result') refreshAgentStatus(st, true);
+      if (msg.type === 'result') {
+        refreshAgentStatus(st, true);
+        emitExtensionEvent('turn:end', { sessionId: st.id, project: st.cwd || null, usage: msg.usage || null });
+      }
       else if (msg.type === 'assistant' || (msg.type === 'system' && msg.subtype === 'init')) refreshAgentStatus(st);
     }
   } catch (e) {
@@ -697,6 +702,7 @@ async function readLoop(st) {
     releaseLaunchWaiters(st);
     if (st.id) {
       emitAgent(st.id, () => streamSnapshot(st), true);
+      emitExtensionEvent('session:end', { sessionId: st.id, reason: st.error ? 'error' : 'ended' });
       live.delete(st.id);
     }
     pending.delete(st.launchKey);
@@ -891,6 +897,7 @@ function launchSession(opts, cb) {
   // End of a turn on a non-Claude driver (readLoop handles the Claude one): an ephemeral session
   // that called archive_this_session closes now.
   st.onTurnEnd = () => {
+    if (st.id) emitExtensionEvent('turn:end', { sessionId: st.id, project: st.cwd || null, usage: null });
     if (!st.closeAfterTurn || !st.id) return;
     try { setSessionMeta(st.id, { archived: true }); } catch (_) {}
     killSession(st.id, () => {});
@@ -1693,6 +1700,8 @@ function killSession(id, cb) {
   st.abort.abort();
   st.ended = true;
   live.delete(id);
+  // The Claude path reports its end from readLoop; another engine has no readLoop to do it.
+  if (drv) emitExtensionEvent('session:end', { sessionId: id, reason: 'killed' });
   cb(null, { sessionId: id });
 }
 

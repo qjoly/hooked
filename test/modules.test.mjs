@@ -71,38 +71,21 @@ describe('module list', () => {
 });
 
 describe('module tools', () => {
-  it('the MCP server serves the tools of the modules it is told are on, never a core tool twice', () => {
+  it('the MCP server serves the tools of the files it is told, in order, never a core tool twice', () => {
     const mcp = require('../mcp/server.cjs');
-    const all = mcp.moduleTools(undefined).map((t) => t.name);
+    const files = withTools.map((id) => path.join(DIR, id, 'tools.cjs'));
+    const all = mcp.extensionTools(files.join(',')).map((t) => t.name);
     for (const n of all) expect(mcp.TOOLS.some((t) => t.name === n)).toBe(false);
     expect(new Set(all).size).toBe(all.length);
-    expect(mcp.moduleTools('').length).toBe(0);
-    for (const id of withTools) {
-      const own = require(path.join(DIR, id, 'tools.cjs')).tools.map((t) => t.name);
-      expect(mcp.moduleTools(id).map((t) => t.name)).toEqual(own);
-      const others = MODULE_IDS.filter((x) => x !== id).join(',');
-      expect(mcp.moduleTools(others).some((t) => own.includes(t.name))).toBe(false);
-    }
+    expect(mcp.extensionTools('').length).toBe(0);
+    const names = (file) => require(file).tools.map((t) => t.name);
+    for (const file of files) expect(mcp.extensionTools(file).map((t) => t.name)).toEqual(names(file));
+    const reversed = [...files].reverse();
+    expect(mcp.extensionTools(reversed.join(',')).map((t) => t.name)).toEqual(reversed.flatMap(names));
   });
 
-  it('each module with tools ships a pi package that registers them as hooked_* tools', async () => {
-    for (const id of withTools) {
-      const pkg = JSON.parse(fs.readFileSync(path.join(DIR, id, 'pi', 'package.json'), 'utf8'));
-      expect(pkg.keywords).toContain('pi-package');
-      const registered = [];
-      const { default: ext } = await import(path.join(DIR, id, 'pi', pkg.pi.extensions[0]));
-      ext({ registerTool: (t) => registered.push(t.name) });
-      expect(registered).toEqual(require(path.join(DIR, id, 'tools.cjs')).tools.map((t) => 'hooked_' + t.name));
-    }
-  });
-
-  it('pi sessions get the pi packages of the modules that are on', async () => {
-    const { modulePiPackages, enabledModuleIds } = await import('../server/moduleState.js');
-    const pkgs = modulePiPackages({ modules: {} });
-    for (const id of withTools) {
-      expect(pkgs).toContain(path.join(DIR, id, 'pi'));
-      expect(modulePiPackages({ modules: { [id]: false } })).not.toContain(path.join(DIR, id, 'pi'));
-    }
+  it('the modules that are on are the ones sessions get', async () => {
+    const { enabledModuleIds } = await import('../server/moduleState.js');
     const [a] = MODULE_IDS;
     expect(enabledModuleIds({ modules: { [a]: false } })).toEqual(MODULE_IDS.filter((x) => x !== a));
   });

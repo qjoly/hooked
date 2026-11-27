@@ -1,0 +1,11 @@
+{
+  "id": "cron",
+  "label": "Cron",
+  "version": "1.0.0",
+  "api": 1,
+  "description": "Scheduled sessions: a prompt launched on a five-field cron schedule.",
+  "icon": "clock",
+  "default": true,
+  "page": { "key": "cron", "order": 80, "tint": "var(--warn)" },
+  "desktop": { "view": "view" }
+}

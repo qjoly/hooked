@@ -20,14 +20,22 @@ export const NAV_TABS = [
   ...MODULES.map((m) => ({ key: m.page, label: m.label, icon: m.icon, href: '/' + m.page, tint: m.tint || 'var(--accent)', order: m.order ?? 1000, module: m.id })),
 ].sort((a, b) => a.order - b.order);
 export const NAV_KEYS = NAV_TABS.map((t) => t.key);
-// A page shows unless it belongs to a module that is switched off (Settings → Modules) or cannot
-// work on this machine (`avail`, from GET /api/modules).
-export function pageAvailable(key, settings, avail = {}) {
+// The tabs with the extensions' pages merged in (`extTabs` from src/lib/extensions.svelte.js),
+// known only at runtime.
+export function navTabsWith(extTabs = []) {
+  return [...NAV_TABS, ...extTabs.filter((t) => !NAV_KEYS.includes(t.key))].sort((a, b) => a.order - b.order);
+}
+// A page shows unless it belongs to a module or an extension that is switched off (Settings →
+// Modules) or cannot work on this machine (`avail`, from GET /api/modules; `extensions`, from
+// GET /api/extensions).
+export function pageAvailable(key, settings, avail = {}, extensions = []) {
+  const ext = extensions.find((e) => e.page?.key === key);
+  if (ext) return ext.enabled && ext.available !== false;
   const m = moduleOfPage(key);
   return !m || (moduleOn(settings, m) && avail[m] !== false);
 }
 // href for a page key (used by the logo / default-page redirect). 'deck' → '/'.
-export function pageHref(key) {
-  const t = NAV_TABS.find((x) => x.key === key);
+export function pageHref(key, extTabs = []) {
+  const t = navTabsWith(extTabs).find((x) => x.key === key);
   return t ? t.href : '/';
 }

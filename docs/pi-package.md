@@ -7,7 +7,7 @@ and controls in the dashboard as a Claude session.
 | Feature | Claude Code | pi with the package |
 |---|---|---|
 | hooked's tools (start_session, groups, review comments, show_image…) | MCP server `hooked` | native tools `hooked_*`, same definitions (`mcp/server.cjs`) |
-| The tools of hooked's modules (PR watch, cron, flows) | MCP server `hooked`, for the modules that are on | each module's own pi package (`modules/<id>/pi`), loaded for the modules that are on (`docs/modules.md`) |
+| The tools of hooked's modules (PR watch, cron, flows) | MCP server `hooked`, for the modules that are on | this package, from the `tools.cjs` files hooked lists in `HOOKED_EXTENSION_TOOLS` (`docs/extensions.md`) |
 | Questions | `AskUserQuestion` | `AskUserQuestion`, same schema |
 | Plan mode | `ExitPlanMode` + permission mode | `ExitPlanMode` + the package's mode |
 | Todo list in the dock | `TodoWrite` / `TaskCreate` | `TodoWrite`, same schema, read back from the pi session file |

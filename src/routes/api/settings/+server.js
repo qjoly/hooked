@@ -1,5 +1,5 @@
 import { json } from '@sveltejs/kit';
-import { readSettings, writeSettings, applyGitSyncSetting, applyRemoteControlSetting, applyAutoTagSetting, applyWarmupSetting, applyModuleSettings } from '#lib/server/core.js';
+import { readSettings, writeSettings, applyGitSyncSetting, applyRemoteControlSetting, applyAutoTagSetting, applyWarmupSetting, applyModuleSettings, applyExtensionSettings, emitExtensionEvent } from '#lib/server/core.js';
 import { fail, readJson } from '#lib/server/respond.js';
 
 // Réglages persistants de hooked (settings.json côté serveur). GET renvoie l'objet complet
@@ -20,6 +20,8 @@ export async function POST({ request }) {
     applyRemoteControlSetting(settings); // réconcilie les démons remote-control au changement de liste
     applyWarmupSetting(settings); // le tick relit la config, donc activer la fenêtre 5 h prend effet tout de suite
     applyModuleSettings(settings); // a module switched on / off starts / stops its loops now (PR review tags too)
+    applyExtensionSettings(settings);
+    emitExtensionEvent('settings:changed', { keys: Object.keys(body) });
     return json({ ok: true, settings });
   } catch (e) {
     return fail(500, e.message || String(e));

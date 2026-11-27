@@ -23,7 +23,7 @@ import { providerEnv, modelMatches } from './providerConfig.js';
 import { piCatalog } from './piCatalog.js';
 import { PI_SESSIONS_DIR } from './config.js';
 import { hookedPiPackage, hookedPackageEnabled, hookedPackageEnv, handleUiRequest } from './piHooked.js';
-import { modulePiPackages } from './moduleState.js';
+import { sessionToolFiles } from './extensions.js';
 import { suggestFollowup } from './piFollowup.js';
 
 // Follow-up suggestions at the end of a turn (server/piFollowup.js); HOOKED_PI_FOLLOWUPS=0 turns them off.
@@ -390,8 +390,6 @@ function piArgsFor(st, { resumeId, model, effort, name }, provider) {
     const i = extra.findIndex((a) => a === '-xt' || a === '--exclude-tools');
     if (i >= 0 && extra[i + 1]) extra[i + 1] += ',' + HOOKED_MCP_TOOLS;
     else extra.push('--exclude-tools', HOOKED_MCP_TOOLS);
-    // Each module that is on brings its tools in a pi package of its own (modules/<id>/pi).
-    for (const pkg of modulePiPackages()) extra.push('-e', pkg);
   }
   args.push(...extra);
   return args;
@@ -407,6 +405,8 @@ async function piStart(st, opts, ctx) {
     ...piEnvFor(opts.env || process.env, provider),
     ...(withPackage ? hookedPackageEnv(st, ctx.hookedMcp ? ctx.hookedMcp() : null) : {}),
   };
+  // The package registers the modules' and extensions' tools after its own, in pi's historical order.
+  if (withPackage) env.HOOKED_EXTENSION_TOOLS = sessionToolFiles('page').join(',');
   const args = piArgsFor(st, opts, provider);
   const client = new PiRpcClient(args, { cwd: st.cwd, env, bin: piBin(provider) });
   st.pi = client;

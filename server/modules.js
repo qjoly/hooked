@@ -52,4 +52,4 @@ function moduleAvailability() {
 }
 
 export { bootModules, applyModuleSettings, moduleAvailability };
-export { moduleEnabled, enabledModuleIds, modulePiPackages, listModules, modulesDir } from './moduleState.js';
+export { moduleEnabled, enabledModuleIds, listModules, modulesDir } from './moduleState.js';

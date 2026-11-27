@@ -282,8 +282,9 @@ export function connectSessionStream(id, onSnap) {
 }
 
 // Flux SSE : appelle onTick() à chaque « tick » poussé par le serveur.
-export function connectSSE({ onTick, onOpen, onError, onShowQuery }) {
+export function connectSSE({ onTick, onOpen, onError, onShowQuery, onExtensionsChanged }) {
   const es = new EventSource('/api/stream');
+  es.addEventListener('extensionsChanged', () => onExtensionsChanged?.());
   es.addEventListener('showQuery', (e) => { try { onShowQuery?.(JSON.parse(e.data)); } catch (_) {} });
   es.onopen = () => onOpen && onOpen();
   es.onerror = () => onError && onError();

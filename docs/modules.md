@@ -8,10 +8,10 @@ its background work stops, its API answers 404, and new sessions no longer get i
 |---|---|---|
 | GitHub | `modules/github` | The GitHub page (notifications, your PRs, reviews), PR watches that wake a session, PR review tags |
 | incident.io | `modules/incidents` | Incidents from the incident.io desktop app: lists, detail, "Investigate in a session" |
-| Cron | `modules/cron` | Scheduled sessions: a prompt launched on a five-field cron schedule |
 | Flows | `modules/flows` | Pipelines of driven sessions, walked like a CI pipeline |
 
-Everything else (sessions, providers, the dock, Review, digest…) is the core.
+Cron moved to the runtime-loaded [extensions](extensions.md). Everything else (sessions,
+providers, the dock, Review, digest…) is the core.
 
 ## Layout
 
@@ -26,15 +26,14 @@ modules/
     ui/                 Svelte components, and ui/api.js (the page's fetch helpers)
     api.js              the API handlers, wrapped in gated(id, …)
     tools.cjs           agent tools: { tools: [{ name, description, inputSchema, run }] }
-    pi/                 a pi package registering tools.cjs as native tools
     test/               tests (vitest picks up modules/*/test/**/*.test.mjs)
 ```
 
 SvelteKit only serves routes from `src/routes`, so a module's routes stay there as one-line shims:
 
 ```js
-// src/routes/api/cron/+server.js
-export { GET, POST } from '#modules/cron/api.js';
+// src/routes/api/flows/+server.js
+export { GET, POST } from '#modules/flows/api.js';
 ```
 
 ```svelte
@@ -90,12 +89,10 @@ loops themselves, so a Vite reload does not start a second copy.
 A module's tools live in `tools.cjs` (CommonJS: the MCP server is plain Node), built on
 `mcp/http.cjs` (`httpRequest`, `resultFrom`).
 
-- **Claude and ACP sessions** get them from the MCP server (`mcp/server.cjs`): hooked passes
-  `HOOKED_MODULES=<ids on>` when it spawns the server, which only serves those modules' tools. A
-  server registered by hand (no `HOOKED_MODULES`) serves every module's.
-- **pi sessions** get them from the module's pi package (`modules/<id>/pi`): `server/piAgent.js`
-  adds `-e modules/<id>/pi` for each module that is on (`modulePiPackages()`), next to hooked's own
-  package. The tools register as `hooked_<name>`, which the hooked package's permission gate allows.
+- hooked lists the `tools.cjs` of the modules and extensions that are on in
+  `HOOKED_EXTENSION_TOOLS` (`sessionToolFiles()` in `server/extensions.js`). The MCP server
+  (Claude, ACP) serves them after the core tools, sorted by id; hooked's pi package registers them
+  as `hooked_<name>`, in navigation order. A server registered by hand serves every one on disk.
 
 Both are read at launch: a switch applies to new sessions (and to a session after its restart).
 
@@ -106,7 +103,7 @@ Both are read at launch: a switch applies to new sessions (and to a session afte
 2. Add the two route files: `src/routes/<page>/+page.svelte` (the page in `<ModuleGate id>`) and,
    if it has an API, `src/routes/api/<…>/+server.js` re-exporting `modules/<id>/api.js`.
 3. Then whatever it needs: server code, `api.js` with `gated(id, …)`, a page in `ui/`, agent tools
-   in `tools.cjs` with a pi package in `pi/` (copy another module's two files), tests in `test/`.
+   in `tools.cjs`, tests in `test/`.
 4. The desktop app (`page_module` in `desktop/src/app.rs`, `MODULES` in its settings) and Android
    (`moduleOn` where its pages are listed), if they get the page: native code, by hand.
 

@@ -7,7 +7,9 @@
   import { isHideableModel, isHideablePiModel } from '#lib/models.js';
   import { knownProjects } from '#lib/projects.js';
   import { getAllBindings, setBinding, resetBinding, resetAll as resetAllShortcuts, formatKeys, keysFromEvent } from '#lib/shortcuts.js';
-  import { NAV_TABS, pageAvailable } from '#lib/nav.js';
+  import { navTabsWith, pageAvailable } from '#lib/nav.js';
+  import { extensions, extensionTabs } from '#lib/extensions.svelte.js';
+  import ExtensionSettings from '#lib/components/ExtensionSettings.svelte';
   import { MODULES, moduleOn } from '#modules/index.js';
   import { modulesAvail } from '#lib/modules.svelte.js';
   import ModelEffort from '#lib/components/ModelEffort.svelte';
@@ -639,7 +641,7 @@
       <h2>Navigation</h2>
       <p class="hint">Which spaces show as tabs next to the Deck in the top bar. Hidden ones move to the More menu and stay reachable from the omnibar (⌘P). (Shared setting.)</p>
       <div class="navtabs-edit">
-        {#each NAV_TABS.filter((t) => pageAvailable(t.key, settings, modulesAvail)) as t (t.key)}
+        {#each navTabsWith(extensionTabs()).filter((t) => pageAvailable(t.key, settings, modulesAvail, extensions.list)) as t (t.key)}
           {@const on = (settings.navTabs || []).includes(t.key)}
           <label class="check">
             <input type="checkbox" checked={on}
@@ -653,7 +655,7 @@
       <label class="filter" style="margin-bottom:16px">
         <select value={settings.defaultPage} onchange={(e) => updateSettings({ defaultPage: e.currentTarget.value })}>
           <option value="deck">Deck (triage)</option>
-          {#each NAV_TABS.filter((t) => pageAvailable(t.key, settings, modulesAvail)) as t (t.key)}<option value={t.key}>{t.label}</option>{/each}
+          {#each navTabsWith(extensionTabs()).filter((t) => pageAvailable(t.key, settings, modulesAvail, extensions.list)) as t (t.key)}<option value={t.key}>{t.label}</option>{/each}
         </select>
       </label>
       <h2 style="margin-top:6px">Prompt cache countdown</h2>
@@ -1291,6 +1293,7 @@
           <span><Icon name={m.icon} size={14} /> <strong>{m.label}</strong> · {m.description}{#if modulesAvail[m.id] === false} <em class="unavail">Not available on this machine.</em>{/if}</span>
         </label>
       {/each}
+      <ExtensionSettings />
     </div>
 
     <div class="card" id="pset-interface" data-sec>

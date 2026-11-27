@@ -12,7 +12,8 @@ import path from 'node:path';
 import { HOOKED_DIR, LAUNCH_PERMISSION_MODES, isValidModelArg } from './config.js';
 import { EDITOR_KEYS, DEFAULT_EDITOR } from '../src/lib/editors.js';
 import { sanitizeProviders } from './providerConfig.js';
-import { sanitizeModules } from '../modules/index.js';
+import { sanitizeModules, MODULE_IDS } from '../modules/index.js';
+import { sanitizeExtensions, EXTENSION_ID } from '../src/lib/extensions.js';
 import { NAV_KEYS } from '../src/lib/nav.js';
 import { DEFAULT_HIDDEN_MODELS, DEFAULT_HIDDEN_PI_MODELS, isHideableModel, isHideablePiModel } from '../src/lib/models.js';
 
@@ -104,6 +105,8 @@ const DEFAULTS = {
   navTabs: ['sessions', 'stats', 'digest', 'memory', 'github'],
   // hooked's modules (modules/index.js): id → on. A module missing here is on.
   modules: sanitizeModules(null),
+  // Extensions switched on or off (docs/extensions.md): id → bool. Missing = the manifest's default.
+  extensions: {},
   // Versions de modèle masquées des sélecteurs (liste noire, cf. src/lib/models.js). Défaut : les
   // vieilles générations. [] = tout afficher. Purement cosmétique : un modèle masqué reste valide
   // au lancement, et le modèle courant d'une session reste toujours affiché.
@@ -142,10 +145,21 @@ const DEFAULTS = {
 // The pages of the navigation, core and modules alike (src/lib/nav.js).
 const NAV_PAGES = NAV_KEYS;
 const DEFAULT_PAGES = ['deck', ...NAV_PAGES];
+// Core pages that no longer exist: an old settings file must not keep pointing at them. Any other
+// unknown key may be an extension's page, which settings.js cannot check against the registry.
+const RETIRED_PAGES = ['search'];
+const maybeExtensionPage = (k) => typeof k === 'string' && !NAV_PAGES.includes(k) && !RETIRED_PAGES.includes(k) && EXTENSION_ID.test(k);
+
+// The switches of `modules` that are not a module's: extensions, written before the key existed.
+function extensionSwitchesIn(modules) {
+  const o = modules && typeof modules === 'object' ? modules : {};
+  return Object.fromEntries(Object.entries(o).filter(([id]) => !MODULE_IDS.includes(id)));
+}
 
 // Ramène un objet arbitraire (fichier ou payload client) à des valeurs sûres et complètes.
 function sanitize(raw) {
   const o = raw && typeof raw === 'object' ? raw : {};
+  const extensions = sanitizeExtensions({ ...extensionSwitchesIn(o.modules), ...o.extensions });
   // statusBar : objet key→boolean ; toute clé absente vaut true (forward-compatible).
   const rawSb = o.statusBar && typeof o.statusBar === 'object' ? o.statusBar : {};
   const statusBar = Object.fromEntries(STATUS_BAR_KEYS.map((k) => [k, rawSb[k] !== false]));
@@ -284,12 +298,15 @@ function sanitize(raw) {
     showWork: o.showWork === undefined ? true : !!o.showWork,
     prGate: o.prGate === undefined ? true : !!o.prGate,
     editor: EDITOR_KEYS.includes(o.editor) ? o.editor : DEFAULT_EDITOR,
-    defaultPage: DEFAULT_PAGES.includes(o.defaultPage) ? o.defaultPage : 'deck',
+    defaultPage: DEFAULT_PAGES.includes(o.defaultPage) || maybeExtensionPage(o.defaultPage) ? o.defaultPage : 'deck',
     hiddenModels,
     hiddenPiModels,
-    modules: sanitizeModules(o.modules),
+    extensions,
+    // Android still reads `modules`: it mirrors the extensions until its own migration.
+    modules: { ...sanitizeModules(o.modules), ...extensions },
     navTabs: Array.isArray(o.navTabs)
-      ? NAV_PAGES.filter((k) => o.navTabs.includes(k)) // keep known keys, canonical order
+      // Known keys in canonical order, then extension pages, which the server cannot check here.
+      ? [...NAV_PAGES.filter((k) => o.navTabs.includes(k)), ...o.navTabs.filter(maybeExtensionPage)]
       : [...DEFAULTS.navTabs],
   };
 }
@@ -306,7 +323,10 @@ function readSettings() {
 
 // Fusionne un patch partiel avec les réglages courants, valide, écrit, renvoie le résultat complet.
 function writeSettings(patch) {
-  const merged = sanitize({ ...readSettings(), ...(patch && typeof patch === 'object' ? patch : {}) });
+  const p = patch && typeof patch === 'object' ? { ...patch } : {};
+  // A client that only knows `modules` (Android) switches extensions through it.
+  if (p.modules) p.extensions = { ...readSettings().extensions, ...extensionSwitchesIn(p.modules), ...p.extensions };
+  const merged = sanitize({ ...readSettings(), ...p });
   try {
     fs.mkdirSync(HOOKED_DIR, { recursive: true });
     fs.writeFileSync(SETTINGS_FILE, JSON.stringify(merged, null, 2) + '\n');

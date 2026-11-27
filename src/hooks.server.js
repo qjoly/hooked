@@ -1,7 +1,8 @@
 import { promisify } from 'node:util';
 import { gzip as gzipCb } from 'node:zlib';
 import { dev } from '$app/env';
-import { startDigestScheduler, startRemoteControl, readSettings, resumeDrivenSessions, startDrivenSnapshot, installShutdownHook, startWarmupScheduler, startAutoCompactScheduler, applyGitSyncSetting, applyAutoTagSetting, startWorktreeCleanup, startAutoPull, loadExternalEngines, bootModules } from '#lib/server/core.js';
+import { startDigestScheduler, startRemoteControl, readSettings, resumeDrivenSessions, startDrivenSnapshot, installShutdownHook, startWarmupScheduler, startAutoCompactScheduler, applyGitSyncSetting, applyAutoTagSetting, startWorktreeCleanup, startAutoPull, loadExternalEngines, bootModules, bootExtensions, setExtensionsNotifier } from '#lib/server/core.js';
+import { broadcastEvent } from '#lib/server/live.js';
 
 const gzip = promisify(gzipCb);
 
@@ -51,6 +52,10 @@ startAutoCompactScheduler();
 // Cron scheduler, the Flows engine) only run in the service, by the same rule as the block above;
 // PR watches (GitHub) run everywhere, since they only wake the sessions of this process.
 bootModules({ service: !dev || !!process.env.HOOKED_MODE });
+// Extensions (extensions/*, ~/.claude/hooked/extensions/*) load at runtime, under the same service
+// rule. In `npm run live` an edit in an extension folder reloads it.
+setExtensionsNotifier(() => broadcastEvent('extensionsChanged', {}));
+bootExtensions({ service: !dev || !!process.env.HOOKED_MODE, watch: dev }).catch((e) => console.error('[hooked] extensions:', e?.message || e));
 
 // adapter-node does not compress responses, and the dashboard polls JSON that is mostly repetitive
 // text (transcripts, file changes): gzip turns several MB per refresh into a few hundred KB, which
