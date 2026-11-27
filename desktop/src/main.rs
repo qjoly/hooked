@@ -34,6 +34,7 @@ mod quick;
 mod remote;
 mod sections;
 mod shortcuts;
+mod single;
 mod terminal;
 mod tray;
 mod view;
@@ -258,6 +259,10 @@ fn on_ime(s: &mut Hooked, ime: &rune::Ime, tx: &mut Tx) -> bool {
 }
 
 fn main() {
+    // A second launch brings the first one up and leaves.
+    if !single::acquire() {
+        return;
+    }
     let _ = rune_notify::register(&rune_notify::Identity::new(
         "dev.qjoly.hooked-rune",
         "hooked",
@@ -277,6 +282,7 @@ fn main() {
         .on_ime(on_ime)
         .on_frame_encoded(perf::frame_hook(perf::MAIN));
     let _ = HANDLE.set(app.handle());
+    single::serve();
     tray::init_notifications();
     let quick = quick::app();
     rune::run_windows(move |_| {

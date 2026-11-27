@@ -172,7 +172,7 @@ connection dot, list rows, step marks) live in the `hooked-ui` crate (`ui/`), wh
   from the text selection). Occurrences of the selection change colour rather than getting a
   background: the view takes no background for part of a line, so they go through the syntax
   highlighter.
-- Windows: the build has not been run on a Windows machine yet. Chords are spelled with Ctrl, Shift
+- Windows: the build has been through a manual test pass on Windows 11 (see the PR's test plan). A second launch brings the running app up and exits (`HOOKED_MULTI_INSTANCE=1` allows two). In a terminal, control keys follow the letter on the keycap (AZERTY safe) and Ctrl+Backspace deletes a word. Chords are spelled with Ctrl, Shift
   and Alt there (`mod` is Ctrl; the quick-reply panel is Ctrl+Shift+H), and in a terminal only
   Ctrl+Shift chords belong to the app (Ctrl+Shift+F searches, Ctrl+Shift+C and Ctrl+Shift+V copy
   and paste; Ctrl+C copies a selection and otherwise stays the shell's ^C, Ctrl+V pastes). The tray
