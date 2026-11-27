@@ -23,7 +23,9 @@ pub enum Event {
     Start(Step),
     Done(Step),
     Busy(usize),
-    Failed { step: Step, error: String, log: String },
+    /// `rollback`: an `Undone` follows. False when the run failed before changing anything: the run
+    /// is over, with nothing to undo.
+    Failed { step: Step, error: String, log: String, rollback: bool },
     /// Ok: the checkout and the service are as they were. Err: what is left to fix by hand.
     Undone(Result<(), String>, String),
     /// The service runs the branch; only the desktop app was not updated.
@@ -43,7 +45,7 @@ pub fn switch(repo: &Path, branch: &str, app: bool, ctl: &Control, report: &dyn 
     let start = match read_start(repo) {
         Ok(s) => s,
         Err(error) => {
-            return report(Event::Failed { step: Step::Fetch, error, log: String::new() });
+            return report(Event::Failed { step: Step::Fetch, error, log: String::new(), rollback: false });
         }
     };
     let mut changes = Changes::default();
@@ -67,9 +69,13 @@ pub fn switch(repo: &Path, branch: &str, app: bool, ctl: &Control, report: &dyn 
             Step::UpdateApp => unreachable!("not part of flow::order"),
         };
         if let Err(error) = r {
-            report(Event::Failed { step, error, log });
-            let (result, undo_log) = undo(repo, &start, changes);
-            report(Event::Undone(result, undo_log));
+            // A failed fetch, or a checkout refused on local changes, has changed nothing.
+            let rollback = !flow::undo_plan(changes).is_empty();
+            report(Event::Failed { step, error, log, rollback });
+            if rollback {
+                let (result, undo_log) = undo(repo, &start, changes);
+                report(Event::Undone(result, undo_log));
+            }
             return;
         }
         report(Event::Done(step));
