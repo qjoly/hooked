@@ -1151,7 +1151,7 @@ impl Hooked {
             None
         } else {
             let Some(u) = api::normalize_server(&typed) else {
-                self.flash("✗ Expected an address such as 192.168.1.5:4123 or http://host:4123", true);
+                self.flash("✗ Use host:port or a URL", true);
                 return;
             };
             Some(u)
