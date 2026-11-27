@@ -199,7 +199,6 @@ impl ExtView {
         Value::Object(out)
     }
 
-    /// What a post sends: the action's body, plus the values of `form` when it submits one.
     fn post_payload(&self, body: &Value, form: Option<&str>) -> Value {
         post_body(body, self.tree.as_ref().and_then(|t| Some(self.form_values(find_form(t, form?)?))))
     }
@@ -374,7 +373,6 @@ struct Ctx<'a> {
     view: &'a ExtView,
 }
 
-/// The whole page of extension `id`.
 pub fn page(s: &Hooked, k: &Kit, id: &'static str) -> El {
     let info = s.ext_info(id);
     let label = info.map_or(id, |e| e.label.as_str());

@@ -122,7 +122,6 @@ pub fn icon_named(name: &str) -> &'static Icon {
     }
 }
 
-/// The extension a page belongs to, if any.
 pub fn page_extension(page: Page) -> Option<&'static str> {
     match page {
         Page::Ext(id) => Some(id),

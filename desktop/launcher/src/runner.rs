@@ -747,7 +747,6 @@ mod tests {
             events.into_inner().into_iter().filter(|e| !e.is_empty()).collect()
         }
 
-        /// The folders under the installed root, sorted.
         fn folders(&self) -> Vec<String> {
             let mut names: Vec<String> = fs::read_dir(&self.root)
                 .map(|d| d.filter_map(|e| e.ok()?.file_name().into_string().ok()).collect())

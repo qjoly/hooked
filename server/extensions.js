@@ -330,7 +330,7 @@ function activate(entry) {
   if (entry.running) return;
   entry.errors = [];
   entry.running = true;
-  // A legacy lifecycle takes the shape modules had: { service, settings }.
+  // A legacy lifecycle gets { service, settings }, not ctx: GitHub, Flows and incident.io read that.
   const arg = entry.legacy ? { service: REG.service, settings: readSettings() } : entry.ctx;
   guard(entry, 'start', () => entry.lifecycle.start?.(arg));
   subscribeExtension(entry.id, entry.lifecycle.on);
@@ -409,7 +409,7 @@ async function bootExtensions({ service = false, watch = false } = {}) {
 }
 
 // Starts the extensions switched on, stops the ones switched off. No restart. A legacy extension
-// that stays on gets hooked's settings, as modules did (GitHub's PR review tags follow them).
+// that stays on gets hooked's settings: GitHub's PR review tags follow them.
 function applyExtensionSettings(settings = readSettings()) {
   if (!REG.booted) return;
   for (const entry of REG.loaded.values()) {
@@ -509,7 +509,6 @@ function extensionAvailability() {
   return Object.fromEntries([...REG.loaded.values()].map((e) => [e.id, available(e)]));
 }
 
-// tools.cjs of the active extensions, sorted by id.
 function extensionToolFiles(settings = readSettings()) {
   return [...REG.loaded.values()]
     .filter((e) => isActive(e, settings) && e.tools.length)
