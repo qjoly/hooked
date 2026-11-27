@@ -409,7 +409,7 @@ echo "$BIN"
 [tasks.desktop-dev]
 description = "Run the desktop app from source with live editing: body edits patch it in place, others rebuild and relaunch"
 dir = "desktop"
-tools = { rust = "1.100.0", zig = "0.17.1", python = "3.13" }
+tools = { rust = "1.100.0", zig = "0.17.1", python = "3.15.2" }
 run = "scripts/dev"
 
 [tasks.desktop-run]
