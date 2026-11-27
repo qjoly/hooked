@@ -441,8 +441,26 @@
     e.preventDefault();
     composer.interruptEdit();
   }
-  onMount(() => { window.addEventListener('keydown', onWindowKey); });
-  onDestroy(() => { window.removeEventListener('keydown', onWindowKey); clearTimeout(queuedRetry); });
+  // The "More actions" menu is a <details>: it stays open until its summary is clicked again, so a
+  // click anywhere else (or Escape) has to close it by hand.
+  let moreMenu = $state();
+  function closeMoreOnOutside(e) {
+    if (moreMenu?.open && !moreMenu.contains(e.target)) moreMenu.open = false;
+  }
+  function closeMoreOnEscape(e) {
+    if (e.key === 'Escape' && moreMenu?.open) moreMenu.open = false;
+  }
+  onMount(() => {
+    window.addEventListener('keydown', onWindowKey);
+    window.addEventListener('pointerdown', closeMoreOnOutside, true);
+    window.addEventListener('keydown', closeMoreOnEscape);
+  });
+  onDestroy(() => {
+    window.removeEventListener('keydown', onWindowKey);
+    window.removeEventListener('pointerdown', closeMoreOnOutside, true);
+    window.removeEventListener('keydown', closeMoreOnEscape);
+    clearTimeout(queuedRetry);
+  });
 
   // live : sur chaque tick, refetch ciblé (question (dis)paraît, ou chat actif qui bouge)
   $effect(() => {
@@ -861,7 +879,7 @@
           <button class="hdr-icon-btn" title="Split with the most recent session (⌘/Ctrl+⇧+S)"
                   aria-label="Split view" disabled={!canSplit()} onclick={() => splitWithMostRecent(id)}><Icon name="pane" size={16} /></button>
         {/if}
-        <details class="hdr-more">
+        <details class="hdr-more" bind:this={moreMenu}>
           <summary title="More actions" aria-label="More actions"><Icon name="menu" size={18} /></summary>
           <div class="hdr-menu">
             <!-- Réglages fréquents (modèle/effort + mode de permission) : rangés ici en
