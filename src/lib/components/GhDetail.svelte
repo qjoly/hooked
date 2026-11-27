@@ -312,11 +312,11 @@
   .badge.wait { color: var(--warn); background: var(--warn-soft); }
   .badge.muted { color: var(--muted); background: var(--bg3); }
 
-  .tabs { gap: 10px; }
+  .tabs { gap: 8px 10px; flex-wrap: wrap; }
   .seg { margin-right: auto; display: inline-flex; padding: 2px; border-radius: 9px; background: var(--bg3); }
   .seg button { border: none; background: none; color: var(--muted); font: inherit; font-weight: 600; padding: 4px 11px; border-radius: 7px; cursor: pointer; }
   .seg button.on { background: var(--bg2); color: var(--text); box-shadow: 0 1px 2px rgba(0, 0, 0, .08); }
-  .ck { display: inline-flex; align-items: center; gap: 5px; font-size: var(--t-meta); }
+  .ck { display: inline-flex; align-items: center; gap: 5px; font-size: var(--t-meta); white-space: nowrap; }
   .icon-btn { flex: none; display: inline-flex; padding: 4px; border: none; background: none; color: var(--muted); border-radius: 6px; cursor: pointer; }
   .icon-btn:hover:not(:disabled) { color: var(--text); background: var(--bg3); }
   .icon-btn:disabled { opacity: .5; cursor: progress; }
