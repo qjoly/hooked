@@ -7,7 +7,7 @@ node = "26"
 # (server/providers.js → providers.pi) marche sans fallback sur les chemins en dur.
 # Sur une machine qui n'utilise pas le provider pi, retirer cette ligne (mise n'installera
 # alors plus le package) — hooked détecte l'absence et masque pi.
-"npm:@earendil-works/pi-coding-agent" = "1.6.0"
+"npm:@earendil-works/pi-coding-agent" = "1.6.1"
 
 [env]
 PORT = "4123"
