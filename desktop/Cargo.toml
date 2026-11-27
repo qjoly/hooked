@@ -36,7 +36,7 @@ serde_json = "1"
 base64 = "0.22"
 libc = "0.2"
 pulldown-cmark = { version = "0.13", default-features = false }
-libghostty-vt = { git = "https://github.com/Uzaaft/libghostty-rs", rev = "483ea3d5247b214060da58ef6037a95f30ae89fb", features = ["png"] }
+libghostty-vt = { git = "https://github.com/Uzaaft/libghostty-rs", rev = "4466c0f45f51f964f86d1974a50502dbec7cb0de", features = ["png"] }
 
 [features]
 hot = ["rune/hot"]
