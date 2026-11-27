@@ -90,7 +90,8 @@ describe('facades (EXTENSION_API ' + 1 + ')', () => {
 
   it('the shared runtime fills every module the compiler redirects', () => {
     expect(SHARED_RUNTIME).toEqual([
-      'svelte', 'svelte/internal/client', 'svelte/internal/disclose-version', 'svelte/store', 'svelte/reactivity',
+      'svelte', 'svelte/internal/client', 'svelte/internal/disclose-version', 'svelte/internal/init-operations',
+      'svelte/store', 'svelte/reactivity',
       'svelte/transition', 'svelte/animate', 'svelte/easing', 'svelte/motion', 'svelte/events', 'svelte/attachments',
       '@hooked/ext/ui',
     ]);

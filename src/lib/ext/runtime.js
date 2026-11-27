@@ -16,7 +16,9 @@ import * as ui from './ui.js';
 globalThis.__hookedExt = {
   svelte,
   'svelte/internal/client': internalClient,
+  // Side-effect-only modules the compiler emits: the dashboard's own components already ran them.
   'svelte/internal/disclose-version': {},
+  'svelte/internal/init-operations': {},
   'svelte/store': store,
   'svelte/reactivity': reactivity,
   'svelte/transition': transition,

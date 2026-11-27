@@ -20,7 +20,7 @@ import { EXTENSION_API } from './ext/context.js';
 import { checkoutDir } from './checkout.js';
 
 const SVELTE_SHARED = [
-  'svelte', 'svelte/internal/client', 'svelte/internal/disclose-version', 'svelte/store',
+  'svelte', 'svelte/internal/client', 'svelte/internal/disclose-version', 'svelte/internal/init-operations', 'svelte/store',
   'svelte/reactivity', 'svelte/transition', 'svelte/animate', 'svelte/easing', 'svelte/motion',
   'svelte/events', 'svelte/attachments',
 ];

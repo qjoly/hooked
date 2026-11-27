@@ -14,6 +14,9 @@ const VIRTUAL = '\0hooked-ext:';
 const { srcDir, outDir, shared, uiExports } = JSON.parse(process.argv[2]);
 const req = createRequire(path.join(process.cwd(), 'package.json'));
 const load = (spec) => import(pathToFileURL(req.resolve(spec)).href);
+// Imported by compiled components for their side effect only; importing them here would run
+// browser code under Node.
+const SIDE_EFFECT_ONLY = new Set(['svelte/internal/disclose-version', 'svelte/internal/init-operations']);
 
 // The browser entry of each shared Svelte module, read from svelte's own `exports` map: the export
 // names must be those of the client build the dashboard ships, not of the server one Node resolves.
@@ -23,6 +26,10 @@ async function exportNames() {
   const browserEntry = (e) => (typeof e === 'string' ? e : e && (browserEntry(e.browser) || browserEntry(e.default)));
   const names = { '@hooked/ext/ui': uiExports };
   for (const spec of shared.filter((s) => s.startsWith('svelte'))) {
+    if (SIDE_EFFECT_ONLY.has(spec)) {
+      names[spec] = [];
+      continue;
+    }
     const sub = spec === 'svelte' ? '.' : './' + spec.slice('svelte/'.length);
     const mod = await import(pathToFileURL(path.join(path.dirname(pkgFile), browserEntry(pkg.exports[sub]))).href);
     names[spec] = Object.keys(mod).filter((n) => n !== 'default');
