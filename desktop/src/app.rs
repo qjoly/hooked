@@ -3205,7 +3205,13 @@ pub fn start_workers(h: Option<AppHandle<Hooked>>) {
     }
     crate::app::spawn_named("hooked-events", move || {
         loop {
+            // A (re)connection may follow a restart of the service: its extensions may have changed.
+            h.update(|s, _| s.load_extensions());
             let r = api::follow("/api/stream", |payload| {
+                if payload.contains("\"extensionsChanged\"") {
+                    h.update(|s, _| s.load_extensions());
+                    return true;
+                }
                 if payload.starts_with("{\"panel\"")
                     && let Ok(mut v) = serde_json::from_str::<serde_json::Value>(payload)
                     && v["panel"]["id"].is_string()

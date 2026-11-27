@@ -54,7 +54,8 @@ startAutoCompactScheduler();
 bootModules({ service: !dev || !!process.env.HOOKED_MODE });
 // Extensions (extensions/*, ~/.claude/hooked/extensions/*) load at runtime, under the same service
 // rule. In `npm run live` an edit in an extension folder reloads it.
-setExtensionsNotifier(() => broadcastEvent('extensionsChanged', {}));
+// The desktop app reads only the data lines of the stream: the payload names the event too.
+setExtensionsNotifier(() => broadcastEvent('extensionsChanged', { extensionsChanged: true }));
 bootExtensions({ service: !dev || !!process.env.HOOKED_MODE, watch: dev }).catch((e) => console.error('[hooked] extensions:', e?.message || e));
 
 // adapter-node does not compress responses, and the dashboard polls JSON that is mostly repetitive

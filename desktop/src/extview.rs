@@ -20,8 +20,8 @@ use crate::icons;
 use hooked_ui::widgets::section_title;
 
 const PREVIEW_DEBOUNCE_MS: i64 = 300;
-/// How stale the extension list may get: a switch made elsewhere (web, launcher) shows within it.
-const LIST_REFRESH_MS: i64 = 5_000;
+/// A fallback only: the service pushes `extensionsChanged` on its stream (`start_workers`).
+const LIST_REFRESH_MS: i64 = 30_000;
 
 #[derive(Deserialize, Debug, Clone, PartialEq)]
 #[serde(tag = "type", rename_all = "lowercase")]
