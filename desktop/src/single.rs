@@ -27,6 +27,7 @@ mod imp {
     /// which is what holds the name.
     pub fn acquire() -> bool {
         if std::env::var_os("HOOKED_MULTI_INSTANCE").is_some() {
+            crate::tray::trace("single: guard off (HOOKED_MULTI_INSTANCE)");
             return true;
         }
         // SAFETY: the names are NUL-terminated and outlive the calls; the security attributes are
@@ -35,16 +36,20 @@ mod imp {
             // The event first: a second launch that sees the mutex is sure to find it.
             let event = CreateEventW(std::ptr::null(), 0, 0, wide(EVENT).as_ptr());
             if event.is_null() {
+                crate::tray::trace(&format!("single: no guard, event error {}", GetLastError()));
                 return true;
             }
             let mutex = CreateMutexW(std::ptr::null(), 0, wide(MUTEX).as_ptr());
             if mutex.is_null() {
+                crate::tray::trace(&format!("single: no guard, mutex error {}", GetLastError()));
                 return true;
             }
             if GetLastError() == ERROR_ALREADY_EXISTS {
+                crate::tray::trace("single: another instance runs, asking it to come forward");
                 SetEvent(event);
                 return false;
             }
+            crate::tray::trace("single: guard taken");
             EVENT_HANDLE.store(event as usize, Ordering::Relaxed);
         }
         true
@@ -59,6 +64,7 @@ mod imp {
         std::thread::spawn(move || {
             // SAFETY: the handle is a live event that this process never closes.
             while unsafe { WaitForSingleObject(event as _, INFINITE) } == WAIT_OBJECT_0 {
+                crate::tray::trace("single: a later launch asked to come forward");
                 if let Some(h) = crate::app::HANDLE.get() {
                     h.open();
                 }

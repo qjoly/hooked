@@ -230,7 +230,7 @@ pub fn show(s: &mut Quick) {
 }
 
 fn view(s: &Quick, cx: &mut Cx<Quick>) -> El {
-    let k = crate::theme::kit(cx.system_dark());
+    let k = crate::theme::kit(crate::systheme::apply(cx.system_dark()));
     let list = col()
         .key("q-list")
         .w(250.0)

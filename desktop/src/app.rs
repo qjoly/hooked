@@ -1175,7 +1175,7 @@ impl Hooked {
     }
 
     pub fn dark(&self, system_dark: bool) -> bool {
-        self.theme.dark(system_dark)
+        self.theme.dark(crate::systheme::apply(system_dark))
     }
 
     pub fn set_theme(&mut self, theme: Theme) {

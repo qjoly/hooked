@@ -25,7 +25,7 @@ fn journal(title: &str, body: &str, posted: bool) {
 /// What the tray did, for the cases where there is no icon and nothing says why: `tray.log` next to
 /// the notification journal. Kept small like it.
 #[cfg(any(target_os = "macos", windows))]
-fn trace(line: &str) {
+pub(crate) fn trace(line: &str) {
     use std::io::Write;
     let Some(dirs) = rune::dirs::AppDirs::new(crate::theme::PREFS_ID) else {
         return;

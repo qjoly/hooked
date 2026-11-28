@@ -846,10 +846,16 @@ impl Vt {
         };
         // The control character comes from the letter on the keycap, not from the key's place on
         // a QWERTY board: on AZERTY, Ctrl+W sits where QWERTY has Z, and must send ^W, not ^Z.
-        let gkey = match &ev.key {
-            Key::Text(t) => ascii_letter_key(t).unwrap_or(gkey),
-            _ => gkey,
+        // Ctrl+letter reaches us as `Key::Command` (lowercased); a bare letter is `Key::Text`.
+        let letter = match &ev.key {
+            Key::Command(c) => Some(*c),
+            Key::Text(t) => {
+                let mut cs = t.chars();
+                cs.next().filter(|_| cs.next().is_none())
+            }
+            _ => None,
         };
+        let gkey = letter.and_then(ascii_letter_key).unwrap_or(gkey);
         // Windows terminals send ^W for Ctrl+Backspace (a plain ^H only deletes one character in
         // zsh and bash). macOS has its own mapping in `term_cmd_key`, Linux keeps the encoder's.
         if cfg!(windows)
@@ -1015,13 +1021,9 @@ fn unshifted(k: GKey) -> Option<char> {
     })
 }
 
-/// The key of a single ASCII letter typed on the active layout, whatever its physical position.
-fn ascii_letter_key(t: &str) -> Option<GKey> {
-    let mut chars = t.chars();
-    let c = chars.next()?.to_ascii_lowercase();
-    if chars.next().is_some() {
-        return None;
-    }
+/// The key of an ASCII letter typed on the active layout, whatever its physical position.
+fn ascii_letter_key(c: char) -> Option<GKey> {
+    let c = c.to_ascii_lowercase();
     Some(match c {
         'a' => GKey::A,
         'b' => GKey::B,
@@ -1235,10 +1237,10 @@ mod tests {
     fn control_letters_follow_the_keycap_not_the_key_position() {
         let mut vt = Vt::new(20, 3).expect("terminal");
         // AZERTY: the W keycap is at the QWERTY Z position.
-        let w = ev(Key::Text("w".into()), true);
+        let w = ev(Key::Command('w'), true);
         let out = vt.encode_key_action(&w, Some(PhysicalKeyCode::KeyZ), key::Action::Press);
         assert_eq!(out, Some(vec![0x17]));
-        let z = ev(Key::Text("z".into()), true);
+        let z = ev(Key::Command('z'), true);
         let out = vt.encode_key_action(&z, Some(PhysicalKeyCode::KeyW), key::Action::Press);
         assert_eq!(out, Some(vec![0x1a]));
     }

@@ -35,6 +35,7 @@ mod remote;
 mod sections;
 mod shortcuts;
 mod single;
+mod systheme;
 mod terminal;
 mod tray;
 mod view;
@@ -182,6 +183,7 @@ fn on_key(s: &mut Hooked, ev: &KeyEvent, tx: &mut Tx) -> bool {
 fn poll(s: &mut Hooked, clock: f64, tx: &mut Tx) -> bool {
     let now = fmt::now_ms();
     let mut changed = s.poll_panel(clock, tx);
+    changed |= systheme::refresh(now.max(0) as u64);
     s.stash_draft();
     s.refresh_logo();
     s.poll_run(now);

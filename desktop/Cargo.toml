@@ -48,7 +48,7 @@ knobs = ["rune-knobs/panel", "dep:rune-register", "hooked-ui/knobs"]
 tray-icon = "0.21"
 
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_System_Threading", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_System_Registry", "Win32_System_Threading", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
 
 # Rune builds these crates from its own patched copies, and Cargo does not inherit a dependency's
 # `[patch]`. Copy the `[patch.crates-io]` table of Rune's root Cargo.toml, at the commit Cargo.lock
