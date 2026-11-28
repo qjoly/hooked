@@ -278,6 +278,70 @@ fn modules_card(s: &Hooked, k: &Kit) -> El {
     c
 }
 
+/// Which build this is, so that a test or a bug report can say which binary it was about.
+fn build_line(k: &Kit) -> El {
+    let stamp = if fmt::BUILD_DATE.is_empty() {
+        fmt::BUILD_COMMIT.to_string()
+    } else {
+        format!("{} · {}", fmt::BUILD_COMMIT, fmt::BUILD_DATE)
+    };
+    line(
+        k,
+        "Build",
+        "The commit this app was built from, and its date. A + means uncommitted edits.",
+        text(stamp)
+            .key("set-build")
+            .font(k.ty.ui_medium)
+            .color(k.c.text_muted)
+            .selectable(true),
+    )
+}
+
+/// Where this app finds the hooked service. A pref of this app alone, and the way out when
+/// `localhost:4123` is not the service (hooked in WSL2 or on another machine).
+fn server_line(s: &Hooked, k: &Kit) -> El {
+    let hint = if crate::api::server_from_env() {
+        format!(
+            "HOOKED_URL is set to {} and takes precedence over this field.",
+            crate::api::base()
+        )
+    } else {
+        format!(
+            "Where the hooked service answers, now {}. Leave it empty for localhost:4123. The service has to listen there: start it with HOST=0.0.0.0 to reach it from another machine. Kept in this app only.",
+            crate::api::base_label()
+        )
+    };
+    let input = TextInput::new(&s.pages.server_url)
+        .width(Some(260.0))
+        .placeholder("localhost:4123")
+        .on_edit(|s: &mut Hooked| &mut s.pages.server_url)
+        .on_submit(|s: &mut Hooked, _| s.apply_server())
+        .build(k)
+        .key("set-server-url");
+    let connect = Button::new("Connect")
+        .variant(ButtonVariant::Neutral)
+        .control_size(ControlSize::Regular)
+        .on_press(|s: &mut Hooked| s.apply_server())
+        .build(k)
+        .key("set-server-connect");
+    let reset = Button::new("Reset")
+        .variant(ButtonVariant::GhostMuted)
+        .control_size(ControlSize::Regular)
+        .disabled(s.pages.server_url.text.is_empty())
+        .on_press(|s: &mut Hooked| {
+            s.pages.server_url = rune::TextEdit::new("");
+            s.apply_server();
+        })
+        .build(k)
+        .key("set-server-reset");
+    line(
+        k,
+        "Server",
+        &hint,
+        row().gap(8.0).center_y().flex_wrap().child(input).child(connect).child(reset),
+    )
+}
+
 fn flags_card(s: &Hooked, k: &Kit, v: &Value) -> El {
     let mut c = card(k, "set-flags", "FEATURE FLAGS");
     for &(key, title, hint) in &FEATURE_FLAGS {
@@ -440,6 +504,8 @@ fn app_card(s: &Hooked, k: &Kit, v: &Value) -> El {
     let home = v["defaultPage"].as_str().unwrap_or("deck").to_string();
     let review_split = s.prefs.get::<bool>("diffSplit").unwrap_or(false);
     card(k, "set-app", "THIS APP")
+        .child(server_line(s, k))
+        .child(build_line(k))
         .child(line(k, "Theme", "Follows the system unless forced.", chips(vec![theme(Theme::System, "System"), theme(Theme::Light, "Light"), theme(Theme::Dark, "Dark")])))
         .child(line(
             k,
@@ -480,7 +546,10 @@ fn app_card(s: &Hooked, k: &Kit, v: &Value) -> El {
         .child(line(
             k,
             "Performance diagnostics",
-            "Records frame timings, allocations and memory to a bounded local folder (Application Support/dev.qjoly.hooked-rune/perf). HOOKED_PERF=1 or 0 overrides this.",
+            &format!(
+                "Records frame timings, allocations and memory to a bounded local folder ({}). HOOKED_PERF=1 or 0 overrides this.",
+                crate::perf::dir().display()
+            ),
             toggle(k, "set-perf", crate::perf::enabled(), |s| {
                 let on = !crate::perf::enabled();
                 crate::perf::set_enabled(on);
@@ -490,7 +559,7 @@ fn app_card(s: &Hooked, k: &Kit, v: &Value) -> El {
         .child(block(
             k,
             "Navigation",
-            "Which pages get a tab in the top bar. The others stay one search away (⌘K).",
+            &crate::fmt::keys("Which pages get a tab in the top bar. The others stay one search away (⌘K)."),
             chips(NAV.iter().filter(|&&(key, _)| !MODULES.iter().any(|m| m.0 == key) || s.module_on(key)).map(|&(key, label)| chip(k, format!("nav-{key}"), label.into(), nav_on.iter().any(|x| x == key), move |s| s.toggle_in_list("navTabs", key))).collect()),
         ))
         .child(block(
@@ -1653,7 +1722,7 @@ fn terminal_card(s: &Hooked, k: &Kit) -> El {
         .child(line(
             k,
             "Font size",
-            "⌘+ and ⌘- in a terminal do the same, ⌘0 resets it.",
+            &crate::fmt::keys("⌘+ and ⌘- in a terminal do the same, ⌘0 resets it."),
             stepper(
                 k,
                 "set-term-size",

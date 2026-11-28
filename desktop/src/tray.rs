@@ -4,11 +4,10 @@ use crate::app::{HANDLE, Hooked};
 /// from "nothing was posted": macOS keeps its own delivery log out of reach.
 fn journal(title: &str, body: &str, posted: bool) {
     use std::io::Write;
-    let Some(home) = std::env::var_os("HOME") else {
+    let Some(dirs) = rune::dirs::AppDirs::new(crate::theme::PREFS_ID) else {
         return;
     };
-    let path = std::path::Path::new(&home)
-        .join("Library/Application Support/dev.qjoly.hooked-rune/notifications.log");
+    let path = dirs.data().join("notifications.log");
     // Kept small: once past 64 KB it starts over.
     let fresh = std::fs::metadata(&path).is_ok_and(|m| m.len() > 64 * 1024);
     let file = std::fs::OpenOptions::new()
@@ -20,6 +19,28 @@ fn journal(title: &str, body: &str, posted: bool) {
     if let Ok(mut f) = file {
         let state = if posted { "posted" } else { "unavailable" };
         let _ = writeln!(f, "{} {state} {title} — {body}", crate::fmt::now_ms());
+    }
+}
+
+/// What the tray did, for the cases where there is no icon and nothing says why: `tray.log` next to
+/// the notification journal. Kept small like it.
+#[cfg(any(target_os = "macos", windows))]
+pub(crate) fn trace(line: &str) {
+    use std::io::Write;
+    let Some(dirs) = rune::dirs::AppDirs::new(crate::theme::PREFS_ID) else {
+        return;
+    };
+    let _ = std::fs::create_dir_all(dirs.data());
+    let path = dirs.data().join("tray.log");
+    let fresh = std::fs::metadata(&path).is_ok_and(|m| m.len() > 16 * 1024);
+    let file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(!fresh)
+        .write(true)
+        .truncate(fresh)
+        .open(&path);
+    if let Ok(mut f) = file {
+        let _ = writeln!(f, "{} {line}", crate::fmt::now_ms());
     }
 }
 
@@ -89,28 +110,117 @@ pub fn init_notifications() {
     });
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", windows))]
 pub mod native {
     pub use tray_icon::TrayIcon;
     use tray_icon::menu::{Menu, MenuEvent, MenuItem, PredefinedMenuItem};
-    use tray_icon::{Icon, TrayIconBuilder};
+    use tray_icon::{Icon, MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 
     use crate::app::{HANDLE, Hooked};
 
-    fn glyph() -> Icon {
+    /// What the icon says about the service. macOS says it in the menu bar title (a count next to the
+    /// icon); Windows has no such title, so the icon itself carries it.
+    #[derive(Clone, Copy, PartialEq)]
+    enum Badge {
+        None,
+        /// Sessions are waiting on the user: a dot in the corner.
+        Waiting,
+        /// The service is unreachable: the glyph is faded.
+        Offline,
+    }
+
+    fn badge(s: &Hooked) -> Badge {
+        if cfg!(not(windows)) {
+            return Badge::None;
+        }
+        match (s.connected, s.waiting().len()) {
+            (false, _) => Badge::Offline,
+            (true, 0) => Badge::None,
+            (true, _) => Badge::Waiting,
+        }
+    }
+
+    fn glyph(badge: Badge) -> Icon {
         const N: u32 = 36;
         let mut rgba = vec![0u8; (N * N * 4) as usize];
         let c = (N as f32 - 1.0) / 2.0;
+        let fade = if badge == Badge::Offline { 0.4 } else { 1.0 };
         for y in 0..N {
             for x in 0..N {
                 let d = ((x as f32 - c).powi(2) + (y as f32 - c).powi(2)).sqrt();
                 let ring = 1.0 - ((d - 13.0).abs() - 2.2).clamp(0.0, 1.0);
                 let dot = 1.0 - (d - 5.0).clamp(0.0, 1.0);
-                let a = ring.max(dot);
-                rgba[((y * N + x) * 4 + 3) as usize] = (a * 255.0) as u8;
+                let a = ring.max(dot) * fade;
+                let i = ((y * N + x) * 4) as usize;
+                if cfg!(windows) {
+                    // White on a dark taskbar, but the taskbar can be light: a thin dark edge around
+                    // the glyph keeps it readable on both.
+                    let halo_ring = 1.0 - ((d - 13.0).abs() - 3.8).clamp(0.0, 1.0);
+                    let halo_dot = 1.0 - (d - 6.6).clamp(0.0, 1.0);
+                    let h = halo_ring.max(halo_dot) * fade * 0.7;
+                    let out = a + h * (1.0 - a);
+                    let mix = |white: f32, dark: f32| {
+                        if out <= 0.0 { 0.0 } else { (white * a + dark * h * (1.0 - a)) / out }
+                    };
+                    rgba[i..i + 4].copy_from_slice(&[
+                        mix(255.0, 30.0) as u8,
+                        mix(255.0, 30.0) as u8,
+                        mix(255.0, 30.0) as u8,
+                        (out * 255.0) as u8,
+                    ]);
+                } else {
+                    // A template icon (macOS) keeps only its alpha, so the colour costs nothing.
+                    rgba[i..i + 4].copy_from_slice(&[255, 255, 255, (a * 255.0) as u8]);
+                }
+                if badge == Badge::Waiting {
+                    // A red dot in the top right corner, over a transparent gap that cuts it out.
+                    let b = ((x as f32 - 27.0).powi(2) + (y as f32 - 8.0).powi(2)).sqrt();
+                    let gap = 1.0 - (b - 8.0).clamp(0.0, 1.0);
+                    let fill = 1.0 - (b - 6.0).clamp(0.0, 1.0);
+                    let keep = 1.0 - gap;
+                    rgba[i + 3] = (rgba[i + 3] as f32 * keep) as u8;
+                    if fill > 0.0 {
+                        rgba[i..i + 4].copy_from_slice(&[230, 57, 70, (fill * 255.0) as u8]);
+                    }
+                }
             }
         }
         Icon::from_rgba(rgba, N, N).expect("tray glyph")
+    }
+
+    /// Where Windows put the icon, or nothing when it did not (`Shell_NotifyIconGetRect`).
+    fn placed(tray: &TrayIcon) -> Option<(f64, f64, u32, u32)> {
+        let r = tray.rect()?;
+        (r.size.width > 0 && r.size.height > 0)
+            .then_some((r.position.x, r.position.y, r.size.width, r.size.height))
+    }
+
+    /// Whether the shell shows the tray icon: the app lives on in the tray only if it can be reached
+    /// from there. False when it was not created or the shell never gave it a place.
+    pub fn visible(s: &Hooked) -> bool {
+        s.tray.as_ref().is_some_and(|(t, _)| placed(t).is_some())
+    }
+
+    /// Once, a few seconds after the icon was created, writes where Windows put it to `tray.log`.
+    pub fn log_placement(s: &Hooked, now: i64) {
+        use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
+        static SINCE: AtomicI64 = AtomicI64::new(0);
+        static DONE: AtomicBool = AtomicBool::new(false);
+        let Some((tray, _)) = s.tray.as_ref() else { return };
+        if DONE.load(Ordering::Relaxed) {
+            return;
+        }
+        let since = SINCE
+            .compare_exchange(0, now, Ordering::Relaxed, Ordering::Relaxed)
+            .unwrap_or_else(|v| v);
+        if since != 0 && now - since < 3000 {
+            return;
+        }
+        DONE.store(true, Ordering::Relaxed);
+        super::trace(&match placed(tray) {
+            Some((x, y, w, h)) => format!("tray icon placed at ({x:.0}, {y:.0}) size {w}x{h}"),
+            None => "tray icon has no place in the notification area (the shell did not show it)".into(),
+        });
     }
 
     fn menu(s: &Hooked) -> (Menu, String) {
@@ -136,7 +246,7 @@ pub mod native {
         }
         let _ = m.append(&PredefinedMenuItem::separator());
         let _ = m.append(&MenuItem::with_id("open", "Open hooked", true, None));
-        let _ = m.append(&MenuItem::with_id("quick", "Quick reply (⌘⇧H)", true, None));
+        let _ = m.append(&MenuItem::with_id("quick", &crate::fmt::keys("Quick reply (⌘⇧H)"), true, None));
         let _ = m.append(&MenuItem::with_id("new", "New session…", true, None));
         let _ = m.append(&PredefinedMenuItem::separator());
         let _ = m.append(&MenuItem::with_id("quit", "Quit", true, None));
@@ -162,9 +272,14 @@ pub mod native {
             let (m, sig) = menu(s);
             match &mut slot {
                 Some((tray, last)) => {
+                    // Not supported on Windows, where the badge is in the icon.
                     tray.set_title(t.as_deref());
                     let _ = tray.set_tooltip(Some(&tip));
                     if *last != sig {
+                        // `sig` holds the connection and the waiting sessions: the badge moves with it.
+                        if cfg!(windows) {
+                            let _ = tray.set_icon(Some(glyph(badge(s))));
+                        }
                         tray.set_menu(Some(Box::new(m)));
                         *last = sig;
                     }
@@ -172,20 +287,52 @@ pub mod native {
                 None => {
                     let built = TrayIconBuilder::new()
                         .with_id("hooked")
-                        .with_icon(glyph())
+                        .with_icon(glyph(badge(s)))
+                        // Only macOS has template icons; the other platforms ignore the flag.
                         .with_icon_as_template(true)
+                        // On Windows a left click opens the app and only the right click the menu;
+                        // on macOS the menu bar item is its menu.
+                        .with_menu_on_left_click(cfg!(not(windows)))
                         .with_tooltip(&tip)
                         .with_menu(Box::new(m))
                         .build();
-                    if let Ok(tray) = built {
-                        tray.set_title(t.as_deref());
-                        slot = Some((tray, sig));
-                        MenuEvent::set_event_handler(Some(on_menu));
+                    match built {
+                        Ok(tray) => {
+                            super::trace("tray icon created");
+                            tray.set_title(t.as_deref());
+                            slot = Some((tray, sig));
+                            MenuEvent::set_event_handler(Some(on_menu));
+                            if cfg!(windows) {
+                                TrayIconEvent::set_event_handler(Some(on_click));
+                            }
+                        }
+                        Err(e) => {
+                            // Tried again at the next poll: the shell may not have been ready yet.
+                            use std::sync::atomic::{AtomicBool, Ordering};
+                            static TOLD: AtomicBool = AtomicBool::new(false);
+                            if !TOLD.swap(true, Ordering::Relaxed) {
+                                super::trace(&format!("tray icon not created: {e}"));
+                            }
+                            s.tray_dirty = true;
+                        }
                     }
                 }
             }
         }
         s.tray = slot;
+    }
+
+    /// A left click on the icon brings the app up (on release, so that the press alone does not).
+    fn on_click(e: TrayIconEvent) {
+        if let TrayIconEvent::Click {
+            button: MouseButton::Left,
+            button_state: MouseButtonState::Up,
+            ..
+        } = e
+            && let Some(h) = HANDLE.get()
+        {
+            h.open();
+        }
     }
 
     fn on_menu(e: MenuEvent) {
@@ -214,10 +361,19 @@ pub mod native {
 }
 
 pub fn sync(s: &mut Hooked) {
+    #[cfg(windows)]
+    native::log_placement(s, crate::fmt::now_ms());
     if !s.tray_dirty {
         return;
     }
     s.tray_dirty = false;
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", windows))]
     native::sync(s);
+}
+
+/// Whether the app can be reached from the tray: false when the icon was never created or the shell
+/// never showed it.
+#[cfg(windows)]
+pub fn reachable(s: &Hooked) -> bool {
+    native::visible(s)
 }

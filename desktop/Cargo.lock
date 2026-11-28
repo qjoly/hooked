@@ -1758,6 +1758,7 @@ dependencies = [
  "serde_json",
  "tray-icon",
  "ureq",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

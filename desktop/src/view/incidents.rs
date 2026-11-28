@@ -1308,7 +1308,7 @@ fn merge_dialog(s: &Hooked, k: &Kit, f: &MergeForm) -> El {
                 small("Paste")
                     .icon(&icons::COPY)
                     .disabled(f.busy)
-                    .on_press(|s: &mut Hooked| s.paste_merge_target())
+                    .on_press_tx(|s: &mut Hooked, tx| s.paste_merge_target(tx))
                     .build(k)
                     .key("inc-merge-paste"),
             ),

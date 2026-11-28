@@ -1,3 +1,6 @@
+// Debug builds keep the console, for their logs.
+#![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
+
 mod account;
 mod api;
 mod app;
@@ -25,11 +28,14 @@ mod organize;
 mod pages;
 mod panel;
 mod perf;
+mod profiles;
 mod querywin;
 mod quick;
 mod remote;
 mod sections;
 mod shortcuts;
+mod single;
+mod systheme;
 mod terminal;
 mod tray;
 mod view;
@@ -54,7 +60,9 @@ fn on_key(s: &mut Hooked, ev: &KeyEvent, tx: &mut Tx) -> bool {
     let focused = tx.focused();
     let on_chrome = focused.is_none_or(|f| f.starts_with("term-"));
     if s.term_claimed && on_chrome && s.term.open && s.page == app::Page::Session {
-        let handled = if ev.mods.cmd {
+        let handled = if s.term_copy_chord(ev, tx) || s.term_paste_chord(ev, tx) {
+            true
+        } else if terminal::app_chord(ev) {
             s.term_cmd_key(&ev.key)
         } else {
             s.term_key(ev, tx.physical_key(), tx.key_repeat())
@@ -175,11 +183,13 @@ fn on_key(s: &mut Hooked, ev: &KeyEvent, tx: &mut Tx) -> bool {
 fn poll(s: &mut Hooked, clock: f64, tx: &mut Tx) -> bool {
     let now = fmt::now_ms();
     let mut changed = s.poll_panel(clock, tx);
+    changed |= systheme::refresh(now.max(0) as u64);
     s.stash_draft();
     s.refresh_logo();
     s.poll_run(now);
     s.poll_query(now);
     s.poll_account(now);
+    s.sync_usage_profile();
     s.poll_incidents(now);
     s.poll_gh_watch(now);
     let working = s.page == Page::Session && s.working_since.is_some();
@@ -234,8 +244,14 @@ fn setup(s: &mut Hooked, waker: rune::Waker) {
     }
 }
 
-fn on_close(s: &mut Hooked, _: &mut Tx) {
+fn on_close(s: &mut Hooked, _tx: &mut Tx) {
     s.stash_draft();
+    // The app outlives its window for the tray icon. Without one the shell shows (it was refused, or
+    // never given a place), nothing could bring the window back, so closing it quits.
+    #[cfg(windows)]
+    if !tray::reachable(s) {
+        _tx.quit();
+    }
 }
 
 fn on_ime(s: &mut Hooked, ime: &rune::Ime, tx: &mut Tx) -> bool {
@@ -245,6 +261,10 @@ fn on_ime(s: &mut Hooked, ime: &rune::Ime, tx: &mut Tx) -> bool {
 }
 
 fn main() {
+    // A second launch brings the first one up and leaves.
+    if !single::acquire() {
+        return;
+    }
     let _ = rune_notify::register(&rune_notify::Identity::new(
         "dev.qjoly.hooked-rune",
         "hooked",
@@ -264,6 +284,7 @@ fn main() {
         .on_ime(on_ime)
         .on_frame_encoded(perf::frame_hook(perf::MAIN));
     let _ = HANDLE.set(app.handle());
+    single::serve();
     tray::init_notifications();
     let quick = quick::app();
     rune::run_windows(move |_| {

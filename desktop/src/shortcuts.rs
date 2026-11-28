@@ -59,11 +59,37 @@ pub fn load(saved: &HashMap<String, String>) -> HashMap<&'static str, ShortcutRe
 
 fn matches(sc: &Shortcut, ev: &KeyEvent, tx: &Tx) -> bool {
     let (want, m) = (sc.modifiers(), ev.mods);
-    want.shift == m.shift
+    // Off macOS Rune reports Ctrl as `cmd` too (`cmd = logo || ctrl`), and `mod+…` chords are Ctrl,
+    // so comparing `cmd` and `ctrl` still tells them apart; the Windows key has to be compared on
+    // its own, or Ctrl+Win+P would pass for Ctrl+P. On macOS `logo` is ⌘, already compared.
+    let logo = cfg!(target_os = "macos") || want.logo == m.logo;
+    logo && want.shift == m.shift
         && want.alt == m.alt
         && want.cmd == m.cmd
         && want.ctrl == m.ctrl
-        && tx.physical_key() == Some(sc.physical_key())
+        && (tx.physical_key() == Some(sc.physical_key()) || typed_punctuation(sc, tx))
+}
+
+/// A punctuation shortcut is also hit by the key that types that character on the active layout:
+/// `mod+comma` sits where QWERTY has the comma, which on AZERTY types `;`, so Ctrl+, would
+/// otherwise do nothing there. Letters and digits keep matching by position only.
+fn typed_punctuation(sc: &Shortcut, tx: &Tx) -> bool {
+    use rune::PhysicalKeyCode as P;
+    let want = match sc.physical_key() {
+        P::Comma => ',',
+        P::Period => '.',
+        P::Slash => '/',
+        P::Semicolon => ';',
+        P::Minus => '-',
+        P::Equal => '=',
+        P::Quote => '\'',
+        P::Backquote => '`',
+        P::BracketLeft => '[',
+        P::BracketRight => ']',
+        P::Backslash => '\\',
+        _ => return false,
+    };
+    tx.key_base() == Some(want)
 }
 
 impl Hooked {

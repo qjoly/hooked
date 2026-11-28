@@ -61,6 +61,15 @@ pub fn dot(k: &Kit, state: &str, size: f32) -> El {
         .fill(state_color(k, state))
 }
 
+/// What the gauges are of: an account other than the main one is named, since two accounts have
+/// two sets of limits.
+fn account_limits_label(s: &Hooked) -> String {
+    match s.gauge_profile().and_then(|id| s.profile(&id).map(|p| p.name())) {
+        Some(name) => format!("Rate limits of {name}"),
+        None => "Account rate limits".to_string(),
+    }
+}
+
 pub fn small_icon_button(i: &'static Icon, help: &str, on: bool) -> IconButton {
     IconButton::new(i)
         .variant(if on {
@@ -189,6 +198,9 @@ fn flash(k: &Kit, msg: &str, error: bool) -> El {
         .fill(c.bg)
         .border(1.0, c.border)
         .max_w(420.0)
+        // It gives way first: the tabs and the search field keep their room, the message is cut short.
+        .shrink()
+        .min_w(0.0)
         .child(
             text(msg.to_string())
                 .font(k.ty.text_small_medium)
@@ -306,7 +318,7 @@ fn topbar(s: &Hooked, k: &Kit, inset: f32, layer: &mut Vec<El>) -> El {
                         .shrink(),
                 )
                 .child(
-                    text("⌘K")
+                    text(crate::fmt::keys("⌘K"))
                         .font(k.ty.text_xsmall_medium)
                         .color(k.c.text_faint),
                 ),
@@ -331,7 +343,7 @@ fn topbar(s: &Hooked, k: &Kit, inset: f32, layer: &mut Vec<El>) -> El {
             .key("tb-gauges")
             .center_y()
             .child(usage_pi(s, k, p, 64.0))
-    } else if s.providers.claude_account() {
+    } else if s.providers.claude_account() && !s.no_limits {
         row()
             .key("tb-gauges")
             .gap(10.0)
@@ -347,7 +359,10 @@ fn topbar(s: &Hooked, k: &Kit, inset: f32, layer: &mut Vec<El>) -> El {
                     "{} session usage — click to switch",
                     p.label.clone().unwrap_or_else(|| s.providers.info(&p.provider).label)
                 ),
-                None => "Account rate limits — click to switch to the next provider".to_string(),
+                None => format!(
+                    "{} — click to switch to the next provider",
+                    account_limits_label(s)
+                ),
             })
             .cursor(Cursor::Pointer)
             .on_press(|s: &mut Hooked| s.toggle_usage_view());
@@ -435,7 +450,7 @@ fn topbar(s: &Hooked, k: &Kit, inset: f32, layer: &mut Vec<El>) -> El {
                     IconButtonVariant::GhostMuted
                 })
                 .label("Settings")
-                .help("Settings (⌘,)")
+                .help(crate::fmt::keys("Settings (⌘,)"))
                 .on_press(|s: &mut Hooked| s.go(Page::Settings))
                 .build(k)
                 .key("tb-settings"),
@@ -456,17 +471,17 @@ fn topbar(s: &Hooked, k: &Kit, inset: f32, layer: &mut Vec<El>) -> El {
         .icon(&icons::PLUS)
         .variant(ButtonVariant::Contrast)
         .control_size(ControlSize::Regular)
-        .shortcut("⌘N")
+        .shortcut(crate::fmt::keys("⌘N"))
         .on_press(|s: &mut Hooked| s.go_new(None))
         .build(k)
         .key("tb-new");
     let live = connection_dot(
         k,
         s.connected,
-        if s.connected {
-            "Connected to hooked"
+        &if s.connected {
+            "Connected to hooked".to_string()
         } else {
-            "hooked is unreachable on localhost:4123"
+            format!("hooked is unreachable on {}", crate::api::base_label())
         },
     );
     // Pages picked in Settings → navigation are tabs; the others (and Incidents, once the
@@ -1320,7 +1335,7 @@ fn sidebar(s: &Hooked, k: &Kit, layer: &mut Vec<El>) -> El {
             .build(k)
             .key("ssb-old"),
     );
-    let collapse = small_icon_button(&icons::ARROW_LEFT, "Collapse sidebar (⌘B)", false)
+    let collapse = small_icon_button(&icons::ARROW_LEFT, &crate::fmt::keys("Collapse sidebar (⌘B)"), false)
         .on_press(|s: &mut Hooked| {
             s.sidebar_open = false;
             s.save_pref("sidebarOpen", &false);
@@ -1789,8 +1804,8 @@ fn rail(s: &Hooked, k: &Kit) -> El {
         .child(
             IconButton::new(&icons::ARROW_RIGHT)
                 .variant(IconButtonVariant::GhostMuted)
-                .label("Expand sidebar (⌘B)")
-                .help("Expand sidebar (⌘B)")
+                .label(crate::fmt::keys("Expand sidebar (⌘B)"))
+                .help(crate::fmt::keys("Expand sidebar (⌘B)"))
                 .on_press(|s: &mut Hooked| {
                     s.sidebar_open = true;
                     s.save_pref("sidebarOpen", &true);
@@ -2065,6 +2080,30 @@ pub fn remote_badge(k: &Kit, r: &crate::remote::Instance) -> El {
         .help(format!("Remote session: runs on the hooked instance “{}” ({})", r.name, r.url))
         .child(glyph(&icons::GLOBE, 10.0, ink))
         .child(text(r.name.to_uppercase()).font(f).color(ink))
+}
+
+/// Which connection profile (account or server) a session runs on. Drawn for the sessions that
+/// are not on the main account only: the main one is the unmarked case.
+pub fn profile_badge(k: &Kit, p: &crate::profiles::ProfileRef) -> El {
+    let mut f = tag_font(k);
+    f.weight = 700.0;
+    let ink = if p.missing { k.c.warning.fg } else { k.c.text_muted };
+    row()
+        .h(17.0)
+        .px(6.0)
+        .gap(4.0)
+        .center_y()
+        .radius(if crate::theme::sharp() { 0.0 } else { 4.0 })
+        .fill(k.c.layer_02)
+        .help(if p.missing {
+            format!("This session ran on “{}”, which is no longer in profiles.json", p.label)
+        } else if p.compatible() {
+            format!("Runs on the server “{}”: no account limits, no prompt cache", p.label)
+        } else {
+            format!("Runs on the account “{}”", p.label)
+        })
+        .child(glyph(&icons::LINK, 10.0, ink))
+        .child(text(p.label.to_uppercase()).font(f).color(ink))
 }
 
 /// The wash behind a remote session's row, card or header; stronger when it is the selected one.

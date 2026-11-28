@@ -552,8 +552,43 @@ impl Hooked {
         }
     }
 
-    /// What a Mac terminal sends for ⌘←, ⌘→ and ⌘⌫: start of line, end of line, kill line.
+    /// The terminal's copy, off macOS: Ctrl+C copies a selection and otherwise reaches the shell as
+    /// ^C, Ctrl+Shift+C only ever copies. On macOS the key handler of the view takes ⌘C itself.
+    pub fn term_copy_chord(&mut self, ev: &rune::KeyEvent, tx: &mut rune::Tx) -> bool {
+        if cfg!(target_os = "macos") || !ev.is_command('c') {
+            return false;
+        }
+        match self.selection_text() {
+            Some(text) => {
+                tx.copy(text);
+                self.term.sel = None;
+                true
+            }
+            // Nothing selected: Ctrl+Shift+C is a no-op, plain Ctrl+C is the shell's.
+            None => ev.mods.shift,
+        }
+    }
+
+    /// The terminal's paste, off macOS: Ctrl+V and Ctrl+Shift+V. There is no Paste menu item here to
+    /// turn the key into a paste event, and the shell would only get a literal ^V.
+    pub fn term_paste_chord(&mut self, ev: &rune::KeyEvent, tx: &mut rune::Tx) -> bool {
+        if cfg!(target_os = "macos") || ev.mods.alt || !ev.is_command('v') {
+            return false;
+        }
+        tx.read_clipboard(|s: &mut Hooked, content, _| {
+            if !content.text().is_empty() {
+                s.focused_paste(content.text());
+            }
+        });
+        true
+    }
+
+    /// What a Mac terminal sends for ⌘←, ⌘→ and ⌘⌫: start of line, end of line, kill line. Off
+    /// macOS Ctrl+arrows and Ctrl+Backspace are word moves, which the key encoder already does.
     pub fn term_cmd_key(&mut self, key: &rune::Key) -> bool {
+        if !cfg!(target_os = "macos") {
+            return false;
+        }
         let bytes: &[u8] = match key {
             rune::Key::Left => b"\x01",
             rune::Key::Right => b"\x05",
@@ -921,6 +956,18 @@ pub enum TermFocus {
     Pty(String),
 }
 
+/// Whether `ev` is a chord for the app rather than for the shell: ⌘ on macOS, which the shell
+/// never sees, and Ctrl+Shift elsewhere (Windows Terminal's convention), because plain Ctrl+C,
+/// D, R or W belong to the shell. Rune reports Ctrl as `cmd` off macOS, so `mods.cmd` alone
+/// would swallow all of them.
+pub fn app_chord(ev: &rune::KeyEvent) -> bool {
+    if cfg!(target_os = "macos") {
+        ev.mods.cmd
+    } else {
+        ev.mods.ctrl && ev.mods.shift
+    }
+}
+
 pub fn is_term_key(key: &str) -> bool {
     key == "term-screen" || key.starts_with("pty-screen-")
 }
@@ -1027,7 +1074,7 @@ impl Hooked {
         let Some(t) = self.ptys.terms.iter_mut().find(|t| t.id == id) else {
             return false;
         };
-        let bytes = if ev.mods.cmd {
+        let bytes = if cfg!(target_os = "macos") && ev.mods.cmd {
             match ev.key {
                 rune::Key::Left => b"\x01".to_vec(),
                 rune::Key::Right => b"\x05".to_vec(),

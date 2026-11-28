@@ -9,6 +9,7 @@ event streams the web dashboard, the iOS app and the Android app use.
 mise run desktop-dev   # run from source with live editing
 mise run desktop-run   # run from source once, no live editing
 mise run desktop       # build, install /Applications/hooked.app and relaunch it
+mise run desktop-windows   # cross-compile a Windows .exe, from macOS or Linux
 ```
 
 `mise run desktop` also redeploys the hooked service (`mise run deploy-if-stale`) when its build
@@ -27,6 +28,10 @@ session and quits once the queue is empty.
 
 Ghostty's terminal core (`libghostty-vt`) is built from source with Zig; the mise tasks pull Zig
 0.17.1 along with Rust.
+
+`desktop-windows` targets `x86_64-pc-windows-gnu` through `cargo-zigbuild`, Zig standing in for the
+MinGW toolchain. The `.exe` is all there is to copy: no installer. On Windows the hooked service runs
+in WSL2 (see the main README), and the app reaches it on `localhost:4123` as the browser does. Settings → This app → Build shows the commit a binary was built from (`+`: uncommitted edits).
 
 `desktop-dev` goes through Rune's live-editing tool (`scripts/rune-dev` in the pinned rune
 checkout, driving `dx serve --hot-patch`): saving a file whose edits stay inside function bodies
@@ -135,8 +140,14 @@ connection dot, list rows, step marks) live in the `hooked-ui` crate (`ui/`), wh
   scrolls to its block),
   and the full diff of a truncated change.
 - **Outside the window**: a menu bar item with the waiting count and sessions; closing the window
-  keeps the app running; ⌘⇧H (`HOOKED_QUICK_SHORTCUT` overrides it) opens a quick-reply panel on
+  keeps the app running; ⌘⇧H (Ctrl+Shift+H on Windows; `HOOKED_QUICK_SHORTCUT` overrides it) opens a quick-reply panel on
   the sessions waiting on you; system notifications when one starts waiting (bundled app only).
+- **Connection profiles**: the accounts and servers of the service's `profiles.json`. A session
+  that is not on the main account wears a badge; the gauges, the Account window and the MCP lens
+  follow the open session's account (a server has no limits). New session picks the account or
+  server, starting from "Use for new sessions", and a server brings its own models and no effort
+  levels. The Account window (avatar, top right) lists them with their limits, signs each in and
+  out, adds and removes accounts and servers; a session's menu moves it to another one.
 - **Back to the latest message**: an arrow at the bottom right of the conversation, there only
   while it is scrolled away from its end.
 - **Remote instances** (Settings → Feature flags, off by default, `src/remote.rs`): the sessions
@@ -161,6 +172,13 @@ connection dot, list rows, step marks) live in the `hooked-ui` crate (`ui/`), wh
   from the text selection). Occurrences of the selection change colour rather than getting a
   background: the view takes no background for part of a line, so they go through the syntax
   highlighter.
+- Windows: the build has been through a manual test pass on Windows 11 (see the PR's test plan). A second launch brings the running app up and exits (`HOOKED_MULTI_INSTANCE=1` allows two). In a terminal, control keys follow the letter on the keycap (AZERTY safe) and Ctrl+Backspace deletes a word. Chords are spelled with Ctrl, Shift
+  and Alt there (`mod` is Ctrl; the quick-reply panel is Ctrl+Shift+H), and in a terminal only
+  Ctrl+Shift chords belong to the app (Ctrl+Shift+F searches, Ctrl+Shift+C and Ctrl+Shift+V copy
+  and paste; Ctrl+C copies a selection and otherwise stays the shell's ^C, Ctrl+V pastes). The tray
+  has no title there, so a red dot on its icon stands for the waiting count and a faded icon for an
+  unreachable service. When `localhost:4123` is not where the service answers (WSL2 without localhost forwarding, or another machine), Settings → This app → Server takes its address (`HOOKED_URL` overrides it); the service must listen there, `HOST=0.0.0.0`. The session paths the service reports are WSL's (open in editor), and the
+  incident.io binary is looked up at its macOS paths only.
 
 ## Terminal: what is still missing
 

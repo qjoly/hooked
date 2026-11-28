@@ -8,8 +8,69 @@ use ureq::http::Response;
 use ureq::typestate::AgentScope;
 use ureq::{Agent, Body};
 
+const DEFAULT_BASE: &str = "http://localhost:4123";
+
+/// The address saved in Settings → This app → Server, kept here so that every worker thread reads
+/// the current one.
+static SERVER: std::sync::RwLock<Option<String>> = std::sync::RwLock::new(None);
+/// Bumped each time the address changes: a long-lived stream compares it to know it is stale.
+static SERVER_EPOCH: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// Where the hooked service is: `HOOKED_URL` first, then the address saved in Settings, else this
+/// machine's port 4123.
 pub fn base() -> String {
-    std::env::var("HOOKED_URL").unwrap_or_else(|_| "http://localhost:4123".into())
+    std::env::var("HOOKED_URL")
+        .ok()
+        .filter(|u| !u.is_empty())
+        .or_else(|| SERVER.read().ok().and_then(|s| s.clone()))
+        .unwrap_or_else(|| DEFAULT_BASE.into())
+}
+
+/// Sets (or, with `None`, clears) the address saved in Settings.
+pub fn set_server(url: Option<String>) {
+    if let Ok(mut s) = SERVER.write() {
+        *s = url;
+    }
+    SERVER_EPOCH.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+}
+
+pub fn server_epoch() -> u64 {
+    SERVER_EPOCH.load(std::sync::atomic::Ordering::SeqCst)
+}
+
+/// Whether `HOOKED_URL` overrides the address saved in Settings.
+pub fn server_from_env() -> bool {
+    std::env::var("HOOKED_URL").is_ok_and(|u| !u.is_empty())
+}
+
+/// The address as a person would say it, without the scheme: `localhost:4123`.
+pub fn base_label() -> String {
+    let b = base();
+    b.split_once("://").map_or(b.as_str(), |(_, rest)| rest).to_string()
+}
+
+/// What was typed in the address field, as a base URL: `192.168.1.5:4123` and `box` get
+/// `http://` (and `:4123` when no port is given); `None` for anything that is not an address.
+pub fn normalize_server(raw: &str) -> Option<String> {
+    let raw = raw.trim();
+    let with_scheme = if raw.contains("://") {
+        raw.to_string()
+    } else {
+        format!("http://{raw}")
+    };
+    let url = crate::remote::normalize_url(&with_scheme)?;
+    let (scheme, rest) = url.split_once("://")?;
+    let (host, path) = rest.split_once('/').map_or((rest, ""), |(h, p)| (h, p));
+    // A bare `box` is hooked's own port; `[::1]` has colons of its own, hence the bracket check.
+    let has_port = host.rsplit_once(':').is_some_and(|(h, p)| {
+        !p.is_empty() && p.chars().all(|c| c.is_ascii_digit()) && !h.is_empty() && (!h.contains(':') || h.ends_with(']'))
+    });
+    let port = if has_port || scheme == "https" { "" } else { ":4123" };
+    Some(if path.is_empty() {
+        format!("{scheme}://{host}{port}")
+    } else {
+        format!("{scheme}://{host}{port}/{path}")
+    })
 }
 
 fn agent() -> Agent {
@@ -215,6 +276,9 @@ pub struct Session {
     pub last_prompt: Option<String>,
     pub last_reply: Option<String>,
     pub model: Option<String>,
+    /// The model the session was last launched or switched to, which the service knows before the
+    /// transcript does: a session just moved to another account still shows the old one in `model`.
+    pub launch_model: Option<String>,
     pub effort: Option<String>,
     pub cost: Option<f64>,
     pub has_question: bool,
@@ -226,6 +290,8 @@ pub struct Session {
     /// Agent provider of the session: a provider id of the server's settings ("claude", "pi",
     /// or a custom one such as "mistral" / "gemini" — see `ProviderInfo`).
     pub provider: Option<String>,
+    /// The connection profile (account or server) the session runs on; none on the main account.
+    pub profile: Option<crate::profiles::ProfileRef>,
     /// The remote hooked instance the session runs on (`crate::remote`), `None` for a local
     /// one. Set by this app when it lists an instance, never read from the wire.
     #[serde(skip)]
@@ -993,8 +1059,10 @@ pub struct PiUsage {
     pub sessions: Option<f64>,
 }
 
-pub fn usage() -> Result<(Vec<Gauge>, Option<PiUsage>, Value), String> {
-    let v = get("/api/usage")?;
+/// The gauges of `profile`'s account (`None`: the main one).
+pub fn usage(profile: Option<&str>) -> Result<(Vec<Gauge>, Option<PiUsage>, Value), String> {
+    let q = crate::profiles::query(profile);
+    let v = get(&if q.is_empty() { "/api/usage".to_string() } else { format!("/api/usage?{q}") })?;
     let (g, pi) = parse_usage(&v);
     Ok((g, pi, v))
 }
@@ -1179,10 +1247,23 @@ pub fn answer(id: &str, selections: &[Selection], note: Option<&str>) -> Result<
     .map(|_| ())
 }
 
+/// The service's name for a plan answer: the app says what the user chose (`acceptEdits`, `auto`,
+/// `reject`), the service says approve / approve-auto / keep, and keep-feedback when the
+/// reviewer's comments go back with the refusal.
+fn plan_action(action: &str, feedback: Option<&str>) -> String {
+    match action {
+        "acceptEdits" => "approve".into(),
+        "auto" => "approve-auto".into(),
+        "reject" if feedback.is_some_and(|f| !f.trim().is_empty()) => "keep-feedback".into(),
+        "reject" => "keep".into(),
+        other => other.into(),
+    }
+}
+
 pub fn plan(id: &str, action: &str, feedback: Option<&str>) -> Result<(), String> {
     post(
         "/api/plan",
-        json!({ "id": id, "action": action, "feedback": feedback }),
+        json!({ "id": id, "action": plan_action(action, feedback), "feedback": feedback }),
     )
     .map(|_| ())
 }
@@ -1236,6 +1317,9 @@ pub struct Launch {
     /// Provider id ("claude", "pi", or a custom one). None = the settings' default provider.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub provider: Option<String>,
+    /// The connection profile to run on; none is the main account.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub profile: Option<String>,
 }
 
 pub fn launch(req: &Launch) -> Result<String, String> {
@@ -1410,7 +1494,12 @@ impl McpServer {
     }
 }
 
-pub fn mcp_list(cwd: &str, cached: bool, provider: Option<&str>) -> Result<Vec<McpServer>, String> {
+pub fn mcp_list(
+    cwd: &str,
+    cached: bool,
+    provider: Option<&str>,
+    profile: Option<&str>,
+) -> Result<Vec<McpServer>, String> {
     // provider=pi : liste lue dans la config Pi ; `cached` n'existe pas côté pi, le
     // health-check (`check=1`) est l'appel complet. Any other non-Claude id is sent as is: the
     // server picks the flavour from its engine (an ACP agent lists nothing).
@@ -1424,6 +1513,11 @@ pub fn mcp_list(cwd: &str, cached: bool, provider: Option<&str>) -> Result<Vec<M
         url.push_str(&format!("&provider={}", enc(p)));
     } else if cached {
         url.push_str("&cached=1");
+    }
+    // The account's own servers and connectors, not the main account's.
+    let q = crate::profiles::query(profile);
+    if !q.is_empty() && provider.is_none_or(|p| p == "claude") {
+        url.push_str(&format!("&{q}"));
     }
     let v = get(&url)?;
     decode(
@@ -1497,6 +1591,29 @@ pub fn trace_tool(id: &str, tool: &str) -> Result<(String, String), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn plan_answers_use_the_services_names() {
+        assert_eq!(plan_action("acceptEdits", None), "approve");
+        assert_eq!(plan_action("auto", None), "approve-auto");
+        assert_eq!(plan_action("reject", None), "keep");
+        assert_eq!(plan_action("reject", Some("  ")), "keep");
+        assert_eq!(plan_action("reject", Some("merge steps")), "keep-feedback");
+    }
+
+    #[test]
+    fn a_typed_server_address_becomes_a_base_url() {
+        let n = |t: &str| normalize_server(t);
+        assert_eq!(n("192.168.1.5:4123").as_deref(), Some("http://192.168.1.5:4123"));
+        assert_eq!(n(" box ").as_deref(), Some("http://box:4123"));
+        assert_eq!(n("http://mini.lan:8080/").as_deref(), Some("http://mini.lan:8080"));
+        assert_eq!(n("https://hooked.example.com").as_deref(), Some("https://hooked.example.com"));
+        assert_eq!(n("[::1]:4123").as_deref(), Some("http://[::1]:4123"));
+        assert_eq!(n("[fe80::1]").as_deref(), Some("http://[fe80::1]:4123"));
+        assert_eq!(n(""), None);
+        assert_eq!(n("two words"), None);
+        assert_eq!(n("http://"), None);
+    }
 
     #[test]
     fn pi_config_json_rebuilds_a_stdio_or_http_server() {

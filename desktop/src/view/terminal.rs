@@ -7,6 +7,10 @@ use crate::ghostty::{CursorShape, Line};
 use crate::icons;
 use crate::terminal::Term;
 
+/// The terminal's search chord as a label in the Mac notation (see `terminal::app_chord`): off macOS
+/// search carries Shift, since plain Ctrl+F is the shell's.
+const FIND: &str = if cfg!(target_os = "macos") { "⌘F" } else { "⌘⇧F" };
+
 /// The line's text and spans with `marks` (column range, ink) recoloured; marks win over the
 /// cells' own colours, and pad the line with spaces when they reach past its end.
 fn painted(line: &Line, marks: &[(u16, u16, Color)]) -> (String, Vec<Span>) {
@@ -530,7 +534,7 @@ pub fn panel(s: &Hooked, k: &Kit) -> El {
                 .gap(6.0)
                 .center_y()
                 .child(
-                    text("⌘F searches · ⌘-click opens links · ⌘V pastes")
+                    text(crate::fmt::keys(&format!("{FIND} searches · ⌘-click opens links · ⌘V pastes")))
                         .font(k.ty.text_xsmall)
                         .color(k.c.text_faint),
                 )
@@ -539,7 +543,7 @@ pub fn panel(s: &Hooked, k: &Kit) -> El {
                         .variant(IconButtonVariant::GhostMuted)
                         .control_size(rune_kit::ControlSize::Small)
                         .label("Search the scrollback")
-                        .help("Search the scrollback (⌘F)")
+                        .help(crate::fmt::keys(&format!("Search the scrollback ({FIND})")))
                         .on_press(|s: &mut Hooked| s.open_term_search())
                         .build(k),
                 ),
@@ -587,7 +591,10 @@ pub fn panel(s: &Hooked, k: &Kit) -> El {
         .on_key(|s: &mut Hooked, ev: &rune::KeyEvent, tx: &mut rune::Tx| {
             s.set_term_focus(Some(crate::terminal::TermFocus::Panel));
             s.term_claimed = false;
-            if ev.is_command('c') {
+            if s.term_paste_chord(ev, tx) || s.term_copy_chord(ev, tx) {
+                return true;
+            }
+            if cfg!(target_os = "macos") && ev.is_command('c') {
                 if let Some(text) = s.selection_text() {
                     tx.copy(text);
                     s.term.sel = None;
@@ -595,7 +602,7 @@ pub fn panel(s: &Hooked, k: &Kit) -> El {
                 }
                 return false;
             }
-            if ev.is_command('f') {
+            if ev.is_command('f') && (cfg!(target_os = "macos") || ev.mods.shift) {
                 s.open_term_search();
                 return true;
             }
@@ -611,7 +618,7 @@ pub fn panel(s: &Hooked, k: &Kit) -> El {
                 s.zoom_term(0);
                 return true;
             }
-            if ev.mods.cmd {
+            if crate::terminal::app_chord(ev) {
                 tx.instant();
                 return s.term_cmd_key(&ev.key);
             }
@@ -859,7 +866,10 @@ pub fn pty_block(s: &Hooked, k: &Kit, f: &crate::terminal::PtyFence) -> El {
                     move |s: &mut Hooked, ev: &rune::KeyEvent, tx: &mut rune::Tx| {
                         tx.instant();
                         s.set_term_focus(Some(crate::terminal::TermFocus::Pty(ka.clone())));
-                        if ev.is_command('c') {
+                        if s.term_paste_chord(ev, tx) || s.term_copy_chord(ev, tx) {
+                            return true;
+                        }
+                        if cfg!(target_os = "macos") && ev.is_command('c') {
                             if let Some(text) = s.selection_text() {
                                 tx.copy(text);
                                 s.term.sel = None;

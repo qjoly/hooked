@@ -578,14 +578,35 @@ pub fn slack_deep_link(url: &str) -> bool {
 
 /// Hands a link to the system's handler; false when nothing took it.
 pub fn system_open(url: &str) -> bool {
-    if cfg!(target_os = "macos") {
-        std::process::Command::new("/usr/bin/open")
-            .arg(url)
-            .status()
-            .is_ok_and(|s| s.success())
-    } else {
+    #[cfg(target_os = "macos")]
+    let opened = std::process::Command::new("/usr/bin/open")
+        .arg(url)
+        .status()
+        .is_ok_and(|s| s.success());
+    #[cfg(windows)]
+    let opened = {
+        use windows_sys::Win32::UI::{Shell::ShellExecuteW, WindowsAndMessaging::SW_SHOWNORMAL};
+        let wide = |s: &str| s.encode_utf16().chain([0]).collect::<Vec<u16>>();
+        let (verb, target) = (wide("open"), wide(url));
+        let result = unsafe {
+            ShellExecuteW(
+                std::ptr::null_mut(),
+                verb.as_ptr(),
+                target.as_ptr(),
+                std::ptr::null(),
+                std::ptr::null(),
+                SW_SHOWNORMAL,
+            )
+        };
+        // At most 32 is an error code, such as no app registered for the scheme.
+        result as usize > 32
+    };
+    #[cfg(not(any(target_os = "macos", windows)))]
+    let opened = {
+        let _ = url;
         false
-    }
+    };
+    opened
 }
 
 pub fn claude_prompt(reference: &str, name: &str, permalink: &str) -> String {
@@ -1257,29 +1278,20 @@ impl Hooked {
     }
 
     /// Fills the merge target from the clipboard (a number, a reference or an incident link).
-    pub fn paste_merge_target(&mut self) {
-        self.spawn(
-            || {
-                std::process::Command::new("pbpaste")
-                    .output()
-                    .ok()
-                    .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
-                    .filter(|t| !t.is_empty())
-            },
-            |s, text, _| {
-                let Some(f) = s.inc.merge.as_mut() else {
-                    return;
-                };
-                let Some(r) = text.as_deref().and_then(normalize_reference) else {
-                    f.error = Some("The clipboard holds no incident.".into());
-                    return;
-                };
-                // The field takes the number alone: `INC-` adds nothing.
-                f.other = TextEdit::new(r.strip_prefix("INC-").unwrap_or(&r));
-                f.error = None;
-                s.lookup_merge_target();
-            },
-        );
+    pub fn paste_merge_target(&mut self, tx: &mut Tx) {
+        tx.read_clipboard(|s: &mut Hooked, content, _| {
+            let Some(f) = s.inc.merge.as_mut() else {
+                return;
+            };
+            let Some(r) = normalize_reference(content.text()) else {
+                f.error = Some("The clipboard holds no incident.".into());
+                return;
+            };
+            // The field takes the number alone: `INC-` adds nothing.
+            f.other = TextEdit::new(r.strip_prefix("INC-").unwrap_or(&r));
+            f.error = None;
+            s.lookup_merge_target();
+        });
     }
 
     pub fn confirm_merge(&mut self) {

@@ -141,6 +141,12 @@ fn head(s: &Hooked, d: &Detail, k: &Kit, layer: &mut Vec<El>) -> El {
                 .key("sess-name"),
         )
         .children(x.remote.iter().map(|r| super::remote_badge(k, r).key("remote-badge")))
+        .children(
+            x.profile
+                .iter()
+                .filter(|_| x.remote.is_none())
+                .map(|p| super::profile_badge(k, p).key("profile-badge")),
+        )
         .child(
             row()
                 .key("state-badge")
@@ -264,9 +270,9 @@ fn head(s: &Hooked, d: &Detail, k: &Kit, layer: &mut Vec<El>) -> El {
             })
             .label("Split view")
             .help(if !s.splits.is_empty() {
-                "Close the split (⌘⇧S)"
+                crate::fmt::keys("Close the split (⌘⇧S)")
             } else {
-                "Split with the most recent session (⌘⇧S)"
+                crate::fmt::keys("Split with the most recent session (⌘⇧S)")
             })
             .expanded(!s.splits.is_empty())
             .on_press(|s: &mut Hooked| s.toggle_split())
@@ -301,9 +307,9 @@ fn head(s: &Hooked, d: &Detail, k: &Kit, layer: &mut Vec<El>) -> El {
             })
             .label("Focus mode")
             .help(if s.focus {
-                "Exit focus mode (⌘⇧F or Esc)"
+                crate::fmt::keys("Exit focus mode (⌘⇧F or Esc)")
             } else {
-                "Focus mode: the conversation alone (⌘⇧F)"
+                crate::fmt::keys("Focus mode: the conversation alone (⌘⇧F)")
             })
             .expanded(s.focus)
             .on_press(|s: &mut Hooked| s.focus = !s.focus)
@@ -380,7 +386,10 @@ fn more_menu(s: &Hooked, d: &Detail, k: &Kit, layer: &mut Vec<El>) -> El {
     let popts = s.opts_for(&pid).clone();
     if x.live {
         let is_pi = !pinfo.is_claude();
-        let current = x.model.clone().unwrap_or_default();
+        let current = s.model_of(x);
+        // A session on a server picks among that server's models, and has no effort levels.
+        let profile = x.profile.as_ref().filter(|_| x.remote.is_none()).map(|p| p.id.clone());
+        let on_server = !is_pi && s.is_server(profile.as_deref());
         let models: Vec<_> = if is_pi {
             // The provider's catalogue, minus the ones hidden in Settings.
             s.visible_provider_models(&pid)
@@ -397,12 +406,15 @@ fn more_menu(s: &Hooked, d: &Detail, k: &Kit, layer: &mut Vec<El>) -> El {
                 })
                 .collect()
         } else {
-            s.visible_models()
-            .into_iter()
+            s.models_for(profile.as_deref())
             .into_iter()
             .map(|(id, label)| {
                 MenuItem::new(label)
-                    .checked(current.contains(id.trim_start_matches("claude-")))
+                    .checked(if on_server {
+                        current == id
+                    } else {
+                        current.contains(id.trim_start_matches("claude-"))
+                    })
                     .on_select(move |s: &mut Hooked| {
                         let effort = s.detail.as_ref().and_then(|d| d.session.effort.clone());
                         let force = s
@@ -444,6 +456,8 @@ fn more_menu(s: &Hooked, d: &Detail, k: &Kit, layer: &mut Vec<El>) -> El {
                 })
                 .map(rune_kit::MenuEntry::item)
                 .collect()
+        } else if on_server {
+            Vec::new()
         } else {
             s.caps
             .efforts
@@ -468,14 +482,17 @@ fn more_menu(s: &Hooked, d: &Detail, k: &Kit, layer: &mut Vec<El>) -> El {
                             s.popup == Some(Popup::Model),
                         )
                         .on_select(|s: &mut Hooked| s.popup = Some(Popup::Model)),
-                )
-                .item(
+                );
+            // A server has no effort levels to list.
+            if !on_server {
+                m = m.item(
                     MenuItem::new("Effort")
                         .badge(effort_now.clone())
                         .submenu(efforts, s.popup == Some(Popup::Effort))
                         .on_select(|s: &mut Hooked| s.popup = Some(Popup::Effort)),
-                )
-                .separator();
+                );
+            }
+            m = m.separator();
         }
         if s.menu_shows("permissionMode") && pinfo.can("modes") {
             m = m.group_label("Permission mode");
@@ -532,6 +549,16 @@ fn more_menu(s: &Hooked, d: &Detail, k: &Kit, layer: &mut Vec<El>) -> El {
         _ => format!("cd {}", x.project.clone().unwrap_or_default()),
     };
     let link = format!("{}/session/{}", crate::api::base_of(&x.id), x.id);
+    let m = if s.can_move(&x.id) {
+        m.item(
+            MenuItem::new("Move to account…")
+                .icon(&icons::LINK)
+                .description("Resume it on another account or server, keeping its conversation")
+                .on_select(|s: &mut Hooked| s.open_move()),
+        )
+    } else {
+        m
+    };
     let m = m.item(
         MenuItem::new("Copy as Markdown")
             .icon(&icons::COPY)

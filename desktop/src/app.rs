@@ -142,6 +142,20 @@ pub struct Hooked {
     pub remotes: Vec<crate::remote::Instance>,
     pub picker: Option<crate::organize::Picker>,
     pub gauges: Vec<Gauge>,
+    /// The connection profiles of the service (`crate::profiles`), loaded at start and when a
+    /// screen that lists them opens.
+    pub profiles: Vec<crate::profiles::Profile>,
+    /// The models a compatible profile's server answered for, when its entry lists none.
+    pub profile_live: crate::profiles::Live,
+    /// The profile id that last made the list read again, so an unknown one asks once.
+    pub profiles_asked: Option<String>,
+    /// The account the gauges were asked for last (`None`: the main one).
+    pub usage_wanted: Option<String>,
+    /// The gauges' account is a server: it has no limits, so none are drawn.
+    pub no_limits: bool,
+    /// Where the new session goes: `Some(None)` is the main account picked, `None` that nothing was
+    /// picked yet and the default account applies.
+    pub new_profile: Option<Option<String>>,
     /// Bloc `pi` de /api/usage : jauge de contexte de la session pi la plus fraîche (entête).
     pub pi_usage: Option<api::PiUsage>,
     /// Quelle vue d'usage affiche l'entête (rate limits claude ↔ jauge pi, cf. toggle_usage_view).
@@ -232,7 +246,7 @@ pub struct Hooked {
     pub usage: Option<serde_json::Value>,
     pub logo: Option<([usize; 6], [rune::Image; 2])>,
     pub handle: Option<AppHandle<Hooked>>,
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", windows))]
     pub tray: Option<(crate::tray::native::TrayIcon, String)>,
     pub shortcuts: HashMap<&'static str, rune_kit::ShortcutRecorderState>,
     pub deck_plans: HashMap<String, (String, Option<String>)>,
@@ -440,6 +454,9 @@ impl Hooked {
         );
         let incognito = prefs.get("incognito").unwrap_or(false);
         let usage_view = api::UsageView::from_key(prefs.get::<String>("usageView").as_deref());
+        // The address of the service, before anything below talks to it.
+        let server_url: String = prefs.get("serverUrl").unwrap_or_default();
+        api::set_server(api::normalize_server(&server_url));
         let remote_on: bool = prefs.get("remoteInstances").unwrap_or(false);
         let remotes: Vec<crate::remote::Instance> = prefs.get("remotes").unwrap_or_default();
         crate::remote::configure(remote_on, &remotes);
@@ -475,6 +492,12 @@ impl Hooked {
             remotes,
             picker: None,
             gauges: Vec::new(),
+            profiles: Vec::new(),
+            profile_live: HashMap::new(),
+            profiles_asked: None,
+            usage_wanted: None,
+            no_limits: false,
+            new_profile: None,
             pi_usage: None,
             usage_view,
             caps: Capabilities::default(),
@@ -548,7 +571,7 @@ impl Hooked {
             usage: None,
             logo: None,
             handle: None,
-            #[cfg(target_os = "macos")]
+            #[cfg(any(target_os = "macos", windows))]
             tray: None,
             shortcuts,
             deck_plans: HashMap::new(),
@@ -608,7 +631,10 @@ impl Hooked {
             palette_all_cites: false,
             focus: false,
             lens_data: crate::lenses::LensData::default(),
-            pages: crate::pages::PageData::default(),
+            pages: crate::pages::PageData {
+                server_url: TextEdit::new(server_url),
+                ..Default::default()
+            },
             inc: crate::incidents::Incidents::new(
                 incidents_hidden,
                 incident_teams.into_iter().collect(),
@@ -680,12 +706,8 @@ impl Hooked {
                 .filter(|m| !m.is_empty())
                 .map(str::to_string);
         }
-        if let Ok((g, pi, raw)) = api::usage() {
-            s.gauges = g;
-            s.pi_usage = pi;
-            s.provider_usage = api::parse_provider_usage(&raw);
-            s.usage = Some(raw);
-        }
+        s.profiles = crate::profiles::list().unwrap_or_default();
+        s.load_usage();
         // The settings' default provider is where a new session starts, when it is enabled.
         if let Some(d) = s.setting("defaultProvider").as_str().map(str::to_string) {
             if s.providers.is_enabled(&d) {
@@ -745,7 +767,13 @@ impl Hooked {
                     s.lens_data.mcp_cwd = Some(cwd.clone());
                     s.lens_data.mcp_provider = api::mcp_param(d.session.provider.as_deref());
                     s.lens_data.mcp =
-                        api::mcp_list(&cwd, true, s.lens_data.mcp_provider.as_deref()).unwrap_or_default();
+                        api::mcp_list(
+                            &cwd,
+                            true,
+                            s.lens_data.mcp_provider.as_deref(),
+                            s.lens_data.mcp_profile.as_deref(),
+                        )
+                        .unwrap_or_default();
                 }
                 Lens::Review => {
                     s.ensure_lens();
@@ -986,9 +1014,12 @@ impl Hooked {
             s.run_win = Some(w);
         }
         if args.iter().any(|a| a == "--account") {
+            let l = crate::account::load();
             s.picker = Some(crate::organize::Picker::Account(Box::new(
                 crate::account::AccountWin {
-                    info: api::get("/api/account").ok(),
+                    loaded: true,
+                    cards: l.cards,
+                    servers: l.servers,
                     ..Default::default()
                 },
             )));
@@ -1112,8 +1143,39 @@ impl Hooked {
         let _ = self.prefs.set(key, v);
     }
 
+    /// Applies the address typed in Settings → This app → Server (empty: back to this machine's
+    /// port 4123), and has everything that was read from the old service read again.
+    pub fn apply_server(&mut self) {
+        let typed = self.pages.server_url.text.trim().to_string();
+        let url = if typed.is_empty() {
+            None
+        } else {
+            let Some(u) = api::normalize_server(&typed) else {
+                self.flash("✗ Use host:port or a URL", true);
+                return;
+            };
+            Some(u)
+        };
+        // The field shows what is in force, so a bare `box` reads `http://box:4123` afterwards.
+        self.pages.server_url = TextEdit::new(url.clone().unwrap_or_default());
+        self.save_pref("serverUrl", &url.clone().unwrap_or_default());
+        api::set_server(url);
+        self.connected = false;
+        self.tray_dirty = true;
+        self.pages.settings_stale = true;
+        self.refresh_sessions();
+        self.refresh_detail();
+        self.spawn(api::capabilities, |s, r, _| {
+            if let Ok(caps) = r {
+                s.caps = caps;
+            }
+        });
+        let label = api::base_label();
+        self.flash(format!("Connecting to {label}…"), false);
+    }
+
     pub fn dark(&self, system_dark: bool) -> bool {
-        self.theme.dark(system_dark)
+        self.theme.dark(crate::systheme::apply(system_dark))
     }
 
     pub fn set_theme(&mut self, theme: Theme) {
@@ -1718,6 +1780,11 @@ pub fn composer_changed(&mut self) {
     pub fn go_new(&mut self, project: Option<String>) {
         self.page = Page::New;
         self.popup = None;
+        // An account added or signed in elsewhere shows up in the picker.
+        self.refresh_profiles();
+        let profile = self.new_profile_now();
+        self.ensure_profile_models(profile.as_deref());
+        self.fill_server_model();
         if self.new_fallback() {
             self.new_model = Some("opus".into());
         }
@@ -2103,7 +2170,8 @@ pub fn composer_changed(&mut self) {
         self.spawn(work, move |s, r, _| {
             match r {
                 Ok(()) => s.flash(format!("✓ {label}"), false),
-                Err(e) => s.flash(format!("✗ {label}: {e}"), true),
+                // The label is a past tense ("Opened in editor"): a failure shows the reason alone.
+                Err(e) => s.flash(format!("✗ {e}"), true),
             }
             s.refresh_detail();
         });
@@ -2672,6 +2740,19 @@ pub fn composer_changed(&mut self) {
         }
         // The uploaded images' paths go first in the prompt: Claude Code reads them by path,
         // like a drag-drop in the TUI (same convention as the web composer and send()).
+        // Profiles only apply to Claude sessions. On a server a model has to be named: left out,
+        // the CLI would fall back to a Claude name the server does not know.
+        let profile = self
+            .providers
+            .info(&self.new_provider)
+            .is_claude()
+            .then(|| self.new_profile_now())
+            .flatten();
+        let on_server = self.is_server(profile.as_deref());
+        if on_server && self.new_model.is_none() {
+            self.flash("Pick one of the server's models first", true);
+            return;
+        }
         let paths = self.attachments.iter().filter_map(|a| a.path.clone());
         let prompt = paths
             .chain(std::iter::once(self.new_prompt.text.trim().to_string()))
@@ -2681,7 +2762,8 @@ pub fn composer_changed(&mut self) {
         self.attachments.clear();
         let (model, effort, mode, incognito) = (
             self.new_model.clone(),
-            self.new_effort.clone(),
+            // A server has no effort levels.
+            self.new_effort.clone().filter(|_| !on_server),
             self.new_mode.clone(),
             self.incognito,
         );
@@ -2707,6 +2789,7 @@ pub fn composer_changed(&mut self) {
                     worktree,
                     ephemeral,
                     provider,
+                    profile,
                 })
             },
             |s, r, _| {
@@ -2803,10 +2886,15 @@ pub fn composer_changed(&mut self) {
         page_module(page).is_none_or(|m| self.module_on(m))
     }
 
+    /// The pages the service shows as tabs when none were picked (`DEFAULTS.navTabs`). Used while
+    /// the settings are unknown, so a failed load does not turn every page into a tab: nine tabs
+    /// overflow the bar and push the usual ones out of sight.
+    const DEFAULT_NAV_TABS: [&str; 5] = ["sessions", "stats", "digest", "memory", "github"];
+
     pub fn nav_tab(&self, key: &str) -> bool {
         match self.setting("navTabs").as_array() {
             Some(list) => list.iter().any(|x| x.as_str() == Some(key)),
-            None => true,
+            None => Self::DEFAULT_NAV_TABS.contains(&key),
         }
     }
 
@@ -3195,7 +3283,13 @@ pub fn start_workers(h: Option<AppHandle<Hooked>>) {
     }
     crate::app::spawn_named("hooked-events", move || {
         loop {
+            // The stream is tied to the address it was opened on: once Settings changes it, the
+            // next event closes this one, and the loop opens another on the new address.
+            let epoch = api::server_epoch();
             let r = api::follow("/api/stream", |payload| {
+                if api::server_epoch() != epoch {
+                    return false;
+                }
                 if payload.starts_with("{\"panel\"")
                     && let Ok(mut v) = serde_json::from_str::<serde_json::Value>(payload)
                     && v["panel"]["id"].is_string()
@@ -3235,14 +3329,7 @@ pub fn start_workers(h: Option<AppHandle<Hooked>>) {
         }
         loop {
             std::thread::sleep(Duration::from_secs(60));
-            if let Ok((g, pi, raw)) = api::usage() {
-                h.update(move |s, _| {
-                    s.gauges = g;
-                    s.pi_usage = pi;
-                    s.provider_usage = api::parse_provider_usage(&raw);
-                    s.usage = Some(raw);
-                });
-            }
+            h.update(|s, _| s.refresh_usage());
         }
     });
 }

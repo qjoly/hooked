@@ -230,7 +230,7 @@ pub fn show(s: &mut Quick) {
 }
 
 fn view(s: &Quick, cx: &mut Cx<Quick>) -> El {
-    let k = crate::theme::kit(cx.system_dark());
+    let k = crate::theme::kit(crate::systheme::apply(cx.system_dark()));
     let list = col()
         .key("q-list")
         .w(250.0)
@@ -338,7 +338,7 @@ fn view(s: &Quick, cx: &mut Cx<Quick>) -> El {
         chat = chat.child(b);
     }
     let input = TextArea::new(&s.reply)
-        .placeholder("Reply… (Enter sends, ↑↓ switches, ⌘O opens in hooked, Esc closes)")
+        .placeholder(crate::fmt::keys("Reply… (Enter sends, ↑↓ switches, ⌘O opens in hooked, Esc closes)"))
         .width(None)
         .auto_grow(1, 6)
         .on_edit(|s: &mut Quick| &mut s.reply)
@@ -411,7 +411,9 @@ pub fn app() -> rune::App<Quick> {
     quick
         .init(move || Quick::new(me, main))
         .global_shortcut(
-            &std::env::var("HOOKED_QUICK_SHORTCUT").unwrap_or_else(|_| "Cmd+Shift+H".into()),
+            // `mod` is ⌘ on macOS and Ctrl elsewhere: `Cmd` would be the Windows key, which the
+            // system keeps for itself.
+            &std::env::var("HOOKED_QUICK_SHORTCUT").unwrap_or_else(|_| "mod+shift+h".into()),
             |s, _| show(s),
         )
         .on_focus(|s, focused, tx| {
