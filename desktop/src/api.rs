@@ -1247,10 +1247,23 @@ pub fn answer(id: &str, selections: &[Selection], note: Option<&str>) -> Result<
     .map(|_| ())
 }
 
+/// The service's name for a plan answer: the app says what the user chose (`acceptEdits`, `auto`,
+/// `reject`), the service says approve / approve-auto / keep, and keep-feedback when the
+/// reviewer's comments go back with the refusal.
+fn plan_action(action: &str, feedback: Option<&str>) -> String {
+    match action {
+        "acceptEdits" => "approve".into(),
+        "auto" => "approve-auto".into(),
+        "reject" if feedback.is_some_and(|f| !f.trim().is_empty()) => "keep-feedback".into(),
+        "reject" => "keep".into(),
+        other => other.into(),
+    }
+}
+
 pub fn plan(id: &str, action: &str, feedback: Option<&str>) -> Result<(), String> {
     post(
         "/api/plan",
-        json!({ "id": id, "action": action, "feedback": feedback }),
+        json!({ "id": id, "action": plan_action(action, feedback), "feedback": feedback }),
     )
     .map(|_| ())
 }
@@ -1578,6 +1591,15 @@ pub fn trace_tool(id: &str, tool: &str) -> Result<(String, String), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn plan_answers_use_the_services_names() {
+        assert_eq!(plan_action("acceptEdits", None), "approve");
+        assert_eq!(plan_action("auto", None), "approve-auto");
+        assert_eq!(plan_action("reject", None), "keep");
+        assert_eq!(plan_action("reject", Some("  ")), "keep");
+        assert_eq!(plan_action("reject", Some("merge steps")), "keep-feedback");
+    }
 
     #[test]
     fn a_typed_server_address_becomes_a_base_url() {
